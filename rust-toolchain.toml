@@ -1,0 +1,6 @@
+# Lints change with every toolchain. Bump the channel and Cargo.toml rust-version
+# in one change that also fixes every new warning.
+[toolchain]
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

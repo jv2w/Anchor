@@ -1,0 +1,5 @@
+# Its presence also blocks any rustfmt.toml in a parent, home or config folder.
+# Plain rustfmt (not cargo fmt) defaults to edition 2015; keep this equal to Cargo.toml.
+edition = "2024"
+# "Auto" keeps CRLF files, and on Windows writes CRLF into a file with no line break.
+newline_style = "Unix"

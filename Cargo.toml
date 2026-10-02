@@ -1,0 +1,66 @@
+[package]
+name = "anchor"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[workspace]
+members = ["xtask"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+must_use_candidate = "allow" # would mark nearly every pure function
+missing_errors_doc = "allow" # each Error enum documents its failure modes once
+struct_excessive_bools = "allow" # config structs hold independent switches
+float_cmp = "allow" # tick math is bit-deterministic, so exact equality is intended
+# Safety: non-test code returns errors instead of panicking, exiting, or dropping them.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+unreachable = "warn"
+todo = "warn"
+unimplemented = "warn"
+indexing_slicing = "warn"
+string_slice = "warn"
+panic_in_result_fn = "warn"
+exit = "warn"
+mem_forget = "warn"
+let_underscore_must_use = "warn"
+unused_result_ok = "warn"
+# Performance: a reference-count bump stays visible at the call site.
+clone_on_ref_ptr = "warn"
+# Consistency: one module layout, names without the module name or a test_ prefix,
+# and reasoned exceptions only.
+mod_module_files = "warn"
+module_name_repetitions = "warn"
+redundant_test_prefix = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# Simplicity: no debug leftovers; output goes through logging.
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
+# Profiles apply only when this workspace is the root build: Anchor's own tests and examples.
+[profile.release]
+overflow-checks = true # an overflow stops the test instead of wrapping silently
+
+[profile.release.package."*"]
+overflow-checks = false # dependencies keep the behavior their authors ship and test
