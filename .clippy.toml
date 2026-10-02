@@ -55,6 +55,12 @@ disallowed-methods = [
     { path = "std::path::Path::is_symlink", reason = "tick and async code do no blocking I/O" },
     { path = "std::io::stdin", reason = "tick and async code do no blocking I/O" },
     { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "tick and async code do no blocking I/O" },
+    # Dependencies (CLAUDE.md 6): DEFLATE goes through protocol::compression only.
+    { path = "miniz_oxide::inflate::decompress_to_vec", reason = "inflates without a size limit; use the bounded batch decoder" },
+    { path = "miniz_oxide::inflate::decompress_to_vec_zlib", reason = "inflates without a size limit; use the bounded batch decoder" },
+    { path = "miniz_oxide::deflate::compress_to_vec", reason = "one compressor: libdeflate through the batch encoder" },
+    { path = "miniz_oxide::deflate::compress_to_vec_zlib", reason = "one compressor: libdeflate through the batch encoder" },
+    { path = "libdeflater::Decompressor::new", reason = "one inflater: miniz_oxide's bounded loop in the batch decoder" },
     # std documents each of these as "The precision of this function is non-deterministic".
     "f32::powi", "f32::powf", "f32::exp", "f32::exp2", "f32::exp_m1", "f32::ln", "f32::ln_1p",
     "f32::log", "f32::log2", "f32::log10", "f32::cbrt", "f32::hypot",

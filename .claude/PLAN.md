@@ -240,7 +240,7 @@ console-input = true
 ### 9.1 들인 것
 | 이름 | 고정 | 용도 | 결함과 조치 |
 |---|---|---|---|
-| sandertv/gophertunnel(MIT) | v1.62.0(1.26.50, 2193). M1에서 다시 정함 | 패킷, 로그인, 암호화, 압축 형식, Go 봇 | 형식 버그 수정이 잦음, 주석과 코드 불일치, 4절 결함 |
+| sandertv/gophertunnel(MIT) | 80c811b(v1.62.0 뒤, 1.26.50, 2193) | 패킷, 로그인, 암호화, 압축 형식, Go 봇 | 형식 버그 수정이 잦음, 주석과 코드 불일치, 4절 결함, NBT map 쓰기 순서가 무작위(시험 도구가 정렬해 씀) |
 | sandertv/go-raknet, df-mc/go-nethernet | gophertunnel go.mod가 고정 | RakNet, NetherNet 형식 | go-nethernet은 비신뢰 채널을 읽지 않음 |
 | pmmp/PocketMine-MP(LGPL-3.0, 보관) | 6a7cc02 | 블록·아이템 종류와 동작, API | 1.26.30 데이터, 상태가 1:1 아님, 공개 때 라이선스 검토 |
 | pocketmine/bedrock-data(CC0) | 6.7.0+bedrock-1.26.30 | 레시피 등 데이터 | 26.40 이후 없음 |
@@ -248,6 +248,10 @@ console-input = true
 | CloudburstMC/Data(Apache-2.0) | 커밋(M4) | 블록 ID 골든, 교차 확인 | 교차 확인에만 |
 | Mojang/bedrock-protocol-docs | 목표 버전(M1) | 필드 길이 상한, NetherNet 가이드 | gophertunnel과 다르면 CLAUDE.md 7절 |
 | BDS(기준 서버) | 목표 프로토콜 배포본 | P6 대조 | 실행만, 분석하지 않음 |
+| libdeflater(MIT, libdeflate 1.26) | =1.26.1 | zlib 압축(level 6에서 miniz_oxide보다 2~4배 빠름, 실측) | `use_rust_alloc` 기능의 OOM null 역참조 → 기본 기능만. `Decompressor` 내부 상태 패닉 → `.clippy.toml` 금지. `Compressor::new`는 malloc 실패에만 패닉(생성 때만, 외부 입력 닿지 않음) |
+| miniz_oxide(MIT/Apache-2.0/Zlib) | =0.9.1 | zlib 해제 | `decompress_to_vec*`는 상한 없음 → 금지, 상한까지만 자라는 자체 루프 |
+| serde, serde_json(xtask만) | =1.0.229, =1.0.151 | IR 읽기(개발 도구) | 라이브러리에 들어가지 않음 |
+| golang.org/x/tools(BSD-3) | v0.42.0(xtask/go) | 추출기의 타입 정보 로드 | 개발 도구, gophertunnel 의존성 버전을 바꾸지 않는 판을 골랐다 |
 
 ### 9.2 추천 후보 (2026-10-01 조사, 강제 아님)
 | 용도 | 추천 | 가드 |
@@ -280,6 +284,55 @@ console-input = true
 | M9 보강 | 전체 재검토, 운영 기능(콘솔, 백업, 정상 종료) | 체크리스트 지적 0, 검증 필요 0, 막힘 0, P6 전체 통과 |
 - 각 마일스톤을 시작할 때 세부 설계와 판정식을 이 파일에 먼저 적는다. 개발 순서는 RakNet이 먼저지만 실행 우선순위는 NetherNet이 먼저다.
 
+### 10.1 M1 세부 설계 (2026-10-02)
+- 출처 고정: gophertunnel master `80c811b`(v1.62.0 뒤 19커밋, 프로토콜 2193, 1.26.50 그대로). 태그 뒤 형식 수정은 ClientBoundDebugRenderer(98c3d1f)이고, 그 밖에 NBT 고정 길이 배열 검사(398154f), 문자열 `ReadFull`(a705cae)이 있다. 같은 프로토콜이라 4절 규칙대로 커밋으로 고정한다. Go 쪽은 의사 버전으로 `xtask/go/go.mod`에 고정한다.
+- 파일:
+  - `xtask/go/`: Go 모듈 하나. `extract/`(IR 추출기), `oracle/`(시험 도구: `corpus`, `check`, `compress`, `decompress` 명령).
+  - `xtask/data/protocol.json`: IR. 커밋한다.
+  - `xtask/src/gen.rs`(+`gen/`): 생성기. 출력은 `src/protocol/types.rs`(gophertunnel `protocol` 패키지 타입)와 `src/protocol/packet.rs`(패킷과 `Packet` enum).
+  - 손 코드: `src/nbt.rs`(NBT 값과 네트워크 LE 형식, 저장에서도 씀), `src/protocol/io.rs`(Reader, Writer, Error, 상한 도우미), `src/protocol/` 아래 손 코덱 파일들.
+  - 배치: `src/protocol/batch.rs`, `src/protocol/compression.rs`(+`compression/zlib.rs`, `compression/snappy.rs`).
+  - 시험: `xtask/tests/protocol.rs`(P1~P4), `xtask/tests/compression.rs`. 코퍼스는 시험 때 `target/`에 만들고 커밋하지 않는다.
+- 명령: `cargo xtask gen`은 Go 추출 → IR → Rust 생성을 한다. `cargo xtask verify`는 맨 앞에 `gen --check`(다시 만들어 커밋된 파일과 바이트 비교)를 돈다. Go는 `PATH`의 `go`를 쓰고 없으면 실패한다.
+- IR(JSON): `source`(모듈, 커밋, 프로토콜, 게임 버전), `packets`(ID, 이름, 방향: gophertunnel `pool.go`의 클라이언트·서버 풀), `types`(필드 이름, Go 타입, 문서, Marshal 문장 목록), `functions`(IO를 받는 자유 함수), `unions`(`lookup*` 함수의 ID→타입 표), `enums`(문자열↔값 변환 함수 표), `constants`. 문장은 IO 호출, 중첩 Marshal, 목록(길이 형식 포함), Optional, if, switch, 지역 변수, 대입, 오류(`InvalidValue`, `UnknownEnumOption`)다. 이 밖의 구문은 추출 실패다.
+- 손 코덱 목록 = `protocol.IO`의 원시형이 아닌 메서드(벡터·위치, UUID, 색, NBT, EntityMetadata, ItemStack 계열, StackRequestAction 등 union 틀, GameRule, AbilityValue, Bitset, PackSetting, ShapeData, MaterialReducer, 이벤트 틀, 거래 데이터 틀) + Login 요청 봉투 + 서브청크 페이로드. union의 변형 구조체와 ID 표는 생성하고, 태그를 읽고 쓰는 틀만 손으로 쓴다.
+- Rust 표현(결정):
+  - Go 구조체는 같은 모양의 평평한 struct다(조건부 필드도 늘 있고 없으면 `Default`). 이유: gophertunnel과 1:1이라 P3 판정과 버전업 비교가 단순하다. 더 나은 공개 모양은 M8 API가 감싼다. 모두 `Debug, Clone, PartialEq, Default`를 구현한다.
+  - `Optional` → `Option`, 슬라이스 → `Vec`, 인터페이스 → enum, `mgl32.Vec3` → `[f32; 3]`, `uuid.UUID` → `Uuid`, NBT 컴파운드 → `BTreeMap<String, nbt::Value>`(바이트 순 정렬로 쓴다. 같은 키는 뒤가 이긴다: Go map과 같음), EntityMetadata → `BTreeMap<u32, _>`(gophertunnel도 키를 정렬해 쓴다).
+  - 문자열은 `String`이고 UTF-8이 아니면 디코드 오류다(gophertunnel은 검사 안 함). 검증 필요(M2): 공식 클라이언트가 UTF-8이 아닌 문자열을 보내는지(P6).
+  - bool은 0과 1만 받는다. 쓰기는 길이를 자르지 않고 `Error`를 낸다(인코딩도 `Result`).
+  - 공개 범위(결정): `anchor::protocol`은 공개 코덱 층이다(패킷과 타입, `Packet` 디코드·인코드, 배치 인코드·디코드, `Compression`). 패킷 훅(8.3)이 패킷 값을 다루고, P1~P4 시험이 xtask에서 부르기 때문이다. `Reader`, `Writer`, `Codec`은 `pub(crate)`다. NBT는 저장에서도 써서 `anchor::nbt`다.
+  - 이름은 5.1을 따른다. Rust 키워드인 필드는 raw identifier(`r#type`)다. 문서는 gophertunnel 주석에서 오고, 없으면 생성기가 이름으로 한 줄을 만든다.
+- 상한(디코드는 하나의 상한 도우미를 거친다):
+  - 선언 길이는 남은 바이트 이하. 목록 개수는 1024 이하(gophertunnel `maxSliceLength`, 모든 목록에 같은 값. EntityMetadata 개수 포함).
+  - 할당 예산: Reader는 배치 하나마다 예산(2 × `max-batch-bytes`)을 받고, 모든 `Vec`, `String`, NBT 할당은 `개수 × size_of`를 먼저 뺀다. 넘으면 크기 오류. 이유: 개수 상한만으로는 중첩 목록과 큰 원소가 입력 크기의 수십 배를 할당할 수 있다.
+  - NBT 깊이 512, NBT 하나 4 MiB. 배치당 패킷 812개.
+  - 필드별 상한(Mojang `maxItems`, `maxLength`)은 클라이언트 패킷을 처리하기 시작하는 M2에서 더한다(공통 상한과 예산이 M1의 안전성을 지킨다).
+- Go 시험 도구(oracle):
+  - `corpus`: 무작위 값을 고르며 쓰는 `protocol.IO` 구현으로 각 패킷의 Marshal을 돌려 표본을 만든다(시드 고정 PCG, 목록 길이 0~4). NBT는 키를 정렬해 쓴다. gophertunnel Reader로 다시 읽어 성공한 표본만 남긴다.
+  - `check`: 받은 바이트를 gophertunnel로 디코드하고 다시 인코딩해 돌려준다(Go map 순서가 무작위라 바이트 비교는 Rust가 한다).
+  - `compress`, `decompress`: gophertunnel `packet` 패키지의 zlib과 Snappy로 압축과 해제를 한다.
+  - shield ID는 양쪽 모두 고정값을 쓴다.
+- gophertunnel 결함과 우리 조치(M1 조사):
+  - MaterialReducer: Reader가 `mix << 16`으로 읽는다(`>> 16`이 맞음). Anchor는 `>> 16`, `& 0xffff`로 읽고 범위를 넘는 쓰기는 오류다. 코퍼스는 mix 0~0x7fff만 쓴다.
+  - Event 타입 8, 9, 10, 12, 14, 20, 21, 22는 ordinal이 없어 읽기도 쓰기도 안 된다. ordinal 21을 세 이벤트가 나눠 쓴다. 검증 필요(M7): BDS 값(P6).
+  - 쓸 때 덮어쓰거나 읽고 버리는 값: ItemDescriptorCount aux(늘 32767), StackRequestAction의 legacy 바이트, Skin `trusted` 문자열, ResourcePackClientResponse·PlayerUpdateEntityOverrides·ScoreboardEntry의 이름 문자열(번호와 대조 안 함), InventoryTransaction `hasLegacy`. ScoreboardEntry는 variant ≥ 4에서 오류 없이 멈춘다. Anchor 생성 코드는 gophertunnel과 같게 두고 M2에서 클라이언트 패킷부터 검사를 더한다.
+  - EntityMetadata 개수 상한 없음, NBT 깊이 계수 누수, 부분 읽기 허용, ItemInstance·Login 길이 조용히 자름 → Anchor는 상한과 오류로 고쳤다.
+  - Snappy 해제는 `s2.Decode`라 S2 확장도 받는다. Anchor는 표준 Snappy만 받는다.
+  - HeightMap 행마다 varuint32 16 접두. 검증 필요(M6): BDS 대조(P6).
+- 손 코덱 결정: 서브청크 해제는 엄격하다(비트 수 {0,1,2,3,4,5,6,8,16}만, 지속 팔레트 플래그와 0x7f 거부, 팔레트 길이 ≤ 2^bits, 모든 인덱스 < 팔레트 길이). 검증 필요(M6): BDS가 보내는 형식(P6). NBT 깊이 512 값의 drop은 재귀라 디버그에서 스택 약 1 MiB를 쓴다(시험으로 고정). M2에서 연결 작업 스택 크기를 정할 때 다시 본다.
+- NBT 목록(결정): `nbt::List`가 원소 타입을 늘 지닌다(빈 목록도). gophertunnel은 빈 Int·Long 목록만 타입을 지키고 나머지는 End로 다시 쓴다(정보 손실). P3(나)는 이 차이 하나만 값 구조 비교로 허용한다.
+- 배치 패킷 목록(결정): 헤더는 ID 0~9비트, 보낸 쪽 10~11, 받는 쪽 12~13. 그보다 높은 비트는 거부한다(gophertunnel은 무시). 출력은 256 KiB 전과 812개에서 끊는다. 검증 필요(M2): 클라이언트가 13비트 위를 쓰는지, 812개 넘는 배치를 받는지(P6).
+- zlib 해제는 마지막 블록 뒤 남는 바이트를 거부한다(gophertunnel은 무시). Snappy와 P1 규칙에 맞춘 결정이다. 검증 필요(M2): BDS와 클라이언트 출력에서 남는 바이트가 없는지(P6).
+
+#### M1 판정식
+- 생성: 추출 실패 0. IR 패킷 수 = gophertunnel 두 풀의 합집합 크기 = Rust `Packet` variant 수. IR의 모든 타입이 생성된다.
+- P1: 모든 패킷마다 코퍼스 표본 64개, 모든 표본에서 Rust 디코드가 성공하고 남는 바이트가 0이다.
+- P2: 모든 코퍼스 표본 b에서 `encode(decode(b)) == b`. P4에서 디코드에 성공한 모든 변형 입력 m에서 `e = encode(decode(m))`이면 `encode(decode(e)) == e`(바이트 비교라 NaN에도 맞다).
+- P3: (가) Go가 만든 바이트 → Rust 재인코딩이 같다(P2 표본). (나) P4에서 디코드에 성공한 변형의 Rust 인코딩 R → Go 디코드 성공 → Go 재인코딩 G → Rust 디코드 → Rust 재인코딩 == R. 배치: zlib과 Snappy 각각 Rust 압축 → Go 해제 == 원문, Go 압축 → Rust 해제 == 원문(크기 0, 1, 255, 256, 64 KiB, 1 MiB, 무작위와 반복 데이터).
+- P4: 패킷마다 고정 시드 변형 1000개(비트 뒤집기, 바이트 넣기·빼기, 자르기, 길이 필드 키우기)에서 패닉 0. 상한마다(길이, 개수, 예산, NBT 깊이·크기, 해제 크기, 배치 패킷 수) 넘는 선언이 크기 오류로 끝나는 시험이 있다. Snappy 결함 입력 5종(3절)과 zlib 폭탄은 오류다.
+- `cargo xtask verify` PASS(`gen --check` 포함).
+
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
 
@@ -299,7 +352,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 | 단계 | 상태 | 메모 |
 |---|---|---|
 | M0 | 완료(2026-10-02) | verify PASS |
-| M1 | 시작 전 | |
+| M1 | 완료(2026-10-03) | 10.1절. 패킷 236개 생성, P1~P4 통과(코퍼스 15,104, 변형 236,000, 패닉 0), verify PASS |
 | M2 | 시작 전 | |
 | M3 | 시작 전 | |
 | M4 | 시작 전 | |

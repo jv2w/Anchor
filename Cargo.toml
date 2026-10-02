@@ -8,6 +8,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+libdeflater = "=1.26.1"
+miniz_oxide = "=0.9.1"
+
 [workspace]
 members = ["xtask"]
 

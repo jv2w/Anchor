@@ -1,0 +1,499 @@
+//! Fixed-shape wire values: vectors, positions, rotations, UUIDs, colors and bitsets.
+
+use std::mem::size_of;
+
+use super::io::{Codec, Error, Reader, Result, Writer};
+
+/// A block position: x, y, z as varint32s on the wire (gophertunnel `BlockPos`).
+pub type BlockPos = [i32; 3];
+/// A chunk position: x, z as varint32s on the wire (gophertunnel `ChunkPos`).
+pub type ChunkPos = [i32; 2];
+/// A sub-chunk position: x, y, z as little-endian int32s on the wire (gophertunnel `SubChunkPos`).
+pub type SubChunkPos = [i32; 3];
+
+/// A UUID in RFC 4122 byte order. The wire holds each 8-byte half reversed (gophertunnel `UUID`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Uuid([u8; 16]);
+
+impl Uuid {
+    /// The UUID with these bytes in RFC 4122 order.
+    pub const fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+
+    /// The bytes in RFC 4122 order.
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
+impl Codec for Uuid {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.uuid()
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.uuid(*self);
+        Ok(())
+    }
+}
+
+/// An 8-bit RGBA color (Go `color.RGBA`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Rgba {
+    /// Red.
+    pub r: u8,
+    /// Green.
+    pub g: u8,
+    /// Blue.
+    pub b: u8,
+    /// Alpha.
+    pub a: u8,
+}
+
+/// A fixed-size set of bit flags (gophertunnel `Bitset`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Bitset {
+    len: usize,
+    words: Vec<u64>,
+}
+
+impl Bitset {
+    /// A bitset of `len` cleared bits.
+    pub fn new(len: usize) -> Self {
+        Self {
+            len,
+            words: vec![0; len.div_ceil(64)],
+        }
+    }
+
+    /// The number of bits.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether the bitset has no bits.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Whether bit `index` is set; `false` past the end.
+    pub fn get(&self, index: usize) -> bool {
+        index < self.len
+            && self
+                .words
+                .get(index / 64)
+                .is_some_and(|w| (w >> (index % 64)) & 1 == 1)
+    }
+
+    /// Sets bit `index`. Returns `false`, changing nothing, if `index` is past the end.
+    pub fn set(&mut self, index: usize) -> bool {
+        self.update(index, |w, mask| w | mask)
+    }
+
+    /// Clears bit `index`. Returns `false`, changing nothing, if `index` is past the end.
+    pub fn unset(&mut self, index: usize) -> bool {
+        self.update(index, |w, mask| w & !mask)
+    }
+
+    fn update(&mut self, index: usize, f: impl FnOnce(u64, u64) -> u64) -> bool {
+        if index >= self.len {
+            return false;
+        }
+        match self.words.get_mut(index / 64) {
+            Some(w) => {
+                *w = f(*w, 1 << (index % 64));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The number of significant bits: one past the highest set bit.
+    fn bit_len(&self) -> usize {
+        self.words
+            .iter()
+            .rposition(|&w| w != 0)
+            .and_then(|i| {
+                self.words
+                    .get(i)
+                    .map(|w| i * 64 + 64 - w.leading_zeros() as usize)
+            })
+            .unwrap_or(0)
+    }
+
+    /// Bits `start..start + 7` as the low bits of a byte.
+    fn seven_bits(&self, start: usize) -> u8 {
+        (0..7).fold(0, |acc, i| acc | (u8::from(self.get(start + i)) << i))
+    }
+}
+
+/// Converts like Go's `uint8(f)` on amd64: truncate to int64 (out of range and NaN give 0), keep
+/// the low byte.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "consistency: the range check above keeps the cast exact, like gophertunnel"
+)]
+fn go_float_to_u8(f: f32) -> u8 {
+    const LIMIT: f32 = 9_223_372_036_854_775_808.0; // 2^63
+    if f.abs() < LIMIT {
+        (f as i64).to_le_bytes()[0]
+    } else {
+        0
+    }
+}
+
+/// Converts like Go's `int32(f)` on amd64: out of range and NaN give `i32::MIN`.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "consistency: the range check above keeps the cast exact, like gophertunnel"
+)]
+fn go_float_to_i32(f: f32) -> i32 {
+    const LIMIT: f32 = 2_147_483_648.0; // 2^31
+    if (-LIMIT..LIMIT).contains(&f) {
+        f as i32
+    } else {
+        i32::MIN
+    }
+}
+
+/// One `ByteFloat` step in degrees.
+const BYTE_FLOAT_STEP: f32 = 360.0 / 256.0;
+
+impl Reader<'_> {
+    /// `Vec3`
+    pub(crate) fn vec3(&mut self) -> Result<[f32; 3]> {
+        Ok([self.float32()?, self.float32()?, self.float32()?])
+    }
+
+    /// `Vec2`
+    pub(crate) fn vec2(&mut self) -> Result<[f32; 2]> {
+        Ok([self.float32()?, self.float32()?])
+    }
+
+    /// `BlockPos`
+    pub(crate) fn block_pos(&mut self) -> Result<BlockPos> {
+        Ok([self.varint32()?, self.varint32()?, self.varint32()?])
+    }
+
+    /// `ChunkPos`
+    pub(crate) fn chunk_pos(&mut self) -> Result<ChunkPos> {
+        Ok([self.varint32()?, self.varint32()?])
+    }
+
+    /// `SubChunkPos`
+    pub(crate) fn sub_chunk_pos(&mut self) -> Result<SubChunkPos> {
+        Ok([self.int32()?, self.int32()?, self.int32()?])
+    }
+
+    /// `SoundPos`: a block position in eighths of a block.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "consistency: gophertunnel converts int32 to float32 the same way"
+    )]
+    pub(crate) fn sound_pos(&mut self) -> Result<[f32; 3]> {
+        let [x, y, z] = self.block_pos()?;
+        Ok([x as f32 / 8.0, y as f32 / 8.0, z as f32 / 8.0])
+    }
+
+    /// `ByteFloat`: a rotation in 1/256 turns.
+    pub(crate) fn byte_float(&mut self) -> Result<f32> {
+        Ok(f32::from(self.uint8()?) * BYTE_FLOAT_STEP)
+    }
+
+    /// `UUID`
+    pub(crate) fn uuid(&mut self) -> Result<Uuid> {
+        let mut b: [u8; 16] = self.array()?;
+        let (high, low) = b.split_at_mut(8);
+        high.reverse();
+        low.reverse();
+        Ok(Uuid(b))
+    }
+
+    /// `RGB`: three float32s in 0..=1; alpha is 0 like gophertunnel.
+    pub(crate) fn rgb(&mut self) -> Result<Rgba> {
+        let [r, g, b] = self.vec3()?;
+        Ok(Rgba {
+            r: go_float_to_u8(r * 255.0),
+            g: go_float_to_u8(g * 255.0),
+            b: go_float_to_u8(b * 255.0),
+            a: 0,
+        })
+    }
+
+    /// `RGBA`: a little-endian uint32 with red in the low byte.
+    pub(crate) fn rgba(&mut self) -> Result<Rgba> {
+        let [r, g, b, a] = self.array()?;
+        Ok(Rgba { r, g, b, a })
+    }
+
+    /// `BEARGB`: a big-endian int32 with alpha in the low byte.
+    pub(crate) fn be_argb(&mut self) -> Result<Rgba> {
+        let [b, g, r, a] = self.array()?;
+        Ok(Rgba { r, g, b, a })
+    }
+
+    /// `Bitset`: a varuint of at most `size` bits.
+    pub(crate) fn bitset(&mut self, size: usize) -> Result<Bitset> {
+        // One allocation of the words; a bitset takes at least one input byte.
+        self.limit(1, 1, size.div_ceil(64).saturating_mul(size_of::<u64>()))?;
+        let mut x = Bitset::new(size);
+        for start in (0..size).step_by(7) {
+            let b = self.uint8()?;
+            if start.saturating_add(8 - b.leading_zeros() as usize) > size {
+                return Err(Error::InvalidValue {
+                    field: "bitset",
+                    reason: "more bits than its size",
+                });
+            }
+            for i in 0..7 {
+                if (b >> i) & 1 == 1 {
+                    x.set(start + i);
+                }
+            }
+            if b & 0x80 == 0 {
+                return Ok(x);
+            }
+        }
+        Err(Error::InvalidValue {
+            field: "bitset",
+            reason: "more bits than its size",
+        })
+    }
+}
+
+impl Writer {
+    /// `Vec3`
+    pub(crate) fn vec3(&mut self, x: [f32; 3]) {
+        for v in x {
+            self.float32(v);
+        }
+    }
+
+    /// `Vec2`
+    pub(crate) fn vec2(&mut self, x: [f32; 2]) {
+        for v in x {
+            self.float32(v);
+        }
+    }
+
+    /// `BlockPos`
+    pub(crate) fn block_pos(&mut self, x: BlockPos) {
+        for v in x {
+            self.varint32(v);
+        }
+    }
+
+    /// `ChunkPos`
+    pub(crate) fn chunk_pos(&mut self, x: ChunkPos) {
+        for v in x {
+            self.varint32(v);
+        }
+    }
+
+    /// `SubChunkPos`
+    pub(crate) fn sub_chunk_pos(&mut self, x: SubChunkPos) {
+        for v in x {
+            self.int32(v);
+        }
+    }
+
+    /// `SoundPos`
+    pub(crate) fn sound_pos(&mut self, x: [f32; 3]) {
+        self.block_pos(x.map(|v| go_float_to_i32(v * 8.0)));
+    }
+
+    /// `ByteFloat`
+    pub(crate) fn byte_float(&mut self, x: f32) {
+        self.uint8(go_float_to_u8(x / BYTE_FLOAT_STEP));
+    }
+
+    /// `UUID`
+    pub(crate) fn uuid(&mut self, x: Uuid) {
+        let mut b = x.0;
+        let (high, low) = b.split_at_mut(8);
+        high.reverse();
+        low.reverse();
+        self.bytes(&b);
+    }
+
+    /// `RGB`
+    pub(crate) fn rgb(&mut self, x: Rgba) {
+        self.vec3([x.r, x.g, x.b].map(|c| f32::from(c) / 255.0));
+    }
+
+    /// `RGBA`
+    pub(crate) fn rgba(&mut self, x: Rgba) {
+        self.bytes(&[x.r, x.g, x.b, x.a]);
+    }
+
+    /// `BEARGB`
+    pub(crate) fn be_argb(&mut self, x: Rgba) {
+        self.bytes(&[x.b, x.g, x.r, x.a]);
+    }
+
+    /// `Bitset`: fails if the bitset does not have `size` bits.
+    pub(crate) fn bitset(&mut self, x: &Bitset, size: usize) -> Result<()> {
+        if x.len != size {
+            return Err(Error::InvalidValue {
+                field: "bitset",
+                reason: "size differs from the field's size",
+            });
+        }
+        let bytes = x.bit_len().div_ceil(7).max(1);
+        for i in 0..bytes {
+            let more = if i + 1 < bytes { 0x80 } else { 0 };
+            self.uint8(x.seven_bits(i * 7) | more);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::fuzz;
+
+    fn encoded(f: impl FnOnce(&mut Writer)) -> Vec<u8> {
+        let mut w = Writer::new(Vec::new(), 0);
+        f(&mut w);
+        w.into_inner()
+    }
+
+    #[test]
+    fn uuids_reverse_each_half_like_gophertunnel() {
+        let id = Uuid::from_bytes(std::array::from_fn(|i| u8::try_from(i).unwrap()));
+        let bytes = encoded(|w| w.uuid(id));
+        assert_eq!(
+            bytes,
+            [7, 6, 5, 4, 3, 2, 1, 0, 15, 14, 13, 12, 11, 10, 9, 8]
+        );
+        assert_eq!(Reader::new(&bytes, 0, 0).uuid(), Ok(id));
+    }
+
+    #[test]
+    fn colors_use_gophertunnel_byte_orders() {
+        let c = Rgba {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        };
+        assert_eq!(encoded(|w| w.rgba(c)), [1, 2, 3, 4]);
+        assert_eq!(encoded(|w| w.be_argb(c)), [3, 2, 1, 4]);
+        assert_eq!(Reader::new(&[1, 2, 3, 4], 0, 0).rgba(), Ok(c));
+        assert_eq!(Reader::new(&[3, 2, 1, 4], 0, 0).be_argb(), Ok(c));
+        let rgb = encoded(|w| w.rgb(c));
+        assert_eq!(rgb[..4], (1.0f32 / 255.0).to_le_bytes());
+        assert_eq!(
+            Reader::new(&rgb, 0, 0).rgb(),
+            Ok(Rgba { a: 0, ..c }),
+            "alpha is not on the wire"
+        );
+    }
+
+    #[test]
+    fn rgb_channels_survive_the_float_round_trip() {
+        for v in 0..=255u8 {
+            let c = Rgba {
+                r: v,
+                g: v,
+                b: v,
+                a: 0,
+            };
+            assert_eq!(Reader::new(&encoded(|w| w.rgb(c)), 0, 0).rgb(), Ok(c));
+        }
+    }
+
+    #[test]
+    fn rotations_wrap_like_go_conversions() {
+        assert_eq!(encoded(|w| w.byte_float(90.0)), [64]);
+        assert_eq!(encoded(|w| w.byte_float(-90.0)), [192]);
+        assert_eq!(encoded(|w| w.byte_float(f32::NAN)), [0]);
+        assert_eq!(encoded(|w| w.byte_float(f32::INFINITY)), [0]);
+        assert_eq!(Reader::new(&[64], 0, 0).byte_float(), Ok(90.0));
+    }
+
+    #[test]
+    fn positions_round_trip() {
+        let bytes = encoded(|w| {
+            w.vec3([1.0, -2.0, 0.5]);
+            w.vec2([3.0, 4.0]);
+            w.block_pos([1, -1, i32::MAX]);
+            w.chunk_pos([-5, 6]);
+            w.sub_chunk_pos([7, -8, 9]);
+            w.sound_pos([1.5, -2.0, 0.125]);
+        });
+        assert_eq!(bytes[bytes.len() - 3..], [24, 31, 2]);
+        let mut r = Reader::new(&bytes, 0, 0);
+        assert_eq!(r.vec3(), Ok([1.0, -2.0, 0.5]));
+        assert_eq!(r.vec2(), Ok([3.0, 4.0]));
+        assert_eq!(r.block_pos(), Ok([1, -1, i32::MAX]));
+        assert_eq!(r.chunk_pos(), Ok([-5, 6]));
+        assert_eq!(r.sub_chunk_pos(), Ok([7, -8, 9]));
+        assert_eq!(r.sound_pos(), Ok([1.5, -2.0, 0.125]));
+        assert!(r.remaining().is_empty());
+        assert_eq!(encoded(|w| w.sound_pos([f32::NAN, 1e30, 0.0])), {
+            let mut w = Writer::new(Vec::new(), 0);
+            w.block_pos([i32::MIN, i32::MIN, 0]);
+            w.into_inner()
+        });
+    }
+
+    #[test]
+    fn bitsets_write_a_varuint_of_their_bits() {
+        let size = 131;
+        let mut x = Bitset::new(size);
+        assert_eq!(encoded(|w| w.bitset(&x, size).unwrap()), [0]);
+        assert!(x.set(7));
+        assert_eq!(encoded(|w| w.bitset(&x, size).unwrap()), [0x80, 0x01]);
+        assert!(x.set(0) && x.set(130) && x.unset(7));
+        assert!(!x.set(131));
+        let bytes = encoded(|w| w.bitset(&x, size).unwrap());
+        assert_eq!(bytes.len(), 19);
+        let got = Reader::new(&bytes, 64, 0).bitset(size).unwrap();
+        assert_eq!(got, x);
+        assert!(got.get(0) && got.get(130) && !got.get(7) && !got.get(500));
+        assert!(Writer::new(Vec::new(), 0).bitset(&x, 130).is_err());
+    }
+
+    #[test]
+    fn bitsets_reject_bits_past_their_size() {
+        assert!(Reader::new(&[0x80, 0x02], 64, 0).bitset(8).is_err());
+        assert!(Reader::new(&[0x80, 0x01], 64, 0).bitset(8).is_ok());
+        assert!(Reader::new(&[0x80, 0x80], 64, 0).bitset(14).is_err());
+        assert!(Reader::new(&[0x00], 64, 0).bitset(0).is_err());
+        assert_eq!(Reader::new(&[0x00], 0, 0).bitset(8), Err(Error::Size));
+    }
+
+    #[test]
+    fn mutated_input_never_panics() {
+        let mut x = Bitset::new(131);
+        x.set(100);
+        let seed = encoded(|w| {
+            w.uuid(Uuid::from_bytes([9; 16]));
+            w.sound_pos([1.0, 2.0, 3.0]);
+            w.bitset(&x, 131).unwrap();
+            w.be_argb(Rgba::default());
+        });
+        let reencode = |data: &[u8]| -> Result<Vec<u8>> {
+            let mut r = Reader::new(data, 1 << 20, 0);
+            let id = r.uuid()?;
+            let pos = r.sound_pos()?;
+            let bits = r.bitset(131)?;
+            let color = r.be_argb()?;
+            let mut w = Writer::new(Vec::new(), 0);
+            w.uuid(id);
+            w.sound_pos(pos);
+            w.bitset(&bits, 131)?;
+            w.be_argb(color);
+            Ok(w.into_inner())
+        };
+        let decoded = fuzz(&seed, 4000, |data| {
+            let again = reencode(data)?;
+            assert_eq!(reencode(&again), Ok(again));
+            Ok(())
+        });
+        assert!(decoded > 0);
+    }
+}
