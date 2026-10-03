@@ -18,7 +18,8 @@ const preLoginPerIP = 4
 //	prelogin-limit  open preLoginPerIP+1 RakNet connections without logging in; pass if the
 //	                server accepts exactly preLoginPerIP of them
 func playLimit(ctx context.Context, c config) *result {
-	res := &result{loginSuccessIndex: -1, packsInfoIndex: -1}
+	res := newResult()
+	res.transport = "raknet"
 	switch c.scenario {
 	case "idle":
 		conn, err := raknet.Dialer{}.DialContext(ctx, c.addr)

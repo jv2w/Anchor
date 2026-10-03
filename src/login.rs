@@ -28,7 +28,7 @@ pub(crate) use client_data::ClientData;
 const MAX_CHAIN_JSON: usize = 64 * 1024;
 /// Largest decoded payload of an identity JWT (the token or a chain link). Real ones are about
 /// 2 KiB.
-const MAX_TOKEN_PAYLOAD: usize = 16 * 1024;
+pub(crate) const MAX_TOKEN_PAYLOAD: usize = 16 * 1024;
 /// Most chain links read. Valid chains have 1 (self-signed) or 3 (Mojang) links.
 const MAX_CHAIN_LINKS: usize = 8;
 /// Most audience entries read from a token.
@@ -166,7 +166,7 @@ pub(crate) fn verify(connection_request: &[u8], mode: Mode<'_>, now_unix: i64) -
     let request = ConnectionRequest::parse(connection_request).map_err(Error::Envelope)?;
     let envelope = Envelope::parse(&request.chain)?;
     let (identity, client_key) = match mode {
-        Mode::Online(keys) => online(&envelope.token, keys, now_unix)?,
+        Mode::Online(keys) => verify_online_token(&envelope.token, keys, now_unix)?,
         Mode::Offline if !envelope.token.is_empty() => offline_token(&envelope.token)?,
         Mode::Offline => legacy_chain(&envelope.chain, now_unix)?,
     };
@@ -283,7 +283,7 @@ impl<'de> Deserialize<'de> for Audience {
 
 /// A JWT time in Unix seconds. Like go-jose, a fractional number is truncated.
 #[derive(Clone, Copy)]
-struct NumericDate(i64);
+pub(crate) struct NumericDate(i64);
 
 impl<'de> Deserialize<'de> for NumericDate {
     fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
@@ -325,7 +325,7 @@ impl<'de> Deserialize<'de> for NumericDate {
 }
 
 /// Checks `exp`, `nbf` and `iat` against `now` with [`LEEWAY`] (go-jose `ValidateWithLeeway`).
-fn check_times(
+pub(crate) fn check_times(
     exp: Option<NumericDate>,
     nbf: Option<NumericDate>,
     iat: Option<NumericDate>,
@@ -349,7 +349,13 @@ fn check_times(
     Ok(())
 }
 
-fn online(token: &str, keys: &Keys, now: i64) -> Result<(Identity, PublicKey)> {
+/// Verifies a multiplayer token with the online rules (PLAN.md 10.2): the Login `Token` and the
+/// NetherNet offer identity share them. [`Error::UnknownKeyId`] asks for one JWKS refresh.
+pub(crate) fn verify_online_token(
+    token: &str,
+    keys: &Keys,
+    now: i64,
+) -> Result<(Identity, PublicKey)> {
     if token.is_empty() {
         return Err(Error::MissingToken);
     }
@@ -500,29 +506,23 @@ fn parse_xuid(xid: &str) -> Result<Option<u64>> {
         .ok_or(Error::Identity("xuid out of range"))
 }
 
-/// Offline name rules: gophertunnel `IdentityData.Validate` without an XUID. Its patterns are
-/// unanchored (`[ \p{L}]` passes any name holding one letter); Anchor applies them to every
-/// character, with digits allowed as its error message says.
+/// Offline name rules: PMMP `Player::isValidUserName` (user decision, PLAN.md 10.3): 1 to 16
+/// bytes of `A-Z a-z 0-9 _` and space only, and not `rcon` or `console` in any case. Spaces may
+/// lead, trail or repeat, as in PMMP.
 fn check_offline_name(name: &str) -> Result<()> {
     if name.is_empty() || name.len() > 16 {
         return Err(Error::Identity("name must be 1 to 16 bytes"));
     }
-    if name.starts_with(' ') || name.ends_with(' ') {
-        return Err(Error::Identity("name starts or ends with a space"));
-    }
-    if name.starts_with(|c: char| c.is_ascii_digit()) {
-        return Err(Error::Identity("name starts with a digit"));
-    }
     if !name
-        .chars()
-        .all(|c| c == ' ' || c.is_ascii_digit() || c.is_alphabetic())
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b' ')
     {
         return Err(Error::Identity(
-            "name has characters other than letters, digits and spaces",
+            "name has characters other than a-z, A-Z, 0-9, _ and space",
         ));
     }
-    if name.contains("  ") {
-        return Err(Error::Identity("name has a double space"));
+    if name.eq_ignore_ascii_case("rcon") || name.eq_ignore_ascii_case("console") {
+        return Err(Error::Identity("name is reserved"));
     }
     Ok(())
 }
@@ -924,6 +924,48 @@ mod tests {
     }
 
     #[test]
+    fn offline_names_follow_pmmp() {
+        for name in [
+            "a",
+            "_",
+            "A_1",
+            "Sixteen_Letters1",
+            " Steve",
+            "Steve ",
+            "Ste  ve",
+            "1Steve",
+            "                ",
+            "rcon1",
+            "consoles",
+        ] {
+            assert!(check_offline_name(name).is_ok(), "{name:?}");
+        }
+        for name in [
+            "",
+            "SeventeenLetters1",
+            "Stéve",
+            "스티브",
+            "§cAdmin",
+            "Ste\u{0}ve",
+            "Ste\tve",
+            "Ste-ve",
+            "Ste.ve",
+            "rcon",
+            "RCON",
+            "console",
+            "CONSOLE",
+            "Console",
+        ] {
+            assert!(
+                matches!(check_offline_name(name), Err(Error::Identity(_))),
+                "{name:?}"
+            );
+        }
+        // Bytes, not characters: 8 two-byte letters are 16 bytes, and still not ASCII.
+        assert!(check_offline_name(&"é".repeat(8)).is_err());
+    }
+
+    #[test]
     fn offline_requests_follow_gophertunnel_rules() {
         let uuid = "6f0a7c29-2c7f-4bc5-8b8e-3d0ad1f1e5a1";
         let login = verify(
@@ -942,20 +984,17 @@ mod tests {
         ));
         for name in [
             "",
-            " Steve",
-            "Steve ",
-            "1Steve",
-            "Ste  ve",
-            "Steve_",
+            "Stéve",
             "Ste\u{0}ve",
             "SeventeenLetters1",
             "§cAdmin",
+            "CONSOLE",
         ] {
             let request = legacy_chain_request(name, uuid, NOW + 60);
             let err = verify(&request, Mode::Offline, NOW).unwrap_err();
             assert!(matches!(err, Error::Identity(_)), "{name:?}: {err:?}");
         }
-        for name in ["Stéve", "스티브", "A1 b2"] {
+        for name in [" Steve_", "1Steve", "A1  b2"] {
             verify(
                 &legacy_chain_request(name, uuid, NOW + 60),
                 Mode::Offline,

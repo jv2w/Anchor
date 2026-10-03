@@ -7,11 +7,14 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use super::queue::{Identity, Outbound, SessionId};
-use super::{Output, Phase, Player, Settings, State};
+use super::{
+    DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION, Output, Phase, Player, PlayerKey, Settings, State,
+};
 use crate::config::{Difficulty, GameMode};
+use crate::event::{DuplicateOutcome, PlayerDuplicateLogin};
 use crate::protocol::packet::{
-    self, ChunkRadiusUpdated, ItemRegistry, LevelChunk, NetworkChunkPublisherUpdate, Packet,
-    PlayStatus, RequestChunkRadius, SetLocalPlayerAsInitialised, StartGame,
+    self, ChunkRadiusUpdated, Disconnect, ItemRegistry, LevelChunk, NetworkChunkPublisherUpdate,
+    Packet, PlayStatus, RequestChunkRadius, SetLocalPlayerAsInitialised, StartGame,
 };
 use crate::protocol::{BlockPos, ChunkPos, PlayerMovementSettings, ServerJoinInformation};
 
@@ -41,16 +44,45 @@ const PLAINS: u8 = 1;
 
 /// Registers the player of `session` and sends the start-game packets, or rejects it when the
 /// server is full. A second join of the same session changes nothing.
+///
+/// When the same player is already online, [`PlayerDuplicateLogin`] decides which of the two is
+/// disconnected (PLAN.md 10.3). That check comes before the full check: replacing the existing
+/// player frees its slot, so a full server still lets a player take over its own place.
 pub(super) fn join(
     state: &mut State,
     session: SessionId,
-    identity: Identity,
+    mut identity: Identity,
     outbound: mpsc::Sender<Outbound>,
     output: &mut Output,
 ) {
     if state.players.contains_key(&session) {
         debug!(session = session.get(), "duplicate join ignored");
         return;
+    }
+    let key = PlayerKey::of(&identity);
+    if let Some(&existing) = state.index.get(&key) {
+        let (back, outcome) = duplicate_login(state, existing, identity);
+        identity = back;
+        let packet = logged_in_other_location(outcome.message);
+        if outcome.cancelled {
+            info!(
+                session = session.get(),
+                existing = existing.get(),
+                name = %identity.name,
+                "join rejected: the player is already online"
+            );
+            output.close(outbound, packet);
+            return;
+        }
+        if let Some(old) = state.remove(existing) {
+            info!(
+                session = existing.get(),
+                by = session.get(),
+                name = %old.identity.name,
+                "player replaced by a new login"
+            );
+            output.close(old.outbound, packet);
+        }
     }
     let max_players = usize::try_from(state.settings.max_players).unwrap_or(usize::MAX);
     if state.players.len() >= max_players {
@@ -70,6 +102,7 @@ pub(super) fn join(
     let player = Player {
         runtime_id,
         identity,
+        key,
         position: SPAWN_POSITION,
         chunk_radius: None,
         phase: Phase::Joined,
@@ -81,7 +114,43 @@ pub(super) fn join(
     );
     // Items arrive in M4.
     output.send(session, Packet::ItemRegistry(ItemRegistry::default()));
-    state.players.insert(session, player);
+    state.insert(session, player);
+}
+
+/// Raises [`PlayerDuplicateLogin`] for `connecting` against the player of `existing` and returns
+/// `connecting` with the outcome. Without listeners the event is not built (PLAN.md 8.2): the
+/// outcome is the default one and nothing is cloned.
+fn duplicate_login(
+    state: &mut State,
+    existing: SessionId,
+    connecting: Identity,
+) -> (Identity, DuplicateOutcome) {
+    let listeners = state.listeners.duplicate_login();
+    if listeners.is_empty() {
+        return (connecting, DuplicateOutcome::unheard());
+    }
+    let Some(old) = state.players.get(&existing) else {
+        // The index names only joined players (State::insert and State::remove keep it so).
+        warn!(
+            session = existing.get(),
+            "player index names a missing player"
+        );
+        return (connecting, DuplicateOutcome::unheard());
+    };
+    // One clone of the existing identity per duplicate login, only when someone listens.
+    let mut event = PlayerDuplicateLogin::new(connecting, old.identity.clone());
+    listeners.call(&mut event);
+    event.into_outcome()
+}
+
+/// The packet that disconnects the losing side of a duplicate login.
+fn logged_in_other_location(message: String) -> Packet {
+    Packet::Disconnect(Disconnect {
+        reason: DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION,
+        hide_disconnection_screen: false,
+        message,
+        filtered_message: String::new(),
+    })
 }
 
 /// Answers a chunk radius request: the granted radius, the publisher position, the spawn chunks,

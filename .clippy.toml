@@ -5,8 +5,11 @@ upper-case-acronyms-aggressive = true
 # Proper names that doc comments may use without backticks; ".." keeps the defaults.
 doc-valid-idents = ["RakNet", "NetherNet", "PocketMine", "PlayFab", "OpenID", ".."]
 # windows-sys 0.52 comes only from ring, an optional dependency of rustls-webpki that Anchor does
-# not enable; the build links one windows-sys (`cargo tree -d` prints nothing).
-allowed-duplicate-crates = ["windows-sys"]
+# not enable; the build links one windows-sys. nom 7 and untrusted 0.7 appear only in cargo
+# metadata through rcgen's weak `x509-parser?/verify-aws` feature (str0m's DTLS certificate); the
+# build compiles neither. syn 2 (der_derive under dimpl, tracing-attributes because str0m and
+# `is` keep tracing's default features) is a compile-time proc-macro dependency of str0m.
+allowed-duplicate-crates = ["windows-sys", "nom", "untrusted", "syn"]
 # A failing test is supposed to panic.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
@@ -86,6 +89,17 @@ disallowed-methods = [
     { path = "aws_lc_rs::cipher::StreamingEncryptingKey::ctr", reason = "draws a random IV; the crypto module passes its own counter" },
     { path = "aws_lc_rs::cipher::StreamingEncryptingKey::cbc_pkcs7", reason = "draws a random IV; the crypto module passes its own counter" },
     { path = "aws_lc_rs::cipher::StreamingEncryptingKey::cfb128", reason = "draws a random IV; the crypto module passes its own counter" },
+    { path = "str0m::Rtc::new", reason = "makes a DTLS key per peer and may read the process-global provider; build from RtcConfig with the shared nethernet certificate" },
+    { path = "str0m::crypto::CryptoProvider::install_default", reason = "process-global state that panics on a second call; pass the provider through RtcConfig" },
+    { path = "str0m::crypto::CryptoProvider::install_process_default", reason = "process-global state; pass the provider through RtcConfig" },
+    { path = "str0m::IceCreds::new", reason = "draws ICE credentials from fastrand, not a cryptographic generator; the nethernet peer makes its own" },
+    { path = "str0m::RtcConfig::set_mtu", reason = "asserts its argument and panics" },
+    { path = "str0m::RtcConfig::set_fingerprint_verification", reason = "turning it off accepts any DTLS certificate and breaks the identity binding" },
+    { path = "str0m::Rtc::sdp_api", reason = "NetherNet writes its own answer (nethernet::sdp); only the peer feeds str0m the remote description" },
+    { path = "str0m::crypto::CryptoProvider::get_default", reason = "process-global state; pass the provider through RtcConfig" },
+    { path = "rustls::ServerConfig::builder", reason = "uses the process-global provider and panics without one; use builder_with_provider" },
+    { path = "rustls::crypto::CryptoProvider::install_default", reason = "process-global state; pass the provider to each builder" },
+    { path = "rustls::crypto::CryptoProvider::get_default", reason = "process-global state; pass the provider to each builder" },
     { path = "socket2::Socket::recv", reason = "blocking socket I/O; the RakNet task reads through tokio" },
     { path = "socket2::Socket::recv_from", reason = "blocking socket I/O; the RakNet task reads through tokio" },
     { path = "socket2::Socket::peek", reason = "blocking socket I/O; the RakNet task reads through tokio" },

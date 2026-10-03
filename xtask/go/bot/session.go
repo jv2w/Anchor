@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
-	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -31,21 +30,41 @@ const maxChunkRequests = 9
 
 // result is the outcome of one scenario.
 type result struct {
-	pass, spawned, initialised, stayed bool
-	reason, disconnect                 string
-	protocolAccepted, encrypted        bool
-	loginSize, decodeErrors, packets   int
-	loginSuccessIndex, packsInfoIndex  int
-	reader                             *batchReader
-	blocks                             *blockCheck
+	pass, spawned, initialised, stayed    bool
+	reason, disconnect                    string
+	protocolAccepted, encrypted           bool
+	loginSent, handshake                  bool
+	loginSize, decodeErrors, packets      int
+	loginSuccessIndex, packsInfoIndex     int
+	disconnectReason                      int
+	disconnectMessage                     string
+	transport, nethernetError, joinScheme string
+	join                                  map[string]any
+	answerMaxMessageSize                  string
+	reader                                *batchReader
+	segments                              *segmentConn
+	blocks                                *blockCheck
 }
 
-func (r *result) json(scenario string) map[string]any {
+func newResult() *result {
+	return &result{loginSuccessIndex: -1, packsInfoIndex: -1, disconnectReason: -1}
+}
+
+func (r *result) json(c config) map[string]any {
 	m := map[string]any{
 		"type":                      "result",
-		"scenario":                  scenario,
+		"scenario":                  c.scenario,
+		"requested_transport":       c.transport,
+		"transport":                 r.transport,
+		"nethernet_error":           r.nethernetError,
+		"join_scheme":               r.joinScheme,
+		"join":                      r.join,
 		"pass":                      r.pass,
 		"reason":                    r.reason,
+		"login_sent":                r.loginSent,
+		"handshake":                 r.handshake,
+		"disconnect_reason":         r.disconnectReason,
+		"disconnect_message":        r.disconnectMessage,
 		"client_protocol":           protocol.CurrentProtocol,
 		"protocol_accepted":         r.protocolAccepted,
 		"encrypted":                 r.encrypted,
@@ -59,8 +78,14 @@ func (r *result) json(scenario string) map[string]any {
 		"login_success_index":       r.loginSuccessIndex,
 		"resource_packs_info_index": r.packsInfoIndex,
 	}
+	if r.answerMaxMessageSize != "" {
+		m["answer_max_message_size"] = r.answerMaxMessageSize
+	}
 	if r.reader != nil {
 		r.reader.summary(m)
+	}
+	if r.segments != nil {
+		r.segments.summary(m)
 	}
 	return m
 }
@@ -69,7 +94,7 @@ func (r *result) json(scenario string) map[string]any {
 type session struct {
 	c        config
 	out      *output
-	conn     *raknet.Conn
+	conn     packetConn
 	reader   *batchReader
 	enc      *packet.Encoder
 	dec      *packet.Decoder
@@ -87,26 +112,29 @@ type session struct {
 
 // play runs the scenario and returns its result. Failures to reach the server are failed results.
 func play(ctx context.Context, c config, out *output) *result {
-	res := &result{loginSuccessIndex: -1, packsInfoIndex: -1}
-	out.line(probeRakNet(ctx, c.addr))
-	pong, err := raknet.Dialer{}.PingContext(ctx, c.addr)
-	out.line(pongRecord(pong, err))
-
+	res := newResult()
 	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
 		res.reason = err.Error()
 		return res
 	}
-	request, err := buildRequest(c, key)
+	var token string
+	if c.scenario == "online" {
+		if token, err = mintToken(c, key); err != nil {
+			res.reason = "mint token: " + err.Error()
+			return res
+		}
+	}
+	request, err := buildRequest(c, key, token)
 	if err != nil {
 		res.reason = "build login request: " + err.Error()
 		return res
 	}
 	res.loginSize = len(request)
 
-	conn, err := raknet.Dialer{}.DialContext(ctx, c.addr)
+	conn, err := connect(ctx, c, out, key, token, res)
 	if err != nil {
-		res.reason = "dial: " + err.Error()
+		res.reason = "connect: " + err.Error()
 		return res
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
@@ -118,13 +146,19 @@ func play(ctx context.Context, c config, out *output) *result {
 		pool:   packet.NewServerPool(),
 		blocks: newBlockCheck(),
 	}
-	s.reader = &batchReader{conn: conn, out: out}
+	s.reader = newBatchReader(conn, out)
 	res.reader, res.blocks = s.reader, s.blocks
 	s.enc = packet.NewEncoder(conn)
 	s.dec = packet.NewDecoder(s.reader)
 	// The 812 packet limit is a server-side rule; the bot records larger batches instead of refusing them.
 	s.dec.DisableBatchPacketLimit()
 
+	if c.firstSendDelay > 0 {
+		select {
+		case <-ctx.Done():
+		case <-time.After(c.firstSendDelay):
+		}
+	}
 	if err := s.send(&packet.RequestNetworkSettings{ClientProtocol: protocol.CurrentProtocol}); err != nil {
 		res.reason = err.Error()
 		return res
@@ -133,22 +167,67 @@ func play(ctx context.Context, c config, out *output) *result {
 	for loopErr == nil {
 		loopErr = s.dec.DecodeFunc(func(b []byte) error { return s.handle(b, request) })
 	}
-	s.out.line(s.blocks.json())
-	switch {
-	case s.stayed.Load() && res.disconnect == "":
-		res.stayed = true
-		res.pass = res.decodeErrors == 0
-		if !res.pass {
-			res.reason = fmt.Sprintf("%v packets failed to decode", res.decodeErrors)
-		}
-	case res.disconnect != "":
-		res.reason = "disconnected: " + res.disconnect
-	case ctx.Err() != nil:
-		res.reason = "timed out"
-	default:
-		res.reason = loopErr.Error()
+	if res.segments != nil {
+		res.segments.flushRecords(out)
 	}
+	s.out.line(s.blocks.json())
+	s.judge(ctx, loopErr)
 	return res
+}
+
+// judge sets the pass flag and the reason once the connection ended with loopErr.
+func (s *session) judge(ctx context.Context, loopErr error) {
+	res := s.res
+	// The server ended the connection: a read failed and neither -stay nor the time limit closed it.
+	closedByServer := s.reader.readErr != nil && !s.stayed.Load() && ctx.Err() == nil
+	switch s.c.scenario {
+	case "kicked":
+		res.pass = res.initialised && res.decodeErrors == 0 &&
+			res.disconnectReason == int(packet.DisconnectReasonLoggedInOtherLocation)
+		switch {
+		case res.disconnect != "":
+			res.reason = "disconnected after spawning: " + res.disconnect
+		case s.stayed.Load():
+			res.reason = fmt.Sprintf("stayed %v without a Disconnect", s.c.stay)
+		default:
+			res.reason = s.failure(ctx, loopErr)
+		}
+	case "rejected", "bind-mismatch":
+		refused := res.disconnect != "" || (s.c.scenario == "bind-mismatch" && res.loginSent && closedByServer)
+		res.pass = refused && !res.spawned
+		switch {
+		case res.spawned:
+			res.reason = "spawned"
+		case res.disconnect != "":
+			res.reason = "disconnected before spawning: " + res.disconnect
+		case closedByServer:
+			res.reason = "the server closed the connection before spawning: " + s.reader.readErr.Error()
+		default:
+			res.reason = s.failure(ctx, loopErr)
+		}
+	default:
+		if s.stayed.Load() && res.disconnect == "" {
+			res.stayed = true
+			res.pass = res.decodeErrors == 0
+			if !res.pass {
+				res.reason = fmt.Sprintf("%v packets failed to decode", res.decodeErrors)
+			}
+			return
+		}
+		res.reason = s.failure(ctx, loopErr)
+	}
+}
+
+// failure describes why a connection ended early.
+func (s *session) failure(ctx context.Context, loopErr error) string {
+	switch {
+	case s.res.disconnect != "":
+		return "disconnected: " + s.res.disconnect
+	case ctx.Err() != nil:
+		return "timed out"
+	default:
+		return loopErr.Error()
+	}
 }
 
 // send encodes the packets passed into one batch and records them.
@@ -237,8 +316,17 @@ func (s *session) react(pk packet.Packet, index int, request []byte) error {
 		s.enc.EnableCompression(alg, int(pk.CompressionThreshold))
 		s.dec.EnableCompression(alg, maxDecompressed)
 		s.reader.compressed = true
-		return s.send(&packet.Login{ClientProtocol: protocol.CurrentProtocol, ConnectionRequest: request})
+		if err := s.send(&packet.Login{ClientProtocol: protocol.CurrentProtocol, ConnectionRequest: request}); err != nil {
+			return err
+		}
+		s.res.loginSent = true
+		return nil
 	case *packet.ServerToClientHandshake:
+		s.res.handshake = true
+		if s.reader.noEncryption {
+			// Like gophertunnel's client on such a transport: answer without encrypting.
+			return s.send(&packet.ClientToServerHandshake{})
+		}
 		key, err := s.handshakeKey(pk.JWT)
 		if err != nil {
 			return err
@@ -289,13 +377,14 @@ func (s *session) react(pk packet.Packet, index int, request []byte) error {
 		}
 	case *packet.Disconnect:
 		s.res.disconnect = fmt.Sprintf("reason %v: %q", pk.Reason, pk.Message)
+		s.res.disconnectReason, s.res.disconnectMessage = int(pk.Reason), pk.Message
 		return errors.New("disconnected")
 	}
 	return nil
 }
 
 // tryInitialise sends SetLocalPlayerAsInitialised once both ChunkRadiusUpdated and PlayStatus(PlayerSpawn)
-// arrived, then stays connected for -stay.
+// arrived, flushes the output so a watcher of the file sees the spawn, then stays connected for -stay.
 func (s *session) tryInitialise() error {
 	if !s.gotRadius || !s.gotSpawn || s.res.initialised {
 		return nil
@@ -304,6 +393,7 @@ func (s *session) tryInitialise() error {
 	if err := s.send(&packet.SetLocalPlayerAsInitialised{EntityRuntimeID: s.runtimeID}); err != nil {
 		return err
 	}
+	s.out.flush()
 	time.AfterFunc(s.c.stay, func() {
 		s.stayed.Store(true)
 		_ = s.conn.Close()

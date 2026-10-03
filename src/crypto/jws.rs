@@ -1,10 +1,11 @@
-//! JWS compact serialization (RFC 7515): parsing with size caps, and ES384 signing.
+//! JWS compact serialization (RFC 7515): parsing with size caps, ES384 signing, and detached
+//! ES384 signatures.
 
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
 use super::base64::RAW_URL;
-use super::{Error, Result, ServerKey};
+use super::{Error, PublicKey, Result, ServerKey};
 
 /// Longest header segment in base64 text. A Bedrock header holds `alg`, `kid`, `typ`, `x5t` or a
 /// P-384 `x5u` (160 characters), well under 1 KiB.
@@ -95,20 +96,96 @@ pub(crate) fn sign_es384(key: &ServerKey, claims: &impl Serialize) -> Result<Str
     })
     .map_err(Error::Json)?;
     let payload = serde_json::to_vec(claims).map_err(Error::Json)?;
-    let mut token = RAW_URL.encode(&header);
+    sign_compact(key, &header, &payload)
+}
+
+/// Signs `header` and `payload` bytes as given with ES384, for tokens whose JSON layout is fixed
+/// byte for byte. The header must name `ES384`.
+pub(crate) fn sign_compact(key: &ServerKey, header: &[u8], payload: &[u8]) -> Result<String> {
+    let mut token = RAW_URL.encode(header);
     token.push('.');
-    RAW_URL.encode_into(&payload, &mut token);
+    RAW_URL.encode_into(payload, &mut token);
     let signature = key.sign_es384(token.as_bytes())?;
     token.push('.');
     RAW_URL.encode_into(&signature, &mut token);
     Ok(token)
 }
 
+/// The protected header of a detached signature, as go-jose and BDS write it.
+const DETACHED_HEADER: &[u8] = br#"{"alg":"ES384"}"#;
+
+/// An ES384 JWS of `payload` with the payload segment left empty (RFC 7515 appendix F):
+/// `header..signature`.
+pub(crate) fn sign_detached(key: &ServerKey, payload: &[u8]) -> Result<String> {
+    let token = sign_compact(key, DETACHED_HEADER, payload)?;
+    let (header, rest) = token.split_once('.').ok_or(Error::Internal)?;
+    let (_, signature) = rest.split_once('.').ok_or(Error::Internal)?;
+    Ok(format!("{header}..{signature}"))
+}
+
+/// Verifies a detached JWS of `payload` with `key`: the payload segment must be empty and the
+/// algorithm ES384; any other algorithm fails (go-nethernet `ParseDetached` with ES384 only).
+pub(crate) fn verify_detached(jws: &str, payload: &[u8], key: &PublicKey) -> Result<()> {
+    if jws.len() > MAX_HEADER_TEXT + MAX_SIGNATURE_TEXT + 2 {
+        return Err(Error::TooLarge);
+    }
+    let mut parts = jws.split('.');
+    let (Some(header), Some(""), Some(signature), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(Error::Jws("not a detached jws"));
+    };
+    let mut token = String::with_capacity(jws.len() + payload.len().div_ceil(3) * 4);
+    token.push_str(header);
+    token.push('.');
+    RAW_URL.encode_into(payload, &mut token);
+    token.push('.');
+    token.push_str(signature);
+    let parsed = parse(&token, payload.len())?;
+    if parsed.header.alg != Algorithm::Es384 {
+        return Err(Error::Jws("algorithm is not ES384"));
+    }
+    key.verify_es384(parsed.signing_input, &parsed.signature)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::PublicKey;
     use crate::protocol::fuzz;
+
+    #[test]
+    fn detached_signatures_verify_only_over_their_payload() {
+        let key = ServerKey::generate().unwrap();
+        let public = key.public_key().unwrap();
+        let jws = sign_detached(&key, b"{\"a\":1}").unwrap();
+        let (header, rest) = jws.split_once('.').unwrap();
+        assert_eq!(RAW_URL.decode(header, 64).unwrap(), DETACHED_HEADER);
+        assert!(rest.starts_with('.'));
+        verify_detached(&jws, b"{\"a\":1}", &public).unwrap();
+        assert!(verify_detached(&jws, b"{\"a\":2}", &public).is_err());
+        let other = ServerKey::generate().unwrap().public_key().unwrap();
+        assert!(verify_detached(&jws, b"{\"a\":1}", &other).is_err());
+        let (_, signature) = rest.split_once('.').unwrap();
+        let attached = format!("{header}.{}.{signature}", RAW_URL.encode(b"{\"a\":1}"));
+        assert!(matches!(
+            verify_detached(&attached, b"{\"a\":1}", &public),
+            Err(Error::Jws(_))
+        ));
+        assert!(verify_detached(&format!("{jws}."), b"{\"a\":1}", &public).is_err());
+        assert!(matches!(
+            verify_detached(&"A".repeat(4000), b"", &public),
+            Err(Error::TooLarge)
+        ));
+        // A valid ES384 signature under a header naming another algorithm is still rejected.
+        for alg in ["none", "HS256", "RS256", "ES256"] {
+            let header = format!(r#"{{"alg":"{alg}"}}"#);
+            let token = sign_compact(&key, header.as_bytes(), b"{\"a\":1}").unwrap();
+            let mut parts = token.split('.');
+            let (h, _, s) = (parts.next().unwrap(), parts.next(), parts.next().unwrap());
+            let err = verify_detached(&format!("{h}..{s}"), b"{\"a\":1}", &public).unwrap_err();
+            assert!(matches!(err, Error::Jws("algorithm is not ES384")), "{alg}");
+        }
+    }
 
     #[test]
     fn signed_tokens_parse_and_verify() {

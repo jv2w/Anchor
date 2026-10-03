@@ -1,7 +1,8 @@
 //! `cargo xtask p6 compare`: compares the spawn window of two bot captures. The window is every
 //! packet received before the bot sent `SetLocalPlayerAsInitialised`. Packets in the deferral table
 //! are removed from both windows; the remaining name sequences must be equal, and so must the
-//! fixed fields of each pair of same-named packets (paired in order).
+//! fixed fields of each pair of same-named packets (paired in order). NetherNet captures also hold
+//! the server's answer SDP, whose line structure must be equal (see `compare_structure`).
 
 use std::collections::BTreeMap;
 
@@ -121,6 +122,93 @@ pub(crate) fn window(capture: &str) -> Result<Vec<Received>, String> {
         }
     }
     Err(format!("the bot never sent {WINDOW_END}"))
+}
+
+/// The capture's line of the given type that also has the given field value, if any.
+fn find_line(
+    capture: &str,
+    kind: &str,
+    field: Option<(&str, &str)>,
+) -> Result<Option<Value>, String> {
+    for (i, line) in capture.lines().enumerate() {
+        let value: Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
+        let matches = value.get("type").and_then(Value::as_str) == Some(kind)
+            && field.is_none_or(|(k, v)| value.get(k).and_then(Value::as_str) == Some(v));
+        if matches {
+            return Ok(Some(value));
+        }
+    }
+    Ok(None)
+}
+
+/// A field of a JSON object, or null.
+pub(crate) fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    static NULL: Value = Value::Null;
+    value.get(key).unwrap_or(&NULL)
+}
+
+/// The bot's final `result` line.
+pub(crate) fn result(capture: &str) -> Result<Value, String> {
+    find_line(capture, "result", None)?.ok_or_else(|| "the capture has no result line".to_owned())
+}
+
+/// The line keys (`a=identity`, `m=application`, ...) of the server's answer SDP, or `None` when
+/// the capture has no answer (a RakNet capture).
+pub(crate) fn answer_structure(capture: &str) -> Result<Option<Vec<String>>, String> {
+    let Some(sdp) = find_line(capture, "sdp", Some(("role", "answer")))? else {
+        return Ok(None);
+    };
+    sdp.get("structure")
+        .and_then(Value::as_array)
+        .and_then(|keys| keys.iter().map(|k| k.as_str().map(str::to_owned)).collect())
+        .map(Some)
+        .ok_or_else(|| "the answer SDP line has no structure list".to_owned())
+}
+
+/// Compares two answer SDP structures. Runs of the same key count once: a server lists one
+/// candidate per interface, and the machines' interfaces are not part of the format.
+pub(crate) fn compare_structure(a: &[String], b: &[String]) -> Vec<String> {
+    let collapse = |keys: &[String]| {
+        let mut out: Vec<String> = keys.to_vec();
+        out.dedup();
+        out
+    };
+    let (a, b) = (collapse(a), collapse(b));
+    if a == b {
+        return Vec::new();
+    }
+    vec![format!(
+        "answer SDP structures differ:\n  A: {}\n  B: {}",
+        a.join(" "),
+        b.join(" ")
+    )]
+}
+
+/// The usernames of the players a capture's `PlayerList` packets added, in order.
+pub(crate) fn added_players(capture: &str) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    for (i, line) in capture.lines().enumerate() {
+        let value: Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
+        if value.get("name").and_then(Value::as_str) != Some("PlayerList") {
+            continue;
+        }
+        let entries = value
+            .get("fields")
+            .and_then(|f| f.get("Entries"))
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        // gophertunnel keeps the action (0 = add) on each entry.
+        names.extend(
+            entries
+                .iter()
+                .filter(|e| e.get("ActionType").and_then(Value::as_u64) == Some(0))
+                .filter_map(|e| e.get("Username").and_then(Value::as_str))
+                .map(str::to_owned),
+        );
+    }
+    Ok(names)
 }
 
 /// Compares two windows and returns the differences, or an empty list when they match.
@@ -288,6 +376,36 @@ mod tests {
         assert!(parse_fields("StartGame\n", &deferred).is_err());
         assert!(parse_fields("StartGame a..b\n", &deferred).is_err());
         assert!(parse_fields("StartGame A\nStartGame A\n", &deferred).is_err());
+    }
+
+    #[test]
+    fn answer_structures_compare_without_candidate_counts() {
+        let capture = r#"{"type":"sdp","role":"offer","structure":["v"]}
+{"type":"sdp","role":"answer","structure":["v","a=identity","m=application","a=candidate","a=candidate","a=setup"]}
+{"type":"result","transport":"nethernet","pass":true}
+"#;
+        let a = answer_structure(capture).expect("capture").expect("answer");
+        assert_eq!(a.len(), 6);
+        let one: Vec<String> = ["v", "a=identity", "m=application", "a=candidate", "a=setup"]
+            .map(str::to_owned)
+            .into();
+        assert!(compare_structure(&a, &one).is_empty());
+        let moved: Vec<String> = ["v", "m=application", "a=identity", "a=candidate", "a=setup"]
+            .map(str::to_owned)
+            .into();
+        assert_eq!(compare_structure(&a, &moved).len(), 1);
+        assert_eq!(answer_structure(CAPTURE).expect("capture"), None);
+        assert_eq!(result(capture).expect("result")["transport"], "nethernet");
+        assert!(result(CAPTURE).is_err());
+    }
+
+    #[test]
+    fn added_players_come_from_player_list_additions() {
+        let capture = r#"{"type":"packet","name":"PlayerList","fields":{"Entries":[{"ActionType":0,"Username":"Dup"}]}}
+{"type":"packet","name":"PlayerList","fields":{"Entries":[{"ActionType":1,"Username":""}]}}
+{"type":"packet","name":"PlayerList","fields":{"Entries":[{"ActionType":0,"Username":"Dup(2)"}]}}
+"#;
+        assert_eq!(added_players(capture).expect("capture"), ["Dup", "Dup(2)"]);
     }
 
     #[test]

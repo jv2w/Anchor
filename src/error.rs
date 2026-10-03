@@ -25,6 +25,11 @@ pub enum Error {
     Start(io::Error),
     /// The network ports could not be opened.
     Network(io::Error),
+    /// The NetherNet identity key `data/identity.key` exists but cannot be read; it is left as it
+    /// is, since a new key would make every player confirm the server again.
+    IdentityKey(Box<dyn std::error::Error + Send + Sync>),
+    /// `nethernet-tls-cert` or `nethernet-tls-key` cannot be read or used.
+    TlsCertificate(Box<dyn std::error::Error + Send + Sync>),
     /// With `xbox-auth = true`, the authorization keys could neither be fetched nor read from
     /// `data/auth.json`, or that file is damaged (it is left as it is).
     Auth(Box<dyn std::error::Error + Send + Sync>),
@@ -53,6 +58,8 @@ impl fmt::Display for Error {
             ),
             Self::Start(_) => f.write_str("could not start the runtime or the tick thread"),
             Self::Network(_) => f.write_str("could not open the network ports"),
+            Self::IdentityKey(_) => f.write_str("the nethernet identity key is unreadable"),
+            Self::TlsCertificate(_) => f.write_str("the nethernet tls certificate is unusable"),
             Self::Auth(_) => f.write_str("authorization keys are unavailable"),
             Self::TickPanicked { message } => write!(f, "the tick thread panicked: {message}"),
         }
@@ -64,7 +71,7 @@ impl std::error::Error for Error {
         match self {
             Self::Config(e) => Some(e),
             Self::Start(e) | Self::Network(e) => Some(e),
-            Self::Auth(e) => Some(e.as_ref()),
+            Self::Auth(e) | Self::IdentityKey(e) | Self::TlsCertificate(e) => Some(e.as_ref()),
             Self::Threads { .. } | Self::TickPanicked { .. } => None,
         }
     }

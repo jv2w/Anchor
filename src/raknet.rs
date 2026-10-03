@@ -25,6 +25,7 @@ use tracing::{debug, error, trace};
 
 use crate::clock;
 
+pub(crate) use listener::ip_key;
 use listener::{Config, Listener, Sink};
 use peer::{Limits, MAX_MTU, MIN_MTU};
 

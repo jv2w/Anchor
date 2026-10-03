@@ -23,6 +23,15 @@ const CHECKS: &[&[&str]] = &[
         "warnings",
     ],
     &["test", "--workspace", "--quiet"],
+    // The fixed sctp-proto copy is not a workspace member; its own tests, the reproduction tests
+    // of its fixes among them, run here (PLAN.md 9.1).
+    &[
+        "test",
+        "--manifest-path",
+        "vendor/sctp-proto/Cargo.toml",
+        "--lib",
+        "--quiet",
+    ],
     &["doc", "--workspace", "--no-deps", "--quiet"],
 ];
 
@@ -105,6 +114,7 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
     for args in CHECKS {
         let output = Command::new(&cargo)
             .args(*args)
+            .current_dir(root())
             // `cargo test --workspace` unifies features differently from `cargo xtask`, so in the
             // shared target directory it would rebuild the running xtask.exe, which Windows
             // cannot replace.

@@ -1,11 +1,12 @@
 //! One connection's session: the login sequence of PLAN.md 10.2, then the relay between the
 //! connection and the tick.
 //!
-//! Inbound, a RakNet message is decrypted (after the handshake), decompressed and split into
+//! Inbound, a message is decrypted (RakNet after the handshake), decompressed and split into
 //! packets. Before the player joins, packets outside the login sequence wait in a short queue
 //! and reach the tick after the join, in order (gophertunnel defers them the same way, without
 //! a bound). Outbound, the tick's packets are batched, compressed and encrypted here, off the
-//! tick.
+//! tick. NetherNet runs the same handshake but never encrypts (DTLS protects it, as on BDS), and
+//! its Login must carry the key its offer proved (PLAN.md 2.1, 10.3).
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -16,6 +17,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+use super::transport::{self, Transport};
 use super::{Event, Shared, unix_now};
 use crate::auth::Keys;
 use crate::clock;
@@ -27,7 +29,6 @@ use crate::protocol::packet::{
     RequestNetworkSettings, ResourcePackClientResponse, ResourcePackStack, ResourcePacksInfo,
     ServerToClientHandshake,
 };
-use crate::raknet;
 use crate::tick::queue::{self, Identity, InputKind, Outbound, SessionId, SessionInputs};
 
 /// From connection to verified login (PLAN.md 10.2).
@@ -59,7 +60,7 @@ const PACKS_COMPLETED: u32 = 3;
 const REASON_NOT_AUTHENTICATED: i32 = 46;
 
 /// Runs one connection until it closes, then tells the tick and the accept task.
-pub(super) async fn run(id: SessionId, conn: raknet::Connection, shared: Arc<Shared>) {
+pub(super) async fn run(id: SessionId, conn: Transport, shared: Arc<Shared>) {
     let mut session = Session::new(id, conn, shared);
     let end = session.serve().await;
     session.finish(end).await;
@@ -82,7 +83,7 @@ enum Stage {
 
 struct Session {
     id: SessionId,
-    conn: raknet::Connection,
+    conn: Transport,
     shared: Arc<Shared>,
     stage: Stage,
     started: Instant,
@@ -107,7 +108,7 @@ struct Session {
 /// Why a session ended.
 #[derive(Debug)]
 enum End {
-    /// The peer or RakNet closed the connection.
+    /// The peer or the transport closed the connection.
     Closed,
     /// The tick closed the session (kick, full server, shutdown).
     Kicked,
@@ -130,8 +131,10 @@ enum Error {
     Batch(batch::Error),
     Packet(crate::protocol::Error),
     Login(login::Error),
+    /// The Login key is not the key the NetherNet offer proved.
+    Binding,
     Crypto(crate::crypto::Error),
-    Raknet(raknet::Error),
+    Transport(transport::Error),
     Queue(queue::Error),
 }
 
@@ -146,8 +149,9 @@ impl fmt::Display for Error {
             Self::Batch(_) => f.write_str("malformed batch"),
             Self::Packet(_) => f.write_str("malformed packet"),
             Self::Login(_) => f.write_str("login rejected"),
+            Self::Binding => f.write_str("login key differs from the nethernet offer key"),
             Self::Crypto(_) => f.write_str("encryption failed"),
-            Self::Raknet(_) => f.write_str("connection failed"),
+            Self::Transport(_) => f.write_str("connection failed"),
             Self::Queue(_) => f.write_str("tick queue unavailable"),
         }
     }
@@ -160,15 +164,15 @@ impl std::error::Error for Error {
             Self::Packet(e) => Some(e),
             Self::Login(e) => Some(e),
             Self::Crypto(e) => Some(e),
-            Self::Raknet(e) => Some(e),
+            Self::Transport(e) => Some(e),
             Self::Queue(e) => Some(e),
-            Self::Order(_) | Self::Limit(_) | Self::Protocol(_) => None,
+            Self::Order(_) | Self::Limit(_) | Self::Protocol(_) | Self::Binding => None,
         }
     }
 }
 
 impl Session {
-    fn new(id: SessionId, conn: raknet::Connection, shared: Arc<Shared>) -> Self {
+    fn new(id: SessionId, conn: Transport, shared: Arc<Shared>) -> Self {
         let max = shared.batch.max_batch_bytes();
         let started = clock::now();
         Self {
@@ -399,6 +403,17 @@ impl Session {
             return Err(Error::Protocol(login.client_protocol));
         }
         let verified = match self.verify(&login.connection_request).await {
+            Ok(verified)
+                if self
+                    .conn
+                    .proven_key()
+                    .is_some_and(|key| key.spki() != verified.client_key.spki()) =>
+            {
+                Err(Error::Binding)
+            }
+            verified => verified,
+        };
+        let verified = match verified {
             Ok(verified) => verified,
             Err(e) => {
                 self.send(&[Packet::Disconnect(Disconnect {
@@ -415,8 +430,6 @@ impl Session {
             client_key,
             client_data: _,
         } = verified;
-        let handshake =
-            Handshake::new(&self.shared.server_key, &client_key).map_err(Error::Crypto)?;
         self.identity = Some(Identity {
             name: identity.name,
             xuid: identity.xuid,
@@ -427,13 +440,18 @@ impl Session {
         if self.shared.events.send(Event::LoggedIn).await.is_err() {
             debug!("accept task gone during login");
         }
+        let handshake =
+            Handshake::new(&self.shared.server_key, &client_key).map_err(Error::Crypto)?;
         // The handshake goes out before encryption starts; everything after it is encrypted.
+        // BDS sends it on NetherNet too but never encrypts there (P6, PLAN.md 10.3).
         self.send(&[Packet::ServerToClientHandshake(ServerToClientHandshake {
             jwt: handshake.jwt.into_bytes(),
         })])
         .await?;
-        self.encryptor = Some(handshake.encryptor);
-        self.decryptor = Some(handshake.decryptor);
+        if self.conn.encrypts() {
+            self.encryptor = Some(handshake.encryptor);
+            self.decryptor = Some(handshake.decryptor);
+        }
         self.stage = Stage::Handshake;
         Ok(())
     }
@@ -554,7 +572,7 @@ impl Session {
             if let Some(encryptor) = &mut self.encryptor {
                 encryptor.encrypt(&mut body).map_err(Error::Crypto)?;
             }
-            self.conn.send(body).await.map_err(Error::Raknet)?;
+            self.conn.send(body).await.map_err(Error::Transport)?;
         }
         Ok(())
     }

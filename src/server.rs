@@ -10,6 +10,7 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::error::{Error, Result};
+use crate::event::{self, Listeners, Priority};
 use crate::runtime::{self, Runtime, ThreadCounts};
 use crate::session;
 use crate::tick::{self, queue::InputSender};
@@ -21,6 +22,7 @@ pub struct Server {
     config: Arc<Config>,
     data_dir: PathBuf,
     threads: ThreadCounts,
+    listeners: Listeners,
     shutdown: ShutdownHandle,
     shutdown_requests: mpsc::Receiver<()>,
 }
@@ -30,6 +32,7 @@ pub struct Server {
 pub struct ServerBuilder {
     config: Config,
     data_dir: PathBuf,
+    listeners: Listeners,
 }
 
 /// Asks a [`Server`] to stop. Cheap to clone and usable from any thread.
@@ -42,6 +45,7 @@ impl Server {
         ServerBuilder {
             config: Config::default(),
             data_dir: PathBuf::from("data"),
+            listeners: Listeners::default(),
         }
     }
 
@@ -61,6 +65,7 @@ impl Server {
             config,
             data_dir,
             threads,
+            listeners,
             shutdown,
             shutdown_requests,
         } = self;
@@ -68,7 +73,7 @@ impl Server {
         let (inputs, input_queue) = tick::queue::input_queue();
         let (stop_tick, stop) = mpsc::channel(1);
         let (done, tick_done) = oneshot::channel();
-        let state = tick::State::new(tick::Settings::new(&config));
+        let state = tick::State::new(tick::Settings::new(&config), listeners);
         let tick_thread = runtime::spawn_tick(move || tick::run(state, input_queue, stop, done))?;
         info!(
             network_threads = threads.network,
@@ -189,8 +194,22 @@ impl ServerBuilder {
         self
     }
 
-    /// Checks the settings and the thread budget. Touches no file.
-    pub fn build(self) -> Result<Server> {
+    /// Calls `listener` on every `E` event at `priority`, in the tick, after the listeners of
+    /// lower priority and those added earlier at the same priority.
+    #[doc(alias = "PluginManager::registerEvent")]
+    #[must_use]
+    pub fn on<E: event::Event>(
+        mut self,
+        priority: Priority,
+        listener: impl FnMut(&mut E) + Send + 'static,
+    ) -> Self {
+        self.listeners.push(priority, listener);
+        self
+    }
+
+    /// Checks the settings and the thread budget, and puts the listeners in calling order.
+    /// Touches no file.
+    pub fn build(mut self) -> Result<Server> {
         self.config.validate()?;
         let developer = &self.config.developer;
         let threads = ThreadCounts::resolve(
@@ -198,11 +217,13 @@ impl ServerBuilder {
             developer.cpu_threads,
             runtime::logical_cpus(),
         )?;
+        self.listeners.sort();
         let (requests, shutdown_requests) = mpsc::channel(1);
         Ok(Server {
             config: Arc::new(self.config),
             data_dir: self.data_dir,
             threads,
+            listeners: self.listeners,
             shutdown: ShutdownHandle(requests),
             shutdown_requests,
         })

@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -31,21 +30,48 @@ const (
 	batchLimit = 812
 )
 
-// batchReader passes whole RakNet messages to gophertunnel's packet.Decoder and records raw facts about
-// each batch on the way. It decrypts a copy with its own key stream, because the Decoder decrypts in place
-// and does not expose the compression byte or the bytes after the final DEFLATE block.
+// batchReader passes whole transport messages to gophertunnel's packet.Decoder and records raw facts
+// about each batch on the way. It decrypts a copy with its own key stream, because the Decoder decrypts
+// in place and does not expose the compression byte or the bytes after the final DEFLATE block. It
+// passes the transport's batch header and encryption capability on to the Decoder.
 type batchReader struct {
-	conn       *raknet.Conn
-	out        *output
-	compressed bool
-	stream     cipher.Stream
-	key        []byte
-	counter    uint64
-	batches    int
+	conn         packetConn
+	out          *output
+	header       []byte
+	noEncryption bool
+	compressed   bool
+	stream       cipher.Stream
+	key          []byte
+	counter      uint64
+	batches      int
+	readErr      error
 
 	maxPackets, maxDecompressed, maxWire       int
 	zlibTrailing, highHeaderBits, over812, bad int
 	algorithms                                 map[int]int
+}
+
+// newBatchReader reads conn with gophertunnel's defaults for a transport without the optional
+// capabilities: the 0xfe header and encryption.
+func newBatchReader(conn packetConn, out *output) *batchReader {
+	r := &batchReader{conn: conn, out: out, header: []byte{0xfe}}
+	if h, ok := conn.(packet.BatchHeaderer); ok {
+		r.header = h.BatchHeader()
+	}
+	if d, ok := conn.(packet.EncryptionDisabler); ok {
+		r.noEncryption = d.DisableEncryption()
+	}
+	return r
+}
+
+// BatchHeader is the transport's batch header.
+func (r *batchReader) BatchHeader() []byte {
+	return r.header
+}
+
+// DisableEncryption reports whether the transport forbids Minecraft encryption.
+func (r *batchReader) DisableEncryption() bool {
+	return r.noEncryption
 }
 
 // Read is not used: the Decoder reads whole messages through ReadPacket.
@@ -53,11 +79,15 @@ func (r *batchReader) Read([]byte) (int, error) {
 	return 0, errors.New("batchReader supports ReadPacket only")
 }
 
-// ReadPacket reads one RakNet message, records its batch facts and returns it unchanged.
+// ReadPacket reads one transport message, records its batch facts and returns it unchanged.
 func (r *batchReader) ReadPacket() ([]byte, error) {
 	b, err := r.conn.ReadPacket()
 	if err != nil {
+		r.readErr = err
 		return nil, err
+	}
+	if s, ok := r.conn.(*segmentConn); ok {
+		s.flushRecords(r.out)
 	}
 	r.out.line(r.analyse(bytes.Clone(b)))
 	r.batches++
@@ -80,10 +110,10 @@ func (r *batchReader) analyse(b []byte) map[string]any {
 		rec["error"] = err.Error()
 		return rec
 	}
-	if len(b) == 0 || b[0] != 0xfe {
-		return fail(errors.New("missing 0xfe header"))
+	if !bytes.HasPrefix(b, r.header) {
+		return fail(fmt.Errorf("missing batch header %x", r.header))
 	}
-	data := b[1:]
+	data := b[len(r.header):]
 	if r.stream != nil {
 		r.stream.XORKeyStream(data, data)
 		if len(data) < 8 {

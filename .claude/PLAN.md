@@ -15,7 +15,9 @@ rust-toolchain.toml   툴체인 고정
 src/                  라이브러리
 tests/, examples/     필요할 때 (examples는 M8)
 xtask/                개발 도구(verify, gen, p6). go/: Go 추출기, 시험 도구, 봇. data/: IR, P6 표, 덤프, 기준 목록, 출처 커밋
+vendor/               결함을 고친 의존성 사본(사용자 결정, M3). 9.1
 ```
+- vendor 규칙(사용자 결정): 결함 부분만 고친 사본을 `[patch.crates-io]` path로 고정한다. 결함마다 재현 시험을 두어 고치기 전 실패, 고친 뒤 통과를 확인한다. 상류가 고친 릴리스를 내면 사본을 지우고 원래 크레이트로 돌아간다. 상류에 이슈나 PR은 올리지 않는다. 사본은 작업공간에서 제외해(`exclude`) 우리 lint를 걸지 않고, 자체 시험이 있는 사본은 verify가 따로 돌린다.
 - 크레이트는 `anchor`와 `xtask` 둘이다(개발 도구 의존성이 라이브러리에 들어가지 않게). 모듈과 폴더는 필요할 때 만든다. 내려받은 외부 소스는 `.cache/`(M1에서 .gitignore에 더함).
 - 도구 설정을 점 이름으로 두면 상위 폴더와 홈의 설정이 섞이지 않는다(조사 때 실측). rust-toolchain.toml과 Cargo.lock은 점 이름을 쓸 수 없다.
 - 서버 실행 폴더는 `anchor.toml`(8.5절)과 `data/`(`world.redb`, `identity.key`, `auth.json`, `backups/`, `crash/`)뿐이다. ops, 화이트리스트, 밴은 `world.redb`의 표다. 로그 출력은 사용자 바이너리가 정한다.
@@ -27,14 +29,14 @@ xtask/                개발 도구(verify, gen, p6). go/: Go 추출기, 시험 
 | TCP 19132 | NetherNet HTTP 시그널링 |
 | UDP 19133 | NetherNet 게임 데이터(모든 피어가 소켓 하나) |
 - IPv4와 IPv6를 같은 포트로 받는다. Windows UDP의 WSAECONNRESET은 무시하고 계속 읽는다(tokio-rs/tokio#2017).
-- 검증 필요(M3): 클라이언트가 시그널링에 쓰는 포트와 스킴, 서버 목록 정보를 어디서 얻는지, UDP만으로 직접 접속하는 길이 있는지(있으면 TCP를 뺀다).
+- 시그널링(M3 확인): 주소 접속은 `GET /v1/join`을 `https://호스트:포트`, `http://호스트:포트` 순으로 보내 처음 답한 곳을 쓰고, 모두 실패하면 RakNet으로 간다(go-nethernet `endpoint/handler.go` 주석. 공식 클라이언트는 관찰할 수 없다). 서버 목록 정보는 이 GET의 JSON이다. UDP만으로 직접 접속하는 길은 LAN 발견(UDP 7551, go-nethernet `discovery`)뿐이라 TCP를 유지한다(LAN 발견은 구현하지 않는다). BDS는 시그널링과 게임 UDP에 같은 포트 번호를 쓰고 연결마다 UDP 소켓을 따로 연다. Anchor는 사용자 결정대로 UDP `nethernet-port` 하나를 모든 피어가 나눠 쓴다.
 
 ### 2.1 NetherNet
 정답은 고정한 gophertunnel의 go.mod가 고정한 df-mc/go-nethernet이다(v1.62.0 기준 `endpoint/handler.go`). Mojang NetherNet 온보딩 가이드(https://mojang.github.io/bedrock-protocol-docs/guides/nether-net-onboarding-guide/)는 보조 근거다.
 - 시그널링: 연결 시도마다 HTTP 요청 한 번(trickle ICE 없음). `GET /v1/join`은 2xx와 JSON `{name, protocol, version, level, players, maxPlayers, gameType}`, `POST /v1/join/{networkId}`는 SDP 오퍼를 받아 SDP 응답을 돌려준다. 최소 HTTP만 구현하고, 본문은 `Content-Length`와 `chunked`를 받는다(둘이 함께 오면 거부). 헤더, 본문, 시간, IP별 연결에 상한을 둔다.
-- 오퍼의 `a=identity`: GameServerToken(RS256, JWKS)과 오퍼 지문에 대한 분리 JWS(ES384, `cpk`). 그 밖의 `alg`는 거부한다. 없으면 온라인 모드는 거부, 오프라인 모드는 받는다.
-- 응답의 `a=identity`: 모든 응답에 반드시 넣는다(없으면 클라이언트가 거부). 서버 신원 JWT(자체 서명, 장기 P-384 키)와 응답 지문에 대한 분리 JWS다. 검증 필요(M3): 위치(가이드끼리 다름)는 기준 서버 대조(4절 P6)로 정한다.
-- 신원 키: 처음 실행할 때 만들고 원자적으로 저장하며 재시작해도 유지한다(바뀌면 모든 플레이어에게 확인 창이 다시 뜬다). 깨졌으면 새로 만들지 않고 시작을 거부한다. JWT는 만료 전에 다시 발급한다.
+- 오퍼의 `a=identity`: GameServerToken(RS256, JWKS)과 오퍼 지문에 대한 분리 JWS(ES384, `cpk`). 그 밖의 `alg`는 거부한다. 없으면 온라인 모드는 거부, 오프라인 모드는 받는다(BDS는 오프라인에서도 코드 37로 거부한다. 사용자 정의 클라이언트를 위해 받는 쪽을 유지한다).
+- 응답의 `a=identity`: 모든 응답에 반드시 넣는다(없으면 클라이언트가 거부). 서버 신원 JWT(자체 서명, 장기 P-384 키)와 응답 지문에 대한 분리 JWS다. 위치와 모양은 BDS 1.26.52 응답을 따른다(M3 P6, 10.3).
+- 신원 키: 처음 실행할 때 만들고 원자적으로 저장하며 재시작해도 유지한다(바뀌면 모든 플레이어에게 확인 창이 다시 뜬다). 깨졌으면 새로 만들지 않고 시작을 거부한다. JWT는 BDS처럼 응답마다 새로 발급한다(유효 60초).
 - 신뢰: 기본은 평문 HTTP(처음 보는 키에 확인 창, TOFU). 인증서를 설정하면 HTTPS.
 - WebRTC: 클라이언트는 host 후보만 쓴다. 서버는 설정한 공인 주소를 광고한다. 데이터 채널은 `ReliableDataChannel`과 `UnreliableDataChannel` 둘이고, 메시지 앞 1바이트는 남은 조각 수다. 재조립에 상한을 둔다. 다른 채널이 열리면 끊는다. 비신뢰 채널은 상한 안에서 읽고 버리며 기록한다(내용 형식은 공식 클라이언트만 알 수 있어 어느 경우든 받는다).
 - 신원 결합: Login의 클라이언트 키가 오퍼에서 증명된 `cpk`와 같아야 한다. NetherNet은 Minecraft 암호화와 배치 헤더 0xfe가 없고, 압축 바이트는 그대로 있다.
@@ -242,7 +244,7 @@ console-input = true
 |---|---|---|---|
 | sandertv/gophertunnel(MIT) | 80c811b(v1.62.0 뒤, 1.26.50, 2193) | 패킷, 로그인, 암호화, 압축 형식, Go 봇 | 형식 버그 수정이 잦음, 주석과 코드 불일치, 4절 결함, NBT map 쓰기 순서가 무작위(시험 도구가 정렬해 씀). 로그인(M2): 정규식에 앵커가 없어 이름·버전 검사가 느슨함 → 모든 글자 검사, `ServerAddress`를 DNS로 조회(블로킹) → 모양만 검사, 오프라인 UUID가 무작위 → `OfflinePlayer:`+이름의 v3, base64가 느슨함 → 엄격. 봇은 기본 스킨 JSON 두 개를 복사해 씀 |
 | sandertv/go-raknet, df-mc/go-nethernet | gophertunnel go.mod가 고정 | RakNet, NetherNet 형식, 봇 | go-nethernet은 비신뢰 채널을 읽지 않음. go-raknet(M2, Anchor는 고쳐 구현): 쿠키가 CRC32, 오류마다 IP를 10초 막음(위조로 남을 막음), OCR2 응답 손실에 멈춤, 신뢰 인덱스 중복 제거 없음(조각 묶음 누수), 24비트 번호 넘침 미처리, 조각 512개 상한, 재조립 O(n²), 모르는 ACK 종류 무시, 혼잡 제어 없음, 사실상 상한 없는 큐, MTU 400 미만 처리 불일치, 순서 채널 무시 |
-| pmmp/PocketMine-MP(LGPL-3.0, 보관) | 6a7cc02 | 블록·아이템 종류와 동작, API | 1.26.30 데이터, 상태가 1:1 아님, 공개 때 라이선스 검토 |
+| pmmp/PocketMine-MP(LGPL-3.0, 보관) | 6a7cc02(M3부터 `.cache/pmmp`) | 블록·아이템 종류와 동작, API, 이름 규칙과 중복 로그인(M3) | 1.26.30 데이터, 상태가 1:1 아님, 공개 때 라이선스 검토. 중복 판정에 UUID도 쓰지만 Anchor는 사용자 결정대로 XUID·이름만 |
 | pocketmine/bedrock-data(CC0) | 6.7.0+bedrock-1.26.30 | 레시피 등 데이터 | 26.40 이후 없음 |
 | df-mc/dragonfly(MIT) | 커밋(M4) | 기준 목록, 야생 시스템 참고 | 해시 함수 패닉, 비결정 코드, 조명 갱신 없음 |
 | CloudburstMC/Data(Apache-2.0) | 커밋(M4) | 블록 ID 골든, 교차 확인 | 교차 확인에만 |
@@ -257,6 +259,11 @@ console-input = true
 | ureq(MIT/Apache-2.0) | =3.4.2 | 인증 문서 받기(블로킹 풀) | 시간 상한이 있으면 DNS마다 분리 스레드 → 인라인 resolver(DNS는 OS 상한), 본문 상한이 상한과 같은 크기를 거부 → 1 MiB 미만, 기본으로 프록시 환경 변수를 읽음(둠). 블로킹 호출과 상한 없는 본문 읽기 금지 |
 | tracing(MIT) | =0.1.44, std만 | 로그 | `attributes` 기능을 꺼 syn 2를 뺌 |
 | socket2(MIT/Apache-2.0) | =0.6.5 | IPv6 전용 소켓, 소켓 버퍼 | 블로킹 입출력 진입점 금지 |
+| str0m(+is, str0m-proto, str0m-aws-lc-rs)(MIT/Apache-2.0) | =0.24.0(0.11.1, 0.7.0, 0.6.0), 기본 기능 끔 + `aws-lc-rs`. str0m은 `vendor/str0m` 사본 | NetherNet WebRTC(SDP API는 원격 정보 입력에만, 응답 SDP는 자체) | 사본에서 고친 것: 상류 main 18ffec80(#1062, 미릴리스)을 옮겼다. ① SCTP 송신 버퍼가 128 KiB 고정이라 그보다 큰 메시지(262,144바이트 조각)를 영원히 못 보냄 → `set_sctp_max_buffered_amount` 설정(Anchor 1 MiB), ② `poll_output`이 대기 SCTP 패킷마다 재귀해 큰 송신에서 스택 넘침(실측, `catch_unwind`로 못 막고 프로세스가 죽음) → 반복문. 재현: `peer::tests::a_segment_of_the_remote_max_message_size_is_sent`, `channels_open_and_messages_round_trip_both_ways`(원본에서 둘 다 실패). 그 밖: 기본 설정이 전역 공급자·fastrand ICE 자격·자체 인증서 → 모두 명시 설정과 금지 목록, 직접 API는 원격 `max-message-size`를 못 받음 → SDP API에 `setup:passive`로 적은 오퍼를 줌(DTLS client 역할 유지), ICE는 끊김만 알림·SCTP 무한 재전송 → 피어 마감과 무응답 10초, `accepts`는 선형 → ufrag·주소 색인, 남은 내부 패닉 → 피어마다 `catch_unwind`, ICE 비밀번호가 trace에 찍힘 → `pii` 끔, 설정 로그 금지 |
+| dimpl(MIT/Apache-2.0) | 0.7.4, `vendor/dimpl` 사본 | DTLS 1.2 | 사본에서 고친 것: ① ChangeCipherSpec 전 같은 epoch-1 레코드 두 번에 assert(engine.rs:364) → replay처럼 버림, ② 피어 인증서가 poll 버퍼(str0m 2,000바이트)보다 크면 assert(dtls12·13 client.rs) → `BufferTooSmall`을 돌려 str0m이 오류로 끊음, ③ Auto 모드 supported_versions 잘림에 범위 밖 읽기(auto.rs:436) → 길이 검사, ④ 받는 레코드마다 버퍼 풀이 자람(32,768개에 약 38 MiB 실측) → 상류 main 98f893dc를 옮기되 상류의 release `assert!` 대신 풀 밖 버퍼는 버림. 재현: `xtask/tests/dimpl_repro.rs` 5개(원본에서 모두 실패). 남김: 레코드 순서가 바뀐 데이터그램의 핸드셰이크 멈춤·dimpl끼리 재전송 폭주(#168/#169, 미병합, 원격은 dimpl이 아니고 10초 마감이 있어 영향은 핸드셰이크 실패) → 검증 필요(M5). DTLS 1.2 고정, `log` 사용 |
+| sctp-proto(MIT/Apache-2.0) | 0.10.5, `vendor/sctp-proto` 사본 | SCTP | FORWARD-TSN `+1` 루프는 0.10.4에서 고침(확인). 사본에서 고친 것: ① 수신 창이 0이어도 빠진 청크를 무제한 받음 → 누적 TSN 바로 다음 청크만(RFC 4960 6.2), ② 받는 TSN 기록이 읽힌 데이터를 붙잡고 창에 안 셈 → 데이터 없이 TSN만 두고 기록마다 창에서 뺌, ③ 스트림 수 협상이 뒤집힘(INIT·INIT-ACK) → RFC 4960 5.1.1대로(업스트림 시험 기대값도 바로잡음), 협상 수 밖 스트림은 만들지 않음, 다시 연 스트림은 대기열에 한 번만, ④ 같은 원격의 새 INIT마다 연결이 생겨 쌓임 → 원격 하나에 연결 하나(RFC 4960 1.4), ⑤ 빈 DATA를 받아 둠 → 연결 종료(RFC 4960 6.2), ⑥ SACK 갭 오프셋 u16 넘침과 TSN `+1` 넘침(디버그 패닉) → 순환 산술. 재현: 사본 안 `association/anchor_test.rs` 8개와 `endpoint/anchor_test.rs` 1개(원본에서 모두 실패, verify가 사본 시험 258개를 따로 돌림). 남김: SSN 정렬 비교자가 전순서가 아님(실사용 방식 약 400만 번에서 재현 안 됨 → 고치지 않음, 패닉이 나도 피어 하나만 닫힘), 연결 중 INIT·ERROR 청크에 연결을 닫음(RFC 위반, 그 피어만 끊김), `Endpoint::connect`가 시계를 읽음, `log` 사용 |
+| tokio-rustls(MIT/Apache-2.0) | =0.26.6, `aws_lc_rs`·`tls12`만 | HTTPS 시그널링 | 0.26.5 회귀(#204) 피함, 기한 없음 → 요청 10초 안에서만, 전역 공급자 builder 금지(`.clippy.toml`), 티켓과 세션 저장 끔 |
+| go-nethernet(봇만) | gophertunnel go.mod 판 | 봇 NetherNet 다이얼 | 개발 도구. 후보 줄을 `candidate:candidate:`로 두 번 접두, 채널 열림 확인 전에 보냄(Anchor가 둘 다 받음) |
 | go-jose, go-oidc(봇만) | gophertunnel go.mod 판 | 봇 토큰 발급과 봇 시험 | 개발 도구 |
 | golang.org/x/tools(BSD-3) | v0.42.0(xtask/go) | 추출기의 타입 정보 로드 | 개발 도구, gophertunnel 의존성 버전을 바꾸지 않는 판을 골랐다 |
 
@@ -369,7 +376,7 @@ console-input = true
 - 세션 순서(서버 쪽): RequestNetworkSettings → NetworkSettings → Login 검증 → (RakNet) ServerToClientHandshake, ClientToServerHandshake → PlayStatus(LoginSuccess), ResourcePacksInfo → 응답(HaveAllPacks) → ResourcePackStack → 응답(Completed) → 틱 Join → StartGame 계열 → RequestChunkRadius → ChunkRadiusUpdated, 청크, PlayStatus(PlayerSpawn) → SetLocalPlayerAsInitialised. 로그인 순서의 패킷(RequestNetworkSettings, Login, ClientToServerHandshake, ResourcePackClientResponse)이 순서를 어기면 끊는다. 그 밖의 패킷은 Join 전에는 대기 큐(32개, 넘치면 끊음)에 두었다가 Join 뒤 순서대로 틱에 넘긴다(gophertunnel도 미뤄 두고, 공식 클라이언트 순서는 관찰할 수 없다). ClientCacheStatus는 받고 버린다(블롭 캐시는 M6). 스폰 때 보내는 패킷 목록과 순서는 P6에서 BDS를 따르고, 아직 채우지 못하는 패킷(아이템, 제작, 생물군계, 명령 등)은 "P6 유예표"에 마일스톤과 함께 적는다.
 - 로그인 검증(3절 보충):
   - 온라인: `Token`만 본다(레거시 체인은 무시). RS256만, `kid` 필수, `exp` 필수, `nbf`와 `iat`는 있으면 검사, 시계 오차 60초(go-jose 기본과 같음). `iss`는 OpenID 설정의 `issuer`와 문자열이 같아야 하고 `aud`에 `api://auth-minecraft-services/multiplayer`가 있어야 한다. `xid`는 숫자, `xname`은 비어 있지 않고, `cpk`는 P-384 SPKI(base64)다.
-  - 오프라인(`xbox-auth = false`): `Token`이 있으면 서명 없이 클레임만 읽고, 없으면 레거시 체인(첫 토큰 자체 서명 `x5u`)을 읽는다. 이름 규칙은 gophertunnel `IdentityData.Validate`다. XUID는 비운다.
+  - 오프라인(`xbox-auth = false`): `Token`이 있으면 서명 없이 클레임만 읽고, 없으면 레거시 체인(첫 토큰 자체 서명 `x5u`)을 읽는다. 이름 규칙은 PMMP다(10.3, M3에서 바꿈). XUID는 비운다.
   - ClientData: ES384, `cpk`로 검증한다. 내용 규칙은 gophertunnel `ClientData.Validate`다.
   - 시각: JWT 시각 검사는 틱 밖이라 벽시계를 쓰고, `clock.rs`가 준다.
 - 인증 캐시 `data/auth.json`: 디스커버리의 `auth.prod`, OpenID 설정, JWKS, 받은 시각을 담는다. 시작 때 캐시가 1시간 안이면 그대로 쓰고, 아니면 받는다(실패하면 캐시, 둘 다 없으면 시작 거부). 실행 중 1시간마다 갱신하고, 모르는 `kid`는 5분에 한 번 JWKS만 다시 받는다. 캐시가 손상(JSON 아님, 필드 빠짐)이면 시작을 거부하고 파일을 남긴다. 쓰기는 임시 파일 + rename이다. 응답 본문 1 MiB, 요청 10초 상한.
@@ -412,9 +419,76 @@ console-input = true
 - 남은 위험과 검증 필요:
   - BDS 1.26.52가 RakNet 전송을 "플레이어 접속 불가"로 기록한다. 공식 클라이언트가 RakNet으로 들어오는지는 관찰할 수 없다. 실제 접속은 M3 NetherNet이 맡는다.
   - Join 전 대기 큐 32개, ClientData의 엄격한 JSON(대소문자, null, 중복 키 거부), 핑 응답의 서바이벌 외 모드 뒤 숫자(BDS는 `Survival;1`만 봄)는 공식 클라이언트로만 확인된다. 검증 필요(M3): NetherNet P6에서 다시 본다.
-  - 같은 XUID의 두 번째 접속을 막지 않는다. 검증 필요(M7): PMMP처럼 먼저 접속한 쪽을 내보낼지 정한다.
-  - 오프라인 이름은 gophertunnel 규칙이라 `_`를 받지 않는다(PMMP는 받음).
+  - 같은 XUID의 두 번째 접속과 오프라인 이름 규칙은 M3에서 사용자가 PMMP 방식으로 정했다(10.3).
   - toml의 `unbounded` 기능이 사용자 바이너리에서 켜지면 깊이 상한이 사라진다.
+
+### 10.3 M3 세부 설계 (2026-10-03)
+- 검증 필요 처리(시작 때, BDS 1.26.52.3을 `transport=nethernet`, `online-mode=false`로 띄워 go-nethernet 다이얼러로 확인):
+  - 시그널링은 TCP `server-port` 이중 스택. `GET /v1/join` → 200, `Content-Type: application/json`, 본문 키 순서 `name, protocol, version, level, players, maxPlayers, gameType`(version은 BDS 빌드 `1.26.52`). 모든 응답에 `Connection: close`. 없는 경로 404 `text/plain` "Not Found", 숫자가 아닌 networkId 400 "Expected /v1/join/{networkId}". TLS 없이 띄운 BDS는 TLS ClientHello에 handshake_failure 경고를 보낸다.
+  - 협상 실패도 HTTP 200, `Content-Type: application/sdp`, 본문은 오류 코드 숫자다(신원 없는 오퍼에 `37`).
+  - 응답 SDP 순서: `v, o(- <난수> 2 IN IP4 127.0.0.1), s=-, t=0 0, a=group:BUNDLE 0, a=extmap-allow-mixed, a=msid-semantic: WMS, a=identity, m=application <UDP 포트> UDP/DTLS/SCTP webrtc-datachannel, c=IN IP4 <주소>, a=candidate(host, 인터페이스마다), a=ice-ufrag(4자), a=ice-pwd(24자), a=ice-options:trickle, a=fingerprint:sha-256 <대문자 HEX>, a=setup:active, a=mid:0, a=sctp-port:5000, a=max-message-size:262144`. `a=end-of-candidates`는 없다. 후보 모양은 `a=candidate:<foundation> 1 udp <priority> <ip> <port> typ host generation 0 network-id <n>`.
+  - `a=identity`는 세션 수준(m= 앞)이고 값은 base64(STD, 패딩) JSON `{"assertion":"{\"fingerprints\":\"<분리 JWS>\",\"token\":\"<JWT>\"}","idp":{"domain":"self","protocol":"default"}}`다(키 순서 그대로). 서버 JWT 헤더 `{"alg":"ES384","x5u":"<base64 SPKI>"}`, 본문 `{"cpk":{"crv":"P-384","kty":"EC","x":..,"y":..},"exp":iat+60,"iat":..}`(cpk는 JWK 객체. Mojang 가이드와 같고 go-nethernet의 base64 문자열과 다르다). 분리 JWS 헤더 `{"alg":"ES384"}`, 서명 대상은 `{"fingerprint":[{"algorithm":"sha-256","digest":"<SDP에 쓴 그대로>"}]}`.
+  - 클라이언트 쪽(go-nethernet, Mojang 가이드): 오퍼는 `a=setup:actpass`, 두 채널을 클라이언트가 연다. `ReliableDataChannel`(순서, 신뢰), `UnreliableDataChannel`(비순서, maxRetransmits 0). 조각 머리 1바이트 = 남은 조각 수, 조각 본문 최대 262,143바이트, 최대 256조각. 서버는 ICE controlled, DTLS client(active)다. go-nethernet은 후보 줄을 `candidate:candidate:...`로 두 번 접두해 보낸다(둘 다 받는다).
+  - M2 남은 검증 필요(Join 전 대기 32, 엄격한 ClientData JSON, 핑 모드 뒤 숫자)는 BDS NetherNet P6에서도 공식 클라이언트 출력이 아니라 확인할 수 없다. 설계는 그대로 두고 13절에 남긴다.
+- 모듈(모두 `pub(crate)`):
+  - `nethernet.rs`: 구동부. UDP 소켓(IPv4, IPv6 전용, `nethernet-port`) 두 개와 모든 피어를 한 작업이 가진다(RakNet과 같은 구조, 잠금 없음. DTLS·SCTP가 한 작업에 모이는 비용은 M5 측정 대상으로 남긴다). 오퍼 처리 작업, 들어온 데이터그램 분배 색인(STUN USERNAME의 서버 ufrag → 피어, 성립 뒤 출발 주소 → 피어, 둘 다 `BTreeMap`), `Connection`(RakNet과 같은 `addr/recv/send/logged_in/close`에 증명된 `client_key`를 더함).
+  - `nethernet/signaling.rs`: 최소 HTTP/1.1 서버(tokio TCP, 선택적 TLS). 라우팅과 상한만 하고 오퍼 내용은 모른다.
+  - `nethernet/sdp.rs`: 오퍼 파서와 응답 작성기(위 BDS 모양).
+  - `nethernet/identity.rs`: `data/identity.key`, 서버 JWT와 분리 JWS 서명, 오퍼 신원 검증.
+  - `nethernet/peer.rs`: str0m `Rtc` 하나(소켓 없음): ICE controlled, DTLS active, SCTP client, 채널 검사, 조각 재조립과 분할(`nethernet/message.rs`).
+  - `event.rs`(공개): 이벤트 우선순위와 `PlayerDuplicateLogin`. M8 이벤트 체계의 첫 조각이다.
+  - 세션은 `Transport` enum(RakNet, NetherNet, 닫힌 집합)으로 두 전송을 같은 흐름에 태운다.
+- 흐름: HTTP 작업이 POST를 받으면 → 오퍼 작업이 SDP를 파싱하고 신원을 검증(온라인은 JWKS, 모르는 `kid`는 세션과 같은 한 번 갱신) → 구동부에 피어 생성을 요청(로그인 전 상한 넘으면 거부) → 구동부가 ICE 자격과 DTLS 지문, 광고 후보를 돌려줌 → 오퍼 작업이 서버 신원으로 서명해 응답 작성 → HTTP 200. 두 채널이 열리면 구동부가 `Connection`을 accept 작업에 넘기고, 세션은 RakNet과 같은 순서(ServerToClientHandshake 포함)를 밟되 암호화를 켜지 않는다(BDS NetherNet P6: 핸드셰이크를 보내고 암호화하지 않음). Login 검증 뒤 Login의 클라이언트 키가 오퍼에서 증명된 `cpk`와 다르면 NotAuthenticated로 끊는다(신원 없는 오프라인 오퍼는 결합 없음).
+- 광고 주소: `public-ip`가 있으면 그것, 없으면 시그널링 TCP 연결의 로컬 주소(클라이언트가 실제로 닿은 주소. 표준 라이브러리에 인터페이스 나열이 없어 이 방식을 쓴다. IPv4 매핑 IPv6는 IPv4로). 포트는 `nethernet-port`. 그 주소 체계의 UDP 소켓이 없으면 코드 11로 거부한다. 후보 우선순위 2122260223(BDS 값).
+- 신원(identity.rs):
+  - 키 파일 `data/identity.key`는 P-384 PKCS#8 DER(4 KiB 이하만 읽음). 없으면 만들어 임시 파일에 쓰고 동기화한 뒤 rename. 있는데 읽거나 파싱하지 못하면 시작을 거부하고 파일을 건드리지 않는다. 시작 때 한 번 읽는다(블로킹 풀).
+  - 오퍼 검증: 토큰은 온라인이면 Login `Token`과 같은 규칙(3절, 10.2)으로 검증하고, 오프라인이면 서명 없이 `cpk`와 `exp`(있으면)만 본다. `cpk`는 base64 SPKI 문자열과 P-384 JWK 객체를 받는다. 분리 JWS는 ES384만, 오퍼의 지문 한 줄(sha-256만)로 만든 정규 JSON에 대해 검증한다. 실패는 코드 37.
+- SDP 상한과 규칙: 본문 64 KiB, 줄 1024개, 후보 32개(UDP만 쓰고 TCP 후보는 버림), 미디어 섹션은 정확히 하나(`application`, `UDP/DTLS/SCTP`, `webrtc-datachannel`), `ice-ufrag` 4~256자, `ice-pwd` 22~256자, 지문은 sha-256 한 줄(32바이트), `setup`은 actpass나 passive(그 밖은 거부), `max-message-size`는 필수이고 1024 이상(보내는 조각은 min(상대 값, 65536) − 1바이트. str0m 직접 API가 송신 SCTP 메시지를 64 KiB로 고정한다. 받는 쪽은 262,144), `sctp-port`는 5000. 파싱 실패는 코드 13.
+- 시그널링 상한: 동시 TCP 연결 전체 64, IP별 4(IPv6는 /64), 넘으면 503 후 닫음. 머리 8 KiB, 본문 64 KiB, 요청 하나에 10초(읽기, 협상, 쓰기 포함). 메서드 GET·POST만, `Content-Length`와 `chunked` 둘 다 오면 400, 응답 뒤 항상 닫음. TLS 설정이 없으면 첫 바이트 0x16에 TLS handshake_failure 경고(BDS와 같음)를 보내고 닫는다. TLS는 tokio-rustls(aws-lc-rs 공급자), 인증서와 키 PEM은 시작 때 읽고 틀리면 시작 거부.
+- 응답 코드: 성공 200 SDP, 신원 실패 200 "37", SDP 실패 200 "13", 내부 실패 200 "11", 로그인 전 상한 초과 503(3절), 그 밖은 BDS와 같은 400·404.
+- 피어 상한(구동부 상수, 구현 때 값을 아래 결과에 적음): 로그인 전 피어 전체 64·IP별 4(RakNet과 따로 센다. 전송마다 상한이 있어 합은 128), 응답부터 두 채널이 열릴 때까지 10초, 다른 라벨·매개변수의 채널이나 세 번째 채널이면 끊음, 재조립은 10.2 메시지 상한(`max-batch-bytes` 식, 0xfe와 체크섬 없음), 조각 수 어긋남·빈 조각은 끊음. 비신뢰 채널은 262,144바이트 이하 메시지를 읽고 버리며 trace로 센다. 받는 큐 1024개·2 × 메시지 바이트, 보내지 못한 바이트 32 MiB, 명령 큐 4096. DTLS 인증서는 시작 때 하나 만들어 모든 피어가 쓴다(지연 초기화 금지, 피어마다 키 생성 비용 없음).
+- 이벤트(event.rs, 공개): `Priority`(`Lowest`~`Highest`), 봉인된 `Event` 트레이트, `ServerBuilder::on(priority, |e: &mut E| ...)`. 리스너는 빌드 때 우선순위로 정렬(같은 우선순위는 등록 순서)하고 틱 직렬 단계에서 부른다. M8에서 맥락 인자와 `monitor`를 더할 때 모양이 바뀔 수 있다(공개 전이라 semver 영향 없음).
+- 중복 로그인(사용자 결정, PMMP `NetworkSession::setAuthenticationStatus`): 같은 플레이어 = 온라인은 같은 XUID, 오프라인은 대소문자 무시 같은 이름(PMMP `strcasecmp`). 틱의 Join에서 `PlayerDuplicateLogin`을 쏘고, 취소되지 않으면 기존 플레이어를 Disconnect(사유 LoggedInOtherLocation, 문구 기본 "Logged in from other location" = PMMP eng)로 끊고 새 플레이어를 받는다. 취소되면 새 접속을 같은 문구로 끊는다. 이벤트의 사유와 화면 문구는 리스너가 바꿀 수 있다. 시점은 PMMP(로그인 검증 직후)와 달리 Join이다: 게임 상태와 사용자 콜백은 틱에만 있고(4절 2, 5), 로그인에서 틱을 기다리면 세션과 틱의 왕복이 생긴다. 찾기는 (키 → 세션) 색인으로 하고 Leave에서 지운다. PMMP의 XUID 불일치 검사(같은 이름, 다른 XUID)는 키가 XUID라 생기지 않는다.
+- 오프라인 이름(사용자 결정, PMMP `Player::isValidUserName`): 1~16바이트, `A-Z a-z 0-9 _ 공백`만, 소문자로 `rcon`, `console`이면 거부. 온라인 이름(토큰 `xname`)은 검사하지 않는다.
+- 봇과 시험 도구:
+  - 봇에 `-transport raknet|nethernet|auto`를 더한다. nethernet은 go-nethernet `Dialer`(트리클 끔)와 `endpoint.Client`로 접속하고, 신원은 온라인이면 시험 발급자 토큰(Login과 같은 토큰), 오프라인이면 자체 서명 토큰이다. auto는 https → http GET 뒤 NetherNet을 시도하고 실패하면 RakNet으로 간다(위 클라이언트 순서). 결과에 실제 전송과 NetherNet 실패 이유, 받은 응답 SDP를 기록한다.
+  - 시나리오 추가: `kicked`(스폰 뒤 LoggedInOtherLocation으로 끊기면 통과), `rejected`(스폰 전 끊기면 통과), `bind-mismatch`(오퍼 키와 Login 키를 다르게 해 거부되면 통과).
+  - P6: `p6 bds`가 BDS를 `transport=nethernet`으로도 띄워 nethernet spawn을 돌리고, `transport=raknet` BDS에서 auto 봇이 RakNet으로 폴백해 스폰하는지 본다. `p6 anchor`는 같은 시나리오를 Anchor NetherNet에 돌려 스폰 창과 응답 SDP 줄 구조(값 뺀 키 순서)를 비교한다.
+
+#### M3 판정식
+- 시그널링: 요청 형식마다(GET, POST, 없는 경로, 잘못된 networkId, 머리·본문 초과, 둘 다 있는 본문 길이, chunked, 느린 요청 10초, 연결 상한, TLS 미설정에 ClientHello, TLS 설정에 HTTPS 요청) 기대 응답이나 끊김. 변형 요청 1만 개(고정 시드)에서 패닉 0.
+- SDP: BDS 응답과 go-nethernet 오퍼 표본 파싱, 상한마다 넘는 입력 거부, 변형 1만 개 패닉 0, 작성한 응답의 줄 순서가 BDS와 같음.
+- 신원: 키 파일 생성·재사용·손상 시 시작 거부(파일 그대로), 서버 JWT를 go-nethernet(selfSigned 검증)이 받음(P5), 오퍼 신원은 시험 발급자 토큰 통과, 서명·지문·`alg`·만료·`cpk` 형식이 하나씩 틀리면 37, 온라인에서 신원 없음 37, 오프라인은 받음, Login 키 불일치는 끊김.
+- 조각: 크기 0, 1, 262,143, 262,144, 상한 경계 왕복. 조각 수 어긋남, 빈 조각, 상한 초과는 오류.
+- 피어: str0m 클라이언트와 메모리 안 왕복으로 두 채널 열림과 최대 크기 메시지 왕복, 잘못된 채널은 끊김, 성립 마감 동작.
+- 틱: 중복 로그인 취소·비취소에서 남는 플레이어가 맞음, 같은 Join 두 번은 한 번과 같은 상태 해시, 접속·종료 반복 뒤 색인과 표가 비어 있음.
+- 오프라인 이름: PMMP 규칙 경계(0·1·16·17바이트, 허용 밖 문자, `rcon`·`CONSOLE`).
+- P5(NetherNet, verify에 포함): zlib·Snappy 스폰, 온라인 시험 발급자, big-skin, RakNet 봇과 NetherNet 봇 동시 스폰, 폴백(NetherNet 협상이 실패하는 설정에서 auto 봇이 RakNet으로 스폰), 로그인 전 피어 상한(503), 결합 불일치 거부, 중복 로그인 두 경우(비취소: 먼저 들어온 봇이 끊기고 새 봇 스폰, 취소: 새 봇이 끊기고 먼저 들어온 봇 유지), 접속·종료 반복 뒤 핑 접속자 0.
+- P6: BDS NetherNet에서 봇 spawn 통과, Anchor NetherNet 스폰 창과 응답 SDP 구조가 BDS와 같음(zlib, Snappy), BDS RakNet에서 auto 봇 폴백 스폰.
+- `cargo xtask verify` PASS.
+
+#### M3 결과와 정한 값 (2026-10-03)
+- 판정: 시그널링(단위 14, 변형 요청 1만 개 패닉 0), SDP·신원(go-nethernet 오퍼와 BDS 응답 골든, 규칙마다 거부, 변형 1만 개 패닉 0, 키 파일 생성·재사용·손상 거부), 조각(13), 피어(str0m 클라이언트와 메모리 안 왕복, 262,143바이트 조각 송신, 열림 전 데이터, 잘못된 채널·지문·마감, 변형 1만 개 패닉 0), 틱(중복 로그인 취소·비취소, 우선순위, 멱등, 100회 반복 뒤 색인 비움), 오프라인 이름(PMMP 경계), P5 15개(RakNet 6, NetherNet 9), vendor 재현 시험(str0m 2, dimpl 5, sctp-proto 9: 원본에서 모두 실패, 사본에서 모두 통과), P6(아래) 모두 통과. `cargo xtask verify` PASS.
+- P6(BDS 1.26.52.3 `transport=nethernet`, `cargo xtask p6 bds`, `p6 anchor`): NetherNet 스폰 창이 zlib, Snappy 모두 BDS와 같고 응답 SDP 줄 구조도 같다. BDS는 NetherNet에서도 ServerToClientHandshake를 보내고 암호화는 켜지 않는다(Anchor도 같음). BDS RakNet에서 auto 봇이 폴백해 스폰한다. 게임 UDP 포트는 BDS가 연결마다 `server-port`부터 하나씩 올린다(Anchor는 `nethernet-port` 하나).
+- BDS 송신(봇이 조각 단위로 관찰, 두 압축과 spawn·big-skin): 조각 본문 최대 262,143바이트(마지막 아닌 조각은 모두 262,143), 응답 `max-message-size` 262144, 비신뢰 채널로는 보내지 않음, 클라이언트 첫 메시지 전에는 보내지 않음. BDS는 봇이 보낸 65,535바이트 조각도 받는다.
+- 관찰할 수 없는 두 항목(사용자 결정): 보내는 쪽은 BDS 값과 같다(조각 262,143바이트, 비신뢰 채널 미사용, 첫 메시지 전 무송신). 받는 쪽은 65,535바이트 조각과 262,143바이트 조각(P5 go-nethernet 봇), 채널 열림 전 신뢰 채널 데이터를 모두 상한(메시지 하나 크기) 안에서 받는다.
+- BDS와 다른 결정(기록만): 같은 이름 두 번째 접속을 BDS는 끊지 않고 `이름(2)`로 바꾼다(사용자 결정은 PMMP 방식). 오프라인 BDS는 오퍼 키와 Login 키가 달라도 받는다(Anchor는 2.1대로 끊는다).
+- 바뀐 결정:
+  - 폴백 시험은 도달 불가 IPv4 `public-ip`로는 실패를 만들 수 없다. 서버 쪽 ICE 검사가 클라이언트에 peer-reflexive 후보를 주기 때문이다. IPv6를 끈 채 IPv6 `public-ip`(광고할 소켓 없음, 코드 11)로 협상 실패를 만든다.
+  - 송신 조각은 BDS처럼 262,143바이트다(SDP 항목). str0m 직접 API는 원격 `max-message-size`를 받지 않아, 원격 정보만 str0m SDP API로 넣는다. 그 오퍼에는 클라이언트 setup을 `passive`로 적는다(`actpass`면 str0m이 DTLS server를 골라 BDS와 역할이 달라짐). 클라이언트에게 가는 응답은 계속 `sdp`가 BDS 모양으로 쓴다.
+  - str0m 송신 결함(9.1)도 사용자 결정의 vendor 규칙으로 고쳤다. 사용자가 사본으로 정한 크레이트는 sctp-proto와 dimpl이었지만, "보내는 쪽은 BDS 값" 결정을 지킬 다른 길이 없어 같은 규칙을 str0m에 적용했다(되돌릴 수 있음, 보고에 적음).
+  - dimpl 사본이 P1·P2를 고쳐, 피어의 임시 가드(반복 레코드 버림, Certificate 길이 검사)는 뺐다(같은 결함을 두 곳에서 막지 않음).
+  - 성립 마감(10초)과 무응답(열린 뒤 10초)은 피어가 직접 센다. str0m ICE는 끊김을 알리기만 하고 SCTP는 끝없이 재전송해서다.
+  - 신뢰 채널 메시지가 비신뢰 채널 열림보다 먼저 오면(go-nethernet은 열림 확인을 기다리지 않고 보냄) 메시지 하나 크기까지 모았다가 `Open` 뒤에 넘긴다.
+  - IP별 묶음(IPv4 하나, IPv6 /64)은 RakNet `ip_key` 하나를 세 곳(RakNet, 시그널링, 피어)이 쓴다.
+- 상수(정본은 `src/nethernet.rs`, `src/nethernet/`): 시그널링 연결 64·IP별 4, 머리 8 KiB(넘으면 431), 본문 64 KiB(넘으면 413), 청크 틀 8 KiB, 요청 10초, PEM 1 MiB. SDP는 위 항목, 신원 JSON 32 KiB, 토큰 25 KiB, 서버 JWT 60초. 피어: 로그인 전 64·IP별 4, ufrag 4자·pwd 24자(crypto 모듈 난수, 겹치면 3번까지 다시), 데이터그램 1,500바이트, 피어당 출발 주소 8개, 받는 큐 1024개·2 × 메시지, 보내지 못한 바이트 32 MiB, 명령 큐 4096, 오퍼 큐 64, 갱신 10ms, SCTP 송신 버퍼 1 MiB(가장 큰 메시지 4개).
+- str0m 계열 결함과 조치(9.1, CLAUDE.md 7절): 사용자 결정(vendor 사본)으로 고쳤다. 그 밖에 설정으로 없앤 것은 Auto 모드(DTLS 1.2 고정), fastrand ICE 자격(직접 생성), 전역 공급자(`RtcConfig`로 전달)다. 남은 패닉 가능성(SSN 정렬 비교자 등)은 피어마다 `catch_unwind`로 그 피어만 닫는다(CLAUDE.md 4.6의 연결 격리를 한 작업 안의 피어 단위로 적용).
+- 남은 위험과 검증 필요:
+  - `Join` 전 대기 32와 엄격한 ClientData, 핑 모드 뒤 숫자는 공식 클라이언트로만 확인된다(BDS P6로 닫을 수 없다).
+  - dimpl의 레코드 순서 바뀜 문제(#168/#169)와 sctp-proto의 수신 큐 정렬 비용(넣을 때마다 정렬)은 검증 필요(M5).
+  - dimpl, sctp-proto는 `log`를 써서 Anchor(`tracing`)만 쓰는 바이너리에서는 그 기록이 사라진다. 사용자 바이너리가 다리를 둘지 정한다(M8 문서).
+  - 모든 피어의 DTLS·SCTP가 구동 작업 하나에서 돈다. 비용은 M5 측정 대상이다.
+  - `identity.key` rename 뒤 폴더 fsync가 없다(Linux 크래시에서 새 키가 생길 수 있음, Linux 검증 때).
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
@@ -427,7 +501,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 | 3 | PMMP와 다른 이벤트 의미 | 8.2절 | M8(사용자가 원하면 바꿈) |
 | 4 | 사용자 저장 공급자 trait | 두지 않음 | 원자 커밋을 지킬 수 있는 요구가 생기면 |
 | 5 | Bedrock(LevelDB) 월드 가져오기 | 포함(가져오기 도구) | M6 |
-| 6 | HTTPS 시그널링 | 평문 기본 | M3 |
+| 6 | HTTPS 시그널링 | 평문 기본, 인증서를 설정하면 HTTPS(M3 구현) | 정함 |
 | 7 | `Vec3` 성분 | f64, 프로토콜 경계에서 f32 | M7 |
 | 8 | Linux 검증 | 나중에(사용자가 지시할 때). 그때까지 Windows만, 설계는 OS 중립 | 사용자 지시 |
 
@@ -437,7 +511,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 | M0 | 완료(2026-10-02) | verify PASS |
 | M1 | 완료(2026-10-03) | 10.1절. 패킷 236개 생성, P1~P4 통과(코퍼스 15,104, 변형 236,000, 패닉 0), verify PASS |
 | M2 | 완료(2026-10-03) | 10.2절. P5 6개, P6 스폰 창 BDS와 같음(zlib, Snappy), verify PASS |
-| M3 | 시작 전 | |
+| M3 | 완료(2026-10-03) | 10.3절. P5 NetherNet 9개, P6 NetherNet 스폰 창·응답 SDP·송신 조각이 BDS와 같음, 폴백, vendor 사본 3개(재현 시험 16개), verify PASS |
 | M4 | 시작 전 | |
 | M5 | 시작 전 | |
 | M6 | 시작 전 | |

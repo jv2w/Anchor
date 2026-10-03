@@ -72,7 +72,7 @@ func TestWalkBatchReportsHighHeaderBits(t *testing.T) {
 func TestBigSkinRequestHasTheTargetSizeAndValidClientData(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	c := config{addr: "127.0.0.1:19132", scenario: "big-skin", name: "Bot", loginSize: 2 << 20}
-	request, err := buildRequest(c, key)
+	request, err := buildRequest(c, key, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestOnlineRequestPassesGophertunnelVerification(t *testing.T) {
 		t.Fatalf("token header: %v, %v", tok, err)
 	}
 
-	request, err := buildRequest(c, key)
+	request, err := buildRequest(c, key, token)
 	if err != nil {
 		t.Fatal(err)
 	}

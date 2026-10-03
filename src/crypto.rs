@@ -18,7 +18,10 @@ use aws_lc_rs::signature::{
 
 pub(crate) use base64::{RAW_STD, RAW_URL, STD};
 pub(crate) use json::{bounded_vec, is_object_or_null};
-pub(crate) use jws::{Algorithm, Jws, parse as parse_jws, sign_es384 as sign_jwt};
+pub(crate) use jws::{
+    Algorithm, Jws, parse as parse_jws, sign_compact as sign_jwt_bytes, sign_detached,
+    sign_es384 as sign_jwt, verify_detached,
+};
 pub(crate) use md5::md5;
 
 /// Length of an ES384 signature: `r || s`, 48 bytes each.
@@ -29,6 +32,14 @@ const MAX_SPKI_TEXT: usize = 512;
 /// RSA modulus sizes accepted for the multiplayer token: 2048 to 4096 bits. Microsoft signs with
 /// 2048-bit keys; larger moduli only cost verification time.
 const RSA_MODULUS_BITS: std::ops::RangeInclusive<usize> = 2048..=4096;
+/// The DER of a P-384 `SubjectPublicKeyInfo` up to its uncompressed point: SEQUENCE {
+/// SEQUENCE { id-ecPublicKey, secp384r1 }, BIT STRING with no unused bits }.
+const P384_SPKI_PREFIX: [u8; 23] = [
+    0x30, 0x76, 0x30, 0x10, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x05, 0x2b,
+    0x81, 0x04, 0x00, 0x22, 0x03, 0x62, 0x00,
+];
+/// Bytes in one P-384 coordinate.
+const P384_COORDINATE_LEN: usize = 48;
 
 /// A cryptographic failure. Every variant means the input is not trusted.
 #[derive(Debug)]
@@ -156,9 +167,20 @@ impl ServerKey {
         })
     }
 
+    /// The key in a PKCS#8 v1 document, the form [`ServerKey::from_pkcs8`] reads.
+    pub(crate) fn to_pkcs8(&self) -> Result<Vec<u8>> {
+        let document = self.signing.to_pkcs8v1().map_err(|_| Error::Internal)?;
+        Ok(document.as_ref().to_vec())
+    }
+
     /// The public key as base64 SPKI DER.
     pub(crate) fn public_key_base64(&self) -> &str {
         &self.public
+    }
+
+    /// The public key, for verifying this key's own signatures.
+    pub(crate) fn public_key(&self) -> Result<PublicKey> {
+        PublicKey::from_base64_spki(&self.public)
     }
 
     /// An ES384 signature of `message` (randomized nonce).
@@ -215,6 +237,36 @@ impl PublicKey {
         self.0
             .verify_sig(message, signature)
             .map_err(|_| Error::Signature)
+    }
+
+    /// Parses a P-384 JWK's coordinates (RFC 7518 6.2.1): `x` and `y` in base64url without
+    /// padding, 48 bytes each. A point off the curve is rejected.
+    pub(crate) fn from_p384_jwk(x: &str, y: &str) -> Result<Self> {
+        let x = RAW_URL.decode(x, P384_COORDINATE_LEN)?;
+        let y = RAW_URL.decode(y, P384_COORDINATE_LEN)?;
+        if x.len() != P384_COORDINATE_LEN || y.len() != P384_COORDINATE_LEN {
+            return Err(Error::Key);
+        }
+        let mut der = Vec::with_capacity(P384_SPKI_PREFIX.len() + 1 + 2 * P384_COORDINATE_LEN);
+        der.extend_from_slice(&P384_SPKI_PREFIX);
+        der.push(0x04);
+        der.extend_from_slice(&x);
+        der.extend_from_slice(&y);
+        ParsedPublicKey::new(&ECDSA_P384_SHA384_FIXED, der)
+            .map(Self)
+            .map_err(|_| Error::Key)
+    }
+
+    /// The JWK coordinates `(x, y)` in base64url without padding.
+    pub(crate) fn p384_jwk(&self) -> Result<(String, String)> {
+        let (x, y) = self
+            .spki()
+            .strip_prefix(&P384_SPKI_PREFIX[..])
+            .and_then(|point| point.strip_prefix(&[0x04][..]))
+            .filter(|xy| xy.len() == 2 * P384_COORDINATE_LEN)
+            .and_then(|xy| xy.split_at_checked(P384_COORDINATE_LEN))
+            .ok_or(Error::Key)?;
+        Ok((RAW_URL.encode(x), RAW_URL.encode(y)))
     }
 
     /// The SPKI DER bytes.
@@ -344,12 +396,51 @@ mod tests {
     #[test]
     fn pkcs8_keys_round_trip_and_garbage_is_rejected() {
         let a = ServerKey::generate().unwrap();
-        let pkcs8 = a.signing.to_pkcs8v1().unwrap();
-        assert!(ServerKey::from_pkcs8(pkcs8.as_ref()).is_ok());
+        let pkcs8 = a.to_pkcs8().unwrap();
+        let b = ServerKey::from_pkcs8(&pkcs8).unwrap();
+        assert_eq!(a.public_key_base64(), b.public_key_base64());
         assert!(matches!(
             ServerKey::from_pkcs8(b"\x30\x00"),
             Err(Error::Key)
         ));
+    }
+
+    #[test]
+    fn p384_jwks_round_trip_and_bad_coordinates_are_rejected() {
+        let key = ServerKey::generate().unwrap();
+        let public = key.public_key().unwrap();
+        let (x, y) = public.p384_jwk().unwrap();
+        assert_eq!((x.len(), y.len()), (64, 64));
+        let back = PublicKey::from_p384_jwk(&x, &y).unwrap();
+        assert_eq!(back.spki(), public.spki());
+        let sig = key.sign_es384(b"m").unwrap();
+        back.verify_es384(b"m", &sig).unwrap();
+        // The coordinates of the BDS 1.26.52 identity key in its answer (PLAN.md 10.3) match the
+        // SPKI in the same token's `x5u`.
+        let x5u = "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEya/jxpHCfMZbjNJCjTncZp0p9o4dgcOFZiXlrAc7OVgH66N6bvOJHKtAKSF0Y08N3OszOL3CVA7AfQs9kbLKEZ74yEhlJ6aHOQlu8hKHeF1I8OpwlQ3xuSi0mZEFr7W0";
+        let bds = PublicKey::from_p384_jwk(
+            "ya_jxpHCfMZbjNJCjTncZp0p9o4dgcOFZiXlrAc7OVgH66N6bvOJHKtAKSF0Y08N",
+            "3OszOL3CVA7AfQs9kbLKEZ74yEhlJ6aHOQlu8hKHeF1I8OpwlQ3xuSi0mZEFr7W0",
+        )
+        .unwrap();
+        assert_eq!(STD.encode(bds.spki()), x5u);
+        let short = RAW_URL.encode(&[1; 47]);
+        let long = RAW_URL.encode(&[1; 49]);
+        let mut off_curve = RAW_URL.decode(&y, 48).unwrap();
+        off_curve[47] ^= 1;
+        for (x, y) in [
+            (short.as_str(), y.as_str()),
+            (x.as_str(), long.as_str()),
+            (x.as_str(), &RAW_URL.encode(&off_curve)),
+            (&format!("{x}="), y.as_str()),
+            (
+                &format!("+{}", x.chars().skip(1).collect::<String>()),
+                y.as_str(),
+            ),
+            ("", ""),
+        ] {
+            assert!(PublicKey::from_p384_jwk(x, y).is_err(), "{x} {y}");
+        }
     }
 
     #[test]

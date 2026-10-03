@@ -1,0 +1,1613 @@
+//! NetherNet signaling: a minimal HTTP/1.1 server over TCP, with optional TLS.
+//!
+//! It answers `GET /v1/join` with the server-list status and hands `POST /v1/join/{networkId}`
+//! offers to the offer consumer, enforcing the limits of PLAN.md 10.3. It never reads the SDP.
+//! Responses copy BDS 1.26.52: each one closes the connection, and a failed negotiation is still
+//! `200` with the error code as an `application/sdp` body.
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::io::{self, Read};
+use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+use rustls::pki_types::pem::{self, PemObject};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use socket2::{Domain, Protocol, Socket, Type};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::{Id, JoinHandle, JoinSet};
+use tokio_rustls::TlsAcceptor;
+use tracing::{debug, error, trace, warn};
+
+use crate::raknet::ip_key;
+
+/// Open signaling connections at once (PLAN.md 10.3).
+const MAX_CONNECTIONS: usize = 64;
+/// Open signaling connections from one IPv4 address or one IPv6 /64 (PLAN.md 10.3). A /64 is
+/// the smallest block one IPv6 host is commonly given, so it counts as one address.
+const MAX_CONNECTIONS_PER_IP: u8 = 4;
+/// The request line and headers, the closing empty line included (PLAN.md 10.3).
+const MAX_HEAD: usize = 8 * 1024;
+/// A request body after chunked decoding: the SDP offer limit (PLAN.md 10.3).
+const MAX_BODY: usize = 64 * 1024;
+/// Chunked framing (size lines, extensions, trailers), so tiny chunks cannot stretch a body read
+/// far past [`MAX_BODY`]. A client writing 4 KiB chunks spends about 8 bytes per chunk.
+const MAX_FRAMING: usize = 8 * 1024;
+/// One connection from accept to close: TLS handshake, reading, waiting for the answer and
+/// writing (PLAN.md 10.3). When it passes, the connection is dropped without a response.
+const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
+/// Bytes read from a connection at once.
+const READ_CHUNK: usize = 4096;
+/// Connections the kernel queues before they are accepted.
+const BACKLOG: i32 = 128;
+/// Pause after an accept error such as running out of file descriptors, which would otherwise
+/// repeat at once and spin the task.
+const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
+/// The first byte of a TLS handshake record: a client trying HTTPS first (PLAN.md 2).
+const TLS_HANDSHAKE: u8 = 0x16;
+/// What BDS sends to a TLS client hello on plain HTTP: an alert record (TLS 1.2, length 2)
+/// holding a fatal `handshake_failure`.
+const HANDSHAKE_FAILURE: [u8; 7] = [0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28];
+/// Largest certificate chain or key file.
+const MAX_PEM_BYTES: u64 = 1024 * 1024;
+/// Digits of a decimal u64: the longest valid network id.
+const MAX_NETWORK_ID_DIGITS: usize = 20;
+/// Negotiation code (go-nethernet `ErrorCodeFailedToSetRemoteDescription`) for an offer that
+/// cannot be used: an empty or non-UTF-8 body here, a malformed SDP in the offer task.
+pub(crate) const CODE_BAD_OFFER: u32 = 13;
+/// Negotiation code (go-nethernet `ErrorCodeFailedToCreateAnswer`) when no answer can be made.
+pub(crate) const CODE_INTERNAL: u32 = 11;
+
+/// A failure to load the TLS certificate or key.
+#[derive(Debug)]
+pub(crate) enum Error {
+    /// A file cannot be read.
+    Read {
+        /// The file.
+        path: PathBuf,
+        /// The cause.
+        source: io::Error,
+    },
+    /// A file is larger than [`MAX_PEM_BYTES`].
+    TooLarge {
+        /// The file.
+        path: PathBuf,
+    },
+    /// A file is not PEM or holds no item of the expected kind.
+    Pem {
+        /// The file.
+        path: PathBuf,
+        /// The cause.
+        source: pem::Error,
+    },
+    /// rustls refused the certificate chain or the key.
+    Tls(rustls::Error),
+}
+
+/// A signaling result.
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Read { path, .. } => write!(f, "cannot read {}", path.display()),
+            Self::TooLarge { path } => {
+                write!(f, "{} is larger than {MAX_PEM_BYTES} bytes", path.display())
+            }
+            Self::Pem { path, .. } => write!(f, "{} holds no valid pem item", path.display()),
+            Self::Tls(_) => f.write_str("invalid tls certificate or key"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { source, .. } => Some(source),
+            Self::Pem { source, .. } => Some(source),
+            Self::Tls(source) => Some(source),
+            Self::TooLarge { .. } => None,
+        }
+    }
+}
+
+/// Reads a PEM certificate chain (leaf first) and a PEM private key into a TLS configuration
+/// on the aws-lc-rs provider. Blocking: call it once at start on the blocking pool.
+pub(crate) fn load_tls(cert: &Path, key: &Path) -> Result<Arc<rustls::ServerConfig>> {
+    let pem_error = |path: &Path| {
+        let path = path.to_owned();
+        move |source| Error::Pem { path, source }
+    };
+    let chain = CertificateDer::pem_slice_iter(&read_pem(cert)?)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(pem_error(cert))?;
+    if chain.is_empty() {
+        return Err(pem_error(cert)(pem::Error::NoItemsFound));
+    }
+    let key = PrivateKeyDer::from_pem_slice(&read_pem(key)?).map_err(pem_error(key))?;
+    // An explicit provider: rustls panics when none is given and no process default is set.
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let mut config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(Error::Tls)?
+        .with_no_client_auth()
+        .with_single_cert(chain, key)
+        .map_err(Error::Tls)?;
+    // One request per connection: resumption only costs tickets and a session cache.
+    config.send_tls13_tickets = 0;
+    config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
+    Ok(Arc::new(config))
+}
+
+/// Reads up to [`MAX_PEM_BYTES`] of `path`.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: read once at start on the blocking pool"
+)]
+fn read_pem(path: &Path) -> Result<Vec<u8>> {
+    let read = |source| Error::Read {
+        path: path.to_owned(),
+        source,
+    };
+    let file = std::fs::File::open(path).map_err(read)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_PEM_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(read)?;
+    if u64::try_from(bytes.len()).map_or(true, |len| len > MAX_PEM_BYTES) {
+        return Err(Error::TooLarge {
+            path: path.to_owned(),
+        });
+    }
+    Ok(bytes)
+}
+
+/// Socket settings for `spawn`.
+#[derive(Clone, Debug)]
+pub(crate) struct Settings {
+    /// IPv4 address to bind, if any.
+    pub(crate) v4: Option<SocketAddrV4>,
+    /// IPv6 address to bind (IPv6 only), if any.
+    pub(crate) v6: Option<SocketAddrV6>,
+    /// `Some`: every connection is HTTPS. `None`: plain HTTP.
+    pub(crate) tls: Option<Arc<rustls::ServerConfig>>,
+}
+
+/// An SDP offer from `POST /v1/join/{networkId}`, waiting for its reply.
+pub(crate) struct Offer {
+    /// The client's network id from the path.
+    pub(crate) network_id: u64,
+    /// The offer: non-empty UTF-8 of at most 64 KiB, otherwise unchecked.
+    pub(crate) sdp: String,
+    /// The client's TCP address (IPv4-mapped IPv6 as IPv4).
+    pub(crate) peer: SocketAddr,
+    /// The server's TCP address the client reached (IPv4-mapped IPv6 as IPv4).
+    pub(crate) local: SocketAddr,
+    /// Where the answer goes. It is closed once the client is gone or the deadline passed.
+    pub(crate) reply: oneshot::Sender<Reply>,
+}
+
+impl fmt::Debug for Offer {
+    // The SDP carries the client's identity token, which must stay out of logs.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Offer")
+            .field("network_id", &self.network_id)
+            .field("sdp_len", &self.sdp.len())
+            .field("peer", &self.peer)
+            .field("local", &self.local)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The answer to an [`Offer`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Reply {
+    /// `200`, `application/sdp`, the answer SDP.
+    Answer(String),
+    /// `200`, `application/sdp`, the negotiation error code in decimal (BDS).
+    Code(u32),
+    /// `503 Service Unavailable`: too many peers before login (PLAN.md 3).
+    Busy,
+}
+
+/// Binds the listeners on the current tokio runtime and serves them in tasks. `status` holds
+/// the whole `GET /v1/join` body; `offers` receives each offer (when it is full, the request
+/// gets `503`).
+pub(crate) fn spawn(
+    settings: Settings,
+    status: watch::Receiver<Arc<[u8]>>,
+    offers: mpsc::Sender<Offer>,
+) -> io::Result<Handle> {
+    let runtime = tokio::runtime::Handle::try_current().map_err(io::Error::other)?;
+    let _guard = runtime.enter();
+    let v4 = settings.v4.map(|addr| bind(addr.into())).transpose()?;
+    let v6 = settings.v6.map(|addr| bind(addr.into())).transpose()?;
+    let local_addrs = v4
+        .iter()
+        .chain(&v6)
+        .map(TcpListener::local_addr)
+        .collect::<io::Result<Vec<_>>>()?;
+    if local_addrs.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "signaling needs an address",
+        ));
+    }
+    let context = Context {
+        tls: settings.tls,
+        status,
+        offers,
+        unavailable: encode_status(Status::Unavailable),
+    };
+    let (stop, stopped) = oneshot::channel();
+    let task = runtime.spawn(serve([v4, v6], Arc::new(context), stopped));
+    Ok(Handle {
+        local_addrs,
+        stop,
+        task,
+    })
+}
+
+fn bind(addr: SocketAddr) -> io::Result<TcpListener> {
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
+    if addr.is_ipv6() {
+        // Lets the IPv4 socket bind the same port on every OS.
+        socket.set_only_v6(true)?;
+    }
+    // As std does on Unix: a restart may bind while closed connections sit in TIME_WAIT. On
+    // Windows the option lets another socket take a bound port, so it stays off there.
+    #[cfg(not(windows))]
+    socket.set_reuse_address(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(BACKLOG)?;
+    TcpListener::from_std(socket.into())
+}
+
+/// Controls the signaling task.
+#[derive(Debug)]
+pub(crate) struct Handle {
+    local_addrs: Vec<SocketAddr>,
+    stop: oneshot::Sender<()>,
+    task: JoinHandle<()>,
+}
+
+impl Handle {
+    /// The bound addresses (IPv4 first).
+    pub(crate) fn local_addrs(&self) -> &[SocketAddr] {
+        &self.local_addrs
+    }
+
+    /// Stops accepting, aborts every open connection and waits for the tasks to end. Dropping
+    /// the handle does the same without waiting.
+    pub(crate) async fn shutdown(self) {
+        if self.stop.send(()).is_err() {
+            debug!("signaling task already stopped");
+        }
+        if let Err(error) = self.task.await {
+            error!(%error, "signaling task failed");
+        }
+    }
+}
+
+/// What every connection task reads.
+#[derive(Debug)]
+struct Context {
+    tls: Option<Arc<rustls::ServerConfig>>,
+    status: watch::Receiver<Arc<[u8]>>,
+    offers: mpsc::Sender<Offer>,
+    /// The `503` response, written to connections over the limit without a task.
+    unavailable: Vec<u8>,
+}
+
+/// The connection budget key: an IPv4 address or an IPv6 /64, as RakNet counts them.
+type Group = u128;
+
+/// Open connections, in total and per [`Group`].
+#[derive(Debug, Default)]
+struct Limits {
+    total: usize,
+    groups: BTreeMap<Group, u8>,
+}
+
+impl Limits {
+    /// Counts a new connection, or returns `false` if it would pass a limit.
+    fn try_add(&mut self, group: Group) -> bool {
+        if self.total >= MAX_CONNECTIONS {
+            return false;
+        }
+        let count = self.groups.entry(group).or_default();
+        if *count >= MAX_CONNECTIONS_PER_IP {
+            return false;
+        }
+        *count += 1;
+        self.total += 1;
+        true
+    }
+
+    fn remove(&mut self, group: Group) {
+        if let Some(count) = self.groups.get_mut(&group) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.groups.remove(&group);
+            }
+            self.total = self.total.saturating_sub(1);
+        }
+    }
+}
+
+/// The accept task: owns the listeners, the limits and every connection task.
+async fn serve(
+    listeners: [Option<TcpListener>; 2],
+    context: Arc<Context>,
+    mut stopped: oneshot::Receiver<()>,
+) {
+    let [v4, v6] = listeners;
+    let mut tasks = JoinSet::new();
+    let mut groups = BTreeMap::<Id, Group>::new();
+    let mut limits = Limits::default();
+    loop {
+        let accepted = tokio::select! {
+            accepted = accept(v4.as_ref()) => accepted,
+            accepted = accept(v6.as_ref()) => accepted,
+            Some(joined) = tasks.join_next_with_id() => {
+                let id = match joined {
+                    Ok((id, ())) => id,
+                    Err(error) => {
+                        if error.is_panic() {
+                            error!(%error, "signaling connection task panicked");
+                        }
+                        error.id()
+                    }
+                };
+                if let Some(group) = groups.remove(&id) {
+                    limits.remove(group);
+                }
+                continue;
+            }
+            // A stop request or a dropped handle.
+            _ = &mut stopped => break,
+        };
+        match accepted {
+            Ok((stream, peer)) => {
+                let group = ip_key(peer.ip());
+                if !limits.try_add(group) {
+                    debug!(%peer, "signaling connection over the limit");
+                    // A TLS client cannot read a plain response, so it only sees the close.
+                    if context.tls.is_none() {
+                        refuse(&stream, &context.unavailable, peer);
+                    }
+                    continue;
+                }
+                let task = tasks.spawn(connection(stream, peer, Arc::clone(&context)));
+                groups.insert(task.id(), group);
+            }
+            Err(error) => match error.kind() {
+                // The client gave up before the accept: nothing is wrong with the listener.
+                io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::Interrupted => trace!(%error, "signaling accept skipped"),
+                _ => {
+                    warn!(%error, "signaling accept failed; pausing");
+                    tokio::time::sleep(ACCEPT_BACKOFF).await;
+                }
+            },
+        }
+    }
+    tasks.shutdown().await;
+    debug!("signaling task stopped");
+}
+
+/// Writes `response` to a connection over the limit without a task; the caller then drops it
+/// unread. Best effort: if the client's request has already arrived, closing with unread bytes
+/// sends a reset, which the client may see instead of the response.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the accepted socket is non-blocking, so the send returns at once"
+)]
+fn refuse(stream: &TcpStream, response: &[u8], peer: SocketAddr) {
+    // `TcpStream::try_write` would refuse here: tokio has no write readiness for a socket it
+    // has not polled yet. The empty send buffer takes the whole response.
+    if let Err(error) = socket2::SockRef::from(stream).send(response) {
+        trace!(%peer, %error, "signaling 503 not sent");
+    }
+}
+
+async fn accept(listener: Option<&TcpListener>) -> io::Result<(TcpStream, SocketAddr)> {
+    match listener {
+        Some(listener) => listener.accept().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// One connection: one request, one response, then close.
+async fn connection(stream: TcpStream, peer: SocketAddr, context: Arc<Context>) {
+    let peer = canonical(peer);
+    debug!(%peer, "signaling connection opened");
+    match tokio::time::timeout(REQUEST_DEADLINE, exchange(stream, peer, &context)).await {
+        Ok(Ok(())) => debug!(%peer, "signaling connection closed"),
+        Ok(Err(error)) => debug!(%peer, %error, "signaling connection failed"),
+        Err(_) => debug!(%peer, "signaling request timed out"),
+    }
+}
+
+async fn exchange(stream: TcpStream, peer: SocketAddr, context: &Context) -> io::Result<()> {
+    let local = canonical(stream.local_addr()?);
+    match &context.tls {
+        Some(config) => {
+            let stream = TlsAcceptor::from(Arc::clone(config)).accept(stream).await?;
+            respond(stream, peer, local, context).await
+        }
+        None => respond(stream, peer, local, context).await,
+    }
+}
+
+/// Reads one request, writes its response and closes the stream.
+async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    peer: SocketAddr,
+    local: SocketAddr,
+    context: &Context,
+) -> io::Result<()> {
+    let mut parser = Parser::default();
+    let mut buf = [0; READ_CHUNK];
+    let mut first = context.tls.is_none();
+    let parsed = loop {
+        let read = stream.read(&mut buf).await?;
+        let Some(data) = buf.get(..read).filter(|data| !data.is_empty()) else {
+            trace!(%peer, "signaling client closed before a whole request");
+            return Ok(());
+        };
+        if first && data.first() == Some(&TLS_HANDSHAKE) {
+            trace!(%peer, "signaling refused a tls handshake on plain http");
+            stream.write_all(&HANDSHAKE_FAILURE).await?;
+            return stream.shutdown().await;
+        }
+        first = false;
+        match parser.push(data) {
+            Ok(None) => {}
+            Ok(Some(request)) => break Ok(request),
+            Err(status) => break Err(status),
+        }
+    };
+    let response = match parsed {
+        Ok(request) => answer(request, peer, local, context).await,
+        Err(status) => {
+            trace!(%peer, code = status.code(), "signaling request refused");
+            encode_status(status)
+        }
+    };
+    stream.write_all(&response).await?;
+    stream.shutdown().await
+}
+
+async fn answer(
+    request: Request,
+    peer: SocketAddr,
+    local: SocketAddr,
+    context: &Context,
+) -> Vec<u8> {
+    match route(request.method, &request.path) {
+        Route::Status => {
+            trace!(%peer, "signaling status request");
+            let status = Arc::clone(&context.status.borrow());
+            encode(Status::Ok, Kind::Json, &status)
+        }
+        Route::Offer(network_id) => {
+            trace!(%peer, network_id, "signaling offer");
+            let Ok(sdp) = String::from_utf8(request.body) else {
+                return encode_code(CODE_BAD_OFFER);
+            };
+            if sdp.is_empty() {
+                return encode_code(CODE_BAD_OFFER);
+            }
+            let (reply, replied) = oneshot::channel();
+            let offer = Offer {
+                network_id,
+                sdp,
+                peer,
+                local,
+                reply,
+            };
+            match context.offers.try_send(offer) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) => return encode_status(Status::Unavailable),
+                Err(TrySendError::Closed(_)) => return encode_code(CODE_INTERNAL),
+            }
+            match replied.await {
+                Ok(Reply::Answer(sdp)) => encode(Status::Ok, Kind::Sdp, sdp.as_bytes()),
+                Ok(Reply::Code(code)) => encode_code(code),
+                Ok(Reply::Busy) => encode_status(Status::Unavailable),
+                Err(_) => encode_code(CODE_INTERNAL),
+            }
+        }
+        Route::Reject(status) => {
+            trace!(%peer, code = status.code(), "signaling request refused");
+            encode_status(status)
+        }
+    }
+}
+
+/// `addr` with an IPv4-mapped IPv6 address written as IPv4.
+fn canonical(addr: SocketAddr) -> SocketAddr {
+    SocketAddr::new(addr.ip().to_canonical(), addr.port())
+}
+
+/// A response status. Except `200`, the reason phrase is also the `text/plain` body, as in BDS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Status {
+    Ok,
+    BadRequest,
+    /// BDS puts this message in the status line.
+    BadNetworkId,
+    NotFound,
+    PayloadTooLarge,
+    HeaderFieldsTooLarge,
+    Unavailable,
+}
+
+impl Status {
+    fn code(self) -> u16 {
+        match self {
+            Self::Ok => 200,
+            Self::BadRequest | Self::BadNetworkId => 400,
+            Self::NotFound => 404,
+            Self::PayloadTooLarge => 413,
+            Self::HeaderFieldsTooLarge => 431,
+            Self::Unavailable => 503,
+        }
+    }
+
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Ok => "OK",
+            Self::BadRequest => "Bad Request",
+            Self::BadNetworkId => "Expected /v1/join/{networkId}",
+            Self::NotFound => "Not Found",
+            Self::PayloadTooLarge => "Payload Too Large",
+            Self::HeaderFieldsTooLarge => "Request Header Fields Too Large",
+            Self::Unavailable => "Service Unavailable",
+        }
+    }
+}
+
+/// A response body type.
+#[derive(Clone, Copy, Debug)]
+enum Kind {
+    Json,
+    Sdp,
+    Text,
+}
+
+impl Kind {
+    fn mime(self) -> &'static str {
+        match self {
+            Self::Json => "application/json",
+            Self::Sdp => "application/sdp",
+            Self::Text => "text/plain",
+        }
+    }
+}
+
+/// A whole response, closing the connection.
+fn encode(status: Status, kind: Kind, body: &[u8]) -> Vec<u8> {
+    let head = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        status.code(),
+        status.reason(),
+        kind.mime(),
+        body.len()
+    );
+    let mut response = Vec::with_capacity(head.len().saturating_add(body.len()));
+    response.extend_from_slice(head.as_bytes());
+    response.extend_from_slice(body);
+    response
+}
+
+/// A refusal with its reason phrase as the body.
+fn encode_status(status: Status) -> Vec<u8> {
+    encode(status, Kind::Text, status.reason().as_bytes())
+}
+
+/// A failed negotiation: `200` with the code as the SDP body (BDS).
+fn encode_code(code: u32) -> Vec<u8> {
+    encode(Status::Ok, Kind::Sdp, code.to_string().as_bytes())
+}
+
+/// What a request asks for.
+#[derive(Debug, PartialEq, Eq)]
+enum Route {
+    Status,
+    Offer(u64),
+    Reject(Status),
+}
+
+/// Routes like BDS: an unknown path, or a known path with another method, is `404`.
+fn route(method: Method, path: &str) -> Route {
+    if method == Method::Get && path == "/v1/join" {
+        return Route::Status;
+    }
+    if method == Method::Post
+        && let Some(id) = path.strip_prefix("/v1/join/")
+    {
+        return network_id(id).map_or(Route::Reject(Status::BadNetworkId), Route::Offer);
+    }
+    Route::Reject(Status::NotFound)
+}
+
+/// A decimal u64 of 1 to 20 digits, nothing else (`parse` alone would take a `+` sign).
+fn network_id(id: &str) -> Option<u64> {
+    let digits = (1..=MAX_NETWORK_ID_DIGITS).contains(&id.len())
+        && id.bytes().all(|byte| byte.is_ascii_digit());
+    digits.then(|| id.parse().ok()).flatten()
+}
+
+/// A request method; only GET and POST are routed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Method {
+    Get,
+    Post,
+    Other,
+}
+
+/// A whole request.
+#[derive(Debug, PartialEq, Eq)]
+struct Request {
+    method: Method,
+    /// The request target up to `?`: visible ASCII starting with `/`.
+    path: String,
+    /// At most [`MAX_BODY`] bytes.
+    body: Vec<u8>,
+}
+
+/// Where the parser is.
+#[derive(Clone, Copy, Debug)]
+enum State {
+    /// Reading the head; its first `scanned` bytes hold no CRLF CRLF.
+    Head {
+        scanned: usize,
+    },
+    /// `remaining` bytes of a `Content-Length` body follow.
+    Body {
+        remaining: usize,
+    },
+    Chunked(Chunk),
+    /// The request was returned; later bytes are ignored.
+    Done,
+}
+
+/// Where the chunked decoder is.
+#[derive(Clone, Copy, Debug)]
+enum Chunk {
+    /// Reading the hex size; `digits` says whether one was seen.
+    Size {
+        size: usize,
+        digits: bool,
+    },
+    /// Skipping a chunk extension.
+    Extension {
+        size: usize,
+    },
+    /// After the CR ending the size line.
+    SizeLf {
+        size: usize,
+    },
+    Data {
+        remaining: usize,
+    },
+    DataCr,
+    DataLf,
+    /// At the start of a trailer line or the final empty line.
+    TrailerStart,
+    Trailer,
+    TrailerLf,
+    /// After the CR of the final empty line.
+    EndLf,
+}
+
+/// An incremental HTTP/1.x request parser over bytes: no sockets, no clocks. Every byte is
+/// looked at once, and every buffer is bounded before it grows.
+#[derive(Debug)]
+struct Parser {
+    head: Vec<u8>,
+    state: State,
+    method: Method,
+    path: String,
+    body: Vec<u8>,
+    /// Chunked framing bytes so far, against [`MAX_FRAMING`].
+    framing: usize,
+}
+
+impl Default for Parser {
+    fn default() -> Self {
+        Self {
+            head: Vec::new(),
+            state: State::Head { scanned: 0 },
+            method: Method::Other,
+            path: String::new(),
+            body: Vec::new(),
+            framing: 0,
+        }
+    }
+}
+
+impl Parser {
+    /// Feeds the next bytes. `Ok(Some)` once the request is whole, `Ok(None)` while more is
+    /// needed, `Err` with the status to refuse with.
+    fn push(&mut self, data: &[u8]) -> Result<Option<Request>, Status> {
+        let data = match self.state {
+            State::Head { scanned } => {
+                let Some(rest) = self.push_head(scanned, data)? else {
+                    return Ok(None);
+                };
+                rest
+            }
+            State::Body { .. } | State::Chunked(_) => data,
+            State::Done => return Ok(None),
+        };
+        let done = match self.state {
+            State::Body { remaining } => {
+                let take = remaining.min(data.len());
+                self.body
+                    .extend_from_slice(data.get(..take).unwrap_or_default());
+                let remaining = remaining.saturating_sub(take);
+                self.state = State::Body { remaining };
+                remaining == 0
+            }
+            State::Chunked(chunk) => match self.push_chunked(chunk, data)? {
+                Some(chunk) => {
+                    self.state = State::Chunked(chunk);
+                    false
+                }
+                None => true,
+            },
+            State::Head { .. } | State::Done => false,
+        };
+        if !done {
+            return Ok(None);
+        }
+        self.state = State::Done;
+        Ok(Some(Request {
+            method: self.method,
+            path: std::mem::take(&mut self.path),
+            body: std::mem::take(&mut self.body),
+        }))
+    }
+
+    /// Adds head bytes. Once the head is whole, parses it, sets the body state and returns
+    /// the bytes after it.
+    fn push_head<'a>(
+        &mut self,
+        scanned: usize,
+        data: &'a [u8],
+    ) -> Result<Option<&'a [u8]>, Status> {
+        let before = self.head.len();
+        let take = MAX_HEAD.saturating_sub(before).min(data.len());
+        self.head
+            .extend_from_slice(data.get(..take).unwrap_or_default());
+        // CRLF CRLF may straddle the last push.
+        let from = scanned.saturating_sub(3);
+        let found = self
+            .head
+            .get(from..)
+            .and_then(|tail| tail.windows(4).position(|window| window == b"\r\n\r\n"));
+        let Some(end) = found.and_then(|at| at.checked_add(from + 4)) else {
+            if self.head.len() >= MAX_HEAD {
+                return Err(Status::HeaderFieldsTooLarge);
+            }
+            self.state = State::Head {
+                scanned: self.head.len(),
+            };
+            return Ok(None);
+        };
+        // The terminator was not in the bytes scanned before, so it ends in the new ones.
+        let used = end.checked_sub(before).ok_or(Status::BadRequest)?;
+        let head = self.head.get(..end).ok_or(Status::BadRequest)?;
+        let (method, path, framing) = parse_head(head)?;
+        self.head = Vec::new();
+        self.method = method;
+        self.path = path;
+        self.state = match framing {
+            Framing::Length(length) => {
+                self.body.reserve_exact(length);
+                State::Body { remaining: length }
+            }
+            Framing::Chunked => State::Chunked(Chunk::Size {
+                size: 0,
+                digits: false,
+            }),
+        };
+        Ok(Some(data.get(used..).unwrap_or_default()))
+    }
+
+    /// Decodes chunked bytes. Returns the next state, or `None` at the end of the body.
+    fn push_chunked(&mut self, mut chunk: Chunk, mut data: &[u8]) -> Result<Option<Chunk>, Status> {
+        loop {
+            if let Chunk::Data { remaining } = chunk {
+                if data.is_empty() {
+                    return Ok(Some(chunk));
+                }
+                let take = remaining.min(data.len());
+                let (bytes, rest) = data.split_at_checked(take).ok_or(Status::BadRequest)?;
+                self.body.extend_from_slice(bytes);
+                data = rest;
+                chunk = match remaining.saturating_sub(take) {
+                    0 => Chunk::DataCr,
+                    remaining => Chunk::Data { remaining },
+                };
+                continue;
+            }
+            let Some((&byte, rest)) = data.split_first() else {
+                return Ok(Some(chunk));
+            };
+            data = rest;
+            self.framing = self.framing.saturating_add(1);
+            if self.framing > MAX_FRAMING {
+                return Err(Status::PayloadTooLarge);
+            }
+            chunk = match (chunk, byte) {
+                (Chunk::Size { size, .. }, byte) if byte.is_ascii_hexdigit() => {
+                    let digit = char::from(byte).to_digit(16).ok_or(Status::BadRequest)?;
+                    let room = MAX_BODY.saturating_sub(self.body.len());
+                    let size = size
+                        .checked_mul(16)
+                        .and_then(|size| size.checked_add(usize::try_from(digit).ok()?))
+                        .filter(|&size| size <= room)
+                        .ok_or(Status::PayloadTooLarge)?;
+                    Chunk::Size { size, digits: true }
+                }
+                (Chunk::Size { size, digits: true }, b' ' | b'\t' | b';') => {
+                    Chunk::Extension { size }
+                }
+                (Chunk::Size { size, digits: true } | Chunk::Extension { size }, b'\r') => {
+                    Chunk::SizeLf { size }
+                }
+                (Chunk::Extension { size }, byte) if is_field_byte(byte) => {
+                    Chunk::Extension { size }
+                }
+                (Chunk::SizeLf { size: 0 } | Chunk::TrailerLf, b'\n') => Chunk::TrailerStart,
+                (Chunk::SizeLf { size }, b'\n') => {
+                    self.body.reserve_exact(size);
+                    Chunk::Data { remaining: size }
+                }
+                (Chunk::DataCr, b'\r') => Chunk::DataLf,
+                (Chunk::DataLf, b'\n') => Chunk::Size {
+                    size: 0,
+                    digits: false,
+                },
+                (Chunk::TrailerStart, b'\r') => Chunk::EndLf,
+                (Chunk::EndLf, b'\n') => return Ok(None),
+                (Chunk::TrailerStart | Chunk::Trailer, byte) if is_field_byte(byte) => {
+                    Chunk::Trailer
+                }
+                (Chunk::Trailer, b'\r') => Chunk::TrailerLf,
+                _ => return Err(Status::BadRequest),
+            };
+        }
+    }
+}
+
+/// How a request body is framed.
+#[derive(Clone, Copy, Debug)]
+enum Framing {
+    /// `Content-Length`, at most [`MAX_BODY`]; also 0 when neither header is present.
+    Length(usize),
+    Chunked,
+}
+
+/// Parses a head ending in CRLF CRLF.
+fn parse_head(head: &[u8]) -> Result<(Method, String, Framing), Status> {
+    // Without the final CRLF every line, the request line included, ends in CRLF.
+    let head = head.strip_suffix(b"\r\n").ok_or(Status::BadRequest)?;
+    let mut lines = head.split_inclusive(|&byte| byte == b'\n').map(|line| {
+        line.strip_suffix(b"\r\n")
+            .filter(|line| !line.contains(&b'\r'))
+            .ok_or(Status::BadRequest)
+    });
+    let request_line = lines.next().ok_or(Status::BadRequest)??;
+    let (method, path, http11) = parse_request_line(request_line)?;
+    let mut length = None;
+    let mut chunked = false;
+    let mut transfer_encoding = false;
+    for line in lines {
+        let line = line?;
+        let colon = line
+            .iter()
+            .position(|&byte| byte == b':')
+            .ok_or(Status::BadRequest)?;
+        let (name, value) = line.split_at_checked(colon).ok_or(Status::BadRequest)?;
+        let value = trim_whitespace(value.get(1..).unwrap_or_default());
+        if !is_token(name) || !value.iter().all(|&byte| is_field_byte(byte)) {
+            return Err(Status::BadRequest);
+        }
+        if name.eq_ignore_ascii_case(b"content-length") {
+            if length.is_some() || value.is_empty() || !value.iter().all(u8::is_ascii_digit) {
+                return Err(Status::BadRequest);
+            }
+            // Saturation is refused below as too large.
+            length = Some(value.iter().fold(0_usize, |length, &digit| {
+                length
+                    .saturating_mul(10)
+                    .saturating_add(usize::from(digit - b'0'))
+            }));
+        } else if name.eq_ignore_ascii_case(b"transfer-encoding") {
+            if transfer_encoding || !value.eq_ignore_ascii_case(b"chunked") {
+                return Err(Status::BadRequest);
+            }
+            transfer_encoding = true;
+            chunked = true;
+        }
+    }
+    let framing = match (length, chunked) {
+        // Both framings at once is the request-smuggling shape (RFC 9112 6.3).
+        (Some(_), true) => return Err(Status::BadRequest),
+        (None, true) if !http11 => return Err(Status::BadRequest),
+        (None, true) => Framing::Chunked,
+        (Some(length), false) if length > MAX_BODY => return Err(Status::PayloadTooLarge),
+        (Some(length), false) => Framing::Length(length),
+        (None, false) => Framing::Length(0),
+    };
+    Ok((method, path, framing))
+}
+
+/// Parses `METHOD SP /target SP HTTP/1.x`; returns whether the version is 1.1.
+fn parse_request_line(line: &[u8]) -> Result<(Method, String, bool), Status> {
+    let mut parts = line.split(|&byte| byte == b' ');
+    let (Some(method), Some(target), Some(version), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(Status::BadRequest);
+    };
+    let method = match method {
+        b"GET" => Method::Get,
+        b"POST" => Method::Post,
+        method if is_token(method) => Method::Other,
+        _ => return Err(Status::BadRequest),
+    };
+    let http11 = match version {
+        b"HTTP/1.1" => true,
+        b"HTTP/1.0" => false,
+        _ => return Err(Status::BadRequest),
+    };
+    if target.first() != Some(&b'/') || !target.iter().all(u8::is_ascii_graphic) {
+        return Err(Status::BadRequest);
+    }
+    let path = target
+        .split(|&byte| byte == b'?')
+        .next()
+        .unwrap_or_default();
+    let path = String::from_utf8(path.to_vec()).map_err(|_| Status::BadRequest)?;
+    Ok((method, path, http11))
+}
+
+/// A non-empty RFC 9110 token: a method or a header name.
+fn is_token(bytes: &[u8]) -> bool {
+    !bytes.is_empty()
+        && bytes
+            .iter()
+            .all(|&byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
+}
+
+/// `bytes` without HTTP whitespace (space and tab) at either end.
+fn trim_whitespace(mut bytes: &[u8]) -> &[u8] {
+    while let [b' ' | b'\t', rest @ ..] = bytes {
+        bytes = rest;
+    }
+    while let [rest @ .., b' ' | b'\t'] = bytes {
+        bytes = rest;
+    }
+    bytes
+}
+
+/// A byte of a header value or chunk extension: tab, visible ASCII, space or obs-text.
+fn is_field_byte(byte: u8) -> bool {
+    byte == b'\t' || byte == b' ' || byte.is_ascii_graphic() || byte >= 0x80
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use tokio_rustls::TlsConnector;
+
+    use super::*;
+
+    const WAIT: Duration = Duration::from_secs(10);
+    const STATUS: &[u8] = br#"{"name":"Anchor","protocol":1}"#;
+
+    fn testdata(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/nethernet/testdata")
+            .join(name)
+    }
+
+    /// Runs a test on its own single-thread runtime.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test drives the signaling task on a runtime of its own"
+    )]
+    fn run<F: Future>(test: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(test)
+    }
+
+    /// Like `run`, with time paused: it jumps ahead whenever every task waits.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test drives the signaling task on a runtime of its own"
+    )]
+    fn run_paused<F: Future>(test: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .unwrap()
+            .block_on(test)
+    }
+
+    /// A server on an IPv4 localhost port with `offers` as its queue.
+    fn server(
+        tls: Option<Arc<rustls::ServerConfig>>,
+        offers: mpsc::Sender<Offer>,
+    ) -> (Handle, SocketAddr, watch::Sender<Arc<[u8]>>) {
+        let (status, statuses) = watch::channel(Arc::<[u8]>::from(STATUS));
+        let settings = Settings {
+            v4: Some(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+            v6: None,
+            tls,
+        };
+        let handle = spawn(settings, statuses, offers).unwrap();
+        let addr = handle.local_addrs()[0];
+        (handle, addr, status)
+    }
+
+    /// Sends `request` on a new connection and reads until the server closes it.
+    async fn send(addr: SocketAddr, request: &[u8]) -> Vec<u8> {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream.write_all(request).await.unwrap();
+        read_all(&mut stream).await
+    }
+
+    async fn read_all<S: AsyncRead + Unpin>(stream: &mut S) -> Vec<u8> {
+        let mut response = Vec::new();
+        tokio::time::timeout(WAIT, stream.read_to_end(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        response
+    }
+
+    fn response(head: &str, body: &str) -> Vec<u8> {
+        let (code, kind) = head.rsplit_once(' ').unwrap();
+        format!(
+            "HTTP/1.1 {code}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes()
+    }
+
+    fn text(code: &str) -> Vec<u8> {
+        let reason = code.split_once(' ').unwrap().1;
+        response(&format!("{code} text/plain"), reason)
+    }
+
+    fn sdp(body: &str) -> Vec<u8> {
+        response("200 OK application/sdp", body)
+    }
+
+    fn post(network_id: &str, body: &str) -> Vec<u8> {
+        format!(
+            "POST /v1/join/{network_id} HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes()
+    }
+
+    /// Answers offers by network id: 1 answers, 2 fails with 37, 3 is busy, others drop.
+    async fn consume(mut offers: mpsc::Receiver<Offer>) {
+        while let Some(offer) = offers.recv().await {
+            assert_eq!(offer.peer.ip(), Ipv4Addr::LOCALHOST);
+            assert_eq!(offer.local.ip(), Ipv4Addr::LOCALHOST);
+            let reply = match offer.network_id {
+                1 => Reply::Answer(format!("answer to {}", offer.sdp)),
+                2 => Reply::Code(37),
+                3 => Reply::Busy,
+                _ => continue,
+            };
+            offer.reply.send(reply).unwrap();
+        }
+    }
+
+    #[test]
+    fn requests_get_bds_responses() {
+        run(requests_get_responses());
+    }
+
+    async fn requests_get_responses() {
+        let (offers, received) = mpsc::channel(8);
+        let consumer = tokio::spawn(consume(received));
+        let (handle, addr, status) = server(None, offers);
+        let json = |body: &[u8]| {
+            response(
+                "200 OK application/json",
+                std::str::from_utf8(body).unwrap(),
+            )
+        };
+
+        let get = b"GET /v1/join HTTP/1.1\r\nHost: x\r\n\r\n";
+        assert_eq!(send(addr, get).await, json(STATUS));
+        status.send(Arc::from(&b"{}"[..])).unwrap();
+        assert_eq!(send(addr, get).await, json(b"{}"));
+        let query = b"GET /v1/join?x=1 HTTP/1.0\r\n\r\n";
+        assert_eq!(send(addr, query).await, json(b"{}"));
+
+        assert_eq!(
+            send(addr, &post("1", "offer")).await,
+            sdp("answer to offer")
+        );
+        assert_eq!(send(addr, &post("2", "offer")).await, sdp("37"));
+        assert_eq!(
+            send(addr, &post("3", "offer")).await,
+            text("503 Service Unavailable")
+        );
+        assert_eq!(send(addr, &post("4", "offer")).await, sdp("11"));
+        assert_eq!(send(addr, &post("1", "")).await, sdp("13"));
+        let latin1 = b"POST /v1/join/1 HTTP/1.1\r\nContent-Length: 1\r\n\r\n\xff";
+        assert_eq!(send(addr, latin1).await, sdp("13"));
+        let chunked = b"POST /v1/join/1 HTTP/1.1\r\nTransfer-Encoding: Chunked\r\n\r\n\
+            3;ext=1\r\noff\r\n2\r\ner\r\n0\r\nTrailer: x\r\n\r\n";
+        assert_eq!(send(addr, chunked).await, sdp("answer to offer"));
+
+        let bad_id = text("400 Expected /v1/join/{networkId}");
+        for id in ["", "abc", "+1", "-1", "1a", "18446744073709551616", "1/2"] {
+            assert_eq!(send(addr, &post(id, "offer")).await, bad_id, "{id}");
+        }
+        assert_eq!(
+            send(addr, &post("18446744073709551615", "")).await,
+            sdp("13")
+        );
+
+        let not_found = text("404 Not Found");
+        for request in [
+            &b"GET / HTTP/1.1\r\n\r\n"[..],
+            b"GET /v1/joined HTTP/1.1\r\n\r\n",
+            b"GET /v1/join/1 HTTP/1.1\r\n\r\n",
+            b"PUT /v1/join HTTP/1.1\r\n\r\n",
+            b"POST /v1/join HTTP/1.1\r\n\r\n",
+            b"get /v1/join HTTP/1.1\r\n\r\n",
+        ] {
+            assert_eq!(send(addr, request).await, not_found);
+        }
+
+        let bad = text("400 Bad Request");
+        for request in [
+            &b"GET /v1/join HTTP/2.0\r\n\r\n"[..],
+            b"GET  /v1/join HTTP/1.1\r\n\r\n",
+            b"GET /v1/join HTTP/1.1\r\nNo colon\r\n\r\n",
+            b"GET /v1/join HTTP/1.1\r\nBad name: x\r\n\r\n",
+            b"GET /v1/join HTTP/1.1\r\nX: a\rb\r\n\r\n",
+            b"GET /v1/join HTTP/1.1\nHost: x\r\n\r\n",
+            b"POST /v1/join/1 HTTP/1.1\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n",
+            b"POST /v1/join/1 HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n",
+            b"POST /v1/join/1 HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n",
+            b"POST /v1/join/1 HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\nx",
+            b"POST /v1/join/1 HTTP/1.1\r\nContent-Length: +1\r\n\r\nx",
+            b"POST /v1/join/1 HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nx\r\n",
+        ] {
+            assert_eq!(send(addr, request).await, bad, "{}", request.escape_ascii());
+        }
+
+        handle.shutdown().await;
+        consumer.await.unwrap();
+    }
+
+    #[test]
+    fn limits_refuse_oversized_requests() {
+        run(refuse_oversized_requests());
+    }
+
+    async fn refuse_oversized_requests() {
+        let (offers, received) = mpsc::channel(8);
+        let consumer = tokio::spawn(consume(received));
+        let (handle, addr, _status) = server(None, offers);
+
+        // Exactly the limit, so the server reads every byte sent and closes without a reset.
+        let mut head = b"GET /v1/join HTTP/1.1\r\n".to_vec();
+        while head.len() < MAX_HEAD {
+            head.extend_from_slice(b"X-Filler: 0123456789abcdef\r\n");
+        }
+        head.truncate(MAX_HEAD);
+        assert_eq!(
+            send(addr, &head).await,
+            text("431 Request Header Fields Too Large")
+        );
+
+        let largest = "x".repeat(MAX_BODY);
+        let answer = sdp(&format!("answer to {largest}"));
+        assert_eq!(send(addr, &post("1", &largest)).await, answer);
+        let over = format!(
+            "POST /v1/join/1 HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+            MAX_BODY + 1
+        );
+        assert_eq!(
+            send(addr, over.as_bytes()).await,
+            text("413 Payload Too Large")
+        );
+
+        let mut chunked =
+            b"POST /v1/join/1 HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+        for _ in 0..MAX_BODY / 4096 {
+            chunked.extend_from_slice(b"1000\r\n");
+            chunked.extend_from_slice(&[b'x'; 4096]);
+            chunked.extend_from_slice(b"\r\n");
+        }
+        let mut over = chunked.clone();
+        chunked.extend_from_slice(b"0\r\n\r\n");
+        assert_eq!(send(addr, &chunked).await, answer);
+        // The refusal comes at this last byte, so nothing is left unread.
+        over.extend_from_slice(b"1");
+        assert_eq!(send(addr, &over).await, text("413 Payload Too Large"));
+
+        handle.shutdown().await;
+        consumer.await.unwrap();
+    }
+
+    #[test]
+    fn full_offer_queue_is_unavailable() {
+        run(async {
+            let (offers, received) = mpsc::channel(1);
+            let (handle, addr, _status) = server(None, offers);
+            // The first offer fills the queue and waits for a reply that never comes.
+            let mut waiting = TcpStream::connect(addr).await.unwrap();
+            waiting.write_all(&post("1", "offer")).await.unwrap();
+            while received.is_empty() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            let unavailable = text("503 Service Unavailable");
+            assert_eq!(send(addr, &post("1", "offer")).await, unavailable);
+            handle.shutdown().await;
+            // Shutdown aborted the waiting connection without a response.
+            assert!(read_all(&mut waiting).await.is_empty());
+        });
+    }
+
+    #[test]
+    fn closed_offer_queue_fails_internally() {
+        run(async {
+            let (offers, received) = mpsc::channel(1);
+            drop(received);
+            let (handle, addr, _status) = server(None, offers);
+            assert_eq!(send(addr, &post("1", "offer")).await, sdp("11"));
+            handle.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn slow_request_is_dropped_at_the_deadline() {
+        run_paused(async {
+            let (offers, _received) = mpsc::channel(1);
+            let (handle, addr, _status) = server(None, offers);
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(b"GET /v1/join HTTP/1.1\r\n")
+                .await
+                .unwrap();
+            let mut byte = [0];
+            let early = REQUEST_DEADLINE
+                .checked_sub(Duration::from_secs(1))
+                .unwrap();
+            assert!(
+                tokio::time::timeout(early, stream.read(&mut byte))
+                    .await
+                    .is_err(),
+                "closed before the deadline"
+            );
+            let read = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut byte)).await;
+            // Closed without a response.
+            assert_eq!(read.unwrap().unwrap(), 0);
+            handle.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn connections_over_the_ip_limit_get_503() {
+        run(async {
+            let (offers, _received) = mpsc::channel(1);
+            let (handle, addr, _status) = server(None, offers);
+            let mut held = Vec::new();
+            for _ in 0..MAX_CONNECTIONS_PER_IP {
+                held.push(TcpStream::connect(addr).await.unwrap());
+            }
+            let mut over = TcpStream::connect(addr).await.unwrap();
+            assert_eq!(read_all(&mut over).await, text("503 Service Unavailable"));
+
+            // A closed connection frees its place once the server sees the close. Until then a
+            // request is refused, and a refused request left unread may come back as a reset.
+            drop(held.pop());
+            let served = async {
+                loop {
+                    let mut stream = TcpStream::connect(addr).await.unwrap();
+                    let mut response = Vec::new();
+                    if stream
+                        .write_all(b"GET /v1/join HTTP/1.1\r\n\r\n")
+                        .await
+                        .is_ok()
+                        && stream.read_to_end(&mut response).await.is_ok()
+                        && response.starts_with(b"HTTP/1.1 200 OK")
+                    {
+                        break;
+                    }
+                }
+            };
+            tokio::time::timeout(WAIT, served).await.unwrap();
+            handle.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn limits_count_ipv4_hosts_and_ipv6_prefixes() {
+        let mut limits = Limits::default();
+        let v4 = ip_key(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
+        let mapped = ip_key(IpAddr::V6(Ipv4Addr::new(10, 0, 0, 1).to_ipv6_mapped()));
+        assert_eq!(v4, mapped);
+        let v6 = |last: u16| {
+            ip_key(IpAddr::V6(Ipv6Addr::new(
+                0x2001, 0xdb8, 1, 2, 0, 0, 0, last,
+            )))
+        };
+        assert_eq!(v6(1), v6(2));
+        assert_ne!(
+            v6(1),
+            ip_key(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 1, 3, 0, 0, 0, 1)))
+        );
+
+        for _ in 0..MAX_CONNECTIONS_PER_IP {
+            assert!(limits.try_add(v6(1)));
+        }
+        assert!(!limits.try_add(v6(2)));
+        limits.remove(v6(1));
+        assert!(limits.try_add(v6(2)));
+
+        // Fill the total from distinct IPv4 hosts.
+        let mut hosts = (0..).map(|n: u32| ip_key(IpAddr::V4(Ipv4Addr::from_bits(n))));
+        while limits.total < MAX_CONNECTIONS {
+            assert!(limits.try_add(hosts.next().unwrap()));
+        }
+        assert!(!limits.try_add(hosts.next().unwrap()));
+        limits.remove(v6(1));
+        assert!(limits.try_add(v4));
+
+        // Removing every connection empties the table.
+        let groups: Vec<_> = limits
+            .groups
+            .iter()
+            .map(|(&group, &count)| (group, count))
+            .collect();
+        for (group, count) in groups {
+            for _ in 0..count {
+                limits.remove(group);
+            }
+        }
+        assert_eq!(limits.total, 0);
+        assert!(limits.groups.is_empty());
+        limits.remove(v4);
+        assert_eq!(limits.total, 0);
+    }
+
+    #[test]
+    fn client_hello_without_tls_gets_handshake_failure() {
+        run(async {
+            let (offers, _received) = mpsc::channel(1);
+            let (handle, addr, _status) = server(None, offers);
+            let hello = [0x16, 0x03, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x01, 0x00];
+            assert_eq!(send(addr, &hello).await, HANDSHAKE_FAILURE);
+            handle.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn https_serves_with_a_configured_certificate() {
+        let config = load_tls(&testdata("cert.pem"), &testdata("key.pem")).unwrap();
+        run(async {
+            let (offers, received) = mpsc::channel(8);
+            let consumer = tokio::spawn(consume(received));
+            let (handle, addr, _status) = server(Some(config), offers);
+
+            let pem = include_bytes!("testdata/cert.pem");
+            let mut roots = rustls::RootCertStore::empty();
+            roots
+                .add(CertificateDer::from_pem_slice(pem).unwrap())
+                .unwrap();
+            let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+            let client = rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            let connector = TlsConnector::from(Arc::new(client));
+            for (request, expected) in [
+                (
+                    b"GET /v1/join HTTP/1.1\r\n\r\n".to_vec(),
+                    response(
+                        "200 OK application/json",
+                        std::str::from_utf8(STATUS).unwrap(),
+                    ),
+                ),
+                (post("1", "offer"), sdp("answer to offer")),
+            ] {
+                let tcp = TcpStream::connect(addr).await.unwrap();
+                let name = rustls::pki_types::ServerName::try_from("localhost").unwrap();
+                let mut tls = connector.connect(name, tcp).await.unwrap();
+                tls.write_all(&request).await.unwrap();
+                assert_eq!(read_all(&mut tls).await, expected);
+            }
+            handle.shutdown().await;
+            consumer.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn load_tls_refuses_bad_files() {
+        let missing = testdata("missing.pem");
+        let cert = testdata("cert.pem");
+        let key = testdata("key.pem");
+        assert!(matches!(load_tls(&missing, &key), Err(Error::Read { .. })));
+        assert!(matches!(load_tls(&cert, &missing), Err(Error::Read { .. })));
+        // A key file holds no certificate, and a certificate file no key.
+        assert!(matches!(load_tls(&key, &key), Err(Error::Pem { .. })));
+        assert!(matches!(load_tls(&cert, &cert), Err(Error::Pem { .. })));
+    }
+
+    #[test]
+    fn spawn_needs_a_runtime_and_an_address() {
+        let (_, statuses) = watch::channel(Arc::<[u8]>::from(STATUS));
+        let (offers, _) = mpsc::channel(1);
+        let settings = Settings {
+            v4: Some(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)),
+            v6: None,
+            tls: None,
+        };
+        assert!(spawn(settings.clone(), statuses.clone(), offers.clone()).is_err());
+        run(async {
+            let none = Settings {
+                v4: None,
+                ..settings.clone()
+            };
+            assert!(spawn(none, statuses.clone(), offers.clone()).is_err());
+            // IPv4 and IPv6 share one port.
+            let probe = spawn(settings, statuses.clone(), offers.clone()).unwrap();
+            let port = probe.local_addrs()[0].port();
+            probe.shutdown().await;
+            let both = Settings {
+                v4: Some(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)),
+                v6: Some(SocketAddrV6::new(Ipv6Addr::LOCALHOST, port, 0, 0)),
+                tls: None,
+            };
+            let handle = spawn(both, statuses, offers).unwrap();
+            let v6 = handle.local_addrs()[1];
+            assert_eq!(v6.port(), port);
+            let get = b"GET /v1/join HTTP/1.1\r\n\r\n";
+            assert!(send(v6, get).await.starts_with(b"HTTP/1.1 200 OK"));
+            handle.shutdown().await;
+        });
+    }
+
+    /// Parses `bytes` fed in pieces of `piece` bytes.
+    fn parse(bytes: &[u8], piece: usize) -> Result<Option<Request>, Status> {
+        let mut parser = Parser::default();
+        for data in bytes.chunks(piece.max(1)) {
+            if let Some(request) = parser.push(data)? {
+                return Ok(Some(request));
+            }
+        }
+        Ok(None)
+    }
+
+    #[test]
+    fn parser_reads_requests_in_any_pieces() {
+        let request = b"POST /v1/join/7?a HTTP/1.1\r\ncontent-length: 5\r\n\r\nhello extra";
+        for piece in 1..request.len() {
+            let expected = Request {
+                method: Method::Post,
+                path: "/v1/join/7".to_owned(),
+                body: b"hello".to_vec(),
+            };
+            assert_eq!(parse(request, piece), Ok(Some(expected)));
+        }
+        assert_eq!(parse(b"GET /v1/join HTTP/1.1\r\n", 3), Ok(None));
+        let chunked =
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n00005\r\nhello\r\n0\r\n\r\n";
+        for piece in 1..chunked.len() {
+            let request = parse(chunked, piece).unwrap().unwrap();
+            assert_eq!(request.body, b"hello");
+        }
+        let huge =
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffffffffff\r\n";
+        assert_eq!(parse(huge, 4), Err(Status::PayloadTooLarge));
+        let huge = b"POST / HTTP/1.1\r\nContent-Length: 99999999999999999999999999\r\n\r\n";
+        assert_eq!(parse(huge, 4), Err(Status::PayloadTooLarge));
+        let mut tiny = b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+        for _ in 0..MAX_FRAMING {
+            tiny.extend_from_slice(b"1\r\nx\r\n");
+        }
+        assert_eq!(parse(&tiny, 4096), Err(Status::PayloadTooLarge));
+    }
+
+    #[test]
+    fn routes_follow_bds() {
+        assert_eq!(route(Method::Get, "/v1/join"), Route::Status);
+        assert_eq!(route(Method::Post, "/v1/join/0"), Route::Offer(0));
+        assert_eq!(
+            route(Method::Post, "/v1/join/00000000000000000001"),
+            Route::Offer(1)
+        );
+        let bad = Route::Reject(Status::BadNetworkId);
+        assert_eq!(route(Method::Post, "/v1/join/000000000000000000001"), bad);
+        assert_eq!(route(Method::Post, "/v1/join/ 1"), bad);
+        let not_found = Route::Reject(Status::NotFound);
+        assert_eq!(route(Method::Other, "/v1/join"), not_found);
+        assert_eq!(route(Method::Get, "/v1/join/1"), not_found);
+        assert_eq!(route(Method::Post, "/v1/join"), not_found);
+    }
+
+    /// splitmix64: a fixed-seed generator for the fuzz test.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^ (z >> 31)
+        }
+
+        fn below(&mut self, bound: usize) -> usize {
+            usize::try_from(self.next() % u64::try_from(bound.max(1)).unwrap()).unwrap()
+        }
+    }
+
+    #[test]
+    fn mutated_requests_never_panic() {
+        let seeds: [&[u8]; 4] = [
+            b"GET /v1/join HTTP/1.1\r\nHost: 127.0.0.1:19132\r\n\r\n",
+            b"POST /v1/join/123 HTTP/1.1\r\nContent-Length: 11\r\nContent-Type: application/sdp\r\n\r\nv=0\r\no=- 1 2",
+            b"POST /v1/join/9 HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4;x=y\r\nv=0\n\r\n3\r\nabc\r\n0\r\nT: 1\r\n\r\n",
+            b"POST /v1/join/1 HTTP/1.0\r\nContent-Length: 0\r\n\r\n",
+        ];
+        let mut rng = Rng(0x00a1_c401);
+        let mut done = 0;
+        for _ in 0..10_000 {
+            let mut bytes = seeds[rng.below(seeds.len())].to_vec();
+            for _ in 0..=rng.below(8) {
+                let at = rng.below(bytes.len() + 1);
+                let byte = u8::try_from(rng.next() & 0xff).unwrap();
+                match rng.below(4) {
+                    0 if at < bytes.len() => bytes[at] ^= 1 << rng.below(8),
+                    1 => bytes.insert(at, byte),
+                    2 if at < bytes.len() => drop(bytes.remove(at)),
+                    _ => bytes.truncate(at),
+                }
+            }
+            let whole = parse(&bytes, bytes.len());
+            // Any split of the same bytes gives the same result.
+            let pieces = parse(&bytes, 1 + rng.below(16));
+            assert_eq!(whole, pieces, "{}", bytes.escape_ascii());
+            if let Ok(Some(request)) = whole {
+                assert!(request.body.len() <= MAX_BODY);
+                let _ = route(request.method, &request.path);
+                done += 1;
+            }
+        }
+        // The mutations leave some requests whole, so the success paths are fuzzed too.
+        assert!(done > 100, "{done}");
+    }
+}

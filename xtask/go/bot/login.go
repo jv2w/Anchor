@@ -40,15 +40,12 @@ const multiplayerAudience = "api://auth-minecraft-services/multiplayer"
 // onlineXUID is the XUID the online scenario's token claims.
 const onlineXUID = "2535400000000001"
 
-// buildRequest builds the Login connection request for the scenario.
-func buildRequest(c config, key *ecdsa.PrivateKey) ([]byte, error) {
+// buildRequest builds the Login connection request for the scenario; the online scenario's request
+// carries token (mintToken).
+func buildRequest(c config, key *ecdsa.PrivateKey, token string) ([]byte, error) {
 	data := clientData(c.addr, c.name)
 	switch c.scenario {
 	case "online":
-		token, err := mintToken(c, key)
-		if err != nil {
-			return nil, err
-		}
 		chain, err := selfSignedChain(key)
 		if err != nil {
 			return nil, err

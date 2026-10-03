@@ -16,13 +16,29 @@ rustls = { version = "=0.23.45", default-features = false, features = ["aws_lc_r
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 socket2 = "=0.6.5"
-tokio = { version = "=1.53.1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal"] }
+str0m = { version = "=0.24.0", default-features = false, features = ["aws-lc-rs"] }
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "io-util"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["aws_lc_rs", "tls12"] }
 toml = { version = "=1.1.6", default-features = false, features = ["std", "serde", "parse"] }
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 ureq = { version = "=3.4.2", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }
 
+[dev-dependencies]
+# Paused time drives the deadline tests without waiting in real time.
+tokio = { version = "=1.53.1", features = ["test-util"] }
+
 [workspace]
 members = ["xtask"]
+# Patched copies of dependencies (PLAN.md 9.1): built as dependencies, not linted or tested as
+# members; xtask/tests holds their reproduction tests.
+exclude = ["vendor"]
+
+# Fixed copies of str0m's dependencies until upstream releases the fixes (PLAN.md 9.1). Each copy
+# differs from the published crate only in its fixes; remove it when a release has them.
+[patch.crates-io]
+dimpl = { path = "vendor/dimpl" }
+sctp-proto = { path = "vendor/sctp-proto" }
+str0m = { path = "vendor/str0m" }
 
 [workspace.package]
 edition = "2024"

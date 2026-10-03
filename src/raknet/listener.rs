@@ -145,7 +145,7 @@ pub(super) struct Listener {
 }
 
 /// The key for per-IP limits: an IPv4 address or an IPv6 /64, the block one host usually has.
-fn ip_key(ip: IpAddr) -> u128 {
+pub(crate) fn ip_key(ip: IpAddr) -> u128 {
     match ip.to_canonical() {
         IpAddr::V4(ip) => u128::from(ip.to_ipv6_mapped()),
         IpAddr::V6(ip) => u128::from(ip) & !u128::from(u64::MAX),

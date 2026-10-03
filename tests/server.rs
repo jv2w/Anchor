@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anchor::config::Threads;
+use anchor::event::{PlayerDuplicateLogin, Priority};
 use anchor::{Config, Error, Server, ShutdownHandle};
 
 /// A path in Cargo's test temporary folder, unique to this process and test; not created.
@@ -15,17 +16,20 @@ fn temp_path(name: &str) -> PathBuf {
 }
 
 /// Settings that run without the network beyond loopback: offline login (no authorization
-/// fetch) and a free UDP port.
+/// fetch) and free UDP ports for RakNet and NetherNet.
 #[expect(
     clippy::disallowed_types,
-    reason = "off-tick: the test finds a free port"
+    reason = "off-tick: the test finds free ports"
 )]
 fn local_config() -> Config {
-    let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("free port");
+    let free = || std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("free port");
+    // Both sockets are open at once, so the two ports differ.
+    let (raknet, nethernet) = (free(), free());
     let mut config = Config::default();
     config.general.xbox_auth = false;
     config.general.enable_ipv6 = false;
-    config.general.server_port = socket.local_addr().expect("local address").port();
+    config.general.server_port = raknet.local_addr().expect("local address").port();
+    config.general.nethernet_port = nethernet.local_addr().expect("local address").port();
     config
 }
 
@@ -60,6 +64,38 @@ fn the_error_and_the_handle_cross_threads() {
 #[test]
 fn default_settings_build() {
     Server::builder().build().unwrap();
+}
+
+#[test]
+fn listeners_of_every_priority_build_and_run() {
+    let mut seen = 0_u32;
+    let server = Server::builder()
+        .config(local_config())
+        .data_dir(temp_path("listeners"))
+        .on(Priority::Highest, PlayerDuplicateLogin::uncancel)
+        .on(Priority::Lowest, PlayerDuplicateLogin::cancel)
+        .on(Priority::Normal, move |e: &mut PlayerDuplicateLogin| {
+            seen += 1;
+            if e.is_cancelled() && e.existing().xuid().is_none() {
+                e.set_disconnect_screen_message(Some(format!(
+                    "{} ({seen})",
+                    e.connecting().name()
+                )));
+            }
+        })
+        .build()
+        .unwrap();
+    let handle = server.shutdown_handle();
+    handle.shutdown();
+    server.run().unwrap();
+}
+
+#[test]
+fn priorities_order_from_lowest_to_highest() {
+    use Priority::{High, Highest, Low, Lowest, Normal};
+    let mut all = [Highest, Normal, Lowest, High, Low];
+    all.sort();
+    assert_eq!(all, [Lowest, Low, Normal, High, Highest]);
 }
 
 #[test]

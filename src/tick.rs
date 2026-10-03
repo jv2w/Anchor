@@ -15,6 +15,7 @@ use tracing::{debug, info, trace, warn};
 
 use crate::clock;
 use crate::config::{Config, Difficulty, GameMode};
+use crate::event::Listeners;
 use crate::protocol::packet::{Disconnect, Packet};
 
 use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Outbound, SessionId};
@@ -26,6 +27,8 @@ pub(crate) const TICK: Duration = Duration::from_millis(50);
 pub(crate) const MAX_INPUTS_PER_TICK: usize = INPUT_CAPACITY / 8;
 /// `Disconnect` reason for a server shutdown (gophertunnel `DisconnectReasonShutdown`).
 const DISCONNECT_REASON_SHUTDOWN: i32 = 68;
+/// `Disconnect` reason for a duplicate login (gophertunnel `DisconnectReasonLoggedInOtherLocation`).
+const DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION: i32 = 43;
 
 /// The settings the tick reads, taken from [`Config`] once at start.
 #[derive(Debug, Clone)]
@@ -70,6 +73,28 @@ pub(crate) struct State {
     /// The next entity runtime ID; IDs are never reused.
     next_runtime_id: u64,
     players: BTreeMap<SessionId, Player>,
+    /// The session of each joined player by [`PlayerKey`]: `index[p.key] == s` exactly when
+    /// `players[s] == p`. Derived from `players`, so it changes only where `players` does.
+    index: BTreeMap<PlayerKey, SessionId>,
+    /// The user's event listeners, called only in [`step`].
+    listeners: Listeners,
+}
+
+/// What makes two logins the same player (PLAN.md 10.3): the XUID with Xbox sign-in, otherwise
+/// the name in ASCII lowercase (PMMP compares with `strcasecmp`, which folds ASCII only).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum PlayerKey {
+    Xuid(u64),
+    Name(String),
+}
+
+impl PlayerKey {
+    fn of(identity: &Identity) -> Self {
+        match identity.xuid {
+            Some(xuid) => Self::Xuid(xuid),
+            None => Self::Name(identity.name.to_ascii_lowercase()),
+        }
+    }
 }
 
 /// A joined player.
@@ -77,6 +102,8 @@ pub(crate) struct State {
 struct Player {
     runtime_id: u64,
     identity: Identity,
+    /// [`PlayerKey::of`] the identity, kept to leave the index without rebuilding it.
+    key: PlayerKey,
     position: [f32; 3],
     /// The granted chunk radius, once the client asked.
     chunk_radius: Option<u8>,
@@ -96,18 +123,24 @@ enum Phase {
 }
 
 impl State {
-    /// An empty world.
-    pub(crate) fn new(settings: Settings) -> Self {
+    /// An empty world whose events go to `listeners` (already sorted).
+    pub(crate) fn new(settings: Settings, listeners: Listeners) -> Self {
         Self {
             settings,
             tick: 0,
             next_runtime_id: 1,
             players: BTreeMap::new(),
+            index: BTreeMap::new(),
+            listeners,
         }
     }
 
     /// A hash of everything a replay must reproduce, independent of thread count, OS and the
     /// order of the map in memory (FNV-1a 64 over fields in a fixed order and width).
+    ///
+    /// The index and each player's key are left out: both are functions of the hashed sessions
+    /// and identities ([`Self::index_matches_players`] checks this in tests). Listeners are code,
+    /// fixed at build.
     #[cfg(test)]
     pub(crate) fn hash(&self) -> u64 {
         let mut h = Fnv::new();
@@ -133,15 +166,38 @@ impl State {
         h.0
     }
 
+    /// Whether the index holds exactly the key and session of every player.
+    #[cfg(test)]
+    pub(crate) fn index_matches_players(&self) -> bool {
+        self.index.len() == self.players.len()
+            && self.players.iter().all(|(session, p)| {
+                p.key == PlayerKey::of(&p.identity) && self.index.get(&p.key) == Some(session)
+            })
+    }
+
+    /// Adds a player, which must have a new session and a key no player has.
+    fn insert(&mut self, session: SessionId, player: Player) {
+        self.index.insert(player.key.clone(), session);
+        self.players.insert(session, player);
+    }
+
+    /// Removes and returns the player of `session`, if any, with its index entry.
+    fn remove(&mut self, session: SessionId) -> Option<Player> {
+        let player = self.players.remove(&session)?;
+        self.index.remove(&player.key);
+        Some(player)
+    }
+
     /// Forgets the player of `session`, if any; its outbound queue closes.
     fn leave(&mut self, session: SessionId) {
-        if let Some(p) = self.players.remove(&session) {
+        if let Some(p) = self.remove(session) {
             info!(session = session.get(), name = %p.identity.name, "player left");
         }
     }
 
     /// Disconnects every player with the shutdown message.
     fn close_all(&mut self, output: &mut Output) {
+        self.index.clear();
         for (session, p) in std::mem::take(&mut self.players) {
             debug!(session = session.get(), "closing for shutdown");
             let packet = Packet::Disconnect(Disconnect {
@@ -317,6 +373,7 @@ mod tests {
 
     use super::queue::{input_queue, outbound_queue};
     use super::*;
+    use crate::event::{PlayerDuplicateLogin, Priority};
     use crate::protocol::Uuid;
     use crate::protocol::packet::{
         ChunkRadiusUpdated, PlayStatus, RequestChunkRadius, SetLocalPlayerAsInitialised,
@@ -377,13 +434,24 @@ mod tests {
 
     /// Runs and delivers one tick per batch.
     fn run_ticks(settings: Settings, ticks: Vec<Vec<Input>>) -> State {
-        let mut state = State::new(settings);
+        run_ticks_with(settings, Listeners::default(), ticks)
+    }
+
+    /// [`run_ticks`] with event listeners (sorted here, as `build()` does).
+    fn run_ticks_with(
+        settings: Settings,
+        mut listeners: Listeners,
+        ticks: Vec<Vec<Input>>,
+    ) -> State {
+        listeners.sort();
+        let mut state = State::new(settings, listeners);
         let mut output = Output::default();
         for mut batch in ticks {
             step(&mut state, &mut batch, &mut output);
             assert!(batch.is_empty());
             deliver(&mut state, &mut output);
             assert!(output.is_empty());
+            assert!(state.index_matches_players());
         }
         state
     }
@@ -559,7 +627,7 @@ mod tests {
     #[test]
     fn join_and_leave_cycles_return_every_table_and_queue_to_its_start() {
         let (sender, mut queue) = input_queue();
-        let mut state = State::new(settings(|_| {}));
+        let mut state = State::new(settings(|_| {}), Listeners::default());
         let mut batch = Vec::with_capacity(MAX_INPUTS_PER_TICK);
         let mut output = Output::default();
         let start = (state.players.len(), queue.len(), batch.capacity());
@@ -733,5 +801,224 @@ mod tests {
                 assert_ne!(x, y);
             }
         }
+    }
+
+    fn person(name: &str, xuid: Option<u64>) -> Identity {
+        Identity {
+            name: name.to_owned(),
+            xuid,
+            uuid: Uuid::from_bytes([7; 16]),
+        }
+    }
+
+    fn join_as(session: u64, seq: u64, identity: Identity) -> (Input, mpsc::Receiver<Outbound>) {
+        let (tx, rx) = outbound_queue();
+        let kind = InputKind::Join {
+            identity,
+            outbound: tx,
+        };
+        (input(session, seq, kind), rx)
+    }
+
+    type Hook = fn(&mut PlayerDuplicateLogin);
+
+    fn with(listeners: &[(Priority, Hook)]) -> Listeners {
+        let mut all = Listeners::default();
+        for &(priority, listener) in listeners {
+            all.push(priority, listener);
+        }
+        all
+    }
+
+    /// The `Disconnect` that closed the session of `rx`, as (reason, message).
+    fn kicked(rx: &mut mpsc::Receiver<Outbound>) -> (i32, String) {
+        let Some(Packet::Disconnect(d)) = received(rx).1 else {
+            panic!("a Disconnect closes the session");
+        };
+        assert!(rx.is_closed());
+        (d.reason, d.message)
+    }
+
+    fn sessions(state: &State) -> Vec<u64> {
+        state.players.keys().map(|s| s.get()).collect()
+    }
+
+    const LOGGED_IN_OTHER_LOCATION: (i32, &str) = (43, "Logged in from other location");
+
+    #[test]
+    fn a_duplicate_login_replaces_the_existing_player() {
+        let noop: Hook = |_| {};
+        for listeners in [with(&[]), with(&[(Priority::Normal, noop)])] {
+            let (a, mut rx1) = join_as(1, 0, person("Alex", Some(5)));
+            let (b, mut rx2) = join_as(2, 0, person("Renamed", Some(5)));
+            let state = run_ticks_with(settings(|_| {}), listeners, vec![vec![a], vec![b]]);
+            assert_eq!(sessions(&state), [2]);
+            let (reason, message) = kicked(&mut rx1);
+            assert_eq!((reason, message.as_str()), LOGGED_IN_OTHER_LOCATION);
+            assert_eq!(
+                ids(&received(&mut rx2).0),
+                [11, 162],
+                "the new player joined"
+            );
+            assert_eq!(state.players[&SessionId::new(2)].runtime_id, 2);
+        }
+    }
+
+    #[test]
+    fn a_cancelled_duplicate_login_rejects_the_connecting_player() {
+        let cancel: Hook = |e| {
+            let reason = format!("{} over {}", e.connecting().name(), e.existing().name());
+            e.set_disconnect_reason(reason);
+            e.cancel();
+        };
+        let (a, _rx1) = join_as(1, 0, person("Alex", Some(5)));
+        let (b, mut rx2) = join_as(2, 0, person("Alex2", Some(5)));
+        let state = run_ticks_with(
+            settings(|_| {}),
+            with(&[(Priority::Normal, cancel)]),
+            vec![vec![a.clone()], vec![b]],
+        );
+        assert_eq!(kicked(&mut rx2), (43, "Alex2 over Alex".to_owned()));
+        let alone = run_ticks(settings(|_| {}), vec![vec![a], vec![]]);
+        assert_eq!(state.hash(), alone.hash(), "the rejection changed nothing");
+        assert_eq!(sessions(&state), [1]);
+    }
+
+    #[test]
+    fn the_screen_message_replaces_the_reason_on_the_disconnect() {
+        let screen: Hook = |e| {
+            e.set_disconnect_reason("logged reason");
+            e.set_disconnect_screen_message(Some("Seen on screen".to_owned()));
+        };
+        let (a, mut rx1) = join_as(1, 0, person("Alex", Some(5)));
+        let (b, _rx2) = join_as(2, 0, person("Alex", Some(5)));
+        run_ticks_with(
+            settings(|_| {}),
+            with(&[(Priority::Normal, screen)]),
+            vec![vec![a], vec![b]],
+        );
+        assert_eq!(kicked(&mut rx1), (43, "Seen on screen".to_owned()));
+    }
+
+    #[test]
+    fn the_highest_priority_decides_and_equal_priorities_run_in_registration_order() {
+        let cancel: Hook = PlayerDuplicateLogin::cancel;
+        let uncancel: Hook = PlayerDuplicateLogin::uncancel;
+        let cases = [
+            // Registered out of order: the sort puts Lowest first, so Highest decides.
+            (
+                with(&[(Priority::Highest, uncancel), (Priority::Lowest, cancel)]),
+                [2],
+            ),
+            (
+                with(&[(Priority::Highest, cancel), (Priority::Lowest, uncancel)]),
+                [1],
+            ),
+            (
+                with(&[(Priority::Normal, cancel), (Priority::Normal, uncancel)]),
+                [2],
+            ),
+            (
+                with(&[(Priority::Normal, uncancel), (Priority::Normal, cancel)]),
+                [1],
+            ),
+            (
+                with(&[(Priority::High, cancel), (Priority::Low, uncancel)]),
+                [1],
+            ),
+        ];
+        for (listeners, remaining) in cases {
+            let (a, _rx1) = join_as(1, 0, person("Alex", Some(5)));
+            let (b, _rx2) = join_as(2, 0, person("Alex", Some(5)));
+            let state = run_ticks_with(settings(|_| {}), listeners, vec![vec![a], vec![b]]);
+            assert_eq!(sessions(&state), remaining);
+        }
+    }
+
+    #[test]
+    fn offline_names_match_ignoring_ascii_case_and_online_players_match_by_xuid() {
+        let cases = [
+            (person("Steve", None), person("sTEVE", None), vec![2]),
+            (person("Steve", None), person("Steve2", None), vec![1, 2]),
+            (person("Steve", None), person("Ste ve", None), vec![1, 2]),
+            (
+                person("Steve", Some(1)),
+                person("Steve", Some(2)),
+                vec![1, 2],
+            ),
+            (person("Steve", Some(1)), person("Alex", Some(1)), vec![2]),
+        ];
+        for (first, second, remaining) in cases {
+            let (a, _rx1) = join_as(1, 0, first);
+            let (b, _rx2) = join_as(2, 0, second);
+            let state = run_ticks(settings(|_| {}), vec![vec![a], vec![b]]);
+            assert_eq!(sessions(&state), remaining);
+        }
+    }
+
+    #[test]
+    fn a_full_server_still_lets_a_player_replace_itself() {
+        let full = settings(|c| c.general.max_players = 1);
+        let (a, mut rx1) = join_as(1, 0, person("Steve", None));
+        let (b, _rx2) = join_as(2, 0, person("STEVE", None));
+        let state = run_ticks(full, vec![vec![a], vec![b]]);
+        assert_eq!(sessions(&state), [2]);
+        assert_eq!(kicked(&mut rx1).0, 43);
+    }
+
+    #[test]
+    fn a_repeated_join_after_a_duplicate_login_changes_nothing() {
+        let cancel: Hook = PlayerDuplicateLogin::cancel;
+        let cancels: [&[(Priority, Hook)]; 2] = [&[], &[(Priority::Normal, cancel)]];
+        for (listeners, remaining) in cancels.into_iter().zip([2, 1]) {
+            // The receivers stay alive, so that no session leaves by a closed queue.
+            let run = |repeat_at: Option<usize>| {
+                let (a, _rx1) = join_as(1, 0, person("Alex", Some(5)));
+                let (b, _rx2) = join_as(2, 0, person("Alex", Some(5)));
+                let mut again = b.clone();
+                again.seq = 1;
+                let mut ticks = vec![vec![a], vec![b], vec![]];
+                if let Some(tick) = repeat_at {
+                    ticks[tick].push(again);
+                }
+                let state = run_ticks_with(settings(|_| {}), with(listeners), ticks);
+                (state.hash(), sessions(&state))
+            };
+            let once = run(None);
+            assert_eq!(once.1, [remaining]);
+            assert_eq!(run(Some(1)), once, "repeated in the same tick");
+            assert_eq!(run(Some(2)), once, "repeated in the next tick");
+        }
+    }
+
+    #[test]
+    fn duplicate_login_cycles_leave_no_player_and_no_index_entry() {
+        let mut calls = 0_u32;
+        let mut listeners = Listeners::default();
+        // Every other duplicate login is cancelled, so both outcomes repeat.
+        listeners.push(Priority::Normal, move |e: &mut PlayerDuplicateLogin| {
+            calls += 1;
+            if calls.is_multiple_of(2) {
+                e.cancel();
+            }
+        });
+        listeners.sort();
+        let mut state = State::new(settings(|_| {}), listeners);
+        let mut output = Output::default();
+        for n in 0..100 {
+            let (old, new) = (2 * n, 2 * n + 1);
+            let (a, mut rx1) = join_as(old, 0, person("Steve", None));
+            let (b, mut rx2) = join_as(new, 0, person("steve", None));
+            for mut batch in [vec![a], vec![b], vec![leave(old, 1), leave(new, 1)]] {
+                step(&mut state, &mut batch, &mut output);
+                deliver(&mut state, &mut output);
+                assert!(state.index_matches_players());
+            }
+            let loser = if n % 2 == 0 { &mut rx1 } else { &mut rx2 };
+            assert_eq!(kicked(loser).0, 43);
+            assert!(rx1.is_closed() && rx2.is_closed());
+        }
+        assert!(state.players.is_empty() && state.index.is_empty());
+        assert!(output.is_empty());
     }
 }
