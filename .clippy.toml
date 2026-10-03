@@ -3,7 +3,10 @@ avoid-breaking-exported-api = false
 # C-CASE: catch acronyms inside names (`HTTPServer`), not only all-caps names.
 upper-case-acronyms-aggressive = true
 # Proper names that doc comments may use without backticks; ".." keeps the defaults.
-doc-valid-idents = ["RakNet", "NetherNet", "PocketMine", "PlayFab", ".."]
+doc-valid-idents = ["RakNet", "NetherNet", "PocketMine", "PlayFab", "OpenID", ".."]
+# windows-sys 0.52 comes only from ring, an optional dependency of rustls-webpki that Anchor does
+# not enable; the build links one windows-sys (`cargo tree -d` prints nothing).
+allowed-duplicate-crates = ["windows-sys"]
 # A failing test is supposed to panic.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
@@ -61,6 +64,45 @@ disallowed-methods = [
     { path = "miniz_oxide::deflate::compress_to_vec", reason = "one compressor: libdeflate through the batch encoder" },
     { path = "miniz_oxide::deflate::compress_to_vec_zlib", reason = "one compressor: libdeflate through the batch encoder" },
     { path = "libdeflater::Decompressor::new", reason = "one inflater: miniz_oxide's bounded loop in the batch decoder" },
+    { path = "tokio::time::Instant::now", reason = "time comes from the engine clock" },
+    { path = "tokio::sync::mpsc::unbounded_channel", reason = "use the engine's bounded queue" },
+    { path = "tokio::sync::mpsc::Sender::blocking_send", reason = "tick and async code never block" },
+    { path = "tokio::sync::mpsc::Receiver::blocking_recv", reason = "tick and async code never block" },
+    { path = "tokio::runtime::Runtime::block_on", reason = "only the runtime module blocks on the runtime" },
+    { path = "tokio::runtime::Handle::block_on", reason = "only the runtime module blocks on the runtime" },
+    { path = "tokio::task::block_in_place", reason = "tick and async code never block" },
+    { path = "tokio::runtime::Builder::new_multi_thread", reason = "only the runtime module creates threads" },
+    { path = "tokio::runtime::Builder::new_current_thread", reason = "only the runtime module creates threads" },
+    { path = "aws_lc_rs::rand::fill", reason = "randomness goes through the crypto module" },
+    { path = "aws_lc_rs::agreement::PrivateKey::generate", reason = "randomness goes through the crypto module" },
+    { path = "aws_lc_rs::agreement::EphemeralPrivateKey::generate", reason = "randomness goes through the crypto module" },
+    { path = "aws_lc_rs::signature::EcdsaKeyPair::generate", reason = "randomness goes through the crypto module" },
+    { path = "aws_lc_rs::signature::EcdsaKeyPair::generate_pkcs8", reason = "randomness goes through the crypto module" },
+    { path = "aws_lc_rs::signature::Ed25519KeyPair::generate", reason = "randomness goes through the crypto module" },
+    { path = "aws_lc_rs::signature::Ed25519KeyPair::generate_pkcs8", reason = "randomness goes through the crypto module" },
+    { path = "aws_lc_rs::rsa::KeyPair::generate", reason = "randomness goes through the crypto module" },
+    { path = "aws_lc_rs::cipher::EncryptingKey::encrypt", reason = "draws a random IV; the crypto module passes its own counter" },
+    { path = "aws_lc_rs::cipher::PaddedBlockEncryptingKey::encrypt", reason = "draws a random IV; the crypto module passes its own counter" },
+    { path = "aws_lc_rs::cipher::StreamingEncryptingKey::ctr", reason = "draws a random IV; the crypto module passes its own counter" },
+    { path = "aws_lc_rs::cipher::StreamingEncryptingKey::cbc_pkcs7", reason = "draws a random IV; the crypto module passes its own counter" },
+    { path = "aws_lc_rs::cipher::StreamingEncryptingKey::cfb128", reason = "draws a random IV; the crypto module passes its own counter" },
+    { path = "socket2::Socket::recv", reason = "blocking socket I/O; the RakNet task reads through tokio" },
+    { path = "socket2::Socket::recv_from", reason = "blocking socket I/O; the RakNet task reads through tokio" },
+    { path = "socket2::Socket::peek", reason = "blocking socket I/O; the RakNet task reads through tokio" },
+    { path = "socket2::Socket::peek_from", reason = "blocking socket I/O; the RakNet task reads through tokio" },
+    { path = "socket2::Socket::send", reason = "blocking socket I/O; the RakNet task writes through tokio" },
+    { path = "socket2::Socket::send_to", reason = "blocking socket I/O; the RakNet task writes through tokio" },
+    { path = "socket2::Socket::accept", reason = "blocking socket I/O" },
+    { path = "socket2::Socket::connect", reason = "blocking socket I/O" },
+    { path = "socket2::Socket::connect_timeout", reason = "blocking socket I/O" },
+    { path = "aws_lc_rs::hmac::Key::generate", reason = "randomness goes through the crypto module" },
+    { path = "ureq::RequestBuilder::call", reason = "blocking network I/O; only the auth fetch, on the blocking pool" },
+    { path = "ureq::Agent::run", reason = "blocking network I/O; only the auth fetch, on the blocking pool" },
+    { path = "ureq::Body::read_to_string", reason = "read bodies through with_config().limit(..)" },
+    { path = "ureq::Body::read_to_vec", reason = "read bodies through with_config().limit(..)" },
+    { path = "ureq::Body::as_reader", reason = "read bodies through with_config().limit(..)" },
+    { path = "ureq::Body::into_reader", reason = "read bodies through with_config().limit(..)" },
+    { path = "serde_json::from_reader", reason = "reads without a size limit; read a bounded buffer and use from_slice" },
     # std documents each of these as "The precision of this function is non-deterministic".
     "f32::powi", "f32::powf", "f32::exp", "f32::exp2", "f32::exp_m1", "f32::ln", "f32::ln_1p",
     "f32::log", "f32::log2", "f32::log10", "f32::cbrt", "f32::hypot",
@@ -85,6 +127,7 @@ disallowed-types = [
     { path = "std::net::UdpSocket", reason = "tick and async code do no blocking I/O" },
     { path = "std::net::TcpStream", reason = "tick and async code do no blocking I/O" },
     { path = "std::net::TcpListener", reason = "tick and async code do no blocking I/O" },
+    { path = "aws_lc_rs::rand::SystemRandom", reason = "randomness goes through the crypto module (its Default impl cannot be banned by path)" },
     # One thread owns tick state and parallel phases only read: no locks, waits or shared mutation.
     "std::sync::Mutex", "std::sync::RwLock", "std::sync::Condvar", "std::sync::Barrier",
     "std::sync::atomic::AtomicBool", "std::sync::atomic::AtomicPtr",

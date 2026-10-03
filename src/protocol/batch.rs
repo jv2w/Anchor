@@ -210,7 +210,8 @@ impl fmt::Debug for Decoder {
 /// with the packet ID in bits 0 to 9, the sender sub-client in bits 10 and 11 and the target
 /// sub-client in bits 12 and 13. Sub-clients are split-screen players on one connection.
 ///
-/// Reading rejects a header with bits above 13 set; gophertunnel ignores them.
+/// Reading ignores bits above 13, like gophertunnel: only official clients show whether they set
+/// them, so Anchor accepts every case (PLAN.md 10.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Header {
     /// The packet ID, at most 1023.
@@ -224,12 +225,6 @@ pub struct Header {
 impl Header {
     fn read(r: &mut Reader<'_>) -> protocol::Result<Self> {
         let value = r.varuint32()?;
-        if value >> 14 != 0 {
-            return Err(protocol::Error::InvalidValue {
-                field: "packet header",
-                reason: "bits above the target sub-client are set",
-            });
-        }
         let sub_client = |shift: u32| {
             u8::try_from((value >> shift) & u32::from(MAX_SUB_CLIENT))
                 .map_err(|_| protocol::Error::Size)
@@ -314,8 +309,7 @@ impl ExactSizeIterator for Packets<'_> {}
 /// Splits a batch payload into its packets without copying, after checking all of it: like
 /// gophertunnel `DecodeFunc`, a malformed payload gives no packets.
 ///
-/// Errors, all [`Error::Packet`]: a length or header that does not end, an empty packet, a
-/// header with unknown bits, and, as [`protocol::Error::Size`], a length over the bytes left or
+/// Errors, all [`Error::Packet`]: a length or header that does not end, an empty packet, and, as [`protocol::Error::Size`], a length over the bytes left or
 /// more than 812 packets.
 pub fn split(payload: &[u8]) -> Result<Packets<'_>> {
     let mut packets = Packets {
@@ -611,10 +605,8 @@ mod tests {
         };
         assert_eq!(packets, [(expected, &[][..])]);
         let bit_14 = [0x03, 0x80, 0x80, 0x01];
-        assert!(matches!(
-            split(&bit_14),
-            Err(Error::Packet(protocol::Error::InvalidValue { .. }))
-        ));
+        let packets: Vec<_> = split(&bit_14).unwrap().collect();
+        assert_eq!(packets, [(Header::default(), &[][..])]);
 
         let (mut h, packet) = login(0);
         h.sender_sub_client = 2;

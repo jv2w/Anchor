@@ -1,8 +1,10 @@
 //! Repository tasks. `cargo xtask gen [--check]` regenerates the protocol code (or checks it is
 //! current); `cargo xtask verify` runs every check and ends with PASS or FAIL, or with the I/O
-//! error that stopped it.
+//! error that stopped it; `cargo xtask p6 ...` runs the reference server comparison (not part of
+//! `verify`: it needs BDS).
 
 mod r#gen;
+mod p6;
 
 use std::env;
 use std::io::{self, Write};
@@ -51,8 +53,19 @@ fn run() -> io::Result<bool> {
         ["gen"] => gen_command(&mut out, false),
         ["gen", "--check"] => gen_command(&mut out, true),
         ["verify"] => verify(&mut out),
+        ["p6", rest @ ..] => match p6::command(&root(), rest, &mut out) {
+            Ok(passed) => Ok(passed),
+            Err(e) => {
+                writeln!(out, "error: {e}")?;
+                Ok(false)
+            }
+        },
         _ => {
-            writeln!(out, "usage: cargo xtask gen [--check] | cargo xtask verify")?;
+            writeln!(
+                out,
+                "usage: cargo xtask gen [--check] | cargo xtask verify | {}",
+                p6::USAGE
+            )?;
             Ok(false)
         }
     }
@@ -92,6 +105,10 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
     for args in CHECKS {
         let output = Command::new(&cargo)
             .args(*args)
+            // `cargo test --workspace` unifies features differently from `cargo xtask`, so in the
+            // shared target directory it would rebuild the running xtask.exe, which Windows
+            // cannot replace.
+            .env("CARGO_TARGET_DIR", root().join("target").join("verify"))
             .env("RUSTDOCFLAGS", "-D warnings")
             .env("CARGO_TERM_COLOR", "never")
             .output()?;

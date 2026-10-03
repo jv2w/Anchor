@@ -66,7 +66,7 @@ pub enum Error {
     Overrun,
     /// The Snappy output ends shorter than its declared length.
     Underrun,
-    /// Input remains after the stream ends.
+    /// Input remains after the Snappy stream ends.
     TrailingInput,
     /// The DEFLATE stream is invalid.
     Deflate,

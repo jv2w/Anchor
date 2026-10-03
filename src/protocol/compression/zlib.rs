@@ -52,7 +52,9 @@ impl Decoder {
     /// Replaces the contents of `out` with the inflated `input`.
     ///
     /// The buffer grows only up to `limit + 1` bytes; a stream that needs more is a size error.
-    /// Input left after the final block is an error.
+    /// Input left after the final block is ignored: only official clients show whether their
+    /// encoder leaves any, so Anchor accepts every case (PLAN.md 10.2). The input is already
+    /// within the reassembly limit.
     pub(crate) fn decompress(
         &mut self,
         input: &[u8],
@@ -80,9 +82,6 @@ impl Decoder {
                 TINFLStatus::Done => {
                     if written > limit {
                         return Err(Error::Size { limit });
-                    }
-                    if !rest.is_empty() {
-                        return Err(Error::TrailingInput);
                     }
                     out.truncate(written);
                     return Ok(());
@@ -143,14 +142,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_trailing_input() {
+    fn ignores_input_after_the_final_block() {
         let mut input = deflate(b"hello hello hello");
-        input.push(0);
+        input.extend_from_slice(&[0, 0, 0xff, 0xff]);
         let mut out = Vec::new();
-        assert_eq!(
-            Decoder::new().decompress(&input, &mut out, LIMIT),
-            Err(Error::TrailingInput)
-        );
+        Decoder::new().decompress(&input, &mut out, LIMIT).unwrap();
+        assert_eq!(out, b"hello hello hello");
     }
 
     #[test]

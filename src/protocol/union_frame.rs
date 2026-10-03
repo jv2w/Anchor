@@ -105,11 +105,11 @@ impl Reader<'_> {
     /// values that are not checked, like gophertunnel) and its count.
     pub(crate) fn item_descriptor_count(&mut self) -> Result<ItemDescriptorCount> {
         let variant = self.varuint32()?;
-        let descriptor = if variant == DESCRIPTOR_INVALID.into() {
+        let descriptor = if variant == u32::from(DESCRIPTOR_INVALID) {
             self.varint32()?;
             ItemDescriptor::from_id(DESCRIPTOR_INVALID).unwrap_or_default()
         } else {
-            if variant != DESCRIPTOR_DEFAULT.into() {
+            if variant != u32::from(DESCRIPTOR_DEFAULT) {
                 return Err(Error::UnknownEnum {
                     name: "item descriptor variant",
                     value: variant.into(),

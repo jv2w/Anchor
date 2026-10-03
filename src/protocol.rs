@@ -27,4 +27,4 @@ pub use values::{AbilityValue, GameRule, GameRuleValue, PackSetting, PackSetting
 pub(crate) use io::{Codec, Reader, Writer, length};
 
 #[cfg(test)]
-pub(crate) use io::tests::{fuzz, fuzz_round_trip};
+pub(crate) use io::tests::{Rng, fuzz, fuzz_round_trip};

@@ -14,7 +14,7 @@ rust-toolchain.toml   툴체인 고정
 .claude/PLAN.md       이 파일
 src/                  라이브러리
 tests/, examples/     필요할 때 (examples는 M8)
-xtask/                개발 도구(verify, gen). go/: Go 추출기와 시험 도구(M1). data/: IR, 덤프, 기준 목록, 출처 커밋
+xtask/                개발 도구(verify, gen, p6). go/: Go 추출기, 시험 도구, 봇. data/: IR, P6 표, 덤프, 기준 목록, 출처 커밋
 ```
 - 크레이트는 `anchor`와 `xtask` 둘이다(개발 도구 의존성이 라이브러리에 들어가지 않게). 모듈과 폴더는 필요할 때 만든다. 내려받은 외부 소스는 `.cache/`(M1에서 .gitignore에 더함).
 - 도구 설정을 점 이름으로 두면 상위 폴더와 홈의 설정이 섞이지 않는다(조사 때 실측). rust-toolchain.toml과 Cargo.lock은 점 이름을 쓸 수 없다.
@@ -41,7 +41,7 @@ xtask/                개발 도구(verify, gen). go/: Go 추출기와 시험 �
 
 ### 2.2 RakNet
 - 서버 쪽만, 기본은 직접 구현이다(조건을 만족하는 크레이트가 있으면 M2에서 비교). 범위는 핑, 연결 수립, 신뢰성·순서·조각, ACK/NAK, 혼잡 제어다. 단조 시계를 쓰고 ACK 범위, 조각, 재조립, 대기 데이터에 상한을 둔다.
-- 검증 필요(M2): RakNet 프로토콜 버전과 MTU 협상(go-raknet 기준). 26.60은 RakNet을 "deprecated"로만 표시했다(제거 아님). RakNet 코드는 어느 경우든 유지한다.
+- RakNet 프로토콜 11, MTU 400~1492(BDS와 go-raknet 확인, 10.2 "P6 결과"). 26.60은 RakNet을 "deprecated"로만 표시했다(제거 아님). BDS 1.26.52는 RakNet 전송에서 "플레이어는 NetherNet 없이 접속할 수 없다"고 기록한다(공식 클라이언트는 확인 불가). RakNet 코드는 어느 경우든 유지한다.
 
 ## 3. 세션
 - 흐름: RequestNetworkSettings(버전 다르면 실패 상태 후 끊음) → NetworkSettings(압축) → Login → (RakNet만) 암호화 → 리소스팩 → StartGame → 청크 → 스폰.
@@ -71,7 +71,7 @@ xtask/                개발 도구(verify, gen). go/: Go 추출기와 시험 �
   - P1 디코드 뒤 남는 바이트 0. P2 왕복 동일. P3 gophertunnel과 양방향 바이트 동일(배치 압축은 교차 해제).
   - P4 고정 시드 변형 입력: 외부 입력을 읽는 모든 디코더에서 패닉 0, 상한 초과 선언은 크기 오류.
   - P5 gophertunnel 봇이 RakNet과 NetherNet, zlib과 Snappy 각각으로 스폰. 큰 스킨 Login. 온라인 로그인은 시험용 발급자(자체 키로 만든 OpenID 설정, JWKS, 토큰)로 검증한다(실제 Xbox 토큰은 쓰지 않는다).
-  - P6 기준 서버 대조(M2부터): 목표 프로토콜의 BDS 복사본(`.cache/bds/<버전>/`, 원본에서 실행 안 함)을 `online-mode=false`로 띄우고 콘솔 명령으로 상황을 만든다. 2026-10-01 기준 후보는 `C:\Users\User\Desktop\bedrock-server-1.26.52.3`(검증 필요(M2): 프로토콜 번호). 봇과 시나리오는 BDS에서 먼저 통과해야 믿는다. 같은 시나리오를 BDS와 Anchor에 돌려 받은 패킷의 순서, 종류, 정해진 필드를 비교하고(세계마다 다른 값은 뺀다), 다르면 BDS를 따른다. 시나리오는 마일스톤마다 늘린다.
+  - P6 기준 서버 대조(M2부터): 목표 프로토콜의 BDS 복사본(`.cache/bds/<버전>/`, 원본에서 실행 안 함)을 `online-mode=false`로 띄우고 콘솔 명령으로 상황을 만든다. 원본은 `C:\Users\User\Desktop\bedrock-server-1.26.52.3`(프로토콜 2193, M2에서 확인). 봇과 시나리오는 BDS에서 먼저 통과해야 믿는다. 같은 시나리오를 BDS와 Anchor에 돌려 받은 패킷의 순서, 종류, 정해진 필드를 비교하고(세계마다 다른 값은 뺀다), 다르면 BDS를 따른다. 시나리오는 마일스톤마다 늘린다.
 - gophertunnel도 형식 버그를 자주 고친다. P3 통과는 gophertunnel과 같다는 뜻일 뿐이고, P6와 다르면 CLAUDE.md 7절을 따른다.
 
 ## 5. 틱과 스레드
@@ -94,11 +94,11 @@ xtask/                개발 도구(verify, gen). go/: Go 추출기와 시험 �
 - 종류, 상태, 직렬화 규칙, 동작은 PMMP 5.44.3(Bedrock 1.26.30 데이터)에서 온다. 그 뒤 추가된 블록과 아이템은 없다(채우지 않는다).
 - 추출(M4): PMMP 마지막 커밋 6a7cc02를 `.cache/`에 받아 한 번 실행해 덤프한다(소스 파싱 안 함). 블록 상태마다 Bedrock 직렬화, 조명 값, 랜덤 틱 여부를, 아이템마다 직렬화를 JSON으로 쓴다(조사 때 실측: 상태 11,420, 오류 0, 아이템 323). PMMP 상태와 Bedrock 상태는 1:1이 아니다(1,888개가 겹침. 그 값은 블록 엔티티나 런타임 데이터로 둔다).
 - 버전별 번호는 기준 목록에서 온다(검증과 번호에만 쓰고 블록을 만들지 않는다): 블록 상태는 dragonfly `block_states.nbt`, 교차 확인 CloudburstMC `block_palette.nbt`(완전히 같을 때만 채택, 다르면 BDS를 따름). 아이템 런타임 ID는 dragonfly `vanilla_items.nbt`(버전마다 바뀜).
-- 블록 ID는 해시 방식(FNV-1a 32, dragonfly `network_block_hash.go`)이다. 기준 목록 전체가 CloudburstMC `network_id`와 같은지 골든 시험한다. 검증 필요(M2): BDS가 해시 방식을 쓰는지(P6). 아니면 순서 기반으로 바꾼다.
+- 블록 ID는 해시 방식(FNV-1a 32, dragonfly `network_block_hash.go`)이다. 기준 목록 전체가 CloudburstMC `network_id`와 같은지 골든 시험한다. BDS도 해시 방식이다(M2 P6: `UseBlockNetworkIDHashes` true, 팔레트 값이 해시와 같음).
 - 상태 대조: 구현한 모든 상태가 기준 목록에 있어야 한다. 26.50에서는 울타리 등 71개 타입에 연결 속성(`minecraft:connection_*`)과 계단 `minecraft:corner`가 생겼다. 검증 필요(M4): 서버가 이 속성을 이웃으로 계산해야 하는지(P6에서 BDS 동작을 따른다).
 - 저장 업그레이드 규칙은 PMMP 업그레이드 스키마 형식이다(스키마 저장소에 결함이 있어 검증 후 들인다).
 - 알 수 없는 블록은 클라이언트에 `minecraft:info_update`로 보내고 저장 원본은 보존한다. 클라이언트가 보낸 알 수 없는 블록이나 아이템은 그 요청만 거부한다.
-- 검증 필요(M2): 26.50의 data-driven 블록 정의를 StartGame에 보내야 하는지(보내더라도 정의만, 블록 목록에 더하지 않는다).
+- data-driven 블록 정의(M2 P6): BDS는 StartGame에 98개를 보낸다(색깔별 양털·콘크리트 계단·반 블록과 `shelf_mushroom`, `shrub`). 모두 PMMP에 없는 블록이라 Anchor는 보내지 않는다(1절). P6 고정 필드에서도 뺀다.
 
 ## 8. API
 ### 8.1 구조
@@ -240,17 +240,24 @@ console-input = true
 ### 9.1 들인 것
 | 이름 | 고정 | 용도 | 결함과 조치 |
 |---|---|---|---|
-| sandertv/gophertunnel(MIT) | 80c811b(v1.62.0 뒤, 1.26.50, 2193) | 패킷, 로그인, 암호화, 압축 형식, Go 봇 | 형식 버그 수정이 잦음, 주석과 코드 불일치, 4절 결함, NBT map 쓰기 순서가 무작위(시험 도구가 정렬해 씀) |
-| sandertv/go-raknet, df-mc/go-nethernet | gophertunnel go.mod가 고정 | RakNet, NetherNet 형식 | go-nethernet은 비신뢰 채널을 읽지 않음 |
+| sandertv/gophertunnel(MIT) | 80c811b(v1.62.0 뒤, 1.26.50, 2193) | 패킷, 로그인, 암호화, 압축 형식, Go 봇 | 형식 버그 수정이 잦음, 주석과 코드 불일치, 4절 결함, NBT map 쓰기 순서가 무작위(시험 도구가 정렬해 씀). 로그인(M2): 정규식에 앵커가 없어 이름·버전 검사가 느슨함 → 모든 글자 검사, `ServerAddress`를 DNS로 조회(블로킹) → 모양만 검사, 오프라인 UUID가 무작위 → `OfflinePlayer:`+이름의 v3, base64가 느슨함 → 엄격. 봇은 기본 스킨 JSON 두 개를 복사해 씀 |
+| sandertv/go-raknet, df-mc/go-nethernet | gophertunnel go.mod가 고정 | RakNet, NetherNet 형식, 봇 | go-nethernet은 비신뢰 채널을 읽지 않음. go-raknet(M2, Anchor는 고쳐 구현): 쿠키가 CRC32, 오류마다 IP를 10초 막음(위조로 남을 막음), OCR2 응답 손실에 멈춤, 신뢰 인덱스 중복 제거 없음(조각 묶음 누수), 24비트 번호 넘침 미처리, 조각 512개 상한, 재조립 O(n²), 모르는 ACK 종류 무시, 혼잡 제어 없음, 사실상 상한 없는 큐, MTU 400 미만 처리 불일치, 순서 채널 무시 |
 | pmmp/PocketMine-MP(LGPL-3.0, 보관) | 6a7cc02 | 블록·아이템 종류와 동작, API | 1.26.30 데이터, 상태가 1:1 아님, 공개 때 라이선스 검토 |
 | pocketmine/bedrock-data(CC0) | 6.7.0+bedrock-1.26.30 | 레시피 등 데이터 | 26.40 이후 없음 |
 | df-mc/dragonfly(MIT) | 커밋(M4) | 기준 목록, 야생 시스템 참고 | 해시 함수 패닉, 비결정 코드, 조명 갱신 없음 |
 | CloudburstMC/Data(Apache-2.0) | 커밋(M4) | 블록 ID 골든, 교차 확인 | 교차 확인에만 |
 | Mojang/bedrock-protocol-docs | 목표 버전(M1) | 필드 길이 상한, NetherNet 가이드 | gophertunnel과 다르면 CLAUDE.md 7절 |
-| BDS(기준 서버) | 목표 프로토콜 배포본 | P6 대조 | 실행만, 분석하지 않음 |
+| BDS(기준 서버) | 1.26.52.3(프로토콜 2193), `.cache/bds/` 복사본 | P6 대조 | 실행만, 분석하지 않음. RakNet 전송을 "플레이어 접속 불가"로 기록함 |
 | libdeflater(MIT, libdeflate 1.26) | =1.26.1 | zlib 압축(level 6에서 miniz_oxide보다 2~4배 빠름, 실측) | `use_rust_alloc` 기능의 OOM null 역참조 → 기본 기능만. `Decompressor` 내부 상태 패닉 → `.clippy.toml` 금지. `Compressor::new`는 malloc 실패에만 패닉(생성 때만, 외부 입력 닿지 않음) |
 | miniz_oxide(MIT/Apache-2.0/Zlib) | =0.9.1 | zlib 해제 | `decompress_to_vec*`는 상한 없음 → 금지, 상한까지만 자라는 자체 루프 |
-| serde, serde_json(xtask만) | =1.0.229, =1.0.151 | IR 읽기(개발 도구) | 라이브러리에 들어가지 않음 |
+| serde, serde_json, toml | =1.0.229, =1.0.151, =1.1.6 | 설정, 인증 캐시, JWT, IR 읽기 | toml은 깊이 80에서 멈춤(`unbounded` 기능이 켜지면 사라짐), toml 오류 `Display` 안의 `expect` → `message()`와 `span()`만 씀. `serde_json::from_reader` 금지 |
+| tokio(MIT) | =1.53.1 | 런타임, 상한 큐, UDP, 시그널 | 상한 없는 채널, `blocking_*`, `block_on`, 런타임 생성, 시계 진입점을 금지 목록에 둠 |
+| aws-lc-rs(ISC/Apache-2.0) | =1.18.1, 기본 기능 끔 | ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR, 난수 | ECDSA 공개키가 SPKI 뒤 바이트와 SEC1 점도 받음 → DER SEQUENCE 하나만, 스트리밍 CTR이 무작위 IV → 금지하고 자체 카운터, 서명 키와 ECDH 키가 다른 타입 → PKCS#8로 잇고 공개키 같음을 확인, 난수와 키 생성 진입점과 `SystemRandom` 타입 금지 |
+| rustls(aws_lc_rs, ring 끔), webpki-roots | =0.23.45, 1.0.9 | 인증 문서 HTTPS | 공급자가 없으면 패닉 → 늘 aws-lc-rs를 줌. ring은 메타데이터에만 있고 빌드되지 않음(`allowed-duplicate-crates` windows-sys) |
+| ureq(MIT/Apache-2.0) | =3.4.2 | 인증 문서 받기(블로킹 풀) | 시간 상한이 있으면 DNS마다 분리 스레드 → 인라인 resolver(DNS는 OS 상한), 본문 상한이 상한과 같은 크기를 거부 → 1 MiB 미만, 기본으로 프록시 환경 변수를 읽음(둠). 블로킹 호출과 상한 없는 본문 읽기 금지 |
+| tracing(MIT) | =0.1.44, std만 | 로그 | `attributes` 기능을 꺼 syn 2를 뺌 |
+| socket2(MIT/Apache-2.0) | =0.6.5 | IPv6 전용 소켓, 소켓 버퍼 | 블로킹 입출력 진입점 금지 |
+| go-jose, go-oidc(봇만) | gophertunnel go.mod 판 | 봇 토큰 발급과 봇 시험 | 개발 도구 |
 | golang.org/x/tools(BSD-3) | v0.42.0(xtask/go) | 추출기의 타입 정보 로드 | 개발 도구, gophertunnel 의존성 버전을 바꾸지 않는 판을 골랐다 |
 
 ### 9.2 추천 후보 (2026-10-01 조사, 강제 아님)
@@ -259,7 +266,7 @@ console-input = true
 | 저장 | redb(사용자 지정) | 4.4.0 이상(쓰기마다 메모리 증가 #1517 수정), 없으면 수정 커밋. 손상 파일 결함(#1503, #1505)과 읽기 체크섬 없음(#1334)은 6절 규칙으로 막는다 |
 | 비동기 런타임 | tokio 1.x | 멀티스레드 런타임 하나, 상한 없는 채널 금지 |
 | CPU 풀 | rayon | 고정 크기 풀 하나 |
-| 암호 | aws-lc-rs | Windows는 NASM 필요. 같은 키로 서명과 ECDH 하는 변환은 검증 필요(M2) |
+| 암호 | aws-lc-rs | Windows는 NASM 필요. 같은 키의 서명과 ECDH는 PKCS#8로 잇는다(M2 확인) |
 | WebRTC | str0m(aws-lc-rs 기능) | 정확한 버전 고정, sctp-proto의 검사 없는 `+1`은 격리나 수정 커밋으로. rtc 크레이트는 피한다(FORWARD-TSN CPU 고갈) |
 | zlib | 출력 libdeflater, 입력 miniz_oxide | 상한 있는 해제 API만 |
 | Snappy | 직접 구현 | snap 크레이트는 외부 입력 경로에 unsafe가 있어 쓰지 않는다 |
@@ -299,7 +306,7 @@ console-input = true
 - Rust 표현(결정):
   - Go 구조체는 같은 모양의 평평한 struct다(조건부 필드도 늘 있고 없으면 `Default`). 이유: gophertunnel과 1:1이라 P3 판정과 버전업 비교가 단순하다. 더 나은 공개 모양은 M8 API가 감싼다. 모두 `Debug, Clone, PartialEq, Default`를 구현한다.
   - `Optional` → `Option`, 슬라이스 → `Vec`, 인터페이스 → enum, `mgl32.Vec3` → `[f32; 3]`, `uuid.UUID` → `Uuid`, NBT 컴파운드 → `BTreeMap<String, nbt::Value>`(바이트 순 정렬로 쓴다. 같은 키는 뒤가 이긴다: Go map과 같음), EntityMetadata → `BTreeMap<u32, _>`(gophertunnel도 키를 정렬해 쓴다).
-  - 문자열은 `String`이고 UTF-8이 아니면 디코드 오류다(gophertunnel은 검사 안 함). 검증 필요(M2): 공식 클라이언트가 UTF-8이 아닌 문자열을 보내는지(P6).
+  - 문자열은 `String`이고 UTF-8이 아니면 디코드 오류다(gophertunnel은 검사 안 함). 공식 클라이언트 출력은 관찰할 수 없어 스폰 뒤 디코드 실패 패킷만 버리는 설계로 닫았다(10.2).
   - bool은 0과 1만 받는다. 쓰기는 길이를 자르지 않고 `Error`를 낸다(인코딩도 `Result`).
   - 공개 범위(결정): `anchor::protocol`은 공개 코덱 층이다(패킷과 타입, `Packet` 디코드·인코드, 배치 인코드·디코드, `Compression`). 패킷 훅(8.3)이 패킷 값을 다루고, P1~P4 시험이 xtask에서 부르기 때문이다. `Reader`, `Writer`, `Codec`은 `pub(crate)`다. NBT는 저장에서도 써서 `anchor::nbt`다.
   - 이름은 5.1을 따른다. Rust 키워드인 필드는 raw identifier(`r#type`)다. 문서는 gophertunnel 주석에서 오고, 없으면 생성기가 이름으로 한 줄을 만든다.
@@ -320,10 +327,10 @@ console-input = true
   - EntityMetadata 개수 상한 없음, NBT 깊이 계수 누수, 부분 읽기 허용, ItemInstance·Login 길이 조용히 자름 → Anchor는 상한과 오류로 고쳤다.
   - Snappy 해제는 `s2.Decode`라 S2 확장도 받는다. Anchor는 표준 Snappy만 받는다.
   - HeightMap 행마다 varuint32 16 접두. 검증 필요(M6): BDS 대조(P6).
-- 손 코덱 결정: 서브청크 해제는 엄격하다(비트 수 {0,1,2,3,4,5,6,8,16}만, 지속 팔레트 플래그와 0x7f 거부, 팔레트 길이 ≤ 2^bits, 모든 인덱스 < 팔레트 길이). 검증 필요(M6): BDS가 보내는 형식(P6). NBT 깊이 512 값의 drop은 재귀라 디버그에서 스택 약 1 MiB를 쓴다(시험으로 고정). M2에서 연결 작업 스택 크기를 정할 때 다시 본다.
+- 손 코덱 결정: 서브청크 해제는 엄격하다(비트 수 {0,1,2,3,4,5,6,8,16}만, 지속 팔레트 플래그와 0x7f 거부, 팔레트 길이 ≤ 2^bits, 모든 인덱스 < 팔레트 길이). 검증 필요(M6): BDS가 보내는 형식(P6). NBT 깊이 512 값의 drop은 재귀라 디버그에서 스택 약 1 MiB를 쓴다(시험으로 고정). M2에서 네트워크 워커와 틱 스레드 스택을 4 MiB로 정했다(10.2).
 - NBT 목록(결정): `nbt::List`가 원소 타입을 늘 지닌다(빈 목록도). gophertunnel은 빈 Int·Long 목록만 타입을 지키고 나머지는 End로 다시 쓴다(정보 손실). P3(나)는 이 차이 하나만 값 구조 비교로 허용한다.
-- 배치 패킷 목록(결정): 헤더는 ID 0~9비트, 보낸 쪽 10~11, 받는 쪽 12~13. 그보다 높은 비트는 거부한다(gophertunnel은 무시). 출력은 256 KiB 전과 812개에서 끊는다. 검증 필요(M2): 클라이언트가 13비트 위를 쓰는지, 812개 넘는 배치를 받는지(P6).
-- zlib 해제는 마지막 블록 뒤 남는 바이트를 거부한다(gophertunnel은 무시). Snappy와 P1 규칙에 맞춘 결정이다. 검증 필요(M2): BDS와 클라이언트 출력에서 남는 바이트가 없는지(P6).
+- 배치 패킷 목록(결정): 헤더는 ID 0~9비트, 보낸 쪽 10~11, 받는 쪽 12~13. 그보다 높은 비트는 읽을 때 무시한다(M2에서 바꿈, 10.2). 출력은 256 KiB 전과 812개에서 끊는다.
+- zlib 해제는 마지막 블록 뒤 남는 바이트를 받고 버린다(M2에서 바꿈, 10.2).
 
 #### M1 판정식
 - 생성: 추출 실패 0. IR 패킷 수 = gophertunnel 두 풀의 합집합 크기 = Rust `Packet` variant 수. IR의 모든 타입이 생성된다.
@@ -333,13 +340,89 @@ console-input = true
 - P4: 패킷마다 고정 시드 변형 1000개(비트 뒤집기, 바이트 넣기·빼기, 자르기, 길이 필드 키우기)에서 패닉 0. 상한마다(길이, 개수, 예산, NBT 깊이·크기, 해제 크기, 배치 패킷 수) 넘는 선언이 크기 오류로 끝나는 시험이 있다. Snappy 결함 입력 5종(3절)과 zlib 폭탄은 오류다.
 - `cargo xtask verify` PASS(`gen --check` 포함).
 
+### 10.2 M2 세부 설계 (2026-10-03)
+- 검증 필요 처리(시작 때):
+  - RakNet 버전과 MTU(2.2): 고정한 go-raknet은 프로토콜 11, 서버 쪽 MTU 하한 400·상한 1492, 다이얼러는 1492, 1200, 576 순으로 탐색한다. Anchor는 11만 받고(다르면 IncompatibleProtocolVersion), MTU는 min(요청 크기, `max-mtu-size`)이다. 하한은 구현 때 go-raknet 서버 쪽과 맞춰 아래 상한 목록에 적는다.
+  - BDS 프로토콜 번호(4절), 해시 블록 ID(7절), data-driven 블록 정의(7절), BDS zlib 출력의 끝 바이트와 배치 헤더 높은 비트·812개 초과(10.1): 이번 P6에서 확인해 결과를 아래 "P6 결과"에 적는다.
+  - 공식 클라이언트 출력에서만 보이는 것(비UTF-8 문자열, 클라이언트 zlib 끝 바이트, 헤더 13비트 위)은 CLAUDE.md 8절대로 모든 경우를 받는 설계로 닫는다. (1) 스폰 뒤 클라이언트 패킷 하나의 디코드 실패는 그 패킷만 버리고 warn으로 남긴다(로그인 순서의 패킷은 끊는다). 버린 패킷도 입력 예산에서 뺀다. (2) 배치 헤더 13비트 위는 읽을 때 무시한다(gophertunnel과 같음, 10.1 결정 변경). (3) zlib 마지막 블록 뒤 바이트는 받고 버린다(10.1 결정 변경, 압축 입력 길이는 이미 재조립 상한 안).
+  - aws-lc-rs로 같은 키를 서명과 ECDH에 쓰는 변환(9.2): 구현 때 시험으로 확인한다.
+  - NBT 깊이 512 drop의 스택(10.1): 네트워크 워커 스택을 4 MiB로 정하고 디버그 빌드 시험으로 고정한다.
+- 모듈(모두 `pub(crate)`, 공개는 `Config` 계열, `Server` 계열, `Error`와 M1의 `protocol`, `nbt`):
+  - `config.rs`: 8.5 그대로. `Config { general, developer }`와 값 enum. 검증은 `load`와 `build()`가 같은 함수로 한다.
+  - `error.rs`(크레이트 `Error`, `Result`), `server.rs`(`Server`, `ServerBuilder`, `ShutdownHandle`), `runtime.rs`(스레드와 런타임을 만드는 유일한 모듈), `clock.rs`(엔진 시계, 시계 진입점을 부르는 유일한 곳), `tick.rs`(+`tick/`: 틱 루프, `step`, 상태).
+  - `raknet.rs`(+`raknet/`): 서버 쪽 RakNet. sans-IO 핵심(메시지 형식, 신뢰성, 조각, ACK/NAK, 혼잡 제어)과 tokio UDP 구동부. 0xfe는 이 층이 떼고 붙인다(세션은 전송과 무관).
+  - `session.rs`(+`session/`): 연결 상태 기계(배치, 암호화, 로그인 순서, 예산)와 틱 큐 연결. M3 NetherNet도 같은 세션을 쓴다.
+  - `login.rs`(+`login/`): 연결 요청 검증. `auth.rs`: 인증 환경 받기와 `data/auth.json` 캐시. `crypto.rs`(+`crypto/`): aws-lc-rs 감싸기(ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR, 난수), base64, JWS 압축 형식, RakNet 암호화.
+- 공개 API(M2): `Server::builder().config(cfg).data_dir(path).build()?.run()`. `data_dir` 기본은 `data`(같은 프로세스에서 서버 여럿을 띄우는 시험과 사용자에게 필요). `Server::shutdown_handle()`과 Ctrl+C로 정상 종료한다. 콘솔 입력은 M9.
+- 스레드와 큐:
+  - `run()`은 tokio 멀티스레드 런타임 하나(워커 = `network-threads`, 스택 4 MiB, 블로킹 풀 상한 4)와 틱 스레드 하나를 만든다. CPU 풀은 M5에서 만든다(M2는 값 검증만). auto는 network = max(1, L/4), cpu = max(1, max(L,4) − 2 − network)이다(L = 논리 CPU, 2 = 틱과 저장). 직접 정한 값은 network + cpu + 2 ≤ max(L,4)여야 하고, 아니면 시작을 거부한다.
+  - 큐는 tokio 상한 `mpsc` 하나다. 틱은 `try_recv`, `try_send`만 쓴다. 불변 스냅샷 방송(인증 키, 핑 응답)은 `tokio::sync::watch`다(큐가 아니라 최신 값 하나).
+  - RakNet 소켓 작업 하나가 두 소켓(IPv4, IPv6)과 모든 RakNet 연결 상태를 가진다(잠금 없음). 연결마다 세션 작업 하나가 해제, 복호화, 디코드, 로그인 검증을 한다(작업끼리 병렬).
+  - 틱 입력 큐 65,536개, 세션 출력 큐 1,024개. 가득 차면 그 세션을 끊는다(틱은 기다리지 않는다).
+- 연결 상한(상수, 설정 아님):
+  - 로그인 전 연결 전체 64, IP별 4. 넘으면 RakNet 0x14. 로그인 뒤는 `max-players`(넘으면 PlayStatus 서버 가득 참).
+  - 핑: IP별 토큰 버킷(초당 5, 순간 10). IP 표는 4,096개이고, 1분 쓰지 않은 항목은 지우며, 가득 차면 새 IP의 핑에 답하지 않는다.
+  - 마감: 연결부터 Login 검증까지 10초, 스폰 완료(SetLocalPlayerAsInitialised)까지 60초(리소스팩 전송은 M8에서 다시 본다). RakNet 무응답 시간은 go-raknet 값을 따른다.
+  - 입력: 세션마다 해제 바이트 토큰 버킷(용량 `max-batch-bytes`, 초당 `max-batch-bytes`/4). 인증 전 재조립·해제 합은 8 × `max-batch-bytes`(3절). RakNet 메시지 하나는 3절 재조립 식 + 9바이트(0xfe, 체크섬 8)다.
+  - 출력: 세션마다 보내지 못한 바이트가 32 MiB를 넘으면 끊는다.
+  - RakNet 내부 상한(조각 수, 동시 조각 묶음, 순서 대기, 재전송 창, ACK 범위 수)은 구현 때 정해 아래에 적는다.
+- 세션 순서(서버 쪽): RequestNetworkSettings → NetworkSettings → Login 검증 → (RakNet) ServerToClientHandshake, ClientToServerHandshake → PlayStatus(LoginSuccess), ResourcePacksInfo → 응답(HaveAllPacks) → ResourcePackStack → 응답(Completed) → 틱 Join → StartGame 계열 → RequestChunkRadius → ChunkRadiusUpdated, 청크, PlayStatus(PlayerSpawn) → SetLocalPlayerAsInitialised. 로그인 순서의 패킷(RequestNetworkSettings, Login, ClientToServerHandshake, ResourcePackClientResponse)이 순서를 어기면 끊는다. 그 밖의 패킷은 Join 전에는 대기 큐(32개, 넘치면 끊음)에 두었다가 Join 뒤 순서대로 틱에 넘긴다(gophertunnel도 미뤄 두고, 공식 클라이언트 순서는 관찰할 수 없다). ClientCacheStatus는 받고 버린다(블롭 캐시는 M6). 스폰 때 보내는 패킷 목록과 순서는 P6에서 BDS를 따르고, 아직 채우지 못하는 패킷(아이템, 제작, 생물군계, 명령 등)은 "P6 유예표"에 마일스톤과 함께 적는다.
+- 로그인 검증(3절 보충):
+  - 온라인: `Token`만 본다(레거시 체인은 무시). RS256만, `kid` 필수, `exp` 필수, `nbf`와 `iat`는 있으면 검사, 시계 오차 60초(go-jose 기본과 같음). `iss`는 OpenID 설정의 `issuer`와 문자열이 같아야 하고 `aud`에 `api://auth-minecraft-services/multiplayer`가 있어야 한다. `xid`는 숫자, `xname`은 비어 있지 않고, `cpk`는 P-384 SPKI(base64)다.
+  - 오프라인(`xbox-auth = false`): `Token`이 있으면 서명 없이 클레임만 읽고, 없으면 레거시 체인(첫 토큰 자체 서명 `x5u`)을 읽는다. 이름 규칙은 gophertunnel `IdentityData.Validate`다. XUID는 비운다.
+  - ClientData: ES384, `cpk`로 검증한다. 내용 규칙은 gophertunnel `ClientData.Validate`다.
+  - 시각: JWT 시각 검사는 틱 밖이라 벽시계를 쓰고, `clock.rs`가 준다.
+- 인증 캐시 `data/auth.json`: 디스커버리의 `auth.prod`, OpenID 설정, JWKS, 받은 시각을 담는다. 시작 때 캐시가 1시간 안이면 그대로 쓰고, 아니면 받는다(실패하면 캐시, 둘 다 없으면 시작 거부). 실행 중 1시간마다 갱신하고, 모르는 `kid`는 5분에 한 번 JWKS만 다시 받는다. 캐시가 손상(JSON 아님, 필드 빠짐)이면 시작을 거부하고 파일을 남긴다. 쓰기는 임시 파일 + rename이다. 응답 본문 1 MiB, 요청 10초 상한.
+  - 시험용 발급자: 시험이 자체 RSA 키로 OpenID 설정과 JWKS를 만들어 `auth.json`(받은 시각 = 지금)에 넣고 토큰을 발급한다. 엔진에 시험 전용 진입점은 없다.
+- 암호화: 서버 키는 실행마다 새 P-384 키 하나(서명과 ECDH 같은 키), salt는 연결마다 16바이트 난수. 형식은 3절.
+- 틱 뼈대: 20 TPS, 엔진 시각은 틱 번호. 세션 ID는 엔진이 연결 순서로 주는 u64(재사용 안 함). 입력은 (세션 ID, 세션 안 순번)으로 정렬한다. M2 상태는 플레이어 표(세션 → 엔티티 ID, 이름, 위치)와 상태 해시 함수다(멱등, 결정성 시험용).
+- 시험 도구:
+  - Go 봇 `xtask/go/bot`: gophertunnel `packet`, `login`과 go-raknet으로 만든 클라이언트다. Dialer는 시험용 토큰을 넣을 수 없어 쓰지 않는다. 시나리오는 spawn, big-skin(해제 6 MiB Login), online(시험용 발급자 키)이고, 받은 패킷을 순서대로 JSON 줄로 기록한다.
+  - P5: `xtask/tests/`가 Anchor를 같은 프로세스에서 띄우고 봇을 돌린다(verify에 포함, Go 필요).
+  - P6: `cargo xtask p6`가 `.cache/bds/1.26.52.3`(원본의 복사본, `.cache`는 .gitignore)에서 월드 폴더를 지우고 시험 설정(`online-mode=false`, RakNet, Anchor와 같은 압축 설정)으로 BDS를 띄워 봇을 돌리고, 같은 시나리오를 Anchor에 돌려 비교한다. BDS가 필요해 verify에는 넣지 않고 결과를 13절에 적는다.
+
+#### M2 판정식
+- 설정: (가) 기본 파일이 8.5 정본 블록과 바이트 동일(시험이 PLAN.md에서 블록을 읽어 비교). (나) 키마다 빠지면 기본값, 타입 오류 거부, 범위 경계의 안은 받고 밖은 거부, 오류 메시지에 키 이름. (다) 모르는 키와 표, hardcore인데 hard 아님은 거부. (라) 파일이 없으면 만들고, 다시 읽으면 같은 `Config`. `config()`를 안 부르면 파일을 읽지도 쓰지도 않는다.
+- RakNet: (가) 손실, 중복, 순서 바꿈 주입(고정 시드)에서 받은 메시지 열 = 보낸 열. (나) 상한마다 넘는 입력이 오류나 끊김으로 끝나는 시험. (다) 변형 데이터그램 1만 개(고정 시드)에서 패닉 0. (라) go-raknet 다이얼러와 연결, 핑, 최대 크기 메시지 왕복(P5 안에서).
+- 로그인: 시험용 발급자 토큰이 통과하고, 서명, `kid`, `alg`(none, HS256, ES384), `iss`, `aud`, `exp`, `nbf`, `cpk` 형식, ClientData 서명이 하나씩 틀린 경우가 모두 거부된다. gophertunnel이 만든 오프라인 요청이 통과한다.
+- 암호화: gophertunnel이 만든 골든(키 유도, 암호문, 체크섬)과 바이트 동일. 1비트 변조와 카운터 어긋남은 오류. 같은 키로 서명한 핸드셰이크 JWT를 gophertunnel이 받는다(P5).
+- 틱: (가) 같은 입력을 세션 사이 도착 순서만 바꿔 넣어도 상태 해시가 같다. (나) 같은 요청을 두 번 넣은 상태 해시 = 한 번(Join, Leave, SetLocalPlayerAsInitialised). (다) 접속과 종료 100번 반복 뒤 세션 표, 플레이어 표, 큐 개수가 시작 값과 같다.
+- P5(RakNet): 봇이 zlib과 Snappy 각각, 오프라인과 온라인(시험용 발급자) 각각 스폰한다. big-skin이 통과한다. 로그인 마감과 로그인 전 연결 상한이 동작한다.
+- P6: 봇 시나리오(spawn, big-skin)가 BDS에서 먼저 통과한다. spawn에서 받은 패킷 열이 BDS와 같다(유예표 패킷과 세계마다 다른 값은 빼고 정해진 필드 비교). 블록 ID가 해시인지 BDS의 StartGame과 청크 팔레트로 확인한다.
+- `cargo xtask verify` PASS.
+
+#### M2 결과와 정한 값 (2026-10-03)
+- 판정: 설정 시험(공개 14, 단위 7: 8.5 블록 바이트 동일, 42개 키 모두), RakNet(손실 10%·중복 5%·순서 바꿈에서 메시지 열 동일, 상한마다 시험, 변형 1만 개 패닉 0, 실제 go-raknet과 18.7 MiB 왕복), 로그인(시험용 발급자 통과, 틀린 경우 하나씩 거부, gophertunnel 골든 통과), 암호화(gophertunnel 골든과 바이트 동일), 틱((가)(나)(다)), P5(`xtask/tests/spawn.rs` 6개: zlib·Snappy 스폰, 6 MiB Login, 온라인 시험용 발급자, 로그인 마감 10.02초, IP별 로그인 전 4개, 접속·종료 5번 뒤 핑의 접속자 0), P6(아래) 모두 통과. `cargo xtask verify` PASS.
+- 바뀐 결정:
+  - 설정 파일이 없으면 기본 파일을 쓰고, 그 파일을 읽은 것처럼 적용한다(첫 시작과 그 뒤 시작의 결과가 같다).
+  - RakNet 쿠키(security)는 쓰지 않는다. BDS가 security=false로 답하고 공식 클라이언트의 쿠키 처리는 관찰할 수 없어서다(CLAUDE.md 8절). 위조 출발지는 로그인 전 상한으로만 막는다.
+  - Join 전 예상 밖 패킷은 끊지 않고 대기 큐에 둔다(세션 순서 항목).
+  - `cargo xtask verify`는 검사를 `target/verify`에서 돌린다(`cargo test --workspace`의 기능 통합이 달라 실행 중인 xtask.exe를 다시 빌드하려다 Windows에서 실패해서).
+- 설정 범위(정본은 `src/config.rs`): `max-players` 1~10000, `chunks-per-tick` 1~256, `spawn-radius`·`tick-radius` 1~64, `random-tick-speed` 0~4096, 스레드 `"auto"` 또는 1~65535(합계 규칙은 `build()`), `motd` 1~256바이트·`level-name` 1~64바이트(`;`와 제어 문자 금지: 핑 응답이 `;`로 나뉜다), `shutdown-message` 1024바이트 이하, `disable-block-ticking`은 `ns:path` 모양. 압축 세 키는 `batch::Settings::new` 한 곳에서 검사한다. toml 파서는 깊이 80에서 멈춘다(1 MiB 깊은 중첩 시험).
+- RakNet 상수(정본은 `src/raknet/`): 조각 수 ⌈메시지/345⌉(미리 할당 안 함), 동시 조각 묶음 16, 순서 창 2048(채널 32개 따로), 쥔 바이트 2 × 메시지 + 2048 × 1492, 데이터그램 기록 1024, 신뢰 인덱스 빈칸 8192, 혼잡 창 32(최소 4, 최대 2048, 손실 때 ×3/4), RTO 500ms(100ms~2s), flush당 데이터그램 32, 출력 32 MiB, 세션 입력 큐 1024개·2 × 메시지 바이트, 소켓 버퍼 4 MiB, 갱신 10ms, 핸드셰이크 10초, 무응답 5초 + 2·RTT, 닫기 5초, 핑 응답 1429바이트 이하. IPv6 로그인 전 상한은 /64 단위.
+- 세션·틱 상수: 틱당 입력 8192개, 스택 4 MiB(워커와 틱), 블로킹 스레드 4, 종료 유예 10초, 세션 받기 큐 64, Join 전 대기 패킷 32, 첫 메시지 1 KiB. 핑 응답은 BDS 형식 `MCPE;motd;2193;1.26.50;접속자;최대;guid;level;모드;1;포트;포트;0;1;1;`.
+- 로그인 상한(정본은 `src/login.rs`, `src/auth.rs`): 체인 JSON 64 KiB, 토큰 16 KiB, 체인 8개, `aud` 16개, RSA 2048~4096비트, JWKS 키 64개, HTTP 10초·본문 1 MiB 미만(DNS는 OS 상한), 캐시 1 MiB.
+- P6 결과(BDS 1.26.52.3, `cargo xtask p6 bds`, `p6 anchor`):
+  - BDS 프로토콜 2193(핑과 RequestNetworkSettings 수락), RakNet 11, 1492 요청에 MTU 1400으로 답함, security=false, online-mode=false에서도 암호화한다.
+  - 해시 블록 ID(StartGame 플래그와 팔레트 4종: air -604749536, bedrock -173245189, dirt -2108756090, grass_block -567203660). 청크는 서브청크 요청 방식이다(M6).
+  - BDS zlib 출력에 끝 바이트 없음, 헤더 13비트 위 없음, 배치당 패킷 최대 45개, 해제 배치 최대 약 9 MB(큰 스킨이 PlayerList로 되돌아옴).
+  - 순서: PlayStatus(LoginSuccess)와 ResourcePacksInfo가 한 배치에 이 순서로 온다.
+  - 스폰 창(유예 패킷 뺌)이 BDS와 같다: NetworkSettings, ServerToClientHandshake, PlayStatus, ResourcePacksInfo, ResourcePackStack, StartGame, ItemRegistry, ChunkRadiusUpdated, PlayStatus. 고정 필드(`xtask/data/p6/fields.txt`)도 zlib, Snappy 모두 같다. 유예표는 `xtask/data/p6/deferred.txt`(M4, M6, M7, M8).
+  - StartGame은 BDS 값을 따른다: BaseGameVersion `*`, PlayerGameMode 5(월드 모드를 따름), Generator 2, ServerAuthoritativeSound, RewindHistorySize 40, MSAGamerTagsOnly, LimitedWorld 16, 빈 ServerJoinInformation. GameVersion은 비교에서 뺐다(BDS 빌드 1.26.52, Anchor는 프로토콜 출처의 1.26.50, 둘 다 2193).
+- 남은 위험과 검증 필요:
+  - BDS 1.26.52가 RakNet 전송을 "플레이어 접속 불가"로 기록한다. 공식 클라이언트가 RakNet으로 들어오는지는 관찰할 수 없다. 실제 접속은 M3 NetherNet이 맡는다.
+  - Join 전 대기 큐 32개, ClientData의 엄격한 JSON(대소문자, null, 중복 키 거부), 핑 응답의 서바이벌 외 모드 뒤 숫자(BDS는 `Survival;1`만 봄)는 공식 클라이언트로만 확인된다. 검증 필요(M3): NetherNet P6에서 다시 본다.
+  - 같은 XUID의 두 번째 접속을 막지 않는다. 검증 필요(M7): PMMP처럼 먼저 접속한 쪽을 내보낼지 정한다.
+  - 오프라인 이름은 gophertunnel 규칙이라 `_`를 받지 않는다(PMMP는 받음).
+  - toml의 `unbounded` 기능이 사용자 바이너리에서 켜지면 깊이 상한이 사라진다.
+
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
 
 ## 12. 열린 결정
 | # | 결정 | 기본값 | 정하는 때 |
 |---|---|---|---|
-| 1 | 블록 ID 방식 | 해시 | M2(P6) |
+| 1 | 블록 ID 방식 | 해시(M2 P6로 확정) | 정함 |
 | 2 | 기준 목록 출처 | dragonfly + CloudburstMC | M4 |
 | 3 | PMMP와 다른 이벤트 의미 | 8.2절 | M8(사용자가 원하면 바꿈) |
 | 4 | 사용자 저장 공급자 trait | 두지 않음 | 원자 커밋을 지킬 수 있는 요구가 생기면 |
@@ -353,7 +436,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 |---|---|---|
 | M0 | 완료(2026-10-02) | verify PASS |
 | M1 | 완료(2026-10-03) | 10.1절. 패킷 236개 생성, P1~P4 통과(코퍼스 15,104, 변형 236,000, 패닉 0), verify PASS |
-| M2 | 시작 전 | |
+| M2 | 완료(2026-10-03) | 10.2절. P5 6개, P6 스폰 창 BDS와 같음(zlib, Snappy), verify PASS |
 | M3 | 시작 전 | |
 | M4 | 시작 전 | |
 | M5 | 시작 전 | |

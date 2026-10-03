@@ -1,0 +1,55 @@
+# P6 deferral table (PLAN.md 10.2): packets BDS sends in the spawn window that Anchor M2 does not
+# send yet, with the milestone (PLAN.md 10) that adds them. `cargo xtask p6 compare` removes them
+# from both captures. Remove a line when its milestone sends the packet.
+# <packet> <milestone> <reason>
+
+# Blocks and items (M4)
+VoxelShapes M4 block collision shape table
+CreativeContent M4 creative inventory items
+CraftingData M4 recipes
+UnlockedRecipes M4 recipe book
+TrimData M4 smithing trim patterns and materials
+InventoryContent M4 inventory windows hold items
+PlayerHotBar M4 inventory hotbar selection
+
+# World and chunks (M6)
+LevelChunk M6 chunk sending
+SubChunk M6 sub-chunk request answers
+NetworkChunkPublisherUpdate M6 chunk sending radius
+BiomeDefinitionList M6 biome data for chunks
+SetSpawnPosition M6 world spawn point
+JigsawStructureData M6 vanilla structure data (vanilla generation is out of scope; check whether the client needs it)
+CurrentStructureFeature M6 structure at the player position
+
+# Game features and entities (M7)
+PlayerList M7 player list with skins
+SyncWorldClocks M7 world time and day cycle
+LevelEventGeneric M7 sleeping player counts
+SyncActorProperty M7 entity property definitions
+AvailableActorIdentifiers M7 entity types
+SetDifficulty M7 difficulty
+GameRulesChanged M7 game rules
+UpdateAdventureSettings M7 adventure settings
+UpdateAbilities M7 abilities and permissions
+UpdateAttributes M7 health, hunger and movement attributes
+SetHealth M7 health
+SetActorData M7 entity metadata
+Respawn M7 respawn sequence
+PlayerFog M7 fog stack
+LevelSoundEvent M7 sounds
+AddActor M7 entities (BDS spawns and despawns mobs in the flat world)
+RemoveActor M7 entities
+AddItemActor M7 entities
+MoveActorDelta M7 entity movement
+MoveActorAbsolute M7 entity movement
+SetActorMotion M7 entity movement
+ActorEvent M7 entity events
+MobEquipment M7 entity equipment
+MobArmourEquipment M7 entity equipment
+
+# API (M8)
+AvailableCommands M8 commands
+SetCommandsEnabled M8 commands
+CameraPresets M8 camera API
+CameraAimAssistPresets M8 camera API
+CameraSpline M8 camera API

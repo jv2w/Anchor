@@ -1,0 +1,75 @@
+# P6 fixed fields (PLAN.md 10.2): fields that must be equal between BDS and Anchor captures, by
+# packet name and gophertunnel field path. Same-named packets are paired in order. Values that
+# differ per world or run (seed, positions, entity IDs, time, level ID, names, salts, checksums)
+# are not listed. BDS runs with Anchor's default settings (`cargo xtask p6 bds`).
+# <packet> <field>[.<field>...]
+
+NetworkSettings CompressionThreshold
+NetworkSettings CompressionAlgorithm
+NetworkSettings ClientThrottle
+NetworkSettings ClientThrottleThreshold
+NetworkSettings ClientThrottleScalar
+
+PlayStatus Status
+
+ResourcePacksInfo TexturePackRequired
+ResourcePacksInfo HasAddons
+ResourcePacksInfo HasScripts
+ResourcePacksInfo ForceDisableVibrantVisuals
+ResourcePacksInfo WorldTemplateUUID
+ResourcePacksInfo WorldTemplateVersion
+ResourcePacksInfo TexturePacks
+
+ResourcePackStack TexturePackRequired
+ResourcePackStack TexturePacks
+ResourcePackStack BaseGameVersion
+ResourcePackStack Experiments
+ResourcePackStack ExperimentsPreviouslyToggled
+ResourcePackStack IncludeEditorPacks
+
+# GameVersion is left out: it is the server build's patch version (BDS 1.26.52, Anchor 1.26.50 from
+# its protocol source); both speak protocol 2193.
+StartGame BaseGameVersion
+StartGame UseBlockNetworkIDHashes
+StartGame ServerAuthoritativeInventory
+StartGame ServerAuthoritativeSound
+StartGame PlayerMovementSettings
+StartGame ChatRestrictionLevel
+StartGame DisablePlayerInteractions
+StartGame ClientSideGeneration
+StartGame Experiments
+StartGame ExperimentsPreviouslyToggled
+StartGame ForceExperimentalGameplay
+StartGame PropertyData
+StartGame Dimension
+StartGame Generator
+StartGame PlayerGameMode
+StartGame WorldGameMode
+StartGame Difficulty
+StartGame Hardcore
+StartGame PlayerPermissions
+StartGame ServerChunkTickRadius
+StartGame SpawnBiomeType
+StartGame EditorWorldType
+StartGame CreatedInEditor
+StartGame ExportedFromEditor
+StartGame ServerEditorConnectionPolicy
+StartGame EducationFeaturesEnabled
+StartGame EducationEditionOffer
+StartGame MultiPlayerGame
+StartGame LANBroadcastEnabled
+StartGame XBLBroadcastMode
+StartGame PlatformBroadcastMode
+StartGame MSAGamerTagsOnly
+StartGame Trial
+StartGame AchievementsDisabled
+StartGame TexturePackRequired
+StartGame PersonaDisabled
+StartGame CustomSkinsDisabled
+StartGame EmoteChatMuted
+StartGame LimitedWorldWidth
+StartGame LimitedWorldDepth
+StartGame NewNether
+StartGame ServerJoinInformation
+
+ChunkRadiusUpdated ChunkRadius
