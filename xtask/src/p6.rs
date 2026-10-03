@@ -18,11 +18,17 @@
 //!   and remove some again; a marker block set after each step delimits the steps (`MARKER`), and
 //!   the block updates BDS sent for each step are reported with their states (`blocks.txt`). The
 //!   biome definitions and jigsaw data of each spawn capture are checked against `CloudburstMC`'s
-//!   data (`cloudburst`).
+//!   data (`cloudburst`). Last, it runs the game session once (`game`: craft, furnace, enchant,
+//!   crops, trade into `target/p6/bds-game/`).
+//! - `p6 game bds [scenario]...`: the game session alone; `p6 game anchor [scenario]...`: the
+//!   same session against Anchor into `target/p6/anchor-game/`, compared with `bds-game/`;
+//!   `p6 game compare A B` compares the game traces of two capture folders (see `game`).
 //! - `p6 anchor [zlib|snappy]...`: starts Anchor in this process with the same settings and runs
 //!   the same RakNet and NetherNet scenarios into `target/p6/anchor-<compression>/` and
 //!   `anchor-nethernet-<compression>/`, and the `auto` bot against an unreachable NetherNet
-//!   address into `anchor-fallback/`; each capture is compared with its BDS capture.
+//!   address into `anchor-fallback/`; each capture is compared with its BDS capture. Last, it runs
+//!   the game session against Anchor (`p6 game anchor`, into `anchor-game/`, compared with
+//!   `bds-game/`).
 //! - `p6 run --addr HOST:PORT --out DIR [--transport T] [--token-key PEM --kid KID --iss ISS]`:
 //!   runs the scenarios against a running server; the token flags add the online scenario.
 //! - `p6 compare A B`: compares the spawn windows of two captures, their answer SDP structures
@@ -31,6 +37,7 @@
 //!   `compare`).
 
 mod compare;
+mod game;
 
 use std::io::Write;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
@@ -190,7 +197,10 @@ const POLL: Duration = Duration::from_millis(200);
 pub(crate) const USAGE: &str = "cargo xtask p6 bds [zlib|snappy]... | cargo xtask p6 anchor \
                                 [zlib|snappy]... | cargo xtask p6 run \
                                 --addr HOST:PORT --out DIR [--transport raknet|nethernet|auto] \
-                                [--token-key PEM --kid KID --iss ISS] | cargo xtask p6 compare A B";
+                                [--token-key PEM --kid KID --iss ISS] | cargo xtask p6 compare A B \
+                                | cargo xtask p6 game bds [craft|furnace|enchant|crops|trade]... \
+                                | cargo xtask p6 game anchor [craft|furnace|enchant|crops|trade]... \
+                                | cargo xtask p6 game compare DIR_A DIR_B";
 
 /// Runs `cargo xtask p6 <args>`.
 pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
@@ -199,6 +209,9 @@ pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Resul
         ["anchor", rest @ ..] => anchor(root, rest, out),
         ["run", rest @ ..] => run(root, rest, out),
         ["compare", a, b] => compare_files(root, Path::new(a), Path::new(b), out),
+        ["game", "bds", rest @ ..] => game::bds(root, rest, out),
+        ["game", "anchor", rest @ ..] => game::anchor(root, rest, out),
+        ["game", "compare", a, b] => game::compare(root, Path::new(a), Path::new(b), out),
         _ => Err(format!("usage: {USAGE}")),
     }
 }
@@ -266,6 +279,7 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
             },
         )?;
     }
+    passed &= game::session(root, &exe, &bot, &game::SCENARIOS, out)?;
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
@@ -396,6 +410,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
             Ok(ok && same)
         },
     )?;
+    passed &= game::anchor_session(root, &bot, &game::SCENARIOS, out)?;
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }

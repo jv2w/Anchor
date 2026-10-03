@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
-use crate::protocol::Uuid;
 use crate::protocol::packet::Packet;
+use crate::protocol::{self, Uuid};
 
 /// Inputs the tick queue holds (PLAN.md 10.2). A session that finds it full disconnects.
 pub(crate) const INPUT_CAPACITY: usize = 65_536;
@@ -42,6 +42,97 @@ pub(crate) struct Identity {
     pub(crate) xuid: Option<u64>,
     /// The identity UUID.
     pub(crate) uuid: Uuid,
+    /// The skin the client sent at login, as the player list shows it to everyone
+    /// (`PlayerListEntry::skin`; `AddPlayer` has no skin: a client needs the list entry first).
+    pub(crate) skin: Skin,
+    /// The client's device (`DeviceOS` of the login's client data, 1 to 15; -1 unknown), the
+    /// player list's `BuildPlatform` (BDS sends it, P6 facts 7).
+    pub(crate) device_os: i32,
+}
+
+impl Identity {
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            name,
+            xuid,
+            uuid,
+            skin,
+            device_os,
+        } = self;
+        h.bytes(name.as_bytes());
+        h.u64(xuid.map_or(0, |x| x.wrapping_add(1)));
+        h.bytes(uuid.as_bytes());
+        skin.hash_into(h);
+        h.u64(u64::from(device_os.cast_unsigned()));
+    }
+}
+
+/// A player's skin as the client sent it at login (bounded and checked there: image sizes match
+/// their dimensions, at most 4 MiB in all, animation frame counts finite).
+/// Every copy of the identity shares it. The default is a transparent 64 × 32 skin on the
+/// standard model, for identities without a login (tests, replays of old logs).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Skin(Arc<protocol::Skin>);
+
+// Equality is reflexive: a skin has no NaN (frame counts are checked finite at login).
+impl Eq for Skin {}
+
+impl Skin {
+    /// Wraps a checked skin.
+    pub(crate) fn new(skin: protocol::Skin) -> Self {
+        Self(Arc::new(skin))
+    }
+
+    /// The skin as the protocol carries it.
+    pub(crate) fn get(&self) -> &protocol::Skin {
+        &self.0
+    }
+
+    /// Hashes the skin by its protocol bytes (state hash).
+    #[cfg(test)]
+    fn hash_into(&self, h: &mut super::Fnv) {
+        let mut w = protocol::Writer::new(Vec::new(), 0);
+        match protocol::Codec::encode(self.get(), &mut w) {
+            Ok(()) => h.bytes(w.as_bytes()),
+            Err(_) => h.u64(u64::MAX),
+        }
+    }
+
+    /// The bytes the skin holds (images, geometry, patch, animation data): what an input log
+    /// entry of its join counts against the log's bound.
+    pub(crate) fn size(&self) -> usize {
+        let s = &self.0;
+        let animations: usize = s.animations.iter().map(|a| a.image_data.len()).sum();
+        [
+            s.skin_data.len(),
+            s.cape_data.len(),
+            s.skin_geometry.len(),
+            s.skin_resource_patch.len(),
+            s.animation_data.len(),
+            s.geometry_data_engine_version.len(),
+            animations,
+        ]
+        .iter()
+        .fold(0_usize, |sum, n| sum.saturating_add(*n))
+    }
+}
+
+impl Default for Skin {
+    fn default() -> Self {
+        Self::new(protocol::Skin {
+            skin_id: "Standard_Custom".to_owned(),
+            full_id: "Standard_Custom".to_owned(),
+            skin_resource_patch: br#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.to_vec(),
+            skin_image_width: 64,
+            skin_image_height: 32,
+            skin_data: vec![0; 64 * 32 * 4],
+            geometry_data_engine_version: b"0.0.0".to_vec(),
+            arm_size: 1,
+            ..protocol::Skin::default()
+        })
+    }
 }
 
 /// One input for the tick, ordered by (`session`, `seq`) before it is applied.

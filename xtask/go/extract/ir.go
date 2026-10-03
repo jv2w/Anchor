@@ -65,6 +65,9 @@ type IR struct {
 	Unions []Union `json:"unions"`
 	// Constants lists every named constant referenced anywhere in the IR, sorted by name.
 	Constants []Const `json:"constants"`
+	// ConstDecls lists every const declaration of protocol and packet that declares an exported name,
+	// sorted by package, file and position. The generator turns them into the named protocol constants.
+	ConstDecls []ConstDecl `json:"const_decls"`
 }
 
 // Source identifies the extracted module snapshot.
@@ -272,6 +275,36 @@ type Const struct {
 	Type Type `json:"type"`
 	// Value is the exact value (see "Values" above).
 	Value string `json:"value"`
+}
+
+// ConstDecl is one const declaration ("const X = 1" or "const ( ... )") with its exported names.
+type ConstDecl struct {
+	// Package is "protocol" or "packet".
+	Package string `json:"package"`
+	// File is the base name of the declaring file ("player_auth_input.go").
+	File string `json:"file"`
+	// Consts are the exported names in declaration order; blank and unexported names are left out.
+	Consts []DeclConst `json:"consts"`
+}
+
+// DeclConst is one exported constant of a ConstDecl.
+type DeclConst struct {
+	// Name is the qualified name ("packet.InputFlagJumping").
+	Name string `json:"name"`
+	// Type is the Go type: a basic type name ("untyped int", "uint8") or a qualified named type of protocol
+	// or packet ("protocol.DeviceOS").
+	Type string `json:"type"`
+	// Basic is the underlying basic type of Type ("untyped int", "int32", "untyped string", "untyped float").
+	Basic string `json:"basic"`
+	// Value is the exact value: a decimal integer, the raw string content, or for a float the shortest
+	// decimal that is exactly the constant (the extractor fails on a float that has none).
+	Value string `json:"value"`
+	// Alias is the qualified name of the constant this one is defined as ("X = Y"), if any.
+	Alias string `json:"alias,omitempty"`
+	// Doc is the doc comment of the constant (or its line comment, or the doc of a declaration without
+	// parentheses), trimmed, or empty. Docs of parenthesized declarations are left out: they describe
+	// the group loosely or are editor directives.
+	Doc string `json:"doc,omitempty"`
 }
 
 // Stmt is one statement. Kind selects the meaning of the other fields:

@@ -3,9 +3,9 @@
 //! Only the save thread uses this module; every call blocks on file I/O. Tables map raw keys to
 //! sealed values ([`seal`](seal::seal)): `meta` (one [`Meta`]), `worlds` (world name →
 //! [`WorldRecord`](codec::WorldRecord)), `chunks` ([`ChunkKey`] →
-//! [`ChunkRecord`](codec::ChunkRecord) for kind 0) and `players` ([`PlayerKey`] →
-//! [`PlayerRecord`](codec::PlayerRecord)). Values are external input when read back: the
-//! seal's checksum and the record decoders check them.
+//! [`ChunkRecord`](codec::ChunkRecord) for kind 0, [`ExtraRecord`](codec::ExtraRecord) for kinds
+//! 1 to 3) and `players` ([`PlayerKey`] → [`PlayerRecord`](codec::PlayerRecord)). Values are
+//! external input when read back: the seal's checksum and the record decoders check them.
 //!
 //! Start ([`Storage::open`]): copy the closed file to `data/backups/`, open it (redb recovers a
 //! crash here), run `check_integrity()`, refuse a damaged file or a newer format, compact, and
@@ -176,12 +176,23 @@ from_redb!(
     DatabaseError
 );
 
-/// What a `chunks` value holds.
+/// What a `chunks` value holds: the last byte of its key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ChunkKind {
-    /// Blocks and biomes ([`ChunkRecord`](codec::ChunkRecord)). Block entities and entities
-    /// come in M7.
+    /// Blocks and biomes ([`ChunkRecord`](codec::ChunkRecord)).
     Terrain = 0,
+    /// Block entities ([`ExtraRecord`](codec::ExtraRecord), format 2).
+    BlockEntities = 1,
+    /// Entities ([`ExtraRecord`](codec::ExtraRecord), format 2).
+    Entities = 2,
+    /// Scheduled block updates ([`ExtraRecord`](codec::ExtraRecord), format 2).
+    ScheduledUpdates = 3,
+}
+
+impl ChunkKind {
+    /// The kinds besides the terrain, in key order: a chunk's extras.
+    pub(crate) const EXTRAS: [Self; 3] =
+        [Self::BlockEntities, Self::Entities, Self::ScheduledUpdates];
 }
 
 /// The key of a `chunks` value.
@@ -320,7 +331,6 @@ impl Batch {
     }
 
     /// Deletes the value under `key`, if any.
-    #[cfg(test)]
     pub(crate) fn delete(&mut self, key: Key) {
         self.writes.push((key, None));
     }
@@ -614,8 +624,8 @@ pub(crate) mod tests {
 
     use redb::StorageBackend;
 
-    use super::codec::tests::{empty_chunk, random_chunk, terrain_chunk};
-    use super::codec::{ChunkRecord, PlayerRecord, WorldRecord};
+    use super::codec::tests::{empty_chunk, random_chunk, random_compound, terrain_chunk};
+    use super::codec::{ChunkRecord, ExtraRecord, PlayerRecord, WorldRecord};
     use super::seal::seal;
     use super::*;
     use crate::clock;
@@ -825,17 +835,25 @@ pub(crate) mod tests {
         match key {
             Key::Meta => drop(unseal::<Meta>(&bytes, sealed).unwrap()),
             Key::World(_) => drop(unseal::<WorldRecord>(&bytes, sealed).unwrap()),
-            Key::Chunk(_) => drop(unseal::<ChunkRecord>(&bytes, sealed).unwrap()),
+            Key::Chunk(ChunkKey {
+                kind: ChunkKind::Terrain,
+                ..
+            }) => drop(unseal::<ChunkRecord>(&bytes, sealed).unwrap()),
+            Key::Chunk(_) => drop(unseal::<ExtraRecord<'_>>(&bytes, sealed).unwrap()),
             Key::Player(_) => drop(unseal::<PlayerRecord>(&bytes, sealed).unwrap()),
         }
     }
 
     fn chunk_key(x: i32, z: i32) -> Key {
+        extra_key(x, z, ChunkKind::Terrain)
+    }
+
+    fn extra_key(x: i32, z: i32, kind: ChunkKind) -> Key {
         Key::Chunk(ChunkKey {
             world: 0,
             x,
             z,
-            kind: ChunkKind::Terrain,
+            kind,
         })
     }
 
@@ -846,18 +864,32 @@ pub(crate) mod tests {
         chunk
     }
 
-    /// Applies a random batch to `model` and returns it: puts and deletes over a few chunks, a
-    /// player and the meta tick.
+    /// Applies a random batch to `model` and returns it: puts and deletes over a few chunks and
+    /// their extras, a player and the meta tick.
     fn random_batch(rng: &mut Rng, model: &mut BTreeMap<Key, Vec<u8>>, tick: u64) -> Batch {
         let mut batch = Batch::default();
         for _ in 0..=rng.below(12) {
-            let key = chunk_key(i32::try_from(rng.below(16)).unwrap() - 8, 3);
+            let x = i32::try_from(rng.below(16)).unwrap() - 8;
+            let kind = match rng.below(6) {
+                0 => ChunkKind::BlockEntities,
+                1 => ChunkKind::Entities,
+                2 => ChunkKind::ScheduledUpdates,
+                _ => ChunkKind::Terrain,
+            };
+            let key = extra_key(x, 3, kind);
             if rng.below(5) == 0 {
                 model.remove(&key);
                 batch.delete(key);
             } else {
-                let n = u32::try_from(rng.below(1000)).unwrap();
-                let sealed = seal(&key.to_bytes(), &small_chunk(n)).unwrap();
+                let sealed = if kind == ChunkKind::Terrain {
+                    let n = u32::try_from(rng.below(1000)).unwrap();
+                    seal(&key.to_bytes(), &small_chunk(n)).unwrap()
+                } else {
+                    let list: Vec<_> = (0..=rng.below(4))
+                        .map(|_| random_compound(rng, 2))
+                        .collect();
+                    seal(&key.to_bytes(), &ExtraRecord(list.into())).unwrap()
+                };
                 model.insert(key.clone(), sealed.clone());
                 batch.put(key, sealed);
             }
@@ -865,7 +897,8 @@ pub(crate) mod tests {
         let key = Key::Player(PlayerKey::offline("Steve"));
         let player = PlayerRecord {
             world: "world".to_owned(),
-            position: [f32::from(rng.next().to_le_bytes()[0]), 64.0, 0.5],
+            position: [f64::from(rng.next().to_le_bytes()[0]), 64.0, 0.5],
+            extra: random_compound(rng, 2),
         };
         let sealed = seal(&key.to_bytes(), &player).unwrap();
         model.insert(key.clone(), sealed.clone());
@@ -877,7 +910,14 @@ pub(crate) mod tests {
     }
 
     fn all_keys() -> Vec<Key> {
-        let mut keys: Vec<Key> = (-8..8).map(|x| chunk_key(x, 3)).collect();
+        let mut keys: Vec<Key> = (-8..8)
+            .flat_map(|x| {
+                [ChunkKind::Terrain]
+                    .into_iter()
+                    .chain(ChunkKind::EXTRAS)
+                    .map(move |kind| extra_key(x, 3, kind))
+            })
+            .collect();
         keys.push(Key::Player(PlayerKey::offline("steve")));
         keys.push(Key::Meta);
         keys
@@ -898,6 +938,20 @@ pub(crate) mod tests {
             key(1, -1, 2),
             [0, 0, 0, 1, 0x7f, 0xff, 0xff, 0xff, 0x80, 0, 0, 2, 0]
         );
+        let kinds: Vec<u8> = [ChunkKind::Terrain]
+            .into_iter()
+            .chain(ChunkKind::EXTRAS)
+            .map(|kind| {
+                ChunkKey {
+                    world: 0,
+                    x: 0,
+                    z: 0,
+                    kind,
+                }
+                .to_bytes()[12]
+            })
+            .collect();
+        assert_eq!(kinds, [0, 1, 2, 3]);
         let ordered = [
             key(0, i32::MIN, 0),
             key(0, -1, 5),
@@ -922,6 +976,7 @@ pub(crate) mod tests {
             seed: -9,
             spawn: [1, 2, 3],
             generator: "flat".to_owned(),
+            time: 0,
         };
         let keys = [
             chunk_key(-1, 1),
@@ -1181,6 +1236,7 @@ pub(crate) mod tests {
         let player = PlayerRecord {
             world: name.clone(),
             position: [0.0; 3],
+            extra: crate::nbt::Compound::new(),
         };
         let mut batch = Batch::default();
         batch.put(key.clone(), seal(&key.to_bytes(), &player).unwrap());

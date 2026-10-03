@@ -29,7 +29,9 @@ use crate::protocol::packet::{
     RequestNetworkSettings, ResourcePackClientResponse, ResourcePackStack, ResourcePacksInfo,
     ServerToClientHandshake,
 };
-use crate::tick::queue::{self, Identity, InputKind, Message, Outbound, SessionId, SessionInputs};
+use crate::tick::queue::{
+    self, Identity, InputKind, Message, Outbound, SessionId, SessionInputs, Skin,
+};
 
 /// From connection to verified login (PLAN.md 10.2).
 const LOGIN_DEADLINE: Duration = Duration::from_secs(10);
@@ -428,12 +430,15 @@ impl Session {
         let Login {
             identity,
             client_key,
-            client_data: _,
+            client_data,
+            skin,
         } = verified;
         self.identity = Some(Identity {
             name: identity.name,
             xuid: identity.xuid,
             uuid: identity.uuid,
+            skin: Skin::new(skin),
+            device_os: client_data.device_os,
         });
         self.logged_in = true;
         self.conn.logged_in();

@@ -10,19 +10,33 @@
  * with, not a reading of its source. Every list is sorted, so the same checkout writes the same
  * bytes. Files:
  * - blocks.json: every PMMP block state with its Bedrock serialization, light values, random
- *   ticking, the legacy meta PMMP sends for it as an exact recipe ingredient, the horizontal faces
- *   with full support (Block::getSupportType) and, for blocks whose state PMMP works out from
- *   their neighbours (fences, panes, walls, fence gates, stairs, tripwire and its hooks), what
- *   that needs: the kind, the facing and, for stairs, the full faces of every shape.
- * - items.json: every PMMP item type with its Bedrock serialization and PMMP names.
+ *   ticking, the legacy meta PMMP sends for it as an exact recipe ingredient, its PMMP class,
+ *   parent classes and traits, break info, fire values, physical flags, friction, type tags, the
+ *   support type of each face, the block-local collision boxes, its item form (Block::asItem),
+ *   the drops and XP for an empty hand, the lowest-tier compatible tool and that tool with Silk
+ *   Touch, and, for blocks whose state PMMP works out from their neighbours (fences, panes,
+ *   walls, fence gates, stairs, tripwire and its hooks), what that needs: the kind, the facing
+ *   and, for fences, panes and stairs, the support and collision boxes of every variant the
+ *   neighbours choose, keyed by the client properties that name the variant.
+ * - items.json: every PMMP item type with its Bedrock serialization, PMMP names and data (class,
+ *   stack size, durability, tool, armour, food, fuel, enchanting, cooldown and so on).
  * - creative.json: the creative inventory in order, with its groups.
  * - recipes.json: the recipes PMMP loads from bedrock-data, plus the smithing recipes PMMP leaves
  *   out, read with PMMP's own item reader; recipes naming an item PMMP does not have are left out
  *   as PMMP does.
+ * - tables.json: status effects, potion types, enchantments with the enchanting power range of
+ *   each level, item enchantment tags, item tags, banner patterns, furnace types and tool tiers.
  *
  * NBT values are written as {"type": value} objects: byte, short, int, long, float, double,
  * string, byte_array, int_array, long_array, list ({"type": element type, "values": [...]}) and
- * compound (keys sorted). Floats are written as their bit patterns so the JSON is exact.
+ * compound (keys sorted). NBT floats are written as their bit patterns so the JSON is exact. Other
+ * numbers (hardness, friction, boxes) are PHP floats written in their shortest exact form.
+ *
+ * Drops are PMMP's own getDrops results. A result is deterministic if the call draws nothing from
+ * PHP's random number generator (checked by comparing the generator's next value with and
+ * without the call) or, if it draws, gives the same result for 4,096 seeds; otherwise it is
+ * written as "random". An XP amount that draws randomness is written as the range seen over
+ * 4,096 seeds.
  */
 
 declare(strict_types=1);
@@ -30,6 +44,7 @@ declare(strict_types=1);
 require 'vendor/autoload.php';
 
 use pocketmine\block\Block;
+use pocketmine\block\BlockTypeIds;
 use pocketmine\block\Fence;
 use pocketmine\block\FenceGate;
 use pocketmine\block\RuntimeBlockStateRegistry;
@@ -37,10 +52,12 @@ use pocketmine\block\Stair;
 use pocketmine\block\Thin;
 use pocketmine\block\Tripwire;
 use pocketmine\block\TripwireHook;
+use pocketmine\block\utils\BannerPatternType;
 use pocketmine\block\utils\StairShape;
 use pocketmine\block\utils\SupportType;
 use pocketmine\block\VanillaBlocks;
 use pocketmine\block\Wall;
+use pocketmine\color\Color;
 use pocketmine\crafting\CraftingManagerFromDataHelper;
 use pocketmine\crafting\ExactRecipeIngredient;
 use pocketmine\crafting\FurnaceType;
@@ -50,13 +67,39 @@ use pocketmine\crafting\MetaWildcardRecipeIngredient;
 use pocketmine\crafting\RecipeIngredient;
 use pocketmine\crafting\ShapelessRecipeType;
 use pocketmine\crafting\TagWildcardRecipeIngredient;
+use pocketmine\data\bedrock\BannerPatternTypeIdMap;
 use pocketmine\data\bedrock\BedrockDataFiles;
 use pocketmine\data\bedrock\block\BlockStateData;
+use pocketmine\data\bedrock\EffectIdMap;
+use pocketmine\data\bedrock\EnchantmentIdMap;
 use pocketmine\data\bedrock\item\SavedItemData;
+use pocketmine\data\bedrock\ItemTagToIdMap;
+use pocketmine\data\bedrock\PotionTypeIdMap;
+use pocketmine\entity\Consumable;
+use pocketmine\entity\effect\Effect;
+use pocketmine\entity\effect\EffectInstance;
+use pocketmine\entity\effect\InstantEffect;
+use pocketmine\entity\effect\VanillaEffects;
+use pocketmine\entity\FoodSource;
 use pocketmine\inventory\CreativeCategory;
 use pocketmine\inventory\CreativeInventory;
+use pocketmine\item\Armor;
+use pocketmine\item\ConsumableItem;
+use pocketmine\item\Durable;
+use pocketmine\item\enchantment\AvailableEnchantmentRegistry;
+use pocketmine\item\enchantment\Enchantment;
+use pocketmine\item\enchantment\EnchantmentInstance;
+use pocketmine\item\enchantment\ItemEnchantmentTagRegistry;
+use pocketmine\item\enchantment\VanillaEnchantments;
 use pocketmine\item\Item;
+use pocketmine\item\Potion;
+use pocketmine\item\PotionType;
+use pocketmine\item\ProjectileItem;
+use pocketmine\item\Shears;
+use pocketmine\item\SplashPotion;
 use pocketmine\item\StringToItemParser;
+use pocketmine\item\TieredTool;
+use pocketmine\item\ToolTier;
 use pocketmine\item\VanillaItems;
 use pocketmine\lang\Translatable;
 use pocketmine\math\Facing;
@@ -73,6 +116,7 @@ use pocketmine\nbt\tag\ShortTag;
 use pocketmine\nbt\tag\StringTag;
 use pocketmine\nbt\tag\Tag;
 use pocketmine\nbt\NBT;
+use pocketmine\utils\AssumptionFailedError;
 use pocketmine\network\mcpe\convert\TypeConverter;
 use pocketmine\world\format\io\GlobalBlockStateHandlers;
 use pocketmine\world\format\io\GlobalItemDataHandlers;
@@ -217,15 +261,22 @@ function facingName(int $facing) : string{
 	return HORIZONTAL[$facing] ?? fail("facing $facing is not horizontal");
 }
 
-/** The horizontal faces of the block with full support (Block::getSupportType). @return string[] */
-function fullFaces(Block $block) : array{
-	$faces = [];
-	foreach(HORIZONTAL as $facing => $name){
-		if($block->getSupportType($facing) === SupportType::FULL){
-			$faces[] = $name;
-		}
-	}
-	return $faces;
+/** Every face in PMMP `Facing` order (down, up, north, south, west, east). */
+const FACES = [Facing::DOWN, Facing::UP, Facing::NORTH, Facing::SOUTH, Facing::WEST, Facing::EAST];
+
+/** The support type of each face (Block::getSupportType), in FACES order. @return string[] */
+function support(Block $block) : array{
+	return array_map(fn(int $facing) => strtolower($block->getSupportType($facing)->name), FACES);
+}
+
+/**
+ * The block-local collision boxes (Block::recalculateCollisionBoxes, before PMMP moves them to
+ * the block's position and model offset), each as [minX, minY, minZ, maxX, maxY, maxZ].
+ * @return float[][]
+ */
+function boxes(Block $block) : array{
+	$boxes = (fn() => $this->recalculateCollisionBoxes())->call($block);
+	return array_map(fn($bb) => [$bb->minX, $bb->minY, $bb->minZ, $bb->maxX, $bb->maxY, $bb->maxZ], $boxes);
 }
 
 /**
@@ -235,15 +286,15 @@ function fullFaces(Block $block) : array{
  */
 function connect(Block $block) : ?array{
 	return match(true){
-		$block instanceof Fence => ["kind" => "fence", "group" => (new \ReflectionClass($block))->getShortName()],
-		$block instanceof Thin => ["kind" => "thin"],
+		$block instanceof Fence => ["kind" => "fence", "group" => (new \ReflectionClass($block))->getShortName(), "variants" => connectionVariants($block)],
+		$block instanceof Thin => ["kind" => "thin", "variants" => connectionVariants($block)],
 		$block instanceof Wall => ["kind" => "wall"],
 		$block instanceof FenceGate => ["kind" => "fence_gate", "facing" => facingName($block->getFacing())],
 		$block instanceof Stair => [
 			"kind" => "stair",
 			"facing" => facingName($block->getFacing()),
 			"upside_down" => $block->isUpsideDown(),
-			"shapes" => stairShapes($block),
+			"variants" => stairVariants($block),
 		],
 		$block instanceof Tripwire => ["kind" => "tripwire"],
 		$block instanceof TripwireHook => ["kind" => "tripwire_hook", "facing" => facingName($block->getFacing())],
@@ -251,9 +302,14 @@ function connect(Block $block) : ?array{
 	};
 }
 
-/** The full faces of a stair in each shape, by the client's `minecraft:corner` value. @return array<string, string[]> */
-function stairShapes(Stair $stair) : array{
-	$shapes = [];
+/** The support and collision boxes of a block as one neighbour-chosen variant. */
+function variant(array $properties, Block $block) : array{
+	return ["properties" => $properties, "support" => support($block), "boxes" => boxes($block)];
+}
+
+/** A stair in each shape, by the client's `minecraft:corner` value. @return array[] */
+function stairVariants(Stair $stair) : array{
+	$variants = [];
 	foreach([
 		"none" => StairShape::STRAIGHT,
 		"inner_left" => StairShape::INNER_LEFT,
@@ -261,9 +317,196 @@ function stairShapes(Stair $stair) : array{
 		"outer_left" => StairShape::OUTER_LEFT,
 		"outer_right" => StairShape::OUTER_RIGHT,
 	] as $corner => $shape){
-		$shapes[$corner] = fullFaces((clone $stair)->setShape($shape));
+		$variants[] = variant(["minecraft:corner" => ["string" => $corner]], (clone $stair)->setShape($shape));
 	}
-	return $shapes;
+	return $variants;
+}
+
+/**
+ * A fence or pane with each set of horizontal connections (the `connections` PMMP fills in
+ * readStateFromWorld), by the client's `minecraft:connection_*` values. @return array[]
+ */
+function connectionVariants(Block $block) : array{
+	$variants = [];
+	for($set = 0; $set < 16; $set++){
+		$connections = [];
+		$properties = [];
+		foreach(array_keys(HORIZONTAL) as $bit => $facing){
+			$on = ($set >> $bit) & 1;
+			if($on === 1){
+				$connections[$facing] = true;
+			}
+			$properties["minecraft:connection_" . HORIZONTAL[$facing]] = ["byte" => $on];
+		}
+		ksort($properties, SORT_STRING);
+		$copy = clone $block;
+		(fn() => $this->connections = $connections)->call($copy);
+		$variants[] = variant($properties, $copy);
+	}
+	return $variants;
+}
+
+/** The short names of a class and its parents, leaf first, stopping before `$base`. @return string[] */
+function classChain(object $object, string $base) : array{
+	$chain = [];
+	for($class = new \ReflectionClass($object); $class !== false && $class->getName() !== $base; $class = $class->getParentClass()){
+		// VanillaBlocks makes some types (stone) as anonymous classes; their names are file positions.
+		if(!$class->isAnonymous()){
+			$chain[] = $class->getShortName();
+		}
+	}
+	return $chain;
+}
+
+/**
+ * The PMMP traits and interfaces of a block or item class within `$namespace`, by short name with
+ * any `Trait` suffix taken off, so a trait and the interface it implements are one name.
+ * @return string[]
+ */
+function traits(object $object, string $namespace) : array{
+	$names = [];
+	$add = function(string $name) use (&$names, $namespace) : void{
+		if(str_starts_with($name, $namespace)){
+			$short = substr($name, strrpos($name, "\\") + 1);
+			$names[str_ends_with($short, "Trait") ? substr($short, 0, -5) : $short] = true;
+		}
+	};
+	foreach(class_implements($object) as $interface){
+		$add($interface);
+	}
+	$pending = [get_class($object), ...array_values(class_parents($object))];
+	while(count($pending) > 0){
+		foreach(class_uses(array_pop($pending)) as $trait){
+			$add($trait);
+			$pending[] = $trait;
+		}
+	}
+	$names = array_keys($names);
+	sort($names, SORT_STRING);
+	return $names;
+}
+
+/**
+ * Runs `$f` after seeding PHP's random number generator with `$seed`. Returns its result and
+ * whether it drew from the generator: the generator's next value differs from the seed's first.
+ */
+function seeded(callable $f, int $seed) : array{
+	mt_srand($seed);
+	$result = $f();
+	$next = mt_rand();
+	mt_srand($seed);
+	return [$result, $next !== mt_rand()];
+}
+
+/**
+ * The seeds a result that draws randomness is tried with. PMMP's rarest drop (an apple from oak
+ * leaves, 1 in 200) shows up in this many tries with a chance of 1 - 10^-8.9.
+ */
+const SEEDS = 4096;
+
+/**
+ * The result of `$f` if it is the same for every seed: at once if it draws nothing from the
+ * generator, else if it is the same for SEEDS seeds (a random count of 1 to 1); otherwise
+ * "random".
+ */
+function deterministic(callable $f) : mixed{
+	[$first, $random] = seeded($f, 0);
+	if(!$random){
+		return $first;
+	}
+	// Compared as JSON: block states hold objects, which `!==` compares by identity.
+	$key = oneLine($first);
+	for($seed = 1; $seed < SEEDS; $seed++){
+		[$result] = seeded($f, $seed);
+		if(oneLine($result) !== $key){
+			return "random";
+		}
+	}
+	return $first;
+}
+
+/**
+ * The drops and XP of breaking the block with `$tool` (Block::getDrops, Block::getXpDropForTool):
+ * the stacks, or "random" (see deterministic()); the XP as [min, max], exact unless it draws
+ * randomness (then the range over SEEDS seeds), left out when it is always 0.
+ */
+function drops(Block $block, Item $tool) : array{
+	// An empty stack (a random count of 0) drops nothing, as World::dropItem skips it.
+	$drops = fn() => array_values(array_map(
+		fn(Item $i) => itemStack($i),
+		array_filter((clone $block)->getDrops(clone $tool), fn(Item $i) => !$i->isNull())
+	));
+	try{
+		$out = ["items" => deterministic($drops)];
+	}catch(AssumptionFailedError $e){
+		// The drops read the world (a shulker box's contents): there is none here.
+		$out = ["items" => "world"];
+	}
+	$xp = fn() => (clone $block)->getXpDropForTool(clone $tool);
+	[$amount, $random] = seeded($xp, 0);
+	$min = $max = $amount;
+	if($random){
+		for($seed = 1; $seed < SEEDS; $seed++){
+			[$amount] = seeded($xp, $seed);
+			$min = min($min, $amount);
+			$max = max($max, $amount);
+		}
+	}
+	if($max !== 0){
+		$out["xp"] = [$min, $max];
+	}
+	return $out;
+}
+
+/**
+ * Every tiered tool and shears, by tier (the tier's harvest level; shears count as their own
+ * harvest level, 1) and then name: the tools a block's "tool" drop case picks from. Swords and
+ * hoes give a fixed harvest level of their own, so the tier orders them. @return array<string, Item>
+ */
+function tools() : array{
+	$tools = [];
+	foreach(VanillaItems::getAll() as $name => $item){
+		if($item instanceof TieredTool || $item instanceof Shears){
+			$tools[strtolower($name)] = $item;
+		}
+	}
+	$tier = fn(Item $i) => $i instanceof TieredTool ? $i->getTier()->getHarvestLevel() : $i->getBlockToolHarvestLevel();
+	uksort($tools, fn(string $a, string $b) => [$tier($tools[$a]), $a] <=> [$tier($tools[$b]), $b]);
+	return $tools;
+}
+
+/**
+ * The block's drops (see drops()) with an empty hand, with the lowest-tier tool of its tool type
+ * that is compatible (none if it has no tool type) and with that tool, or a stick if there is
+ * none, enchanted with Silk Touch. Tools are named by their Bedrock item name.
+ */
+function blockDrops(Block $block, array $tools) : array{
+	$out = ["hand" => drops($block, VanillaItems::AIR())];
+	$info = $block->getBreakInfo();
+	$tool = null;
+	if($info->getToolType() !== 0){
+		foreach($tools as $candidate){
+			if(($candidate->getBlockToolType() & $info->getToolType()) !== 0 && $info->isToolCompatible($candidate)){
+				$tool = $candidate;
+				break;
+			}
+		}
+	}
+	if($tool !== null){
+		$out["tool"] = ["tool" => itemType($tool)["name"], ...drops($block, $tool)];
+	}
+	$silk = clone ($tool ?? VanillaItems::STICK());
+	$silk->addEnchantment(new EnchantmentInstance(VanillaEnchantments::SILK_TOUCH()));
+	$out["silk_touch"] = ["tool" => itemType($silk)["name"], ...drops($block, $silk)];
+	// One of the block's own item form is written "self", the most common case.
+	$item = $block->asItem();
+	$self = $item->isNull() ? null : oneLine([itemStack($item)]);
+	foreach($out as $case => $drop){
+		if(oneLine($drop["items"]) === $self){
+			$out[$case]["items"] = "self";
+		}
+	}
+	return $out;
 }
 
 $out = $argv[1] ?? fail("usage: php dump.php <output directory>");
@@ -273,24 +516,59 @@ if(!is_dir($out)){
 
 // Blocks: every state the runtime registry knows. Names are the VanillaBlocks registry names.
 $typeNames = [];
+$defaultStates = [];
 foreach(VanillaBlocks::getAll() as $name => $block){
 	$typeNames[$block->getTypeId()] = strtolower($name);
+	$defaultStates[$block->getStateId()] = true;
 }
 $serializer = GlobalBlockStateHandlers::getSerializer();
 // PMMP sends an exact block ingredient with the legacy meta of its state (TypeConverter::coreRecipeIngredientToNet).
 $translator = TypeConverter::getInstance()->getBlockTranslator();
+$tools = tools();
 $blocks = [];
 foreach(RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $stateId => $block){
+	$info = $block->getBreakInfo();
+	$item = $block->asItem();
 	$entry = [
 		"type" => $typeNames[$block->getTypeId()] ?? fail("block type {$block->getTypeId()} has no name"),
 		"bedrock" => blockState($serializer->serialize($stateId)),
+		// The state VanillaBlocks gives for the type.
+		"default" => isset($defaultStates[$stateId]),
 		"light_emission" => $block->getLightLevel(),
 		"light_filter" => $block->getLightFilter(),
 		"blocks_direct_sky_light" => $block->blocksDirectSkyLight(),
 		"ticks_randomly" => $block->ticksRandomly(),
 		"recipe_meta" => $translator->getBlockStateDictionary()->getMetaFromStateId($translator->internalIdToNetworkId($stateId)) ?? fail("state $stateId has no meta"),
-		"full_faces" => fullFaces($block),
+		"classes" => classChain($block, Block::class),
+		"traits" => traits($block, "pocketmine\\block\\"),
+		"break" => [
+			"hardness" => $info->getHardness(),
+			"blast_resistance" => $info->getBlastResistance(),
+			"tool_type" => $info->getToolType(),
+			"harvest_level" => $info->getToolHarvestLevel(),
+			"explosion_harvestable" => $info->isExplosionHarvestable(),
+		],
+		"fire" => [$block->getFlammability(), $block->getFlameEncouragement(), $block->burnsForever()],
+		// The flags that are true.
+		"flags" => array_keys(array_filter([
+			"solid" => $block->isSolid(),
+			"transparent" => $block->isTransparent(),
+			"replaceable" => $block->canBeReplaced(),
+			"flowable" => $block->canBeFlowedInto(),
+			"climbable" => $block->canClimb(),
+			"entity_collision" => $block->hasEntityCollision(),
+			"silk_touch" => $block->isAffectedBySilkTouch(),
+			// Block::getModelPositionOffset: the collision boxes move with a hash of the position.
+			"position_offset" => (new \ReflectionMethod($block, "getModelPositionOffset"))->getDeclaringClass()->getName() !== Block::class,
+		])),
+		"friction" => $block->getFrictionFactor(),
+		"tags" => $block->getTypeTags(),
+		"support" => support($block),
+		"boxes" => boxes($block),
+		"item" => $item->isNull() ? null : itemType($item),
+		"drops" => blockDrops($block, $tools),
 	];
+	sort($entry["tags"], SORT_STRING);
 	$connect = connect($block);
 	if($connect !== null){
 		$entry["connect"] = $connect;
@@ -300,9 +578,103 @@ foreach(RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $stateI
 write($out, "blocks.json", lines(sortByJson($blocks)));
 
 // Items: the VanillaItems registry, the item form of every block state, and every name
-// StringToItemParser knows, merged by Bedrock form.
+// StringToItemParser knows, merged by Bedrock form. Items merged into one form must agree on
+// their data.
+$itemKinds = [];
+foreach(VanillaItems::getAll() as $name => $item){
+	$itemKinds[$item->getTypeId()] = strtolower($name);
+}
+$enchantmentNames = [];
+foreach(VanillaEnchantments::getAll() as $name => $enchantment){
+	$enchantmentNames[spl_object_id($enchantment)] = strtolower($name);
+}
+$effectNames = [];
+foreach(VanillaEffects::getAll() as $name => $effect){
+	$effectNames[spl_object_id($effect)] = strtolower($name);
+}
+
+/** @param Enchantment[] $list @return string[] */
+function enchantmentList(array $list, array $names) : array{
+	$out = array_values(array_map(fn(Enchantment $e) => $names[spl_object_id($e)] ?? fail("unnamed enchantment"), $list));
+	sort($out, SORT_STRING);
+	return $out;
+}
+
+/** @param EffectInstance[] $list */
+function effectList(array $list, array $names) : array{
+	return array_map(fn(EffectInstance $e) => [
+		"effect" => $names[spl_object_id($e->getType())] ?? fail("unnamed effect"),
+		"duration" => $e->getDuration(),
+		"amplifier" => $e->getAmplifier(),
+		"visible" => $e->isVisible(),
+		"ambient" => $e->isAmbient(),
+	], array_values($list));
+}
+
+/** An item form, or null for air (an empty residue). */
+function optionalItem(Item $item) : ?array{
+	return $item->isNull() ? null : itemType($item);
+}
+
+/** What PMMP's item type says about itself, apart from its Bedrock form. */
+function itemData(Item $item, array $kinds, array $enchantments, array $effects) : array{
+	$registry = AvailableEnchantmentRegistry::getInstance();
+	$tags = $item->getEnchantmentTags();
+	sort($tags, SORT_STRING);
+	return [
+		"kind" => $kinds[$item->getTypeId()] ?? null,
+		"classes" => classChain($item, Item::class),
+		"traits" => traits($item, "pocketmine\\"),
+		"max_stack" => $item->getMaxStackSize(),
+		"max_durability" => $item instanceof Durable ? $item->getMaxDurability() : null,
+		"fire_proof" => $item->isFireProof(),
+		"attack_points" => $item->getAttackPoints(),
+		"defense_points" => $item->getDefensePoints(),
+		"tool" => [
+			"type" => $item->getBlockToolType(),
+			"harvest_level" => $item->getBlockToolHarvestLevel(),
+			"efficiency" => $item->getMiningEfficiency(true),
+			"tier" => $item instanceof TieredTool ? strtolower($item->getTier()->name) : null,
+		],
+		// Defence points and enchantability are the item's own values above.
+		"armor" => $item instanceof Armor ? [
+			"slot" => $item->getArmorSlot(),
+			// PMMP keeps toughness in the private ArmorTypeInfo and does not use it.
+			"toughness" => \Closure::bind(fn(Armor $a) => $a->armorInfo->getToughness(), null, Armor::class)($item),
+		] : null,
+		"food" => $item instanceof FoodSource ? [
+			"food" => $item->getFoodRestore(),
+			"saturation" => $item->getSaturationRestore(),
+			"requires_hunger" => $item->requiresHunger(),
+		] : null,
+		"consumable" => $item instanceof Consumable ? [
+			"residue" => $item instanceof ConsumableItem ? optionalItem($item->getResidue()) : null,
+			"effects" => deterministic(fn() => effectList($item->getAdditionalEffects(), $effects)),
+		] : null,
+		"fuel" => ["time" => $item->getFuelTime(), "residue" => optionalItem($item->getFuelResidue())],
+		"enchantability" => $item->getEnchantability(),
+		"enchantment_tags" => $tags,
+		"enchantments" => [
+			"primary" => enchantmentList($registry->getPrimaryEnchantmentsForItem($item), $enchantments),
+			"all" => enchantmentList($registry->getAllEnchantmentsForItem($item), $enchantments),
+		],
+		"cooldown" => $item->getCooldownTicks() > 0 ? ["ticks" => $item->getCooldownTicks(), "tag" => $item->getCooldownTag()] : null,
+		"throw_force" => $item instanceof ProjectileItem ? (fn() => $this->getThrowForce())->call($item) : null,
+		"potion" => $item instanceof Potion || $item instanceof SplashPotion ? strtolower($item->getType()->name) : null,
+		// Item::getBlock: the block state placing the item puts down, clicking the top of a
+		// block, and clicking a side where that differs (wall signs, torches, banners).
+		"places" => placedBlock($item->getBlock()),
+		"places_on_wall" => $item->getBlock(Facing::NORTH)->getStateId() === $item->getBlock()->getStateId() ? null : placedBlock($item->getBlock(Facing::NORTH)),
+	];
+}
+
+/** The Bedrock form of a block an item places, or null for air (the item places nothing). */
+function placedBlock(Block $block) : ?array{
+	return $block->getTypeId() === BlockTypeIds::AIR ? null : blockState(GlobalBlockStateHandlers::getSerializer()->serialize($block->getStateId()));
+}
+
 $items = [];
-$addItem = function(Item $item, ?string $name) use (&$items) : void{
+$addItem = function(Item $item, ?string $name, bool $vanilla = false) use (&$items, $itemKinds, $enchantmentNames, $effectNames) : void{
 	try{
 		$type = itemType($item);
 	}catch(\Throwable $e){
@@ -310,7 +682,13 @@ $addItem = function(Item $item, ?string $name) use (&$items) : void{
 		fail("item " . $item->getName() . " has no Bedrock form: " . $e->getMessage());
 	}
 	$k = jsonKey($type);
-	$items[$k] ??= ["bedrock" => $type, "names" => []];
+	$data = itemData($item, $itemKinds, $enchantmentNames, $effectNames);
+	$items[$k] ??= ["bedrock" => $type, "data" => $data, "names" => [], "vanilla" => false];
+	// Whether VanillaItems gives this form (its default for the kind).
+	$items[$k]["vanilla"] = $items[$k]["vanilla"] || $vanilla;
+	if(oneLine($items[$k]["data"]) !== oneLine($data)){
+		fail("items of form $k disagree on their data");
+	}
 	if($name !== null && !in_array($name, $items[$k]["names"], true)){
 		$items[$k]["names"][] = $name;
 	}
@@ -318,7 +696,7 @@ $addItem = function(Item $item, ?string $name) use (&$items) : void{
 foreach(VanillaItems::getAll() as $name => $item){
 	// AIR is the empty stack, not an item type.
 	if(!$item->isNull()){
-		$addItem($item, strtolower($name));
+		$addItem($item, strtolower($name), true);
 	}
 }
 foreach(RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $block){
@@ -471,8 +849,120 @@ foreach($recipeLists as $kind => $list){
 }
 write($out, "recipes.json", "{\n" . implode(",\n", $recipeJson) . "\n}");
 
+// Tables: effects, potion types, enchantments, tags, banner patterns and furnace types.
+/** The text of a PMMP name, which is a translation key or a plain string. */
+function text(\pocketmine\lang\Translatable|string $name) : string{
+	return $name instanceof Translatable ? $name->getText() : $name;
+}
+
+function colour(Color $c) : array{
+	return ["r" => $c->getR(), "g" => $c->getG(), "b" => $c->getB(), "a" => $c->getA()];
+}
+
+$effects = [];
+foreach(VanillaEffects::getAll() as $name => $effect){
+	$effects[] = [
+		"name" => strtolower($name),
+		"id" => EffectIdMap::getInstance()->toId($effect),
+		"text" => text($effect->getName()),
+		"classes" => classChain($effect, Effect::class),
+		"colour" => colour($effect->getColor()),
+		"bad" => $effect->isBad(),
+		"instant" => $effect instanceof InstantEffect,
+		"default_duration" => $effect->getDefaultDuration(),
+		"bubbles" => $effect->hasBubbles(),
+	];
+}
+$potions = [];
+foreach(PotionType::cases() as $type){
+	$potions[] = [
+		"name" => strtolower($type->name),
+		"id" => PotionTypeIdMap::getInstance()->toId($type),
+		"text" => $type->getDisplayName(),
+		"effects" => effectList($type->getEffects(), $effectNames),
+	];
+}
+$enchantments = [];
+$available = AvailableEnchantmentRegistry::getInstance();
+foreach(VanillaEnchantments::getAll() as $name => $enchantment){
+	$power = [];
+	for($level = 1; $level <= $enchantment->getMaxLevel(); $level++){
+		$power[] = [$enchantment->getMinEnchantingPower($level), $enchantment->getMaxEnchantingPower($level)];
+	}
+	$incompatible = [];
+	foreach(VanillaEnchantments::getAll() as $otherName => $other){
+		if($other !== $enchantment && !$enchantment->isCompatibleWith($other)){
+			$incompatible[] = strtolower($otherName);
+		}
+	}
+	sort($incompatible, SORT_STRING);
+	$primary = $available->getPrimaryItemTags($enchantment);
+	$secondary = $available->getSecondaryItemTags($enchantment);
+	sort($primary, SORT_STRING);
+	sort($secondary, SORT_STRING);
+	$enchantments[] = [
+		"name" => strtolower($name),
+		"id" => EnchantmentIdMap::getInstance()->toId($enchantment),
+		"text" => text($enchantment->getName()),
+		"classes" => classChain($enchantment, Enchantment::class),
+		"rarity" => $enchantment->getRarity(),
+		"max_level" => $enchantment->getMaxLevel(),
+		"available" => $available->isRegistered($enchantment),
+		"primary_tags" => $primary,
+		"secondary_tags" => $secondary,
+		"incompatible" => $incompatible,
+		"power" => $power,
+	];
+}
+$enchantmentTags = [];
+foreach((fn() => $this->tagMap)->call(ItemEnchantmentTagRegistry::getInstance()) as $tag => $nested){
+	sort($nested, SORT_STRING);
+	$enchantmentTags[] = ["tag" => $tag, "nested" => $nested];
+}
+$itemTags = [];
+foreach((fn() => $this->tagToIdsMap)->call(ItemTagToIdMap::getInstance()) as $tag => $ids){
+	$ids = array_keys($ids);
+	sort($ids, SORT_STRING);
+	$itemTags[] = ["tag" => $tag, "items" => $ids];
+}
+$banners = [];
+foreach(BannerPatternType::cases() as $type){
+	$banners[] = ["name" => strtolower($type->name), "id" => BannerPatternTypeIdMap::getInstance()->toId($type)];
+}
+$furnaces = [];
+foreach(FurnaceType::cases() as $type){
+	$furnaces[] = ["name" => strtolower($type->name), "cook_ticks" => $type->getCookDurationTicks()];
+}
+$tiers = [];
+foreach(ToolTier::cases() as $tier){
+	$tiers[] = [
+		"name" => strtolower($tier->name),
+		"harvest_level" => $tier->getHarvestLevel(),
+		"max_durability" => $tier->getMaxDurability(),
+		"base_attack_points" => $tier->getBaseAttackPoints(),
+		"base_efficiency" => $tier->getBaseEfficiency(),
+		"enchantability" => $tier->getEnchantability(),
+	];
+}
+$tables = [
+	"effects" => $effects,
+	"potions" => $potions,
+	"enchantments" => $enchantments,
+	"enchantment_tags" => $enchantmentTags,
+	"item_tags" => $itemTags,
+	"banner_patterns" => $banners,
+	"furnace_types" => $furnaces,
+	"tool_tiers" => $tiers,
+];
+$tableJson = [];
+foreach($tables as $kind => $list){
+	$tableJson[] = oneLine($kind) . ": " . lines(sortByJson($list));
+}
+write($out, "tables.json", "{\n" . implode(",\n", $tableJson) . "\n}");
+
 fwrite(STDOUT, sprintf(
-	"dump: %d block states, %d items, %d creative entries, %d shaped, %d shapeless, %d furnace, %d potion, %d container, %d smithing, %d trim\n",
+	"dump: %d block states, %d items, %d creative entries, %d shaped, %d shapeless, %d furnace, %d potion, %d container, %d smithing, %d trim, %d effects, %d potion types, %d enchantments, %d item tags\n",
 	count($blocks), count($itemList), count($creative), count($shaped), count($shapeless), count($furnace),
-	count($potionType), count($potionContainer), count($smithingTransform), count($smithingTrim)
+	count($potionType), count($potionContainer), count($smithingTransform), count($smithingTrim),
+	count($effects), count($potions), count($enchantments), count($itemTags)
 ));

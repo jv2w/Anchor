@@ -280,7 +280,7 @@ fn assigns(m: &Model<'_>, sums: &Summaries, stmts: &[super::ir::Stmt], name: &st
 // ----- docs -----
 
 /// `///` lines from a Go doc comment, or `fallback` when there is none.
-fn doc(text: &str, fallback: &str, indent: &str) -> String {
+pub(crate) fn doc(text: &str, fallback: &str, indent: &str) -> String {
     let text = if text.trim().is_empty() {
         fallback
     } else {

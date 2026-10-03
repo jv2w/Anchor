@@ -276,6 +276,8 @@ mod tests {
             name: name.to_owned(),
             xuid: None,
             uuid: Uuid::from_bytes([1; 16]),
+            skin: crate::tick::queue::Skin::default(),
+            device_os: -1,
         }
     }
 

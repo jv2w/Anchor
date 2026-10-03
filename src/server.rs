@@ -87,7 +87,8 @@ impl Server {
         // Built before any thread starts: encoding the shared spawn batches takes a while once.
         let shared = tick::Shared::new(config.batch_settings()?)
             .map_err(|e| Error::Start(std::io::Error::other(e)))?;
-        let opened = save::open(&data_dir, worlds)?;
+        let mut opened = save::open(&data_dir, worlds)?;
+        opened.thread.set_lighting(config.developer.lighting);
         let runtime = Runtime::new(threads)?;
         let pool = Arc::new(runtime::cpu_pool(threads.cpu)?);
         let (inputs, input_queue) = tick::queue::input_queue();

@@ -117,7 +117,7 @@ const RADIUS: RangeInclusive<u8> = 1..=*VIEW_DISTANCE.end();
 /// 0 would never send a chunk; 256 sends the largest view in about 3 seconds.
 const CHUNKS_PER_TICK: RangeInclusive<u32> = 1..=256;
 /// A sub-chunk holds 4096 blocks; more ticks than blocks add only cost.
-const RANDOM_TICK_SPEED: RangeInclusive<u32> = 0..=4096;
+pub(crate) const RANDOM_TICK_SPEED: RangeInclusive<u32> = 0..=4096;
 /// go-raknet's dialer probes 1492, 1200 and 576 (PLAN.md 10.2).
 const MAX_MTU_SIZE: RangeInclusive<u16> = 576..=1492;
 /// One minute to one day (PLAN.md 8.5).

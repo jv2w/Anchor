@@ -11,6 +11,7 @@ use crate::block::State;
 use crate::nbt;
 use crate::protocol::Writer;
 
+use super::light::{self, ChunkLight};
 use super::paletted::{Paletted, offset};
 use super::sub_chunk::{Entry, SubChunk};
 use super::{ChunkPos, Error, Generator, MAX_Y, MIN_Y, Result};
@@ -24,12 +25,12 @@ pub(crate) const PLAINS: u32 = 1;
 /// The [`Chunk::heights`] value of a column of air.
 pub(crate) const NO_HEIGHT: i16 = i16::MIN;
 /// Columns in a chunk.
-const COLUMNS: usize = 256;
+pub(super) const COLUMNS: usize = 256;
 /// The most unknown states a chunk can use: one per slot of both layers.
 const MAX_UNKNOWN: usize = SUB_CHUNKS * 2 * 4096;
 
 /// The sub-chunk index and the y inside it of a height, if it is in the world.
-fn split_y(y: i32) -> Option<(usize, u8)> {
+pub(super) fn split_y(y: i32) -> Option<(usize, u8)> {
     if !(MIN_Y..=MAX_Y).contains(&y) {
         return None;
     }
@@ -38,7 +39,7 @@ fn split_y(y: i32) -> Option<(usize, u8)> {
 }
 
 /// The column index of local (x, z).
-fn column(x: u8, z: u8) -> usize {
+pub(super) fn column(x: u8, z: u8) -> usize {
     (usize::from(z & 15) << 4) | usize::from(x & 15)
 }
 
@@ -46,7 +47,9 @@ fn column(x: u8, z: u8) -> usize {
 ///
 /// A [`Generator`] fills an empty one: all air, with plains biomes. Coordinates are local: x and
 /// z from 0 to 15, y the world height (-64 to 319).
-#[derive(Clone)]
+///
+/// A clone shares the blocks and biomes and has no light: light is never saved, and a copy is
+/// lit again where it is loaded (PLAN.md 6).
 pub struct Chunk {
     sub_chunks: [Option<Arc<SubChunk>>; SUB_CHUNKS],
     biomes: [Arc<Paletted<u32>>; SUB_CHUNKS],
@@ -56,6 +59,9 @@ pub struct Chunk {
     unknown: Arc<[nbt::Compound]>,
     /// Changed since the world's last save snapshot.
     dirty: bool,
+    /// The chunk's light once it is worked out, kept apart from the shared sub-chunks so a light
+    /// change never copies one.
+    light: Option<Box<ChunkLight>>,
 }
 
 impl Chunk {
@@ -69,6 +75,7 @@ impl Chunk {
             heights: Box::new([NO_HEIGHT; COLUMNS]),
             unknown: Arc::from(Vec::new()),
             dirty: false,
+            light: None,
         }
     }
 
@@ -117,6 +124,7 @@ impl Chunk {
             heights: Box::new([NO_HEIGHT; COLUMNS]),
             unknown: Arc::from(unknown),
             dirty: false,
+            light: None,
         };
         for x in 0..16 {
             for z in 0..16 {
@@ -275,6 +283,38 @@ impl Chunk {
         self.dirty = dirty;
     }
 
+    /// Works out the chunk's light alone, as if its neighbours were dark (PMMP
+    /// `LightPopulationTask`): a pure function of the chunk for the CPU pool, done when a chunk is
+    /// loaded or generated. The world connects it to its neighbours when the chunk is loaded.
+    pub(crate) fn populate_light(&mut self) {
+        self.light = Some(Box::new(light::populate(self)));
+    }
+
+    /// The chunk's light, if it is worked out.
+    pub(super) fn light(&self) -> Option<&ChunkLight> {
+        self.light.as_deref()
+    }
+
+    pub(super) fn light_mut(&mut self) -> Option<&mut ChunkLight> {
+        self.light.as_deref_mut()
+    }
+
+    pub(super) fn set_light(&mut self, light: ChunkLight) {
+        self.light = Some(Box::new(light));
+    }
+
+    pub(super) fn take_light(&mut self) -> Option<Box<ChunkLight>> {
+        self.light.take()
+    }
+
+    /// The layer 0 entry at an offset of sub-chunk `index` (air in an empty sub-chunk).
+    pub(super) fn entry_at(&self, index: usize, offset: u16) -> Entry {
+        match self.sub_chunks.get(index) {
+            Some(Some(sub)) => sub.get(offset),
+            _ => Entry::AIR,
+        }
+    }
+
     /// The sub-chunks from the bottom up to the highest one that is not air (`SubChunkLimit`).
     pub(crate) fn sub_chunk_limit(&self) -> u8 {
         let top = self.sub_chunks.iter().rposition(Option::is_some);
@@ -310,6 +350,19 @@ impl Chunk {
     }
 }
 
+impl Clone for Chunk {
+    fn clone(&self) -> Self {
+        Self {
+            sub_chunks: self.sub_chunks.clone(),
+            biomes: self.biomes.clone(),
+            heights: self.heights.clone(),
+            unknown: Arc::clone(&self.unknown),
+            dirty: self.dirty,
+            light: None,
+        }
+    }
+}
+
 impl Default for Chunk {
     fn default() -> Self {
         Self::new()
@@ -322,6 +375,7 @@ impl fmt::Debug for Chunk {
             .field("sub_chunks", &self.sub_chunks.iter().flatten().count())
             .field("unknown", &self.unknown.len())
             .field("dirty", &self.dirty)
+            .field("lit", &self.light.is_some())
             .finish_non_exhaustive()
     }
 }

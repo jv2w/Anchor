@@ -54,14 +54,9 @@ pub(crate) struct Login {
     /// The client's key (`cpk`): it signed the client data and is the encryption peer.
     pub(crate) client_key: PublicKey,
     /// Validated, signed by `client_key`, but written by the client: never trusted.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consistency: verified at login; player skins read it in M7"
-        )
-    )]
     pub(crate) client_data: ClientData,
+    /// The client data's skin, decoded and checked ([`ClientData::skin`]).
+    pub(crate) skin: protocol::Skin,
 }
 
 /// Who the player is.
@@ -171,10 +166,12 @@ pub(crate) fn verify(connection_request: &[u8], mode: Mode<'_>, now_unix: i64) -
         Mode::Offline => legacy_chain(&envelope.chain, now_unix)?,
     };
     let client_data = ClientData::verify(&request.raw_token, &client_key)?;
+    let skin = client_data.skin()?;
     Ok(Login {
         identity,
         client_key,
         client_data,
+        skin,
     })
 }
 
@@ -842,6 +839,110 @@ mod tests {
         pieces["PersonaPieces"] = json!(vec![json!({}); client_data::MAX_PIECES + 1]);
         let request = online_request(&token, &pieces, player());
         assert!(verify(&request, Mode::Online(&keys), NOW).is_err());
+    }
+
+    #[test]
+    fn the_client_skin_is_decoded_as_sent_and_bounded() {
+        let token = Issuer::get().token(&claims());
+        let keys = Issuer::get().keys();
+        let login = |data: &Value| {
+            let request = online_request(&token, data, player());
+            verify(&request, Mode::Online(&keys), NOW)
+        };
+        let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[]}"#;
+        let mut data = client_data_json();
+        for (field, value) in [
+            ("SkinGeometryData", json!(STD.encode(geometry))),
+            (
+                "SkinGeometryDataEngineVersion",
+                json!(STD.encode(b"1.14.0")),
+            ),
+            ("SkinAnimationData", json!(STD.encode(b"animation"))),
+            ("CapeData", json!(STD.encode(&[9; 8]))),
+            ("CapeImageWidth", json!(2)),
+            ("CapeImageHeight", json!(1)),
+            ("CapeId", json!("cape")),
+            ("ArmSize", json!("slim")),
+            ("SkinColor", json!("#b37b62")),
+            ("PersonaSkin", json!(true)),
+            ("PremiumSkin", json!(true)),
+            ("TrustedSkin", json!(true)),
+            ("OverrideSkin", json!(true)),
+            ("CapeOnClassicSkin", json!(true)),
+            ("ProfileHash", json!("hash")),
+        ] {
+            data[field] = value;
+        }
+        data["PersonaPieces"][0]["PackId"] = json!("05601fd2-9c71-30b1-b174-5fa11b9de09f");
+        let skin = login(&data).unwrap().skin;
+        assert_eq!(skin.skin_id, "skin");
+        assert_eq!(skin.playfab_id, "0123456789abcdef");
+        assert_eq!(
+            skin.skin_resource_patch,
+            br#"{"geometry":{"default":"geometry.humanoid"}}"#
+        );
+        assert_eq!((skin.skin_image_width, skin.skin_image_height), (2, 1));
+        assert_eq!(skin.skin_data, [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(skin.skin_geometry, geometry);
+        assert_eq!(skin.geometry_data_engine_version, b"1.14.0");
+        assert_eq!(skin.animation_data, b"animation");
+        assert_eq!((skin.cape_image_width, skin.cape_image_height), (2, 1));
+        assert_eq!(skin.cape_data, [9; 8]);
+        assert_eq!(
+            (skin.cape_id.as_str(), skin.full_id.as_str()),
+            ("cape", "skincape")
+        );
+        assert_eq!(skin.animations.len(), 1);
+        let animation = &skin.animations[0];
+        assert_eq!((animation.image_width, animation.image_height), (1, 2));
+        assert_eq!(animation.image_data, [0; 8]);
+        assert_eq!((animation.animation_type, animation.frame_count), (1, 2.0));
+        assert_eq!(skin.arm_size, 0, "slim");
+        let colour = skin.skin_colour;
+        assert_eq!(
+            (colour.r, colour.g, colour.b, colour.a),
+            (0xb3, 0x7b, 0x62, 0xff)
+        );
+        assert_eq!(skin.persona_pieces[0].piece_type, 2, "persona_body");
+        assert_eq!(
+            skin.persona_pieces[0].pack_id,
+            parse_uuid("05601fd2-9c71-30b1-b174-5fa11b9de09f").unwrap()
+        );
+        assert_eq!(skin.piece_tint_colours[0].piece_type, "persona_eyes");
+        assert_eq!(skin.piece_tint_colours[0].colours[1].b, 2);
+        assert!(skin.premium_skin && skin.persona_skin && skin.persona_cape_on_classic_skin);
+        assert!(skin.trusted && skin.override_appearance && skin.primary_user);
+        assert_eq!(skin.profile_hash, "hash");
+        assert_eq!(protocol::skin_validate(&skin), None);
+        // A 1024 × 1024 image fills the 4 MiB bound; one byte more in any field is refused.
+        let mut big = data.clone();
+        big["SkinData"] = json!(STD.encode(&vec![0; 1024 * 1024 * 4]));
+        big["SkinImageWidth"] = json!(1024);
+        big["SkinImageHeight"] = json!(1024);
+        big["SkinResourcePatch"] = json!(STD.encode(b"{}"));
+        big["SkinGeometryData"] = json!("");
+        big["SkinGeometryDataEngineVersion"] = json!("");
+        big["SkinAnimationData"] = json!("");
+        big["CapeData"] = json!("");
+        big["CapeImageWidth"] = json!(0);
+        big["CapeImageHeight"] = json!(0);
+        big["AnimatedImageData"] = json!([]);
+        let err = login(&big).unwrap_err();
+        assert!(matches!(err, Error::ClientData("Skin")), "{err:?}");
+        // Dimensions that multiply right but do not fit, and frames that are not finite.
+        let mut negative = data.clone();
+        negative["SkinImageWidth"] = json!(-2);
+        negative["SkinImageHeight"] = json!(-1);
+        assert!(matches!(
+            login(&negative).unwrap_err(),
+            Error::ClientData("Skin")
+        ));
+        let mut frames = data;
+        frames["AnimatedImageData"][0]["Frames"] = json!(1.0e300);
+        assert!(matches!(
+            login(&frames).unwrap_err(),
+            Error::ClientData("AnimatedImageData")
+        ));
     }
 
     #[test]

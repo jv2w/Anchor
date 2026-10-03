@@ -1,0 +1,532 @@
+//! The data of the block entities without slots (PMMP `tile`): signs, beds, banners, flower pots,
+//! item frames, jukeboxes, lecterns, mob heads, cauldrons and beacons, read from and written to
+//! their Bedrock NBT keys (PMMP `readSaveData`, `writeSaveData`, `addAdditionalSpawnData`).
+//!
+//! Reading takes the keys a kind owns out of the saved compound; the caller keeps the rest as it
+//! came. Values out of range are fixed the way PMMP fixes them on load.
+
+use tracing::warn;
+
+use crate::block;
+use crate::item::Stack;
+use crate::nbt::{Compound, List, Value};
+
+/// The lines of a sign side (PMMP `SignText::LINE_COUNT`).
+pub(in crate::tick) const SIGN_LINES: usize = 4;
+/// The most patterns a banner keeps; more in saved data are left out (Bedrock's loom stops at
+/// six; PMMP has no limit).
+pub(in crate::tick) const MAX_PATTERNS: usize = 16;
+/// The text colour of a new sign: opaque black (PMMP `new Color(0, 0, 0)`).
+pub(in crate::tick) const BLACK_TEXT: i32 = 0xff00_0000_u32.cast_signed();
+/// Rotations of a framed item (PMMP `ItemFrame::ROTATIONS`).
+pub(in crate::tick) const FRAME_ROTATIONS: u8 = 8;
+
+/// One side of a sign (PMMP `SignText`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::tick) struct SignSide {
+    pub(in crate::tick) lines: [String; SIGN_LINES],
+    /// The text colour as signed ARGB.
+    pub(in crate::tick) colour: i32,
+    pub(in crate::tick) glowing: bool,
+}
+
+impl Default for SignSide {
+    fn default() -> Self {
+        Self {
+            lines: Default::default(),
+            colour: BLACK_TEXT,
+            glowing: false,
+        }
+    }
+}
+
+/// A sign or hanging sign.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(in crate::tick) struct Sign {
+    pub(in crate::tick) front: SignSide,
+    pub(in crate::tick) back: SignSide,
+    pub(in crate::tick) waxed: bool,
+    /// A hanging sign (block entity `HangingSign`).
+    pub(in crate::tick) hanging: bool,
+}
+
+/// A banner: base colour and patterns by PMMP's inverted dye colour IDs (black 0 … white 15).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(in crate::tick) struct Banner {
+    pub(in crate::tick) base: i32,
+    /// Pattern ID (`bo`, `cre`…) and colour, at most [`MAX_PATTERNS`].
+    pub(in crate::tick) patterns: Vec<(String, i32)>,
+    /// 0 normal, 1 ominous.
+    pub(in crate::tick) ty: i32,
+}
+
+/// An item frame or glow item frame.
+#[derive(Debug, Clone, PartialEq)]
+pub(in crate::tick) struct Frame {
+    pub(in crate::tick) item: Stack,
+    /// 0 to [`FRAME_ROTATIONS`] - 1, eighths of a turn.
+    pub(in crate::tick) rotation: u8,
+    /// 0 to 1.
+    pub(in crate::tick) drop_chance: f32,
+    pub(in crate::tick) glow: bool,
+}
+
+/// A cauldron's potion and colour (PMMP `tile\Cauldron`), as saved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::tick) struct Cauldron {
+    /// The potion container type: -1 none, 0 potion, 1 splash, 2 lingering.
+    pub(in crate::tick) container: i16,
+    /// The potion type ID, -1 for none.
+    pub(in crate::tick) potion: i16,
+    /// The dyed water colour, signed ARGB.
+    pub(in crate::tick) colour: Option<i32>,
+}
+
+impl Default for Cauldron {
+    fn default() -> Self {
+        Self {
+            container: -1,
+            potion: -1,
+            colour: None,
+        }
+    }
+}
+
+/// Takes a key's value out of `nbt`.
+fn take(nbt: &mut Compound, key: &str) -> Option<Value> {
+    nbt.remove(key)
+}
+
+fn take_byte(nbt: &mut Compound, key: &str) -> Option<u8> {
+    match take(nbt, key)? {
+        Value::Byte(v) => Some(v),
+        _ => None,
+    }
+}
+
+fn take_short(nbt: &mut Compound, key: &str) -> Option<i16> {
+    match take(nbt, key)? {
+        Value::Short(v) => Some(v),
+        _ => None,
+    }
+}
+
+fn take_int(nbt: &mut Compound, key: &str) -> Option<i32> {
+    match take(nbt, key)? {
+        Value::Int(v) => Some(v),
+        _ => None,
+    }
+}
+
+fn take_float(nbt: &mut Compound, key: &str) -> Option<f32> {
+    match take(nbt, key)? {
+        Value::Float(v) if v.is_finite() => Some(v),
+        _ => None,
+    }
+}
+
+fn take_compound(nbt: &mut Compound, key: &str) -> Option<Compound> {
+    match take(nbt, key)? {
+        Value::Compound(v) => Some(v),
+        _ => None,
+    }
+}
+
+/// A saved item compound as a stack; an unknown item is left out with a warning (PMMP
+/// `Item::safeNbtDeserialize`).
+pub(in crate::tick) fn read_stack(nbt: &Compound, what: &str) -> Stack {
+    Stack::from_nbt(nbt).unwrap_or_else(|| {
+        warn!(what, "a saved block entity item is unknown; it is left out");
+        Stack::EMPTY
+    })
+}
+
+impl SignSide {
+    /// PMMP `Sign::readTextTag` (the lighting bug resolved in a side compound).
+    fn read(mut nbt: Compound) -> Self {
+        let mut side = Self::default();
+        if let Some(Value::String(blob)) = nbt.remove("Text") {
+            for (slot, line) in side.lines.iter_mut().zip(blob.splitn(SIGN_LINES + 1, '\n')) {
+                line.clone_into(slot);
+            }
+        }
+        if let Some(colour) = take_int(&mut nbt, "SignTextColor") {
+            side.colour = colour;
+        }
+        side.glowing = take_byte(&mut nbt, "IgnoreLighting").is_some_and(|g| g != 0);
+        side
+    }
+
+    /// PMMP `Sign::writeTextTag`.
+    fn write(&self) -> Value {
+        let text = self.lines.join("\n");
+        Value::Compound(Compound::from([
+            (
+                "Text".to_owned(),
+                Value::String(text.trim_end_matches('\n').to_owned()),
+            ),
+            ("SignTextColor".to_owned(), Value::Int(self.colour)),
+            (
+                "IgnoreLighting".to_owned(),
+                Value::Byte(u8::from(self.glowing)),
+            ),
+            ("PersistFormatting".to_owned(), Value::Byte(1)),
+        ]))
+    }
+}
+
+impl Sign {
+    /// PMMP `Sign::readSaveData` (front and back compounds, or the 1.2 `Text` blob).
+    pub(in crate::tick) fn read(nbt: &mut Compound, hanging: bool) -> Self {
+        let front = match take_compound(nbt, "FrontText") {
+            Some(side) => SignSide::read(side),
+            None => match nbt.remove("Text") {
+                Some(Value::String(blob)) => {
+                    SignSide::read(Compound::from([("Text".to_owned(), Value::String(blob))]))
+                }
+                _ => SignSide::default(),
+            },
+        };
+        let back = take_compound(nbt, "BackText").map_or_else(SignSide::default, SignSide::read);
+        let waxed = take_byte(nbt, "IsWaxed").is_some_and(|w| w != 0);
+        Self {
+            front,
+            back,
+            waxed,
+            hanging,
+        }
+    }
+
+    /// The saved keys (PMMP `writeSaveData`).
+    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
+        nbt.insert("FrontText".to_owned(), self.front.write());
+        nbt.insert("BackText".to_owned(), self.back.write());
+        nbt.insert("IsWaxed".to_owned(), Value::Byte(u8::from(self.waxed)));
+    }
+
+    /// The client keys: the saved ones and nobody editing (PMMP `addAdditionalSpawnData`).
+    pub(in crate::tick) fn spawn(&self, nbt: &mut Compound) {
+        self.write(nbt);
+        nbt.insert("LockedForEditingBy".to_owned(), Value::Long(-1));
+    }
+
+    /// The side the player faces.
+    pub(in crate::tick) fn side_mut(&mut self, front: bool) -> &mut SignSide {
+        if front {
+            &mut self.front
+        } else {
+            &mut self.back
+        }
+    }
+}
+
+impl Banner {
+    /// PMMP `Banner::readSaveData`.
+    pub(in crate::tick) fn read(nbt: &mut Compound) -> Self {
+        let base = take_int(nbt, "Base")
+            .filter(|b| (0..16).contains(b))
+            .unwrap_or(0);
+        let patterns = match take(nbt, "Patterns") {
+            Some(Value::List(List::Compound(list))) => read_patterns(&list),
+            _ => Vec::new(),
+        };
+        let ty = take_int(nbt, "Type").unwrap_or(0);
+        Self { base, patterns, ty }
+    }
+
+    /// The saved and client keys.
+    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
+        nbt.insert("Base".to_owned(), Value::Int(self.base));
+        nbt.insert("Patterns".to_owned(), patterns_value(&self.patterns));
+        nbt.insert("Type".to_owned(), Value::Int(self.ty));
+    }
+}
+
+/// A banner's `Patterns` list: entries with a known pattern ID, at most [`MAX_PATTERNS`] (PMMP
+/// skips unknown patterns and reads a missing colour as black, 0).
+pub(in crate::tick) fn read_patterns(list: &[Compound]) -> Vec<(String, i32)> {
+    let mut out = Vec::with_capacity(list.len().min(MAX_PATTERNS));
+    for entry in list {
+        let Some(Value::String(id)) = entry.get("Pattern") else {
+            continue;
+        };
+        if block::BannerPattern::from_id(id).is_none() {
+            continue;
+        }
+        let colour = match entry.get("Color") {
+            Some(Value::Int(c)) if (0..16).contains(c) => *c,
+            _ => 0,
+        };
+        if out.len() >= MAX_PATTERNS {
+            warn!("a banner has more patterns than kept; the rest are left out");
+            break;
+        }
+        out.push((id.clone(), colour));
+    }
+    out
+}
+
+/// A `Patterns` list.
+pub(in crate::tick) fn patterns_value(patterns: &[(String, i32)]) -> Value {
+    Value::List(List::Compound(
+        patterns
+            .iter()
+            .map(|(id, colour)| {
+                Compound::from([
+                    ("Pattern".to_owned(), Value::String(id.clone())),
+                    ("Color".to_owned(), Value::Int(*colour)),
+                ])
+            })
+            .collect(),
+    ))
+}
+
+/// A flower pot's plant (`PlantBlock`, a block state compound); `None` for none or an unknown
+/// state (PMMP fails the tile; Anchor keeps the pot empty with a warning).
+pub(in crate::tick) fn read_plant(nbt: &mut Compound) -> Option<block::State> {
+    let plant = take_compound(nbt, "PlantBlock")?;
+    let state = crate::save::find_state(&plant);
+    if state.is_none() {
+        warn!("a flower pot's plant is unknown; the pot is left empty");
+    }
+    state.filter(|s| *s != block::AIR)
+}
+
+/// The `PlantBlock` key.
+pub(in crate::tick) fn write_plant(plant: Option<block::State>, nbt: &mut Compound) {
+    if let Some(plant) = plant {
+        nbt.insert(
+            "PlantBlock".to_owned(),
+            Value::Compound(crate::save::state_nbt(plant)),
+        );
+    }
+}
+
+impl Frame {
+    /// PMMP `ItemFrame::readSaveData`: the rotation as a float of degrees (or a legacy byte).
+    pub(in crate::tick) fn read(nbt: &mut Compound, glow: bool) -> Self {
+        let item = take_compound(nbt, "Item").map_or(Stack::EMPTY, |i| read_stack(&i, "frame"));
+        let rotation = match take(nbt, "ItemRotation") {
+            Some(Value::Float(r)) if r.is_finite() => float_rotation(r),
+            Some(Value::Byte(r)) => r % FRAME_ROTATIONS,
+            _ => 0,
+        };
+        let drop_chance = take_float(nbt, "ItemDropChance")
+            .filter(|c| (0.0..=1.0).contains(c))
+            .unwrap_or(1.0);
+        Self {
+            item,
+            rotation,
+            drop_chance,
+            glow,
+        }
+    }
+
+    /// The saved keys; the client gets the item in its network form (`Stack::to_nbt` is that
+    /// form's compound).
+    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
+        nbt.insert("ItemDropChance".to_owned(), Value::Float(self.drop_chance));
+        nbt.insert(
+            "ItemRotation".to_owned(),
+            Value::Float(f32::from(self.rotation) * 45.0),
+        );
+        if !self.item.is_empty() {
+            nbt.insert("Item".to_owned(), Value::Compound(self.item.to_nbt()));
+        }
+    }
+}
+
+/// An item frame rotation in degrees as eighths of a turn (PMMP `(int) (degrees / 45)`).
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "safety: the value is finite and reduced into 0..8 first"
+)]
+fn float_rotation(degrees: f32) -> u8 {
+    let eighths = (degrees / 45.0)
+        .trunc()
+        .rem_euclid(f32::from(FRAME_ROTATIONS));
+    (eighths as u8) % FRAME_ROTATIONS
+}
+
+/// An item key read as a stack (empty when missing).
+pub(in crate::tick) fn read_item(nbt: &mut Compound, key: &str) -> Stack {
+    take_compound(nbt, key).map_or(Stack::EMPTY, |i| read_stack(&i, key))
+}
+
+/// Writes an item key when the stack is not empty.
+pub(in crate::tick) fn write_item(stack: &Stack, key: &str, nbt: &mut Compound) {
+    if !stack.is_empty() {
+        nbt.insert(key.to_owned(), Value::Compound(stack.to_nbt()));
+    }
+}
+
+/// A lectern: PMMP `Lectern::readSaveData`.
+pub(in crate::tick) fn read_lectern(nbt: &mut Compound) -> (Stack, i32) {
+    let page = take_int(nbt, "page").unwrap_or(0).max(0);
+    let book = read_item(nbt, "book").with_count(1);
+    nbt.remove("hasBook");
+    nbt.remove("totalPages");
+    (book, page)
+}
+
+/// The pages of a writable or written book (its `pages` list).
+pub(in crate::tick) fn book_pages(book: &Stack) -> usize {
+    match book.extra().and_then(|e| e.nbt.get("pages")) {
+        Some(Value::List(list)) => list.len(),
+        _ => 0,
+    }
+}
+
+/// A lectern's keys (PMMP `writeSaveData`, the same as its client keys).
+pub(in crate::tick) fn write_lectern(book: &Stack, page: i32, nbt: &mut Compound) {
+    nbt.insert(
+        "hasBook".to_owned(),
+        Value::Byte(u8::from(!book.is_empty())),
+    );
+    nbt.insert("page".to_owned(), Value::Int(page));
+    if !book.is_empty() {
+        nbt.insert("book".to_owned(), Value::Compound(book.to_nbt()));
+        let pages = i32::try_from(book_pages(book)).unwrap_or(i32::MAX);
+        nbt.insert("totalPages".to_owned(), Value::Int(pages));
+    }
+}
+
+/// A mob head: PMMP `MobHead::readSaveData` (the rotation as degrees, or the legacy `Rot`).
+pub(in crate::tick) fn read_skull(nbt: &mut Compound) -> (u8, u8) {
+    let skull = take_byte(nbt, "SkullType").filter(|t| *t <= 6).unwrap_or(0);
+    let rotation = match take_float(nbt, "Rotation") {
+        Some(yaw) => skull_rotation(yaw),
+        None => take_byte(nbt, "Rot").filter(|r| *r <= 15).unwrap_or(0),
+    };
+    nbt.remove("Rot");
+    (skull, rotation)
+}
+
+/// PMMP `((int) floor(($yaw * 16 / 360) + 0.5)) & 0xf`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "safety: the value is finite and reduced into 0..16 first"
+)]
+pub(in crate::tick) fn skull_rotation(yaw: f32) -> u8 {
+    let sixteenths = (f64::from(yaw) * 16.0 / 360.0 + 0.5)
+        .floor()
+        .rem_euclid(16.0);
+    (sixteenths as u8) & 0xf
+}
+
+/// A mob head's keys.
+pub(in crate::tick) fn write_skull(skull: u8, rotation: u8, nbt: &mut Compound) {
+    nbt.insert("SkullType".to_owned(), Value::Byte(skull));
+    nbt.insert(
+        "Rotation".to_owned(),
+        Value::Float(f32::from(rotation) * 360.0 / 16.0),
+    );
+}
+
+impl Cauldron {
+    /// PMMP `Cauldron::readSaveData`; a potion without a container or type is none.
+    pub(in crate::tick) fn read(nbt: &mut Compound) -> Self {
+        let container = take_short(nbt, "PotionType").unwrap_or(-1);
+        let potion = take_short(nbt, "PotionId").unwrap_or(-1);
+        let (container, potion) = if (0..=2).contains(&container) && potion >= 0 {
+            (container, potion)
+        } else {
+            (-1, -1)
+        };
+        let colour = take_int(nbt, "CustomColor");
+        Self {
+            container,
+            potion,
+            colour,
+        }
+    }
+
+    /// The saved and client keys.
+    pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
+        nbt.insert("PotionType".to_owned(), Value::Short(self.container));
+        nbt.insert("PotionId".to_owned(), Value::Short(self.potion));
+        if let Some(colour) = self.colour {
+            nbt.insert("CustomColor".to_owned(), Value::Int(colour));
+        }
+    }
+}
+
+/// A beacon's effects (PMMP `Beacon` tile keys `primary`, `secondary`).
+pub(in crate::tick) fn read_beacon(nbt: &mut Compound) -> (i32, i32) {
+    (
+        take_int(nbt, "primary").unwrap_or(0),
+        take_int(nbt, "secondary").unwrap_or(0),
+    )
+}
+
+/// A beacon's keys.
+pub(in crate::tick) fn write_beacon(primary: i32, secondary: i32, nbt: &mut Compound) {
+    nbt.insert("primary".to_owned(), Value::Int(primary));
+    nbt.insert("secondary".to_owned(), Value::Int(secondary));
+}
+
+/// A bed's colour (PMMP `Bed::readSaveData`: a missing or unknown colour is red, 14).
+pub(in crate::tick) fn read_bed(nbt: &mut Compound) -> u8 {
+    take_byte(nbt, "color").filter(|c| *c < 16).unwrap_or(14)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sign_text_round_trips_and_keeps_its_colour_and_glow() {
+        let sign = Sign {
+            front: SignSide {
+                lines: ["a".into(), "b".into(), String::new(), String::new()],
+                colour: 0xff00_ff00_u32.cast_signed(),
+                glowing: true,
+            },
+            back: SignSide::default(),
+            waxed: true,
+            hanging: false,
+        };
+        let mut nbt = Compound::new();
+        sign.write(&mut nbt);
+        assert_eq!(
+            nbt.get("FrontText").and_then(|f| match f {
+                Value::Compound(c) => c.get("Text").cloned(),
+                _ => None,
+            }),
+            Some(Value::String("a\nb".into()))
+        );
+        let mut read = nbt.clone();
+        assert_eq!(Sign::read(&mut read, false), sign);
+        assert!(read.is_empty());
+    }
+
+    #[test]
+    fn rotations_follow_pmmp() {
+        assert_eq!(float_rotation(90.0), 2);
+        assert_eq!(float_rotation(359.0), 7);
+        assert_eq!(float_rotation(-45.0), 7);
+        assert_eq!(skull_rotation(0.0), 0);
+        assert_eq!(skull_rotation(90.0), 4);
+        assert_eq!(skull_rotation(-22.5), 15);
+        assert_eq!(skull_rotation(350.0), 0);
+    }
+
+    #[test]
+    fn banner_patterns_skip_unknown_ids_and_stay_bounded() {
+        let mut list = vec![Compound::from([
+            ("Pattern".to_owned(), Value::String("nope".to_owned())),
+            ("Color".to_owned(), Value::Int(3)),
+        ])];
+        for _ in 0..40 {
+            list.push(Compound::from([
+                ("Pattern".to_owned(), Value::String("bo".to_owned())),
+                ("Color".to_owned(), Value::Int(3)),
+            ]));
+        }
+        let read = read_patterns(&list);
+        assert_eq!(read.len(), MAX_PATTERNS);
+        assert!(read.iter().all(|(id, c)| id == "bo" && *c == 3));
+    }
+}

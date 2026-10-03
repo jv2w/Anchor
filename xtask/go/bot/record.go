@@ -281,8 +281,17 @@ func toJSON(v reflect.Value, depth int, full bool) any {
 		}
 		m := make(map[string]any, v.NumField())
 		for i := range v.NumField() {
-			if f := v.Type().Field(i); f.IsExported() {
+			f := v.Type().Field(i)
+			switch {
+			case f.IsExported():
 				m[f.Name] = toJSON(v.Field(i), depth+1, full)
+			case f.Anonymous && f.Type.Kind() == reflect.Struct:
+				// An unexported embedded struct (the transfer actions' shared fields): its promoted fields.
+				if inner, ok := toJSON(v.Field(i), depth+1, full).(map[string]any); ok {
+					for k, e := range inner {
+						m[k] = e
+					}
+				}
 			}
 		}
 		return m

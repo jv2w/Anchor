@@ -15,9 +15,13 @@ macro_rules! put {
 pub(crate) mod biomes;
 mod blocks;
 mod body;
+mod consts;
 mod creative;
 mod data;
+mod drops;
+mod effects;
 mod emit;
+mod info;
 mod ir;
 mod items;
 mod model;
@@ -58,6 +62,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     let files = [
         (TYPES_PATH, finish(root, &output.types)?),
         (PACKET_PATH, finish(root, &output.packet)?),
+        (consts::PATH, finish(root, &consts::generate(&ir)?)?),
         (blocks::PATH, finish(root, &blocks::generate(&data)?)?),
         (items::PATH, finish(root, &items::generate(&data)?)?),
         (registry::PATH, finish(root, &registry::generate(root)?)?),
@@ -70,6 +75,8 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
             finish(root, &recipes::generate(root, &data)?)?,
         ),
         (biomes::PATH, finish(root, &biomes::generate(root)?)?),
+        (effects::PATH, finish(root, &effects::generate(&data)?)?),
+        (drops::PATH, finish(root, &drops::generate(&data)?)?),
     ];
     let mut differ = Vec::new();
     if check {

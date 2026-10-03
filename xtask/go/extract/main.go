@@ -217,6 +217,7 @@ func (ex *extractor) extract() *IR {
 	for _, k := range sortedKeys(ex.consts) {
 		ir.Constants = append(ir.Constants, ex.consts[k])
 	}
+	ir.ConstDecls = ex.constDecls()
 	return ir
 }
 

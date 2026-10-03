@@ -31,7 +31,13 @@ const CLOUDBURST: (&str, &str) = (
 const PHP: &str = ".cache/php-pm5/bin/php/php.exe";
 /// Output directories and their files, relative to the repository root.
 const PMMP_OUT: &str = "xtask/data/pmmp";
-const PMMP_FILES: &[&str] = &["blocks.json", "items.json", "creative.json", "recipes.json"];
+const PMMP_FILES: &[&str] = &[
+    "blocks.json",
+    "items.json",
+    "creative.json",
+    "recipes.json",
+    "tables.json",
+];
 const REFERENCE_OUT: &str = "xtask/data/reference";
 const REFERENCE_FILES: &[&str] = &[
     "blocks.json",

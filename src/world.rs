@@ -1,6 +1,6 @@
 //! Worlds (PLAN.md 6, 10.6): block and chunk positions, the loaded chunks of a world, generators,
-//! and the neighbour rules that keep fence, pane, wall, fence gate, stair and tripwire states
-//! up to date when a block is set.
+//! the neighbour rules that keep fence, pane, wall, fence gate, stair and tripwire states up to
+//! date when a block is set, and the light of the loaded chunks (10.7).
 //!
 //! The overworld is the only dimension: blocks from y -64 to 319 in 24 sub-chunks.
 
@@ -9,10 +9,11 @@ mod chunk;
 mod connect;
 mod generator;
 mod index;
+mod light;
 mod paletted;
 mod sub_chunk;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 use crate::block::{Facing, State};
@@ -26,6 +27,8 @@ pub(crate) use sub_chunk::{Entry, SubChunk};
 
 /// The lowest block y of the world.
 pub const MIN_Y: i32 = -64;
+/// Ticks in a day (PMMP `World::TIME_FULL`).
+pub(crate) const DAY: i64 = 24_000;
 /// The highest block y of the world.
 pub const MAX_Y: i32 = 319;
 
@@ -57,6 +60,23 @@ impl BlockPos {
         Some(Self::new(
             self.x.checked_add(dx)?,
             self.y,
+            self.z.checked_add(dz)?,
+        ))
+    }
+
+    /// The position one block toward `face`, if it is a valid `i32` position (the world height
+    /// is not checked).
+    pub(crate) fn step(self, face: crate::block::Face) -> Option<Self> {
+        let (dx, dy, dz) = face.offset();
+        self.offset(dx, dy, dz)
+    }
+
+    /// The position moved by (dx, dy, dz), if it is a valid `i32` position (the world height is
+    /// not checked).
+    pub(crate) fn offset(self, dx: i32, dy: i32, dz: i32) -> Option<Self> {
+        Some(Self::new(
+            self.x.checked_add(dx)?,
+            self.y.checked_add(dy)?,
             self.z.checked_add(dz)?,
         ))
     }
@@ -137,6 +157,8 @@ pub struct World {
     kind: Kind,
     seed: i64,
     spawn: BlockPos,
+    /// Ticks since the world was created (PMMP `World::$time`); the day cycle follows it.
+    time: i64,
     /// The loaded chunks; `loaded` holds their positions in order.
     chunks: index::ChunkIndex,
     loaded: BTreeSet<ChunkPos>,
@@ -144,6 +166,22 @@ pub struct World {
     quarantined: BTreeSet<ChunkPos>,
     /// The last state of each block changed since the tick last took them.
     changes: BTreeMap<BlockPos, State>,
+    /// Every block changed since the block updates last took it, oldest first, each at most once
+    /// ([`Self::next_changed`]): bounded by the loaded blocks.
+    feed: VecDeque<BlockPos>,
+    /// The positions in `feed`.
+    fed: BTreeSet<BlockPos>,
+    /// The light work of the loaded chunks.
+    light: light::Engine,
+}
+
+/// Whether a block change notifies the block update rules ([`World::next_changed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Notify {
+    /// The block and its neighbours get a neighbour update (PMMP `setBlock` with `update`).
+    Neighbours,
+    /// Nothing is notified (PMMP `setBlock` with `update` false).
+    Quiet,
 }
 
 impl World {
@@ -155,10 +193,14 @@ impl World {
             kind,
             seed,
             spawn,
+            time: 0,
             chunks: index::ChunkIndex::new(),
             loaded: BTreeSet::new(),
             quarantined: BTreeSet::new(),
             changes: BTreeMap::new(),
+            feed: VecDeque::new(),
+            fed: BTreeSet::new(),
+            light: light::Engine::new(),
         }
     }
 
@@ -189,6 +231,26 @@ impl World {
     #[doc(alias = "World::setSpawnLocation")]
     pub fn set_spawn(&mut self, spawn: BlockPos) {
         self.spawn = spawn;
+    }
+
+    /// Ticks since the world was created (0 for a new world), saved with the world. It goes up
+    /// by one every tick and jumps when everyone sleeps through the night.
+    #[doc(alias = "World::getTime")]
+    pub fn time(&self) -> i64 {
+        self.time
+    }
+
+    /// The time of the day cycle, 0 to 23,999: 1,000 is day, 6,000 noon, 13,000 night, 18,000
+    /// midnight and 23,000 sunrise (PMMP `World::TIME_*`).
+    #[doc(alias = "World::getTimeOfDay")]
+    pub fn time_of_day(&self) -> u32 {
+        u32::try_from(self.time.rem_euclid(DAY)).unwrap_or(0)
+    }
+
+    /// Sets the time: the saved time at start, the clock's tick and night skips. Clients learn it
+    /// from the clock's next correction.
+    pub(crate) fn set_time(&mut self, time: i64) {
+        self.time = time;
     }
 
     /// The block at `pos`, or `None` if its chunk is not loaded (or quarantined), `pos` is outside
@@ -226,6 +288,35 @@ impl World {
         Ok(())
     }
 
+    /// Sets the block at `pos` without notifying the block update rules and without working out
+    /// connections (PMMP `setBlock` with `update` false): for a state that differs only in
+    /// properties no neighbour reads, such as a crop's age or a leaf's decay check. False if the
+    /// chunk is not loaded or `pos` is outside the world height.
+    pub(crate) fn set_block_quietly(&mut self, pos: BlockPos, state: State) -> bool {
+        self.write_with(pos, state, Notify::Quiet).is_some()
+    }
+
+    /// Takes the oldest block changed since the block update rules last took it: every change
+    /// of [`Self::set_block`] (by players, tasks or rules, connection changes included) once,
+    /// in order. A block changed again before it is taken keeps its place.
+    pub(crate) fn next_changed(&mut self) -> Option<BlockPos> {
+        let pos = self.feed.pop_front()?;
+        self.fed.remove(&pos);
+        Some(pos)
+    }
+
+    /// The number of changed blocks waiting for [`Self::next_changed`].
+    #[cfg(test)]
+    pub(crate) fn changed_len(&self) -> usize {
+        self.feed.len()
+    }
+
+    /// The changed blocks waiting for [`Self::next_changed`], oldest first (state hash).
+    #[cfg(test)]
+    pub(crate) fn changed(&self) -> impl ExactSizeIterator<Item = BlockPos> + '_ {
+        self.feed.iter().copied()
+    }
+
     /// Whether the chunk is loaded (quarantined chunks are not).
     #[doc(alias = "World::isChunkLoaded")]
     pub fn is_chunk_loaded(&self, pos: ChunkPos) -> bool {
@@ -241,6 +332,87 @@ impl World {
         self.chunks.get(pos.chunk())?.highest_block(lx, lz)
     }
 
+    /// The block light at `pos`, 0 to 15, or `None` if its chunk is not loaded or not lit yet,
+    /// or `pos` is outside the world height.
+    ///
+    /// Light is worked out on the server for game rules and never sent to clients. With the
+    /// setting `lighting = false` nothing is worked out: block light is 0 and sky light 15 at
+    /// every position of a loaded chunk, as under an open sky at noon. Rules that need light
+    /// then act as if every block were outdoors in daylight: crops and saplings grow
+    /// underground, and nothing melts from block light.
+    #[doc(alias = "World::getBlockLightAt")]
+    pub fn block_light(&self, pos: BlockPos) -> Option<u8> {
+        self.light.light(&self.chunks, pos, light::Channel::Block)
+    }
+
+    /// The sky light at `pos` whatever the time of day, 0 to 15: 15 under the open sky, less
+    /// through filtering blocks and into shade (see [`Self::block_light`] for `None` and the
+    /// `lighting` setting).
+    #[doc(alias = "World::getPotentialBlockSkyLightAt")]
+    pub fn sky_light(&self, pos: BlockPos) -> Option<u8> {
+        self.light.light(&self.chunks, pos, light::Channel::Sky)
+    }
+
+    /// The sky light at `pos` at world time `time` (ticks): [`Self::sky_light`] less the time of
+    /// day's reduction, 0 by day to 11 at night.
+    #[doc(alias = "World::getRealBlockSkyLightAt")]
+    pub fn real_sky_light(&self, pos: BlockPos, time: i64) -> Option<u8> {
+        let sky = self.sky_light(pos)?;
+        Some(sky.saturating_sub(light::sky_light_reduction(time)))
+    }
+
+    /// The brightest light at `pos` at world time `time`: [`Self::real_sky_light`] or
+    /// [`Self::block_light`], whichever is brighter.
+    #[doc(alias = "World::getFullLightAt")]
+    pub fn full_light(&self, pos: BlockPos, time: i64) -> Option<u8> {
+        let sky = self.real_sky_light(pos, time)?;
+        Some(sky.max(self.block_light(pos)?))
+    }
+
+    /// Whether the chunk is loaded and lit (always, with light off): random block ticks need it
+    /// around a chunk (PLAN.md 6).
+    pub(crate) fn is_chunk_lit(&self, pos: ChunkPos) -> bool {
+        self.light.is_lit(&self.chunks, pos)
+    }
+
+    /// Turns light work on or off (setting `lighting`, on for a new world). Off drops all light;
+    /// on lights every loaded chunk again.
+    pub(crate) fn set_lighting(&mut self, enabled: bool) {
+        self.light
+            .set_enabled(&mut self.chunks, self.loaded.iter().copied(), enabled);
+    }
+
+    /// Does up to `budget` units of queued light work (one unit per block looked at) and returns
+    /// the units spent. The tick calls it once a tick; the rest waits for the next.
+    pub(crate) fn step_light(&mut self, budget: u32) -> u32 {
+        self.light.step(&mut self.chunks, budget)
+    }
+
+    /// A hash of the world's light (state hashes, PLAN.md 10.7 결정성): the light work waiting,
+    /// then each loaded chunk's light in position order. About 260 word mixes per sub-chunk that
+    /// is not uniform, a few per one that is.
+    #[cfg(test)]
+    pub(crate) fn light_hash(&self) -> u64 {
+        let mut h = light::LightHash::new();
+        self.light.hash_into(&mut h);
+        for &pos in &self.loaded {
+            match self.chunks.get(pos).and_then(Chunk::light) {
+                Some(l) => {
+                    h.word(1);
+                    l.hash_into(&mut h);
+                }
+                None => h.word(0),
+            }
+        }
+        h.finish()
+    }
+
+    /// Whether no light work is waiting.
+    #[cfg(test)]
+    pub(crate) fn is_light_idle(&self) -> bool {
+        self.light.is_idle()
+    }
+
     /// The layer 0 entry at `pos`, if its chunk is loaded and `pos` is in the world height.
     pub(crate) fn entry(&self, pos: BlockPos) -> Option<Entry> {
         let (x, z) = pos.local();
@@ -251,12 +423,22 @@ impl World {
     /// block in the change list. Returns the old entry, or `None` if nothing was written (the
     /// chunk is not loaded or `pos` is outside the world height).
     fn write(&mut self, pos: BlockPos, state: State) -> Option<Entry> {
+        self.write_with(pos, state, Notify::Neighbours)
+    }
+
+    /// [`Self::write`] that notifies the block update rules or not.
+    fn write_with(&mut self, pos: BlockPos, state: State, notify: Notify) -> Option<Entry> {
         let (x, z) = pos.local();
         let chunk = self.chunks.get_mut(pos.chunk())?;
         let old = chunk.put(x, pos.y, z, Entry::Known(state))?;
         if old != Entry::Known(state) {
             chunk.set_dirty(true);
             self.changes.insert(pos, state);
+            if notify == Notify::Neighbours && self.fed.insert(pos) {
+                self.feed.push_back(pos);
+            }
+            self.light
+                .changed(&self.chunks, pos, old, Entry::Known(state));
         }
         Some(old)
     }
@@ -268,26 +450,46 @@ impl World {
 
     /// Loads `chunk` at `pos`, from disk or a generator: it starts clean. Lifts a quarantine of
     /// `pos` and returns a chunk it replaces.
+    ///
+    /// A chunk lit on the CPU pool ([`Chunk::populate_light`]) keeps its light and is connected
+    /// to its lit neighbours; one without light is lit on the tick.
     pub(crate) fn insert_chunk(&mut self, pos: ChunkPos, mut chunk: Chunk) -> Option<Chunk> {
         chunk.set_dirty(false);
-        self.quarantined.remove(&pos);
-        self.loaded.insert(pos);
-        self.chunks.insert(pos, chunk)
+        self.put_chunk(pos, chunk)
     }
 
     /// Loads `chunk` at `pos` from memory as it is: an unloaded chunk whose changes are not
     /// committed yet keeps its dirty mark (PLAN.md 10.6).
     pub(crate) fn restore_chunk(&mut self, pos: ChunkPos, chunk: Chunk) {
+        self.put_chunk(pos, chunk);
+    }
+
+    /// Puts a chunk at `pos` and starts its light work; returns the chunk it replaces, whose
+    /// light leaves with it.
+    fn put_chunk(&mut self, pos: ChunkPos, chunk: Chunk) -> Option<Chunk> {
         self.quarantined.remove(&pos);
         self.loaded.insert(pos);
-        self.chunks.insert(pos, chunk);
+        let mut old = self.chunks.insert(pos, chunk);
+        if let Some(old) = &mut old {
+            self.light.unloaded(&self.chunks, pos, old.take_light());
+        }
+        self.light.loaded(&mut self.chunks, pos);
+        old
+    }
+
+    /// Takes the chunk at `pos` out of the index with its light work.
+    fn take_chunk(&mut self, pos: ChunkPos) -> Option<Chunk> {
+        let mut chunk = self.chunks.remove(pos)?;
+        let light = chunk.take_light();
+        self.light.unloaded(&self.chunks, pos, light);
+        Some(chunk)
     }
 
     /// Quarantines `pos` because its saved data is damaged: a chunk loaded there is dropped,
     /// changes included, and the position stays quarantined until [`Self::remove_chunk`].
     pub(crate) fn quarantine(&mut self, pos: ChunkPos) {
         self.loaded.remove(&pos);
-        self.chunks.remove(pos);
+        self.take_chunk(pos);
         self.quarantined.insert(pos);
     }
 
@@ -301,7 +503,7 @@ impl World {
     pub(crate) fn remove_chunk(&mut self, pos: ChunkPos) -> Option<Chunk> {
         self.quarantined.remove(&pos);
         self.loaded.remove(&pos);
-        self.chunks.remove(pos)
+        self.take_chunk(pos)
     }
 
     /// The loaded positions, in order.
@@ -346,9 +548,12 @@ impl fmt::Debug for World {
             .field("kind", &self.kind)
             .field("seed", &self.seed)
             .field("spawn", &self.spawn)
+            .field("time", &self.time)
             .field("chunks", &self.loaded.len())
             .field("quarantined", &self.quarantined.len())
             .field("changes", &self.changes.len())
+            .field("feed", &self.feed.len())
+            .field("light", &self.light)
             .finish_non_exhaustive()
     }
 }

@@ -120,7 +120,8 @@ pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
         out,
         "{HEADER}\n//! Recipes generated from the PMMP recipe dump (PLAN.md 10.4).\n\n\
          use super::{{Exact, Furnace, FurnaceType, Ingredient, Name, PotionContainerChange, \
-         PotionType, Shaped, Shapeless, ShapelessType, SmithingTransform, SmithingTrim, Stack}};\n\n"
+         PotionType, Shaped, Shapeless, ShapelessType, SmithingTransform, SmithingTrim, Stack}};\n\
+         use crate::item;\n\n"
     );
 
     table(
@@ -156,6 +157,26 @@ pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
         |r| furnace(data, r).map_err(|e| format!("furnace recipe: {e}")),
     )?;
     brewing_and_smithing(&mut out, data, &recipes)?;
+    let mut ticks = Vec::with_capacity(FURNACE_TYPES.len());
+    for (name, _) in FURNACE_TYPES {
+        let t = data
+            .tables
+            .furnace_types
+            .iter()
+            .find(|f| f.name == name)
+            .ok_or_else(|| format!("no cook time for {name}"))?;
+        ticks.push(t.cook_ticks.to_string());
+    }
+    if ticks.len() != data.tables.furnace_types.len() {
+        return Err("PMMP has a furnace type Anchor does not know".to_owned());
+    }
+    put!(
+        out,
+        "/// The cook time of each furnace type in ticks, in `FurnaceType` order (PMMP \
+         `FurnaceType::getCookDurationTicks`).\npub(super) static COOK_TICKS: [u16; {}] = [{}];\n",
+        ticks.len(),
+        ticks.join(",")
+    );
     Ok(out)
 }
 
@@ -342,7 +363,13 @@ fn ingredient(data: &Data, json: &Json) -> R<String> {
         }
         "tag" => {
             let tag = value.as_str().ok_or("tag is not a string")?;
-            Ok(format!("Ingredient::Tag({})", str_lit(tag)))
+            let index = data
+                .tables
+                .item_tags
+                .iter()
+                .position(|t| t.tag == tag)
+                .ok_or_else(|| format!("item tag {tag} is not in PMMP's tag map"))?;
+            Ok(format!("Ingredient::Tag(item::Tag::from_index({index}))"))
         }
         other => Err(format!("unknown ingredient kind {other}")),
     }
@@ -350,8 +377,9 @@ fn ingredient(data: &Data, json: &Json) -> R<String> {
 
 /// An exact ingredient (`{"exact": stack}`) with the meta PMMP sends for it
 /// (`TypeConverter::coreRecipeIngredientToNet`): the legacy meta of the block state for a block
-/// item, the stack meta otherwise. PMMP always sends a count of 1, so the dump must hold 1. The
-/// stack NBT is left out (the network form does not carry it; M7 matching adds it).
+/// item, the stack meta otherwise, and the stack's own meta and NBT, which crafting matches
+/// (PMMP `ExactRecipeIngredient::accepts`). PMMP always sends a count of 1, so the dump must
+/// hold 1.
 fn exact(data: &Data, json: &Json) -> R<String> {
     let value = json.get("exact").ok_or("ingredient is not exact")?;
     let s = data.stack(value)?;
@@ -362,7 +390,12 @@ fn exact(data: &Data, json: &Json) -> R<String> {
         Some(block) => data.recipe_meta(&bedrock_state(block)?)?,
         None => i32::from(s.meta),
     };
-    Ok(format!("Exact::new({}, {meta})", s.item))
+    Ok(format!(
+        "Exact::new({}, {meta}, {}, {})",
+        s.item,
+        s.meta,
+        nbt(s.nbt.as_ref())
+    ))
 }
 
 /// A result stack.

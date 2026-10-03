@@ -5,6 +5,8 @@ mod zlib;
 
 use std::fmt;
 
+use super::consts::CompressionAlgorithm;
+
 /// The algorithm that compresses batch bodies, announced to the client in `NetworkSettings`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Compression {
@@ -22,16 +24,18 @@ impl Compression {
     /// Returns the id that `NetworkSettings` carries for this algorithm.
     pub const fn network_id(self) -> u16 {
         match self {
-            Self::Zlib => 0,
-            Self::Snappy => 1,
+            Self::Zlib => CompressionAlgorithm::Flate as u16,
+            Self::Snappy => CompressionAlgorithm::Snappy as u16,
         }
     }
 
     /// Returns the algorithm for a `NetworkSettings` id, or `None` for an unknown id.
     pub const fn from_network_id(id: u16) -> Option<Self> {
+        const FLATE: u16 = CompressionAlgorithm::Flate as u16;
+        const SNAPPY: u16 = CompressionAlgorithm::Snappy as u16;
         match id {
-            0 => Some(Self::Zlib),
-            1 => Some(Self::Snappy),
+            FLATE => Some(Self::Zlib),
+            SNAPPY => Some(Self::Snappy),
             _ => None,
         }
     }

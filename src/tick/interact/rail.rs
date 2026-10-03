@@ -1,0 +1,273 @@
+//! Rails joining their neighbours when placed (PMMP `BaseRail::onPostPlace`/`tryReconnect`,
+//! `Rail`, `StraightOnlyRail`, `RailConnectionInfo`).
+//!
+//! A rail's shape is Bedrock `rail_direction` (the legacy meta PMMP names): two connections, each
+//! a horizontal face, one of which may ascend a block.
+
+use crate::block::{Class, Face, State};
+use crate::world::{BlockPos, World};
+
+use super::place::{block_at, step};
+use super::props;
+
+/// A connection of a rail: toward a face, and whether it goes up a block that way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Link {
+    face: Face,
+    ascend: bool,
+}
+
+const fn flat(face: Face) -> Link {
+    Link {
+        face,
+        ascend: false,
+    }
+}
+
+const fn up(face: Face) -> Link {
+    Link { face, ascend: true }
+}
+
+/// The shapes every rail has, by `rail_direction` (PMMP `RailConnectionInfo::CONNECTIONS`).
+const STRAIGHT: [[Link; 2]; 6] = [
+    [flat(Face::North), flat(Face::South)],
+    [flat(Face::East), flat(Face::West)],
+    [flat(Face::West), up(Face::East)],
+    [flat(Face::East), up(Face::West)],
+    [flat(Face::South), up(Face::North)],
+    [flat(Face::North), up(Face::South)],
+];
+
+/// The curved shapes of plain rails, `rail_direction` 6 to 9 (PMMP `CURVE_CONNECTIONS`).
+const CURVES: [[Link; 2]; 4] = [
+    [flat(Face::South), flat(Face::East)],
+    [flat(Face::South), flat(Face::West)],
+    [flat(Face::North), flat(Face::West)],
+    [flat(Face::North), flat(Face::East)],
+];
+
+/// The horizontal faces in PMMP's search order.
+const HORIZONTAL: [Face; 4] = [Face::North, Face::South, Face::West, Face::East];
+
+/// Whether the rail can curve (PMMP `Rail`; powered, detector and activator rails cannot).
+fn curves(state: State) -> bool {
+    state.is(Class::Rail)
+}
+
+/// The rail's two connections, if it is a rail.
+fn shape(state: State) -> Option<[Link; 2]> {
+    if !state.is(Class::BaseRail) {
+        return None;
+    }
+    let direction = usize::try_from(props::int(state, "rail_direction")?).ok()?;
+    match direction.checked_sub(STRAIGHT.len()) {
+        None => STRAIGHT.get(direction).copied(),
+        Some(curve) if curves(state) => CURVES.get(curve).copied(),
+        Some(_) => None,
+    }
+}
+
+/// The rail state with the shape of `links` (PMMP `setShapeFromConnections`: as given or
+/// reversed, straight shapes first).
+fn with_shape(state: State, links: [Link; 2]) -> Option<State> {
+    let reversed = [links[1], links[0]];
+    let find = |table: &[[Link; 2]]| {
+        table
+            .iter()
+            .position(|s| *s == links)
+            .or_else(|| table.iter().position(|s| *s == reversed))
+    };
+    let direction = find(&STRAIGHT).or_else(|| {
+        if curves(state) {
+            find(&CURVES).map(|c| c + STRAIGHT.len())
+        } else {
+            None
+        }
+    })?;
+    props::with_int(state, "rail_direction", i32::try_from(direction).ok()?)
+}
+
+/// The rail a link of the rail at `pos` reaches, and the link it needs back: one up for an
+/// ascending link, one down for a rail sloping up to meet this one.
+fn neighbour(world: &World, pos: BlockPos, link: Link) -> Option<(BlockPos, State, Link)> {
+    let side = step(pos, link.face)?;
+    let back = link.face.opposite();
+    if link.ascend {
+        let p = step(side, Face::Up)?;
+        return Some((p, block_at(world, Some(p)), flat(back)));
+    }
+    let s = block_at(world, Some(side));
+    if s.is(Class::BaseRail) {
+        return Some((side, s, flat(back)));
+    }
+    let p = step(side, Face::Down)?;
+    Some((p, block_at(world, Some(p)), up(back)))
+}
+
+/// The links of the rail at `pos` that a rail answers (PMMP `getConnectedDirections`).
+fn connected(world: &World, pos: BlockPos, state: State) -> Vec<Link> {
+    let Some(links) = shape(state) else {
+        return Vec::new();
+    };
+    links
+        .into_iter()
+        .filter(|link| {
+            neighbour(world, pos, *link)
+                .is_some_and(|(_, other, back)| shape(other).is_some_and(|o| o.contains(&back)))
+        })
+        .collect()
+}
+
+/// The links the rail could still make, in PMMP's order (`getPossibleConnectionDirections`).
+fn possible(state: State, constraints: &[Link]) -> Vec<Link> {
+    match constraints {
+        [] => HORIZONTAL
+            .into_iter()
+            .map(flat)
+            .chain(HORIZONTAL.into_iter().map(up))
+            .collect(),
+        [only] => {
+            let opposite = only.face.opposite();
+            let mut out = vec![flat(opposite)];
+            if !only.ascend {
+                out.push(up(opposite));
+                if curves(state) {
+                    out.extend(
+                        HORIZONTAL
+                            .into_iter()
+                            .filter(|d| *d != only.face && *d != opposite)
+                            .map(flat),
+                    );
+                }
+            }
+            out
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The shape of a rail with `links` (one link goes straight through, PMMP `setConnections`).
+fn shaped(state: State, links: &[Link]) -> Option<State> {
+    match links {
+        [one] => with_shape(state, [*one, flat(one.face.opposite())]),
+        [a, b] => with_shape(state, [*a, *b]),
+        _ => None,
+    }
+}
+
+/// PMMP `BaseRail::tryReconnect` for the rail just placed at `pos`: it joins neighbouring rails
+/// that have a free end, turning them toward it. The blocks to set, in order.
+pub(super) fn reconnect(world: &World, pos: BlockPos) -> Vec<(BlockPos, State)> {
+    let mut out = Vec::new();
+    let this = block_at(world, Some(pos));
+    if !this.is(Class::BaseRail) {
+        return out;
+    }
+    let mut links = connected(world, pos, this);
+    let mut changed = false;
+    // At most two links: the loop ends after two joins or a pass without one.
+    for _ in 0..2 {
+        let mut joined = false;
+        for link in possible(this, &links) {
+            let Some((other_pos, other, back)) = neighbour(world, pos, link) else {
+                continue;
+            };
+            if !other.is(Class::BaseRail) {
+                continue;
+            }
+            let other_links = connected(world, other_pos, other);
+            if other_links.len() >= 2 || !possible(other, &other_links).contains(&back) {
+                continue;
+            }
+            let mut joined_links = other_links;
+            joined_links.push(back);
+            if let Some(turned) = shaped(other, &joined_links) {
+                out.push((other_pos, turned));
+            }
+            changed = true;
+            links.push(link);
+            joined = true;
+            break;
+        }
+        if !joined || links.len() >= 2 {
+            break;
+        }
+    }
+    if changed && let Some(turned) = shaped(this, &links) {
+        out.push((pos, turned));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::Kind;
+    use crate::world::{Chunk, ChunkPos, Kind as WorldKind};
+
+    fn world() -> World {
+        let mut w = World::new("rails", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
+        for x in -1..=0 {
+            for z in -1..=0 {
+                w.insert_chunk(ChunkPos::new(x, z), Chunk::new());
+            }
+        }
+        for x in -4..=4 {
+            for z in -4..=4 {
+                w.set_block(BlockPos::new(x, 0, z), Kind::Stone.default_state())
+                    .unwrap();
+            }
+        }
+        w
+    }
+
+    fn rail(direction: i32) -> State {
+        props::with_int(Kind::Rail.default_state(), "rail_direction", direction).unwrap()
+    }
+
+    fn place(w: &mut World, pos: BlockPos, s: State) {
+        w.set_block(pos, s).unwrap();
+        for (p, s) in reconnect(w, pos) {
+            w.set_block(p, s).unwrap();
+        }
+    }
+
+    #[test]
+    fn every_rail_shape_round_trips() {
+        for s in State::all().filter(|s| s.is(Class::BaseRail)) {
+            let links = shape(s).unwrap();
+            assert_eq!(with_shape(s, links), Some(s), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn rails_join_in_lines_and_corners() {
+        let mut w = world();
+        let at = |x, z| BlockPos::new(x, 1, z);
+        // Two rails in a row east-west turn east-west.
+        place(&mut w, at(0, 0), rail(0));
+        place(&mut w, at(1, 0), rail(0));
+        assert_eq!(
+            props::int(block_at(&w, Some(at(0, 0))), "rail_direction"),
+            Some(1)
+        );
+        assert_eq!(
+            props::int(block_at(&w, Some(at(1, 0))), "rail_direction"),
+            Some(1)
+        );
+        // A rail south of the east end makes a corner there (south-west: 7).
+        place(&mut w, at(1, 1), rail(0));
+        assert_eq!(
+            props::int(block_at(&w, Some(at(1, 0))), "rail_direction"),
+            Some(7)
+        );
+        // A rail one block up to the west makes the west end ascend west (3).
+        w.set_block(BlockPos::new(-1, 1, 0), Kind::Stone.default_state())
+            .unwrap();
+        place(&mut w, BlockPos::new(-1, 2, 0), rail(0));
+        assert_eq!(
+            props::int(block_at(&w, Some(at(0, 0))), "rail_direction"),
+            Some(3)
+        );
+    }
+}

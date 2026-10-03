@@ -1,5 +1,6 @@
 //! Tagged values: game rules, ability values and pack settings.
 
+use super::consts::PackSettingType;
 use super::io::{Codec, Error, Reader, Result, Writer, length};
 
 /// A game rule and its value (gophertunnel `GameRule`).
@@ -112,19 +113,13 @@ impl Reader<'_> {
     /// `PackSetting`
     pub(crate) fn pack_setting(&mut self) -> Result<PackSetting> {
         let name = self.string()?;
-        let value = match self.varuint32()? {
-            0 => PackSettingValue::Float32(self.float32()?),
-            1 => PackSettingValue::Bool(self.bool()?),
-            2 => PackSettingValue::String(self.string()?),
-            3 => {
+        let value = match PackSettingType::try_from(self.varuint32()?)? {
+            PackSettingType::Float => PackSettingValue::Float32(self.float32()?),
+            PackSettingType::Bool => PackSettingValue::Bool(self.bool()?),
+            PackSettingType::String => PackSettingValue::String(self.string()?),
+            PackSettingType::StringList => {
                 let count = self.varuint32()?;
                 PackSettingValue::StringList(self.list(count.into(), Reader::string)?)
-            }
-            t => {
-                return Err(Error::UnknownEnum {
-                    name: "pack setting type",
-                    value: t.into(),
-                });
             }
         };
         Ok(PackSetting { name, value })
@@ -170,19 +165,19 @@ impl Writer {
         self.string(&x.name)?;
         match &x.value {
             PackSettingValue::Float32(v) => {
-                self.varuint32(0);
+                self.varuint32(PackSettingType::Float.into());
                 self.float32(*v);
             }
             PackSettingValue::Bool(v) => {
-                self.varuint32(1);
+                self.varuint32(PackSettingType::Bool.into());
                 self.bool(*v);
             }
             PackSettingValue::String(v) => {
-                self.varuint32(2);
+                self.varuint32(PackSettingType::String.into());
                 self.string(v)?;
             }
             PackSettingValue::StringList(v) => {
-                self.varuint32(3);
+                self.varuint32(PackSettingType::StringList.into());
                 self.varuint32(length(v.len())?);
                 for s in v {
                     self.string(s)?;

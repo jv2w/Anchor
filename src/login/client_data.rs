@@ -9,6 +9,7 @@ use super::{Error, Result, parse_uuid};
 use crate::crypto::{
     Algorithm, PublicKey, STD, Verifier, bounded_vec, is_object_or_null, parse_jws, verify_jws,
 };
+use crate::protocol::{self, Rgba};
 
 /// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
 pub(super) const MAX_PIECES: usize = 128;
@@ -18,6 +19,42 @@ const MAX_ANIMATIONS: usize = 32;
 const MAX_LANGUAGE_CODE: usize = 64;
 /// Longest host name in a server address (DNS limit).
 const MAX_HOST: usize = 253;
+/// Most bytes a skin may hold in all (images, geometry, resource patch, animation data),
+/// decoded. A persona skin with its geometry and animations takes well under 1 MiB; the cap
+/// bounds what every other player is sent when the player joins (`PlayerList`), whatever batch
+/// size the server accepts.
+pub(super) const MAX_SKIN_BYTES: usize = 4 << 20;
+/// The persona piece types of the login data in the protocol's order (gophertunnel
+/// `PieceType*` from 1); anything else is type 0, unknown.
+const PIECE_TYPES: [&str; 27] = [
+    "persona_skeleton",
+    "persona_body",
+    "persona_skin",
+    "persona_bottom",
+    "persona_feet",
+    "persona_dress",
+    "persona_top",
+    "persona_high_pants",
+    "persona_hand",
+    "persona_outerwear",
+    "persona_facial_hair",
+    "persona_mouth",
+    "persona_eyes",
+    "persona_hair",
+    "persona_hood",
+    "persona_back",
+    "persona_face_accessory",
+    "persona_head",
+    "persona_legs",
+    "persona_left_leg",
+    "persona_right_leg",
+    "persona_arms",
+    "persona_left_arm",
+    "persona_right_arm",
+    "persona_capes",
+    "persona_classic_skin",
+    "persona_emote",
+];
 
 /// The client data claims. JSON names are `PascalCase` as the client sends them; a missing field
 /// keeps its zero value, as in Go.
@@ -124,6 +161,96 @@ pub(crate) struct SkinAnimation {
 }
 
 impl ClientData {
+    /// The skin the client sent, as the protocol carries it to other players (PMMP
+    /// `ClientDataToSkinDataHelper::fromClientData`, without PMMP's `LegacySkinAdapter`, which
+    /// swaps persona skins for a random colour: Anchor keeps the skin as sent). The images,
+    /// geometry, resource patch and animation data are decoded from base64; the full skin ID is
+    /// the skin ID and the cape ID together (PMMP draws a random UUID; verification needed (P6):
+    /// BDS's value). Fails if a field does not decode, an image dimension or animation number is
+    /// out of range, a frame count is not finite, or the skin holds more than
+    /// [`MAX_SKIN_BYTES`].
+    pub(crate) fn skin(&self) -> Result<protocol::Skin> {
+        let mut budget = MAX_SKIN_BYTES;
+        let mut decode = |text: &str| {
+            let bytes = STD
+                .decode(text, budget)
+                .map_err(|_| Error::ClientData("Skin"))?;
+            budget = budget.saturating_sub(bytes.len());
+            Ok::<_, Error>(bytes)
+        };
+        let dimension = |n: i64| u32::try_from(n).map_err(|_| Error::ClientData("Skin"));
+        let mut animations = Vec::with_capacity(self.animated_image_data.len());
+        for a in &self.animated_image_data {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "consistency: the protocol carries the frame count as f32; rounding is \
+                          IEEE behaviour and the value is checked finite after it"
+            )]
+            let frame_count = a.frames as f32;
+            if !frame_count.is_finite() || frame_count < 0.0 {
+                return Err(Error::ClientData("AnimatedImageData"));
+            }
+            animations.push(protocol::SkinAnimation {
+                image_width: dimension(a.image_width)?,
+                image_height: dimension(a.image_height)?,
+                image_data: decode(&a.image)?,
+                animation_type: dimension(a.r#type)?,
+                frame_count,
+                expression_type: dimension(a.animation_expression)?,
+            });
+        }
+        let skin = protocol::Skin {
+            skin_id: self.skin_id.clone(),
+            playfab_id: self.playfab_id.clone(),
+            skin_resource_patch: decode(&self.skin_resource_patch)?,
+            skin_image_width: dimension(self.skin_image_width)?,
+            skin_image_height: dimension(self.skin_image_height)?,
+            skin_data: decode(&self.skin_data)?,
+            animations,
+            cape_image_width: dimension(self.cape_image_width)?,
+            cape_image_height: dimension(self.cape_image_height)?,
+            cape_data: decode(&self.cape_data)?,
+            skin_geometry: decode(&self.skin_geometry)?,
+            animation_data: decode(&self.skin_animation_data)?,
+            geometry_data_engine_version: decode(&self.skin_geometry_version)?,
+            premium_skin: self.premium_skin,
+            persona_skin: self.persona_skin,
+            persona_cape_on_classic_skin: self.cape_on_classic_skin,
+            // PMMP: the client data has no field for it.
+            primary_user: true,
+            cape_id: self.cape_id.clone(),
+            full_id: format!("{}{}", self.skin_id, self.cape_id),
+            skin_colour: colour(&self.skin_colour),
+            arm_size: u8::from(self.arm_size != "slim"),
+            persona_pieces: self
+                .persona_pieces
+                .iter()
+                .map(|p| protocol::PersonaPiece {
+                    piece_id: p.piece_id.clone(),
+                    piece_type: piece_type(&p.piece_type),
+                    pack_id: parse_uuid(&p.pack_id).unwrap_or_default(),
+                    default: p.is_default,
+                    product_id: p.product_id.clone(),
+                })
+                .collect(),
+            piece_tint_colours: self
+                .piece_tint_colours
+                .iter()
+                .map(|t| protocol::PersonaPieceTintColour {
+                    piece_type: t.piece_type.clone(),
+                    colours: t.colours.each_ref().map(|c| colour(c)),
+                })
+                .collect(),
+            trusted: self.trusted_skin,
+            override_appearance: self.override_skin,
+            profile_hash: self.profile_hash.clone(),
+        };
+        if protocol::skin_validate(&skin).is_some() {
+            return Err(Error::ClientData("Skin"));
+        }
+        Ok(skin)
+    }
+
     /// Verifies the client data JWT with the client's key and validates the claims.
     pub(crate) fn verify(token: &str, key: &PublicKey) -> Result<Self> {
         let jws = parse_jws(token, token.len()).map_err(|e| Error::Crypto("client data", e))?;
@@ -235,6 +362,48 @@ impl ClientData {
             return Err(Error::ClientData("UIProfile"));
         }
         Ok(())
+    }
+}
+
+/// The protocol's number of a login persona piece type (the login data says `persona_hand`,
+/// the wire `hands`); 0 (unknown) for any other name.
+fn piece_type(name: &str) -> u32 {
+    let name = if name == "persona_hands" {
+        "persona_hand"
+    } else {
+        name
+    };
+    PIECE_TYPES
+        .iter()
+        .position(|t| *t == name)
+        .and_then(|i| u32::try_from(i + 1).ok())
+        .unwrap_or(0)
+}
+
+/// A colour of the login data: `#AARRGGBB`, or `#RRGGBB` (opaque) as the skin colour is sent
+/// (gophertunnel: "#b37b62"); anything else is transparent black.
+fn colour(text: &str) -> Rgba {
+    let clear = Rgba {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
+    let Some(hex) = text.strip_prefix('#') else {
+        return clear;
+    };
+    if !(1..=8).contains(&hex.len()) || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return clear;
+    }
+    let Ok(argb) = u32::from_str_radix(hex, 16) else {
+        return clear;
+    };
+    let [alpha, red, green, blue] = argb.to_be_bytes();
+    Rgba {
+        r: red,
+        g: green,
+        b: blue,
+        a: if hex.len() > 6 { alpha } else { u8::MAX },
     }
 }
 

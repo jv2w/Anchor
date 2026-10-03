@@ -10,9 +10,12 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use tracing::{debug, error};
 
+use super::extra::Extras;
+use super::rules::Rules;
 use super::save::{Saving, Unsaved, keep_unloaded};
 use super::{Phase, Player, State};
 use crate::block;
+use crate::math::Vec3;
 use crate::protocol::packet::{
     LevelChunk, NetworkChunkPublisherUpdate, Packet, SubChunk, SubChunkRequest, UpdateBlock,
     UpdateSubChunkBlocks,
@@ -84,6 +87,11 @@ impl Out {
 }
 
 impl View {
+    /// Whether the client was sent chunk `pos` and still sees it.
+    pub(super) fn sees(&self, pos: ChunkPos) -> bool {
+        self.sent.contains(&pos)
+    }
+
     /// Whether the view has a radius yet.
     pub(super) fn is_open(&self) -> bool {
         self.radius > 0
@@ -122,17 +130,42 @@ impl View {
     /// A hash of what the view decides, for the state hash of tests.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        h.u64(u64::from(self.radius));
-        for c in [self.center.x, self.center.z] {
+        // The order follows from the center and radius; the output is empty between ticks.
+        let Self {
+            center,
+            radius,
+            order: _,
+            cursor,
+            sent,
+            requests,
+            out: _,
+        } = self;
+        h.u64(u64::from(*radius));
+        for c in [center.x, center.z] {
             h.u64(u64::from(c.cast_unsigned()));
         }
-        h.usize(self.cursor);
-        h.usize(self.sent.len());
-        for p in &self.sent {
+        h.usize(*cursor);
+        h.usize(sent.len());
+        for p in sent {
             h.u64(u64::from(p.x.cast_unsigned()));
             h.u64(u64::from(p.z.cast_unsigned()));
         }
-        h.usize(self.requests.len());
+        h.usize(requests.len());
+        for SubChunkRequest {
+            dimension,
+            position,
+            offsets,
+        } in requests
+        {
+            h.u64(u64::from(dimension.cast_unsigned()));
+            for c in position {
+                h.u64(u64::from(c.cast_unsigned()));
+            }
+            h.usize(offsets.len());
+            for offset in offsets {
+                h.raw(&offset.map(i8::cast_unsigned));
+            }
+        }
     }
 }
 
@@ -157,18 +190,18 @@ pub(super) fn disc(center: ChunkPos, radius: u8) -> Vec<ChunkPos> {
 }
 
 /// The chunk an eye position is in. Positions are finite (checked when they arrive).
-pub(super) fn chunk_of(position: [f32; 3]) -> ChunkPos {
+pub(super) fn chunk_of(position: Vec3) -> ChunkPos {
     let [x, _, z] = block_of(position);
     BlockPos::new(x, 0, z).chunk()
 }
 
 /// The block an eye position is in.
-fn block_of(position: [f32; 3]) -> [i32; 3] {
+fn block_of(position: Vec3) -> [i32; 3] {
     #[expect(
         clippy::cast_possible_truncation,
         reason = "invariant: positions are finite and inside the world border, which i32 holds"
     )]
-    position.map(|c| c.floor() as i32)
+    [position.x, position.y, position.z].map(|c| c.floor() as i32)
 }
 
 /// The loaded chunks, the chunk loads in flight and the unloaded chunks waiting for a commit.
@@ -183,6 +216,8 @@ pub(super) struct Chunks {
     pub(super) unsaved: BTreeMap<Key, Unsaved>,
     /// Loads to ask for at the end of this tick; empty between ticks.
     batch: Vec<Key>,
+    /// The extras of the loaded chunks (PLAN.md 10.7).
+    pub(super) extras: Extras,
 }
 
 impl Chunks {
@@ -200,41 +235,64 @@ impl Chunks {
 
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        h.usize(self.interest.len());
-        for (&(w, p), &n) in &self.interest {
+        // The batch is empty between ticks.
+        let Self {
+            interest,
+            requested,
+            unsaved,
+            batch: _,
+            extras,
+        } = self;
+        let key = |h: &mut super::Fnv, &(w, p): &Key| {
             h.usize(w);
             h.u64(u64::from(p.x.cast_unsigned()));
             h.u64(u64::from(p.z.cast_unsigned()));
+        };
+        h.usize(interest.len());
+        for (k, &n) in interest {
+            key(h, k);
             h.u64(u64::from(n));
         }
-        h.usize(self.requested.len());
-        h.usize(self.unsaved.len());
+        h.usize(requested.len());
+        for k in requested {
+            key(h, k);
+        }
+        h.usize(unsaved.len());
+        for (k, u) in unsaved {
+            key(h, k);
+            u.hash_into(h);
+        }
+        extras.hash_into(h);
     }
 }
 
-/// Adds one holder of `key`. A chunk unloaded with unsaved changes comes back from memory, so
-/// a load never reads a file older than the tick's data (PLAN.md 10.6).
-fn hold(worlds: &mut [World], chunks: &mut Chunks, key: Key) {
+/// Adds one holder of `key`. A chunk unloaded with unsaved changes comes back from memory, its
+/// terrain and extras with their dirty marks, so a load never reads a file older than the tick's
+/// data (PLAN.md 10.6).
+fn hold(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, key: Key) {
     let count = chunks.interest.entry(key).or_insert(0);
     *count = count.saturating_add(1);
     if *count > 1 {
         return;
     }
-    if let Some(Unsaved {
-        mut chunk,
-        snapshot,
-    }) = chunks.unsaved.remove(&key)
+    if let Some(Unsaved { chunk, extras, .. }) = chunks.unsaved.remove(&key)
         && let Some(world) = worlds.get_mut(key.0)
     {
-        // A chunk no snapshot holds yet still has changes to save.
-        chunk.set_dirty(snapshot.is_none());
         world.restore_chunk(key.1, chunk);
+        rules.load(key, extras.extras(), world);
+        chunks.extras.chunk_restored(key, extras);
     }
 }
 
-/// Removes one holder of `key`; the last one unloads the chunk. A chunk of a persistent world
-/// whose changes no commit holds yet stays in memory until one does.
-fn release(worlds: &mut [World], chunks: &mut Chunks, saving: &Saving, key: Key) {
+/// Removes one holder of `key`; the last one unloads the chunk and its extras. A chunk of a
+/// persistent world whose changes no commit holds yet stays in memory until one does.
+fn release(
+    worlds: &mut [World],
+    chunks: &mut Chunks,
+    rules: &mut Rules,
+    saving: &Saving,
+    key: Key,
+) {
     let Some(count) = chunks.interest.get_mut(&key) else {
         return;
     };
@@ -243,13 +301,15 @@ fn release(worlds: &mut [World], chunks: &mut Chunks, saving: &Saving, key: Key)
         return;
     }
     chunks.interest.remove(&key);
+    rules.unload(key, &mut chunks.extras);
+    let extras = chunks.extras.chunk_unloaded(key);
     let Some(world) = worlds.get_mut(key.0) else {
         return;
     };
     let persistent = world.kind() == Kind::Persistent;
     if let Some(chunk) = world.remove_chunk(key.1)
         && persistent
-        && let Some(unsaved) = keep_unloaded(saving, &key, chunk)
+        && let Some(unsaved) = keep_unloaded(saving, &key, chunk, extras.unwrap_or_default())
     {
         chunks.unsaved.insert(key, unsaved);
     }
@@ -268,7 +328,12 @@ pub(super) fn hold_spawns(state: &mut State) {
         for x in -1..=1 {
             for z in -1..=1 {
                 let pos = ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z));
-                hold(&mut state.worlds, &mut state.chunks, (world, pos));
+                hold(
+                    &mut state.worlds,
+                    &mut state.chunks,
+                    &mut state.rules,
+                    (world, pos),
+                );
             }
         }
     }
@@ -276,9 +341,14 @@ pub(super) fn hold_spawns(state: &mut State) {
 
 /// Opens or moves a player's view: the chunks it gains are held, those it loses released and
 /// forgotten as sent.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "performance: split borrows of the tick state let the player loop hold a player and the chunk tables at once"
+)]
 fn set_view(
     worlds: &mut [World],
     chunks: &mut Chunks,
+    rules: &mut Rules,
     saving: &Saving,
     world: WorldIndex,
     view: &mut View,
@@ -289,10 +359,10 @@ fn set_view(
     let old: BTreeSet<ChunkPos> = view.order.iter().copied().collect();
     let new: BTreeSet<ChunkPos> = order.iter().copied().collect();
     for &pos in new.difference(&old) {
-        hold(worlds, chunks, (world, pos));
+        hold(worlds, chunks, rules, (world, pos));
     }
     for &pos in old.difference(&new) {
-        release(worlds, chunks, saving, (world, pos));
+        release(worlds, chunks, rules, saving, (world, pos));
         view.sent.remove(&pos);
     }
     view.center = center;
@@ -309,6 +379,7 @@ pub(super) fn close(state: &mut State, player: &mut Player) {
         release(
             &mut state.worlds,
             &mut state.chunks,
+            &mut state.rules,
             &state.saving,
             (world, pos),
         );
@@ -322,6 +393,7 @@ pub(super) fn set_radius(state: &mut State, player: &mut Player, radius: u8) {
     set_view(
         &mut state.worlds,
         &mut state.chunks,
+        &mut state.rules,
         &state.saving,
         player.world,
         &mut player.view,
@@ -342,8 +414,9 @@ pub(super) fn queue_request(player: &mut Player, request: SubChunkRequest) {
     player.view.requests.push_back(request);
 }
 
-/// A load the save thread answered. A chunk nobody holds any more is dropped; a damaged one is
-/// quarantined (PLAN.md 10.6).
+/// A load the save thread answered: the terrain goes into its world and the extras that came
+/// with it to their holder ([`Extras::chunk_loaded`]). A chunk nobody holds any more is dropped;
+/// a damaged one is quarantined, extras included (PLAN.md 10.6, 10.7).
 pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded: Loaded) {
     let key = (world, pos);
     state.chunks.requested.remove(&key);
@@ -354,10 +427,13 @@ pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded
         return;
     };
     match loaded {
-        Loaded::Disk(chunk) | Loaded::Generated(chunk) => {
+        Loaded::Disk(chunk, stored) | Loaded::Generated(chunk, stored) => {
             w.insert_chunk(pos, *chunk);
+            state.rules.load(key, &stored.extras, w);
+            state.chunks.extras.chunk_loaded(key, stored.extras);
         }
         Loaded::Damaged => {
+            state.chunks.extras.chunk_unloaded(key);
             error!(
                 world = w.name(),
                 x = pos.x,
@@ -379,6 +455,7 @@ pub(super) fn update(state: &mut State) -> Option<Request> {
         players,
         worlds,
         chunks,
+        rules,
         saving,
         ..
     } = state;
@@ -390,6 +467,7 @@ pub(super) fn update(state: &mut State) -> Option<Request> {
                 set_view(
                     worlds,
                     chunks,
+                    rules,
                     saving,
                     player.world,
                     &mut player.view,
@@ -499,10 +577,19 @@ pub(super) fn wanted_sub_chunks(state: &State) -> Vec<(WorldIndex, ChunkPos, usi
     keys.into_iter().collect()
 }
 
-/// Encodes one wanted sub-chunk.
-pub(super) fn encode(worlds: &[World], key: (WorldIndex, ChunkPos, usize)) -> Option<Vec<u8>> {
+/// Encodes one wanted sub-chunk: its blocks, then the client form of its block entities as
+/// network NBT (dragonfly `subChunkEntry`; PMMP sends them with the chunk the same way), so a
+/// sign shows its text and a chest its pair as soon as the sub-chunk arrives. `None` for an
+/// all-air sub-chunk, which holds no block entity.
+pub(super) fn encode(
+    worlds: &[World],
+    blocks: &super::block_entity::BlockEntities,
+    key: (WorldIndex, ChunkPos, usize),
+) -> Option<Vec<u8>> {
     let (world, pos, index) = key;
-    worlds.get(world)?.chunk(pos)?.sub_chunk_payload(index)
+    let mut payload = worlds.get(world)?.chunk(pos)?.sub_chunk_payload(index)?;
+    payload.extend_from_slice(&blocks.client_bytes(world, pos, index));
+    Some(payload)
 }
 
 /// The chunk and the sub-chunk index (0 is the lowest) a request offset names, or `None` if the

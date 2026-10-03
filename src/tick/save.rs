@@ -5,11 +5,16 @@
 //! snapshot is committed, the data in it stays in memory even when its chunk unloads or its
 //! player leaves, and a later load takes it from memory. So a load from the file always happens
 //! after the commit that wrote the newest data, and never reads an older one.
+//!
+//! A chunk's terrain and extras (`extra`) are tracked apart: each part goes into a snapshot only
+//! when it changed, and an unloaded chunk waits in memory, both parts together, while either has
+//! changes no commit holds.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use tracing::{debug, error};
 
+use super::extra::{self, Held};
 use super::log::InputLog;
 use super::view::Key;
 use super::{Phase, Player, PlayerKey, State};
@@ -25,9 +30,33 @@ const MAX_OFFLINE_PLAYERS: usize = 4096;
 /// A chunk unloaded before a commit held its last changes.
 #[derive(Debug)]
 pub(super) struct Unsaved {
+    /// The terrain; dirty while a change of it is in no snapshot.
     pub(super) chunk: Chunk,
-    /// The snapshot that holds its changes, or `None` if none does yet.
+    /// The extras; dirty kinds are in no snapshot yet.
+    pub(super) extras: Held,
+    /// The snapshot that holds its last changes, or `None` if a part changed since.
     pub(super) snapshot: Option<u64>,
+}
+
+impl Unsaved {
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            chunk,
+            extras,
+            snapshot,
+        } = self;
+        h.u64(snapshot.map_or(0, |s| s.wrapping_add(1)));
+        // As for loaded chunks (`State::hash`): the content of a clean chunk is the file's, the
+        // generator's or the snapshot's in flight, all fixed by earlier hashed state.
+        h.u64(u64::from(chunk.is_dirty()));
+        if chunk.is_dirty() {
+            for i in 0..crate::world::SUB_CHUNKS {
+                h.bytes(&chunk.sub_chunk_payload(i).unwrap_or_default());
+            }
+        }
+        extras.hash_into(h);
+    }
 }
 
 /// The data of a player who left before a commit held its last changes.
@@ -100,14 +129,52 @@ impl Saving {
 
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        h.u64(self.next_due);
-        h.u64(u64::from(self.requested));
-        h.u64(
-            self.in_flight
-                .as_ref()
-                .map_or(0, |f| f.start.wrapping_add(1)),
-        );
-        h.usize(self.offline.len());
+        // The interval and the player switch are settings.
+        let Self {
+            interval: _,
+            next_due,
+            requested,
+            in_flight,
+            offline,
+            players: _,
+        } = self;
+        h.u64(*next_due);
+        h.u64(u64::from(*requested));
+        match in_flight {
+            None => h.u64(0),
+            Some(InFlight {
+                start,
+                chunks,
+                players,
+            }) => {
+                h.u64(start.wrapping_add(1));
+                h.usize(chunks.len());
+                for &(world, pos) in chunks {
+                    h.usize(world);
+                    h.u64(u64::from(pos.x.cast_unsigned()));
+                    h.u64(u64::from(pos.z.cast_unsigned()));
+                }
+                h.usize(players.len());
+                for key in players {
+                    h.bytes(key.as_str().as_bytes());
+                }
+            }
+        }
+        h.usize(offline.len());
+        for (key, Offline { data, snapshot }) in offline {
+            h.bytes(key.as_str().as_bytes());
+            h.u64(snapshot.map_or(0, |s| s.wrapping_add(1)));
+            let PlayerData {
+                world,
+                position,
+                extra,
+            } = data;
+            h.bytes(world.as_bytes());
+            for c in position {
+                h.u64(c.to_bits());
+            }
+            extra::hash_nbt(h, extra);
+        }
     }
 }
 
@@ -120,7 +187,7 @@ pub(super) fn storage_key(key: &PlayerKey) -> StoredPlayer {
     }
 }
 
-/// The data kept of a player.
+/// The data kept of a player: its world, position and extra ([`extra::player_saved`]).
 pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
     PlayerData {
         world: state
@@ -128,7 +195,13 @@ pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
             .get(player.world)
             .map(|w| w.name().to_owned())
             .unwrap_or_default(),
-        position: player.position,
+        position: [player.position.x, player.position.y, player.position.z],
+        extra: {
+            let mut extra = extra::player_saved(&player.extra);
+            super::inventory::save(&player.inventory, &mut extra);
+            super::survival::save(&player.survival, &mut extra);
+            extra
+        },
     }
 }
 
@@ -149,15 +222,25 @@ pub(super) fn left(state: &mut State, player: &Player) {
     state.saving.offline.insert(key, Offline { data, snapshot });
 }
 
-/// The memory a chunk a view releases keeps until a commit holds it: its changes no snapshot
-/// holds yet, or the snapshot in flight that holds them. `None` if the file has it.
-pub(super) fn keep_unloaded(saving: &Saving, key: &Key, chunk: Chunk) -> Option<Unsaved> {
-    let snapshot = if chunk.is_dirty() {
+/// The memory a chunk a view releases keeps until a commit holds it: its terrain and extras when
+/// a part has changes no snapshot holds yet, or the snapshot in flight holds them. `None` if the
+/// file has it all.
+pub(super) fn keep_unloaded(
+    saving: &Saving,
+    key: &Key,
+    chunk: Chunk,
+    extras: Held,
+) -> Option<Unsaved> {
+    let snapshot = if chunk.is_dirty() || extras.is_dirty() {
         None
     } else {
         Some(saving.holds_chunk(key)?)
     };
-    Some(Unsaved { chunk, snapshot })
+    Some(Unsaved {
+        chunk,
+        extras,
+        snapshot,
+    })
 }
 
 /// Takes a snapshot at this tick boundary if one is due (periodic, asked for, or too many unloaded
@@ -171,6 +254,8 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
     if !last && (!due || state.saving.in_flight.is_some()) {
         return None;
     }
+    // The rule modules' changed chunk state goes to the extras holder first (PLAN.md 10.7).
+    state.rules.flush(&mut state.chunks.extras);
     let start = state.tick;
     let mut snapshot = Snapshot {
         start,
@@ -185,17 +270,27 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         if world.kind() != Kind::Persistent {
             continue;
         }
-        snapshot.spawns.push((index, world.spawn()));
+        snapshot.spawns.push((index, world.spawn(), world.time()));
         for (pos, chunk) in world.take_dirty() {
             held.chunks.insert((index, pos));
             snapshot.chunks.push((index, pos, chunk));
+        }
+        for (pos, kind, list) in state.chunks.extras.take_dirty(index) {
+            held.chunks.insert((index, pos));
+            snapshot.extras.push((index, pos, kind, list));
         }
     }
     for (&(index, pos), unsaved) in &mut state.chunks.unsaved {
         if unsaved.snapshot.is_none() {
             unsaved.snapshot = Some(start);
             held.chunks.insert((index, pos));
-            snapshot.chunks.push((index, pos, unsaved.chunk.clone()));
+            if unsaved.chunk.is_dirty() {
+                unsaved.chunk.set_dirty(false);
+                snapshot.chunks.push((index, pos, unsaved.chunk.clone()));
+            }
+            for (kind, list) in unsaved.extras.take_dirty() {
+                snapshot.extras.push((index, pos, kind, list));
+            }
         }
     }
     if state.saving.players {
@@ -227,6 +322,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
     debug!(
         start,
         chunks = snapshot.chunks.len(),
+        extras = snapshot.extras.len(),
         players = snapshot.players.len(),
         "save snapshot taken"
     );

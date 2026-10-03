@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -94,6 +95,7 @@ func (r *result) json(c config) map[string]any {
 
 // session is one client connection.
 type session struct {
+	ctx      context.Context
 	c        config
 	out      *output
 	items    *output
@@ -123,6 +125,15 @@ type session struct {
 	pendingAnswers int
 	// endID is the network ID of endMarker.
 	endID uint32
+
+	// received counts the packets received; sendMu orders the sends of the connection loop and of a game
+	// scenario's script (game.go).
+	received atomic.Int64
+	sendMu   sync.Mutex
+	// feed passes received packets to a game scenario's script, which ends with gameErr and closes gameDone.
+	feed     *feed
+	gameErr  error
+	gameDone chan struct{}
 }
 
 // play runs the scenario and returns its result. Failures to reach the server are failed results.
@@ -162,11 +173,14 @@ func play(ctx context.Context, c config, out, items, world *output) *result {
 		return res
 	}
 	s := &session{
-		c: c, out: out, items: items, world: world, conn: conn, key: key, res: res,
+		ctx: ctx, c: c, out: out, items: items, world: world, conn: conn, key: key, res: res,
 		pool:      packet.NewServerPool(),
 		blocks:    newBlockCheck(),
 		requested: map[protocol.ChunkPos]bool{},
 		endID:     endID,
+	}
+	if isGame(c.scenario) {
+		s.feed, s.gameDone = newFeed(), make(chan struct{})
 	}
 	s.reader = newBatchReader(conn, out)
 	res.reader, res.blocks = s.reader, s.blocks
@@ -191,6 +205,12 @@ func play(ctx context.Context, c config, out, items, world *output) *result {
 	}
 	if res.segments != nil {
 		res.segments.flushRecords(out)
+	}
+	if s.feed != nil {
+		s.feed.close()
+		if res.initialised {
+			<-s.gameDone
+		}
 	}
 	s.out.line(s.blocks.json())
 	s.judge(ctx, loopErr)
@@ -224,6 +244,17 @@ func (s *session) judge(ctx context.Context, loopErr error) {
 			res.reason = "disconnected before spawning: " + res.disconnect
 		case closedByServer:
 			res.reason = "the server closed the connection before spawning: " + s.reader.readErr.Error()
+		default:
+			res.reason = s.failure(ctx, loopErr)
+		}
+	case "craft", "furnace", "enchant", "crops", "trade":
+		res.pass = res.ended && s.gameErr == nil && res.disconnect == "" && res.decodeErrors == 0
+		switch {
+		case res.pass:
+		case s.gameErr != nil:
+			res.reason = s.gameErr.Error()
+		case res.ended:
+			res.reason = fmt.Sprintf("%v packets failed to decode", res.decodeErrors)
 		default:
 			res.reason = s.failure(ctx, loopErr)
 		}
@@ -265,6 +296,17 @@ func (s *session) failure(ctx context.Context, loopErr error) string {
 
 // send encodes the packets passed into one batch and records them.
 func (s *session) send(pks ...packet.Packet) error {
+	return s.sendBatch(true, pks...)
+}
+
+// sendQuiet sends the packets without recording them: the PlayerAuthInput of every tick.
+func (s *session) sendQuiet(pks ...packet.Packet) error {
+	return s.sendBatch(false, pks...)
+}
+
+func (s *session) sendBatch(record bool, pks ...packet.Packet) error {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	batch := make([][]byte, 0, len(pks))
 	for _, pk := range pks {
 		var buf bytes.Buffer
@@ -274,12 +316,19 @@ func (s *session) send(pks ...packet.Packet) error {
 		}
 		pk.Marshal(protocol.NewWriter(&buf, s.shieldID))
 		batch = append(batch, buf.Bytes())
+		if !record {
+			continue
+		}
 		rec := map[string]any{
 			"type": "sent", "name": packetName(pk), "id": pk.ID(), "size": buf.Len(),
-			"after": s.res.packets - 1,
+			"after": s.received.Load() - 1,
 		}
-		if _, ok := pk.(*packet.SubChunkRequest); ok {
+		switch pk.(type) {
+		case *packet.SubChunkRequest:
 			rec["fields"] = toJSON(reflect.ValueOf(pk), 0, false)
+		case *packet.ItemStackRequest, *packet.InventoryTransaction, *packet.PlayerAuthInput, *packet.MobEquipment,
+			*packet.Interact, *packet.ContainerClose:
+			rec["fields"] = toJSON(reflect.ValueOf(pk), 0, true)
 		}
 		if s.probeName != "" {
 			rec["probe"] = s.probeName
@@ -308,32 +357,47 @@ func (s *session) handle(b []byte, request []byte) error {
 	err := decode(pk, buf, s.shieldID)
 	index := s.res.packets
 	s.res.packets++
+	s.received.Add(1)
+	// A game scenario keeps every field of the packets it acts on; the big item and world packets go in full
+	// to the side files.
+	full := s.feed != nil && !sidePacket(pk)
 	rec := map[string]any{
 		"type": "packet", "index": index, "batch": s.reader.batches - 1, "id": h.PacketID,
-		"name": packetName(pk), "size": len(b), "fields": toJSON(reflect.ValueOf(pk), 0, false),
+		"name": packetName(pk), "size": len(b), "fields": toJSON(reflect.ValueOf(pk), 0, full),
 	}
 	if err != nil {
 		s.res.decodeErrors++
 		rec["error"] = err.Error()
 	}
+	if e, ok := pk.(*packet.Event); ok && e.Event != nil {
+		// The event's concrete type, which its fields do not show (PLAN.md 10.1 event ordinals).
+		rec["event"] = reflect.TypeOf(e.Event).Elem().Name()
+	}
 	s.out.line(rec)
-	full := func(o *output) {
+	side := func(o *output) {
 		o.line(map[string]any{"index": index, "name": packetName(pk), "fields": toJSON(reflect.ValueOf(pk), 0, true)})
 	}
 	switch pk := pk.(type) {
 	case *packet.ItemRegistry, *packet.CreativeContent, *packet.CraftingData:
-		full(s.items)
+		side(s.items)
 	case *packet.LevelChunk, *packet.BiomeDefinitionList, *packet.JigsawStructureData,
 		*packet.CurrentStructureFeature:
-		full(s.world)
+		side(s.world)
 	case *packet.SubChunk:
-		full(s.world)
+		side(s.world)
 		if err == nil {
 			s.out.line(subChunkRecord(index, pk))
 		}
 	}
 	if err != nil {
 		return nil
+	}
+	if s.feed != nil {
+		switch pk.(type) {
+		case *packet.LevelChunk, *packet.SubChunk, *packet.NetworkChunkPublisherUpdate:
+		default:
+			s.feed.push(pk, index)
+		}
 	}
 	return s.react(pk, index, request)
 }
@@ -350,6 +414,16 @@ func decode(pk packet.Packet, buf *bytes.Buffer, shieldID int32) (err error) {
 		return fmt.Errorf("%v unread bytes", buf.Len())
 	}
 	return nil
+}
+
+// sidePacket reports whether the packet goes in full to a side file (items or world).
+func sidePacket(pk packet.Packet) bool {
+	switch pk.(type) {
+	case *packet.ItemRegistry, *packet.CreativeContent, *packet.CraftingData, *packet.LevelChunk, *packet.SubChunk,
+		*packet.BiomeDefinitionList, *packet.JigsawStructureData, *packet.CurrentStructureFeature:
+		return true
+	}
+	return false
 }
 
 func packetName(pk packet.Packet) string {
@@ -459,6 +533,13 @@ func (s *session) tryInitialise() error {
 		return err
 	}
 	s.out.flush()
+	if s.feed != nil {
+		go func() {
+			defer close(s.gameDone)
+			s.runGame(s.ctx)
+		}()
+		return nil
+	}
 	time.AfterFunc(s.c.stay, func() {
 		s.stayed.Store(true)
 		_ = s.conn.Close()

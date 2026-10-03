@@ -4,7 +4,13 @@
 //! biome index must point into its palette, and a value must end exactly where its record ends.
 //! Block palette entries are little-endian NBT compounds (Bedrock's disk palette shape
 //! `{name, states, version}`), kept as they are, so unknown blocks survive a round trip.
+//!
+//! A record is decoded in the format version its seal names: format 1 player records have no
+//! `extra` compound and a 32-bit position, format 1 has no [`ExtraRecord`], and world records
+//! before format 3 have no time. Every other record has one layout in every format. NBT keeps the codec's limits (PLAN.md 4): 512 levels and
+//! 4 MiB per root compound.
 
+use std::borrow::Cow;
 use std::mem::size_of;
 
 use crate::nbt::{Compound, Encoding};
@@ -26,12 +32,18 @@ const BLOCKS: usize = 4096;
 // integration (PLAN.md 10.6).
 const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
+/// Most compounds in one [`ExtraRecord`]: one per block of a chunk column (16 × 16 × 384). Block
+/// entities and scheduled updates have at most one per block; entities are bounded by the world's
+/// entity cap long before.
+pub(crate) const MAX_EXTRA_ENTRIES: usize = 16 * 16 * 384;
+
 /// A value that has a sealed form in one storage table.
 pub(crate) trait Record: Sized {
-    /// Writes the record.
+    /// Writes the record in the current format.
     fn encode(&self, w: &mut Writer) -> Result<()>;
-    /// Reads a record that must take the whole input.
-    fn decode(r: &mut Reader<'_>) -> Result<Self>;
+    /// Reads a record written in format `version` (1 to the current one, checked by the seal)
+    /// that must take the whole input.
+    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self>;
 }
 
 /// The 32-bit little-endian words that hold [`BLOCKS`] indices of `bits` bits each, without
@@ -193,7 +205,7 @@ impl Record for ChunkRecord {
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
         let mut sub_chunks = Vec::with_capacity(SUB_CHUNKS);
         for _ in 0..SUB_CHUNKS {
             let layer_count = r.uint8()?;
@@ -239,14 +251,18 @@ impl Record for ChunkRecord {
     }
 }
 
-/// What is kept of a player between joins: the `players` value. M7 adds fields under a new
-/// format version.
+/// What is kept of a player between joins: the `players` value.
+///
+/// Format 2: the world name, the position as three f64, then `extra`, a little-endian NBT root
+/// compound. Format 1 had the position as three f32 and no `extra`; it reads with an empty one.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlayerRecord {
     /// The name of the world the player is in.
     pub(crate) world: String,
     /// The position, finite in each component.
-    pub(crate) position: [f32; 3],
+    pub(crate) position: [f64; 3],
+    /// What the rule modules keep of the player, each under its own keys (PLAN.md 10.7).
+    pub(crate) extra: Compound,
 }
 
 impl Record for PlayerRecord {
@@ -256,26 +272,79 @@ impl Record for PlayerRecord {
             if !c.is_finite() {
                 return Err(not_finite());
             }
-            w.float32(c);
+            w.float64(c);
         }
-        Ok(())
+        w.nbt(&self.extra, Encoding::LittleEndian)
     }
 
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
         let world = read_name(r)?;
         let mut position = [0.0; 3];
         for c in &mut position {
-            *c = r.float32()?;
+            *c = if version == 1 {
+                f64::from(r.float32()?)
+            } else {
+                r.float64()?
+            };
             if !c.is_finite() {
                 return Err(not_finite());
             }
         }
+        let extra = if version == 1 {
+            Compound::new()
+        } else {
+            r.nbt(Encoding::LittleEndian)?
+        };
         end(r)?;
-        Ok(Self { world, position })
+        Ok(Self {
+            world,
+            position,
+            extra,
+        })
+    }
+}
+
+/// The block entities, entities or scheduled block updates of a chunk: the `chunks` value of kind
+/// 1, 2 or 3 (format 2). A u32 count, then that many little-endian NBT root compounds, each as
+/// the module that owns the kind wrote it. A commit encodes the tick's list in place (borrowed).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ExtraRecord<'a>(pub(crate) Cow<'a, [Compound]>);
+
+impl Record for ExtraRecord<'_> {
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        if self.0.len() > MAX_EXTRA_ENTRIES {
+            return Err(Error::Size);
+        }
+        w.uint32(u32::try_from(self.0.len()).map_err(|_| Error::Size)?);
+        for entry in self.0.iter() {
+            w.nbt(entry, Encoding::LittleEndian)?;
+        }
+        Ok(())
+    }
+
+    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
+        if version < 2 {
+            return Err(Error::InvalidValue {
+                field: "chunk extras",
+                reason: "format 1 has none",
+            });
+        }
+        let count = r.uint32()?;
+        // A root compound takes at least one byte (a lone TAG_End).
+        let count = r.limit(count.into(), MAX_EXTRA_ENTRIES, size_of::<Compound>())?;
+        let mut entries = Vec::with_capacity(count);
+        for _ in 0..count {
+            entries.push(r.nbt(Encoding::LittleEndian)?);
+        }
+        end(r)?;
+        Ok(Self(Cow::Owned(entries)))
     }
 }
 
 /// A persistent world: the `worlds` value, keyed by the world name.
+///
+/// Format 3: the number, the seed, the spawn, the generator name, then the world time (i64).
+/// Formats 1 and 2 end after the generator name; they read with time 0, as the world was new.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorldRecord {
     /// The number that `chunks` keys carry for this world.
@@ -286,6 +355,8 @@ pub(crate) struct WorldRecord {
     pub(crate) spawn: [i32; 3],
     /// The name of the generator that fills chunks never saved.
     pub(crate) generator: String,
+    /// The world time in ticks at the commit (`World::time`): the day cycle goes on from it.
+    pub(crate) time: i64,
 }
 
 impl Record for WorldRecord {
@@ -295,10 +366,12 @@ impl Record for WorldRecord {
         for &c in &self.spawn {
             w.int32(c);
         }
-        write_name(w, &self.generator)
+        write_name(w, &self.generator)?;
+        w.int64(self.time);
+        Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
         let number = r.uint32()?;
         let seed = r.int64()?;
         let mut spawn = [0; 3];
@@ -306,12 +379,14 @@ impl Record for WorldRecord {
             *c = r.int32()?;
         }
         let generator = read_name(r)?;
+        let time = if version < 3 { 0 } else { r.int64()? };
         end(r)?;
         Ok(Self {
             number,
             seed,
             spawn,
             generator,
+            time,
         })
     }
 }
@@ -329,7 +404,7 @@ impl Record for Meta {
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
         let tick = r.uint64()?;
         end(r)?;
         Ok(Self { tick })
@@ -385,8 +460,50 @@ pub(crate) mod tests {
         w.into_inner()
     }
 
+    /// Decodes a record of the current format.
     pub(crate) fn decode<R: Record>(bytes: &[u8]) -> Result<R> {
-        R::decode(&mut Reader::new(bytes, BUDGET, 0))
+        R::decode(
+            &mut Reader::new(bytes, BUDGET, 0),
+            crate::storage::seal::FORMAT_VERSION,
+        )
+    }
+
+    /// A format 1 player record, as Anchor M6 wrote it: the name and an f32 position.
+    pub(crate) fn player_v1(world: &str, position: [f32; 3]) -> Vec<u8> {
+        let mut w = Writer::new(Vec::new(), 0);
+        write_name(&mut w, world).unwrap();
+        for c in position {
+            w.float32(c);
+        }
+        w.into_inner()
+    }
+
+    /// A random compound of a few kinds of tags, nested up to `depth`.
+    pub(crate) fn random_compound(rng: &mut Rng, depth: usize) -> Compound {
+        let mut c = Compound::new();
+        for i in 0..rng.below(6) {
+            let key = format!("k{i}-{}", rng.below(100));
+            let value = match rng.below(if depth == 0 { 6 } else { 8 }) {
+                0 => Value::Byte(rng.next().to_le_bytes()[0]),
+                1 => Value::Int(i32::try_from(rng.below(1 << 30)).unwrap() - (1 << 29)),
+                2 => Value::Long(rng.next().cast_signed()),
+                3 => Value::Double(f64::from(u32::try_from(rng.below(1 << 20)).unwrap()) / 8.0),
+                4 => Value::String("x".repeat(rng.below(40))),
+                5 => Value::List(List::Int(
+                    (0..rng.below(5))
+                        .map(|v| i32::try_from(v).unwrap())
+                        .collect(),
+                )),
+                6 => Value::Compound(random_compound(rng, depth - 1)),
+                _ => Value::List(List::Compound(
+                    (0..rng.below(3))
+                        .map(|_| random_compound(rng, depth - 1))
+                        .collect(),
+                )),
+            };
+            c.insert(key, value);
+        }
+        c
     }
 
     /// A Bedrock disk palette entry.
@@ -635,17 +752,28 @@ pub(crate) mod tests {
             let player = PlayerRecord {
                 world: format!("world-{}", rng.below(1000)),
                 position: [
-                    f32::from(rng.next().to_le_bytes()[0]) / 7.0,
+                    f64::from(rng.next().to_le_bytes()[0]) / 7.0,
                     -64.0,
-                    f32::MAX,
+                    f64::MAX,
                 ],
+                extra: random_compound(&mut rng, 3),
             };
             assert_eq!(decode::<PlayerRecord>(&encode(&player)).unwrap(), player);
+            let extras = ExtraRecord(
+                (0..rng.below(6))
+                    .map(|_| random_compound(&mut rng, 3))
+                    .collect::<Vec<_>>()
+                    .into(),
+            );
+            let bytes = encode(&extras);
+            assert_eq!(decode::<ExtraRecord<'_>>(&bytes).unwrap(), extras);
+            assert_eq!(encode(&decode::<ExtraRecord<'_>>(&bytes).unwrap()), bytes);
             let world = WorldRecord {
                 number: u32::try_from(rng.below(1 << 20)).unwrap(),
                 seed: rng.next().cast_signed(),
                 spawn: [i32::MIN, 0, i32::MAX],
                 generator: "flat".to_owned(),
+                time: rng.next().cast_signed(),
             };
             assert_eq!(decode::<WorldRecord>(&encode(&world)).unwrap(), world);
             let meta = Meta { tick: rng.next() };
@@ -694,14 +822,28 @@ pub(crate) mod tests {
         assert!(chunk.encode(&mut w).is_err(), "width 7");
         let player = PlayerRecord {
             world: "w".to_owned(),
-            position: [0.0, f32::NAN, 0.0],
+            position: [0.0, f64::NAN, 0.0],
+            extra: Compound::new(),
         };
         assert!(player.encode(&mut w).is_err());
+        // An extra compound over the NBT root limit of 4 MiB.
+        let player = PlayerRecord {
+            world: "w".to_owned(),
+            position: [0.0; 3],
+            extra: Compound::from([(
+                "big".to_owned(),
+                Value::ByteArray(vec![0; crate::nbt::MAX_ROOT_BYTES]),
+            )]),
+        };
+        assert!(player.encode(&mut w).is_err());
+        let extras = ExtraRecord(vec![Compound::new(); MAX_EXTRA_ENTRIES + 1].into());
+        assert_eq!(extras.encode(&mut w), Err(Error::Size));
         let world = WorldRecord {
             number: 0,
             seed: 0,
             spawn: [0; 3],
             generator: "g".repeat(MAX_NAME + 1),
+            time: 0,
         };
         assert!(world.encode(&mut w).is_err());
     }
@@ -734,8 +876,85 @@ pub(crate) mod tests {
         // The allocation budget caps what NBT palettes may claim.
         let chunk = random_chunk(&mut Rng(3));
         let bytes = encode(&chunk);
-        let small = ChunkRecord::decode(&mut Reader::new(&bytes, 1024, 0));
+        let small = ChunkRecord::decode(&mut Reader::new(&bytes, 1024, 0), 2);
         assert_eq!(small, Err(Error::Size));
+        // An extras count over the limit, and one the bytes left cannot hold.
+        let over = u32::try_from(MAX_EXTRA_ENTRIES + 1).unwrap();
+        let mut bytes = over.to_le_bytes().to_vec();
+        bytes.resize(MAX_EXTRA_ENTRIES + 8, 0);
+        assert_eq!(decode::<ExtraRecord<'_>>(&bytes), Err(Error::Size));
+        let mut bytes = 1000u32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&[0; 10]);
+        assert_eq!(decode::<ExtraRecord<'_>>(&bytes), Err(Error::Size));
+        // A compound nested past 512 levels.
+        let mut deep = Compound::new();
+        for _ in 0..600 {
+            deep = Compound::from([("d".to_owned(), Value::Compound(deep))]);
+        }
+        let mut w = Writer::new(Vec::new(), 0);
+        assert!(ExtraRecord(vec![deep].into()).encode(&mut w).is_err());
+        let mut bytes = 1u32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&[10, 0, 0]);
+        for _ in 0..600 {
+            bytes.extend_from_slice(&[10, 1, 0, b'd']);
+        }
+        bytes.extend(std::iter::repeat_n(0, 601));
+        assert!(decode::<ExtraRecord<'_>>(&bytes).is_err());
+    }
+
+    #[test]
+    fn format_1_records_read_with_empty_extras() {
+        let bytes = player_v1("lobby", [1.5, -58.38, f32::MIN_POSITIVE]);
+        let read = PlayerRecord::decode(&mut Reader::new(&bytes, BUDGET, 0), 1).unwrap();
+        assert_eq!(
+            read,
+            PlayerRecord {
+                world: "lobby".to_owned(),
+                position: [1.5, f64::from(-58.38f32), f64::from(f32::MIN_POSITIVE)],
+                extra: Compound::new(),
+            }
+        );
+        // The same bytes are not a format 2 record, and format 1 has no chunk extras.
+        assert!(decode::<PlayerRecord>(&bytes).is_err());
+        let extras = encode(&ExtraRecord(vec![Compound::new()].into()));
+        assert!(ExtraRecord::decode(&mut Reader::new(&extras, BUDGET, 0), 1).is_err());
+        // Chunks and meta have one layout in every format.
+        let chunk = random_chunk(&mut Rng(8));
+        let bytes = encode(&chunk);
+        assert_eq!(
+            ChunkRecord::decode(&mut Reader::new(&bytes, BUDGET, 0), 1).unwrap(),
+            chunk
+        );
+    }
+
+    #[test]
+    fn world_records_before_format_3_read_with_time_0() {
+        let world = WorldRecord {
+            number: 7,
+            seed: -3,
+            spawn: [1, -60, 2],
+            generator: "flat".to_owned(),
+            time: 123_456_789,
+        };
+        let bytes = encode(&world);
+        assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
+        // Formats 1 and 2 (Anchor M6 and early M7) end after the generator name.
+        let old = &bytes[..bytes.len() - 8];
+        for version in [1, 2] {
+            let read = WorldRecord::decode(&mut Reader::new(old, BUDGET, 0), version).unwrap();
+            assert_eq!(
+                read,
+                WorldRecord {
+                    time: 0,
+                    ..world.clone()
+                }
+            );
+            assert!(WorldRecord::decode(&mut Reader::new(&bytes, BUDGET, 0), version).is_err());
+        }
+        assert!(
+            decode::<WorldRecord>(old).is_err(),
+            "format 3 needs the time"
+        );
     }
 
     #[test]
@@ -746,10 +965,15 @@ pub(crate) mod tests {
         let mut bytes = encode(&PlayerRecord {
             world: "w".to_owned(),
             position: [1.0; 3],
+            extra: Compound::new(),
         });
-        let at = bytes.len() - 4;
-        bytes[at..].copy_from_slice(&f32::INFINITY.to_le_bytes());
+        // The z position sits before the empty compound's 4 bytes (tag, empty name, end).
+        let at = bytes.len() - 4 - 8;
+        bytes[at..at + 8].copy_from_slice(&f64::INFINITY.to_le_bytes());
         assert_eq!(decode::<PlayerRecord>(&bytes), Err(not_finite()));
+        let mut extras = encode(&ExtraRecord(vec![Compound::new()].into()));
+        extras.push(0);
+        assert!(decode::<ExtraRecord<'_>>(&extras).is_err());
     }
 
     #[test]

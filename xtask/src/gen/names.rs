@@ -12,9 +12,18 @@
 /// split before the `s`.
 const TERMS: &[&str] = &["PlayFab", "MoLang", "UUIDs", "XUIDs", "IDs"];
 
-/// Go names, qualified with their package, whose Rust name the rules do not give. Empty while
-/// every name converts by the rules.
-const EXCEPTIONS: &[(&str, &str)] = &[];
+/// Go names, qualified with their package, whose Rust name the rules do not give. Constant groups
+/// (`consts`) are named by their Go prefix: `protocol.Container` holds the container IDs
+/// (`ContainerAnvilInput`), which the bare name would confuse with containers; gophertunnel
+/// misspells `CameraAunAssistPresetOperation`; `WindowIDUI` runs two acronyms together.
+const EXCEPTIONS: &[(&str, &str)] = &[
+    ("protocol.Container", "ContainerId"),
+    ("protocol.WindowIDUI", "WINDOW_ID_UI"),
+    (
+        "packet.CameraAunAssistPresetOperation",
+        "CameraAimAssistPresetOperation",
+    ),
+];
 
 /// Method names of the extra results of union lookups (Go names them only by position): the
 /// lookup function, the result index after the ID, and the method name.
@@ -123,6 +132,15 @@ fn camel_of(words: &[String]) -> String {
         .collect()
 }
 
+/// `SCREAMING_SNAKE_CASE` of `words`.
+fn screaming_of(words: &[String]) -> String {
+    words
+        .iter()
+        .map(|w| w.to_ascii_uppercase())
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
 /// The exception for a qualified Go name.
 fn exception(qualified: &str) -> Option<&'static str> {
     EXCEPTIONS
@@ -156,6 +174,24 @@ pub(crate) fn snake(go: &str, qualified: &str) -> Result<String, String> {
         return Ok(rust.to_owned());
     }
     identifier(snake_of(&words(go)), qualified)
+}
+
+/// The Rust variant name of a Go name: `UpperCamelCase` without the module-word rule of
+/// [`type_name`]. `qualified` is the name the exception table uses.
+pub(crate) fn camel(go: &str, qualified: &str) -> Result<String, String> {
+    if let Some(rust) = exception(qualified) {
+        return Ok(rust.to_owned());
+    }
+    identifier(camel_of(&words(go)), qualified)
+}
+
+/// The Rust constant name of a Go name (`SCREAMING_SNAKE_CASE`). `qualified` is the name the
+/// exception table uses.
+pub(crate) fn screaming(go: &str, qualified: &str) -> Result<String, String> {
+    if let Some(rust) = exception(qualified) {
+        return Ok(rust.to_owned());
+    }
+    identifier(screaming_of(&words(go)), qualified)
 }
 
 /// The Rust type name of the Go type `qualified` (`package.Name`). Packet types drop a leading

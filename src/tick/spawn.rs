@@ -1,9 +1,11 @@
 //! Joining and spawning: the saved player data, the start-game packets, the chunk radius and the
 //! spawn status.
 //!
-//! The packet order and the `StartGame` values follow what BDS 1.26.52 sends (P6, PLAN.md 10.2,
-//! 10.6); the packets BDS sends that Anchor does not yet are listed in
-//! `xtask/data/p6/deferred.txt`.
+//! The packet order and the values follow what BDS 1.26.52 sends (P6, PLAN.md 10.2, 10.6,
+//! xtask/data/p6/m7-facts.md 7); the packets BDS sends that Anchor does not yet, or never will,
+//! are listed in `xtask/data/p6/deferred.txt`. The player list is kept for everyone: a placed
+//! player gets the whole list in its window and is added to everyone else's, and a player who
+//! leaves is removed from the others' lists.
 
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -14,19 +16,26 @@ use super::queue::{Identity, Message, Outbound, SessionId, SharedBatches};
 use super::save::storage_key;
 use super::view::{self, Changes, Encoded};
 use super::{
-    DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION, Output, Phase, Player, PlayerKey, Settings, State,
+    DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION, MAX_COORDINATE, Output, Phase, Player, PlayerKey,
+    Settings, State,
 };
-use crate::config::{Difficulty, GameMode};
+use super::{extra, interact, inventory, survival};
+use crate::config::Difficulty;
 use crate::crafting;
 use crate::event::{DuplicateOutcome, PlayerDuplicateLogin};
 use crate::item::{self, SHIELD_RUNTIME_ID};
+use crate::math::Vec3;
 use crate::pool::Pool;
 use crate::protocol::batch;
 use crate::protocol::packet::{
-    self, ChunkRadiusUpdated, Disconnect, Packet, PlayStatus, RequestChunkRadius,
-    SetLocalPlayerAsInitialised, SetSpawnPosition, StartGame,
+    self, AvailableActorIdentifiers, ChunkRadiusUpdated, Disconnect, Packet, PlayStatus, PlayerFog,
+    PlayerList, RequestChunkRadius, Respawn, SetActorData, SetDifficulty, SetHealth,
+    SetLocalPlayerAsInitialised, SetSpawnPosition, StartGame, TrimData, VoxelShapes,
 };
-use crate::protocol::{PlayerMovementSettings, ServerJoinInformation};
+use crate::protocol::{
+    EntityProperties, PlayerListEntry, PlayerMovementSettings, Rgba, ServerJoinInformation,
+    TrimMaterial, TrimPattern, VoxelCells, VoxelShape, VoxelShapeNameEntry,
+};
 use crate::save::{PlayerData, PlayerLoad, Request};
 use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::{World, biome};
@@ -39,8 +48,7 @@ const PLAY_STATUS_SERVER_FULL: i32 = 7;
 const DISCONNECT_REASON_UNKNOWN: i32 = 0;
 /// What a player whose saved data is damaged sees.
 const DAMAGED_DATA_MESSAGE: &str = "Your saved player data is damaged. Ask the server operator.";
-/// Eye height above the feet.
-const EYE_HEIGHT: f32 = 1.62;
+use super::survival::EYE_HEIGHT;
 /// Generator 2, flat: what BDS sends for a flat world (P6).
 const GENERATOR_FLAT: i32 = 2;
 /// `PlayerGameMode` 5: the player uses the world game mode, as BDS sends for a new player (P6).
@@ -56,16 +64,31 @@ const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
 /// The dimension BDS's `SetSpawnPosition` names at join (P6).
 const SPAWN_POSITION_DIMENSION: i32 = 3;
 
-/// The start-game batches every player gets the same (PLAN.md 10.4, 10.6): the item registry,
-/// the biome definitions, the creative inventory and the recipes. Each is encoded and compressed once at start; sessions
-/// only encrypt them.
+/// The start-game batches every player gets the same (PLAN.md 10.4, 10.6, 10.7): the item
+/// registry, the biome definitions, the creative inventory, the recipes, the block collision
+/// shapes, the entity types and the armour trims. Each is encoded and compressed once at start;
+/// sessions only encrypt them.
 #[derive(Debug, Clone)]
 pub(crate) struct Shared {
     item_registry: SharedBatches,
     biome_definitions: SharedBatches,
     creative_content: SharedBatches,
     crafting_data: SharedBatches,
+    voxel_shapes: SharedBatches,
+    actor_identifiers: SharedBatches,
+    trim_data: SharedBatches,
 }
+
+/// The entity types BDS 1.26.52 sends in `AvailableActorIdentifiers`: `CloudburstMC`'s
+/// `entity_identifiers.dat`, byte for byte what BDS sends (P6 facts 7, 8,907 bytes).
+const ENTITY_IDENTIFIERS: &[u8] =
+    include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
+
+/// The block collision shapes BDS 1.26.52 sends in `VoxelShapes`: `CloudburstMC`'s
+/// `voxel_shapes.json`, whose counts (287 shapes, 220 names), name order and encoded size
+/// (23,178 bytes) equal BDS's (P6 facts 7); the shape contents are compared with BDS in M7
+/// wave C.
+const VOXEL_SHAPES: &str = include_str!("../../xtask/data/reference/voxel_shapes.json");
 
 impl Shared {
     /// Builds the batches with the server's batch settings. Fails if a packet cannot be encoded
@@ -86,7 +109,124 @@ impl Shared {
                 &mut encoder,
                 &Packet::CraftingData(Box::new(crafting::crafting_data())),
             )?,
+            voxel_shapes: encode(&mut encoder, &Packet::VoxelShapes(voxel_shapes()))?,
+            actor_identifiers: encode(
+                &mut encoder,
+                &Packet::AvailableActorIdentifiers(AvailableActorIdentifiers {
+                    serialised_entity_identifiers: ENTITY_IDENTIFIERS.to_vec(),
+                }),
+            )?,
+            trim_data: encode(&mut encoder, &Packet::TrimData(trim_data()))?,
         })
+    }
+}
+
+/// The voxel shapes of [`VOXEL_SHAPES`], names in the file's order (BDS's order).
+fn voxel_shapes() -> VoxelShapes {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: the committed file parses (the voxel shape test reads it)"
+    )]
+    let file: ShapesFile = serde_json::from_str(VOXEL_SHAPES).expect("voxel_shapes.json parses");
+    VoxelShapes {
+        shapes: file
+            .shapes
+            .into_iter()
+            .map(|s| VoxelShape {
+                cells: VoxelCells {
+                    x_size: s.cells.x_size,
+                    y_size: s.cells.y_size,
+                    z_size: s.cells.z_size,
+                    storage: s.cells.storage,
+                },
+                x_coordinates: s.x_coordinates,
+                y_coordinates: s.y_coordinates,
+                z_coordinates: s.z_coordinates,
+            })
+            .collect(),
+        name_map: file
+            .names
+            .0
+            .into_iter()
+            .map(|(name, id)| VoxelShapeNameEntry { name, id })
+            .collect(),
+        custom_shape_count: 0,
+    }
+}
+
+/// `voxel_shapes.json`.
+#[derive(serde::Deserialize)]
+struct ShapesFile {
+    names: Names,
+    shapes: Vec<ShapeJson>,
+}
+
+/// The `names` object as pairs in file order.
+struct Names(Vec<(String, u16)>);
+
+impl<'de> serde::Deserialize<'de> for Names {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        /// Collects the entries in order.
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = Names;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a map of shape names to IDs")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Names, A::Error> {
+                let mut out = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    out.push(entry);
+                }
+                Ok(Names(out))
+            }
+        }
+        d.deserialize_map(Visitor)
+    }
+}
+
+/// One shape of `voxel_shapes.json`.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShapeJson {
+    cells: CellsJson,
+    x_coordinates: Vec<f32>,
+    y_coordinates: Vec<f32>,
+    z_coordinates: Vec<f32>,
+}
+
+/// The cells of a shape.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CellsJson {
+    x_size: u8,
+    y_size: u8,
+    z_size: u8,
+    storage: Vec<u8>,
+}
+
+/// The armour trim patterns and materials BDS 1.26.52 sends (P6 facts 7), from the tables the
+/// smithing table uses ([`crafting::TRIM_PATTERNS`], [`crafting::TRIM_MATERIALS`]).
+fn trim_data() -> TrimData {
+    TrimData {
+        patterns: crafting::TRIM_PATTERNS
+            .iter()
+            .map(|p| TrimPattern {
+                item_name: format!("minecraft:{p}_armor_trim_smithing_template"),
+                pattern_id: (*p).to_owned(),
+            })
+            .collect(),
+        materials: crafting::TRIM_MATERIALS
+            .iter()
+            .map(|&(id, colour, item)| TrimMaterial {
+                material_id: id.to_owned(),
+                colour: colour.to_owned(),
+                item_name: item.to_owned(),
+            })
+            .collect(),
     }
 }
 
@@ -138,10 +278,11 @@ pub(super) fn output(
 ) -> Vec<(SessionId, Vec<Message>)> {
     let wanted = view::wanted_sub_chunks(state);
     let worlds = &state.worlds;
+    let blocks = &state.rules.block_entities;
     let encoded: Encoded = wanted
         .iter()
         .copied()
-        .zip(pool.map(&wanted, |&key| view::encode(worlds, key)))
+        .zip(pool.map(&wanted, |&key| view::encode(worlds, blocks, key)))
         .collect();
     let marked: Vec<(SessionId, &Player)> = state
         .players
@@ -149,22 +290,28 @@ pub(super) fn output(
         .filter(|(_, p)| {
             p.pending != Pending::default()
                 || !p.view.out.is_empty()
+                || !p.outbox.is_empty()
                 || (!changes.is_empty() && p.view.is_open())
         })
         .map(|(&s, p)| (s, p))
         .collect();
+    let window = Window::new(state, &marked);
     let (settings, shared) = (&state.settings, &state.shared);
-    let packets: Vec<(SessionId, Vec<Message>)> = pool
-        .map(&marked, |&(session, player)| {
-            let world = worlds.get(player.world);
-            (
-                session,
-                messages(settings, shared, world, player, &encoded, changes),
-            )
-        })
-        .into_iter()
-        .filter(|(_, m)| !m.is_empty())
-        .collect();
+    let mut packets: Vec<(SessionId, Vec<Message>)> = pool.map(&marked, |&(session, player)| {
+        let world = worlds.get(player.world);
+        (
+            session,
+            messages(settings, shared, world, player, &encoded, changes, &window),
+        )
+    });
+    // The serial phases' packets follow the output phase's ([`Player::send`]); the outbox keeps
+    // its capacity for the next tick.
+    for (session, out) in &mut packets {
+        if let Some(player) = state.players.get_mut(session) {
+            out.extend(player.outbox.drain(..).map(Message::Packet));
+        }
+    }
+    packets.retain(|(_, m)| !m.is_empty());
     for player in state.players.values_mut() {
         player.pending = Pending::default();
         player.view.out = view::Out::default();
@@ -172,10 +319,67 @@ pub(super) fn output(
     packets
 }
 
-/// One player's packets of the tick, in the order BDS sends them (P6, PLAN.md 10.2, 10.4, 10.6):
-/// the start-game packets; for a chunk radius request the spawn position, the creative inventory
-/// and the recipes (first answer only) and the granted radius; the chunk packets; the spawn
-/// status; then the block changes it sees.
+/// What the spawn windows of a tick share: the player list and each world's clock and sleeping
+/// packets. Built only when a player needs a window this tick.
+#[derive(Debug, Default)]
+struct Window {
+    /// Every placed player, in session order.
+    roster: Vec<PlayerListEntry>,
+    /// Per world: the clock state, the clock definition and the sleeping counts.
+    worlds: Vec<[Packet; 3]>,
+}
+
+impl Window {
+    fn new(state: &State, marked: &[(SessionId, &Player)]) -> Self {
+        let needed = marked
+            .iter()
+            .any(|(_, p)| p.pending.start_game || p.pending.radius.is_some_and(|r| r.first));
+        if !needed {
+            return Self::default();
+        }
+        Self {
+            roster: state
+                .players
+                .values()
+                .filter(|p| p.phase != Phase::Loading)
+                .map(list_entry)
+                .collect(),
+            worlds: (0..state.worlds.len())
+                .map(|w| {
+                    [
+                        survival::clock_state(state, w),
+                        survival::clock_definition(state, w),
+                        survival::sleeping_players(state, w),
+                    ]
+                })
+                .collect(),
+        }
+    }
+
+    /// The world's packet `which` (0 clock state, 1 clock definition, 2 sleeping counts).
+    fn world(&self, world: usize, which: usize) -> Option<Message> {
+        let packet = self.worlds.get(world)?.get(which)?;
+        Some(Message::Packet(packet.clone()))
+    }
+
+    /// The player list of the window.
+    fn player_list(&self) -> Message {
+        Message::Packet(Packet::PlayerList(PlayerList {
+            entries: self.roster.clone(),
+        }))
+    }
+}
+
+/// The y BDS sends in its first two spawn `Respawn` packets: the top of the build limit, above
+/// the eyes and at the feet (P6 facts 7).
+const RESPAWN_SEARCH_Y: f64 = 32_768.0;
+
+/// One player's packets of the tick, in the order BDS sends them (P6, PLAN.md 10.2, 10.4, 10.6,
+/// m7-facts.md 7): the start-game packets; for the first chunk radius answer the spawn window
+/// (spawn position, clocks, difficulty, settings, abilities, rules, player list, biomes, entity
+/// types, fog, attributes, creative inventory, trims, inventory, recipes, respawn, entity data);
+/// the granted radius; the chunk packets; the health and the spawn status; then the block changes
+/// it sees.
 fn messages(
     settings: &Settings,
     shared: &Shared,
@@ -183,12 +387,18 @@ fn messages(
     player: &Player,
     encoded: &Encoded,
     changes: &Changes,
+    window: &Window,
 ) -> Vec<Message> {
     let mut out = Vec::new();
     let Some(world) = world else {
         return out;
     };
+    let index = player.world;
     if player.pending.start_game {
+        out.extend(window.world(index, 2));
+        out.push(window.player_list());
+        out.extend(window.world(index, 0));
+        out.push(Message::Shared(Arc::clone(&shared.voxel_shapes)));
         out.push(Message::Packet(Packet::StartGame(Box::new(start_game(
             settings, world, player,
         )))));
@@ -196,17 +406,7 @@ fn messages(
     }
     if let Some(answer) = player.pending.radius {
         if answer.first {
-            out.push(Message::Packet(Packet::SetSpawnPosition(
-                SetSpawnPosition {
-                    spawn_type: 0,
-                    position: DEFAULT_SPAWN,
-                    dimension: SPAWN_POSITION_DIMENSION,
-                    spawn_position: DEFAULT_SPAWN,
-                },
-            )));
-            out.push(Message::Shared(Arc::clone(&shared.biome_definitions)));
-            out.push(Message::Shared(Arc::clone(&shared.creative_content)));
-            out.push(Message::Shared(Arc::clone(&shared.crafting_data)));
+            spawn_window(settings, shared, player, window, &mut out);
         }
         out.push(Message::Packet(Packet::ChunkRadiusUpdated(
             ChunkRadiusUpdated {
@@ -220,6 +420,9 @@ fn messages(
             .map(Message::Packet),
     );
     if player.pending.spawn_status {
+        out.push(Message::Packet(Packet::SetHealth(SetHealth {
+            health: survival::health_shown(player),
+        })));
         out.push(Message::Packet(Packet::PlayStatus(PlayStatus {
             status: PLAY_STATUS_PLAYER_SPAWN,
         })));
@@ -230,6 +433,128 @@ fn messages(
             .map(Message::Packet),
     );
     out
+}
+
+/// The packets BDS sends between the chunk radius request and the chunks (m7-facts.md 7), but
+/// for `SetCommandsEnabled`, the camera presets and `AvailableCommands` (M8) and the sound and
+/// structure packets Anchor never sends (deferred.txt).
+fn spawn_window(
+    settings: &Settings,
+    shared: &Shared,
+    player: &Player,
+    window: &Window,
+    out: &mut Vec<Message>,
+) {
+    let index = player.world;
+    let packet = |p: Packet| Message::Packet(p);
+    out.push(packet(Packet::SetSpawnPosition(SetSpawnPosition {
+        spawn_type: 0,
+        position: DEFAULT_SPAWN,
+        dimension: SPAWN_POSITION_DIMENSION,
+        spawn_position: DEFAULT_SPAWN,
+    })));
+    out.extend(window.world(index, 1));
+    out.push(packet(Packet::SetDifficulty(SetDifficulty {
+        difficulty: difficulty_id(settings.difficulty).cast_unsigned(),
+    })));
+    out.push(packet(survival::adventure_settings()));
+    let abilities = survival::update_abilities(settings, player);
+    out.push(packet(abilities.clone()));
+    out.push(packet(survival::game_rules(settings)));
+    out.push(window.player_list());
+    out.push(packet(abilities));
+    out.push(Message::Shared(Arc::clone(&shared.biome_definitions)));
+    out.push(Message::Shared(Arc::clone(&shared.actor_identifiers)));
+    out.push(packet(Packet::PlayerFog(PlayerFog { stack: Vec::new() })));
+    let attributes = survival::all_attributes(player);
+    out.push(packet(attributes.clone()));
+    out.push(Message::Shared(Arc::clone(&shared.creative_content)));
+    out.push(Message::Shared(Arc::clone(&shared.trim_data)));
+    let mut inventory = Vec::new();
+    inventory::spawn_packets(player, &mut inventory);
+    out.extend(inventory.into_iter().map(Message::Packet));
+    out.push(Message::Shared(Arc::clone(&shared.crafting_data)));
+    let eye = player.position;
+    for (y, state) in [
+        (RESPAWN_SEARCH_Y + EYE_HEIGHT, 0),
+        (RESPAWN_SEARCH_Y, 0),
+        (eye.y, 1),
+    ] {
+        out.push(packet(Packet::Respawn(Respawn {
+            position: Vec3::new(eye.x, y, eye.z).to_f32(),
+            state,
+            entity_runtime_id: 0,
+        })));
+    }
+    out.push(packet(Packet::SetActorData(SetActorData {
+        entity_runtime_id: player.runtime_id,
+        entity_metadata: survival::full_metadata(settings, player),
+        entity_properties: EntityProperties::default(),
+        tick: 0,
+    })));
+    out.push(packet(attributes));
+}
+
+/// A player's entry in the player list (BDS values, P6 facts 7): the skin and device the client
+/// sent at login, unchanged.
+fn list_entry(player: &Player) -> PlayerListEntry {
+    PlayerListEntry {
+        action_type: 0,
+        uuid: player.identity.uuid,
+        entity_unique_id: i64::try_from(player.runtime_id).unwrap_or(i64::MAX),
+        username: player.identity.name.clone(),
+        xuid: player
+            .identity
+            .xuid
+            .map_or_else(String::new, |x| x.to_string()),
+        platform_chat_id: String::new(),
+        // BDS sends the login's device (PMMP the unknown device, -1).
+        build_platform: player.identity.device_os,
+        skin: player.identity.skin.get().clone(),
+        teacher: false,
+        host: false,
+        sub_client: false,
+        player_colour: Rgba {
+            r: 237,
+            g: 237,
+            b: 237,
+            a: 255,
+        },
+    }
+}
+
+/// Adds a placed player to the list of every other placed player (their own windows, if they are
+/// placed this tick too, list everyone).
+fn announce(state: &mut State, player: &Player) {
+    let packet = Packet::PlayerList(PlayerList {
+        entries: vec![list_entry(player)],
+    });
+    for p in state.players.values_mut() {
+        if p.phase != Phase::Loading && !p.pending.start_game {
+            p.send(packet.clone());
+        }
+    }
+}
+
+/// A player left (`State::remove`): it wakes up and leaves the other players' lists, if they
+/// were told of it.
+pub(super) fn left(state: &mut State, player: &mut Player) {
+    survival::left(state, player);
+    if player.phase == Phase::Loading || player.pending.start_game {
+        return;
+    }
+    let packet = Packet::PlayerList(PlayerList {
+        entries: vec![PlayerListEntry {
+            action_type: 1,
+            uuid: player.identity.uuid,
+            ..PlayerListEntry::default()
+        }],
+    });
+    for p in state.players.values_mut() {
+        if p.phase != Phase::Loading && !p.pending.start_game {
+            p.send(packet.clone());
+        }
+    }
 }
 
 /// Registers the player of `session`, or rejects it when the server is full. A second join of
@@ -296,13 +621,19 @@ pub(super) fn join(
         identity,
         key,
         world: 0,
-        position: [0.0; 3],
+        position: Vec3::ZERO,
         data_dirty: false,
         chunk_radius: None,
         phase: Phase::Loading,
         view: view::View::default(),
         outbound,
         pending: Pending::default(),
+        extra: extra::PlayerExtra::default(),
+        inventory: inventory::Inventory::default(),
+        survival: survival::Survival::default(),
+        breaking: interact::Breaking::default(),
+        outbox: Vec::new(),
+        overflowed: false,
     };
     let request = if !state.saving.players {
         place(state, &mut player, None);
@@ -321,30 +652,46 @@ pub(super) fn join(
     request
 }
 
-/// Puts a player into its saved world and position, or the default world's spawn, and marks the
-/// start-game packets.
-fn place(state: &State, player: &mut Player, data: Option<PlayerData>) {
+/// Puts a player into its saved world and position, or the default world's spawn if it has none
+/// (a new player, a world no longer configured, a position outside the world border), hands its
+/// saved extra to the rule modules ([`extra::player_loaded`]), marks the start-game packets and
+/// adds it to the other players' lists.
+fn place(state: &mut State, player: &mut Player, data: Option<PlayerData>) {
     let saved = data.and_then(|d| {
+        player.extra = extra::player_loaded(d.extra);
+        inventory::load(&mut player.inventory, player.extra.raw());
+        inventory::restore(&mut player.inventory);
+        survival::load(&mut player.survival, player.extra.raw());
         let world = state.worlds.iter().position(|w| w.name() == d.world)?;
-        Some((world, d.position))
+        Some((world, tick_position(d.position)?))
     });
     let (world, position) = saved.unwrap_or_else(|| (0, spawn_position(state.worlds.first())));
     player.world = world;
     player.position = position;
     player.phase = Phase::Joined;
+    announce(state, player);
     player.pending.start_game = true;
 }
 
+/// A saved position as the tick holds it, if it is inside the world border (the file is external
+/// input: a finite position may still be anywhere).
+fn tick_position(position: [f64; 3]) -> Option<Vec3> {
+    let border = f64::from(MAX_COORDINATE);
+    if !position.iter().all(|c| c.abs() <= border) {
+        return None;
+    }
+    let [x, y, z] = position;
+    Some(Vec3::new(x, y, z))
+}
+
 /// The eye position of a player standing on a world's spawn block.
-fn spawn_position(world: Option<&World>) -> [f32; 3] {
+fn spawn_position(world: Option<&World>) -> Vec3 {
     let spawn = world.map(World::spawn).unwrap_or_default();
-    // Block coordinates are far inside f32's exact integer range for the world border.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "invariant: spawn coordinates are block coordinates within the world border"
-    )]
-    let [x, y, z] = [spawn.x, spawn.y, spawn.z].map(|c| c as f32);
-    [x + 0.5, y + EYE_HEIGHT, z + 0.5]
+    Vec3::new(
+        f64::from(spawn.x) + 0.5,
+        f64::from(spawn.y) + EYE_HEIGHT,
+        f64::from(spawn.z) + 0.5,
+    )
 }
 
 /// The saved data of a loading player arrived: it joins where it was, or at the spawn if it is
@@ -473,6 +820,7 @@ pub(super) fn initialised(
     session: SessionId,
     packet: &SetLocalPlayerAsInitialised,
 ) {
+    let settings = &state.settings;
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -486,7 +834,10 @@ pub(super) fn initialised(
         return;
     }
     match player.phase {
-        Phase::Spawning => player.phase = Phase::Spawned,
+        Phase::Spawning => {
+            player.phase = Phase::Spawned;
+            survival::spawned(settings, player);
+        }
         Phase::Spawned => {}
         Phase::Loading | Phase::Joined => warn!(
             session = session.get(),
@@ -502,26 +853,29 @@ fn server_full() -> Packet {
     })
 }
 
-fn start_game(settings: &Settings, world: &World, player: &Player) -> StartGame {
-    let game_mode = match settings.game_mode {
-        GameMode::Survival => 0,
-        GameMode::Creative => 1,
-        GameMode::Adventure => 2,
-        GameMode::Spectator => 6,
-    };
-    let difficulty = match settings.difficulty {
+/// The protocol ID of a difficulty.
+fn difficulty_id(difficulty: Difficulty) -> i32 {
+    match difficulty {
         Difficulty::Peaceful => 0,
         Difficulty::Easy => 1,
         Difficulty::Normal => 2,
         Difficulty::Hard => 3,
-    };
+    }
+}
+
+fn start_game(settings: &Settings, world: &World, player: &Player) -> StartGame {
+    let game_mode = survival::game_mode_id(settings.game_mode);
+    let difficulty = difficulty_id(settings.difficulty);
+    // BDS sends 5 (the world's mode) for a player without its own mode (P6).
+    let player_game_mode = survival::own_game_mode(settings, player)
+        .map_or(PLAYER_GAME_MODE_WORLD, survival::game_mode_id);
     let spawn = world.spawn();
     StartGame {
         // Runtime IDs stay far below 2^63; the unique ID reuses it like most servers.
         entity_unique_id: i64::try_from(player.runtime_id).unwrap_or(i64::MAX),
         entity_runtime_id: player.runtime_id,
-        player_game_mode: PLAYER_GAME_MODE_WORLD,
-        player_position: player.position,
+        player_game_mode,
+        player_position: player.position.to_f32(),
         world_seed: world.seed(),
         generator: GENERATOR_FLAT,
         world_game_mode: game_mode,
@@ -548,6 +902,139 @@ fn start_game(settings: &Settings, world: &World, player: &Player) -> StartGame 
         server_join_information: Some(ServerJoinInformation::default()),
         game_version: packet::GAME_VERSION.to_owned(),
         use_block_network_id_hashes: true,
+        // PMMP `PreSpawnPacketHandler`: the world's time, so the day cycle starts where it is.
+        time: world.time(),
         ..StartGame::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `CloudburstMC` data copy, when the external sources are there (`.cache`).
+    fn cache(name: &str) -> Option<Vec<u8>> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(".cache/cloudburst-data")
+            .join(name);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "off-tick: a test reads the external data copy"
+        )]
+        let bytes = std::fs::read(path).ok();
+        bytes
+    }
+
+    fn payload(packet: &Packet) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        packet.encode(&mut bytes, 0).unwrap();
+        bytes
+    }
+
+    #[test]
+    fn the_entity_types_are_the_cloudburst_bytes_bds_sends() {
+        assert_eq!(ENTITY_IDENTIFIERS.len(), 8907, "BDS sends 8,907 bytes (P6)");
+        if let Some(copy) = cache("entity_identifiers.dat") {
+            assert_eq!(ENTITY_IDENTIFIERS, copy.as_slice());
+        }
+        let packet = Packet::AvailableActorIdentifiers(AvailableActorIdentifiers {
+            serialised_entity_identifiers: ENTITY_IDENTIFIERS.to_vec(),
+        });
+        assert_eq!(payload(&packet), ENTITY_IDENTIFIERS);
+    }
+
+    #[test]
+    fn voxel_shapes_match_bds_counts_order_and_size() {
+        if let Some(copy) = cache("voxel_shapes.json") {
+            assert_eq!(VOXEL_SHAPES.as_bytes(), copy.as_slice());
+        }
+        let shapes = voxel_shapes();
+        assert_eq!((shapes.shapes.len(), shapes.name_map.len()), (287, 220));
+        // BDS's first names, in its order (P6 capture).
+        let first: Vec<(&str, u16)> = shapes
+            .name_map
+            .iter()
+            .take(3)
+            .map(|e| (e.name.as_str(), e.id))
+            .collect();
+        assert_eq!(
+            first,
+            [
+                (
+                    "minecraft:wall_east_low_north_low_south_low_up_west_tall",
+                    60
+                ),
+                ("minecraft:wall_east_low_north_low_south_low_up", 58),
+                ("minecraft:wall_south_low_up_west_tall", 206),
+            ]
+        );
+        let packet = Packet::VoxelShapes(shapes);
+        let bytes = payload(&packet);
+        assert_eq!(bytes.len(), 23_178, "BDS's VoxelShapes payload (P6)");
+        let mut budget = usize::MAX;
+        assert_eq!(
+            Packet::decode(packet.id(), &bytes, &mut budget, 0).unwrap(),
+            packet
+        );
+    }
+
+    #[test]
+    fn trim_data_has_the_bds_patterns_and_materials() {
+        let trims = trim_data();
+        assert_eq!((trims.patterns.len(), trims.materials.len()), (18, 11));
+        assert_eq!(
+            trims.patterns[0].item_name,
+            "minecraft:ward_armor_trim_smithing_template"
+        );
+        assert_eq!(trims.materials[10].colour, "\u{a7}v");
+        // BDS: 1,271 bytes with the two-byte header of packet 302 (P6).
+        assert_eq!(payload(&Packet::TrimData(trims)).len(), 1269);
+    }
+
+    /// The trim tables are the BDS `TrimData` the P6 facts recorded, in its order.
+    #[test]
+    fn trim_data_equals_the_p6_facts() {
+        let facts = include_str!("../../xtask/data/p6/m7-facts.md");
+        let line = facts
+            .lines()
+            .find(|l| l.starts_with("- TrimData:"))
+            .expect("the TrimData fact");
+        let list = |after: &str| {
+            let rest = line.split_once(after).expect(after).1;
+            rest.split_once(';')
+                .expect("list end")
+                .0
+                .split(", ")
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        let trims = trim_data();
+        let patterns: Vec<String> = trims
+            .patterns
+            .iter()
+            .map(|p| p.pattern_id.clone())
+            .collect();
+        assert_eq!(patterns, list("무늬 18개("));
+        for p in &trims.patterns {
+            assert_eq!(
+                p.item_name,
+                format!("minecraft:{}_armor_trim_smithing_template", p.pattern_id)
+            );
+        }
+        let materials: Vec<String> = trims
+            .materials
+            .iter()
+            .map(|m| format!("{} {}", m.material_id, m.colour))
+            .collect();
+        assert_eq!(materials, list("재료 11개("));
+    }
+
+    #[test]
+    fn the_plain_skin_is_a_valid_classic_skin() {
+        let skin = crate::tick::queue::Skin::default();
+        let skin = skin.get();
+        let pixels = usize::try_from(skin.skin_image_width * skin.skin_image_height).unwrap();
+        assert_eq!(skin.skin_data.len(), pixels * 4);
+        assert_eq!(crate::protocol::skin_validate(skin), None);
     }
 }

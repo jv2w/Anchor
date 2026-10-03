@@ -5,6 +5,7 @@ use super::{
     Exact, Furnace, FurnaceType, Ingredient, Name, PotionContainerChange, PotionType, Shaped,
     Shapeless, ShapelessType, SmithingTransform, SmithingTrim, Stack,
 };
+use crate::item;
 
 /// Shaped crafting recipes, in dump order.
 pub(super) static SHAPED: [Shaped; 924] = [
@@ -701,43 +702,43 @@ pub(super) static SHAPED: [Shaped; 924] = [
     Shaped {
         width: 1,
         height: 1,
-        grid: &[Some(Ingredient::Exact(Exact::new(8, 0)))],
+        grid: &[Some(Ingredient::Exact(Exact::new(8, 0, 0, None)))],
         results: &[Stack::new(1, 0, 1, None)],
     },
     Shaped {
         width: 1,
         height: 1,
-        grid: &[Some(Ingredient::Exact(Exact::new(102, 0)))],
+        grid: &[Some(Ingredient::Exact(Exact::new(102, 0, 0, None)))],
         results: &[Stack::new(95, 0, 1, None)],
     },
     Shaped {
         width: 1,
         height: 1,
-        grid: &[Some(Ingredient::Exact(Exact::new(384, 0)))],
+        grid: &[Some(Ingredient::Exact(Exact::new(384, 0, 0, None)))],
         results: &[Stack::new(377, 0, 1, None)],
     },
     Shaped {
         width: 1,
         height: 1,
-        grid: &[Some(Ingredient::Exact(Exact::new(786, 0)))],
+        grid: &[Some(Ingredient::Exact(Exact::new(786, 0, 0, None)))],
         results: &[Stack::new(779, 0, 1, None)],
     },
     Shaped {
         width: 1,
         height: 1,
-        grid: &[Some(Ingredient::Exact(Exact::new(1027, 0)))],
+        grid: &[Some(Ingredient::Exact(Exact::new(1027, 0, 0, None)))],
         results: &[Stack::new(1590, 0, 1, None)],
     },
     Shaped {
         width: 1,
         height: 1,
-        grid: &[Some(Ingredient::Exact(Exact::new(1383, 0)))],
+        grid: &[Some(Ingredient::Exact(Exact::new(1383, 0, 0, None)))],
         results: &[Stack::new(1376, 0, 1, None)],
     },
     Shaped {
         width: 1,
         height: 1,
-        grid: &[Some(Ingredient::Exact(Exact::new(1394, 0)))],
+        grid: &[Some(Ingredient::Exact(Exact::new(1394, 0, 0, None)))],
         results: &[Stack::new(1400, 0, 1, None)],
     },
     Shaped {
@@ -1068,8 +1069,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(34, 0))),
-            Some(Ingredient::Exact(Exact::new(34, 0))),
+            Some(Ingredient::Exact(Exact::new(34, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(34, 0, 0, None))),
         ],
         results: &[Stack::new(1393, 0, 1, None)],
     },
@@ -1077,7 +1078,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
         ],
         results: &[Stack::new(1452, 0, 4, None)],
@@ -1086,8 +1087,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1207, 0))),
-            Some(Ingredient::Exact(Exact::new(1207, 0))),
+            Some(Ingredient::Exact(Exact::new(1207, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1207, 0, 0, None))),
         ],
         results: &[Stack::new(1206, 0, 1, None)],
     },
@@ -1095,8 +1096,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
         ],
         results: &[Stack::new(1213, 0, 2, None)],
     },
@@ -1104,8 +1105,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1214, 0))),
-            Some(Ingredient::Exact(Exact::new(1214, 0))),
+            Some(Ingredient::Exact(Exact::new(1214, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1214, 0, 0, None))),
         ],
         results: &[Stack::new(229, 0, 1, None)],
     },
@@ -1113,8 +1114,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1254, 0))),
-            Some(Ingredient::Exact(Exact::new(1254, 0))),
+            Some(Ingredient::Exact(Exact::new(1254, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1254, 0, 0, None))),
         ],
         results: &[Stack::new(230, 0, 1, None)],
     },
@@ -1122,8 +1123,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1285, 0))),
-            Some(Ingredient::Exact(Exact::new(1285, 0))),
+            Some(Ingredient::Exact(Exact::new(1285, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1285, 0, 0, None))),
         ],
         results: &[Stack::new(232, 0, 1, None)],
     },
@@ -1131,8 +1132,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1396, 0))),
-            Some(Ingredient::Exact(Exact::new(1396, 0))),
+            Some(Ingredient::Exact(Exact::new(1396, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1396, 0, 0, None))),
         ],
         results: &[Stack::new(233, 0, 1, None)],
     },
@@ -1140,7 +1141,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Tag("minecraft:coals")),
+            Some(Ingredient::Tag(item::Tag::from_index(6))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
         ],
         results: &[Stack::new(1452, 0, 4, None)],
@@ -1149,8 +1150,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 2,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(1393, 0, 4, None)],
     },
@@ -1297,7 +1298,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
                 "minecraft:copper_nugget",
                 758,
             ))),
-            Some(Ingredient::Tag("minecraft:coals")),
+            Some(Ingredient::Tag(item::Tag::from_index(6))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
         ],
         results: &[Stack::new(328, 0, 4, None)],
@@ -1446,7 +1447,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         grid: &[
             Some(Ingredient::AnyMeta(Name::new("minecraft:iron_ingot", 307))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(1459, 0, 2, None)],
     },
@@ -1538,7 +1539,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:soul_sand", 88))),
         ],
@@ -1548,7 +1549,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:soul_soil", -236))),
         ],
@@ -1558,9 +1559,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:coals")),
+            Some(Ingredient::Tag(item::Tag::from_index(6))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Tag("minecraft:soul_fire_base_blocks")),
+            Some(Ingredient::Tag(item::Tag::from_index(47))),
         ],
         results: &[Stack::new(1327, 0, 4, None)],
     },
@@ -1568,7 +1569,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
         ],
@@ -1578,8 +1579,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
         ],
         results: &[Stack::new(1596, 0, 1, None)],
@@ -1588,7 +1589,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
         ],
@@ -1598,8 +1599,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 1,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
         ],
         results: &[Stack::new(1406, 0, 1, None)],
@@ -1911,8 +1912,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
         ],
         results: &[Stack::new(9, 0, 1, None)],
     },
@@ -1920,8 +1921,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
         ],
         results: &[Stack::new(103, 0, 1, None)],
     },
@@ -1929,8 +1930,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
         ],
         results: &[Stack::new(385, 0, 1, None)],
     },
@@ -1938,8 +1939,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
         ],
         results: &[Stack::new(787, 0, 1, None)],
     },
@@ -1947,8 +1948,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
         ],
         results: &[Stack::new(1594, 0, 1, None)],
     },
@@ -1956,8 +1957,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
         ],
         results: &[Stack::new(1384, 0, 1, None)],
     },
@@ -1965,8 +1966,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
         ],
         results: &[Stack::new(1403, 0, 1, None)],
     },
@@ -1986,7 +1987,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         height: 2,
         grid: &[
             None,
-            Some(Ingredient::Tag("minecraft:metal_nuggets")),
+            Some(Ingredient::Tag(item::Tag::from_index(40))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:paper", 389))),
             None,
         ],
@@ -2794,8 +2795,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         grid: &[
             Some(Ingredient::AnyMeta(Name::new("minecraft:string", 329))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:string", 329))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(909, 0, 1, None)],
     },
@@ -3228,10 +3229,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(446, 0))),
+            Some(Ingredient::Exact(Exact::new(446, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gravel", 13))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gravel", 13))),
-            Some(Ingredient::Exact(Exact::new(446, 0))),
+            Some(Ingredient::Exact(Exact::new(446, 0, 0, None))),
         ],
         results: &[Stack::new(245, 0, 4, None)],
     },
@@ -3239,10 +3240,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
         ],
         results: &[Stack::new(1211, 0, 4, None)],
     },
@@ -3250,10 +3251,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
         ],
         results: &[Stack::new(358, 0, 4, None)],
     },
@@ -3261,10 +3262,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1283, 0))),
-            Some(Ingredient::Exact(Exact::new(1283, 0))),
-            Some(Ingredient::Exact(Exact::new(1283, 0))),
-            Some(Ingredient::Exact(Exact::new(1283, 0))),
+            Some(Ingredient::Exact(Exact::new(1283, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1283, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1283, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1283, 0, 0, None))),
         ],
         results: &[Stack::new(1284, 0, 1, None)],
     },
@@ -3272,10 +3273,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
         ],
         results: &[Stack::new(360, 0, 4, None)],
     },
@@ -3283,10 +3284,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
         ],
         results: &[Stack::new(1399, 0, 4, None)],
     },
@@ -3294,10 +3295,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 2,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(336, 0, 1, None)],
     },
@@ -3755,10 +3756,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         grid: &[
             Some(Ingredient::AnyMeta(Name::new("minecraft:flint", 359))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:flint", 359))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(621, 0, 1, None)],
     },
@@ -3908,10 +3909,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         grid: &[
             Some(Ingredient::AnyMeta(Name::new("minecraft:iron_ingot", 307))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:iron_ingot", 307))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(1304, 0, 1, None)],
     },
@@ -4124,10 +4125,10 @@ pub(super) static SHAPED: [Shaped; 924] = [
         grid: &[
             Some(Ingredient::AnyMeta(Name::new("minecraft:paper", 389))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:paper", 389))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(198, 0, 1, None)],
     },
@@ -4250,8 +4251,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
@@ -4263,9 +4264,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
@@ -4276,8 +4277,8 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
@@ -4289,9 +4290,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 2,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
@@ -4934,7 +4935,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
         height: 1,
         grid: &[
             Some(Ingredient::AnyMeta(Name::new("minecraft:wheat", 337))),
-            Some(Ingredient::Exact(Exact::new(254, 0))),
+            Some(Ingredient::Exact(Exact::new(254, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:wheat", 337))),
         ],
         results: &[Stack::new(308, 0, 8, None)],
@@ -4943,9 +4944,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(22, 0))),
-            Some(Ingredient::Exact(Exact::new(22, 0))),
-            Some(Ingredient::Exact(Exact::new(22, 0))),
+            Some(Ingredient::Exact(Exact::new(22, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(22, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(22, 0, 0, None))),
         ],
         results: &[Stack::new(23, 0, 6, None)],
     },
@@ -4953,9 +4954,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(157, 0))),
-            Some(Ingredient::Exact(Exact::new(157, 0))),
-            Some(Ingredient::Exact(Exact::new(157, 0))),
+            Some(Ingredient::Exact(Exact::new(157, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(157, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(157, 0, 0, None))),
         ],
         results: &[Stack::new(158, 0, 6, None)],
     },
@@ -4963,9 +4964,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(230, 0))),
-            Some(Ingredient::Exact(Exact::new(230, 0))),
-            Some(Ingredient::Exact(Exact::new(230, 0))),
+            Some(Ingredient::Exact(Exact::new(230, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(230, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(230, 0, 0, None))),
         ],
         results: &[Stack::new(1254, 0, 6, None)],
     },
@@ -4973,9 +4974,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(232, 0))),
-            Some(Ingredient::Exact(Exact::new(232, 0))),
-            Some(Ingredient::Exact(Exact::new(232, 0))),
+            Some(Ingredient::Exact(Exact::new(232, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(232, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(232, 0, 0, None))),
         ],
         results: &[Stack::new(1285, 0, 6, None)],
     },
@@ -4983,9 +4984,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(251, 0))),
-            Some(Ingredient::Exact(Exact::new(251, 0))),
-            Some(Ingredient::Exact(Exact::new(251, 0))),
+            Some(Ingredient::Exact(Exact::new(251, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(251, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(251, 0, 0, None))),
         ],
         results: &[Stack::new(252, 0, 6, None)],
     },
@@ -4993,9 +4994,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(358, 0))),
-            Some(Ingredient::Exact(Exact::new(358, 0))),
-            Some(Ingredient::Exact(Exact::new(358, 0))),
+            Some(Ingredient::Exact(Exact::new(358, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(358, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(358, 0, 0, None))),
         ],
         results: &[Stack::new(359, 0, 6, None)],
     },
@@ -5003,9 +5004,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(360, 0))),
-            Some(Ingredient::Exact(Exact::new(360, 0))),
-            Some(Ingredient::Exact(Exact::new(360, 0))),
+            Some(Ingredient::Exact(Exact::new(360, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(360, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(360, 0, 0, None))),
         ],
         results: &[Stack::new(361, 0, 6, None)],
     },
@@ -5013,9 +5014,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(392, 0))),
-            Some(Ingredient::Exact(Exact::new(392, 0))),
-            Some(Ingredient::Exact(Exact::new(392, 0))),
+            Some(Ingredient::Exact(Exact::new(392, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(392, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(392, 0, 0, None))),
         ],
         results: &[Stack::new(393, 0, 6, None)],
     },
@@ -5023,9 +5024,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(442, 0))),
-            Some(Ingredient::Exact(Exact::new(442, 0))),
-            Some(Ingredient::Exact(Exact::new(442, 0))),
+            Some(Ingredient::Exact(Exact::new(442, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(442, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(442, 0, 0, None))),
         ],
         results: &[Stack::new(443, 0, 6, None)],
     },
@@ -5033,9 +5034,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(584, 0))),
-            Some(Ingredient::Exact(Exact::new(584, 0))),
-            Some(Ingredient::Exact(Exact::new(584, 0))),
+            Some(Ingredient::Exact(Exact::new(584, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(584, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(584, 0, 0, None))),
         ],
         results: &[Stack::new(589, 0, 6, None)],
     },
@@ -5043,9 +5044,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(668, 0))),
-            Some(Ingredient::Exact(Exact::new(668, 0))),
-            Some(Ingredient::Exact(Exact::new(668, 0))),
+            Some(Ingredient::Exact(Exact::new(668, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(668, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(668, 0, 0, None))),
         ],
         results: &[Stack::new(669, 0, 6, None)],
     },
@@ -5053,9 +5054,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(952, 0))),
-            Some(Ingredient::Exact(Exact::new(952, 0))),
-            Some(Ingredient::Exact(Exact::new(952, 0))),
+            Some(Ingredient::Exact(Exact::new(952, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(952, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(952, 0, 0, None))),
         ],
         results: &[Stack::new(953, 0, 6, None)],
     },
@@ -5063,9 +5064,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(959, 0))),
-            Some(Ingredient::Exact(Exact::new(959, 0))),
-            Some(Ingredient::Exact(Exact::new(959, 0))),
+            Some(Ingredient::Exact(Exact::new(959, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(959, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(959, 0, 0, None))),
         ],
         results: &[Stack::new(956, 0, 6, None)],
     },
@@ -5073,9 +5074,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(993, 0))),
-            Some(Ingredient::Exact(Exact::new(993, 0))),
-            Some(Ingredient::Exact(Exact::new(993, 0))),
+            Some(Ingredient::Exact(Exact::new(993, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(993, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(993, 0, 0, None))),
         ],
         results: &[Stack::new(995, 0, 6, None)],
     },
@@ -5083,9 +5084,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1104, 0))),
-            Some(Ingredient::Exact(Exact::new(1104, 0))),
-            Some(Ingredient::Exact(Exact::new(1104, 0))),
+            Some(Ingredient::Exact(Exact::new(1104, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1104, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1104, 0, 0, None))),
         ],
         results: &[Stack::new(1105, 0, 6, None)],
     },
@@ -5093,9 +5094,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1122, 0))),
-            Some(Ingredient::Exact(Exact::new(1122, 0))),
-            Some(Ingredient::Exact(Exact::new(1122, 0))),
+            Some(Ingredient::Exact(Exact::new(1122, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1122, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1122, 0, 0, None))),
         ],
         results: &[Stack::new(1123, 0, 6, None)],
     },
@@ -5103,9 +5104,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1125, 0))),
-            Some(Ingredient::Exact(Exact::new(1125, 0))),
-            Some(Ingredient::Exact(Exact::new(1125, 0))),
+            Some(Ingredient::Exact(Exact::new(1125, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1125, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1125, 0, 0, None))),
         ],
         results: &[Stack::new(1126, 0, 6, None)],
     },
@@ -5113,9 +5114,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
         ],
         results: &[Stack::new(1186, 0, 6, None)],
     },
@@ -5123,9 +5124,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1182, 0))),
-            Some(Ingredient::Exact(Exact::new(1182, 0))),
-            Some(Ingredient::Exact(Exact::new(1182, 0))),
+            Some(Ingredient::Exact(Exact::new(1182, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1182, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1182, 0, 0, None))),
         ],
         results: &[Stack::new(1181, 0, 6, None)],
     },
@@ -5133,9 +5134,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1205, 0))),
-            Some(Ingredient::Exact(Exact::new(1205, 0))),
-            Some(Ingredient::Exact(Exact::new(1205, 0))),
+            Some(Ingredient::Exact(Exact::new(1205, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1205, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1205, 0, 0, None))),
         ],
         results: &[Stack::new(1207, 0, 6, None)],
     },
@@ -5143,9 +5144,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
         ],
         results: &[Stack::new(1214, 0, 6, None)],
     },
@@ -5153,9 +5154,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1248, 0))),
-            Some(Ingredient::Exact(Exact::new(1248, 0))),
-            Some(Ingredient::Exact(Exact::new(1248, 0))),
+            Some(Ingredient::Exact(Exact::new(1248, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1248, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1248, 0, 0, None))),
         ],
         results: &[Stack::new(1249, 0, 6, None)],
     },
@@ -5163,9 +5164,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
         ],
         results: &[Stack::new(1254, 0, 6, None)],
     },
@@ -5173,9 +5174,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
         ],
         results: &[Stack::new(1285, 0, 6, None)],
     },
@@ -5183,9 +5184,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1307, 0))),
-            Some(Ingredient::Exact(Exact::new(1307, 0))),
-            Some(Ingredient::Exact(Exact::new(1307, 0))),
+            Some(Ingredient::Exact(Exact::new(1307, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1307, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1307, 0, 0, None))),
         ],
         results: &[Stack::new(1308, 0, 6, None)],
     },
@@ -5193,9 +5194,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1310, 0))),
-            Some(Ingredient::Exact(Exact::new(1310, 0))),
-            Some(Ingredient::Exact(Exact::new(1310, 0))),
+            Some(Ingredient::Exact(Exact::new(1310, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1310, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1310, 0, 0, None))),
         ],
         results: &[Stack::new(1311, 0, 6, None)],
     },
@@ -5203,9 +5204,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1313, 0))),
-            Some(Ingredient::Exact(Exact::new(1313, 0))),
-            Some(Ingredient::Exact(Exact::new(1313, 0))),
+            Some(Ingredient::Exact(Exact::new(1313, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1313, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1313, 0, 0, None))),
         ],
         results: &[Stack::new(1314, 0, 6, None)],
     },
@@ -5213,9 +5214,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1316, 0))),
-            Some(Ingredient::Exact(Exact::new(1316, 0))),
-            Some(Ingredient::Exact(Exact::new(1316, 0))),
+            Some(Ingredient::Exact(Exact::new(1316, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1316, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1316, 0, 0, None))),
         ],
         results: &[Stack::new(1317, 0, 6, None)],
     },
@@ -5223,9 +5224,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
         ],
         results: &[Stack::new(1019, 0, 6, None)],
     },
@@ -5233,9 +5234,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 1,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1399, 0))),
-            Some(Ingredient::Exact(Exact::new(1399, 0))),
-            Some(Ingredient::Exact(Exact::new(1399, 0))),
+            Some(Ingredient::Exact(Exact::new(1399, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1399, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1399, 0, 0, None))),
         ],
         results: &[Stack::new(1396, 0, 6, None)],
     },
@@ -5281,9 +5282,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:blaze_rod", 426))),
             None,
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
         ],
         results: &[Stack::new(155, 0, 1, None)],
     },
@@ -5294,9 +5295,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:iron_ingot", 307))),
             None,
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
         ],
         results: &[Stack::new(1408, 0, 1, None)],
     },
@@ -7058,9 +7059,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
                 "minecraft:redstone_torch",
                 76,
             ))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
         ],
         results: &[Stack::new(1269, 0, 1, None)],
     },
@@ -7599,12 +7600,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
         ],
         results: &[Stack::new(14, 0, 2, None)],
     },
@@ -7612,12 +7613,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
         ],
         results: &[Stack::new(108, 0, 2, None)],
     },
@@ -7625,9 +7626,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(121, 0))),
-            Some(Ingredient::Exact(Exact::new(121, 0))),
-            Some(Ingredient::Exact(Exact::new(121, 0))),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7647,12 +7648,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(121, 0))),
-            Some(Ingredient::Exact(Exact::new(121, 0))),
-            Some(Ingredient::Exact(Exact::new(121, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(77, 15, 1, None)],
     },
@@ -7660,12 +7661,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(121, 0))),
-            Some(Ingredient::Exact(Exact::new(121, 0))),
-            Some(Ingredient::Exact(Exact::new(121, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(121, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(77, 15, 1, None)],
     },
@@ -7673,9 +7674,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(143, 0))),
-            Some(Ingredient::Exact(Exact::new(143, 0))),
-            Some(Ingredient::Exact(Exact::new(143, 0))),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7695,12 +7696,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(143, 0))),
-            Some(Ingredient::Exact(Exact::new(143, 0))),
-            Some(Ingredient::Exact(Exact::new(143, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(73, 11, 1, None)],
     },
@@ -7708,12 +7709,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(143, 0))),
-            Some(Ingredient::Exact(Exact::new(143, 0))),
-            Some(Ingredient::Exact(Exact::new(143, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(143, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(73, 11, 1, None)],
     },
@@ -7721,9 +7722,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(184, 0))),
-            Some(Ingredient::Exact(Exact::new(184, 0))),
-            Some(Ingredient::Exact(Exact::new(184, 0))),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7743,12 +7744,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(184, 0))),
-            Some(Ingredient::Exact(Exact::new(184, 0))),
-            Some(Ingredient::Exact(Exact::new(184, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(74, 12, 1, None)],
     },
@@ -7756,12 +7757,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(184, 0))),
-            Some(Ingredient::Exact(Exact::new(184, 0))),
-            Some(Ingredient::Exact(Exact::new(184, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(184, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(74, 12, 1, None)],
     },
@@ -7769,9 +7770,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(373, 0))),
-            Some(Ingredient::Exact(Exact::new(373, 0))),
-            Some(Ingredient::Exact(Exact::new(373, 0))),
+            Some(Ingredient::Exact(Exact::new(373, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(373, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(373, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7791,12 +7792,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(373, 0))),
-            Some(Ingredient::Exact(Exact::new(373, 0))),
-            Some(Ingredient::Exact(Exact::new(373, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(373, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(373, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(373, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(86, 9, 1, None)],
     },
@@ -7804,12 +7805,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
         ],
         results: &[Stack::new(390, 0, 2, None)],
     },
@@ -7817,9 +7818,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(686, 0))),
-            Some(Ingredient::Exact(Exact::new(686, 0))),
-            Some(Ingredient::Exact(Exact::new(686, 0))),
+            Some(Ingredient::Exact(Exact::new(686, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(686, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(686, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7839,12 +7840,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(686, 0))),
-            Some(Ingredient::Exact(Exact::new(686, 0))),
-            Some(Ingredient::Exact(Exact::new(686, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(686, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(686, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(686, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(84, 7, 1, None)],
     },
@@ -7852,9 +7853,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(698, 0))),
-            Some(Ingredient::Exact(Exact::new(698, 0))),
-            Some(Ingredient::Exact(Exact::new(698, 0))),
+            Some(Ingredient::Exact(Exact::new(698, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(698, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(698, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7874,12 +7875,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(698, 0))),
-            Some(Ingredient::Exact(Exact::new(698, 0))),
-            Some(Ingredient::Exact(Exact::new(698, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(698, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(698, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(698, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(75, 13, 1, None)],
     },
@@ -7887,12 +7888,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
         ],
         results: &[Stack::new(792, 0, 2, None)],
     },
@@ -7900,9 +7901,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(837, 0))),
-            Some(Ingredient::Exact(Exact::new(837, 0))),
-            Some(Ingredient::Exact(Exact::new(837, 0))),
+            Some(Ingredient::Exact(Exact::new(837, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(837, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(837, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7922,12 +7923,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(837, 0))),
-            Some(Ingredient::Exact(Exact::new(837, 0))),
-            Some(Ingredient::Exact(Exact::new(837, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(837, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(837, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(837, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(80, 3, 1, None)],
     },
@@ -7935,9 +7936,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(848, 0))),
-            Some(Ingredient::Exact(Exact::new(848, 0))),
-            Some(Ingredient::Exact(Exact::new(848, 0))),
+            Some(Ingredient::Exact(Exact::new(848, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(848, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(848, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7957,12 +7958,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(848, 0))),
-            Some(Ingredient::Exact(Exact::new(848, 0))),
-            Some(Ingredient::Exact(Exact::new(848, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(848, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(848, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(848, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(85, 8, 1, None)],
     },
@@ -7970,9 +7971,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(864, 0))),
-            Some(Ingredient::Exact(Exact::new(864, 0))),
-            Some(Ingredient::Exact(Exact::new(864, 0))),
+            Some(Ingredient::Exact(Exact::new(864, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(864, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(864, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -7992,12 +7993,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(864, 0))),
-            Some(Ingredient::Exact(Exact::new(864, 0))),
-            Some(Ingredient::Exact(Exact::new(864, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(864, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(864, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(864, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(82, 5, 1, None)],
     },
@@ -8005,9 +8006,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(921, 0))),
-            Some(Ingredient::Exact(Exact::new(921, 0))),
-            Some(Ingredient::Exact(Exact::new(921, 0))),
+            Some(Ingredient::Exact(Exact::new(921, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(921, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(921, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -8027,12 +8028,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(921, 0))),
-            Some(Ingredient::Exact(Exact::new(921, 0))),
-            Some(Ingredient::Exact(Exact::new(921, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(921, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(921, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(921, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(79, 2, 1, None)],
     },
@@ -8040,12 +8041,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(932, 0))),
+            Some(Ingredient::Exact(Exact::new(932, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(932, 0))),
-            Some(Ingredient::Exact(Exact::new(932, 0))),
-            Some(Ingredient::Exact(Exact::new(932, 0))),
-            Some(Ingredient::Exact(Exact::new(932, 0))),
+            Some(Ingredient::Exact(Exact::new(932, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(932, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(932, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(932, 0, 0, None))),
         ],
         results: &[Stack::new(924, 0, 1, None)],
     },
@@ -8053,12 +8054,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
         ],
         results: &[Stack::new(1456, 0, 2, None)],
     },
@@ -8066,9 +8067,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1047, 0))),
-            Some(Ingredient::Exact(Exact::new(1047, 0))),
-            Some(Ingredient::Exact(Exact::new(1047, 0))),
+            Some(Ingredient::Exact(Exact::new(1047, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1047, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1047, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -8088,12 +8089,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1047, 0))),
-            Some(Ingredient::Exact(Exact::new(1047, 0))),
-            Some(Ingredient::Exact(Exact::new(1047, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(1047, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1047, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1047, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(78, 1, 1, None)],
     },
@@ -8101,9 +8102,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1098, 0))),
-            Some(Ingredient::Exact(Exact::new(1098, 0))),
-            Some(Ingredient::Exact(Exact::new(1098, 0))),
+            Some(Ingredient::Exact(Exact::new(1098, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1098, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1098, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -8123,12 +8124,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1098, 0))),
-            Some(Ingredient::Exact(Exact::new(1098, 0))),
-            Some(Ingredient::Exact(Exact::new(1098, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(1098, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1098, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1098, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(83, 6, 1, None)],
     },
@@ -8136,12 +8137,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
         ],
         results: &[Stack::new(1188, 0, 6, None)],
     },
@@ -8149,9 +8150,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1204, 0))),
-            Some(Ingredient::Exact(Exact::new(1204, 0))),
-            Some(Ingredient::Exact(Exact::new(1204, 0))),
+            Some(Ingredient::Exact(Exact::new(1204, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1204, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1204, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -8171,12 +8172,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1204, 0))),
-            Some(Ingredient::Exact(Exact::new(1204, 0))),
-            Some(Ingredient::Exact(Exact::new(1204, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(1204, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1204, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1204, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(72, 10, 1, None)],
     },
@@ -8184,12 +8185,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
         ],
         results: &[Stack::new(1256, 0, 6, None)],
     },
@@ -8197,9 +8198,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1262, 0))),
-            Some(Ingredient::Exact(Exact::new(1262, 0))),
-            Some(Ingredient::Exact(Exact::new(1262, 0))),
+            Some(Ingredient::Exact(Exact::new(1262, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1262, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1262, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -8219,12 +8220,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1262, 0))),
-            Some(Ingredient::Exact(Exact::new(1262, 0))),
-            Some(Ingredient::Exact(Exact::new(1262, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(1262, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1262, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1262, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(76, 14, 1, None)],
     },
@@ -8232,12 +8233,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
         ],
         results: &[Stack::new(1287, 0, 6, None)],
     },
@@ -8245,12 +8246,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
         ],
         results: &[Stack::new(1389, 0, 2, None)],
     },
@@ -8258,9 +8259,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -8280,12 +8281,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(71, 0, 1, None)],
     },
@@ -8293,12 +8294,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
-            Some(Ingredient::Exact(Exact::new(1585, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1585, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(71, 0, 1, None)],
     },
@@ -8306,9 +8307,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1610, 0))),
-            Some(Ingredient::Exact(Exact::new(1610, 0))),
-            Some(Ingredient::Exact(Exact::new(1610, 0))),
+            Some(Ingredient::Exact(Exact::new(1610, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1610, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1610, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:bamboo_planks",
                 -510,
@@ -8328,12 +8329,12 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1610, 0))),
-            Some(Ingredient::Exact(Exact::new(1610, 0))),
-            Some(Ingredient::Exact(Exact::new(1610, 0))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Exact(Exact::new(1610, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1610, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1610, 0, 0, None))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(81, 4, 1, None)],
     },
@@ -8341,11 +8342,11 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 2,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             None,
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             None,
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             None,
         ],
         results: &[Stack::new(150, 0, 4, None)],
@@ -8720,9 +8721,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
                 "minecraft:redstone_torch",
                 76,
             ))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
         ],
         results: &[Stack::new(260, 0, 1, None)],
     },
@@ -9684,7 +9685,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:crimson_stem",
@@ -9709,7 +9710,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:mangrove_log",
@@ -9734,7 +9735,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:mangrove_wood",
@@ -9759,7 +9760,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_acacia_log",
@@ -9784,7 +9785,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_birch_log",
@@ -9809,7 +9810,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_crimson_stem",
@@ -9834,7 +9835,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_dark_oak_log",
@@ -9859,7 +9860,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_jungle_log",
@@ -9884,7 +9885,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_mangrove_log",
@@ -9909,7 +9910,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_mangrove_wood",
@@ -9934,7 +9935,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_oak_log",
@@ -9959,7 +9960,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_spruce_log",
@@ -9984,7 +9985,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:stripped_warped_stem",
@@ -10009,7 +10010,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new(
                 "minecraft:warped_stem",
@@ -10034,11 +10035,11 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Tag("minecraft:coals")),
+            Some(Ingredient::Tag(item::Tag::from_index(6))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Tag("minecraft:logs")),
-            Some(Ingredient::Tag("minecraft:logs")),
-            Some(Ingredient::Tag("minecraft:logs")),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
         ],
         results: &[Stack::new(194, 0, 1, None)],
     },
@@ -10050,11 +10051,11 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Tag("minecraft:soul_fire_base_blocks")),
+            Some(Ingredient::Tag(item::Tag::from_index(47))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Tag("minecraft:logs")),
-            Some(Ingredient::Tag("minecraft:logs")),
-            Some(Ingredient::Tag("minecraft:logs")),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
         ],
         results: &[Stack::new(1322, 0, 1, None)],
     },
@@ -10652,13 +10653,13 @@ pub(super) static SHAPED: [Shaped; 924] = [
         height: 3,
         grid: &[
             None,
-            Some(Ingredient::Tag("minecraft:logs")),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
             None,
-            Some(Ingredient::Tag("minecraft:logs")),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:furnace", 61))),
-            Some(Ingredient::Tag("minecraft:logs")),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
             None,
-            Some(Ingredient::Tag("minecraft:logs")),
+            Some(Ingredient::Tag(item::Tag::from_index(37))),
             None,
         ],
         results: &[Stack::new(1305, 0, 1, None)],
@@ -12242,7 +12243,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             ))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
@@ -12444,7 +12445,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             ))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
@@ -13159,9 +13160,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:quartz", 534))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:quartz", 534))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:quartz", 534))),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
         ],
         results: &[Stack::new(395, 0, 1, None)],
     },
@@ -13634,13 +13635,13 @@ pub(super) static SHAPED: [Shaped; 924] = [
         height: 3,
         grid: &[
             Some(Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331))),
-            Some(Ingredient::Exact(Exact::new(1283, 0))),
+            Some(Ingredient::Exact(Exact::new(1283, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331))),
-            Some(Ingredient::Exact(Exact::new(1283, 0))),
+            Some(Ingredient::Exact(Exact::new(1283, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331))),
-            Some(Ingredient::Exact(Exact::new(1283, 0))),
+            Some(Ingredient::Exact(Exact::new(1283, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331))),
-            Some(Ingredient::Exact(Exact::new(1283, 0))),
+            Some(Ingredient::Exact(Exact::new(1283, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331))),
         ],
         results: &[Stack::new(1451, 0, 1, None)],
@@ -16970,7 +16971,7 @@ pub(super) static SHAPED: [Shaped; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
-            Some(Ingredient::Tag("minecraft:wool")),
+            Some(Ingredient::Tag(item::Tag::from_index(75))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
@@ -18197,15 +18198,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(8, 0))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
-            Some(Ingredient::Exact(Exact::new(8, 0))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(8, 0, 0, None))),
         ],
         results: &[Stack::new(13, 0, 4, None)],
     },
@@ -18213,15 +18214,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(102, 0))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
-            Some(Ingredient::Exact(Exact::new(102, 0))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(102, 0, 0, None))),
         ],
         results: &[Stack::new(107, 0, 4, None)],
     },
@@ -18229,15 +18230,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(146, 0))),
-            Some(Ingredient::Exact(Exact::new(146, 0))),
-            Some(Ingredient::Exact(Exact::new(146, 0))),
-            Some(Ingredient::Exact(Exact::new(146, 0))),
-            Some(Ingredient::Exact(Exact::new(146, 0))),
-            Some(Ingredient::Exact(Exact::new(146, 0))),
-            Some(Ingredient::Exact(Exact::new(146, 0))),
-            Some(Ingredient::Exact(Exact::new(146, 0))),
-            Some(Ingredient::Exact(Exact::new(146, 0))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(146, 0, 0, None))),
         ],
         results: &[Stack::new(145, 0, 1, None)],
     },
@@ -18245,15 +18246,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(242, 0))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
-            Some(Ingredient::Exact(Exact::new(242, 0))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(242, 0, 0, None))),
         ],
         results: &[Stack::new(243, 0, 1, None)],
     },
@@ -18261,15 +18262,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(384, 0))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
-            Some(Ingredient::Exact(Exact::new(384, 0))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(384, 0, 0, None))),
         ],
         results: &[Stack::new(389, 0, 4, None)],
     },
@@ -18277,15 +18278,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(786, 0))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
-            Some(Ingredient::Exact(Exact::new(786, 0))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(786, 0, 0, None))),
         ],
         results: &[Stack::new(791, 0, 4, None)],
     },
@@ -18293,15 +18294,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(798, 0))),
-            Some(Ingredient::Exact(Exact::new(798, 0))),
-            Some(Ingredient::Exact(Exact::new(798, 0))),
-            Some(Ingredient::Exact(Exact::new(798, 0))),
-            Some(Ingredient::Exact(Exact::new(798, 0))),
-            Some(Ingredient::Exact(Exact::new(798, 0))),
-            Some(Ingredient::Exact(Exact::new(798, 0))),
-            Some(Ingredient::Exact(Exact::new(798, 0))),
-            Some(Ingredient::Exact(Exact::new(798, 0))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(798, 0, 0, None))),
         ],
         results: &[Stack::new(797, 0, 1, None)],
     },
@@ -18309,11 +18310,11 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(949, 0))),
-            Some(Ingredient::Exact(Exact::new(949, 0))),
-            Some(Ingredient::Exact(Exact::new(949, 0))),
+            Some(Ingredient::Exact(Exact::new(949, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(949, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(949, 0, 0, None))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:sugar", 419))),
-            Some(Ingredient::Tag("minecraft:egg")),
+            Some(Ingredient::Tag(item::Tag::from_index(13))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:sugar", 419))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:wheat", 337))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:wheat", 337))),
@@ -18325,15 +18326,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
-            Some(Ingredient::Exact(Exact::new(1027, 0))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1027, 0, 0, None))),
         ],
         results: &[Stack::new(1031, 0, 4, None)],
     },
@@ -18341,15 +18342,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
-            Some(Ingredient::Exact(Exact::new(1180, 0))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1180, 0, 0, None))),
         ],
         results: &[Stack::new(1187, 0, 4, None)],
     },
@@ -18357,15 +18358,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
-            Some(Ingredient::Exact(Exact::new(1210, 0))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1210, 0, 0, None))),
         ],
         results: &[Stack::new(1215, 0, 4, None)],
     },
@@ -18373,15 +18374,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
-            Some(Ingredient::Exact(Exact::new(1253, 0))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1253, 0, 0, None))),
         ],
         results: &[Stack::new(1255, 0, 4, None)],
     },
@@ -18389,15 +18390,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
-            Some(Ingredient::Exact(Exact::new(1284, 0))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1284, 0, 0, None))),
         ],
         results: &[Stack::new(1286, 0, 4, None)],
     },
@@ -18405,15 +18406,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
-            Some(Ingredient::Exact(Exact::new(1383, 0))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1383, 0, 0, None))),
         ],
         results: &[Stack::new(1388, 0, 4, None)],
     },
@@ -18421,15 +18422,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
             None,
             None,
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
             None,
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
-            Some(Ingredient::Exact(Exact::new(1394, 0))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
+            Some(Ingredient::Exact(Exact::new(1394, 0, 0, None))),
         ],
         results: &[Stack::new(1020, 0, 4, None)],
     },
@@ -18437,9 +18438,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
@@ -18453,15 +18454,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:book", 390))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:book", 390))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:book", 390))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(148, 0, 1, None)],
     },
@@ -18469,15 +18470,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             None,
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(221, 0, 1, None)],
     },
@@ -18485,15 +18486,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:diamond", 306))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(777, 0, 1, None)],
     },
@@ -18501,15 +18502,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:redstone", 376))),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(1021, 0, 1, None)],
     },
@@ -18517,15 +18518,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(224, 0, 1, None)],
     },
@@ -18533,15 +18534,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
             None,
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:planks")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:planks")),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(44))),
         ],
         results: &[Stack::new(67, 0, 1, None)],
     },
@@ -18549,15 +18550,15 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
             None,
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
-            Some(Ingredient::Tag("minecraft:stone_crafting_materials")),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
+            Some(Ingredient::Tag(item::Tag::from_index(50))),
         ],
         results: &[Stack::new(630, 0, 1, None)],
     },
@@ -18565,9 +18566,9 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
-            Some(Ingredient::Tag("minecraft:stone_tool_materials")),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
+            Some(Ingredient::Tag(item::Tag::from_index(52))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:stick", 323))),
             None,
@@ -18581,14 +18582,14 @@ pub(super) static SHAPED: [Shaped; 924] = [
         width: 3,
         height: 3,
         grid: &[
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
             None,
             Some(Ingredient::AnyMeta(Name::new("minecraft:bookshelf", 47))),
             None,
             None,
-            Some(Ingredient::Tag("minecraft:wooden_slabs")),
+            Some(Ingredient::Tag(item::Tag::from_index(73))),
             None,
         ],
         results: &[Stack::new(808, 0, 1, None)],
@@ -18619,7 +18620,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18627,7 +18628,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18635,7 +18636,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18643,7 +18644,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18651,7 +18652,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18659,7 +18660,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18667,7 +18668,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18675,7 +18676,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18683,7 +18684,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18691,7 +18692,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18699,7 +18700,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18707,7 +18708,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18715,7 +18716,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18723,10 +18724,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -18738,7 +18739,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18746,7 +18747,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -18771,7 +18772,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blaze_powder", 433)),
-            Ingredient::Tag("minecraft:coals"),
+            Ingredient::Tag(item::Tag::from_index(6)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
         ],
         results: &[Stack::new(614, 0, 3, None)],
@@ -18785,7 +18786,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18793,7 +18794,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18801,7 +18802,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18809,7 +18810,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18817,7 +18818,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18825,7 +18826,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18833,7 +18834,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18841,7 +18842,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18849,7 +18850,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18857,7 +18858,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18865,7 +18866,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18873,7 +18874,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18881,7 +18882,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18889,10 +18890,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -18904,7 +18905,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18912,7 +18913,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -18938,7 +18939,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -18946,7 +18947,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -18954,7 +18955,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -18962,7 +18963,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -18970,7 +18971,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -18978,7 +18979,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -18986,7 +18987,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -18994,7 +18995,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -19002,7 +19003,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -19010,7 +19011,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -19018,7 +19019,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -19026,7 +19027,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -19034,7 +19035,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -19042,7 +19043,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -19050,10 +19051,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -19065,7 +19066,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -19073,7 +19074,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:book", 390)),
-            Ingredient::Exact(Exact::new(758, 0)),
+            Ingredient::Exact(Exact::new(758, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:feather", 330)),
         ],
         results: &[Stack::new(1597, 0, 1, None)],
@@ -19117,7 +19118,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19125,7 +19126,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19133,7 +19134,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19141,7 +19142,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19149,7 +19150,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19157,7 +19158,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19165,7 +19166,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19173,7 +19174,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19181,7 +19182,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19189,7 +19190,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19197,7 +19198,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19205,7 +19206,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19213,7 +19214,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19221,10 +19222,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -19236,7 +19237,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19244,7 +19245,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19409,7 +19410,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(115, 0)),
+            Ingredient::Exact(Exact::new(115, 0, 0, None)),
         ],
         results: &[Stack::new(110, 0, 1, None)],
     },
@@ -19417,7 +19418,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(135, 0)),
+            Ingredient::Exact(Exact::new(135, 0, 0, None)),
         ],
         results: &[Stack::new(130, 0, 1, None)],
     },
@@ -19425,7 +19426,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(1573, 0, 1, None)],
     },
@@ -19433,7 +19434,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(166, 0)),
+            Ingredient::Exact(Exact::new(166, 0, 0, None)),
         ],
         results: &[Stack::new(161, 0, 1, None)],
     },
@@ -19441,7 +19442,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(254, 0)),
+            Ingredient::Exact(Exact::new(254, 0, 0, None)),
         ],
         results: &[Stack::new(161, 0, 1, None)],
     },
@@ -19449,7 +19450,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(367, 0)),
+            Ingredient::Exact(Exact::new(367, 0, 0, None)),
         ],
         results: &[Stack::new(362, 0, 1, None)],
     },
@@ -19457,7 +19458,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(680, 0)),
+            Ingredient::Exact(Exact::new(680, 0, 0, None)),
         ],
         results: &[Stack::new(675, 0, 1, None)],
     },
@@ -19465,7 +19466,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(692, 0)),
+            Ingredient::Exact(Exact::new(692, 0, 0, None)),
         ],
         results: &[Stack::new(687, 0, 1, None)],
     },
@@ -19473,7 +19474,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(758, 0)),
+            Ingredient::Exact(Exact::new(758, 0, 0, None)),
         ],
         results: &[Stack::new(110, 0, 1, None)],
     },
@@ -19481,7 +19482,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(798, 0)),
+            Ingredient::Exact(Exact::new(798, 0, 0, None)),
         ],
         results: &[Stack::new(130, 0, 1, None)],
     },
@@ -19489,7 +19490,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(831, 0)),
+            Ingredient::Exact(Exact::new(831, 0, 0, None)),
         ],
         results: &[Stack::new(826, 0, 1, None)],
     },
@@ -19497,7 +19498,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(843, 0)),
+            Ingredient::Exact(Exact::new(843, 0, 0, None)),
         ],
         results: &[Stack::new(838, 0, 1, None)],
     },
@@ -19505,7 +19506,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(858, 0)),
+            Ingredient::Exact(Exact::new(858, 0, 0, None)),
         ],
         results: &[Stack::new(853, 0, 1, None)],
     },
@@ -19513,7 +19514,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(915, 0)),
+            Ingredient::Exact(Exact::new(915, 0, 0, None)),
         ],
         results: &[Stack::new(910, 0, 1, None)],
     },
@@ -19521,7 +19522,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(1040, 0)),
+            Ingredient::Exact(Exact::new(1040, 0, 0, None)),
         ],
         results: &[Stack::new(1035, 0, 1, None)],
     },
@@ -19529,7 +19530,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(1090, 0)),
+            Ingredient::Exact(Exact::new(1090, 0, 0, None)),
         ],
         results: &[Stack::new(1085, 0, 1, None)],
     },
@@ -19537,7 +19538,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(1198, 0)),
+            Ingredient::Exact(Exact::new(1198, 0, 0, None)),
         ],
         results: &[Stack::new(1193, 0, 1, None)],
     },
@@ -19545,7 +19546,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(1234, 0)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
         ],
         results: &[Stack::new(1229, 0, 1, None)],
     },
@@ -19553,7 +19554,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(1573, 0, 1, None)],
     },
@@ -19561,7 +19562,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:candle", -412)),
-            Ingredient::Exact(Exact::new(1604, 0)),
+            Ingredient::Exact(Exact::new(1604, 0, 0, None)),
         ],
         results: &[Stack::new(1599, 0, 1, None)],
     },
@@ -19609,7 +19610,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19617,7 +19618,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19625,7 +19626,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19633,7 +19634,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19641,7 +19642,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19649,7 +19650,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19657,7 +19658,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19665,7 +19666,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19673,7 +19674,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19681,7 +19682,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19689,7 +19690,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19697,7 +19698,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19705,7 +19706,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19713,10 +19714,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -19728,7 +19729,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19736,7 +19737,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(184, 0, 1, None)],
     },
@@ -19837,7 +19838,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19845,7 +19846,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19853,7 +19854,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19861,7 +19862,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19869,7 +19870,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19877,7 +19878,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19885,7 +19886,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19893,7 +19894,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19901,7 +19902,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19909,7 +19910,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19917,7 +19918,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19925,7 +19926,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19933,7 +19934,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19941,10 +19942,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -19956,7 +19957,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -19964,7 +19965,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(373, 0, 1, None)],
     },
@@ -20100,7 +20101,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20108,7 +20109,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20116,7 +20117,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20124,7 +20125,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20132,7 +20133,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20140,7 +20141,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20148,7 +20149,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20156,7 +20157,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20164,7 +20165,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20172,7 +20173,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20180,7 +20181,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20188,7 +20189,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20196,7 +20197,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20204,10 +20205,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -20219,7 +20220,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20227,7 +20228,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(686, 0, 1, None)],
     },
@@ -20235,7 +20236,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20243,7 +20244,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20251,7 +20252,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20259,7 +20260,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20267,7 +20268,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20275,7 +20276,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20283,7 +20284,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20291,7 +20292,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20299,7 +20300,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20307,7 +20308,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20315,7 +20316,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20323,7 +20324,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20331,7 +20332,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20339,10 +20340,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -20354,7 +20355,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20362,7 +20363,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(698, 0, 1, None)],
     },
@@ -20881,7 +20882,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20889,7 +20890,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20897,7 +20898,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20905,7 +20906,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20913,7 +20914,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20921,7 +20922,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20929,7 +20930,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20937,7 +20938,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20945,7 +20946,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20953,7 +20954,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20961,7 +20962,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20969,7 +20970,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20977,7 +20978,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -20985,10 +20986,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -21000,7 +21001,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -21008,7 +21009,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(121, 0, 1, None)],
     },
@@ -21024,7 +21025,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21032,7 +21033,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21040,7 +21041,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21048,7 +21049,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21056,7 +21057,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21064,7 +21065,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21072,7 +21073,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21080,7 +21081,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21088,7 +21089,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21096,7 +21097,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21104,7 +21105,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21112,7 +21113,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21120,7 +21121,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21128,10 +21129,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -21143,7 +21144,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21151,7 +21152,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(143, 0, 1, None)],
     },
@@ -21159,7 +21160,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21167,7 +21168,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21175,7 +21176,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21183,7 +21184,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21191,7 +21192,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21199,7 +21200,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21207,7 +21208,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21215,7 +21216,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21223,7 +21224,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21231,7 +21232,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21239,7 +21240,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21247,7 +21248,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21255,7 +21256,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21263,10 +21264,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -21278,7 +21279,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21286,7 +21287,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(837, 0, 1, None)],
     },
@@ -21294,7 +21295,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21302,7 +21303,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21310,7 +21311,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21318,7 +21319,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21326,7 +21327,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21334,7 +21335,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21342,7 +21343,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21350,7 +21351,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21358,7 +21359,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21366,7 +21367,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21374,7 +21375,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21382,7 +21383,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21390,7 +21391,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21398,10 +21399,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -21413,7 +21414,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21421,7 +21422,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(848, 0, 1, None)],
     },
@@ -21450,7 +21451,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21458,7 +21459,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21466,7 +21467,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21474,7 +21475,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21482,7 +21483,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21490,7 +21491,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21498,7 +21499,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21506,7 +21507,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21514,7 +21515,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21522,7 +21523,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21530,7 +21531,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21538,7 +21539,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21546,7 +21547,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21554,10 +21555,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -21569,7 +21570,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21577,7 +21578,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(864, 0, 1, None)],
     },
@@ -21585,7 +21586,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21593,7 +21594,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21601,7 +21602,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21609,7 +21610,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21617,7 +21618,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21625,7 +21626,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21633,7 +21634,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21641,7 +21642,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21649,7 +21650,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21657,7 +21658,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21665,7 +21666,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21673,7 +21674,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21681,7 +21682,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21689,10 +21690,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -21704,7 +21705,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21712,7 +21713,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(921, 0, 1, None)],
     },
@@ -21758,7 +21759,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21766,7 +21767,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21774,7 +21775,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21782,7 +21783,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21790,7 +21791,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21798,7 +21799,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21806,7 +21807,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21814,7 +21815,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21822,7 +21823,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21830,7 +21831,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21838,7 +21839,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21846,7 +21847,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21854,7 +21855,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21862,10 +21863,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -21877,7 +21878,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -21885,7 +21886,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(1047, 0, 1, None)],
     },
@@ -22014,7 +22015,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22043,7 +22061,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22072,7 +22107,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22101,7 +22153,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22130,7 +22199,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22159,7 +22245,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22188,7 +22291,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22217,7 +22337,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22246,7 +22383,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22275,7 +22429,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22304,7 +22475,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22333,7 +22521,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22362,7 +22567,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22391,7 +22613,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22420,7 +22659,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22449,7 +22705,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22478,7 +22751,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22507,7 +22797,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22536,7 +22843,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22565,7 +22889,24 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:paper", 389)),
             Ingredient::AnyMeta(Name::new("minecraft:gunpowder", 331)),
-            Ingredient::Exact(Exact::new(619, 0)),
+            Ingredient::Exact(Exact::new(
+                619,
+                0,
+                0,
+                Some(&[
+                    (
+                        "FireworksItem",
+                        crate::nbt::Static::Compound(&[
+                            ("FireworkColor", crate::nbt::Static::ByteArray(&[0])),
+                            ("FireworkFade", crate::nbt::Static::ByteArray(&[])),
+                            ("FireworkFlicker", crate::nbt::Static::Byte(0)),
+                            ("FireworkTrail", crate::nbt::Static::Byte(0)),
+                            ("FireworkType", crate::nbt::Static::Byte(0)),
+                        ]),
+                    ),
+                    ("customColor", crate::nbt::Static::Int(-14_869_215)),
+                ]),
+            )),
         ],
         results: &[Stack::new(
             618,
@@ -22620,7 +22961,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22628,7 +22969,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22636,7 +22977,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22644,7 +22985,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22652,7 +22993,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22660,7 +23001,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22668,7 +23009,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22676,7 +23017,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22684,7 +23025,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22692,7 +23033,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22700,7 +23041,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22708,7 +23049,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22716,7 +23057,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22724,10 +23065,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -22739,7 +23080,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22747,7 +23088,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(1098, 0, 1, None)],
     },
@@ -22782,7 +23123,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:pumpkin", 86)),
             Ingredient::AnyMeta(Name::new("minecraft:sugar", 419)),
-            Ingredient::Tag("minecraft:egg"),
+            Ingredient::Tag(item::Tag::from_index(13)),
         ],
         results: &[Stack::new(1191, 0, 1, None)],
     },
@@ -22790,7 +23131,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22798,7 +23139,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22806,7 +23147,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22814,7 +23155,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22822,7 +23163,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22830,7 +23171,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22838,7 +23179,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22846,7 +23187,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22854,7 +23195,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22862,7 +23203,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22870,7 +23211,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22878,7 +23219,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22886,7 +23227,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22894,10 +23235,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -22909,7 +23250,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22917,7 +23258,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(1204, 0, 1, None)],
     },
@@ -22925,7 +23266,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22933,7 +23274,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22941,7 +23282,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22949,7 +23290,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22957,7 +23298,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22965,7 +23306,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22973,7 +23314,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22981,7 +23322,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22989,7 +23330,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -22997,7 +23338,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -23005,7 +23346,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -23013,7 +23354,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -23021,7 +23362,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -23029,10 +23370,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -23044,7 +23385,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -23052,7 +23393,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(1262, 0, 1, None)],
     },
@@ -23212,7 +23553,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23220,7 +23561,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23228,7 +23569,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23236,7 +23577,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23244,7 +23585,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23252,7 +23593,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23260,7 +23601,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23268,7 +23609,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23276,7 +23617,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23284,7 +23625,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23292,7 +23633,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23300,7 +23641,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23308,7 +23649,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23316,7 +23657,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23324,10 +23665,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -23339,7 +23680,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
-            Ingredient::Exact(Exact::new(1610, 0)),
+            Ingredient::Exact(Exact::new(1610, 0, 0, None)),
         ],
         results: &[Stack::new(1585, 0, 1, None)],
     },
@@ -23371,7 +23712,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(121, 0)),
+            Ingredient::Exact(Exact::new(121, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23379,7 +23720,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(143, 0)),
+            Ingredient::Exact(Exact::new(143, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23387,7 +23728,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(184, 0)),
+            Ingredient::Exact(Exact::new(184, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23395,7 +23736,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(373, 0)),
+            Ingredient::Exact(Exact::new(373, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23403,7 +23744,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(686, 0)),
+            Ingredient::Exact(Exact::new(686, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23411,7 +23752,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(698, 0)),
+            Ingredient::Exact(Exact::new(698, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23419,7 +23760,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(837, 0)),
+            Ingredient::Exact(Exact::new(837, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23427,7 +23768,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(848, 0)),
+            Ingredient::Exact(Exact::new(848, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23435,7 +23776,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(864, 0)),
+            Ingredient::Exact(Exact::new(864, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23443,7 +23784,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(921, 0)),
+            Ingredient::Exact(Exact::new(921, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23451,7 +23792,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(1047, 0)),
+            Ingredient::Exact(Exact::new(1047, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23459,7 +23800,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(1098, 0)),
+            Ingredient::Exact(Exact::new(1098, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23467,7 +23808,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(1204, 0)),
+            Ingredient::Exact(Exact::new(1204, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23475,7 +23816,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(1262, 0)),
+            Ingredient::Exact(Exact::new(1262, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
@@ -23483,10 +23824,10 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
-            Ingredient::Exact(Exact::new(1283, 0)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1283, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
             Ingredient::AnyMeta(Name::new("minecraft:gravel", 13)),
@@ -23498,14 +23839,14 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
         kind: ShapelessType::Crafting,
         ingredients: &[
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
-            Ingredient::Exact(Exact::new(1585, 0)),
+            Ingredient::Exact(Exact::new(1585, 0, 0, None)),
         ],
         results: &[Stack::new(1610, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -23513,7 +23854,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -23521,7 +23862,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -23529,7 +23870,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -23537,7 +23878,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -23545,7 +23886,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -23553,7 +23894,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -23561,7 +23902,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -23569,7 +23910,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -23577,7 +23918,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -23585,7 +23926,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -23593,7 +23934,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -23601,7 +23942,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -23609,7 +23950,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -23617,7 +23958,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -23625,7 +23966,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -23633,7 +23974,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -23641,7 +23982,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(71, 0)),
+            Ingredient::Exact(Exact::new(71, 0, 0, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -23649,7 +23990,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -23657,7 +23998,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -23665,7 +24006,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -23673,7 +24014,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -23681,7 +24022,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -23689,7 +24030,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -23697,7 +24038,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -23705,7 +24046,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -23713,7 +24054,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -23721,7 +24062,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -23729,7 +24070,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -23737,7 +24078,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -23745,7 +24086,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -23753,7 +24094,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -23761,7 +24102,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -23769,7 +24110,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -23777,7 +24118,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -23785,7 +24126,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -23793,7 +24134,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(78, 1)),
+            Ingredient::Exact(Exact::new(78, 1, 1, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -23801,7 +24142,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -23809,7 +24150,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -23817,7 +24158,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -23825,7 +24166,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -23833,7 +24174,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -23841,7 +24182,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -23849,7 +24190,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -23857,7 +24198,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -23865,7 +24206,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -23873,7 +24214,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -23881,7 +24222,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -23889,7 +24230,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -23897,7 +24238,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -23905,7 +24246,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -23913,7 +24254,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -23921,7 +24262,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -23929,7 +24270,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -23937,7 +24278,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -23945,7 +24286,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(72, 10)),
+            Ingredient::Exact(Exact::new(72, 10, 10, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -23953,7 +24294,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -23961,7 +24302,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -23969,7 +24310,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -23977,7 +24318,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -23985,7 +24326,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -23993,7 +24334,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -24001,7 +24342,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -24009,7 +24350,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24017,7 +24358,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -24025,7 +24366,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -24033,7 +24374,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -24041,7 +24382,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -24049,7 +24390,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -24057,7 +24398,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -24065,7 +24406,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -24073,7 +24414,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -24081,7 +24422,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24089,7 +24430,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(73, 11)),
+            Ingredient::Exact(Exact::new(73, 11, 11, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -24097,7 +24438,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24105,7 +24446,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24113,7 +24454,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24121,7 +24462,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -24129,7 +24470,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -24137,7 +24478,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -24145,7 +24486,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24153,7 +24494,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24161,7 +24502,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -24169,7 +24510,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -24177,7 +24518,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -24185,7 +24526,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -24193,7 +24534,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -24201,7 +24542,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -24209,7 +24550,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -24217,7 +24558,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -24225,7 +24566,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24233,7 +24574,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(74, 12)),
+            Ingredient::Exact(Exact::new(74, 12, 12, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -24241,7 +24582,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24249,7 +24590,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24257,7 +24598,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24265,7 +24606,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24273,7 +24614,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24281,7 +24622,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -24289,7 +24630,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -24297,7 +24638,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24305,7 +24646,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24313,7 +24654,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -24321,7 +24662,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -24329,7 +24670,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -24337,7 +24678,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -24345,7 +24686,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -24353,7 +24694,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -24361,7 +24702,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -24369,7 +24710,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -24377,7 +24718,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24385,7 +24726,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(75, 13)),
+            Ingredient::Exact(Exact::new(75, 13, 13, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -24393,7 +24734,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24401,7 +24742,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24409,7 +24750,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24417,7 +24758,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24425,7 +24766,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24433,7 +24774,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -24441,7 +24782,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -24449,7 +24790,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -24457,7 +24798,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24465,7 +24806,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24473,7 +24814,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -24481,7 +24822,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -24489,7 +24830,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -24497,7 +24838,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -24505,7 +24846,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -24513,7 +24854,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -24521,7 +24862,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -24529,7 +24870,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24537,7 +24878,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(76, 14)),
+            Ingredient::Exact(Exact::new(76, 14, 14, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -24545,7 +24886,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24553,7 +24894,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24561,7 +24902,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24569,7 +24910,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24577,7 +24918,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -24585,7 +24926,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -24593,7 +24934,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -24601,7 +24942,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24609,7 +24950,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -24617,7 +24958,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -24625,7 +24966,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -24633,7 +24974,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -24641,7 +24982,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -24649,7 +24990,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -24657,7 +24998,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -24665,7 +25006,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -24673,7 +25014,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24681,7 +25022,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(77, 15)),
+            Ingredient::Exact(Exact::new(77, 15, 15, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -24689,7 +25030,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24697,7 +25038,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24705,7 +25046,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24713,7 +25054,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24721,7 +25062,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24729,7 +25070,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -24737,7 +25078,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -24745,7 +25086,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -24753,7 +25094,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24761,7 +25102,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24769,7 +25110,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -24777,7 +25118,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -24785,7 +25126,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -24793,7 +25134,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -24801,7 +25142,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -24809,7 +25150,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -24817,7 +25158,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -24825,7 +25166,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24833,7 +25174,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(79, 2)),
+            Ingredient::Exact(Exact::new(79, 2, 2, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -24841,7 +25182,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24849,7 +25190,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24857,7 +25198,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24865,7 +25206,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24873,7 +25214,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -24881,7 +25222,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -24889,7 +25230,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -24897,7 +25238,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -24905,7 +25246,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -24913,7 +25254,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -24921,7 +25262,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -24929,7 +25270,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -24937,7 +25278,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -24945,7 +25286,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -24953,7 +25294,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -24961,7 +25302,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -24969,7 +25310,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -24977,7 +25318,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -24985,7 +25326,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(80, 3)),
+            Ingredient::Exact(Exact::new(80, 3, 3, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -24993,7 +25334,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25001,7 +25342,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25009,7 +25350,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25017,7 +25358,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25025,7 +25366,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25033,7 +25374,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -25041,7 +25382,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -25049,7 +25390,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -25057,7 +25398,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25065,7 +25406,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25073,7 +25414,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -25081,7 +25422,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -25089,7 +25430,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -25097,7 +25438,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -25105,7 +25446,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -25113,7 +25454,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -25121,7 +25462,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -25129,7 +25470,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -25137,7 +25478,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(81, 4)),
+            Ingredient::Exact(Exact::new(81, 4, 4, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25145,7 +25486,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25153,7 +25494,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25161,7 +25502,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25169,7 +25510,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25177,7 +25518,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25185,7 +25526,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -25193,7 +25534,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -25201,7 +25542,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -25209,7 +25550,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25217,7 +25558,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25225,7 +25566,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -25233,7 +25574,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -25241,7 +25582,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -25249,7 +25590,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -25257,7 +25598,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -25265,7 +25606,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -25273,7 +25614,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -25281,7 +25622,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25289,7 +25630,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(82, 5)),
+            Ingredient::Exact(Exact::new(82, 5, 5, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -25297,7 +25638,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25305,7 +25646,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25313,7 +25654,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25321,7 +25662,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25329,7 +25670,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25337,7 +25678,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -25345,7 +25686,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -25353,7 +25694,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -25361,7 +25702,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25369,7 +25710,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25377,7 +25718,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -25385,7 +25726,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -25393,7 +25734,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -25401,7 +25742,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -25409,7 +25750,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -25417,7 +25758,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -25425,7 +25766,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -25433,7 +25774,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25441,7 +25782,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(83, 6)),
+            Ingredient::Exact(Exact::new(83, 6, 6, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -25449,7 +25790,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25457,7 +25798,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25465,7 +25806,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25473,7 +25814,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25481,7 +25822,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25489,7 +25830,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -25497,7 +25838,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -25505,7 +25846,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25513,7 +25854,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25521,7 +25862,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -25529,7 +25870,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -25537,7 +25878,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -25545,7 +25886,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -25553,7 +25894,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -25561,7 +25902,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -25569,7 +25910,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -25577,7 +25918,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -25585,7 +25926,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25593,7 +25934,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(84, 7)),
+            Ingredient::Exact(Exact::new(84, 7, 7, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -25601,7 +25942,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25609,7 +25950,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25617,7 +25958,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25625,7 +25966,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25633,7 +25974,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25641,7 +25982,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cyan_dye", 404)),
         ],
         results: &[Stack::new(86, 9, 1, None)],
@@ -25649,7 +25990,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -25657,7 +25998,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -25665,7 +26006,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25673,7 +26014,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25681,7 +26022,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -25689,7 +26030,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -25697,7 +26038,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -25705,7 +26046,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -25713,7 +26054,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -25721,7 +26062,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -25729,7 +26070,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -25737,7 +26078,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25745,7 +26086,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(85, 8)),
+            Ingredient::Exact(Exact::new(85, 8, 8, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -25753,7 +26094,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:black_dye", 398)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25761,7 +26102,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:blue_dye", 402)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25769,7 +26110,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:bone_meal", 414)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25777,7 +26118,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:brown_dye", 401)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25785,7 +26126,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:cocoa_beans", 415)),
         ],
         results: &[Stack::new(74, 12, 1, None)],
@@ -25793,7 +26134,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:gray_dye", 406)),
         ],
         results: &[Stack::new(84, 7, 1, None)],
@@ -25801,7 +26142,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:green_dye", 400)),
         ],
         results: &[Stack::new(75, 13, 1, None)],
@@ -25809,7 +26150,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:ink_sac", 416)),
         ],
         results: &[Stack::new(77, 15, 1, None)],
@@ -25817,7 +26158,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lapis_lazuli", 417)),
         ],
         results: &[Stack::new(73, 11, 1, None)],
@@ -25825,7 +26166,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_blue_dye", 410)),
         ],
         results: &[Stack::new(80, 3, 1, None)],
@@ -25833,7 +26174,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:light_gray_dye", 405)),
         ],
         results: &[Stack::new(85, 8, 1, None)],
@@ -25841,7 +26182,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:lime_dye", 408)),
         ],
         results: &[Stack::new(82, 5, 1, None)],
@@ -25849,7 +26190,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:magenta_dye", 411)),
         ],
         results: &[Stack::new(79, 2, 1, None)],
@@ -25857,7 +26198,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:orange_dye", 412)),
         ],
         results: &[Stack::new(78, 1, 1, None)],
@@ -25865,7 +26206,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:pink_dye", 407)),
         ],
         results: &[Stack::new(83, 6, 1, None)],
@@ -25873,7 +26214,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:purple_dye", 403)),
         ],
         results: &[Stack::new(72, 10, 1, None)],
@@ -25881,7 +26222,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:red_dye", 399)),
         ],
         results: &[Stack::new(76, 14, 1, None)],
@@ -25889,7 +26230,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:white_dye", 413)),
         ],
         results: &[Stack::new(71, 0, 1, None)],
@@ -25897,7 +26238,7 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(86, 9)),
+            Ingredient::Exact(Exact::new(86, 9, 9, None)),
             Ingredient::AnyMeta(Name::new("minecraft:yellow_dye", 409)),
         ],
         results: &[Stack::new(81, 4, 1, None)],
@@ -25905,289 +26246,289 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(115, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(115, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(843, 0, 3, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(115, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(115, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(680, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(115, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(115, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(843, 0, 3, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(115, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(115, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(680, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(135, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(135, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(831, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(135, 0)),
-            Ingredient::Exact(Exact::new(692, 0)),
+            Ingredient::Exact(Exact::new(135, 0, 0, None)),
+            Ingredient::Exact(Exact::new(692, 0, 0, None)),
         ],
         results: &[Stack::new(367, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(135, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1090, 0)),
+            Ingredient::Exact(Exact::new(135, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1090, 0, 0, None)),
         ],
         results: &[Stack::new(915, 0, 3, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(135, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(135, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(915, 0, 4, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(135, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(135, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(915, 0, 4, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(135, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
+            Ingredient::Exact(Exact::new(135, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
         ],
         results: &[Stack::new(1198, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(135, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(135, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(831, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
-        ingredients: &[Ingredient::Exact(Exact::new(146, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(146, 0, 0, None))],
         results: &[Stack::new(1578, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
-        ingredients: &[Ingredient::Exact(Exact::new(254, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(254, 0, 0, None))],
         results: &[Stack::new(166, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
-        ingredients: &[Ingredient::Exact(Exact::new(375, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(375, 0, 0, None))],
         results: &[Stack::new(1604, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(680, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(680, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(843, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(680, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(680, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(843, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(692, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(692, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(858, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(692, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(692, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(858, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(758, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(758, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(843, 0, 3, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(758, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(758, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(680, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(758, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(758, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(843, 0, 3, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(758, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(758, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(680, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
-        ingredients: &[Ingredient::Exact(Exact::new(758, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(758, 0, 0, None))],
         results: &[Stack::new(115, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(798, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(798, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(831, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(798, 0)),
-            Ingredient::Exact(Exact::new(692, 0)),
+            Ingredient::Exact(Exact::new(798, 0, 0, None)),
+            Ingredient::Exact(Exact::new(692, 0, 0, None)),
         ],
         results: &[Stack::new(367, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(798, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1090, 0)),
+            Ingredient::Exact(Exact::new(798, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1090, 0, 0, None)),
         ],
         results: &[Stack::new(915, 0, 3, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(798, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(798, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(915, 0, 4, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(798, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(798, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(915, 0, 4, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(798, 0)),
-            Ingredient::Exact(Exact::new(1234, 0)),
+            Ingredient::Exact(Exact::new(798, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
         ],
         results: &[Stack::new(1198, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(798, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(798, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(831, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
-        ingredients: &[Ingredient::Exact(Exact::new(798, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(798, 0, 0, None))],
         results: &[Stack::new(135, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(1079, 0)),
-            Ingredient::Exact(Exact::new(1079, 0)),
-            Ingredient::Exact(Exact::new(1079, 0)),
-            Ingredient::Exact(Exact::new(803, 0)),
+            Ingredient::Exact(Exact::new(1079, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1079, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1079, 0, 0, None)),
+            Ingredient::Exact(Exact::new(803, 0, 0, None)),
         ],
         results: &[Stack::new(147, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(1198, 0)),
-            Ingredient::Exact(Exact::new(1090, 0)),
+            Ingredient::Exact(Exact::new(1198, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1090, 0, 0, None)),
         ],
         results: &[Stack::new(915, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(146, 0)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(146, 0, 0, None)),
         ],
         results: &[Stack::new(1090, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1578, 0)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1578, 0, 0, None)),
         ],
         results: &[Stack::new(1090, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Crafting,
         ingredients: &[
-            Ingredient::Exact(Exact::new(1234, 0)),
-            Ingredient::Exact(Exact::new(1604, 0)),
+            Ingredient::Exact(Exact::new(1234, 0, 0, None)),
+            Ingredient::Exact(Exact::new(1604, 0, 0, None)),
         ],
         results: &[Stack::new(1040, 0, 2, None)],
     },
@@ -27541,392 +27882,392 @@ pub(super) static SHAPELESS: [Shapeless; 1111] = [
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(157, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(157, 0, 0, None))],
         results: &[Stack::new(159, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(226, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(248, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(249, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(250, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(413, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(414, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(415, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(416, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(425, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(426, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(427, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(428, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(1118, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(1119, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(1120, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(247, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(247, 0, 0, None))],
         results: &[Stack::new(1121, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(251, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(251, 0, 0, None))],
         results: &[Stack::new(1405, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(416, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(416, 0, 0, None))],
         results: &[Stack::new(413, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(416, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(416, 0, 0, None))],
         results: &[Stack::new(414, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(416, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(416, 0, 0, None))],
         results: &[Stack::new(415, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(416, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(416, 0, 0, None))],
         results: &[Stack::new(425, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(416, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(416, 0, 0, None))],
         results: &[Stack::new(426, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(416, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(416, 0, 0, None))],
         results: &[Stack::new(427, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(416, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(416, 0, 0, None))],
         results: &[Stack::new(428, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(428, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(428, 0, 0, None))],
         results: &[Stack::new(425, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(428, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(428, 0, 0, None))],
         results: &[Stack::new(426, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(428, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(428, 0, 0, None))],
         results: &[Stack::new(427, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(584, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(584, 0, 0, None))],
         results: &[Stack::new(583, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(588, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(588, 0, 0, None))],
         results: &[Stack::new(583, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(588, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(588, 0, 0, None))],
         results: &[Stack::new(584, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(952, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(952, 0, 0, None))],
         results: &[Stack::new(954, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(993, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(993, 0, 0, None))],
         results: &[Stack::new(996, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(413, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(414, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(415, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(416, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(425, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(426, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(427, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(428, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(1119, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(1120, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1118, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1118, 0, 0, None))],
         results: &[Stack::new(1121, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1180, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1180, 0, 0, None))],
         results: &[Stack::new(1186, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1180, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1180, 0, 0, None))],
         results: &[Stack::new(1187, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1180, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1180, 0, 0, None))],
         results: &[Stack::new(1188, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1205, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1205, 0, 0, None))],
         results: &[Stack::new(1206, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1205, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1205, 0, 0, None))],
         results: &[Stack::new(1207, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1205, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1205, 0, 0, None))],
         results: &[Stack::new(1208, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1210, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1210, 0, 0, None))],
         results: &[Stack::new(229, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1210, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1210, 0, 0, None))],
         results: &[Stack::new(1211, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1210, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1210, 0, 0, None))],
         results: &[Stack::new(1213, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1210, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1210, 0, 0, None))],
         results: &[Stack::new(1214, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1210, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1210, 0, 0, None))],
         results: &[Stack::new(1215, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1248, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1248, 0, 0, None))],
         results: &[Stack::new(1250, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1253, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1253, 0, 0, None))],
         results: &[Stack::new(230, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1253, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1253, 0, 0, None))],
         results: &[Stack::new(358, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1253, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1253, 0, 0, None))],
         results: &[Stack::new(1254, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1253, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1253, 0, 0, None))],
         results: &[Stack::new(1255, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1253, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1253, 0, 0, None))],
         results: &[Stack::new(1256, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1284, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1284, 0, 0, None))],
         results: &[Stack::new(232, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1284, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1284, 0, 0, None))],
         results: &[Stack::new(360, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1284, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1284, 0, 0, None))],
         results: &[Stack::new(1285, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1284, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1284, 0, 0, None))],
         results: &[Stack::new(1286, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1284, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1284, 0, 0, None))],
         results: &[Stack::new(1287, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1313, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1313, 0, 0, None))],
         results: &[Stack::new(1315, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(233, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(251, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(252, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(253, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(1019, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(1020, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(1396, 0, 2, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(1397, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(1398, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(1399, 0, 1, None)],
     },
     Shapeless {
         kind: ShapelessType::Stonecutter,
-        ingredients: &[Ingredient::Exact(Exact::new(1394, 0))],
+        ingredients: &[Ingredient::Exact(Exact::new(1394, 0, 0, None))],
         results: &[Stack::new(1405, 0, 1, None)],
     },
 ];
@@ -28505,32 +28846,32 @@ pub(super) static FURNACE: [Furnace; 209] = [
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::Exact(Exact::new(1210, 0)),
+        input: Ingredient::Exact(Exact::new(1210, 0, 0, None)),
         result: Stack::new(1307, 0, 1, None),
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::Exact(Exact::new(1253, 0)),
+        input: Ingredient::Exact(Exact::new(1253, 0, 0, None)),
         result: Stack::new(1310, 0, 1, None),
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::Exact(Exact::new(1283, 0)),
+        input: Ingredient::Exact(Exact::new(1283, 0, 0, None)),
         result: Stack::new(633, 0, 1, None),
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::Exact(Exact::new(1284, 0)),
+        input: Ingredient::Exact(Exact::new(1284, 0, 0, None)),
         result: Stack::new(1313, 0, 1, None),
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::Exact(Exact::new(1394, 0)),
+        input: Ingredient::Exact(Exact::new(1394, 0, 0, None)),
         result: Stack::new(1316, 0, 1, None),
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::Tag("minecraft:logs_that_burn"),
+        input: Ingredient::Tag(item::Tag::from_index(38)),
         result: Stack::new(205, 0, 1, None),
     },
     Furnace {
@@ -28983,978 +29324,978 @@ pub(super) static FURNACE: [Furnace; 209] = [
 /// Potion type (brewing) recipes, in dump order.
 pub(super) static POTION_TYPE: [PotionType; 195] = [
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(127, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(127, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(892, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(631, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(631, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(636, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(636, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(898, 3, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(923, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(923, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(1001, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(1001, 0, 0, None),
         output: Stack::new(902, 4, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(1217, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(1217, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(1300, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(1300, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(1328, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(1328, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(1394, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(1394, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(1434, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(1434, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(865, 0),
-        reagent: Exact::new(1568, 0),
+        input: Exact::new(865, 0, 0, None),
+        reagent: Exact::new(1568, 0, 0, None),
         output: Stack::new(876, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(876, 1),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(876, 1, 1, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(892, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(866, 10),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(866, 10, 10, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(874, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(868, 12),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(868, 12, 12, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(869, 13, 1, None),
     },
     PotionType {
-        input: Exact::new(870, 14),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(870, 14, 14, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(873, 17, 1, None),
     },
     PotionType {
-        input: Exact::new(870, 14),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(870, 14, 14, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(872, 16, 1, None),
     },
     PotionType {
-        input: Exact::new(870, 14),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(870, 14, 14, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(871, 15, 1, None),
     },
     PotionType {
-        input: Exact::new(871, 15),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(871, 15, 15, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(874, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(873, 17),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(873, 17, 17, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(901, 42, 1, None),
     },
     PotionType {
-        input: Exact::new(873, 17),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(873, 17, 17, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(874, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(875, 19),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(875, 19, 19, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(877, 20, 1, None),
     },
     PotionType {
-        input: Exact::new(887, 2),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(887, 2, 2, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(893, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(878, 21),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(878, 21, 21, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(880, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(878, 21),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(878, 21, 21, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(879, 22, 1, None),
     },
     PotionType {
-        input: Exact::new(879, 22),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(879, 22, 22, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(881, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(880, 23),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(880, 23, 23, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(881, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(882, 25),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(882, 25, 25, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(880, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(882, 25),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(882, 25, 25, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(884, 27, 1, None),
     },
     PotionType {
-        input: Exact::new(882, 25),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(882, 25, 25, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(883, 26, 1, None),
     },
     PotionType {
-        input: Exact::new(883, 26),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(883, 26, 26, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(880, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(884, 27),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(884, 27, 27, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(881, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(885, 28),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(885, 28, 28, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(888, 30, 1, None),
     },
     PotionType {
-        input: Exact::new(885, 28),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(885, 28, 28, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(886, 29, 1, None),
     },
     PotionType {
-        input: Exact::new(898, 3),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(898, 3, 3, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(892, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(889, 31),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(889, 31, 31, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(892, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(889, 31),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(889, 31, 31, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(891, 33, 1, None),
     },
     PotionType {
-        input: Exact::new(889, 31),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(889, 31, 31, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(890, 32, 1, None),
     },
     PotionType {
-        input: Exact::new(890, 32),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(890, 32, 32, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(893, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(891, 33),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(891, 33, 33, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(892, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(892, 34),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(892, 34, 34, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(893, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(895, 37),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(895, 37, 37, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(897, 39, 1, None),
     },
     PotionType {
-        input: Exact::new(895, 37),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(895, 37, 37, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(896, 38, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(127, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(127, 0, 0, None),
         output: Stack::new(889, 31, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(892, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(631, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(631, 0, 0, None),
         output: Stack::new(885, 28, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(636, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(636, 0, 0, None),
         output: Stack::new(878, 21, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(659, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(659, 0, 0, None),
         output: Stack::new(903, 5, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(923, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(923, 0, 0, None),
         output: Stack::new(868, 12, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(1083, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(1083, 0, 0, None),
         output: Stack::new(899, 40, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(1189, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(1189, 0, 0, None),
         output: Stack::new(875, 19, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(1217, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(1217, 0, 0, None),
         output: Stack::new(907, 9, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(1328, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(1328, 0, 0, None),
         output: Stack::new(882, 25, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(1434, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(1434, 0, 0, None),
         output: Stack::new(870, 14, 1, None),
     },
     PotionType {
-        input: Exact::new(902, 4),
-        reagent: Exact::new(1472, 0),
+        input: Exact::new(902, 4, 4, None),
+        reagent: Exact::new(1472, 0, 0, None),
         output: Stack::new(895, 37, 1, None),
     },
     PotionType {
-        input: Exact::new(899, 40),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(899, 40, 40, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(900, 41, 1, None),
     },
     PotionType {
-        input: Exact::new(903, 5),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(903, 5, 5, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(905, 7, 1, None),
     },
     PotionType {
-        input: Exact::new(903, 5),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(903, 5, 5, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(904, 6, 1, None),
     },
     PotionType {
-        input: Exact::new(904, 6),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(904, 6, 6, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(906, 8, 1, None),
     },
     PotionType {
-        input: Exact::new(905, 7),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(905, 7, 7, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(906, 8, 1, None),
     },
     PotionType {
-        input: Exact::new(907, 9),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(907, 9, 9, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(873, 17, 1, None),
     },
     PotionType {
-        input: Exact::new(907, 9),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(907, 9, 9, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(867, 11, 1, None),
     },
     PotionType {
-        input: Exact::new(907, 9),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(907, 9, 9, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(866, 10, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(127, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(127, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1164, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(631, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(631, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(636, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(636, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1170, 3, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(923, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(923, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(1001, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(1001, 0, 0, None),
         output: Stack::new(1174, 4, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(1217, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(1217, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(1300, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(1300, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(1328, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(1328, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(1394, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(1394, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(1434, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(1434, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1137, 0),
-        reagent: Exact::new(1568, 0),
+        input: Exact::new(1137, 0, 0, None),
+        reagent: Exact::new(1568, 0, 0, None),
         output: Stack::new(1148, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1148, 1),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1148, 1, 1, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1164, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1138, 10),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1138, 10, 10, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1146, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(1140, 12),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1140, 12, 12, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1141, 13, 1, None),
     },
     PotionType {
-        input: Exact::new(1142, 14),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1142, 14, 14, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1145, 17, 1, None),
     },
     PotionType {
-        input: Exact::new(1142, 14),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1142, 14, 14, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1144, 16, 1, None),
     },
     PotionType {
-        input: Exact::new(1142, 14),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1142, 14, 14, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1143, 15, 1, None),
     },
     PotionType {
-        input: Exact::new(1143, 15),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1143, 15, 15, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1146, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(1145, 17),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1145, 17, 17, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1173, 42, 1, None),
     },
     PotionType {
-        input: Exact::new(1145, 17),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1145, 17, 17, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1146, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(1147, 19),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1147, 19, 19, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1149, 20, 1, None),
     },
     PotionType {
-        input: Exact::new(1159, 2),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1159, 2, 2, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1165, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(1150, 21),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1150, 21, 21, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1152, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(1150, 21),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1150, 21, 21, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1151, 22, 1, None),
     },
     PotionType {
-        input: Exact::new(1151, 22),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1151, 22, 22, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1153, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(1152, 23),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1152, 23, 23, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1153, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(1154, 25),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1154, 25, 25, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1152, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(1154, 25),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1154, 25, 25, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1156, 27, 1, None),
     },
     PotionType {
-        input: Exact::new(1154, 25),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1154, 25, 25, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1155, 26, 1, None),
     },
     PotionType {
-        input: Exact::new(1155, 26),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1155, 26, 26, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1152, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(1156, 27),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1156, 27, 27, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1153, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(1157, 28),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1157, 28, 28, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1160, 30, 1, None),
     },
     PotionType {
-        input: Exact::new(1157, 28),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1157, 28, 28, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1158, 29, 1, None),
     },
     PotionType {
-        input: Exact::new(1170, 3),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1170, 3, 3, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1164, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1161, 31),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1161, 31, 31, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1164, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1161, 31),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1161, 31, 31, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1163, 33, 1, None),
     },
     PotionType {
-        input: Exact::new(1161, 31),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1161, 31, 31, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1162, 32, 1, None),
     },
     PotionType {
-        input: Exact::new(1162, 32),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1162, 32, 32, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1165, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(1163, 33),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1163, 33, 33, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1164, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1164, 34),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1164, 34, 34, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1165, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(1167, 37),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1167, 37, 37, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1169, 39, 1, None),
     },
     PotionType {
-        input: Exact::new(1167, 37),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1167, 37, 37, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1168, 38, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(127, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(127, 0, 0, None),
         output: Stack::new(1161, 31, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1164, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(631, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(631, 0, 0, None),
         output: Stack::new(1157, 28, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(636, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(636, 0, 0, None),
         output: Stack::new(1150, 21, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(659, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(659, 0, 0, None),
         output: Stack::new(1175, 5, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(923, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(923, 0, 0, None),
         output: Stack::new(1140, 12, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(1083, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(1083, 0, 0, None),
         output: Stack::new(1171, 40, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(1189, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(1189, 0, 0, None),
         output: Stack::new(1147, 19, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(1217, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(1217, 0, 0, None),
         output: Stack::new(1179, 9, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(1328, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(1328, 0, 0, None),
         output: Stack::new(1154, 25, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(1434, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(1434, 0, 0, None),
         output: Stack::new(1142, 14, 1, None),
     },
     PotionType {
-        input: Exact::new(1174, 4),
-        reagent: Exact::new(1472, 0),
+        input: Exact::new(1174, 4, 4, None),
+        reagent: Exact::new(1472, 0, 0, None),
         output: Stack::new(1167, 37, 1, None),
     },
     PotionType {
-        input: Exact::new(1171, 40),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1171, 40, 40, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1172, 41, 1, None),
     },
     PotionType {
-        input: Exact::new(1175, 5),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1175, 5, 5, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1177, 7, 1, None),
     },
     PotionType {
-        input: Exact::new(1175, 5),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1175, 5, 5, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1176, 6, 1, None),
     },
     PotionType {
-        input: Exact::new(1176, 6),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1176, 6, 6, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1178, 8, 1, None),
     },
     PotionType {
-        input: Exact::new(1177, 7),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1177, 7, 7, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1178, 8, 1, None),
     },
     PotionType {
-        input: Exact::new(1179, 9),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1179, 9, 9, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1145, 17, 1, None),
     },
     PotionType {
-        input: Exact::new(1179, 9),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1179, 9, 9, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1139, 11, 1, None),
     },
     PotionType {
-        input: Exact::new(1179, 9),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1179, 9, 9, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1138, 10, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(127, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(127, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1357, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(631, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(631, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(636, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(636, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1363, 3, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(923, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(923, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(1001, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(1001, 0, 0, None),
         output: Stack::new(1367, 4, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(1217, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(1217, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(1300, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(1300, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(1328, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(1328, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(1394, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(1394, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(1434, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(1434, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1330, 0),
-        reagent: Exact::new(1568, 0),
+        input: Exact::new(1330, 0, 0, None),
+        reagent: Exact::new(1568, 0, 0, None),
         output: Stack::new(1341, 1, 1, None),
     },
     PotionType {
-        input: Exact::new(1341, 1),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1341, 1, 1, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1357, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1331, 10),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1331, 10, 10, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1339, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(1333, 12),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1333, 12, 12, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1334, 13, 1, None),
     },
     PotionType {
-        input: Exact::new(1335, 14),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1335, 14, 14, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1338, 17, 1, None),
     },
     PotionType {
-        input: Exact::new(1335, 14),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1335, 14, 14, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1337, 16, 1, None),
     },
     PotionType {
-        input: Exact::new(1335, 14),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1335, 14, 14, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1336, 15, 1, None),
     },
     PotionType {
-        input: Exact::new(1336, 15),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1336, 15, 15, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1339, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(1338, 17),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1338, 17, 17, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1366, 42, 1, None),
     },
     PotionType {
-        input: Exact::new(1338, 17),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1338, 17, 17, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1339, 18, 1, None),
     },
     PotionType {
-        input: Exact::new(1340, 19),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1340, 19, 19, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1342, 20, 1, None),
     },
     PotionType {
-        input: Exact::new(1352, 2),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1352, 2, 2, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1358, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(1343, 21),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1343, 21, 21, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1345, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(1343, 21),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1343, 21, 21, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1344, 22, 1, None),
     },
     PotionType {
-        input: Exact::new(1344, 22),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1344, 22, 22, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1346, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(1345, 23),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1345, 23, 23, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1346, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(1347, 25),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1347, 25, 25, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1345, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(1347, 25),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1347, 25, 25, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1349, 27, 1, None),
     },
     PotionType {
-        input: Exact::new(1347, 25),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1347, 25, 25, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1348, 26, 1, None),
     },
     PotionType {
-        input: Exact::new(1348, 26),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1348, 26, 26, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1345, 23, 1, None),
     },
     PotionType {
-        input: Exact::new(1349, 27),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1349, 27, 27, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1346, 24, 1, None),
     },
     PotionType {
-        input: Exact::new(1350, 28),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1350, 28, 28, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1353, 30, 1, None),
     },
     PotionType {
-        input: Exact::new(1350, 28),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1350, 28, 28, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1351, 29, 1, None),
     },
     PotionType {
-        input: Exact::new(1363, 3),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1363, 3, 3, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1357, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1354, 31),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1354, 31, 31, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1357, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1354, 31),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1354, 31, 31, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1356, 33, 1, None),
     },
     PotionType {
-        input: Exact::new(1354, 31),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1354, 31, 31, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1355, 32, 1, None),
     },
     PotionType {
-        input: Exact::new(1355, 32),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1355, 32, 32, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1358, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(1356, 33),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1356, 33, 33, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1357, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1357, 34),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1357, 34, 34, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1358, 35, 1, None),
     },
     PotionType {
-        input: Exact::new(1360, 37),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1360, 37, 37, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1362, 39, 1, None),
     },
     PotionType {
-        input: Exact::new(1360, 37),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1360, 37, 37, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1361, 38, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(127, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(127, 0, 0, None),
         output: Stack::new(1354, 31, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1357, 34, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(631, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(631, 0, 0, None),
         output: Stack::new(1350, 28, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(636, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(636, 0, 0, None),
         output: Stack::new(1343, 21, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(659, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(659, 0, 0, None),
         output: Stack::new(1368, 5, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(923, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(923, 0, 0, None),
         output: Stack::new(1333, 12, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(1083, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(1083, 0, 0, None),
         output: Stack::new(1364, 40, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(1189, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(1189, 0, 0, None),
         output: Stack::new(1340, 19, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(1217, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(1217, 0, 0, None),
         output: Stack::new(1372, 9, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(1328, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(1328, 0, 0, None),
         output: Stack::new(1347, 25, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(1434, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(1434, 0, 0, None),
         output: Stack::new(1335, 14, 1, None),
     },
     PotionType {
-        input: Exact::new(1367, 4),
-        reagent: Exact::new(1472, 0),
+        input: Exact::new(1367, 4, 4, None),
+        reagent: Exact::new(1472, 0, 0, None),
         output: Stack::new(1360, 37, 1, None),
     },
     PotionType {
-        input: Exact::new(1364, 40),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1364, 40, 40, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1365, 41, 1, None),
     },
     PotionType {
-        input: Exact::new(1368, 5),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1368, 5, 5, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1370, 7, 1, None),
     },
     PotionType {
-        input: Exact::new(1368, 5),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1368, 5, 5, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1369, 6, 1, None),
     },
     PotionType {
-        input: Exact::new(1369, 6),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1369, 6, 6, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1371, 8, 1, None),
     },
     PotionType {
-        input: Exact::new(1370, 7),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1370, 7, 7, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1371, 8, 1, None),
     },
     PotionType {
-        input: Exact::new(1372, 9),
-        reagent: Exact::new(611, 0),
+        input: Exact::new(1372, 9, 9, None),
+        reagent: Exact::new(611, 0, 0, None),
         output: Stack::new(1338, 17, 1, None),
     },
     PotionType {
-        input: Exact::new(1372, 9),
-        reagent: Exact::new(643, 0),
+        input: Exact::new(1372, 9, 9, None),
+        reagent: Exact::new(643, 0, 0, None),
         output: Stack::new(1332, 11, 1, None),
     },
     PotionType {
-        input: Exact::new(1372, 9),
-        reagent: Exact::new(1263, 0),
+        input: Exact::new(1372, 9, 9, None),
+        reagent: Exact::new(1263, 0, 0, None),
         output: Stack::new(1331, 10, 1, None),
     },
 ];
@@ -29963,12 +30304,12 @@ pub(super) static POTION_TYPE: [PotionType; 195] = [
 pub(super) static POTION_CONTAINER_CHANGE: [PotionContainerChange; 2] = [
     PotionContainerChange {
         input: Name::new("minecraft:potion", 430),
-        reagent: Exact::new(699, 0),
+        reagent: Exact::new(699, 0, 0, None),
         output: Name::new("minecraft:splash_potion", 571),
     },
     PotionContainerChange {
         input: Name::new("minecraft:splash_potion", 571),
-        reagent: Exact::new(449, 0),
+        reagent: Exact::new(449, 0, 0, None),
         output: Name::new("minecraft:lingering_potion", 572),
     },
 ];
@@ -30060,7 +30401,10 @@ pub(super) static SMITHING_TRANSFORM: [SmithingTransform; 9] = [
 
 /// Smithing trim recipes, in dump order.
 pub(super) static SMITHING_TRIM: [SmithingTrim; 1] = [SmithingTrim {
-    template: Ingredient::Tag("minecraft:trim_templates"),
-    input: Ingredient::Tag("minecraft:trimmable_armors"),
-    addition: Ingredient::Tag("minecraft:trim_materials"),
+    template: Ingredient::Tag(item::Tag::from_index(69)),
+    input: Ingredient::Tag(item::Tag::from_index(70)),
+    addition: Ingredient::Tag(item::Tag::from_index(68)),
 }];
+
+/// The cook time of each furnace type in ticks, in `FurnaceType` order (PMMP `FurnaceType::getCookDurationTicks`).
+pub(super) static COOK_TICKS: [u16; 5] = [200, 100, 100, 600, 600];

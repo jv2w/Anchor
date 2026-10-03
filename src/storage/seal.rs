@@ -5,6 +5,9 @@
 //! body. The first two bytes are the format version in every format, so a newer value is told
 //! from a damaged one. Opening reads only the version before it checks the checksum, and checks
 //! the declared length against [`MAX_RECORD`] before it allocates.
+//!
+//! The header is the same in every format; the version tells the record decoder which layout the
+//! body has (`codec`). Values of an older format keep that version until they are written again.
 
 use std::borrow::Cow;
 
@@ -14,8 +17,10 @@ use crate::protocol::{Reader, Writer};
 use super::codec::Record;
 use super::{Error, Result};
 
-/// The format version this Anchor writes and the newest it reads.
-pub(crate) const FORMAT_VERSION: u16 = 1;
+/// The format version this Anchor writes and the newest it reads. Format 2 (M7) adds player
+/// extras and chunk kinds 1 to 3, format 3 (M7) the world time in world records; format 1 and 2
+/// values still read.
+pub(crate) const FORMAT_VERSION: u16 = 3;
 /// The largest record, in bytes before compression. The largest legal chunk (24 sub-chunks of
 /// two 16-bit layers with 4096 palette entries each) takes about 12 MiB.
 pub(crate) const MAX_RECORD: usize = 16 << 20;
@@ -31,18 +36,18 @@ const SNAPPY: u8 = 1;
 pub(crate) fn seal(key: &[u8], record: &impl Record) -> Result<Vec<u8>> {
     let mut w = Writer::new(Vec::new(), 0);
     record.encode(&mut w).map_err(Error::Encode)?;
-    seal_bytes(key, w.as_bytes())
+    seal_bytes(key, w.as_bytes(), FORMAT_VERSION)
 }
 
-/// Seals encoded record bytes under `key`.
-fn seal_bytes(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
+/// Seals encoded record bytes of format `version` under `key`.
+fn seal_bytes(key: &[u8], record: &[u8], version: u16) -> Result<Vec<u8>> {
     if record.len() > MAX_RECORD {
         return Err(Error::Encode(crate::protocol::Error::Size));
     }
     let raw_len =
         u32::try_from(record.len()).map_err(|_| Error::Encode(crate::protocol::Error::Size))?;
     let mut out = Vec::with_capacity(HEADER + record.len() / 2);
-    out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+    out.extend_from_slice(&version.to_le_bytes());
     out.extend_from_slice(&[STORED, 0]);
     out.extend_from_slice(&raw_len.to_le_bytes());
     out.extend_from_slice(&[0; 4]);
@@ -65,11 +70,21 @@ fn seal_bytes(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Opens a value sealed under `key` and decodes its record.
+/// Opens a value sealed under `key` and decodes its record in the format the value names.
 pub(crate) fn unseal<R: Record>(key: &[u8], sealed: &[u8]) -> Result<R> {
+    let version = version(sealed)?;
     let record = unseal_bytes(key, sealed)?;
     let mut r = Reader::new(&record, DECODE_BUDGET, 0);
-    R::decode(&mut r).map_err(Error::Record)
+    R::decode(&mut r, version).map_err(Error::Record)
+}
+
+/// The checksum field of a sealed value, read without checking it; 0 if the value is shorter
+/// than its header. After [`unseal`] succeeded it identifies the stored bytes.
+pub(crate) fn stored_checksum(sealed: &[u8]) -> u32 {
+    sealed
+        .get(8..HEADER)
+        .and_then(|b| b.try_into().ok())
+        .map_or(0, u32::from_le_bytes)
 }
 
 /// The format version of a sealed value, read without checking anything else.
@@ -134,7 +149,7 @@ fn checksum(key: &[u8], sealed: &[u8]) -> u32 {
 ///
 /// Hand-written: Rust's hardware CRC instructions need `unsafe`, and no dependency offers it.
 /// A CRC detects every burst error up to 32 bits, which a non-CRC hash of the same width does not.
-struct Crc32c(u32);
+pub(crate) struct Crc32c(u32);
 
 /// `TABLES[k][b]` is the CRC of byte `b` followed by `k` zero bytes.
 static TABLES: [[u32; 256]; 8] = crc_tables();
@@ -174,15 +189,17 @@ const fn crc_tables() -> [[u32; 256]; 8] {
 }
 
 impl Crc32c {
-    fn new() -> Self {
+    /// A CRC of no bytes yet.
+    pub(crate) fn new() -> Self {
         Self(!0)
     }
 
+    /// Adds `bytes`.
     #[expect(
         clippy::indexing_slicing,
         reason = "invariant: a byte indexes a table of 256"
     )]
-    fn update(&mut self, bytes: &[u8]) {
+    pub(crate) fn update(&mut self, bytes: &[u8]) {
         let [t0, t1, t2, t3, t4, t5, t6, t7] = &TABLES;
         let mut crc = self.0;
         let (eights, rest) = bytes.as_chunks::<8>();
@@ -203,17 +220,27 @@ impl Crc32c {
         self.0 = crc;
     }
 
-    fn finish(&self) -> u32 {
+    /// The CRC of the bytes added.
+    pub(crate) fn finish(&self) -> u32 {
         !self.0
     }
+}
+
+/// Seals record bytes as Anchor M6 did: format 1.
+#[cfg(test)]
+pub(crate) fn seal_v1(key: &[u8], record: &[u8]) -> Vec<u8> {
+    seal_bytes(key, record, 1).unwrap()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nbt::Compound;
     use crate::protocol::Rng;
-    use crate::storage::codec::tests::{empty_chunk, encode, random_chunk, terrain_chunk};
-    use crate::storage::codec::{BlockLayer, ChunkRecord, Meta, PlayerRecord};
+    use crate::storage::codec::tests::{
+        empty_chunk, encode, player_v1, random_chunk, random_compound, terrain_chunk,
+    };
+    use crate::storage::codec::{BlockLayer, ChunkRecord, ExtraRecord, Meta, PlayerRecord};
 
     const KEY: &[u8] = b"\x00\x00\x00\x00\x80\x00\x00\x01\x7f\xff\xff\xff\x00";
 
@@ -298,10 +325,10 @@ mod tests {
     #[test]
     fn versions_are_checked() {
         let mut sealed = seal(b"meta", &Meta { tick: 1 }).unwrap();
-        sealed[..2].copy_from_slice(&2u16.to_le_bytes());
+        sealed[..2].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
         assert!(matches!(
             unseal::<Meta>(b"meta", &sealed),
-            Err(Error::NewerFormat { version: 2 })
+            Err(Error::NewerFormat { version }) if version == FORMAT_VERSION + 1
         ));
         sealed[..2].copy_from_slice(&0u16.to_le_bytes());
         reseal(b"meta", &mut sealed);
@@ -309,6 +336,34 @@ mod tests {
             unseal::<Meta>(b"meta", &sealed),
             Err(Error::Malformed(_))
         ));
+    }
+
+    #[test]
+    fn format_1_values_open_as_format_1_records() {
+        let sealed = seal_v1(b"player", &player_v1("world", [0.5, 64.0, -3.25]));
+        assert_eq!(version(&sealed).unwrap(), 1);
+        assert_eq!(
+            unseal::<PlayerRecord>(b"player", &sealed).unwrap(),
+            PlayerRecord {
+                world: "world".to_owned(),
+                position: [0.5, 64.0, -3.25],
+                extra: Compound::new(),
+            }
+        );
+        let chunk = terrain_chunk(&mut Rng(6));
+        let sealed = seal_v1(KEY, &encode(&chunk));
+        assert_eq!(sealed[2], SNAPPY);
+        assert_eq!(unseal::<ChunkRecord>(KEY, &sealed).unwrap(), chunk);
+        // A format 1 value under a chunk extras key is damage: format 1 had no extras.
+        let sealed = seal_v1(KEY, &encode(&ExtraRecord(Vec::new().into())));
+        assert!(matches!(
+            unseal::<ExtraRecord<'_>>(KEY, &sealed),
+            Err(Error::Record(_))
+        ));
+        // The checksum field is what the seal wrote.
+        let sealed = seal(KEY, &chunk).unwrap();
+        assert_eq!(stored_checksum(&sealed), checksum(KEY, &sealed));
+        assert_eq!(stored_checksum(&sealed[..5]), 0);
     }
 
     #[test]
@@ -335,7 +390,30 @@ mod tests {
         ));
         // Encoding refuses a record over the limit.
         let big = vec![0u8; MAX_RECORD + 1];
-        assert!(matches!(seal_bytes(KEY, &big), Err(Error::Encode(_))));
+        assert!(matches!(
+            seal_bytes(KEY, &big, FORMAT_VERSION),
+            Err(Error::Encode(_))
+        ));
+        // A player extra or an extras list whose NBT declares more than is there.
+        let mut record = encode(&PlayerRecord {
+            world: "w".to_owned(),
+            position: [0.0; 3],
+            extra: Compound::from([("a".to_owned(), crate::nbt::Value::ByteArray(vec![1; 4]))]),
+        });
+        let at = record.len() - 5;
+        record[at - 4..at].copy_from_slice(&u32::MAX.to_le_bytes());
+        let sealed = seal_bytes(KEY, &record, FORMAT_VERSION).unwrap();
+        assert!(matches!(
+            unseal::<PlayerRecord>(KEY, &sealed),
+            Err(Error::Record(_))
+        ));
+        let mut record = encode(&ExtraRecord(vec![Compound::new(); 3].into()));
+        record[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+        let sealed = seal_bytes(KEY, &record, FORMAT_VERSION).unwrap();
+        assert!(matches!(
+            unseal::<ExtraRecord<'_>>(KEY, &sealed),
+            Err(Error::Record(crate::protocol::Error::Size))
+        ));
     }
 
     /// 10,000 mutated values: every one is an error, never a panic. Half get a valid checksum
@@ -352,9 +430,21 @@ mod tests {
                 &PlayerRecord {
                     world: "w".repeat(80),
                     position: [1.0, 2.0, 3.0],
+                    extra: random_compound(&mut rng, 4),
                 },
             )
             .unwrap(),
+            seal(
+                KEY,
+                &ExtraRecord(
+                    (0..12)
+                        .map(|_| random_compound(&mut rng, 3))
+                        .collect::<Vec<_>>()
+                        .into(),
+                ),
+            )
+            .unwrap(),
+            seal_v1(KEY, &player_v1("v", [4.0, 5.0, 6.0])),
         ];
         let mut deep = 0;
         for round in 0..10_000 {
@@ -378,7 +468,8 @@ mod tests {
                 reseal(KEY, &mut sealed);
             }
             let result = match round % originals.len() {
-                3 => unseal::<PlayerRecord>(KEY, &sealed).map(drop),
+                3 | 5 => unseal::<PlayerRecord>(KEY, &sealed).map(drop),
+                4 => unseal::<ExtraRecord<'_>>(KEY, &sealed).map(drop),
                 _ => unseal::<ChunkRecord>(KEY, &sealed).map(drop),
             };
             match result {
@@ -454,7 +545,10 @@ mod tests {
             }
             let chunks: Vec<ChunkRecord> = records
                 .iter()
-                .map(|r| ChunkRecord::decode(&mut Reader::new(r, DECODE_BUDGET, 0)).unwrap())
+                .map(|r| {
+                    ChunkRecord::decode(&mut Reader::new(r, DECODE_BUDGET, 0), FORMAT_VERSION)
+                        .unwrap()
+                })
                 .collect();
             let start = crate::clock::now();
             let sealed: Vec<Vec<u8>> = chunks.iter().map(|c| seal(KEY, c).unwrap()).collect();

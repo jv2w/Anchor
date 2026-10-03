@@ -1,10 +1,11 @@
 //! `src/block/table.rs`: the block state table (PLAN.md 10.4) from [`Data`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::body::str_lit;
-use super::data::{Connect, Data, FACES, Prop, StateKey, hex_lit, int_lit};
+use super::data::{Connect, Data, FACES, Prop, StateItem, StateKey, hex_lit, int_lit};
 use super::emit::HEADER;
+use super::info::{camel, f64_lit};
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/block/table.rs";
@@ -32,7 +33,8 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
         out,
         "{HEADER}\n//! Block states generated from the PMMP dump, the block upgrade schema and the \
          1.26.50 reference list (PLAN.md 10.4): {} states.\n\n\
-         use super::{{Data, Property, PropertyValue, State}};\n\n",
+         use super::{{BreakInfo, Data, Info, KindData, Property, PropertyValue, State, ToolType}};\n\
+         use crate::math::{{Aabb, Vec3}};\n\n",
         data.states.len()
     );
     put!(
@@ -100,7 +102,391 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     lookups(&mut out, data)?;
     connections(&mut out, data)?;
     named(&mut out, data)?;
+    kinds(&mut out, data)?;
+    info(&mut out, data)?;
+    banner_patterns(&mut out, data);
     Ok(out)
+}
+
+/// A generated enum: doc, name, variants (Rust name, documented name) and the derives.
+pub(crate) fn enumeration(out: &mut String, doc: &str, name: &str, variants: &[(String, String)]) {
+    put!(
+        out,
+        "\n/// {doc}\n#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{"
+    );
+    for (variant, documented) in variants {
+        put!(out, "/// `{documented}`.\n{variant},");
+    }
+    out.push_str("}\n");
+}
+
+/// Upper camel case variants for sorted names; fails if two names give one variant.
+pub(crate) fn variants(names: &[&str]) -> Result<Vec<(String, String)>, String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::with_capacity(names.len());
+    for name in names {
+        let variant = camel(name);
+        if !seen.insert(variant.clone()) {
+            return Err(format!("two names give the variant {variant}"));
+        }
+        out.push((variant, (*name).to_owned()));
+    }
+    Ok(out)
+}
+
+/// A static array from small numeric IDs to the variants of `enum_name` (`None` where no
+/// variant has the ID), so a lookup by ID is one index. Fails if two variants share an ID.
+pub(crate) fn by_id(
+    out: &mut String,
+    doc: &str,
+    name: &str,
+    enum_name: &str,
+    ids: &[(u8, &str)],
+) -> Result<(), String> {
+    let len = ids
+        .iter()
+        .map(|(id, _)| usize::from(*id) + 1)
+        .max()
+        .unwrap_or(0);
+    let mut slots: Vec<Option<&str>> = vec![None; len];
+    for (id, variant) in ids {
+        let slot = slots.get_mut(usize::from(*id)).ok_or("ID out of range")?;
+        if slot.replace(variant).is_some() {
+            return Err(format!("two {enum_name}s have ID {id}"));
+        }
+    }
+    put!(
+        out,
+        "\n/// {doc}\npub(super) static {name}: [Option<{enum_name}>; {len}] = ["
+    );
+    for slot in slots {
+        match slot {
+            Some(v) => put!(out, "Some({enum_name}::{v}),"),
+            None => out.push_str("None,"),
+        }
+    }
+    out.push_str("];\n");
+    Ok(())
+}
+
+/// A static array of strings.
+pub(crate) fn strings(out: &mut String, doc: &str, name: &str, list: &[&str]) {
+    put!(
+        out,
+        "\n/// {doc}\npub(super) static {name}: [&str; {}] = [",
+        list.len()
+    );
+    for s in list {
+        put!(out, "{},", str_lit(s));
+    }
+    out.push_str("];\n");
+}
+
+/// The PMMP block types: the `Kind` enum, its names, and each kind's default state, class chain
+/// and traits; and the class, trait and type tag enums.
+fn kinds(out: &mut String, data: &Data) -> Result<(), String> {
+    let names: Vec<&str> = data.kinds.iter().map(|(k, _)| k.kind.as_str()).collect();
+    let kind_variants = variants(&names)?;
+    enumeration(
+        out,
+        "A PMMP block type (a `VanillaBlocks` entry), such as `OakPlanks`; [`State::kind`] gives \
+         a state's.",
+        "Kind",
+        &kind_variants,
+    );
+    strings(
+        out,
+        "The `VanillaBlocks` name of each kind, lowercase.",
+        "KIND_NAMES",
+        &names,
+    );
+    put!(
+        out,
+        "\n/// Every kind, in name order.\npub(super) static KINDS: [Kind; {}] = [",
+        names.len()
+    );
+    for (v, _) in &kind_variants {
+        put!(out, "Kind::{v},");
+    }
+    out.push_str("];\n");
+
+    let class_set: BTreeSet<&str> = data
+        .kinds
+        .iter()
+        .flat_map(|(k, _)| k.classes.iter().map(String::as_str))
+        .collect();
+    let classes: Vec<&str> = class_set.into_iter().collect();
+    let trait_set: BTreeSet<&str> = data
+        .kinds
+        .iter()
+        .flat_map(|(k, _)| k.traits.iter().map(String::as_str))
+        .collect();
+    let traits: Vec<&str> = trait_set.into_iter().collect();
+    let class_variants = variants(&classes)?;
+    enumeration(
+        out,
+        "A PMMP block class or one of its parents (`Block` for every block); [`State::class`] \
+         gives a state's.",
+        "Class",
+        &class_variants,
+    );
+    strings(out, "The PMMP name of each class.", "CLASS_NAMES", &classes);
+    enumeration(
+        out,
+        "A PMMP block trait or interface (`FallableTrait` and `Fallable` are both `Fallable`); \
+         [`State::has_trait`] tells a state's.",
+        "Trait",
+        &variants(&traits)?,
+    );
+    strings(out, "The PMMP name of each trait.", "TRAIT_NAMES", &traits);
+
+    let mut chains = String::new();
+    let mut chain_len = 0;
+    let mut chain_at: BTreeMap<&[String], usize> = BTreeMap::new();
+    let mut rows = String::new();
+    for (identity, state) in &data.kinds {
+        let start = *chain_at.entry(&identity.classes).or_insert_with(|| {
+            for c in &identity.classes {
+                put!(chains, "Class::{},", camel(c));
+            }
+            chain_len += identity.classes.len();
+            chain_len - identity.classes.len()
+        });
+        put!(
+            rows,
+            "KindData::new(State::from_index({state}), {start}, {}, {}),",
+            identity.classes.len(),
+            hex_lit(bits(&identity.traits, &traits)?, 16)
+        );
+    }
+    put!(
+        out,
+        "\n/// The class chains of [`KIND_DATA`] one after another, leaf first.\npub(super) static \
+         CLASS_CHAINS: [Class; {chain_len}] = [{chains}];\n\n/// Each kind's default state (PMMP \
+         `VanillaBlocks`), class chain and traits.\npub(super) static KIND_DATA: [KindData; {}] = \
+         [{rows}];\n",
+        names.len()
+    );
+    Ok(())
+}
+
+/// Sorted unique type tags of every state.
+fn type_tags(data: &Data) -> Vec<&str> {
+    let set: BTreeSet<&str> = data
+        .states
+        .iter()
+        .flat_map(|s| s.physics.tags.iter().map(String::as_str))
+        .collect();
+    set.into_iter().collect()
+}
+
+/// Bits of `list` in the sorted `names`.
+fn bits(list: &[String], names: &[&str]) -> Result<u64, String> {
+    let mut out = 0u64;
+    for item in list {
+        let at = names
+            .binary_search(&item.as_str())
+            .map_err(|_| format!("unknown name {item}"))?;
+        out |= 1u64
+            .checked_shl(u32::try_from(at).map_err(|_| "bit")?)
+            .ok_or("more than 64 names")?;
+    }
+    Ok(out)
+}
+
+/// The state item sentinels of `STATE_ITEMS` (see `src/block.rs`).
+const NO_ITEM: u16 = 0xffff;
+const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
+
+/// The per-state gameplay data (PLAN.md 10.7): the type tag enum, the deduplicated physics rows
+/// with their collision boxes, and each state's kind, row and item form.
+#[expect(
+    clippy::too_many_lines,
+    reason = "consistency: one table layout, emitted in one pass"
+)]
+fn info(out: &mut String, data: &Data) -> Result<(), String> {
+    let tags = type_tags(data);
+    if tags.len() > 16 {
+        return Err("more than 16 type tags".to_owned());
+    }
+    let tag_names: Vec<&str> = tags
+        .iter()
+        .map(|t| t.strip_prefix("pocketmine:").unwrap_or(t))
+        .collect();
+    enumeration(
+        out,
+        "A PMMP block type tag (`BlockTypeTags`); [`State::has_type_tag`] tells a state's.",
+        "TypeTag",
+        &variants(&tag_names)?,
+    );
+    strings(
+        out,
+        "The PMMP name of each type tag.",
+        "TYPE_TAG_NAMES",
+        &tags,
+    );
+
+    let kind_index: BTreeMap<&str, usize> = data
+        .kinds
+        .iter()
+        .enumerate()
+        .map(|(i, (k, _))| (k.kind.as_str(), i))
+        .collect();
+    let mut boxes: Vec<[f64; 6]> = Vec::new();
+    let mut box_at: BTreeMap<String, usize> = BTreeMap::new();
+    let mut rows: Vec<String> = Vec::new();
+    let mut row_at: BTreeMap<String, usize> = BTreeMap::new();
+    let mut state_kinds = Vec::with_capacity(data.states.len());
+    let mut state_rows = Vec::with_capacity(data.states.len());
+    let mut state_items = Vec::with_capacity(data.states.len());
+    for s in &data.states {
+        let kind = *kind_index
+            .get(s.identity.kind.as_str())
+            .ok_or_else(|| format!("unknown kind {}", s.identity.kind))?;
+        state_kinds.push(kind);
+        let p = &s.physics;
+        let start = *box_at.entry(format!("{:?}", p.boxes)).or_insert_with(|| {
+            boxes.extend(p.boxes.iter().copied());
+            boxes.len() - p.boxes.len()
+        });
+        let support = p
+            .support
+            .iter()
+            .enumerate()
+            .fold(0u16, |acc, (i, code)| acc | u16::from(*code) << (2 * i));
+        let flags = u16::from(p.flags) | u16::from(p.burns_forever) << 8;
+        let b = &p.break_info;
+        let row = format!(
+            "Info::new(BreakInfo::new({}, {}, ToolType({}), {}, {}), {}, {}, {}, {}, {}, {}, {}, \
+             {}),",
+            f64_lit(b.hardness),
+            f64_lit(b.blast_resistance),
+            b.tool_type,
+            b.harvest_level,
+            b.explosion_harvestable,
+            p.flammability,
+            p.encouragement,
+            hex_lit(u64::from(flags), 4),
+            f64_lit(p.friction),
+            bits(&p.tags, &tags)?,
+            hex_lit(u64::from(support), 4),
+            start,
+            p.boxes.len(),
+        );
+        let index = *row_at.entry(row.clone()).or_insert_with(|| {
+            rows.push(row);
+            rows.len() - 1
+        });
+        state_rows.push(index);
+        state_items.push(match s.item {
+            StateItem::None => NO_ITEM,
+            StateItem::BlockEntity => BLOCK_ENTITY_ITEM,
+            StateItem::Item(i) if i < BLOCK_ENTITY_ITEM => i,
+            StateItem::Item(_) => return Err("too many item types".to_owned()),
+        });
+    }
+    put!(
+        out,
+        "\n/// The block-local collision boxes of [`INFO`] one after another.\npub(super) static \
+         BOXES: [Aabb; {}] = [",
+        boxes.len()
+    );
+    for &[x0, y0, z0, x1, y1, z1] in &boxes {
+        put!(
+            out,
+            "Aabb::new(Vec3::new({}, {}, {}), Vec3::new({}, {}, {})),",
+            f64_lit(x0),
+            f64_lit(y0),
+            f64_lit(z0),
+            f64_lit(x1),
+            f64_lit(y1),
+            f64_lit(z1)
+        );
+    }
+    put!(
+        out,
+        "];\n\n/// The distinct physics rows of the states (see `Info` in `src/block.rs`).\n\
+         pub(super) static INFO: [Info; {}] = [{}];\n",
+        rows.len(),
+        rows.concat()
+    );
+    let list = |out: &mut String, doc: &str, name: &str, values: &[String]| {
+        put!(
+            out,
+            "\n/// {doc}\npub(super) static {name}: [u16; {}] = [{}];\n",
+            values.len(),
+            values.concat()
+        );
+    };
+    let kinds: Vec<String> = state_kinds.iter().map(|k| format!("{k},")).collect();
+    list(
+        out,
+        "The [`KINDS`] index of each state.",
+        "STATE_KIND",
+        &kinds,
+    );
+    let rows: Vec<String> = state_rows.iter().map(|r| format!("{r},")).collect();
+    list(out, "The [`INFO`] row of each state.", "STATE_INFO", &rows);
+    let items: Vec<String> = state_items
+        .iter()
+        .map(|i| format!("{},", hex_lit(u64::from(*i), 4)))
+        .collect();
+    list(
+        out,
+        &format!(
+            "The item type index of each state's item form: {NO_ITEM:#x} none, \
+             {BLOCK_ENTITY_ITEM:#x} from the block entity."
+        ),
+        "STATE_ITEMS",
+        &items,
+    );
+    Ok(())
+}
+
+/// The banner pattern enum and IDs (PMMP `BannerPatternType`, `BannerPatternTypeIdMap`).
+fn banner_patterns(out: &mut String, data: &Data) {
+    let list = &data.tables.banner_patterns;
+    let names: Vec<&str> = list.iter().map(|b| b.name.as_str()).collect();
+    let variants: Vec<(String, String)> =
+        names.iter().map(|n| (camel(n), (*n).to_owned())).collect();
+    enumeration(
+        out,
+        "A banner pattern (PMMP `BannerPatternType`).",
+        "BannerPattern",
+        &variants,
+    );
+    put!(
+        out,
+        "\n/// Every banner pattern, in name order.\npub(super) static BANNER_PATTERNS: [BannerPattern; {}] = [",
+        list.len()
+    );
+    for (v, _) in &variants {
+        put!(out, "BannerPattern::{v},");
+    }
+    out.push_str("];\n");
+    let ids: Vec<&str> = list.iter().map(|b| b.id.as_str()).collect();
+    strings(
+        out,
+        "The save and network ID of each banner pattern.",
+        "BANNER_PATTERN_IDS",
+        &ids,
+    );
+    let mut by_id: Vec<(&str, &str)> = ids
+        .iter()
+        .zip(&variants)
+        .map(|(id, (v, _))| (*id, v.as_str()))
+        .collect();
+    by_id.sort_unstable();
+    put!(
+        out,
+        "\n/// The banner patterns by ID, sorted by ID.\npub(super) static BANNER_PATTERNS_BY_ID: \
+         [(&str, BannerPattern); {}] = [",
+        by_id.len()
+    );
+    for (id, v) in by_id {
+        put!(out, "({}, BannerPattern::{v}),", str_lit(id));
+    }
+    out.push_str("];\n");
 }
 
 /// A named state: constant name, block name and properties.

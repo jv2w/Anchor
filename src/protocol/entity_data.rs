@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::mem::size_of;
 
 use super::common::BlockPos;
+use super::consts::EntityDataType;
 use super::io::{Error, MAX_LIST_LEN, Reader, Result, Writer, length};
 use crate::nbt::{Compound, Encoding};
 
@@ -34,17 +35,17 @@ pub enum MetadataValue {
 }
 
 impl MetadataValue {
-    fn data_type(&self) -> u8 {
+    fn data_type(&self) -> EntityDataType {
         match self {
-            Self::Byte(_) => 0,
-            Self::Int16(_) => 1,
-            Self::Int32(_) => 2,
-            Self::Float32(_) => 3,
-            Self::String(_) => 4,
-            Self::CompoundTag(_) => 5,
-            Self::BlockPos(_) => 6,
-            Self::Int64(_) => 7,
-            Self::Vec3(_) => 8,
+            Self::Byte(_) => EntityDataType::Byte,
+            Self::Int16(_) => EntityDataType::Int16,
+            Self::Int32(_) => EntityDataType::Int32,
+            Self::Float32(_) => EntityDataType::Float32,
+            Self::String(_) => EntityDataType::String,
+            Self::CompoundTag(_) => EntityDataType::CompoundTag,
+            Self::BlockPos(_) => EntityDataType::BlockPos,
+            Self::Int64(_) => EntityDataType::Int64,
+            Self::Vec3(_) => EntityDataType::Vec3,
         }
     }
 }
@@ -69,22 +70,18 @@ impl Reader<'_> {
                     reason: "legacy type byte differs from the type",
                 });
             }
-            let value = match legacy_type {
-                0 => MetadataValue::Byte(self.uint8()?),
-                1 => MetadataValue::Int16(self.int16()?),
-                2 => MetadataValue::Int32(self.varint32()?),
-                3 => MetadataValue::Float32(self.float32()?),
-                4 => MetadataValue::String(self.string()?),
-                5 => MetadataValue::CompoundTag(self.nbt(Encoding::NetworkLittleEndian)?),
-                6 => MetadataValue::BlockPos(self.block_pos()?),
-                7 => MetadataValue::Int64(self.varint64()?),
-                8 => MetadataValue::Vec3(self.vec3()?),
-                t => {
-                    return Err(Error::UnknownEnum {
-                        name: "entity metadata type",
-                        value: t.into(),
-                    });
+            let value = match EntityDataType::try_from(data_type)? {
+                EntityDataType::Byte => MetadataValue::Byte(self.uint8()?),
+                EntityDataType::Int16 => MetadataValue::Int16(self.int16()?),
+                EntityDataType::Int32 => MetadataValue::Int32(self.varint32()?),
+                EntityDataType::Float32 => MetadataValue::Float32(self.float32()?),
+                EntityDataType::String => MetadataValue::String(self.string()?),
+                EntityDataType::CompoundTag => {
+                    MetadataValue::CompoundTag(self.nbt(Encoding::NetworkLittleEndian)?)
                 }
+                EntityDataType::BlockPos => MetadataValue::BlockPos(self.block_pos()?),
+                EntityDataType::Int64 => MetadataValue::Int64(self.varint64()?),
+                EntityDataType::Vec3 => MetadataValue::Vec3(self.vec3()?),
             };
             map.insert(key, value);
         }
@@ -98,9 +95,13 @@ impl Writer {
         self.varuint32(length(x.len())?);
         for (&key, value) in x {
             self.varuint32(key);
-            let data_type = value.data_type();
-            self.varuint32(data_type.into());
-            self.uint8(data_type);
+            let data_type = u32::from(value.data_type());
+            self.varuint32(data_type);
+            // The legacy type byte repeats the type; every type is below 256.
+            self.uint8(u8::try_from(data_type).map_err(|_| Error::InvalidValue {
+                field: "entity metadata type",
+                reason: "over 255",
+            })?);
             match value {
                 MetadataValue::Byte(v) => self.uint8(*v),
                 MetadataValue::Int16(v) => self.int16(*v),
@@ -185,7 +186,7 @@ mod tests {
         assert_eq!(
             Reader::new(&unknown, 1 << 20, 0).entity_metadata(),
             Err(Error::UnknownEnum {
-                name: "entity metadata type",
+                name: "entity data type",
                 value: 9
             })
         );

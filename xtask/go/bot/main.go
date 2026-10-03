@@ -35,6 +35,8 @@
 //	bind-mismatch  nethernet only: the offer identity proves a second key, the Login the bot key; pass if
 //	               the server sends a Disconnect or closes the connection before spawning
 //	idle, prelogin-limit  RakNet server limit checks (limits.go)
+//	craft, furnace, enchant, crops, trade  survival gameplay like the official client (game.go, scenarios.go);
+//	               the caller runs the console commands the bot writes as "command" records
 //
 // The output holds one JSON object per line, each with a "type": "join" (one /v1/join attempt), "sdp" (the
 // offer or answer SDP and its line keys), "identity" (the answer's decoded a=identity), "segment" (one NetherNet
@@ -47,7 +49,10 @@
 // block network ID check) and a final "result". ItemRegistry, CreativeContent and CraftingData are also written
 // in full, one {"index","name","fields"} line each, to the -out path with ".jsonl" (if any) replaced by
 // ".items.jsonl", and LevelChunk, SubChunk, BiomeDefinitionList, JigsawStructureData and CurrentStructureFeature
-// to ".world.jsonl": nothing is shortened and NBT values keep their tag types ({"byte":1}).
+// to ".world.jsonl": nothing is shortened and NBT values keep their tag types ({"byte":1}). In the game
+// scenarios every other received packet line keeps its fields in this full form, the "sent" lines of the
+// inventory and interaction packets carry their full fields, and the script adds "step", "response",
+// "check" and "command" lines (game.go).
 //
 // In the sub-chunk request mode the bot asks for the sub-chunks of the 3x3 chunks around the spawn chunk, from
 // index -4 up to SubChunkLimit sub-chunks, as those chunks arrive. After spawning, the spawn scenario sends three
@@ -66,6 +71,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -125,7 +131,8 @@ func parseFlags(args []string) (config, error) {
 	return c, nil
 }
 
-const scenarioList = "spawn, big-skin, online, kicked, rejected, blocks, bind-mismatch, idle or prelogin-limit"
+const scenarioList = "spawn, big-skin, online, kicked, rejected, blocks, bind-mismatch, idle, prelogin-limit, " +
+	"craft, furnace, enchant, crops or trade"
 
 // knownScenario reports whether name is a scenario the bot runs.
 func knownScenario(name string) bool {
@@ -133,16 +140,19 @@ func knownScenario(name string) bool {
 	case "spawn", "big-skin", "online", "kicked", "rejected", "blocks", "bind-mismatch", "idle", "prelogin-limit":
 		return true
 	}
-	return false
+	return isGame(name)
 }
 
-// output writes JSON lines.
+// output writes JSON lines; a game scenario's script writes from its own goroutine.
 type output struct {
+	mu  sync.Mutex
 	w   *bufio.Writer
 	err error
 }
 
 func (o *output) line(v map[string]any) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.err != nil {
 		return
 	}
@@ -156,6 +166,8 @@ func (o *output) line(v map[string]any) {
 }
 
 func (o *output) flush() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	if o.err == nil {
 		o.err = o.w.Flush()
 	}

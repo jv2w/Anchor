@@ -1,8 +1,9 @@
-//! Block and item data (PLAN.md 10.4): reads the committed PMMP dump (`xtask/data/pmmp/`), the
-//! reference lists (`xtask/data/reference/`) and the block upgrade schema
+//! Block and item data (PLAN.md 10.4, 10.7): reads the committed PMMP dump (`xtask/data/pmmp/`),
+//! the reference lists (`xtask/data/reference/`) and the block upgrade schema
 //! (`xtask/data/block_upgrade.json`), checks them against each other, and builds the block state
-//! and item type lists the data generators emit. The index of a state or item type in these lists
-//! is its number in the generated tables, so every generator agrees on it.
+//! and item type lists, with their gameplay data, and the tables the data generators emit. The
+//! index of a state or item type in these lists is its number in the generated tables, so every
+//! generator agrees on it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -11,6 +12,7 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 
 use super::body::str_lit;
+use super::info::{Break, Identity, ItemData, Physics, Tables, exact, support_codes};
 
 type R<T> = Result<T, String>;
 
@@ -18,6 +20,59 @@ type R<T> = Result<T, String>;
 pub(crate) const PMMP_DIR: &str = "xtask/data/pmmp";
 pub(crate) const REFERENCE_DIR: &str = "xtask/data/reference";
 const UPGRADE_PATH: &str = "xtask/data/block_upgrade.json";
+
+/// Bedrock states PMMP splits by data Anchor keeps in the block entity (PLAN.md 10.4, 10.7): the
+/// Bedrock name, the PMMP type Anchor's state takes and what the block entity holds. Only PMMP
+/// states of these names may differ in PMMP type, class, item form or drops; where their item
+/// forms or drops differ, the Anchor state's are marked as depending on the block entity. Every
+/// other value must still agree, and every entry must be needed.
+pub(crate) const SHARED: [(&str, &str, &str); 4] = [
+    (
+        "minecraft:bed",
+        "bed",
+        "the colour (bed block entity `color`)",
+    ),
+    (
+        "minecraft:cauldron",
+        "water_cauldron",
+        "a potion in place of water (cauldron block entity `PotionId`)",
+    ),
+    (
+        "minecraft:standing_banner",
+        "banner",
+        "the colour and ominous type (banner block entity `Base` and `Type`)",
+    ),
+    (
+        "minecraft:wall_banner",
+        "wall_banner",
+        "the colour and ominous type (banner block entity `Base` and `Type`)",
+    ),
+];
+
+/// The drops of a state whose drops depend on its block entity (see [`SHARED`]).
+pub(crate) const BLOCK_ENTITY_DROPS: &str = "block_entity";
+
+/// Where a state's item form comes from, before item types are known.
+#[derive(Debug, Clone, PartialEq)]
+enum ItemSource {
+    /// PMMP `asItem` is air.
+    None,
+    /// The dumped Bedrock form.
+    Form(Json),
+    /// It depends on the block entity (see [`SHARED`]).
+    BlockEntity,
+}
+
+/// A state's item form (PMMP `Block::asItem`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StateItem {
+    /// PMMP `asItem` is air.
+    None,
+    /// The item type index.
+    Item(u16),
+    /// It depends on the block entity (see [`SHARED`]).
+    BlockEntity,
+}
 
 /// A block state property value. The derived order (byte, int, string, then by value) is part of
 /// the state order.
@@ -51,13 +106,22 @@ pub(crate) struct State {
     pub(crate) full_faces: u8,
     /// How PMMP works the state out from its neighbours, if it does.
     pub(crate) connect: Option<Connect>,
+    /// Physical values; a fence's, pane's or stair's support and boxes are those of the variant
+    /// its neighbour properties name.
+    pub(crate) physics: Physics,
+    /// The PMMP type, classes and traits.
+    pub(crate) identity: Identity,
+    /// The item form.
+    pub(crate) item: StateItem,
+    /// The dumped drops (`blocks.json` `drops`), or [`BLOCK_ENTITY_DROPS`].
+    pub(crate) drops: Json,
 }
 
 /// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
 pub(crate) const FACES: [&str; 4] = ["north", "east", "south", "west"];
 
 /// The dump's `connect` entry: what PMMP needs to work out a state from its neighbours.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Connect {
     /// `fence`, `thin`, `wall`, `fence_gate`, `stair`, `tripwire` or `tripwire_hook`.
@@ -70,9 +134,19 @@ pub(crate) struct Connect {
     pub(crate) facing: Option<String>,
     #[serde(default)]
     pub(crate) upside_down: Option<bool>,
-    /// A stair's full faces by `minecraft:corner` value.
+    /// The support and boxes of each variant the neighbours choose (fences, panes, stairs).
     #[serde(default)]
-    shapes: Option<BTreeMap<String, Vec<String>>>,
+    variants: Option<Vec<Variant>>,
+}
+
+/// One neighbour-chosen variant of the dump: the client properties that name it, its support
+/// and its collision boxes.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Variant {
+    properties: Json,
+    support: Vec<String>,
+    boxes: Vec<[f64; 6]>,
 }
 
 /// An NBT value read from the typed JSON of the dumps (`{"byte": 1}` and so on). It holds the
@@ -116,6 +190,17 @@ pub(crate) struct Item {
     pub(crate) nbt: Option<BTreeMap<String, Tag>>,
     /// The 1.26.50 runtime ID of the name.
     pub(crate) runtime_id: i16,
+    /// Whether PMMP's `VanillaItems` gives this form (the default form of its kind).
+    pub(crate) vanilla: bool,
+    /// PMMP's data for the type.
+    pub(crate) data: ItemData,
+    /// The item type left after burning one as fuel (PMMP `getFuelResidue`).
+    pub(crate) fuel_residue: Option<u16>,
+    /// The item type left after consuming one (PMMP `ConsumableItem::getResidue`).
+    pub(crate) consume_residue: Option<u16>,
+    /// The state index placing the item puts down, and the one against a side where that
+    /// differs (PMMP `Item::getBlock`).
+    pub(crate) places: (Option<u16>, Option<u16>),
 }
 
 /// An item stack of the dumps (creative entries, recipe results): the item type index, the count
@@ -135,6 +220,11 @@ pub(crate) struct Stack {
 pub(crate) struct Data {
     pub(crate) states: Vec<State>,
     pub(crate) items: Vec<Item>,
+    /// The PMMP block types (`VanillaBlocks` names, lowercase, sorted): their identity and the
+    /// Anchor state of their default state.
+    pub(crate) kinds: Vec<(Identity, u16)>,
+    /// The effect, potion, enchantment, tag, banner pattern and furnace tables.
+    pub(crate) tables: Tables,
     /// Anchor state index of a PMMP (1.26.30) Bedrock state, upgraded with the default values.
     pmmp_state_index: BTreeMap<StateKey, u16>,
     /// PMMP's legacy recipe meta of a PMMP (1.26.30) Bedrock state.
@@ -149,14 +239,26 @@ pub(crate) struct Data {
 #[serde(deny_unknown_fields)]
 struct PmmpBlock {
     #[serde(rename = "type")]
-    _type: String,
+    kind: String,
     bedrock: Json,
+    default: bool,
     light_emission: u8,
     light_filter: u8,
     blocks_direct_sky_light: bool,
     ticks_randomly: bool,
     recipe_meta: i32,
-    full_faces: Vec<String>,
+    classes: Vec<String>,
+    traits: Vec<String>,
+    #[serde(rename = "break")]
+    break_info: Break,
+    fire: (u8, u8, bool),
+    flags: Vec<String>,
+    friction: f64,
+    tags: Vec<String>,
+    support: Vec<String>,
+    boxes: Vec<[f64; 6]>,
+    item: Option<Json>,
+    drops: Json,
     #[serde(default)]
     connect: Option<Connect>,
 }
@@ -165,8 +267,10 @@ struct PmmpBlock {
 #[serde(deny_unknown_fields)]
 struct PmmpItem {
     bedrock: Json,
+    data: ItemData,
     #[serde(rename = "names")]
     _names: Vec<String>,
+    vanilla: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,15 +319,33 @@ struct Upgrade {
     added_properties: BTreeMap<String, BTreeMap<String, Json>>,
 }
 
-/// PMMP's per-state values, which overlapping PMMP states must agree on.
+/// PMMP's per-state values. Overlapping PMMP states must agree on all but the identity, item and
+/// drops, which may differ only as [`SHARED`] allows.
 #[derive(Debug, Clone, PartialEq)]
 struct Values {
     light_emission: u8,
     light_filter: u8,
     blocks_direct_sky_light: bool,
     ticks_randomly: bool,
-    full_faces: Vec<String>,
     connect: Option<Connect>,
+    physics: Physics,
+    identity: Identity,
+    item: ItemSource,
+    drops: Json,
+}
+
+impl Values {
+    /// The values every overlapping PMMP state must agree on.
+    fn strict(&self) -> (u8, u8, bool, bool, &Option<Connect>, &Physics) {
+        (
+            self.light_emission,
+            self.light_filter,
+            self.blocks_direct_sky_light,
+            self.ticks_randomly,
+            &self.connect,
+            &self.physics,
+        )
+    }
 }
 
 /// The reference block list: network ID by state, and the states of each name.
@@ -237,16 +359,18 @@ impl Data {
     pub(crate) fn load(root: &Path) -> R<Self> {
         let (network, reference_names) = read_reference(root)?;
         let added = read_upgrade(root)?;
-        let pmmp_states = read_pmmp_states(root)?;
+        let (pmmp_states, kind_defaults) = read_pmmp_states(root)?;
         let (states, pmmp_default) = upgrade(&pmmp_states, &added, &network, &reference_names)?;
 
         let mut list = Vec::with_capacity(states.len());
+        let mut sources = Vec::with_capacity(states.len());
         let mut state_index = BTreeMap::new();
         for (i, (key, values)) in states.into_iter().enumerate() {
             let index = u16::try_from(i).map_err(|_| "more than 65,536 block states")?;
             let network_id = *network.get(&key).ok_or("state lost its network ID")?;
-            let full_faces = full_faces(&key, &values)?;
+            let physics = variant_physics(&key, &values)?;
             state_index.insert(key.clone(), index);
+            sources.push(values.item);
             list.push(State {
                 key,
                 network_id,
@@ -254,8 +378,12 @@ impl Data {
                 light_filter: values.light_filter,
                 blocks_direct_sky_light: values.blocks_direct_sky_light,
                 ticks_randomly: values.ticks_randomly,
-                full_faces,
+                full_faces: physics.full_faces(),
                 connect: values.connect,
+                physics,
+                identity: values.identity,
+                item: StateItem::None,
+                drops: values.drops,
             });
         }
         let mut pmmp_state_index = BTreeMap::new();
@@ -265,6 +393,13 @@ impl Data {
                 .ok_or("default state not listed")?;
             pmmp_state_index.insert(pmmp, index);
         }
+        let mut kinds = Vec::with_capacity(kind_defaults.len());
+        for (kind, (key, identity)) in kind_defaults {
+            let index = *pmmp_state_index
+                .get(&key)
+                .ok_or_else(|| format!("default state of {kind} is not a PMMP state"))?;
+            kinds.push((identity, index));
+        }
         let recipe_meta = pmmp_states
             .into_iter()
             .map(|(key, (_, meta))| (key, meta))
@@ -273,13 +408,24 @@ impl Data {
         let mut data = Self {
             states: list,
             items: Vec::new(),
-
+            kinds,
+            tables: read_json(root, PMMP_DIR, "tables.json")?,
             pmmp_state_index,
             recipe_meta,
             item_index: BTreeMap::new(),
             runtime_ids: BTreeMap::new(),
         };
         data.load_items(root, &network)?;
+        for (i, source) in sources.iter().enumerate() {
+            let item = match source {
+                ItemSource::None => StateItem::None,
+                ItemSource::BlockEntity => StateItem::BlockEntity,
+                ItemSource::Form(json) => StateItem::Item(data.item_type(json)?),
+            };
+            if let Some(state) = data.states.get_mut(i) {
+                state.item = item;
+            }
+        }
         Ok(data)
     }
 
@@ -310,9 +456,42 @@ impl Data {
                 block_network_id: 0,
                 nbt: form.3,
                 runtime_id,
+                vanilla: item.vanilla,
+                data: item.data.clone(),
+                fuel_residue: None,
+                consume_residue: None,
+                places: (
+                    self.placed(item.data.places.as_ref())?,
+                    self.placed(item.data.places_on_wall.as_ref())?,
+                ),
             });
         }
+        for i in 0..self.items.len() {
+            let item = self.items.get(i).ok_or("item index")?;
+            let data = &item.data;
+            let fuel = data.fuel.residue.as_ref();
+            let consume = data.consumable.as_ref().and_then(|c| c.residue.as_ref());
+            let fuel = fuel.map(|j| self.item_type(j)).transpose()?;
+            let consume = consume.map(|j| self.item_type(j)).transpose()?;
+            for v in [data.tool.efficiency]
+                .into_iter()
+                .chain(data.food.as_ref().map(|f| f.saturation))
+                .chain(data.throw_force)
+            {
+                exact(v)?;
+            }
+            if let Some(item) = self.items.get_mut(i) {
+                item.fuel_residue = fuel;
+                item.consume_residue = consume;
+            }
+        }
         self.use_vanilla_item_blocks(root, network)
+    }
+
+    /// The Anchor state of a dumped block an item places.
+    fn placed(&self, json: Option<&Json>) -> R<Option<u16>> {
+        json.map(|j| self.pmmp_state(&bedrock_state(j)?))
+            .transpose()
     }
 
     /// Sets the block network ID block items are sent with: the vanilla creative state of
@@ -419,12 +598,36 @@ impl Data {
             .and_then(Json::as_u64)
             .and_then(|c| u16::try_from(c).ok())
             .ok_or_else(|| format!("stack of {name} has no count in range"))?;
+        let item = self.type_of(&name, meta, block, nbt.as_ref())?;
+        Ok(Stack {
+            item,
+            meta,
+            count,
+            nbt,
+        })
+    }
+
+    /// The item type of an item in Bedrock form (`name`, `meta`, optional `block` and `nbt`), by
+    /// the rules of [`Data::stack`].
+    pub(crate) fn item_type(&self, json: &Json) -> R<u16> {
+        let (name, meta, block, nbt) = self.item_form(json)?;
+        self.type_of(&name, meta, block, nbt.as_ref())
+    }
+
+    /// The lookup of [`Data::stack`].
+    fn type_of(
+        &self,
+        name: &str,
+        meta: u16,
+        block: Option<u16>,
+        nbt: Option<&BTreeMap<String, Tag>>,
+    ) -> R<u16> {
         let candidates = self
             .item_index
-            .get(&(name.clone(), block))
+            .get(&(name.to_owned(), block))
             .ok_or_else(|| format!("no item type {name} with block {block:?}"))?;
         let empty = BTreeMap::new();
-        let have = nbt.as_ref().unwrap_or(&empty);
+        let have = nbt.unwrap_or(&empty);
         let mut exact = Vec::new();
         for &index in candidates {
             let item = self
@@ -435,7 +638,7 @@ impl Data {
                 exact.push((index, item.nbt.as_ref().unwrap_or(&empty)));
             }
         }
-        let item = match (exact.as_slice(), candidates.as_slice()) {
+        Ok(match (exact.as_slice(), candidates.as_slice()) {
             ([(index, _)], _) | ([], [index]) => *index,
             ([], _) => return Err(format!("no item type {name} meta {meta}")),
             (many, _) => {
@@ -445,12 +648,6 @@ impl Data {
                     .ok_or_else(|| format!("no item type of {name} matches the stack NBT"))?
                     .0
             }
-        };
-        Ok(Stack {
-            item,
-            meta,
-            count,
-            nbt,
         })
     }
 
@@ -508,32 +705,173 @@ fn read_upgrade(root: &Path) -> R<BTreeMap<String, Vec<(String, Prop)>>> {
     Ok(added)
 }
 
-/// Reads the PMMP states by their 1.26.30 Bedrock form; overlapping PMMP states must agree on
-/// their values.
-fn read_pmmp_states(root: &Path) -> R<BTreeMap<StateKey, (Values, i32)>> {
+/// The PMMP states by their 1.26.30 Bedrock form, merged, and the default state and identity of
+/// each PMMP block type by name.
+type PmmpStates = (
+    BTreeMap<StateKey, (Values, i32)>,
+    BTreeMap<String, (StateKey, Identity)>,
+);
+
+/// Reads the PMMP states by their 1.26.30 Bedrock form and merges overlapping ones (see
+/// [`merge`]); also the default state and identity of each PMMP block type, which all its
+/// states must share.
+fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
     let pmmp: Vec<PmmpBlock> = read_json(root, PMMP_DIR, "blocks.json")?;
-    let mut states: BTreeMap<StateKey, (Values, i32)> = BTreeMap::new();
-    for b in &pmmp {
+    let mut groups: BTreeMap<StateKey, Vec<(Values, i32)>> = BTreeMap::new();
+    let mut defaults = BTreeMap::new();
+    let mut kinds: BTreeMap<String, Identity> = BTreeMap::new();
+    for b in pmmp {
         let key = bedrock_state(&b.bedrock)?;
+        let boxes = valid_boxes(&key, &b.classes, b.boxes)?;
+        let physics = Physics::new(
+            b.break_info,
+            b.fire,
+            &b.flags,
+            b.friction,
+            &b.tags,
+            &b.support,
+            boxes,
+        )
+        .map_err(|e| format!("{} {:?}: {e}", key.name, key.properties))?;
+        let mut classes = b.classes;
+        classes.push("Block".to_owned());
+        let mut traits = b.traits;
+        traits.sort();
+        let identity = Identity {
+            kind: b.kind.clone(),
+            classes,
+            traits,
+        };
+        if *kinds
+            .entry(b.kind.clone())
+            .or_insert_with(|| identity.clone())
+            != identity
+        {
+            return Err(format!("states of {} differ in class or traits", b.kind));
+        }
+        if b.default && defaults.insert(b.kind.clone(), key.clone()).is_some() {
+            return Err(format!("{} has two default states", b.kind));
+        }
         let values = Values {
             light_emission: b.light_emission,
             light_filter: b.light_filter,
             blocks_direct_sky_light: b.blocks_direct_sky_light,
             ticks_randomly: b.ticks_randomly,
-            full_faces: b.full_faces.clone(),
-            connect: b.connect.clone(),
+            connect: b.connect,
+            physics,
+            identity,
+            item: b.item.map_or(ItemSource::None, ItemSource::Form),
+            drops: b.drops,
         };
-        let entry = (values, b.recipe_meta);
-        if let Some(old) = states.insert(key.clone(), entry.clone())
-            && old != entry
-        {
-            return Err(format!(
-                "PMMP states of {} {:?} disagree on their values",
-                key.name, key.properties
-            ));
+        groups.entry(key).or_default().push((values, b.recipe_meta));
+    }
+    let mut kind_defaults = BTreeMap::new();
+    for (kind, identity) in kinds {
+        let key = defaults
+            .remove(&kind)
+            .ok_or_else(|| format!("{kind} has no default state"))?;
+        kind_defaults.insert(kind, (key, identity));
+    }
+    let mut used = BTreeSet::new();
+    let mut states = BTreeMap::new();
+    for (key, group) in groups {
+        let merged = merge(&key, &group, &mut used)?;
+        states.insert(key, merged);
+    }
+    if let Some((name, ..)) = SHARED.iter().find(|(name, ..)| !used.contains(name)) {
+        return Err(format!("SHARED entry {name} is not needed"));
+    }
+    Ok((states, kind_defaults))
+}
+
+/// PMMP classes whose collision box is inside out, with min above max (PMMP defect): a wall
+/// hanging sign squashes its cross bar by 3/4 from each side where 3/8 was meant. PMMP's own
+/// `AxisAlignedBB::intersectsWith` never meets such a box, so dropping it keeps PMMP's behaviour
+/// (no collision); the vanilla bar box needs checking against BDS.
+const INSIDE_OUT_BOXES: [&str; 1] = ["WallHangingSign"];
+
+/// The collision boxes of a dumped state without inside-out ones, which only
+/// [`INSIDE_OUT_BOXES`] classes may have.
+fn valid_boxes(key: &StateKey, classes: &[String], boxes: Vec<[f64; 6]>) -> R<Vec<[f64; 6]>> {
+    let inside_out =
+        |b: &[f64; 6]| matches!(b, [x0, y0, z0, x1, y1, z1] if x0 > x1 || y0 > y1 || z0 > z1);
+    if boxes.iter().any(inside_out)
+        && !classes
+            .iter()
+            .any(|c| INSIDE_OUT_BOXES.contains(&c.as_str()))
+    {
+        return Err(format!(
+            "{} {:?} has an inside-out collision box",
+            key.name, key.properties
+        ));
+    }
+    Ok(boxes.into_iter().filter(|b| !inside_out(b)).collect())
+}
+
+/// Merges the PMMP states of one Bedrock state. They must agree on every value and the recipe
+/// meta, except where [`SHARED`] names the Bedrock state. There a group of several PMMP types
+/// takes the values, classes and traits of the type `SHARED` names, and the types may differ in
+/// their block flags (a potion cauldron has no entity collision); an item form or drops that
+/// differ become block entity data. Adds the names it needed `SHARED` for to `used`.
+fn merge(
+    key: &StateKey,
+    group: &[(Values, i32)],
+    used: &mut BTreeSet<&'static str>,
+) -> R<(Values, i32)> {
+    let shared = SHARED.iter().find(|(name, ..)| *name == key.name);
+    let disagree = |what: &str| {
+        format!(
+            "PMMP states of {} {:?} disagree on their {what}{}",
+            key.name,
+            key.properties,
+            if shared.is_some() {
+                ""
+            } else {
+                " (if a block entity tells them apart, add the name to SHARED)"
+            }
+        )
+    };
+    let (first, meta) = group.first().ok_or("empty state group")?;
+    // The state that speaks for the group: one of the type SHARED names, if the group has one.
+    let chosen = shared
+        .and_then(|(_, kind, _)| group.iter().find(|(v, _)| v.identity.kind == *kind))
+        .map_or(first, |(v, _)| v);
+    let mut merged = chosen.clone();
+    let mut needed = false;
+    for (values, m) in group {
+        if m != meta {
+            return Err(disagree("recipe meta"));
+        }
+        if values.identity.kind == chosen.identity.kind {
+            if values.strict() != chosen.strict() || values.identity != chosen.identity {
+                return Err(disagree("values"));
+            }
+        } else {
+            let mut flagless = values.clone();
+            flagless.physics.flags = chosen.physics.flags;
+            if shared.is_none() || flagless.strict() != chosen.strict() {
+                return Err(disagree("PMMP type or values"));
+            }
+            needed = true;
+        }
+        if values.item != chosen.item || values.drops != chosen.drops {
+            if shared.is_none() {
+                return Err(disagree("item form or drops"));
+            }
+            needed = true;
+            merged.item = ItemSource::BlockEntity;
+            merged.drops = Json::String(BLOCK_ENTITY_DROPS.to_owned());
         }
     }
-    Ok(states)
+    if let Some((name, kind, _)) = shared
+        && needed
+    {
+        if merged.identity.kind != *kind {
+            return Err(format!("{} has no PMMP state of type {kind}", key.name));
+        }
+        used.insert(*name);
+    }
+    Ok((merged, *meta))
 }
 
 /// Upgrades the PMMP states to 1.26.50: adds the new properties' defaults, then takes every value
@@ -603,38 +941,35 @@ fn upgrade(
     Ok((states, defaults))
 }
 
-/// The full faces of an upgraded state as [`FACES`] bits. A stair's come from the shape its
-/// `minecraft:corner` names: PMMP works the shape out from the neighbours, so the dumped state
-/// (always straight) does not have it.
-fn full_faces(key: &StateKey, values: &Values) -> R<u8> {
-    let faces = match &values.connect {
-        Some(Connect {
-            shapes: Some(shapes),
-            ..
-        }) => {
-            let corner = key
-                .properties
-                .iter()
-                .find_map(|(p, v)| match (p.as_str(), v) {
-                    ("minecraft:corner", Prop::String(c)) => Some(c),
-                    _ => None,
-                })
-                .ok_or_else(|| format!("stair {} has no minecraft:corner", key.name))?;
-            shapes
-                .get(corner)
-                .ok_or_else(|| format!("stair {} has no shape {corner}", key.name))?
-        }
-        _ => &values.full_faces,
+/// The physical values of an upgraded state. A fence's, pane's or stair's support and collision
+/// boxes come from the dumped variant whose client properties the state has: PMMP works the
+/// connections and stair shape out from the neighbours, so the dumped state (unconnected,
+/// straight) does not have them.
+fn variant_physics(key: &StateKey, values: &Values) -> R<Physics> {
+    let mut physics = values.physics.clone();
+    let Some(variants) = values.connect.as_ref().and_then(|c| c.variants.as_ref()) else {
+        return Ok(physics);
     };
-    let mut bits = 0;
-    for face in faces {
-        let i = FACES
-            .iter()
-            .position(|f| f == face)
-            .ok_or_else(|| format!("{}: unknown face {face}", key.name))?;
-        bits |= 1 << i;
+    let mut found = None;
+    for v in variants {
+        let props = state_key(&key.name, &v.properties)?.properties;
+        if props.iter().all(|p| key.properties.contains(p)) {
+            if found.is_some() {
+                return Err(format!(
+                    "{} {:?} matches two variants",
+                    key.name, key.properties
+                ));
+            }
+            found = Some(v);
+        }
     }
-    Ok(bits)
+    let v = found.ok_or_else(|| format!("{} {:?} matches no variant", key.name, key.properties))?;
+    for x in v.boxes.iter().flatten() {
+        exact(*x)?;
+    }
+    physics.support = support_codes(&v.support)?;
+    physics.boxes.clone_from(&v.boxes);
+    Ok(physics)
 }
 
 /// Reads a committed JSON file.
@@ -882,4 +1217,116 @@ pub(crate) fn hex_lit(v: u64, width: usize) -> String {
 )]
 fn read(path: &Path) -> R<Vec<u8>> {
     std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::info::camel;
+    use super::*;
+
+    /// A PMMP state's values: `kind`, its light emission, flags and item name.
+    fn values(kind: &str, light: u8, flags: &[&str], item: &str) -> (Values, i32) {
+        let flags: Vec<String> = flags.iter().map(|f| (*f).to_owned()).collect();
+        let physics = Physics::new(
+            Break {
+                hardness: 1.0,
+                blast_resistance: 5.0,
+                tool_type: 0,
+                harvest_level: 0,
+                explosion_harvestable: false,
+            },
+            (0, 0, false),
+            &flags,
+            0.6,
+            &[],
+            &["full"; 6].map(str::to_owned),
+            vec![[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]],
+        )
+        .unwrap();
+        let form = serde_json::json!({ "name": item, "meta": 0 });
+        let values = Values {
+            light_emission: light,
+            light_filter: 15,
+            blocks_direct_sky_light: true,
+            ticks_randomly: false,
+            connect: None,
+            physics,
+            identity: Identity {
+                kind: kind.to_owned(),
+                classes: vec![camel(kind), "Block".to_owned()],
+                traits: Vec::new(),
+            },
+            item: ItemSource::Form(form.clone()),
+            drops: serde_json::json!({ "hand": { "items": [form] } }),
+        };
+        (values, 0)
+    }
+
+    fn key(name: &str) -> StateKey {
+        StateKey {
+            name: name.to_owned(),
+            properties: Vec::new(),
+        }
+    }
+
+    /// The value check of overlapping PMMP states (PLAN.md 10.4, 10.7): any difference fails
+    /// generation unless `SHARED` names the Bedrock state, and there only the PMMP type, block
+    /// flags, item form and drops may differ.
+    #[test]
+    fn overlapping_states_must_agree() {
+        let mut used = BTreeSet::new();
+        let stone = key("minecraft:stone");
+        let same = vec![values("stone", 0, &[], "a"), values("stone", 0, &[], "a")];
+        assert!(merge(&stone, &same, &mut used).is_ok());
+        for other in [
+            values("stone", 1, &[], "a"),
+            values("stone", 0, &["solid"], "a"),
+            values("stone", 0, &[], "b"),
+            values("granite", 0, &[], "a"),
+            (values("stone", 0, &[], "a").0, 1),
+        ] {
+            let group = vec![values("stone", 0, &[], "a"), other];
+            let err = merge(&stone, &group, &mut used).unwrap_err();
+            assert!(err.contains("disagree"), "{err}");
+        }
+        assert!(used.is_empty());
+
+        // A bed's colour: the item forms differ, so the item and drops come from the block entity.
+        let bed = key("minecraft:bed");
+        let group = vec![values("bed", 0, &[], "red"), values("bed", 0, &[], "blue")];
+        let (merged, _) = merge(&bed, &group, &mut used).unwrap();
+        assert_eq!(merged.item, ItemSource::BlockEntity);
+        assert_eq!(merged.drops, Json::String(BLOCK_ENTITY_DROPS.to_owned()));
+        assert!(used.contains("minecraft:bed"));
+        // A cauldron takes the water cauldron's type and flags whichever state comes first; the
+        // potion cauldron may differ in flags but not in other values.
+        let cauldron = key("minecraft:cauldron");
+        let water = values("water_cauldron", 0, &["entity_collision"], "c");
+        let group = vec![values("potion_cauldron", 0, &[], "c"), water.clone()];
+        let (merged, _) = merge(&cauldron, &group, &mut used).unwrap();
+        assert_eq!(merged.identity.kind, "water_cauldron");
+        assert_eq!(merged.physics, water.0.physics);
+        assert_eq!(merged.item, water.0.item);
+        let group = vec![values("potion_cauldron", 3, &[], "c"), water];
+        assert!(merge(&cauldron, &group, &mut used).is_err());
+        let group = vec![
+            values("potion_cauldron", 0, &[], "c"),
+            values("lava_cauldron", 0, &[], "c"),
+        ];
+        assert!(merge(&cauldron, &group, &mut used).is_err());
+    }
+
+    #[test]
+    fn only_known_classes_may_have_inside_out_boxes() {
+        let boxes = vec![
+            [0.0, 0.875, 0.75, 1.0, 1.0, 0.25],
+            [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        ];
+        let sign = ["WallHangingSign".to_owned()];
+        let hanging = key("minecraft:oak_wall_hanging_sign");
+        let kept = valid_boxes(&hanging, &sign, boxes.clone()).unwrap();
+        assert_eq!(kept, [[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]);
+        let stone = ["Opaque".to_owned()];
+        assert!(valid_boxes(&key("minecraft:stone"), &stone, boxes).is_err());
+    }
 }

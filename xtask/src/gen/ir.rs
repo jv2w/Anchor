@@ -16,6 +16,7 @@ pub(crate) struct Ir {
     pub(crate) unions: Vec<Union>,
     #[serde(rename = "constants")]
     _constants: Vec<Const>,
+    pub(crate) const_decls: Vec<ConstDecl>,
 }
 
 /// The gophertunnel snapshot.
@@ -185,6 +186,29 @@ pub(crate) struct Const {
     _ty: Type,
     #[serde(rename = "value")]
     _value: String,
+}
+
+/// A const declaration with its exported names.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ConstDecl {
+    pub(crate) package: String,
+    pub(crate) file: String,
+    pub(crate) consts: Vec<DeclConst>,
+}
+
+/// An exported constant of a const declaration.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DeclConst {
+    pub(crate) name: String,
+    #[serde(rename = "type")]
+    pub(crate) ty: String,
+    pub(crate) basic: String,
+    pub(crate) value: String,
+    pub(crate) alias: Option<String>,
+    #[serde(default)]
+    pub(crate) doc: String,
 }
 
 /// One statement.

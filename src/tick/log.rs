@@ -15,10 +15,13 @@ use std::path::{Path, PathBuf};
 
 use tracing::warn;
 
+#[cfg(test)]
+use super::queue::Skin;
 use super::queue::{Identity, SessionId};
 use crate::clock;
 use crate::item::SHIELD_RUNTIME_ID;
-use crate::protocol::{self, packet::Packet};
+use crate::nbt::Encoding;
+use crate::protocol::{self, Writer, packet::Packet};
 #[cfg(test)]
 use crate::save::PlayerData;
 use crate::save::{Loaded, PlayerLoad, Response, WorldIndex};
@@ -30,8 +33,9 @@ pub(crate) const MAX_BYTES: usize = 64 << 20;
 const ENTRY_COST: usize = 32;
 /// The first bytes of a written log.
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
-/// The written format's version: 2 adds the start tick.
-const FORMAT: u32 = 2;
+/// The written format's version: 2 adds the start tick; 3 adds chunk checksums and player
+/// extras (f64 positions); 4 adds the joining player's device and skin.
+const FORMAT: u32 = 4;
 const KIND_JOIN: u8 = 0;
 const KIND_PACKET: u8 = 1;
 const KIND_LEAVE: u8 = 2;
@@ -90,20 +94,94 @@ pub(crate) struct Tick {
 }
 
 /// A save thread answer as the log keeps it (PLAN.md 10.6): what arrived and where from, not
-/// the chunk itself, which a replay loads again from the same world file or generator.
+/// the chunk itself, which a replay loads again from the same world file or generator, checking
+/// it against the checksum.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Answer {
     Chunk {
         world: WorldIndex,
         pos: ChunkPos,
         origin: Origin,
+        /// [`Stored::checksum`](crate::save::Stored::checksum): what was read from the file for
+        /// the chunk, terrain and extras (0 for a damaged chunk).
+        checksum: u32,
     },
     Player {
         key: String,
-        data: PlayerLoad,
+        data: LoggedPlayer,
     },
     Committed(u64),
     CommitFailed(u64),
+}
+
+/// A player load as the log keeps it: the extra compound as its little-endian NBT bytes, which
+/// the log counts against its bound and copies no tree for.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LoggedPlayer {
+    Found {
+        world: String,
+        position: [f64; 3],
+        extra: Vec<u8>,
+    },
+    Absent,
+    Damaged,
+}
+
+impl LoggedPlayer {
+    /// The logged form of a load; fails only if the extra does not encode.
+    fn of(load: &PlayerLoad) -> protocol::Result<Self> {
+        Ok(match load {
+            PlayerLoad::Found(data) => {
+                let mut w = Writer::new(Vec::new(), 0);
+                w.nbt(&data.extra, Encoding::LittleEndian)?;
+                Self::Found {
+                    world: data.world.clone(),
+                    position: data.position,
+                    extra: w.into_inner(),
+                }
+            }
+            PlayerLoad::Absent => Self::Absent,
+            PlayerLoad::Damaged => Self::Damaged,
+        })
+    }
+
+    /// The load this records, for a replay.
+    #[cfg(test)]
+    pub(crate) fn to_load(&self) -> Result<PlayerLoad> {
+        Ok(match self {
+            Self::Found {
+                world,
+                position,
+                extra,
+            } => PlayerLoad::Found(PlayerData {
+                world: world.clone(),
+                position: *position,
+                extra: read_extra(extra)?,
+            }),
+            Self::Absent => PlayerLoad::Absent,
+            Self::Damaged => PlayerLoad::Damaged,
+        })
+    }
+
+    /// The bytes the log charges for it.
+    fn size(&self) -> usize {
+        match self {
+            Self::Found { world, extra, .. } => world.len().saturating_add(extra.len()),
+            Self::Absent | Self::Damaged => 0,
+        }
+    }
+}
+
+/// A logged player extra: one little-endian NBT root compound and nothing after it.
+#[cfg(test)]
+fn read_extra(bytes: &[u8]) -> Result<crate::nbt::Compound> {
+    let mut r = protocol::Reader::new(bytes, bytes.len().saturating_mul(8), 0);
+    let extra = r.nbt(Encoding::LittleEndian).map_err(Error::Packet)?;
+    if r.remaining().is_empty() {
+        Ok(extra)
+    } else {
+        Err(Error::Format("bytes after a player extra"))
+    }
 }
 
 /// Where a loaded chunk came from.
@@ -115,24 +193,35 @@ pub(crate) enum Origin {
 }
 
 impl Answer {
-    fn of(response: &Response) -> Self {
-        match response {
-            Response::Chunk { world, pos, loaded } => Self::Chunk {
-                world: *world,
-                pos: *pos,
-                origin: match loaded {
-                    Loaded::Disk(_) => Origin::Disk,
-                    Loaded::Generated(_) => Origin::Generated,
-                    Loaded::Damaged => Origin::Damaged,
-                },
-            },
-            Response::Player { key, data } => Self::Player {
-                key: key.as_str().to_owned(),
-                data: data.clone(),
-            },
-            Response::Committed { start } => Self::Committed(*start),
-            Response::CommitFailed { start } => Self::CommitFailed(*start),
-        }
+    /// The logged form of an answer and the bytes it is charged.
+    fn of(response: &Response) -> protocol::Result<(Self, usize)> {
+        Ok(match response {
+            Response::Chunk { world, pos, loaded } => {
+                let (origin, checksum) = match loaded {
+                    Loaded::Disk(_, stored) => (Origin::Disk, stored.checksum),
+                    Loaded::Generated(_, stored) => (Origin::Generated, stored.checksum),
+                    Loaded::Damaged => (Origin::Damaged, 0),
+                };
+                let answer = Self::Chunk {
+                    world: *world,
+                    pos: *pos,
+                    origin,
+                    checksum,
+                };
+                (answer, 0)
+            }
+            Response::Player { key, data } => {
+                let data = LoggedPlayer::of(data)?;
+                let size = data.size().saturating_add(key.as_str().len());
+                let answer = Self::Player {
+                    key: key.as_str().to_owned(),
+                    data,
+                };
+                (answer, size)
+            }
+            Response::Committed { start } => (Self::Committed(*start), 0),
+            Response::CommitFailed { start } => (Self::CommitFailed(*start), 0),
+        })
     }
 }
 
@@ -258,12 +347,28 @@ impl InputLog {
         }
     }
 
-    /// Records a save thread answer the tick applied.
+    /// Records a save thread answer the tick applied. An answer that cannot be logged (a player
+    /// extra that does not encode) ends the segment like the bound does: a replay must not apply
+    /// a tick without it.
     pub(crate) fn response(&mut self, response: &Response) {
-        if self.charge_entry(0)
+        if self.segments.back().is_none_or(|s| s.truncated) {
+            return;
+        }
+        let (answer, size) = match Answer::of(response) {
+            Ok(logged) => logged,
+            Err(e) => {
+                warn!(error = %e, "an answer cannot be logged; ticks until the next save are not recorded");
+                if let Some(segment) = self.segments.back_mut() {
+                    segment.truncated = true;
+                    segment.ticks.pop();
+                }
+                return;
+            }
+        };
+        if self.charge_entry(size)
             && let Some(tick) = self.last_tick()
         {
-            tick.responses.push(Answer::of(response));
+            tick.responses.push(answer);
         }
     }
 
@@ -362,6 +467,11 @@ impl InputLog {
                         out.push(u8::from(identity.xuid.is_some()));
                         out.extend_from_slice(&identity.xuid.unwrap_or(0).to_le_bytes());
                         out.extend_from_slice(identity.uuid.as_bytes());
+                        out.extend_from_slice(&identity.device_os.to_le_bytes());
+                        let mut w = Writer::new(Vec::new(), 0);
+                        protocol::Codec::encode(identity.skin.get(), &mut w)
+                            .map_err(Error::Packet)?;
+                        put_bytes(&mut out, w.as_bytes())?;
                     }
                     EntryKind::Packet(packet) => {
                         out.push(KIND_PACKET);
@@ -426,7 +536,15 @@ impl InputLog {
                         let xuid = r.u64()?;
                         let uuid: [u8; 16] =
                             r.take(16)?.try_into().map_err(|_| Error::Format("uuid"))?;
+                        let device_os = r.i32()?;
+                        let skin = r.bytes()?;
+                        let mut skin_reader =
+                            protocol::Reader::new(skin, skin.len().saturating_mul(2), 0);
+                        let skin = <protocol::Skin as protocol::Codec>::decode(&mut skin_reader)
+                            .map_err(Error::Packet)?;
                         EntryKind::Join(Identity {
+                            skin: Skin::new(skin),
+                            device_os,
                             name,
                             xuid: match has_xuid {
                                 0 => None,
@@ -521,7 +639,12 @@ const PLAYER_DAMAGED: u8 = 2;
 /// Appends an answer: its kind, then its fields.
 fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
     match answer {
-        Answer::Chunk { world, pos, origin } => {
+        Answer::Chunk {
+            world,
+            pos,
+            origin,
+            checksum,
+        } => {
             out.push(ANSWER_CHUNK);
             out.extend_from_slice(
                 &u32::try_from(*world)
@@ -535,20 +658,26 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
                 Origin::Generated => 1,
                 Origin::Damaged => 2,
             });
+            out.extend_from_slice(&checksum.to_le_bytes());
         }
         Answer::Player { key, data } => {
             out.push(ANSWER_PLAYER);
             put_bytes(out, key.as_bytes())?;
             match data {
-                PlayerLoad::Found(data) => {
+                LoggedPlayer::Found {
+                    world,
+                    position,
+                    extra,
+                } => {
                     out.push(PLAYER_FOUND);
-                    put_bytes(out, data.world.as_bytes())?;
-                    for c in data.position {
+                    put_bytes(out, world.as_bytes())?;
+                    for c in position {
                         out.extend_from_slice(&c.to_bits().to_le_bytes());
                     }
+                    put_bytes(out, extra)?;
                 }
-                PlayerLoad::Absent => out.push(PLAYER_ABSENT),
-                PlayerLoad::Damaged => out.push(PLAYER_DAMAGED),
+                LoggedPlayer::Absent => out.push(PLAYER_ABSENT),
+                LoggedPlayer::Damaged => out.push(PLAYER_DAMAGED),
             }
         }
         Answer::Committed(start) => {
@@ -644,7 +773,13 @@ impl<'a> Read<'a> {
                     2 => Origin::Damaged,
                     _ => return Err(Error::Format("chunk origin")),
                 };
-                Answer::Chunk { world, pos, origin }
+                let checksum = self.u32()?;
+                Answer::Chunk {
+                    world,
+                    pos,
+                    origin,
+                    checksum,
+                }
             }
             ANSWER_PLAYER => {
                 let key = self.text()?;
@@ -653,12 +788,18 @@ impl<'a> Read<'a> {
                         let world = self.text()?;
                         let mut position = [0.0; 3];
                         for c in &mut position {
-                            *c = f32::from_bits(self.u32()?);
+                            *c = f64::from_bits(self.u64()?);
                         }
-                        PlayerLoad::Found(PlayerData { world, position })
+                        let extra = self.bytes()?;
+                        read_extra(extra)?;
+                        LoggedPlayer::Found {
+                            world,
+                            position,
+                            extra: extra.to_vec(),
+                        }
                     }
-                    PLAYER_ABSENT => PlayerLoad::Absent,
-                    PLAYER_DAMAGED => PlayerLoad::Damaged,
+                    PLAYER_ABSENT => LoggedPlayer::Absent,
+                    PLAYER_DAMAGED => LoggedPlayer::Damaged,
                     _ => return Err(Error::Format("player data kind")),
                 };
                 Answer::Player { key, data }
@@ -736,5 +877,83 @@ mod tests {
         log.begin(40);
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();
         assert_eq!((read.start(), numbers(&read)), (40, vec![40]));
+    }
+
+    #[test]
+    fn chunk_checksums_and_player_extras_survive_the_written_log() {
+        use crate::save::Stored;
+        use crate::storage::PlayerKey;
+        use crate::world::{Chunk, Flat};
+
+        let mut rng = crate::protocol::Rng(0x109_0001);
+        let data = PlayerData {
+            world: "world".to_owned(),
+            position: [0.1, -58.38, f64::from(f32::MAX) * 4.0],
+            extra: crate::storage::codec::tests::random_compound(&mut rng, 5),
+        };
+        let pos = ChunkPos::new(-3, 9);
+        let chunk = || Box::new(Chunk::generate(&Flat, 0, pos));
+        let stored = Stored {
+            checksum: 0xdead_beef,
+            ..Stored::default()
+        };
+        let responses = [
+            Response::Chunk {
+                world: 1,
+                pos,
+                loaded: Loaded::Disk(chunk(), stored.clone()),
+            },
+            Response::Chunk {
+                world: 0,
+                pos,
+                loaded: Loaded::Generated(chunk(), Stored::default()),
+            },
+            Response::Chunk {
+                world: 0,
+                pos,
+                loaded: Loaded::Damaged,
+            },
+            Response::Player {
+                key: PlayerKey::offline("Steve"),
+                data: PlayerLoad::Found(data.clone()),
+            },
+            Response::Player {
+                key: PlayerKey::xuid(3),
+                data: PlayerLoad::Absent,
+            },
+        ];
+        let mut log = InputLog::default();
+        log.begin(0);
+        for response in &responses {
+            log.response(response);
+        }
+        let charged = log.bytes;
+        assert!(
+            charged > 5 * ENTRY_COST + 100,
+            "the player extra is charged: {charged}"
+        );
+        let bytes = log.encode().unwrap();
+        let read = InputLog::decode(&bytes).unwrap();
+        assert_eq!(read.ticks(), log.ticks());
+        assert_eq!(read.encode().unwrap(), bytes);
+        let answers = &read.ticks()[0].responses;
+        assert!(matches!(
+            answers[0],
+            Answer::Chunk {
+                origin: Origin::Disk,
+                checksum: 0xdead_beef,
+                ..
+            }
+        ));
+        let Answer::Player { data: logged, .. } = &answers[3] else {
+            panic!("{answers:?}");
+        };
+        assert_eq!(logged.to_load().unwrap(), PlayerLoad::Found(data));
+        // Damaged written logs are errors, never panics.
+        crate::protocol::fuzz(&bytes, 5_000, |b| {
+            InputLog::decode(b)
+                .map(drop)
+                .map_err(|_| crate::protocol::Error::Size)
+        });
     }
 }

@@ -271,11 +271,29 @@ pub(crate) fn compare(
 /// [`compare_chunks`] compares them by their own rules.
 const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
 
-/// The packets of a window that are neither deferred nor chunk packets.
+/// Entity packets that also carry other entities' data: BDS sends them for the flat world's
+/// mobs that come into view during the spawn window (m7-facts.md 7), Anchor never (no mobs,
+/// CLAUDE.md 1). Only the player's own are compared.
+const ENTITY_DATA: [&str; 2] = ["SetActorData", "UpdateAttributes"];
+
+/// The packets of a window that are neither deferred nor chunk packets, nor entity data of
+/// another entity than the player (`ENTITY_DATA`).
 fn kept<'a>(window: &'a [Received], deferred: &Deferred) -> Vec<&'a Received> {
+    let player = window
+        .iter()
+        .find(|p| p.name == "StartGame")
+        .and_then(|p| field(&p.fields, "EntityRuntimeID").as_u64());
+    let other_entity = |p: &Received| {
+        ENTITY_DATA.contains(&p.name.as_str())
+            && field(&p.fields, "EntityRuntimeID").as_u64() != player
+    };
     window
         .iter()
-        .filter(|p| !deferred.0.contains_key(&p.name) && !CHUNK_PACKETS.contains(&p.name.as_str()))
+        .filter(|p| {
+            !deferred.0.contains_key(&p.name)
+                && !CHUNK_PACKETS.contains(&p.name.as_str())
+                && !other_entity(p)
+        })
         .collect()
 }
 
@@ -1416,6 +1434,27 @@ mod tests {
 {"type":"packet","name":"PlayerList","fields":{"Entries":[{"ActionType":0,"Username":"Dup(2)"}]}}
 "#;
         assert_eq!(added_players(capture).expect("capture"), ["Dup", "Dup(2)"]);
+    }
+
+    #[test]
+    fn entity_data_of_other_entities_is_left_out() {
+        let packet = |name: &str, id: u64| Received {
+            name: name.to_owned(),
+            fields: serde_json::json!({ "EntityRuntimeID": id }),
+        };
+        let window = [
+            packet("StartGame", 7),
+            packet("SetActorData", 7),
+            packet("SetActorData", 31),
+            packet("UpdateAttributes", 31),
+            packet("UpdateAttributes", 7),
+            packet("Respawn", 0),
+        ];
+        let deferred = parse_deferred("").expect("empty table");
+        assert_eq!(
+            sequence(&window, &deferred),
+            ["StartGame", "SetActorData", "UpdateAttributes", "Respawn"]
+        );
     }
 
     #[test]

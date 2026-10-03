@@ -1,0 +1,465 @@
+//! World clocks and sleeping (PMMP `World::$time`, `World::actuallyDoTick`, `World::checkSleep`,
+//! `Bed::onInteract`, `Player::sleepOn`, `Player::stopSleep`).
+//!
+//! Each world's time ([`World::time`](crate::world::World::time)) counts ticks from its creation
+//! (BDS starts a new world at 0) and is saved with the world record at every commit, so a restart
+//! continues the day cycle at the tick it was saved. Clients run the day cycle themselves; BDS
+//! 1.26.52 corrects them with `SyncWorldClocks` every 256 ticks or so and never sends `SetTime`
+//! (P6), so Anchor does the same, and again whenever time jumps.
+
+use super::{Point, feet, first_session, next_session};
+use tracing::debug;
+
+use crate::block::{self, Class, PropertyValue};
+use crate::nbt::{self, Encoding};
+use crate::protocol::consts::{AnimateAction, ClockPayloadType, LevelEvent};
+use crate::protocol::packet::{Animate, LevelEventGeneric, Packet, SyncWorldClocks};
+use crate::protocol::{SyncWorldClockStateData, TimeMarkerData, WorldClockData, Writer};
+use crate::save::WorldIndex;
+use crate::tick::{Phase, Player, SessionId, State};
+use crate::world::{BlockPos, DAY};
+
+/// When night starts and beds work (PMMP `World::TIME_NIGHT`).
+const NIGHT: i64 = 13_000;
+/// When night ends (PMMP `World::TIME_SUNRISE`).
+const SUNRISE: i64 = 23_000;
+/// Ticks between clock corrections: BDS sent them 257 ticks apart (P6 blocks capture).
+const SYNC_TICKS: u32 = 256;
+/// Ticks after someone lies down before the night may be skipped (PMMP `Player::sleepOn`).
+const SLEEP_DELAY: u32 = 60;
+/// The longest distance, squared, from the player's feet to a bed half (PMMP `Bed::onInteract`).
+const BED_REACH_SQUARED: f64 = 4.0;
+/// The overworld clock's ID, as BDS sends it in every run (P6 facts 7).
+const OVERWORLD_CLOCK: u64 = 7_194_480_507_151_251_734;
+/// The overworld clock's time markers: ID, name, time of day (P6 facts 7, fixed in every run).
+const MARKERS: [(u64, &str, i32); 6] = [
+    (2_625_810_911_898_139_949, "minecraft:sunrise", 23_000),
+    (4_918_950_784_056_990_566, "minecraft:night", 13_000),
+    (6_827_470_627_776_846_754, "minecraft:noon", 6_000),
+    (11_262_090_321_339_182_944, "minecraft:midnight", 18_000),
+    (13_638_948_813_458_750_018, "minecraft:day", 1_000),
+    (16_664_792_990_819_124_822, "minecraft:sunset", 12_000),
+];
+
+/// The world clocks' timers (each world keeps its own time).
+#[derive(Debug, Default)]
+pub(in crate::tick) struct Clock {
+    /// One per world, by world index (grown to the world count on the first tick).
+    worlds: Vec<WorldClock>,
+}
+
+/// One world's clock timers.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct WorldClock {
+    /// Ticks until the sleep check (PMMP `World::$sleepTicks`).
+    sleep_ticks: u32,
+    /// Ticks until the next clock correction.
+    sync_in: u32,
+}
+
+impl Clock {
+    #[cfg(test)]
+    pub(in crate::tick) fn hash_into(&self, h: &mut crate::tick::Fnv) {
+        let Self { worlds } = self;
+        h.usize(worlds.len());
+        for c in worlds {
+            let WorldClock {
+                sleep_ticks,
+                sync_in,
+            } = c;
+            h.u64(u64::from(*sleep_ticks));
+            h.u64(u64::from(*sync_in));
+        }
+    }
+
+    /// The number of world clocks.
+    #[cfg(test)]
+    pub(in crate::tick) fn worlds_len(&self) -> usize {
+        self.worlds.len()
+    }
+}
+
+/// The time of `world` (0 for a world that does not exist).
+pub(in crate::tick) fn time(state: &State, world: WorldIndex) -> i64 {
+    state.worlds.get(world).map_or(0, crate::world::World::time)
+}
+
+/// The time of day: 0 to 23,999 (PMMP `World::getTimeOfDay`).
+fn time_of_day(time: i64) -> i64 {
+    time.rem_euclid(DAY)
+}
+
+/// Whether beds work: 13,000 to 22,999 (PMMP `Bed::onInteract`).
+fn is_night(time: i64) -> bool {
+    (NIGHT..SUNRISE).contains(&time_of_day(time))
+}
+
+/// A time as the packets carry it (an `i32`, wrapping).
+fn packet_time(time: i64) -> i32 {
+    i32::try_from(time.rem_euclid(1 << 31)).unwrap_or(0)
+}
+
+/// One tick of every world clock (PMMP `World::actuallyDoTick`): time advances, clients are
+/// corrected now and then, and a pending sleep check runs.
+pub(super) fn tick(state: &mut State) {
+    let count = state.worlds.len();
+    state.clock.worlds.resize(count, WorldClock::default());
+    for world in 0..count {
+        if let Some(w) = state.worlds.get_mut(world) {
+            w.set_time(w.time().wrapping_add(1));
+        }
+        let Some(c) = state.clock.worlds.get_mut(world) else {
+            continue;
+        };
+        let sync = c.sync_in == 0;
+        c.sync_in = if sync { SYNC_TICKS - 1 } else { c.sync_in - 1 };
+        let check = c.sleep_ticks > 0 && {
+            c.sleep_ticks -= 1;
+            c.sleep_ticks == 0
+        };
+        if sync {
+            send_to_world(state, world, &clock_state(state, world));
+        }
+        if check {
+            check_sleep(state, world);
+        }
+    }
+}
+
+/// `SyncWorldClocks` with the world's time (payload 0, as BDS sends before `StartGame` and to
+/// correct clients).
+pub(in crate::tick) fn clock_state(state: &State, world: WorldIndex) -> Packet {
+    Packet::SyncWorldClocks(SyncWorldClocks {
+        payload_type: u32::from(ClockPayloadType::SyncState),
+        sync_states: vec![SyncWorldClockStateData {
+            clock_id: OVERWORLD_CLOCK,
+            time: packet_time(time(state, world)),
+            paused: false,
+        }],
+        ..SyncWorldClocks::default()
+    })
+}
+
+/// `SyncWorldClocks` defining the world's clock and its time markers (payload 1, as BDS sends
+/// after `SetSpawnPosition`).
+pub(in crate::tick) fn clock_definition(state: &State, world: WorldIndex) -> Packet {
+    Packet::SyncWorldClocks(SyncWorldClocks {
+        payload_type: u32::from(ClockPayloadType::InitializeRegistry),
+        clocks: vec![WorldClockData {
+            id: OVERWORLD_CLOCK,
+            name: "minecraft:overworld".to_owned(),
+            time: packet_time(time(state, world)),
+            paused: false,
+            time_markers: MARKERS
+                .iter()
+                .map(|&(id, name, time)| TimeMarkerData {
+                    id,
+                    name: name.to_owned(),
+                    time,
+                    period: Some(i32::try_from(DAY).unwrap_or(i32::MAX)),
+                })
+                .collect(),
+        }],
+        ..SyncWorldClocks::default()
+    })
+}
+
+/// `LevelEventGeneric` with the sleeping counts of a world (BDS sends it before `StartGame`):
+/// players who must sleep (all of them), players in the world, players asleep.
+pub(in crate::tick) fn sleeping_players(state: &State, world: WorldIndex) -> Packet {
+    let (mut players, mut asleep) = (0_i32, 0_i32);
+    for p in state.players.values() {
+        if p.world == world && p.phase != Phase::Loading {
+            players = players.saturating_add(1);
+            if p.survival.sleeping.is_some() {
+                asleep = asleep.saturating_add(1);
+            }
+        }
+    }
+    let mut data = nbt::Compound::new();
+    data.insert("ableToSleep".to_owned(), nbt::Value::Int(players));
+    data.insert("overworldPlayerCount".to_owned(), nbt::Value::Int(players));
+    data.insert("sleepingPlayerCount".to_owned(), nbt::Value::Int(asleep));
+    Packet::LevelEventGeneric(LevelEventGeneric {
+        event_id: i32::from(LevelEvent::SleepingPlayers),
+        serialised_event_data: compound_body(&data),
+    })
+}
+
+/// A compound's network NBT without the root tag's type and name (the event data BDS sends).
+fn compound_body(data: &nbt::Compound) -> Vec<u8> {
+    let mut w = Writer::new(Vec::new(), 0);
+    if w.nbt(data, Encoding::NetworkLittleEndian).is_err() {
+        return Vec::new();
+    }
+    // The root is a compound type byte and an empty name (one zero-length byte).
+    w.as_bytes()
+        .get(2..)
+        .map(<[u8]>::to_vec)
+        .unwrap_or_default()
+}
+
+/// Queues `packet` for every spawned player in `world`.
+fn send_to_world(state: &mut State, world: WorldIndex, packet: &Packet) {
+    for p in state.players.values_mut() {
+        if p.world == world && p.phase == Phase::Spawned {
+            p.send(packet.clone());
+        }
+    }
+}
+
+/// The sleep check (PMMP `World::checkSleep`): if every player in the world sleeps at night, the
+/// time skips to the next morning and everyone wakes.
+fn check_sleep(state: &mut State, world: WorldIndex) {
+    let mut any = false;
+    for p in state.players.values() {
+        if p.world != world || p.phase == Phase::Loading {
+            continue;
+        }
+        any = true;
+        if p.survival.sleeping.is_none() {
+            return;
+        }
+    }
+    let now = time(state, world);
+    if !any || !is_night(now) {
+        return;
+    }
+    if let Some(w) = state.worlds.get_mut(world) {
+        w.set_time(now.wrapping_add(DAY - time_of_day(now)));
+    }
+    send_to_world(state, world, &clock_state(state, world));
+    let mut next = first_session(state);
+    while let Some(session) = next {
+        next = next_session(state, session);
+        if state
+            .players
+            .get(&session)
+            .is_some_and(|p| p.world == world)
+        {
+            wake(state, session);
+        }
+    }
+}
+
+/// The other half of a bed (PMMP `Bed::getOtherHalf`): the head lies one block along the bed's
+/// direction from the foot.
+fn other_half(
+    state: &State,
+    world: WorldIndex,
+    pos: BlockPos,
+    bed: block::State,
+) -> Option<BlockPos> {
+    let Some(PropertyValue::Int(direction)) = bed.value("direction") else {
+        return None;
+    };
+    let head = matches!(bed.value("head_piece_bit"), Some(PropertyValue::Byte(1)));
+    // Bedrock bed directions: 0 south, 1 west, 2 north, 3 east.
+    let (dx, dz) = match direction {
+        0 => (0, 1),
+        1 => (-1, 0),
+        2 => (0, -1),
+        _ => (1, 0),
+    };
+    let (dx, dz) = if head { (-dx, -dz) } else { (dx, dz) };
+    let other = BlockPos::new(pos.x + dx, pos.y, pos.z + dz);
+    let b = state.worlds.get(world)?.block(other)?;
+    let other_head = matches!(b.value("head_piece_bit"), Some(PropertyValue::Byte(1)));
+    (b.is(Class::Bed) && other_head != head && b.value("direction") == bed.value("direction"))
+        .then_some(other)
+}
+
+/// Whether a bed block is the head half.
+fn is_head(bed: block::State) -> bool {
+    matches!(bed.value("head_piece_bit"), Some(PropertyValue::Byte(1)))
+}
+
+/// The player lies down in the bed at `pos` (PMMP `Bed::onInteract` then `Player::sleepOn`):
+/// only at night, within 2 blocks of either half of a whole bed nobody sleeps in. The bed shows
+/// occupied, becomes the player's respawn point, and the night may be skipped in 60 ticks.
+pub(super) fn sleep(
+    state: &mut State,
+    session: SessionId,
+    world: WorldIndex,
+    pos: BlockPos,
+) -> bool {
+    let Some(player) = state.players.get(&session) else {
+        return false;
+    };
+    if player.phase != Phase::Spawned
+        || player.world != world
+        || player.survival.is_dead()
+        || player.survival.sleeping.is_some()
+        || !is_night(time(state, world))
+    {
+        return false;
+    }
+    let Some(bed) = state.worlds.get(world).and_then(|w| w.block(pos)) else {
+        return false;
+    };
+    if !bed.is(Class::Bed) {
+        return false;
+    }
+    let Some(other) = other_half(state, world, pos, bed) else {
+        return false;
+    };
+    let at = feet(player);
+    let near = |b: BlockPos| {
+        at.distance_squared(crate::math::Vec3::new(
+            f64::from(b.x),
+            f64::from(b.y),
+            f64::from(b.z),
+        )) <= BED_REACH_SQUARED
+    };
+    if !near(pos) && !near(other) {
+        return false;
+    }
+    let head = if is_head(bed) { pos } else { other };
+    let occupied = state
+        .worlds
+        .get(world)
+        .and_then(|w| w.block(head))
+        .is_some_and(|b| matches!(b.value("occupied_bit"), Some(PropertyValue::Byte(1))));
+    if occupied {
+        return false;
+    }
+    set_occupied(state, world, [head, block_at_other(head, pos, other)], true);
+    let name = state
+        .worlds
+        .get(world)
+        .map(|w| w.name().to_owned())
+        .unwrap_or_default();
+    let Some(player) = state.players.get_mut(&session) else {
+        return false;
+    };
+    player.survival.sleeping = Some(head);
+    player.survival.motion.in_bed = true;
+    player.survival.spawn = Some(Point {
+        world: name,
+        pos: head,
+    });
+    player.data_dirty = true;
+    if let Some(c) = state.clock.worlds.get_mut(world) {
+        c.sleep_ticks = SLEEP_DELAY;
+    }
+    send_to_world(state, world, &sleeping_players(state, world));
+    true
+}
+
+/// The half of a bed that is not `head`.
+fn block_at_other(head: BlockPos, a: BlockPos, b: BlockPos) -> BlockPos {
+    if a == head { b } else { a }
+}
+
+/// Sets or clears the occupied bit of the bed halves that are still beds.
+fn set_occupied(state: &mut State, world: WorldIndex, halves: [BlockPos; 2], occupied: bool) {
+    let Some(w) = state.worlds.get_mut(world) else {
+        return;
+    };
+    for pos in halves {
+        let Some(b) = w.block(pos) else {
+            continue;
+        };
+        if !b.is(Class::Bed) {
+            continue;
+        }
+        if let Some(changed) = b.with("occupied_bit", PropertyValue::Byte(u8::from(occupied)))
+            && changed != b
+            && let Err(e) = w.set_block(pos, changed)
+        {
+            // A damaged chunk refuses changes: the bed keeps its look.
+            debug!(error = %e, x = pos.x, y = pos.y, z = pos.z, "bed occupancy not changed");
+        }
+    }
+}
+
+/// The player of `session` wakes up, if asleep.
+pub(super) fn wake(state: &mut State, session: SessionId) {
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    player.survival.motion.in_bed = false;
+    let Some(bed) = player.survival.sleeping.take() else {
+        return;
+    };
+    let world = player.world;
+    woke(player);
+    after_wake(state, world, bed);
+}
+
+/// A player that is not in the player map wakes up (it leaves).
+pub(super) fn stop_sleep(state: &mut State, player: &mut Player) {
+    let Some(bed) = player.survival.sleeping.take() else {
+        return;
+    };
+    let world = player.world;
+    player.data_dirty = true;
+    after_wake(state, world, bed);
+}
+
+/// The player is told it woke (PMMP `Player::stopSleep`: `Animate` stop sleep).
+fn woke(player: &mut Player) {
+    player.data_dirty = true;
+    if player.phase == Phase::Spawned {
+        let packet = Packet::Animate(Animate {
+            action_type: u8::from(AnimateAction::StopSleep),
+            entity_runtime_id: player.runtime_id,
+            data: 0.0,
+            swing_source: 0,
+        });
+        player.send(packet);
+    }
+}
+
+/// After someone wakes: the bed is free, and the sleep check waits again for whoever still
+/// sleeps. PMMP sets the wait to 0 on any wake, so the others' night was never skipped.
+fn after_wake(state: &mut State, world: WorldIndex, bed: BlockPos) {
+    let other = state
+        .worlds
+        .get(world)
+        .and_then(|w| w.block(bed))
+        .filter(|b| b.is(Class::Bed))
+        .and_then(|b| other_half(state, world, bed, b));
+    set_occupied(state, world, [bed, other.unwrap_or(bed)], false);
+    let still = state
+        .players
+        .values()
+        .any(|p| p.world == world && p.survival.sleeping.is_some());
+    if let Some(c) = state.clock.worlds.get_mut(world) {
+        c.sleep_ticks = if still { SLEEP_DELAY } else { 0 };
+    }
+    send_to_world(state, world, &sleeping_players(state, world));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn night_is_from_13000_to_22999() {
+        assert!(!is_night(12_999));
+        assert!(is_night(13_000));
+        assert!(is_night(22_999));
+        assert!(!is_night(23_000));
+        assert!(is_night(DAY * 5 + 18_000));
+        assert_eq!(packet_time(26), 26);
+        assert_eq!(packet_time(-1), i32::MAX);
+    }
+
+    #[test]
+    fn the_sleeping_event_data_is_the_bds_compound_body() {
+        let mut data = nbt::Compound::new();
+        data.insert("ableToSleep".to_owned(), nbt::Value::Int(1));
+        data.insert("overworldPlayerCount".to_owned(), nbt::Value::Int(1));
+        data.insert("sleepingPlayerCount".to_owned(), nbt::Value::Int(0));
+        // BDS 1.26.52 (P6 facts 7), base64 "AwthYmxlVG9TbGVlcAIDFG92ZXJ3b3JsZFBsYXllckNvdW50AgMTc2xlZXBpbmdQbGF5ZXJDb3VudAAA".
+        let mut want = vec![3, 11];
+        want.extend(b"ableToSleep");
+        want.extend([2, 3, 20]);
+        want.extend(b"overworldPlayerCount");
+        want.extend([2, 3, 19]);
+        want.extend(b"sleepingPlayerCount");
+        want.extend([0, 0]);
+        assert_eq!(compound_body(&data), want);
+    }
+}

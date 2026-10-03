@@ -4,7 +4,9 @@ pub mod batch;
 mod block_storage;
 mod common;
 pub mod compression;
+pub mod consts;
 mod entity_data;
+mod flags;
 mod inventory;
 mod io;
 mod login;
@@ -16,6 +18,7 @@ mod values;
 pub use block_storage::{PalettedStorage, SubChunk};
 pub use common::{Bitset, BlockPos, ChunkPos, Rgba, SubChunkPos, Uuid};
 pub use entity_data::{EntityMetadata, MetadataValue};
+pub use flags::{Flag, FlagSet};
 pub use inventory::{
     ItemInstance, ItemStack, ItemType, MaterialReducer, MaterialReducerOutput, StackRequestItem,
 };
