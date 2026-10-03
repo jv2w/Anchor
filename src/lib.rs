@@ -5,11 +5,14 @@
 compile_error!("anchor requires panic = \"unwind\"");
 
 mod auth;
+pub mod block;
 mod clock;
 pub mod config;
+mod crafting;
 mod crypto;
 mod error;
 pub mod event;
+pub mod item;
 mod login;
 pub mod nbt;
 mod nethernet;

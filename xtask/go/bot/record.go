@@ -239,9 +239,11 @@ func hashed(n int, v any) map[string]any {
 var uuidType = reflect.TypeOf(uuid.UUID{})
 
 // toJSON converts a gophertunnel value into a JSON tree. Structs become objects of their exported fields,
-// Optional values become their value or null, byte data becomes base64 (or length and hash when large),
-// and non-finite floats become strings.
-func toJSON(v reflect.Value, depth int) any {
+// Optional values become their value or null, byte data becomes base64 and non-finite floats become strings.
+// Unless full is set, large strings, byte data and lists are replaced by their length and SHA-256 (hashed).
+// With full set, nothing is shortened and NBT maps (map[string]any) keep their tag types (nbtJSON), so two
+// captures compare by content.
+func toJSON(v reflect.Value, depth int, full bool) any {
 	if depth > maxDepth {
 		return "<too deep>"
 	}
@@ -255,7 +257,7 @@ func toJSON(v reflect.Value, depth int) any {
 		if v.IsNil() {
 			return nil
 		}
-		return toJSON(v.Elem(), depth+1)
+		return toJSON(v.Elem(), depth+1, full)
 	case reflect.Bool:
 		return v.Bool()
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -263,17 +265,9 @@ func toJSON(v reflect.Value, depth int) any {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		return v.Uint()
 	case reflect.Float32, reflect.Float64:
-		f := v.Float()
-		if math.IsNaN(f) || math.IsInf(f, 0) {
-			return fmt.Sprint(f)
-		}
-		if v.Kind() == reflect.Float32 {
-			// Keep the float32 value's shortest form rather than its float64 expansion.
-			return json.Number(fmt.Sprint(float32(f)))
-		}
-		return f
+		return floatJSON(v.Float(), v.Kind() == reflect.Float32)
 	case reflect.String:
-		if v.Len() > maxString {
+		if !full && v.Len() > maxString {
 			return hashed(v.Len(), v.String())
 		}
 		return v.String()
@@ -283,12 +277,12 @@ func toJSON(v reflect.Value, depth int) any {
 			if !out[1].Bool() {
 				return nil
 			}
-			return toJSON(out[0], depth+1)
+			return toJSON(out[0], depth+1, full)
 		}
 		m := make(map[string]any, v.NumField())
 		for i := range v.NumField() {
 			if f := v.Type().Field(i); f.IsExported() {
-				m[f.Name] = toJSON(v.Field(i), depth+1)
+				m[f.Name] = toJSON(v.Field(i), depth+1, full)
 			}
 		}
 		return m
@@ -299,7 +293,7 @@ func toJSON(v reflect.Value, depth int) any {
 		if v.Type().Elem().Kind() == reflect.Uint8 {
 			b := make([]byte, v.Len())
 			reflect.Copy(reflect.ValueOf(b), v)
-			if len(b) > maxBytes {
+			if !full && len(b) > maxBytes {
 				sum := sha256.Sum256(b)
 				return map[string]any{"len": len(b), "sha256": hex.EncodeToString(sum[:])}
 			}
@@ -307,20 +301,83 @@ func toJSON(v reflect.Value, depth int) any {
 		}
 		out := make([]any, v.Len())
 		for i := range out {
-			out[i] = toJSON(v.Index(i), depth+1)
+			out[i] = toJSON(v.Index(i), depth+1, full)
 		}
-		if len(out) > maxElems {
+		if !full && len(out) > maxElems {
 			return hashed(len(out), out)
 		}
 		return out
 	case reflect.Map:
+		if full && v.Type() == nbtMapType {
+			return nbtJSON(v.Interface(), depth)
+		}
 		m := make(map[string]any, v.Len())
 		iter := v.MapRange()
 		for iter.Next() {
-			m[fmt.Sprint(iter.Key().Interface())] = toJSON(iter.Value(), depth+1)
+			m[fmt.Sprint(iter.Key().Interface())] = toJSON(iter.Value(), depth+1, full)
 		}
 		return m
 	default:
 		return fmt.Sprintf("<%v>", v.Kind())
 	}
+}
+
+// floatJSON keeps a float32 value's shortest form rather than its float64 expansion and writes non-finite
+// values as strings.
+func floatJSON(f float64, is32 bool) any {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return fmt.Sprint(f)
+	}
+	if is32 {
+		return json.Number(fmt.Sprint(float32(f)))
+	}
+	return f
+}
+
+var nbtMapType = reflect.TypeOf(map[string]any{})
+
+// nbtJSON writes a value decoded by gophertunnel's nbt package with its tag type: {"byte":1}, {"int":2},
+// {"list":[...]}, {"compound":{...}} and so on, so that values of different tags never compare equal.
+func nbtJSON(v any, depth int) any {
+	if depth > maxDepth {
+		return "<too deep>"
+	}
+	switch v := v.(type) {
+	case uint8:
+		return map[string]any{"byte": v}
+	case int16:
+		return map[string]any{"short": v}
+	case int32:
+		return map[string]any{"int": v}
+	case int64:
+		return map[string]any{"long": v}
+	case float32:
+		return map[string]any{"float": floatJSON(float64(v), true)}
+	case float64:
+		return map[string]any{"double": floatJSON(v, false)}
+	case string:
+		return map[string]any{"string": v}
+	case map[string]any:
+		m := make(map[string]any, len(v))
+		for k, e := range v {
+			m[k] = nbtJSON(e, depth+1)
+		}
+		return map[string]any{"compound": m}
+	case []any:
+		out := make([]any, len(v))
+		for i, e := range v {
+			out[i] = nbtJSON(e, depth+1)
+		}
+		return map[string]any{"list": out}
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+		// Typed lists and the byte, int and long array tags.
+		out := make([]any, rv.Len())
+		for i := range out {
+			out[i] = nbtJSON(rv.Index(i).Interface(), depth+1)
+		}
+		return map[string]any{fmt.Sprintf("%v", rv.Type()): out}
+	}
+	return map[string]any{fmt.Sprintf("%T", v): fmt.Sprint(v)}
 }

@@ -29,6 +29,8 @@
 //	kicked         spawn, then wait up to -stay for a Disconnect; pass only if its reason is
 //	               DisconnectReasonLoggedInOtherLocation
 //	rejected       pass if a Disconnect arrives before spawning
+//	blocks         spawn, then stay until a Text message containing "p6-end" arrives (at most -stay); the
+//	               caller places blocks with server console commands meanwhile (cargo xtask p6 bds)
 //	bind-mismatch  nethernet only: the offer identity proves a second key, the Login the bot key; pass if
 //	               the server sends a Disconnect or closes the connection before spawning
 //	idle, prelogin-limit  RakNet server limit checks (limits.go)
@@ -39,7 +41,9 @@
 // segment of a segmented message), "raknet" (RakNet
 // handshake probe), "pong", "batch" (raw batch facts), "packet" (a received packet), "sent" (a packet the bot
 // sent; the output is flushed after SetLocalPlayerAsInitialised), "blocks" (the block network ID check) and a
-// final "result". The process exits 0 only if the scenario passed, 1 if it failed and 2 on bad arguments or
+// final "result". ItemRegistry, CreativeContent and CraftingData are also written in full, one
+// {"index","name","fields"} line each, to the -out path with ".jsonl" (if any) replaced by ".items.jsonl": nothing is
+// shortened and NBT values keep their tag types ({"byte":1}). The process exits 0 only if the scenario passed, 1 if it failed and 2 on bad arguments or
 // I/O errors.
 package main
 
@@ -51,6 +55,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -110,12 +115,12 @@ func parseFlags(args []string) (config, error) {
 	return c, nil
 }
 
-const scenarioList = "spawn, big-skin, online, kicked, rejected, bind-mismatch, idle or prelogin-limit"
+const scenarioList = "spawn, big-skin, online, kicked, rejected, blocks, bind-mismatch, idle or prelogin-limit"
 
 // knownScenario reports whether name is a scenario the bot runs.
 func knownScenario(name string) bool {
 	switch name {
-	case "spawn", "big-skin", "online", "kicked", "rejected", "bind-mismatch", "idle", "prelogin-limit":
+	case "spawn", "big-skin", "online", "kicked", "rejected", "blocks", "bind-mismatch", "idle", "prelogin-limit":
 		return true
 	}
 	return false
@@ -163,7 +168,19 @@ func run(args []string) (bool, error) {
 	if c.scenario == "idle" || c.scenario == "prelogin-limit" {
 		res = playLimit(ctx, c)
 	} else {
-		res = play(ctx, c, out)
+		itemsFile, err := os.Create(itemsPath(c.out))
+		if err != nil {
+			return false, err
+		}
+		items := &output{w: bufio.NewWriterSize(itemsFile, 1<<20)}
+		res = play(ctx, c, out, items)
+		items.flush()
+		if err := itemsFile.Close(); err != nil && items.err == nil {
+			items.err = err
+		}
+		if items.err != nil {
+			return false, items.err
+		}
 	}
 	out.line(res.json(c))
 	out.flush()
@@ -177,6 +194,11 @@ func run(args []string) (bool, error) {
 		fmt.Fprintln(os.Stderr, "bot: scenario", c.scenario, "failed:", res.reason)
 	}
 	return res.pass, nil
+}
+
+// itemsPath is the file of the full item packets that belongs to the capture out.
+func itemsPath(out string) string {
+	return strings.TrimSuffix(out, ".jsonl") + ".items.jsonl"
 }
 
 func main() {

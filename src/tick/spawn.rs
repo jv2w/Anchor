@@ -6,15 +6,18 @@
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use super::queue::{Identity, Outbound, SessionId};
+use super::queue::{Identity, Outbound, SessionId, SharedBatches};
 use super::{
     DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION, Output, Phase, Player, PlayerKey, Settings, State,
 };
 use crate::config::{Difficulty, GameMode};
+use crate::crafting;
 use crate::event::{DuplicateOutcome, PlayerDuplicateLogin};
+use crate::item::{self, SHIELD_RUNTIME_ID};
+use crate::protocol::batch;
 use crate::protocol::packet::{
-    self, ChunkRadiusUpdated, Disconnect, ItemRegistry, LevelChunk, NetworkChunkPublisherUpdate,
-    Packet, PlayStatus, RequestChunkRadius, SetLocalPlayerAsInitialised, StartGame,
+    self, ChunkRadiusUpdated, Disconnect, LevelChunk, NetworkChunkPublisherUpdate, Packet,
+    PlayStatus, RequestChunkRadius, SetLocalPlayerAsInitialised, StartGame,
 };
 use crate::protocol::{BlockPos, ChunkPos, PlayerMovementSettings, ServerJoinInformation};
 
@@ -41,6 +44,52 @@ const REWIND_HISTORY_SIZE: i32 = 40;
 const PERMISSION_MEMBER: u8 = 1;
 /// The biome of the empty world: plains (ID 1).
 const PLAINS: u8 = 1;
+
+/// The start-game batches every player gets the same (PLAN.md 10.4): the item registry, the
+/// creative inventory and the recipes. Each is encoded and compressed once at start; sessions
+/// only encrypt them.
+#[derive(Debug, Clone)]
+pub(crate) struct Shared {
+    item_registry: SharedBatches,
+    creative_content: SharedBatches,
+    crafting_data: SharedBatches,
+}
+
+impl Shared {
+    /// Builds the batches with the server's batch settings. Fails if a packet cannot be encoded
+    /// or its batch is larger than `max-batch-bytes`.
+    pub(crate) fn new(settings: batch::Settings) -> Result<Self, batch::Error> {
+        let mut encoder = batch::Encoder::new(settings);
+        Ok(Self {
+            item_registry: encode(&mut encoder, &Packet::ItemRegistry(item::registry()))?,
+            creative_content: encode(
+                &mut encoder,
+                &Packet::CreativeContent(item::creative_content()),
+            )?,
+            crafting_data: encode(
+                &mut encoder,
+                &Packet::CraftingData(Box::new(crafting::crafting_data())),
+            )?,
+        })
+    }
+}
+
+/// Encodes and compresses one packet into its batch bodies.
+fn encode(encoder: &mut batch::Encoder, packet: &Packet) -> Result<SharedBatches, batch::Error> {
+    let header = batch::Header {
+        id: packet.id(),
+        ..batch::Header::default()
+    };
+    let mut payload = Vec::new();
+    let mut bodies = Vec::new();
+    batch::encode_packets([(header, packet)], SHIELD_RUNTIME_ID, &mut payload, |p| {
+        let mut body = Vec::new();
+        encoder.encode(p, &mut body)?;
+        bodies.push(body);
+        Ok(())
+    })?;
+    Ok(bodies.into())
+}
 
 /// Registers the player of `session` and sends the start-game packets, or rejects it when the
 /// server is full. A second join of the same session changes nothing.
@@ -112,8 +161,7 @@ pub(super) fn join(
         session,
         Packet::StartGame(Box::new(start_game(&state.settings, &player))),
     );
-    // Items arrive in M4.
-    output.send(session, Packet::ItemRegistry(ItemRegistry::default()));
+    output.share(session, &state.shared.item_registry);
     state.insert(session, player);
 }
 
@@ -171,6 +219,12 @@ pub(super) fn request_chunk_radius(
             "chunk radius below 1 ignored"
         );
         return;
+    }
+    // BDS sends the creative inventory and the recipes after the chunk radius request, before
+    // its answer (P6, PLAN.md 10.4).
+    if player.phase == Phase::Joined && player.chunk_radius.is_none() {
+        output.share(session, &state.shared.creative_content);
+        output.share(session, &state.shared.crafting_data);
     }
     let view_distance = state.settings.view_distance;
     let radius = u8::try_from(request.chunk_radius).map_or(view_distance, |r| r.min(view_distance));

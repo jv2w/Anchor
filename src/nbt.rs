@@ -631,6 +631,108 @@ impl Writer {
     }
 }
 
+/// A compound in a generated static table (PLAN.md 10.4): entries in key byte order.
+pub(crate) type StaticCompound = &'static [(&'static str, Static)];
+
+/// An NBT value in a generated static table. Tables cannot hold [`Value`] (it owns heap data),
+/// so they hold this, and the engine turns it into a [`Value`] once at start. It has the types
+/// the generated data uses; the generator fails on any other. The nesting is that of the
+/// generated data, so the recursive functions stay shallow.
+#[derive(Debug)]
+pub(crate) enum Static {
+    Byte(u8),
+    Short(i16),
+    Int(i32),
+    Float(f32),
+    ByteArray(&'static [u8]),
+    String(&'static str),
+    List(StaticList),
+    Compound(StaticCompound),
+}
+
+/// A [`List`] in a generated static table, of the element types the generated data uses.
+#[derive(Debug)]
+pub(crate) enum StaticList {
+    End,
+    Int(&'static [i32]),
+    Float(&'static [f32]),
+    String(&'static [&'static str]),
+    Compound(&'static [StaticCompound]),
+}
+
+/// Builds the [`Compound`] of a static compound.
+pub(crate) fn compound(entries: StaticCompound) -> Compound {
+    entries
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), value.to_value()))
+        .collect()
+}
+
+/// Whether every entry of `part` is in `whole` with an equal value (floats compare by bits).
+pub(crate) fn contains(whole: &Compound, part: StaticCompound) -> bool {
+    part.iter()
+        .all(|(k, v)| whole.get(*k).is_some_and(|w| v.equals(w)))
+}
+
+impl Static {
+    /// Builds the [`Value`].
+    pub(crate) fn to_value(&self) -> Value {
+        match self {
+            Self::Byte(x) => Value::Byte(*x),
+            Self::Short(x) => Value::Short(*x),
+            Self::Int(x) => Value::Int(*x),
+            Self::Float(x) => Value::Float(*x),
+            Self::ByteArray(x) => Value::ByteArray(x.to_vec()),
+            Self::String(x) => Value::String((*x).to_owned()),
+            Self::List(x) => Value::List(x.to_list()),
+            Self::Compound(x) => Value::Compound(compound(x)),
+        }
+    }
+
+    /// Whether `value` equals this value; floats compare by bits.
+    fn equals(&self, value: &Value) -> bool {
+        match (self, value) {
+            (Self::Byte(a), Value::Byte(b)) => a == b,
+            (Self::Short(a), Value::Short(b)) => a == b,
+            (Self::Int(a), Value::Int(b)) => a == b,
+            (Self::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
+            (Self::ByteArray(a), Value::ByteArray(b)) => *a == b.as_slice(),
+            (Self::String(a), Value::String(b)) => a == b,
+            (Self::List(a), Value::List(b)) => a.equals(b),
+            (Self::Compound(a), Value::Compound(b)) => a.len() == b.len() && contains(b, a),
+            _ => false,
+        }
+    }
+}
+
+impl StaticList {
+    fn to_list(&self) -> List {
+        match self {
+            Self::End => List::End,
+            Self::Int(x) => List::Int(x.to_vec()),
+            Self::Float(x) => List::Float(x.to_vec()),
+            Self::String(x) => List::String(x.iter().map(|s| (*s).to_owned()).collect()),
+            Self::Compound(x) => List::Compound(x.iter().map(|c| compound(c)).collect()),
+        }
+    }
+
+    fn equals(&self, list: &List) -> bool {
+        fn all<A, B>(a: &[A], b: &[B], eq: impl Fn(&A, &B) -> bool) -> bool {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| eq(x, y))
+        }
+        match (self, list) {
+            (Self::End, List::End) => true,
+            (Self::Int(a), List::Int(b)) => *a == b.as_slice(),
+            (Self::Float(a), List::Float(b)) => all(a, b, |x, y| x.to_bits() == y.to_bits()),
+            (Self::String(a), List::String(b)) => all(a, b, |x, y| x == y),
+            (Self::Compound(a), List::Compound(b)) => {
+                all(a, b, |x, y| x.len() == y.len() && contains(y, x))
+            }
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

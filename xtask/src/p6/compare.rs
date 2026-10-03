@@ -2,9 +2,10 @@
 //! packet received before the bot sent `SetLocalPlayerAsInitialised`. Packets in the deferral table
 //! are removed from both windows; the remaining name sequences must be equal, and so must the
 //! fixed fields of each pair of same-named packets (paired in order). NetherNet captures also hold
-//! the server's answer SDP, whose line structure must be equal (see `compare_structure`).
+//! the server's answer SDP, whose line structure must be equal (see `compare_structure`). The item
+//! packets the bot writes in full (`<capture>.items.jsonl`) are compared by `compare_items`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -291,6 +292,458 @@ pub(crate) fn sequence(window: &[Received], deferred: &Deferred) -> Vec<String> 
         .collect()
 }
 
+/// The full item packets of a capture (the bot's `<capture>.items.jsonl`): the first
+/// `ItemRegistry`, `CreativeContent` and `CraftingData`, each as its fields.
+#[derive(Debug, Default)]
+pub(crate) struct Items {
+    registry: Option<Value>,
+    creative: Option<Value>,
+    crafting: Option<Value>,
+}
+
+/// Reads a full item packet file.
+pub(crate) fn parse_items(text: &str) -> Result<Items, String> {
+    let mut items = Items::default();
+    for (i, line) in text.lines().enumerate() {
+        let value: Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
+        let slot = match field(&value, "name").as_str() {
+            Some("ItemRegistry") => &mut items.registry,
+            Some("CreativeContent") => &mut items.creative,
+            Some("CraftingData") => &mut items.crafting,
+            _ => return Err(format!("line {}: not an item packet", i + 1)),
+        };
+        if slot.is_none() {
+            *slot = Some(field(&value, "fields").clone());
+        }
+    }
+    Ok(items)
+}
+
+/// How many entries of one kind a difference list shows before it only counts.
+const SHOWN: usize = 10;
+
+/// Compares the item packets of capture A (BDS) and B (Anchor) where both have them. Returns the
+/// differences, which fail the comparison, and notes, which are information:
+/// - `ItemRegistry`: the `Items` lists must hold the same entries (`compare_registry`).
+/// - `CreativeContent`: every item of B must be in A with the same `NetworkID`, `MetadataValue`,
+///   `BlockRuntimeID` and `NBTData`; B's groups must be consistent (`group_problems`).
+/// - `CraftingData`: every item stack (`NetworkID`, `MetadataValue`, `BlockRuntimeID`) and every
+///   ingredient descriptor of B must be one A uses somewhere in its creative or crafting data
+///   (`Representations`). Recipe content differences are notes.
+pub(crate) fn compare_items(a: &Items, b: &Items) -> (Vec<String>, Vec<String>) {
+    let mut differences = Vec::new();
+    let mut notes = Vec::new();
+    if let (Some(x), Some(y)) = (&a.registry, &b.registry) {
+        differences.extend(compare_registry(field(x, "Items"), field(y, "Items")));
+    }
+    if let (Some(x), Some(y)) = (&a.creative, &b.creative) {
+        let known: BTreeSet<String> = array(x, "Items")
+            .iter()
+            .map(|item| creative_key(field(item, "Item")))
+            .collect();
+        let missing: Vec<String> = array(y, "Items")
+            .iter()
+            .map(|item| creative_key(field(item, "Item")))
+            .filter(|key| !known.contains(key))
+            .collect();
+        // An item A has in its creative inventory must have A's form; an item A leaves out
+        // (education items BDS hides) is content, not a form difference.
+        let (wrong, absent) = split_by_item(&missing, &known);
+        differences.extend(listed(
+            "CreativeContent items of B whose item A has in another form (NetworkID, \
+             MetadataValue, BlockRuntimeID, NBT)",
+            &wrong,
+        ));
+        notes.extend(listed(
+            "CreativeContent items of B that A does not list",
+            &absent,
+        ));
+        differences.extend(
+            group_problems(y)
+                .into_iter()
+                .map(|p| format!("CreativeContent of B: {p}")),
+        );
+    }
+    if let (Some(x), Some(y)) = (&a.crafting, &b.crafting) {
+        let used = Representations::of(a);
+        let mut missing = BTreeSet::new();
+        Representations::walk(y, &mut |kind, key| {
+            if !used.has(kind, &key) {
+                missing.insert(format!("{kind} {key}"));
+            }
+        });
+        let stacks: BTreeSet<String> = used
+            .0
+            .iter()
+            .filter(|(kind, _)| *kind == "stack")
+            .map(|(kind, key)| format!("{kind} {key}"))
+            .collect();
+        // A stack of an item A never has in a stack is recipe content (an item BDS uses in no
+        // recipe or creative entry), not a form difference.
+        let (stack_keys, others): (Vec<String>, Vec<String>) =
+            missing.into_iter().partition(|k| k.starts_with("stack "));
+        let (mut wrong, absent) = split_by_item(&stack_keys, &stacks);
+        wrong.extend(others);
+        wrong.sort();
+        differences.extend(listed(
+            "CraftingData item representations of B that A never uses",
+            &wrong,
+        ));
+        notes.extend(listed(
+            "CraftingData item representations of B for items A never uses",
+            &absent,
+        ));
+        notes.extend(recipe_notes(x, y));
+    }
+    (differences, notes)
+}
+
+/// Splits keys (`[kind ]NetworkID:...`) into those whose item (the part before the first `:`)
+/// some key of `known` has, and the others.
+fn split_by_item(keys: &[String], known: &BTreeSet<String>) -> (Vec<String>, Vec<String>) {
+    let item = |key: &str| key.split(':').next().unwrap_or_default().to_owned();
+    let items: BTreeSet<String> = known.iter().map(|k| item(k)).collect();
+    keys.iter().cloned().partition(|k| items.contains(&item(k)))
+}
+
+/// The array at `key` of a JSON object, or an empty slice.
+fn array<'a>(value: &'a Value, key: &str) -> &'a [Value] {
+    field(value, key).as_array().map_or(&[], Vec::as_slice)
+}
+
+/// One difference line for a non-empty list, showing at most `SHOWN` entries.
+fn listed(what: &str, entries: &[String]) -> Option<String> {
+    if entries.is_empty() {
+        return None;
+    }
+    let shown: Vec<&str> = entries.iter().take(SHOWN).map(String::as_str).collect();
+    let more = entries.len().saturating_sub(SHOWN);
+    Some(format!(
+        "{what}: {}:\n  {}{}",
+        entries.len(),
+        shown.join("\n  "),
+        if more > 0 {
+            format!("\n  ... {more} more")
+        } else {
+            String::new()
+        }
+    ))
+}
+
+/// Compares two `ItemRegistry` item lists in runtime ID order: BDS lists them in an order that is
+/// the same on every start but neither by runtime ID nor by name, and the client looks entries up
+/// by runtime ID. Reports the names only one side has and the first differing entry.
+fn compare_registry(a: &Value, b: &Value) -> Vec<String> {
+    let (Some(a), Some(b)) = (a.as_array(), b.as_array()) else {
+        return vec!["ItemRegistry Items is not a list".to_owned()];
+    };
+    let (a, b) = (by_runtime_id(a), by_runtime_id(b));
+    if a == b {
+        return Vec::new();
+    }
+    let name = |e: &&Value| field(e, "Name").as_str().unwrap_or_default().to_owned();
+    let names_a: BTreeSet<String> = a.iter().map(name).collect();
+    let names_b: BTreeSet<String> = b.iter().map(name).collect();
+    let only = |x: &BTreeSet<String>, y: &BTreeSet<String>| -> Vec<String> {
+        x.difference(y).cloned().collect()
+    };
+    let mut differences = vec![format!(
+        "ItemRegistry Items differ: A {} entries, B {}",
+        a.len(),
+        b.len()
+    )];
+    differences.extend(listed(
+        "ItemRegistry names only in A",
+        &only(&names_a, &names_b),
+    ));
+    differences.extend(listed(
+        "ItemRegistry names only in B",
+        &only(&names_b, &names_a),
+    ));
+    if let Some((x, y)) = a.iter().zip(&b).find(|(x, y)| x != y) {
+        differences.push(format!(
+            "ItemRegistry first different entry by runtime ID: A {} != B {}",
+            short(x),
+            short(y)
+        ));
+    }
+    differences
+}
+
+/// `ItemRegistry` entries sorted by runtime ID (then by content, for duplicate IDs).
+fn by_runtime_id(list: &[Value]) -> Vec<&Value> {
+    let mut list: Vec<&Value> = list.iter().collect();
+    list.sort_by_cached_key(|e| (field(e, "RuntimeID").as_i64(), e.to_string()));
+    list
+}
+
+/// A JSON value cut to 300 characters, for messages.
+fn short(value: &Value) -> String {
+    let text = value.to_string();
+    if text.chars().count() <= 300 {
+        return text;
+    }
+    let mut cut: String = text.chars().take(300).collect();
+    cut.push_str("...");
+    cut
+}
+
+/// The identity of a creative item: `NetworkID`, `MetadataValue`, `BlockRuntimeID` and NBT.
+fn creative_key(stack: &Value) -> String {
+    format!(
+        "{} {}",
+        stack_key(stack).unwrap_or_default(),
+        field(stack, "NBTData")
+    )
+}
+
+/// `NetworkID:MetadataValue:BlockRuntimeID` of an item stack (gophertunnel's `ItemStack`, whose
+/// embedded `ItemType` holds the first two), or `None` for other objects.
+fn stack_key(stack: &Value) -> Option<String> {
+    let item = stack.get("ItemType")?;
+    Some(format!(
+        "{}:{}:{}",
+        item.get("NetworkID")?,
+        item.get("MetadataValue")?,
+        stack.get("BlockRuntimeID")?
+    ))
+}
+
+/// What is wrong with a `CreativeContent`'s groups: an item's group index out of range, item group
+/// indexes that go back (items are listed group by group), a group without items, or creative
+/// item network IDs that are not 1, 2, 3, ... in order.
+fn group_problems(creative: &Value) -> Vec<String> {
+    let groups = array(creative, "Groups").len();
+    let mut problems = Vec::new();
+    let mut used = vec![false; groups];
+    let mut last = 0;
+    for (i, item) in array(creative, "Items").iter().enumerate() {
+        let index = field(item, "GroupIndex").as_u64();
+        match index.and_then(|g| usize::try_from(g).ok()) {
+            Some(g) if g < groups => {
+                if let Some(slot) = used.get_mut(g) {
+                    *slot = true;
+                }
+                if g < last {
+                    problems.push(format!(
+                        "item {i} goes back to group {g} after group {last}"
+                    ));
+                }
+                last = g;
+            }
+            _ => problems.push(format!(
+                "item {i} has group index {} of {groups} groups",
+                field(item, "GroupIndex")
+            )),
+        }
+        let id = field(item, "CreativeItemNetworkID").as_u64();
+        if id != u64::try_from(i + 1).ok() {
+            problems.push(format!(
+                "item {i} has creative network ID {}, want {}",
+                field(item, "CreativeItemNetworkID"),
+                i + 1
+            ));
+        }
+    }
+    problems.extend(
+        used.iter()
+            .enumerate()
+            .filter(|(_, u)| !**u)
+            .map(|(g, _)| format!("group {g} has no items")),
+    );
+    problems.truncate(SHOWN);
+    problems
+}
+
+/// The item representations a capture uses in its creative and crafting data, by kind: `stack`
+/// (`NetworkID:MetadataValue:BlockRuntimeID` of an item stack), `item` (`Name:MetadataValue` of a
+/// name descriptor), `tag`, `molang`, `potion` (`ID:metadata` of a potion recipe item) and
+/// `potion-id` (an item ID of a potion container change recipe). A name descriptor, potion item
+/// or potion ID also matches any stack of the same item (and metadata); names come from the
+/// capture's `ItemRegistry`.
+#[derive(Debug, Default)]
+struct Representations(BTreeSet<(&'static str, String)>);
+
+impl Representations {
+    fn of(items: &Items) -> Self {
+        let mut set = BTreeSet::new();
+        let mut add = |kind: &'static str, key: String| {
+            set.insert((kind, key));
+        };
+        for value in [&items.creative, &items.crafting].into_iter().flatten() {
+            Self::walk(value, &mut add);
+        }
+        // Stacks also stand for name descriptors and potion items of the same item and metadata.
+        let names: BTreeMap<i64, &str> = items
+            .registry
+            .as_ref()
+            .map(|r| array(r, "Items"))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|e| Some((field(e, "RuntimeID").as_i64()?, field(e, "Name").as_str()?)))
+            .collect();
+        let stacks: Vec<(i64, String)> = set
+            .iter()
+            .filter(|(kind, _)| *kind == "stack")
+            .filter_map(|(_, key)| {
+                let mut parts = key.split(':');
+                let id = parts.next()?.parse().ok()?;
+                Some((id, parts.next()?.to_owned()))
+            })
+            .collect();
+        for (id, meta) in stacks {
+            if let Some(name) = names.get(&id) {
+                set.insert(("item", format!("{name}:{meta}")));
+            }
+            set.insert(("potion", format!("{id}:{meta}")));
+            set.insert(("potion-id", id.to_string()));
+        }
+        Self(set)
+    }
+
+    fn has(&self, kind: &'static str, key: &str) -> bool {
+        self.0.contains(&(kind, key.to_owned()))
+    }
+
+    /// Calls `f` with every item representation in a JSON tree: objects with `ItemType` and
+    /// `BlockRuntimeID` are stacks, `Descriptor` objects are ingredient descriptors,
+    /// `PotionRecipes` entries give their three items and `PotionContainerChangeRecipes` entries
+    /// their three item IDs.
+    fn walk(value: &Value, f: &mut impl FnMut(&'static str, String)) {
+        match value {
+            Value::Array(list) => list.iter().for_each(|v| Self::walk(v, f)),
+            Value::Object(map) => {
+                // Air (network ID 0) is an empty slot, not an item.
+                if let Some(key) = stack_key(value).filter(|k| !k.starts_with("0:")) {
+                    f("stack", key);
+                }
+                if let Some(descriptor) = map.get("Descriptor") {
+                    Self::descriptor(descriptor, f);
+                }
+                for recipe in map
+                    .get("PotionRecipes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    for (id, meta) in [
+                        ("InputPotionID", "InputPotionMetadata"),
+                        ("ReagentItemID", "ReagentItemMetadata"),
+                        ("OutputPotionID", "OutputPotionMetadata"),
+                    ] {
+                        f(
+                            "potion",
+                            format!("{}:{}", field(recipe, id), field(recipe, meta)),
+                        );
+                    }
+                }
+                let changes = map
+                    .get("PotionContainerChangeRecipes")
+                    .and_then(Value::as_array);
+                for recipe in changes.into_iter().flatten() {
+                    for id in ["InputItemID", "ReagentItemID", "OutputItemID"] {
+                        f("potion-id", field(recipe, id).to_string());
+                    }
+                }
+                for (key, v) in map {
+                    if !matches!(
+                        key.as_str(),
+                        "Descriptor" | "PotionRecipes" | "PotionContainerChangeRecipes"
+                    ) {
+                        Self::walk(v, f);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Calls `f` with one ingredient descriptor; the invalid (empty) descriptor has no fields.
+    fn descriptor(descriptor: &Value, f: &mut impl FnMut(&'static str, String)) {
+        if let Some(name) = field(descriptor, "Name").as_str() {
+            f(
+                "item",
+                format!("{name}:{}", field(descriptor, "MetadataValue")),
+            );
+        } else if let Some(tag) = field(descriptor, "Tag").as_str() {
+            f("tag", tag.to_owned());
+        } else if let Some(expression) = field(descriptor, "Expression").as_str() {
+            f(
+                "molang",
+                format!("{expression} v{}", field(descriptor, "Version")),
+            );
+        }
+    }
+}
+
+/// Notes on recipe content: per recipe list of `CraftingData`, how many recipes only one side has,
+/// compared without their network IDs and UUIDs (BDS makes new recipe UUIDs on every start; only
+/// `MultiRecipes` keep theirs, which name the recipe kind), and the first few recipe IDs of each.
+fn recipe_notes(a: &Value, b: &Value) -> Vec<String> {
+    let lists: BTreeSet<&String> = a
+        .as_object()
+        .into_iter()
+        .chain(b.as_object())
+        .flat_map(|m| m.iter())
+        .filter(|(_, v)| v.is_array())
+        .map(|(k, _)| k)
+        .collect();
+    let mut notes = Vec::new();
+    for list in lists {
+        let content = |v: &Value| -> BTreeMap<String, String> {
+            array(v, list)
+                .iter()
+                .map(|recipe| {
+                    let mut recipe = recipe.clone();
+                    if let Some(map) = recipe.as_object_mut() {
+                        map.remove("RecipeNetworkID");
+                        if list != "MultiRecipes" {
+                            map.remove("UUID");
+                        }
+                    }
+                    let id = field(&recipe, "RecipeID")
+                        .as_str()
+                        .map_or_else(|| short(&recipe), str::to_owned);
+                    (recipe.to_string(), id)
+                })
+                .collect()
+        };
+        let (x, y) = (content(a), content(b));
+        let only = |p: &BTreeMap<String, String>, q: &BTreeMap<String, String>| -> Vec<String> {
+            p.iter()
+                .filter(|(k, _)| !q.contains_key(*k))
+                .map(|(_, id)| id.clone())
+                .collect()
+        };
+        let (only_a, only_b) = (only(&x, &y), only(&y, &x));
+        if only_a.is_empty() && only_b.is_empty() {
+            continue;
+        }
+        notes.push(format!(
+            "CraftingData {list}: A {}, B {}, only in A {}, only in B {}",
+            array(a, list).len(),
+            array(b, list).len(),
+            only_a.len(),
+            only_b.len()
+        ));
+        let first = |ids: &[String]| {
+            ids.iter()
+                .take(SHOWN)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if !only_a.is_empty() {
+            notes.push(format!("  only in A: {}", first(&only_a)));
+        }
+        if !only_b.is_empty() {
+            notes.push(format!("  only in B: {}", first(&only_b)));
+        }
+    }
+    notes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,5 +866,182 @@ mod tests {
         let (deferred, _) = tables("LevelChunk M6 chunks\n", "");
         let w = window(&CAPTURE.replace("StartGame", "NetworkSettings")).expect("window");
         assert_eq!(sequence(&w, &deferred), ["NetworkSettings x2"]);
+    }
+
+    /// A small item packet file: two registry entries, two creative items in two groups, one
+    /// shaped recipe (stick and tag ingredients, planks output) and one potion recipe.
+    const ITEMS: &str = r#"{"index":1,"name":"ItemRegistry","fields":{"Items":[{"Name":"minecraft:planks","RuntimeID":5,"Data":{}},{"Name":"minecraft:stick","RuntimeID":7,"Data":{}}]}}
+{"index":2,"name":"CreativeContent","fields":{"Groups":[{"Category":1,"Name":"a","Icon":{"ItemType":{"NetworkID":0,"MetadataValue":0},"BlockRuntimeID":0}},{"Category":2,"Name":"","Icon":{"ItemType":{"NetworkID":0,"MetadataValue":0},"BlockRuntimeID":0}}],"Items":[{"CreativeItemNetworkID":1,"GroupIndex":0,"Item":{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}},{"CreativeItemNetworkID":2,"GroupIndex":1,"Item":{"ItemType":{"NetworkID":7,"MetadataValue":0},"BlockRuntimeID":0,"NBTData":{"compound":{}}}}]}}
+{"index":3,"name":"CraftingData","fields":{"ShapedRecipes":[{"RecipeID":"r","RecipeNetworkID":1,"UUID":"u1","Input":[{"Count":1,"Descriptor":{"Name":"minecraft:stick","MetadataValue":32767}},{"Count":1,"Descriptor":{"Tag":"minecraft:logs"}},{"Count":0,"Descriptor":{}}],"Output":[{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}]}],"MultiRecipes":[{"UUID":"m","RecipeNetworkID":2}],"PotionRecipes":[{"InputPotionID":7,"InputPotionMetadata":0,"ReagentItemID":5,"ReagentItemMetadata":0,"OutputPotionID":7,"OutputPotionMetadata":0}],"ClearRecipes":true}}
+"#;
+
+    fn items(text: &str) -> Items {
+        parse_items(text).expect("item packets")
+    }
+
+    #[test]
+    fn identical_item_packets_have_no_differences() {
+        let (differences, notes) = compare_items(&items(ITEMS), &items(ITEMS));
+        assert_eq!(differences, Vec::<String>::new());
+        assert_eq!(notes, Vec::<String>::new());
+    }
+
+    #[test]
+    fn item_checks_need_both_captures_to_have_the_packet() {
+        let changed = ITEMS.replace("minecraft:stick", "minecraft:other");
+        let (differences, _) = compare_items(&Items::default(), &items(&changed));
+        assert!(differences.is_empty());
+        assert!(parse_items("{\"name\":\"StartGame\",\"fields\":{}}\n").is_err());
+    }
+
+    #[test]
+    fn item_registry_compares_by_runtime_id_not_order() {
+        let swapped = ITEMS.replace(
+            r#"[{"Name":"minecraft:planks","RuntimeID":5,"Data":{}},{"Name":"minecraft:stick","RuntimeID":7,"Data":{}}]"#,
+            r#"[{"Name":"minecraft:stick","RuntimeID":7,"Data":{}},{"Name":"minecraft:planks","RuntimeID":5,"Data":{}}]"#,
+        );
+        assert_ne!(swapped, ITEMS);
+        assert!(compare_items(&items(ITEMS), &items(&swapped)).0.is_empty());
+        let renumbered = ITEMS.replace(r#""RuntimeID":7,"Data":{}"#, r#""RuntimeID":8,"Data":{}"#);
+        let (differences, _) = compare_items(&items(ITEMS), &items(&renumbered));
+        assert_eq!(differences.len(), 2, "{differences:?}");
+        assert!(differences[1].starts_with("ItemRegistry first different entry"));
+        let data = ITEMS.replace(
+            r#""RuntimeID":5,"Data":{}"#,
+            r#""RuntimeID":5,"Data":{"a":{"byte":1}}"#,
+        );
+        let (differences, _) = compare_items(&items(ITEMS), &items(&data));
+        assert_eq!(differences.len(), 2, "{differences:?}");
+        assert!(differences[1].contains(r#"{"a":{"byte":1}}"#));
+    }
+
+    #[test]
+    fn creative_items_of_b_must_be_in_a() {
+        // B listing fewer items than A is fine; an item A does not have, or a different NBT, is not.
+        let (a, fewer) = (
+            items(ITEMS),
+            ITEMS.replace(r#","GroupIndex":1,"#, r#","GroupIndex":0,"#),
+        );
+        let (differences, _) = compare_items(&a, &items(&fewer));
+        assert_eq!(differences, ["CreativeContent of B: group 1 has no items"]);
+        let nbt = ITEMS.replace(
+            r#""BlockRuntimeID":99,"NBTData":{"compound":{}}}},"#,
+            r#""BlockRuntimeID":99,"NBTData":{"compound":{"x":{"int":1}}}}},"#,
+        );
+        let (differences, _) = compare_items(&a, &items(&nbt));
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(differences[0].contains("5:0:99 {\"compound\":{\"x\":{\"int\":1}}}"));
+        // An item A does not list at all is content: a note, not a difference.
+        let other = ITEMS.replace(
+            r#"{"ItemType":{"NetworkID":5,"MetadataValue":0},"BlockRuntimeID":99,"NBTData":{"compound":{}}}},"#,
+            r#"{"ItemType":{"NetworkID":6,"MetadataValue":0},"BlockRuntimeID":0,"NBTData":{"compound":{}}}},"#,
+        );
+        let (differences, notes) = compare_items(&a, &items(&other));
+        assert!(differences.is_empty(), "{differences:?}");
+        assert!(
+            notes[0].starts_with("CreativeContent items of B that A does not list: 1:"),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn creative_groups_must_be_consistent() {
+        let creative = |items: &str| -> Value {
+            serde_json::from_str(&format!(r#"{{"Groups":[{{}},{{}}],"Items":{items}}}"#))
+                .expect("json")
+        };
+        let item = |id: u32, group: u32| {
+            format!(r#"{{"CreativeItemNetworkID":{id},"GroupIndex":{group}}}"#)
+        };
+        let good = creative(&format!("[{},{}]", item(1, 0), item(2, 1)));
+        assert_eq!(group_problems(&good), Vec::<String>::new());
+        let problems = group_problems(&creative(&format!("[{},{}]", item(1, 1), item(3, 0))));
+        assert_eq!(
+            problems,
+            [
+                "item 1 goes back to group 0 after group 1",
+                "item 1 has creative network ID 3, want 2"
+            ]
+        );
+        let problems = group_problems(&creative(&format!("[{}]", item(1, 2))));
+        assert_eq!(
+            problems,
+            [
+                "item 0 has group index 2 of 2 groups",
+                "group 0 has no items",
+                "group 1 has no items"
+            ]
+        );
+    }
+
+    #[test]
+    fn crafting_representations_of_b_must_be_used_by_a() {
+        let a = items(ITEMS);
+        // A stick stack with a block runtime ID A never uses, an unknown tag and an unknown
+        // descriptor item.
+        let b = ITEMS
+            .replace(
+                r#""BlockRuntimeID":99,"NBTData":{"compound":{}}}]"#,
+                r#""BlockRuntimeID":98,"NBTData":{"compound":{}}}]"#,
+            )
+            .replace("minecraft:logs", "minecraft:planks_tag")
+            .replace(
+                r#"{"Name":"minecraft:stick","MetadataValue":32767}"#,
+                r#"{"Name":"minecraft:stick","MetadataValue":3}"#,
+            );
+        let (differences, notes) = compare_items(&a, &items(&b));
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(
+            differences[0]
+                .starts_with("CraftingData item representations of B that A never uses: 3:")
+        );
+        for missing in [
+            "item minecraft:stick:3",
+            "stack 5:0:98",
+            "tag minecraft:planks_tag",
+        ] {
+            assert!(
+                differences[0].contains(missing),
+                "{missing}: {differences:?}"
+            );
+        }
+        assert_eq!(
+            notes[0],
+            "CraftingData ShapedRecipes: A 1, B 1, only in A 1, only in B 1"
+        );
+        assert_eq!(notes[1], "  only in A: r");
+    }
+
+    #[test]
+    fn descriptors_match_stacks_of_the_same_item() {
+        // A's stick stack (network ID 7, metadata 0) stands for the name descriptor stick:0 and the
+        // potion item 7:0; a potion item A never uses is a difference.
+        let b = ITEMS.replace(
+            r#"{"Name":"minecraft:stick","MetadataValue":32767}"#,
+            r#"{"Name":"minecraft:stick","MetadataValue":0}"#,
+        );
+        assert!(compare_items(&items(ITEMS), &items(&b)).0.is_empty());
+        let potion = ITEMS.replace(r#""OutputPotionMetadata":0"#, r#""OutputPotionMetadata":4"#);
+        let (differences, _) = compare_items(&items(ITEMS), &items(&potion));
+        assert!(differences[0].contains("potion 7:4"), "{differences:?}");
+    }
+
+    #[test]
+    fn recipe_notes_ignore_network_ids_and_uuids_but_not_multi_recipe_uuids() {
+        let renumbered = ITEMS.replace(
+            r#""RecipeNetworkID":1,"UUID":"u1""#,
+            r#""RecipeNetworkID":9,"UUID":"u2""#,
+        );
+        let (differences, notes) = compare_items(&items(ITEMS), &items(&renumbered));
+        assert!(
+            differences.is_empty() && notes.is_empty(),
+            "{differences:?} {notes:?}"
+        );
+        let multi = ITEMS.replace(r#""UUID":"m""#, r#""UUID":"n""#);
+        let (_, notes) = compare_items(&items(ITEMS), &items(&multi));
+        assert_eq!(
+            notes[0],
+            "CraftingData MultiRecipes: A 1, B 1, only in A 1, only in B 1"
+        );
     }
 }

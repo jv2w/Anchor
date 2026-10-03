@@ -29,7 +29,7 @@ use crate::protocol::packet::{
     RequestNetworkSettings, ResourcePackClientResponse, ResourcePackStack, ResourcePacksInfo,
     ServerToClientHandshake,
 };
-use crate::tick::queue::{self, Identity, InputKind, Outbound, SessionId, SessionInputs};
+use crate::tick::queue::{self, Identity, InputKind, Message, Outbound, SessionId, SessionInputs};
 
 /// From connection to verified login (PLAN.md 10.2).
 const LOGIN_DEADLINE: Duration = Duration::from_secs(10);
@@ -44,9 +44,8 @@ const MAX_DEFERRED: usize = 32;
 const PRE_AUTH_BATCHES: usize = 8;
 /// The input budget refills this fraction of `max-batch-bytes` per second (PLAN.md 10.2).
 const BUDGET_REFILL_DIVISOR: usize = 4;
-/// The shield's item network ID. gophertunnel reads items with 0 until `ItemRegistry` names the
-/// shield; Anchor sends an empty registry until M4, so no item is a shield yet.
-const SHIELD_ID: i32 = 0;
+/// The shield's item network ID, which the item registry Anchor sends names.
+const SHIELD_ID: i32 = crate::item::SHIELD_RUNTIME_ID;
 /// `PlayStatus` values (gophertunnel `PlayStatus*`).
 const LOGIN_SUCCESS: i32 = 0;
 const LOGIN_FAILED_CLIENT: i32 = 1;
@@ -215,8 +214,8 @@ impl Session {
                     }
                 }
                 outbound = next_outbound(self.outbound.as_mut()) => match outbound {
-                    Some(Outbound::Packets(packets)) => {
-                        if let Err(e) = self.send(&packets).await {
+                    Some(Outbound::Send(messages)) => {
+                        if let Err(e) = self.send_messages(messages).await {
                             return End::Failed(e);
                         }
                     }
@@ -568,13 +567,42 @@ impl Session {
             Ok(())
         })
         .map_err(Error::Batch)?;
-        for mut body in bodies {
-            if let Some(encryptor) = &mut self.encryptor {
-                encryptor.encrypt(&mut body).map_err(Error::Crypto)?;
-            }
-            self.conn.send(body).await.map_err(Error::Transport)?;
+        for body in bodies {
+            self.send_body(body).await?;
         }
         Ok(())
+    }
+
+    /// Sends the tick's messages in order: runs of packets batched here, shared batches as
+    /// they are.
+    async fn send_messages(&mut self, messages: Vec<Message>) -> Result<()> {
+        let mut run = Vec::new();
+        for message in messages {
+            match message {
+                Message::Packet(packet) => run.push(packet),
+                Message::Shared(batches) => {
+                    if !run.is_empty() {
+                        self.send(&run).await?;
+                        run.clear();
+                    }
+                    for body in batches.iter() {
+                        self.send_body(body.clone()).await?;
+                    }
+                }
+            }
+        }
+        if !run.is_empty() {
+            self.send(&run).await?;
+        }
+        Ok(())
+    }
+
+    /// Encrypts a batch body when the session is encrypted and hands it to the connection.
+    async fn send_body(&mut self, mut body: Vec<u8>) -> Result<()> {
+        if let Some(encryptor) = &mut self.encryptor {
+            encryptor.encrypt(&mut body).map_err(Error::Crypto)?;
+        }
+        self.conn.send(body).await.map_err(Error::Transport)
     }
 }
 

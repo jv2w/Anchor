@@ -97,7 +97,7 @@ vendor/               결함을 고친 의존성 사본(사용자 결정, M3). 9
 - 추출(M4): PMMP 마지막 커밋 6a7cc02를 `.cache/`에 받아 한 번 실행해 덤프한다(소스 파싱 안 함). 블록 상태마다 Bedrock 직렬화, 조명 값, 랜덤 틱 여부를, 아이템마다 직렬화를 JSON으로 쓴다(조사 때 실측: 상태 11,420, 오류 0, 아이템 323). PMMP 상태와 Bedrock 상태는 1:1이 아니다(1,888개가 겹침. 그 값은 블록 엔티티나 런타임 데이터로 둔다).
 - 버전별 번호는 기준 목록에서 온다(검증과 번호에만 쓰고 블록을 만들지 않는다): 블록 상태는 dragonfly `block_states.nbt`, 교차 확인 CloudburstMC `block_palette.nbt`(완전히 같을 때만 채택, 다르면 BDS를 따름). 아이템 런타임 ID는 dragonfly `vanilla_items.nbt`(버전마다 바뀜).
 - 블록 ID는 해시 방식(FNV-1a 32, dragonfly `network_block_hash.go`)이다. 기준 목록 전체가 CloudburstMC `network_id`와 같은지 골든 시험한다. BDS도 해시 방식이다(M2 P6: `UseBlockNetworkIDHashes` true, 팔레트 값이 해시와 같음).
-- 상태 대조: 구현한 모든 상태가 기준 목록에 있어야 한다. 26.50에서는 울타리 등 71개 타입에 연결 속성(`minecraft:connection_*`)과 계단 `minecraft:corner`가 생겼다. 검증 필요(M4): 서버가 이 속성을 이웃으로 계산해야 하는지(P6에서 BDS 동작을 따른다).
+- 상태 대조: 구현한 모든 상태가 기준 목록에 있어야 한다. 26.50에서는 PMMP 블록 115개 이름에 속성이 생겼다: 울타리·판유리·철창·트립와이어 57개에 연결 속성(`minecraft:connection_*`), 계단 58개에 `minecraft:corner`(M4 실측). BDS는 이 속성을 서버에서 이웃으로 계산해 보내고, 이웃이 바뀌면 먼저 있던 블록을 다시 보낸다(M4 P6, 10.4). Anchor도 서버에서 계산한다(M6 블록 변경, M7 동작).
 - 저장 업그레이드 규칙은 PMMP 업그레이드 스키마 형식이다(스키마 저장소에 결함이 있어 검증 후 들인다).
 - 알 수 없는 블록은 클라이언트에 `minecraft:info_update`로 보내고 저장 원본은 보존한다. 클라이언트가 보낸 알 수 없는 블록이나 아이템은 그 요청만 거부한다.
 - data-driven 블록 정의(M2 P6): BDS는 StartGame에 98개를 보낸다(색깔별 양털·콘크리트 계단·반 블록과 `shelf_mushroom`, `shrub`). 모두 PMMP에 없는 블록이라 Anchor는 보내지 않는다(1절). P6 고정 필드에서도 뺀다.
@@ -244,10 +244,11 @@ console-input = true
 |---|---|---|---|
 | sandertv/gophertunnel(MIT) | 80c811b(v1.62.0 뒤, 1.26.50, 2193) | 패킷, 로그인, 암호화, 압축 형식, Go 봇 | 형식 버그 수정이 잦음, 주석과 코드 불일치, 4절 결함, NBT map 쓰기 순서가 무작위(시험 도구가 정렬해 씀). 로그인(M2): 정규식에 앵커가 없어 이름·버전 검사가 느슨함 → 모든 글자 검사, `ServerAddress`를 DNS로 조회(블로킹) → 모양만 검사, 오프라인 UUID가 무작위 → `OfflinePlayer:`+이름의 v3, base64가 느슨함 → 엄격. 봇은 기본 스킨 JSON 두 개를 복사해 씀 |
 | sandertv/go-raknet, df-mc/go-nethernet | gophertunnel go.mod가 고정 | RakNet, NetherNet 형식, 봇 | go-nethernet은 비신뢰 채널을 읽지 않음. go-raknet(M2, Anchor는 고쳐 구현): 쿠키가 CRC32, 오류마다 IP를 10초 막음(위조로 남을 막음), OCR2 응답 손실에 멈춤, 신뢰 인덱스 중복 제거 없음(조각 묶음 누수), 24비트 번호 넘침 미처리, 조각 512개 상한, 재조립 O(n²), 모르는 ACK 종류 무시, 혼잡 제어 없음, 사실상 상한 없는 큐, MTU 400 미만 처리 불일치, 순서 채널 무시 |
-| pmmp/PocketMine-MP(LGPL-3.0, 보관) | 6a7cc02(M3부터 `.cache/pmmp`) | 블록·아이템 종류와 동작, API, 이름 규칙과 중복 로그인(M3) | 1.26.30 데이터, 상태가 1:1 아님, 공개 때 라이선스 검토. 중복 판정에 UUID도 쓰지만 Anchor는 사용자 결정대로 XUID·이름만 |
+| pmmp/PocketMine-MP(LGPL-3.0, 보관) | 6a7cc02(M3부터 `.cache/pmmp`, M4부터 의존성은 `composer.lock` 그대로 `vendor`) | 블록·아이템 종류와 동작, API, 이름 규칙과 중복 로그인(M3), 덤프(M4) | 1.26.30 데이터, 상태가 1:1 아님, 공개 때 라이선스 검토. 중복 판정에 UUID도 쓰지만 Anchor는 사용자 결정대로 XUID·이름만. M4 덤프에서: smithing 레시피를 읽지 않음 → 덤프가 PMMP 아이템 해석기로 읽음, 모르는 인챈트를 버려 크리에이티브에 빈 인챈트 책 61개가 남음 → 뺌, 불길한 배너를 검은색(meta 0)으로 둠 → BDS처럼 흰색(15), 블록 아이템 상태가 바닐라 아이템 상태와 다름 → 네트워크 형태만 바닐라 상태(10.4) |
+| pmmp/PHP-Binaries | php-build-524, PHP 8.4 PM5 Windows(zip sha256 `cf4023b8549c99eec47cfd403805ac7d78100fa366394dab4e45bb544dcc9be4`), `.cache/php-pm5` | PMMP 덤프 실행(개발 도구) | 일반 PHP에는 PMMP 확장이 없음 → PM5 빌드 |
 | pocketmine/bedrock-data(CC0) | 6.7.0+bedrock-1.26.30 | 레시피 등 데이터 | 26.40 이후 없음 |
-| df-mc/dragonfly(MIT) | 커밋(M4) | 기준 목록, 야생 시스템 참고 | 해시 함수 패닉, 비결정 코드, 조명 갱신 없음 |
-| CloudburstMC/Data(Apache-2.0) | 커밋(M4) | 블록 ID 골든, 교차 확인 | 교차 확인에만 |
+| df-mc/dragonfly(MIT) | v0.11.5 `4c7b5074`(1.26.50), `.cache/dragonfly` | 기준 목록(블록 상태, 아이템, 크리에이티브 아이템 상태), 야생 시스템 참고 | 해시 함수 패닉(Anchor는 코드를 쓰지 않고 시험에서 다시 구현), 비결정 코드, 조명 갱신 없음. 크리에이티브 목록은 빈 블록 속성을 생략함(빈 속성으로 읽음) |
+| CloudburstMC/Data(Apache-2.0) | `659ce1e`(26.50), `.cache/cloudburst-data` | 블록 ID 골든, 교차 확인, 크리에이티브 아이템 상태 | 팔레트는 gzip big-endian NBT. dragonfly와 블록·아이템 목록이 같음을 도구가 확인한다 |
 | Mojang/bedrock-protocol-docs | 목표 버전(M1) | 필드 길이 상한, NetherNet 가이드 | gophertunnel과 다르면 CLAUDE.md 7절 |
 | BDS(기준 서버) | 1.26.52.3(프로토콜 2193), `.cache/bds/` 복사본 | P6 대조 | 실행만, 분석하지 않음. RakNet 전송을 "플레이어 접속 불가"로 기록함 |
 | libdeflater(MIT, libdeflate 1.26) | =1.26.1 | zlib 압축(level 6에서 miniz_oxide보다 2~4배 빠름, 실측) | `use_rust_alloc` 기능의 OOM null 역참조 → 기본 기능만. `Decompressor` 내부 상태 패닉 → `.clippy.toml` 금지. `Compressor::new`는 malloc 실패에만 패닉(생성 때만, 외부 입력 닿지 않음) |
@@ -490,6 +491,66 @@ console-input = true
   - 모든 피어의 DTLS·SCTP가 구동 작업 하나에서 돈다. 비용은 M5 측정 대상이다.
   - `identity.key` rename 뒤 폴더 fsync가 없다(Linux 크래시에서 새 키가 생길 수 있음, Linux 검증 때).
 
+### 10.4 M4 세부 설계 (2026-10-03)
+- 검증 필요 처리(시작 때):
+  - 출처 고정: dragonfly v0.11.5 `4c7b5074`(gophertunnel v1.62.0, 1.26.50 지원), CloudburstMC/Data `659ce1e`(26.50 데이터). 두 목록은 같다(블록 상태 22,091개의 이름·속성·타입·값·버전, 아이템 2,076개의 이름·런타임 ID·버전·컴포넌트 여부). 그래서 12절 2번(기준 목록 출처)은 dragonfly + CloudburstMC로 정한다.
+  - PMMP 실행: 일반 PHP(`C:\php`)에는 PMMP가 쓰는 확장(`pmmp\encoding` 등)이 없어 레지스트리를 못 띄운다. pmmp/PHP-Binaries `php-build-524`의 PHP 8.4 PM5 Windows 빌드(zip sha256 `cf4023b8…9be4`)를 `.cache/php-pm5/`에 두고 쓴다(개발 도구). PMMP 의존성은 `composer install --no-dev --ignore-platform-reqs`(PMMP `composer.lock` 고정)로 `.cache/pmmp/vendor`에 둔다.
+  - 덤프 실측: PMMP 상태 11,420(직렬화 오류 0) → 서로 다른 Bedrock 상태 9,532. 그중 536개(115개 이름)가 26.50 기준 목록에 없다. 모두 26.50이 더한 속성 때문이다: 울타리·판유리·철창·구리 철창·트립와이어 57개에 `minecraft:connection_{north,east,south,west}`(byte), 계단 58개에 `minecraft:corner`(`none`, `inner_left`, `inner_right`, `outer_left`, `outer_right`). 이름이 사라지거나 값이 바뀐 상태는 없다. 같은 Bedrock 상태로 가는 PMMP 상태끼리 조명·랜덤 틱 값이 다른 경우 0. PMMP 아이템 이름은 모두 기준 목록에 있다.
+  - 연결 속성(7절 검증 필요): dragonfly는 이웃으로 계산해 보낸다. BDS에서 울타리·판유리·계단을 이웃과 함께 놓고 보내는 상태를 봇으로 본다(P6 `blocks`). 결과에 따라 서버 계산(M6 블록 변경, M7 동작)인지 기본값 고정인지 정한다. 상태 표는 어느 경우든 추가 속성의 모든 값을 담는다(아래).
+- 파이프라인:
+  - `cargo xtask dump`: 고정 커밋인지 확인한 뒤 (1) `.cache/pmmp`에서 `xtask/php/dump.php`를 PM5 PHP로 돌려 `xtask/data/pmmp/`에, (2) `xtask/go/reference`로 dragonfly와 CloudburstMC를 읽어 `xtask/data/reference/`에 쓴다. `--check`는 `target/`에 다시 만들어 바이트 비교한다. 출력은 커밋한다. verify에는 넣지 않는다: PMMP는 보관된 마지막 커밋이라 바뀌지 않고, PM5 PHP·composer·두 git 체크아웃이 필요해서다(대신 `gen --check`가 커밋된 데이터에서 만든 코드를 검사한다).
+  - 덤프 내용(정렬, 한 줄에 한 항목, NBT는 타입 있는 JSON `{"byte":1}`): `blocks.json`(PMMP 상태마다 PMMP 타입 이름, Bedrock 이름·상태, 빛 방출, 빛 필터(PMMP `getLightFilter` 원값), 직사광 차단, 랜덤 틱, PMMP가 정확한 블록 재료에 붙이는 레거시 meta), `items.json`(PMMP 아이템 형태마다 Bedrock 이름·meta·블록 상태·NBT와 PMMP 이름들: VanillaItems, 블록의 아이템 형태, StringToItemParser 별칭을 Bedrock 형태로 합침, 1,613개), `creative.json`(PMMP 크리에이티브 목록 1,694개, 순서 그대로, 분류와 그룹), `recipes.json`(PMMP `CraftingManagerFromDataHelper::make` 결과: 모양 924, 무형 1,111, 화로 계열 209, 물약 195, 물약 용기 2. PMMP가 읽지 않는 smithing은 PMMP 아이템 해석기로 읽음: 변환 9, 장식 1. 모르는 아이템이 든 레시피는 PMMP처럼 뺀다).
+  - 기준 목록(`xtask/data/reference/`): `blocks.json`(dragonfly 상태 + CloudburstMC `network_id`), `items.json`(dragonfly 아이템, 런타임 ID 순, 컴포넌트 데이터 포함). 두 출처가 다르면 도구가 실패한다.
+  - 상태 업그레이드 `xtask/data/block_upgrade.json`: PMMP 업그레이드 스키마 형식(`addedProperties`)으로 1.26.30 → 1.26.50 차이를 적는다(손으로 쓴 데이터, 7절 "저장 업그레이드 규칙"과 같은 형식). 기본값은 BDS의 아이템 형태 값이다(`corner` = `none`, `connection_*` = 0, CloudburstMC 크리에이티브 목록으로 확인, P6로 다시 확인).
+  - `cargo xtask gen`이 커밋된 데이터로 `src/block/table.rs`, `src/item/table.rs`, `src/crafting/table.rs`를 만든다(5절 생성 파일). 아래 중 하나라도 어기면 gen이 실패한다: 업그레이드 뒤 기준 목록에 없는 상태, 쓰이지 않는 업그레이드 항목, 같은 Bedrock 상태의 값 충돌, 기준 목록에 없는 아이템 이름, 풀리지 않는 레시피·크리에이티브 아이템.
+- 블록(`anchor::block`, 공개):
+  - Anchor 블록 상태 = PMMP 상태의 Bedrock 직렬화(중복 제거)에 업그레이드를 적용한 것 + 추가 속성의 나머지 값(기준 목록에서 옛 속성이 같은 상태 전부). 추가 값은 원래 PMMP 상태의 값을 물려받는다. 순서는 (이름, 상태의 정규 JSON) 정렬이고 `BlockState`는 그 번호(u16)를 가진 `Copy` 값이다.
+  - 상태마다: 이름, 속성(byte·int·string), 네트워크 ID(기준 목록의 `network_id`), 빛 방출, 빛 필터, 직사광 차단, 랜덤 틱. 조회: 번호 O(1), 네트워크 ID → 상태(정렬 배열 이분 탐색), 이름+속성 → 상태(정렬 배열). 모든 표는 `static`이라 시작 비용과 할당이 없다.
+  - 해시 함수(FNV-1a 32, dragonfly `network_block_hash.go`)는 지금은 시험에만 둔다(골든). 표의 네트워크 ID는 기준 목록 값이다. 커스텀 블록(M8)이 생기면 런타임으로 옮긴다.
+  - PMMP 블록 타입(VanillaBlocks)과 PMMP 상태 번호는 공개하지 않는다(동작은 M7). 같은 Bedrock 상태로 겹치는 PMMP 상태의 차이(침대 색 등)는 M6·M7에서 블록 엔티티로 둔다.
+- 아이템(`anchor::item`, 공개):
+  - `ItemType` = PMMP 아이템 형태(Bedrock 이름, meta, 블록 상태, 형태 NBT)의 번호(u16, `items.json` 순서), `Copy`. 런타임 ID는 기준 목록(1.26.50)에서 온다. 조회: (이름, meta) → 형태, (런타임 ID, meta) → 형태, 블록 상태 → 아이템 형태.
+  - ItemRegistry는 기준 목록 전체(2,076개, 컴포넌트 데이터 포함)를 보낸다. 번호 표일 뿐 구현이 아니고(1절 "채우지 않는다"와 무관), PMMP와 BDS도 전체를 보낸다. Anchor가 만드는 아이템은 PMMP 형태뿐이다.
+  - 크리에이티브: PMMP 목록과 그룹을 그대로 보낸다(CreativeContent).
+  - 생성 코드의 NBT는 `nbt::Static`(정적 트리)로 두고 시작 때 한 번 `nbt::Value`로 바꾼다.
+- 레시피(`crafting`, 내부): 덤프의 모든 레시피를 표로 만들고 CraftingData를 PMMP `CraftingDataCache`·`TypeConverter` 규칙으로 만든다(정확한 블록 재료는 덤프의 레거시 meta, meta 와일드카드는 32767, 태그는 태그 이름, 레시피 네트워크 ID는 1부터 차례로). 제작 판정과 사용자 레시피 API는 M7·M8.
+- 스폰 패킷:
+  - ItemRegistry(전체), CreativeContent, CraftingData를 보낸다. 셋은 모든 플레이어에게 같아서 `build()` 때 한 번 인코드·압축해 `Arc`로 나눠 쓴다(3절 "한 번만 압축"). 세션은 받은 배치를 (RakNet이면) 암호화만 해서 보낸다. 순서는 BDS를 따른다.
+  - 유예표 변경: InventoryContent, PlayerHotBar(인벤토리 상태)와 TrimData, UnlockedRecipes, VoxelShapes(PMMP는 보내지 않음, 장식·레시피 책·충돌 모양 동작과 함께)는 M7로 옮긴다.
+- 시험 도구: 봇 시나리오 `blocks`(BDS 콘솔로 울타리·판유리·계단을 이웃과 함께 놓고 받은 블록 갱신을 기록). P6 비교에 ItemRegistry 전체 비교, CreativeContent와 CraftingData의 아이템 표현 대조를 더한다.
+
+#### M4 판정식
+- 덤프: `cargo xtask dump --check`가 커밋된 파일과 바이트 동일. 기준 목록 두 출처가 같다(도구가 확인).
+- 해시 골든: 기준 목록 22,091개 모두 Rust FNV-1a(이름, 정렬한 상태 NBT) = CloudburstMC `network_id`.
+- 상태 대조: Anchor 상태가 모두 기준 목록에 있고 네트워크 ID가 같다. PMMP 상태 11,420개가 모두 Anchor 상태 하나로 간다. 업그레이드 항목이 모두 쓰인다. 값 충돌 0.
+- 아이템·레시피: PMMP 아이템 형태가 모두 런타임 ID를 가진다. 생성된 크리에이티브 수와 레시피 수가 덤프와 같다. 모든 레시피·크리에이티브 아이템이 Anchor 아이템 형태로 풀린다.
+- 알 수 없는 입력: 모든 조회(네트워크 ID, 이름+속성, 런타임 ID+meta, 이름+meta)에 고정 시드 무작위 입력 10만 개씩, 패닉 0이고 없는 것은 `None`.
+- P6: BDS `blocks` 시나리오 결과를 적고 연결 속성 방침을 정한다. Anchor 스폰 창이 BDS와 같다(RakNet·NetherNet, zlib·Snappy, 유예표 갱신 뒤). `ItemRegistry Items`가 BDS와 같다. BDS 크리에이티브 목록에 있는 아이템이면 Anchor 크리에이티브 항목은 BDS 항목 하나와 같은 값(NetworkID, MetadataValue, BlockRuntimeID, NBT)이고, CraftingData의 아이템 표현은 BDS가 그 아이템에 쓰는 표현이다. BDS가 아예 쓰지 않는 아이템(교육판 아이템 등)과 레시피 내용 차이는 내용 차이라 목록(note)으로 남긴다(M4에서 바꿈, 아래 결과).
+- `cargo xtask verify` PASS.
+
+#### M4 결과와 정한 값 (2026-10-03)
+- 판정: 덤프(`dump --check` 바이트 동일, 기준 목록 두 출처 같음), 해시 골든(22,091개 모두 같음), 상태 대조(Anchor 상태 12,468개가 모두 기준 목록에 같은 ID로 있음, PMMP 상태 11,420개가 모두 Anchor 상태로 감, 업그레이드 115개 이름 모두 쓰임, 값 충돌 0), 아이템·레시피(PMMP 아이템 형태 1,613개 모두 런타임 ID, 레시피 7종 수가 덤프와 같음), 알 수 없는 입력(블록 조회 2종·아이템 조회 2종에 고정 시드 10만 개씩, 패닉 0), P6(아래) 모두 통과. `cargo xtask verify` PASS(anchor 단위 323, block 6, item 2, config 14, server 9, xtask 24, protocol 17, compression 5, P5 spawn 15, dimpl 5, sctp-proto 사본).
+- P6 결과(BDS 1.26.52.3, `p6 bds`, `p6 anchor`):
+  - `blocks` 시나리오: BDS는 연결 속성과 `corner`를 서버에서 계산해 보내고, 이웃이 놓이면 먼저 있던 블록을 바뀐 상태로 다시 보낸다(울타리끼리, 울타리와 돌, 판유리 L자, 철창과 구리 창살은 종류가 달라도 연결, 계단 inner·outer, 트립와이어와 갈고리). 혼자 놓인 블록은 기본값(연결 0, `none`)이다. 결과 표는 `target/p6/bds-<압축>/blocks.txt`. Anchor 상태 표는 추가 속성의 모든 값을 담고, 계산은 M6·M7에서 한다.
+  - 스폰 창이 RakNet·NetherNet, zlib·Snappy, 폴백 모두 BDS와 같다: … StartGame, ItemRegistry, CreativeContent, CraftingData, ChunkRadiusUpdated, PlayStatus. ItemRegistry는 런타임 ID로 맞춘 전체 내용과 크기(113,450바이트)가 BDS와 같다. BDS의 순서는 런타임 ID순도 이름순도 아니지만 실행마다 같고, 클라이언트는 ID로 찾으므로 비교는 순서를 보지 않는다.
+  - BDS가 크리에이티브 목록에 두지 않는 PMMP 항목 205개(교육판 화학 원소·화합물, 강화 유리 등)와 레시피 내용 차이(BDS의 multi 레시피 14개, UserData 무형 1,456개, 물약 210 대 195, 레시피 ID와 블록 이름 `deprecated` 등)는 note로 남는다.
+- 바뀐 결정(10.4 위):
+  - 블록 아이템의 네트워크 형태: PMMP 기본 상태 대신 바닐라 크리에이티브 상태(BDS가 보내는 상태, 기준 목록 `item_blocks.json` 1,020개: CloudburstMC와 dragonfly가 같고 블록 목록의 ID와 같음)로 보낸다. 이름에 PMMP 블록 아이템 타입과 바닐라 상태가 하나씩일 때만 쓰고, 아이템이 놓는 상태는 그대로 PMMP 상태다. 바닐라 상태가 PMMP에 없는 상태여도 네트워크 ID로만 쓴다(유약 바른 테라코타 아래 방향, 횃불 `unknown`, 사다리, 머리). 이유: P6에서 PMMP 기본 상태(계단 방향 3, 울타리 문 북쪽 등)가 BDS와 달랐다(7절 "다르면 BDS").
+  - 크리에이티브: PMMP가 모르는 인챈트를 버려 생긴 빈 인챈트 책 61개는 뺀다(1,694 → 1,633). 크리에이티브 아이템 네트워크 ID는 BDS처럼 1부터 센다(PMMP는 0부터). 불길한 배너는 BDS처럼 meta 15(PMMP는 0)이고, 이 보정은 덤프의 모든 아이템이 거치는 한 곳(`gen/data.rs`)에 둔다.
+  - P6 아이템 대조 규칙(판정식): BDS가 그 아이템을 목록에 두면 형태가 같아야 하고, 아예 두지 않으면 내용 차이(note)다. 이유: 교육판 아이템은 PMMP 목록의 내용이고 BDS는 교육 기능이 꺼져 숨긴다. 형태(ID, meta, 블록 ID, NBT)의 차이는 여전히 실패다.
+  - 공유 배치: 세 패킷은 `build()`가 아니라 `run()` 시작 때 한 번 인코드·압축한다(설정과 같은 시점에 실패를 알린다). 틱은 `Arc`만 넘기고(`Outbound::Send`의 `Message::Shared`), 세션은 앞의 패킷을 먼저 보내고 배치를 (RakNet이면) 암호화해 보낸다. 크기는 ItemRegistry 113 KB, CraftingData 381 KB, CreativeContent 50 KB로 `max-batch-bytes` 최소(1 MiB) 안이다.
+  - 실드 런타임 ID(358)는 생성 표의 상수로 두고 세션 코덱이 쓴다(M3까지 0).
+  - 덤프는 아이템 태그를 쓰지 않는다(M4에서 쓰는 곳이 없음, 제작 판정을 하는 M7에서 더한다).
+- 정한 값과 규칙(정본은 생성기와 `src/block.rs`, `src/item.rs`, `src/crafting.rs`):
+  - 블록 조회: 네트워크 ID 정렬 배열 이분 탐색, 이름+속성은 이름 범위 안 이분 탐색(속성 8개 이하, 입력 순서 무관, 할당 없음). `PropertyValue<'a>`는 빌린 문자열을 받는다.
+  - 아이템 조회(PMMP 규칙): 같은 이름(런타임 ID)·블록 중 meta가 같은 타입, 여럿이면 형태 NBT가 스택 NBT에 든 가장 구체적인 것, 없고 이름·블록의 타입이 하나면 그 타입(meta는 스택 상태: 도구 내구도, 폭죽 별 색). (이름, meta)는 유일하지 않다(배너, 버섯 블록). 블록 → 아이템 역조회는 덤프에 `asItem` 정보가 없어 두지 않는다(M7).
+  - 크리에이티브 그룹: PMMP `CreativeInventoryCache` 규칙(처음 나올 때 번호, 같은 분류·그룹의 연속 구간이 한 그룹, 익명 그룹은 분류마다 하나이고 이름 있는 그룹이 나오면 새로 시작, 아이콘 NBT에 `___GroupBugWorkaround___`), 분류 번호 1~4. 107그룹.
+  - CraftingData(PMMP `CraftingDataCache`·`TypeConverter`): 네트워크 ID 1부터 모양·무형·화로(PMMP `FurnaceType` 순)·대장장이 순, UUID nil, priority 50, 재료는 1.26.40 형식인 이름+meta(와일드카드 32767, 정확한 블록 재료는 PMMP 레거시 meta, 태그는 이름), 물약은 런타임 ID, 레시피 ID는 네트워크 ID의 10진 문자열(PMMP의 4바이트는 UTF-8이 아닐 수 있음), 해금 조건은 "항상"(`Some(context 1, 재료 없음)`, BDS도 늘 넣음), smithing은 dragonfly처럼 보냄, `clear_recipes` true.
+- 남은 위험과 검증 필요:
+  - 공식 클라이언트에서만 보이는 것: 교육판 아이템이 교육 기능을 끈 클라이언트의 크리에이티브 창에 어떻게 보이는지, BDS와 다른 레시피 ID·블록 이름(`crafting_table` 대 `deprecated`)이 레시피 책에 주는 영향. PMMP가 같은 값으로 쓰여 왔으므로 그대로 둔다. 검증 필요(M7): 레시피 책·제작 P6에서 다시 본다.
+  - 클라이언트가 블록 아이템을 보낸 형태가 Anchor가 보낸 네트워크 블록 ID와 다르면 그 아이템은 `None`이다. 검증 필요(M7): 인벤토리 요청 P6.
+  - Anchor 디코더의 목록 상한 1,024(10.1)는 ItemRegistry·CraftingData 전체를 디코드하지 못한다. 서버는 이 패킷을 받지 않으므로 영향이 없고, 시험은 1,024개씩 나눠 왕복한다.
+
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
 
@@ -497,7 +558,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 | # | 결정 | 기본값 | 정하는 때 |
 |---|---|---|---|
 | 1 | 블록 ID 방식 | 해시(M2 P6로 확정) | 정함 |
-| 2 | 기준 목록 출처 | dragonfly + CloudburstMC | M4 |
+| 2 | 기준 목록 출처 | dragonfly + CloudburstMC(M4에서 확정, 두 목록이 같음) | 정함 |
 | 3 | PMMP와 다른 이벤트 의미 | 8.2절 | M8(사용자가 원하면 바꿈) |
 | 4 | 사용자 저장 공급자 trait | 두지 않음 | 원자 커밋을 지킬 수 있는 요구가 생기면 |
 | 5 | Bedrock(LevelDB) 월드 가져오기 | 포함(가져오기 도구) | M6 |
@@ -512,7 +573,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 | M1 | 완료(2026-10-03) | 10.1절. 패킷 236개 생성, P1~P4 통과(코퍼스 15,104, 변형 236,000, 패닉 0), verify PASS |
 | M2 | 완료(2026-10-03) | 10.2절. P5 6개, P6 스폰 창 BDS와 같음(zlib, Snappy), verify PASS |
 | M3 | 완료(2026-10-03) | 10.3절. P5 NetherNet 9개, P6 NetherNet 스폰 창·응답 SDP·송신 조각이 BDS와 같음, 폴백, vendor 사본 3개(재현 시험 16개), verify PASS |
-| M4 | 시작 전 | |
+| M4 | 완료(2026-10-03) | 10.4절. PMMP 덤프(상태 11,420, 아이템 1,613), 기준 목록(22,091·2,076), Anchor 상태 12,468, 해시 골든·상태 대조 통과, ItemRegistry·CreativeContent·CraftingData 송신, P6 스폰 창·아이템 대조 BDS와 같음, verify PASS |
 | M5 | 시작 전 | |
 | M6 | 시작 전 | |
 | M7 | 시작 전 | |

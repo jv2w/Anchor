@@ -2,6 +2,7 @@
 //! and the outbound queue of each session.
 
 use std::fmt;
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -70,11 +71,25 @@ pub(crate) enum InputKind {
     Leave,
 }
 
+/// Batches encoded and compressed once at start and sent to every player as they are (PLAN.md 3,
+/// 10.4): batch bodies, each a compression header and the compressed packets, without the
+/// encryption a RakNet session adds.
+pub(crate) type SharedBatches = Arc<[Vec<u8>]>;
+
+/// One thing for a session to send.
+#[derive(Debug)]
+pub(crate) enum Message {
+    /// A packet the session encodes into its own batches.
+    Packet(Packet),
+    /// Batches shared by every session, sent after the packets before them.
+    Shared(SharedBatches),
+}
+
 /// A message from the tick to one session.
 #[derive(Debug)]
 pub(crate) enum Outbound {
-    /// Packets to send, in order.
-    Packets(Vec<Packet>),
+    /// Messages to send, in order.
+    Send(Vec<Message>),
     /// The last packet to send (a `Disconnect` or a failed `PlayStatus`) before closing the
     /// connection. The tick has already forgotten the session.
     Close(Packet),

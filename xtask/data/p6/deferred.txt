@@ -3,14 +3,13 @@
 # from both captures. Remove a line when its milestone sends the packet.
 # <packet> <milestone> <reason>
 
-# Blocks and items (M4)
-VoxelShapes M4 block collision shape table
-CreativeContent M4 creative inventory items
-CraftingData M4 recipes
-UnlockedRecipes M4 recipe book
-TrimData M4 smithing trim patterns and materials
-InventoryContent M4 inventory windows hold items
-PlayerHotBar M4 inventory hotbar selection
+# Inventory, smithing trims, the recipe book and collision shapes (M7; PMMP sends none of the last
+# three, PLAN.md 10.4)
+VoxelShapes M7 block collision shape table
+TrimData M7 smithing trim patterns and materials
+UnlockedRecipes M7 recipe book
+InventoryContent M7 inventory windows hold items
+PlayerHotBar M7 inventory hotbar selection
 
 # World and chunks (M6)
 LevelChunk M6 chunk sending

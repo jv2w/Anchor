@@ -7,6 +7,7 @@ pub(crate) mod queue;
 mod spawn;
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
@@ -18,7 +19,10 @@ use crate::config::{Config, Difficulty, GameMode};
 use crate::event::Listeners;
 use crate::protocol::packet::{Disconnect, Packet};
 
-use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Outbound, SessionId};
+use queue::{
+    INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId, SharedBatches,
+};
+pub(crate) use spawn::Shared;
 
 /// The length of a tick: 20 ticks per second.
 pub(crate) const TICK: Duration = Duration::from_millis(50);
@@ -68,6 +72,8 @@ impl Settings {
 #[derive(Debug)]
 pub(crate) struct State {
     settings: Settings,
+    /// The start-game batches every player gets the same.
+    shared: Shared,
     /// Engine time: ticks applied so far.
     tick: u64,
     /// The next entity runtime ID; IDs are never reused.
@@ -124,9 +130,10 @@ enum Phase {
 
 impl State {
     /// An empty world whose events go to `listeners` (already sorted).
-    pub(crate) fn new(settings: Settings, listeners: Listeners) -> Self {
+    pub(crate) fn new(settings: Settings, shared: Shared, listeners: Listeners) -> Self {
         Self {
             settings,
+            shared,
             tick: 0,
             next_runtime_id: 1,
             players: BTreeMap::new(),
@@ -214,17 +221,26 @@ impl State {
 /// What one tick sends, delivered after the step.
 #[derive(Debug, Default)]
 pub(crate) struct Output {
-    /// Packets per session, in order; one entry per run of the same session.
-    packets: Vec<(SessionId, Vec<Packet>)>,
+    /// Messages per session, in order; one entry per run of the same session.
+    packets: Vec<(SessionId, Vec<Message>)>,
     /// Final packets for sessions the tick has already forgotten.
     closes: Vec<(mpsc::Sender<Outbound>, Packet)>,
 }
 
 impl Output {
     fn send(&mut self, session: SessionId, packet: Packet) {
+        self.push(session, Message::Packet(packet));
+    }
+
+    /// Sends batches shared by every session (encoded at start) after what came before.
+    fn share(&mut self, session: SessionId, batches: &SharedBatches) {
+        self.push(session, Message::Shared(Arc::clone(batches)));
+    }
+
+    fn push(&mut self, session: SessionId, message: Message) {
         match self.packets.last_mut() {
-            Some((last, packets)) if *last == session => packets.push(packet),
-            _ => self.packets.push((session, vec![packet])),
+            Some((last, messages)) if *last == session => messages.push(message),
+            _ => self.packets.push((session, vec![message])),
         }
     }
 
@@ -275,7 +291,7 @@ fn deliver(state: &mut State, output: &mut Output) {
         let Some(player) = state.players.get(&session) else {
             continue;
         };
-        match player.outbound.try_send(Outbound::Packets(packets)) {
+        match player.outbound.try_send(Outbound::Send(packets)) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
                 warn!(
@@ -385,6 +401,14 @@ mod tests {
         Settings::new(&config)
     }
 
+    /// The shared start-game batches, built once for all tests.
+    fn shared() -> Shared {
+        static SHARED: std::sync::OnceLock<Shared> = std::sync::OnceLock::new();
+        SHARED
+            .get_or_init(|| Shared::new(crate::protocol::batch::Settings::default()).unwrap())
+            .clone()
+    }
+
     fn identity(n: u64) -> Identity {
         Identity {
             name: format!("player{n}"),
@@ -444,7 +468,7 @@ mod tests {
         ticks: Vec<Vec<Input>>,
     ) -> State {
         listeners.sort();
-        let mut state = State::new(settings, listeners);
+        let mut state = State::new(settings, shared(), listeners);
         let mut output = Output::default();
         for mut batch in ticks {
             step(&mut state, &mut batch, &mut output);
@@ -456,21 +480,39 @@ mod tests {
         state
     }
 
-    /// Every packet queued on `rx`, and the final packet if the session was closed.
-    fn received(rx: &mut mpsc::Receiver<Outbound>) -> (Vec<Packet>, Option<Packet>) {
+    /// Every packet queued on `rx`, the final packet if the session was closed, and the IDs of
+    /// everything sent in order, the packets of shared batches included.
+    fn received(rx: &mut mpsc::Receiver<Outbound>) -> (Vec<Packet>, Option<Packet>, Vec<u32>) {
         let mut packets = Vec::new();
         let mut close = None;
+        let mut sent = Vec::new();
+        let mut decoder =
+            crate::protocol::batch::Decoder::new(crate::protocol::batch::Settings::default());
         while let Ok(out) = rx.try_recv() {
             match out {
-                Outbound::Packets(p) => packets.extend(p),
+                Outbound::Send(messages) => {
+                    for m in messages {
+                        match m {
+                            Message::Packet(p) => {
+                                sent.push(p.id());
+                                packets.push(p);
+                            }
+                            Message::Shared(batches) => {
+                                for body in batches.iter() {
+                                    let mut payload = Vec::new();
+                                    decoder.decode(body, &mut payload).unwrap();
+                                    for packet in crate::protocol::batch::split(&payload).unwrap() {
+                                        sent.push(packet.0.id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Outbound::Close(p) => close = Some(p),
             }
         }
-        (packets, close)
-    }
-
-    fn ids(packets: &[Packet]) -> Vec<u32> {
-        packets.iter().map(Packet::id).collect()
+        (packets, close, sent)
     }
 
     fn spawn_status_count(packets: &[Packet]) -> usize {
@@ -540,10 +582,10 @@ mod tests {
         assert_eq!(once.hash(), same_tick.hash());
         assert_eq!(once.hash(), next_tick.hash());
         // The first join got the start-game packets (each run above sent them once).
-        assert_eq!(ids(&received(&mut rx).0), [11, 162, 11, 162, 11, 162]);
+        assert_eq!(received(&mut rx).2, [11, 162, 11, 162, 11, 162]);
         // The duplicates got nothing and their queues were dropped.
         for rx in [&mut rx2, &mut rx3] {
-            assert_eq!(received(rx), (vec![], None));
+            assert_eq!(received(rx), (vec![], None, vec![]));
             assert!(rx.is_closed());
         }
     }
@@ -627,7 +669,7 @@ mod tests {
     #[test]
     fn join_and_leave_cycles_return_every_table_and_queue_to_its_start() {
         let (sender, mut queue) = input_queue();
-        let mut state = State::new(settings(|_| {}), Listeners::default());
+        let mut state = State::new(settings(|_| {}), shared(), Listeners::default());
         let mut batch = Vec::with_capacity(MAX_INPUTS_PER_TICK);
         let mut output = Output::default();
         let start = (state.players.len(), queue.len(), batch.capacity());
@@ -675,7 +717,7 @@ mod tests {
         let (b, mut rx2) = join(2, 0);
         let both = run_ticks(full, vec![vec![a, b]]);
         assert_eq!(one.hash(), both.hash());
-        let (packets, close) = received(&mut rx2);
+        let (packets, close, _) = received(&mut rx2);
         assert!(packets.is_empty());
         assert_eq!(close, Some(Packet::PlayStatus(PlayStatus { status: 7 })));
         assert!(rx2.is_closed());
@@ -694,7 +736,7 @@ mod tests {
             vec![vec![input(1, 0, kind)], vec![radius(1, 1, 4)]],
         );
         assert!(state.players.is_empty());
-        assert_eq!(ids(&received(&mut rx).0), [11, 162]);
+        assert_eq!(received(&mut rx).2, [11, 162]);
         assert!(rx.is_closed());
     }
 
@@ -715,14 +757,18 @@ mod tests {
             let expected = ChunkRadiusUpdated {
                 chunk_radius: granted,
             };
-            assert_eq!(packets.get(2), Some(&Packet::ChunkRadiusUpdated(expected)));
+            assert_eq!(packets.get(1), Some(&Packet::ChunkRadiusUpdated(expected)));
             // A disc of radius min(spawn radius, granted): 5 chunks for r = 1, 13 for r = 2.
             assert_eq!(chunks, if granted == 1 { 5 } else { 13 }, "r = {requested}");
         }
         for bad in [0, -1, i32::MIN] {
             let (j, mut rx) = join(1, 0);
             let state = run_ticks(config.clone(), vec![vec![j, radius(1, 1, bad)]]);
-            assert_eq!(received(&mut rx).0.len(), 2, "only the start-game packets");
+            assert_eq!(
+                received(&mut rx).2,
+                [11, 162],
+                "only the start-game packets"
+            );
             assert_eq!(state.players[&SessionId::new(1)].chunk_radius, None);
         }
     }
@@ -738,7 +784,7 @@ mod tests {
         });
         let (j, mut rx) = join(1, 0);
         run_ticks(config, vec![vec![j, radius(1, 1, 2)]]);
-        let packets = received(&mut rx).0;
+        let (packets, _, sent) = received(&mut rx);
         let Some(Packet::StartGame(start)) = packets.first() else {
             panic!("StartGame comes first");
         };
@@ -754,8 +800,9 @@ mod tests {
             (-42, "Lobby")
         );
         assert_eq!(start.game_version, crate::protocol::packet::GAME_VERSION);
-        // StartGame, ItemRegistry, ChunkRadiusUpdated, NetworkChunkPublisherUpdate, a chunk.
-        assert_eq!(ids(&packets)[..5], [11, 162, 70, 121, 58]);
+        // StartGame, ItemRegistry, CreativeContent, CraftingData, ChunkRadiusUpdated,
+        // NetworkChunkPublisherUpdate, a chunk.
+        assert_eq!(sent[..7], [11, 162, 145, 52, 70, 121, 58]);
         let last = Packet::PlayStatus(PlayStatus { status: 3 });
         assert_eq!(packets.last(), Some(&last));
         for p in &packets {
@@ -855,11 +902,7 @@ mod tests {
             assert_eq!(sessions(&state), [2]);
             let (reason, message) = kicked(&mut rx1);
             assert_eq!((reason, message.as_str()), LOGGED_IN_OTHER_LOCATION);
-            assert_eq!(
-                ids(&received(&mut rx2).0),
-                [11, 162],
-                "the new player joined"
-            );
+            assert_eq!(received(&mut rx2).2, [11, 162], "the new player joined");
             assert_eq!(state.players[&SessionId::new(2)].runtime_id, 2);
         }
     }
@@ -1003,7 +1046,7 @@ mod tests {
             }
         });
         listeners.sort();
-        let mut state = State::new(settings(|_| {}), listeners);
+        let mut state = State::new(settings(|_| {}), shared(), listeners);
         let mut output = Output::default();
         for n in 0..100 {
             let (old, new) = (2 * n, 2 * n + 1);

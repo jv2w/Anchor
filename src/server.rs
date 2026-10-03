@@ -69,11 +69,14 @@ impl Server {
             shutdown,
             shutdown_requests,
         } = self;
+        // Built before any thread starts: encoding the shared spawn batches takes a while once.
+        let shared = tick::Shared::new(config.batch_settings()?)
+            .map_err(|e| Error::Start(std::io::Error::other(e)))?;
         let runtime = Runtime::new(threads)?;
         let (inputs, input_queue) = tick::queue::input_queue();
         let (stop_tick, stop) = mpsc::channel(1);
         let (done, tick_done) = oneshot::channel();
-        let state = tick::State::new(tick::Settings::new(&config), listeners);
+        let state = tick::State::new(tick::Settings::new(&config), shared, listeners);
         let tick_thread = runtime::spawn_tick(move || tick::run(state, input_queue, stop, done))?;
         info!(
             network_threads = threads.network,

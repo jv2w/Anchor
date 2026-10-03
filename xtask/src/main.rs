@@ -1,8 +1,11 @@
 //! Repository tasks. `cargo xtask gen [--check]` regenerates the protocol code (or checks it is
 //! current); `cargo xtask verify` runs every check and ends with PASS or FAIL, or with the I/O
-//! error that stopped it; `cargo xtask p6 ...` runs the reference server comparison (not part of
-//! `verify`: it needs BDS).
+//! error that stopped it; `cargo xtask dump [--check]` rebuilds the committed block and item data
+//! from the pinned PMMP, dragonfly and `CloudburstMC` checkouts; `cargo xtask p6 ...` runs the
+//! reference server comparison. Neither of the last two is part of `verify`: they need `.cache/`
+//! checkouts or BDS.
 
+mod dump;
 mod r#gen;
 mod p6;
 
@@ -62,6 +65,8 @@ fn run() -> io::Result<bool> {
         ["gen"] => gen_command(&mut out, false),
         ["gen", "--check"] => gen_command(&mut out, true),
         ["verify"] => verify(&mut out),
+        ["dump"] => dump_command(&mut out, false),
+        ["dump", "--check"] => dump_command(&mut out, true),
         ["p6", rest @ ..] => match p6::command(&root(), rest, &mut out) {
             Ok(passed) => Ok(passed),
             Err(e) => {
@@ -72,7 +77,8 @@ fn run() -> io::Result<bool> {
         _ => {
             writeln!(
                 out,
-                "usage: cargo xtask gen [--check] | cargo xtask verify | {}",
+                "usage: cargo xtask gen [--check] | cargo xtask verify | cargo xtask dump [--check] \
+                 | {}",
                 p6::USAGE
             )?;
             Ok(false)
@@ -86,6 +92,22 @@ fn gen_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
         Ok(differ) => {
             for path in differ {
                 writeln!(out, "out of date: {path} (run `cargo xtask gen`)")?;
+            }
+            Ok(false)
+        }
+        Err(e) => {
+            writeln!(out, "error: {e}")?;
+            Ok(false)
+        }
+    }
+}
+
+fn dump_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
+    match dump::run(&root(), check) {
+        Ok(differ) if differ.is_empty() => Ok(true),
+        Ok(differ) => {
+            for path in differ {
+                writeln!(out, "differs: {path} (run `cargo xtask dump`)")?;
             }
             Ok(false)
         }

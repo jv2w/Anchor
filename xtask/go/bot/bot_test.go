@@ -9,15 +9,18 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
@@ -115,5 +118,27 @@ func TestOnlineRequestPassesGophertunnelVerification(t *testing.T) {
 	}
 	if identity.XUID != onlineXUID || identity.DisplayName != "Bot" || !auth.PublicKey.Equal(&key.PublicKey) {
 		t.Errorf("got identity %+v, key match %v", identity, auth.PublicKey.Equal(&key.PublicKey))
+	}
+}
+
+func TestFullJSONKeepsLargeValuesAndNBTTypes(t *testing.T) {
+	stack := protocol.ItemStack{NBTData: map[string]any{
+		"b": uint8(1), "i": int32(1), "l": []any{int16(2)}, "c": map[string]any{"s": "x"},
+	}}
+	items := make([]protocol.ItemEntry, maxElems+1)
+	short := toJSON(reflect.ValueOf(items), 0, false)
+	if _, ok := short.(map[string]any)["sha256"]; !ok {
+		t.Errorf("a long list was not hashed: %T", short)
+	}
+	if full, ok := toJSON(reflect.ValueOf(items), 0, true).([]any); !ok || len(full) != maxElems+1 {
+		t.Errorf("full mode shortened a long list")
+	}
+	got, _ := json.Marshal(toJSON(reflect.ValueOf(stack), 0, true).(map[string]any)["NBTData"])
+	want := `{"compound":{"b":{"byte":1},"c":{"compound":{"s":{"string":"x"}}},"i":{"int":1},"l":{"list":[{"short":2}]}}}`
+	if string(got) != want {
+		t.Errorf("NBT: got %s, want %s", got, want)
+	}
+	if got := itemsPath("dir/spawn.jsonl"); got != "dir/spawn.items.jsonl" {
+		t.Errorf("items path %v", got)
 	}
 }

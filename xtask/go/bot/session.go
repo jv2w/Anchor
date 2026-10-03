@@ -25,12 +25,16 @@ import (
 // maxDecompressed bounds one decompressed batch from the server.
 const maxDecompressed = 64 << 20
 
+// endMarker ends the blocks scenario when a Text message contains it (the console command "say p6-end").
+const endMarker = "p6-end"
+
 // maxChunkRequests bounds the chunks the bot requests sub-chunks for.
 const maxChunkRequests = 9
 
 // result is the outcome of one scenario.
 type result struct {
 	pass, spawned, initialised, stayed    bool
+	ended                                 bool
 	reason, disconnect                    string
 	protocolAccepted, encrypted           bool
 	loginSent, handshake                  bool
@@ -72,6 +76,7 @@ func (r *result) json(c config) map[string]any {
 		"spawned":                   r.spawned,
 		"initialised":               r.initialised,
 		"stayed":                    r.stayed,
+		"ended":                     r.ended,
 		"disconnect":                r.disconnect,
 		"decode_errors":             r.decodeErrors,
 		"packets":                   r.packets,
@@ -94,6 +99,7 @@ func (r *result) json(c config) map[string]any {
 type session struct {
 	c        config
 	out      *output
+	items    *output
 	conn     packetConn
 	reader   *batchReader
 	enc      *packet.Encoder
@@ -111,7 +117,7 @@ type session struct {
 }
 
 // play runs the scenario and returns its result. Failures to reach the server are failed results.
-func play(ctx context.Context, c config, out *output) *result {
+func play(ctx context.Context, c config, out, items *output) *result {
 	res := newResult()
 	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
@@ -142,7 +148,7 @@ func play(ctx context.Context, c config, out *output) *result {
 	defer conn.Close()
 
 	s := &session{
-		c: c, out: out, conn: conn, key: key, res: res,
+		c: c, out: out, items: items, conn: conn, key: key, res: res,
 		pool:   packet.NewServerPool(),
 		blocks: newBlockCheck(),
 	}
@@ -202,6 +208,17 @@ func (s *session) judge(ctx context.Context, loopErr error) {
 			res.reason = "disconnected before spawning: " + res.disconnect
 		case closedByServer:
 			res.reason = "the server closed the connection before spawning: " + s.reader.readErr.Error()
+		default:
+			res.reason = s.failure(ctx, loopErr)
+		}
+	case "blocks":
+		res.pass = res.ended && res.disconnect == "" && res.decodeErrors == 0
+		switch {
+		case res.pass:
+		case res.ended:
+			res.reason = fmt.Sprintf("%v packets failed to decode", res.decodeErrors)
+		case s.stayed.Load():
+			res.reason = fmt.Sprintf("no %q message within %v", endMarker, s.c.stay)
 		default:
 			res.reason = s.failure(ctx, loopErr)
 		}
@@ -270,13 +287,19 @@ func (s *session) handle(b []byte, request []byte) error {
 	s.res.packets++
 	rec := map[string]any{
 		"type": "packet", "index": index, "batch": s.reader.batches - 1, "id": h.PacketID,
-		"name": packetName(pk), "size": len(b), "fields": toJSON(reflect.ValueOf(pk), 0),
+		"name": packetName(pk), "size": len(b), "fields": toJSON(reflect.ValueOf(pk), 0, false),
 	}
 	if err != nil {
 		s.res.decodeErrors++
 		rec["error"] = err.Error()
 	}
 	s.out.line(rec)
+	switch pk.(type) {
+	case *packet.ItemRegistry, *packet.CreativeContent, *packet.CraftingData:
+		s.items.line(map[string]any{
+			"index": index, "name": packetName(pk), "fields": toJSON(reflect.ValueOf(pk), 0, true),
+		})
+	}
 	if err != nil {
 		return nil
 	}
@@ -374,6 +397,12 @@ func (s *session) react(pk packet.Packet, index int, request []byte) error {
 			if payload, ok := e.RawPayload.Value(); ok && e.Result == protocol.SubChunkResultSuccess {
 				s.blocks.subChunk(payload)
 			}
+		}
+	case *packet.Text:
+		if s.c.scenario == "blocks" && s.res.initialised && strings.Contains(pk.Message, endMarker) {
+			s.res.ended = true
+			s.stayed.Store(true)
+			return errors.New("end marker received")
 		}
 	case *packet.Disconnect:
 		s.res.disconnect = fmt.Sprintf("reason %v: %q", pk.Reason, pk.Message)

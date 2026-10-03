@@ -1,7 +1,8 @@
 //! `cargo xtask gen`: runs the Go extractor (`xtask/go/extract`) into the protocol IR
 //! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs` and
-//! `src/protocol/packet.rs` from it. With `--check` it does the same in `target/` and fails if
-//! the committed IR or a generated file differs.
+//! `src/protocol/packet.rs` from it, and the block, item and recipe tables from the committed
+//! data in `xtask/data/` (PLAN.md 10.4, see `data`). With `--check` it does the same in
+//! `target/` and fails if the committed IR or a generated file differs.
 
 /// Appends formatted text to a `String`, which cannot fail (unlike `write!`).
 macro_rules! put {
@@ -10,11 +11,17 @@ macro_rules! put {
     };
 }
 
+mod blocks;
 mod body;
+mod creative;
+mod data;
 mod emit;
 mod ir;
+mod items;
 mod model;
 mod names;
+mod recipes;
+mod registry;
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -45,9 +52,21 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         serde_json::from_slice(&ir_bytes).map_err(|e| format!("{}: {e}", extracted.display()))?;
     let model = model::Model::new(&ir)?;
     let output = emit::generate(&model)?;
+    let data = data::Data::load(root)?;
     let files = [
         (TYPES_PATH, finish(root, &output.types)?),
         (PACKET_PATH, finish(root, &output.packet)?),
+        (blocks::PATH, finish(root, &blocks::generate(&data)?)?),
+        (items::PATH, finish(root, &items::generate(&data)?)?),
+        (registry::PATH, finish(root, &registry::generate(root)?)?),
+        (
+            creative::PATH,
+            finish(root, &creative::generate(root, &data)?)?,
+        ),
+        (
+            recipes::PATH,
+            finish(root, &recipes::generate(root, &data)?)?,
+        ),
     ];
     let mut differ = Vec::new();
     if check {
