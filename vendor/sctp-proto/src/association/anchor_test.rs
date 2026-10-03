@@ -1,5 +1,6 @@
 //! Reproduction tests for the fixes Anchor carries in this copy (Anchor PLAN.md 9.1). Each one
-//! fails on the published 0.10.5 and passes here.
+//! fails on the published 0.10.5 and passes here. Last, an ignored measurement of the receive
+//! path (Anchor PLAN.md 10.5).
 
 use crate::chunk::chunk_selective_ack::ChunkSelectiveAck;
 use crate::packet::CommonHeader;
@@ -10,12 +11,18 @@ const STREAM: StreamId = 1;
 const WINDOW: u32 = 4096;
 
 fn established() -> Association {
+    established_with(WINDOW, WINDOW)
+}
+
+/// An established association with one stream, a `window` byte receive window and messages of
+/// at most `message` bytes.
+fn established_with(window: u32, message: u32) -> Association {
     let mut a = Association {
         state: AssociationState::Established,
         peer_last_tsn: 0,
         my_next_tsn: 1,
-        max_receive_buffer_size: WINDOW,
-        max_receive_message_size: WINDOW,
+        max_receive_buffer_size: window,
+        max_receive_message_size: message,
         max_payload_size: 1200,
         my_max_num_inbound_streams: 16,
         my_max_num_outbound_streams: 16,
@@ -197,4 +204,169 @@ fn gap_reports_stop_at_the_16_bit_offset_limit() {
     let blocks = a.payload_queue.get_gap_ack_blocks(0);
     assert_eq!(blocks.len(), 1);
     assert_eq!((blocks[0].start, blocks[0].end), (65_535, 65_535));
+}
+
+/// Every pushed TSN sorted the whole key list again: O(n) per chunk sent (the in-flight queue)
+/// or received out of order. 60,000 in-order pushes took seconds in 0.10.5 and take
+/// milliseconds with a sorted insert; the bound leaves a wide margin both ways.
+#[test]
+fn pushing_a_tsn_does_not_sort_the_whole_queue() {
+    const TSNS: u32 = 60_000;
+    let mut queue = PayloadQueue::new();
+    let start = Instant::now();
+    // Across the TSN wrap, so serial-number order is what keeps the keys sorted.
+    for tsn in (u32::MAX - TSNS / 2)..=u32::MAX {
+        queue.push_no_check(data(tsn, 0, false, 1));
+    }
+    for tsn in 0..TSNS / 2 {
+        queue.push_no_check(data(tsn, 0, false, 1));
+    }
+    let took = start.elapsed();
+    assert!(took < Duration::from_secs(1), "{TSNS} pushes took {took:?}");
+    let mut expected = u32::MAX - TSNS / 2;
+    while let Some(chunk) = queue.pop(expected) {
+        assert_eq!(chunk.tsn, expected);
+        expected = expected.wrapping_add(1);
+    }
+    assert_eq!(expected, TSNS / 2, "every TSN popped in order");
+}
+
+/// Every outbound poll walked all chunks in flight looking for ones a T3-rtx timeout marked,
+/// though only that timeout marks them: O(in flight) per poll, the largest share of a sending
+/// peer's cost (Anchor PLAN.md 10.5). 20,000 polls over 2,000 chunks took seconds in 0.10.5.
+/// Marked chunks still go out, once.
+#[test]
+fn polling_without_a_retransmission_timeout_skips_the_chunks_in_flight() {
+    const IN_FLIGHT: u32 = 2_000;
+    const POLLS: u32 = 20_000;
+    let mut a = established();
+    a.cwnd = u32::MAX;
+    a.rwnd = u32::MAX;
+    a.cumulative_tsn_ack_point = 0;
+    for tsn in 1..=IN_FLIGHT {
+        a.inflight_queue.push_no_check(data(tsn, 0, false, 10));
+    }
+    let now = Instant::now();
+    for _ in 0..POLLS {
+        assert!(a.get_data_packets_to_retransmit(now).is_empty());
+    }
+    let took = now.elapsed();
+    assert!(took < Duration::from_millis(500), "{POLLS} polls took {took:?}");
+
+    a.inflight_queue.mark_all_to_retrasmit();
+    let resent: usize = a
+        .get_data_packets_to_retransmit(now)
+        .iter()
+        .map(|packet| packet.chunks.len())
+        .sum();
+    assert_eq!(resent, IN_FLIGHT as usize);
+    assert!(a.get_data_packets_to_retransmit(now).is_empty());
+}
+
+/// Receive cost of Anchor's largest NetherNet message: 256 data channel messages of 262,144
+/// bytes (a header byte and a 262,143-byte segment), cut into DATA chunks of the 1,062 bytes
+/// str0m sends at its 1,150-byte MTU, into a 1 MiB window (str0m's default), read as they
+/// complete. Three arrival orders: in order; each window-sized batch reversed; and 10% loss,
+/// each lost chunk (again with 10% loss) arriving 100 chunks later, as a retransmission an
+/// RTT later would. Run in release:
+/// `cargo test --release --manifest-path vendor/sctp-proto/Cargo.toml --lib receive_cost -- --ignored --nocapture`
+#[test]
+#[ignore = "measurement; run in release with --ignored --nocapture"]
+fn receive_cost_of_the_largest_message() -> Result<()> {
+    const MESSAGES: usize = 256;
+    const MESSAGE: usize = 262_144;
+    const CHUNK: usize = 1_062;
+    const RECEIVE_WINDOW: u32 = 1024 * 1024;
+    const ROUNDS: usize = 5;
+
+    let payload = Bytes::from(vec![7; CHUNK]);
+    let mut chunks = Vec::new();
+    let mut tsn = 1u32;
+    for ssn in 0..MESSAGES {
+        let mut offset = 0;
+        while offset < MESSAGE {
+            let len = CHUNK.min(MESSAGE - offset);
+            chunks.push(ChunkPayloadData {
+                tsn,
+                stream_identifier: STREAM,
+                stream_sequence_number: u16::try_from(ssn).unwrap(),
+                beginning_fragment: offset == 0,
+                ending_fragment: offset + len == MESSAGE,
+                user_data: payload.slice(..len),
+                ..Default::default()
+            });
+            tsn += 1;
+            offset += len;
+        }
+    }
+    // Whole messages that fit the window, each chunk held behind the gap costing its data and a
+    // TSN record: about the most a sender can have in flight.
+    let per_message = MESSAGE.div_ceil(CHUNK);
+    let batch =
+        RECEIVE_WINDOW as usize / (CHUNK + RECEIVED_TSN_COST as usize) / per_message * per_message;
+    let in_order: Vec<usize> = (0..chunks.len()).collect();
+    let reversed: Vec<usize> = in_order
+        .chunks(batch)
+        .flat_map(|batch| batch.iter().rev().copied())
+        .collect();
+    let mut lossy = Vec::with_capacity(chunks.len() * 12 / 10);
+    let mut late: alloc::collections::VecDeque<(usize, usize)> = Default::default();
+    let mut rng = 0x9e37_79b9_7f4a_7c15_u64;
+    let lost = |rng: &mut u64| {
+        *rng ^= *rng << 13;
+        *rng ^= *rng >> 7;
+        *rng ^= *rng << 17;
+        *rng % 10 == 0
+    };
+    let mut slot = 0;
+    for i in 0..chunks.len() {
+        while late.front().is_some_and(|&(due, _)| due <= slot) {
+            let (_, j) = late.pop_front().unwrap();
+            if lost(&mut rng) {
+                late.push_back((slot + 100, j));
+            } else {
+                lossy.push(j);
+            }
+            slot += 1;
+        }
+        if lost(&mut rng) {
+            late.push_back((slot + 100, i));
+        } else {
+            lossy.push(i);
+        }
+        slot += 1;
+    }
+    while let Some((_, j)) = late.pop_front() {
+        lossy.push(j);
+    }
+
+    for (name, order) in [
+        ("in order", &in_order),
+        ("window batches reversed", &reversed),
+        ("10% loss", &lossy),
+    ] {
+        let mut best = std::time::Duration::MAX;
+        for _ in 0..ROUNDS {
+            let mut a = established_with(RECEIVE_WINDOW, MESSAGE as u32);
+            let mut read = 0;
+            let start = Instant::now();
+            for &i in order.iter() {
+                a.handle_data(&chunks[i])?;
+                while let Some(message) = a.stream(STREAM)?.read()? {
+                    assert_eq!(message.len(), MESSAGE);
+                    read += 1;
+                }
+            }
+            best = best.min(start.elapsed());
+            assert_eq!(read, MESSAGES, "{name}: a chunk was dropped");
+        }
+        std::println!(
+            "{name}: {} chunks, {:?} for {MESSAGES} messages, {:?} per message, {:.0} ns per chunk",
+            order.len(),
+            best,
+            best / MESSAGES as u32,
+            best.as_nanos() as f64 / order.len() as f64
+        );
+    }
+    Ok(())
 }

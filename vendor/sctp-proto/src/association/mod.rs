@@ -3870,6 +3870,11 @@ impl Association {
     /// out and retransmit outstanding data chunks that are not acked
     /// or abandoned yet.
     fn get_data_packets_to_retransmit(&mut self, now: Instant) -> Vec<Packet> {
+        // Anchor: only a T3-rtx timeout marks chunks. Without one, walking every chunk in
+        // flight on each outbound poll found nothing and cost O(in flight) per poll.
+        if !self.inflight_queue.is_marked_to_retransmit() {
+            return vec![];
+        }
         let awnd = core::cmp::min(self.cwnd, self.rwnd);
         let mut chunks = vec![];
         let mut bytes_to_send = 0;
@@ -3897,6 +3902,8 @@ impl Association {
 
                 c.nsent += 1;
             } else {
+                // Anchor: the walk reached the end, so every marked chunk was sent.
+                self.inflight_queue.clear_marked_to_retransmit();
                 break; // end of pending data
             }
 

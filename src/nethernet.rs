@@ -65,6 +65,8 @@ const COMMAND_BATCH: usize = 256;
 const SOCKET_BUFFER: usize = 4 * 1024 * 1024;
 /// How often timers run: str0m timeouts, deadlines and session flags.
 const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
+/// How long a closed connection may take to deliver what it has sent, as RakNet allows.
+const CLOSE_LINGER: Duration = Duration::from_secs(5);
 /// Larger than any datagram a peer accepts, so that an oversized one is seen and dropped.
 const RECV_BUFFER: usize = 2048;
 /// Signaling answer code (go-nethernet `ErrorCodeIdentityVerificationFailed`) for an offer
@@ -529,6 +531,9 @@ struct Entry {
     /// When the peer next needs a poll without new input. The peer keeps its own deadlines
     /// (establishment and silence, peer.rs).
     timeout: Instant,
+    /// Set when the session closed the connection: the peer is removed once everything sent is
+    /// acknowledged, or at this time.
+    closing: Option<Instant>,
 }
 
 /// The driver task: both sockets, every peer and their indexes.
@@ -569,7 +574,15 @@ impl Driver {
                         self.command(command);
                     }
                 }
-                _ = interval.tick() => self.update(),
+                _ = interval.tick() => {
+                    // Commands queued before a close flag (the last packets) are applied first,
+                    // so a closing peer is not judged drained before it has them.
+                    for _ in 0..COMMAND_QUEUE {
+                        let Ok(command) = commands.try_recv() else { break };
+                        self.command(command);
+                    }
+                    self.update();
+                }
                 _ = &mut stopped => break,
             }
         }
@@ -705,6 +718,7 @@ impl Driver {
                 client_key,
                 link: None,
                 timeout: now,
+                closing: None,
             },
         );
         self.drive(id, now);
@@ -787,11 +801,17 @@ impl Driver {
                     {
                         release(&mut self.pre_login, &mut self.pre_login_total, key);
                     }
-                    if flags.closed {
-                        self.doomed.push(id);
-                        continue;
+                    if flags.closed && entry.closing.is_none() {
+                        entry.closing = Some(now.checked_add(CLOSE_LINGER).unwrap_or(now));
                     }
                 }
+            }
+            // A closing peer stays until what was sent is acknowledged, or the linger ends.
+            if let Some(until) = entry.closing
+                && (now >= until || entry.peer.is_drained())
+            {
+                self.doomed.push(id);
+                continue;
             }
             if now >= entry.timeout {
                 due.push(id);

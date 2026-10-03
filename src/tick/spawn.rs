@@ -6,7 +6,9 @@
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use super::queue::{Identity, Outbound, SessionId, SharedBatches};
+use std::sync::Arc;
+
+use super::queue::{Identity, Message, Outbound, SessionId, SharedBatches};
 use super::{
     DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION, Output, Phase, Player, PlayerKey, Settings, State,
 };
@@ -14,6 +16,7 @@ use crate::config::{Difficulty, GameMode};
 use crate::crafting;
 use crate::event::{DuplicateOutcome, PlayerDuplicateLogin};
 use crate::item::{self, SHIELD_RUNTIME_ID};
+use crate::pool::Pool;
 use crate::protocol::batch;
 use crate::protocol::packet::{
     self, ChunkRadiusUpdated, Disconnect, LevelChunk, NetworkChunkPublisherUpdate, Packet,
@@ -91,7 +94,91 @@ fn encode(encoder: &mut batch::Encoder, packet: &Packet) -> Result<SharedBatches
     Ok(bodies.into())
 }
 
-/// Registers the player of `session` and sends the start-game packets, or rejects it when the
+/// What the output phase sends a player at the end of a tick (PLAN.md 10.5). The input phase
+/// sets it and the output phase clears it, so it is empty between ticks.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Pending {
+    /// `StartGame` and the item registry.
+    start_game: bool,
+    /// The answer to the chunk radius requests of the tick.
+    chunks: Option<ChunkAnswer>,
+}
+
+/// The answer to a chunk radius request.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ChunkAnswer {
+    /// The granted radius.
+    radius: u8,
+    /// The first answer: the creative inventory and the recipes go first.
+    inventory: bool,
+    /// The answer that spawns the player: `PlayStatus(PlayerSpawn)` goes last.
+    spawn: bool,
+}
+
+/// The output phase: the packets of every player with something pending, built on the CPU pool
+/// from read-only state, in session order; then the pending marks are cleared.
+pub(super) fn output(state: &mut State, pool: &Pool) -> Vec<(SessionId, Vec<Message>)> {
+    let marked: Vec<(SessionId, &Player)> = state
+        .players
+        .iter()
+        .filter(|(_, p)| p.pending != Pending::default())
+        .map(|(&s, p)| (s, p))
+        .collect();
+    let (settings, shared) = (&state.settings, &state.shared);
+    let packets = pool.map(&marked, |&(session, player)| {
+        (session, messages(settings, shared, player))
+    });
+    for (session, _) in &packets {
+        if let Some(player) = state.players.get_mut(session) {
+            player.pending = Pending::default();
+        }
+    }
+    packets
+}
+
+/// One player's pending packets, in the order BDS sends them (P6, PLAN.md 10.2, 10.4): the
+/// start-game packets; then for a chunk radius request the creative inventory and the recipes
+/// (first answer only), the granted radius, the publisher position, the spawn chunks and the
+/// spawn status (spawning answer only).
+fn messages(settings: &Settings, shared: &Shared, player: &Player) -> Vec<Message> {
+    let mut out = Vec::new();
+    if player.pending.start_game {
+        out.push(Message::Packet(Packet::StartGame(Box::new(start_game(
+            settings, player,
+        )))));
+        out.push(Message::Shared(Arc::clone(&shared.item_registry)));
+    }
+    if let Some(answer) = player.pending.chunks {
+        if answer.inventory {
+            out.push(Message::Shared(Arc::clone(&shared.creative_content)));
+            out.push(Message::Shared(Arc::clone(&shared.crafting_data)));
+        }
+        out.push(Message::Packet(Packet::ChunkRadiusUpdated(
+            ChunkRadiusUpdated {
+                chunk_radius: i32::from(answer.radius),
+            },
+        )));
+        out.push(Message::Packet(Packet::NetworkChunkPublisherUpdate(
+            NetworkChunkPublisherUpdate {
+                position: SPAWN_BLOCK,
+                radius: u32::from(answer.radius) << 4,
+                saved_chunks: Vec::new(),
+            },
+        )));
+        let center = [SPAWN_BLOCK[0] >> 4, SPAWN_BLOCK[2] >> 4];
+        for position in spawn_chunks(center, answer.radius.min(settings.spawn_radius)) {
+            out.push(Message::Packet(Packet::LevelChunk(empty_chunk(position))));
+        }
+        if answer.spawn {
+            out.push(Message::Packet(Packet::PlayStatus(PlayStatus {
+                status: PLAY_STATUS_PLAYER_SPAWN,
+            })));
+        }
+    }
+    out
+}
+
+/// Registers the player of `session` and marks the start-game packets, or rejects it when the
 /// server is full. A second join of the same session changes nothing.
 ///
 /// When the same player is already online, [`PlayerDuplicateLogin`] decides which of the two is
@@ -156,12 +243,11 @@ pub(super) fn join(
         chunk_radius: None,
         phase: Phase::Joined,
         outbound,
+        pending: Pending {
+            start_game: true,
+            chunks: None,
+        },
     };
-    output.send(
-        session,
-        Packet::StartGame(Box::new(start_game(&state.settings, &player))),
-    );
-    output.share(session, &state.shared.item_registry);
     state.insert(session, player);
 }
 
@@ -201,13 +287,13 @@ fn logged_in_other_location(message: String) -> Packet {
     })
 }
 
-/// Answers a chunk radius request: the granted radius, the publisher position, the spawn chunks,
-/// and the spawn status the first time.
+/// Grants a chunk radius request and marks the answer for the output phase: the granted radius,
+/// the publisher position, the spawn chunks, and the first time the creative inventory, the
+/// recipes and the spawn status. Requests in one tick share one answer with the last radius.
 pub(super) fn request_chunk_radius(
     state: &mut State,
     session: SessionId,
     request: &RequestChunkRadius,
-    output: &mut Output,
 ) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -220,41 +306,17 @@ pub(super) fn request_chunk_radius(
         );
         return;
     }
-    // BDS sends the creative inventory and the recipes after the chunk radius request, before
-    // its answer (P6, PLAN.md 10.4).
-    if player.phase == Phase::Joined && player.chunk_radius.is_none() {
-        output.share(session, &state.shared.creative_content);
-        output.share(session, &state.shared.crafting_data);
-    }
     let view_distance = state.settings.view_distance;
     let radius = u8::try_from(request.chunk_radius).map_or(view_distance, |r| r.min(view_distance));
+    let earlier = player.pending.chunks.unwrap_or_default();
+    player.pending.chunks = Some(ChunkAnswer {
+        radius,
+        inventory: earlier.inventory || player.chunk_radius.is_none(),
+        spawn: earlier.spawn || player.phase == Phase::Joined,
+    });
     player.chunk_radius = Some(radius);
-    output.send(
-        session,
-        Packet::ChunkRadiusUpdated(ChunkRadiusUpdated {
-            chunk_radius: i32::from(radius),
-        }),
-    );
-    output.send(
-        session,
-        Packet::NetworkChunkPublisherUpdate(NetworkChunkPublisherUpdate {
-            position: SPAWN_BLOCK,
-            radius: u32::from(radius) << 4,
-            saved_chunks: Vec::new(),
-        }),
-    );
-    let center = [SPAWN_BLOCK[0] >> 4, SPAWN_BLOCK[2] >> 4];
-    for position in spawn_chunks(center, radius.min(state.settings.spawn_radius)) {
-        output.send(session, Packet::LevelChunk(empty_chunk(position)));
-    }
     if player.phase == Phase::Joined {
         player.phase = Phase::Spawning;
-        output.send(
-            session,
-            Packet::PlayStatus(PlayStatus {
-                status: PLAY_STATUS_PLAYER_SPAWN,
-            }),
-        );
     }
 }
 

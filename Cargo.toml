@@ -12,6 +12,7 @@ workspace = true
 aws-lc-rs = { version = "=1.18.1", default-features = false, features = ["aws-lc-sys", "alloc"] }
 libdeflater = "=1.26.1"
 miniz_oxide = "=0.9.1"
+rayon = "=1.12.0"
 rustls = { version = "=0.23.45", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"

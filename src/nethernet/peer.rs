@@ -414,6 +414,27 @@ impl Peer {
         }
     }
 
+    /// Whether everything sent has been delivered: nothing waits in the peer's queue and SCTP
+    /// holds no unacknowledged bytes (sctp-proto releases buffered bytes on acknowledgement). A
+    /// peer that is not open has nothing more to deliver.
+    pub(crate) fn is_drained(&mut self) -> bool {
+        if !matches!(self.state, State::Open) {
+            return true;
+        }
+        if !self.queue.is_empty() {
+            return false;
+        }
+        let Some(id) = self.reliable else {
+            return true;
+        };
+        // A str0m panic here leaves nothing that could still be delivered.
+        let buffered = guard(&mut self.rtc, |rtc| {
+            rtc.channel(id)
+                .map_or(0, |mut channel| channel.buffered_amount())
+        });
+        !matches!(buffered, Ok(bytes) if bytes > 0)
+    }
+
     /// Closes the peer: str0m sends its close output through `poll`, which then returns `Closed`.
     pub(crate) fn close(&mut self) {
         if matches!(self.state, State::Connecting | State::Open) {
@@ -736,7 +757,10 @@ fn guard_rtc<T>(rtc: &mut Rtc, f: impl FnOnce(&mut Rtc) -> Result<T, RtcError>) 
     guard(rtc, f)?.map_err(Error::Webrtc)
 }
 
-/// Writes one segment; `false` if str0m has no room for it yet.
+/// Writes one segment; `false` if str0m has no room for it yet. Room is checked before the
+/// segment is copied: the driver polls a busy peer thousands of times a second, and copying a
+/// 262,143-byte segment only to have it refused cost 9 µs per poll (PLAN.md 10.5). Only the
+/// reliable channel is written, so its buffered amount is str0m's whole send buffer use.
 fn write(
     rtc: &mut Rtc,
     id: ChannelId,
@@ -744,6 +768,13 @@ fn write(
     header: u8,
     payload: &[u8],
 ) -> Result<bool> {
+    let buffered = guard(rtc, |rtc| {
+        rtc.channel(id).map(|mut channel| channel.buffered_amount())
+    })?
+    .ok_or(Error::Closed)?;
+    if buffered.saturating_add(payload.len()) >= SCTP_SEND_BUFFER {
+        return Ok(false);
+    }
     scratch.clear();
     scratch.push(header);
     scratch.extend_from_slice(payload);
@@ -792,6 +823,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
     use str0m::config::Fingerprint;
+    use str0m::{DATAGRAM_MTU_TARGET, DATAGRAM_MTU_TARGET_MIN, DATAGRAM_MTU_WARN};
 
     use super::*;
     use crate::nethernet::message::segments;
@@ -893,18 +925,100 @@ mod tests {
         }
     }
 
+    /// What the in-memory network does to datagrams in both directions until the peer opens.
+    #[derive(Debug, Clone, Copy)]
+    enum Fault {
+        /// Every DTLS record travels in a datagram of its own (as a sender may send them), and
+        /// each datagram is a random one of those in flight: flights arrive shuffled.
+        Reorder,
+        /// Half of the datagrams arrive a second time, after the others in flight.
+        Duplicate,
+        /// The first copy of each plaintext DTLS handshake datagram is lost, so every flight
+        /// needs a retransmission.
+        LoseFirst,
+        /// This percentage of datagrams is lost.
+        Lose(usize),
+        /// The records inside each DTLS datagram arrive in reverse order. No network does this;
+        /// only a sender could (dimpl #168).
+        ReverseRecords,
+    }
+
+    /// Each DTLS record of `datagram` as a datagram of its own, as a sender may send them;
+    /// anything else unchanged.
+    fn dtls_records(datagram: Vec<u8>) -> Vec<Vec<u8>> {
+        const HEADER: usize = 13;
+        if !matches!(datagram.first(), Some(20..=63)) {
+            return vec![datagram];
+        }
+        let mut out = Vec::new();
+        let mut rest = datagram.as_slice();
+        while rest.len() >= HEADER {
+            let len = HEADER + usize::from(u16::from_be_bytes([rest[11], rest[12]]));
+            let (record, tail) = rest.split_at(len.min(rest.len()));
+            out.push(record.to_vec());
+            rest = tail;
+        }
+        out
+    }
+
+    /// A [`Fault`] with its generator and what it saw.
+    struct Network {
+        fault: Fault,
+        rng: u64,
+        start: Instant,
+        /// Datagrams delivered to the peer and to the client before the peer opened.
+        delivered: [usize; 2],
+        /// When the peer finished its DTLS handshake: its first application data record.
+        dtls: Option<Duration>,
+        /// For `LoseFirst`: (to the peer, content type, handshake type) of datagrams lost once.
+        lost: Vec<(bool, u8, u8)>,
+    }
+
+    impl Network {
+        fn new(fault: Fault, seed: u64, start: Instant) -> Self {
+            Self {
+                fault,
+                // xorshift needs a nonzero state.
+                rng: seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1,
+                start,
+                delivered: [0; 2],
+                dtls: None,
+                lost: Vec::new(),
+            }
+        }
+    }
+
+    /// Datagrams one side may receive before the peer opens; far above the 10 to 60 a faulty
+    /// handshake takes, so only a retransmission storm reaches it.
+    const STORM: usize = 1000;
+
     /// A peer and a client joined by an in-memory network with a simulated clock.
     struct Harness {
         now: Instant,
         peer: Peer,
         client: Client,
         to_client: VecDeque<Vec<u8>>,
+        /// Datagrams on their way to the peer; used only with a faulty network, otherwise the
+        /// peer takes each one as the client sends it.
+        to_peer: VecDeque<Vec<u8>>,
+        network: Option<Network>,
         peer_timeout: Instant,
         opened: bool,
         received: Vec<Vec<u8>>,
         closed: Option<Error>,
         /// Every datagram the client sent, when recording.
         record: Option<Vec<Vec<u8>>>,
+        /// The peer's own work, when measuring.
+        meter: Option<Meter>,
+    }
+
+    /// Time spent inside the peer's `receive` and `poll` calls (the driver task's share), with
+    /// the datagrams it took and gave. Each call adds two clock reads.
+    #[derive(Debug, Default)]
+    struct Meter {
+        busy: Duration,
+        received: usize,
+        sent: usize,
     }
 
     impl Harness {
@@ -914,10 +1028,26 @@ mod tests {
             channels: &[ChannelConfig],
             fingerprint: [u8; 32],
         ) -> Self {
+            Self::with_client_mtu(server, client, channels, fingerprint, DATAGRAM_MTU_TARGET)
+        }
+
+        /// A harness whose client packs its datagrams to at most `client_mtu` bytes.
+        fn with_client_mtu(
+            server: &Certificate,
+            client: &Certificate,
+            channels: &[ChannelConfig],
+            fingerprint: [u8; 32],
+            client_mtu: usize,
+        ) -> Self {
             let now = crate::clock::now();
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "invariant: tests pass str0m's default MTU or its minimum"
+            )]
             let mut rtc = RtcConfig::new()
                 .set_crypto_provider(Arc::clone(&client.provider))
                 .set_dtls_cert(client.dtls.clone())
+                .set_mtu(client_mtu..=DATAGRAM_MTU_WARN)
                 .build(now);
             let creds = rtc.direct_api().local_ice_credentials();
             let remote = Remote {
@@ -960,6 +1090,9 @@ mod tests {
                     timeout: now,
                 },
                 to_client: VecDeque::new(),
+                to_peer: VecDeque::new(),
+                network: None,
+                meter: None,
                 peer_timeout: now,
                 opened: false,
                 received: Vec::new(),
@@ -988,8 +1121,11 @@ mod tests {
                         if let Some(record) = &mut self.record {
                             record.push(transmit.contents.to_vec());
                         }
-                        self.peer.receive(self.now, CLIENT, &transmit.contents);
-                        self.poll_peer();
+                        if self.network.is_some() {
+                            self.to_peer.push_back(transmit.contents.to_vec());
+                        } else {
+                            self.deliver_to_peer(&transmit.contents);
+                        }
                     }
                     Ok(str0m::Output::Event(event)) => self.client.event(event),
                     Ok(str0m::Output::Timeout(at)) => {
@@ -1003,7 +1139,11 @@ mod tests {
                 }
                 progress = true;
             }
-            if let Some(data) = self.to_client.pop_front() {
+            if let Some(data) = self.next_datagram(true) {
+                self.deliver_to_peer(&data);
+                progress = true;
+            }
+            if let Some(data) = self.next_datagram(false) {
                 let receive = Receive::new(Protocol::Udp, SERVER, CLIENT, &data).unwrap();
                 let delivered = self
                     .client
@@ -1018,12 +1158,90 @@ mod tests {
             progress
         }
 
+        /// The next datagram for the peer (`to_peer`) or the client, after the network's fault
+        /// while the peer is not open.
+        fn next_datagram(&mut self, to_peer: bool) -> Option<Vec<u8>> {
+            let queue = if to_peer {
+                &mut self.to_peer
+            } else {
+                &mut self.to_client
+            };
+            let Some(network) = self.network.as_mut().filter(|_| !self.opened) else {
+                return queue.pop_front();
+            };
+            let datagram = match network.fault {
+                Fault::Reorder => {
+                    *queue = queue.drain(..).flat_map(dtls_records).collect();
+                    let at = below(&mut network.rng, queue.len());
+                    queue.remove(at)?
+                }
+                Fault::Duplicate => {
+                    let datagram = queue.pop_front()?;
+                    if below(&mut network.rng, 2) == 0 {
+                        queue.push_back(datagram.clone());
+                    }
+                    datagram
+                }
+                Fault::LoseFirst => loop {
+                    let datagram = queue.pop_front()?;
+                    let key = match datagram.get(..14) {
+                        Some(&[kind @ (20 | 22), _, _, 0, 0, .., handshake]) => {
+                            (to_peer, kind, handshake)
+                        }
+                        _ => break datagram,
+                    };
+                    if network.lost.contains(&key) {
+                        break datagram;
+                    }
+                    network.lost.push(key);
+                },
+                Fault::Lose(percent) => loop {
+                    let datagram = queue.pop_front()?;
+                    if below(&mut network.rng, 100) >= percent {
+                        break datagram;
+                    }
+                },
+                Fault::ReverseRecords => {
+                    let mut records = dtls_records(queue.pop_front()?);
+                    records.reverse();
+                    records.concat()
+                }
+            };
+            let delivered = &mut network.delivered[usize::from(!to_peer)];
+            *delivered += 1;
+            assert!(*delivered < STORM, "retransmission storm");
+            Some(datagram)
+        }
+
+        /// Gives the peer one datagram from the client and polls it.
+        fn deliver_to_peer(&mut self, datagram: &[u8]) {
+            let start = self.meter.is_some().then(crate::clock::now);
+            self.peer.receive(self.now, CLIENT, datagram);
+            if let (Some(meter), Some(start)) = (&mut self.meter, start) {
+                meter.busy += crate::clock::now() - start;
+                meter.received += 1;
+            }
+            self.poll_peer();
+        }
+
         fn poll_peer(&mut self) -> bool {
             let mut progress = false;
             while self.closed.is_none() {
-                match self.peer.poll(self.now) {
+                let start = self.meter.is_some().then(crate::clock::now);
+                let output = self.peer.poll(self.now);
+                if let (Some(meter), Some(start)) = (&mut self.meter, start) {
+                    meter.busy += crate::clock::now() - start;
+                    meter.sent += usize::from(matches!(output, Output::Transmit { .. }));
+                }
+                match output {
                     Output::Transmit { to, data } => {
                         assert_eq!(to, CLIENT);
+                        if let Some(network) = &mut self.network
+                            && network.dtls.is_none()
+                            && data.first() == Some(&23)
+                        {
+                            network.dtls = Some(self.now - network.start);
+                        }
                         self.to_client.push_back(data);
                     }
                     Output::Open => {
@@ -1094,6 +1312,59 @@ mod tests {
             Certificate::generate().unwrap(),
             Certificate::generate().unwrap(),
         )
+    }
+
+    /// `cert` with `extra` zero bytes after its signature: a larger certificate whose DTLS flight
+    /// spans datagrams. dimpl reads only the public key and str0m checks only the fingerprint,
+    /// so it stays usable.
+    fn inflated(cert: &Certificate, extra: usize) -> Certificate {
+        /// Header and content length of the DER element at the start of `der`.
+        fn header(der: &[u8]) -> (usize, usize) {
+            match der[1] {
+                short @ 0..0x80 => (2, usize::from(short)),
+                long => {
+                    let n = usize::from(long & 0x7f);
+                    let len = der[2..2 + n]
+                        .iter()
+                        .fold(0, |len, &b| (len << 8) | usize::from(b));
+                    (2 + n, len)
+                }
+            }
+        }
+        fn element(tag: u8, content: &[u8]) -> Vec<u8> {
+            let len = content.len().to_be_bytes();
+            let skip = len.iter().take_while(|&&b| b == 0).count();
+            let mut out = vec![tag];
+            if content.len() < 0x80 {
+                out.push(len[len.len() - 1]);
+            } else {
+                out.push(0x80 | u8::try_from(len.len() - skip).unwrap());
+                out.extend_from_slice(&len[skip..]);
+            }
+            out.extend_from_slice(content);
+            out
+        }
+        // Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signature BIT STRING }
+        let der = &cert.dtls.certificate;
+        let (outer, _) = header(der);
+        let mut at = outer;
+        for _ in 0..2 {
+            let (h, len) = header(&der[at..]);
+            at += h + len;
+        }
+        assert_eq!(der[at], 0x03, "the signature is a BIT STRING");
+        let (h, len) = header(&der[at..]);
+        let mut signature = der[at + h..at + h + len].to_vec();
+        signature.resize(len + extra, 0);
+        let mut content = der[outer..at].to_vec();
+        content.extend(element(0x03, &signature));
+        let mut dtls = cert.dtls.clone();
+        dtls.certificate = element(0x30, &content);
+        Certificate {
+            provider: Arc::clone(&cert.provider),
+            fingerprint: crate::crypto::sha256(&[&dtls.certificate]),
+            dtls,
+        }
     }
 
     #[test]
@@ -1316,6 +1587,29 @@ mod tests {
         ));
     }
 
+    /// A closing connection waits for this before the peer goes (`nethernet.rs`), so the last
+    /// packets, such as a Disconnect, reach the client.
+    #[test]
+    fn sent_messages_are_drained_once_acknowledged() {
+        let (server, client) = certificates();
+        let mut h = Harness::honest(&server, &client);
+        h.open();
+        assert!(h.peer.is_drained());
+        let down = pattern(1024 * 1024, 4);
+        h.peer.send(&down).unwrap();
+        assert!(!h.peer.is_drained(), "nothing is acknowledged yet");
+        let mut drained = false;
+        for _ in 0..1000 {
+            h.run(Duration::from_millis(10), |_| false);
+            if h.peer.is_drained() {
+                drained = true;
+                break;
+            }
+        }
+        assert!(drained, "acknowledged bytes were not released");
+        assert_eq!(h.client.received.pop().unwrap(), down);
+    }
+
     #[test]
     fn local_close_drains_and_reports_closed() {
         let (server, client) = certificates();
@@ -1366,6 +1660,222 @@ mod tests {
             assert_eq!(stun_server_ufrag(&request[..len]), None);
         }
         assert_eq!(stun_server_ufrag(&[0x16; 64]), None);
+    }
+
+    /// Certificates whose DTLS flights span datagrams: the server's grows past one datagram,
+    /// and `faulty_handshake` packs the client's to the smallest MTU str0m allows.
+    fn split_certificates() -> (Certificate, Certificate) {
+        let (server, client) = certificates();
+        (inflated(&server, 900), client)
+    }
+
+    /// What a handshake through a faulty network came to, in simulated time from its start.
+    struct Handshake {
+        /// When the peer and the client both had both channels open.
+        opened: Option<Duration>,
+        /// When the peer finished DTLS.
+        dtls: Option<Duration>,
+        closed: Option<Error>,
+    }
+
+    fn faulty_handshake(
+        server: &Certificate,
+        client: &Certificate,
+        fault: Fault,
+        seed: u64,
+    ) -> Handshake {
+        let mut h = Harness::with_client_mtu(
+            server,
+            client,
+            &[reliable(), unreliable()],
+            client.fingerprint,
+            DATAGRAM_MTU_TARGET_MIN,
+        );
+        let start = h.now;
+        h.network = Some(Network::new(fault, seed, start));
+        let open = |h: &Harness| h.opened && h.client.open.len() == 2;
+        h.run(OPEN_TIMEOUT + Duration::from_secs(1), |h| {
+            open(h) || h.closed.is_some()
+        });
+        Handshake {
+            opened: open(&h).then(|| h.now - start),
+            dtls: h.network.as_ref().and_then(|network| network.dtls),
+            closed: h.closed.take(),
+        }
+    }
+
+    /// Reordering, down to every DTLS record in a datagram of its own (Finished before
+    /// `ChangeCipherSpec`, certificate fragments swapped), never stalls the handshake: dimpl
+    /// queues records by handshake sequence (PLAN.md 10.5, dimpl #168).
+    #[test]
+    fn handshake_completes_with_reordered_records() {
+        let (server, client) = split_certificates();
+        for seed in 1..=20 {
+            let result = faulty_handshake(&server, &client, Fault::Reorder, seed);
+            assert!(
+                result.opened.is_some_and(|after| after < OPEN_TIMEOUT),
+                "seed {seed}: {:?}",
+                result.closed
+            );
+        }
+    }
+
+    /// Duplicates trigger flight resends on both sides (both are dimpl here), yet the
+    /// handshake completes without a storm (`STORM`, dimpl #169).
+    #[test]
+    fn handshake_completes_with_duplicated_datagrams() {
+        let (server, client) = split_certificates();
+        for seed in 1..=20 {
+            let result = faulty_handshake(&server, &client, Fault::Duplicate, seed);
+            assert!(
+                result.opened.is_some_and(|after| after < OPEN_TIMEOUT),
+                "seed {seed}: {:?}",
+                result.closed
+            );
+        }
+    }
+
+    /// Every flight lost once is retransmitted on dimpl's timer (1 s, doubling) within the
+    /// establishment deadline.
+    #[test]
+    fn handshake_completes_when_every_flight_is_lost_once() {
+        let (server, client) = split_certificates();
+        let result = faulty_handshake(&server, &client, Fault::LoseFirst, 1);
+        assert!(
+            result.opened.is_some_and(|after| after < OPEN_TIMEOUT),
+            "{:?}",
+            result.closed
+        );
+    }
+
+    /// Records out of order inside one datagram stall dimpl 0.7.4 for good (#168; upstream's
+    /// #169 discards such datagrams). Only a sender can cause it, and the deadline closes just
+    /// that peer.
+    #[test]
+    fn records_reversed_inside_a_datagram_time_out_the_peer() {
+        let (server, client) = split_certificates();
+        let result = faulty_handshake(&server, &client, Fault::ReverseRecords, 1);
+        assert!(result.opened.is_none() && result.dtls.is_none());
+        assert!(
+            matches!(result.closed, Some(Error::Timeout("channels not open"))),
+            "{:?}",
+            result.closed
+        );
+    }
+
+    /// Handshakes under random loss (PLAN.md 10.5): how many open within the deadline, and how
+    /// many of the rest failed in DTLS rather than in the SCTP association after it. Run:
+    /// `cargo test --release --lib nethernet::peer::tests::handshake_under_random_loss --
+    /// --ignored --nocapture`
+    #[test]
+    #[ignore = "measurement; run in release with --ignored --nocapture"]
+    #[expect(
+        clippy::print_stdout,
+        reason = "performance: a measurement reports its numbers"
+    )]
+    fn handshake_under_random_loss() {
+        const RUNS: u64 = 300;
+        let (server, client) = split_certificates();
+        for percent in [5, 10, 30] {
+            let (mut opened, mut dtls_failed, mut slowest_dtls, mut slowest_open) =
+                (0, 0, Duration::ZERO, Duration::ZERO);
+            for seed in 1..=RUNS {
+                let result = faulty_handshake(&server, &client, Fault::Lose(percent), seed);
+                match result.dtls {
+                    Some(after) => slowest_dtls = slowest_dtls.max(after),
+                    None => dtls_failed += 1,
+                }
+                if let Some(after) = result.opened {
+                    opened += 1;
+                    slowest_open = slowest_open.max(after);
+                }
+            }
+            println!(
+                "{percent}% loss: {opened}/{RUNS} open within {OPEN_TIMEOUT:?} (slowest \
+                 {slowest_open:?}); {dtls_failed} never finished DTLS (slowest finish \
+                 {slowest_dtls:?}); the other {} failed in SCTP",
+                RUNS - opened - dtls_failed
+            );
+        }
+    }
+
+    /// The driver task's cost for one peer (PLAN.md 10.5): time inside the peer's calls for
+    /// bulk transfer each way, for a game-like exchange of one message each way per 50 ms tick,
+    /// and while idle. Run: `cargo test --release --lib
+    /// nethernet::peer::tests::driver_cost_per_peer -- --ignored --nocapture`
+    #[test]
+    #[ignore = "measurement; run in release with --ignored --nocapture"]
+    #[expect(
+        clippy::print_stdout,
+        reason = "performance: a measurement reports its numbers"
+    )]
+    fn driver_cost_per_peer() {
+        const MIB: usize = 1024 * 1024;
+        const BULK: u32 = 16;
+        const TICKS: u32 = 1200;
+        const TICK: Duration = Duration::from_millis(50);
+        fn report(what: &str, meter: &Meter, per: &str, count: u32) {
+            let count = count.max(1);
+            println!(
+                "{what}: {:?} busy, {:?} per {per}; {} datagrams in ({:?} each), {} out \
+                 ({:?} each)",
+                meter.busy,
+                meter.busy / count,
+                meter.received,
+                meter.busy / u32::try_from(meter.received.max(1)).unwrap(),
+                meter.sent,
+                meter.busy / u32::try_from(meter.sent.max(1)).unwrap(),
+            );
+        }
+        let (server, client) = certificates();
+        let mut h = Harness::honest(&server, &client);
+        h.open();
+
+        let message = pattern(MIB, 1);
+        h.meter = Some(Meter::default());
+        let start = crate::clock::now();
+        for _ in 0..BULK {
+            h.peer.send(&message).unwrap();
+        }
+        h.meter.as_mut().unwrap().busy += crate::clock::now() - start;
+        assert!(h.run(Duration::from_secs(600), |h| h.client.received.len()
+            == BULK as usize));
+        report("down 16 x 1 MiB", &h.meter.take().unwrap(), "MiB", BULK);
+        h.client.received.clear();
+
+        h.meter = Some(Meter::default());
+        for _ in 0..BULK {
+            h.client.send(&message);
+        }
+        assert!(h.run(Duration::from_secs(600), |h| h.received.len()
+            == BULK as usize));
+        report("up 16 x 1 MiB", &h.meter.take().unwrap(), "MiB", BULK);
+        h.received.clear();
+
+        let down = pattern(2560, 2);
+        let up = pattern(256, 3);
+        h.meter = Some(Meter::default());
+        for _ in 0..TICKS {
+            let start = crate::clock::now();
+            h.peer.send(&down).unwrap();
+            h.meter.as_mut().unwrap().busy += crate::clock::now() - start;
+            h.client.send(&up);
+            h.run(TICK, |_| false);
+        }
+        assert!(h.run(Duration::from_secs(1), |h| h.received.len()
+            == TICKS as usize
+            && h.client.received.len() == TICKS as usize));
+        report(
+            "ticks of 2,560 B down and 256 B up",
+            &h.meter.take().unwrap(),
+            "tick",
+            TICKS,
+        );
+
+        h.meter = Some(Meter::default());
+        h.run(Duration::from_secs(60), |_| false);
+        report("idle 60 s", &h.meter.take().unwrap(), "second", 60);
+        assert!(h.closed.is_none());
     }
 
     fn mutate(datagram: &mut Vec<u8>, rng: &mut u64) {

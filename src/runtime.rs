@@ -9,6 +9,7 @@ use tracing::warn;
 
 use crate::config::Threads;
 use crate::error::{Error, Result};
+use crate::pool::Pool;
 
 /// Stack size of every thread Anchor creates. Network workers drop NBT nested 512 deep, which
 /// recurses (PLAN.md 10.2); one size for every thread keeps the bound independent of the OS
@@ -107,6 +108,30 @@ impl Runtime {
     pub(crate) fn shutdown(self) {
         self.0.shutdown_timeout(SHUTDOWN_GRACE);
     }
+}
+
+/// Starts the CPU pool of `threads` threads (PLAN.md 10.5). Each thread reports its end, so
+/// [`Pool::shutdown`] can wait for all of them.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the runtime module creates the CPU pool threads and their exit channel"
+)]
+pub(crate) fn cpu_pool(threads: usize) -> Result<Pool> {
+    let (exited, exits) = std::sync::mpsc::sync_channel(threads);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .stack_size(STACK_BYTES)
+        .thread_name(|i| format!("anchor-cpu-{i}"))
+        .exit_handler(move |_| {
+            // The channel holds one message per thread, so this never blocks or fails while
+            // the pool's owner waits; once it has given up, nobody needs the message.
+            if exited.try_send(()).is_err() {
+                warn!("CPU pool thread ended after shutdown stopped waiting");
+            }
+        })
+        .build()
+        .map_err(|e| Error::Start(std::io::Error::other(e)))?;
+    Ok(Pool::new(pool, threads, exits))
 }
 
 /// Starts the tick thread running `run`.

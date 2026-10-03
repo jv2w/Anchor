@@ -13,6 +13,9 @@ pub(crate) struct PayloadQueue {
     pub(crate) sorted: Vec<u32>,
     dup_tsn: Vec<u32>,
     n_bytes: usize,
+    /// Anchor: whether a chunk may still be marked to retransmit (set by
+    /// `mark_all_to_retrasmit`, cleared once a retransmission walk sent them all).
+    marked_to_retransmit: bool,
 }
 
 impl PayloadQueue {
@@ -20,14 +23,11 @@ impl PayloadQueue {
         PayloadQueue::default()
     }
 
-    pub(crate) fn update_sorted_keys(&mut self) {
-        self.sorted.sort_by(|a, b| {
-            if sna32lt(*a, *b) {
-                core::cmp::Ordering::Less
-            } else {
-                core::cmp::Ordering::Greater
-            }
-        });
+    /// Anchor: inserts `tsn` where it sorts. Sorting the whole list on every push cost
+    /// O(queued) per chunk, O(n²) per window.
+    fn insert_sorted(&mut self, tsn: u32) {
+        let at = self.sorted.partition_point(|&queued| sna32lt(queued, tsn));
+        self.sorted.insert(at, tsn);
     }
 
     pub(crate) fn can_push(&self, p: &ChunkPayloadData, cumulative_tsn: u32) -> bool {
@@ -36,10 +36,9 @@ impl PayloadQueue {
 
     pub(crate) fn push_no_check(&mut self, p: ChunkPayloadData) {
         self.n_bytes += p.user_data.len();
-        self.sorted.push(p.tsn);
+        self.insert_sorted(p.tsn);
         self.chunk_map.insert(p.tsn, p);
         //self.length += 1;
-        self.update_sorted_keys();
     }
 
     /// push pushes a payload data. If the payload data is already in our queue or
@@ -54,10 +53,9 @@ impl PayloadQueue {
         }
 
         self.n_bytes += p.user_data.len();
-        self.sorted.push(p.tsn);
+        self.insert_sorted(p.tsn);
         self.chunk_map.insert(p.tsn, p);
         //self.length += 1;
-        self.update_sorted_keys();
 
         true
     }
@@ -177,6 +175,16 @@ impl PayloadQueue {
             }
             c.retransmit = true;
         }
+        self.marked_to_retransmit = true;
+    }
+
+    /// Anchor: `false` only when no chunk is marked to retransmit.
+    pub(crate) fn is_marked_to_retransmit(&self) -> bool {
+        self.marked_to_retransmit
+    }
+
+    pub(crate) fn clear_marked_to_retransmit(&mut self) {
+        self.marked_to_retransmit = false;
     }
 
     pub(crate) fn get_num_bytes(&self) -> usize {

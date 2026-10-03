@@ -259,10 +259,11 @@ console-input = true
 | rustls(aws_lc_rs, ring 끔), webpki-roots | =0.23.45, 1.0.9 | 인증 문서 HTTPS | 공급자가 없으면 패닉 → 늘 aws-lc-rs를 줌. ring은 메타데이터에만 있고 빌드되지 않음(`allowed-duplicate-crates` windows-sys) |
 | ureq(MIT/Apache-2.0) | =3.4.2 | 인증 문서 받기(블로킹 풀) | 시간 상한이 있으면 DNS마다 분리 스레드 → 인라인 resolver(DNS는 OS 상한), 본문 상한이 상한과 같은 크기를 거부 → 1 MiB 미만, 기본으로 프록시 환경 변수를 읽음(둠). 블로킹 호출과 상한 없는 본문 읽기 금지 |
 | tracing(MIT) | =0.1.44, std만 | 로그 | `attributes` 기능을 꺼 syn 2를 뺌 |
+| rayon(+rayon-core, crossbeam-deque·epoch·utils, either)(MIT/Apache-2.0) | =1.12.0(rayon-core 1.13.0, crossbeam-epoch 0.9.21) | CPU 풀(M5) | 전역 풀을 지연 생성하는 진입점(`join`, `scope`, `spawn`, 병렬 반복자 등) → `.clippy.toml` 금지, `pool.rs`만 씀(임시 코드로 걸림 확인), 풀 drop이 스레드를 기다리지 않음 → `exit_handler`로 세어 종료 때 기다림, 잡 패닉은 호출한 쪽(틱)으로 전파됨(확인), 내부 결함·패닉 처리기 없는 spawn 잡 패닉은 abort → spawn을 쓰지 않음. 열린 RustSec 권고 없음(crossbeam 권고는 고친 판보다 새 판) |
 | socket2(MIT/Apache-2.0) | =0.6.5 | IPv6 전용 소켓, 소켓 버퍼 | 블로킹 입출력 진입점 금지 |
 | str0m(+is, str0m-proto, str0m-aws-lc-rs)(MIT/Apache-2.0) | =0.24.0(0.11.1, 0.7.0, 0.6.0), 기본 기능 끔 + `aws-lc-rs`. str0m은 `vendor/str0m` 사본 | NetherNet WebRTC(SDP API는 원격 정보 입력에만, 응답 SDP는 자체) | 사본에서 고친 것: 상류 main 18ffec80(#1062, 미릴리스)을 옮겼다. ① SCTP 송신 버퍼가 128 KiB 고정이라 그보다 큰 메시지(262,144바이트 조각)를 영원히 못 보냄 → `set_sctp_max_buffered_amount` 설정(Anchor 1 MiB), ② `poll_output`이 대기 SCTP 패킷마다 재귀해 큰 송신에서 스택 넘침(실측, `catch_unwind`로 못 막고 프로세스가 죽음) → 반복문. 재현: `peer::tests::a_segment_of_the_remote_max_message_size_is_sent`, `channels_open_and_messages_round_trip_both_ways`(원본에서 둘 다 실패). 그 밖: 기본 설정이 전역 공급자·fastrand ICE 자격·자체 인증서 → 모두 명시 설정과 금지 목록, 직접 API는 원격 `max-message-size`를 못 받음 → SDP API에 `setup:passive`로 적은 오퍼를 줌(DTLS client 역할 유지), ICE는 끊김만 알림·SCTP 무한 재전송 → 피어 마감과 무응답 10초, `accepts`는 선형 → ufrag·주소 색인, 남은 내부 패닉 → 피어마다 `catch_unwind`, ICE 비밀번호가 trace에 찍힘 → `pii` 끔, 설정 로그 금지 |
-| dimpl(MIT/Apache-2.0) | 0.7.4, `vendor/dimpl` 사본 | DTLS 1.2 | 사본에서 고친 것: ① ChangeCipherSpec 전 같은 epoch-1 레코드 두 번에 assert(engine.rs:364) → replay처럼 버림, ② 피어 인증서가 poll 버퍼(str0m 2,000바이트)보다 크면 assert(dtls12·13 client.rs) → `BufferTooSmall`을 돌려 str0m이 오류로 끊음, ③ Auto 모드 supported_versions 잘림에 범위 밖 읽기(auto.rs:436) → 길이 검사, ④ 받는 레코드마다 버퍼 풀이 자람(32,768개에 약 38 MiB 실측) → 상류 main 98f893dc를 옮기되 상류의 release `assert!` 대신 풀 밖 버퍼는 버림. 재현: `xtask/tests/dimpl_repro.rs` 5개(원본에서 모두 실패). 남김: 레코드 순서가 바뀐 데이터그램의 핸드셰이크 멈춤·dimpl끼리 재전송 폭주(#168/#169, 미병합, 원격은 dimpl이 아니고 10초 마감이 있어 영향은 핸드셰이크 실패) → 검증 필요(M5). DTLS 1.2 고정, `log` 사용 |
-| sctp-proto(MIT/Apache-2.0) | 0.10.5, `vendor/sctp-proto` 사본 | SCTP | FORWARD-TSN `+1` 루프는 0.10.4에서 고침(확인). 사본에서 고친 것: ① 수신 창이 0이어도 빠진 청크를 무제한 받음 → 누적 TSN 바로 다음 청크만(RFC 4960 6.2), ② 받는 TSN 기록이 읽힌 데이터를 붙잡고 창에 안 셈 → 데이터 없이 TSN만 두고 기록마다 창에서 뺌, ③ 스트림 수 협상이 뒤집힘(INIT·INIT-ACK) → RFC 4960 5.1.1대로(업스트림 시험 기대값도 바로잡음), 협상 수 밖 스트림은 만들지 않음, 다시 연 스트림은 대기열에 한 번만, ④ 같은 원격의 새 INIT마다 연결이 생겨 쌓임 → 원격 하나에 연결 하나(RFC 4960 1.4), ⑤ 빈 DATA를 받아 둠 → 연결 종료(RFC 4960 6.2), ⑥ SACK 갭 오프셋 u16 넘침과 TSN `+1` 넘침(디버그 패닉) → 순환 산술. 재현: 사본 안 `association/anchor_test.rs` 8개와 `endpoint/anchor_test.rs` 1개(원본에서 모두 실패, verify가 사본 시험 258개를 따로 돌림). 남김: SSN 정렬 비교자가 전순서가 아님(실사용 방식 약 400만 번에서 재현 안 됨 → 고치지 않음, 패닉이 나도 피어 하나만 닫힘), 연결 중 INIT·ERROR 청크에 연결을 닫음(RFC 위반, 그 피어만 끊김), `Endpoint::connect`가 시계를 읽음, `log` 사용 |
+| dimpl(MIT/Apache-2.0) | 0.7.4, `vendor/dimpl` 사본 | DTLS 1.2 | 사본에서 고친 것: ① ChangeCipherSpec 전 같은 epoch-1 레코드 두 번에 assert(engine.rs:364) → replay처럼 버림, ② 피어 인증서가 poll 버퍼(str0m 2,000바이트)보다 크면 assert(dtls12·13 client.rs) → `BufferTooSmall`을 돌려 str0m이 오류로 끊음, ③ Auto 모드 supported_versions 잘림에 범위 밖 읽기(auto.rs:436) → 길이 검사, ④ 받는 레코드마다 버퍼 풀이 자람(32,768개에 약 38 MiB 실측) → 상류 main 98f893dc를 옮기되 상류의 release `assert!` 대신 풀 밖 버퍼는 버림. 재현: `xtask/tests/dimpl_repro.rs` 5개(원본에서 모두 실패). 남김: 레코드 순서 문제(#168 닫힘, #169는 2026-10-03 main 병합, 릴리스는 검증 필요). M5 실측: 데이터그램 사이 순서 바뀜·중복·첫 전송 손실은 모두 성립하고, 멈추는 경우는 한 데이터그램 안의 레코드 순서가 바뀔 때뿐(보내는 쪽만 만들 수 있음, 그 피어만 10초에 닫힘). 고치지 않는다. DTLS 1.2 고정, `log` 사용 |
+| sctp-proto(MIT/Apache-2.0) | 0.10.5, `vendor/sctp-proto` 사본 | SCTP | FORWARD-TSN `+1` 루프는 0.10.4에서 고침(확인). 사본에서 고친 것: ① 수신 창이 0이어도 빠진 청크를 무제한 받음 → 누적 TSN 바로 다음 청크만(RFC 4960 6.2), ② 받는 TSN 기록이 읽힌 데이터를 붙잡고 창에 안 셈 → 데이터 없이 TSN만 두고 기록마다 창에서 뺌, ③ 스트림 수 협상이 뒤집힘(INIT·INIT-ACK) → RFC 4960 5.1.1대로(업스트림 시험 기대값도 바로잡음), 협상 수 밖 스트림은 만들지 않음, 다시 연 스트림은 대기열에 한 번만, ④ 같은 원격의 새 INIT마다 연결이 생겨 쌓임 → 원격 하나에 연결 하나(RFC 4960 1.4), ⑤ 빈 DATA를 받아 둠 → 연결 종료(RFC 4960 6.2), ⑥ SACK 갭 오프셋 u16 넘침과 TSN `+1` 넘침(디버그 패닉) → 순환 산술. 재현: 사본 안 `association/anchor_test.rs`  8개와 `endpoint/anchor_test.rs` 1개(원본에서 모두 실패, verify가 사본 시험을 따로 돌림). M5에서 고친 것: ⑦ 보낼 때와 받을 때 청크마다 큐 전체를 다시 정렬(순서가 어긋난 폭에 비례해 청크당 비용이 커짐, 실측 이차) → 정렬된 자리에 넣음, ⑧ poll마다 전송 중인 청크 전체를 재전송 탐색 → T3 타임아웃 표시가 없으면 건너뜀. 재현: `pushing_a_tsn_does_not_sort_the_whole_queue`, `polling_without_a_retransmission_timeout_skips_the_chunks_in_flight`(원본에서 시간 한도 초과로 실패). 남김: SSN 정렬 비교자가 전순서가 아님(실사용 방식 약 400만 번에서 재현 안 됨 → 고치지 않음, 패닉이 나도 피어 하나만 닫힘), 연결 중 INIT·ERROR 청크에 연결을 닫음(RFC 위반, 그 피어만 끊김), `Endpoint::connect`가 시계를 읽음, `log` 사용 |
 | tokio-rustls(MIT/Apache-2.0) | =0.26.6, `aws_lc_rs`·`tls12`만 | HTTPS 시그널링 | 0.26.5 회귀(#204) 피함, 기한 없음 → 요청 10초 안에서만, 전역 공급자 builder 금지(`.clippy.toml`), 티켓과 세션 저장 끔 |
 | go-nethernet(봇만) | gophertunnel go.mod 판 | 봇 NetherNet 다이얼 | 개발 도구. 후보 줄을 `candidate:candidate:`로 두 번 접두, 채널 열림 확인 전에 보냄(Anchor가 둘 다 받음) |
 | go-jose, go-oidc(봇만) | gophertunnel go.mod 판 | 봇 토큰 발급과 봇 시험 | 개발 도구 |
@@ -432,7 +433,7 @@ console-input = true
   - 클라이언트 쪽(go-nethernet, Mojang 가이드): 오퍼는 `a=setup:actpass`, 두 채널을 클라이언트가 연다. `ReliableDataChannel`(순서, 신뢰), `UnreliableDataChannel`(비순서, maxRetransmits 0). 조각 머리 1바이트 = 남은 조각 수, 조각 본문 최대 262,143바이트, 최대 256조각. 서버는 ICE controlled, DTLS client(active)다. go-nethernet은 후보 줄을 `candidate:candidate:...`로 두 번 접두해 보낸다(둘 다 받는다).
   - M2 남은 검증 필요(Join 전 대기 32, 엄격한 ClientData JSON, 핑 모드 뒤 숫자)는 BDS NetherNet P6에서도 공식 클라이언트 출력이 아니라 확인할 수 없다. 설계는 그대로 두고 13절에 남긴다.
 - 모듈(모두 `pub(crate)`):
-  - `nethernet.rs`: 구동부. UDP 소켓(IPv4, IPv6 전용, `nethernet-port`) 두 개와 모든 피어를 한 작업이 가진다(RakNet과 같은 구조, 잠금 없음. DTLS·SCTP가 한 작업에 모이는 비용은 M5 측정 대상으로 남긴다). 오퍼 처리 작업, 들어온 데이터그램 분배 색인(STUN USERNAME의 서버 ufrag → 피어, 성립 뒤 출발 주소 → 피어, 둘 다 `BTreeMap`), `Connection`(RakNet과 같은 `addr/recv/send/logged_in/close`에 증명된 `client_key`를 더함).
+  - `nethernet.rs`: 구동부. UDP 소켓(IPv4, IPv6 전용, `nethernet-port`) 두 개와 모든 피어를 한 작업이 가진다(RakNet과 같은 구조, 잠금 없음. DTLS·SCTP가 한 작업에 모이는 비용은 M5에서 실측함, 10.5). 오퍼 처리 작업, 들어온 데이터그램 분배 색인(STUN USERNAME의 서버 ufrag → 피어, 성립 뒤 출발 주소 → 피어, 둘 다 `BTreeMap`), `Connection`(RakNet과 같은 `addr/recv/send/logged_in/close`에 증명된 `client_key`를 더함).
   - `nethernet/signaling.rs`: 최소 HTTP/1.1 서버(tokio TCP, 선택적 TLS). 라우팅과 상한만 하고 오퍼 내용은 모른다.
   - `nethernet/sdp.rs`: 오퍼 파서와 응답 작성기(위 BDS 모양).
   - `nethernet/identity.rs`: `data/identity.key`, 서버 JWT와 분리 JWS 서명, 오퍼 신원 검증.
@@ -486,9 +487,9 @@ console-input = true
 - str0m 계열 결함과 조치(9.1, CLAUDE.md 7절): 사용자 결정(vendor 사본)으로 고쳤다. 그 밖에 설정으로 없앤 것은 Auto 모드(DTLS 1.2 고정), fastrand ICE 자격(직접 생성), 전역 공급자(`RtcConfig`로 전달)다. 남은 패닉 가능성(SSN 정렬 비교자 등)은 피어마다 `catch_unwind`로 그 피어만 닫는다(CLAUDE.md 4.6의 연결 격리를 한 작업 안의 피어 단위로 적용).
 - 남은 위험과 검증 필요:
   - `Join` 전 대기 32와 엄격한 ClientData, 핑 모드 뒤 숫자는 공식 클라이언트로만 확인된다(BDS P6로 닫을 수 없다).
-  - dimpl의 레코드 순서 바뀜 문제(#168/#169)와 sctp-proto의 수신 큐 정렬 비용(넣을 때마다 정렬)은 검증 필요(M5).
+  - dimpl의 레코드 순서 바뀜 문제(#168/#169)와 sctp-proto의 수신 큐 정렬 비용은 M5에서 확인하고 처리했다(10.5).
   - dimpl, sctp-proto는 `log`를 써서 Anchor(`tracing`)만 쓰는 바이너리에서는 그 기록이 사라진다. 사용자 바이너리가 다리를 둘지 정한다(M8 문서).
-  - 모든 피어의 DTLS·SCTP가 구동 작업 하나에서 돈다. 비용은 M5 측정 대상이다.
+  - 모든 피어의 DTLS·SCTP가 구동 작업 하나에서 돈다. M5 실측으로 약 500명까지 충분하다(10.5).
   - `identity.key` rename 뒤 폴더 fsync가 없다(Linux 크래시에서 새 키가 생길 수 있음, Linux 검증 때).
 
 ### 10.4 M4 세부 설계 (2026-10-03)
@@ -541,6 +542,7 @@ console-input = true
   - 공유 배치: 세 패킷은 `build()`가 아니라 `run()` 시작 때 한 번 인코드·압축한다(설정과 같은 시점에 실패를 알린다). 틱은 `Arc`만 넘기고(`Outbound::Send`의 `Message::Shared`), 세션은 앞의 패킷을 먼저 보내고 배치를 (RakNet이면) 암호화해 보낸다. 크기는 ItemRegistry 113 KB, CraftingData 381 KB, CreativeContent 50 KB로 `max-batch-bytes` 최소(1 MiB) 안이다.
   - 실드 런타임 ID(358)는 생성 표의 상수로 두고 세션 코덱이 쓴다(M3까지 0).
   - 덤프는 아이템 태그를 쓰지 않는다(M4에서 쓰는 곳이 없음, 제작 판정을 하는 M7에서 더한다).
+  - NetherNet 닫기(M3 결함, M4 끝에 찾음): 세션이 닫으면 구동부가 피어를 바로 지워(SCTP abort) 마지막 패킷(Disconnect)이 클라이언트에 닿지 않을 수 있었다(P5 취소된 중복 로그인 시험이 약 10번에 1번 실패). 이제 닫힌 피어는 보낸 것이 모두 확인(SCTP ACK)되거나 5초(RakNet 닫기와 같음)가 지날 때까지 남고, 구동부는 닫힘 신호를 보기 전에 큐의 명령을 먼저 처리한다. 고친 뒤 P5 spawn 20회 연속 통과, 재현 시험 `sent_messages_are_drained_once_acknowledged`.
 - 정한 값과 규칙(정본은 생성기와 `src/block.rs`, `src/item.rs`, `src/crafting.rs`):
   - 블록 조회: 네트워크 ID 정렬 배열 이분 탐색, 이름+속성은 이름 범위 안 이분 탐색(속성 8개 이하, 입력 순서 무관, 할당 없음). `PropertyValue<'a>`는 빌린 문자열을 받는다.
   - 아이템 조회(PMMP 규칙): 같은 이름(런타임 ID)·블록 중 meta가 같은 타입, 여럿이면 형태 NBT가 스택 NBT에 든 가장 구체적인 것, 없고 이름·블록의 타입이 하나면 그 타입(meta는 스택 상태: 도구 내구도, 폭죽 별 색). (이름, meta)는 유일하지 않다(배너, 버섯 블록). 블록 → 아이템 역조회는 덤프에 `asItem` 정보가 없어 두지 않는다(M7).
@@ -550,6 +552,42 @@ console-input = true
   - 공식 클라이언트에서만 보이는 것: 교육판 아이템이 교육 기능을 끈 클라이언트의 크리에이티브 창에 어떻게 보이는지, BDS와 다른 레시피 ID·블록 이름(`crafting_table` 대 `deprecated`)이 레시피 책에 주는 영향. PMMP가 같은 값으로 쓰여 왔으므로 그대로 둔다. 검증 필요(M7): 레시피 책·제작 P6에서 다시 본다.
   - 클라이언트가 블록 아이템을 보낸 형태가 Anchor가 보낸 네트워크 블록 ID와 다르면 그 아이템은 `None`이다. 검증 필요(M7): 인벤토리 요청 P6.
   - Anchor 디코더의 목록 상한 1,024(10.1)는 ItemRegistry·CraftingData 전체를 디코드하지 못한다. 서버는 이 패킷을 받지 않으므로 영향이 없고, 시험은 1,024개씩 나눠 왕복한다.
+
+### 10.5 M5 세부 설계 (2026-10-03)
+- 검증 필요 처리(시작 때, 서브에이전트가 따로 한다):
+  - dimpl 레코드 순서 바뀜(#168/#169): 피어 시험 틀에서 핸드셰이크 데이터그램 순서를 바꿔 넣어 성립하는지, 마감(10초) 안에 끝나는지 본다. 멈추면 vendor 규칙(9.1)으로 고치거나 영향(그 피어만 실패)을 적는다.
+  - sctp-proto 수신 큐 정렬 비용: 순서가 섞인 청크를 받는 비용을 실측한다(조각 256개 메시지, 손실·순서 바꿈).
+  - NetherNet 구동부 한 작업의 비용: 피어 수와 바이트에 따른 데이터그램 처리 시간을 실측해 한 작업으로 몇 피어를 감당하는지 적는다. 모자라면 M6 전에 나눌 방법을 적는다.
+- CPU 풀(`src/pool.rs`, `pub(crate)`): rayon `ThreadPool` 하나(스레드 = `cpu-threads`, 스택 4 MiB, 이름 `anchor-cpu`)를 `runtime.rs`가 `run()` 시작 때 만든다. 쓰는 길은 `Pool::map(&[T], f) -> Vec<R>` 하나이고 결과는 입력 순서다(스레드 수와 무관하게 같은 결과). rayon 전역 풀을 만드는 진입점(`join`, `scope`, `spawn`, 병렬 반복자 메서드 등)은 `.clippy.toml` 금지 목록에 두고 `pool.rs`만 푼다. 정상 종료 때 풀의 스레드가 모두 끝날 때까지 기다린다(rayon은 drop에서 기다리지 않아 `exit_handler`로 센다). rayon을 쓰는 이유: 틱 상태를 빌려 쓰는 상주 스레드 풀은 `unsafe` 없이 직접 만들 수 없다(6절 1번).
+- 틱 단계(`step`): 1 입력(직렬, (세션, 순번) 순: 접속, 패킷, 종료가 상태를 바꾸고 플레이어에게 보낼 일을 표시) → 2 계산(병렬 읽기 전용) → 3 적용(직렬) → 4 출력(병렬 읽기 전용: 표시된 플레이어마다 패킷 목록을 만든다) → 전달(직렬, 플레이어 순서로 큐에 넣음). M5에는 계산할 게임 로직이 없어 2·3 단계는 그 일이 생기는 마일스톤(M6 청크, M7 엔티티)에서 더한다. 스폰 패킷(StartGame, 공유 배치, 청크 반경 응답, 청크, PlayStatus)은 입력 단계가 표시만 하고 출력 단계가 만든다.
+- 입력 로그(`tick/log.rs`):
+  - 틱마다 정렬된 입력을 적는다: 세션 ID, 순번, 종류(접속: 이름·XUID·UUID, 패킷: 클라이언트가 보낸 원래 바이트, 종료). 세션이 디코드할 때 원래 바이트를 입력에 같이 넣어 틱이 다시 인코드하지 않는다. 엔진 시각은 틱 번호라 따로 적지 않고, 비동기 결과는 생기는 마일스톤(M8)에서 더한다.
+  - 상한 64 MiB(바이트 합). 넘으면 더 적지 않고 "잘림"으로 표시한다(재생은 잘린 곳까지만). 마지막 DB 커밋에서 비우는 것은 M6(그 전에는 시작부터).
+  - 틱 스레드 패닉: 틱 스레드의 가드가 풀릴 때(`catch_unwind` 없이 drop에서 `thread::panicking()`) 로그를 메인 스레드로 넘기고, `Server::run`이 `data/crash/input-<unix 초>.log`로 쓴다(틱 스레드는 파일을 쓰지 않음). 형식: 머리(`ANCHOR-INPUT-LOG`, 형식 버전, 프로토콜 버전, 잘림 여부) 뒤에 틱마다 (틱 번호, 입력 수, 입력들), 길이는 LE 고정 폭.
+  - 재생: `replay(settings, shared, listeners, pool, log)`가 같은 `step`을 돌려 상태를 만든다(크레이트 내부, 재생 도구는 M9 운영 기능).
+- 결정성 도구: 틱 코드의 실수 `max`·`min`·`clamp`(`f32`, `f64`)를 `.clippy.toml`로 막는다(엔진 도우미는 처음 필요한 M7에서 만든다).
+
+#### M5 판정식
+- 결정성: 고정 시드로 만든 입력(세션 64개, 400틱, 접속·종료·청크 반경·초기화·중복 접속·모르는 패킷)을 풀 스레드 1개와 N개(N = max(논리 CPU, 4))로 돌려 틱마다 상태 해시와 모든 출력이 같다. 같은 입력의 로그를 재생한 상태 해시와 출력이 실행 때와 같다. Windows에서 `cargo test`로 돈다.
+- 로그: 인코드 → 디코드 왕복이 같고, 상한을 넘으면 잘림 표시와 함께 멈추며, 깨진 로그(변형 1만 개, 고정 시드)는 패닉 없이 오류다. 틱 스레드 패닉 시험에서 `data/crash/`에 로그가 남고 그 로그를 재생한 상태가 패닉 직전과 같다.
+- 풀: 결과 순서가 입력 순서이고, 종료 뒤 풀 스레드가 남지 않는다. 금지 목록의 rayon 진입점이 실제로 걸리는지 임시 코드로 확인한다(6절).
+- 검증 필요 3개의 결과를 적는다.
+- `cargo xtask verify` PASS.
+
+#### M5 결과와 정한 값 (2026-10-03)
+- 판정: 결정성(시드 8개, 시드마다 세션 64개·400틱, 풀 1개와 max(L,4)개의 틱별 상태 해시와 모든 세션의 출력이 같음, 로그 재생 해시가 풀 1개·여러 개 모두 실행 때와 같고 재생이 같은 로그를 다시 기록함), 로그(쓰고 읽기 같음, 깨진 로그 변형 1만 개 패닉 0, 상한에서 잘림과 미완성 틱 제외, 빈 틱도 상한에 셈), 패닉(리스너 패닉으로 틱 스레드가 죽으면 로그가 메인 스레드로 넘어가 `data/crash/`에 쓰이고, 그 로그의 마지막 틱 전까지는 재생되고 전체 재생은 같은 곳에서 다시 패닉), 풀(입력 순서 유지, 잡 패닉 전파, 종료 뒤 스레드 0), 검증 필요 3개(아래) 모두 통과. `cargo xtask verify` PASS.
+- 바뀐 결정과 정한 값:
+  - 실수 `max`·`min`·`clamp`는 M0부터 이미 `.clippy.toml`에 막혀 있었다(10.5의 항목은 할 일 없음).
+  - 세션이 넘겨 준 뒤 큐가 가득 차거나 닫혀 틱이 잊은 세션은 입력이다(재생이 같은 곳에서 잊어야 같은 상태가 됨). 로그는 틱마다 그 목록을 따로 적는다.
+  - 로그는 패킷을 원래 바이트가 아니라 디코드된 값으로 갖고(틱이 다시 인코드하지 않음, 복사 없음), 상한 계산용으로 세션이 넘긴 바이트 수만 더 받는다(`InputKind::Packet { packet, size }`). 쓸 때(메인 스레드) 인코드한다.
+  - 한 틱의 같은 플레이어 청크 반경 요청은 마지막 반경으로 한 번 답한다(출력 단계가 표시를 모아 만든다).
+  - 크래시 로그 파일 이름은 `input-<unix 초>-<마지막 틱>.log`, 같은 이름이 있으면 덮지 않는다.
+- 검증 필요 처리 결과(release 실측, 이 Windows 기기):
+  - dimpl 레코드 순서(#168/#169): 데이터그램 사이 순서 바뀜·절반 중복·첫 전송 손실에서 300회 모두 성립, 무작위 손실 5% 300/300, 10% 288/300, 30% 132/300. 멈추는 경우는 한 데이터그램 안의 레코드 순서가 바뀔 때뿐(보내는 쪽만 만들 수 있음)이고 그 피어만 10초에 닫힌다. 고치지 않는다(9.1).
+  - 10초 안 실패의 원인은 SCTP INIT 재전송 타이머(3초에서 두 배)다(10% 손실에서 4%). 검증 필요(M6 전): str0m RTO 초기값을 낮출지, 성립 마감(10초)을 늘릴지. 공식 클라이언트 값은 관찰할 수 없다.
+  - sctp-proto 수신 큐: 실제로 이차였다(순서가 어긋난 폭을 키우면 청크당 0.96 µs → 9.1 µs). 정렬된 삽입으로 고쳐 0.63~0.71 µs로 일정(256 × 262,144바이트 역순 115 ms → 40.6 ms, 10% 손실 44.7 → 20.3 ms). 9.1 ⑦⑧.
+  - NetherNet 구동 작업 하나: 피어 송신 26.3 ms/MiB → 3.55 ms/MiB(피어가 str0m에 자리가 없을 때도 262 KB 조각을 매번 복사하던 것과 sctp-proto ⑧을 고침), 수신 2.91 ms/MiB, 틱당 트래픽(50 ms마다 2,560 B 내림·256 B 올림) 초당 206 µs, 시스템 호출 `send_to` 4.2 µs·`recv_from` 0.47 µs. 플레이어 한 명(50 KB/s 내림, 5 KB/s 올림) 초당 약 0.53 ms, 접속 1회(2 MiB) 약 16 ms. 작업 하나로 약 500명까지는 충분하다(코어의 약 30%와 접속 몰림). 넘으면 받는 작업 하나가 분배하고 피어를 K개 작업에 나눈다(그때 설계). 측정은 `#[ignore]` 시험: `cargo test --release --lib nethernet::peer::tests::driver_cost_per_peer -- --ignored --nocapture`, `... handshake_under_random_loss ...`, `cargo test --release --manifest-path vendor/sctp-proto/Cargo.toml --lib receive_cost -- --ignored --nocapture`.
+- 남은 위험: 로그 상한(64 MiB)은 DB 커밋으로 비우는 M6 전에는 시작부터 센다. 빈 틱만 있어도 약 29시간 뒤에는 잘린다. 재생 도구(크래시 로그를 읽어 재생하는 명령)는 M9 운영 기능이다.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
@@ -574,7 +612,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 | M2 | 완료(2026-10-03) | 10.2절. P5 6개, P6 스폰 창 BDS와 같음(zlib, Snappy), verify PASS |
 | M3 | 완료(2026-10-03) | 10.3절. P5 NetherNet 9개, P6 NetherNet 스폰 창·응답 SDP·송신 조각이 BDS와 같음, 폴백, vendor 사본 3개(재현 시험 16개), verify PASS |
 | M4 | 완료(2026-10-03) | 10.4절. PMMP 덤프(상태 11,420, 아이템 1,613), 기준 목록(22,091·2,076), Anchor 상태 12,468, 해시 골든·상태 대조 통과, ItemRegistry·CreativeContent·CraftingData 송신, P6 스폰 창·아이템 대조 BDS와 같음, verify PASS |
-| M5 | 시작 전 | |
+| M5 | 완료(2026-10-03) | 10.5절. CPU 풀(rayon), 입력·출력 틱 단계, 입력 로그·크래시 로그·재생, 시드 8개에서 스레드 1과 N의 해시·출력·재생 동일, sctp-proto 이차 비용 수정, verify PASS |
 | M6 | 시작 전 | |
 | M7 | 시작 전 | |
 | M8 | 시작 전 | |

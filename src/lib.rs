@@ -16,6 +16,7 @@ pub mod item;
 mod login;
 pub mod nbt;
 mod nethernet;
+mod pool;
 pub mod protocol;
 mod raknet;
 mod runtime;

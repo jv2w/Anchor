@@ -97,7 +97,7 @@ struct Session {
     budget: Budget,
     pre_auth_bytes: usize,
     identity: Option<Identity>,
-    deferred: VecDeque<Packet>,
+    deferred: VecDeque<(Packet, usize)>,
     inputs: Option<SessionInputs>,
     outbound: Option<mpsc::Receiver<Outbound>>,
     spawned: bool,
@@ -336,7 +336,7 @@ impl Session {
         let mut budget = self.shared.batch.max_batch_bytes().saturating_mul(2);
         for (header, bytes) in batch::split(payload).map_err(Error::Batch)? {
             match Packet::decode(header.id, bytes, &mut budget, SHIELD_ID) {
-                Ok(packet) => self.on_packet(packet).await?,
+                Ok(packet) => self.on_packet(packet, bytes.len()).await?,
                 // After the spawn one bad packet is dropped (PLAN.md 10.2); the batch length
                 // prefixes keep the other packets intact.
                 Err(e) if self.spawned => {
@@ -348,7 +348,8 @@ impl Session {
         Ok(())
     }
 
-    async fn on_packet(&mut self, packet: Packet) -> Result<()> {
+    /// Handles one decoded packet of `size` bytes on the wire.
+    async fn on_packet(&mut self, packet: Packet, size: usize) -> Result<()> {
         match (self.stage, packet) {
             (Stage::Login, Packet::Login(login)) => self.on_login(login).await,
             (Stage::Login, _) => Err(Error::Order("first packet is not Login")),
@@ -378,13 +379,13 @@ impl Session {
                 if matches!(packet, Packet::SetLocalPlayerAsInitialised(_)) {
                     self.spawned = true;
                 }
-                self.forward(packet)
+                self.forward(packet, size)
             }
             (_, packet) => {
                 if self.deferred.len() >= MAX_DEFERRED {
                     return Err(Error::Limit("packets before the join"));
                 }
-                self.deferred.push_back(packet);
+                self.deferred.push_back((packet, size));
                 Ok(())
             }
         }
@@ -508,23 +509,23 @@ impl Session {
         self.inputs = Some(inputs);
         self.outbound = Some(receiver);
         self.stage = Stage::Joined;
-        while let Some(packet) = self.deferred.pop_front() {
+        while let Some((packet, size)) = self.deferred.pop_front() {
             if matches!(packet, Packet::SetLocalPlayerAsInitialised(_)) {
                 self.spawned = true;
             }
-            self.forward(packet)?;
+            self.forward(packet, size)?;
         }
         Ok(())
     }
 
     /// Queues a packet for the tick. A full tick queue ends the session (the tick never waits).
-    fn forward(&mut self, packet: Packet) -> Result<()> {
+    fn forward(&mut self, packet: Packet, size: usize) -> Result<()> {
         let inputs = self
             .inputs
             .as_mut()
             .ok_or(Error::Order("packet before the join"))?;
         inputs
-            .try_send(InputKind::Packet(packet))
+            .try_send(InputKind::Packet { packet, size })
             .map_err(Error::Queue)
     }
 

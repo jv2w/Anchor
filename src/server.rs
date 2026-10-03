@@ -73,11 +73,15 @@ impl Server {
         let shared = tick::Shared::new(config.batch_settings()?)
             .map_err(|e| Error::Start(std::io::Error::other(e)))?;
         let runtime = Runtime::new(threads)?;
+        let pool = runtime::cpu_pool(threads.cpu)?;
         let (inputs, input_queue) = tick::queue::input_queue();
         let (stop_tick, stop) = mpsc::channel(1);
         let (done, tick_done) = oneshot::channel();
+        let (crash, mut crash_log) = oneshot::channel();
         let state = tick::State::new(tick::Settings::new(&config), shared, listeners);
-        let tick_thread = runtime::spawn_tick(move || tick::run(state, input_queue, stop, done))?;
+        let tick_thread = runtime::spawn_tick(move || {
+            tick::run(state, pool, input_queue, stop, crash, done);
+        })?;
         info!(
             network_threads = threads.network,
             cpu_threads = threads.cpu,
@@ -101,6 +105,16 @@ impl Server {
             Err(payload) => {
                 let message = panic_message(payload.as_ref());
                 error!(%message, "tick thread panicked; stopped without saving");
+                if let Ok(log) = crash_log.try_recv() {
+                    match tick::write_crash_log(&data_dir, &log) {
+                        Ok(path) => error!(
+                            path = %path.display(),
+                            truncated = log.is_truncated(),
+                            "input log written"
+                        ),
+                        Err(e) => error!(error = %e, "input log not written"),
+                    }
+                }
                 Err(Error::TickPanicked { message })
             }
         }

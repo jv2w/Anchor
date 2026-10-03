@@ -3,25 +3,26 @@
 //! One thread owns [`State`] and changes it only in [`step`], once per tick, from the inputs the
 //! sessions queued (PLAN.md 5 and 10.2). Outputs leave through each session's bounded queue.
 
+mod log;
 pub(crate) mod queue;
 mod spawn;
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::clock;
 use crate::config::{Config, Difficulty, GameMode};
 use crate::event::Listeners;
+use crate::pool::Pool;
 use crate::protocol::packet::{Disconnect, Packet};
 
-use queue::{
-    INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId, SharedBatches,
-};
+use self::log::EntryKind;
+pub(crate) use self::log::{InputLog, write_crash_log};
+use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId};
 pub(crate) use spawn::Shared;
 
 /// The length of a tick: 20 ticks per second.
@@ -115,6 +116,8 @@ struct Player {
     chunk_radius: Option<u8>,
     phase: Phase,
     outbound: mpsc::Sender<Outbound>,
+    /// What the output phase sends this player at the end of the tick; empty between ticks.
+    pending: spawn::Pending,
 }
 
 /// How far a player is through spawning.
@@ -221,29 +224,13 @@ impl State {
 /// What one tick sends, delivered after the step.
 #[derive(Debug, Default)]
 pub(crate) struct Output {
-    /// Messages per session, in order; one entry per run of the same session.
+    /// Messages per session from the output phase, in session order.
     packets: Vec<(SessionId, Vec<Message>)>,
     /// Final packets for sessions the tick has already forgotten.
     closes: Vec<(mpsc::Sender<Outbound>, Packet)>,
 }
 
 impl Output {
-    fn send(&mut self, session: SessionId, packet: Packet) {
-        self.push(session, Message::Packet(packet));
-    }
-
-    /// Sends batches shared by every session (encoded at start) after what came before.
-    fn share(&mut self, session: SessionId, batches: &SharedBatches) {
-        self.push(session, Message::Shared(Arc::clone(batches)));
-    }
-
-    fn push(&mut self, session: SessionId, message: Message) {
-        match self.packets.last_mut() {
-            Some((last, messages)) if *last == session => messages.push(message),
-            _ => self.packets.push((session, vec![message])),
-        }
-    }
-
     fn close(&mut self, outbound: mpsc::Sender<Outbound>, packet: Packet) {
         self.closes.push((outbound, packet));
     }
@@ -254,54 +241,76 @@ impl Output {
     }
 }
 
-/// Applies one tick of `inputs`, leaving `inputs` empty. Inputs are applied in (session, seq)
-/// order, so the result does not depend on how sessions interleaved in the queue.
-pub(crate) fn step(state: &mut State, inputs: &mut Vec<Input>, output: &mut Output) {
+/// Applies one tick of `inputs`, leaving `inputs` empty, and records them in `log` (PLAN.md 5,
+/// 10.5).
+///
+/// 1. Input (serial): inputs apply in (session, seq) order, so the result does not depend on how
+///    sessions interleaved in the queue. They change the state and mark what players are sent.
+/// 2. Compute and 3. apply come with game logic (M6 chunks, M7 entities).
+/// 4. Output (parallel, read-only): every marked player's packets, built on the CPU pool. The
+///    pool returns them in player order, so the output does not depend on the thread count.
+pub(crate) fn step(
+    state: &mut State,
+    inputs: &mut Vec<Input>,
+    pool: &Pool,
+    output: &mut Output,
+    log: &mut InputLog,
+) {
     // Keys are unique per input, so the unstable sort is deterministic and allocates nothing.
     inputs.sort_unstable_by_key(|i| (i.session, i.seq));
+    log.begin(state.tick);
     for input in inputs.drain(..) {
-        let session = input.session;
+        let (session, seq) = (input.session, input.seq);
         match input.kind {
             InputKind::Join { identity, outbound } => {
+                log.record(session, seq, EntryKind::Join(identity.clone()), 0);
                 spawn::join(state, session, identity, outbound, output);
             }
-            InputKind::Packet(Packet::RequestChunkRadius(p)) => {
-                spawn::request_chunk_radius(state, session, &p, output);
+            InputKind::Packet { packet, size } => {
+                match &packet {
+                    Packet::RequestChunkRadius(p) => {
+                        spawn::request_chunk_radius(state, session, p);
+                    }
+                    Packet::SetLocalPlayerAsInitialised(p) => {
+                        spawn::initialised(state, session, p);
+                    }
+                    p => trace!(
+                        session = session.get(),
+                        id = p.id(),
+                        "packet not handled yet"
+                    ),
+                }
+                log.record(session, seq, EntryKind::Packet(packet), size);
             }
-            InputKind::Packet(Packet::SetLocalPlayerAsInitialised(p)) => {
-                spawn::initialised(state, session, &p);
+            InputKind::Leave => {
+                log.record(session, seq, EntryKind::Leave, 0);
+                state.leave(session);
             }
-            InputKind::Packet(p) => {
-                trace!(
-                    session = session.get(),
-                    id = p.id(),
-                    "packet not handled yet"
-                );
-            }
-            InputKind::Leave => state.leave(session),
         }
     }
+    output.packets = spawn::output(state, pool);
     state.tick = state.tick.saturating_add(1);
 }
 
 /// Sends `output` to the sessions. A session whose queue is full or closed is forgotten as if it
-/// had left; the tick never waits.
-fn deliver(state: &mut State, output: &mut Output) {
+/// had left, and `log` records it (a replay must forget it too); the tick never waits.
+fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
     for (session, packets) in output.packets.drain(..) {
         let Some(player) = state.players.get(&session) else {
             continue;
         };
         match player.outbound.try_send(Outbound::Send(packets)) {
-            Ok(()) => {}
+            Ok(()) => continue,
             Err(TrySendError::Full(_)) => {
                 warn!(
                     session = session.get(),
                     "outbound queue full; dropping the session"
                 );
-                state.leave(session);
             }
-            Err(TrySendError::Closed(_)) => state.leave(session),
+            Err(TrySendError::Closed(_)) => {}
         }
+        log.dropped(session);
+        state.leave(session);
     }
     for (outbound, packet) in output.closes.drain(..) {
         // The session closes when the queue does; a full or closed queue only loses the reason.
@@ -311,14 +320,39 @@ fn deliver(state: &mut State, output: &mut Output) {
     }
 }
 
+/// Hands the input log to the main thread if the tick thread panics, so it can be written to
+/// `data/crash/` without the tick thread touching files (PLAN.md 4.6, 10.5).
+struct CrashGuard {
+    log: InputLog,
+    crash: Option<oneshot::Sender<InputLog>>,
+}
+
+impl Drop for CrashGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking()
+            && let Some(crash) = self.crash.take()
+            && crash.send(std::mem::take(&mut self.log)).is_err()
+        {
+            error!("the input log of the panicked tick could not be handed over");
+        }
+    }
+}
+
 /// The tick thread: runs ticks every [`TICK`] until `stop` receives or closes, then disconnects
-/// every player and returns. `_done` drops when the thread ends, normally or by panic.
+/// every player, stops the CPU pool and returns. `_done` drops when the thread ends, normally or
+/// by panic; on a panic the input log goes to `crash` first.
 pub(crate) fn run(
     mut state: State,
+    pool: Pool,
     mut inputs: mpsc::Receiver<Input>,
     mut stop: mpsc::Receiver<()>,
+    crash: oneshot::Sender<InputLog>,
     _done: oneshot::Sender<()>,
 ) {
+    let mut guard = CrashGuard {
+        log: InputLog::default(),
+        crash: Some(crash),
+    };
     let mut batch = Vec::with_capacity(MAX_INPUTS_PER_TICK);
     let mut output = Output::default();
     let mut pacer = clock::Pacer::new(TICK, clock::now());
@@ -328,12 +362,13 @@ pub(crate) fn run(
             break;
         }
         drain(&mut inputs, &mut batch);
-        step(&mut state, &mut batch, &mut output);
-        deliver(&mut state, &mut output);
+        step(&mut state, &mut batch, &pool, &mut output, &mut guard.log);
+        deliver(&mut state, &mut output, &mut guard.log);
         clock::sleep_until(pacer.schedule(clock::now()));
     }
     state.close_all(&mut output);
-    deliver(&mut state, &mut output);
+    deliver(&mut state, &mut output, &mut guard.log);
+    pool.shutdown();
     info!(ticks = state.tick, "tick stopped");
 }
 
@@ -409,6 +444,28 @@ mod tests {
             .clone()
     }
 
+    thread_local! {
+        /// A CPU pool per test thread; tests do not shut it down.
+        static POOL: Pool = crate::runtime::cpu_pool(2).unwrap();
+    }
+
+    /// Runs and delivers one tick of `batch`.
+    fn tick(state: &mut State, batch: &mut Vec<Input>, output: &mut Output) {
+        let mut log = InputLog::default();
+        POOL.with(|pool| step(state, batch, pool, output, &mut log));
+        deliver(state, output, &mut log);
+    }
+
+    /// An in-game packet input of its encoded size.
+    fn packet(packet: Packet) -> InputKind {
+        let mut bytes = Vec::new();
+        packet.encode(&mut bytes, 0).unwrap();
+        InputKind::Packet {
+            packet,
+            size: bytes.len(),
+        }
+    }
+
     fn identity(n: u64) -> Identity {
         Identity {
             name: format!("player{n}"),
@@ -439,16 +496,12 @@ mod tests {
             chunk_radius,
             max_chunk_radius: 0,
         };
-        input(
-            session,
-            seq,
-            InputKind::Packet(Packet::RequestChunkRadius(p)),
-        )
+        input(session, seq, packet(Packet::RequestChunkRadius(p)))
     }
 
     fn initialised(session: u64, seq: u64, entity_runtime_id: u64) -> Input {
         let p = SetLocalPlayerAsInitialised { entity_runtime_id };
-        let kind = InputKind::Packet(Packet::SetLocalPlayerAsInitialised(p));
+        let kind = packet(Packet::SetLocalPlayerAsInitialised(p));
         input(session, seq, kind)
     }
 
@@ -471,9 +524,8 @@ mod tests {
         let mut state = State::new(settings, shared(), listeners);
         let mut output = Output::default();
         for mut batch in ticks {
-            step(&mut state, &mut batch, &mut output);
+            tick(&mut state, &mut batch, &mut output);
             assert!(batch.is_empty());
-            deliver(&mut state, &mut output);
             assert!(output.is_empty());
             assert!(state.index_matches_players());
         }
@@ -675,8 +727,7 @@ mod tests {
         let start = (state.players.len(), queue.len(), batch.capacity());
         let mut tick = |queue: &mut mpsc::Receiver<Input>, state: &mut State| {
             drain(queue, &mut batch);
-            step(state, &mut batch, &mut output);
-            deliver(state, &mut output);
+            tick(state, &mut batch, &mut output);
         };
         for n in 0..100 {
             let mut inputs = sender.session(SessionId::new(n));
@@ -690,7 +741,7 @@ mod tests {
                 chunk_radius: 4,
                 max_chunk_radius: 0,
             };
-            let request = InputKind::Packet(Packet::RequestChunkRadius(request));
+            let request = packet(Packet::RequestChunkRadius(request));
             inputs.try_send(request).unwrap();
             tick(&mut queue, &mut state);
             assert_eq!(state.players.len(), 1);
@@ -821,7 +872,7 @@ mod tests {
         let mut state = run_ticks(config, vec![vec![a, b]]);
         let mut output = Output::default();
         state.close_all(&mut output);
-        deliver(&mut state, &mut output);
+        deliver(&mut state, &mut output, &mut InputLog::default());
         assert!(state.players.is_empty());
         for rx in [&mut rx1, &mut rx2] {
             let Some(Packet::Disconnect(d)) = received(rx).1 else {
@@ -1053,8 +1104,7 @@ mod tests {
             let (a, mut rx1) = join_as(old, 0, person("Steve", None));
             let (b, mut rx2) = join_as(new, 0, person("steve", None));
             for mut batch in [vec![a], vec![b], vec![leave(old, 1), leave(new, 1)]] {
-                step(&mut state, &mut batch, &mut output);
-                deliver(&mut state, &mut output);
+                tick(&mut state, &mut batch, &mut output);
                 assert!(state.index_matches_players());
             }
             let loser = if n % 2 == 0 { &mut rx1 } else { &mut rx2 };
@@ -1063,5 +1113,332 @@ mod tests {
         }
         assert!(state.players.is_empty() && state.index.is_empty());
         assert!(output.is_empty());
+    }
+
+    /// One tick of a determinism run: the state hash after it and what every session received.
+    type Observed = (u64, Vec<(u64, Vec<u32>, Option<Packet>)>);
+
+    /// A fixed-seed script of inputs for `sessions` sessions (PLAN.md 10.5): joins (some under one
+    /// name, so duplicate logins happen), chunk radius requests (some invalid), right and wrong
+    /// initialisations, packets the tick does not handle, leaves, and sessions whose outbound
+    /// queue closes, which the tick must forget.
+    struct Script {
+        rng: crate::protocol::Rng,
+        sessions: usize,
+        seq: Vec<u64>,
+        joined: Vec<bool>,
+        /// Receivers of joined sessions; `None` once the session dropped its end.
+        receivers: BTreeMap<u64, Option<mpsc::Receiver<Outbound>>>,
+    }
+
+    impl Script {
+        fn new(seed: u64, sessions: usize) -> Self {
+            Self {
+                rng: crate::protocol::Rng(seed),
+                sessions,
+                seq: vec![0; sessions],
+                joined: vec![false; sessions],
+                receivers: BTreeMap::new(),
+            }
+        }
+
+        /// The inputs of one tick, in an arrival order unlike the applied (session, seq) order.
+        fn tick(&mut self) -> Vec<Input> {
+            let mut batch = Vec::new();
+            for _ in 0..self.rng.below(12) {
+                let i = self.rng.below(self.sessions);
+                let s = u64::try_from(i).unwrap();
+                self.seq[i] += 1;
+                let seq = self.seq[i];
+                if !self.joined[i] {
+                    self.joined[i] = true;
+                    // Every eighth session shares one name, so duplicate logins happen.
+                    let name = if s % 8 == 0 {
+                        "Twin".to_owned()
+                    } else {
+                        format!("p{s}")
+                    };
+                    let (tx, rx) = outbound_queue();
+                    self.receivers.insert(s, Some(rx));
+                    let kind = InputKind::Join {
+                        identity: person(&name, None),
+                        outbound: tx,
+                    };
+                    batch.push(input(s, seq, kind));
+                    continue;
+                }
+                let kind = match self.rng.below(10) {
+                    0..=3 => {
+                        let r = i32::try_from(self.rng.below(40)).unwrap() - 4;
+                        packet(Packet::RequestChunkRadius(RequestChunkRadius {
+                            chunk_radius: r,
+                            max_chunk_radius: 0,
+                        }))
+                    }
+                    4..=6 => packet(Packet::SetLocalPlayerAsInitialised(
+                        SetLocalPlayerAsInitialised {
+                            entity_runtime_id: u64::try_from(self.rng.below(80)).unwrap(),
+                        },
+                    )),
+                    7 => packet(Packet::ClientCacheStatus(
+                        crate::protocol::packet::ClientCacheStatus { enabled: true },
+                    )),
+                    8 => {
+                        // The session goes away without telling the tick.
+                        if let Some(rx) = self.receivers.get_mut(&s) {
+                            *rx = None;
+                        }
+                        continue;
+                    }
+                    _ => {
+                        self.joined[i] = false;
+                        InputKind::Leave
+                    }
+                };
+                batch.push(input(s, seq, kind));
+            }
+            batch.reverse();
+            batch
+        }
+
+        /// What every session received since the last call, by session.
+        fn received(&mut self) -> Vec<(u64, Vec<u32>, Option<Packet>)> {
+            self.receivers
+                .iter_mut()
+                .filter_map(|(s, rx)| {
+                    let (_, close, ids) = received(rx.as_mut()?);
+                    (!ids.is_empty() || close.is_some()).then_some((*s, ids, close))
+                })
+                .collect()
+        }
+    }
+
+    /// Runs the script of `seed` live with a pool of `threads` threads: the observed ticks and the
+    /// log.
+    fn live(threads: usize, seed: u64) -> (Vec<Observed>, InputLog) {
+        let pool = crate::runtime::cpu_pool(threads).unwrap();
+        let mut script = Script::new(seed, 64);
+        let mut state = State::new(settings(|_| {}), shared(), Listeners::default());
+        let mut output = Output::default();
+        let mut log = InputLog::default();
+        let mut observed = Vec::new();
+        for _ in 0..400 {
+            let mut batch = script.tick();
+            step(&mut state, &mut batch, &pool, &mut output, &mut log);
+            deliver(&mut state, &mut output, &mut log);
+            assert!(state.index_matches_players());
+            observed.push((state.hash(), script.received()));
+        }
+        assert!(pool.shutdown());
+        (observed, log)
+    }
+
+    /// Replays `ticks` of a log from the start state: the state hash after each tick and the log
+    /// the replay records itself. Sessions the live run forgot after its output are forgotten at
+    /// the same point.
+    fn replay(ticks: &[log::Tick], listeners: Listeners, pool: &Pool) -> (Vec<u64>, InputLog) {
+        let mut state = State::new(settings(|_| {}), shared(), listeners);
+        let mut output = Output::default();
+        let mut log = InputLog::default();
+        let mut receivers = BTreeMap::new();
+        let mut hashes = Vec::new();
+        for t in ticks {
+            assert_eq!(t.number, state.tick);
+            let mut batch: Vec<Input> = t
+                .inputs
+                .iter()
+                .map(|e| {
+                    let kind = match &e.kind {
+                        EntryKind::Join(identity) => {
+                            let (tx, rx) = outbound_queue();
+                            receivers.insert(e.session, rx);
+                            InputKind::Join {
+                                identity: identity.clone(),
+                                outbound: tx,
+                            }
+                        }
+                        EntryKind::Packet(p) => packet(p.clone()),
+                        EntryKind::Leave => InputKind::Leave,
+                    };
+                    Input {
+                        session: e.session,
+                        seq: e.seq,
+                        kind,
+                    }
+                })
+                .collect();
+            step(&mut state, &mut batch, pool, &mut output, &mut log);
+            deliver(&mut state, &mut output, &mut log);
+            for rx in receivers.values_mut() {
+                received(rx);
+            }
+            for &session in &t.dropped {
+                log.dropped(session);
+                state.leave(session);
+            }
+            hashes.push(state.hash());
+        }
+        (hashes, log)
+    }
+
+    /// Seeds of the determinism runs: different inputs, sessions colliding differently.
+    const SEEDS: [u64; 8] = [
+        0x5eed_0005,
+        1,
+        2,
+        42,
+        0xdead_beef,
+        0x0123_4567_89ab_cdef,
+        u64::MAX,
+        0x8000_0000_0000_0000,
+    ];
+
+    #[test]
+    fn one_and_many_pool_threads_give_the_same_ticks_and_the_log_replays_them() {
+        let many = crate::runtime::logical_cpus().max(4);
+        let one_pool = crate::runtime::cpu_pool(1).unwrap();
+        let many_pool = crate::runtime::cpu_pool(many).unwrap();
+        for seed in SEEDS {
+            let (one, log_one) = live(1, seed);
+            let (more, log_more) = live(many, seed);
+            assert_eq!(one, more, "seed {seed:#x}: 1 and {many} threads");
+            assert_eq!(log_one.ticks(), log_more.ticks(), "seed {seed:#x}");
+            // The script reached what it is for: spawns, closed joins and forgotten sessions.
+            let status = Packet::PlayStatus(PlayStatus { status: 0 }).id();
+            let sessions = || one.iter().flat_map(|(_, sessions)| sessions);
+            let spawned = sessions()
+                .filter(|(_, ids, _)| ids.contains(&status))
+                .count();
+            let closed = sessions().filter(|(_, _, close)| close.is_some()).count();
+            let dropped: usize = log_one.ticks().iter().map(|t| t.dropped.len()).sum();
+            assert!(
+                spawned > 20 && closed > 0 && dropped > 0,
+                "seed {seed:#x}: {spawned} {closed} {dropped}"
+            );
+
+            // The log replays to the same states with 1 and many threads, records itself the
+            // same, and reads back the same after it is written.
+            let live_hashes: Vec<u64> = one.iter().map(|(h, _)| *h).collect();
+            let read = InputLog::decode(&log_one.encode().unwrap()).unwrap();
+            assert_eq!(read.ticks(), log_one.ticks(), "seed {seed:#x}");
+            assert!(!read.is_truncated());
+            for pool in [&one_pool, &many_pool] {
+                let (hashes, again) = replay(read.ticks(), Listeners::default(), pool);
+                assert_eq!(hashes, live_hashes, "seed {seed:#x}: replay");
+                assert_eq!(
+                    again.ticks(),
+                    log_one.ticks(),
+                    "seed {seed:#x}: re-recorded"
+                );
+            }
+        }
+        assert!(one_pool.shutdown());
+        assert!(many_pool.shutdown());
+    }
+
+    #[test]
+    fn corrupt_logs_are_errors_without_panics() {
+        let (_, log) = live(2, SEEDS[0]);
+        let bytes = log.encode().unwrap();
+        // A shorter seed keeps the run fast; the mutations still reach every field kind.
+        let seed = &bytes[..bytes.len().min(4096)];
+        crate::protocol::fuzz(seed, 10_000, |b| {
+            InputLog::decode(b)
+                .map(|_| ())
+                .map_err(|_| crate::protocol::Error::Size)
+        });
+        assert!(InputLog::decode(&bytes[..bytes.len() - 1]).is_err());
+        let mut extra = bytes.clone();
+        extra.push(0);
+        assert!(InputLog::decode(&extra).is_err());
+    }
+
+    #[test]
+    fn the_log_stops_at_its_bound_without_the_partial_tick() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.record(SessionId::new(1), 1, EntryKind::Leave, log::MAX_BYTES / 2);
+        log.begin(1);
+        log.record(SessionId::new(1), 2, EntryKind::Leave, 0);
+        log.record(SessionId::new(2), 1, EntryKind::Leave, log::MAX_BYTES / 2);
+        assert!(log.is_truncated());
+        assert_eq!(log.ticks().len(), 1, "tick 1 is incomplete and left out");
+        log.begin(2);
+        log.record(SessionId::new(3), 1, EntryKind::Leave, 0);
+        log.dropped(SessionId::new(3));
+        assert_eq!(log.ticks().len(), 1);
+        let read = InputLog::decode(&log.encode().unwrap()).unwrap();
+        assert!(read.is_truncated());
+        assert_eq!(read.ticks(), log.ticks());
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the test waits for ticks and reads the written log"
+    )]
+    fn a_panicking_tick_leaves_a_log_that_reproduces_the_panic() {
+        let panicking = || {
+            let mut listeners = Listeners::default();
+            listeners.push(Priority::Normal, |_: &mut PlayerDuplicateLogin| {
+                panic!("listener failed");
+            });
+            listeners.sort();
+            listeners
+        };
+        let (sender, queue) = input_queue();
+        let (_stop_tx, stop) = mpsc::channel(1);
+        let (crash, mut crash_log) = oneshot::channel();
+        let (done, _done_rx) = oneshot::channel();
+        let state = State::new(settings(|_| {}), shared(), panicking());
+        let pool = crate::runtime::cpu_pool(2).unwrap();
+        let thread = crate::runtime::spawn_tick(move || {
+            run(state, pool, queue, stop, crash, done);
+        })
+        .unwrap();
+        let join = |session: u64| {
+            let (tx, rx) = outbound_queue();
+            let mut inputs = sender.session(SessionId::new(session));
+            inputs
+                .try_send(InputKind::Join {
+                    identity: person("Same", None),
+                    outbound: tx,
+                })
+                .unwrap();
+            rx
+        };
+        let _first = join(1);
+        // The first join applies in a tick of its own before the duplicate arrives.
+        std::thread::sleep(TICK * 3);
+        let _second = join(2);
+        assert!(
+            thread.join().is_err(),
+            "the listener panic ends the tick thread"
+        );
+        let log = crash_log.try_recv().expect("the log is handed over");
+
+        let dir = std::env::temp_dir().join(format!("anchor-crash-{}", std::process::id()));
+        let path = write_crash_log(&dir, &log).unwrap();
+        assert!(path.starts_with(dir.join("crash")));
+        let read = InputLog::decode(&std::fs::read(&path).unwrap()).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(read.ticks(), log.ticks());
+
+        // The last tick holds the join that panicked. The ticks before it replay to a server with
+        // the first player; the whole log panics again where the server did.
+        let (last, before) = read.ticks().split_last().unwrap();
+        assert!(
+            last.inputs
+                .iter()
+                .any(|e| e.session == SessionId::new(2) && matches!(e.kind, EntryKind::Join(_)))
+        );
+        let pool = crate::runtime::cpu_pool(2).unwrap();
+        let (hashes, _) = replay(before, panicking(), &pool);
+        assert_eq!(hashes.len(), before.len());
+        let replayed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            replay(read.ticks(), panicking(), &pool)
+        }));
+        assert!(replayed.is_err(), "the replay reproduces the panic");
+        assert!(pool.shutdown());
     }
 }
