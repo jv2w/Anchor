@@ -2,12 +2,19 @@
 //! the pinned external checkouts in `.cache/`. It runs PMMP's own registries through
 //! `xtask/php/dump.php` with the PMMP PHP binary into `xtask/data/pmmp/`, and converts the
 //! reference lists of dragonfly and `CloudburstMC` with `xtask/go/reference` into
-//! `xtask/data/reference/`. With `--check` it writes into `target/` and fails if a committed file
-//! differs. `verify` does not run it: it needs the checkouts, the PHP binary and Go, and its inputs
-//! never change (`gen --check` checks the code made from the committed data instead).
+//! `xtask/data/reference/`, where it also copies `CloudburstMC`'s biome definitions (PLAN.md
+//! 10.6). With `--check` it writes into `target/` and fails if a committed file differs. `verify`
+//! does not run it: it needs the checkouts, the PHP binary and Go, and its inputs never change
+//! (`gen --check` checks the code made from the committed data instead).
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
+
+use serde::Deserialize;
+use serde_json::Value as Json;
+
+use crate::r#gen::biomes::{self, Biome, Colour};
 
 /// The pinned checkouts, relative to the repository root, and their commits.
 const PMMP: (&str, &str) = (".cache/pmmp", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
@@ -26,7 +33,15 @@ const PHP: &str = ".cache/php-pm5/bin/php/php.exe";
 const PMMP_OUT: &str = "xtask/data/pmmp";
 const PMMP_FILES: &[&str] = &["blocks.json", "items.json", "creative.json", "recipes.json"];
 const REFERENCE_OUT: &str = "xtask/data/reference";
-const REFERENCE_FILES: &[&str] = &["blocks.json", "items.json", "item_blocks.json"];
+const REFERENCE_FILES: &[&str] = &[
+    "blocks.json",
+    "items.json",
+    "item_blocks.json",
+    biomes::FILE,
+];
+/// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends
+/// (PLAN.md 10.6). `biome_definitions.json` holds generation data BDS does not send.
+const BIOMES: &str = "stripped_biome_definitions.json";
 
 /// Runs `dump`; with `check`, compares instead of writing. Returns the differing files on a
 /// failed check.
@@ -72,6 +87,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     if !status.success() {
         return Err(format!("the reference conversion failed ({status})"));
     }
+    copy_biomes(root, &reference_out)?;
 
     let mut differ = Vec::new();
     if check {
@@ -87,6 +103,67 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         }
     }
     Ok(differ)
+}
+
+/// One biome of `CloudburstMC`'s file, by name.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct CloudburstBiome {
+    id: Option<Json>,
+    temperature: f64,
+    downfall: f64,
+    red_spore_density: f64,
+    blue_spore_density: f64,
+    ash_density: f64,
+    white_ash_density: f64,
+    foliage_snow: f64,
+    depth: f64,
+    scale: f64,
+    map_water_color: Colour,
+    rain: bool,
+    tags: Vec<String>,
+    chunk_gen_data: Option<Json>,
+}
+
+/// Writes `CloudburstMC`'s biome definitions to `out` as [`biomes::FILE`], one biome per line in
+/// name order. Fails on a field the packet has no place for that is not null or zero: BDS sends no
+/// ID (-1) and no chunk generation data, and the densities have no packet field.
+fn copy_biomes(root: &Path, out: &Path) -> Result<(), String> {
+    let path = root.join(CLOUDBURST.0).join(BIOMES);
+    let all: BTreeMap<String, CloudburstBiome> =
+        serde_json::from_slice(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut text = String::from("[\n");
+    for (i, (name, b)) in all.into_iter().enumerate() {
+        let densities = [
+            b.red_spore_density,
+            b.blue_spore_density,
+            b.ash_density,
+            b.white_ash_density,
+        ];
+        if b.id.is_some() || b.chunk_gen_data.is_some() || densities.iter().any(|&d| d != 0.0) {
+            return Err(format!(
+                "{BIOMES}: {name} has an ID, chunk generation data or a density, which the packet \
+                 does not carry"
+            ));
+        }
+        let biome = Biome {
+            name,
+            temperature: b.temperature,
+            downfall: b.downfall,
+            foliage_snow: b.foliage_snow,
+            depth: b.depth,
+            scale: b.scale,
+            map_water_colour: b.map_water_color,
+            rain: b.rain,
+            tags: b.tags,
+        };
+        if i > 0 {
+            text.push_str(",\n");
+        }
+        text.push_str(&serde_json::to_string(&biome).map_err(|e| format!("{BIOMES}: {e}"))?);
+    }
+    text.push_str("\n]\n");
+    write(&out.join(biomes::FILE), text.as_bytes())
 }
 
 /// Fails unless the git checkout `dir` is at `commit`.
@@ -120,6 +197,14 @@ fn is_dir(path: &Path) -> bool {
 )]
 fn read(path: &Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[expect(

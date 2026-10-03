@@ -15,13 +15,18 @@ use tracing::warn;
 /// is empty, and the tick has stopped by then.
 const EXIT_WAIT: Duration = Duration::from_secs(5);
 
-/// The CPU pool.
+/// The CPU pool. The tick and the save thread share it (PLAN.md 10.6).
 #[derive(Debug)]
 pub(crate) struct Pool {
     inner: rayon::ThreadPool,
     threads: usize,
-    /// One message per thread that ended (rayon's exit handler).
-    exits: Receiver<()>,
+    /// One message per thread that ended (rayon's exit handler). The mutex only makes the pool
+    /// shareable: it is never locked, [`Pool::shutdown`] takes the receiver out of it.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: never locked; it makes the receiver Sync until shutdown takes it"
+    )]
+    exits: std::sync::Mutex<Receiver<()>>,
 }
 
 impl Pool {
@@ -31,7 +36,7 @@ impl Pool {
         Self {
             inner: pool,
             threads,
-            exits,
+            exits: exits.into(),
         }
     }
 
@@ -62,6 +67,10 @@ impl Pool {
             exits,
         } = self;
         drop(inner);
+        let exits = match exits.into_inner() {
+            Ok(exits) => exits,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         for _ in 0..threads {
             if exits.recv_timeout(EXIT_WAIT).is_err() {
                 warn!("a CPU pool thread did not end in time");
@@ -95,8 +104,9 @@ mod tests {
 
     #[test]
     fn shutdown_waits_for_every_thread() {
-        let pool = runtime::cpu_pool(4).unwrap();
-        assert!(pool.exits.try_recv().is_err(), "no thread ended yet");
+        let mut pool = runtime::cpu_pool(4).unwrap();
+        let exits = pool.exits.get_mut().unwrap();
+        assert!(exits.try_recv().is_err(), "no thread ended yet");
         assert!(pool.shutdown());
     }
 

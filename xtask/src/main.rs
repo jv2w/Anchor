@@ -26,12 +26,19 @@ const CHECKS: &[&[&str]] = &[
         "warnings",
     ],
     &["test", "--workspace", "--quiet"],
-    // The fixed sctp-proto copy is not a workspace member; its own tests, the reproduction tests
-    // of its fixes among them, run here (PLAN.md 9.1).
+    // The fixed sctp-proto and redb copies are not workspace members; their own tests, the
+    // reproduction tests of their fixes among them, run here (PLAN.md 9.1).
     &[
         "test",
         "--manifest-path",
         "vendor/sctp-proto/Cargo.toml",
+        "--lib",
+        "--quiet",
+    ],
+    &[
+        "test",
+        "--manifest-path",
+        "vendor/redb/Cargo.toml",
         "--lib",
         "--quiet",
     ],

@@ -1,8 +1,9 @@
 //! `cargo xtask gen`: runs the Go extractor (`xtask/go/extract`) into the protocol IR
 //! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs` and
-//! `src/protocol/packet.rs` from it, and the block, item and recipe tables from the committed
-//! data in `xtask/data/` (PLAN.md 10.4, see `data`). With `--check` it does the same in
-//! `target/` and fails if the committed IR or a generated file differs.
+//! `src/protocol/packet.rs` from it, and the block, item and recipe tables (PLAN.md 10.4, see
+//! `data`) and the biome table (PLAN.md 10.6) from the committed data in `xtask/data/`. With
+//! `--check` it does the same in `target/` and fails if the committed IR or a generated file
+//! differs.
 
 /// Appends formatted text to a `String`, which cannot fail (unlike `write!`).
 macro_rules! put {
@@ -11,6 +12,7 @@ macro_rules! put {
     };
 }
 
+pub(crate) mod biomes;
 mod blocks;
 mod body;
 mod creative;
@@ -67,6 +69,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
             recipes::PATH,
             finish(root, &recipes::generate(root, &data)?)?,
         ),
+        (biomes::PATH, finish(root, &biomes::generate(root)?)?),
     ];
     let mut differ = Vec::new();
     if check {

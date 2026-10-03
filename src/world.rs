@@ -1,0 +1,1104 @@
+//! Worlds (PLAN.md 6, 10.6): block and chunk positions, the loaded chunks of a world, generators,
+//! and the neighbour rules that keep fence, pane, wall, fence gate, stair and tripwire states
+//! up to date when a block is set.
+//!
+//! The overworld is the only dimension: blocks from y -64 to 319 in 24 sub-chunks.
+
+pub(crate) mod biome;
+mod chunk;
+mod connect;
+mod generator;
+mod index;
+mod paletted;
+mod sub_chunk;
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+
+use crate::block::{Facing, State};
+
+pub use chunk::Chunk;
+pub use generator::{Flat, Generator, Void};
+
+pub(crate) use chunk::{NO_HEIGHT, PLAINS, SUB_CHUNKS};
+pub(crate) use paletted::Paletted;
+pub(crate) use sub_chunk::{Entry, SubChunk};
+
+/// The lowest block y of the world.
+pub const MIN_Y: i32 = -64;
+/// The highest block y of the world.
+pub const MAX_Y: i32 = 319;
+
+/// A block position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct BlockPos {
+    /// East is positive.
+    pub x: i32,
+    /// Up is positive; blocks are from [`MIN_Y`] to [`MAX_Y`].
+    pub y: i32,
+    /// South is positive.
+    pub z: i32,
+}
+
+impl BlockPos {
+    /// The position (x, y, z).
+    pub const fn new(x: i32, y: i32, z: i32) -> Self {
+        Self { x, y, z }
+    }
+
+    /// The chunk that holds the position.
+    pub const fn chunk(self) -> ChunkPos {
+        ChunkPos::new(self.x >> 4, self.z >> 4)
+    }
+
+    /// The position one block toward `facing`, if it is a valid `i32` position.
+    fn side(self, facing: Facing) -> Option<Self> {
+        let (dx, dz) = facing.offset();
+        Some(Self::new(
+            self.x.checked_add(dx)?,
+            self.y,
+            self.z.checked_add(dz)?,
+        ))
+    }
+
+    /// The position `dy` blocks up (down when negative), if it is a valid `i32` position.
+    fn up(self, dy: i32) -> Option<Self> {
+        Some(Self::new(self.x, self.y.checked_add(dy)?, self.z))
+    }
+
+    /// The position inside its chunk: x and z from 0 to 15.
+    fn local(self) -> (u8, u8) {
+        let local = |v: i32| u8::try_from(v & 15).unwrap_or(0);
+        (local(self.x), local(self.z))
+    }
+}
+
+/// A chunk position: a 16×16 column of blocks (block x and z divided by 16, rounded down).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct ChunkPos {
+    /// East is positive.
+    pub x: i32,
+    /// South is positive.
+    pub z: i32,
+}
+
+impl ChunkPos {
+    /// The chunk position (x, z).
+    pub const fn new(x: i32, z: i32) -> Self {
+        Self { x, z }
+    }
+}
+
+/// Whether a world is saved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// Saved with every commit (PLAN.md 6).
+    Persistent,
+    /// Never saved: it starts from its generator at every start, such as a minigame arena.
+    Temporary,
+}
+
+/// A world operation that failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Error {
+    /// The position is outside the world height, or a local position outside its chunk.
+    OutOfRange,
+    /// The chunk of the position is not loaded.
+    NotLoaded,
+    /// The chunk of the position is quarantined: its saved data is damaged, so it is shown
+    /// empty and never changed or saved (PLAN.md 10.6).
+    Quarantined,
+    /// Stored chunk data breaks a rule of the format.
+    Malformed(&'static str),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OutOfRange => f.write_str("position is outside the world"),
+            Self::NotLoaded => f.write_str("chunk is not loaded"),
+            Self::Quarantined => f.write_str("chunk is quarantined"),
+            Self::Malformed(reason) => write!(f, "malformed chunk data: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+/// The result of a world operation.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// A world: its settings and the chunks loaded in memory.
+///
+/// Only the tick thread changes it (PLAN.md 4.2). The engine loads and unloads chunks; a block
+/// of a chunk that is not loaded reads as `None` and cannot be set.
+pub struct World {
+    name: String,
+    kind: Kind,
+    seed: i64,
+    spawn: BlockPos,
+    /// The loaded chunks; `loaded` holds their positions in order.
+    chunks: index::ChunkIndex,
+    loaded: BTreeSet<ChunkPos>,
+    /// Positions whose saved chunk is damaged: shown empty, never changed or saved.
+    quarantined: BTreeSet<ChunkPos>,
+    /// The last state of each block changed since the tick last took them.
+    changes: BTreeMap<BlockPos, State>,
+}
+
+impl World {
+    /// A world with no chunks loaded. The save thread fills its chunks with the world's
+    /// generator; the tick only needs its seed and spawn.
+    pub(crate) fn new(name: impl Into<String>, kind: Kind, seed: i64, spawn: BlockPos) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            seed,
+            spawn,
+            chunks: index::ChunkIndex::new(),
+            loaded: BTreeSet::new(),
+            quarantined: BTreeSet::new(),
+            changes: BTreeMap::new(),
+        }
+    }
+
+    /// The world's name, unique on the server.
+    #[doc(alias = "World::getFolderName")]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Whether the world is saved.
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    /// The seed the generator gets.
+    #[doc(alias = "World::getSeed")]
+    pub fn seed(&self) -> i64 {
+        self.seed
+    }
+
+    /// Where players appear.
+    #[doc(alias = "World::getSpawnLocation")]
+    pub fn spawn(&self) -> BlockPos {
+        self.spawn
+    }
+
+    /// Moves the spawn.
+    #[doc(alias = "World::setSpawnLocation")]
+    pub fn set_spawn(&mut self, spawn: BlockPos) {
+        self.spawn = spawn;
+    }
+
+    /// The block at `pos`, or `None` if its chunk is not loaded (or quarantined), `pos` is outside
+    /// the world height, or the block is a state Anchor does not know.
+    #[doc(alias = "World::getBlockAt")]
+    #[doc(alias = "World::getBlock")]
+    pub fn block(&self, pos: BlockPos) -> Option<State> {
+        match self.entry(pos)? {
+            Entry::Known(state) => Some(state),
+            Entry::Unknown(_) => None,
+        }
+    }
+
+    /// Sets the block at `pos`.
+    ///
+    /// The neighbour rules then work out the connection properties of the block and of its
+    /// neighbours (fences, panes and bars, walls, fence gates, stairs, tripwire: PLAN.md 10.6),
+    /// so the block may end up in a state that differs from `state` in those properties.
+    /// Neighbours in chunks that are not loaded read as air and are not changed.
+    #[doc(alias = "World::setBlockAt")]
+    #[doc(alias = "World::setBlock")]
+    pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {
+        if !(MIN_Y..=MAX_Y).contains(&pos.y) {
+            return Err(Error::OutOfRange);
+        }
+        let Some(old) = self.write(pos, state) else {
+            return Err(if self.quarantined.contains(&pos.chunk()) {
+                Error::Quarantined
+            } else {
+                Error::NotLoaded
+            });
+        };
+        self.connect_around(pos, old);
+        self.attach_tripwire(pos, old);
+        Ok(())
+    }
+
+    /// Whether the chunk is loaded (quarantined chunks are not).
+    #[doc(alias = "World::isChunkLoaded")]
+    pub fn is_chunk_loaded(&self, pos: ChunkPos) -> bool {
+        self.chunks.contains(pos)
+    }
+
+    /// The y of the highest non-air block of the column at (x, z), or `None` if the column is
+    /// all air or its chunk is not loaded.
+    #[doc(alias = "World::getHighestBlockAt")]
+    pub fn highest_block(&self, x: i32, z: i32) -> Option<i32> {
+        let pos = BlockPos::new(x, 0, z);
+        let (lx, lz) = pos.local();
+        self.chunks.get(pos.chunk())?.highest_block(lx, lz)
+    }
+
+    /// The layer 0 entry at `pos`, if its chunk is loaded and `pos` is in the world height.
+    pub(crate) fn entry(&self, pos: BlockPos) -> Option<Entry> {
+        let (x, z) = pos.local();
+        self.chunks.get(pos.chunk())?.entry(x, pos.y, z)
+    }
+
+    /// Writes a state at `pos` of a loaded chunk; a change marks the chunk dirty and records the
+    /// block in the change list. Returns the old entry, or `None` if nothing was written (the
+    /// chunk is not loaded or `pos` is outside the world height).
+    fn write(&mut self, pos: BlockPos, state: State) -> Option<Entry> {
+        let (x, z) = pos.local();
+        let chunk = self.chunks.get_mut(pos.chunk())?;
+        let old = chunk.put(x, pos.y, z, Entry::Known(state))?;
+        if old != Entry::Known(state) {
+            chunk.set_dirty(true);
+            self.changes.insert(pos, state);
+        }
+        Some(old)
+    }
+
+    /// The loaded chunk at `pos`.
+    pub(crate) fn chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
+        self.chunks.get(pos)
+    }
+
+    /// Loads `chunk` at `pos`, from disk or a generator: it starts clean. Lifts a quarantine of
+    /// `pos` and returns a chunk it replaces.
+    pub(crate) fn insert_chunk(&mut self, pos: ChunkPos, mut chunk: Chunk) -> Option<Chunk> {
+        chunk.set_dirty(false);
+        self.quarantined.remove(&pos);
+        self.loaded.insert(pos);
+        self.chunks.insert(pos, chunk)
+    }
+
+    /// Loads `chunk` at `pos` from memory as it is: an unloaded chunk whose changes are not
+    /// committed yet keeps its dirty mark (PLAN.md 10.6).
+    pub(crate) fn restore_chunk(&mut self, pos: ChunkPos, chunk: Chunk) {
+        self.quarantined.remove(&pos);
+        self.loaded.insert(pos);
+        self.chunks.insert(pos, chunk);
+    }
+
+    /// Quarantines `pos` because its saved data is damaged: a chunk loaded there is dropped,
+    /// changes included, and the position stays quarantined until [`Self::remove_chunk`].
+    pub(crate) fn quarantine(&mut self, pos: ChunkPos) {
+        self.loaded.remove(&pos);
+        self.chunks.remove(pos);
+        self.quarantined.insert(pos);
+    }
+
+    /// Whether `pos` is quarantined.
+    pub(crate) fn is_quarantined(&self, pos: ChunkPos) -> bool {
+        self.quarantined.contains(&pos)
+    }
+
+    /// Unloads `pos`: removes its chunk (returned, dirty or not) and its quarantine. The caller
+    /// saves a dirty chunk first.
+    pub(crate) fn remove_chunk(&mut self, pos: ChunkPos) -> Option<Chunk> {
+        self.quarantined.remove(&pos);
+        self.loaded.remove(&pos);
+        self.chunks.remove(pos)
+    }
+
+    /// The loaded positions, in order.
+    #[cfg(test)]
+    pub(crate) fn loaded(&self) -> impl ExactSizeIterator<Item = ChunkPos> + '_ {
+        self.loaded.iter().copied()
+    }
+
+    /// The quarantined positions, in order.
+    #[cfg(test)]
+    pub(crate) fn quarantined(&self) -> impl ExactSizeIterator<Item = ChunkPos> + '_ {
+        self.quarantined.iter().copied()
+    }
+
+    /// Takes the blocks changed since the last call, with their last state: what the tick sends
+    /// to the players who see them. The tick takes them every tick.
+    pub(crate) fn take_changes(&mut self) -> BTreeMap<BlockPos, State> {
+        std::mem::take(&mut self.changes)
+    }
+
+    /// Takes the chunks changed since the last call as copies that share their sub-chunks (a
+    /// later write copies only the sub-chunk it changes) and marks them clean: the save
+    /// snapshot. It visits every loaded chunk, once per save.
+    pub(crate) fn take_dirty(&mut self) -> Vec<(ChunkPos, Chunk)> {
+        let mut out = Vec::new();
+        for &pos in &self.loaded {
+            if let Some(chunk) = self.chunks.get_mut(pos)
+                && chunk.is_dirty()
+            {
+                chunk.set_dirty(false);
+                out.push((pos, chunk.clone()));
+            }
+        }
+        out
+    }
+}
+
+impl fmt::Debug for World {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("World")
+            .field("name", &self.name)
+            .field("kind", &self.kind)
+            .field("seed", &self.seed)
+            .field("spawn", &self.spawn)
+            .field("chunks", &self.loaded.len())
+            .field("quarantined", &self.quarantined.len())
+            .field("changes", &self.changes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::{self, PropertyValue};
+    use crate::protocol::Rng;
+    use chunk::tests::plain_states;
+
+    /// A world with the chunks of x and z from `-r` to `r` loaded from its generator.
+    fn world(generator: &dyn Generator, r: i32) -> World {
+        let mut w = World::new("w", Kind::Temporary, 3, generator.spawn(3));
+        for x in -r..=r {
+            for z in -r..=r {
+                let pos = ChunkPos::new(x, z);
+                let chunk = Chunk::generate(generator, w.seed(), pos);
+                assert!(w.insert_chunk(pos, chunk).is_none());
+            }
+        }
+        w
+    }
+
+    #[test]
+    fn random_sets_over_chunks_match_an_array() {
+        let states = plain_states();
+        let mut w = world(&Void, 1);
+        let mut rng = Rng(0x00e1_0001);
+        // x and z from -16 to 31 (the nine loaded chunks), y over the whole height.
+        let mut model = BTreeMap::new();
+        for round in 0..100_000usize {
+            let pool = if (round / 10_000) % 2 == 0 {
+                states.len()
+            } else {
+                4
+            };
+            let pos = BlockPos::new(
+                i32::try_from(rng.below(48)).unwrap() - 16,
+                MIN_Y + i32::try_from(rng.below(384)).unwrap(),
+                i32::try_from(rng.below(48)).unwrap() - 16,
+            );
+            let state = if rng.below(3) == 0 {
+                block::AIR
+            } else {
+                states[rng.below(pool)]
+            };
+            w.set_block(pos, state).unwrap();
+            model.insert(pos, state);
+            if round % 9_973 == 0 {
+                let probe = BlockPos::new(pos.x, MIN_Y, pos.z);
+                let top = (MIN_Y..=MAX_Y).rev().find(|&y| {
+                    model
+                        .get(&BlockPos::new(probe.x, y, probe.z))
+                        .is_some_and(|&s| s != block::AIR)
+                });
+                assert_eq!(w.highest_block(pos.x, pos.z), top);
+            }
+        }
+        for (&pos, &state) in &model {
+            assert_eq!(w.block(pos), Some(state));
+        }
+        let changes = w.take_changes();
+        assert!(changes.iter().all(|(p, s)| model.get(p) == Some(s)));
+        assert!(w.take_changes().is_empty());
+    }
+
+    #[test]
+    fn errors_name_the_reason() {
+        let mut w = world(&Flat, 0);
+        let stone = State::find("minecraft:stone", &[]).unwrap();
+        assert_eq!(
+            w.set_block(BlockPos::new(0, MAX_Y + 1, 0), stone),
+            Err(Error::OutOfRange)
+        );
+        assert_eq!(
+            w.set_block(BlockPos::new(0, MIN_Y - 1, 0), stone),
+            Err(Error::OutOfRange)
+        );
+        assert_eq!(
+            w.set_block(BlockPos::new(16, 0, 0), stone),
+            Err(Error::NotLoaded)
+        );
+        assert_eq!(w.block(BlockPos::new(16, 0, 0)), None);
+        w.quarantine(ChunkPos::new(1, 0));
+        assert_eq!(
+            w.set_block(BlockPos::new(16, 0, 0), stone),
+            Err(Error::Quarantined)
+        );
+        assert!(w.is_quarantined(ChunkPos::new(1, 0)));
+        assert!(!w.is_chunk_loaded(ChunkPos::new(1, 0)));
+        assert_eq!(w.quarantined().collect::<Vec<_>>(), [ChunkPos::new(1, 0)]);
+        assert!(w.remove_chunk(ChunkPos::new(1, 0)).is_none());
+        assert!(!w.is_quarantined(ChunkPos::new(1, 0)));
+        assert_eq!(
+            w.block(BlockPos::new(-1, -64, -1)),
+            None,
+            "chunk (-1, -1) not loaded"
+        );
+        assert_eq!(w.block(BlockPos::new(15, -64, 15)), Some(block::BEDROCK));
+        assert_eq!(w.spawn(), BlockPos::new(0, -60, 0));
+        assert_eq!(Error::NotLoaded.to_string(), "chunk is not loaded");
+        assert_eq!(Error::Malformed("x").to_string(), "malformed chunk data: x");
+    }
+
+    #[test]
+    fn the_save_snapshot_keeps_the_state_of_its_tick() {
+        let mut w = world(&Flat, 1);
+        assert!(w.take_dirty().is_empty(), "generated chunks are clean");
+        let stone = State::find("minecraft:stone", &[]).unwrap();
+        let a = BlockPos::new(1, 10, 1);
+        w.set_block(a, stone).unwrap();
+        w.set_block(BlockPos::new(-1, 10, -1), stone).unwrap();
+        let snapshot = w.take_dirty();
+        let positions: Vec<_> = snapshot.iter().map(|(p, _)| *p).collect();
+        assert_eq!(positions, [ChunkPos::new(-1, -1), ChunkPos::new(0, 0)]);
+        assert!(w.take_dirty().is_empty());
+        w.set_block(a, block::AIR).unwrap();
+        let (_, chunk) = &snapshot[1];
+        assert_eq!(chunk.block(1, 10, 1), Some(stone));
+        assert_eq!(w.block(a), Some(block::AIR));
+        assert_eq!(w.take_dirty().len(), 1);
+        // Setting a block to its own state changes nothing.
+        w.set_block(a, block::AIR).unwrap();
+        assert!(w.take_dirty().is_empty());
+        assert_eq!(w.loaded().count(), 9);
+        assert!(w.remove_chunk(ChunkPos::new(0, 0)).is_some());
+        assert_eq!(w.loaded().count(), 8);
+    }
+
+    /// A state written as the P6 report writes it: `minecraft:name[key=value,...]` with the keys
+    /// in name order and without their `minecraft:` prefix.
+    fn render(state: State) -> String {
+        let properties: Vec<String> = state
+            .properties()
+            .map(|p| {
+                let value = match p.value() {
+                    PropertyValue::Byte(b) => b.to_string(),
+                    PropertyValue::Int(i) => i.to_string(),
+                    PropertyValue::String(s) => s.to_owned(),
+                };
+                let key = p.name().strip_prefix("minecraft:").unwrap_or(p.name());
+                format!("{key}={value}")
+            })
+            .collect();
+        format!("{}[{}]", state.name(), properties.join(","))
+    }
+
+    /// A step of [`BDS_STEPS`]: where the block goes (dx, dz), its state, and the last state
+    /// BDS sent for each position it updated.
+    type Step = (
+        (i32, i32),
+        &'static str,
+        &'static [((i32, i32), &'static str)],
+    );
+
+    /// BDS's P6 `blocks` scenario (`xtask/src/p6.rs` `BLOCK_STEPS`, BDS 1.26.52.3,
+    /// `target/p6/bds-zlib/blocks.txt`): the block placed at (dx, dz) from the base, and the
+    /// last state BDS sent for each position it updated in that step.
+    const BDS_STEPS: &[Step] = &[
+        (
+            (0, 0),
+            "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[(
+                (0, 0),
+                "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            )],
+        ),
+        (
+            (1, 0),
+            "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[
+                (
+                    (1, 0),
+                    "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=1]",
+                ),
+                (
+                    (0, 0),
+                    "minecraft:oak_fence[connection_east=1,connection_north=0,connection_south=0,connection_west=0]",
+                ),
+            ],
+        ),
+        (
+            (0, 3),
+            "minecraft:stone[]",
+            &[((0, 3), "minecraft:stone[]")],
+        ),
+        (
+            (1, 3),
+            "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[(
+                (1, 3),
+                "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=1]",
+            )],
+        ),
+        (
+            (4, 3),
+            "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[(
+                (4, 3),
+                "minecraft:oak_fence[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            )],
+        ),
+        (
+            (5, 3),
+            "minecraft:stone[]",
+            &[
+                ((5, 3), "minecraft:stone[]"),
+                (
+                    (4, 3),
+                    "minecraft:oak_fence[connection_east=1,connection_north=0,connection_south=0,connection_west=0]",
+                ),
+            ],
+        ),
+        (
+            (0, 6),
+            "minecraft:glass_pane[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[(
+                (0, 6),
+                "minecraft:glass_pane[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            )],
+        ),
+        (
+            (1, 6),
+            "minecraft:glass_pane[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[
+                (
+                    (1, 6),
+                    "minecraft:glass_pane[connection_east=0,connection_north=0,connection_south=0,connection_west=1]",
+                ),
+                (
+                    (0, 6),
+                    "minecraft:glass_pane[connection_east=1,connection_north=0,connection_south=0,connection_west=0]",
+                ),
+            ],
+        ),
+        (
+            (0, 7),
+            "minecraft:glass_pane[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[
+                (
+                    (0, 7),
+                    "minecraft:glass_pane[connection_east=0,connection_north=1,connection_south=0,connection_west=0]",
+                ),
+                (
+                    (0, 6),
+                    "minecraft:glass_pane[connection_east=1,connection_north=0,connection_south=1,connection_west=0]",
+                ),
+            ],
+        ),
+        (
+            (0, 10),
+            "minecraft:iron_bars[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[(
+                (0, 10),
+                "minecraft:iron_bars[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            )],
+        ),
+        (
+            (1, 10),
+            "minecraft:iron_bars[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[
+                (
+                    (1, 10),
+                    "minecraft:iron_bars[connection_east=0,connection_north=0,connection_south=0,connection_west=1]",
+                ),
+                (
+                    (0, 10),
+                    "minecraft:iron_bars[connection_east=1,connection_north=0,connection_south=0,connection_west=0]",
+                ),
+            ],
+        ),
+        (
+            (2, 10),
+            "minecraft:iron_bars[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[
+                (
+                    (2, 10),
+                    "minecraft:iron_bars[connection_east=0,connection_north=0,connection_south=0,connection_west=1]",
+                ),
+                (
+                    (1, 10),
+                    "minecraft:iron_bars[connection_east=1,connection_north=0,connection_south=0,connection_west=1]",
+                ),
+            ],
+        ),
+        (
+            (3, 10),
+            "minecraft:copper_bars[connection_east=0,connection_north=0,connection_south=0,connection_west=0]",
+            &[
+                (
+                    (3, 10),
+                    "minecraft:copper_bars[connection_east=0,connection_north=0,connection_south=0,connection_west=1]",
+                ),
+                (
+                    (2, 10),
+                    "minecraft:iron_bars[connection_east=1,connection_north=0,connection_south=0,connection_west=1]",
+                ),
+            ],
+        ),
+        (
+            (0, 13),
+            "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=0]",
+            &[(
+                (0, 13),
+                "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=0]",
+            )],
+        ),
+        (
+            (1, 13),
+            "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=2]",
+            &[
+                (
+                    (1, 13),
+                    "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=2]",
+                ),
+                (
+                    (0, 13),
+                    "minecraft:oak_stairs[corner=outer_right,upside_down_bit=0,weirdo_direction=0]",
+                ),
+            ],
+        ),
+        (
+            (1, 16),
+            "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=0]",
+            &[(
+                (1, 16),
+                "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=0]",
+            )],
+        ),
+        (
+            (0, 16),
+            "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=2]",
+            &[
+                (
+                    (0, 16),
+                    "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=2]",
+                ),
+                (
+                    (1, 16),
+                    "minecraft:oak_stairs[corner=inner_right,upside_down_bit=0,weirdo_direction=0]",
+                ),
+            ],
+        ),
+        (
+            (0, 19),
+            "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=0]",
+            &[(
+                (0, 19),
+                "minecraft:oak_stairs[corner=none,upside_down_bit=0,weirdo_direction=0]",
+            )],
+        ),
+        (
+            (0, 22),
+            "minecraft:stone[]",
+            &[((0, 22), "minecraft:stone[]")],
+        ),
+        (
+            (4, 22),
+            "minecraft:stone[]",
+            &[((4, 22), "minecraft:stone[]")],
+        ),
+        (
+            (1, 22),
+            "minecraft:tripwire_hook[attached_bit=0,direction=3,powered_bit=0]",
+            &[(
+                (1, 22),
+                "minecraft:tripwire_hook[attached_bit=0,direction=3,powered_bit=0]",
+            )],
+        ),
+        (
+            (3, 22),
+            "minecraft:tripwire_hook[attached_bit=0,direction=1,powered_bit=0]",
+            &[(
+                (3, 22),
+                "minecraft:tripwire_hook[attached_bit=0,direction=1,powered_bit=0]",
+            )],
+        ),
+        (
+            (2, 22),
+            "minecraft:trip_wire[attached_bit=0,disarmed_bit=0,connection_east=0,connection_north=0,connection_south=0,connection_west=0,powered_bit=0,suspended_bit=0]",
+            &[
+                (
+                    (2, 22),
+                    "minecraft:trip_wire[attached_bit=1,disarmed_bit=0,connection_east=1,connection_north=0,connection_south=0,connection_west=1,powered_bit=0,suspended_bit=1]",
+                ),
+                (
+                    (3, 22),
+                    "minecraft:tripwire_hook[attached_bit=1,direction=1,powered_bit=0]",
+                ),
+                (
+                    (1, 22),
+                    "minecraft:tripwire_hook[attached_bit=1,direction=3,powered_bit=0]",
+                ),
+            ],
+        ),
+        (
+            (6, 22),
+            "minecraft:trip_wire[attached_bit=0,disarmed_bit=0,connection_east=0,connection_north=0,connection_south=0,connection_west=0,powered_bit=0,suspended_bit=0]",
+            &[(
+                (6, 22),
+                "minecraft:trip_wire[attached_bit=0,disarmed_bit=0,connection_east=0,connection_north=0,connection_south=0,connection_west=0,powered_bit=0,suspended_bit=1]",
+            )],
+        ),
+        (
+            (7, 22),
+            "minecraft:trip_wire[attached_bit=0,disarmed_bit=0,connection_east=0,connection_north=0,connection_south=0,connection_west=0,powered_bit=0,suspended_bit=0]",
+            &[
+                (
+                    (7, 22),
+                    "minecraft:trip_wire[attached_bit=0,disarmed_bit=0,connection_east=0,connection_north=0,connection_south=0,connection_west=1,powered_bit=0,suspended_bit=1]",
+                ),
+                (
+                    (6, 22),
+                    "minecraft:trip_wire[attached_bit=0,disarmed_bit=0,connection_east=1,connection_north=0,connection_south=0,connection_west=0,powered_bit=0,suspended_bit=1]",
+                ),
+            ],
+        ),
+    ];
+
+    #[test]
+    fn connections_match_every_bds_step() {
+        let by_text: BTreeMap<String, State> = State::all().map(|s| (render(s), s)).collect();
+        let mut w = world(&Flat, 2);
+        // The P6 base: the spawn column plus 2, on the grass.
+        let base = BlockPos::new(2, -60, 2);
+        let at = |(dx, dz): (i32, i32)| BlockPos::new(base.x + dx, base.y, base.z + dz);
+        for (n, (placed, input, expected)) in BDS_STEPS.iter().enumerate() {
+            let before: BTreeMap<BlockPos, String> = expected
+                .iter()
+                .map(|(d, _)| (at(*d), render(w.block(at(*d)).unwrap())))
+                .collect();
+            let state = by_text[*input];
+            w.set_block(at(*placed), state).unwrap();
+            let changes = w.take_changes();
+            let mut want_changed = BTreeSet::new();
+            for (d, bds) in *expected {
+                let got = render(w.block(at(*d)).unwrap());
+                assert_eq!(got, *bds, "step {n} at {d:?}");
+                if before[&at(*d)] != *bds {
+                    want_changed.insert(at(*d));
+                }
+            }
+            let positions: BTreeSet<BlockPos> = changes.keys().copied().collect();
+            assert_eq!(positions, want_changed, "step {n}: changed positions");
+            for (pos, state) in &changes {
+                assert_eq!(w.block(*pos), Some(*state), "step {n}: last state");
+            }
+        }
+    }
+
+    fn find(name: &str, props: &[(&str, PropertyValue<'_>)]) -> State {
+        State::find(name, props).unwrap()
+    }
+
+    fn prop(state: State, key: &str) -> PropertyValue<'static> {
+        state
+            .properties()
+            .find(|p| p.name() == key)
+            .unwrap()
+            .value()
+    }
+
+    /// A closed oak fence gate facing `facing`, not in a wall.
+    fn gate(facing: &str) -> State {
+        State::all()
+            .find(|s| {
+                s.name() == "minecraft:fence_gate"
+                    && prop(*s, "minecraft:cardinal_direction") == PropertyValue::String(facing)
+                    && prop(*s, "open_bit") == PropertyValue::Byte(0)
+                    && prop(*s, "in_wall_bit") == PropertyValue::Byte(0)
+            })
+            .unwrap()
+    }
+
+    /// Walls (BDS P6 for the post, PMMP for a block above), fence gates and panes next to walls.
+    #[test]
+    fn walls_and_fence_gates_follow_bds_and_pmmp() {
+        let none = PropertyValue::String("none");
+        let wall = find(
+            "minecraft:cobblestone_wall",
+            &[
+                ("wall_connection_type_east", none),
+                ("wall_connection_type_north", none),
+                ("wall_connection_type_south", none),
+                ("wall_connection_type_west", none),
+                ("wall_post_bit", PropertyValue::Byte(0)),
+            ],
+        );
+        let mut w = world(&Flat, 1);
+        let p = BlockPos::new(4, -60, 4);
+        w.set_block(p, wall).unwrap();
+        let post = |w: &World, at| prop(w.block(at).unwrap(), "wall_post_bit");
+        // A lone wall: no connections, a post (BDS).
+        assert_eq!(post(&w, p), PropertyValue::Byte(1));
+        let east = BlockPos::new(5, -60, 4);
+        w.set_block(east, wall).unwrap();
+        let short = PropertyValue::String("short");
+        assert_eq!(
+            prop(w.block(p).unwrap(), "wall_connection_type_east"),
+            short
+        );
+        assert_eq!(
+            prop(w.block(east).unwrap(), "wall_connection_type_west"),
+            short
+        );
+        // A line's end keeps its post; its middle, running straight through, has none.
+        assert_eq!(post(&w, p), PropertyValue::Byte(1));
+        let west = BlockPos::new(3, -60, 4);
+        w.set_block(west, wall).unwrap();
+        assert_eq!(post(&w, p), PropertyValue::Byte(0));
+        // A block above makes the post (PMMP).
+        let stone = find("minecraft:stone", &[]);
+        w.set_block(BlockPos::new(4, -59, 4), stone).unwrap();
+        assert_eq!(post(&w, p), PropertyValue::Byte(1));
+        w.set_block(BlockPos::new(4, -59, 4), block::AIR).unwrap();
+        assert_eq!(post(&w, p), PropertyValue::Byte(0));
+        w.set_block(west, block::AIR).unwrap();
+        // A pane next to a wall connects, and the wall connects to it.
+        let pane = by_name("minecraft:glass_pane");
+        let north = BlockPos::new(4, -60, 3);
+        w.set_block(north, pane).unwrap();
+        assert_eq!(
+            prop(w.block(north).unwrap(), "minecraft:connection_south"),
+            PropertyValue::Byte(1)
+        );
+        assert_eq!(
+            prop(w.block(p).unwrap(), "wall_connection_type_north"),
+            short
+        );
+        // A fence gate between walls is in the wall; facing them it is not.
+        let at_gate = BlockPos::new(6, -60, 4);
+        w.set_block(at_gate, gate("south")).unwrap();
+        assert_eq!(
+            prop(w.block(at_gate).unwrap(), "in_wall_bit"),
+            PropertyValue::Byte(1)
+        );
+        assert_eq!(
+            prop(w.block(east).unwrap(), "wall_connection_type_east"),
+            short
+        );
+        w.set_block(at_gate, gate("east")).unwrap();
+        assert_eq!(
+            prop(w.block(at_gate).unwrap(), "in_wall_bit"),
+            PropertyValue::Byte(0)
+        );
+    }
+
+    /// The fence groups (fixed from PMMP), fences next to gates, and a stair corner that changes
+    /// a fence's solid face.
+    #[test]
+    fn fences_and_stairs_follow_pmmp() {
+        let mut w = world(&Flat, 1);
+        let none = PropertyValue::String("none");
+        // A nether brick fence and an oak fence do not connect either way.
+        let oak = by_name("minecraft:oak_fence");
+        let nether = by_name("minecraft:nether_brick_fence");
+        let at_oak = BlockPos::new(0, -60, 10);
+        let at_nether = BlockPos::new(1, -60, 10);
+        w.set_block(at_oak, oak).unwrap();
+        w.set_block(at_nether, nether).unwrap();
+        assert_eq!(w.block(at_oak), Some(oak));
+        assert_eq!(w.block(at_nether), Some(nether));
+        // An oak fence connects to a fence gate in any direction (PMMP).
+        w.set_block(BlockPos::new(0, -60, 11), gate("east"))
+            .unwrap();
+        assert_eq!(
+            prop(w.block(at_oak).unwrap(), "minecraft:connection_south"),
+            PropertyValue::Byte(1)
+        );
+        // A stair turned into an inner corner by a new stair in front of it gains a full side
+        // face, so the fence on that side connects: the second round of the update (the fence
+        // is not a neighbour of the new stair).
+        let stairs = |dir: i32| {
+            find(
+                "minecraft:oak_stairs",
+                &[
+                    ("minecraft:corner", none),
+                    ("upside_down_bit", PropertyValue::Byte(0)),
+                    ("weirdo_direction", PropertyValue::Int(dir)),
+                ],
+            )
+        };
+        let stair = BlockPos::new(0, -60, 20);
+        let fence = BlockPos::new(0, -60, 21);
+        w.set_block(stair, stairs(0)).unwrap();
+        w.set_block(fence, oak).unwrap();
+        let north = |w: &World| prop(w.block(fence).unwrap(), "minecraft:connection_north");
+        assert_eq!(
+            north(&w),
+            PropertyValue::Byte(0),
+            "a straight stair's side is not full"
+        );
+        w.set_block(BlockPos::new(-1, -60, 20), stairs(2)).unwrap();
+        assert_eq!(
+            prop(w.block(stair).unwrap(), "minecraft:corner"),
+            PropertyValue::String("inner_right")
+        );
+        assert_eq!(north(&w), PropertyValue::Byte(1));
+        w.set_block(BlockPos::new(-1, -60, 20), block::AIR).unwrap();
+        assert_eq!(prop(w.block(stair).unwrap(), "minecraft:corner"), none);
+        assert_eq!(north(&w), PropertyValue::Byte(0));
+    }
+
+    /// The crate API the tick and storage use: a chunk to parts and back, its network form and
+    /// heights.
+    #[test]
+    fn a_loaded_chunk_converts_to_parts_and_back() {
+        let mut w = world(&Flat, 0);
+        let stone = State::find("minecraft:stone", &[]).unwrap();
+        w.set_block(BlockPos::new(3, 40, 5), stone).unwrap();
+        let chunk = w.chunk(ChunkPos::new(0, 0)).unwrap();
+        let heights = chunk.heights();
+        assert_eq!(heights[5 * 16 + 3], 40);
+        assert_eq!(heights[0], -61);
+        assert!(heights.iter().all(|&h| h != NO_HEIGHT));
+        let subs: [Option<SubChunk>; SUB_CHUNKS] = std::array::from_fn(|i| {
+            chunk.sub_chunk(i).map(|s| {
+                SubChunk::from_layers(
+                    s.layers()
+                        .clone()
+                        .map(|l| Paletted::from_parts(l.bits(), l.words(), l.palette()).unwrap()),
+                )
+            })
+        });
+        let biomes: [Paletted<u32>; SUB_CHUNKS] =
+            std::array::from_fn(|_| Paletted::uniform(PLAINS));
+        let back = Chunk::from_parts(subs, biomes, Vec::new()).unwrap();
+        assert_eq!(back.block(3, 40, 5), Some(stone));
+        assert_eq!(back.entry(3, 41, 5), Some(Entry::AIR));
+        assert_eq!(back.sub_chunk_limit(), 7);
+        assert_eq!(back.level_chunk_payload(), chunk.level_chunk_payload());
+        assert_eq!(
+            w.insert_chunk(ChunkPos::new(0, 0), back)
+                .map(|c| c.is_dirty()),
+            Some(true)
+        );
+        assert_eq!(w.block(BlockPos::new(3, 40, 5)), Some(stone));
+    }
+
+    /// A fixed multiplicative hash (rustc's Fx), for the index measurement.
+    #[derive(Default)]
+    struct Fx(u64);
+
+    impl std::hash::Hasher for Fx {
+        fn finish(&self) -> u64 {
+            self.0
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            for &b in bytes {
+                self.write_u64(u64::from(b));
+            }
+        }
+        fn write_i32(&mut self, i: i32) {
+            self.write_u64(u64::from(i.cast_unsigned()));
+        }
+        fn write_u64(&mut self, i: u64) {
+            self.0 = (self.0.rotate_left(5) ^ i).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+    }
+
+    fn by_name(name: &str) -> State {
+        State::all()
+            .find(|s| {
+                s.name() == name && s.properties().all(|p| p.value() == PropertyValue::Byte(0))
+            })
+            .unwrap()
+    }
+
+    /// Measures `block` and `set_block` (PLAN.md 10.6 "색인"):
+    /// `cargo test --release --lib world::tests::block_access_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement"]
+    #[expect(
+        clippy::print_stderr,
+        clippy::disallowed_methods,
+        reason = "consistency: a measurement prints its result and reads the wall clock"
+    )]
+    fn block_access_cost() {
+        let states = plain_states();
+        for r in [2, 8, 16] {
+            let mut w = world(&Flat, r);
+            let mut rng = Rng(0x00e1_0002);
+            let span = usize::try_from(32 * r).unwrap();
+            let positions: Vec<BlockPos> = (0..1_000_000)
+                .map(|_| {
+                    BlockPos::new(
+                        i32::try_from(rng.below(span)).unwrap() - 16 * r,
+                        -64 + i32::try_from(rng.below(64)).unwrap(),
+                        i32::try_from(rng.below(span)).unwrap() - 16 * r,
+                    )
+                })
+                .collect();
+            let start = std::time::Instant::now();
+            let mut found = 0usize;
+            for &p in &positions {
+                found += usize::from(w.block(p).is_some());
+            }
+            let get = start.elapsed();
+            let start = std::time::Instant::now();
+            for (i, &p) in positions.iter().enumerate() {
+                w.set_block(p, states[i % 64]).unwrap();
+                if i % 1_000 == 0 {
+                    w.take_changes();
+                }
+            }
+            let set = start.elapsed();
+            // Again over the same positions: the sub-chunks exist and their palettes are wide.
+            let start = std::time::Instant::now();
+            for (i, &p) in positions.iter().enumerate() {
+                w.set_block(p, states[(i + 7) % 64]).unwrap();
+                if i % 1_000 == 0 {
+                    w.take_changes();
+                }
+            }
+            let again = start.elapsed();
+            // The same lookups through a hash map with a fixed hash, for comparison.
+            #[expect(
+                clippy::disallowed_types,
+                reason = "consistency: the measurement compares the index with a hash map"
+            )]
+            let map: std::collections::HashMap<
+                ChunkPos,
+                u8,
+                std::hash::BuildHasherDefault<Fx>,
+            > = w.loaded().map(|p| (p, 0)).collect();
+            let tree: BTreeMap<ChunkPos, u8> = w.loaded().map(|p| (p, 0)).collect();
+            let start = std::time::Instant::now();
+            let mut hits = 0usize;
+            for &p in &positions {
+                hits += usize::from(map.contains_key(&p.chunk()));
+            }
+            let hash = start.elapsed();
+            let start = std::time::Instant::now();
+            for &p in &positions {
+                hits += usize::from(tree.contains_key(&p.chunk()));
+            }
+            let btree = start.elapsed();
+            eprintln!(
+                "  lookup only: hash {:.1} ns, btree {:.1} ns ({hits})",
+                hash.as_secs_f64() * 1e9 / 1e6,
+                btree.as_secs_f64() * 1e9 / 1e6
+            );
+            eprintln!(
+                "chunks {}: block {:.1} ns, set_block {:.1} ns (filling), {:.1} ns (again) ({found})",
+                w.loaded().count(),
+                get.as_secs_f64() * 1e9 / 1e6,
+                set.as_secs_f64() * 1e9 / 1e6,
+                again.as_secs_f64() * 1e9 / 1e6,
+            );
+        }
+    }
+}

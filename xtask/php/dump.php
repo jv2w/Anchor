@@ -10,7 +10,10 @@
  * with, not a reading of its source. Every list is sorted, so the same checkout writes the same
  * bytes. Files:
  * - blocks.json: every PMMP block state with its Bedrock serialization, light values, random
- *   ticking and the legacy meta PMMP sends for it as an exact recipe ingredient.
+ *   ticking, the legacy meta PMMP sends for it as an exact recipe ingredient, the horizontal faces
+ *   with full support (Block::getSupportType) and, for blocks whose state PMMP works out from
+ *   their neighbours (fences, panes, walls, fence gates, stairs, tripwire and its hooks), what
+ *   that needs: the kind, the facing and, for stairs, the full faces of every shape.
  * - items.json: every PMMP item type with its Bedrock serialization and PMMP names.
  * - creative.json: the creative inventory in order, with its groups.
  * - recipes.json: the recipes PMMP loads from bedrock-data, plus the smithing recipes PMMP leaves
@@ -27,8 +30,17 @@ declare(strict_types=1);
 require 'vendor/autoload.php';
 
 use pocketmine\block\Block;
+use pocketmine\block\Fence;
+use pocketmine\block\FenceGate;
 use pocketmine\block\RuntimeBlockStateRegistry;
+use pocketmine\block\Stair;
+use pocketmine\block\Thin;
+use pocketmine\block\Tripwire;
+use pocketmine\block\TripwireHook;
+use pocketmine\block\utils\StairShape;
+use pocketmine\block\utils\SupportType;
 use pocketmine\block\VanillaBlocks;
+use pocketmine\block\Wall;
 use pocketmine\crafting\CraftingManagerFromDataHelper;
 use pocketmine\crafting\ExactRecipeIngredient;
 use pocketmine\crafting\FurnaceType;
@@ -47,6 +59,7 @@ use pocketmine\item\Item;
 use pocketmine\item\StringToItemParser;
 use pocketmine\item\VanillaItems;
 use pocketmine\lang\Translatable;
+use pocketmine\math\Facing;
 use pocketmine\nbt\tag\ByteArrayTag;
 use pocketmine\nbt\tag\ByteTag;
 use pocketmine\nbt\tag\CompoundTag;
@@ -197,6 +210,62 @@ function helper(string $method, mixed ...$args) : mixed{
 	return (fn() => self::$method(...$args))->bindTo(null, CraftingManagerFromDataHelper::class)();
 }
 
+/** The horizontal faces, in the order the dump writes them. */
+const HORIZONTAL = [Facing::NORTH => "north", Facing::EAST => "east", Facing::SOUTH => "south", Facing::WEST => "west"];
+
+function facingName(int $facing) : string{
+	return HORIZONTAL[$facing] ?? fail("facing $facing is not horizontal");
+}
+
+/** The horizontal faces of the block with full support (Block::getSupportType). @return string[] */
+function fullFaces(Block $block) : array{
+	$faces = [];
+	foreach(HORIZONTAL as $facing => $name){
+		if($block->getSupportType($facing) === SupportType::FULL){
+			$faces[] = $name;
+		}
+	}
+	return $faces;
+}
+
+/**
+ * What PMMP needs to work out the block's state from its neighbours (Block::readStateFromWorld,
+ * Wall::recalculateConnections, FenceGate::checkInWall), or null. A fence's group is its class:
+ * PMMP connects a fence to the fences of its own class (`instanceof static`).
+ */
+function connect(Block $block) : ?array{
+	return match(true){
+		$block instanceof Fence => ["kind" => "fence", "group" => (new \ReflectionClass($block))->getShortName()],
+		$block instanceof Thin => ["kind" => "thin"],
+		$block instanceof Wall => ["kind" => "wall"],
+		$block instanceof FenceGate => ["kind" => "fence_gate", "facing" => facingName($block->getFacing())],
+		$block instanceof Stair => [
+			"kind" => "stair",
+			"facing" => facingName($block->getFacing()),
+			"upside_down" => $block->isUpsideDown(),
+			"shapes" => stairShapes($block),
+		],
+		$block instanceof Tripwire => ["kind" => "tripwire"],
+		$block instanceof TripwireHook => ["kind" => "tripwire_hook", "facing" => facingName($block->getFacing())],
+		default => null,
+	};
+}
+
+/** The full faces of a stair in each shape, by the client's `minecraft:corner` value. @return array<string, string[]> */
+function stairShapes(Stair $stair) : array{
+	$shapes = [];
+	foreach([
+		"none" => StairShape::STRAIGHT,
+		"inner_left" => StairShape::INNER_LEFT,
+		"inner_right" => StairShape::INNER_RIGHT,
+		"outer_left" => StairShape::OUTER_LEFT,
+		"outer_right" => StairShape::OUTER_RIGHT,
+	] as $corner => $shape){
+		$shapes[$corner] = fullFaces((clone $stair)->setShape($shape));
+	}
+	return $shapes;
+}
+
 $out = $argv[1] ?? fail("usage: php dump.php <output directory>");
 if(!is_dir($out)){
 	fail("$out is not a directory");
@@ -212,7 +281,7 @@ $serializer = GlobalBlockStateHandlers::getSerializer();
 $translator = TypeConverter::getInstance()->getBlockTranslator();
 $blocks = [];
 foreach(RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $stateId => $block){
-	$blocks[] = [
+	$entry = [
 		"type" => $typeNames[$block->getTypeId()] ?? fail("block type {$block->getTypeId()} has no name"),
 		"bedrock" => blockState($serializer->serialize($stateId)),
 		"light_emission" => $block->getLightLevel(),
@@ -220,7 +289,13 @@ foreach(RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $stateI
 		"blocks_direct_sky_light" => $block->blocksDirectSkyLight(),
 		"ticks_randomly" => $block->ticksRandomly(),
 		"recipe_meta" => $translator->getBlockStateDictionary()->getMetaFromStateId($translator->internalIdToNetworkId($stateId)) ?? fail("state $stateId has no meta"),
+		"full_faces" => fullFaces($block),
 	];
+	$connect = connect($block);
+	if($connect !== null){
+		$entry["connect"] = $connect;
+	}
+	$blocks[] = $entry;
 }
 write($out, "blocks.json", lines(sortByJson($blocks)));
 

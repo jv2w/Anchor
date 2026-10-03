@@ -1,7 +1,8 @@
-# P6 deferral table (PLAN.md 10.2): packets BDS sends in the spawn window that Anchor M2 does not
-# send yet, with the milestone (PLAN.md 10) that adds them. `cargo xtask p6 compare` removes them
-# from both captures. Remove a line when its milestone sends the packet.
-# <packet> <milestone> <reason>
+# P6 deferral table (PLAN.md 10.2): packets BDS sends in the spawn window that Anchor does not
+# send yet, with the milestone (PLAN.md 10) that adds them, or `-` for packets Anchor never sends.
+# `cargo xtask p6 compare` removes them from both captures. Remove a line when its milestone sends
+# the packet.
+# <packet> <milestone|-> <reason>
 
 # Inventory, smithing trims, the recipe book and collision shapes (M7; PMMP sends none of the last
 # three, PLAN.md 10.4)
@@ -11,14 +12,11 @@ UnlockedRecipes M7 recipe book
 InventoryContent M7 inventory windows hold items
 PlayerHotBar M7 inventory hotbar selection
 
-# World and chunks (M6)
-LevelChunk M6 chunk sending
-SubChunk M6 sub-chunk request answers
-NetworkChunkPublisherUpdate M6 chunk sending radius
-BiomeDefinitionList M6 biome data for chunks
-SetSpawnPosition M6 world spawn point
-JigsawStructureData M6 vanilla structure data (vanilla generation is out of scope; check whether the client needs it)
-CurrentStructureFeature M6 structure at the player position
+# Vanilla structures: out of scope (CLAUDE.md 1, no vanilla generation); PMMP and dragonfly do not
+# send these either (PLAN.md 10.6). While JigsawStructureData is listed, `p6 anchor` shows the
+# CloudburstMC check without failing.
+JigsawStructureData - vanilla jigsaw structure data; Anchor generates no vanilla structures
+CurrentStructureFeature - the vanilla structure at the player position; there are none
 
 # Game features and entities (M7)
 PlayerList M7 player list with skins

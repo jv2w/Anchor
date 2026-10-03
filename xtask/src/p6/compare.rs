@@ -3,7 +3,9 @@
 //! are removed from both windows; the remaining name sequences must be equal, and so must the
 //! fixed fields of each pair of same-named packets (paired in order). NetherNet captures also hold
 //! the server's answer SDP, whose line structure must be equal (see `compare_structure`). The item
-//! packets the bot writes in full (`<capture>.items.jsonl`) are compared by `compare_items`.
+//! packets the bot writes in full (`<capture>.items.jsonl`) are compared by `compare_items`, the
+//! chunk packets of the whole captures by `compare_chunks` and the steps of two blocks captures by
+//! `compare_steps`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,6 +30,13 @@ pub(crate) struct Received {
 #[derive(Debug, Default)]
 pub(crate) struct Deferred(BTreeMap<String, String>);
 
+impl Deferred {
+    /// Whether the table holds the packet.
+    pub(crate) fn contains(&self, name: &str) -> bool {
+        self.0.contains_key(name)
+    }
+}
+
 /// Fields that must be equal, as field paths by packet name.
 #[derive(Debug, Default)]
 pub(crate) struct Fields(BTreeMap<String, Vec<Vec<String>>>);
@@ -44,12 +53,14 @@ pub(crate) fn parse_deferred(text: &str) -> Result<Deferred, String> {
                 "{DEFERRED_PATH}:{number}: want `<packet> <milestone> <reason>`"
             ));
         };
-        let valid = milestone
-            .strip_prefix('M')
-            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        // `-`: Anchor never sends the packet (the reason says why).
+        let valid = milestone == "-"
+            || milestone
+                .strip_prefix('M')
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
         if !valid {
             return Err(format!(
-                "{DEFERRED_PATH}:{number}: milestone `{milestone}` is not M<number>"
+                "{DEFERRED_PATH}:{number}: milestone `{milestone}` is not M<number> or -"
             ));
         }
         if map.insert(name.to_owned(), milestone.to_owned()).is_some() {
@@ -255,11 +266,16 @@ pub(crate) fn compare(
     differences
 }
 
-/// The packets of a window that are not deferred.
+/// The chunk packets: they interleave with the spawn window by timing (a server sends them as
+/// chunks load, BDS from before the radius answer), so the window leaves them out and
+/// [`compare_chunks`] compares them by their own rules.
+const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
+
+/// The packets of a window that are neither deferred nor chunk packets.
 fn kept<'a>(window: &'a [Received], deferred: &Deferred) -> Vec<&'a Received> {
     window
         .iter()
-        .filter(|p| !deferred.0.contains_key(&p.name))
+        .filter(|p| !deferred.0.contains_key(&p.name) && !CHUNK_PACKETS.contains(&p.name.as_str()))
         .collect()
 }
 
@@ -744,6 +760,545 @@ fn recipe_notes(a: &Value, b: &Value) -> Vec<String> {
     notes
 }
 
+/// The chunk packets of a capture, made independent of where the player spawned: chunk positions
+/// are relative to the spawn chunk (the player position of `StartGame`) and publisher positions relative
+/// to the player's block column.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Chunks {
+    /// Each `LevelChunk` in order: its relative position and its fields without the position.
+    pub(crate) level: Vec<([i64; 2], String)>,
+    /// How many `LevelChunk`s came before `PlayStatus(PlayerSpawn)`.
+    pub(crate) before_spawn: usize,
+    /// The `SubChunk` entries by relative request centre and offset: the entry's fields without the
+    /// offset, the packet's `CacheEnabled` and `Dimension`, and the bot's strict payload check
+    /// (`strict` and each layer's `content_sha256`). A key answered twice has two values.
+    pub(crate) sub: BTreeMap<([i64; 3], [i64; 3]), Vec<String>>,
+    /// Payloads that broke Anchor's strict sub-chunk rules: key and reason.
+    pub(crate) not_strict: Vec<String>,
+    /// Each `NetworkChunkPublisherUpdate`: relative x and z, radius, saved chunk count, and whether
+    /// it came after `ChunkRadiusUpdated`.
+    pub(crate) publisher: Vec<([i64; 2], u64, usize, bool)>,
+    /// The radius of the first `ChunkRadiusUpdated`.
+    pub(crate) radius: Option<u64>,
+}
+
+/// Reads the chunk packets of a capture (the whole capture, not only the spawn window).
+pub(crate) fn chunks(capture: &str) -> Result<Chunks, String> {
+    let mut reader = ChunkReader::default();
+    for (i, line) in capture.lines().enumerate() {
+        let value: Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
+        reader
+            .line(&value)
+            .map_err(|e| format!("line {}: {e}", i + 1))?;
+    }
+    reader.flush(None);
+    Ok(reader.out)
+}
+
+/// The entries of one `SubChunk` packet, waiting for the bot's check line of it.
+#[derive(Debug)]
+struct SubChunkPacket {
+    index: u64,
+    centre: [i64; 3],
+    /// Each entry's offset and its other fields.
+    entries: Vec<(Value, Value)>,
+}
+
+/// The state of `chunks` between capture lines.
+#[derive(Debug, Default)]
+struct ChunkReader {
+    out: Chunks,
+    /// The spawn chunk and the player's block column (x, z).
+    origin: Option<([i64; 2], [i64; 2])>,
+    spawned: bool,
+    pending: Option<SubChunkPacket>,
+}
+
+impl ChunkReader {
+    fn line(&mut self, value: &Value) -> Result<(), String> {
+        let fields = field(value, "fields");
+        let kind = field(value, "type").as_str();
+        let name = field(value, "name").as_str().unwrap_or_default();
+        if kind == Some("subchunk") {
+            self.flush(Some(value));
+            return Ok(());
+        }
+        if kind != Some("packet") {
+            return Ok(());
+        }
+        match name {
+            "StartGame" => {
+                let position = field(fields, "PlayerPosition");
+                let block = |i: usize| {
+                    position
+                        .get(i)
+                        .and_then(Value::as_f64)
+                        .map(f64::floor)
+                        .filter(|v| v.abs() < 1e9)
+                        .ok_or_else(|| format!("StartGame PlayerPosition {position}"))
+                };
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "safety: whole numbers below 1e9 in size"
+                )]
+                let column = [block(0)? as i64, block(2)? as i64];
+                self.origin = Some((column.map(|c| c.div_euclid(16)), column));
+            }
+            "LevelChunk" | "SubChunk" | "NetworkChunkPublisherUpdate" => {
+                let (chunk, column) = self
+                    .origin
+                    .ok_or_else(|| format!("{name} before StartGame"))?;
+                let position = field(fields, "Position");
+                match name {
+                    "LevelChunk" => {
+                        let at = [at(position, 0)? - chunk[0], at(position, 1)? - chunk[1]];
+                        let mut rest = fields.clone();
+                        if let Some(map) = rest.as_object_mut() {
+                            map.remove("Position");
+                        }
+                        self.out.level.push((at, rest.to_string()));
+                        if !self.spawned {
+                            self.out.before_spawn += 1;
+                        }
+                    }
+                    "SubChunk" => {
+                        let centre = [
+                            at(position, 0)? - chunk[0],
+                            at(position, 1)?,
+                            at(position, 2)? - chunk[1],
+                        ];
+                        self.flush(None);
+                        self.pending = Some(SubChunkPacket {
+                            index: field(value, "index").as_u64().unwrap_or(u64::MAX),
+                            centre,
+                            entries: sub_chunk_entries(fields),
+                        });
+                    }
+                    _ => self.out.publisher.push((
+                        [at(position, 0)? - column[0], at(position, 2)? - column[1]],
+                        field(fields, "Radius").as_u64().unwrap_or(u64::MAX),
+                        array(fields, "SavedChunks").len(),
+                        self.out.radius.is_some(),
+                    )),
+                }
+            }
+            "ChunkRadiusUpdated" => {
+                self.out.radius = self
+                    .out
+                    .radius
+                    .or_else(|| field(fields, "ChunkRadius").as_u64());
+            }
+            // 3 is PlayerSpawn.
+            "PlayStatus" => self.spawned |= field(fields, "Status").as_u64() == Some(3),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Stores the pending `SubChunk` packet with the bot's check line of it, if `check` is one.
+    fn flush(&mut self, check: Option<&Value>) {
+        let Some(packet) = self.pending.take() else {
+            return;
+        };
+        let checks = check
+            .filter(|c| field(c, "index").as_u64() == Some(packet.index))
+            .map_or(&[][..], |c| array(c, "entries"));
+        for (n, (offset, mut entry)) in packet.entries.into_iter().enumerate() {
+            let offset =
+                [0, 1, 2].map(|i| offset.get(i).and_then(Value::as_i64).unwrap_or(i64::MAX));
+            let payload = checks
+                .get(n)
+                .map(|c| field(c, "payload"))
+                .filter(|p| !p.is_null());
+            if let (Some(payload), Some(map)) = (payload, entry.as_object_mut()) {
+                let strict = field(payload, "strict").clone();
+                if strict.as_str() != Some("ok") {
+                    self.out
+                        .not_strict
+                        .push(format!("{:?} {offset:?}: {strict}", packet.centre));
+                }
+                let content: Vec<Value> = array(payload, "layers")
+                    .iter()
+                    .map(|l| field(l, "content_sha256").clone())
+                    .collect();
+                map.insert("strict".to_owned(), strict);
+                map.insert("content".to_owned(), Value::Array(content));
+            }
+            self.out
+                .sub
+                .entry((packet.centre, offset))
+                .or_default()
+                .push(entry.to_string());
+        }
+    }
+}
+
+/// Coordinate `i` of a JSON position.
+fn at(position: &Value, i: usize) -> Result<i64, String> {
+    position
+        .get(i)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| format!("{position} is not a position"))
+}
+
+/// The entries of a `SubChunk` packet's fields: each entry's offset and its other fields, with the
+/// packet's `CacheEnabled` and `Dimension` added.
+fn sub_chunk_entries(fields: &Value) -> Vec<(Value, Value)> {
+    array(fields, "SubChunkEntries")
+        .iter()
+        .map(|e| {
+            let mut e = e.clone();
+            let offset = e
+                .as_object_mut()
+                .and_then(|m| m.remove("Offset"))
+                .unwrap_or_default();
+            if let Some(m) = e.as_object_mut() {
+                for key in ["CacheEnabled", "Dimension"] {
+                    m.insert(key.to_owned(), field(fields, key).clone());
+                }
+            }
+            (offset, e)
+        })
+        .collect()
+}
+
+/// Compares the chunk packets of A (BDS) and B. Differences:
+/// - the distinct `LevelChunk` field sets (without the position) differ: the same flat world must
+///   give the same chunks;
+/// - a `SubChunk` answer (by relative centre and offset) differs or only one side has it: result,
+///   height maps, payload hash and length, strict check and layer contents;
+/// - B's payloads break Anchor's strict sub-chunk rules;
+/// - B sent its chunks before spawning not nearest first (PLAN.md 10.6), or a chunk twice;
+/// - the publisher updates after `ChunkRadiusUpdated`, runs of equal values counted once, differ.
+///
+/// The counts and the publisher updates before `ChunkRadiusUpdated` are notes.
+pub(crate) fn compare_chunks(a: &Chunks, b: &Chunks) -> (Vec<String>, Vec<String>) {
+    let mut differences = Vec::new();
+    let mut notes = Vec::new();
+    let shapes =
+        |c: &Chunks| -> BTreeSet<String> { c.level.iter().map(|(_, s)| s.clone()).collect() };
+    let (shapes_a, shapes_b) = (shapes(a), shapes(b));
+    if shapes_a != shapes_b {
+        differences.push(format!(
+            "LevelChunk fields differ:\n  A: {}\n  B: {}",
+            shapes_a.into_iter().collect::<Vec<_>>().join(" | "),
+            shapes_b.into_iter().collect::<Vec<_>>().join(" | ")
+        ));
+    }
+    let keys: BTreeSet<&([i64; 3], [i64; 3])> = a.sub.keys().chain(b.sub.keys()).collect();
+    let mut shown = 0;
+    for key in keys {
+        let (x, y) = (a.sub.get(key), b.sub.get(key));
+        if x != y {
+            shown += 1;
+            if shown <= SHOWN {
+                let show = |v: Option<&Vec<String>>| {
+                    v.map_or_else(|| "(none)".to_owned(), |v| v.join(", "))
+                };
+                differences.push(format!(
+                    "SubChunk centre {:?} offset {:?}:\n  A: {}\n  B: {}",
+                    key.0,
+                    key.1,
+                    show(x),
+                    show(y)
+                ));
+            }
+        }
+    }
+    if shown > SHOWN {
+        differences.push(format!("... {} more SubChunk differences", shown - SHOWN));
+    }
+    differences.extend(listed(
+        "B payloads that break the strict sub-chunk rules",
+        &b.not_strict,
+    ));
+    notes.extend(listed(
+        "A payloads that break the strict sub-chunk rules",
+        &a.not_strict,
+    ));
+    let before: Vec<i64> = b
+        .level
+        .iter()
+        .take(b.before_spawn)
+        .map(|(p, _)| p[0] * p[0] + p[1] * p[1])
+        .collect();
+    if before.windows(2).any(|w| w.first() > w.get(1)) {
+        differences.push("B sent its chunks before spawning not nearest first".to_owned());
+    }
+    let positions: BTreeSet<[i64; 2]> = b.level.iter().map(|(p, _)| *p).collect();
+    if positions.len() != b.level.len() {
+        differences.push(format!(
+            "B sent {} LevelChunks for {} positions",
+            b.level.len(),
+            positions.len()
+        ));
+    }
+    let runs = |c: &Chunks, after: bool| {
+        let mut out: Vec<String> = Vec::new();
+        for (at, radius, saved, later) in &c.publisher {
+            let text = format!("({},{}) radius {radius} saved {saved}", at[0], at[1]);
+            if *later == after && out.last() != Some(&text) {
+                out.push(text);
+            }
+        }
+        out
+    };
+    let (after_a, after_b) = (runs(a, true), runs(b, true));
+    if after_a != after_b {
+        differences.push(format!(
+            "NetworkChunkPublisherUpdate after ChunkRadiusUpdated differs:\n  A: {}\n  B: {}",
+            after_a.join(", "),
+            after_b.join(", ")
+        ));
+    }
+    for (name, c) in [("A", a), ("B", b)] {
+        let count = |after: bool| c.publisher.iter().filter(|p| p.3 == after).count();
+        notes.push(format!(
+            "{name}: {} LevelChunks ({} before spawning), {} SubChunk answers, chunk radius {:?}, \
+             publisher updates {} before the radius ({}) and {} after",
+            c.level.len(),
+            c.before_spawn,
+            c.sub.values().map(Vec::len).sum::<usize>(),
+            c.radius,
+            count(false),
+            runs(c, false).join(", "),
+            count(true)
+        ));
+    }
+    (differences, notes)
+}
+
+/// The marker of the blocks scenario: its position relative to the base position and the states
+/// (as `p6::block_states` writes them) that end a step (alternating) and the scenario; and the
+/// positions the steps can change (each step position and its 8 horizontal neighbours). Changes
+/// elsewhere are the server's own (BDS turns grass under placed blocks into dirt on random ticks)
+/// and are only counted.
+#[derive(Debug)]
+pub(crate) struct Markers {
+    pub(crate) position: [i64; 3],
+    pub(crate) steps: [String; 2],
+    pub(crate) end: String,
+    pub(crate) near: BTreeSet<[i64; 3]>,
+}
+
+/// One block change entry of a blocks capture.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Change {
+    /// `UpdateBlock` or `UpdateSubChunkBlocks`.
+    pub(crate) kind: &'static str,
+    /// The capture index of the packet that carried it.
+    pub(crate) packet: u64,
+    /// Relative to the base position.
+    pub(crate) position: [i64; 3],
+    pub(crate) layer: u64,
+    pub(crate) flags: u64,
+    pub(crate) state: String,
+}
+
+/// The block packets of one step of the blocks scenario.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Step {
+    pub(crate) changes: Vec<Change>,
+    /// The names of the other block packets (`BlockActorData`, `UpdateBlockSynced`), in order.
+    pub(crate) others: Vec<String>,
+    /// Changes away from the step positions (`Markers::near`), not compared.
+    pub(crate) ignored: Vec<Change>,
+}
+
+/// Splits the block changes of a blocks capture into steps. A step ends with the change that sets
+/// the marker position to the step's marker state; the end marker ends the scenario. Changes before
+/// the first step's block (none are expected) belong to step 0. Returns the steps and whether the
+/// end marker came. Chunks and sub-chunks are not block changes.
+pub(crate) fn block_steps(
+    capture: &str,
+    base: [i64; 3],
+    markers: &Markers,
+    states: &BTreeMap<u32, String>,
+) -> Result<(Vec<Step>, bool), String> {
+    let mut steps = Vec::new();
+    let mut current = Step::default();
+    let state = |id: &Value| {
+        id.as_u64()
+            .and_then(|id| u32::try_from(id).ok())
+            .and_then(|id| states.get(&id))
+            .map_or_else(|| format!("unknown {id}"), String::clone)
+    };
+    let relative = |position: &Value| -> Result<[i64; 3], String> {
+        let mut out = [0; 3];
+        for (i, (slot, b)) in out.iter_mut().zip(base).enumerate() {
+            let v = position
+                .get(i)
+                .and_then(Value::as_i64)
+                .ok_or_else(|| format!("block position {position} is not a position"))?;
+            *slot = v.saturating_sub(b);
+        }
+        Ok(out)
+    };
+    for (i, line) in capture.lines().enumerate() {
+        let value: Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
+        if field(&value, "type").as_str() != Some("packet") {
+            continue;
+        }
+        let fields = field(&value, "fields");
+        let packet = field(&value, "index").as_u64().unwrap_or_default();
+        let mut changes = Vec::new();
+        match field(&value, "name").as_str().unwrap_or_default() {
+            "UpdateBlock" => changes.push(Change {
+                kind: "UpdateBlock",
+                packet,
+                position: relative(field(fields, "Position"))?,
+                layer: field(fields, "Layer").as_u64().unwrap_or(u64::MAX),
+                flags: field(fields, "Flags").as_u64().unwrap_or(u64::MAX),
+                state: state(field(fields, "NewBlockRuntimeID")),
+            }),
+            "UpdateSubChunkBlocks" => {
+                for (layer, key) in [(0, "Blocks"), (1, "Extra")] {
+                    for entry in array(fields, key) {
+                        changes.push(Change {
+                            kind: "UpdateSubChunkBlocks",
+                            packet,
+                            position: relative(field(entry, "BlockPos"))?,
+                            layer,
+                            flags: field(entry, "Flags").as_u64().unwrap_or(u64::MAX),
+                            state: state(field(entry, "BlockRuntimeID")),
+                        });
+                    }
+                }
+            }
+            name @ ("BlockActorData" | "UpdateBlockSynced") => current.others.push(name.to_owned()),
+            _ => {}
+        }
+        for change in changes {
+            if change.position != markers.position {
+                if markers.near.contains(&change.position) {
+                    current.changes.push(change);
+                } else {
+                    current.ignored.push(change);
+                }
+            } else if change.state == markers.end {
+                // Changes after the last step's marker form one more step, which fails a comparison.
+                if !current.changes.is_empty() || !current.others.is_empty() {
+                    steps.push(current);
+                }
+                return Ok((steps, true));
+            } else {
+                let want = markers.steps.get(steps.len() % 2).map(String::as_str);
+                if Some(change.state.as_str()) != want {
+                    return Err(format!(
+                        "step {}: the marker became {}, want {}",
+                        steps.len(),
+                        change.state,
+                        want.unwrap_or_default()
+                    ));
+                }
+                steps.push(std::mem::take(&mut current));
+            }
+        }
+    }
+    Ok((steps, false))
+}
+
+/// What one step changed: per (layer, position) the last state and flags, and the packet kinds that
+/// carried the changes.
+#[derive(Debug, PartialEq)]
+pub(crate) struct StepSummary {
+    pub(crate) last: BTreeMap<(u64, [i64; 3]), (String, u64)>,
+    pub(crate) kinds: BTreeSet<&'static str>,
+    pub(crate) packets: usize,
+    pub(crate) others: BTreeSet<String>,
+}
+
+impl StepSummary {
+    pub(crate) fn of(step: &Step) -> Self {
+        let mut last = BTreeMap::new();
+        for c in &step.changes {
+            last.insert((c.layer, c.position), (c.state.clone(), c.flags));
+        }
+        let packets: BTreeSet<u64> = step.changes.iter().map(|c| c.packet).collect();
+        Self {
+            last,
+            kinds: step.changes.iter().map(|c| c.kind).collect(),
+            packets: packets.len(),
+            others: step.others.iter().cloned().collect(),
+        }
+    }
+
+    /// The packet kind Anchor sends for this step (PLAN.md 10.6): `UpdateBlock` when one position
+    /// changed, else `UpdateSubChunkBlocks`. BDS repeats a position in one `UpdateSubChunkBlocks`
+    /// (a block and its neighbour's update of it) and sometimes sends a block and its neighbours'
+    /// updates in two packets of consecutive ticks; neither is followed.
+    fn normalized_kinds(&self) -> BTreeSet<&'static str> {
+        match self.last.len() {
+            0 => BTreeSet::new(),
+            1 => BTreeSet::from(["UpdateBlock"]),
+            _ => BTreeSet::from(["UpdateSubChunkBlocks"]),
+        }
+    }
+}
+
+/// Compares the steps of two blocks captures, A (BDS) and B: per step, the last state and flags of
+/// every position, B's packet kinds against A's normalized ones (`StepSummary::normalized_kinds`)
+/// and the other block packet names. `labels` name the steps in messages. Returns the differences
+/// and notes on the steps where A's own packet kinds differ from its normalized ones.
+pub(crate) fn compare_steps(
+    a: &[Step],
+    b: &[Step],
+    labels: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let mut differences = Vec::new();
+    let mut notes = Vec::new();
+    if a.len() != b.len() {
+        differences.push(format!("blocks: A has {} steps, B {}", a.len(), b.len()));
+    }
+    for (n, (x, y)) in a.iter().zip(b).enumerate() {
+        let label = labels.get(n).map_or("", String::as_str);
+        let (x, y) = (StepSummary::of(x), StepSummary::of(y));
+        let positions: BTreeSet<&(u64, [i64; 3])> = x.last.keys().chain(y.last.keys()).collect();
+        for key in positions {
+            let (vx, vy) = (x.last.get(key), y.last.get(key));
+            if vx != vy {
+                let show = |v: Option<&(String, u64)>| {
+                    v.map_or_else(
+                        || "(nothing)".to_owned(),
+                        |(state, flags)| format!("{state} flags {flags}"),
+                    )
+                };
+                let [dx, dy, dz] = key.1;
+                differences.push(format!(
+                    "blocks step {n} ({label}): ({dx},{dy},{dz}) layer {}: A {} != B {}",
+                    key.0,
+                    show(vx),
+                    show(vy)
+                ));
+            }
+        }
+        let kx = x.normalized_kinds();
+        if kx != y.kinds {
+            differences.push(format!(
+                "blocks step {n} ({label}): packets A {kx:?} (normalized) != B {:?}",
+                y.kinds
+            ));
+        }
+        if kx != x.kinds {
+            notes.push(format!(
+                "blocks step {n} ({label}): A sent {:?} for {} positions in {} packets",
+                x.kinds,
+                x.last.len(),
+                x.packets
+            ));
+        }
+        if x.others != y.others {
+            differences.push(format!(
+                "blocks step {n} ({label}): other block packets A {:?} != B {:?}",
+                x.others, y.others
+            ));
+        }
+    }
+    (differences, notes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -797,9 +1352,11 @@ mod tests {
     fn sequence_and_field_differences_are_reported() {
         let (deferred, fields) = tables("", "StartGame Movement.Rewind\n");
         let a = window(CAPTURE).expect("window");
-        let other = CAPTURE.replace("\"Rewind\":40", "\"Rewind\":20");
-        let mut b = window(&other).expect("window");
-        b.remove(1);
+        // Chunk packets are left out of the sequence (compare_chunks has them), another is not.
+        let other = CAPTURE
+            .replace("\"Rewind\":40", "\"Rewind\":20")
+            .replace("\"name\":\"LevelChunk\"", "\"name\":\"PlayStatus\"");
+        let b = window(&other).expect("window");
         let differences = compare(&a, &b, &deferred, &fields);
         assert_eq!(differences.len(), 2, "{differences:?}");
         assert!(differences[0].starts_with("packet sequences differ at position 1"));
@@ -1042,6 +1599,206 @@ mod tests {
         assert_eq!(
             notes[0],
             "CraftingData MultiRecipes: A 1, B 1, only in A 1, only in B 1"
+        );
+    }
+
+    /// Network IDs of the blocks capture tests: 1 fence, 2 fence connected east, 3 gold, 4 iron,
+    /// 5 diamond.
+    fn block_names() -> BTreeMap<u32, String> {
+        [
+            (1, "minecraft:oak_fence[east=0]"),
+            (2, "minecraft:oak_fence[east=1]"),
+            (3, "minecraft:gold_block[]"),
+            (4, "minecraft:iron_block[]"),
+            (5, "minecraft:diamond_block[]"),
+        ]
+        .into_iter()
+        .map(|(id, name)| (id, name.to_owned()))
+        .collect()
+    }
+
+    fn markers() -> Markers {
+        Markers {
+            position: [-4, 0, 0],
+            steps: [
+                "minecraft:gold_block[]".to_owned(),
+                "minecraft:iron_block[]".to_owned(),
+            ],
+            end: "minecraft:diamond_block[]".to_owned(),
+            near: (-1..=2)
+                .flat_map(|x| (-1..=1).map(move |z| [x, 0, z]))
+                .collect(),
+        }
+    }
+
+    fn update(index: u32, x: i64, id: u32) -> String {
+        format!(
+            r#"{{"type":"packet","index":{index},"name":"UpdateBlock","fields":{{"Position":[{x},-60,2],"NewBlockRuntimeID":{id},"Flags":3,"Layer":0}}}}"#
+        )
+    }
+
+    fn sub_chunk_update(index: u32, entries: &[(i64, u32)]) -> String {
+        let entries: Vec<String> = entries
+            .iter()
+            .map(|(x, id)| format!(r#"{{"BlockPos":[{x},-60,2],"BlockRuntimeID":{id},"Flags":3}}"#))
+            .collect();
+        format!(
+            r#"{{"type":"packet","index":{index},"name":"UpdateSubChunkBlocks","fields":{{"Blocks":[{}],"Extra":[]}}}}"#,
+            entries.join(",")
+        )
+    }
+
+    /// A blocks capture (base (2, -60, 2), marker at x -2): step 0 places a fence, step 1 a second
+    /// fence east of it, with BDS's repeated entry.
+    fn blocks_capture() -> String {
+        [
+            update(1, 2, 1),
+            update(2, -2, 3),
+            sub_chunk_update(3, &[(3, 1), (2, 2), (3, 1)]),
+            update(4, -2, 4),
+            update(5, -2, 5),
+        ]
+        .join("\n")
+    }
+
+    fn steps(capture: &str) -> (Vec<Step>, bool) {
+        block_steps(capture, [2, -60, 2], &markers(), &block_names()).expect("blocks capture")
+    }
+
+    #[test]
+    fn markers_split_block_changes_into_steps() {
+        let (steps, ended) = steps(&blocks_capture());
+        assert!(ended);
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].changes.len(), 1);
+        assert_eq!(steps[0].changes[0].position, [0, 0, 0]);
+        assert_eq!(steps[1].changes.len(), 3);
+        assert_eq!(steps[1].changes[1].state, "minecraft:oak_fence[east=1]");
+        // A change away from the steps (grass turning into dirt) is set aside.
+        let dirt = blocks_capture().replace(
+            &update(4, -2, 4),
+            &format!("{}\n{}", update(9, 9, 1), update(4, -2, 4)),
+        );
+        let (with_dirt, _) = self::steps(&dirt);
+        assert_eq!(with_dirt[1].changes, steps[1].changes);
+        assert_eq!(with_dirt[1].ignored.len(), 1);
+        // A wrong marker order is an error; a capture without the end marker is not ended.
+        let swapped = blocks_capture().replace(
+            r#"[-2,-60,2],"NewBlockRuntimeID":3"#,
+            r#"[-2,-60,2],"NewBlockRuntimeID":4"#,
+        );
+        assert!(block_steps(&swapped, [2, -60, 2], &markers(), &block_names()).is_err());
+        let cut = blocks_capture()
+            .lines()
+            .take(4)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!self::steps(&cut).1);
+    }
+
+    #[test]
+    fn steps_compare_last_states_and_normalized_packet_kinds() {
+        let (a, _) = steps(&blocks_capture());
+        // B sends step 1 without the repeated entry: the same last states and the same kind.
+        let b_capture = blocks_capture().replace(
+            &sub_chunk_update(3, &[(3, 1), (2, 2), (3, 1)]),
+            &sub_chunk_update(3, &[(3, 1), (2, 2)]),
+        );
+        let (b, _) = steps(&b_capture);
+        let labels = ["s0".to_owned(), "s1".to_owned()];
+        assert_eq!(compare_steps(&a, &b, &labels), (Vec::new(), Vec::new()));
+        // A different last state and a single position sent in an UpdateSubChunkBlocks differ;
+        // BDS's repeated entry for one position is a note, not a difference.
+        let c_capture = blocks_capture()
+            .replace(&update(1, 2, 1), &sub_chunk_update(1, &[(2, 1)]))
+            .replace(
+                &sub_chunk_update(3, &[(3, 1), (2, 2), (3, 1)]),
+                &sub_chunk_update(3, &[(3, 1), (2, 1)]),
+            );
+        let (c, _) = steps(&c_capture);
+        let (differences, notes) = compare_steps(&a, &c, &labels);
+        assert_eq!(differences.len(), 2, "{differences:?}");
+        assert!(differences[0].contains("packets A {\"UpdateBlock\"}"));
+        assert!(differences[1].contains("(0,0,0) layer 0: A minecraft:oak_fence[east=1] flags 3"));
+        assert!(notes.is_empty());
+        let one_position =
+            blocks_capture().replace(&update(1, 2, 1), &sub_chunk_update(1, &[(2, 1), (2, 1)]));
+        let (d, _) = steps(&one_position);
+        let (differences, notes) = compare_steps(&d, &a, &labels);
+        assert!(differences.is_empty(), "{differences:?}");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert_eq!(
+            compare_steps(&a, &a[..1], &labels).0,
+            ["blocks: A has 2 steps, B 1"]
+        );
+    }
+
+    /// A spawn capture with chunks: the player at block (16.5, 70, -0.5), so the spawn chunk is
+    /// (1, -1) and the column (16, -1).
+    fn chunk_capture(limit: u32, height: u32) -> String {
+        format!(
+            r#"{{"type":"packet","index":0,"name":"StartGame","fields":{{"PlayerPosition":[16.5,70,-0.5]}}}}
+{{"type":"packet","index":1,"name":"NetworkChunkPublisherUpdate","fields":{{"Position":[16,70,-1],"Radius":64,"SavedChunks":[]}}}}
+{{"type":"packet","index":2,"name":"ChunkRadiusUpdated","fields":{{"ChunkRadius":16}}}}
+{{"type":"packet","index":3,"name":"NetworkChunkPublisherUpdate","fields":{{"Position":[16,70,-1],"Radius":256,"SavedChunks":[]}}}}
+{{"type":"packet","index":4,"name":"LevelChunk","fields":{{"Position":[1,-1],"SubChunkCount":0,"SubChunkLimit":{limit},"RawPayload":"AQ=="}}}}
+{{"type":"packet","index":5,"name":"LevelChunk","fields":{{"Position":[2,-1],"SubChunkCount":0,"SubChunkLimit":{limit},"RawPayload":"AQ=="}}}}
+{{"type":"packet","index":6,"name":"PlayStatus","fields":{{"Status":3}}}}
+{{"type":"packet","index":7,"name":"SubChunk","fields":{{"CacheEnabled":false,"Dimension":0,"Position":[1,0,-1],"SubChunkEntries":[{{"Offset":[0,-4,0],"Result":1,"HeightMapType":1,"HeightMapData":[[{height}]],"RawPayload":{{"len":9,"sha256":"ab"}}}},{{"Offset":[0,-3,0],"Result":6,"HeightMapType":3,"HeightMapData":null,"RawPayload":null}}]}}}}
+{{"type":"subchunk","index":7,"entries":[{{"offset":[0,-4,0],"result":1,"payload":{{"strict":"ok","layers":[{{"content_sha256":"c1"}}]}}}},{{"offset":[0,-3,0],"result":6}}]}}
+{{"type":"packet","index":8,"name":"NetworkChunkPublisherUpdate","fields":{{"Position":[16,-59,-1],"Radius":256,"SavedChunks":[]}}}}"#
+        )
+    }
+
+    #[test]
+    fn chunk_packets_are_read_relative_to_the_spawn() {
+        let c = chunks(&chunk_capture(1, 4)).expect("capture");
+        assert_eq!(c.level.len(), 2);
+        assert_eq!((c.level[0].0, c.level[1].0), ([0, 0], [1, 0]));
+        assert_eq!(c.before_spawn, 2);
+        assert_eq!(c.radius, Some(16));
+        assert_eq!(
+            c.publisher,
+            [
+                ([0, 0], 64, 0, false),
+                ([0, 0], 256, 0, true),
+                ([0, 0], 256, 0, true)
+            ]
+        );
+        let key = ([0, 0, 0], [0, -4, 0]);
+        assert!(
+            c.sub[&key][0].contains(r#""content":["c1"]"#),
+            "{:?}",
+            c.sub
+        );
+        assert!(c.sub[&key][0].contains(r#""strict":"ok""#));
+        assert!(c.not_strict.is_empty());
+        assert_eq!(compare_chunks(&c, &c).0, Vec::<String>::new());
+    }
+
+    #[test]
+    fn chunk_differences_are_reported() {
+        let a = chunks(&chunk_capture(1, 4)).expect("capture");
+        let b = chunks(&chunk_capture(2, 5)).expect("capture");
+        let (differences, notes) = compare_chunks(&a, &b);
+        assert_eq!(differences.len(), 2, "{differences:?}");
+        assert!(differences[0].starts_with("LevelChunk fields differ"));
+        assert!(differences[1].starts_with("SubChunk centre [0, 0, 0] offset [0, -4, 0]"));
+        assert_eq!(notes.len(), 2);
+        // B's chunks before spawning must be nearest first, and B's payloads strict.
+        let far_first = chunk_capture(1, 4)
+            .replace(r#""Position":[1,-1],"Sub"#, r#""Position":[9,-1],"Sub"#)
+            .replace(r#""Position":[2,-1],"Sub"#, r#""Position":[1,-1],"Sub"#)
+            .replace(r#""strict":"ok""#, r#""strict":"width 7""#);
+        let c = chunks(&far_first).expect("capture");
+        let (differences, _) = compare_chunks(&a, &c);
+        assert!(
+            differences.iter().any(|d| d.contains("not nearest first")),
+            "{differences:?}"
+        );
+        assert!(
+            differences.iter().any(|d| d.contains("break the strict")),
+            "{differences:?}"
         );
     }
 }

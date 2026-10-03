@@ -1,11 +1,15 @@
-//! The input log (PLAN.md 5, 10.5): every input each tick applied, in order, so that a crash can
-//! be replayed from the last saved state.
+//! The input log (PLAN.md 5, 10.5, 10.6): every input each tick applied, in order, so that a crash
+//! can be replayed from the last saved state.
 //!
 //! The tick moves the inputs it has applied into the log, so recording copies nothing large.
 //! Packets are encoded only when the log is written, on the main thread after the tick thread
-//! ended. The log holds at most [`MAX_BYTES`] of inputs (counted by their size on the wire); past
-//! that it stops and marks itself truncated, and a replay ends there.
+//! ended. The log is a list of segments, one per save snapshot: a segment starts at the tick its
+//! snapshot was taken, and once that snapshot is committed the segments before it are dropped, so
+//! the log always starts at the last committed state. It holds at most [`MAX_BYTES`] of inputs
+//! (counted by their size on the wire); past that the segment being recorded stops and is marked
+//! truncated, and a replay ends there. The next snapshot starts a new segment.
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -15,6 +19,10 @@ use super::queue::{Identity, SessionId};
 use crate::clock;
 use crate::item::SHIELD_RUNTIME_ID;
 use crate::protocol::{self, packet::Packet};
+#[cfg(test)]
+use crate::save::PlayerData;
+use crate::save::{Loaded, PlayerLoad, Response, WorldIndex};
+use crate::world::ChunkPos;
 
 /// The most input bytes the log holds.
 pub(crate) const MAX_BYTES: usize = 64 << 20;
@@ -22,18 +30,49 @@ pub(crate) const MAX_BYTES: usize = 64 << 20;
 const ENTRY_COST: usize = 32;
 /// The first bytes of a written log.
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
-/// The written format's version.
-const FORMAT: u32 = 1;
+/// The written format's version: 2 adds the start tick.
+const FORMAT: u32 = 2;
 const KIND_JOIN: u8 = 0;
 const KIND_PACKET: u8 = 1;
 const KIND_LEAVE: u8 = 2;
 
 /// The input log.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct InputLog {
-    ticks: Vec<Tick>,
+    /// Oldest first; never empty. The first one starts at the last committed state.
+    segments: VecDeque<Segment>,
+    /// The bytes charged for every segment.
     bytes: usize,
+}
+
+/// The ticks recorded after one snapshot.
+#[derive(Debug)]
+struct Segment {
+    /// The tick the snapshot was taken before: the first tick this segment can hold.
+    start: u64,
+    ticks: Vec<Tick>,
+    /// The bytes charged for this segment.
+    bytes: usize,
+    /// Recording stopped at the bound; later ticks of this segment are missing.
     truncated: bool,
+}
+
+impl Segment {
+    fn new(start: u64) -> Self {
+        Self {
+            start,
+            ticks: Vec::new(),
+            bytes: 0,
+            truncated: false,
+        }
+    }
+}
+
+impl Default for InputLog {
+    /// A log that starts at tick 0.
+    fn default() -> Self {
+        Self::starting_at(0)
+    }
 }
 
 /// What one tick applied.
@@ -46,6 +85,55 @@ pub(crate) struct Tick {
     /// Sessions the tick forgot after its output because their queue was full or closed, in
     /// order. They are inputs too: a replay must forget them at the same point.
     pub(crate) dropped: Vec<SessionId>,
+    /// The save thread's answers the tick applied, in order, before the session inputs.
+    pub(crate) responses: Vec<Answer>,
+}
+
+/// A save thread answer as the log keeps it (PLAN.md 10.6): what arrived and where from, not
+/// the chunk itself, which a replay loads again from the same world file or generator.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Answer {
+    Chunk {
+        world: WorldIndex,
+        pos: ChunkPos,
+        origin: Origin,
+    },
+    Player {
+        key: String,
+        data: PlayerLoad,
+    },
+    Committed(u64),
+    CommitFailed(u64),
+}
+
+/// Where a loaded chunk came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Origin {
+    Disk,
+    Generated,
+    Damaged,
+}
+
+impl Answer {
+    fn of(response: &Response) -> Self {
+        match response {
+            Response::Chunk { world, pos, loaded } => Self::Chunk {
+                world: *world,
+                pos: *pos,
+                origin: match loaded {
+                    Loaded::Disk(_) => Origin::Disk,
+                    Loaded::Generated(_) => Origin::Generated,
+                    Loaded::Damaged => Origin::Damaged,
+                },
+            },
+            Response::Player { key, data } => Self::Player {
+                key: key.as_str().to_owned(),
+                data: data.clone(),
+            },
+            Response::Committed { start } => Self::Committed(*start),
+            Response::CommitFailed { start } => Self::CommitFailed(*start),
+        }
+    }
 }
 
 /// One applied input.
@@ -104,14 +192,50 @@ impl std::error::Error for Error {
 }
 
 impl InputLog {
+    /// A log whose state starts at tick `start`: the engine tick of the state it replays from.
+    pub(crate) fn starting_at(start: u64) -> Self {
+        Self {
+            segments: VecDeque::from([Segment::new(start)]),
+            bytes: 0,
+        }
+    }
+
+    /// Starts a segment at tick `start`, the tick a save snapshot was just taken before. The
+    /// segments before it are dropped once [`committed`](Self::committed) names `start`.
+    pub(crate) fn snapshot(&mut self, start: u64) {
+        if let Some(last) = self.segments.back_mut()
+            && last.start == start
+        {
+            return;
+        }
+        self.segments.push_back(Segment::new(start));
+    }
+
+    /// The snapshot taken before tick `start` is committed: the log now starts there. Does
+    /// nothing if no segment starts at `start`.
+    pub(crate) fn committed(&mut self, start: u64) {
+        if !self.segments.iter().any(|s| s.start == start) {
+            return;
+        }
+        while let Some(first) = self.segments.front()
+            && first.start != start
+        {
+            self.bytes = self.bytes.saturating_sub(first.bytes);
+            self.segments.pop_front();
+        }
+    }
+
     /// Starts the record of tick `number`; every tick counts against the bound, even an empty
-    /// one. Nothing is recorded once the log is truncated.
+    /// one. Nothing is recorded in a truncated segment.
     pub(crate) fn begin(&mut self, number: u64) {
-        if self.charge(0) == Charge::Fits {
-            self.ticks.push(Tick {
+        if self.charge(0) == Charge::Fits
+            && let Some(segment) = self.segments.back_mut()
+        {
+            segment.ticks.push(Tick {
                 number,
                 inputs: Vec::new(),
                 dropped: Vec::new(),
+                responses: Vec::new(),
             });
         }
     }
@@ -119,7 +243,7 @@ impl InputLog {
     /// Records an applied input of `size` bytes on the wire (0 for joins and leaves).
     pub(crate) fn record(&mut self, session: SessionId, seq: u64, kind: EntryKind, size: usize) {
         if self.charge_entry(size)
-            && let Some(tick) = self.ticks.last_mut()
+            && let Some(tick) = self.last_tick()
         {
             tick.inputs.push(Entry { session, seq, kind });
         }
@@ -128,21 +252,52 @@ impl InputLog {
     /// Records that the tick forgot `session` after its output.
     pub(crate) fn dropped(&mut self, session: SessionId) {
         if self.charge_entry(0)
-            && let Some(tick) = self.ticks.last_mut()
+            && let Some(tick) = self.last_tick()
         {
             tick.dropped.push(session);
         }
     }
 
-    /// Whether the log stopped at its bound.
-    pub(crate) fn is_truncated(&self) -> bool {
-        self.truncated
+    /// Records a save thread answer the tick applied.
+    pub(crate) fn response(&mut self, response: &Response) {
+        if self.charge_entry(0)
+            && let Some(tick) = self.last_tick()
+        {
+            tick.responses.push(Answer::of(response));
+        }
     }
 
-    /// The recorded ticks, oldest first.
+    /// The tick being recorded.
+    fn last_tick(&mut self) -> Option<&mut Tick> {
+        self.segments.back_mut()?.ticks.last_mut()
+    }
+
+    /// Whether a replay of this log stops before its last tick: a kept segment stopped at the
+    /// bound.
+    pub(crate) fn is_truncated(&self) -> bool {
+        self.segments.iter().any(|s| s.truncated)
+    }
+
+    /// The tick the log replays from.
+    pub(crate) fn start(&self) -> u64 {
+        self.segments.front().map_or(0, |s| s.start)
+    }
+
+    /// The ticks a replay applies, oldest first: every kept segment up to and including the first
+    /// truncated one.
+    fn replayable(&self) -> impl Iterator<Item = &Tick> {
+        let end = self
+            .segments
+            .iter()
+            .position(|s| s.truncated)
+            .map_or(self.segments.len(), |i| i.saturating_add(1));
+        self.segments.iter().take(end).flat_map(|s| &s.ticks)
+    }
+
+    /// The ticks a replay applies, oldest first.
     #[cfg(test)]
-    pub(crate) fn ticks(&self) -> &[Tick] {
-        &self.ticks
+    pub(crate) fn ticks(&self) -> Vec<Tick> {
+        self.replayable().cloned().collect()
     }
 
     /// Counts an entry of the tick being recorded; `false` if it is not recorded. When the bound
@@ -152,28 +307,35 @@ impl InputLog {
         match self.charge(size) {
             Charge::Fits => true,
             Charge::Full => {
-                self.ticks.pop();
+                if let Some(segment) = self.segments.back_mut() {
+                    segment.ticks.pop();
+                }
                 false
             }
             Charge::Truncated => false,
         }
     }
 
-    /// Counts `size` bytes and an entry's cost against the bound.
+    /// Counts `size` bytes and an entry's cost against the bound, for the segment being recorded.
     fn charge(&mut self, size: usize) -> Charge {
-        if self.truncated {
+        let Some(segment) = self.segments.back_mut() else {
+            return Charge::Truncated;
+        };
+        if segment.truncated {
             return Charge::Truncated;
         }
-        let bytes = self.bytes.saturating_add(size).saturating_add(ENTRY_COST);
+        let cost = size.saturating_add(ENTRY_COST);
+        let bytes = self.bytes.saturating_add(cost);
         if bytes > MAX_BYTES {
             warn!(
                 bytes = self.bytes,
-                "input log reached its bound; later ticks are not recorded"
+                "input log reached its bound; ticks until the next save are not recorded"
             );
-            self.truncated = true;
+            segment.truncated = true;
             return Charge::Full;
         }
         self.bytes = bytes;
+        segment.bytes = segment.bytes.saturating_add(cost);
         Charge::Fits
     }
 
@@ -183,10 +345,11 @@ impl InputLog {
         out.extend_from_slice(MAGIC);
         out.extend_from_slice(&FORMAT.to_le_bytes());
         out.extend_from_slice(&protocol::packet::PROTOCOL_VERSION.to_le_bytes());
-        out.push(u8::from(self.truncated));
-        put_len(&mut out, self.ticks.len())?;
+        out.push(u8::from(self.is_truncated()));
+        out.extend_from_slice(&self.start().to_le_bytes());
+        put_len(&mut out, self.replayable().count())?;
         let mut body = Vec::new();
-        for tick in &self.ticks {
+        for tick in self.replayable() {
             out.extend_from_slice(&tick.number.to_le_bytes());
             put_len(&mut out, tick.inputs.len())?;
             for entry in &tick.inputs {
@@ -216,6 +379,10 @@ impl InputLog {
             for session in &tick.dropped {
                 out.extend_from_slice(&session.get().to_le_bytes());
             }
+            put_len(&mut out, tick.responses.len())?;
+            for answer in &tick.responses {
+                put_answer(&mut out, answer)?;
+            }
         }
         Ok(out)
     }
@@ -239,6 +406,7 @@ impl InputLog {
             1 => true,
             _ => return Err(Error::Format("truncated flag")),
         };
+        let start = r.u64()?;
         // A tick takes at least 16 bytes, an entry 17, a dropped session 8.
         let count = r.count(16)?;
         let mut ticks = Vec::with_capacity(count);
@@ -285,19 +453,30 @@ impl InputLog {
             for _ in 0..dropped_count {
                 dropped.push(SessionId::new(r.u64()?));
             }
+            // An answer takes at least 9 bytes.
+            let answer_count = r.count(9)?;
+            let mut responses = Vec::with_capacity(answer_count);
+            for _ in 0..answer_count {
+                responses.push(r.answer()?);
+            }
             ticks.push(Tick {
                 number,
                 inputs,
                 dropped,
+                responses,
             });
         }
         if !r.0.is_empty() {
             return Err(Error::Format("bytes after the last tick"));
         }
         Ok(Self {
-            ticks,
+            segments: VecDeque::from([Segment {
+                start,
+                ticks,
+                bytes: 0,
+                truncated,
+            }]),
             bytes: 0,
-            truncated,
         })
     }
 }
@@ -317,7 +496,7 @@ pub(crate) fn write_crash_log(data_dir: &Path, log: &InputLog) -> std::io::Resul
     let bytes = log.encode().map_err(std::io::Error::other)?;
     let dir = data_dir.join(CRASH_DIR);
     std::fs::create_dir_all(&dir)?;
-    let tick = log.ticks.last().map_or(0, |t| t.number);
+    let tick = log.replayable().last().map_or(log.start(), |t| t.number);
     let path = dir.join(format!(
         "input-{}-{tick}.log",
         clock::unix_now().unwrap_or_default()
@@ -329,6 +508,59 @@ pub(crate) fn write_crash_log(data_dir: &Path, log: &InputLog) -> std::io::Resul
     file.write_all(&bytes)?;
     file.sync_all()?;
     Ok(path)
+}
+
+const ANSWER_CHUNK: u8 = 0;
+const ANSWER_PLAYER: u8 = 1;
+const ANSWER_COMMITTED: u8 = 2;
+const ANSWER_COMMIT_FAILED: u8 = 3;
+const PLAYER_FOUND: u8 = 0;
+const PLAYER_ABSENT: u8 = 1;
+const PLAYER_DAMAGED: u8 = 2;
+
+/// Appends an answer: its kind, then its fields.
+fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
+    match answer {
+        Answer::Chunk { world, pos, origin } => {
+            out.push(ANSWER_CHUNK);
+            out.extend_from_slice(
+                &u32::try_from(*world)
+                    .map_err(|_| Error::Format("world index over u32"))?
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(&pos.x.to_le_bytes());
+            out.extend_from_slice(&pos.z.to_le_bytes());
+            out.push(match origin {
+                Origin::Disk => 0,
+                Origin::Generated => 1,
+                Origin::Damaged => 2,
+            });
+        }
+        Answer::Player { key, data } => {
+            out.push(ANSWER_PLAYER);
+            put_bytes(out, key.as_bytes())?;
+            match data {
+                PlayerLoad::Found(data) => {
+                    out.push(PLAYER_FOUND);
+                    put_bytes(out, data.world.as_bytes())?;
+                    for c in data.position {
+                        out.extend_from_slice(&c.to_bits().to_le_bytes());
+                    }
+                }
+                PlayerLoad::Absent => out.push(PLAYER_ABSENT),
+                PlayerLoad::Damaged => out.push(PLAYER_DAMAGED),
+            }
+        }
+        Answer::Committed(start) => {
+            out.push(ANSWER_COMMITTED);
+            out.extend_from_slice(&start.to_le_bytes());
+        }
+        Answer::CommitFailed(start) => {
+            out.push(ANSWER_COMMIT_FAILED);
+            out.extend_from_slice(&start.to_le_bytes());
+        }
+    }
+    Ok(())
 }
 
 /// Appends a count as a u32.
@@ -391,6 +623,51 @@ impl<'a> Read<'a> {
         let n = self.count(1)?;
         self.take(n)
     }
+
+    fn i32(&mut self) -> Result<i32> {
+        Ok(self.u32()?.cast_signed())
+    }
+
+    fn text(&mut self) -> Result<String> {
+        String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("text"))
+    }
+
+    fn answer(&mut self) -> Result<Answer> {
+        Ok(match self.u8()? {
+            ANSWER_CHUNK => {
+                let world =
+                    usize::try_from(self.u32()?).map_err(|_| Error::Format("world index"))?;
+                let pos = ChunkPos::new(self.i32()?, self.i32()?);
+                let origin = match self.u8()? {
+                    0 => Origin::Disk,
+                    1 => Origin::Generated,
+                    2 => Origin::Damaged,
+                    _ => return Err(Error::Format("chunk origin")),
+                };
+                Answer::Chunk { world, pos, origin }
+            }
+            ANSWER_PLAYER => {
+                let key = self.text()?;
+                let data = match self.u8()? {
+                    PLAYER_FOUND => {
+                        let world = self.text()?;
+                        let mut position = [0.0; 3];
+                        for c in &mut position {
+                            *c = f32::from_bits(self.u32()?);
+                        }
+                        PlayerLoad::Found(PlayerData { world, position })
+                    }
+                    PLAYER_ABSENT => PlayerLoad::Absent,
+                    PLAYER_DAMAGED => PlayerLoad::Damaged,
+                    _ => return Err(Error::Format("player data kind")),
+                };
+                Answer::Player { key, data }
+            }
+            ANSWER_COMMITTED => Answer::Committed(self.u64()?),
+            ANSWER_COMMIT_FAILED => Answer::CommitFailed(self.u64()?),
+            _ => return Err(Error::Format("answer kind")),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -402,5 +679,62 @@ mod tests {
         let mut log = InputLog::default();
         log.begin(0);
         assert_eq!(log.bytes, ENTRY_COST);
+    }
+
+    fn numbers(log: &InputLog) -> Vec<u64> {
+        log.ticks().iter().map(|t| t.number).collect()
+    }
+
+    #[test]
+    fn a_commit_drops_the_segments_before_its_snapshot() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.begin(1);
+        log.snapshot(2);
+        log.begin(2);
+        log.snapshot(3);
+        log.begin(3);
+        assert_eq!(numbers(&log), [0, 1, 2, 3]);
+        // A commit nobody snapshotted changes nothing.
+        log.committed(7);
+        assert_eq!((log.start(), numbers(&log)), (0, vec![0, 1, 2, 3]));
+        log.committed(2);
+        assert_eq!((log.start(), numbers(&log)), (2, vec![2, 3]));
+        assert_eq!(log.bytes, 2 * ENTRY_COST, "dropped ticks free their bytes");
+        log.committed(3);
+        assert_eq!((log.start(), numbers(&log)), (3, vec![3]));
+        // The same snapshot twice starts one segment.
+        log.snapshot(4);
+        log.snapshot(4);
+        assert_eq!(log.segments.len(), 2);
+    }
+
+    #[test]
+    fn recording_resumes_after_a_truncated_segment_is_committed_away() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.record(SessionId::new(1), 0, EntryKind::Leave, MAX_BYTES);
+        assert!(log.is_truncated());
+        log.snapshot(1);
+        log.begin(1);
+        assert!(
+            numbers(&log).is_empty(),
+            "a replay stops in the truncated segment"
+        );
+        log.committed(1);
+        assert!(!log.is_truncated());
+        assert_eq!(numbers(&log), [1]);
+        log.snapshot(2);
+        log.committed(2);
+        log.begin(2);
+        assert_eq!((log.start(), numbers(&log)), (2, vec![2]));
+    }
+
+    #[test]
+    fn a_written_log_keeps_its_start() {
+        let mut log = InputLog::starting_at(40);
+        log.begin(40);
+        let read = InputLog::decode(&log.encode().unwrap()).unwrap();
+        assert_eq!((read.start(), numbers(&read)), (40, vec![40]));
     }
 }

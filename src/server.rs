@@ -1,6 +1,7 @@
 //! The server and its builder.
 
 use std::any::Any;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,12 +9,14 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 
-use crate::config::Config;
+use crate::config::{Config, LevelType};
 use crate::error::{Error, Result};
 use crate::event::{self, Listeners, Priority};
 use crate::runtime::{self, Runtime, ThreadCounts};
+use crate::save::{self, WorldSpec};
 use crate::session;
-use crate::tick::{self, queue::InputSender};
+use crate::tick::{self, Context, Tasks, queue::InputSender};
+use crate::world::{Flat, Generator, Kind, Void};
 
 /// A Minecraft: Bedrock Edition server. Make one with [`Server::builder`], then call
 /// [`Server::run`].
@@ -23,6 +26,8 @@ pub struct Server {
     data_dir: PathBuf,
     threads: ThreadCounts,
     listeners: Listeners,
+    tasks: Tasks,
+    worlds: Vec<WorldSpec>,
     shutdown: ShutdownHandle,
     shutdown_requests: mpsc::Receiver<()>,
 }
@@ -33,6 +38,9 @@ pub struct ServerBuilder {
     config: Config,
     data_dir: PathBuf,
     listeners: Listeners,
+    tasks: Tasks,
+    /// Worlds besides the default one, in registration order.
+    worlds: Vec<WorldSpec>,
 }
 
 /// Asks a [`Server`] to stop. Cheap to clone and usable from any thread.
@@ -46,6 +54,8 @@ impl Server {
             config: Config::default(),
             data_dir: PathBuf::from("data"),
             listeners: Listeners::default(),
+            tasks: Tasks::default(),
+            worlds: Vec::new(),
         }
     }
 
@@ -57,30 +67,54 @@ impl Server {
     /// Runs the server until a [`ShutdownHandle`] or Ctrl+C stops it, blocking the calling
     /// thread.
     ///
-    /// On shutdown every player sees `shutdown-message`, networking stops, and the threads are
-    /// joined. Fails if the runtime or the tick thread cannot start, if networking cannot start,
-    /// or if the tick thread panics.
+    /// It first opens the world file `data/world.redb` (PLAN.md 10.6): it backs up the closed
+    /// file to `data/backups/`, checks it and refuses a damaged one, leaving it as it was. On
+    /// shutdown every player sees `shutdown-message`, the last state is saved, networking stops,
+    /// and the threads are joined. Fails if the world file is damaged or cannot be opened, if the
+    /// runtime, the threads or networking cannot start, if a save fails after its retries, or if
+    /// the tick thread panics.
     pub fn run(self) -> Result<()> {
         let Self {
             config,
             data_dir,
             threads,
             listeners,
+            tasks,
+            worlds,
             shutdown,
             shutdown_requests,
         } = self;
         // Built before any thread starts: encoding the shared spawn batches takes a while once.
         let shared = tick::Shared::new(config.batch_settings()?)
             .map_err(|e| Error::Start(std::io::Error::other(e)))?;
+        let opened = save::open(&data_dir, worlds)?;
         let runtime = Runtime::new(threads)?;
-        let pool = runtime::cpu_pool(threads.cpu)?;
+        let pool = Arc::new(runtime::cpu_pool(threads.cpu)?);
         let (inputs, input_queue) = tick::queue::input_queue();
         let (stop_tick, stop) = mpsc::channel(1);
         let (done, tick_done) = oneshot::channel();
         let (crash, mut crash_log) = oneshot::channel();
-        let state = tick::State::new(tick::Settings::new(&config), shared, listeners);
+        let (requests, request_queue) = mpsc::channel(save::REQUEST_CAPACITY);
+        let (responder, responses) = mpsc::channel(save::RESPONSE_CAPACITY);
+        let save_pool = Arc::clone(&pool);
+        let save_thread = runtime::spawn_save(move || {
+            save::run(opened.thread, &save_pool, request_queue, &responder)
+        })?;
+        let state = tick::State::new(
+            tick::Settings::new(&config),
+            shared,
+            listeners,
+            tasks,
+            opened.worlds,
+            opened.tick,
+        );
+        let tick_pool = Arc::clone(&pool);
+        let link = tick::SaveLink {
+            requests,
+            responses,
+        };
         let tick_thread = runtime::spawn_tick(move || {
-            tick::run(state, pool, input_queue, stop, crash, done);
+            tick::run(state, &tick_pool, input_queue, link, stop, crash, done)
         })?;
         info!(
             network_threads = threads.network,
@@ -96,28 +130,53 @@ impl Server {
         let served = runtime.block_on(running.serve(config, &data_dir, inputs));
         // `serve` returns only after the tick thread has ended, so this does not wait long.
         let joined = tick_thread.join();
+        // The tick dropped its request sender, so the save thread commits what it holds,
+        // compacts the file and ends.
+        let saved = save_thread.join();
         runtime.shutdown();
+        if let Ok(pool) = Arc::try_unwrap(pool) {
+            pool.shutdown();
+        }
+        let saved = match saved {
+            Ok(result) => result.map_err(Error::from),
+            Err(payload) => {
+                let message = panic_message(payload.as_ref());
+                error!(%message, "save thread panicked");
+                Err(Error::Storage(message.into()))
+            }
+        };
         match joined {
-            Ok(()) => {
+            Ok(tick::End::Stopped) => {
                 info!("server stopped");
-                served
+                served.and(saved)
+            }
+            Ok(tick::End::SaveFailed(log)) => {
+                write_crash(&data_dir, &log);
+                Err(saved
+                    .err()
+                    .unwrap_or_else(|| Error::Storage("the save thread stopped answering".into())))
             }
             Err(payload) => {
                 let message = panic_message(payload.as_ref());
                 error!(%message, "tick thread panicked; stopped without saving");
                 if let Ok(log) = crash_log.try_recv() {
-                    match tick::write_crash_log(&data_dir, &log) {
-                        Ok(path) => error!(
-                            path = %path.display(),
-                            truncated = log.is_truncated(),
-                            "input log written"
-                        ),
-                        Err(e) => error!(error = %e, "input log not written"),
-                    }
+                    write_crash(&data_dir, &log);
                 }
                 Err(Error::TickPanicked { message })
             }
         }
+    }
+}
+
+/// Writes the input log since the last commit to `data/crash/`.
+fn write_crash(data_dir: &Path, log: &tick::InputLog) {
+    match tick::write_crash_log(data_dir, log) {
+        Ok(path) => error!(
+            path = %path.display(),
+            truncated = log.is_truncated(),
+            "input log written"
+        ),
+        Err(e) => error!(error = %e, "input log not written"),
     }
 }
 
@@ -224,8 +283,39 @@ impl ServerBuilder {
         self
     }
 
-    /// Checks the settings and the thread budget, and puts the listeners in calling order.
-    /// Touches no file.
+    /// Runs `task` in the tick every `period` ticks (on ticks that are multiples of `period`),
+    /// after the tick's inputs and in registration order, with a [`Context`] that reaches the
+    /// worlds. Like listeners, tasks run only in the tick, so a replay of the input log runs
+    /// them the same way.
+    #[doc(alias = "TaskScheduler::scheduleRepeatingTask")]
+    #[must_use]
+    pub fn every(
+        mut self,
+        period: NonZeroU32,
+        task: impl FnMut(&mut Context<'_>) + Send + 'static,
+    ) -> Self {
+        self.tasks.push(period, task);
+        self
+    }
+
+    /// Adds a world besides the default one (`level-name`). A [`Kind::Persistent`] world is
+    /// saved in the world file under its name; a [`Kind::Temporary`] one is generated fresh at
+    /// every start and never saved. A new world gets a random seed. Players join the default
+    /// world.
+    #[doc(alias = "WorldManager::generateWorld")]
+    #[must_use]
+    pub fn world(mut self, name: impl Into<String>, kind: Kind, generator: impl Generator) -> Self {
+        self.worlds.push(WorldSpec {
+            name: name.into(),
+            kind,
+            generator: Arc::new(generator),
+            seed: None,
+        });
+        self
+    }
+
+    /// Checks the settings, the thread budget and the world names, and puts the listeners in
+    /// calling order. Touches no file.
     pub fn build(mut self) -> Result<Server> {
         self.config.validate()?;
         let developer = &self.config.developer;
@@ -235,12 +325,32 @@ impl ServerBuilder {
             runtime::logical_cpus(),
         )?;
         self.listeners.sort();
+        let general = &self.config.general;
+        let generator: Arc<dyn Generator> = match general.level_type {
+            LevelType::Flat => Arc::new(Flat),
+            LevelType::Void => Arc::new(Void),
+        };
+        let mut worlds = Vec::with_capacity(self.worlds.len() + 1);
+        worlds.push(WorldSpec {
+            name: general.level_name.clone(),
+            kind: Kind::Persistent,
+            generator,
+            seed: general.level_seed,
+        });
+        for world in self.worlds {
+            if worlds.iter().any(|w| w.name == world.name) {
+                return Err(Error::DuplicateWorld { name: world.name });
+            }
+            worlds.push(world);
+        }
         let (requests, shutdown_requests) = mpsc::channel(1);
         Ok(Server {
             config: Arc::new(self.config),
             data_dir: self.data_dir,
             threads,
             listeners: self.listeners,
+            tasks: self.tasks,
+            worlds,
             shutdown: ShutdownHandle(requests),
             shutdown_requests,
         })

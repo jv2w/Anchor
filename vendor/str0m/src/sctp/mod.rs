@@ -37,6 +37,12 @@ pub const LOCAL_MAX_MESSAGE_SIZE: u32 = 256 * 1024;
 /// Default max message size if remote doesn't advertise
 pub const DEFAULT_REMOTE_MAX_MESSAGE_SIZE: u32 = 64 * 1024;
 
+/// Initial retransmission timeout (RTO.Initial) in milliseconds: 1 s as RFC 9260 section 16
+/// recommends, not sctp-proto's RFC 4960 default of 3 s, which makes a lost INIT cost 3 s
+/// before the first resend. It equals sctp-proto's RTO.Min, so it only shortens the timers
+/// that run before the first RTT sample.
+pub(crate) const RTO_INITIAL_MS: u64 = 1000;
+
 pub(crate) struct RtcSctp {
     state: RtcSctpState,
     endpoint: Endpoint,
@@ -397,6 +403,7 @@ impl RtcSctp {
                 TransportConfig::default()
                     .with_max_init_retransmits(None)
                     .with_max_data_retransmits(None)
+                    .with_rto_initial_ms(RTO_INITIAL_MS)
                     .with_max_receive_message_size(LOCAL_MAX_MESSAGE_SIZE)
                     .with_max_send_message_size(self.remote_max_message_size),
             );

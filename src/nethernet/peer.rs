@@ -938,6 +938,8 @@ mod tests {
         LoseFirst,
         /// This percentage of datagrams is lost.
         Lose(usize),
+        /// The peer's first application data datagram, its SCTP INIT, is lost.
+        LoseInit,
         /// The records inside each DTLS datagram arrive in reverse order. No network does this;
         /// only a sender could (dimpl #168).
         ReverseRecords,
@@ -970,7 +972,8 @@ mod tests {
         delivered: [usize; 2],
         /// When the peer finished its DTLS handshake: its first application data record.
         dtls: Option<Duration>,
-        /// For `LoseFirst`: (to the peer, content type, handshake type) of datagrams lost once.
+        /// For `LoseFirst` and `LoseInit`: (to the peer, content type, handshake type) of
+        /// datagrams lost once.
         lost: Vec<(bool, u8, u8)>,
     }
 
@@ -1200,6 +1203,14 @@ mod tests {
                     if below(&mut network.rng, 100) >= percent {
                         break datagram;
                     }
+                },
+                Fault::LoseInit => loop {
+                    let datagram = queue.pop_front()?;
+                    let key = (false, 23, 0);
+                    if to_peer || datagram.first() != Some(&23) || network.lost.contains(&key) {
+                        break datagram;
+                    }
+                    network.lost.push(key);
                 },
                 Fault::ReverseRecords => {
                     let mut records = dtls_records(queue.pop_front()?);
@@ -1746,6 +1757,21 @@ mod tests {
             "{:?}",
             result.closed
         );
+    }
+
+    /// A lost SCTP INIT is sent again after RTO.Initial, 1 s as RFC 9260 recommends, rather than
+    /// sctp-proto's RFC 4960 default of 3 s, which costs a lossy handshake its deadline (PLAN.md
+    /// 9.1, str0m).
+    #[test]
+    fn a_lost_sctp_init_is_sent_again_after_one_second() {
+        let (server, client) = split_certificates();
+        let result = faulty_handshake(&server, &client, Fault::LoseInit, 1);
+        // The peer sends its INIT as soon as DTLS finishes; the rest of the handshake takes no
+        // simulated time.
+        let init = result.dtls.expect("DTLS finished");
+        let opened = result.opened.expect("channels opened");
+        let resent = opened.checked_sub(init).expect("opened after DTLS");
+        assert!(resent < Duration::from_secs(2), "{resent:?}");
     }
 
     /// Records out of order inside one datagram stall dimpl 0.7.4 for good (#168; upstream's

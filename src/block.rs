@@ -10,6 +10,8 @@ mod table;
 
 use std::fmt;
 
+pub(crate) use table::{AIR, BEDROCK, DIRT, GRASS_BLOCK, INFO_UPDATE};
+
 /// A block state: a block name with a value for each of its properties.
 ///
 /// It is a small `Copy` number into Anchor's static state table, so it is cheap to keep and
@@ -200,6 +202,162 @@ impl State {
     }
 }
 
+/// A horizontal direction (PMMP `Facing`): north is -z, east +x, south +z and west -x.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Facing {
+    North,
+    East,
+    South,
+    West,
+}
+
+impl Facing {
+    /// Every horizontal direction, in the order of their bits in the connection table.
+    pub(crate) const ALL: [Self; 4] = [Self::North, Self::East, Self::South, Self::West];
+
+    /// The bit of this direction in the connection table's face and connection sets.
+    pub(crate) const fn bit(self) -> u8 {
+        match self {
+            Self::North => 1,
+            Self::East => 2,
+            Self::South => 4,
+            Self::West => 8,
+        }
+    }
+
+    pub(crate) const fn opposite(self) -> Self {
+        match self {
+            Self::North => Self::South,
+            Self::East => Self::West,
+            Self::South => Self::North,
+            Self::West => Self::East,
+        }
+    }
+
+    /// The direction a quarter turn clockwise seen from above (PMMP `Facing::rotateY(f, true)`).
+    pub(crate) const fn clockwise(self) -> Self {
+        match self {
+            Self::North => Self::East,
+            Self::East => Self::South,
+            Self::South => Self::West,
+            Self::West => Self::North,
+        }
+    }
+
+    /// The step one block this way: (x, z).
+    pub(crate) const fn offset(self) -> (i32, i32) {
+        match self {
+            Self::North => (0, -1),
+            Self::East => (1, 0),
+            Self::South => (0, 1),
+            Self::West => (-1, 0),
+        }
+    }
+}
+
+/// How a state takes part in neighbour connections (PLAN.md 10.6): the PMMP block class whose
+/// rules work its state out from the neighbours, or which those rules look for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Connection {
+    None,
+    /// A fence; fences connect to fences of the same group (PMMP class).
+    Fence {
+        group: u8,
+    },
+    /// Glass panes and bars (PMMP `Thin`).
+    Thin,
+    Wall,
+    FenceGate,
+    Stair,
+    Tripwire,
+    TripwireHook,
+}
+
+/// A state's connection word in [`table::CONNECT`]: bits 0-3 the [`Connection`] kind (0 none,
+/// then fence, thin, wall, fence gate, stair, tripwire, tripwire hook), bits 4-7 the horizontal
+/// faces with full support ([`Facing::bit`]), bits 8-10 the facing (0 none, then 1 + the index
+/// in [`Facing::ALL`]), bit 11 upside down (stairs), bits 12-15 the fence group and bits 16-31
+/// the offset of the state's variants in [`table::VARIANTS`] (`0xffff`: none).
+///
+/// Variants are the states that differ only in what the neighbours decide, indexed so: fences,
+/// panes, bars and tripwire by their connection set (bit [`Facing::bit`] set when connected,
+/// 16 variants); stairs by `minecraft:corner` (none, inner left, inner right, outer left, outer
+/// right); walls by `((((north × 3 + east) × 3 + south) × 3 + west) × 2 + post` with each side
+/// none 0, short 1 or tall 2 (162 variants); fence gates by `in_wall_bit` (2 variants).
+const NO_VARIANTS: u32 = 0xffff;
+
+impl State {
+    fn connect(self) -> u32 {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: a State is only made from an index of the state table, and the \
+                      connection table has a word per state"
+        )]
+        table::CONNECT[usize::from(self.0)]
+    }
+
+    /// The state's part in neighbour connections.
+    pub(crate) fn connection(self) -> Connection {
+        let word = self.connect();
+        match word & 0xf {
+            1 => Connection::Fence {
+                group: u8::try_from((word >> 12) & 0xf).unwrap_or_default(),
+            },
+            2 => Connection::Thin,
+            3 => Connection::Wall,
+            4 => Connection::FenceGate,
+            5 => Connection::Stair,
+            6 => Connection::Tripwire,
+            7 => Connection::TripwireHook,
+            _ => Connection::None,
+        }
+    }
+
+    /// Whether the face toward `face` gives full support (PMMP `getSupportType` is `FULL`):
+    /// fences, panes and walls connect to such a face.
+    pub(crate) fn has_full_face(self, face: Facing) -> bool {
+        self.connect() & (u32::from(face.bit()) << 4) != 0
+    }
+
+    /// The horizontal facing of stairs, fence gates and tripwire hooks.
+    pub(crate) fn facing(self) -> Option<Facing> {
+        let at = usize::try_from((self.connect() >> 8) & 0x7).ok()?;
+        Facing::ALL.get(at.checked_sub(1)?).copied()
+    }
+
+    /// Whether a stair is upside down.
+    pub(crate) fn is_upside_down(self) -> bool {
+        self.connect() & (1 << 11) != 0
+    }
+
+    /// Everything the neighbour rules read of a state as a neighbour: its kind and fence group,
+    /// full faces, facing, upside down and whether it is air. Two states with the same view
+    /// leave their neighbours' states the same.
+    pub(crate) fn neighbour_view(self) -> u32 {
+        (self.connect() & 0xffff) | (u32::from(self == AIR) << 16)
+    }
+
+    /// The variant `index` of this state (see [`NO_VARIANTS`] for the order): the state with the
+    /// same properties except those the neighbours decide. `None` if the state has no variants
+    /// or `index` is past them.
+    pub(crate) fn variant(self, index: usize) -> Option<Self> {
+        let word = self.connect();
+        let offset = word >> 16;
+        let count = match self.connection() {
+            Connection::Fence { .. } | Connection::Thin | Connection::Tripwire => 16,
+            Connection::Stair => 5,
+            Connection::Wall => 162,
+            Connection::FenceGate => 2,
+            Connection::None | Connection::TripwireHook => 0,
+        };
+        if offset == NO_VARIANTS || index >= count {
+            return None;
+        }
+        let at = usize::try_from(offset).ok()?.checked_add(index)?;
+        table::VARIANTS.get(at).copied().map(Self)
+    }
+}
+
 /// The properties of a state row, sorted by name.
 fn properties_of(data: &'static Data) -> impl ExactSizeIterator<Item = Property> + 'static {
     let start = usize::try_from(data.first_property).unwrap_or(usize::MAX);
@@ -225,5 +383,173 @@ impl fmt::Debug for State {
             s.field(p.name, &p.value);
         }
         s.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The value of a property of a state.
+    fn prop(state: State, name: &str) -> Option<PropertyValue<'static>> {
+        state
+            .properties()
+            .find(|p| p.name() == name)
+            .map(|p| p.value())
+    }
+
+    /// The properties other than `except`.
+    fn others(state: State, except: &[&str]) -> Vec<Property> {
+        state
+            .properties()
+            .filter(|p| !except.contains(&p.name()))
+            .collect()
+    }
+
+    const CONNECTIONS: [&str; 4] = [
+        "minecraft:connection_north",
+        "minecraft:connection_east",
+        "minecraft:connection_south",
+        "minecraft:connection_west",
+    ];
+    const WALL: [&str; 5] = [
+        "wall_connection_type_north",
+        "wall_connection_type_east",
+        "wall_connection_type_south",
+        "wall_connection_type_west",
+        "wall_post_bit",
+    ];
+
+    /// Every variant list holds the states that differ from the state only in the properties
+    /// the neighbours decide, at the index the variant order gives.
+    #[test]
+    fn variants_follow_the_documented_order() {
+        let mut counts = [0usize; 8];
+        for state in State::all() {
+            let kind = state.connection();
+            let (names, count): (&[&str], usize) = match kind {
+                Connection::Fence { .. } | Connection::Thin | Connection::Tripwire => {
+                    (&CONNECTIONS, 16)
+                }
+                Connection::Stair => (&["minecraft:corner"], 5),
+                Connection::Wall => (&WALL, 162),
+                Connection::FenceGate => (&["in_wall_bit"], 2),
+                Connection::None | Connection::TripwireHook => {
+                    assert_eq!(state.variant(0), None);
+                    continue;
+                }
+            };
+            counts[usize::try_from(state.connect() & 0xf).unwrap()] += 1;
+            assert_eq!(state.variant(count), None);
+            let mut own = false;
+            for i in 0..count {
+                let v = state.variant(i).unwrap();
+                assert_eq!(v.name(), state.name());
+                assert_eq!(others(v, names), others(state, names));
+                let expected = match kind {
+                    Connection::Stair => vec![PropertyValue::String(
+                        [
+                            "none",
+                            "inner_left",
+                            "inner_right",
+                            "outer_left",
+                            "outer_right",
+                        ][i],
+                    )],
+                    Connection::Wall => {
+                        let mut sides: Vec<_> = (0..4)
+                            .map(|s| {
+                                let digit = (i / 2) / 3usize.pow(3 - s) % 3;
+                                PropertyValue::String(["none", "short", "tall"][digit])
+                            })
+                            .collect();
+                        sides.push(PropertyValue::Byte(u8::try_from(i % 2).unwrap()));
+                        sides
+                    }
+                    Connection::FenceGate => vec![PropertyValue::Byte(u8::try_from(i).unwrap())],
+                    _ => Facing::ALL
+                        .iter()
+                        .map(|f| PropertyValue::Byte(u8::from(i & usize::from(f.bit()) != 0)))
+                        .collect(),
+                };
+                let got: Vec<_> = names.iter().map(|n| prop(v, n).unwrap()).collect();
+                assert_eq!(got, expected, "{state:?} variant {i}");
+                own |= v == state;
+            }
+            assert!(own, "{state:?} is one of its variants");
+        }
+        // PLAN.md 7: 13 fences, 43 panes and bars, 1 tripwire, 58 stairs; 26 walls.
+        assert_eq!(counts[1], 13 * 16);
+        assert_eq!(counts[2], 43 * 16);
+        assert_eq!(counts[3], 26 * 162);
+        assert_eq!(counts[5], 58 * 8 * 5);
+        assert_eq!(counts[6], 16 * 16);
+    }
+
+    /// The table's facings and full faces agree with the client states BDS shows (P6
+    /// `blocks.txt`): `weirdo_direction` 0 is east, a tripwire hook's `direction` 3 is east, a
+    /// stair's back is full when it is straight or an inner corner.
+    #[test]
+    fn facings_and_faces_match_the_client_states() {
+        let stairs = |dir: i32, corner: &'static str| {
+            State::find(
+                "minecraft:oak_stairs",
+                &[
+                    ("minecraft:corner", PropertyValue::String(corner)),
+                    ("upside_down_bit", PropertyValue::Byte(0)),
+                    ("weirdo_direction", PropertyValue::Int(dir)),
+                ],
+            )
+            .unwrap()
+        };
+        let east = stairs(0, "none");
+        assert_eq!(east.facing(), Some(Facing::East));
+        assert_eq!(stairs(2, "none").facing(), Some(Facing::South));
+        assert!(east.has_full_face(Facing::East) && !east.has_full_face(Facing::West));
+        assert!(!stairs(0, "outer_right").has_full_face(Facing::East));
+        let inner = stairs(0, "inner_right");
+        assert!(inner.has_full_face(Facing::East) && inner.has_full_face(Facing::South));
+        let hook = State::find(
+            "minecraft:tripwire_hook",
+            &[
+                ("attached_bit", PropertyValue::Byte(0)),
+                ("direction", PropertyValue::Int(3)),
+                ("powered_bit", PropertyValue::Byte(0)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(hook.connection(), Connection::TripwireHook);
+        assert_eq!(hook.facing(), Some(Facing::East));
+        let stone = State::find("minecraft:stone", &[]).unwrap();
+        assert!(Facing::ALL.into_iter().all(|f| stone.has_full_face(f)));
+        assert_eq!(stone.connection(), Connection::None);
+        assert!(Facing::ALL.into_iter().all(|f| !AIR.has_full_face(f)));
+        assert_ne!(AIR.neighbour_view(), INFO_UPDATE.neighbour_view());
+        let oak = State::all()
+            .find(|s| s.name() == "minecraft:oak_fence")
+            .unwrap();
+        let nether = State::all()
+            .find(|s| s.name() == "minecraft:nether_brick_fence")
+            .unwrap();
+        assert_ne!(oak.connection(), nether.connection(), "fence groups");
+        for f in Facing::ALL {
+            assert_eq!(f.opposite().opposite(), f);
+            assert_eq!(f.clockwise().clockwise(), f.opposite());
+        }
+    }
+
+    #[test]
+    fn named_states_are_the_states_of_their_names() {
+        assert_eq!(State::find("minecraft:air", &[]), Some(AIR));
+        assert_eq!(State::find("minecraft:dirt", &[]), Some(DIRT));
+        assert_eq!(State::find("minecraft:grass_block", &[]), Some(GRASS_BLOCK));
+        assert_eq!(State::find("minecraft:info_update", &[]), Some(INFO_UPDATE));
+        assert_eq!(
+            State::find(
+                "minecraft:bedrock",
+                &[("infiniburn_bit", PropertyValue::Byte(0))]
+            ),
+            Some(BEDROCK)
+        );
     }
 }

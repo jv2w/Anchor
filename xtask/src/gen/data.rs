@@ -46,6 +46,33 @@ pub(crate) struct State {
     pub(crate) light_filter: u8,
     pub(crate) blocks_direct_sky_light: bool,
     pub(crate) ticks_randomly: bool,
+    /// The horizontal faces with full support (PMMP `getSupportType`), as [`FACES`] bits; a
+    /// stair's are those of its `minecraft:corner` shape.
+    pub(crate) full_faces: u8,
+    /// How PMMP works the state out from its neighbours, if it does.
+    pub(crate) connect: Option<Connect>,
+}
+
+/// The horizontal faces in the order of their bits in [`State::full_faces`] (bit 0 = north).
+pub(crate) const FACES: [&str; 4] = ["north", "east", "south", "west"];
+
+/// The dump's `connect` entry: what PMMP needs to work out a state from its neighbours.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Connect {
+    /// `fence`, `thin`, `wall`, `fence_gate`, `stair`, `tripwire` or `tripwire_hook`.
+    pub(crate) kind: String,
+    /// A fence's PMMP class: fences connect to fences of their own class.
+    #[serde(default)]
+    pub(crate) group: Option<String>,
+    /// The horizontal facing of fence gates, stairs and tripwire hooks.
+    #[serde(default)]
+    pub(crate) facing: Option<String>,
+    #[serde(default)]
+    pub(crate) upside_down: Option<bool>,
+    /// A stair's full faces by `minecraft:corner` value.
+    #[serde(default)]
+    shapes: Option<BTreeMap<String, Vec<String>>>,
 }
 
 /// An NBT value read from the typed JSON of the dumps (`{"byte": 1}` and so on). It holds the
@@ -129,6 +156,9 @@ struct PmmpBlock {
     blocks_direct_sky_light: bool,
     ticks_randomly: bool,
     recipe_meta: i32,
+    full_faces: Vec<String>,
+    #[serde(default)]
+    connect: Option<Connect>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -186,7 +216,15 @@ struct Upgrade {
 }
 
 /// PMMP's per-state values, which overlapping PMMP states must agree on.
-type Values = (u8, u8, bool, bool);
+#[derive(Debug, Clone, PartialEq)]
+struct Values {
+    light_emission: u8,
+    light_filter: u8,
+    blocks_direct_sky_light: bool,
+    ticks_randomly: bool,
+    full_faces: Vec<String>,
+    connect: Option<Connect>,
+}
 
 /// The reference block list: network ID by state, and the states of each name.
 type Reference = (BTreeMap<StateKey, u32>, BTreeMap<String, Vec<StateKey>>);
@@ -204,19 +242,20 @@ impl Data {
 
         let mut list = Vec::with_capacity(states.len());
         let mut state_index = BTreeMap::new();
-        for (i, (key, (light_emission, light_filter, sky, random))) in
-            states.into_iter().enumerate()
-        {
+        for (i, (key, values)) in states.into_iter().enumerate() {
             let index = u16::try_from(i).map_err(|_| "more than 65,536 block states")?;
             let network_id = *network.get(&key).ok_or("state lost its network ID")?;
+            let full_faces = full_faces(&key, &values)?;
             state_index.insert(key.clone(), index);
             list.push(State {
                 key,
                 network_id,
-                light_emission,
-                light_filter,
-                blocks_direct_sky_light: sky,
-                ticks_randomly: random,
+                light_emission: values.light_emission,
+                light_filter: values.light_filter,
+                blocks_direct_sky_light: values.blocks_direct_sky_light,
+                ticks_randomly: values.ticks_randomly,
+                full_faces,
+                connect: values.connect,
             });
         }
         let mut pmmp_state_index = BTreeMap::new();
@@ -476,14 +515,17 @@ fn read_pmmp_states(root: &Path) -> R<BTreeMap<StateKey, (Values, i32)>> {
     let mut states: BTreeMap<StateKey, (Values, i32)> = BTreeMap::new();
     for b in &pmmp {
         let key = bedrock_state(&b.bedrock)?;
-        let values = (
-            b.light_emission,
-            b.light_filter,
-            b.blocks_direct_sky_light,
-            b.ticks_randomly,
-        );
-        if let Some(old) = states.insert(key.clone(), (values, b.recipe_meta))
-            && old != (values, b.recipe_meta)
+        let values = Values {
+            light_emission: b.light_emission,
+            light_filter: b.light_filter,
+            blocks_direct_sky_light: b.blocks_direct_sky_light,
+            ticks_randomly: b.ticks_randomly,
+            full_faces: b.full_faces.clone(),
+            connect: b.connect.clone(),
+        };
+        let entry = (values, b.recipe_meta);
+        if let Some(old) = states.insert(key.clone(), entry.clone())
+            && old != entry
         {
             return Err(format!(
                 "PMMP states of {} {:?} disagree on their values",
@@ -514,7 +556,7 @@ fn upgrade(
                     key.name, key.properties
                 ));
             }
-            states.insert(key.clone(), *values);
+            states.insert(key.clone(), values.clone());
             defaults.insert(key.clone(), key.clone());
             continue;
         };
@@ -551,7 +593,7 @@ fn upgrade(
                 .cloned()
                 .collect();
             if old == key.properties {
-                states.insert(candidate.clone(), *values);
+                states.insert(candidate.clone(), values.clone());
             }
         }
     }
@@ -559,6 +601,40 @@ fn upgrade(
         return Err(format!("{UPGRADE_PATH}: {name} is not used"));
     }
     Ok((states, defaults))
+}
+
+/// The full faces of an upgraded state as [`FACES`] bits. A stair's come from the shape its
+/// `minecraft:corner` names: PMMP works the shape out from the neighbours, so the dumped state
+/// (always straight) does not have it.
+fn full_faces(key: &StateKey, values: &Values) -> R<u8> {
+    let faces = match &values.connect {
+        Some(Connect {
+            shapes: Some(shapes),
+            ..
+        }) => {
+            let corner = key
+                .properties
+                .iter()
+                .find_map(|(p, v)| match (p.as_str(), v) {
+                    ("minecraft:corner", Prop::String(c)) => Some(c),
+                    _ => None,
+                })
+                .ok_or_else(|| format!("stair {} has no minecraft:corner", key.name))?;
+            shapes
+                .get(corner)
+                .ok_or_else(|| format!("stair {} has no shape {corner}", key.name))?
+        }
+        _ => &values.full_faces,
+    };
+    let mut bits = 0;
+    for face in faces {
+        let i = FACES
+            .iter()
+            .position(|f| f == face)
+            .ok_or_else(|| format!("{}: unknown face {face}", key.name))?;
+        bits |= 1 << i;
+    }
+    Ok(bits)
 }
 
 /// Reads a committed JSON file.

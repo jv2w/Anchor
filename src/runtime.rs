@@ -139,9 +139,27 @@ pub(crate) fn cpu_pool(threads: usize) -> Result<Pool> {
     clippy::disallowed_methods,
     reason = "off-tick: the runtime module creates the tick thread"
 )]
-pub(crate) fn spawn_tick(run: impl FnOnce() + Send + 'static) -> Result<JoinHandle<()>> {
+pub(crate) fn spawn_tick<T: Send + 'static>(
+    run: impl FnOnce() -> T + Send + 'static,
+) -> Result<JoinHandle<T>> {
     std::thread::Builder::new()
         .name("anchor-tick".to_owned())
+        .stack_size(STACK_BYTES)
+        .spawn(run)
+        .map_err(Error::Start)
+}
+
+/// Starts the save thread running `run` (PLAN.md 10.6): the one thread that reads and commits
+/// the world file.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the runtime module creates the save thread"
+)]
+pub(crate) fn spawn_save<T: Send + 'static>(
+    run: impl FnOnce() -> T + Send + 'static,
+) -> Result<JoinHandle<T>> {
+    std::thread::Builder::new()
+        .name("anchor-save".to_owned())
         .stack_size(STACK_BYTES)
         .spawn(run)
         .map_err(Error::Start)
@@ -195,6 +213,15 @@ mod tests {
         // With one auto value, the auto value fills what is left.
         let t = ThreadCounts::resolve(count(5), Threads::Auto, 8).unwrap();
         assert_eq!(t, ThreadCounts { network: 5, cpu: 1 });
+    }
+
+    #[test]
+    fn the_save_thread_is_named_and_runs_its_work() {
+        let handle = spawn_save(|| {
+            assert_eq!(std::thread::current().name(), Some("anchor-save"));
+        })
+        .unwrap();
+        handle.join().unwrap();
     }
 
     #[test]

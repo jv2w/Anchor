@@ -25,11 +25,8 @@ import (
 // maxDecompressed bounds one decompressed batch from the server.
 const maxDecompressed = 64 << 20
 
-// endMarker ends the blocks scenario when a Text message contains it (the console command "say p6-end").
-const endMarker = "p6-end"
-
-// maxChunkRequests bounds the chunks the bot requests sub-chunks for.
-const maxChunkRequests = 9
+// endMarker is the block whose placement anywhere ends the blocks scenario (cargo xtask p6 places it last).
+const endMarker = "minecraft:diamond_block"
 
 // result is the outcome of one scenario.
 type result struct {
@@ -100,6 +97,7 @@ type session struct {
 	c        config
 	out      *output
 	items    *output
+	world    *output
 	conn     packetConn
 	reader   *batchReader
 	enc      *packet.Encoder
@@ -112,12 +110,23 @@ type session struct {
 
 	runtimeID           uint64
 	gotRadius, gotSpawn bool
-	chunkRequests       int
 	stayed              atomic.Bool
+
+	// spawnChunk is the chunk of StartGame's player position (spawnKnown once StartGame arrived).
+	spawnChunk protocol.ChunkPos
+	spawnKnown bool
+	// requested holds the chunks whose sub-chunks the bot requested.
+	requested map[protocol.ChunkPos]bool
+	// probeName labels the sent line of a probe request (chunk.go).
+	probeName string
+	// pendingAnswers counts the blocks scenario's last sub-chunk requests not answered yet.
+	pendingAnswers int
+	// endID is the network ID of endMarker.
+	endID uint32
 }
 
 // play runs the scenario and returns its result. Failures to reach the server are failed results.
-func play(ctx context.Context, c config, out, items *output) *result {
+func play(ctx context.Context, c config, out, items, world *output) *result {
 	res := newResult()
 	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
@@ -147,10 +156,17 @@ func play(ctx context.Context, c config, out, items *output) *result {
 	defer stop()
 	defer conn.Close()
 
+	endID, err := networkBlockHash(endMarker, nil)
+	if err != nil {
+		res.reason = err.Error()
+		return res
+	}
 	s := &session{
-		c: c, out: out, items: items, conn: conn, key: key, res: res,
-		pool:   packet.NewServerPool(),
-		blocks: newBlockCheck(),
+		c: c, out: out, items: items, world: world, conn: conn, key: key, res: res,
+		pool:      packet.NewServerPool(),
+		blocks:    newBlockCheck(),
+		requested: map[protocol.ChunkPos]bool{},
+		endID:     endID,
 	}
 	s.reader = newBatchReader(conn, out)
 	res.reader, res.blocks = s.reader, s.blocks
@@ -218,7 +234,7 @@ func (s *session) judge(ctx context.Context, loopErr error) {
 		case res.ended:
 			res.reason = fmt.Sprintf("%v packets failed to decode", res.decodeErrors)
 		case s.stayed.Load():
-			res.reason = fmt.Sprintf("no %q message within %v", endMarker, s.c.stay)
+			res.reason = fmt.Sprintf("no %v placed within %v", endMarker, s.c.stay)
 		default:
 			res.reason = s.failure(ctx, loopErr)
 		}
@@ -258,10 +274,17 @@ func (s *session) send(pks ...packet.Packet) error {
 		}
 		pk.Marshal(protocol.NewWriter(&buf, s.shieldID))
 		batch = append(batch, buf.Bytes())
-		s.out.line(map[string]any{
+		rec := map[string]any{
 			"type": "sent", "name": packetName(pk), "id": pk.ID(), "size": buf.Len(),
 			"after": s.res.packets - 1,
-		})
+		}
+		if _, ok := pk.(*packet.SubChunkRequest); ok {
+			rec["fields"] = toJSON(reflect.ValueOf(pk), 0, false)
+		}
+		if s.probeName != "" {
+			rec["probe"] = s.probeName
+		}
+		s.out.line(rec)
 	}
 	if err := s.enc.Encode(batch); err != nil {
 		return fmt.Errorf("send %v: %w", packetName(pks[0]), err)
@@ -294,11 +317,20 @@ func (s *session) handle(b []byte, request []byte) error {
 		rec["error"] = err.Error()
 	}
 	s.out.line(rec)
-	switch pk.(type) {
+	full := func(o *output) {
+		o.line(map[string]any{"index": index, "name": packetName(pk), "fields": toJSON(reflect.ValueOf(pk), 0, true)})
+	}
+	switch pk := pk.(type) {
 	case *packet.ItemRegistry, *packet.CreativeContent, *packet.CraftingData:
-		s.items.line(map[string]any{
-			"index": index, "name": packetName(pk), "fields": toJSON(reflect.ValueOf(pk), 0, true),
-		})
+		full(s.items)
+	case *packet.LevelChunk, *packet.BiomeDefinitionList, *packet.JigsawStructureData,
+		*packet.CurrentStructureFeature:
+		full(s.world)
+	case *packet.SubChunk:
+		full(s.world)
+		if err == nil {
+			s.out.line(subChunkRecord(index, pk))
+		}
 	}
 	if err != nil {
 		return nil
@@ -378,6 +410,7 @@ func (s *session) react(pk packet.Packet, index int, request []byte) error {
 		return s.send(&packet.ResourcePackClientResponse{Response: packet.PackResponseCompleted})
 	case *packet.StartGame:
 		s.runtimeID = pk.EntityRuntimeID
+		s.spawnChunk, s.spawnKnown = chunkOf(pk.PlayerPosition)
 		s.blocks.hashed = pk.UseBlockNetworkIDHashes
 		s.blocks.startGameBlocks = len(pk.Blocks)
 	case *packet.ItemRegistry:
@@ -398,11 +431,14 @@ func (s *session) react(pk packet.Packet, index int, request []byte) error {
 				s.blocks.subChunk(payload)
 			}
 		}
-	case *packet.Text:
-		if s.c.scenario == "blocks" && s.res.initialised && strings.Contains(pk.Message, endMarker) {
-			s.res.ended = true
-			s.stayed.Store(true)
-			return errors.New("end marker received")
+		return s.subChunkAnswered()
+	case *packet.UpdateBlock:
+		return s.blockChanged(pk.NewBlockRuntimeID)
+	case *packet.UpdateSubChunkBlocks:
+		for _, e := range append(pk.Blocks, pk.Extra...) {
+			if err := s.blockChanged(e.BlockRuntimeID); err != nil {
+				return err
+			}
 		}
 	case *packet.Disconnect:
 		s.res.disconnect = fmt.Sprintf("reason %v: %q", pk.Reason, pk.Message)
@@ -427,21 +463,67 @@ func (s *session) tryInitialise() error {
 		s.stayed.Store(true)
 		_ = s.conn.Close()
 	})
+	return s.probe()
+}
+
+// blockChanged starts the end of the blocks scenario when the server placed the end marker after the bot
+// spawned: the bot requests every sub-chunk of the 3x3 chunks around the spawn chunk (probe "after-blocks")
+// and leaves once all are answered (subChunkAnswered).
+func (s *session) blockChanged(id uint32) error {
+	if s.c.scenario != "blocks" || !s.res.initialised || id != s.endID || s.res.ended {
+		return nil
+	}
+	s.res.ended = true
+	if !s.spawnKnown {
+		return s.leave()
+	}
+	s.probeName = "after-blocks"
+	defer func() { s.probeName = "" }()
+	for dx := int32(-1); dx <= 1; dx++ {
+		for dz := int32(-1); dz <= 1; dz++ {
+			pk := &packet.SubChunkRequest{
+				Position: protocol.SubChunkPos{s.spawnChunk.X() + dx, 0, s.spawnChunk.Z() + dz},
+				Offsets:  allOffsets(),
+			}
+			if err := s.send(pk); err != nil {
+				return err
+			}
+			s.pendingAnswers++
+		}
+	}
 	return nil
 }
 
+// subChunkAnswered counts the answers to the blocks scenario's last requests and leaves after the last.
+func (s *session) subChunkAnswered() error {
+	if !s.res.ended || s.pendingAnswers == 0 {
+		return nil
+	}
+	s.pendingAnswers--
+	if s.pendingAnswers == 0 {
+		return s.leave()
+	}
+	return nil
+}
+
+// leave ends the connection loop of a scenario that finished.
+func (s *session) leave() error {
+	s.stayed.Store(true)
+	return errors.New("scenario finished")
+}
+
 // levelChunk checks the block palettes of a full chunk, or requests its sub-chunks when the server uses
-// the sub-chunk request system (SubChunkLimit is set).
+// the sub-chunk request system (SubChunkLimit is set) and the chunk is one of the 3x3 around the spawn chunk.
 func (s *session) levelChunk(pk *packet.LevelChunk) error {
 	limit, requestMode := pk.SubChunkLimit.Value()
 	if !requestMode {
 		s.blocks.levelChunk(pk.RawPayload, int(pk.SubChunkCount))
 		return nil
 	}
-	if s.chunkRequests >= maxChunkRequests {
+	if !s.requestsSubChunks(pk.Position) || s.requested[pk.Position] {
 		return nil
 	}
-	s.chunkRequests++
+	s.requested[pk.Position] = true
 	// Overworld sub-chunks -4 to 19 around the chunk's sub-chunk 0, as dragonfly's ViewSubChunks reads them.
 	var offsets []protocol.SubChunkOffset
 	for y := -4; y < 20 && (limit < 0 || len(offsets) < int(limit)); y++ {

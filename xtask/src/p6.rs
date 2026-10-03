@@ -14,8 +14,11 @@
 //!   with the same name (`bds-duplicate/`) do. The duplicate login is a check only if BDS kicks
 //!   the first player as PMMP does. Each RakNet run also runs the `blocks` scenario
 //!   (`bds-<compression>/blocks.jsonl`): while the bot stays spawned, BDS console commands place
-//!   fences, panes, bars, stairs and tripwire next to each other near the player, and the block
-//!   updates BDS sent for each step are reported with their states (`blocks.txt`).
+//!   fences, panes, bars, walls, a gate, stairs and tripwire next to each other near the player
+//!   and remove some again; a marker block set after each step delimits the steps (`MARKER`), and
+//!   the block updates BDS sent for each step are reported with their states (`blocks.txt`). The
+//!   biome definitions and jigsaw data of each spawn capture are checked against `CloudburstMC`'s
+//!   data (`cloudburst`).
 //! - `p6 anchor [zlib|snappy]...`: starts Anchor in this process with the same settings and runs
 //!   the same RakNet and NetherNet scenarios into `target/p6/anchor-<compression>/` and
 //!   `anchor-nethernet-<compression>/`, and the `auto` bot against an unreachable NetherNet
@@ -23,8 +26,9 @@
 //! - `p6 run --addr HOST:PORT --out DIR [--transport T] [--token-key PEM --kid KID --iss ISS]`:
 //!   runs the scenarios against a running server; the token flags add the online scenario.
 //! - `p6 compare A B`: compares the spawn windows of two captures, their answer SDP structures
-//!   when they have them, and their full item packets (`<capture>.items.jsonl`) when both have
-//!   them (see `compare`).
+//!   when they have them, their full item packets (`<capture>.items.jsonl`) when both have them,
+//!   their chunk packets, and the `blocks.jsonl` captures next to them when both exist (see
+//!   `compare`).
 
 mod compare;
 
@@ -70,48 +74,98 @@ const REFERENCE_BLOCKS: &str = "xtask/data/reference/blocks.json";
 const BLOCKS_Y: i32 = -60;
 /// How far the blocks scenario's base position is from the player's spawn column, on `x` and `z`.
 const BLOCKS_OFFSET: i32 = 2;
-/// The steps of the blocks scenario: one block placed at (`dx`, `dz`) from the base position. The
+/// The steps of the blocks scenario: one block placed at (`dx`, `dy`, `dz`) from the base position
+/// with `setblock ... keep`, or removed with `setblock ... air replace` when the block is `air`. The
 /// groups are 3 blocks apart on `z`, so they do not touch each other.
-const BLOCK_STEPS: &[(i32, i32, &str)] = &[
+const BLOCK_STEPS: &[(i32, i32, i32, &str)] = &[
     // Two fences side by side.
-    (0, 0, "oak_fence"),
-    (1, 0, "oak_fence"),
+    (0, 0, 0, "oak_fence"),
+    (1, 0, 0, "oak_fence"),
     // A fence placed next to a solid block, and a solid block placed next to a fence.
-    (0, 3, "stone"),
-    (1, 3, "oak_fence"),
-    (4, 3, "oak_fence"),
-    (5, 3, "stone"),
+    (0, 0, 3, "stone"),
+    (1, 0, 3, "oak_fence"),
+    (4, 0, 3, "oak_fence"),
+    (5, 0, 3, "stone"),
     // Glass panes in an L.
-    (0, 6, "glass_pane"),
-    (1, 6, "glass_pane"),
-    (0, 7, "glass_pane"),
+    (0, 0, 6, "glass_pane"),
+    (1, 0, 6, "glass_pane"),
+    (0, 0, 7, "glass_pane"),
     // Iron bars in a line, then copper bars at its end.
-    (0, 10, "iron_bars"),
-    (1, 10, "iron_bars"),
-    (2, 10, "iron_bars"),
-    (3, 10, "copper_bars"),
+    (0, 0, 10, "iron_bars"),
+    (1, 0, 10, "iron_bars"),
+    (2, 0, 10, "iron_bars"),
+    (3, 0, 10, "copper_bars"),
     // Stairs facing east (weirdo_direction 0), then one facing south (2) on its east side and on
     // its west side: one pair makes an outer corner and the other an inner corner.
-    (0, 13, r#"oak_stairs ["weirdo_direction"=0]"#),
-    (1, 13, r#"oak_stairs ["weirdo_direction"=2]"#),
-    (1, 16, r#"oak_stairs ["weirdo_direction"=0]"#),
-    (0, 16, r#"oak_stairs ["weirdo_direction"=2]"#),
+    (0, 0, 13, r#"oak_stairs ["weirdo_direction"=0]"#),
+    (1, 0, 13, r#"oak_stairs ["weirdo_direction"=2]"#),
+    (1, 0, 16, r#"oak_stairs ["weirdo_direction"=0]"#),
+    (0, 0, 16, r#"oak_stairs ["weirdo_direction"=2]"#),
     // A lone stair.
-    (0, 19, r#"oak_stairs ["weirdo_direction"=0]"#),
+    (0, 0, 19, r#"oak_stairs ["weirdo_direction"=0]"#),
     // Tripwire hooks on stone, facing each other, then the tripwire between them; then two
     // tripwires without hooks.
-    (0, 22, "stone"),
-    (4, 22, "stone"),
-    (1, 22, r#"tripwire_hook ["direction"=3]"#),
-    (3, 22, r#"tripwire_hook ["direction"=1]"#),
-    (2, 22, "trip_wire"),
-    (6, 22, "trip_wire"),
-    (7, 22, "trip_wire"),
+    (0, 0, 22, "stone"),
+    (4, 0, 22, "stone"),
+    (1, 0, 22, r#"tripwire_hook ["direction"=3]"#),
+    (3, 0, 22, r#"tripwire_hook ["direction"=1]"#),
+    (2, 0, 22, "trip_wire"),
+    (6, 0, 22, "trip_wire"),
+    (7, 0, 22, "trip_wire"),
+    // Cobblestone walls: alone, in a line, in an L, then between a fence and a pane.
+    (0, 0, 25, "cobblestone_wall"),
+    (0, 0, 28, "cobblestone_wall"),
+    (1, 0, 28, "cobblestone_wall"),
+    (2, 0, 28, "cobblestone_wall"),
+    (0, 0, 31, "cobblestone_wall"),
+    (1, 0, 31, "cobblestone_wall"),
+    (0, 0, 32, "cobblestone_wall"),
+    (1, 0, 35, "cobblestone_wall"),
+    (0, 0, 35, "oak_fence"),
+    (2, 0, 35, "glass_pane"),
+    // A nether brick fence next to an oak fence.
+    (0, 0, 38, "oak_fence"),
+    (1, 0, 38, "nether_brick_fence"),
+    // A fence gate between two fences; facing south it spans the x axis, the fence line.
+    (0, 0, 41, "oak_fence"),
+    (2, 0, 41, "oak_fence"),
+    (
+        1,
+        0,
+        41,
+        r#"fence_gate ["minecraft:cardinal_direction"="south"]"#,
+    ),
+    // A pane next to a wall.
+    (0, 0, 44, "cobblestone_wall"),
+    (1, 0, 44, "glass_pane"),
+    // A stair next to a full block, then a fence on the stair's other side.
+    (0, 0, 47, "stone"),
+    (1, 0, 47, r#"oak_stairs ["weirdo_direction"=0]"#),
+    (2, 0, 47, "oak_fence"),
+    // Removing blocks with connected neighbours: the middle wall of the line, then the second
+    // fence of the first pair.
+    (1, 0, 28, "air"),
+    (1, 0, 0, "air"),
+    // A block high above the ground in the spawn chunk, for the sub-chunk height maps the bot
+    // requests at the end (columns of a sub-chunk below and above their highest block).
+    (0, 40, -2, "stone"),
 ];
-/// The `say` text that closes each step of the blocks scenario; the step number follows it. The
-/// bot ends the scenario on `p6-end` (`xtask/go/bot`).
-const STEP_MARKER: &str = "p6-step ";
-/// How long the blocks bot may stay spawned; it leaves on the `p6-end` message.
+/// The marker position of the blocks scenario, (`dx`, `dz`) from the base position: no step block
+/// is next to it. After each step the marker is set to the step's marker block, so every step ends
+/// with a single-block update there; both servers can make it with block changes only.
+const MARKER: (i32, i32) = (-4, 0);
+/// The marker blocks of the steps, alternating: step `n` ends with `STEP_MARKERS[n % 2]`.
+const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
+/// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
+const END_MARKER: &str = "diamond_block";
+/// The `CloudburstMC` Data checkout (PLAN.md 10.4), relative to the repository root.
+const CLOUDBURST_DATA: &str = ".cache/cloudburst-data";
+/// The packets `bot cloudburst` checks against `CloudburstMC`'s data.
+const CLOUDBURST_PACKETS: [&str; 2] = ["BiomeDefinitionList", "JigsawStructureData"];
+/// The packets `compare::compare_chunks` checks; while any is deferred, its differences are shown
+/// without failing the comparison.
+const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
+/// How long the blocks bot may stay spawned; it leaves on the end marker.
 const BLOCKS_STAY: &str = "90s";
 /// The address Anchor advertises in the fallback run: an IPv6 documentation address (RFC 3849)
 /// while Anchor has no IPv6 socket, so the NetherNet negotiation fails with code 11. An
@@ -180,11 +234,14 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
             |addr, server, out| {
                 let mut ok = run_scenarios(&bot, addr, &raknet, "raknet", None, out)?;
                 report_window(&raknet.join("spawn.jsonl"), &deferred, out)?;
-                ok &= blocks(&bot, addr, server, &raknet, &states, out)?;
+                ok &= cloudburst(root, &bot, &raknet, None, out)?;
+                // The fallback capture is compared with Anchor's, so it runs before the blocks
+                // scenario changes the world.
                 if once {
                     wait_until_empty(addr)?;
                     ok &= fallback(&bot, addr, &dir("bds-fallback"), out)?;
                 }
+                ok &= blocks(&bot, addr, Placer::Bds(server), &raknet, &states, out)?;
                 Ok(ok)
             },
         )?;
@@ -198,6 +255,7 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
             |addr, _, out| {
                 let mut ok = run_scenarios(&bot, addr, &nethernet, "nethernet", None, out)?;
                 report_window(&nethernet.join("spawn.jsonl"), &deferred, out)?;
+                ok &= cloudburst(root, &bot, &nethernet, None, out)?;
                 report_nethernet(&nethernet.join("spawn.jsonl"), out)?;
                 record_segment_size(&bot, addr, &nethernet, SMALL_SEGMENT, out)?;
                 if once {
@@ -210,6 +268,44 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
     }
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
+}
+
+/// Checks the biome definitions and jigsaw structure data of `<dir>/spawn.world.jsonl` against
+/// `CloudburstMC`'s data with the bot (`bot cloudburst`, PLAN.md 10.6) and prints the result. With a
+/// deferral table that holds either packet, a failure is only shown.
+fn cloudburst(
+    root: &Path,
+    bot: &Path,
+    dir: &Path,
+    deferred: Option<&compare::Deferred>,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let output = Command::new(bot)
+        .arg("cloudburst")
+        .arg("-world")
+        .arg(dir.join("spawn.world.jsonl"))
+        .arg("-data")
+        .arg(root.join(CLOUDBURST_DATA))
+        .output()
+        .map_err(|e| format!("cannot run the bot: {e}"))?;
+    let same = match output.status.code() {
+        Some(0) => true,
+        Some(1) => false,
+        _ => {
+            return Err(format!(
+                "bot cloudburst failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let shown = deferred.is_some_and(|d| CLOUDBURST_PACKETS.iter().any(|p| d.contains(p)));
+    let prefix = if shown { "deferred: " } else { "" };
+    for line in text.lines() {
+        say(out, &format!("{prefix}CloudburstMC check: {line}"))?;
+    }
+    Ok(same || shown)
 }
 
 /// Starts BDS with the test settings, the transport and the compression, calls `run` with its
@@ -261,6 +357,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
     let compressions = compressions(args)?;
     let bot = build_bot(root)?;
     let deferred = load_deferred(root)?;
+    let states = block_states(&read_text(&root.join(REFERENCE_BLOCKS))?)?;
     let dir = |name: &str| root.join(OUT_DIR).join(name);
     let mut passed = true;
     for compression in &compressions {
@@ -269,9 +366,17 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
             ("nethernet", format!("nethernet-{compression}")),
         ] {
             let out_dir = dir(&format!("anchor-{name}"));
-            passed &= anchor_session(&out_dir, compression, None, out, |addr, out| {
-                let ok = run_scenarios(&bot, addr, &out_dir, transport, None, out)?;
+            let (bases, base) = channel();
+            let steps = anchor_steps(base)?;
+            let with_steps = |b: anchor::ServerBuilder| b.every(STEP_TICKS, steps);
+            passed &= anchor_session(&out_dir, compression, None, with_steps, out, |addr, out| {
+                let mut ok = run_scenarios(&bot, addr, &out_dir, transport, None, out)?;
                 report_window(&out_dir.join("spawn.jsonl"), &deferred, out)?;
+                ok &= cloudburst(root, &bot, &out_dir, Some(&deferred), out)?;
+                if transport == "raknet" {
+                    wait_until_empty(addr)?;
+                    ok &= blocks(&bot, addr, Placer::Anchor(bases), &out_dir, &states, out)?;
+                }
                 let same = compare_with_bds(root, &format!("bds-{name}"), &out_dir, out)?;
                 Ok(ok && same)
             })?;
@@ -279,21 +384,30 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
     }
     let first = compressions.first().copied().unwrap_or("snappy");
     let out_dir = dir("anchor-fallback");
-    passed &= anchor_session(&out_dir, first, Some(UNREACHABLE), out, |addr, out| {
-        let ok = fallback(&bot, addr, &out_dir, out)?;
-        let same = compare_with_bds(root, "bds-fallback", &out_dir, out)?;
-        Ok(ok && same)
-    })?;
+    passed &= anchor_session(
+        &out_dir,
+        first,
+        Some(UNREACHABLE),
+        |b| b,
+        out,
+        |addr, out| {
+            let ok = fallback(&bot, addr, &out_dir, out)?;
+            let same = compare_with_bds(root, "bds-fallback", &out_dir, out)?;
+            Ok(ok && same)
+        },
+    )?;
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
 
-/// Starts Anchor on a thread of this process with the P6 settings, calls `run` with its address
-/// and shuts it down. `public_ip` is the NetherNet address Anchor advertises.
+/// Starts Anchor on a thread of this process with the P6 settings and what `setup` adds to the
+/// builder, calls `run` with its address and shuts it down. `public_ip` is the NetherNet address
+/// Anchor advertises.
 fn anchor_session<W: Write>(
     out_dir: &Path,
     compression: &str,
     public_ip: Option<IpAddr>,
+    setup: impl FnOnce(anchor::ServerBuilder) -> anchor::ServerBuilder,
     out: &mut W,
     run: impl FnOnce(&str, &mut W) -> Result<bool, String>,
 ) -> Result<bool, String> {
@@ -320,9 +434,7 @@ fn anchor_session<W: Write>(
             name(out_dir)
         ),
     )?;
-    let server = anchor::Server::builder()
-        .config(config)
-        .data_dir(&data_dir)
+    let server = setup(anchor::Server::builder().config(config).data_dir(&data_dir))
         .build()
         .map_err(|e| format!("build Anchor: {e}"))?;
     let shutdown = server.shutdown_handle();
@@ -338,15 +450,132 @@ fn anchor_session<W: Write>(
     Ok(passed)
 }
 
-/// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, places each block of
-/// `BLOCK_STEPS` with a BDS console command and closes the step with `say p6-step <n>`, then says
-/// `p6-end`. Reports the block updates of each step with their states (also into
-/// `<dir>/blocks.txt`). It passes if the bot passed and every step got a block update; what BDS
-/// sent is recorded, not checked.
+/// What changes the blocks of the blocks scenario on a server.
+enum Placer<'a> {
+    /// BDS console commands.
+    Bds(&'a mut Bds),
+    /// Anchor's scheduled task from [`anchor_steps`], started by sending it the base position.
+    Anchor(std::sync::mpsc::SyncSender<[i32; 3]>),
+}
+
+/// The channel that hands Anchor's steps task the base position.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the harness hands the task the base position through a channel"
+)]
+fn channel() -> (
+    std::sync::mpsc::SyncSender<[i32; 3]>,
+    std::sync::mpsc::Receiver<[i32; 3]>,
+) {
+    std::sync::mpsc::sync_channel(1)
+}
+
+/// Ticks between two block changes of Anchor's steps: 200 ms, the pause between BDS commands.
+const STEP_TICKS: std::num::NonZeroU32 = std::num::NonZeroU32::new(4).unwrap();
+
+/// The block state a step names: `name` or `name ["key"=value,...]` (BDS `setblock` syntax), with
+/// the properties it leaves out at their first value in Anchor's table, as `setblock` takes the
+/// default state (connection properties are worked out by `set_block` anyway).
+fn step_state(block: &str) -> Result<anchor::block::State, String> {
+    use anchor::block::PropertyValue;
+    let (name, properties) = match block.split_once(' ') {
+        Some((name, rest)) => (name, rest.trim()),
+        None => (block, ""),
+    };
+    let name = format!("minecraft:{name}");
+    let mut wanted = Vec::new();
+    let inner = properties.trim_start_matches('[').trim_end_matches(']');
+    for pair in inner.split(',').filter(|p| !p.trim().is_empty()) {
+        let (key, value) = pair
+            .split_once('=')
+            .ok_or_else(|| format!("bad property {pair:?} in {block:?}"))?;
+        let key = key.trim().trim_matches('"').to_owned();
+        let value = value.trim();
+        wanted.push((
+            key,
+            value.trim_matches('"').to_owned(),
+            value.starts_with('"'),
+        ));
+    }
+    anchor::block::State::all()
+        .find(|s| {
+            s.name() == name
+                && wanted.iter().all(|(key, value, text)| {
+                    s.properties().any(|p| {
+                        p.name() == key
+                            && match p.value() {
+                                PropertyValue::String(v) => *text && v == value,
+                                PropertyValue::Int(v) => !*text && v.to_string() == *value,
+                                PropertyValue::Byte(v) => !*text && v.to_string() == *value,
+                            }
+                    })
+                })
+        })
+        .ok_or_else(|| format!("no state of Anchor's table matches {block:?}"))
+}
+
+/// Anchor's side of the blocks scenario: a task for `ServerBuilder::every(STEP_TICKS, ..)` that
+/// waits for the base position, then on each call sets the next step's block or the step's marker
+/// (as `blocks` does with BDS commands), and finally the end marker. The harness sends the base
+/// position once the bot has spawned; the channel is the harness's, outside the engine.
+fn anchor_steps(
+    bases: std::sync::mpsc::Receiver<[i32; 3]>,
+) -> Result<impl FnMut(&mut anchor::Context<'_>) + Send + 'static, String> {
+    let air = anchor::block::State::find("minecraft:air", &[])
+        .ok_or_else(|| "no air in Anchor's table".to_owned())?;
+    let mut steps = Vec::with_capacity(BLOCK_STEPS.len());
+    for &(dx, dy, dz, block) in BLOCK_STEPS {
+        let state = if block == "air" {
+            air
+        } else {
+            step_state(block)?
+        };
+        steps.push(([dx, dy, dz], state));
+    }
+    let markers = STEP_MARKERS.map(step_state);
+    let [first, second] = markers;
+    let markers = [first?, second?];
+    let end = step_state(END_MARKER)?;
+    let mut base: Option<[i32; 3]> = None;
+    // Even actions place a step's block, odd ones its marker; past the steps, the end marker.
+    let mut action = 0_usize;
+    let task = move |ctx: &mut anchor::Context<'_>| {
+        if base.is_none() {
+            base = bases.try_recv().ok();
+        }
+        let Some([bx, by, bz]) = base else {
+            return;
+        };
+        let at = |[dx, dy, dz]: [i32; 3]| anchor::world::BlockPos::new(bx + dx, by + dy, bz + dz);
+        let (step, marker) = (action / 2, action % 2 == 1);
+        let change = match steps.get(step) {
+            Some(&(offset, state)) if !marker => Some((at(offset), state)),
+            Some(_) => markers
+                .get(step % 2)
+                .map(|&m| (at([MARKER.0, 0, MARKER.1]), m)),
+            None if step == steps.len() && !marker => Some((at([MARKER.0, 0, MARKER.1]), end)),
+            None => None,
+        };
+        // A change that fails (its chunk is not loaded yet) is tried again on the next call.
+        if let Some((pos, state)) = change
+            && ctx.world_mut().set_block(pos, state).is_ok()
+        {
+            action += 1;
+        }
+    };
+    Ok(task)
+}
+
+/// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, changes each block of
+/// `BLOCK_STEPS` and ends the step by setting the marker (`MARKER`, `STEP_MARKERS`), then places the
+/// end marker: on BDS with console commands, on Anchor with the task of [`anchor_steps`]. Reports
+/// the block changes of each step with their states (also into `<dir>/blocks.txt`). It passes if
+/// the bot passed, every step ended and every step changed a block; the comparison with BDS is
+/// `compare_with_bds`.
 fn blocks(
     bot: &Path,
     addr: &str,
-    server: &mut Bds,
+    changer: Placer<'_>,
     dir: &Path,
     states: &BTreeMap<u32, String>,
     out: &mut impl Write,
@@ -362,21 +591,31 @@ fn blocks(
         .spawn()
         .map_err(|e| format!("cannot run the bot: {e}"))?;
     let placed = wait_for_spawn(&mut child, &capture).and_then(|()| {
-        let (x, z) = spawn_column(&read_text(&capture)?)?;
-        let base = (x + BLOCKS_OFFSET, BLOCKS_Y, z + BLOCKS_OFFSET);
-        // Give BDS a moment to finish the join before the first command.
+        let base = blocks_base(&read_text(&capture)?)?;
+        // Give the server a moment to finish the join before the first change.
         for _ in 0..5 {
             pause();
         }
-        for (n, (dx, dz, block)) in BLOCK_STEPS.iter().enumerate() {
-            let (bx, by, bz) = (base.0 + dx, base.1, base.2 + dz);
-            server.command(&format!("setblock {bx} {by} {bz} {block} keep"))?;
+        let server = match changer {
+            Placer::Bds(server) => server,
+            Placer::Anchor(bases) => {
+                return bases
+                    .send(base)
+                    .map_err(|_| "the steps task is gone".to_owned());
+            }
+        };
+        let [mx, my, mz] = [base[0] + MARKER.0, base[1], base[2] + MARKER.1];
+        for (n, (dx, dy, dz, block)) in BLOCK_STEPS.iter().enumerate() {
+            let (bx, by, bz) = (base[0] + dx, base[1] + dy, base[2] + dz);
+            let mode = if *block == "air" { "replace" } else { "keep" };
+            server.command(&format!("setblock {bx} {by} {bz} {block} {mode}"))?;
             pause();
-            server.command(&format!("say {STEP_MARKER}{n}"))?;
+            let marker = STEP_MARKERS.get(n % 2).copied().unwrap_or_default();
+            server.command(&format!("setblock {mx} {my} {mz} {marker} replace"))?;
             pause();
         }
-        server.command("say p6-end")?;
-        Ok(base)
+        server.command(&format!("setblock {mx} {my} {mz} {END_MARKER} replace"))?;
+        Ok(())
     });
     if placed.is_err() {
         child.kill().map_err(|e| format!("kill the bot: {e}"))?;
@@ -384,35 +623,152 @@ fn blocks(
     let output = child
         .wait_with_output()
         .map_err(|e| format!("wait for the bot: {e}"))?;
-    let base = placed?;
+    placed?;
     let passed = output.status.success();
     let failure = if passed {
         String::new()
     } else {
         format!(": {}", String::from_utf8_lossy(&output.stderr).trim())
     };
-    let mut report = vec![format!(
-        "{} raknet blocks: base {base:?}{failure}",
+    let (report, complete) = blocks_report(&read_text(&capture)?, states)?;
+    let text = format!(
+        "{} raknet blocks{failure}\n{report}",
         if passed { "ok  " } else { "FAIL" }
-    )];
-    let steps = block_updates(&read_text(&capture)?, base, states)?;
-    let mut all_updated = true;
-    for (n, (dx, dz, block)) in BLOCK_STEPS.iter().enumerate() {
-        let updates = steps.get(n).map_or(&[][..], Vec::as_slice);
-        all_updated &= updates.iter().any(|u| u.starts_with("Update"));
-        report.push(format!("  step {n}: setblock ({dx},0,{dz}) {block}"));
-        if updates.is_empty() {
-            report.push("    (nothing)".to_owned());
-        }
-        report.extend(updates.iter().map(|u| format!("    {u}")));
-    }
-    if !all_updated {
-        report.push("FAIL blocks: a step got no block update".to_owned());
-    }
-    let text = report.join("\n");
+    );
     write(&dir.join("blocks.txt"), format!("{text}\n").as_bytes())?;
     say(out, &text)?;
-    Ok(passed && all_updated)
+    Ok(passed && complete)
+}
+
+/// The base position of the blocks scenario in a capture: `BLOCKS_OFFSET` from the spawn column
+/// at `BLOCKS_Y`.
+fn blocks_base(capture: &str) -> Result<[i32; 3], String> {
+    let (x, z) = spawn_column(capture)?;
+    Ok([x + BLOCKS_OFFSET, BLOCKS_Y, z + BLOCKS_OFFSET])
+}
+
+/// The marker of the blocks scenario with the reference list's state names.
+fn markers() -> compare::Markers {
+    let state = |name: &str| format!("minecraft:{name}[]");
+    let mut near = std::collections::BTreeSet::new();
+    for (dx, dy, dz, _) in BLOCK_STEPS {
+        for (x, z) in [-1, 0, 1]
+            .into_iter()
+            .flat_map(|x| [-1, 0, 1].map(|z| (x, z)))
+        {
+            near.insert([dx + x, *dy, dz + z].map(i64::from));
+        }
+    }
+    compare::Markers {
+        position: [i64::from(MARKER.0), 0, i64::from(MARKER.1)],
+        steps: STEP_MARKERS.map(state),
+        end: state(END_MARKER),
+        near,
+    }
+}
+
+/// The label of each step: `setblock (dx,dy,dz) <block>`.
+fn step_labels() -> Vec<String> {
+    BLOCK_STEPS
+        .iter()
+        .map(|(dx, dy, dz, block)| format!("setblock ({dx},{dy},{dz}) {block}"))
+        .collect()
+}
+
+/// The steps of a blocks capture, relative to its base position.
+fn capture_steps(
+    capture: &str,
+    states: &BTreeMap<u32, String>,
+) -> Result<(Vec<compare::Step>, bool), String> {
+    let base = blocks_base(capture)?.map(i64::from);
+    compare::block_steps(capture, base, &markers(), states)
+}
+
+/// The block changes of each step of a blocks capture as text, and whether the capture is complete:
+/// every step ended with its marker, the end marker came and every step changed a block.
+fn blocks_report(capture: &str, states: &BTreeMap<u32, String>) -> Result<(String, bool), String> {
+    let (steps, ended) = capture_steps(capture, states)?;
+    let mut report = Vec::new();
+    let mut complete = ended && steps.len() == BLOCK_STEPS.len();
+    for (n, label) in step_labels().iter().enumerate() {
+        report.push(format!("  step {n}: {label}"));
+        let Some(step) = steps.get(n) else {
+            report.push("    (not reached)".to_owned());
+            continue;
+        };
+        complete &= !step.changes.is_empty();
+        if step.changes.is_empty() {
+            report.push("    (nothing)".to_owned());
+        }
+        for c in &step.changes {
+            let [dx, dy, dz] = c.position;
+            report.push(format!(
+                "    #{} {} ({dx},{dy},{dz}) layer {} flags {} {}",
+                c.packet, c.kind, c.layer, c.flags, c.state
+            ));
+        }
+        report.extend(step.others.iter().map(|o| format!("    {o}")));
+        for c in &step.ignored {
+            let [dx, dy, dz] = c.position;
+            report.push(format!(
+                "    (away from the steps, not compared) #{} {} ({dx},{dy},{dz}) {}",
+                c.packet, c.kind, c.state
+            ));
+        }
+    }
+    if !complete {
+        report.push(format!(
+            "FAIL blocks: {} of {} steps ended, end marker {}, or a step changed nothing",
+            steps.len(),
+            BLOCK_STEPS.len(),
+            if ended { "seen" } else { "missing" }
+        ));
+    }
+    Ok((report.join("\n"), complete))
+}
+
+/// Compares two blocks captures step by step (`compare::compare_steps`); prints the differences.
+fn compare_blocks(
+    a: &Path,
+    b: &Path,
+    states: &BTreeMap<u32, String>,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let steps = |path: &Path| {
+        capture_steps(&read_text(path)?, states).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let ((steps_a, ended_a), (steps_b, ended_b)) = (steps(a)?, steps(b)?);
+    let (mut differences, notes) = compare::compare_steps(&steps_a, &steps_b, &step_labels());
+    for (name, ended) in [("A", ended_a), ("B", ended_b)] {
+        if !ended {
+            differences.push(format!("blocks: {name} has no end marker"));
+        }
+    }
+    for note in &notes {
+        say(out, &format!("note: {note}"))?;
+    }
+    for (name, steps) in [("A", &steps_a), ("B", &steps_b)] {
+        let ignored: usize = steps.iter().map(|s| s.ignored.len()).sum();
+        if ignored > 0 {
+            say(
+                out,
+                &format!("note: blocks: {name} changed {ignored} blocks away from the steps"),
+            )?;
+        }
+    }
+    for difference in &differences {
+        say(out, difference)?;
+    }
+    let same = differences.is_empty();
+    say(
+        out,
+        if same {
+            "blocks SAME"
+        } else {
+            "blocks DIFFERENT"
+        },
+    )?;
+    Ok(same)
 }
 
 /// The block column (`x`, `z`) of the player's position in the capture's `StartGame`.
@@ -469,77 +825,6 @@ fn block_states(text: &str) -> Result<BTreeMap<u32, String>, String> {
         map.insert(id, format!("{name}[{}]", properties.join(",")));
     }
     Ok(map)
-}
-
-/// The block updates of a blocks capture per step: each `UpdateBlock` or `UpdateSubChunkBlocks`
-/// entry as `<packet> (dx,dy,dz) layer <l> flags <f> <state>` relative to `base`, and the names of
-/// `BlockActorData` and `UpdateBlockSynced` packets. Chunks are left out: they are the spawn's
-/// chunk stream and the answers to the bot's sub-chunk requests. A step ends at the Text that
-/// carries its marker.
-fn block_updates(
-    capture: &str,
-    base: (i32, i32, i32),
-    states: &BTreeMap<u32, String>,
-) -> Result<Vec<Vec<String>>, String> {
-    let mut steps = Vec::new();
-    let mut current = Vec::new();
-    let state = |id: &Value| {
-        id.as_u64()
-            .and_then(|id| u32::try_from(id).ok())
-            .and_then(|id| states.get(&id))
-            .map_or_else(|| format!("unknown {id}"), String::clone)
-    };
-    let relative = |position: &Value| {
-        let at = |i: usize, b: i32| {
-            position
-                .get(i)
-                .and_then(Value::as_i64)
-                .map_or_else(|| "?".to_owned(), |v| (v - i64::from(b)).to_string())
-        };
-        format!("({},{},{})", at(0, base.0), at(1, base.1), at(2, base.2))
-    };
-    for line in capture.lines() {
-        let value: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
-        if field(&value, "type").as_str() != Some("packet") {
-            continue;
-        }
-        let fields = field(&value, "fields");
-        match field(&value, "name").as_str().unwrap_or_default() {
-            "Text" => {
-                let message = field(fields, "Message").as_str().unwrap_or_default();
-                if let Some((_, n)) = message.split_once(STEP_MARKER) {
-                    if n.trim() != steps.len().to_string() {
-                        return Err(format!("step marker {n} out of order"));
-                    }
-                    steps.push(std::mem::take(&mut current));
-                }
-            }
-            "UpdateBlock" => current.push(format!(
-                "UpdateBlock {} layer {} flags {} {}",
-                relative(field(fields, "Position")),
-                field(fields, "Layer"),
-                field(fields, "Flags"),
-                state(field(fields, "NewBlockRuntimeID"))
-            )),
-            "UpdateSubChunkBlocks" => {
-                for (layer, key) in [(0, "Blocks"), (1, "Extra")] {
-                    for entry in field(fields, key).as_array().into_iter().flatten() {
-                        current.push(format!(
-                            "UpdateSubChunkBlocks {} layer {layer} flags {} {}",
-                            relative(field(entry, "BlockPos")),
-                            field(entry, "Flags"),
-                            state(field(entry, "BlockRuntimeID"))
-                        ));
-                    }
-                }
-            }
-            name @ ("BlockActorData" | "UpdateBlockSynced") => {
-                current.push(name.to_owned());
-            }
-            _ => {}
-        }
-    }
-    Ok(steps)
 }
 
 /// Compares `<out_dir>/spawn.jsonl` with the spawn capture of the BDS run `bds_name`.
@@ -880,7 +1165,9 @@ fn run(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
 }
 
 /// `p6 compare`: compares the spawn windows of two captures, their answer SDP structures when
-/// either has one and their full item packets when both have them; prints the item notes.
+/// either has one, their full item packets when both have them, their chunk packets (only shown
+/// while the deferral table holds one of `CHUNK_PACKETS`) and the blocks captures next to them
+/// when both exist; prints the notes.
 fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Result<bool, String> {
     let deferred = load_deferred(root)?;
     let fields = compare::parse_fields(&read_text(&root.join(compare::FIELDS_PATH))?, &deferred)?;
@@ -915,11 +1202,37 @@ fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Resul
             say(out, &format!("note: {note}"))?;
         }
     }
+    // The chunk packets of the whole captures; while the deferral table holds them, their
+    // differences are only shown.
+    let chunks = |path: &Path, text: &str| {
+        compare::chunks(text).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let (chunk_differences, chunk_notes) =
+        compare::compare_chunks(&chunks(a, &text_a)?, &chunks(b, &text_b)?);
+    for note in &chunk_notes {
+        say(out, &format!("note: {note}"))?;
+    }
+    if CHUNK_PACKETS.iter().any(|p| deferred.contains(p)) {
+        for difference in &chunk_differences {
+            say(out, &format!("deferred chunk difference: {difference}"))?;
+        }
+    } else {
+        differences.extend(chunk_differences);
+    }
     for difference in &differences {
         say(out, difference)?;
     }
-    let same = differences.is_empty();
+    let mut same = differences.is_empty();
     say(out, if same { "SAME" } else { "DIFFERENT" })?;
+    // The blocks captures next to both spawn captures (`p6 bds` writes them for RakNet runs).
+    let (blocks_a, blocks_b) = (
+        a.with_file_name("blocks.jsonl"),
+        b.with_file_name("blocks.jsonl"),
+    );
+    if is_file(&blocks_a) && is_file(&blocks_b) {
+        let states = block_states(&read_text(&root.join(REFERENCE_BLOCKS))?)?;
+        same &= compare_blocks(&blocks_a, &blocks_b, &states, out)?;
+    }
     Ok(same)
 }
 

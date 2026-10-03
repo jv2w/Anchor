@@ -88,7 +88,7 @@ vendor/               결함을 고친 의존성 사본(사용자 결정, M3). 9
 - 서브청크는 팔레트와 비트 배열이다. 월드는 영구와 임시(저장 안 함) 두 가지다. 생성기는 void와 flat, 사용자 생성기는 trait이다. 청크 전송은 시야, 틱당 수, 스폰 반경에 상한을 둔다(방식은 M6).
 - 저장(redb, 파일 하나): 표는 `chunks`(키 = world_id, x, z, 종류를 고정 길이 빅엔디안, 부호 비트 뒤집음), `players`(키 = XUID, 오프라인은 `offline:`+이름), `world_meta`, 사용자 표, ops·화이트리스트·밴. 값은 압축 + 자체 체크섬이고, 디스크 값도 외부 입력으로 다룬다. 디스크에는 블록 이름과 상태만 쓴다.
 - 커밋: 저장 주기(기본 10분)마다 틱 경계의 바뀐 부분을 COW 스냅샷으로 떼어 저장 스레드가 한 트랜잭션으로 커밋한다. 모든 쓰기 트랜잭션에 `set_quick_repair(true)`. 관리 명령(op, ban 등)은 다음 틱 경계에 커밋을 요청한다. 외부 시스템에 쓴 사용자 효과는 크래시 때 돌아가지 않는다(문서에 적는다).
-- 실패와 손상: 커밋 실패는 핸들을 다시 열어 3번 재시도하고, 그래도 실패하면 플레이어를 내보내고 종료한다. redb 읽기는 페이지 체크섬을 확인하지 않으므로(cberner/redb#1334) 매 시작마다 닫힌 파일을 백업한 뒤 `check_integrity()`를 하고, 손상이면 시작을 거부하고 원본을 남긴다. 실행 중 손상 청크는 격리한다. 백업은 읽기 트랜잭션으로 새 파일에 복사한다(열린 파일 복사는 Windows에서 실패). `compact()`는 시작과 종료 때만.
+- 실패와 손상: 커밋 실패는 핸들을 다시 열어 3번 재시도하고, 그래도 실패하면 플레이어를 내보내고 종료한다. redb 읽기는 페이지 체크섬을 확인하지 않으므로(cberner/redb#1334) 매 시작마다 닫힌 파일을 백업한 뒤 `check_integrity()`를 하고, 손상이면 시작을 거부하고 원본을 남긴다. 실행 중 손상 청크는 격리한다. 백업은 열기 전 닫힌 파일을 배타 잠금 아래 복사한다(M6에서 바꿈, 10.6). `compact()`는 시작과 종료 때만.
 - 서버 조명(사용자 결정): 게임 로직용으로 계산하고 클라이언트로는 보내지 않는다. 블록 값(밝기, 필터, 하늘빛 차단)은 PMMP 덤프에서 온다. 블록 변경은 증분 갱신하고 틱당 처리량에 상한을 둔다(PMMP는 상한 없음, dragonfly는 갱신 안 함). 시간대 보정은 PMMP 식을 표로 만든다(`cos` 금지). 계산 안 된 위치는 `None`. 설정 `lighting = false`면 계산하지 않고 모든 위치를 블록빛 0, 하늘빛 15(하늘에 열림)로 본다(0이면 작물이 안 자라고, 블록빛 15면 얼음과 눈이 녹아서). 그 결과(작물이 지하에서도 자람 등)를 rustdoc에 적는다.
 - 랜덤 틱: 설정 `tick-radius`, `random-tick-speed`, `disable-block-ticking`(PMMP 관례). 대상은 반경 안이고 주변 3x3이 로드되고 조명 계산을 마친 청크다(`lighting = false`면 조명 조건은 만족). 청크 순서는 정렬 순서, 난수는 엔진 RNG(dragonfly의 비결정성을 고친다). 동작 기준은 PMMP.
 
@@ -248,7 +248,7 @@ console-input = true
 | pmmp/PHP-Binaries | php-build-524, PHP 8.4 PM5 Windows(zip sha256 `cf4023b8549c99eec47cfd403805ac7d78100fa366394dab4e45bb544dcc9be4`), `.cache/php-pm5` | PMMP 덤프 실행(개발 도구) | 일반 PHP에는 PMMP 확장이 없음 → PM5 빌드 |
 | pocketmine/bedrock-data(CC0) | 6.7.0+bedrock-1.26.30 | 레시피 등 데이터 | 26.40 이후 없음 |
 | df-mc/dragonfly(MIT) | v0.11.5 `4c7b5074`(1.26.50), `.cache/dragonfly` | 기준 목록(블록 상태, 아이템, 크리에이티브 아이템 상태), 야생 시스템 참고 | 해시 함수 패닉(Anchor는 코드를 쓰지 않고 시험에서 다시 구현), 비결정 코드, 조명 갱신 없음. 크리에이티브 목록은 빈 블록 속성을 생략함(빈 속성으로 읽음) |
-| CloudburstMC/Data(Apache-2.0) | `659ce1e`(26.50), `.cache/cloudburst-data` | 블록 ID 골든, 교차 확인, 크리에이티브 아이템 상태 | 팔레트는 gzip big-endian NBT. dragonfly와 블록·아이템 목록이 같음을 도구가 확인한다 |
+| CloudburstMC/Data(Apache-2.0) | `659ce1e`(26.50), `.cache/cloudburst-data` | 블록 ID 골든, 교차 확인, 크리에이티브 아이템 상태, 바이옴 정의(M6) | 팔레트는 gzip big-endian NBT. dragonfly와 블록·아이템 목록이 같음을 도구가 확인한다. 바이옴(M6): 생성 데이터가 든 `biome_definitions.json`은 쓰지 않고 stripped 판만, 밀도 4개는 패킷 필드가 없어 0이 아니면 dump 실패, 같은 키 중복은 serde가 덮어씀(89개 수를 시험·P6이 확인) |
 | Mojang/bedrock-protocol-docs | 목표 버전(M1) | 필드 길이 상한, NetherNet 가이드 | gophertunnel과 다르면 CLAUDE.md 7절 |
 | BDS(기준 서버) | 1.26.52.3(프로토콜 2193), `.cache/bds/` 복사본 | P6 대조 | 실행만, 분석하지 않음. RakNet 전송을 "플레이어 접속 불가"로 기록함 |
 | libdeflater(MIT, libdeflate 1.26) | =1.26.1 | zlib 압축(level 6에서 miniz_oxide보다 2~4배 빠름, 실측) | `use_rust_alloc` 기능의 OOM null 역참조 → 기본 기능만. `Decompressor` 내부 상태 패닉 → `.clippy.toml` 금지. `Compressor::new`는 malloc 실패에만 패닉(생성 때만, 외부 입력 닿지 않음) |
@@ -261,10 +261,11 @@ console-input = true
 | tracing(MIT) | =0.1.44, std만 | 로그 | `attributes` 기능을 꺼 syn 2를 뺌 |
 | rayon(+rayon-core, crossbeam-deque·epoch·utils, either)(MIT/Apache-2.0) | =1.12.0(rayon-core 1.13.0, crossbeam-epoch 0.9.21) | CPU 풀(M5) | 전역 풀을 지연 생성하는 진입점(`join`, `scope`, `spawn`, 병렬 반복자 등) → `.clippy.toml` 금지, `pool.rs`만 씀(임시 코드로 걸림 확인), 풀 drop이 스레드를 기다리지 않음 → `exit_handler`로 세어 종료 때 기다림, 잡 패닉은 호출한 쪽(틱)으로 전파됨(확인), 내부 결함·패닉 처리기 없는 spawn 잡 패닉은 abort → spawn을 쓰지 않음. 열린 RustSec 권고 없음(crossbeam 권고는 고친 판보다 새 판) |
 | socket2(MIT/Apache-2.0) | =0.6.5 | IPv6 전용 소켓, 소켓 버퍼 | 블로킹 입출력 진입점 금지 |
-| str0m(+is, str0m-proto, str0m-aws-lc-rs)(MIT/Apache-2.0) | =0.24.0(0.11.1, 0.7.0, 0.6.0), 기본 기능 끔 + `aws-lc-rs`. str0m은 `vendor/str0m` 사본 | NetherNet WebRTC(SDP API는 원격 정보 입력에만, 응답 SDP는 자체) | 사본에서 고친 것: 상류 main 18ffec80(#1062, 미릴리스)을 옮겼다. ① SCTP 송신 버퍼가 128 KiB 고정이라 그보다 큰 메시지(262,144바이트 조각)를 영원히 못 보냄 → `set_sctp_max_buffered_amount` 설정(Anchor 1 MiB), ② `poll_output`이 대기 SCTP 패킷마다 재귀해 큰 송신에서 스택 넘침(실측, `catch_unwind`로 못 막고 프로세스가 죽음) → 반복문. 재현: `peer::tests::a_segment_of_the_remote_max_message_size_is_sent`, `channels_open_and_messages_round_trip_both_ways`(원본에서 둘 다 실패). 그 밖: 기본 설정이 전역 공급자·fastrand ICE 자격·자체 인증서 → 모두 명시 설정과 금지 목록, 직접 API는 원격 `max-message-size`를 못 받음 → SDP API에 `setup:passive`로 적은 오퍼를 줌(DTLS client 역할 유지), ICE는 끊김만 알림·SCTP 무한 재전송 → 피어 마감과 무응답 10초, `accepts`는 선형 → ufrag·주소 색인, 남은 내부 패닉 → 피어마다 `catch_unwind`, ICE 비밀번호가 trace에 찍힘 → `pii` 끔, 설정 로그 금지 |
+| str0m(+is, str0m-proto, str0m-aws-lc-rs)(MIT/Apache-2.0) | =0.24.0(0.11.1, 0.7.0, 0.6.0), 기본 기능 끔 + `aws-lc-rs`. str0m은 `vendor/str0m` 사본 | NetherNet WebRTC(SDP API는 원격 정보 입력에만, 응답 SDP는 자체) | 사본에서 고친 것: 상류 main 18ffec80(#1062, 미릴리스)을 옮겼다. ① SCTP 송신 버퍼가 128 KiB 고정이라 그보다 큰 메시지(262,144바이트 조각)를 영원히 못 보냄 → `set_sctp_max_buffered_amount` 설정(Anchor 1 MiB), ② `poll_output`이 대기 SCTP 패킷마다 재귀해 큰 송신에서 스택 넘침(실측, `catch_unwind`로 못 막고 프로세스가 죽음) → 반복문, ③ SCTP RTO 초기값이 RFC 4960의 3초라 INIT를 잃으면 3초를 기다림(손실 10%에서 3.8%가 성립 마감 10초를 넘김) → RFC 9260의 1초(`sctp::RTO_INITIAL_MS`, 클라이언트·서버·SNAP 설정, M6. 상류 main에도 RTO 설정이 없음). 재현: `peer::tests::a_segment_of_the_remote_max_message_size_is_sent`, `channels_open_and_messages_round_trip_both_ways`, `a_lost_sctp_init_is_sent_again_after_one_second`(원본에서 모두 실패). 그 밖: 기본 설정이 전역 공급자·fastrand ICE 자격·자체 인증서 → 모두 명시 설정과 금지 목록, 직접 API는 원격 `max-message-size`를 못 받음 → SDP API에 `setup:passive`로 적은 오퍼를 줌(DTLS client 역할 유지), ICE는 끊김만 알림·SCTP 무한 재전송 → 피어 마감과 무응답 10초, `accepts`는 선형 → ufrag·주소 색인, 남은 내부 패닉 → 피어마다 `catch_unwind`, ICE 비밀번호가 trace에 찍힘 → `pii` 끔, 설정 로그 금지 |
 | dimpl(MIT/Apache-2.0) | 0.7.4, `vendor/dimpl` 사본 | DTLS 1.2 | 사본에서 고친 것: ① ChangeCipherSpec 전 같은 epoch-1 레코드 두 번에 assert(engine.rs:364) → replay처럼 버림, ② 피어 인증서가 poll 버퍼(str0m 2,000바이트)보다 크면 assert(dtls12·13 client.rs) → `BufferTooSmall`을 돌려 str0m이 오류로 끊음, ③ Auto 모드 supported_versions 잘림에 범위 밖 읽기(auto.rs:436) → 길이 검사, ④ 받는 레코드마다 버퍼 풀이 자람(32,768개에 약 38 MiB 실측) → 상류 main 98f893dc를 옮기되 상류의 release `assert!` 대신 풀 밖 버퍼는 버림. 재현: `xtask/tests/dimpl_repro.rs` 5개(원본에서 모두 실패). 남김: 레코드 순서 문제(#168 닫힘, #169는 2026-10-03 main 병합, 릴리스는 검증 필요). M5 실측: 데이터그램 사이 순서 바뀜·중복·첫 전송 손실은 모두 성립하고, 멈추는 경우는 한 데이터그램 안의 레코드 순서가 바뀔 때뿐(보내는 쪽만 만들 수 있음, 그 피어만 10초에 닫힘). 고치지 않는다. DTLS 1.2 고정, `log` 사용 |
 | sctp-proto(MIT/Apache-2.0) | 0.10.5, `vendor/sctp-proto` 사본 | SCTP | FORWARD-TSN `+1` 루프는 0.10.4에서 고침(확인). 사본에서 고친 것: ① 수신 창이 0이어도 빠진 청크를 무제한 받음 → 누적 TSN 바로 다음 청크만(RFC 4960 6.2), ② 받는 TSN 기록이 읽힌 데이터를 붙잡고 창에 안 셈 → 데이터 없이 TSN만 두고 기록마다 창에서 뺌, ③ 스트림 수 협상이 뒤집힘(INIT·INIT-ACK) → RFC 4960 5.1.1대로(업스트림 시험 기대값도 바로잡음), 협상 수 밖 스트림은 만들지 않음, 다시 연 스트림은 대기열에 한 번만, ④ 같은 원격의 새 INIT마다 연결이 생겨 쌓임 → 원격 하나에 연결 하나(RFC 4960 1.4), ⑤ 빈 DATA를 받아 둠 → 연결 종료(RFC 4960 6.2), ⑥ SACK 갭 오프셋 u16 넘침과 TSN `+1` 넘침(디버그 패닉) → 순환 산술. 재현: 사본 안 `association/anchor_test.rs`  8개와 `endpoint/anchor_test.rs` 1개(원본에서 모두 실패, verify가 사본 시험을 따로 돌림). M5에서 고친 것: ⑦ 보낼 때와 받을 때 청크마다 큐 전체를 다시 정렬(순서가 어긋난 폭에 비례해 청크당 비용이 커짐, 실측 이차) → 정렬된 자리에 넣음, ⑧ poll마다 전송 중인 청크 전체를 재전송 탐색 → T3 타임아웃 표시가 없으면 건너뜀. 재현: `pushing_a_tsn_does_not_sort_the_whole_queue`, `polling_without_a_retransmission_timeout_skips_the_chunks_in_flight`(원본에서 시간 한도 초과로 실패). 남김: SSN 정렬 비교자가 전순서가 아님(실사용 방식 약 400만 번에서 재현 안 됨 → 고치지 않음, 패닉이 나도 피어 하나만 닫힘), 연결 중 INIT·ERROR 청크에 연결을 닫음(RFC 위반, 그 피어만 끊김), `Endpoint::connect`가 시계를 읽음, `log` 사용 |
 | tokio-rustls(MIT/Apache-2.0) | =0.26.6, `aws_lc_rs`·`tls12`만 | HTTPS 시그널링 | 0.26.5 회귀(#204) 피함, 기한 없음 → 요청 10초 안에서만, 전역 공급자 builder 금지(`.clippy.toml`), 티켓과 세션 저장 끔 |
+| cberner/redb(MIT/Apache-2.0) | =4.3.0, `vendor/redb` 사본 | 월드 저장 `data/world.redb` | 사본에서 고친 것: ① 캐시가 파일보다 크면 쓰기마다 페이지 캐시 큐가 자람(#1517, 4.3.0 미수정) → 상류 master f95d4609의 `lru_cache.rs`를 옮김. 재현: 사본 안 `lru_cache::test::queue_stays_bounded_without_eviction`(원본 실패). ② 열 때 체크섬 확인 없이 시스템 트리를 읽어 손상 바이트 하나에 패닉(#1505, #1334 계열. 상류 not planned, PR #1506 미병합) → 열 때 시스템 트리 전체 체크섬을 먼저 확인해 Corrupted 오류로, 디버그 빌드가 데이터 트리를 확인 없이 걷던 것도 먼저 확인. 재현: `xtask/tests/redb_repro.rs`(원본 release 7곳·debug 48곳 패닉, 사본 0). 1 MB 파일 무작위 1바이트 손상 2만 번 × 3상태에서 원본 열기·검사 패닉 26/14/25 → 사본 0. 남김: 슬롯 체크섬까지 맞춘 조작 파일은 최대 4 GiB 할당(#1503, 상류 거절, 무작위 손상으로는 닿지 않음), 실행 중 생긴 페이지 손상의 읽기 패닉(#1334, 시작 검사 뒤의 하드웨어 손상만, 저장 스레드 패닉 → 4절 6번 종료, 다음 시작에서 거부), #1507 HDD 탐색 비용(성능만). 숨은 스레드·시계·난수 없음, 기본 캐시 1 GiB → 64 MiB, 열린 RustSec 권고 없음. 열기·만들기, `begin_read`, `begin_write`, `check_integrity`, `compact`, `commit`은 `.clippy.toml` 금지(임시 코드로 13개 걸림 확인), `storage`만 씀. `check_integrity`는 모든 페이지 체크섬을 보고 할당 상태를 다시 만들어 비교하며, 다르면 고쳐서 파일에 커밋하고 Ok(false), 못 고치면 Err(Corrupted). `compact`는 2단계 커밋을 되풀이해 파일을 줄이고 중간 크래시 뒤에는 다음 열기가 복구한다. Windows는 열린 파일의 바이트 범위를 잠가 다른 핸들의 읽기가 os error 33으로 실패한다(실측) |
 | go-nethernet(봇만) | gophertunnel go.mod 판 | 봇 NetherNet 다이얼 | 개발 도구. 후보 줄을 `candidate:candidate:`로 두 번 접두, 채널 열림 확인 전에 보냄(Anchor가 둘 다 받음) |
 | go-jose, go-oidc(봇만) | gophertunnel go.mod 판 | 봇 토큰 발급과 봇 시험 | 개발 도구 |
 | golang.org/x/tools(BSD-3) | v0.42.0(xtask/go) | 추출기의 타입 정보 로드 | 개발 도구, gophertunnel 의존성 버전을 바꾸지 않는 판을 골랐다 |
@@ -272,7 +273,7 @@ console-input = true
 ### 9.2 추천 후보 (2026-10-01 조사, 강제 아님)
 | 용도 | 추천 | 가드 |
 |---|---|---|
-| 저장 | redb(사용자 지정) | 4.4.0 이상(쓰기마다 메모리 증가 #1517 수정), 없으면 수정 커밋. 손상 파일 결함(#1503, #1505)과 읽기 체크섬 없음(#1334)은 6절 규칙으로 막는다 |
+| 저장 | redb(사용자 지정) | 4.4.0 이상(쓰기마다 메모리 증가 #1517 수정), 없으면 수정 커밋(M6: 4.3.0에 수정 커밋을 옮긴 사본, 9.1). 손상 파일 결함(#1503, #1505)과 읽기 체크섬 없음(#1334)은 6절 규칙으로 막는다 |
 | 비동기 런타임 | tokio 1.x | 멀티스레드 런타임 하나, 상한 없는 채널 금지 |
 | CPU 풀 | rayon | 고정 크기 풀 하나 |
 | 암호 | aws-lc-rs | Windows는 NASM 필요. 같은 키의 서명과 ECDH는 PKCS#8로 잇는다(M2 확인) |
@@ -584,10 +585,101 @@ console-input = true
   - 크래시 로그 파일 이름은 `input-<unix 초>-<마지막 틱>.log`, 같은 이름이 있으면 덮지 않는다.
 - 검증 필요 처리 결과(release 실측, 이 Windows 기기):
   - dimpl 레코드 순서(#168/#169): 데이터그램 사이 순서 바뀜·절반 중복·첫 전송 손실에서 300회 모두 성립, 무작위 손실 5% 300/300, 10% 288/300, 30% 132/300. 멈추는 경우는 한 데이터그램 안의 레코드 순서가 바뀔 때뿐(보내는 쪽만 만들 수 있음)이고 그 피어만 10초에 닫힌다. 고치지 않는다(9.1).
-  - 10초 안 실패의 원인은 SCTP INIT 재전송 타이머(3초에서 두 배)다(10% 손실에서 4%). 검증 필요(M6 전): str0m RTO 초기값을 낮출지, 성립 마감(10초)을 늘릴지. 공식 클라이언트 값은 관찰할 수 없다.
+  - 10초 안 실패의 원인은 SCTP INIT 재전송 타이머(3초에서 두 배)다(10% 손실에서 4%). str0m RTO 초기값을 1초로 낮췄다(M6에서 닫음, 10.6 SCTP).
   - sctp-proto 수신 큐: 실제로 이차였다(순서가 어긋난 폭을 키우면 청크당 0.96 µs → 9.1 µs). 정렬된 삽입으로 고쳐 0.63~0.71 µs로 일정(256 × 262,144바이트 역순 115 ms → 40.6 ms, 10% 손실 44.7 → 20.3 ms). 9.1 ⑦⑧.
   - NetherNet 구동 작업 하나: 피어 송신 26.3 ms/MiB → 3.55 ms/MiB(피어가 str0m에 자리가 없을 때도 262 KB 조각을 매번 복사하던 것과 sctp-proto ⑧을 고침), 수신 2.91 ms/MiB, 틱당 트래픽(50 ms마다 2,560 B 내림·256 B 올림) 초당 206 µs, 시스템 호출 `send_to` 4.2 µs·`recv_from` 0.47 µs. 플레이어 한 명(50 KB/s 내림, 5 KB/s 올림) 초당 약 0.53 ms, 접속 1회(2 MiB) 약 16 ms. 작업 하나로 약 500명까지는 충분하다(코어의 약 30%와 접속 몰림). 넘으면 받는 작업 하나가 분배하고 피어를 K개 작업에 나눈다(그때 설계). 측정은 `#[ignore]` 시험: `cargo test --release --lib nethernet::peer::tests::driver_cost_per_peer -- --ignored --nocapture`, `... handshake_under_random_loss ...`, `cargo test --release --manifest-path vendor/sctp-proto/Cargo.toml --lib receive_cost -- --ignored --nocapture`.
 - 남은 위험: 로그 상한(64 MiB)은 DB 커밋으로 비우는 M6 전에는 시작부터 센다. 빈 틱만 있어도 약 29시간 뒤에는 잘린다. 재생 도구(크래시 로그를 읽어 재생하는 명령)는 M9 운영 기능이다.
+
+### 10.6 M6 세부 설계 (2026-10-03)
+- 검증 필요 처리(시작 때):
+  - redb 가드(9.2): crates.io 최신이 4.3.0이라 "4.4.0 이상"을 지킬 수 없다. #1517을 고친 상류 커밋을 찾아 4.3.0과 비교하고, 고쳐지지 않았으면 vendor 규칙(1절)으로 사본을 두고 재현 시험을 단다. 7절 절차 전체를 같은 일에서 한다.
+  - HeightMap 접두와 서브청크 형식(10.1): BDS가 보내는 SubChunk를 P6 봇이 모두 기록하고 Anchor 디코더(`protocol::PalettedStorage`)로 읽어 본다.
+  - SCTP 성립 실패(10.5): sctp-proto 초기 RTO(3초)를 낮췄을 때 손실 10%의 10초 안 성립률을 실측해 정한다(서브에이전트).
+  - 12절 5번(LevelDB 가져오기): 포함하고 M9 운영 기능에서 만든다. LevelDB 리더, Bedrock 디스크 서브청크, 옛 블록 상태 업그레이드 스키마 전체가 필요한 큰 일이고 M6 판정과 무관하며, Anchor 저장 형식이 정해진 뒤 만드는 것이 맞다.
+- 일 나누기(같은 파일을 동시에 고치지 않는다): W 월드(`src/world*`, 블록 표 확장과 PMMP 덤프), S 저장(`src/storage*`, redb, `runtime.rs`의 저장 스레드), P P6(`xtask/src/p6*`, `xtask/go/bot`, `xtask/data/p6`), N SCTP RTO(`src/nethernet/peer.rs`)를 worktree에서 병렬로 하고, 틱 통합(`src/tick*`, `src/server.rs`)은 합친 뒤 한다. 강제 종료 시험은 마지막에 한다.
+
+#### 월드 (`anchor::world`, 공개)
+- 좌표 `BlockPos { x, y, z: i32 }`, `ChunkPos { x, z: i32 }`(`Copy`). 차원은 오버월드 하나, 높이 -64..=319(서브청크 24개, 번호 -4..=19).
+- `World`: 이름, 종류(`Kind::Persistent`, `Kind::Temporary`: 저장 안 함), 시드, 스폰, 생성기, 로드된 청크 색인. `block(pos) -> Option<block::State>`(로드 안 된 청크는 `None`), `set_block(pos, state) -> Result`(범위 밖, 로드 안 된 청크, 격리된 청크는 오류). 레이어 1(물 잠김)은 담고 저장하지만 바꾸는 API와 동작은 M7이다.
+- 청크: 서브청크 24칸 `Option<Arc<SubChunk>>`(빈 칸은 `None`). 쓰기는 `Arc::make_mut`라 저장 스냅샷이 쥔 서브청크만 한 번 복사된다(COW). 높이맵(열마다 가장 높은 비공기 블록), 바이옴(서브청크마다 팔레트, Bedrock 3D 바이옴), 바뀜 표시(저장용)를 가진다.
+- 서브청크: 레이어마다 팔레트 + 비트 배열(폭 {0,1,2,3,4,5,6,8,16}, Bedrock 디스크·네트워크와 같은 묶음이라 인코딩에 다시 묶지 않는다). 팔레트 항목은 알려진 상태(`block::State`) 또는 그 청크의 "알 수 없는 상태" 번호다. 알 수 없는 상태는 디스크 원본(NBT)을 그대로 보존해 다시 쓰고, 네트워크로는 `minecraft:info_update`를 보낸다(7절).
+- 생성기(`world::Generator` 트레이트, 공개): `Send + Sync`, 시드와 청크 좌표만 받는 순수 함수(5절)로 빈 청크를 채운다. 기본 `Flat`은 BDS 기본 평지(y -64 bedrock, -63·-62 dirt, -61 grass_block, 바이옴 plains, P6 세계와 같음), `Void`는 모두 공기(plains). 생성된 뒤 바뀌지 않은 청크는 저장하지 않고 다시 생성한다(생성기를 바꾸면 안 바뀐 청크도 바뀐다: rustdoc).
+- 연결 속성(7절, 10.4): `set_block`이 놓인 블록과 수평 이웃 4개의 연결 상태를 다시 계산한다. 울타리·판유리·철창·트립와이어·계단 `corner`는 BDS P6 결과(10.4 `blocks.txt`)를, 벽(`wall_connection_type_*`, `wall_post_bit`)과 그 밖의 판정(무엇이 단단한 면인가)은 PMMP `readStateFromWorld` 규칙을 따른다. 판정에 쓰는 PMMP 값(면 지지 형태 등)은 M4 덤프에 더한다. 생성기가 쓴 상태는 다시 계산하지 않는다(생성기 책임, rustdoc).
+- 네트워크 인코딩: 서브청크 버전 9(레이어, 런타임 팔레트), 바이옴 팔레트, 경계 블록 0개. 같은 틱에 여러 플레이어가 요청한 서브청크는 한 번만 인코딩해 `Arc`로 나눈다(3절).
+- 색인: 청크 색인은 처음에 `BTreeMap<ChunkPos, _>`이고, 블록 조회 비용을 재서 더 빠르면 반복 API가 없는 조회 전용 해시 색인(고정 해시, 4.4)으로 바꾼다(이유를 남김).
+
+#### 청크 전송 (틱)
+- 방식은 BDS와 같은 서브청크 요청 방식이다: LevelChunk(바이옴과 경계 블록만, `SubChunkCount` 0, `SubChunkLimit` = 바닥부터 비공기 서브청크가 있는 칸 수) → 클라이언트 SubChunkRequest → SubChunk(결과, 페이로드, 높이맵). 블롭 캐시는 쓰지 않는다(`CacheEnabled` false. PMMP·dragonfly 기본도 같음, ClientCacheStatus는 받고 버림). 정확한 값과 순서는 P6 BDS 기록을 따른다.
+- 시야: 플레이어마다 중심 청크(위치)와 허가한 반경 안의 원(x² + z² ≤ r²)을 가까운 순서로 보낸다. 틱당 `chunks-per-tick`개까지, 로드된 청크만. 스폰 전에는 `spawn-radius` 안이 다 보내지면 PlayStatus(PlayerSpawn)를 보낸다. 시야를 벗어난 청크는 보낸 목록에서 지운다. 중심이나 반경이 바뀌면 NetworkChunkPublisherUpdate.
+- SubChunkRequest: 그 플레이어에게 보낸 청크만 답하고, 아니면 ChunkNotFound. 범위 밖은 IndexOutOfBounds, 빈 서브청크는 SuccessAllAir(dragonfly `ViewSubChunks`와 같음, 값은 P6). 오프셋 수는 디코더 공통 상한(1024) 안이고, 한 틱에 답하는 서브청크 수에 플레이어마다 상한을 둔다(넘친 요청은 다음 틱).
+- 위치: PlayerAuthInput의 위치를 그대로 받아 시야 중심으로 쓴다(이동 검증은 M7).
+- 스폰 창의 M6 패킷(유예표 `M6` 줄): BiomeDefinitionList는 CloudburstMC `biome_definitions.json`(26.50)으로 만들어 시작 때 한 번 인코드하는 공유 배치다. SetSpawnPosition, JigsawStructureData, CurrentStructureFeature는 P6에서 BDS 값을 보고 보낼지와 값을 정한다(바닐라 구조물은 범위 밖).
+- 로드 상한: 플레이어가 없는 청크는 내리고(바뀐 청크는 커밋될 때까지 메모리에 둠), 로더로 보낸 요청 수와 틱당 반영하는 결과 수에 상한을 둔다.
+
+#### 블록 변경 (틱)
+- 틱 안의 변경은 월드의 변경 목록(위치별 마지막 상태)에 모이고, 출력 단계가 그 청크를 받은 플레이어에게 보낸다. 형식은 BDS를 따른다(10.4 결과: 한 블록이면 UpdateBlock, 여럿이면 서브청크마다 UpdateSubChunkBlocks, flags 3). BDS가 같은 위치를 한 단계에 두 번 보내는 것은 따라 하지 않는다(위치별 마지막 상태가 같으면 같은 결과).
+- 예약 작업 API(공개, 잠정: M8에서 맥락 인자가 넓어질 수 있음): `ServerBuilder::every(주기 틱, |ctx: &mut Context| ..)`(PMMP `TaskScheduler::scheduleRepeatingTask`). `Context`는 틱 번호, 월드 조회·변경, 저장 요청(`save`: 다음 틱 경계에 커밋)을 준다. 빌드 때 등록하고 틱 직렬 단계(입력 뒤)에서 등록 순서로 불러, 재생이 같은 결과를 낸다. P6와 강제 종료 시험이 이 API로 블록을 바꾼다(시험 전용 진입점 없음).
+- 엑스트라 월드: `ServerBuilder::world(이름, Kind, 생성기)`. 기본 월드는 설정(`level-name`, `level-type`, `level-seed`)에서 온다. 플레이어는 M6에서 늘 기본 월드에 들어온다(월드 이동은 M7).
+
+#### 저장 (`storage`, 내부)
+- 파일 `data/world.redb` 하나. 표: `meta`(형식 버전, 엔진 틱), `worlds`(이름 → 번호, 시드, 스폰, 생성기 이름), `chunks`(키 13바이트 = 월드 번호 u32, x i32, z i32 빅엔디안 부호 비트 뒤집음, 종류 u8: 0 지형. 블록 엔티티·엔티티 종류는 M7), `players`(XUID 10진 문자열, 오프라인은 `offline:` + 소문자 이름: 위치, M7에서 늘어남). 임시 월드는 쓰지 않는다. ops·화이트리스트·밴은 M9, 사용자 표는 M8.
+- 값: 머리(형식 버전, 압축 방식, 원래 길이, 체크섬) + 본문. 체크섬은 저장된 바이트 전체에 대해 검사하고, 읽을 때 길이와 개수는 할당 전에 상한 검사한다(디스크는 외부 입력). 압축 방식(deflate 또는 Snappy, 둘 다 이미 있음)은 실측으로 정한다. 블록은 이름과 상태(Bedrock 디스크 팔레트 모양 NBT `{name, states, version}`)로만 쓴다.
+- 시작: 닫힌 파일을 `data/backups/world-<unix 초>.redb`로 복사(최근 3개만 남김) → 열기 → `check_integrity()` → 손상이면 시작 거부(원본 그대로, 백업이 남음) → 형식 버전이 더 새것이면 거부 → `compact()`. 정상 종료 때 마지막 커밋 뒤 `compact()`. redb가 확인 과정에서 파일을 고치는지 7절 분석으로 확인하고, 고친다면 고치기 전 바이트가 백업에 있음을 시험한다.
+- 커밋: 저장 주기(`save-interval-minutes`), `Context::save`, 커밋되지 않은 채 내린 청크가 상한(4096개)을 넘음, 정상 종료 중 하나가 생기면 틱 끝에 스냅샷(바뀐 서브청크 `Arc`, 바뀐 플레이어 데이터, meta)을 저장 스레드(큐 1칸)에 넘긴다. 저장 스레드가 바쁘면 다음 틱 경계로 미룬다(틱은 기다리지 않음). 저장 스레드가 직렬화·압축하고 쓰기 트랜잭션 하나(`set_quick_repair(true)`)로 커밋한다. 실패는 핸들을 다시 열어 3번 재시도, 그래도 실패하면 모든 플레이어를 내보내고 입력 로그를 남긴 뒤 종료한다(6절).
+- 입력 로그: 스냅샷을 뜬 틱부터 새 구간을 시작하고, 그 커밋이 성공했다는 결과가 틱에 들어오면 앞 구간을 버린다(10.5 "잘림 위험" 해소). 크래시 로그는 마지막 성공 커밋부터다.
+- 로드: 청크·플레이어 데이터는 틱이 저장 스레드에 상한 있는 요청으로 보내고, 저장 스레드가 읽기 트랜잭션으로 읽은 뒤 디코드와 (없는 청크의) 생성을 CPU 풀에서 병렬로 한다. 결과는 다음 틱 이후의 입력이고 로그에 도착(키, 출처 = 디스크·생성·손상, 내용 체크섬)으로 적는다. 재생은 같은 DB와 생성기로 다시 만들고 체크섬으로 같은지 확인한다. 같은 키의 데이터가 메모리(로드됨 또는 커밋 대기)에 있으면 로드하지 않는다. 메모리 항목은 그것을 담은 커밋의 성공을 틱이 안 뒤에만 지우므로, 그 뒤의 읽기는 늘 새 커밋을 본다.
+- 손상: 실행 중 체크섬·디코드가 실패한 청크는 격리한다(메모리의 격리 집합: 빈 청크로 보내고, 바꾸지 않고, 저장하지 않음, 원본은 표에 그대로, error 한 번). 플레이어 데이터가 손상이면 그 플레이어의 접속을 거부한다(원본 그대로, error). 자동 복원은 하지 않는다(2.1).
+- 스레드: 저장 스레드 하나(`anchor-save`, `runtime.rs`가 만듦, 예산의 "저장 1")가 읽기와 커밋을 한다. 커밋 동안 읽기는 기다린다(커밋은 저장 주기마다라 드묾).
+
+#### M6 판정식
+- 월드: 서브청크·청크 get/set을 배열 모델과 고정 시드 무작위 10만 연산으로 대조(팔레트 폭 늘고 줄음, 두 레이어). 스냅샷 뒤 변경이 스냅샷에 보이지 않음(COW). 높이맵이 전수 계산과 같음. 연결 속성: P6 `blocks` 단계마다 BDS와 같은 결과. 생성기 결정성(같은 시드·좌표 = 같은 바이트). 네트워크 인코딩이 Anchor 디코더와 왕복.
+- 저장: 무작위 청크·플레이어 값 왕복 동일, 깨진 값 변형 1만 개(고정 시드)에서 패닉 0이고 오류, 상한 초과 선언은 할당 전 오류, 알 수 없는 블록 원본 보존 왕복. 시작 정책: 손상 파일은 시작 거부(파일 바이트 그대로), 더 새 형식 거부, 백업 3개 유지. 실행 중 손상 청크 격리(빈 청크, 변경 거부, 원본 유지).
+- 장애 주입(redb `StorageBackend` 감싸기): 쓰기·동기화·길이 변경 실패를 N번째 호출마다 넣어 커밋이 재시도로 성공하거나 3번 실패 뒤 종료하고, 동기화 안 된 쓰기를 버리는 전원 차단 모의 뒤 다시 열면 무결성 통과이고 상태가 앞이나 뒤 커밋 하나와 정확히 같음. 고정 시드 1,000회.
+- 강제 종료: 시험이 자기 시험 바이너리를 자식 프로세스로 띄워 서버를 돌리고(예약 작업이 매 틱 토큰 블록 하나를 정해진 경로로 옮기고 몇 틱마다 저장 요청), 무작위 시점에 그 자식만 PID(핸들)로 죽인 뒤 다시 연다. 50회 모두: 무결성 통과, 체크섬 실패 0(손상 0), 토큰이 정확히 하나(복제 0, 손실 0), 토큰 위치 = 커밋된 엔진 틱의 경로 위치(청크와 meta가 함께 커밋됨).
+- 멱등과 누수: SubChunkRequest·RequestChunkRadius·같은 블록 변경을 두 번 넣은 상태 해시 = 한 번. 접속·이동·종료 100회 반복 뒤 로드 청크, 대기 요청, 색인, 큐가 시작 값.
+- 결정성: M5 시험에 청크 로드·생성 결과 도착, PlayerAuthInput 이동, 예약 작업의 블록 변경, 커밋 결과를 더해 스레드 1과 N의 틱별 해시·출력이 같고 재생이 같다.
+- P6: `spawn`에서 LevelChunk·SubChunk·NetworkChunkPublisherUpdate의 정해진 필드와 서브청크 페이로드(같은 평지)가 BDS와 같고, `blocks` 단계마다 위치별 마지막 상태와 패킷 종류·flags가 BDS와 같다(RakNet·NetherNet, zlib·Snappy). 유예표의 M6 줄을 모두 없애거나 이유와 함께 옮긴다.
+- SCTP RTO 결정과 실측을 적는다. `cargo xtask verify` PASS.
+
+#### M6 결과와 정한 값 (2026-10-03)
+- 판정: 월드(get/set 무작위 10만 연산 여러 묶음, COW, 높이맵 전수 대조, 생성기 결정성, 인코딩 왕복, 평지 페이로드 BDS와 같음), 저장(아래 저장 판정), 장애 주입(redb 백엔드 감싸기 1,000회), 강제 종료(`tests/crash.rs` 50회: 무결성 통과, 블록 정확히 하나, 커밋된 틱의 위치, 80% 이상이 커밋 뒤에 죽음), 멱등과 누수(SubChunkRequest·RequestChunkRadius·같은 블록 변경 두 번 = 한 번, 접속·종료 100회 뒤 붙든 청크·대기 요청·격리·플레이어 로드 표가 시작 값), 결정성(시드 8개, M5 시나리오에 이동·NaN 이동·서브청크 요청·예약 작업 블록 변경·저장 요청·청크 로드 결과를 더해 풀 1개와 max(L,4)개의 틱별 해시·출력이 같고 로그 재생이 같음), P6(아래) 모두 통과. `cargo xtask verify` PASS.
+- 일 나누기 결과: 서브에이전트 5개(W 월드, S 저장, P P6, N SCTP, G 바이옴)가 각자의 worktree에서 병렬로 하고, 틱 통합(`tick/view.rs`, `tick/save.rs`, `tick/task.rs`, `save.rs`, `server.rs`)과 강제 종료 시험은 합친 뒤 했다. worktree와 브랜치는 모두 지웠다.
+- P6 BDS 사실(BDS 1.26.52.3, 봇이 스폰 청크 둘레 3x3에 요청하고 probe 3개를 보냄):
+  - LevelChunk: SubChunkCount 0, CacheEnabled false, BlobHashes 빈 목록, Dimension 0. SubChunkLimit = 바닥(-4)부터 가장 높은 비공기 서브청크까지의 칸 수(평지 1, dragonfly `HighestFilledSubChunk`와 같음). 페이로드는 바이옴 24칸(같으면 0xff)과 경계 블록 0개, 평지는 26바이트 `01 02 ff×23 00`.
+  - 시점: BDS는 반경 요청 전부터 청크를 보내고(첫 틱 15개, 그 뒤 틱마다 20개), PlayStatus(PlayerSpawn)는 청크 95개 뒤(반경이 아니라 개수·시간 기준)다. 스폰 뒤에도 x²+z² ≤ 290의 895개를 보낸다.
+  - NetworkChunkPublisherUpdate: 틱마다, Position = floor(눈 위치)(M4의 [0,32769,0]은 안전 스폰 찾기 높이 32767 + 1.62), Radius = 반경 × 16, SavedChunks 빈 목록.
+  - SubChunk: 요청 하나에 패킷 하나, 엔트리는 요청 오프셋 순서, Position은 요청 중심. 지형은 Result 1(평지 -4는 1,049바이트, 2비트, 팔레트 [bedrock, dirt, grass_block, air] = 첫 사용 순서), 위 공기는 Result 6에 높이맵 3/3(TooLow), 열이 섞인 공기는 6에 타입 1·Render 4(AllCopied), 범위 밖 5, 보낸 적 없는 청크 2(높이맵 0/0).
+  - 높이맵 값 = 열의 최고 비공기 블록 y − 서브청크 바닥 y + 1, 위 서브청크면 16, 아래면 -1, 모두 아래면 TooLow. 10.1 "검증 필요(M6)" 둘을 닫았다: BDS의 모든 서브청크 페이로드(216칸)가 Anchor 엄격 규칙을 통과하고, HeightMap 행마다 varuint32 16 접두가 있다.
+  - BiomeDefinitionList는 CloudburstMC `stripped_biome_definitions.json`과 같다(정의 89개, BiomeID -1, 문자열 187개). JigsawStructureData는 CloudburstMC `jigsaw_structure_data.nbt`와 같다. SetSpawnPosition은 ItemRegistry 뒤 한 번(SpawnType 0, 두 위치 i32::MIN×3, Dimension 3). CurrentStructureFeature는 첫 청크 틱에 "".
+  - blocks 47단계(10.4의 25단계 + 벽, 네더 벽돌 울타리, 울타리 문, 판유리와 벽, 계단과 돌·울타리, 제거 2개, 높은 블록): 벽은 혼자면 기둥 1, 한 줄의 끝은 기둥 1, 곧게 지나는 가운데는 기둥 0, L자 모서리는 기둥 1, 연결은 늘 short. 벽과 울타리는 연결되지 않고 벽과 판유리는 연결된다. 네더 벽돌 울타리와 나무 울타리는 연결되지 않는다. 울타리 문 양옆 울타리는 문 쪽으로 연결된다. 트립와이어를 놓으면 `suspended_bit` 1, 마주 보는 두 갈고리 사이 한 줄이면 줄과 갈고리가 `attached_bit` 1. flags 3, layer 0, UpdateSubChunkBlocks의 Position은 서브청크 원점, SyncedUpdateEntityUniqueID u64::MAX. BDS는 같은 위치를 한 단계에 두 번 보내기도 한다.
+- P6 Anchor 결과(`p6 anchor`, RakNet·NetherNet, zlib·Snappy, 폴백): 스폰 창(청크 패킷 제외), 청크 비교(LevelChunk 필드 집합, SubChunk 엔트리 37개 모두 결과·높이맵·페이로드 해시·레이어 내용, 엄격 규칙, 스폰 전 가까운 순서, 반경 뒤 Publisher 열), blocks 47단계(단계 위치와 이웃 8칸의 위치별 마지막 상태와 flags, 패킷 종류), CloudburstMC 바이옴 대조 모두 BDS와 같다. 다른 것은 note: 청크 수와 시점(BDS 95개 뒤 스폰, Anchor는 `spawn-radius` 원 49개 뒤), BDS가 한 블록을 UpdateSubChunkBlocks로 보내거나 두 패킷으로 나누는 경우, BDS 랜덤 틱의 잔디→흙 2개.
+- 바뀐 결정과 정한 값(10.6 위):
+  - 스폰 청크: 월드마다 스폰 둘레 3 × 3 청크를 시작부터 붙든다(PMMP `isSpawnChunk`). 플레이어 없이도 예약 작업이 블록을 바꿀 수 있다. 스폰을 옮겨도 붙든 청크는 시작 때 것이다(검증 필요(M8): 스폰 이동 API).
+  - 벽 기둥은 BDS 규칙(곧게 지나지 않으면 기둥)에 PMMP 규칙(위가 공기가 아니면 기둥)을 더했다. 트립와이어의 `suspended_bit`·`attached_bit`는 M7 동작으로 미루려 했으나 P6가 블록 변경으로 비교하므로 M6 연결 규칙에 넣었다(BDS를 따름. 줄 길이 40 상한은 바닐라).
+  - JigsawStructureData, CurrentStructureFeature는 보내지 않는다(바닐라 구조물 생성은 범위 밖, PMMP·dragonfly도 안 보냄). 유예표에 `-`(보내지 않음)로 둔다. 블롭 캐시는 쓰지 않는다.
+  - Publisher는 시야 중심이나 반경이 바뀔 때만 보낸다(BDS는 틱마다. PMMP처럼 바뀔 때만으로 대역을 줄이고, 비교는 연속 중복을 하나로 본다).
+  - 블록 변경 패킷: 서브청크마다 한 블록이면 UpdateBlock, 여럿이면 UpdateSubChunkBlocks.
+  - 6절 백업: 읽기 트랜잭션 복사 대신 열기 전 닫힌 파일을 배타 잠금 아래 복사한다(S, 9.1 redb).
+  - 커밋 실패(3회 재시도 뒤)나 저장 스레드 종료(패닉)는 틱을 멈추고 모든 플레이어를 내보낸 뒤 마지막 커밋 이후 입력 로그를 `data/crash/`에 쓰고 `Error::Storage`로 끝낸다. 실패 뒤에는 최종 스냅샷을 만들지 않는다.
+  - 입력 로그: 형식 2(시작 틱을 담음). 저장 스레드 답(청크 출처, 플레이어 데이터, 커밋 결과)을 틱마다 기록한다. 스냅샷은 출력 전달 뒤 틱 경계에서 뜬다(전달에서 잊은 세션이 상태를 바꾸므로).
+  - `Generator::name`(저장된 생성기 이름, 다르면 경고 후 설정한 생성기를 씀)을 더했다. 새 월드의 빈 `level-seed`는 crypto 난수로 한 번 정해 저장한다. 엔진 틱은 커밋된 meta에서 이어진다.
+  - CPU 풀을 틱과 저장 스레드가 `Arc`로 나눠 쓴다(디코드·생성·봉인은 풀에서 병렬). 풀의 종료 수신기는 잠그지 않는 `Mutex`에 둔다(`Sync`만을 위해, `off-tick`).
+  - 공개 API(잠정, M8): `world` 모듈(`World`, `BlockPos`, `ChunkPos`, `Chunk`, `Generator`, `Flat`, `Void`, `Kind`, `Error`), `Context`, `ServerBuilder::every`, `ServerBuilder::world`, `Error::DuplicateWorld`·`WorldDamaged`·`WorldNewerFormat`·`Storage`.
+- 상수(정본은 `src/tick/view.rs`, `src/tick/save.rs`, `src/save.rs`): 동시 청크 로드 1024, 틱당 로드 요청 256, 플레이어당 대기 서브청크 요청 256(넘으면 버림)·틱당 답 64, 내린 미커밋 청크나 나간 플레이어의 미커밋 데이터가 4096개를 넘으면 커밋, 요청 큐 64, 답 큐 2048, 틱당 반영하는 답 1024, 좌표 상한 3천만(월드 경계), 블록 상태 `version` 18,168,865(기준 목록 값), 시야 창은 틱당 전송 수의 4배.
+- 저장(S): 값 머리 12바이트(형식 버전 u16, 방식 u8(0 저장, 1 Snappy), 예약 u8, 레코드 길이 u32, CRC-32C u32. CRC는 키·머리 앞 8바이트·본문을 덮음), 읽을 때 버전 → 체크섬 → 해제 순, `FORMAT_VERSION` 1, 레코드 상한 16 MiB, 디코드 예산 64 MiB, 64바이트 미만 무압축. 압축은 Snappy(실측: 지형 청크 15,089 B에서 Snappy 18.3%·압축 18~21 µs·해제 10~12 µs, deflate 1단계 12.2%·31~35 µs·20~22 µs). CRC-32C는 손으로 쓴 8바이트씩 계산(2.4~2.8 GB/s, 하드웨어 명령은 `unsafe` 필요). redb 캐시 64 MiB, 재시도 3, 백업 3, 월드 목록 1024, 이름 256바이트. 시작: 닫힌 파일을 배타 잠금 아래 백업(잠기면 InUse) → 열기 → `check_integrity()` → 형식 확인 → `compact()` → 빈 커밋으로 표 만들기. Ok(false)(redb가 제자리에서 고침)도 손상이다. 손상이거나 더 새 형식이면 백업 바이트를 파일에 다시 써 시작 전 그대로 두고 그 백업을 지운다. 백업 정리는 성공한 시작 뒤에만.
+  - 저장 판정: 무작위 레코드 왕복, 깨진 봉인 값 1만 개(절반은 체크섬을 다시 맞춤) 패닉 0, 상한 초과는 할당 전 오류, 알 수 없는 블록 NBT 보존, 손상 파일·더 새 형식은 시작 거부(바이트 그대로), 백업 3개, 다른 프로세스가 연 파일 거부, 쓰기·길이 변경·동기화 실패는 재시도로 성공하거나 3회 뒤 오류, 크래시·전원 차단 1,000회(동기화 안 된 쓰기를 모두 잃거나 일부만 순서대로 남기고 페이지 단위로 찢음, 4분의 1은 종료 compact 중) 모두 무결성 통과·앞 또는 새 커밋과 정확히 같음.
+  - 실측(release): 봉인 지형 42~51 µs, 해제 40~49 µs, 1,000청크 커밋 24~85 ms, 10,000청크 128~802 ms(fsync 편차), 읽기 0.7~2.7 µs/청크, 같은 1,000청크를 50번 다시 써도 파일 크기 그대로(#1517 고침 확인), 종료 compact 195~233 ms, 시작(복사·검사·compact) 171~243 ms.
+- 월드(W): 청크 색인은 조회 전용 해시 색인(고정 Fibonacci 해시, 선형 탐사, 반복 API 없음)과 순서용 `BTreeSet`이다. release 실측 조회 BTreeMap 14~29 ns → 1.3~1.7 ns(청크 25~1,089개), `block` 16~39 ns → 5~7 ns. 팔레트는 항목마다 사용 수를 세어 4096개를 넘지 않고, 가득 차면 넓히고 1/4 이하만 쓰면 좁힌다. 디스크와 생성기 결과는 압축한다(첫 사용 순서 = BDS 순서). 연결 갱신 범위는 놓인 블록, 수평 이웃 4개, 아래 블록, 면이 바뀐 이웃의 수평 이웃이고, 로드되지 않은 이웃은 공기로 보고 바꾸지 않는다. 생성기가 쓴 상태와 `Chunk::set_block`은 다시 계산하지 않는다. 덤프에 상태마다 `full_faces`(PMMP `getSupportType` FULL인 수평 면)와 `connect`(fence 그룹, thin, wall, fence_gate, stair 모양별 면, tripwire, tripwire_hook)를 더했다. PMMP와 다르게 고친 것: 네더 벽돌 울타리가 나무 울타리에 한쪽만 붙음 → 같은 클래스끼리만 양쪽(BDS와 같음).
+- 바이옴(G): `cargo xtask dump`가 CloudburstMC `stripped_biome_definitions.json`을 `xtask/data/reference/biomes.json`(이름순)으로 옮기고(ID·생성 데이터·0 아닌 밀도·모르는 필드가 있으면 실패) `gen`이 `src/world/biome/table.rs`를 만든다. 이름순·처음 나온 문자열 순으로 보내고(BDS는 바닐라 번호순), BiomeID -1이라 클라이언트는 이름으로 찾는다. 페이로드 7,667바이트로 BDS와 같다.
+- SCTP(N, 10.5 검증 필요 닫음): str0m 사본에서 SCTP RTO 초기값을 3초에서 1초로 낮췄다(RFC 9260 16절 RTO.Initial, pion/sctp 1초, libwebrtc dcsctp INIT·COOKIE 1초). 성립 마감 10초는 그대로다. sctp-proto RTO.Min이 1초라 첫 RTT 측정 뒤 RTO는 그대로이고 첫 측정 전 타이머만 짧아진다. 실측(release, 손실마다 3,000회, 10초 안 성립률): 3초 99.43%·96.20%·42.3%(손실 5·10·30%), 3초+마감 20초 99.77%·98.70%·67.2%, 양쪽 1초(채택) 99.93%·99.40%·65.9%, 양쪽 0.5초 100%·99.63%·73.7%. 0.5초는 RTO.Min보다 작아 고르지 않았고, 마감 연장은 반쯤 열린 피어를 오래 붙잡으면서 1초 RTO보다 못했다. 30%에서는 RTO와 상관없이 약 9%가 10초 안에 DTLS를 끝내지 못한다.
+- 남은 위험과 검증 필요:
+  - 크래시 로그는 마지막 커밋부터지만, 그 시점의 실행 상태(접속한 세션, 시야, 로드된 청크 위치)는 DB에 없다. 커밋 뒤 로그만으로 재생하려면 구간 시작에 실행 상태 체크포인트가 필요하다. 검증 필요(M9): 재생 도구와 함께 만든다(시험은 시작부터의 로그로 재생한다).
+  - 입력 로그 상한 64 MiB를 한 저장 주기 안에 채우면(많은 플레이어의 PlayerAuthInput) 그 구간은 잘린다. 저장 주기가 길수록 위험하다(재생 도구 M9에서 다시 본다).
+  - 스폰 때 PlayStatus 시점(BDS 95개 뒤, Anchor `spawn-radius` 원 뒤)과 틱마다 Publisher를 보내지 않는 차이는 공식 클라이언트에서만 영향이 보인다(봇은 같게 동작).
+  - BDS의 바이옴·문자열 순서와 다른 BiomeDefinitionList 순서가 공식 클라이언트에 영향이 없는지는 관찰할 수 없다.
+  - 저장 시작 비용이 파일 크기에 비례한다(1 GB 이상은 검증 필요(M9)). 백업 3개가 파일 크기의 3배를 쓴다. redb 남은 결함(#1503 조작 파일, #1334 실행 중 하드웨어 손상)은 9.1.
+  - `tick` 결정성 시험이 디버그에서 약 150초 걸린다(청크 생성과 해시). verify 시간이 늘었다.
+  - PowerShell에서 verify를 돌리면 MSVC 링커의 한국어 메시지가 `linker_messages` 경고가 되어 실패한다(aws-lc jitterentropy 심볼 내보내기). Bash에서 돌린다.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
@@ -599,7 +691,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 | 2 | 기준 목록 출처 | dragonfly + CloudburstMC(M4에서 확정, 두 목록이 같음) | 정함 |
 | 3 | PMMP와 다른 이벤트 의미 | 8.2절 | M8(사용자가 원하면 바꿈) |
 | 4 | 사용자 저장 공급자 trait | 두지 않음 | 원자 커밋을 지킬 수 있는 요구가 생기면 |
-| 5 | Bedrock(LevelDB) 월드 가져오기 | 포함(가져오기 도구) | M6 |
+| 5 | Bedrock(LevelDB) 월드 가져오기 | 포함(가져오기 도구), M9 운영 기능에서 만듦(10.6) | 정함 |
 | 6 | HTTPS 시그널링 | 평문 기본, 인증서를 설정하면 HTTPS(M3 구현) | 정함 |
 | 7 | `Vec3` 성분 | f64, 프로토콜 경계에서 f32 | M7 |
 | 8 | Linux 검증 | 나중에(사용자가 지시할 때). 그때까지 Windows만, 설계는 OS 중립 | 사용자 지시 |
@@ -613,7 +705,7 @@ gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo 
 | M3 | 완료(2026-10-03) | 10.3절. P5 NetherNet 9개, P6 NetherNet 스폰 창·응답 SDP·송신 조각이 BDS와 같음, 폴백, vendor 사본 3개(재현 시험 16개), verify PASS |
 | M4 | 완료(2026-10-03) | 10.4절. PMMP 덤프(상태 11,420, 아이템 1,613), 기준 목록(22,091·2,076), Anchor 상태 12,468, 해시 골든·상태 대조 통과, ItemRegistry·CreativeContent·CraftingData 송신, P6 스폰 창·아이템 대조 BDS와 같음, verify PASS |
 | M5 | 완료(2026-10-03) | 10.5절. CPU 풀(rayon), 입력·출력 틱 단계, 입력 로그·크래시 로그·재생, 시드 8개에서 스레드 1과 N의 해시·출력·재생 동일, sctp-proto 이차 비용 수정, verify PASS |
-| M6 | 시작 전 | |
+| M6 | 완료(2026-10-03) | 10.6절. redb 사본(#1517·열기 패닉 수정), 저장 스레드·스냅샷 커밋·손상 격리·시작 백업, 서브청크 요청 방식 청크 전송, 블록 변경과 연결 속성(47단계 BDS와 같음), 예약 작업 API, 강제 종료 50회·장애 주입 1,000회 복제·손상 0, P6 청크·블록 BDS와 같음, SCTP RTO 1초, verify PASS |
 | M7 | 시작 전 | |
 | M8 | 시작 전 | |
 | M9 | 시작 전 | |

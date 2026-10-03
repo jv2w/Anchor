@@ -117,6 +117,22 @@ disallowed-methods = [
     { path = "ureq::Body::as_reader", reason = "read bodies through with_config().limit(..)" },
     { path = "ureq::Body::into_reader", reason = "read bodies through with_config().limit(..)" },
     { path = "serde_json::from_reader", reason = "reads without a size limit; read a bounded buffer and use from_slice" },
+    # redb: every entry point does blocking file I/O or waits for the writer; only the storage
+    # module, on the save thread, uses them (PLAN.md 10.6).
+    { path = "redb::Database::create", reason = "blocking file I/O; only the storage module opens the world file" },
+    { path = "redb::Database::open", reason = "blocking file I/O; only the storage module opens the world file" },
+    { path = "redb::Database::builder", reason = "only the storage module opens the world file" },
+    { path = "redb::Builder::create", reason = "blocking file I/O; only the storage module opens the world file" },
+    { path = "redb::Builder::open", reason = "blocking file I/O; only the storage module opens the world file" },
+    { path = "redb::Builder::open_read_only", reason = "blocking file I/O; only the storage module opens the world file" },
+    { path = "redb::Builder::create_file", reason = "blocking file I/O; only the storage module opens the world file" },
+    { path = "redb::Builder::create_with_backend", reason = "blocking file I/O; only the storage module opens the world file" },
+    { path = "redb::ReadOnlyDatabase::open", reason = "blocking file I/O; only the storage module opens the world file" },
+    { path = "redb::Database::begin_write", reason = "blocks on the writer and on file I/O; only the storage module, on the save thread" },
+    { path = "redb::ReadableDatabase::begin_read", reason = "blocking file I/O; only the storage module, on the save thread" },
+    { path = "redb::Database::check_integrity", reason = "reads and may rewrite the whole file; only the storage module, at start" },
+    { path = "redb::Database::compact", reason = "rewrites the file; only the storage module, at start and shutdown" },
+    { path = "redb::WriteTransaction::commit", reason = "blocking file I/O and fsync; only the storage module, on the save thread" },
     # rayon: outside the CPU pool these start rayon's hidden global pool; only src/pool.rs and the
     # runtime module (which builds the pool) use rayon (PLAN.md 10.5).
     { path = "rayon_core::join", reason = "starts the global pool; use pool::Pool::map" },

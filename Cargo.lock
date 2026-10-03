@@ -37,6 +37,7 @@ dependencies = [
  "libdeflater",
  "miniz_oxide",
  "rayon",
+ "redb",
  "rustls",
  "serde",
  "serde_json",
@@ -821,6 +822,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "4.3.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1474,6 +1482,7 @@ version = "0.0.0"
 dependencies = [
  "anchor",
  "dimpl",
+ "redb",
  "sctp-proto",
  "serde",
  "serde_json",

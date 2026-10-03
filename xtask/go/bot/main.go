@@ -7,6 +7,7 @@
 //	    [-token-key key.pem -kid K -iss ISS] [-name N] [-timeout 30s] [-stay 2s] [-login-size BYTES]
 //	    [-segment-size BYTES] [-first-send-delay D]
 //	bot issuer -dir DIR -kid K -iss ISS
+//	bot cloudburst -world CAPTURE.world.jsonl -data DIR   (cloudburst.go)
 //
 // Transports (-addr is the RakNet port and the NetherNet signaling port):
 //
@@ -29,8 +30,8 @@
 //	kicked         spawn, then wait up to -stay for a Disconnect; pass only if its reason is
 //	               DisconnectReasonLoggedInOtherLocation
 //	rejected       pass if a Disconnect arrives before spawning
-//	blocks         spawn, then stay until a Text message containing "p6-end" arrives (at most -stay); the
-//	               caller places blocks with server console commands meanwhile (cargo xtask p6 bds)
+//	blocks         spawn, then stay until a block update sets minecraft:diamond_block anywhere (the end
+//	               marker; at most -stay); the caller changes blocks meanwhile (cargo xtask p6)
 //	bind-mismatch  nethernet only: the offer identity proves a second key, the Login the bot key; pass if
 //	               the server sends a Disconnect or closes the connection before spawning
 //	idle, prelogin-limit  RakNet server limit checks (limits.go)
@@ -40,11 +41,20 @@
 // segment the server sent: channel label, remaining segments, payload length; the first 200 and every
 // segment of a segmented message), "raknet" (RakNet
 // handshake probe), "pong", "batch" (raw batch facts), "packet" (a received packet), "sent" (a packet the bot
-// sent; the output is flushed after SetLocalPlayerAsInitialised), "blocks" (the block network ID check) and a
-// final "result". ItemRegistry, CreativeContent and CraftingData are also written in full, one
-// {"index","name","fields"} line each, to the -out path with ".jsonl" (if any) replaced by ".items.jsonl": nothing is
-// shortened and NBT values keep their tag types ({"byte":1}). The process exits 0 only if the scenario passed, 1 if it failed and 2 on bad arguments or
-// I/O errors.
+// sent, with its fields for a SubChunkRequest and the probe name for the spawn scenario's extra requests; the
+// output is flushed after SetLocalPlayerAsInitialised), "subchunk" (after each SubChunk packet: per entry the
+// offset, the result and the payload checked against Anchor's strict sub-chunk rules, chunk.go), "blocks" (the
+// block network ID check) and a final "result". ItemRegistry, CreativeContent and CraftingData are also written
+// in full, one {"index","name","fields"} line each, to the -out path with ".jsonl" (if any) replaced by
+// ".items.jsonl", and LevelChunk, SubChunk, BiomeDefinitionList, JigsawStructureData and CurrentStructureFeature
+// to ".world.jsonl": nothing is shortened and NBT values keep their tag types ({"byte":1}).
+//
+// In the sub-chunk request mode the bot asks for the sub-chunks of the 3x3 chunks around the spawn chunk, from
+// index -4 up to SubChunkLimit sub-chunks, as those chunks arrive. After spawning, the spawn scenario sends three
+// more SubChunkRequests (chunk.go): every index -4 to 19 of the spawn chunk, the indexes -5 and 20, and a chunk
+// 64 chunks away that the server never sent.
+//
+// The process exits 0 only if the scenario passed, 1 if it failed and 2 on bad arguments or I/O errors.
 package main
 
 import (
@@ -168,18 +178,18 @@ func run(args []string) (bool, error) {
 	if c.scenario == "idle" || c.scenario == "prelogin-limit" {
 		res = playLimit(ctx, c)
 	} else {
-		itemsFile, err := os.Create(itemsPath(c.out))
+		items, closeItems, err := sideOutput(itemsPath(c.out))
 		if err != nil {
 			return false, err
 		}
-		items := &output{w: bufio.NewWriterSize(itemsFile, 1<<20)}
-		res = play(ctx, c, out, items)
-		items.flush()
-		if err := itemsFile.Close(); err != nil && items.err == nil {
-			items.err = err
+		world, closeWorld, err := sideOutput(worldPath(c.out))
+		if err != nil {
+			_ = closeItems()
+			return false, err
 		}
-		if items.err != nil {
-			return false, items.err
+		res = play(ctx, c, out, items, world)
+		if err := errors.Join(closeItems(), closeWorld()); err != nil {
+			return false, err
 		}
 	}
 	out.line(res.json(c))
@@ -196,12 +206,45 @@ func run(args []string) (bool, error) {
 	return res.pass, nil
 }
 
+// sideOutput creates a file of full packets next to the capture; close flushes and closes it and returns the
+// first write error.
+func sideOutput(path string) (*output, func() error, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	o := &output{w: bufio.NewWriterSize(f, 1<<20)}
+	return o, func() error {
+		o.flush()
+		if err := f.Close(); err != nil && o.err == nil {
+			o.err = err
+		}
+		return o.err
+	}, nil
+}
+
 // itemsPath is the file of the full item packets that belongs to the capture out.
 func itemsPath(out string) string {
 	return strings.TrimSuffix(out, ".jsonl") + ".items.jsonl"
 }
 
+// worldPath is the file of the full world packets that belongs to the capture out.
+func worldPath(out string) string {
+	return strings.TrimSuffix(out, ".jsonl") + ".world.jsonl"
+}
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "cloudburst" {
+		same, err := cloudburstCommand(os.Args[2:], os.Stdout)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bot:", err)
+			os.Exit(2)
+		}
+		if !same {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "issuer" {
 		if err := issuerCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "bot:", err)

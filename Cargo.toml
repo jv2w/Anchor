@@ -13,6 +13,8 @@ aws-lc-rs = { version = "=1.18.1", default-features = false, features = ["aws-lc
 libdeflater = "=1.26.1"
 miniz_oxide = "=0.9.1"
 rayon = "=1.12.0"
+# The default `std` feature only; `logging` would pull in `log`.
+redb = "=4.3.0"
 rustls = { version = "=0.23.45", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
@@ -34,10 +36,11 @@ members = ["xtask"]
 # members; xtask/tests holds their reproduction tests.
 exclude = ["vendor"]
 
-# Fixed copies of str0m's dependencies until upstream releases the fixes (PLAN.md 9.1). Each copy
+# Fixed copies of dependencies until upstream releases the fixes (PLAN.md 9.1). Each copy
 # differs from the published crate only in its fixes; remove it when a release has them.
 [patch.crates-io]
 dimpl = { path = "vendor/dimpl" }
+redb = { path = "vendor/redb" }
 sctp-proto = { path = "vendor/sctp-proto" }
 str0m = { path = "vendor/str0m" }
 
