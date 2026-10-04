@@ -76,21 +76,24 @@ impl Body {
 /// these change health and fire, which the kind rules decide on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Inside {
-    /// Fire or soul fire: damage, then burning for 8 seconds.
-    Fire(u8),
-    /// Lava, in a block or a cauldron: 4 damage, then burning for 8 seconds.
-    Lava,
-    /// A cactus: 1 contact damage.
-    Cactus,
-    /// Water, in a block or a cauldron: puts the fire out.
-    Water,
+    /// Fire or soul fire at this block: damage, then burning for 8 seconds.
+    Fire(u8, BlockPos),
+    /// Lava, in a block or a cauldron at this block: 4 damage, then burning for 8 seconds.
+    Lava(BlockPos),
+    /// A cactus at this block: 1 contact damage.
+    Cactus(BlockPos),
+    /// Water, in a block or (`cauldron`) a cauldron: puts the fire out.
+    Water {
+        /// In a water cauldron.
+        cauldron: bool,
+    },
 }
 
 /// The input of one entity's step.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Input {
     pub(super) body: Body,
-    pub(super) physics: &'static Physics,
+    pub(super) physics: Physics,
     /// A block changed nearby: move even at rest (PMMP `forceMovementUpdate`).
     pub(super) forced: bool,
     /// The random stream of this entity this tick.
@@ -142,7 +145,7 @@ pub(super) struct Step {
 /// One tick of movement of an entity (PMMP `onUpdate` up to `updateMovement`, with the block
 /// intersections of `entityBaseTick`).
 pub(super) fn step(world: &World, input: &Input) -> Step {
-    let physics = input.physics;
+    let physics = &input.physics;
     let mut body = input.body;
     let mut out = Step {
         body,
@@ -218,16 +221,6 @@ fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
     }
 }
 
-/// The block cell of a coordinate, saturated to `i32` (coordinates are finite and inside the
-/// world border, so it never saturates in practice).
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "invariant: entity coordinates are finite and inside the world border; `as` saturates otherwise"
-)]
-fn block_of(v: f64) -> i32 {
-    v.floor() as i32
-}
-
 /// Gravity, drag and ground friction (PMMP `tryChangeMovement`, with `checkObstruction` first
 /// for kinds that push themselves out of blocks).
 fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &mut Random) {
@@ -245,7 +238,8 @@ fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &m
     }
     if body.on_ground {
         let p = body.position;
-        let below = match cell(world, block_of(p.x), block_of(p.y - 1.0), block_of(p.z)) {
+        let below = BlockPos::containing(Vec3::new(p.x, p.y - 1.0, p.z));
+        let below = match cell(world, below.x, below.y, below.z) {
             Cell::Block(state) => state.friction_factor(),
             Cell::Outside | Cell::Wall => block::AIR.friction_factor(),
         };
@@ -263,7 +257,7 @@ fn unstick(world: &World, physics: &Physics, body: &mut Body, random: &mut Rando
         return;
     }
     let p = body.position;
-    let (x, y, z) = (block_of(p.x), block_of(p.y), block_of(p.z));
+    let BlockPos { x, y, z } = BlockPos::containing(p);
     if !is_solid(world, x, y, z) {
         return;
     }
@@ -307,18 +301,18 @@ fn unstick(world: &World, physics: &Physics, body: &mut Body, random: &mut Rando
 /// cell order. Boxes leave their cell only up and down: fences and walls are 1.5 high, a pitcher
 /// crop reaches 1/16 below (`collision_boxes_leave_their_cell_only_up_and_down` checks the
 /// data), so the cells under and over the area are looked at too.
-fn collisions(world: &World, area: Aabb, out: &mut Vec<Aabb>) {
+pub(in crate::tick) fn collisions(world: &World, area: Aabb, out: &mut Vec<Aabb>) {
     out.clear();
-    let (x0, y0, z0) = (
-        block_of(area.min.x),
-        block_of(area.min.y),
-        block_of(area.min.z),
-    );
-    let (x1, y1, z1) = (
-        block_of(area.max.x),
-        block_of(area.max.y),
-        block_of(area.max.z),
-    );
+    let BlockPos {
+        x: x0,
+        y: y0,
+        z: z0,
+    } = BlockPos::containing(area.min);
+    let BlockPos {
+        x: x1,
+        y: y1,
+        z: z1,
+    } = BlockPos::containing(area.max);
     for z in z0..=z1 {
         for x in x0..=x1 {
             for y in y0.saturating_sub(1)..=y1.saturating_add(1) {
@@ -416,15 +410,24 @@ fn travel(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
 }
 
 /// Moves a projectile along its motion up to the first block (PMMP `Projectile::move` without the
-/// entities): on a block it stops on the block's box, lands and stops moving; otherwise it turns
-/// along its flight. Then the blocks it is inside act on it.
+/// entities): on a block it stops on the block's box (water is a full block to an ice bomb),
+/// lands and stops moving; otherwise it turns along its flight. Then the blocks it is inside act
+/// on it.
 fn fly(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
     let start = body.position;
     let mut end = start + body.motion;
     let mut hit = None;
     cells(start, end, |x, y, z| {
         let pos = BlockPos::new(x, y, z);
-        match block_intercept(world, pos, start, end) {
+        let water = physics.water
+            && matches!(cell(world, x, y, z), Cell::Block(state) if state.is(Class::Water));
+        let met = if water {
+            let at = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+            intercept(Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0)), start, end)
+        } else {
+            block_intercept(world, pos, start, end)
+        };
+        match met {
             Some((point, face)) => {
                 end = point;
                 hit = Some(BlockHit { pos, point, face });
@@ -577,7 +580,11 @@ pub(super) fn cells(start: Vec3, end: Vec3, mut visit: impl FnMut(i32, i32, i32)
         to_boundary(start.y, d.y),
         to_boundary(start.z, d.z),
     );
-    let (mut x, mut y, mut z) = (block_of(start.x), block_of(start.y), block_of(start.z));
+    let BlockPos {
+        mut x,
+        mut y,
+        mut z,
+    } = BlockPos::containing(start);
     for _ in 0..MAX_RAY_CELLS {
         if visit(x, y, z) {
             return;
@@ -636,16 +643,17 @@ pub(super) fn clear(world: &World, from: Vec3, to: Vec3) -> bool {
 /// a landing in water hurts no one; flowing liquid pushes; the rest goes to `inside`.
 fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec<Inside>) {
     let b = body.bounding_box(physics);
-    let (x0, y0, z0) = (
-        block_of(b.min.x + INSIDE_INSET),
-        block_of(b.min.y + INSIDE_INSET),
-        block_of(b.min.z + INSIDE_INSET),
-    );
-    let (x1, y1, z1) = (
-        block_of(b.max.x - INSIDE_INSET),
-        block_of(b.max.y - INSIDE_INSET),
-        block_of(b.max.z - INSIDE_INSET),
-    );
+    let inset = Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET);
+    let BlockPos {
+        x: x0,
+        y: y0,
+        z: z0,
+    } = BlockPos::containing(b.min + inset);
+    let BlockPos {
+        x: x1,
+        y: y1,
+        z: z1,
+    } = BlockPos::containing(b.max - inset);
     let mut push = Vec3::ZERO;
     for z in z0..=z1 {
         for x in x0..=x1 {
@@ -656,22 +664,23 @@ fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec
                 if !state.has_entity_collision() {
                     continue;
                 }
+                let pos = BlockPos::new(x, y, z);
                 if state.is(Class::Fire) {
-                    inside.push(Inside::Fire(1));
+                    inside.push(Inside::Fire(1, pos));
                 } else if state.is(Class::SoulFire) {
-                    inside.push(Inside::Fire(2));
+                    inside.push(Inside::Fire(2, pos));
                 } else if state.is(Class::Lava) {
-                    inside.push(Inside::Lava);
+                    inside.push(Inside::Lava(pos));
                     body.fall_distance = 0.0;
                 } else if state.is(Class::LavaCauldron) {
-                    inside.push(Inside::Lava);
+                    inside.push(Inside::Lava(pos));
                 } else if state.is(Class::Cactus) {
-                    inside.push(Inside::Cactus);
+                    inside.push(Inside::Cactus(pos));
                 } else if state.is(Class::Water) {
-                    inside.push(Inside::Water);
+                    inside.push(Inside::Water { cauldron: false });
                     body.fall_distance = 0.0;
                 } else if state.is(Class::WaterCauldron) {
-                    inside.push(Inside::Water);
+                    inside.push(Inside::Water { cauldron: true });
                 } else if state.is(Class::Cobweb)
                     || state.is(Class::Vine)
                     || state.is(Class::CaveVines)
@@ -815,27 +824,20 @@ pub(super) mod tests {
     }
 
     fn item_physics() -> &'static Physics {
-        Kind::Item(super::super::kind::Item {
-            stack: crate::item::Stack::EMPTY,
-            pickup_delay: 0,
-            despawn_delay: 0,
-            owner: String::new(),
-            thrower: String::new(),
-        })
-        .physics()
+        &super::super::kind::ITEM
     }
 
-    fn input(body: Body, physics: &'static Physics) -> Input {
+    fn input(body: Body, physics: &Physics) -> Input {
         Input {
             body,
-            physics,
+            physics: *physics,
             forced: false,
             random: (0, 0, 7),
             stuck: None,
         }
     }
 
-    fn run(world: &World, physics: &'static Physics, mut body: Body, ticks: usize) -> Body {
+    fn run(world: &World, physics: &Physics, mut body: Body, ticks: usize) -> Body {
         for _ in 0..ticks {
             body = step(world, &input(body, physics)).body;
         }
@@ -950,13 +952,14 @@ pub(super) mod tests {
             ..Body::default()
         };
         let inside = |x: f64| step(&w, &input(at(x), item_physics()));
-        assert_eq!(inside(0.0).inside, vec![Inside::Fire(1)]);
+        let cell = |x: i32| BlockPos::new(x, -60, 0);
+        assert_eq!(inside(0.0).inside, vec![Inside::Fire(1, cell(0))]);
         let lava = inside(2.0);
-        assert_eq!(lava.inside, vec![Inside::Lava]);
+        assert_eq!(lava.inside, vec![Inside::Lava(cell(2))]);
         assert_eq!(lava.body.fall_distance, 0.0);
-        assert_eq!(inside(4.0).inside, vec![Inside::Cactus]);
-        assert_eq!(inside(6.0).inside, vec![Inside::Water]);
-        assert_eq!(inside(8.0).inside, vec![Inside::Fire(2)]);
+        assert_eq!(inside(4.0).inside, vec![Inside::Cactus(cell(4))]);
+        assert_eq!(inside(6.0).inside, vec![Inside::Water { cauldron: false }]);
+        assert_eq!(inside(8.0).inside, vec![Inside::Fire(2, cell(8))]);
         assert!(inside(10.0).inside.is_empty());
     }
 
@@ -1042,7 +1045,7 @@ pub(super) mod tests {
                 };
                 Input {
                     body,
-                    physics: item_physics(),
+                    physics: *item_physics(),
                     forced: false,
                     random: (1, 2, i),
                     stuck: None,

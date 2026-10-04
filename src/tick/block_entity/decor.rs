@@ -8,37 +8,21 @@
 use tracing::warn;
 
 use crate::block;
+use crate::custom::Registry;
 use crate::item::Stack;
 use crate::nbt::{Compound, List, Value};
 
+/// The text colour of a new sign: opaque black (PMMP `new Color(0, 0, 0)`).
+pub(in crate::tick) use crate::tile::BLACK_TEXT;
 /// The lines of a sign side (PMMP `SignText::LINE_COUNT`).
-pub(in crate::tick) const SIGN_LINES: usize = 4;
+use crate::tile::SIGN_LINES;
+/// One side of a sign (PMMP `SignText`): the public value type, stored as it is.
+pub(in crate::tick) use crate::tile::SignText as SignSide;
 /// The most patterns a banner keeps; more in saved data are left out (Bedrock's loom stops at
 /// six; PMMP has no limit).
 pub(in crate::tick) const MAX_PATTERNS: usize = 16;
-/// The text colour of a new sign: opaque black (PMMP `new Color(0, 0, 0)`).
-pub(in crate::tick) const BLACK_TEXT: i32 = 0xff00_0000_u32.cast_signed();
 /// Rotations of a framed item (PMMP `ItemFrame::ROTATIONS`).
 pub(in crate::tick) const FRAME_ROTATIONS: u8 = 8;
-
-/// One side of a sign (PMMP `SignText`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::tick) struct SignSide {
-    pub(in crate::tick) lines: [String; SIGN_LINES],
-    /// The text colour as signed ARGB.
-    pub(in crate::tick) colour: i32,
-    pub(in crate::tick) glowing: bool,
-}
-
-impl Default for SignSide {
-    fn default() -> Self {
-        Self {
-            lines: Default::default(),
-            colour: BLACK_TEXT,
-            glowing: false,
-        }
-    }
-}
 
 /// A sign or hanging sign.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -132,10 +116,10 @@ fn take_compound(nbt: &mut Compound, key: &str) -> Option<Compound> {
     }
 }
 
-/// A saved item compound as a stack; an unknown item is left out with a warning (PMMP
-/// `Item::safeNbtDeserialize`).
-pub(in crate::tick) fn read_stack(nbt: &Compound, what: &str) -> Stack {
-    Stack::from_nbt(nbt).unwrap_or_else(|| {
+/// A saved item compound as a stack (custom items through `custom`, the server's custom
+/// content); an unknown item is left out with a warning (PMMP `Item::safeNbtDeserialize`).
+pub(in crate::tick) fn read_stack(nbt: &Compound, what: &str, custom: &Registry) -> Stack {
+    Stack::from_nbt_with(nbt, custom).unwrap_or_else(|| {
         warn!(what, "a saved block entity item is unknown; it is left out");
         Stack::EMPTY
     })
@@ -304,8 +288,9 @@ pub(in crate::tick) fn write_plant(plant: Option<block::State>, nbt: &mut Compou
 
 impl Frame {
     /// PMMP `ItemFrame::readSaveData`: the rotation as a float of degrees (or a legacy byte).
-    pub(in crate::tick) fn read(nbt: &mut Compound, glow: bool) -> Self {
-        let item = take_compound(nbt, "Item").map_or(Stack::EMPTY, |i| read_stack(&i, "frame"));
+    pub(in crate::tick) fn read(nbt: &mut Compound, glow: bool, custom: &Registry) -> Self {
+        let item =
+            take_compound(nbt, "Item").map_or(Stack::EMPTY, |i| read_stack(&i, "frame", custom));
         let rotation = match take(nbt, "ItemRotation") {
             Some(Value::Float(r)) if r.is_finite() => float_rotation(r),
             Some(Value::Byte(r)) => r % FRAME_ROTATIONS,
@@ -350,8 +335,8 @@ fn float_rotation(degrees: f32) -> u8 {
 }
 
 /// An item key read as a stack (empty when missing).
-pub(in crate::tick) fn read_item(nbt: &mut Compound, key: &str) -> Stack {
-    take_compound(nbt, key).map_or(Stack::EMPTY, |i| read_stack(&i, key))
+pub(in crate::tick) fn read_item(nbt: &mut Compound, key: &str, custom: &Registry) -> Stack {
+    take_compound(nbt, key).map_or(Stack::EMPTY, |i| read_stack(&i, key, custom))
 }
 
 /// Writes an item key when the stack is not empty.
@@ -362,9 +347,9 @@ pub(in crate::tick) fn write_item(stack: &Stack, key: &str, nbt: &mut Compound) 
 }
 
 /// A lectern: PMMP `Lectern::readSaveData`.
-pub(in crate::tick) fn read_lectern(nbt: &mut Compound) -> (Stack, i32) {
+pub(in crate::tick) fn read_lectern(nbt: &mut Compound, custom: &Registry) -> (Stack, i32) {
     let page = take_int(nbt, "page").unwrap_or(0).max(0);
-    let book = read_item(nbt, "book").with_count(1);
+    let book = read_item(nbt, "book", custom).with_count(1);
     nbt.remove("hasBook");
     nbt.remove("totalPages");
     (book, page)

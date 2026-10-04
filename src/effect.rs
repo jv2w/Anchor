@@ -56,8 +56,13 @@ impl PotionData {
     }
 }
 
+/// The longest duration an instance holds, in ticks (PMMP `Limits::INT32_MAX`: the saved and sent
+/// int).
+pub const MAX_DURATION: u32 = i32::MAX.cast_unsigned();
+
 /// An effect with its duration and strength, as a potion or food gives it (PMMP
-/// `EffectInstance`).
+/// `EffectInstance`). A `Copy` value: the `with_*` methods return a changed copy (PMMP's setters
+/// change the object in place).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[doc(alias = "EffectInstance")]
 pub struct Instance {
@@ -66,6 +71,7 @@ pub struct Instance {
     amplifier: u8,
     visible: bool,
     ambient: bool,
+    infinite: bool,
 }
 
 impl Instance {
@@ -83,7 +89,49 @@ impl Instance {
             amplifier,
             visible,
             ambient,
+            infinite: false,
         }
+    }
+
+    /// The same instance lasting `ticks`, at most [`MAX_DURATION`] (PMMP `setDuration`, which
+    /// throws above it; `decreaseDuration` is this with the shorter duration).
+    #[doc(alias = "EffectInstance::setDuration")]
+    #[must_use]
+    pub const fn with_duration(self, ticks: u32) -> Self {
+        let duration = if ticks > MAX_DURATION {
+            MAX_DURATION
+        } else {
+            ticks
+        };
+        Self { duration, ..self }
+    }
+
+    /// The same instance at `amplifier` (0 is level I).
+    #[doc(alias = "EffectInstance::setAmplifier")]
+    #[must_use]
+    pub const fn with_amplifier(self, amplifier: u8) -> Self {
+        Self { amplifier, ..self }
+    }
+
+    /// The same instance showing particles, or not.
+    #[doc(alias = "EffectInstance::setVisible")]
+    #[must_use]
+    pub const fn with_visible(self, visible: bool) -> Self {
+        Self { visible, ..self }
+    }
+
+    /// The same instance with faint (beacon) particles, or not.
+    #[doc(alias = "EffectInstance::setAmbient")]
+    #[must_use]
+    pub const fn with_ambient(self, ambient: bool) -> Self {
+        Self { ambient, ..self }
+    }
+
+    /// The same instance never ending, or not: its duration counts down and starts again
+    /// (PMMP's constructor argument `infinite`).
+    #[must_use]
+    pub const fn with_infinite(self, infinite: bool) -> Self {
+        Self { infinite, ..self }
     }
 
     /// The effect type.
@@ -115,6 +163,76 @@ impl Instance {
     pub fn is_ambient(self) -> bool {
         self.ambient
     }
+
+    /// Whether the effect never ends.
+    #[doc(alias = "EffectInstance::isInfinite")]
+    pub fn is_infinite(self) -> bool {
+        self.infinite
+    }
+
+    /// The level: the amplifier plus one.
+    #[doc(alias = "EffectInstance::getEffectLevel")]
+    pub fn level(self) -> u16 {
+        u16::from(self.amplifier) + 1
+    }
+
+    /// Whether no time is left (PMMP `hasExpired`).
+    #[doc(alias = "EffectInstance::hasExpired")]
+    pub fn is_expired(self) -> bool {
+        self.duration == 0
+    }
+
+    /// The particle colour: the effect type's (red, green, blue, alpha).
+    #[doc(alias = "EffectInstance::getColor")]
+    pub fn colour(self) -> [u8; 4] {
+        self.effect.colour()
+    }
+
+    /// Whether this instance may replace `old`, an active instance of the same type (PMMP
+    /// `EffectCollection::canAdd`): not a weaker one, nor an equally strong one that ends
+    /// sooner.
+    #[doc(alias = "EffectCollection::canAdd")]
+    pub fn can_replace(self, old: Self) -> bool {
+        !(self.amplifier < old.amplifier
+            || (self.amplifier == old.amplifier && self.duration < old.duration))
+    }
+}
+
+/// The colour of the bubbles `effects` show (PMMP `EffectCollection::getBubbleColor`): the mean of
+/// the colour of each visible effect with bubbles, counted once per level; `None` (PMMP's
+/// transparent black) without one.
+#[doc(alias = "EffectCollection::getBubbleColor")]
+pub fn bubble_colour(effects: &[Instance]) -> Option<[u8; 4]> {
+    mix(effects.iter().filter(|e| shows_bubbles(e)))
+}
+
+/// Whether every effect with bubbles in `effects` is ambient (PMMP
+/// `EffectCollection::hasOnlyAmbientEffects`); false without one.
+#[doc(alias = "EffectCollection::hasOnlyAmbientEffects")]
+pub fn only_ambient(effects: &[Instance]) -> bool {
+    let mut bubbles = effects.iter().filter(|e| shows_bubbles(e)).peekable();
+    bubbles.peek().is_some() && bubbles.all(|e| e.is_ambient())
+}
+
+/// PMMP's default bubble filter: visible, of a type with bubbles.
+fn shows_bubbles(e: &Instance) -> bool {
+    e.is_visible() && e.effect.has_bubbles()
+}
+
+/// The mean colour of `effects`, each counted once per level (PMMP `Color::mix` of the repeated
+/// colours: integer means per channel); `None` without an effect.
+pub(crate) fn mix<'a>(effects: impl Iterator<Item = &'a Instance>) -> Option<[u8; 4]> {
+    let mut sum = [0u32; 4];
+    let mut n = 0u32;
+    for e in effects {
+        let level = u32::from(e.level());
+        for (s, c) in sum.iter_mut().zip(e.colour()) {
+            *s = s.saturating_add(u32::from(c).saturating_mul(level));
+        }
+        n = n.saturating_add(level);
+    }
+    let n = std::num::NonZeroU32::new(n)?;
+    Some(sum.map(|s| u8::try_from(s / n).unwrap_or(u8::MAX)))
 }
 
 impl Type {
@@ -178,6 +296,14 @@ impl Type {
     pub fn has_bubbles(self) -> bool {
         self.data().bubbles
     }
+
+    /// An instance of the effect with PMMP's defaults: the [default
+    /// duration](Self::default_duration), level I, particles shown, not ambient, not infinite.
+    /// The [`Instance`] `with_*` methods change the rest.
+    #[doc(alias = "EffectInstance::__construct")]
+    pub fn instance(self) -> Instance {
+        Instance::new(self, self.default_duration(), 0, true, false)
+    }
 }
 
 impl Potion {
@@ -207,7 +333,7 @@ impl Potion {
         self.data().id
     }
 
-    /// PMMP's display name, such as `Potion of Night Vision`.
+    /// PMMP's display name, such as `Night Vision`.
     #[doc(alias = "PotionType::getDisplayName")]
     pub fn text(self) -> &'static str {
         table::POTION_TEXT
@@ -231,6 +357,7 @@ impl Potion {
 mod tests {
     use super::*;
 
+    // pmmp: EffectIdMap::fromId, EffectIdMap::toId, PotionTypeIdMap::fromId, PotionTypeIdMap::toId
     #[test]
     fn ids_round_trip() {
         for t in Type::all() {
@@ -245,6 +372,10 @@ mod tests {
     }
 
     /// PMMP `VanillaEffects`, `PotionType` and `EffectIdMap` values.
+    // pmmp: Effect, VanillaEffects, Effect::getName, Effect::getColor, Effect::isBad,
+    // pmmp: Effect::getDefaultDuration, Effect::hasBubbles, EffectInstance, EffectInstance::getType,
+    // pmmp: EffectInstance::getDuration, EffectInstance::getAmplifier, EffectInstance::isVisible,
+    // pmmp: EffectInstance::isAmbient, PotionType::getEffects, PotionType::getDisplayName
     #[test]
     fn effect_and_potion_data_are_pmmp_values() {
         assert_eq!(Type::all().len(), 27);
@@ -277,5 +408,110 @@ mod tests {
             .map(|e| e.effect())
             .collect();
         assert_eq!(turtle, [Type::Slowness, Type::Resistance]);
+        assert_eq!(Potion::NightVision.text(), "Night Vision");
+    }
+
+    // pmmp: EffectInstance::__construct, EffectInstance::setDuration, EffectInstance::setAmplifier,
+    // pmmp: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite,
+    // pmmp: EffectInstance::getEffectLevel, EffectInstance::hasExpired, EffectInstance::getColor
+    #[test]
+    fn instances_start_with_pmmp_defaults_and_change_by_copy() {
+        let speed = Type::Speed.instance();
+        assert_eq!(speed.effect(), Type::Speed);
+        assert_eq!(speed.duration(), Type::Speed.default_duration());
+        assert_eq!((speed.amplifier(), speed.level()), (0, 1));
+        assert!(speed.is_visible() && !speed.is_ambient() && !speed.is_infinite());
+        assert_eq!(speed.colour(), Type::Speed.colour());
+        let changed = speed
+            .with_duration(u32::MAX)
+            .with_amplifier(255)
+            .with_visible(false)
+            .with_ambient(true)
+            .with_infinite(true);
+        assert_eq!(changed.duration(), MAX_DURATION);
+        assert_eq!((changed.amplifier(), changed.level()), (255, 256));
+        assert!(!changed.is_visible() && changed.is_ambient() && changed.is_infinite());
+        assert!(!speed.is_expired() && speed.with_duration(0).is_expired());
+        assert_eq!(
+            speed.duration(),
+            Type::Speed.default_duration(),
+            "a copy changed"
+        );
+    }
+
+    // pmmp: EffectCollection::canAdd, EffectCollection::getBubbleColor,
+    // pmmp: EffectCollection::hasOnlyAmbientEffects
+    #[test]
+    fn collections_replace_and_colour_as_pmmp() {
+        let weak = Type::Speed.instance().with_duration(100);
+        assert!(weak.with_amplifier(1).can_replace(weak));
+        assert!(weak.with_duration(200).can_replace(weak));
+        assert!(weak.can_replace(weak));
+        assert!(!weak.with_duration(50).can_replace(weak));
+        assert!(!weak.can_replace(weak.with_amplifier(1).with_duration(1)));
+        assert_eq!(bubble_colour(&[]), None);
+        assert!(!only_ambient(&[]));
+        // Level II counts twice: (2 × speed + poison) / 3 per channel.
+        let poison = Type::Poison.instance();
+        let mixed = bubble_colour(&[weak.with_amplifier(1), poison]).unwrap();
+        let (s, p) = (Type::Speed.colour(), Type::Poison.colour());
+        let mean = |i: usize| u8::try_from((2 * u32::from(s[i]) + u32::from(p[i])) / 3).unwrap();
+        assert_eq!(mixed, [mean(0), mean(1), mean(2), mean(3)]);
+        // Hidden effects and types without bubbles do not count.
+        assert_eq!(bubble_colour(&[weak, poison.with_visible(false)]), Some(s));
+        let darkness = Type::Darkness.instance();
+        assert_eq!(bubble_colour(&[darkness]), None);
+        assert!(only_ambient(&[weak.with_ambient(true), darkness]));
+        assert!(!only_ambient(&[weak.with_ambient(true), poison]));
+    }
+
+    /// Every effect and potion type has the values of the PMMP dump (`tables.json`).
+    // pmmp: Effect, VanillaEffects, EffectIdMap::toId, Effect::getName, Effect::getColor,
+    // pmmp: Effect::isBad, Effect::getDefaultDuration, Effect::hasBubbles, PotionTypeIdMap::toId,
+    // pmmp: PotionType::getDisplayName, PotionType::getEffects, EffectInstance::getType,
+    // pmmp: EffectInstance::getDuration, EffectInstance::getAmplifier, EffectInstance::isVisible,
+    // pmmp: EffectInstance::isAmbient
+    #[test]
+    fn every_effect_and_potion_has_the_pmmp_dump_values() {
+        let dump: serde_json::Value =
+            serde_json::from_str(include_str!("../xtask/data/pmmp/tables.json")).unwrap();
+        let effects = dump["effects"].as_array().unwrap();
+        assert_eq!(effects.len(), Type::all().len());
+        let by_name = |name: &str| {
+            let at = effects.iter().position(|e| e["name"] == name).unwrap();
+            Type::all()[at]
+        };
+        for (t, want) in Type::all().iter().zip(effects) {
+            let byte = |v: &serde_json::Value| u8::try_from(v.as_u64().unwrap()).unwrap();
+            assert_eq!(u64::from(t.id()), want["id"].as_u64().unwrap(), "{t:?}");
+            assert_eq!(t.text(), want["text"].as_str().unwrap(), "{t:?}");
+            let c = &want["colour"];
+            assert_eq!(
+                t.colour(),
+                [byte(&c["r"]), byte(&c["g"]), byte(&c["b"]), byte(&c["a"])]
+            );
+            assert_eq!(Some(t.is_bad()), want["bad"].as_bool(), "{t:?}");
+            assert_eq!(Some(t.is_instant()), want["instant"].as_bool(), "{t:?}");
+            assert_eq!(
+                u64::from(t.default_duration()),
+                want["default_duration"].as_u64().unwrap()
+            );
+            assert_eq!(Some(t.has_bubbles()), want["bubbles"].as_bool(), "{t:?}");
+        }
+        let potions = dump["potions"].as_array().unwrap();
+        assert_eq!(potions.len(), Potion::all().len());
+        for (p, want) in Potion::all().iter().zip(potions) {
+            assert_eq!(u64::from(p.id()), want["id"].as_u64().unwrap(), "{p:?}");
+            assert_eq!(p.text(), want["text"].as_str().unwrap(), "{p:?}");
+            let wanted = want["effects"].as_array().unwrap();
+            assert_eq!(p.effects().len(), wanted.len(), "{p:?}");
+            for (e, w) in p.effects().iter().zip(wanted) {
+                assert_eq!(e.effect(), by_name(w["effect"].as_str().unwrap()));
+                assert_eq!(u64::from(e.duration()), w["duration"].as_u64().unwrap());
+                assert_eq!(u64::from(e.amplifier()), w["amplifier"].as_u64().unwrap());
+                assert_eq!(Some(e.is_visible()), w["visible"].as_bool());
+                assert_eq!(Some(e.is_ambient()), w["ambient"].as_bool());
+            }
+        }
     }
 }

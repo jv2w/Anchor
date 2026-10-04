@@ -7,7 +7,7 @@
 //! (PLAN.md 10.7: at the entity limit the action is refused and nothing changes).
 
 use super::super::block_entity::{self, BlockEntity, Kind};
-use super::super::{SessionId, State, entity};
+use super::super::{SessionId, State, dispatch, entity};
 use super::using::{self, Use};
 use super::{Actor, center, level_event, open_sign_editor, props, sound};
 use crate::block::{self, Class, Face, TypeTag};
@@ -44,73 +44,176 @@ fn sign_colour(stack: &Stack) -> Option<i32> {
     item::dye_argb(colour).map(u32::cast_signed)
 }
 
+/// What a held item does to one side of a sign (PMMP `BaseSign::onInteract`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SignUse {
+    /// A dye gives the text this colour (signed ARGB).
+    Colour(i32),
+    /// An ink sac dims the text, a glow ink sac lights it.
+    Glow(bool),
+    /// Honeycomb waxes the sign.
+    Wax,
+}
+
+/// What the held item does to the side (`front` or back) of the sign at `u.pos`: `None` when it
+/// changes nothing (the editor opens instead) or there is no sign block entity.
+fn sign_use(state: &State, u: &Use, front: bool) -> Option<SignUse> {
+    let BlockEntity {
+        kind: Kind::Sign(sign),
+        ..
+    } = entity_at(state, u.actor.world, u.pos)?
+    else {
+        return None;
+    };
+    let side = if front { &sign.front } else { &sign.back };
+    if let Some(colour) = sign_colour(&u.item) {
+        (side.colour != colour).then_some(SignUse::Colour(colour))
+    } else if u.item_kind(item::Kind::InkSac) || u.item_kind(item::Kind::GlowInkSac) {
+        let glow = u.item_kind(item::Kind::GlowInkSac);
+        (side.glowing != glow).then_some(SignUse::Glow(glow))
+    } else if u.item_kind(item::Kind::Honeycomb) {
+        Some(SignUse::Wax)
+    } else {
+        None
+    }
+}
+
 /// PMMP `BaseSign::onInteract`: a waxed sign does nothing; a dye colours the side the player
-/// faces, ink sacs light or dim it, honeycomb waxes it; anything else opens the editor.
+/// faces, ink sacs light or dim it (each a [`SignChange`](crate::event::SignChange), PMMP
+/// `doSignChange`; cancelled, the editor opens), honeycomb waxes it; anything else opens the
+/// editor.
 pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
     let front = using::sign_front(u.block, u.actor.feet, u.pos);
     let world = u.actor.world;
-    let Some(BlockEntity {
-        kind: Kind::Sign(sign),
-        ..
-    }) = entity_mut(state, world, u.pos)
-    else {
+    let Some(Kind::Sign(sign)) = entity_at(state, world, u.pos).map(|e| &e.kind) else {
         open_sign_editor(state, u.actor.session, world, u.pos, front);
         return true;
     };
     if sign.waxed {
         return true;
     }
-    let side = sign.side_mut(front);
-    let changed = if let Some(colour) = sign_colour(&u.item) {
-        (side.colour != colour).then(|| {
-            side.colour = colour;
-            Event::SoundDyeUsed
-        })
-    } else if u.item_kind(item::Kind::InkSac) || u.item_kind(item::Kind::GlowInkSac) {
-        let glow = u.item_kind(item::Kind::GlowInkSac);
-        (side.glowing != glow).then(|| {
-            side.glowing = glow;
-            Event::SoundInkSacUsed
-        })
-    } else if u.item_kind(item::Kind::Honeycomb) {
-        sign.waxed = true;
-        Some(Event::WaxOn)
-    } else {
-        None
+    let Some(change) = sign_use(state, u, front) else {
+        open_sign_editor(state, u.actor.session, world, u.pos, front);
+        return true;
     };
-    match changed {
-        Some(event) => {
-            u.pop();
-            level_event(state, world, super::block_vec(u.pos), event, 0);
-            block_entity::broadcast_spawn(state, world, u.pos);
+    let mut lines = None;
+    if change != SignUse::Wax && dispatch::heard::<crate::event::SignChange>(state) {
+        let (Some(world_id), Some(old)) =
+            (crate::world::Id::new(world), sign_text(state, world, u.pos))
+        else {
+            return true;
+        };
+        let old_text = if front {
+            old.front.clone()
+        } else {
+            old.back.clone()
+        };
+        let mut e = crate::event::SignChange {
+            player: crate::player::Id::new(u.actor.session),
+            world: world_id,
+            pos: u.pos,
+            block: u.block,
+            old_text: old_text.clone(),
+            new_text: old_text,
+            front_face: front,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        if e.cancelled {
+            open_sign_editor(state, u.actor.session, world, u.pos, front);
+            return true;
         }
-        None => open_sign_editor(state, u.actor.session, world, u.pos, front),
+        // A listener may have changed the sign or taken the item: then nothing happens.
+        if dispatch::listened::<crate::event::SignChange>(state)
+            && !(using::still_holds(state, &u.actor, &u.item)
+                && state.worlds.get(world).and_then(|w| w.block(u.pos)) == Some(u.block)
+                && sign_text(state, world, u.pos).as_ref() == Some(&old)
+                && sign_use(state, u, front) == Some(change))
+        {
+            return true;
+        }
+        let Some(checked) = super::sign::check(&e.new_text) else {
+            open_sign_editor(state, u.actor.session, world, u.pos, front);
+            return true;
+        };
+        lines = Some(checked);
+        u.watched = Some(using::Watched::Sign(e));
     }
+    let Some(BlockEntity {
+        kind: Kind::Sign(sign),
+        ..
+    }) = entity_mut(state, world, u.pos)
+    else {
+        return true;
+    };
+    let event = match change {
+        SignUse::Colour(colour) => {
+            sign.side_mut(front).colour = colour;
+            Event::SoundDyeUsed
+        }
+        SignUse::Glow(glow) => {
+            sign.side_mut(front).glowing = glow;
+            Event::SoundInkSacUsed
+        }
+        SignUse::Wax => {
+            sign.waxed = true;
+            Event::WaxOn
+        }
+    };
+    if let Some(lines) = lines {
+        sign.side_mut(front).lines = lines;
+    }
+    u.pop();
+    level_event(state, world, super::block_vec(u.pos), event, 0);
+    block_entity::broadcast_spawn(state, world, u.pos);
     true
 }
 
-/// Stores a sign edit (PMMP `BaseSign::updateFaceText` for both sides: the lines change, the
-/// colour and glow stay): false for a waxed sign or one without its block entity.
+/// What a sign's block entity holds of its text: the lines of each side and whether it is waxed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SignText {
+    /// The front side's lines.
+    pub(super) front: [String; crate::tile::SIGN_LINES],
+    /// The back side's lines.
+    pub(super) back: [String; crate::tile::SIGN_LINES],
+    /// A waxed sign takes no edits.
+    pub(super) waxed: bool,
+}
+
+/// The text of the sign at `pos`; `None` without a sign block entity.
+pub(super) fn sign_text(state: &State, world: WorldIndex, pos: BlockPos) -> Option<SignText> {
+    let BlockEntity {
+        kind: Kind::Sign(sign),
+        ..
+    } = entity_at(state, world, pos)?
+    else {
+        return None;
+    };
+    Some(SignText {
+        front: sign.front.lines.clone(),
+        back: sign.back.lines.clone(),
+        waxed: sign.waxed,
+    })
+}
+
+/// Stores the lines of one side of the sign at `pos` (PMMP `BaseSign::updateFaceText`: the lines
+/// change, the colour and glow stay); the caller checked that the sign takes the edit.
 pub(super) fn write_sign(
     state: &mut State,
     world: WorldIndex,
     pos: BlockPos,
-    edit: &super::sign::Edit,
-) -> bool {
+    front: bool,
+    lines: [String; crate::tile::SIGN_LINES],
+) {
     let Some(BlockEntity {
         kind: Kind::Sign(sign),
         ..
     }) = entity_mut(state, world, pos)
     else {
-        return false;
+        return;
     };
-    if sign.waxed {
-        return false;
-    }
-    sign.front.lines.clone_from(&edit.front);
-    sign.back.lines.clone_from(&edit.back);
+    sign.side_mut(front).lines = lines;
     block_entity::broadcast_spawn(state, world, pos);
-    true
 }
 
 /// PMMP `FlowerPot::onInteract`: a pottable plant goes in an empty pot; a full pot gives its plant
@@ -409,7 +512,7 @@ pub(super) fn bookshelf(state: &mut State, u: &mut Use) -> bool {
 pub(super) fn campfire_cook(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let kind = block_entity::campfire_kind(u.block.is(Class::SoulCampfire));
-    if u.item.is_empty() || !block_entity::campfire_cooks(kind, &u.item) {
+    if u.item.is_empty() || !block_entity::campfire_cooks(kind, &u.item, &state.custom) {
         return false;
     }
     let Some(BlockEntity {

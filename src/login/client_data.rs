@@ -9,6 +9,7 @@ use super::{Error, Result, parse_uuid};
 use crate::crypto::{
     Algorithm, PublicKey, STD, Verifier, bounded_vec, is_object_or_null, parse_jws, verify_jws,
 };
+use crate::entity::MAX_SKIN_BYTES;
 use crate::protocol::{self, Rgba};
 
 /// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
@@ -19,11 +20,6 @@ const MAX_ANIMATIONS: usize = 32;
 const MAX_LANGUAGE_CODE: usize = 64;
 /// Longest host name in a server address (DNS limit).
 const MAX_HOST: usize = 253;
-/// Most bytes a skin may hold in all (images, geometry, resource patch, animation data),
-/// decoded. A persona skin with its geometry and animations takes well under 1 MiB; the cap
-/// bounds what every other player is sent when the player joins (`PlayerList`), whatever batch
-/// size the server accepts.
-pub(super) const MAX_SKIN_BYTES: usize = 4 << 20;
 /// The persona piece types of the login data in the protocol's order (gophertunnel
 /// `PieceType*` from 1); anything else is type 0, unknown.
 const PIECE_TYPES: [&str; 27] = [

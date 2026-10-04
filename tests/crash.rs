@@ -97,7 +97,7 @@ impl Mover {
         }
         if !self.checked {
             // Wait until every spawn chunk is loaded, then report what the commit holds.
-            let world = ctx.world();
+            let world = ctx.default_world();
             let loaded =
                 (-1..=1).all(|x| (-1..=1).all(|z| world.is_chunk_loaded(ChunkPos::new(x, z))));
             if !loaded {
@@ -121,7 +121,7 @@ impl Mover {
         }
         // One tick moves the block: both writes land in the same commit or neither does.
         let next = path(ctx.tick());
-        let world = ctx.world_mut();
+        let world = ctx.default_world_mut();
         if let Some(old) = self.at {
             world
                 .set_block(old, State::find("minecraft:air", &[]).unwrap())

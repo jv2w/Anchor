@@ -9,8 +9,14 @@
 //! A chunk is its terrain and its extras (PLAN.md 10.7): block entities, entities and scheduled
 //! block updates, each one value under the chunk's key with its own kind. One load reads all four
 //! in one read transaction and answers them together; damage in any of them quarantines the chunk.
+//!
+//! The operator list, the bans and the whitelist (PLAN.md 10.8) are read once when the file
+//! opens and live in the tick; a snapshot carries the entries changed since the last one. The
+//! user's server data (`user` table) is read once at start ([`Thread::read_user`]) and saved the
+//! same way.
 
 use std::borrow::Cow;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -18,12 +24,16 @@ use tracing::{error, info, warn};
 
 use crate::block::{PropertyValue, State};
 use crate::nbt::{self, Compound, Value};
+use crate::permission::{self, BanEntry};
 use crate::pool::Pool;
 use crate::storage::codec::{
-    Biomes, BlockLayer, ChunkRecord, ExtraRecord, Meta, PlayerRecord, SubChunkRecord, WorldRecord,
+    BanRecord, Biomes, BlockLayer, ChunkRecord, ExtraRecord, Mark, Meta, PlayerRecord,
+    SubChunkRecord, UserRecord, WorldRecord,
 };
 use crate::storage::seal::{Crc32c, seal, stored_checksum, unseal};
-use crate::storage::{self, Batch, ChunkKey, ChunkKind, Key, PlayerKey, Storage};
+use crate::storage::{
+    self, AccessKey, AccessKind, Batch, ChunkKey, ChunkKind, Key, PlayerKey, Storage,
+};
 use crate::world::{
     BlockPos, Chunk, ChunkPos, Entry, Generator, Kind, PLAINS, Paletted, SUB_CHUNKS, SubChunk,
     World,
@@ -159,6 +169,34 @@ pub(crate) struct Snapshot {
     pub(crate) extras: Vec<(WorldIndex, ChunkPos, ChunkKind, Vec<Compound>)>,
     /// The spawn and the time (`World::time`) of every persistent world.
     pub(crate) spawns: Vec<(WorldIndex, BlockPos, i64)>,
+    /// Changed operator, ban and whitelist entries, each once.
+    pub(crate) access: Vec<(AccessKey, AccessWrite)>,
+    /// Changed server data values of the user: name and JSON, each once.
+    pub(crate) user: Vec<(String, Vec<u8>)>,
+}
+
+/// What a commit writes for an `access` entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AccessWrite {
+    /// The entry is gone.
+    Delete,
+    /// An operator or whitelist entry.
+    Mark,
+    /// A ban.
+    Ban(BanEntry),
+}
+
+/// The operator list, the bans and the whitelist as the world file holds them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct AccessData {
+    /// Operator names, ASCII lowercase.
+    pub(crate) ops: Vec<String>,
+    /// Name bans.
+    pub(crate) bans: Vec<BanEntry>,
+    /// IP bans.
+    pub(crate) ip_bans: Vec<BanEntry>,
+    /// Whitelisted names, ASCII lowercase.
+    pub(crate) whitelist: Vec<String>,
 }
 
 /// A world the server runs, as configured.
@@ -196,6 +234,8 @@ pub(crate) struct Opened {
     pub(crate) worlds: Vec<World>,
     /// The engine tick of the last commit (0 for a new file).
     pub(crate) tick: u64,
+    /// The operator list, the bans and the whitelist.
+    pub(crate) access: AccessData,
     /// The save thread's side.
     pub(crate) thread: Thread,
 }
@@ -205,6 +245,7 @@ impl std::fmt::Debug for Opened {
         f.debug_struct("Opened")
             .field("worlds", &self.worlds.len())
             .field("tick", &self.tick)
+            .field("access", &self.access)
             .finish_non_exhaustive()
     }
 }
@@ -222,6 +263,27 @@ impl Thread {
     /// tick ignores light, so lighting here would only waste CPU time.
     pub(crate) fn set_lighting(&mut self, enabled: bool) {
         self.lighting = enabled;
+    }
+
+    /// Reads the user's server data values `names` (PLAN.md 10.8), before the threads start: the
+    /// JSON of each, or `None` for a value never saved. A damaged value fails the start and stays
+    /// as it is; values of names not asked for are neither read nor touched.
+    pub(crate) fn read_user(
+        &mut self,
+        names: &[&str],
+    ) -> Result<Vec<Option<Vec<u8>>>, storage::Error> {
+        let keys: Vec<Key> = names.iter().map(|&n| Key::User(n.to_owned())).collect();
+        let values = self.storage.read(&keys)?;
+        keys.iter()
+            .zip(values)
+            .map(|(key, value)| {
+                value?
+                    .map(|sealed| {
+                        unseal::<UserRecord<'_>>(&key.to_bytes(), &sealed).map(|r| r.0.into_owned())
+                    })
+                    .transpose()
+            })
+            .collect()
     }
 }
 
@@ -244,6 +306,7 @@ pub(crate) fn open(
         Some(Err(e)) => return Err(e.into()),
         Some(Ok(None)) | None => 0,
     };
+    let access = read_access(&mut storage)?;
     let mut next_number = stored
         .iter()
         .map(|(_, r)| r.number)
@@ -303,12 +366,81 @@ pub(crate) fn open(
     Ok(Opened {
         worlds,
         tick,
+        access,
         thread: Thread {
             storage,
             plans,
             lighting: true,
         },
     })
+}
+
+/// Reads the operator list, the bans and the whitelist. Values are external input: a key must
+/// be a valid list name in ASCII lowercase (an IP address in its canonical text for an IP ban)
+/// and its value must be the record of its kind; anything else is damage and refuses the start,
+/// leaving the file as it is.
+fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
+    let mut data = AccessData::default();
+    for (key, sealed) in storage.access()? {
+        let bytes = key.to_bytes();
+        let AccessKey { kind, name } = key;
+        let ip = match kind {
+            AccessKind::IpBan => {
+                let ip: IpAddr = name
+                    .parse()
+                    .map_err(|_| storage::Error::Malformed("banned ip address"))?;
+                if ip.to_string() != name {
+                    return Err(storage::Error::Malformed("banned ip address"));
+                }
+                Some(ip)
+            }
+            AccessKind::Op | AccessKind::Ban | AccessKind::Whitelist => {
+                if permission::check_name(&name).is_err() || name.to_ascii_lowercase() != name {
+                    return Err(storage::Error::Malformed("access name"));
+                }
+                None
+            }
+        };
+        match kind {
+            AccessKind::Op | AccessKind::Whitelist => {
+                unseal::<Mark>(&bytes, &sealed)?;
+                if kind == AccessKind::Op {
+                    data.ops.push(name);
+                } else {
+                    data.whitelist.push(name);
+                }
+            }
+            AccessKind::Ban | AccessKind::IpBan => {
+                let record: BanRecord = unseal(&bytes, &sealed)?;
+                if record.source.len() > permission::MAX_SOURCE {
+                    return Err(storage::Error::Malformed("ban source"));
+                }
+                let entry = BanEntry::from_parts(
+                    name,
+                    ip,
+                    record.reason,
+                    record.source,
+                    record.created,
+                    record.expires,
+                );
+                if kind == AccessKind::Ban {
+                    data.bans.push(entry);
+                } else {
+                    data.ip_bans.push(entry);
+                }
+            }
+        }
+    }
+    let lists = [
+        data.ops.len(),
+        data.bans.len(),
+        data.ip_bans.len(),
+        data.whitelist.len(),
+    ];
+    if lists.iter().any(|&n| n > permission::MAX_ENTRIES) {
+        return Err(storage::Error::TooManyAccessEntries);
+    }
+    Ok(data)
 }
 
 /// A seed for a new world with an empty `level-seed`: chosen once, then saved.
@@ -545,6 +677,8 @@ fn commit(
             + snapshot.extras.len()
             + snapshot.players.len()
             + snapshot.spawns.len()
+            + snapshot.access.len()
+            + snapshot.user.len()
             + 1,
     );
     batch.put(
@@ -603,6 +737,27 @@ fn commit(
             position: data.position,
             extra: data.extra.clone(),
         };
+        batch.put(key.clone(), seal(&key.to_bytes(), &record)?);
+    }
+    for (key, write) in &snapshot.access {
+        let key = Key::Access(key.clone());
+        match write {
+            AccessWrite::Delete => batch.delete(key),
+            AccessWrite::Mark => batch.put(key.clone(), seal(&key.to_bytes(), &Mark)?),
+            AccessWrite::Ban(entry) => {
+                let record = BanRecord {
+                    reason: entry.reason().to_owned(),
+                    source: entry.source().to_owned(),
+                    created: entry.created(),
+                    expires: entry.expires(),
+                };
+                batch.put(key.clone(), seal(&key.to_bytes(), &record)?);
+            }
+        }
+    }
+    for (name, json) in &snapshot.user {
+        let key = Key::User(name.clone());
+        let record = UserRecord(Cow::Borrowed(json));
         batch.put(key.clone(), seal(&key.to_bytes(), &record)?);
     }
     storage.commit(&batch)
@@ -794,11 +949,11 @@ pub(crate) mod tests {
     }
 
     /// A per-test folder under the system temp folder, removed on drop.
-    struct TempDir(PathBuf);
+    pub(crate) struct TempDir(pub(crate) PathBuf);
 
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     impl TempDir {
-        fn new(name: &str) -> Self {
+        pub(crate) fn new(name: &str) -> Self {
             let dir =
                 std::env::temp_dir().join(format!("anchor-save-{name}-{}", std::process::id()));
             std::fs::remove_dir_all(&dir).unwrap_or(());
@@ -814,7 +969,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn specs() -> Vec<WorldSpec> {
+    pub(crate) fn specs() -> Vec<WorldSpec> {
         vec![
             WorldSpec {
                 name: "world".to_owned(),
@@ -1081,6 +1236,178 @@ pub(crate) mod tests {
                 let present = read[0].as_ref().unwrap().is_some();
                 assert_eq!(present, !held.get(kind).is_empty(), "{pos:?} {kind:?}");
             }
+        }
+    }
+
+    fn access_key(kind: AccessKind, name: &str) -> AccessKey {
+        AccessKey {
+            kind,
+            name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn operators_bans_and_the_whitelist_survive_a_commit_and_a_restart() {
+        let dir = TempDir::new("access");
+        let ban = BanEntry::new("griefer")
+            .with_reason("tnt")
+            .with_source("console")
+            .with_expires(900)
+            .checked(40)
+            .unwrap();
+        let ip: IpAddr = "2001:db8::1".parse().unwrap();
+        let ip_ban = BanEntry::ip(ip).checked(41).unwrap();
+        let first = Snapshot {
+            start: 50,
+            access: vec![
+                (access_key(AccessKind::Op, "steve"), AccessWrite::Mark),
+                (access_key(AccessKind::Op, "gone"), AccessWrite::Mark),
+                (access_key(AccessKind::Whitelist, "alex"), AccessWrite::Mark),
+                (
+                    access_key(AccessKind::Ban, "griefer"),
+                    AccessWrite::Ban(ban.clone()),
+                ),
+                (
+                    access_key(AccessKind::IpBan, &ip.to_string()),
+                    AccessWrite::Ban(ip_ban.clone()),
+                ),
+            ],
+            ..Snapshot::default()
+        };
+        let second = Snapshot {
+            start: 60,
+            access: vec![(access_key(AccessKind::Op, "gone"), AccessWrite::Delete)],
+            ..Snapshot::default()
+        };
+        let (answers, _, result) = serve(
+            &dir,
+            vec![
+                Request::Commit(Box::new(first)),
+                Request::Commit(Box::new(second)),
+            ],
+        );
+        result.unwrap();
+        assert_eq!(answers.len(), 2);
+        let opened = open(&dir.0, specs()).unwrap();
+        assert_eq!(opened.tick, 60);
+        assert_eq!(
+            opened.access,
+            AccessData {
+                ops: vec!["steve".to_owned()],
+                bans: vec![ban],
+                ip_bans: vec![ip_ban],
+                whitelist: vec!["alex".to_owned()],
+            }
+        );
+    }
+
+    #[test]
+    fn server_data_values_survive_a_commit_and_a_restart_and_only_named_ones_are_read() {
+        let dir = TempDir::new("user");
+        let first = Snapshot {
+            start: 10,
+            user: vec![
+                ("kills".to_owned(), br#"{"total":3}"#.to_vec()),
+                ("old".to_owned(), b"[1,2]".to_vec()),
+            ],
+            ..Snapshot::default()
+        };
+        let second = Snapshot {
+            start: 20,
+            user: vec![("kills".to_owned(), br#"{"total":4}"#.to_vec())],
+            ..Snapshot::default()
+        };
+        let (answers, _, result) = serve(
+            &dir,
+            vec![
+                Request::Commit(Box::new(first)),
+                Request::Commit(Box::new(second)),
+            ],
+        );
+        result.unwrap();
+        assert_eq!(answers.len(), 2);
+        let mut opened = open(&dir.0, specs()).unwrap();
+        let read = opened.thread.read_user(&["kills", "never", "old"]).unwrap();
+        assert_eq!(
+            read,
+            [
+                Some(br#"{"total":4}"#.to_vec()),
+                None,
+                Some(b"[1,2]".to_vec())
+            ]
+        );
+        assert_eq!(
+            opened.thread.read_user(&[]).unwrap(),
+            Vec::<Option<Vec<u8>>>::new()
+        );
+    }
+
+    #[test]
+    fn a_damaged_server_data_value_fails_its_read_and_stays_as_it_was() {
+        let dir = TempDir::new("user-damaged");
+        let key = Key::User("kills".to_owned());
+        {
+            let mut storage = Storage::open(&dir.0).unwrap();
+            let mut batch = Batch::default();
+            let mut sealed = seal(&key.to_bytes(), &UserRecord(b"[1]".to_vec().into())).unwrap();
+            let last = sealed.len() - 1;
+            sealed[last] ^= 1;
+            batch.put(key.clone(), sealed);
+            storage.commit(&batch).unwrap();
+            storage.close().unwrap();
+        }
+        let mut opened = open(&dir.0, specs()).unwrap();
+        let e = opened.thread.read_user(&["kills"]).unwrap_err();
+        assert!(e.is_damage(), "{e:?}");
+        assert!(matches!(
+            crate::Error::from(e),
+            crate::Error::WorldDamaged(_)
+        ));
+        let before = opened
+            .thread
+            .storage
+            .read(std::slice::from_ref(&key))
+            .unwrap();
+        drop(opened);
+        let mut storage = open(&dir.0, specs()).unwrap().thread.storage;
+        assert_eq!(
+            storage.read(&[key]).unwrap()[0].as_ref().unwrap(),
+            before[0].as_ref().unwrap()
+        );
+    }
+
+    #[test]
+    fn a_damaged_access_entry_refuses_the_start_and_stays_as_it_was() {
+        for (key, record) in [
+            // Not lowercase: no tick writes it.
+            (access_key(AccessKind::Op, "Steve"), None),
+            (access_key(AccessKind::IpBan, "1.2.3"), Some("x")),
+            // A ban value under an operator key.
+            (access_key(AccessKind::Op, "steve"), Some("x")),
+        ] {
+            let dir = TempDir::new("access-damaged");
+            let mut storage = Storage::open(&dir.0).unwrap();
+            let key = Key::Access(key);
+            let sealed = match record {
+                None => seal(&key.to_bytes(), &Mark).unwrap(),
+                Some(reason) => {
+                    let record = BanRecord {
+                        reason: reason.to_owned(),
+                        source: String::new(),
+                        created: 0,
+                        expires: None,
+                    };
+                    seal(&key.to_bytes(), &record).unwrap()
+                }
+            };
+            let mut batch = Batch::default();
+            batch.put(key, sealed);
+            storage.commit(&batch).unwrap();
+            drop(storage);
+            assert!(
+                matches!(open(&dir.0, specs()), Err(crate::Error::WorldDamaged(_))),
+                "a damaged entry refuses the start"
+            );
         }
     }
 

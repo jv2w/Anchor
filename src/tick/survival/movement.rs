@@ -10,13 +10,18 @@
 use super::attributes::{ABILITIES, MOVEMENT};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
-use super::{Survival, attributes, block_at, f32_of, feet, food, game_mode, sound};
+use super::{Survival, attributes, f32_of, feet, food, game_mode, sound};
 
 use crate::block::{self, Class, PropertyValue};
 use crate::config::GameMode;
 use crate::effect::Type as Effect;
+use crate::event::{
+    CombustSource, ExhaustCause, ExtinguishCause, PlayerJump, PlayerMissSwing, PlayerMove,
+    PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim,
+};
 use crate::item::Enchantment;
 use crate::math::{self, Aabb, Vec3};
+use crate::player::Id;
 use crate::protocol::consts::{InputFlag, MoveMode, PlayerAction as Action, SoundEvent};
 use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput};
 use crate::protocol::{FlagSet, TeleportData};
@@ -75,6 +80,8 @@ pub(super) struct Motion {
     /// The death screen was shown for the current death (a player that joins dead sees it on
     /// its first tick).
     pub(super) death_shown: bool,
+    /// Ticks since the player last stood on something (PMMP `inAirTicks`).
+    pub(super) in_air: u32,
 }
 
 impl Default for Motion {
@@ -99,6 +106,7 @@ impl Default for Motion {
             intersected: false,
             in_bed: false,
             death_shown: false,
+            in_air: 0,
         }
     }
 }
@@ -126,6 +134,7 @@ impl Motion {
             intersected,
             in_bed,
             death_shown,
+            in_air,
         } = self;
         let bits = [
             sprinting,
@@ -162,6 +171,7 @@ impl Motion {
             None => h.u64(u64::MAX),
         }
         h.u64(u64::from(budget.cast_unsigned()));
+        h.u64(u64::from(*in_air));
     }
 }
 
@@ -225,70 +235,192 @@ fn on_off(flags: FlagSet<InputFlag>, start: InputFlag, stop: InputFlag) -> Optio
 }
 
 /// The input flags changed: sneaking, sprinting, swimming, gliding, flying, a jump, a missed
-/// swing.
+/// swing (PMMP `InGamePacketHandler::handlePlayerAuthInput`). Each toggle that changes something
+/// asks its event (`PlayerToggleSneak` and the others); a cancelled one leaves the state as it
+/// was and sends the player its entity data again, as a refused flight does.
 fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>) {
-    let may_fly = state.players.get(&session).is_some_and(|p| {
-        matches!(
-            game_mode(state, p),
-            GameMode::Creative | GameMode::Spectator
-        )
-    });
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
+    let may_fly = player.survival.may_fly();
     let m = &mut player.survival.motion;
     let pressed = flags.contains(InputFlag::Sneaking);
-    let sneak = on_off(flags, InputFlag::StartSneaking, InputFlag::StopSneaking);
-    let mut mismatch = sneak.unwrap_or(m.sneaking) == m.sneaking && pressed != m.sneak_pressed;
+    let sneak = on_off(flags, InputFlag::StartSneaking, InputFlag::StopSneaking)
+        .filter(|&v| v != m.sneaking);
+    let mut mismatch = sneak.is_none() && pressed != m.sneak_pressed;
     m.sneak_pressed = pressed;
+    let sprint = on_off(flags, InputFlag::StartSprinting, InputFlag::StopSprinting)
+        .filter(|&v| v != m.sprinting);
+    let swim = on_off(flags, InputFlag::StartSwimming, InputFlag::StopSwimming)
+        .filter(|&v| v != m.swimming);
+    let glide =
+        on_off(flags, InputFlag::StartGliding, InputFlag::StopGliding).filter(|&v| v != m.gliding);
+    let fly =
+        on_off(flags, InputFlag::StartFlying, InputFlag::StopFlying).filter(|&v| v != m.flying);
     if let Some(v) = sneak {
-        m.sneaking = v;
+        mismatch |= !toggle(state, session, Toggle::Sneak(v, pressed));
     }
-    if let Some(v) = on_off(flags, InputFlag::StartSprinting, InputFlag::StopSprinting)
-        && v != m.sprinting
-    {
-        m.sprinting = v;
-        player.survival.mark(MOVEMENT);
+    if let Some(v) = sprint {
+        mismatch |= !toggle(state, session, Toggle::Sprint(v));
     }
-    let m = &mut player.survival.motion;
-    if let Some(v) = on_off(flags, InputFlag::StartSwimming, InputFlag::StopSwimming) {
-        m.swimming = v;
+    if let Some(v) = swim {
+        mismatch |= !toggle(state, session, Toggle::Swim(v));
     }
-    if let Some(v) = on_off(flags, InputFlag::StartGliding, InputFlag::StopGliding) {
-        m.gliding = v;
+    if let Some(v) = glide {
+        mismatch |= !toggle(state, session, Toggle::Glide(v));
     }
-    if let Some(v) = on_off(flags, InputFlag::StartFlying, InputFlag::StopFlying)
-        && v != m.flying
-    {
-        if may_fly || !v {
-            m.flying = v;
-        } else {
-            mismatch = true;
+    if let Some(v) = fly {
+        mismatch |= !((may_fly || !v) && toggle(state, session, Toggle::Fly(v)));
+        if let Some(player) = state.players.get_mut(&session) {
+            player.survival.mark(ABILITIES);
         }
-        player.survival.mark(ABILITIES);
     }
-    if mismatch {
+    if mismatch && let Some(player) = state.players.get_mut(&session) {
         player.survival.shown = attributes::Shown::default();
     }
     if flags.contains(InputFlag::StartJumping) {
-        jump(&mut player.survival);
+        jump(state, session);
     }
     if flags.contains(InputFlag::MissedSwing) {
-        // PMMP `Player::missSwing`: the no-damage sound at the feet, the swing for the viewers.
-        if let Some(at) = state.players.get(&session).map(feet) {
-            sound::hit(state, session, at, SoundEvent::AttackNoDamage);
-        }
-        damage::swing(state, session);
+        miss_swing(state, session);
     }
 }
 
-/// A jump costs 0.2 exhaustion sprinting, 0.05 walking (PMMP `Human::jump`).
-fn jump(s: &mut Survival) {
-    let cost = if s.motion.sprinting { 0.2 } else { 0.05 };
-    food::exhaust(s, cost);
+/// A movement state a player turns on or off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Toggle {
+    /// Sneaking, and whether the sneak key is down.
+    Sneak(bool, bool),
+    Sprint(bool),
+    Swim(bool),
+    Glide(bool),
+    Fly(bool),
 }
 
-/// `PlayerAction`: respawn, waking up, and the older toggles a client may still send.
+/// Turns `toggle` on or off for a spawned, living player unless its event's listener cancels it
+/// (PMMP `Player::toggleSneak` and the others); false if refused.
+fn toggle(state: &mut State, session: SessionId, toggle: Toggle) -> bool {
+    let id = Id::new(session);
+    let may = |state: &State| {
+        state
+            .players
+            .get(&session)
+            .is_some_and(|p| p.phase == Phase::Spawned && !p.survival.is_dead())
+    };
+    let set = |state: &mut State| {
+        let Some(player) = state.players.get_mut(&session) else {
+            return;
+        };
+        let s = &mut player.survival;
+        match toggle {
+            Toggle::Sneak(v, _) => s.motion.sneaking = v,
+            Toggle::Sprint(v) => {
+                s.motion.sprinting = v;
+                s.mark(MOVEMENT);
+            }
+            Toggle::Swim(v) => s.motion.swimming = v,
+            Toggle::Glide(v) => s.motion.gliding = v,
+            Toggle::Fly(v) => s.motion.flying = v,
+        }
+    };
+    macro_rules! ask {
+        ($event:expr, $cancelled:expr) => {{
+            let Ok(event) = super::ask(state, || $event, $cancelled, |state, _| may(state)) else {
+                return false;
+            };
+            set(state);
+            super::watch(state, event.as_ref());
+        }};
+    }
+    match toggle {
+        Toggle::Sneak(sneaking, sneak_pressed) => ask!(
+            PlayerToggleSneak {
+                player: id,
+                sneaking,
+                sneak_pressed,
+                cancelled: false,
+            },
+            PlayerToggleSneak::is_cancelled
+        ),
+        Toggle::Sprint(sprinting) => ask!(
+            PlayerToggleSprint {
+                player: id,
+                sprinting,
+                cancelled: false,
+            },
+            PlayerToggleSprint::is_cancelled
+        ),
+        Toggle::Swim(swimming) => ask!(
+            PlayerToggleSwim {
+                player: id,
+                swimming,
+                cancelled: false,
+            },
+            PlayerToggleSwim::is_cancelled
+        ),
+        Toggle::Glide(gliding) => ask!(
+            PlayerToggleGlide {
+                player: id,
+                gliding,
+                cancelled: false,
+            },
+            PlayerToggleGlide::is_cancelled
+        ),
+        Toggle::Fly(flying) => ask!(
+            PlayerToggleFlight {
+                player: id,
+                flying,
+                cancelled: false,
+            },
+            PlayerToggleFlight::is_cancelled
+        ),
+    }
+    true
+}
+
+/// A jump (PMMP `Player::jump`, `Human::jump`): the [`PlayerJump`] listeners hear it, then it
+/// costs 0.2 exhaustion sprinting, 0.05 walking.
+fn jump(state: &mut State, session: SessionId) {
+    let id = Id::new(session);
+    super::notify(state, || PlayerJump { player: id });
+    let Some(sprinting) = state
+        .players
+        .get(&session)
+        .map(|p| p.survival.motion.sprinting)
+    else {
+        return;
+    };
+    let (cost, cause) = if sprinting {
+        (0.2, ExhaustCause::SprintJumping)
+    } else {
+        (0.05, ExhaustCause::Jumping)
+    };
+    food::exhaust_as(state, session, cost, cause);
+}
+
+/// A swing at nothing (PMMP `Player::missSwing`): unless a [`PlayerMissSwing`] listener cancels
+/// it, the no-damage sound at the feet and the swing for the viewers.
+fn miss_swing(state: &mut State, session: SessionId) {
+    let Ok(event) = super::ask(
+        state,
+        || PlayerMissSwing {
+            player: Id::new(session),
+            cancelled: false,
+        },
+        PlayerMissSwing::is_cancelled,
+        |state, _| state.players.contains_key(&session),
+    ) else {
+        return;
+    };
+    if let Some(at) = state.players.get(&session).map(feet) {
+        sound::hit(state, session, at, SoundEvent::AttackNoDamage);
+    }
+    damage::swing(state, session);
+    super::watch(state, event.as_ref());
+}
+
+/// `PlayerAction`: respawn, waking up, and the older toggles a client may still send, which ask
+/// their events as the input flags do.
 pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &PlayerAction) {
     let Ok(action) = Action::try_from(packet.action_type) else {
         return;
@@ -297,32 +429,38 @@ pub(super) fn on_player_action(state: &mut State, session: SessionId, packet: &P
         Action::Respawn => damage::respawn(state, session),
         Action::StopSleeping => super::clock::wake(state, session),
         _ => {
-            let Some(player) = state.players.get_mut(&session) else {
+            let Some(player) = state.players.get(&session) else {
                 return;
             };
             if player.phase != Phase::Spawned || player.survival.is_dead() {
                 return;
             }
-            let s = &mut player.survival;
-            match action {
-                Action::Jump => jump(s),
+            let m = &player.survival.motion;
+            let change = match action {
+                Action::Jump => {
+                    jump(state, session);
+                    return;
+                }
                 Action::StartSprint | Action::StopSprint => {
                     let on = action == Action::StartSprint;
-                    if s.motion.sprinting != on {
-                        s.motion.sprinting = on;
-                        s.mark(MOVEMENT);
-                    }
+                    (m.sprinting != on).then_some(Toggle::Sprint(on))
                 }
                 Action::StartSneak | Action::StopSneak => {
-                    s.motion.sneaking = action == Action::StartSneak;
+                    let on = action == Action::StartSneak;
+                    (m.sneaking != on).then_some(Toggle::Sneak(on, m.sneak_pressed))
                 }
                 Action::StartGlide | Action::StopGlide => {
-                    s.motion.gliding = action == Action::StartGlide;
+                    let on = action == Action::StartGlide;
+                    (m.gliding != on).then_some(Toggle::Glide(on))
                 }
                 Action::StartSwimming | Action::StopSwimming => {
-                    s.motion.swimming = action == Action::StartSwimming;
+                    let on = action == Action::StartSwimming;
+                    (m.swimming != on).then_some(Toggle::Swim(on))
                 }
-                _ => {}
+                _ => None,
+            };
+            if let Some(change) = change {
+                toggle(state, session, change);
             }
         }
     }
@@ -342,7 +480,7 @@ fn handle_movement(state: &mut State, session: SessionId, target: Vec3) {
     let loaded = state
         .worlds
         .get(player.world)
-        .is_some_and(|w| w.is_chunk_loaded(block_at(target).chunk()));
+        .is_some_and(|w| w.is_chunk_loaded(BlockPos::containing(target).chunk()));
     if distance > MAX_MOVE_SQUARED || !loaded {
         send_position(player, MoveMode::Reset);
         return;
@@ -418,8 +556,8 @@ fn stretch(bb: Aabb, d: Vec3) -> Aabb {
 
 /// Whether any loaded block's collision box overlaps `bb` (PMMP `World::getCollisionBlocks`).
 pub(super) fn collides(world: &World, bb: Aabb) -> bool {
-    let lo = block_at(bb.min - Vec3::new(1.0, 1.0, 1.0));
-    let hi = block_at(bb.max + Vec3::new(1.0, 1.0, 1.0));
+    let lo = BlockPos::containing(bb.min - Vec3::new(1.0, 1.0, 1.0));
+    let hi = BlockPos::containing(bb.max + Vec3::new(1.0, 1.0, 1.0));
     for x in lo.x..=hi.x {
         for z in lo.z..=hi.z {
             for y in lo.y..=hi.y {
@@ -475,7 +613,7 @@ fn land(state: &mut State, session: SessionId) {
     let Some(w) = state.worlds.get(world) else {
         return;
     };
-    let mut pos = block_at(feet(player));
+    let mut pos = BlockPos::containing(feet(player));
     let mut block = w.block(pos);
     if block.is_none_or(|b| b.collision_boxes().is_empty()) {
         pos = BlockPos::new(pos.x, pos.y - 1, pos.z);
@@ -489,7 +627,13 @@ fn land(state: &mut State, session: SessionId) {
             s.fall_distance = 0.0;
         } else if block.is(Class::Farmland) {
             let distance = s.fall_distance;
-            update::trample(state, world, pos, distance);
+            update::trample(
+                state,
+                world,
+                pos,
+                distance,
+                crate::event::Actor::Player(crate::player::Id::new(session)),
+            );
         }
     }
     let Some(player) = state.players.get(&session) else {
@@ -522,8 +666,8 @@ pub(super) fn block_intersections(state: &mut State, session: SessionId) {
     }
     player.survival.motion.intersected = true;
     let bb = bounding_box(&player.survival, feet(player));
-    let lo = block_at(bb.min + Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET));
-    let hi = block_at(bb.max - Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET));
+    let lo = BlockPos::containing(bb.min + Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET));
+    let hi = BlockPos::containing(bb.max - Vec3::new(INSIDE_INSET, INSIDE_INSET, INSIDE_INSET));
     let world = player.world;
     for z in lo.z..=hi.z {
         for x in lo.x..=hi.x {
@@ -555,20 +699,25 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
     if block.is(Class::BaseFire) {
         let amount = if block.is(Class::SoulFire) { 2.0 } else { 1.0 };
         damage::damage(state, session, amount, Damage::Fire);
-        burn(state, session, 8);
+        damage::combust(state, session, 8, CombustSource::Block(pos));
     } else if block.is(Class::Lava) || block.is(Class::LavaCauldron) {
         damage::damage(state, session, 4.0, Damage::Lava);
-        burn(state, session, 8);
+        damage::combust(state, session, 8, CombustSource::Block(pos));
         if block.is(Class::Lava) {
             reset_fall(state, session);
         }
     } else if block.is(Class::Water) {
         reset_fall(state, session);
+        let mut out = false;
         if let Some(player) = state.players.get_mut(&session) {
             if player.survival.fire_ticks > 0 {
                 player.data_dirty = true;
+                out = true;
             }
             player.survival.fire_ticks = 0;
+        }
+        if out {
+            damage::extinguished(state, session, ExtinguishCause::Water);
         }
     } else if block.is(Class::Cactus) {
         damage::damage(state, session, 1.0, Damage::Contact);
@@ -601,7 +750,7 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
         let inside_block = state
             .players
             .get(&session)
-            .is_some_and(|p| block_at(feet(p)) == pos);
+            .is_some_and(|p| BlockPos::containing(feet(p)) == pos);
         if inside_block {
             reset_fall(state, session);
             if let Some(player) = state.players.get_mut(&session) {
@@ -625,13 +774,6 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
     }
 }
 
-/// Sets the player on fire for `seconds`.
-fn burn(state: &mut State, session: SessionId, seconds: u32) {
-    if let Some(player) = state.players.get_mut(&session) {
-        damage::set_on_fire(player, seconds);
-    }
-}
-
 /// Ends the player's fall.
 fn reset_fall(state: &mut State, session: SessionId) {
     if let Some(player) = state.players.get_mut(&session) {
@@ -650,9 +792,14 @@ pub(super) fn bounding_box(s: &Survival, feet: Vec3) -> Aabb {
 }
 
 /// The movement of a tick (PMMP `Player::processMostRecentMovements`): the rate limit refills,
-/// and a horizontal move while sprinting costs 0.01 exhaustion per block. A player beyond the rate
-/// limit is sent back to its accepted position.
-pub(super) fn process(player: &mut Player) {
+/// the tick's move asks [`PlayerMove`] (cancelled, the player goes back to where the tick
+/// started; sent elsewhere, it is teleported there), and a horizontal move costs 0.01 exhaustion
+/// per block while sprinting (PMMP announces walking with 0). A player beyond the rate limit is
+/// sent back to its accepted position.
+pub(super) fn process(state: &mut State, session: SessionId) {
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
     let now = feet(player);
     let m = &mut player.survival.motion;
     let exceeded = m.budget < 0;
@@ -660,15 +807,55 @@ pub(super) fn process(player: &mut Player) {
     let from = m.processed.unwrap_or(now);
     let (dx, dz) = (now.x - from.x, now.z - from.z);
     if now.distance_squared(from) > 0.0001 {
+        let world = player.world;
+        let Ok(event) = super::ask(
+            state,
+            || PlayerMove {
+                player: Id::new(session),
+                origin: from,
+                target: now,
+                cancelled: false,
+            },
+            PlayerMove::is_cancelled,
+            |state, _| {
+                state.players.get(&session).is_some_and(|p| {
+                    p.phase == Phase::Spawned && !p.survival.is_dead() && feet(p) == now
+                })
+            },
+        ) else {
+            if let Some(player) = state.players.get_mut(&session) {
+                player.position = from + Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
+                player.data_dirty = true;
+                send_position(player, MoveMode::Reset);
+            }
+            return;
+        };
+        if let Some(e) = &event
+            && e.target.distance_squared(now) > 0.01
+        {
+            let eye = e.target + Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
+            super::teleport(state, session, world, eye);
+            super::watch(state, event.as_ref());
+            return;
+        }
+        let Some(player) = state.players.get_mut(&session) else {
+            return;
+        };
+        let m = &mut player.survival.motion;
         m.processed = Some(now);
         let horizontal = (dx * dx + dz * dz).sqrt();
-        if horizontal > 0.0 && m.sprinting {
-            food::exhaust(&mut player.survival, 0.01 * horizontal);
+        if horizontal > 0.0 {
+            if m.sprinting {
+                food::exhaust_as(state, session, 0.01 * horizontal, ExhaustCause::Sprinting);
+            } else {
+                food::exhaust_as(state, session, 0.0, ExhaustCause::Walking);
+            }
         }
+        super::watch(state, event.as_ref());
     } else if m.processed.is_none() {
         m.processed = Some(now);
     }
-    if exceeded {
+    if exceeded && let Some(player) = state.players.get_mut(&session) {
         send_position(player, MoveMode::Reset);
     }
 }
@@ -678,7 +865,7 @@ pub(super) fn process(player: &mut Player) {
 fn send_position(player: &mut Player, mode: MoveMode) {
     player.survival.motion.force_sync = true;
     let packet = position_packet(player, mode);
-    player.send(packet);
+    player.send_packet(packet);
 }
 
 /// `MovePlayer` with the player's eye position and rotation in `mode`.
@@ -726,7 +913,7 @@ pub(super) fn direction(s: &Survival) -> Vec3 {
 /// below its surface.
 pub(super) fn is_underwater(state: &State, player: &Player) -> bool {
     let eye = player.position;
-    let pos = block_at(eye);
+    let pos = BlockPos::containing(eye);
     let Some(block) = state.worlds.get(player.world).and_then(|w| w.block(pos)) else {
         return false;
     };
@@ -744,7 +931,7 @@ pub(super) fn is_underwater(state: &State, player: &Player) -> bool {
 
 /// Whether the player's eyes are inside an opaque solid block (PMMP `Entity::isInsideOfSolid`).
 pub(super) fn is_inside_solid(state: &State, player: &Player) -> bool {
-    let pos = block_at(player.position);
+    let pos = BlockPos::containing(player.position);
     let Some(block) = state.worlds.get(player.world).and_then(|w| w.block(pos)) else {
         return false;
     };

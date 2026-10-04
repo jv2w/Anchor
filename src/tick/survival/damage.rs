@@ -5,24 +5,32 @@
 //! A hit is worked out in two steps, so events (M8) can sit between them: [`assess`] checks
 //! whether the hit lands and computes its modifiers, [`apply`] changes the state.
 
+use tracing::debug;
+
 use super::attributes::{self, ABSORPTION, HEALTH};
 use super::effects::{self, Active};
 use super::{
-    EYE_HEIGHT, MAX_AIR, Point, Survival, block_at, broadcast_from, broadcast_to_viewers, clock,
-    feet, food, game_mode_of, movement, player_random, sound, world_seed,
+    EYE_HEIGHT, Point, Survival, broadcast_from, broadcast_to_viewers, clock, feet, food, movement,
+    player_random, sound, world_seed,
 };
 use crate::config::GameMode;
 use crate::effect::Type as Effect;
+use crate::event::{
+    Actor, CombustSource, DamageCause, DamageModifier, DamageSource, EntityCombust, EntityDamage,
+    EntityExtinguish, EntityRegainHealth, ExhaustCause, ExtinguishCause, PlayerDeath,
+    PlayerRespawn, RegainReason,
+};
 use crate::item::{Class, Enchantment, Stack, Type};
 use crate::math::{self, Vec3};
+use crate::player;
 use crate::protocol::EntityProperties;
 use crate::protocol::consts::{ActorEvent, AnimateAction, LevelEvent, RespawnState, SoundEvent};
 use crate::protocol::packet::{
-    self, Animate, DeathInfo, Packet, Respawn, SetActorData, SetActorMotion, SetPlayerGameType,
+    self, Animate, DeathInfo, Packet, Respawn, SetActorData, SetActorMotion,
 };
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::tick::{Phase, Player, SessionId, State, entity, inventory};
+use crate::tick::{Phase, Player, SessionId, State, dispatch, entity, inventory};
 use crate::world::{self, BlockPos};
 
 /// Why a player takes damage (PMMP `EntityDamageEvent::CAUSE_*`).
@@ -30,6 +38,8 @@ use crate::world::{self, BlockPos};
 pub(in crate::tick) enum Damage {
     /// A melee hit by another player.
     Attack(SessionId),
+    /// A melee hit by an entity that is not a player.
+    Melee,
     /// Hit by a projectile or an entity.
     Entity,
     /// A fall.
@@ -44,8 +54,10 @@ pub(in crate::tick) enum Damage {
     Drowning,
     /// Inside a solid block.
     Suffocation,
-    /// An explosion.
+    /// An explosion (primed TNT).
     Explosion,
+    /// An exploding block.
+    BlockExplosion,
     /// Below the world.
     Void,
     /// An effect (poison, harming).
@@ -54,6 +66,12 @@ pub(in crate::tick) enum Damage {
     Starvation,
     /// Cactus, berry bush.
     Contact,
+    /// A falling block landing on the player.
+    FallingBlock,
+    /// The player killed itself (`/kill`): no modifier, invulnerability or game mode spares it.
+    Suicide,
+    /// Damage without a game cause.
+    Custom,
 }
 
 impl Damage {
@@ -68,7 +86,58 @@ impl Damage {
                 | Self::Fall
                 | Self::Void
                 | Self::Magic
+                | Self::Suicide
         )
+    }
+
+    /// The cause an [`EntityDamage`] names.
+    fn event_cause(self) -> DamageCause {
+        match self {
+            Self::Attack(_) | Self::Melee => DamageCause::EntityAttack,
+            Self::Entity => DamageCause::Projectile,
+            Self::Fall => DamageCause::Fall,
+            Self::Fire => DamageCause::Fire,
+            Self::FireTick => DamageCause::FireTick,
+            Self::Lava => DamageCause::Lava,
+            Self::Drowning => DamageCause::Drowning,
+            Self::Suffocation => DamageCause::Suffocation,
+            Self::Explosion => DamageCause::EntityExplosion,
+            Self::BlockExplosion => DamageCause::BlockExplosion,
+            Self::Void => DamageCause::Void,
+            Self::Magic => DamageCause::Magic,
+            Self::Starvation => DamageCause::Starvation,
+            Self::Contact => DamageCause::Contact,
+            Self::FallingBlock => DamageCause::FallingBlock,
+            Self::Suicide => DamageCause::Suicide,
+            Self::Custom => DamageCause::Custom,
+        }
+    }
+
+    /// The damage of `cause` dealt by `source` (an action): a melee hit by a player is that
+    /// player's attack.
+    pub(in crate::tick) fn of(cause: DamageCause, source: DamageSource) -> Self {
+        match cause {
+            DamageCause::EntityAttack => match source {
+                DamageSource::Entity(Actor::Player(p)) => Self::Attack(p.session()),
+                _ => Self::Melee,
+            },
+            DamageCause::Projectile => Self::Entity,
+            DamageCause::Contact => Self::Contact,
+            DamageCause::Suffocation => Self::Suffocation,
+            DamageCause::Fall => Self::Fall,
+            DamageCause::Fire => Self::Fire,
+            DamageCause::FireTick => Self::FireTick,
+            DamageCause::Lava => Self::Lava,
+            DamageCause::Drowning => Self::Drowning,
+            DamageCause::BlockExplosion => Self::BlockExplosion,
+            DamageCause::EntityExplosion => Self::Explosion,
+            DamageCause::Void => Self::Void,
+            DamageCause::Suicide => Self::Suicide,
+            DamageCause::Magic => Self::Magic,
+            DamageCause::Custom => Self::Custom,
+            DamageCause::Starvation => Self::Starvation,
+            DamageCause::FallingBlock => Self::FallingBlock,
+        }
     }
 
     /// Whether it is fire damage (fire resistance cancels it).
@@ -87,11 +156,13 @@ impl Damage {
             Self::Lava => "death.attack.lava",
             Self::Drowning => "death.attack.drown",
             Self::Suffocation => "death.attack.inWall",
-            Self::Explosion => "death.attack.explosion",
+            Self::Explosion | Self::BlockExplosion => "death.attack.explosion",
             Self::Void => "death.attack.outOfWorld",
             Self::Magic => "death.attack.magic",
             Self::Starvation => "death.attack.starve",
             Self::Contact => "death.attack.cactus",
+            Self::FallingBlock => "death.attack.fallingBlock",
+            Self::Melee | Self::Suicide | Self::Custom => GENERIC_DEATH,
         }
     }
 }
@@ -126,17 +197,39 @@ const PROTECTION: u64 = random::tag("protection");
 const THORNS: u64 = random::tag("thorns");
 const TOOL_WEAR: u64 = random::tag("tool-wear");
 
+/// The most a listener may set a hit's knockback force or its upward limit to, either way, in
+/// blocks per tick: the client applies the motion as sent, and a packet carries `f32`.
+const MAX_KNOCKBACK: f64 = 16.0;
+
+/// The modifiers of a hit in [`DamageModifier`] order, the form [`EntityDamage`] holds; `None`
+/// where one does not apply.
+type Modifiers = [Option<f64>; DamageModifier::ALL.len()];
+/// No modifier applies.
+const NO_MODIFIERS: Modifiers = [None; DamageModifier::ALL.len()];
+
+/// Sets `modifier` in `modifiers` to `value`.
+fn set(modifiers: &mut Modifiers, modifier: DamageModifier, value: f64) {
+    if let Some(slot) = modifiers.get_mut(modifier as usize) {
+        *slot = Some(value);
+    }
+}
+
 /// A hit about to land: the cause, the base damage and the modifiers the attacker's side adds
 /// (strength, weakness, weapon enchantments, a critical hit).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Hit {
     cause: Damage,
     base: f64,
+    /// The attacker's modifiers added up, in the order the rule adds them.
     extra: f64,
+    /// The attacker's modifiers one by one.
+    parts: Modifiers,
     /// The player whose hit this is: the victim is knocked back from it, and thorns answer it.
     attacker: Option<SessionId>,
     /// Whether thorns may answer this hit (not a thorns hit itself).
     thorns: bool,
+    /// What deals the hit, as the event names it.
+    source: DamageSource,
 }
 
 /// What [`assess`] decided for a hit that lands.
@@ -149,18 +242,91 @@ struct Landed {
     absorption: f64,
     /// Whether a totem keeps the player alive.
     totem: bool,
+    /// Every modifier, as the event shows them.
+    modifiers: Modifiers,
+    /// The knockback force of a cold hit (PMMP `EntityDamageByEntityEvent::$knockBack`).
+    knockback: f64,
+    /// The most a cold hit knocks upward.
+    vertical_limit: f64,
+    /// The ticks within which a weaker hit does nothing.
+    cooldown: u32,
 }
 
-/// Deals `amount` damage for `cause`; false if no damage was taken.
+impl Landed {
+    /// The event that announces the hit on `player`.
+    fn event(&self, player: player::Id) -> EntityDamage {
+        EntityDamage {
+            entity: Actor::Player(player),
+            cause: self.hit.cause.event_cause(),
+            source: self.hit.source,
+            base_damage: self.hit.base,
+            original_base_damage: self.hit.base,
+            modifiers: self.modifiers,
+            original_modifiers: self.modifiers,
+            attack_cooldown_ticks: self.cooldown,
+            knockback: self.knockback,
+            vertical_knockback_limit: self.vertical_limit,
+            cancelled: false,
+        }
+    }
+
+    /// Makes the hit what the listeners left in `event`. While the base damage and the modifiers
+    /// are the ones the hit started with, its own damage, absorption and totem stand (bit for bit
+    /// what no listener gives); otherwise they follow the event (PMMP `applyPostDamageEffects`:
+    /// the absorption and totem modifiers). The absorption modifier can only use absorption up,
+    /// and the knockback is kept within [`MAX_KNOCKBACK`]: listener values are external input.
+    fn change(&mut self, event: &EntityDamage) {
+        let bits = |m: &Modifiers| m.map(|v| v.map(f64::to_bits));
+        if event.base_damage.to_bits() != self.hit.base.to_bits()
+            || bits(&event.modifiers) != bits(&self.modifiers)
+        {
+            self.hit.base = event.base_damage;
+            self.final_damage = event.final_damage();
+            self.absorption = math::min(event.modifier(DamageModifier::Absorption), 0.0);
+            self.totem = event.modifier(DamageModifier::Totem) < 0.0;
+        }
+        self.knockback = math::clamp(event.knockback, -MAX_KNOCKBACK, MAX_KNOCKBACK);
+        self.vertical_limit = math::clamp(
+            event.vertical_knockback_limit,
+            -MAX_KNOCKBACK,
+            MAX_KNOCKBACK,
+        );
+        self.cooldown = event.attack_cooldown_ticks;
+    }
+}
+
+/// Deals `amount` damage for `cause`; false if no damage was taken. A melee hit names its player
+/// as the source.
 pub(super) fn damage(state: &mut State, session: SessionId, amount: f64, cause: Damage) -> bool {
+    let source = match cause {
+        Damage::Attack(a) => DamageSource::Entity(Actor::Player(player::Id::new(a))),
+        _ => DamageSource::None,
+    };
+    damage_by(state, session, amount, cause, source)
+}
+
+/// Deals `amount` damage for `cause` from `source` (PMMP `Entity::attack` with an
+/// `EntityDamageEvent` or one of its subclasses); false if no damage was taken. A player in
+/// `source` is the attacker: its Strength counts, the victim is knocked back from it and the
+/// victim's thorns answer it.
+pub(super) fn damage_by(
+    state: &mut State,
+    session: SessionId,
+    amount: f64,
+    cause: Damage,
+    source: DamageSource,
+) -> bool {
     if !amount.is_finite() || amount < 0.0 {
         return false;
     }
-    let attacker = match cause {
-        Damage::Attack(a) => Some(a),
+    let attacker = match (cause, source) {
+        (Damage::Attack(a), _) => Some(a),
+        (_, DamageSource::Entity(Actor::Player(p))) => Some(p.session()),
         _ => None,
     };
-    let extra = attacker.map_or(0.0, |a| attacker_modifiers(state, a, amount, cause));
+    let (extra, parts) = attacker.map_or((0.0, NO_MODIFIERS), |a| {
+        attacker_modifiers(state, a, amount, cause)
+    });
     hurt(
         state,
         session,
@@ -168,95 +334,190 @@ pub(super) fn damage(state: &mut State, session: SessionId, amount: f64, cause: 
             cause,
             base: amount,
             extra,
+            parts,
             attacker,
             thorns: attacker.is_some(),
+            source,
         },
     )
 }
 
-/// The attacker's strength and weakness modifiers (PMMP
+/// The attacker's strength and weakness modifiers, added up and one by one (PMMP
 /// `EntityDamageByEntityEvent::addAttackerModifiers`).
-fn attacker_modifiers(state: &State, attacker: SessionId, base: f64, cause: Damage) -> f64 {
+fn attacker_modifiers(
+    state: &State,
+    attacker: SessionId,
+    base: f64,
+    cause: Damage,
+) -> (f64, Modifiers) {
+    let mut parts = NO_MODIFIERS;
     let Some(a) = state.players.get(&attacker) else {
-        return 0.0;
+        return (0.0, parts);
     };
     let strength = f64::from(a.survival.effect_level(Effect::Strength));
     let weakness = f64::from(a.survival.effect_level(Effect::Weakness));
-    let mut extra = base * 0.3 * strength;
-    if matches!(cause, Damage::Attack(_)) {
-        extra -= base * 0.2 * weakness;
+    let up = base * 0.3 * strength;
+    let mut extra = up;
+    if strength > 0.0 {
+        set(&mut parts, DamageModifier::Strength, up);
     }
-    extra
+    if matches!(cause, Damage::Attack(_)) {
+        let down = base * 0.2 * weakness;
+        extra -= down;
+        if weakness > 0.0 {
+            set(&mut parts, DamageModifier::Weakness, -down);
+        }
+    }
+    (extra, parts)
 }
 
-/// Checks and applies a hit.
+/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; false if it did not land.
 fn hurt(state: &mut State, session: SessionId, hit: Hit) -> bool {
-    match assess(state, session, hit) {
-        Some(landed) => {
-            apply(state, session, landed);
-            true
-        }
-        None => false,
+    let Some(landed) = assess(state, session, hit) else {
+        return false;
+    };
+    let id = player::Id::new(session);
+    let Ok(event) = super::ask(
+        state,
+        || landed.event(id),
+        EntityDamage::is_cancelled,
+        |state, _| {
+            state
+                .players
+                .get(&session)
+                .is_some_and(|p| lands(p, &landed.hit))
+        },
+    ) else {
+        return false;
+    };
+    let mut landed = landed;
+    if let Some(e) = &event {
+        landed.change(e);
     }
+    apply(state, session, &landed, entity::Raise::Events);
+    super::watch(state, event.as_ref());
+    true
+}
+
+/// Deals `amount` damage for `cause` with no source and no events, for the direct API (an
+/// explosion through `Context::explode`; PLAN.md 10.8: no re-entry); false if no damage was
+/// taken. What follows from it happens at the player's survival sync, raising its events there:
+/// a death (with the generic death message, as `Player::kill`) and a wake.
+pub(super) fn damage_quiet(
+    state: &mut State,
+    session: SessionId,
+    amount: f64,
+    cause: Damage,
+) -> bool {
+    if !amount.is_finite() || amount < 0.0 {
+        return false;
+    }
+    let hit = Hit {
+        cause,
+        base: amount,
+        extra: 0.0,
+        parts: NO_MODIFIERS,
+        attacker: None,
+        thorns: false,
+        source: DamageSource::None,
+    };
+    let Some(landed) = assess(state, session, hit) else {
+        return false;
+    };
+    apply(state, session, &landed, entity::Raise::Quiet);
+    true
+}
+
+/// Whether a hit can land on the player at all (PMMP `Player::attack`, `Living::attack`, the
+/// cooldown of `Living::applyDamageModifiers`): spawned and alive, not creative nor just
+/// respawned, a spectator only in the void, fire resistance against fire, and within the hit
+/// cooldown only a stronger hit. Nothing spares a player from [`Damage::Suicide`] but spectator
+/// mode outside it, death and fire resistance.
+fn lands(player: &Player, hit: &Hit) -> bool {
+    let s = &player.survival;
+    let mode = s.mode();
+    let suicide = hit.cause == Damage::Suicide;
+    player.phase == Phase::Spawned
+        && !s.is_dead()
+        && (suicide || (mode != GameMode::Creative && s.no_damage_ticks == 0))
+        && (mode != GameMode::Spectator || matches!(hit.cause, Damage::Void | Damage::Suicide))
+        && !(hit.cause.is_fire() && s.effects.contains_key(&Effect::FireResistance))
+        && (suicide || s.attack_time == 0 || s.last_damage.is_none_or(|last| last < hit.base))
 }
 
 /// Whether a hit lands and how much it deals (PMMP `Player::attack`, `Living::attack`,
 /// `Living::applyDamageModifiers`, `Human::applyDamageModifiers`); `None` if it is cancelled.
+/// Each modifier is kept for the event as well as added up, in PMMP's order.
 fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let tick = state.tick;
     let seed = world_seed(state, session);
-    let settings = &state.settings;
     let player = state.players.get_mut(&session)?;
-    if player.phase != Phase::Spawned {
-        return None;
-    }
-    let mode = game_mode_of(settings, player);
-    let s = &player.survival;
-    if s.is_dead()
-        || mode == GameMode::Creative
-        || (mode == GameMode::Spectator && hit.cause != Damage::Void)
-        || s.no_damage_ticks > 0
-        || (hit.cause.is_fire() && s.effects.contains_key(&Effect::FireResistance))
-    {
+    if !lands(player, &hit) {
         return None;
     }
     let base = hit.base;
     let mut sum = hit.extra;
+    let mut modifiers = hit.parts;
     let total = |sum: f64| {
         let v = base + sum;
         if v > 0.0 { v } else { 0.0 }
     };
-    if s.attack_time > 0
-        && let Some(last) = s.last_damage
-    {
-        if last >= base {
-            return None;
-        }
-        sum -= last;
-    }
-    if hit.cause.reducible() {
-        sum -= total(sum) * f64::from(armor_points(player)) * 0.04;
-    }
-    let resistance = f64::from(s.effect_level(Effect::Resistance));
-    if resistance > 0.0 && hit.cause != Damage::Void {
-        sum -= total(sum) * math::min(1.0, 0.2 * resistance);
-    }
-    let epf = protection_factor(player, hit.cause).min(MAX_EPF);
-    if epf > 0 {
-        let mut r = player_random(seed, tick, player, PROTECTION);
-        let roll = f64::from(r.range(50, 100)) / 100.0;
-        let reduction = math::min((f64::from(epf) * roll).ceil(), 20.0);
-        sum -= total(sum) * reduction * 0.04;
-    }
-    let s = &player.survival;
-    let absorption = -math::min(s.absorption, total(sum));
-    sum += absorption;
+    let mut absorption = 0.0;
     let mut totem = false;
-    if hit.cause != Damage::Void && holds_totem(player) {
-        let compensation = s.health - total(sum) - 1.0;
-        if compensation <= -1.0 {
-            sum += compensation;
-            totem = true;
+    // PMMP `Living::attack` skips the modifiers of a suicide.
+    if hit.cause != Damage::Suicide {
+        let s = &player.survival;
+        if s.attack_time > 0
+            && let Some(last) = s.last_damage
+        {
+            sum -= last;
+            set(
+                &mut modifiers,
+                DamageModifier::PreviousDamageCooldown,
+                -last,
+            );
+        }
+        if hit.cause.reducible() {
+            let d = total(sum) * f64::from(armor_points(player)) * 0.04;
+            sum -= d;
+            set(&mut modifiers, DamageModifier::Armor, -d);
+        }
+        let resistance = f64::from(s.effect_level(Effect::Resistance));
+        if resistance > 0.0 && hit.cause != Damage::Void {
+            let d = total(sum) * math::min(1.0, 0.2 * resistance);
+            sum -= d;
+            set(&mut modifiers, DamageModifier::Resistance, -d);
+        }
+        let epf = protection_factor(player, hit.cause).min(MAX_EPF);
+        if epf > 0 {
+            let mut r = player_random(seed, tick, player, PROTECTION);
+            let roll = f64::from(r.range(50, 100)) / 100.0;
+            let reduction = math::min((f64::from(epf) * roll).ceil(), 20.0);
+            let d = total(sum) * reduction * 0.04;
+            sum -= d;
+            set(&mut modifiers, DamageModifier::ArmorEnchantments, -d);
+        }
+        let s = &player.survival;
+        absorption = -math::min(s.absorption, total(sum));
+        sum += absorption;
+        set(&mut modifiers, DamageModifier::Absorption, absorption);
+        let helmet = player
+            .inventory
+            .armor()
+            .first()
+            .is_some_and(|h| h.item().and_then(Type::armor).is_some());
+        if hit.cause == Damage::FallingBlock && helmet {
+            let d = total(sum) / 4.0;
+            sum -= d;
+            set(&mut modifiers, DamageModifier::ArmorHelmet, -d);
+        }
+        if hit.cause != Damage::Void && holds_totem(player) {
+            let compensation = s.health - total(sum) - 1.0;
+            if compensation <= -1.0 {
+                sum += compensation;
+                totem = true;
+                set(&mut modifiers, DamageModifier::Totem, compensation);
+            }
         }
     }
     Some(Landed {
@@ -264,38 +525,57 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
         final_damage: total(sum),
         absorption,
         totem,
+        modifiers,
+        knockback: KNOCKBACK,
+        vertical_limit: KNOCKBACK_VERTICAL_LIMIT,
+        cooldown: ATTACK_COOLDOWN,
     })
 }
 
 /// Applies a hit that landed (PMMP `Entity::attack` → `setHealth`, then `Living::attack`'s
-/// cooldown, knockback, hurt animation and `applyPostDamageEffects`).
-fn apply(state: &mut State, session: SessionId, landed: Landed) {
+/// cooldown, knockback, hurt animation and `applyPostDamageEffects`). A quiet hit raises no
+/// events: its death and wake wait for the player's survival sync, its exhaustion and totem
+/// effects go in directly.
+fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::Raise) {
     let Landed {
         hit,
         final_damage,
         absorption,
         totem,
-    } = landed;
+        modifiers: _,
+        knockback,
+        vertical_limit,
+        cooldown,
+    } = *landed;
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     let s = &mut player.survival;
     s.last_damage = Some(hit.base);
+    s.last_cause = Some((hit.cause.event_cause(), hit.source));
     let health = s.health - final_damage;
     s.health = if health > 0.0 { health } else { 0.0 };
     s.mark(HEALTH);
     player.data_dirty = true;
     let cold = s.attack_time == 0;
     if cold {
-        s.attack_time = ATTACK_COOLDOWN;
+        s.attack_time = cooldown;
     }
     if player.survival.is_dead() {
-        die(state, session, hit.cause);
+        if raise == entity::Raise::Quiet {
+            player.survival.custom.killed = true;
+            return;
+        }
+        let attacker = match hit.cause {
+            Damage::Attack(a) => Some(a),
+            _ => None,
+        };
+        die(state, session, hit.cause.death_message(), attacker);
         return;
     }
     if cold {
         if let Some(attacker) = hit.attacker {
-            knock_back_from(state, session, attacker, KNOCKBACK);
+            knock_back_from(state, session, attacker, knockback, vertical_limit);
         }
         let packet = actor_event(player_runtime_id(state, session), ActorEvent::Hurt, 0);
         broadcast_from(state, session, &packet);
@@ -315,13 +595,21 @@ fn apply(state: &mut State, session: SessionId, landed: Landed) {
     {
         thorns(state, session, attacker);
     }
-    if let Some(player) = state.players.get_mut(&session) {
-        food::exhaust(&mut player.survival, 0.1);
-    }
     if totem {
-        use_totem(state, session);
+        use_totem(state, session, raise);
     }
-    clock::wake(state, session);
+    match raise {
+        entity::Raise::Events => {
+            food::exhaust_as(state, session, 0.1, ExhaustCause::Damage);
+            clock::wake(state, session);
+        }
+        entity::Raise::Quiet => {
+            if let Some(player) = state.players.get_mut(&session) {
+                food::exhaust(&mut player.survival, 0.1);
+                player.stop_sleep();
+            }
+        }
+    }
 }
 
 /// The runtime ID of a player, 0 if it is gone.
@@ -339,11 +627,45 @@ fn actor_event(runtime_id: u64, event: ActorEvent, data: i32) -> Packet {
     })
 }
 
-/// Heals a player (PMMP `Entity::heal`): health up to its maximum.
-pub(super) fn heal(state: &mut State, session: SessionId, amount: f64) {
+/// Heals a player for `reason` (PMMP `Entity::heal` with its `EntityRegainHealthEvent`): health
+/// up to its maximum. Nothing happens, and no event is raised, for a dead player, a player at
+/// full health or an amount that is not positive.
+pub(super) fn heal(state: &mut State, session: SessionId, amount: f64, reason: RegainReason) {
+    let heals_now = |state: &State, amount: f64| {
+        state
+            .players
+            .get(&session)
+            .is_some_and(|p| heals(p, amount))
+    };
+    if !heals_now(state, amount) {
+        return;
+    }
+    let id = player::Id::new(session);
+    let Ok(event) = super::ask(
+        state,
+        || EntityRegainHealth {
+            entity: Actor::Player(id),
+            amount,
+            regain_reason: reason,
+            cancelled: false,
+        },
+        EntityRegainHealth::is_cancelled,
+        |state, e| heals_now(state, e.amount),
+    ) else {
+        return;
+    };
+    let amount = event.as_ref().map_or(amount, |e| e.amount);
     if let Some(player) = state.players.get_mut(&session) {
         heal_player(player, amount);
     }
+    super::watch(state, event.as_ref());
+}
+
+/// Whether `amount` heals the player: it is alive and below its maximum, and the amount is
+/// positive.
+fn heals(player: &Player, amount: f64) -> bool {
+    let s = &player.survival;
+    !s.is_dead() && amount > 0.0 && s.health < s.max_health()
 }
 
 /// Heals a player that is alive.
@@ -362,7 +684,7 @@ pub(super) fn heal_player(player: &mut Player, amount: f64) {
 }
 
 /// The armour points the player wears (PMMP `Living::getArmorPoints`).
-fn armor_points(player: &Player) -> u32 {
+pub(super) fn armor_points(player: &Player) -> u32 {
     player
         .inventory
         .armor()
@@ -448,14 +770,27 @@ fn holds_totem(player: &Player) -> bool {
 /// A totem saved the player (PMMP `Human::applyPostDamageEffects`): effects cleared, then
 /// regeneration II and fire resistance II for 40 s and absorption II for 5 s, the totem
 /// animation and sound; the totem in the main hand, else the one in the off hand, is used up.
-fn use_totem(state: &mut State, session: SessionId) {
-    effects::clear(state, session);
-    for (effect, active) in [
-        (Effect::Regeneration, Active::new(40 * 20, 1)),
-        (Effect::FireResistance, Active::new(40 * 20, 1)),
-        (Effect::Absorption, Active::new(5 * 20, 1)),
-    ] {
-        effects::add(state, session, effect, active);
+fn use_totem(state: &mut State, session: SessionId, raise: entity::Raise) {
+    let given = [
+        (Effect::Regeneration, 40 * 20),
+        (Effect::FireResistance, 40 * 20),
+        (Effect::Absorption, 5 * 20),
+    ];
+    match raise {
+        entity::Raise::Events => {
+            effects::clear(state, session);
+            for (effect, ticks) in given {
+                effects::add(state, session, effect, Active::new(ticks, 1));
+            }
+        }
+        entity::Raise::Quiet => {
+            if let Some(player) = state.players.get_mut(&session) {
+                player.clear_effects();
+                for (effect, ticks) in given {
+                    player.add_effect(effect, ticks, 1);
+                }
+            }
+        }
     }
     let packet = actor_event(
         player_runtime_id(state, session),
@@ -599,16 +934,25 @@ fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
                 cause: Damage::Magic,
                 base: dealt,
                 extra: 0.0,
+                parts: NO_MODIFIERS,
                 attacker: Some(victim),
                 thorns: false,
+                source: DamageSource::Entity(Actor::Player(player::Id::new(victim))),
             },
         );
     }
 }
 
 /// Knocks the player back away from another player (PMMP `Living::knockBack`): the motion the
-/// client is sent (players have no server-side motion, PMMP `Player::setMotion`).
-fn knock_back_from(state: &mut State, session: SessionId, from: SessionId, force: f64) {
+/// client is sent (players have no server-side motion, PMMP `Player::setMotion`), at most
+/// `vertical_limit` upward.
+fn knock_back_from(
+    state: &mut State,
+    session: SessionId,
+    from: SessionId,
+    force: f64,
+    vertical_limit: f64,
+) {
     let Some(source) = state.players.get(&from).map(feet) else {
         return;
     };
@@ -621,11 +965,19 @@ fn knock_back_from(state: &mut State, session: SessionId, from: SessionId, force
         target.x - source.x,
         target.z - source.z,
         force,
+        vertical_limit,
     );
 }
 
 /// Sends the knockback motion along (x, z).
-fn knock_back(state: &mut State, session: SessionId, x: f64, z: f64, force: f64) {
+fn knock_back(
+    state: &mut State,
+    session: SessionId,
+    x: f64,
+    z: f64,
+    force: f64,
+    vertical_limit: f64,
+) {
     let length = (x * x + z * z).sqrt();
     if length.is_nan() || length <= 0.0 {
         return;
@@ -633,7 +985,7 @@ fn knock_back(state: &mut State, session: SessionId, x: f64, z: f64, force: f64)
     let f = 1.0 / length;
     let motion = Vec3::new(
         x * f * force,
-        math::min(force, KNOCKBACK_VERTICAL_LIMIT),
+        math::min(force, vertical_limit),
         z * f * force,
     );
     let packet = Packet::SetActorMotion(SetActorMotion {
@@ -662,6 +1014,44 @@ pub(super) fn set_on_fire(player: &mut Player, seconds: u32) {
         player.survival.fire_ticks = ticks;
         player.data_dirty = true;
     }
+}
+
+/// `source` sets the player on fire for `seconds` (PMMP `EntityCombustByBlockEvent`,
+/// `EntityCombustByEntityEvent`, then `Living::setOnFire`): the [`EntityCombust`] listeners may
+/// cancel it or change the time.
+pub(super) fn combust(state: &mut State, session: SessionId, seconds: u32, source: CombustSource) {
+    if !state.players.contains_key(&session) {
+        return;
+    }
+    let id = player::Id::new(session);
+    let Ok(event) = super::ask(
+        state,
+        || EntityCombust {
+            entity: Actor::Player(id),
+            duration_secs: seconds,
+            source,
+            cancelled: false,
+        },
+        EntityCombust::is_cancelled,
+        |state, _| state.players.contains_key(&session),
+    ) else {
+        return;
+    };
+    let seconds = event.as_ref().map_or(seconds, |e| e.duration_secs);
+    if let Some(player) = state.players.get_mut(&session) {
+        set_on_fire(player, seconds);
+    }
+    super::watch(state, event.as_ref());
+}
+
+/// The player's fire went out for `cause` (PMMP `Entity::extinguish`): the [`EntityExtinguish`]
+/// listeners and monitors hear it.
+pub(super) fn extinguished(state: &mut State, session: SessionId, cause: ExtinguishCause) {
+    let id = player::Id::new(session);
+    super::notify(state, || EntityExtinguish {
+        entity: Actor::Player(id),
+        cause,
+    });
 }
 
 /// `attacker` hits `target` (PMMP `Player::attackEntity`): the held item's attack points, the
@@ -709,20 +1099,25 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         .unwrap_or_default();
     let knockback = level_of(&held, Enchantment::Knockback);
     if knockback > 0 {
-        knock_back_from(state, target, attacker, f64::from(knockback) * 0.5);
+        knock_back_from(
+            state,
+            target,
+            attacker,
+            f64::from(knockback) * 0.5,
+            KNOCKBACK_VERTICAL_LIMIT,
+        );
     }
     let fire = level_of(&held, Enchantment::FireAspect);
-    if fire > 0
-        && let Some(player) = state.players.get_mut(&target)
-    {
-        set_on_fire(player, fire * 4);
+    if fire > 0 {
+        let by = CombustSource::Entity(Actor::Player(player::Id::new(attacker)));
+        combust(state, target, fire * 4, by);
     }
     wear_weapon(state, attacker);
     if let Some(player) = state.players.get_mut(&attacker)
         && !player.survival.is_dead()
     {
-        food::exhaust(&mut player.survival, 0.1);
         player.data_dirty = true;
+        food::exhaust_as(state, attacker, 0.1, ExhaustCause::Attack);
     }
 }
 
@@ -746,19 +1141,21 @@ fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<(H
         || a.survival.is_dead()
         || t.survival.is_dead()
         || !state.settings.pvp
-        || game_mode_of(&state.settings, a) == GameMode::Spectator
+        || a.survival.mode() == GameMode::Spectator
         || !can_reach(a, feet(t))
     {
         return None;
     }
-    let (base, extra, critical, magic) = melee_parts(state, attacker, a);
+    let (base, extra, parts, critical, magic) = melee_parts(state, attacker, a);
     Some((
         Hit {
             cause: Damage::Attack(attacker),
             base,
             extra,
+            parts,
             attacker: Some(attacker),
             thorns: true,
+            source: DamageSource::Entity(Actor::Player(player::Id::new(attacker))),
         },
         critical,
         magic,
@@ -766,13 +1163,18 @@ fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<(H
 }
 
 /// The attacker's side of a melee hit by `a` (PMMP `Player::attackEntity`): the held item's
-/// attack points, the extra of Strength, Weakness and Sharpness, a critical hit (falling, not
-/// sprinting or flying, not blind, not under water) for half again; whether it is critical and
-/// whether a weapon enchantment added damage.
-fn melee_parts(state: &State, attacker: SessionId, a: &Player) -> (f64, f64, bool, bool) {
+/// attack points, the extra of Strength, Weakness and Sharpness (added up and one by one), a
+/// critical hit (falling, not sprinting or flying, not blind, not under water) for half again;
+/// whether it is critical and whether a weapon enchantment added damage.
+fn melee_parts(
+    state: &State,
+    attacker: SessionId,
+    a: &Player,
+) -> (f64, f64, Modifiers, bool, bool) {
     let held = a.inventory.held();
     let base = f64::from(held.item().map_or(1, Type::attack_points));
-    let mut extra = attacker_modifiers(state, attacker, base, Damage::Attack(attacker));
+    let (mut extra, mut parts) =
+        attacker_modifiers(state, attacker, base, Damage::Attack(attacker));
     let sharpness = level_of(held, Enchantment::Sharpness);
     let weapon = if sharpness > 0 {
         0.5 * f64::from(sharpness + 1)
@@ -780,6 +1182,9 @@ fn melee_parts(state: &State, attacker: SessionId, a: &Player) -> (f64, f64, boo
         0.0
     };
     extra += weapon;
+    if weapon > 0.0 {
+        set(&mut parts, DamageModifier::WeaponEnchantments, weapon);
+    }
     let s = &a.survival;
     let critical = !s.motion.sprinting
         && !s.motion.flying
@@ -788,22 +1193,22 @@ fn melee_parts(state: &State, attacker: SessionId, a: &Player) -> (f64, f64, boo
         && !movement::is_underwater(state, a);
     if critical {
         let total = base + extra;
-        extra += if total > 0.0 { total / 2.0 } else { 0.0 };
+        let more = if total > 0.0 { total / 2.0 } else { 0.0 };
+        extra += more;
+        set(&mut parts, DamageModifier::Critical, more);
     }
-    (base, extra, critical, weapon > 0.0)
+    (base, extra, parts, critical, weapon > 0.0)
 }
 
 /// The melee hit the player of `session` makes on an entity that is not a player; `None` if it
 /// cannot hit (not spawned, dead or a spectator).
 pub(super) fn melee(state: &State, session: SessionId) -> Option<super::Melee> {
     let a = state.players.get(&session)?;
-    if a.phase != Phase::Spawned
-        || a.survival.is_dead()
-        || game_mode_of(&state.settings, a) == GameMode::Spectator
+    if a.phase != Phase::Spawned || a.survival.is_dead() || a.survival.mode() == GameMode::Spectator
     {
         return None;
     }
-    let (base, extra, critical, magic) = melee_parts(state, session, a);
+    let (base, extra, _, critical, magic) = melee_parts(state, session, a);
     let total = base + extra;
     Some(super::Melee {
         damage: if total > 0.0 { total } else { 0.0 },
@@ -841,7 +1246,7 @@ fn wear_weapon(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    if game_mode_of(&state.settings, player) == GameMode::Creative {
+    if player.survival.mode() == GameMode::Creative {
         return;
     }
     let held = player.inventory.held().clone();
@@ -865,15 +1270,29 @@ fn wear_weapon(state: &mut State, session: SessionId) {
     }
 }
 
-/// The player died (PMMP `Player::onDeath`): its window closes, it drops what it carries and
-/// its experience, viewers see it die and it sees the death screen.
-fn die(state: &mut State, session: SessionId, cause: Damage) {
+/// The player died (PMMP `Player::onDeath`): its window closes, the [`PlayerDeath`] listeners
+/// may change what drops, the experience dropped and the messages, it drops what it carries and
+/// its experience, viewers see it die and it sees the death screen with `message` (a translation
+/// key) naming the player and its `attacker`.
+///
+/// While earlier drops still wait for room, the player keeps what it carries and nothing more
+/// drops: the waiting list then never holds more than one inventory. Drops a listener replaced
+/// are checked like external input: at most one inventory of stacks
+/// ([`MAX_HELD_BACK`](super::MAX_HELD_BACK)), each within its item's stack size; the player's own
+/// stacks they replace are gone, but those kept on death.
+pub(super) fn die(
+    state: &mut State,
+    session: SessionId,
+    message: &'static str,
+    attacker: Option<SessionId>,
+) {
     inventory::close_window(state, session);
     retry_held_back(state, session);
+    let heard = dispatch::heard::<PlayerDeath>(state);
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    let finite = game_mode_of(&state.settings, player) != GameMode::Creative;
+    let finite = player.survival.mode() != GameMode::Creative;
     let world_name = state
         .worlds
         .get(player.world)
@@ -882,32 +1301,47 @@ fn die(state: &mut State, session: SessionId, cause: Damage) {
     let at = feet(player);
     player.survival.death = Some(Point {
         world: world_name,
-        pos: block_at(at),
+        pos: BlockPos::containing(at),
     });
     player.survival.using = None;
     player.data_dirty = true;
     let world = player.world;
-    // While earlier drops still wait for room, the player keeps what it carries: the waiting
-    // list then never holds more than one inventory.
-    let stacks = if finite && player.survival.held_back.is_empty() {
-        inventory::take_all(player)
-    } else {
-        Vec::new()
-    };
-    let xp = food::take_death_xp(&mut player.survival, finite);
-    let refused = drop_all(stacks, |stack| {
-        if entity::drop_item(state, world, at, stack.clone()) {
-            None
+    let mut event = heard.then(|| {
+        let drops = if finite && player.survival.held_back.is_empty() {
+            carried(player)
         } else {
-            Some(stack)
+            Vec::new()
+        };
+        PlayerDeath {
+            player: player::Id::new(session),
+            drops,
+            xp_drop_amount: food::death_xp(&player.survival, finite),
+            death_message: String::new(),
+            death_screen_message: String::new(),
+            keep_inventory: false,
+            keep_xp: false,
         }
     });
-    if let Some(player) = state.players.get_mut(&session) {
-        let left = give_back(refused, |stack| inventory::give(player, stack));
-        player.survival.held_back.extend(left);
+    let original = event.as_ref().map(|e| e.drops.clone());
+    if let Some(e) = &mut event {
+        // Death cannot be cancelled: the player stays dead whatever the listeners do.
+        dispatch::call(state, e);
     }
-    if xp > 0 {
-        entity::drop_experience(state, world, at, xp);
+    drop_death(
+        state,
+        session,
+        (world, at),
+        finite,
+        event.as_ref().zip(original.as_deref()),
+    );
+    if let Some(e) = &event
+        && !e.death_message.is_empty()
+        && let Err(err) = crate::tick::player::broadcast(
+            state,
+            crate::player::Message::Raw(e.death_message.clone()),
+        )
+    {
+        debug!(session = session.get(), error = %err, "death message not sent");
     }
     clock::wake(state, session);
     let runtime_id = player_runtime_id(state, session);
@@ -916,23 +1350,113 @@ fn die(state: &mut State, session: SessionId, cause: Damage) {
         session,
         &actor_event(runtime_id, ActorEvent::Death, 0),
     );
-    let attacker = match cause {
-        Damage::Attack(a) => Some(a),
-        _ => None,
-    };
-    show_death(state, session, cause.death_message(), attacker);
+    let screen = event
+        .as_ref()
+        .map(|e| e.death_screen_message.clone())
+        .filter(|m| !m.is_empty() && m.len() <= crate::player::MAX_TEXT);
+    show_death(state, session, message, attacker, screen);
+    super::watch(state, event.as_ref());
 }
 
-/// The death message of a player that joined dead (the cause was not kept).
+/// Drops what a dead player carries and its experience at `place` (PMMP `Player::onDeath`), as
+/// the [`PlayerDeath`] listeners left the `event` (with the drops it started with) if one was
+/// raised: kept inventory, replaced drops, kept or changed experience.
+fn drop_death(
+    state: &mut State,
+    session: SessionId,
+    place: (WorldIndex, Vec3),
+    finite: bool,
+    event: Option<(&PlayerDeath, &[Stack])>,
+) {
+    let (world, at) = place;
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    let (keep_inventory, keep_xp) = event
+        .as_ref()
+        .map_or((false, false), |(e, _)| (e.keep_inventory, e.keep_xp));
+    let free = player.survival.held_back.is_empty() && !keep_inventory;
+    let stacks = if finite && free {
+        inventory::take_all(player)
+    } else {
+        Vec::new()
+    };
+    let replaced = match &event {
+        Some((e, original)) if free && e.drops != *original => Some(valid_drops(&e.drops)),
+        _ => None,
+    };
+    let (to_drop, kept) = match replaced {
+        Some(drops) => {
+            let kept = stacks
+                .into_iter()
+                .filter(|s| keeps_on_death(s) && level_of(s, Enchantment::Vanishing) == 0)
+                .collect();
+            (drops, kept)
+        }
+        None => (stacks, Vec::new()),
+    };
+    let xp = if keep_xp {
+        0
+    } else {
+        let xp = food::take_death_xp(&mut player.survival, finite);
+        event.as_ref().map_or(xp, |(e, _)| e.xp_drop_amount)
+    };
+    let mut refused = drop_all(to_drop, |stack| {
+        if entity::drop_item(state, world, at, stack.clone()) {
+            None
+        } else {
+            Some(stack)
+        }
+    });
+    refused.extend(kept);
+    if let Some(player) = state.players.get_mut(&session) {
+        let left = give_back(refused, |stack| inventory::give(player, stack));
+        player.survival.held_back.extend(left);
+    }
+    if xp > 0 {
+        entity::drop_experience(state, world, at, xp);
+    }
+}
+
+/// What a dead player drops if nothing changes it (PMMP `Human::getDrops`): its main slots,
+/// armour and off hand, without items that vanish or stay on death.
+fn carried(player: &Player) -> Vec<Stack> {
+    let inv = &player.inventory;
+    (0..=u8::MAX)
+        .map_while(|slot| inv.main_stack(slot))
+        .chain(inv.armor())
+        .chain(std::iter::once(inv.offhand()))
+        .filter(|s| !s.is_empty() && level_of(s, Enchantment::Vanishing) == 0 && !keeps_on_death(s))
+        .cloned()
+        .collect()
+}
+
+/// Drops a listener set, checked: at most one inventory of non-empty stacks, each within its
+/// item's stack size.
+fn valid_drops(drops: &[Stack]) -> Vec<Stack> {
+    drops
+        .iter()
+        .filter_map(|s| {
+            let max = s.item()?.max_stack_size();
+            (!s.is_empty()).then(|| s.with_count(s.count().min(max)))
+        })
+        .take(super::MAX_HELD_BACK)
+        .collect()
+}
+
+/// The death message of a player that joined dead (the cause was not kept) or was killed through
+/// the API.
 pub(super) const GENERIC_DEATH: &str = "death.attack.generic";
 
 /// The death screen (PMMP `DeathPacketHandler::setUp`): the respawn position being searched and
-/// the death message (a translation key with the player's and the attacker's names).
+/// the death message (a translation key with the player's and the attacker's names), or the
+/// `screen` text a [`PlayerDeath`] listener chose.
 pub(super) fn show_death(
     state: &mut State,
     session: SessionId,
     message: &'static str,
     attacker: Option<SessionId>,
+    screen: Option<String>,
 ) {
     let (_, respawn_at) = respawn_point(state, session);
     let attacker_name =
@@ -941,19 +1465,22 @@ pub(super) fn show_death(
         return;
     };
     player.survival.motion.death_shown = true;
-    let messages = std::iter::once(player.identity.name.clone())
-        .chain(attacker_name)
-        .collect();
+    let (cause, messages) = match screen {
+        Some(text) => (text, Vec::new()),
+        None => (
+            message.to_owned(),
+            std::iter::once(player.identity.name.clone())
+                .chain(attacker_name)
+                .collect(),
+        ),
+    };
     let runtime_id = player.runtime_id;
-    player.send(respawn_packet(
+    player.send_packet(respawn_packet(
         respawn_at,
         RespawnState::SearchingForSpawn,
         runtime_id,
     ));
-    player.send(Packet::DeathInfo(DeathInfo {
-        cause: message.to_owned(),
-        messages,
-    }));
+    player.send_packet(Packet::DeathInfo(DeathInfo { cause, messages }));
 }
 
 /// Whether a stack stays with its owner on death (PMMP `Item::keepOnDeath`).
@@ -1037,7 +1564,7 @@ fn respawn_packet(position: Vec3, state: RespawnState, runtime_id: u64) -> Packe
 
 /// The world and eye position the player respawns at (PMMP `Player::getSpawn`): its spawn point
 /// (a bed) in whichever world holds it, else the default world's spawn; the block's centre,
-/// moved up to the first two free blocks of the loaded chunks (PMMP `World::getSafeSpawn`). A
+/// moved up to the first two free blocks of the loaded chunks ([`world::World::safe_spawn`]). A
 /// spawn point in a world the server no longer runs counts as none.
 fn respawn_point(state: &State, session: SessionId) -> (WorldIndex, Vec3) {
     let Some(player) = state.players.get(&session) else {
@@ -1053,22 +1580,11 @@ fn respawn_point(state: &State, session: SessionId) -> (WorldIndex, Vec3) {
     let Some(world) = state.worlds.get(index) else {
         return (player.world, player.position);
     };
-    let mut y = spawn.y;
-    for _ in 0..world::MAX_Y.saturating_sub(world::MIN_Y) {
-        let free = |y: i32| {
-            world
-                .block(BlockPos::new(spawn.x, y, spawn.z))
-                .is_none_or(|b| !b.is_solid())
-        };
-        if free(y) && free(y + 1) {
-            break;
-        }
-        y += 1;
-    }
+    let feet = world.safe_spawn(spawn);
     let eye = Vec3::new(
-        f64::from(spawn.x) + 0.5,
-        f64::from(y) + EYE_HEIGHT,
-        f64::from(spawn.z) + 0.5,
+        f64::from(feet.x) + 0.5,
+        f64::from(feet.y) + EYE_HEIGHT,
+        f64::from(feet.z) + 0.5,
     );
     (index, eye)
 }
@@ -1086,7 +1602,7 @@ pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn
     let (_, position) = respawn_point(state, session);
     if let Some(player) = state.players.get_mut(&session) {
         let runtime_id = player.runtime_id;
-        player.send(respawn_packet(
+        player.send_packet(respawn_packet(
             position,
             RespawnState::ReadyToSpawn,
             runtime_id,
@@ -1095,37 +1611,59 @@ pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn
 }
 
 /// The player respawns (PMMP `Player::respawn`, `actuallyRespawn`, `NetworkSession::
-/// onServerRespawn`) at its respawn point, in another world if the point is there; nothing
-/// unless it is dead. In hardcore the player comes back as a spectator, as vanilla does (PMMP
-/// bans the player instead; Anchor has no ban list).
+/// onServerRespawn`) at its respawn point, in another world if the point is there, or where a
+/// [`PlayerRespawn`] listener sends it (a world the server does not run or a place outside the
+/// world border is ignored); nothing unless it is dead. In hardcore the player comes back as a
+/// spectator, as vanilla does, unless a
+/// [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listener cancels that (PMMP
+/// bans the player instead).
 pub(super) fn respawn(state: &mut State, session: SessionId) {
     let hardcore = state.settings.hardcore;
-    let dead = state
-        .players
-        .get(&session)
-        .is_some_and(|p| p.phase == Phase::Spawned && p.survival.is_dead());
-    if !dead {
+    let dead = |state: &State| {
+        state
+            .players
+            .get(&session)
+            .is_some_and(|p| p.phase == Phase::Spawned && p.survival.is_dead())
+    };
+    if !dead(state) {
         return;
     }
-    let (world, position) = respawn_point(state, session);
-    if hardcore && let Some(player) = state.players.get_mut(&session) {
-        player.survival.game_mode = Some(GameMode::Spectator);
-        player.send(Packet::SetPlayerGameType(SetPlayerGameType {
-            game_type: super::saved::game_mode_id(GameMode::Spectator),
-        }));
+    if hardcore {
+        hardcore_spectator(state, session);
     }
+    let (world, position) = respawn_point(state, session);
+    let feet_at = position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let world_id = world::Id::of(world);
+    let Ok(event) = super::ask(
+        state,
+        || PlayerRespawn {
+            player: player::Id::new(session),
+            world: world_id,
+            position: feet_at,
+        },
+        |_| false,
+        |state, _| dead(state),
+    ) else {
+        return;
+    };
+    let (world, position) = event
+        .as_ref()
+        .filter(|e| e.world != world_id || e.position != feet_at)
+        .and_then(|e| respawn_target(state, e.world, e.position))
+        .unwrap_or((world, position));
     super::teleport(state, session, world, position);
     effects::clear(state, session);
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
+    let burning = player.survival.fire_ticks > 0;
     let s = &mut player.survival;
     s.motion.sprinting = false;
     s.motion.sneaking = false;
     s.motion.flying = false;
     s.motion.death_shown = false;
     s.fire_ticks = 0;
-    s.air = MAX_AIR;
+    s.air = s.custom.max_air;
     s.breathing = true;
     s.no_damage_ticks = RESPAWN_INVULNERABLE_TICKS;
     s.attack_time = 0;
@@ -1152,17 +1690,55 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
         tick: 0,
     });
     let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
-    let now = attributes::shown(&state.settings, player);
+    let now = attributes::shown(player);
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     for packet in out {
-        player.send(packet);
+        player.send_packet(packet);
     }
     player.survival.dirty = 0;
     player.survival.shown = now;
     broadcast_from(state, session, &data);
     broadcast_from(state, session, &alive);
+    if burning {
+        extinguished(state, session, ExtinguishCause::Respawn);
+    }
+    super::watch(state, event.as_ref());
+}
+
+/// A hardcore player that respawns becomes a spectator, as vanilla does, unless a
+/// [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listener cancels that.
+fn hardcore_spectator(state: &mut State, session: SessionId) {
+    let spectator = state
+        .players
+        .get(&session)
+        .is_some_and(|p| p.survival.mode() == GameMode::Spectator);
+    let change = if spectator {
+        Ok(None)
+    } else {
+        super::ask_game_mode(state, session, GameMode::Spectator)
+    };
+    let Ok(change) = change else {
+        return;
+    };
+    if let Some(player) = state.players.get_mut(&session) {
+        player.survival.game_mode = Some(GameMode::Spectator);
+        let packet = super::api::game_type_packet(player, GameMode::Spectator);
+        player.send_packet(packet);
+    }
+    super::watch(state, change.as_ref());
+}
+
+/// Where a [`PlayerRespawn`] listener sends the player: the world's index and the eye position;
+/// `None` for a world the server does not run or a place outside the world border.
+fn respawn_target(state: &State, world: world::Id, feet: Vec3) -> Option<(WorldIndex, Vec3)> {
+    let index = world.index();
+    state.worlds.get(index)?;
+    let eye = feet + Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let border = f64::from(crate::tick::MAX_COORDINATE);
+    (eye.is_finite() && [eye.x, eye.y, eye.z].iter().all(|c| c.abs() <= border))
+        .then_some((index, eye))
 }
 
 /// The void, burning and the respawn invulnerability, each tick (PMMP `Entity::entityBaseTick`,
@@ -1172,12 +1748,14 @@ pub(super) fn base_tick(state: &mut State, session: SessionId) {
         return;
     };
     let void = feet(player).y <= VOID_Y;
-    let creative = game_mode_of(&state.settings, player) == GameMode::Creative;
+    let creative = player.survival.mode() == GameMode::Creative;
     let s = &mut player.survival;
     let mut burn = false;
+    let mut out = false;
     if s.fire_ticks > 0 {
         s.fire_ticks -= 1;
         burn = s.fire_ticks % FIRE_DAMAGE_TICKS == 0;
+        out = s.fire_ticks == 0;
         player.data_dirty = true;
     }
     if s.no_damage_ticks > 0 {
@@ -1188,6 +1766,9 @@ pub(super) fn base_tick(state: &mut State, session: SessionId) {
     }
     if burn {
         damage(state, session, 1.0, Damage::FireTick);
+    }
+    if out {
+        extinguished(state, session, ExtinguishCause::Ticking);
     }
     if creative
         && let Some(player) = state.players.get_mut(&session)
@@ -1208,7 +1789,7 @@ pub(super) fn living_tick(state: &mut State, session: SessionId) {
     if player.survival.is_dead() {
         return;
     }
-    let creative = game_mode_of(&state.settings, player) == GameMode::Creative;
+    let creative = player.survival.mode() == GameMode::Creative;
     let inside = movement::is_inside_solid(state, player);
     let breathes = creative
         || player
@@ -1246,11 +1827,12 @@ pub(super) fn living_tick(state: &mut State, session: SessionId) {
         }
     } else if !player.survival.breathing {
         let s = &mut player.survival;
-        if s.air < MAX_AIR {
+        let max = s.custom.max_air;
+        if s.air < max {
             s.air = s.air.saturating_add(5);
         }
-        if s.air >= MAX_AIR {
-            s.air = MAX_AIR;
+        if s.air >= max {
+            s.air = max;
             s.breathing = true;
         }
         player.data_dirty = true;

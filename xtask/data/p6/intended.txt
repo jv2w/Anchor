@@ -1,0 +1,33 @@
+# Intended differences of `cargo xtask p6 api` (PLAN.md 10.8 P6, m8-facts.md 9): differences from
+# BDS that Anchor keeps on purpose, each with its reason. `p6 api compare` reports a difference
+# whose text is exactly a line's (in that line's scenario) as `intended` and does not fail for it;
+# any other difference still fails. A line the comparison no longer finds is printed as a note:
+# remove it then. Review every line like a code change.
+# <scenario> | <difference, exactly as printed after `DIFFERENT <scenario>: `> | <reason>
+
+# `/say`: BDS sends no CommandOutput and everyone a Text 8 `[name] message`; Anchor keeps PMMP's
+# `SayCommand`: the `§d%chat.type.announcement` translation and an empty CommandOutput (decision
+# to keep PMMP's behaviour, m8-facts.md 9).
+commands | command say hi: CommandOutput: A 0 != B 1 | /say keeps PMMP's SayCommand: Anchor answers with an empty CommandOutput, BDS with none
+commands | command say hi: Text#0.TextType: A 8 != B 2 | /say keeps PMMP's SayCommand: a translation Text, BDS a Text 8
+commands | command say hi: Text#0.NeedsTranslation: A false != B true | /say keeps PMMP's SayCommand: a translation Text, BDS a Text 8
+commands | command say hi: Text#0.SourceName: A "P6Commands" != B "" | /say keeps PMMP's SayCommand: the translation has no source name
+commands | command say hi: Text#0.Message: A "[P6Commands] hi" != B "§d%chat.type.announcement" | /say keeps PMMP's SayCommand: §d%chat.type.announcement with the name and message as parameters
+commands | command say hi: Text#0.Parameters: A [] != B ["P6Commands","hi"] | /say keeps PMMP's SayCommand: §d%chat.type.announcement with the name and message as parameters
+commands | command say hi: output uuid_echoed: A null != B true | /say keeps PMMP's SayCommand: the empty CommandOutput echoes the request, BDS sends none
+commands | command say hi: CommandOutput: A none B sent | /say keeps PMMP's SayCommand: Anchor answers with an empty CommandOutput, BDS with none
+
+# give: BDS names the item by its language-file name (`Stone`), Anchor by its ID: Anchor has no
+# item display name table (PMMP uses `Item::getName()`); match it once item data has names.
+commands | command give @s stone 3: CommandOutput#0.OutputMessages: A [{"Message":"commands.give.success","Parameters":["Stone","3","P6Commands"],"Success":true}] != B [{"Message":"commands.give.success","Parameters":["minecraft:stone","3","P6Commands"],"Success":true}] | no item display name table: give names the item by its ID
+commands | command give @s stone 3: Text#0.Message: A "{\"rawtext\":[{\"translate\":\"commands.give.successRecipient\",\"with\":{\"rawtext\":[{\"text\":\"Stone\"},{\"text\":\"3\"}]}}]}\n" != B "{\"rawtext\":[{\"translate\":\"commands.give.successRecipient\",\"with\":{\"rawtext\":[{\"text\":\"minecraft:stone\"},{\"text\":\"3\"}]}}]}\n" | no item display name table: give names the item by its ID
+
+# gamemode: BDS sends no UpdateAbilities after a game mode change; Anchor sends it as PMMP and
+# dragonfly do, carrying the flight, collision, flight speed and operator values the API set (the
+# same values, harmless to the client).
+commands | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
+
+# Syntax errors: BDS answers `commands.generic.syntax` [before, bad word, after]; Anchor answers
+# PMMP's `Usage: ...`: the parser does not yet give the bad word's position, and BDS's form for
+# missing arguments is unseen (verification pending, M9).
+commands | command give @s no_such_item: CommandOutput#0.OutputMessages: A [{"Message":"commands.generic.syntax","Parameters":["/give @s ","no_such_item",""],"Success":false}] != B [{"Message":"Usage: /give <player: target> <itemName: Item> [amount: int]","Parameters":[],"Success":false}] | PMMP's usage text for a syntax error until the parser gives the bad word's position (M9)

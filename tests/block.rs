@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use anchor::block::{PropertyValue, State};
+use anchor::block::{Face, PropertyValue, State, SupportType};
 use serde_json::Value as Json;
 
 /// Inputs per unknown-input test.
@@ -190,6 +190,7 @@ fn network_hash_matches_every_reference_state() {
     }
 }
 
+// pmmp: BlockStateDictionary::getStates
 #[test]
 fn every_state_is_a_reference_state_with_its_network_id() {
     let reference: BTreeMap<Key, u32> = reference().into_iter().collect();
@@ -204,6 +205,7 @@ fn every_state_is_a_reference_state_with_its_network_id() {
     }
 }
 
+// pmmp: BlockStateDictionary::generateDataFromStateId, BlockStateDictionary::lookupStateIdFromData
 #[test]
 fn every_state_is_found_by_its_network_id_and_properties() {
     let mut rng = Rng(1);
@@ -221,6 +223,17 @@ fn every_state_is_found_by_its_network_id_and_properties() {
     }
 }
 
+/// Every state of the PMMP dump has PMMP's values: light, random ticks, the default state of its
+/// type, break info, fire, flags, friction, support and its number of collision boxes.
+// pmmp: Block, VanillaBlocks, Block::getTypeId, Block::getLightLevel, Block::getLightFilter,
+// pmmp: Block::blocksDirectSkyLight, Block::ticksRandomly, Block::getBreakInfo,
+// pmmp: BlockBreakInfo::getHardness, BlockBreakInfo::getBlastResistance,
+// pmmp: BlockBreakInfo::getToolType, BlockBreakInfo::getToolHarvestLevel,
+// pmmp: BlockBreakInfo::isExplosionHarvestable, Block::getFlammability,
+// pmmp: Block::getFlameEncouragement, Block::burnsForever, Block::isSolid, Block::isTransparent,
+// pmmp: Block::canBeReplaced, Block::canBeFlowedInto, Block::canClimb, Block::hasEntityCollision,
+// pmmp: Block::isAffectedBySilkTouch, Block::getModelPositionOffset, Block::getFrictionFactor,
+// pmmp: Block::getSupportType, Block::getCollisionBoxes
 #[test]
 fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
     let upgrade = read_json("xtask/data/block_upgrade.json");
@@ -254,7 +267,109 @@ fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
             block["ticks_randomly"].as_bool(),
             "{state:?}"
         );
+        // Where PMMP states share a Bedrock state, the state takes one PMMP type's values (the
+        // block module documentation); the rest are checked on the state's own type.
+        if state.kind().name() != block["type"] {
+            continue;
+        }
+        if block["default"].as_bool() == Some(true) {
+            assert_eq!(state.kind().default_state(), state, "{state:?}");
+        }
+        check_break_and_fire(state, block);
+        check_physics(state, block);
     }
+}
+
+/// A dumped number.
+fn float(v: &Json) -> f64 {
+    v.as_f64().expect("number")
+}
+
+/// The state has the dumped break info and fire values.
+fn check_break_and_fire(state: State, block: &Json) {
+    let info = state.break_info();
+    let want = &block["break"];
+    assert_eq!(info.hardness(), float(&want["hardness"]), "{state:?}");
+    assert_eq!(
+        info.blast_resistance(),
+        float(&want["blast_resistance"]),
+        "{state:?}"
+    );
+    let tool = |field: &str| u8::try_from(want[field].as_u64().expect("number")).expect("byte");
+    assert_eq!(info.tool_type().bits(), tool("tool_type"), "{state:?}");
+    assert_eq!(info.harvest_level(), tool("harvest_level"), "{state:?}");
+    assert_eq!(
+        Some(info.is_explosion_harvestable()),
+        want["explosion_harvestable"].as_bool(),
+        "{state:?}"
+    );
+    let fire = &block["fire"];
+    assert_eq!(
+        [
+            u64::from(state.flammability()),
+            u64::from(state.flame_encouragement())
+        ],
+        [
+            fire[0].as_u64().expect("number"),
+            fire[1].as_u64().expect("number")
+        ],
+        "{state:?}"
+    );
+    assert_eq!(Some(state.burns_forever()), fire[2].as_bool(), "{state:?}");
+}
+
+/// The state has the dumped flags, friction, support and number of collision boxes.
+fn check_physics(state: State, block: &Json) {
+    let flags: BTreeSet<&str> = block["flags"]
+        .as_array()
+        .expect("flags")
+        .iter()
+        .map(|f| f.as_str().expect("flag"))
+        .collect();
+    for (flag, has) in [
+        ("solid", state.is_solid()),
+        ("transparent", state.is_transparent()),
+        ("replaceable", state.can_be_replaced()),
+        ("flowable", state.can_be_flowed_into()),
+        ("climbable", state.can_climb()),
+        ("entity_collision", state.has_entity_collision()),
+        ("silk_touch", state.is_affected_by_silk_touch()),
+        ("position_offset", state.has_position_offset()),
+    ] {
+        assert_eq!(has, flags.contains(flag), "{state:?} {flag}");
+    }
+    assert_eq!(
+        state.friction_factor(),
+        float(&block["friction"]),
+        "{state:?}"
+    );
+    let support: Vec<&str> = Face::ALL
+        .iter()
+        .map(|f| match state.support(*f) {
+            SupportType::Full => "full",
+            SupportType::Center => "center",
+            SupportType::Edge => "edge",
+            SupportType::None => "none",
+        })
+        .collect();
+    let want: Vec<&str> = block["support"]
+        .as_array()
+        .expect("support")
+        .iter()
+        .map(|s| s.as_str().expect("support type"))
+        .collect();
+    assert_eq!(support, want, "{state:?}");
+    // PMMP's inside-out boxes (a wall hanging sign's bar) never collide, so Anchor drops them.
+    let boxes = block["boxes"]
+        .as_array()
+        .expect("boxes")
+        .iter()
+        .filter(|b| {
+            let v: Vec<f64> = b.as_array().expect("box").iter().map(float).collect();
+            (0..3).all(|axis| v[axis] <= v[axis + 3])
+        })
+        .count();
+    assert_eq!(state.collision_boxes().len(), boxes, "{state:?}");
 }
 
 #[test]

@@ -5,7 +5,7 @@
 //
 //	bot -addr HOST:PORT -scenario SCENARIO -out FILE.jsonl [-transport raknet|nethernet|auto]
 //	    [-token-key key.pem -kid K -iss ISS] [-name N] [-timeout 30s] [-stay 2s] [-login-size BYTES]
-//	    [-segment-size BYTES] [-first-send-delay D]
+//	    [-segment-size BYTES] [-first-send-delay D] [-script FILE]
 //	bot issuer -dir DIR -kid K -iss ISS
 //	bot cloudburst -world CAPTURE.world.jsonl -data DIR   (cloudburst.go)
 //
@@ -37,6 +37,10 @@
 //	idle, prelogin-limit  RakNet server limit checks (limits.go)
 //	craft, furnace, enchant, crops, trade  survival gameplay like the official client (game.go, scenarios.go);
 //	               the caller runs the console commands the bot writes as "command" records
+//	commands, particles, kick, forms  the API scenarios (api.go): player commands and their output, particle
+//	               commands, a console kick and forms, on the game scenarios' machinery
+//	script         the actions of the -script file (api.go: chat, commands, expected texts, items, positions,
+//	               forms, scores, boss bar, titles, menu clicks), for the example tests
 //
 // The output holds one JSON object per line, each with a "type": "join" (one /v1/join attempt), "sdp" (the
 // offer or answer SDP and its line keys), "identity" (the answer's decoded a=identity), "segment" (one NetherNet
@@ -52,7 +56,7 @@
 // to ".world.jsonl": nothing is shortened and NBT values keep their tag types ({"byte":1}). In the game
 // scenarios every other received packet line keeps its fields in this full form, the "sent" lines of the
 // inventory and interaction packets carry their full fields, and the script adds "step", "response",
-// "check" and "command" lines (game.go).
+// "check" and "command" lines (game.go), and "output", "available" and "form" lines (api.go).
 //
 // In the sub-chunk request mode the bot asks for the sub-chunks of the 3x3 chunks around the spawn chunk, from
 // index -4 up to SubChunkLimit sub-chunks, as those chunks arrive. After spawning, the spawn scenario sends three
@@ -85,6 +89,7 @@ type config struct {
 	loginSize           int
 	segmentSize         int
 	firstSendDelay      time.Duration
+	script              string
 }
 
 func parseFlags(args []string) (config, error) {
@@ -103,6 +108,7 @@ func parseFlags(args []string) (config, error) {
 	fs.IntVar(&c.loginSize, "login-size", 6<<20, "big-skin: target Login request size in bytes")
 	fs.IntVar(&c.segmentSize, "segment-size", defaultSegmentSize, "nethernet: payload bytes per sent segment")
 	fs.DurationVar(&c.firstSendDelay, "first-send-delay", 0, "time to wait after connecting before the first packet")
+	fs.StringVar(&c.script, "script", "", "script: the file of actions to run (api.go)")
 	if err := fs.Parse(args); err != nil {
 		return c, err
 	}
@@ -121,6 +127,8 @@ func parseFlags(args []string) (config, error) {
 		return c, fmt.Errorf("-scenario %v checks RakNet only", c.scenario)
 	case c.scenario == "online" && (c.tokenKey == "" || c.kid == "" || c.iss == ""):
 		return c, errors.New("-scenario online needs -token-key, -kid and -iss")
+	case (c.scenario == "script") != (c.script != ""):
+		return c, errors.New("-script goes with -scenario script, and only with it")
 	case c.loginSize < 0 || c.loginSize > 64<<20:
 		return c, errors.New("-login-size must be between 0 and 64 MiB")
 	case c.segmentSize < 1 || c.segmentSize > defaultSegmentSize:
@@ -132,7 +140,7 @@ func parseFlags(args []string) (config, error) {
 }
 
 const scenarioList = "spawn, big-skin, online, kicked, rejected, blocks, bind-mismatch, idle, prelogin-limit, " +
-	"craft, furnace, enchant, crops or trade"
+	"craft, furnace, enchant, crops, trade, commands, particles, kick, forms or script"
 
 // knownScenario reports whether name is a scenario the bot runs.
 func knownScenario(name string) bool {

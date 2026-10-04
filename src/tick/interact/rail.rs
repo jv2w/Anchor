@@ -46,9 +46,6 @@ const CURVES: [[Link; 2]; 4] = [
     [flat(Face::North), flat(Face::East)],
 ];
 
-/// The horizontal faces in PMMP's search order.
-const HORIZONTAL: [Face; 4] = [Face::North, Face::South, Face::West, Face::East];
-
 /// Whether the rail can curve (PMMP `Rail`; powered, detector and activator rails cannot).
 fn curves(state: State) -> bool {
     state.is(Class::Rail)
@@ -121,10 +118,10 @@ fn connected(world: &World, pos: BlockPos, state: State) -> Vec<Link> {
 /// The links the rail could still make, in PMMP's order (`getPossibleConnectionDirections`).
 fn possible(state: State, constraints: &[Link]) -> Vec<Link> {
     match constraints {
-        [] => HORIZONTAL
+        [] => Face::HORIZONTAL
             .into_iter()
             .map(flat)
-            .chain(HORIZONTAL.into_iter().map(up))
+            .chain(Face::HORIZONTAL.into_iter().map(up))
             .collect(),
         [only] => {
             let opposite = only.face.opposite();
@@ -133,7 +130,7 @@ fn possible(state: State, constraints: &[Link]) -> Vec<Link> {
                 out.push(up(opposite));
                 if curves(state) {
                     out.extend(
-                        HORIZONTAL
+                        Face::HORIZONTAL
                             .into_iter()
                             .filter(|d| *d != only.face && *d != opposite)
                             .map(flat),

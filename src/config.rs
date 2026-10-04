@@ -133,7 +133,10 @@ const MAX_LEVEL_NAME_BYTES: usize = 64;
 const MAX_SHUTDOWN_MESSAGE_BYTES: usize = 1024;
 
 /// Every server setting. [`Config::default`] holds the values of the default `anchor.toml`.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// Two configs are equal when their settings are: the folder of the loaded file, against which
+/// relative `resource-packs` paths resolve, is not a setting and is not compared.
+#[derive(Debug, Clone, Eq, Default)]
 pub struct Config {
     /// Settings for anyone opening a server (`[general]`).
     pub general: General,
@@ -142,6 +145,16 @@ pub struct Config {
     /// Top-level tables of the loaded file that Anchor does not know; [`Config::validate`]
     /// rejects them (PLAN.md 8.5).
     unknown_tables: BTreeSet<String>,
+    /// The folder of the last file [`Config::load`] read; `None` before any.
+    dir: Option<PathBuf>,
+}
+
+impl PartialEq for Config {
+    fn eq(&self, other: &Self) -> bool {
+        self.general == other.general
+            && self.developer == other.developer
+            && self.unknown_tables == other.unknown_tables
+    }
 }
 
 impl Config {
@@ -156,8 +169,12 @@ impl Config {
     /// start with that file give the same settings.
     ///
     /// This does blocking file I/O: call it before the server starts.
-    pub fn load(self, path: impl AsRef<Path>) -> Result<Self> {
+    ///
+    /// Relative `resource-packs` paths, in the file or set in code, resolve against the folder of
+    /// the last file loaded (the working directory before any).
+    pub fn load(mut self, path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
+        self.dir = path.parent().map(Path::to_path_buf);
         if let Some(bytes) = read(path)? {
             return self.apply(&bytes);
         }
@@ -166,6 +183,18 @@ impl Config {
             source,
         })?;
         self.apply(DEFAULT_FILE.as_bytes())
+    }
+
+    /// The `resource-packs` files, relative paths resolved against the loaded file's folder.
+    pub(crate) fn resource_pack_paths(&self) -> Vec<PathBuf> {
+        self.general
+            .resource_packs
+            .iter()
+            .map(|p| match &self.dir {
+                Some(dir) => dir.join(p),
+                None => p.clone(),
+            })
+            .collect()
     }
 
     /// Returns `spawn-radius` limited to `view-distance`: the chunk radius actually sent before a
@@ -309,12 +338,17 @@ pub struct General {
     /// `motd`: the name shown in the server list.
     pub motd: String,
     /// `server-ip`: the IPv4 address to listen on.
+    #[doc(alias = "Server::getIp")]
     pub server_ip: Ipv4Addr,
     /// `server-ipv6`: the IPv6 address to listen on.
+    #[doc(alias = "Server::getIpV6")]
     pub server_ipv6: Ipv6Addr,
     /// `enable-ipv6`: whether to listen on `server_ipv6` too.
     pub enable_ipv6: bool,
-    /// `server-port`: UDP for RakNet and server list pings, TCP for NetherNet signaling.
+    /// `server-port`: UDP for RakNet and server list pings, TCP for NetherNet signaling, on
+    /// IPv4 and IPv6 alike.
+    #[doc(alias = "Server::getPort")]
+    #[doc(alias = "Server::getPortV6")]
     pub server_port: u16,
     /// `nethernet-port`: the UDP port for NetherNet game data.
     pub nethernet_port: u16,
@@ -324,6 +358,8 @@ pub struct General {
     /// `max-players`: the most players online at once.
     pub max_players: u32,
     /// `xbox-auth`: whether players must sign in to Xbox Live.
+    #[doc(alias = "Server::getOnlineMode")]
+    #[doc(alias = "Server::requiresAuthentication")]
     pub xbox_auth: bool,
     /// `white-list`: whether only listed players can join.
     pub white_list: bool,
@@ -352,8 +388,11 @@ pub struct General {
     /// `shutdown-message`: the message players see when the server stops.
     pub shutdown_message: String,
     /// `resource-packs`: resource pack files, relative to the settings file.
+    #[doc(alias = "ResourcePackManager::__construct")]
     pub resource_packs: Vec<PathBuf>,
     /// `force-resources`: whether players must accept the resource packs to join.
+    #[doc(alias = "ResourcePackManager::resourcePacksRequired")]
+    #[doc(alias = "ResourcePackManager::setResourcePacksRequired")]
     pub force_resources: bool,
 }
 
@@ -552,6 +591,7 @@ const COMPRESSION_NAMES: [(&str, Compression); 2] =
 
 /// A player game mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pmmp-class: GameMode
 pub enum GameMode {
     /// `"survival"`.
     Survival,
@@ -571,6 +611,35 @@ impl GameMode {
         ("adventure", Self::Adventure),
         ("spectator", Self::Spectator),
     ];
+
+    /// PMMP's names of the game modes (`GameMode::getAliases`), which [`from_name`](Self::from_name)
+    /// takes and the game mode commands offer.
+    pub(crate) const ALIASES: [(&'static str, Self); 13] = [
+        ("survival", Self::Survival),
+        ("s", Self::Survival),
+        ("0", Self::Survival),
+        ("creative", Self::Creative),
+        ("c", Self::Creative),
+        ("1", Self::Creative),
+        ("adventure", Self::Adventure),
+        ("a", Self::Adventure),
+        ("2", Self::Adventure),
+        ("spectator", Self::Spectator),
+        ("v", Self::Spectator),
+        ("view", Self::Spectator),
+        ("3", Self::Spectator),
+    ];
+
+    /// The game mode one of PMMP's names gives, ignoring ASCII case: the name (`survival`), its
+    /// letter (`s`, `c`, `a`, `v` or `view`) or its number (`0` to `3`). The `gamemode` setting
+    /// takes the full names only.
+    #[doc(alias = "GameMode::fromString")]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALIASES
+            .iter()
+            .find(|(alias, _)| alias.eq_ignore_ascii_case(name))
+            .map(|&(_, mode)| mode)
+    }
 }
 
 /// A world difficulty.
@@ -966,7 +1035,7 @@ fn write_default(path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, DEFAULT_FILE, Error, batch};
+    use super::{Config, DEFAULT_FILE, Error, GameMode, batch};
 
     fn apply(text: &str) -> super::Result<Config> {
         Config::default().apply(text.as_bytes())
@@ -992,6 +1061,22 @@ mod tests {
         assert_eq!(error.to_string(), "unknown table `[plugin]`");
         let inline = apply("plugin = { answer = 42 }").expect("an inline table is a table");
         assert!(inline.validate().is_err());
+    }
+
+    // pmmp: Server::getIp, Server::getIpV6, Server::getPort, Server::getPortV6, Server::getOnlineMode, Server::requiresAuthentication
+    #[test]
+    fn addresses_port_and_sign_in_come_from_the_general_table() {
+        let config = apply(
+            "[general]\nserver-ip = \"127.0.0.1\"\nserver-ipv6 = \"::1\"\nserver-port = 19200\n\
+             xbox-auth = false\n",
+        )
+        .expect("loads");
+        let general = &config.general;
+        assert_eq!(general.server_ip, std::net::Ipv4Addr::LOCALHOST);
+        assert_eq!(general.server_ipv6, std::net::Ipv6Addr::LOCALHOST);
+        assert_eq!(general.server_port, 19200);
+        assert!(!general.xbox_auth);
+        assert!(Config::default().general.xbox_auth);
     }
 
     #[test]
@@ -1039,6 +1124,35 @@ mod tests {
         assert!(config.validate().is_err());
     }
 
+    // pmmp: ResourcePackManager::__construct
+    #[test]
+    fn pack_paths_resolve_against_the_loaded_file_folder() {
+        let mut config = Config::default();
+        config.general.resource_packs = vec!["a.zip".into(), "/abs/b.mcpack".into()];
+        assert_eq!(
+            config.resource_pack_paths()[0],
+            std::path::Path::new("a.zip")
+        );
+        let loaded = Config {
+            dir: Some("server/conf".into()),
+            ..config.clone()
+        };
+        let paths = loaded.resource_pack_paths();
+        assert_eq!(paths[0], std::path::Path::new("server/conf").join("a.zip"));
+        assert_eq!(paths[1], std::path::Path::new("/abs/b.mcpack"));
+        assert_eq!(loaded, config, "the folder is not a setting");
+    }
+
+    // pmmp: ResourcePackManager::resourcePacksRequired, ResourcePackManager::setResourcePacksRequired
+    #[test]
+    fn force_resources_reaches_the_pack_offer() {
+        let mut config = Config::default();
+        assert!(!config.general.force_resources);
+        config.general.force_resources = true;
+        let offer = crate::pack::Offer::new(Vec::new(), config.general.force_resources).unwrap();
+        assert!(offer.info().texture_pack_required);
+    }
+
     #[test]
     fn batch_settings_follow_the_config() {
         let settings = Config::default().batch_settings().expect("valid");
@@ -1059,5 +1173,21 @@ mod tests {
     fn errors_are_send_sync_and_static() {
         fn assert_error<T: std::error::Error + Send + Sync + 'static>() {}
         assert_error::<Error>();
+    }
+
+    // pmmp: GameMode::fromString, GameMode
+    #[test]
+    fn game_modes_parse_pmmps_names_letters_and_numbers() {
+        assert_eq!(GameMode::from_name("Survival"), Some(GameMode::Survival));
+        assert_eq!(GameMode::from_name("c"), Some(GameMode::Creative));
+        assert_eq!(GameMode::from_name("2"), Some(GameMode::Adventure));
+        assert_eq!(GameMode::from_name("VIEW"), Some(GameMode::Spectator));
+        assert_eq!(GameMode::from_name("v"), Some(GameMode::Spectator));
+        for bad in ["", "4", "creativ", "survival "] {
+            assert_eq!(GameMode::from_name(bad), None, "{bad:?}");
+        }
+        for (name, mode) in GameMode::NAMES {
+            assert_eq!(GameMode::from_name(name), Some(mode));
+        }
     }
 }

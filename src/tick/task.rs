@@ -1,43 +1,49 @@
-//! Scheduled tasks (PLAN.md 8.3, 10.6): code the server runs every few ticks in the tick's serial
-//! step, and the [`Context`] it gets.
+//! The [`Context`] every task and listener gets: the root handle of the game (PLAN.md 10.8, PMMP
+//! `Server`), and the user's tasks, blocking jobs and data (PLAN.md 8.3, 10.6, 10.8).
 //!
-//! Tasks are registered with [`ServerBuilder::every`](crate::ServerBuilder::every) before the
-//! server is built and run in registration order after the tick's inputs, so a replay of the
-//! input log runs them at the same points with the same state.
+//! Build-time tasks ([`ServerBuilder::every`](crate::ServerBuilder::every)) run in registration
+//! order after the tick's inputs, then the scheduled tasks due ([`schedule`]); blocking jobs
+//! ([`job`]) answer through the inputs; user data ([`data`]) rides the save snapshots. Every one
+//! of them runs only in the tick's serial step, so a replay of the input log runs them at the
+//! same points with the same state.
 //!
-//! The player, entity and game rule methods of [`Context`] are a preliminary API (PLAN.md 10.7):
-//! each is a thin call into the rule module that owns the state, enough for the P6 console
-//! (`cargo xtask p6 game anchor`) to prepare its scenarios through the public API. The API
-//! milestone (M8) replaces them with player and entity handles.
+//! The villager and game rule methods (`spawn_villager`, `set_random_tick_speed`) are a thin
+//! call into the rule module that owns the state.
+
+#[cfg(test)]
+mod crash;
+mod data;
+mod job;
+mod schedule;
 
 use std::fmt;
 use std::num::NonZeroU32;
 
-use super::queue::SessionId;
-use super::{MAX_COORDINATE, Phase, PlayerKey, State, entity, inventory, survival, trade};
-use crate::config::RANDOM_TICK_SPEED;
-use crate::effect;
-use crate::item::Stack;
+pub(crate) use self::data::UserData;
+#[cfg(test)]
+use self::data::registered;
+pub(super) use self::data::{PlayerUser, placed, player_saved, save_player};
+pub(super) use self::job::finish;
+use super::queue::InputSender;
+use super::{MAX_COORDINATE, Phase, PlayerKey, State, entity, player, trade};
+use crate::config::{Difficulty, GameMode, RANDOM_TICK_SPEED};
 use crate::math::Vec3;
-use crate::nbt::Compound;
-use crate::protocol::packet::{GameRulesChanged, Packet};
-use crate::protocol::{GameRule, GameRuleValue};
+use crate::player::{Id as PlayerId, Message, Player, Result as PlayerResult};
+use crate::protocol::packet::{GAME_VERSION, GameRulesChanged, Packet};
+use crate::protocol::{GameRule, GameRuleValue, Uuid};
 use crate::world::World;
 
-/// What a scheduled task can see and change: the engine time, the worlds, the players and the
-/// entities.
-///
-/// The shape is preliminary: the API milestone (PLAN.md 10, M8) widens it.
+/// What a task or a listener can see and change: the engine time, the server, the worlds, the
+/// players and the entities (PMMP `Server`, without its singleton: a callback gets the context).
 pub struct Context<'a> {
     pub(super) state: &'a mut State,
 }
 
-/// A joined player, as [`Context::player_exact`] finds it. It stays valid until the player
-/// leaves; a later join of the same name is another player.
-///
-/// Preliminary (PLAN.md 10.7): M8 replaces it with a player handle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PlayerId(SessionId);
+/// Whether the player is online: its saved data has loaded, so it has a place in a world (PMMP
+/// creates the `Player` then).
+fn online(player: &Player) -> bool {
+    player.phase != Phase::Loading
+}
 
 impl Context<'_> {
     /// The engine time: ticks since the world was created (20 per second).
@@ -46,9 +52,173 @@ impl Context<'_> {
         self.state.tick
     }
 
+    /// The server software's name.
+    #[doc(alias = "Server::getName")]
+    pub const NAME: &'static str = "Anchor";
+
+    /// The Minecraft: Bedrock Edition version the server speaks, such as `1.26.50`.
+    #[doc(alias = "Server::getVersion")]
+    pub const VERSION: &'static str = GAME_VERSION;
+
+    /// Anchor's own version.
+    #[doc(alias = "Server::getPocketMineVersion")]
+    pub const ANCHOR_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
+    /// The server name the settings give (`motd`). The server list shows the value the server
+    /// started with.
+    #[doc(alias = "Server::getMotd")]
+    pub fn motd(&self) -> &str {
+        &self.state.settings.motd
+    }
+
+    /// The most players online at once (`max-players`).
+    #[doc(alias = "Server::getMaxPlayers")]
+    pub fn max_players(&self) -> u32 {
+        self.state.settings.max_players
+    }
+
+    /// Changes the most players online at once until the server stops. Players already online
+    /// stay; joins beyond it are refused. The server list shows the value the server started
+    /// with.
+    pub fn set_max_players(&mut self, max: u32) {
+        self.state.settings.max_players = max;
+    }
+
+    /// The difficulty (`difficulty`).
+    #[doc(alias = "Server::getDifficulty")]
+    pub fn difficulty(&self) -> Difficulty {
+        self.state.settings.difficulty
+    }
+
+    /// The game mode new players get (`gamemode`).
+    #[doc(alias = "Server::getGamemode")]
+    pub fn default_game_mode(&self) -> GameMode {
+        self.state.settings.game_mode
+    }
+
+    /// Whether every join gets the server's game mode instead of the saved one
+    /// (`force-gamemode`).
+    #[doc(alias = "Server::getForceGamemode")]
+    pub fn is_game_mode_forced(&self) -> bool {
+        self.state.settings.force_game_mode
+    }
+
+    /// Whether dead players come back as spectators (`hardcore`).
+    #[doc(alias = "Server::isHardcore")]
+    pub fn is_hardcore(&self) -> bool {
+        self.state.settings.hardcore
+    }
+
+    /// The largest chunk radius a player gets (`view-distance`).
+    #[doc(alias = "Server::getViewDistance")]
+    pub fn view_distance(&self) -> u8 {
+        self.state.settings.view_distance
+    }
+
+    /// Whether player data is loaded and saved (`save-player-data`).
+    #[doc(alias = "Server::shouldSavePlayerData")]
+    pub fn should_save_player_data(&self) -> bool {
+        self.state.settings.save_player_data
+    }
+
+    /// The online players, in [`Id`](PlayerId) order. A player is online from the moment its
+    /// saved data has loaded until it leaves.
+    #[doc(alias = "Server::getOnlinePlayers")]
+    pub fn players(&self) -> impl Iterator<Item = &Player> + '_ {
+        self.state.players.values().filter(|p| online(p))
+    }
+
+    /// How many players are online.
+    pub fn player_count(&self) -> usize {
+        self.players().count()
+    }
+
+    /// The online player `id`; `None` once it has left.
+    pub fn player(&self, id: PlayerId) -> Option<&Player> {
+        self.state.players.get(&id.session()).filter(|p| online(p))
+    }
+
+    /// The online player `id`, to change it; `None` once it has left.
+    pub fn player_mut(&mut self, id: PlayerId) -> Option<&mut Player> {
+        self.state
+            .players
+            .get_mut(&id.session())
+            .filter(|p| online(p))
+    }
+
+    /// The online player whose name is `name`, ignoring ASCII case (PMMP compares with
+    /// `strtolower`). A player without Xbox sign-in is keyed by its lowercase name, so it is
+    /// found by an index search; only the players signed in with Xbox (keyed by XUID, at most
+    /// `max-players`) are compared one by one. The lookups return an [`Id`](PlayerId), so the
+    /// context stays free for [`player_mut`](Self::player_mut).
+    #[doc(alias = "Server::getPlayerExact")]
+    pub fn player_exact(&self, name: &str) -> Option<PlayerId> {
+        let index = &self.state.index;
+        let key = PlayerKey::Name(name.to_ascii_lowercase());
+        let found = index.get(&key).or_else(|| {
+            // XUID keys sort before every name key.
+            index
+                .range(..PlayerKey::Name(String::new()))
+                .map(|(_, session)| session)
+                .find(|s| {
+                    self.state
+                        .players
+                        .get(s)
+                        .is_some_and(|p| p.identity.name.eq_ignore_ascii_case(name))
+                })
+        })?;
+        self.state
+            .players
+            .get(found)
+            .filter(|p| online(p))
+            .map(Player::id)
+    }
+
+    /// The online player whose name starts with `prefix` (ignoring ASCII case) and is the
+    /// shortest of those, the first in [`Id`](PlayerId) order on a tie (PMMP
+    /// `getPlayerByPrefix`). The players (at most `max-players`) are compared one by one.
+    #[doc(alias = "Server::getPlayerByPrefix")]
+    pub fn player_by_prefix(&self, prefix: &str) -> Option<PlayerId> {
+        let starts = |name: &str| {
+            name.as_bytes()
+                .get(..prefix.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(prefix.as_bytes()))
+        };
+        let mut best: Option<&Player> = None;
+        for p in self.players() {
+            let name = &p.identity.name;
+            if starts(name) && best.is_none_or(|b| name.len() < b.identity.name.len()) {
+                best = Some(p);
+                if name.len() == prefix.len() {
+                    break;
+                }
+            }
+        }
+        best.map(Player::id)
+    }
+
+    /// The online player whose UUID is `uuid` (PMMP `getPlayerByUUID`). The players (at most
+    /// `max-players`) are compared one by one.
+    #[doc(alias = "Server::getPlayerByUUID")]
+    pub fn player_by_uuid(&self, uuid: Uuid) -> Option<PlayerId> {
+        self.players()
+            .find(|p| p.identity.uuid == uuid)
+            .map(Player::id)
+    }
+
+    /// Shows `message` to every online player (PMMP's broadcast methods merged, PLAN.md 8.4);
+    /// returns how many got it. Fails, sending nothing, for a message a client does not decode.
+    #[doc(alias = "Server::broadcastMessage")]
+    #[doc(alias = "Server::broadcastTip")]
+    #[doc(alias = "Server::broadcastPopup")]
+    #[doc(alias = "Server::broadcastTitle")]
+    pub fn broadcast(&mut self, message: Message) -> PlayerResult<usize> {
+        player::broadcast(self.state, message)
+    }
+
     /// The default world: the one the settings name (`level-name`), where players join.
     #[doc(alias = "WorldManager::getDefaultWorld")]
-    pub fn world(&self) -> &World {
+    pub fn default_world(&self) -> &World {
         #[expect(
             clippy::indexing_slicing,
             reason = "invariant: a server always has its default world at index 0"
@@ -57,7 +227,7 @@ impl Context<'_> {
     }
 
     /// The default world, to change it.
-    pub fn world_mut(&mut self) -> &mut World {
+    pub fn default_world_mut(&mut self) -> &mut World {
         #[expect(
             clippy::indexing_slicing,
             reason = "invariant: a server always has its default world at index 0"
@@ -78,111 +248,34 @@ impl Context<'_> {
 
     /// Saves every persistent world and the player data at the end of this tick, together, as
     /// one commit (PLAN.md 6). Calling it again in the same tick changes nothing.
-    #[doc(alias = "WorldManager::save")]
     #[doc(alias = "World::save")]
     pub fn save(&mut self) {
         self.state.saving.requested = true;
     }
 
-    /// The joined player whose name is `name`, ignoring ASCII case (PMMP compares with
-    /// `strtolower`). Without Xbox sign-in the name is the player's key and the lookup is an
-    /// index search; with it, the players (at most `max-players`) are compared one by one.
-    #[doc(alias = "Server::getPlayerExact")]
-    pub fn player_exact(&self, name: &str) -> Option<PlayerId> {
-        let key = PlayerKey::Name(name.to_ascii_lowercase());
-        if let Some(&session) = self.state.index.get(&key) {
-            return Some(PlayerId(session));
-        }
-        self.state
-            .players
-            .iter()
-            .find(|(_, p)| p.identity.name.eq_ignore_ascii_case(name))
-            .map(|(&session, _)| PlayerId(session))
-    }
-
-    /// Puts `stack` into the player's inventory where it fits and tells its client; returns what
-    /// did not fit (all of it if the player has left).
-    #[doc(alias = "Inventory::addItem")]
-    pub fn give(&mut self, player: PlayerId, stack: Stack) -> Stack {
-        match self.state.players.get_mut(&player.0) {
-            Some(p) => inventory::give(p, stack),
-            None => stack,
-        }
-    }
-
-    /// Moves the player's feet to `feet` in its world and tells its client and viewers. False if
-    /// the player has left or `feet` is not finite or lies outside the world border.
-    #[doc(alias = "Player::teleport")]
-    pub fn teleport(&mut self, player: PlayerId, feet: Vec3) -> bool {
-        let border = f64::from(MAX_COORDINATE);
-        let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
-        if !eye.is_finite() || [eye.x, eye.y, eye.z].iter().any(|c| c.abs() > border) {
-            return false;
-        }
-        let Some(world) = self.state.players.get(&player.0).map(|p| p.world) else {
-            return false;
-        };
-        survival::teleport(self.state, player.0, world, eye);
-        true
-    }
-
-    /// Adds experience points to the player (orbs, commands); nothing if it has left.
-    #[doc(alias = "ExperienceManager::addXp")]
-    pub fn add_experience(&mut self, player: PlayerId, points: u32) {
-        if let Some(p) = self.state.players.get_mut(&player.0) {
-            survival::add_experience(p, points);
-        }
-    }
-
-    /// Gives the player `effect` for `duration` ticks at `amplifier` (0 is level I), visible and
-    /// not ambient, as PMMP's `EffectInstance` defaults. False if the player has left or a
-    /// stronger effect of the type stays.
-    #[doc(alias = "EffectManager::add")]
-    pub fn add_effect(
-        &mut self,
-        player: PlayerId,
-        effect: effect::Type,
-        duration: u32,
-        amplifier: u8,
-    ) -> bool {
-        if !self.state.players.contains_key(&player.0) {
-            return false;
-        }
-        // PMMP caps durations at the largest 32-bit integer (`Limits::INT32_MAX`).
-        let duration = duration.min(i32::MAX.cast_unsigned());
-        let instance = effect::Instance::new(effect, duration, amplifier, true, false);
-        survival::add_effect(self.state, player.0, instance)
-    }
-
     /// Spawns a villager-type NPC (PLAN.md 8.6: no AI, network actor `minecraft:villager_v2`)
-    /// at `pos` in the default world, showing `profession` (the actor variant) and trading
-    /// `offers`: one compound per offer in Bedrock's offer form (`buyA`, `buyCountA`, `sell`,
-    /// `maxUses`, `tier`, ...). `None` if `pos` is not finite or outside the world border, its
-    /// chunk is not loaded or the world is at its entity limit.
+    /// at `pos` (its feet) in `world`, showing `profession` (the actor variant) and trading
+    /// `offers` in screen order, like
+    /// [`spawn_custom_entity`](Self::spawn_custom_entity). Fails with
+    /// [`custom::Error::Offer`](crate::custom::Error::Offer) for an offer
+    /// [`set_trade_offers`](Self::set_trade_offers) refuses, and with
+    /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) if the world does not
+    /// exist, `pos` is not finite or outside the world border, its chunk is not loaded, or the
+    /// world is at its entity limit.
     pub fn spawn_villager(
         &mut self,
+        world: crate::world::Id,
         pos: Vec3,
         profession: u8,
-        offers: &[Compound],
-    ) -> Option<crate::entity::Id> {
+        offers: &[crate::custom::Offer],
+    ) -> std::result::Result<crate::entity::Id, crate::custom::Error> {
+        let offers = trade::new_offers(offers)?;
         let border = f64::from(MAX_COORDINATE);
-        if !pos.is_finite() || [pos.x, pos.y, pos.z].iter().any(|c| c.abs() > border) {
-            return None;
-        }
-        let npc = entity::Npc::Villager {
-            profession,
-            offers: trade::Offers::from_nbt(&Compound::from([(
-                "Recipes".to_owned(),
-                crate::nbt::Value::List(crate::nbt::List::Compound(offers.to_vec())),
-            )])),
-        };
-        entity::spawn_npc(self.state, 0, pos, npc)
-    }
-
-    /// Removes the entity `id` from its world and its viewers; false if it is already gone.
-    #[doc(alias = "Entity::flagForDespawn")]
-    pub fn remove_entity(&mut self, id: crate::entity::Id) -> bool {
-        entity::remove(self.state, id)
+        let w = super::world_api::index(self.state, world)
+            .filter(|_| pos.is_finite() && [pos.x, pos.y, pos.z].iter().all(|c| c.abs() <= border))
+            .ok_or(crate::custom::Error::NotSpawned)?;
+        let npc = entity::Npc::Villager { profession, offers };
+        entity::spawn_npc(self.state, w, pos, npc).ok_or(crate::custom::Error::NotSpawned)
     }
 
     /// Sets the random block ticks per sub-chunk per tick (the `randomTickSpeed` game rule;
@@ -203,7 +296,7 @@ impl Context<'_> {
         // Players before the spawn window get the rule in it (`survival::game_rules`).
         for p in self.state.players.values_mut() {
             if matches!(p.phase, Phase::Spawning | Phase::Spawned) {
-                p.send(packet.clone());
+                p.send_packet(packet.clone());
             }
         }
         true
@@ -221,12 +314,20 @@ impl fmt::Debug for Context<'_> {
     }
 }
 
-/// A task body.
+/// A build-time task body.
 type Body = Box<dyn FnMut(&mut Context<'_>) + Send>;
 
-/// The scheduled tasks, in registration order.
+/// The user's tasks and blocking jobs.
 #[derive(Default)]
-pub(crate) struct Tasks(Vec<(NonZeroU32, Body)>);
+pub(crate) struct Tasks {
+    /// The build-time tasks ([`ServerBuilder::every`](crate::ServerBuilder::every)), in
+    /// registration order.
+    every: Vec<(NonZeroU32, Body)>,
+    /// The tasks scheduled while the server runs.
+    queue: schedule::Queue,
+    /// The blocking jobs waiting for their result.
+    jobs: job::Jobs,
+}
 
 impl Tasks {
     /// Adds `task`, run on every tick that is a multiple of `period`.
@@ -235,27 +336,56 @@ impl Tasks {
         period: NonZeroU32,
         task: impl FnMut(&mut Context<'_>) + Send + 'static,
     ) {
-        self.0.push((period, Box::new(task)));
+        self.every.push((period, Box::new(task)));
     }
 
-    /// Runs the tasks due at the state's tick. The tasks are taken out of the state while they
-    /// run, so a task's [`Context`] can lend the whole state.
+    /// Runs blocking jobs from now on: on `handle`'s blocking pool, their results into the tick's
+    /// input queue. Until then (and in a replay, which never starts it) jobs run no work and
+    /// wait for results from the input log.
+    pub(crate) fn start(&mut self, handle: tokio::runtime::Handle, inputs: &InputSender) {
+        self.jobs.start(handle, inputs);
+    }
+
+    /// Runs the tasks due at the state's tick: the build-time tasks on the multiples of their
+    /// period, in registration order, then the scheduled tasks due. The build-time tasks are
+    /// taken out of the state while they run, so a task's [`Context`] can lend the whole state.
     pub(super) fn run(state: &mut State) {
-        let mut tasks = std::mem::take(&mut state.tasks);
+        let mut every = std::mem::take(&mut state.tasks.every);
         let tick = state.tick;
-        for (period, task) in &mut tasks.0 {
+        for (period, task) in &mut every {
             if tick.is_multiple_of(u64::from(period.get())) {
                 task(&mut Context { state });
             }
         }
-        state.tasks = tasks;
+        state.tasks.every = every;
+        schedule::run(state);
+    }
+
+    /// The ids of the blocking jobs waiting for their result, in order.
+    #[cfg(test)]
+    pub(super) fn waiting_jobs(&self) -> Vec<u64> {
+        self.jobs.waiting()
+    }
+
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self { every, queue, jobs } = self;
+        h.usize(every.len());
+        for (period, _) in every {
+            h.u64(u64::from(period.get()));
+        }
+        queue.hash_into(h);
+        jobs.hash_into(h);
     }
 }
 
 impl fmt::Debug for Tasks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(self.0.iter().map(|(period, _)| period))
+        let every: Vec<NonZeroU32> = self.every.iter().map(|(period, _)| *period).collect();
+        f.debug_struct("Tasks")
+            .field("every", &every)
+            .field("scheduled", &self.queue.len())
+            .field("jobs", &self.jobs)
             .finish()
     }
 }
@@ -266,14 +396,16 @@ mod tests {
 
     use super::*;
     use crate::event::Listeners;
-    use crate::item::Type;
-    use crate::nbt::Value;
+    use crate::item::{Stack, Type};
+    use crate::nbt::Compound;
     use crate::protocol::Uuid;
+    use crate::tick::queue::SessionId;
     use crate::tick::queue::{Identity, InputKind, Outbound, outbound_queue};
     use crate::tick::tests::{
         initialised, input, join, new_state, radius, received, settings, tick,
     };
     use crate::tick::{Output, Packet as P};
+    use crate::world::Id as WorldId;
 
     /// The network actor variant of a farmer villager (`EntityVariant` of
     /// `minecraft:villager_v2`).
@@ -292,6 +424,7 @@ mod tests {
             uuid: Uuid::from_bytes([9; 16]),
             skin: crate::tick::queue::Skin::default(),
             device_os: -1,
+            address: None,
         };
         let second = input(
             2,
@@ -317,82 +450,153 @@ mod tests {
         Stack::new(stick, count)
     }
 
+    // pmmp: Server::getPlayerExact
     #[test]
     fn players_are_found_by_name_ignoring_ascii_case_with_and_without_xbox() {
         let (mut state, _rx) = state();
         let ctx = Context { state: &mut state };
         assert_eq!(
             ctx.player_exact("PLAYER1"),
-            Some(PlayerId(SessionId::new(1)))
+            Some(PlayerId::new(SessionId::new(1)))
         );
         assert_eq!(
             ctx.player_exact("offline"),
-            Some(PlayerId(SessionId::new(2)))
+            Some(PlayerId::new(SessionId::new(2)))
         );
         assert_eq!(ctx.player_exact("player"), None);
         assert_eq!(ctx.player_exact(""), None);
     }
 
+    // pmmp: Server::getOnlinePlayers
     #[test]
-    fn give_fills_the_inventory_and_returns_what_does_not_fit() {
+    fn players_are_lent_in_id_order_while_online() {
         let (mut state, _rx) = state();
-        let before = state.hash();
+        let ctx = Context { state: &mut state };
+        let ids: Vec<PlayerId> = ctx.players().map(Player::id).collect();
+        assert_eq!(ids, [1, 2].map(|s| PlayerId::new(SessionId::new(s))));
+        assert_eq!(ctx.player_count(), 2);
+        assert_eq!(ctx.player(ids[1]).map(Player::name), Some("Offline"));
+        // A player whose data is still loading is not online yet.
+        state.players.get_mut(&SessionId::new(2)).unwrap().phase = Phase::Loading;
         let mut ctx = Context { state: &mut state };
-        let player = ctx.player_exact("player1").unwrap();
-        assert!(ctx.give(player, stick(5)).is_empty());
-        let full: u8 = 64;
-        for _ in 0..40 {
-            ctx.give(player, stick(full));
+        assert_eq!(ctx.player_count(), 1);
+        assert!(ctx.player(ids[1]).is_none());
+        assert!(ctx.player_mut(ids[1]).is_none());
+        assert_eq!(ctx.player_exact("offline"), None);
+        assert!(ctx.player_mut(ids[0]).is_some());
+    }
+
+    // pmmp: Server::getPlayerByUUID
+    #[test]
+    fn players_are_found_by_uuid_while_online() {
+        let (mut state, _rx) = state();
+        let ctx = Context { state: &mut state };
+        let second = PlayerId::new(SessionId::new(2));
+        assert_eq!(ctx.player_by_uuid(Uuid::from_bytes([9; 16])), Some(second));
+        assert_eq!(ctx.player_by_uuid(Uuid::from_bytes([7; 16])), None);
+        state.players.get_mut(&SessionId::new(2)).unwrap().phase = Phase::Loading;
+        let ctx = Context { state: &mut state };
+        assert_eq!(ctx.player_by_uuid(Uuid::from_bytes([9; 16])), None);
+    }
+
+    // pmmp: Server::getPlayerByPrefix
+    #[test]
+    fn the_shortest_name_with_the_prefix_wins() {
+        let (mut state, _rx) = state();
+        let ctx = Context { state: &mut state };
+        let first = Some(PlayerId::new(SessionId::new(1)));
+        let second = Some(PlayerId::new(SessionId::new(2)));
+        assert_eq!(ctx.player_by_prefix("PL"), first);
+        assert_eq!(ctx.player_by_prefix("off"), second);
+        assert_eq!(ctx.player_by_prefix("offline"), second);
+        assert_eq!(ctx.player_by_prefix("offlinex"), None);
+        // "Offline" and "player1" are as long: the first in ID order wins.
+        assert_eq!(ctx.player_by_prefix(""), first);
+    }
+
+    // pmmp: Server::getTick, Server::getName, Server::getVersion, Server::getPocketMineVersion, Server::getMotd, Server::getMaxPlayers, Server::getDifficulty, Server::getGamemode, Server::getForceGamemode, Server::isHardcore, Server::getViewDistance, Server::shouldSavePlayerData
+    #[test]
+    fn the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins() {
+        let (mut state, _rx) = state();
+        let ctx = Context { state: &mut state };
+        assert_eq!(Context::NAME, "Anchor");
+        assert_eq!(Context::VERSION, GAME_VERSION);
+        assert_eq!(Context::ANCHOR_VERSION, env!("CARGO_PKG_VERSION"));
+        let config = crate::config::Config::default();
+        assert_eq!(ctx.motd(), config.general.motd);
+        assert_eq!(ctx.max_players(), config.general.max_players);
+        assert_eq!(ctx.difficulty(), config.general.difficulty);
+        assert_eq!(ctx.default_game_mode(), config.general.gamemode);
+        assert_eq!(ctx.is_game_mode_forced(), config.general.force_gamemode);
+        assert_eq!(ctx.is_hardcore(), config.general.hardcore);
+        assert_eq!(ctx.view_distance(), config.general.view_distance);
+        assert!(!ctx.should_save_player_data());
+        assert_eq!(ctx.tick(), state.tick);
+        Context { state: &mut state }.set_max_players(2);
+        let (third, mut rx3) = crate::tick::tests::join(3, 0);
+        tick(&mut state, &mut vec![third], &mut Output::default());
+        assert!(received(&mut rx3).1.is_some(), "refused");
+        assert_eq!(state.players.len(), 2);
+    }
+
+    // pmmp: Server::broadcastMessage, Server::broadcastTip, Server::broadcastPopup, Server::broadcastTitle
+    #[test]
+    fn broadcasts_reach_every_online_player_once() {
+        let (mut state, mut rx) = state();
+        for r in &mut rx {
+            received(r);
         }
-        // 36 slots of 64 hold 2,304 sticks; the rest comes back.
-        assert_eq!(ctx.give(player, stick(7)).count(), 7);
-        assert_ne!(state.hash(), before);
+        let mut ctx = Context { state: &mut state };
+        let tip = crate::player::Message::Tip("hi".to_owned());
+        assert_eq!(ctx.broadcast(tip), Ok(2));
+        let long = crate::player::Message::Popup("x".repeat(70_000));
+        assert_eq!(ctx.broadcast(long), Err(crate::player::Error::TooLong));
+        tick(&mut state, &mut Vec::new(), &mut Output::default());
+        for r in &mut rx {
+            let tips = received(r)
+                .0
+                .into_iter()
+                .filter(|p| matches!(p, P::Text(t) if t.message == "hi"))
+                .count();
+            assert_eq!(tips, 1);
+        }
     }
 
     #[test]
     fn calls_for_a_player_who_left_change_nothing() {
         let (mut state, _rx) = state();
         let before = state.hash();
-        let gone = PlayerId(SessionId::new(99));
+        let gone = PlayerId::new(SessionId::new(99));
         let mut ctx = Context { state: &mut state };
-        assert_eq!(ctx.give(gone, stick(3)).count(), 3);
-        assert!(!ctx.teleport(gone, Vec3::new(0.0, -60.0, 0.0)));
-        ctx.add_experience(gone, 100);
-        assert!(!ctx.add_effect(gone, effect::Type::Slowness, 600, 1));
+        assert!(ctx.player(gone).is_none());
+        assert!(ctx.player_mut(gone).is_none());
         assert_eq!(state.hash(), before);
     }
 
     #[test]
-    fn teleports_and_villagers_outside_the_world_or_not_finite_are_refused() {
+    fn villagers_outside_the_world_or_not_finite_are_refused() {
         let (mut state, _rx) = state();
         let before = state.hash();
         let mut ctx = Context { state: &mut state };
-        let player = ctx.player_exact("player1").unwrap();
         for feet in [
             Vec3::new(f64::NAN, 0.0, 0.0),
             Vec3::new(0.0, f64::INFINITY, 0.0),
             Vec3::new(30_000_001.0, 0.0, 0.0),
             Vec3::new(0.0, 0.0, -30_000_001.0),
         ] {
-            assert!(!ctx.teleport(player, feet));
-            assert_eq!(ctx.spawn_villager(feet, FARMER, &[]), None);
+            assert_eq!(
+                ctx.spawn_villager(WorldId::DEFAULT, feet, FARMER, &[]),
+                Err(crate::custom::Error::NotSpawned)
+            );
         }
+        let elsewhere = WorldId::new(7).unwrap();
+        let at = Vec3::new(0.5, -60.0, 0.5);
+        assert_eq!(
+            ctx.spawn_villager(elsewhere, at, FARMER, &[]),
+            Err(crate::custom::Error::NotSpawned),
+            "a world the server does not have"
+        );
         assert_eq!(state.hash(), before);
-        // A valid teleport is handed to the survival module.
-        assert!(Context { state: &mut state }.teleport(player, Vec3::new(-11.5, -60.0, -11.5)));
-    }
-
-    #[test]
-    fn experience_changes_the_player_and_zero_points_do_not() {
-        let (mut state, _rx) = state();
-        let before = state.hash();
-        let mut ctx = Context { state: &mut state };
-        let player = ctx.player_exact("player1").unwrap();
-        ctx.add_experience(player, 0);
-        assert_eq!(state.hash(), before);
-        let mut ctx = Context { state: &mut state };
-        ctx.add_experience(player, 1395);
-        assert_ne!(state.hash(), before);
     }
 
     #[test]
@@ -425,13 +629,14 @@ mod tests {
         assert!(rules(&mut rx2).is_empty());
     }
 
+    // pmmp: World::save, WorldManager::getDefaultWorld, WorldManager::getWorldByName
     #[test]
     fn save_marks_the_tick_for_a_commit_and_the_context_reads_the_state() {
         let (mut state, _rx) = state();
         let tick_now = state.tick;
         let mut ctx = Context { state: &mut state };
         assert_eq!(ctx.tick(), tick_now);
-        assert_eq!(ctx.world().name(), "world");
+        assert_eq!(ctx.default_world().name(), "world");
         assert!(ctx.world_named("world").is_some());
         assert!(ctx.world_named_mut("nether").is_none());
         ctx.save();
@@ -446,7 +651,7 @@ mod tests {
         tasks.push(NonZeroU32::new(2).unwrap(), |ctx| {
             let at = crate::world::BlockPos::new(0, -50, 0);
             let stone = crate::block::State::find("minecraft:stone", &[]).unwrap();
-            ctx.world_mut().set_block(at, stone).unwrap();
+            ctx.default_world_mut().set_block(at, stone).unwrap();
             ctx.save();
         });
         state.tasks = tasks;
@@ -456,21 +661,26 @@ mod tests {
         state.tick = 2;
         Tasks::run(&mut state);
         assert!(state.saving.requested);
-        assert_eq!(format!("{:?}", state.tasks), "[2]");
+        assert!(format!("{:?}", state.tasks).contains("every: [2], scheduled: 0"));
     }
 
     #[test]
-    fn offers_reach_the_villager_contract_and_an_unknown_entity_is_not_removed() {
+    fn villagers_trade_the_typed_offers_and_refuse_an_invalid_one() {
         let (mut state, _rx) = state();
-        let mut offer = Compound::new();
-        offer.insert("maxUses".to_owned(), Value::Int(12));
+        let before = state.hash();
+        let offer = crate::custom::Offer::new(stick(4), stick(1), 12).with_tier(2);
         let mut ctx = Context { state: &mut state };
-        // The NPC itself is the entity module's; a valid call must not panic.
-        let spawned = ctx.spawn_villager(Vec3::new(0.5, -60.0, 0.5), FARMER, &[offer]);
-        if let Some(id) = spawned {
-            assert!(ctx.remove_entity(id));
-            assert!(!ctx.remove_entity(id));
-        }
-        assert!(!ctx.remove_entity(crate::entity::Id::new(4_000_000, 7)));
+        let at = Vec3::new(0.5, -60.0, 0.5);
+        let free = crate::custom::Offer::new(Stack::EMPTY, stick(1), 1);
+        assert!(matches!(
+            ctx.spawn_villager(WorldId::DEFAULT, at, FARMER, &[offer.clone(), free]),
+            Err(crate::custom::Error::Offer { .. })
+        ));
+        assert_eq!(state.hash(), before, "a refused offer spawns nothing");
+        let mut ctx = Context { state: &mut state };
+        let id = ctx
+            .spawn_villager(WorldId::DEFAULT, at, FARMER, std::slice::from_ref(&offer))
+            .unwrap();
+        assert_eq!(ctx.trade_offers(id), Some(vec![offer]));
     }
 }

@@ -110,9 +110,21 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
 
 /// A generated enum: doc, name, variants (Rust name, documented name) and the derives.
 pub(crate) fn enumeration(out: &mut String, doc: &str, name: &str, variants: &[(String, String)]) {
+    pmmp_enumeration(out, doc, "", name, variants);
+}
+
+/// [`enumeration`] with the PMMP mapping lines (`// pmmp-class:` comments and `#[doc(alias)]`
+/// attributes, each ending in a newline) between the doc and the derives.
+pub(crate) fn pmmp_enumeration(
+    out: &mut String,
+    doc: &str,
+    pmmp: &str,
+    name: &str,
+    variants: &[(String, String)],
+) {
     put!(
         out,
-        "\n/// {doc}\n#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{"
+        "\n/// {doc}\n{pmmp}#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]\npub enum {name} {{"
     );
     for (variant, documented) in variants {
         put!(out, "/// `{documented}`.\n{variant},");

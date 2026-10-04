@@ -300,7 +300,7 @@ fn supported_at(ctx: &Context<'_>, state: State) -> bool {
             Class::BaseCake | Class::Carpet => below != block::AIR,
             Class::Cactus => {
                 (below.kind() == state.kind() || below.has_type_tag(TypeTag::Sand))
-                    && [Face::North, Face::South, Face::West, Face::East]
+                    && Face::HORIZONTAL
                         .into_iter()
                         .all(|f| !ctx.side(f).is_solid())
             }
@@ -384,7 +384,7 @@ fn chorus_flower_supported(ctx: &Context<'_>, below: State) -> bool {
         return true;
     }
     let mut plant = false;
-    for f in [Face::North, Face::South, Face::West, Face::East] {
+    for f in Face::HORIZONTAL {
         let side = ctx.side(f);
         if side.kind() == Kind::ChorusPlant {
             if plant {
@@ -402,7 +402,7 @@ fn chorus_flower_supported(ctx: &Context<'_>, below: State) -> bool {
 fn chorus_plant_supported(ctx: &Context<'_>, state: State, below: State) -> bool {
     let by = |s: State| s.kind() == state.kind() || s.kind() == Kind::EndStone;
     let vertical_air = below == block::AIR || ctx.side(Face::Up) == block::AIR;
-    for f in [Face::North, Face::South, Face::West, Face::East] {
+    for f in Face::HORIZONTAL {
         let side_pos = step(ctx.replace, f);
         if block_at(ctx.world, side_pos).kind() == Kind::ChorusPlant {
             if !vertical_air {
@@ -825,7 +825,7 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 let below_pos = step(ctx.replace, Face::Down)?;
                 let below = block_at(ctx.world, Some(below_pos));
                 if below.kind() != s.kind() {
-                    let water = [Face::North, Face::South, Face::West, Face::East]
+                    let water = Face::HORIZONTAL
                         .into_iter()
                         .map(|f| block_at(ctx.world, step(below_pos, f)))
                         .any(|b| b.is(Class::Water) || b.is(Class::FrostedIce));
@@ -1225,10 +1225,9 @@ mod tests {
                 .enumerate()
             {
                 let layout = scenario["layout"].as_str().unwrap();
-                let face = props::face_from_index(
-                    i32::try_from(scenario["face"].as_i64().unwrap()).unwrap(),
-                )
-                .unwrap();
+                let face =
+                    Face::from_index(i32::try_from(scenario["face"].as_i64().unwrap()).unwrap())
+                        .unwrap();
                 let yaw = scenario["yaw"].as_f64().unwrap();
                 let click_y = scenario["click_y"].as_f64().unwrap();
                 let feet: Vec<f64> = scenario["feet"]

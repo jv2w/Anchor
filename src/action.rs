@@ -1,0 +1,69 @@
+//! Actions: things a player or the game does, done on request through the game rules so that
+//! their events are raised (PLAN.md 8.2, 10.8). [`Context::perform`](crate::Context::perform)
+//! takes one.
+//!
+//! The direct API (for example [`Player`](crate::player::Player) setters) changes the game
+//! without events; an action goes the way the game itself would, events and all.
+
+use std::fmt;
+
+use crate::tick::Context;
+
+mod entity;
+mod interact;
+mod survival;
+
+pub use entity::{Attack, Explode};
+pub use interact::{AttackBlock, BreakBlock, InteractEntity, UseItem, UseItemOn};
+pub use survival::{Chat, Damage, Kick, SetGameMode, Transfer};
+
+/// An action [`Context::perform`](crate::Context::perform) can do. Only Anchor's actions
+/// implement it.
+pub trait Action: Sealed + Send + 'static {}
+
+/// Why an action or a deferred callback was not queued.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Error {
+    /// The deferred queue is full (4,096 callbacks wait), so nothing was queued.
+    Full,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Full => "the deferred queue is full",
+        })
+    }
+}
+
+impl std::error::Error for Error {}
+
+/// Action and deferred callback results.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Public in name only: other crates can neither name nor implement it.
+pub(crate) use sealed::Sealed;
+
+mod sealed {
+    use super::Context;
+
+    /// Does the action.
+    pub trait Sealed {
+        /// Does the action now, through the game rules, raising its events.
+        fn perform(self, cx: &mut Context<'_>);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_full_queue_is_an_error_with_a_lowercase_message() {
+        let e: Result<()> = Err(Error::Full);
+        assert_eq!(
+            e.map_err(|e| e.to_string()),
+            Err("the deferred queue is full".to_owned())
+        );
+    }
+}

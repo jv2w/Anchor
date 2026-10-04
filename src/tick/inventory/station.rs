@@ -20,11 +20,13 @@ mod enchant;
 #[cfg(test)]
 mod tests;
 
-use super::super::{SessionId, State, block_entity, interact, survival, trade};
-use super::request::{Created, Error, Exec, Result};
+pub(super) use self::enchant::Choice;
+use super::super::{SessionId, State, block_entity, dispatch, interact, survival, trade};
+use super::request::{Created, Error, Exec, Made, Result};
 use super::{SlotRef, Station, WindowKind};
 use crate::block;
 use crate::crafting::{self, Ingredient, Recipe, ShapelessType};
+use crate::event::{EnchantOption, PlayerEnchantingOptionsRequest};
 use crate::item::{self, Stack};
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::packet::{Packet, PlayerEnchantOptions};
@@ -34,6 +36,7 @@ use crate::protocol::{
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::BlockPos;
+pub(in crate::tick) use enchant::enchant as enchant_item;
 
 /// The most patterns a loom puts on a banner (Bedrock).
 const MAX_LOOM_PATTERNS: usize = 6;
@@ -50,6 +53,12 @@ pub(super) struct Shown {
 }
 
 impl Shown {
+    /// The options shown, with their recipe network IDs (tests).
+    #[cfg(test)]
+    pub(super) fn options(&self) -> &[(u32, Choice)] {
+        &self.options
+    }
+
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::super::Fnv) {
         let Self { options } = self;
@@ -76,6 +85,8 @@ pub(super) struct Context {
     beacon_level: u8,
     /// The trade offers the request's `CraftRecipe` actions name.
     offers: Vec<(u32, trade::Offer)>,
+    /// The server's custom content: its recipes and creative items.
+    pub(super) custom: std::sync::Arc<crate::custom::Registry>,
 }
 
 /// Reads what the stations need for `request` of `session` (PLAN.md 10.7: the executor sees only
@@ -112,6 +123,7 @@ pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequ
         filter: request.filter_strings.iter().take(1).cloned().collect(),
         beacon_level,
         offers,
+        custom: std::sync::Arc::clone(&state.custom),
     }
 }
 
@@ -265,6 +277,14 @@ fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     let cost = u8::try_from(index + 1).map_err(|_| Error::Recipe)?;
     let result = enchant::enchant(&input.with_count(1), &choice.enchantments);
     exec.set_created(Some(Created::of(&result, 1)))?;
+    if exec.describe {
+        exec.made = Some(Made::Enchant {
+            choice,
+            input: input.with_count(1),
+            output: result,
+            cost,
+        });
+    }
     Ok(Craft::Enchant {
         input: input.with_count(1),
         lapis: cost,
@@ -275,7 +295,7 @@ fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
 /// `CraftRecipe` on a stonecutter (dragonfly `handleStonecutting`; PMMP crafts it as any
 /// recipe): a stonecutter recipe `times` times from the input slot.
 fn begin_stonecutter(exec: &mut Exec<'_>, id: u32, times: u8) -> Result<Craft> {
-    let Some(Recipe::Shapeless(r)) = crafting::recipe(id) else {
+    let Some(Recipe::Shapeless(r)) = exec.ctx.custom.recipe(id) else {
         return Err(Error::Recipe);
     };
     let (ShapelessType::Stonecutter, [ingredient], [result]) = (r.kind, r.ingredients, r.results)
@@ -287,6 +307,7 @@ fn begin_stonecutter(exec: &mut Exec<'_>, id: u32, times: u8) -> Result<Craft> {
         return Err(Error::Recipe);
     }
     exec.set_created(Some(Created::of(&result, u32::from(times))))?;
+    made(exec, result, times);
     Ok(Craft::Stonecutter {
         ingredient: *ingredient,
         times,
@@ -300,7 +321,7 @@ fn begin_stonecutter(exec: &mut Exec<'_>, id: u32, times: u8) -> Result<Craft> {
 fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     let (input, material, template) = (ui(exec, 0)?, ui(exec, 1)?, ui(exec, 2)?);
     let one = input.with_count(1);
-    let result = match crafting::recipe(id) {
+    let result = match exec.ctx.custom.recipe(id) {
         Some(Recipe::SmithingTransform(r))
             if r.input.accepts(&input)
                 && r.addition.accepts(&material)
@@ -340,6 +361,7 @@ fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
         return Err(Error::Recipe);
     }
     exec.set_created(Some(Created::of(&result, 1)))?;
+    made(exec, result, 1);
     Ok(Craft::Smithing {
         input: one,
         material: material.with_count(1),
@@ -403,6 +425,7 @@ fn begin_loom(exec: &mut Exec<'_>, pattern: &str, times: u8) -> Result<Craft> {
     tag.insert("Patterns".to_owned(), Value::List(List::Compound(list)));
     let result = Stack::from_parts(banner_type, 1, banner.meta(), Some(tag));
     exec.set_created(Some(Created::of(&result, u32::from(times))))?;
+    made(exec, result, times);
     Ok(Craft::Loom {
         banner: banner.with_count(1),
         dye: dye.with_count(1),
@@ -455,11 +478,31 @@ fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8) -> Result<Craft> {
         return Err(Error::Recipe);
     }
     exec.set_created(Some(Created::of(&offer.sell, u32::from(times))))?;
+    if exec.describe {
+        exec.made = Some(Made::Trade {
+            net_id,
+            inputs: [offer.buy_a.clone(), offer.buy_b.clone()],
+            output: offer.sell.clone(),
+            times: u32::from(times),
+        });
+    }
     Ok(Craft::Trade {
         net_id,
         offer,
         times,
     })
+}
+
+/// Describes a station recipe making `result` `times` times for the events (its inputs come from
+/// what the request consumes).
+fn made(exec: &mut Exec<'_>, result: Stack, times: u8) {
+    if exec.describe {
+        exec.made = Some(Made::Craft {
+            inputs: Vec::new(),
+            outputs: vec![result],
+            times: u32::from(times),
+        });
+    }
 }
 
 /// What the consume actions took from the window's own slot `i`: the count, and whether every
@@ -656,18 +699,108 @@ fn refresh_options(state: &mut State, session: SessionId, world: WorldIndex, pos
         .worlds
         .get(world)
         .map_or(0, |w| enchant::bookshelves(w, pos));
-    let Some(player) = state.players.get_mut(&session) else {
+    let Some(player) = state.players.get(&session) else {
         return;
     };
     let seed = survival::enchantment_seed(player);
-    let inv = &mut player.inventory;
-    let input = inv
+    let input = enchant_input(state, session);
+    let mut choices = enchant::options(&input, shelves, seed);
+    if !choices.is_empty() && dispatch::heard::<PlayerEnchantingOptionsRequest>(state) {
+        let mut event = PlayerEnchantingOptionsRequest {
+            player: crate::player::Id::new(session),
+            world: super::world_id(world),
+            pos,
+            options: choices.iter().map(option_of).collect(),
+            cancelled: false,
+        };
+        dispatch::call(state, &mut event);
+        let moved = dispatch::listened::<PlayerEnchantingOptionsRequest>(state)
+            && (window_of(state, session)
+                != Some(WindowKind::Station {
+                    world,
+                    pos,
+                    kind: Station::Enchant,
+                })
+                || enchant_input(state, session) != input);
+        if moved {
+            return;
+        }
+        choices = if event.cancelled {
+            Vec::new()
+        } else {
+            event.options.iter().map(choice_of).collect()
+        };
+        show_options(state, session, &input, choices);
+        dispatch::watch(state, &event);
+        return;
+    }
+    show_options(state, session, &input, choices);
+}
+
+/// The kind of `session`'s window.
+fn window_of(state: &State, session: SessionId) -> Option<WindowKind> {
+    state
+        .players
+        .get(&session)?
+        .inventory
         .window
         .as_ref()
+        .map(|w| w.kind)
+}
+
+/// The input slot of `session`'s station window.
+fn enchant_input(state: &State, session: SessionId) -> Stack {
+    state
+        .players
+        .get(&session)
+        .and_then(|p| p.inventory.window.as_ref())
         .and_then(|w| w.ui.first())
         .map(|s| s.stack.clone())
-        .unwrap_or_default();
-    let choices = enchant::options(&input, shelves, seed);
+        .unwrap_or_default()
+}
+
+/// The longest option name a listener may set, in bytes (the client shows a few words).
+const MAX_OPTION_NAME: usize = 64;
+/// The most enchantments of an option a listener sets (one of each kind is far fewer).
+const MAX_OPTION_ENCHANTMENTS: usize = 16;
+
+/// An option as the event shows it.
+fn option_of(c: &Choice) -> EnchantOption {
+    EnchantOption {
+        required_level: c.level,
+        name: c.name.clone(),
+        enchantments: c.enchantments.clone(),
+    }
+}
+
+/// An option a listener set, kept within what the packet and the client take: the name cut to
+/// [`MAX_OPTION_NAME`] bytes at a character, at most [`MAX_OPTION_ENCHANTMENTS`] enchantments,
+/// none of level 0.
+fn choice_of(o: &EnchantOption) -> Choice {
+    let mut end = o.name.len().min(MAX_OPTION_NAME);
+    while !o.name.is_char_boundary(end) {
+        end -= 1;
+    }
+    Choice {
+        level: o.required_level,
+        name: o.name.get(..end).unwrap_or_default().to_owned(),
+        enchantments: o
+            .enchantments
+            .iter()
+            .copied()
+            .filter(|(_, level)| *level > 0)
+            .take(MAX_OPTION_ENCHANTMENTS)
+            .collect(),
+    }
+}
+
+/// Shows `choices` for `input` in `session`'s enchanting window, each with a new recipe network
+/// ID.
+fn show_options(state: &mut State, session: SessionId, input: &Stack, choices: Vec<Choice>) {
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    let inv = &mut player.inventory;
     let mut options = Vec::with_capacity(choices.len());
     for c in choices {
         let id = inv.next_option_id;
@@ -678,7 +811,7 @@ fn refresh_options(state: &mut State, session: SessionId, world: WorldIndex, pos
     if let Some(w) = inv.window.as_mut() {
         w.station.options = options;
     }
-    player.send(packet);
+    player.send_packet(packet);
 }
 
 /// `PlayerEnchantOptions` of `options` for an input of enchantment slot `slot` in BDS's shape

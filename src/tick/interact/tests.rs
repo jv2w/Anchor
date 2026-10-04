@@ -39,7 +39,13 @@ struct Harness {
 
 impl Harness {
     fn new(edit: impl FnOnce(&mut Config)) -> Self {
-        let state = new_state(settings(edit), Listeners::default());
+        Self::with(edit, Listeners::default())
+    }
+
+    /// [`Harness::new`] with event listeners (sorted here, as `build()` does).
+    fn with(edit: impl FnOnce(&mut Config), mut listeners: Listeners) -> Self {
+        listeners.sort();
+        let state = new_state(settings(edit), listeners);
         let (j, rx) = join(1, 0);
         let mut h = Self {
             state,
@@ -185,7 +191,7 @@ fn action(kind: PlayerAction, pos: BlockPos, face: Face) -> PlayerBlockAction {
     PlayerBlockAction {
         action: kind.into(),
         block_pos: [pos.x, pos.y, pos.z],
-        face: i32::from(props::face_index(face)),
+        face: i32::from(face.index()),
     }
 }
 
@@ -194,7 +200,7 @@ fn click(pos: BlockPos, face: Face, stack: &Stack) -> UseItemTransactionData {
     let mut data = UseItemTransactionData {
         action_type: UseItemAction::ClickBlock.into(),
         block_position: [pos.x, pos.y, pos.z],
-        block_face: i32::from(props::face_index(face)),
+        block_face: i32::from(face.index()),
         clicked_position: [0.5, 1.0, 0.5],
         ..Default::default()
     };
@@ -463,6 +469,57 @@ fn a_refused_placement_changes_nothing_and_resyncs_the_clicked_and_target_blocks
     h.run(vec![input]);
     assert_eq!(h.block(BlockPos::new(2, -60, 0)), block::AIR);
     assert_eq!(h.held().count(), 5);
+}
+
+#[test]
+fn a_refused_click_on_a_fake_block_shows_the_fake_block_again() {
+    let mut h = Harness::new(|_| {});
+    let planks = block_item(Kind::OakPlanks, 5);
+    h.hold(planks.clone());
+    let ground = BlockPos::new(0, -61, 0);
+    let fake = Kind::Diamond.default_state();
+    let player = crate::player::Id::new(SessionId::new(1));
+    crate::Context {
+        state: &mut h.state,
+    }
+    .send_fake_block(player, ground, fake)
+    .unwrap();
+    h.run(Vec::new());
+    h.packets();
+    // The player stands where the block would go: refused, and the clicked block is resent.
+    let data = click(ground, Face::Up, &planks);
+    let input = h.auth(Vec::new(), Some(data));
+    h.run(vec![input]);
+    assert_eq!(h.held().count(), 5);
+    let resent = |h: &mut Harness, pos: BlockPos| {
+        h.packets()
+            .iter()
+            .filter_map(|p| match p {
+                Packet::UpdateBlock(u) if block_pos(u.position) == pos => {
+                    Some(u.new_block_runtime_id)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        resent(&mut h, ground),
+        [fake.network_id()],
+        "the fake block"
+    );
+    // Without the fake block, the real one.
+    let cleared = crate::Context {
+        state: &mut h.state,
+    }
+    .clear_fake_block(player, ground);
+    assert!(cleared);
+    h.run(Vec::new());
+    h.packets();
+    let data = click(ground, Face::Up, &planks);
+    let input = h.auth(Vec::new(), Some(data));
+    h.run(vec![input]);
+    let real = h.block(ground).network_id();
+    assert_eq!(resent(&mut h, ground), [real]);
 }
 
 #[test]
@@ -893,6 +950,41 @@ fn signs_keep_their_text_and_take_dye_glow_and_wax() {
     assert_eq!(sign_at(&h).0[0], "hello");
 }
 
+// pmmp: Player::openSignEditor
+#[test]
+fn the_api_opens_a_sign_editor_only_on_a_sign_in_the_game() {
+    let mut h = Harness::new(|_| {});
+    let sign = stack(crate::item::Kind::OakSign);
+    h.hold(sign.clone());
+    let at = place_on_grass(&mut h, &sign);
+    assert_eq!(at, TARGET);
+    sign_edit(&mut h, "first");
+    assert_eq!(
+        h.player().breaking.sign_editor,
+        None,
+        "one edit per opening"
+    );
+    h.packets();
+    let id = crate::player::Id::new(SessionId::new(1));
+    let mut cx = Context {
+        state: &mut h.state,
+    };
+    let grass = BlockPos::new(5, -61, 5);
+    assert!(
+        !cx.open_sign_editor(id, grass, crate::tile::Side::Front),
+        "not a sign"
+    );
+    let stranger = crate::player::Id::new(SessionId::new(9));
+    assert!(!cx.open_sign_editor(stranger, at, crate::tile::Side::Front));
+    assert!(cx.open_sign_editor(id, at, crate::tile::Side::Back));
+    assert_eq!(h.player().breaking.sign_editor, Some((0, at)));
+    h.run(Vec::new());
+    assert!(h.packets().iter().any(|p| matches!(p, Packet::OpenSign(o)
+        if o.position == [at.x, at.y, at.z] && !o.front_side)));
+    sign_edit(&mut h, "second");
+    assert_eq!(sign_at(&h).0[0], "second");
+}
+
 #[test]
 fn flower_pots_frames_jukeboxes_and_lecterns_hold_items() {
     let mut h = Harness::new(|_| {});
@@ -1212,3 +1304,6 @@ fn explosions_break_both_door_halves_once_without_break_particles() {
         .count();
     assert_eq!(drops, 1, "one door");
 }
+
+mod custom;
+mod events;

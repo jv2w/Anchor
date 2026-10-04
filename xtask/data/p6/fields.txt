@@ -73,3 +73,36 @@ StartGame NewNether
 StartGame ServerJoinInformation
 
 ChunkRadiusUpdated ChunkRadius
+
+# The player's permissions: in the spawn window and after `op` in the API scenarios.
+UpdateAbilities AbilityData.CommandPermissions
+UpdateAbilities AbilityData.PlayerPermissions
+
+# The API scenarios (`cargo xtask p6 api`, xtask/src/p6/api.rs): compared per step of the bot. The
+# CommandOutput origin's UUID is the request's (the bot checks that); none of these packets is in
+# the spawn window.
+CommandOutput CommandOrigin.Origin
+CommandOutput CommandOrigin.RequestID
+CommandOutput CommandOrigin.PlayerUniqueID
+CommandOutput OutputType
+CommandOutput SuccessCount
+CommandOutput OutputMessages
+CommandOutput DataSet
+Text TextType
+Text NeedsTranslation
+Text SourceName
+Text Message
+Text Parameters
+UpdatePlayerGameType GameType
+SetPlayerGameType GameType
+MobEffect Operation
+MobEffect EffectType
+MobEffect Amplifier
+MobEffect Particles
+MobEffect Duration
+SpawnParticleEffect ParticleName
+SpawnParticleEffect Dimension
+Disconnect Reason
+Disconnect HideDisconnectionScreen
+Disconnect Message
+Disconnect FilteredMessage

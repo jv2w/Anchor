@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use serde::Deserialize;
 
-use crate::crypto::STD;
+use crate::crypto::{STD, crc32};
 
 /// Largest offer body. A real offer is about 2 KiB, most of it the identity token.
 const MAX_OFFER: usize = 64 * 1024;
@@ -536,22 +536,6 @@ pub(crate) fn fingerprint_text(bytes: &[u8; FINGERPRINT_LEN]) -> String {
     out
 }
 
-/// CRC-32 (IEEE 802.3, reflected), bit by bit: it hashes a few dozen bytes per answer.
-fn crc32(parts: &[&[u8]]) -> u32 {
-    let mut crc = !0u32;
-    for &b in parts.iter().flat_map(|part| part.iter()) {
-        crc ^= u32::from(b);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                crc >> 1 ^ 0xedb8_8320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1066,7 +1050,7 @@ a=max-message-size:262144\r
     }
 
     #[test]
-    fn fingerprints_and_crcs_match_references() {
+    fn fingerprints_match_references() {
         let mut bytes = [0u8; FINGERPRINT_LEN];
         bytes[0] = 0x0a;
         bytes[31] = 0xf0;
@@ -1075,8 +1059,6 @@ a=max-message-size:262144\r
         assert!(text.starts_with("0A:00:"));
         assert!(text.ends_with(":00:F0"));
         assert_eq!(parse_digest(&text), Some(bytes));
-        assert_eq!(crc32(&[b"123456789"]), 0xcbf4_3926);
-        assert_eq!(crc32(&[b"1234", b"", b"56789"]), 0xcbf4_3926);
     }
 
     #[test]

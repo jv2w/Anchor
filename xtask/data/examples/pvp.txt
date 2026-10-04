@@ -1,0 +1,13 @@
+# The pvp example (examples/pvp.rs), played by the bot from its join.
+# Every life starts with the kit.
+expect-item minecraft:iron_sword
+expect-item minecraft:arrow 16
+# The sidebar shows the record and who is online.
+expect-score sidebar Kills: 0
+expect-score sidebar Online: 1
+# /kit refills the arrows and the food, then waits for its cooldown.
+command kit
+expect-output Kit refilled
+expect-item minecraft:arrow 32
+command kit
+expect-output again in

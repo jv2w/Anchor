@@ -1,24 +1,36 @@
-//! What each player sees of its world (PLAN.md 10.6): the chunks around it, the chunk loads they
-//! need, the sub-chunk request answers and the block changes it is sent.
+//! What each player sees of its world (PLAN.md 10.6, 10.8): the chunks around it, the chunk loads
+//! they need, the sub-chunk request answers, the block changes it is sent and its fake blocks.
 //!
 //! Chunks go out in the sub-chunk request system, as BDS sends them (P6): a `LevelChunk` with the
 //! biomes, then the client asks for the sub-chunks it wants. A chunk stays loaded while a player
-//! sees it or it is a spawn chunk; an unloaded chunk with unsaved changes waits in memory for the
-//! next commit (`save`).
+//! sees it or it is a spawn chunk; one nobody holds unloads in the next view phase (PMMP unloads
+//! at its world tick too), with or without [`ChunkUnload`] listeners, so that listening changes
+//! nothing; an unloaded chunk with unsaved changes waits in memory for the next commit (`save`).
+//!
+//! Fake blocks (PLAN.md 10.8) are blocks one player is shown instead of the world's: the user's
+//! ([`Context::send_fake_block`]) and, over them, the container blocks of an open menu. They are
+//! sent in the output phase, so the last change of a tick wins whatever its order with the
+//! world's changes; sent again after every sub-chunk answer that holds them, as the client then
+//! forgets them; and a world change at their position is not sent while they stand. The server
+//! keeps playing by the world's blocks.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use super::extra::Extras;
+use super::queue::SessionId;
 use super::rules::Rules;
 use super::save::{Saving, Unsaved, keep_unloaded};
-use super::{Phase, Player, State};
+use super::{Context, Phase, Player, State, dispatch};
 use crate::block;
+use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend, SpawnChange};
 use crate::math::Vec3;
+use crate::menu::{Error as MenuError, Result as MenuResult};
+use crate::player;
 use crate::protocol::packet::{
-    LevelChunk, NetworkChunkPublisherUpdate, Packet, SubChunk, SubChunkRequest, UpdateBlock,
-    UpdateSubChunkBlocks,
+    BlockActorData, LevelChunk, NetworkChunkPublisherUpdate, Packet, SubChunk, SubChunkRequest,
+    UpdateBlock, UpdateSubChunkBlocks,
 };
 use crate::protocol::{BlockChangeEntry, HeightMap, SubChunkEntry};
 use crate::save::{Loaded, Request, WorldIndex};
@@ -28,6 +40,12 @@ use crate::world::{BlockPos, Chunk, ChunkPos, Kind, NO_HEIGHT, SUB_CHUNKS, World
 pub(super) const MAX_LOADS_IN_FLIGHT: usize = 1024;
 /// Chunk loads one tick may ask for.
 const MAX_LOADS_PER_TICK: usize = 256;
+/// The most chunks [`ChunkUnload`] listeners may keep loaded at once; past it a cancel is
+/// ignored, so a listener that cancels every unload cannot hold the whole map in memory.
+const MAX_KEPT_CHUNKS: usize = 1024;
+/// How long a chunk a listener kept stays loaded before the listeners are asked again: 30
+/// seconds, PMMP's unload delay.
+const KEEP_TICKS: u64 = 600;
 /// Unanswered sub-chunk requests a player may have queued; more are dropped.
 const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 256;
 /// Sub-chunk requests answered per player per tick; the rest wait for the next tick.
@@ -46,6 +64,9 @@ const HEIGHT_MAP_HAS_DATA: u8 = 1;
 const HEIGHT_MAP_TOO_HIGH: u8 = 2;
 const HEIGHT_MAP_TOO_LOW: u8 = 3;
 const HEIGHT_MAP_ALL_COPIED: u8 = 4;
+/// The most fake blocks one player is shown, and the most changes of what a player is shown one
+/// tick takes from the API (clears of fake blocks it had before the tick come on top).
+pub(super) const MAX_FAKE_BLOCKS: usize = 4096;
 
 /// A chunk of one of the server's worlds.
 pub(super) type Key = (WorldIndex, ChunkPos);
@@ -65,8 +86,19 @@ pub(super) struct View {
     sent: BTreeSet<ChunkPos>,
     /// Sub-chunk requests waiting for an answer, oldest first.
     requests: VecDeque<SubChunkRequest>,
+    /// The user's fake blocks ([`Context::send_fake_block`]), at most [`MAX_FAKE_BLOCKS`].
+    fakes: BTreeMap<FakeKey, block::State>,
+    /// The container blocks of the open menu, shown over the user's fake blocks.
+    menu: [Option<(BlockPos, block::State)>; 2],
     /// What the output phase sends this tick; empty between ticks.
     pub(super) out: Out,
+}
+
+/// A fake block's place: its chunk and sub-chunk y first, so one sub-chunk's are a range.
+type FakeKey = (ChunkPos, i32, BlockPos);
+
+fn fake_key(pos: BlockPos) -> FakeKey {
+    (pos.chunk(), pos.y >> 4, pos)
 }
 
 /// The chunk packets of one tick for one player.
@@ -78,11 +110,15 @@ pub(super) struct Out {
     chunks: Vec<ChunkPos>,
     /// Sub-chunk requests to answer, in order.
     answers: Vec<SubChunkRequest>,
+    /// Positions whose fake block was set or cleared this tick: the output phase sends what they
+    /// show then. At most [`MAX_FAKE_BLOCKS`] from sets and menus, plus the clears of fake blocks
+    /// the player had before the tick.
+    shown: BTreeSet<BlockPos>,
 }
 
 impl Out {
     pub(super) fn is_empty(&self) -> bool {
-        !self.publish && self.chunks.is_empty() && self.answers.is_empty()
+        !self.publish && self.chunks.is_empty() && self.answers.is_empty() && self.shown.is_empty()
     }
 }
 
@@ -106,6 +142,88 @@ impl View {
     #[cfg(test)]
     pub(super) fn is_complete(&self) -> bool {
         self.sent.len() == self.order.len()
+    }
+
+    /// The fake block the player is shown at `pos`, if any: the open menu's, else the user's.
+    pub(super) fn shown(&self, pos: BlockPos) -> Option<block::State> {
+        self.menu
+            .iter()
+            .flatten()
+            .find(|(p, _)| *p == pos)
+            .map(|(_, b)| *b)
+            .or_else(|| self.fakes.get(&fake_key(pos)).copied())
+    }
+
+    /// The user's fake blocks in sub-chunk `sub_y` of `chunk`.
+    fn fakes_in(
+        &self,
+        chunk: ChunkPos,
+        sub_y: i32,
+    ) -> impl Iterator<Item = (BlockPos, block::State)> + '_ {
+        let low = (chunk, sub_y, BlockPos::new(i32::MIN, i32::MIN, i32::MIN));
+        let high = (chunk, sub_y, BlockPos::new(i32::MAX, i32::MAX, i32::MAX));
+        self.fakes
+            .range(low..=high)
+            .map(|(&(_, _, pos), &b)| (pos, b))
+    }
+
+    /// Whether the player is shown a fake block in sub-chunk `sub_y` of `chunk`.
+    fn shows_in(&self, chunk: ChunkPos, sub_y: i32) -> bool {
+        self.fakes_in(chunk, sub_y).next().is_some()
+            || self
+                .menu
+                .iter()
+                .flatten()
+                .any(|(p, _)| fake_key(*p).0 == chunk && p.y >> 4 == sub_y)
+    }
+
+    /// The fake blocks the player is shown in sub-chunk `sub_y` of `chunk`, in position order.
+    fn shown_in(&self, chunk: ChunkPos, sub_y: i32) -> Vec<(BlockPos, block::State)> {
+        let mut out: Vec<(BlockPos, block::State)> = self.fakes_in(chunk, sub_y).collect();
+        for &(pos, b) in self.menu.iter().flatten() {
+            if pos.chunk() != chunk || pos.y >> 4 != sub_y {
+                continue;
+            }
+            match out.binary_search_by_key(&pos, |(p, _)| *p) {
+                Ok(i) => {
+                    if let Some(e) = out.get_mut(i) {
+                        e.1 = b;
+                    }
+                }
+                Err(i) => out.insert(i, (pos, b)),
+            }
+        }
+        out
+    }
+
+    /// Whether `n` more changes of what the player is shown fit this tick.
+    pub(super) fn has_room_to_show(&self, n: usize) -> bool {
+        self.out.shown.len().saturating_add(n) <= MAX_FAKE_BLOCKS
+    }
+
+    /// Shows the open menu's container blocks (none: the menu closed) over the user's fake
+    /// blocks and returns the ones shown before; the output phase sends both the old and the new
+    /// positions.
+    pub(super) fn set_menu_blocks(
+        &mut self,
+        blocks: [Option<(BlockPos, block::State)>; 2],
+    ) -> [Option<(BlockPos, block::State)>; 2] {
+        for (pos, _) in self.menu.iter().chain(&blocks).flatten() {
+            self.out.shown.insert(*pos);
+        }
+        std::mem::replace(&mut self.menu, blocks)
+    }
+
+    /// The menu's container blocks shown (tests).
+    #[cfg(test)]
+    pub(super) fn menu_blocks(&self) -> [Option<(BlockPos, block::State)>; 2] {
+        self.menu
+    }
+
+    /// How many fake blocks the user set (tests).
+    #[cfg(test)]
+    pub(super) fn fake_count(&self) -> usize {
+        self.fakes.len()
     }
 
     /// Moves the cursor past the chunks already sent.
@@ -138,6 +256,8 @@ impl View {
             cursor,
             sent,
             requests,
+            fakes,
+            menu,
             out: _,
         } = self;
         h.u64(u64::from(*radius));
@@ -166,6 +286,20 @@ impl View {
                 h.raw(&offset.map(i8::cast_unsigned));
             }
         }
+        let block = |h: &mut super::Fnv, pos: BlockPos, b: block::State| {
+            h.bytes(&[pos.x, pos.y, pos.z].map(i32::to_le_bytes).concat());
+            h.u64(u64::from(b.network_id()));
+        };
+        h.usize(fakes.len());
+        for (&(_, _, pos), &b) in fakes {
+            block(h, pos, b);
+        }
+        for m in menu {
+            match m {
+                Some((pos, b)) => block(h, *pos, *b),
+                None => h.u64(0),
+            }
+        }
     }
 }
 
@@ -191,17 +325,7 @@ pub(super) fn disc(center: ChunkPos, radius: u8) -> Vec<ChunkPos> {
 
 /// The chunk an eye position is in. Positions are finite (checked when they arrive).
 pub(super) fn chunk_of(position: Vec3) -> ChunkPos {
-    let [x, _, z] = block_of(position);
-    BlockPos::new(x, 0, z).chunk()
-}
-
-/// The block an eye position is in.
-fn block_of(position: Vec3) -> [i32; 3] {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "invariant: positions are finite and inside the world border, which i32 holds"
-    )]
-    [position.x, position.y, position.z].map(|c| c.floor() as i32)
+    BlockPos::containing(position).chunk()
 }
 
 /// The loaded chunks, the chunk loads in flight and the unloaded chunks waiting for a commit.
@@ -218,13 +342,45 @@ pub(super) struct Chunks {
     batch: Vec<Key>,
     /// The extras of the loaded chunks (PLAN.md 10.7).
     pub(super) extras: Extras,
+    /// The spawn whose 3 × 3 chunks are held for each world, by world index: the world's spawn,
+    /// or its old one until the view phase moves the hold ([`move_spawns`]).
+    spawns: Vec<BlockPos>,
+    /// The chunk events someone listens to, fixed when the server is built ([`hold_spawns`]).
+    heard: Heard,
+    /// Chunks loaded or brought back from memory this tick, for [`ChunkLoad`] in the view phase
+    /// (`true`: the generator made it). Empty unless it is heard, and between ticks.
+    loads: BTreeMap<Key, bool>,
+    /// Chunks whose last holder let go: still loaded until the view phase unloads them, asking
+    /// the [`ChunkUnload`] listeners first ([`announce`]).
+    unloading: BTreeSet<Key>,
+    /// Chunks a [`ChunkUnload`] listener kept loaded, by the tick they are asked about again;
+    /// each holds one interest. At most [`MAX_KEPT_CHUNKS`].
+    kept: BTreeSet<(u64, Key)>,
+    /// The chunks picked to send this tick, for [`PlayerPostChunkSend`] in the view phase. Empty
+    /// unless it is heard, and between ticks.
+    sent: Vec<(SessionId, ChunkPos)>,
+}
+
+/// Which chunk events someone listens to or monitors.
+#[derive(Debug, Default, Clone, Copy)]
+struct Heard {
+    load: bool,
+    unload: bool,
+    sent: bool,
+    spawn: bool,
 }
 
 impl Chunks {
     /// Whether no chunk is held, wanted, in flight or unsaved (for leak tests).
     #[cfg(test)]
     pub(super) fn is_idle(&self) -> bool {
-        self.requested.is_empty() && self.unsaved.is_empty() && self.batch.is_empty()
+        self.requested.is_empty()
+            && self.unsaved.is_empty()
+            && self.batch.is_empty()
+            && self.loads.is_empty()
+            && self.unloading.is_empty()
+            && self.kept.is_empty()
+            && self.sent.is_empty()
     }
 
     /// The chunks held, wanted or in flight, for tests.
@@ -233,15 +389,28 @@ impl Chunks {
         self.interest.len()
     }
 
+    /// Whether `key` is held, wanted or in flight, for tests.
+    #[cfg(test)]
+    pub(super) fn holds(&self, key: Key) -> bool {
+        self.interest.contains_key(&key)
+    }
+
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        // The batch is empty between ticks.
+        // The batch, the loads and the sent chunks are empty between ticks; the events heard
+        // are fixed.
         let Self {
             interest,
             requested,
             unsaved,
             batch: _,
             extras,
+            spawns,
+            heard: _,
+            loads: _,
+            unloading,
+            kept,
+            sent: _,
         } = self;
         let key = |h: &mut super::Fnv, &(w, p): &Key| {
             h.usize(w);
@@ -263,6 +432,19 @@ impl Chunks {
             u.hash_into(h);
         }
         extras.hash_into(h);
+        h.usize(spawns.len());
+        for p in spawns {
+            h.bytes(&[p.x, p.y, p.z].map(i32::to_le_bytes).concat());
+        }
+        h.usize(unloading.len());
+        for k in unloading {
+            key(h, k);
+        }
+        h.usize(kept.len());
+        for (due, k) in kept {
+            h.u64(*due);
+            key(h, k);
+        }
     }
 }
 
@@ -275,24 +457,25 @@ fn hold(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, key: Key) 
     if *count > 1 {
         return;
     }
+    if chunks.unloading.remove(&key) {
+        // Let go and held again before the view phase asked about it: it never left.
+        return;
+    }
     if let Some(Unsaved { chunk, extras, .. }) = chunks.unsaved.remove(&key)
         && let Some(world) = worlds.get_mut(key.0)
     {
         world.restore_chunk(key.1, chunk);
         rules.load(key, extras.extras(), world);
         chunks.extras.chunk_restored(key, extras);
+        if chunks.heard.load {
+            chunks.loads.entry(key).or_insert(false);
+        }
     }
 }
 
-/// Removes one holder of `key`; the last one unloads the chunk and its extras. A chunk of a
-/// persistent world whose changes no commit holds yet stays in memory until one does.
-fn release(
-    worlds: &mut [World],
-    chunks: &mut Chunks,
-    rules: &mut Rules,
-    saving: &Saving,
-    key: Key,
-) {
+/// Removes one holder of `key`; after the last one the chunk stays loaded until the view phase
+/// unloads it ([`announce`]).
+fn release(chunks: &mut Chunks, key: Key) {
     let Some(count) = chunks.interest.get_mut(&key) else {
         return;
     };
@@ -301,6 +484,12 @@ fn release(
         return;
     }
     chunks.interest.remove(&key);
+    chunks.unloading.insert(key);
+}
+
+/// Unloads a chunk nobody holds, with its extras. A chunk of a persistent world whose changes no
+/// commit holds yet stays in memory until one does.
+fn unload(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, saving: &Saving, key: Key) {
     rules.unload(key, &mut chunks.extras);
     let extras = chunks.extras.chunk_unloaded(key);
     let Some(world) = worlds.get_mut(key.0) else {
@@ -315,41 +504,86 @@ fn release(
     }
 }
 
-/// Holds the spawn chunks of every world (3 × 3 around the spawn, as PMMP keeps them), so they
-/// stay loaded without players.
+/// Numbers the worlds by their place in the list ([`World::id`]) and holds the spawn chunks of
+/// every world (3 × 3 around the spawn, as PMMP keeps them), so they stay loaded without players.
+///
+/// It also notes which chunk events someone listens to: listeners are fixed when the server is
+/// built, and the chunk code that runs on split borrows of the state cannot ask.
 pub(super) fn hold_spawns(state: &mut State) {
-    let spawns: Vec<(WorldIndex, ChunkPos)> = state
-        .worlds
-        .iter()
-        .enumerate()
-        .map(|(i, w)| (i, w.spawn().chunk()))
-        .collect();
-    for (world, center) in spawns {
-        for x in -1..=1 {
-            for z in -1..=1 {
-                let pos = ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z));
-                hold(
-                    &mut state.worlds,
-                    &mut state.chunks,
-                    &mut state.rules,
-                    (world, pos),
-                );
-            }
+    state.chunks.heard = Heard {
+        load: dispatch::heard::<ChunkLoad>(state),
+        unload: dispatch::heard::<ChunkUnload>(state),
+        sent: dispatch::heard::<PlayerPostChunkSend>(state),
+        spawn: dispatch::heard::<SpawnChange>(state),
+    };
+    for (i, w) in state.worlds.iter_mut().enumerate() {
+        w.set_id(crate::world::Id::of(i));
+    }
+    let spawns: Vec<BlockPos> = state.worlds.iter().map(World::spawn).collect();
+    for (world, &spawn) in spawns.iter().enumerate() {
+        for pos in spawn_area(spawn.chunk()) {
+            hold(
+                &mut state.worlds,
+                &mut state.chunks,
+                &mut state.rules,
+                (world, pos),
+            );
         }
     }
+    state.chunks.spawns = spawns;
+}
+
+/// The 3 × 3 chunks around `center`.
+fn spawn_area(center: ChunkPos) -> impl Iterator<Item = ChunkPos> {
+    (-1..=1).flat_map(move |x| {
+        (-1..=1).map(move |z| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
+    })
+}
+
+/// Moves the held spawn chunks of each world whose spawn moved to another chunk
+/// ([`World::set_spawn`]): the new ones are held first, so chunks both areas share stay loaded,
+/// then the old ones are released. Returns the worlds whose spawn moved, with the spawn before,
+/// while [`SpawnChange`] is heard.
+fn move_spawns(
+    worlds: &mut [World],
+    chunks: &mut Chunks,
+    rules: &mut Rules,
+) -> Vec<(WorldIndex, BlockPos)> {
+    let mut moved = Vec::new();
+    for world in 0..chunks.spawns.len() {
+        let (Some(&held), Some(now)) = (
+            chunks.spawns.get(world),
+            worlds.get(world).map(World::spawn),
+        ) else {
+            continue;
+        };
+        if held == now {
+            continue;
+        }
+        if chunks.heard.spawn {
+            moved.push((world, held));
+        }
+        if held.chunk() != now.chunk() {
+            for pos in spawn_area(now.chunk()) {
+                hold(worlds, chunks, rules, (world, pos));
+            }
+            for pos in spawn_area(held.chunk()) {
+                release(chunks, (world, pos));
+            }
+        }
+        if let Some(spawn) = chunks.spawns.get_mut(world) {
+            *spawn = now;
+        }
+    }
+    moved
 }
 
 /// Opens or moves a player's view: the chunks it gains are held, those it loses released and
 /// forgotten as sent.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "performance: split borrows of the tick state let the player loop hold a player and the chunk tables at once"
-)]
 fn set_view(
     worlds: &mut [World],
     chunks: &mut Chunks,
     rules: &mut Rules,
-    saving: &Saving,
     world: WorldIndex,
     view: &mut View,
     center: ChunkPos,
@@ -362,7 +596,7 @@ fn set_view(
         hold(worlds, chunks, rules, (world, pos));
     }
     for &pos in old.difference(&new) {
-        release(worlds, chunks, rules, saving, (world, pos));
+        release(chunks, (world, pos));
         view.sent.remove(&pos);
     }
     view.center = center;
@@ -376,13 +610,7 @@ fn set_view(
 pub(super) fn close(state: &mut State, player: &mut Player) {
     let world = player.world;
     for &pos in &player.view.order {
-        release(
-            &mut state.worlds,
-            &mut state.chunks,
-            &mut state.rules,
-            &state.saving,
-            (world, pos),
-        );
+        release(&mut state.chunks, (world, pos));
     }
     player.view = View::default();
 }
@@ -394,12 +622,123 @@ pub(super) fn set_radius(state: &mut State, player: &mut Player, radius: u8) {
         &mut state.worlds,
         &mut state.chunks,
         &mut state.rules,
-        &state.saving,
         player.world,
         &mut player.view,
         center,
         radius,
     );
+}
+
+/// The player of `id` if it is in the game (its saved data has loaded).
+fn in_game(state: &mut State, id: player::Id) -> Option<&mut Player> {
+    state
+        .players
+        .get_mut(&id.session())
+        .filter(|p| p.phase != Phase::Loading)
+}
+
+impl Context<'_> {
+    /// Shows `block` at `pos` to `player` instead of the block of its world there, until the
+    /// fake block is cleared or the player changes world or leaves. The client is told at the
+    /// end of the tick, again whenever it is sent the sub-chunk again, and is not told of the
+    /// world's changes there while the fake block stands. A menu's container blocks show over
+    /// it while the menu is open.
+    ///
+    /// Only the client sees it: the server keeps playing by the world's block, so the player
+    /// collides with, breaks and uses the real one, and a refused interaction there may show the
+    /// real block again.
+    ///
+    /// Fails, changing nothing, if the player is not in the game, `pos` is outside the world
+    /// height, the player has 4,096 fake blocks, or 4,096 fake block changes wait to be sent to
+    /// it this tick.
+    #[doc(alias = "World::createBlockUpdatePackets")]
+    pub fn send_fake_block(
+        &mut self,
+        player: player::Id,
+        pos: BlockPos,
+        block: block::State,
+    ) -> MenuResult<()> {
+        if !World::is_in_world(pos) {
+            return Err(MenuError::OutsideWorld);
+        }
+        let view = &mut in_game(self.state, player).ok_or(MenuError::Offline)?.view;
+        let key = fake_key(pos);
+        let had = view.fakes.get(&key).copied();
+        if had == Some(block) {
+            return Ok(());
+        }
+        if had.is_none() && view.fakes.len() >= MAX_FAKE_BLOCKS {
+            return Err(MenuError::Full);
+        }
+        if !view.out.shown.contains(&pos) && !view.has_room_to_show(1) {
+            return Err(MenuError::Busy);
+        }
+        view.fakes.insert(key, block);
+        view.out.shown.insert(pos);
+        Ok(())
+    }
+
+    /// The fake block `player` is shown at `pos` ([`send_fake_block`](Self::send_fake_block)),
+    /// if any.
+    pub fn fake_block(&self, player: player::Id, pos: BlockPos) -> Option<block::State> {
+        let p = self.state.players.get(&player.session())?;
+        p.view.fakes.get(&fake_key(pos)).copied()
+    }
+
+    /// Clears the fake block `player` is shown at `pos`: by the end of the tick it sees the
+    /// world's block there again. False if the player is not in the game or has no fake block
+    /// there.
+    pub fn clear_fake_block(&mut self, player: player::Id, pos: BlockPos) -> bool {
+        let Some(p) = in_game(self.state, player) else {
+            return false;
+        };
+        if p.view.fakes.remove(&fake_key(pos)).is_none() {
+            return false;
+        }
+        p.view.out.shown.insert(pos);
+        restore_block_data(self.state, player.session(), pos);
+        true
+    }
+
+    /// Clears every fake block `player` is shown. False if the player is not in the game.
+    pub fn clear_fake_blocks(&mut self, player: player::Id) -> bool {
+        let Some(p) = in_game(self.state, player) else {
+            return false;
+        };
+        let fakes = std::mem::take(&mut p.view.fakes);
+        for &(_, _, pos) in fakes.keys() {
+            p.view.out.shown.insert(pos);
+        }
+        for &(_, _, pos) in fakes.keys() {
+            restore_block_data(self.state, player.session(), pos);
+        }
+        true
+    }
+}
+
+/// Sends `session` the client data of the block entity at `pos` once the player sees the world's
+/// block there again (after a fake block over it is cleared): the client lost it when the fake
+/// block replaced the block. It goes out after the block itself, which the output phase sends.
+pub(super) fn restore_block_data(state: &mut State, session: super::SessionId, pos: BlockPos) {
+    let State { players, rules, .. } = state;
+    let Some(player) = players.get_mut(&session) else {
+        return;
+    };
+    if player.view.shown(pos).is_some() || !player.view.sees(pos.chunk()) {
+        return;
+    }
+    let Some(entity) = rules
+        .block_entities
+        .get(player.world, pos)
+        .filter(|e| e.is_spawnable())
+    else {
+        return;
+    };
+    let packet = Packet::BlockActorData(BlockActorData {
+        position: [pos.x, pos.y, pos.z],
+        nbt_data: entity.spawn_nbt(pos),
+    });
+    player.send_packet(packet);
 }
 
 /// Queues a sub-chunk request for the output phase; a player with too many waiting loses it.
@@ -419,6 +758,7 @@ pub(super) fn queue_request(player: &mut Player, request: SubChunkRequest) {
 /// a damaged one is quarantined, extras included (PLAN.md 10.6, 10.7).
 pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded: Loaded) {
     let key = (world, pos);
+    let generated = matches!(loaded, Loaded::Generated(..));
     state.chunks.requested.remove(&key);
     if !state.chunks.interest.contains_key(&key) {
         return;
@@ -431,6 +771,9 @@ pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded
             w.insert_chunk(pos, *chunk);
             state.rules.load(key, &stored.extras, w);
             state.chunks.extras.chunk_loaded(key, stored.extras);
+            if state.chunks.heard.load {
+                state.chunks.loads.insert(key, generated);
+            }
         }
         Loaded::Damaged => {
             state.chunks.extras.chunk_unloaded(key);
@@ -445,10 +788,12 @@ pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded
     }
 }
 
-/// The view phase (serial, after the inputs and tasks): moves each view to its player, picks the
-/// chunks to send and the sub-chunk requests to answer this tick, and asks for the chunk loads
-/// they need. Returns the load request, if any.
+/// The view phase (serial, after the inputs and tasks): opens the menus that waited for their
+/// blocks and closes those their player left behind ([`super::inventory::tick_menus`]), moves
+/// each view to its player, picks the chunks to send and the sub-chunk requests to answer this
+/// tick, and asks for the chunk loads they need. Returns the load request, if any.
 pub(super) fn update(state: &mut State) -> Option<Request> {
+    super::inventory::tick_menus(state);
     let per_tick = usize::try_from(state.settings.chunks_per_tick).unwrap_or(usize::MAX);
     let spawn_radius = state.settings.spawn_radius;
     let State {
@@ -456,7 +801,6 @@ pub(super) fn update(state: &mut State) -> Option<Request> {
         worlds,
         chunks,
         rules,
-        saving,
         ..
     } = state;
     for player in players.values_mut() {
@@ -468,7 +812,6 @@ pub(super) fn update(state: &mut State) -> Option<Request> {
                     worlds,
                     chunks,
                     rules,
-                    saving,
                     player.world,
                     &mut player.view,
                     center,
@@ -487,9 +830,145 @@ pub(super) fn update(state: &mut State) -> Option<Request> {
             player.view.out.answers = player.view.requests.drain(..take).collect();
         }
     }
+    let moved = move_spawns(worlds, chunks, rules);
     request_spawn_loads(worlds, chunks);
     let batch = std::mem::take(&mut chunks.batch);
+    announce(state, &moved);
     (!batch.is_empty()).then_some(Request::Chunks(batch))
+}
+
+/// The end of the view phase: the chunk events of the tick, each built only when someone listens.
+/// In order: [`ChunkLoad`] for the chunks loaded or brought back from memory that are still
+/// loaded; [`PlayerPostChunkSend`] for the chunks picked to send (the output phase sends them at
+/// the end of this tick, before any packet a listener queues); [`SpawnChange`] for each world
+/// whose spawn moved; then the chunks nobody holds unload, after [`ChunkUnload`].
+fn announce(state: &mut State, moved: &[(WorldIndex, BlockPos)]) {
+    let heard = state.chunks.heard;
+    if heard.load {
+        for ((world, chunk), new_chunk) in std::mem::take(&mut state.chunks.loads) {
+            if !state
+                .worlds
+                .get(world)
+                .is_some_and(|w| w.is_chunk_loaded(chunk))
+            {
+                continue;
+            }
+            let mut e = ChunkLoad {
+                world: crate::world::Id::of(world),
+                chunk,
+                new_chunk,
+            };
+            dispatch::call(state, &mut e);
+            dispatch::watch(state, &e);
+        }
+    }
+    if heard.sent {
+        // Taken while the listeners run, and given back with its capacity afterwards.
+        let mut sent = std::mem::take(&mut state.chunks.sent);
+        for (session, chunk) in sent.drain(..) {
+            if !state
+                .players
+                .get(&session)
+                .is_some_and(|p| p.view.sees(chunk))
+            {
+                continue;
+            }
+            let mut e = PlayerPostChunkSend {
+                player: player::Id::new(session),
+                chunk,
+            };
+            dispatch::call(state, &mut e);
+            dispatch::watch(state, &e);
+        }
+        sent.append(&mut state.chunks.sent);
+        state.chunks.sent = sent;
+    }
+    for &(world, previous_spawn) in moved {
+        let mut e = SpawnChange {
+            world: crate::world::Id::of(world),
+            previous_spawn,
+        };
+        dispatch::call(state, &mut e);
+        dispatch::watch(state, &e);
+    }
+    unload_released(state);
+}
+
+/// Unloads each chunk nobody holds: those let go since the last view phase and those kept
+/// [`KEEP_TICKS`] ago, each after asking [`ChunkUnload`] while it is heard. A cancelled unload keeps the chunk loaded, held by its keep
+/// alone, while fewer than [`MAX_KEPT_CHUNKS`] are kept; every other chunk unloads. A chunk held
+/// again meanwhile, or not loaded (a load in flight), unloads or stays without asking.
+fn unload_released(state: &mut State) {
+    let tick = state.tick;
+    while let Some(&(due, key)) = state.chunks.kept.first()
+        && due <= tick
+    {
+        state.chunks.kept.pop_first();
+        let chunks = &mut state.chunks;
+        if let Some(count) = chunks.interest.get_mut(&key) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                chunks.interest.remove(&key);
+                chunks.unloading.insert(key);
+            }
+        }
+    }
+    for key in std::mem::take(&mut state.chunks.unloading) {
+        if state.chunks.interest.contains_key(&key) {
+            continue;
+        }
+        if !state
+            .worlds
+            .get(key.0)
+            .is_some_and(|w| w.is_chunk_loaded(key.1))
+        {
+            unload_now(state, key);
+            continue;
+        }
+        if !state.chunks.heard.unload {
+            unload_now(state, key);
+            continue;
+        }
+        let mut e = ChunkUnload {
+            world: crate::world::Id::of(key.0),
+            chunk: key.1,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        // Listeners cannot hold a chunk, but the check is the rule's: a held chunk stays.
+        if !state.chunks.interest.contains_key(&key) {
+            if e.cancelled && state.chunks.kept.len() < MAX_KEPT_CHUNKS {
+                state.chunks.interest.insert(key, 1);
+                state
+                    .chunks
+                    .kept
+                    .insert((tick.saturating_add(KEEP_TICKS), key));
+            } else {
+                if e.cancelled {
+                    warn!(
+                        kept = MAX_KEPT_CHUNKS,
+                        x = key.1.x,
+                        z = key.1.z,
+                        "too many chunks kept loaded by listeners; this one unloads"
+                    );
+                }
+                unload_now(state, key);
+            }
+        }
+        dispatch::watch(state, &e);
+    }
+}
+
+/// [`unload`] on the whole state.
+fn unload_now(state: &mut State, key: Key) {
+    let State {
+        worlds,
+        chunks,
+        rules,
+        saving,
+        ..
+    } = state;
+    unload(worlds, chunks, rules, saving, key);
 }
 
 /// Picks up to `per_tick` loaded chunks of the view to send, nearest first, and asks for loads
@@ -514,6 +993,9 @@ fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: us
         if world.is_chunk_loaded(pos) || world.is_quarantined(pos) {
             view.out.chunks.push(pos);
             view.sent.insert(pos);
+            if chunks.heard.sent {
+                chunks.sent.push((player.session, pos));
+            }
         } else {
             want(chunks, (player.world, pos));
         }
@@ -536,17 +1018,13 @@ fn want(chunks: &mut Chunks, key: Key) {
 /// Asks for the held spawn chunks that are not loaded.
 fn request_spawn_loads(worlds: &[World], chunks: &mut Chunks) {
     for (world, w) in worlds.iter().enumerate() {
-        let center = w.spawn().chunk();
-        for x in -1..=1 {
-            for z in -1..=1 {
-                let pos = ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z));
-                let key = (world, pos);
-                if chunks.interest.contains_key(&key)
-                    && !w.is_chunk_loaded(pos)
-                    && !w.is_quarantined(pos)
-                {
-                    want(chunks, key);
-                }
+        for pos in spawn_area(w.spawn().chunk()) {
+            let key = (world, pos);
+            if chunks.interest.contains_key(&key)
+                && !w.is_chunk_loaded(pos)
+                && !w.is_quarantined(pos)
+            {
+                want(chunks, key);
             }
         }
     }
@@ -608,14 +1086,19 @@ fn target(request: &SubChunkRequest, offset: [i8; 3]) -> Option<(ChunkPos, usize
 }
 
 /// The chunk packets of one player this tick, in BDS's order (P6): the publisher update, the
-/// chunks, then the sub-chunk answers.
+/// chunks, then the sub-chunk answers, each followed by the fake blocks it holds (the client
+/// forgets them with the sub-chunk it replaces); then the positions whose fake block was set or
+/// cleared this tick, with what they show now.
 pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<Packet> {
     let view = &player.view;
     let mut out = Vec::with_capacity(
-        usize::from(view.out.publish) + view.out.chunks.len() + view.out.answers.len(),
+        usize::from(view.out.publish)
+            + view.out.chunks.len()
+            + view.out.answers.len()
+            + view.out.shown.len(),
     );
     if view.out.publish {
-        let [x, y, z] = block_of(player.position);
+        let BlockPos { x, y, z } = BlockPos::containing(player.position);
         out.push(Packet::NetworkChunkPublisherUpdate(
             NetworkChunkPublisherUpdate {
                 position: [x, y, z],
@@ -642,8 +1125,72 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<
             request,
             encoded,
         )));
+        if request.dimension != 0 {
+            continue;
+        }
+        for &offset in &request.offsets {
+            if let Some((pos, index)) = target(request, offset)
+                && view.sent.contains(&pos)
+            {
+                let sub_y = i32::try_from(index).unwrap_or(0) + LOWEST_SUB_CHUNK;
+                if view.shows_in(pos, sub_y) {
+                    out.extend(update_packet(pos, sub_y, &view.shown_in(pos, sub_y)));
+                }
+            }
+        }
+    }
+    let mut changed: BTreeMap<(ChunkPos, i32), Vec<(BlockPos, block::State)>> = BTreeMap::new();
+    for &pos in &view.out.shown {
+        if !view.sent.contains(&pos.chunk()) {
+            continue;
+        }
+        if let Some(block) = view.shown(pos).or_else(|| world.block(pos)) {
+            changed
+                .entry((pos.chunk(), pos.y >> 4))
+                .or_default()
+                .push((pos, block));
+        }
+    }
+    for ((chunk, sub_y), blocks) in &changed {
+        out.extend(update_packet(*chunk, *sub_y, blocks));
     }
     out
+}
+
+/// The packet that sets `blocks` of sub-chunk `sub_y` of `chunk` on a client: an `UpdateBlock`
+/// for one block, an `UpdateSubChunkBlocks` for several (BDS, P6); none for none.
+fn update_packet(
+    chunk: ChunkPos,
+    sub_y: i32,
+    blocks: &[(BlockPos, block::State)],
+) -> Option<Packet> {
+    match blocks {
+        [] => None,
+        [(at, state)] => Some(Packet::UpdateBlock(UpdateBlock {
+            position: [at.x, at.y, at.z],
+            new_block_runtime_id: state.network_id(),
+            flags: UPDATE_FLAGS,
+            layer: 0,
+        })),
+        _ => Some(Packet::UpdateSubChunkBlocks(UpdateSubChunkBlocks {
+            position: [
+                chunk.x.saturating_mul(16),
+                sub_y.saturating_mul(16),
+                chunk.z.saturating_mul(16),
+            ],
+            blocks: blocks
+                .iter()
+                .map(|(at, state)| BlockChangeEntry {
+                    block_pos: [at.x, at.y, at.z],
+                    block_runtime_id: state.network_id(),
+                    flags: UPDATE_FLAGS,
+                    synced_update_entity_unique_id: u64::MAX,
+                    synced_update_type: 0,
+                })
+                .collect(),
+            extra: Vec::new(),
+        })),
+    }
 }
 
 /// The answer to one sub-chunk request: one entry per offset, in order (dragonfly
@@ -767,39 +1314,329 @@ pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
 }
 
 /// The block change packets for a player: for each changed sub-chunk of a chunk it was sent, an
-/// `UpdateBlock` for one block or an `UpdateSubChunkBlocks` for several (BDS, P6).
+/// `UpdateBlock` for one block or an `UpdateSubChunkBlocks` for several (BDS, P6). A change where
+/// the player is shown a fake block, or where [`packets`] sends what it shows, is left out.
 pub(super) fn block_packets(player: &Player, changes: &Changes) -> Vec<Packet> {
+    let view = &player.view;
     let mut out = Vec::new();
     for ((world, pos, sub_y), blocks) in changes {
-        if *world != player.world || !player.view.sent.contains(pos) {
+        if *world != player.world || !view.sent.contains(pos) {
             continue;
         }
-        match blocks.as_slice() {
-            [(at, state)] => out.push(Packet::UpdateBlock(UpdateBlock {
-                position: [at.x, at.y, at.z],
-                new_block_runtime_id: state.network_id(),
-                flags: UPDATE_FLAGS,
-                layer: 0,
-            })),
-            _ => out.push(Packet::UpdateSubChunkBlocks(UpdateSubChunkBlocks {
-                position: [
-                    pos.x.saturating_mul(16),
-                    sub_y.saturating_mul(16),
-                    pos.z.saturating_mul(16),
-                ],
-                blocks: blocks
-                    .iter()
-                    .map(|(at, state)| BlockChangeEntry {
-                        block_pos: [at.x, at.y, at.z],
-                        block_runtime_id: state.network_id(),
-                        flags: UPDATE_FLAGS,
-                        synced_update_entity_unique_id: u64::MAX,
-                        synced_update_type: 0,
-                    })
-                    .collect(),
-                extra: Vec::new(),
-            })),
+        if !view.shows_in(*pos, *sub_y) && view.out.shown.is_empty() {
+            out.extend(update_packet(*pos, *sub_y, blocks));
+            continue;
         }
+        let real: Vec<(BlockPos, block::State)> = blocks
+            .iter()
+            .filter(|(at, _)| view.shown(*at).is_none() && !view.out.shown.contains(at))
+            .copied()
+            .collect();
+        out.extend(update_packet(*pos, *sub_y, &real));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    //! The chunk events (PLAN.md 10.8 판정식 "이벤트"): loads, unloads and the chunks a listener
+    //! keeps, the chunks sent to a player and the spawn moving.
+
+    use std::cell::Cell;
+
+    use super::*;
+    use crate::event::{Event, Listeners, Priority};
+    use crate::player::Message;
+    use crate::tick::Output;
+    use crate::tick::tests::{join, leave, new_state, radius, received, settings, tick};
+    use crate::world::Flat;
+
+    thread_local! {
+        /// What the listeners of a test saw, in order.
+        static LOG: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
+        /// Whether the unload listener cancels.
+        static KEEP: Cell<bool> = const { Cell::new(true) };
+    }
+
+    fn log(line: String) {
+        let mut lines = LOG.take();
+        lines.push(line);
+        LOG.set(lines);
+    }
+
+    fn logged() -> Vec<String> {
+        LOG.take()
+    }
+
+    fn on<E: Event>(listener: impl FnMut(&mut E, &mut Context<'_>) + Send + 'static) -> Listeners {
+        let mut l = Listeners::default();
+        l.push(Priority::Normal, listener);
+        l
+    }
+
+    fn state(mut listeners: Listeners) -> State {
+        LOG.set(Vec::new());
+        KEEP.set(true);
+        listeners.sort();
+        new_state(settings(|_| {}), listeners)
+    }
+
+    /// A chunk far from the spawn and its preloaded chunks.
+    const FAR: Key = (0, ChunkPos::new(40, 40));
+
+    /// Holds `key` and loads it as the generator made it.
+    fn hold_loaded(state: &mut State, key: Key) {
+        hold(&mut state.worlds, &mut state.chunks, &mut state.rules, key);
+        let chunk = Box::new(Chunk::generate(&Flat, 0, key.1));
+        let stored = crate::tick::extra::tests::sample(key.0, key.1);
+        loaded(state, key.0, key.1, Loaded::Generated(chunk, stored));
+    }
+
+    fn let_go(state: &mut State, key: Key) {
+        release(&mut state.chunks, key);
+    }
+
+    fn is_loaded(state: &State, key: Key) -> bool {
+        state.worlds[key.0].is_chunk_loaded(key.1)
+    }
+
+    /// Unload listeners that log, cancel while [`KEEP`] says so, and a monitor that logs what
+    /// was applied.
+    fn keeping() -> Listeners {
+        let mut l = on(|e: &mut ChunkUnload, _: &mut Context<'_>| {
+            log(format!("unload {} {}", e.chunk().x, e.chunk().z));
+            if KEEP.get() {
+                e.cancel();
+            }
+        });
+        l.push_monitor(|e: &ChunkUnload, cx: &Context<'_>| {
+            let loaded = cx.world(e.world()).unwrap().is_chunk_loaded(e.chunk());
+            log(format!("monitor {loaded}"));
+        });
+        l
+    }
+
+    // pmmp: ChunkLoadEvent, ChunkPopulateEvent
+    #[test]
+    fn chunk_loads_name_new_and_restored_chunks_once() {
+        let mut listeners = on(|e: &mut ChunkLoad, cx: &mut Context<'_>| {
+            let loaded = cx.world(e.world()).unwrap().is_chunk_loaded(e.chunk());
+            log(format!(
+                "{} {} {} {loaded}",
+                e.chunk().x,
+                e.chunk().z,
+                e.is_new_chunk()
+            ));
+        });
+        listeners.push_monitor(|e: &ChunkLoad, _: &Context<'_>| {
+            log(format!("monitor {}", e.chunk().x));
+        });
+        let mut state = state(listeners);
+        hold_loaded(&mut state, FAR);
+        announce(&mut state, &[]);
+        assert_eq!(logged(), ["40 40 true true", "monitor 40"]);
+        // A change, then the chunk unloads before a save: it comes back from memory.
+        let stone = block::State::find("minecraft:stone", &[]).unwrap();
+        state.worlds[0]
+            .set_block(BlockPos::new(640, -60, 640), stone)
+            .unwrap();
+        let_go(&mut state, FAR);
+        announce(&mut state, &[]);
+        assert!(logged().is_empty());
+        assert!(!is_loaded(&state, FAR) && state.chunks.unsaved.contains_key(&FAR));
+        hold(&mut state.worlds, &mut state.chunks, &mut state.rules, FAR);
+        announce(&mut state, &[]);
+        assert_eq!(logged(), ["40 40 false true", "monitor 40"]);
+        // A chunk let go before the view phase is still loaded there: it is announced, then
+        // unloads.
+        let other = (0, ChunkPos::new(-40, 40));
+        hold_loaded(&mut state, other);
+        let_go(&mut state, other);
+        announce(&mut state, &[]);
+        assert_eq!(logged(), ["-40 40 true true", "monitor -40"]);
+        assert!(!is_loaded(&state, other) && state.chunks.loads.is_empty());
+    }
+
+    // pmmp: ChunkUnloadEvent
+    #[test]
+    fn a_cancelled_unload_keeps_the_chunk_until_it_is_asked_again() {
+        let mut state = state(keeping());
+        hold_loaded(&mut state, FAR);
+        let_go(&mut state, FAR);
+        assert!(is_loaded(&state, FAR), "the listeners are asked first");
+        announce(&mut state, &[]);
+        assert_eq!(logged(), ["unload 40 40", "monitor true"]);
+        assert!(is_loaded(&state, FAR) && state.chunks.holds(FAR));
+        // Asked again only when its time comes.
+        state.tick += KEEP_TICKS - 1;
+        announce(&mut state, &[]);
+        assert!(logged().is_empty());
+        state.tick += 1;
+        KEEP.set(false);
+        announce(&mut state, &[]);
+        assert_eq!(logged(), ["unload 40 40", "monitor false"]);
+        assert!(!is_loaded(&state, FAR) && !state.chunks.holds(FAR));
+        assert!(state.chunks.kept.is_empty() && state.chunks.unloading.is_empty());
+    }
+
+    // pmmp: ChunkUnloadEvent
+    #[test]
+    fn a_chunk_held_again_before_the_view_phase_is_not_asked_about() {
+        let mut state = state(keeping());
+        hold_loaded(&mut state, FAR);
+        let_go(&mut state, FAR);
+        hold(&mut state.worlds, &mut state.chunks, &mut state.rules, FAR);
+        announce(&mut state, &[]);
+        assert!(logged().is_empty());
+        assert!(is_loaded(&state, FAR) && state.chunks.unloading.is_empty());
+    }
+
+    // pmmp: ChunkUnloadEvent
+    #[test]
+    fn listeners_keep_at_most_the_bound_of_chunks() {
+        let mut state = state(keeping());
+        let keys: Vec<Key> = (0..i32::try_from(MAX_KEPT_CHUNKS).unwrap() + 6)
+            .map(|i| (0, ChunkPos::new(100 + i, 100)))
+            .collect();
+        for &key in &keys {
+            hold_loaded(&mut state, key);
+            let_go(&mut state, key);
+        }
+        announce(&mut state, &[]);
+        assert_eq!(state.chunks.kept.len(), MAX_KEPT_CHUNKS);
+        let loaded = keys.iter().filter(|&&k| is_loaded(&state, k)).count();
+        assert_eq!(loaded, MAX_KEPT_CHUNKS);
+    }
+
+    #[test]
+    fn without_unload_listeners_a_chunk_unloads_in_the_view_phase_too() {
+        let mut state = state(Listeners::default());
+        hold_loaded(&mut state, FAR);
+        let_go(&mut state, FAR);
+        assert!(is_loaded(&state, FAR), "as with listeners");
+        announce(&mut state, &[]);
+        assert!(!is_loaded(&state, FAR) && state.chunks.unloading.is_empty());
+    }
+
+    // pmmp: ChunkUnloadEvent, PlayerPostChunkSendEvent, ChunkLoadEvent
+    #[test]
+    fn join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start() {
+        let mut listeners = keeping();
+        listeners.push(
+            Priority::Normal,
+            |_: &mut ChunkLoad, _: &mut Context<'_>| {},
+        );
+        listeners.push(
+            Priority::Normal,
+            |_: &mut PlayerPostChunkSend, _: &mut Context<'_>| {},
+        );
+        let mut state = state(listeners);
+        KEEP.set(false);
+        let mut output = Output::default();
+        let start = state.chunks.held();
+        for round in 0..3 {
+            let (j, _rx) = join(1, round * 10);
+            tick(&mut state, &mut vec![j], &mut output);
+            tick(
+                &mut state,
+                &mut vec![radius(1, round * 10 + 1, 6)],
+                &mut output,
+            );
+            tick(&mut state, &mut Vec::new(), &mut output);
+            tick(&mut state, &mut vec![leave(1, round * 10 + 2)], &mut output);
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        assert_eq!(state.chunks.held(), start);
+        assert!(state.chunks.kept.is_empty() && state.chunks.unloading.is_empty());
+        assert!(state.chunks.loads.is_empty() && state.chunks.sent.is_empty());
+        // The buffer of sent chunks keeps its capacity across ticks (no allocation per tick).
+        assert!(state.chunks.sent.capacity() > 0);
+        assert!(logged().iter().any(|l| l == "monitor false"));
+    }
+
+    // pmmp: PlayerPostChunkSendEvent, PlayerPostChunkSendEvent::getChunkX, PlayerPostChunkSendEvent::getChunkZ
+    #[test]
+    fn post_chunk_send_names_each_chunk_sent_once_and_comes_after_it() {
+        let mut listeners = on(|e: &mut PlayerPostChunkSend, cx: &mut Context<'_>| {
+            log(format!("{} {}", e.chunk().x, e.chunk().z));
+            let player = cx.player_mut(e.player()).unwrap();
+            player
+                .send(Message::Tip(format!("{}", e.chunk().x)))
+                .unwrap();
+        });
+        listeners.push_monitor(|e: &PlayerPostChunkSend, cx: &Context<'_>| {
+            let sees = cx.state.players[&e.player().session()].view.sees(e.chunk());
+            assert!(sees);
+        });
+        let mut state = state(listeners);
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j], &mut output);
+        received(&mut rx);
+        tick(&mut state, &mut vec![radius(1, 1, 2)], &mut output);
+        let center = state.worlds[0].spawn().chunk();
+        let mut expected: Vec<String> = disc(center, 2)
+            .into_iter()
+            .map(|p| format!("{} {}", p.x, p.z))
+            .collect();
+        let mut seen = logged();
+        assert_eq!(seen, expected, "in sending order");
+        seen.sort();
+        seen.dedup();
+        expected.sort();
+        assert_eq!(seen, expected, "each once");
+        let packets = received(&mut rx).0;
+        let last_chunk = packets
+            .iter()
+            .rposition(|p| matches!(p, Packet::LevelChunk(_)))
+            .unwrap();
+        let first_tip = packets
+            .iter()
+            .position(|p| matches!(p, Packet::Text(_)))
+            .unwrap();
+        assert!(first_tip > last_chunk);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert!(logged().is_empty(), "a chunk is sent once");
+    }
+
+    // pmmp: SpawnChangeEvent
+    #[test]
+    fn a_spawn_change_names_the_spawn_before() {
+        let mut listeners = on(|e: &mut SpawnChange, cx: &mut Context<'_>| {
+            let now = cx.world(e.world()).unwrap().spawn();
+            let before = e.previous_spawn();
+            log(format!("{} {} {}", before.x, now.x, now.z));
+        });
+        listeners.push_monitor(|e: &SpawnChange, cx: &Context<'_>| {
+            let now = cx.world(e.world()).unwrap().spawn();
+            log(format!(
+                "monitor {}",
+                cx.state.chunks.holds((0, now.chunk()))
+            ));
+        });
+        let mut state = state(listeners);
+        let mut output = Output::default();
+        let spawn = state.worlds[0].spawn();
+        // Within the same chunk, then far away.
+        let near = BlockPos::new(spawn.x + 1, spawn.y, spawn.z);
+        state.worlds[0].set_spawn(near);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(
+            logged(),
+            [
+                format!("{} {} {}", spawn.x, near.x, near.z),
+                "monitor true".to_owned()
+            ]
+        );
+        let far = BlockPos::new(160, spawn.y, 160);
+        state.worlds[0].set_spawn(far);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(
+            logged(),
+            [format!("{} 160 160", near.x), "monitor true".to_owned()]
+        );
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert!(logged().is_empty());
+        assert!(state.chunks.holds((0, far.chunk())));
+    }
 }

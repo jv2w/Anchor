@@ -40,23 +40,33 @@ const gameWait = 15 * time.Second
 // feedLimit bounds the packets a script may be behind.
 const feedLimit = 1 << 18
 
-// gameScenarios are the game scenarios and their scripts (scenarios.go).
+// gameScenarios are the game scenarios and their scripts (scenarios.go), with the API scenarios (api.go).
 var gameScenarios = map[string]func(*game) error{
-	"craft":   playCraft,
-	"furnace": playFurnace,
-	"enchant": playEnchant,
-	"crops":   playCrops,
-	"trade":   playTrade,
+	"craft":     playCraft,
+	"furnace":   playFurnace,
+	"enchant":   playEnchant,
+	"crops":     playCrops,
+	"trade":     playTrade,
+	"commands":  playCommands,
+	"particles": playParticles,
+	"kick":      playKick,
+	"forms":     playForms,
+	"script":    playScript,
 }
 
 // gameAreas are the scenarios' player positions (feet block): one area each in the spawn chunks of a flat
-// world whose grass is at y -61, far enough apart that the blocks of one never touch another.
+// world whose grass is at y -61, far enough apart that the blocks of one never touch another. The script
+// scenario has none: it does not teleport.
 var gameAreas = map[string]protocol.BlockPos{
-	"craft":   {-12, -60, -12},
-	"furnace": {-12, -60, -4},
-	"enchant": {-12, -60, 4},
-	"crops":   {-12, -60, 12},
-	"trade":   {-12, -60, 20},
+	"craft":     {-12, -60, -12},
+	"furnace":   {-12, -60, -4},
+	"enchant":   {-12, -60, 4},
+	"crops":     {-12, -60, 12},
+	"trade":     {-12, -60, 20},
+	"commands":  {-4, -60, -12},
+	"particles": {-4, -60, -4},
+	"kick":      {-4, -60, 4},
+	"forms":     {-4, -60, 12},
 }
 
 // isGame reports whether the scenario is a game scenario.
@@ -171,8 +181,15 @@ type game struct {
 	nextReq   int32
 	input     *inputLoop
 	area      protocol.BlockPos
+	// actors are the AddActor packets of the entities in view, by runtime ID.
+	actors map[uint64]*packet.AddActor
 	// random marks the steps recorded while it is set as random steps (step).
 	random bool
+	// available is the last AvailableCommands, displays the forms, scoreboards and boss bar shown, and
+	// lastOutput the output of the last player command (api.go).
+	available  *packet.AvailableCommands
+	displays   *displays
+	lastOutput *packet.CommandOutput
 }
 
 // recipe is a crafting recipe from CraftingData.
@@ -189,8 +206,8 @@ func newGame(s *session, ctx context.Context) *game {
 		s: s, ctx: ctx, feed: s.feed,
 		names: map[int32]string{}, slots: map[slotRef]stack{},
 		blocks: map[protocol.BlockPos]uint32{}, items: map[uint64]protocol.ItemInstance{},
-		positions: map[uint64]mgl32.Vec3{}, unique: map[int64]uint64{},
-		attrs: map[string]float32{}, nextReq: -1,
+		positions: map[uint64]mgl32.Vec3{}, unique: map[int64]uint64{}, actors: map[uint64]*packet.AddActor{},
+		attrs: map[string]float32{}, nextReq: -1, displays: newDisplays(0),
 	}
 }
 
@@ -226,13 +243,11 @@ func (g *game) run() (err error) {
 		}
 	}
 	g.input = startInput(g.s, g.runtimeID, g.pos)
-	area, ok := gameAreas[g.s.c.scenario]
-	if !ok {
-		return fmt.Errorf("no area for %v", g.s.c.scenario)
-	}
-	g.area = area
-	if err := g.teleport(area); err != nil {
-		return err
+	if area, ok := gameAreas[g.s.c.scenario]; ok {
+		g.area = area
+		if err := g.teleport(area); err != nil {
+			return err
+		}
 	}
 	if err := gameScenarios[g.s.c.scenario](g); err != nil {
 		return err
@@ -390,9 +405,15 @@ func (g *game) command(format string, args ...any) {
 
 // observe updates the client-side model with one packet.
 func (g *game) observe(pk packet.Packet) {
+	if err := g.displays.observe(pk); err != nil {
+		g.check("display error", err.Error())
+	}
 	switch pk := pk.(type) {
 	case *packet.StartGame:
 		g.runtimeID, g.pos = pk.EntityRuntimeID, pk.PlayerPosition
+		g.displays.self = pk.EntityUniqueID
+	case *packet.AvailableCommands:
+		g.available = pk
 	case *packet.ItemRegistry:
 		for _, it := range pk.Items {
 			g.names[int32(it.RuntimeID)] = it.Name
@@ -447,6 +468,7 @@ func (g *game) observe(pk packet.Packet) {
 		}
 	case *packet.AddActor:
 		g.unique[pk.EntityUniqueID] = pk.EntityRuntimeID
+		g.actors[pk.EntityRuntimeID] = pk
 	case *packet.AddItemActor:
 		g.items[pk.EntityRuntimeID] = pk.Item
 		g.unique[pk.EntityUniqueID] = pk.EntityRuntimeID
@@ -468,6 +490,7 @@ func (g *game) observe(pk packet.Packet) {
 		if rid, ok := g.unique[pk.EntityUniqueID]; ok {
 			delete(g.items, rid)
 			delete(g.positions, rid)
+			delete(g.actors, rid)
 			delete(g.unique, pk.EntityUniqueID)
 		}
 	case *packet.PlayerEnchantOptions:

@@ -1,0 +1,1443 @@
+# Status of PMMP API rows (PLAN.md 8.4, 10.8), read by `cargo xtask table`.
+#
+# One rule per line: `<pattern> <status> <target or reason>`. The pattern and the status each end
+# at the first whitespace; the rest of the line is the target or reason. `#` lines and blank
+# lines are comments.
+#
+# Pattern: a row FQN (`pocketmine\player\Player::getName`, a class row `pocketmine\player\Player`)
+# where `*` matches any text without `\` or `:` and `**` matches any text, so
+# `pocketmine\plugin\**` is a namespace with every class and method in it and
+# `pocketmine\block\**::get*` every getter below `pocketmine\block`.
+#
+# Status:
+#   differs <reason>   Anchor has the row's alias but behaves differently, for this reason.
+#   merged <alias>     Anchor does the row's work in the item carrying <alias> (an alias in src/);
+#                      the row takes that item's location and tests.
+#   skipped <reason>   Anchor does not have it, for this reason.
+#   open <note>        Anchor does not have it yet and has not decided against it: the row stays
+#                      blank with this note (what is missing), and rules below do not decide it.
+#
+# A row whose alias is on an item in src/ is implemented whatever its first matching rule says;
+# only the first `differs` rule matching it applies. Any other row takes the status of the first
+# rule matching it. A rule that decides no row is an error, so put narrow rules above broad ones.
+#
+# Rows no rule decides, and `open` rows, stay blank: they are the API Anchor still lacks or has
+# not decided on. A missing feature is never written as skipped without a reason from CLAUDE.md
+# or PLAN.md.
+
+# ===== Out of scope for good =====
+
+# Library API, not a plugin host (CLAUDE.md 1).
+pocketmine\plugin\** skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+pocketmine\event\plugin\** skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+pocketmine\Server::enablePlugins skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+pocketmine\Server::getPlugin* skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+pocketmine\Server::getApiVersion skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+pocketmine\Server::getLoader skipped PHP class loader
+pocketmine\event\RegisteredListener::getPlugin skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+pocketmine\scheduler\TaskHandler::getOwnerName skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+pocketmine\permission\PermissionAttachment::getPlugin skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+
+# PHP runtime and operations tooling.
+pocketmine\GarbageCollectorManager** skipped PHP garbage collector control
+pocketmine\MemoryDump** skipped PHP memory dump tooling
+pocketmine\MemoryManager** skipped PHP memory management
+pocketmine\thread\** skipped PHP threads: Anchor's runtime and CPU pool are internal (CLAUDE.md 4.3)
+pocketmine\timings\** skipped PHP timings profiler
+pocketmine\updater\** skipped PMMP update checker
+pocketmine\stats\** skipped PMMP usage statistics reporting
+pocketmine\wizard\** skipped PMMP setup wizard: Anchor writes a default anchor.toml (PLAN.md 8.5)
+pocketmine\crash\** skipped PMMP crash dumps: Anchor keeps the input log instead (CLAUDE.md 4.6)
+pocketmine\network\query\** skipped GameSpy query protocol: Anchor opens no other protocol (CLAUDE.md 4.8)
+pocketmine\network\upnp\** skipped UPnP port forwarding: Anchor opens no other protocol (CLAUDE.md 4.8)
+pocketmine\event\server\LowMemoryEvent** skipped PHP memory management
+pocketmine\event\server\NetworkInterface* skipped PMMP network interfaces: Anchor's transports are internal (CLAUDE.md 4.8, PLAN.md 10.8)
+pocketmine\event\server\NetworkInterface*::* skipped PMMP network interfaces: Anchor's transports are internal (CLAUDE.md 4.8, PLAN.md 10.8)
+pocketmine\event\server\QueryRegenerateEvent** skipped GameSpy query protocol: Anchor opens no other protocol (CLAUDE.md 4.8)
+pocketmine\event\server\UpdateNotifyEvent** skipped PMMP update checker
+pocketmine\scheduler\DumpWorkerMemoryTask** skipped PHP memory dump tooling
+pocketmine\scheduler\GarbageCollectionTask** skipped PHP garbage collector control
+pocketmine\scheduler\Timings*Task** skipped PHP timings profiler
+pocketmine\scheduler\AsyncWorker** skipped PHP worker threads: Anchor's blocking pool is internal (CLAUDE.md 4.3, PLAN.md 10.8 C3)
+pocketmine\scheduler\BulkCurl** skipped PHP curl helper: Anchor has no HTTP client API; `spawn_blocking` runs the user's own (PLAN.md 10.8 C3)
+pocketmine\Server::getMemoryManager skipped PHP memory management
+pocketmine\Server::getUpdater skipped PMMP update checker
+pocketmine\Server::sendUsage skipped PMMP usage statistics reporting
+pocketmine\Server::getServerUniqueId skipped PMMP usage statistics reporting
+pocketmine\Server::getQueryInformation skipped GameSpy query protocol: Anchor opens no other protocol (CLAUDE.md 4.8)
+pocketmine\Server::crashDump skipped PMMP crash dumps: Anchor keeps the input log instead (CLAUDE.md 4.6)
+pocketmine\Server::exceptionHandler skipped PMMP crash dumps: Anchor keeps the input log instead (CLAUDE.md 4.6)
+pocketmine\Server::getTickSleeper skipped PHP thread wake-ups: Anchor's tick loop is internal (CLAUDE.md 4.2)
+pocketmine\utils\Process** skipped PHP process tooling
+pocketmine\utils\ServerKiller** skipped PHP watchdog thread
+pocketmine\utils\SignalHandler** skipped PHP signal handling: the user's binary owns signals (Anchor is a library, CLAUDE.md 6)
+pocketmine\utils\MainLogger** skipped PMMP log writer: Anchor logs with `tracing` and the binary picks the subscriber (CLAUDE.md 5, 6)
+pocketmine\utils\BroadcastLoggerForwarder** skipped PMMP log writer: Anchor logs with `tracing` and the binary picks the subscriber (CLAUDE.md 5, 6)
+pocketmine\utils\Terminal** skipped PMMP terminal colours: Anchor logs with `tracing` and the binary picks the subscriber (CLAUDE.md 5, 6)
+pocketmine\utils\Timezone** skipped PHP time zone setup: game logic has no wall clock (CLAUDE.md 2.1)
+pocketmine\utils\Git** skipped PMMP build metadata
+pocketmine\utils\Internet** skipped PHP HTTP helpers: Anchor has no HTTP client API; `spawn_blocking` runs the user's own (PLAN.md 10.8 C3)
+pocketmine\utils\Filesystem** skipped PHP file helpers: Rust std covers them; Anchor's files are anchor.toml and data/ (CLAUDE.md 2.4)
+pocketmine\utils\AssumptionFailedError skipped PHP assertion error: Anchor uses `expect` only for invariants (CLAUDE.md 2.1)
+pocketmine\utils\NotCloneable** skipped PHP magic method guard: Rust types are not Clone unless they derive it
+pocketmine\utils\NotSerializable** skipped PHP magic method guard: Rust types are not serialisable unless they derive it
+pocketmine\utils\DestructorCallbackTrait** skipped PHP destructor hooks: Rust has Drop and Anchor states each resource's release (CLAUDE.md 2.2)
+pocketmine\utils\ObjectSet** skipped PHP collection helper: Rust std collections
+pocketmine\utils\ReversePriorityQueue** skipped PHP collection helper: Rust std collections
+pocketmine\utils\VersionString** skipped PMMP version parsing
+pocketmine\VersionInfo** skipped PMMP build metadata: `Server::getVersion` and `getPocketMineVersion` give Anchor's versions
+pocketmine\console\ConsoleReader** skipped PHP stdin subprocess: Anchor reads stdin on its console thread (PLAN.md 10.8 A2)
+pocketmine\utils\Utils** skipped PHP runtime helpers: Rust std, the type system and Anchor's input checks cover them (CLAUDE.md 2.1)
+pocketmine\utils\ServerException skipped PHP exception: Anchor returns `Result` with module `Error` enums (CLAUDE.md 5)
+pocketmine\utils\ConfigLoadException** skipped PHP exception: Anchor returns `Result` with module `Error` enums (CLAUDE.md 5)
+pocketmine\utils\Config** skipped PMMP's generic YAML/JSON file class: Anchor reads one TOML file into typed `Config` (CLAUDE.md 2.3, PLAN.md 8.5)
+pocketmine\ServerConfigGroup** skipped PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start (PLAN.md 8.4, 8.5)
+pocketmine\Server::getConfigGroup skipped PMMP's string-keyed server.properties and pocketmine.yml access: Anchor's settings are typed `Config` fields read at start (PLAN.md 8.4, 8.5)
+pocketmine\Server::getDataPath skipped a library has no install paths: the server folder is anchor.toml and data/ (CLAUDE.md 2.4)
+pocketmine\Server::getFilePath skipped a library has no install paths: the server folder is anchor.toml and data/ (CLAUDE.md 2.4)
+pocketmine\Server::getResourcePath skipped a library has no install paths: the server folder is anchor.toml and data/ (CLAUDE.md 2.4)
+pocketmine\Server::getLogger skipped Anchor logs with `tracing` (CLAUDE.md 5)
+pocketmine\world\World::getLogger skipped Anchor logs with `tracing` (CLAUDE.md 5)
+pocketmine\network\mcpe\NetworkSession::getLogger skipped Anchor logs with `tracing` (CLAUDE.md 5)
+
+# World formats: Anchor stores worlds in redb; importing Bedrock worlds is a separate tool (PLAN.md 12).
+pocketmine\world\format\io\** skipped Bedrock LevelDB and region formats: Anchor stores worlds in redb
+pocketmine\world\WorldManager::getProviderManager skipped Bedrock LevelDB and region formats: Anchor stores worlds in redb
+pocketmine\world\World::getProvider skipped Bedrock LevelDB and region formats: Anchor stores worlds in redb
+pocketmine\player\DatFilePlayerDataProvider** skipped PMMP player .dat files: Anchor keeps players in redb (CLAUDE.md 4.7, PLAN.md 6)
+pocketmine\player\PlayerDataProvider** skipped PMMP player .dat files: Anchor keeps players in redb (CLAUDE.md 4.7, PLAN.md 6)
+
+# Vanilla terrain generation (CLAUDE.md 1). Generator, GeneratorManager, Flat and the tree
+# objects saplings grow stay.
+pocketmine\world\generator\Gaussian** skipped vanilla terrain generation (CLAUDE.md 1)
+pocketmine\world\generator\normal\** skipped vanilla terrain generation (CLAUDE.md 1)
+pocketmine\world\generator\hell\** skipped vanilla terrain generation and other dimensions (CLAUDE.md 1)
+pocketmine\world\generator\noise\** skipped vanilla terrain generation (CLAUDE.md 1)
+pocketmine\world\generator\biome\** skipped vanilla terrain generation (CLAUDE.md 1)
+pocketmine\world\generator\populator\** skipped vanilla terrain generation (CLAUDE.md 1)
+pocketmine\world\generator\executor\** skipped PHP generator threads: Anchor generates on its CPU pool (CLAUDE.md 4.3)
+pocketmine\world\generator\object\Ore** skipped vanilla terrain generation (CLAUDE.md 1)
+pocketmine\world\generator\object\TallGrass** skipped vanilla terrain generation (CLAUDE.md 1)
+pocketmine\world\generator\Generator::populateChunk skipped vanilla terrain generation: Anchor's generators fill a chunk in one step (CLAUDE.md 1)
+pocketmine\world\generator\Flat::populateChunk skipped vanilla terrain generation: Anchor's generators fill a chunk in one step (CLAUDE.md 1)
+pocketmine\world\biome\** skipped vanilla biome generation (CLAUDE.md 1): Anchor stores biome IDs (`World::getBiomeId`)
+
+# Redstone signals (CLAUDE.md 1). Blocks keep their own states (a lever's `open_bit`); what the
+# signal does is out.
+pocketmine\block\utils\AnalogRedstoneSignalEmitter** skipped redstone (CLAUDE.md 1)
+pocketmine\block\utils\PoweredByRedstone** skipped redstone (CLAUDE.md 1)
+pocketmine\block\utils\RailPoweredByRedstoneTrait** skipped redstone (CLAUDE.md 1)
+pocketmine\event\block\PressurePlateUpdateEvent** skipped redstone (CLAUDE.md 1, PLAN.md 10.8)
+pocketmine\block\tile\Comparator** skipped redstone (CLAUDE.md 1)
+pocketmine\block\tile\DaylightSensor** skipped redstone (CLAUDE.md 1)
+pocketmine\block\*::isPowered skipped redstone (CLAUDE.md 1)
+pocketmine\block\*::setPowered skipped redstone (CLAUDE.md 1)
+pocketmine\block\*::getOutputSignalStrength skipped redstone (CLAUDE.md 1)
+pocketmine\block\*::setOutputSignalStrength skipped redstone (CLAUDE.md 1)
+pocketmine\block\CopperBulb::togglePowered skipped redstone (CLAUDE.md 1)
+pocketmine\block\Lectern::isProducingSignal skipped redstone (CLAUDE.md 1)
+pocketmine\block\Lectern::setProducingSignal skipped redstone (CLAUDE.md 1)
+pocketmine\world\sound\PressurePlate*Sound** skipped redstone (CLAUDE.md 1)
+pocketmine\world\sound\RedstonePower*Sound** skipped redstone (CLAUDE.md 1)
+
+# Mobs and mob AI (CLAUDE.md 1): Anchor's entities are items, orbs, falling blocks, TNT,
+# projectiles, clouds and AI-less NPCs (PLAN.md 10.7).
+pocketmine\entity\Squid** skipped mobs and mob AI (CLAUDE.md 1)
+pocketmine\entity\Zombie** skipped mobs and mob AI (CLAUDE.md 1)
+pocketmine\entity\WaterAnimal** skipped mobs and mob AI (CLAUDE.md 1)
+pocketmine\entity\Ageable** skipped mobs and mob AI (CLAUDE.md 1): no baby entities
+pocketmine\entity\Villager::isBaby skipped mobs and mob AI (CLAUDE.md 1): no baby entities
+pocketmine\entity\animation\SquidInkCloudAnimation** skipped mobs and mob AI (CLAUDE.md 1)
+
+# Fishing (CLAUDE.md 1).
+pocketmine\item\FishingRod** skipped fishing (CLAUDE.md 1)
+
+# Other dimensions (CLAUDE.md 1).
+pocketmine\event\block\BlockExplodeEvent** skipped beds and respawn anchors explode only in other dimensions (CLAUDE.md 1, PLAN.md 10.8 A4)
+pocketmine\event\block\BlockPreExplodeEvent** skipped beds and respawn anchors explode only in other dimensions (CLAUDE.md 1, PLAN.md 10.8 A4)
+
+# Forms, commands, events: decided in PLAN.md 10.8.
+pocketmine\form\FormValidationException merged Form::handleResponse
+pocketmine\player\Player::onFormSubmit merged Form::handleResponse
+pocketmine\command\defaults\DumpMemoryCommand** skipped PHP memory dump tooling
+pocketmine\command\defaults\GarbageCollectorCommand** skipped PHP garbage collector control
+pocketmine\command\defaults\PluginsCommand** skipped no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1)
+pocketmine\command\defaults\TimingsCommand** skipped PHP timings profiler
+pocketmine\command\defaults\** merged SimpleCommandMap::register
+
+# ===== Shared PHP and PMMP plumbing (every namespace) =====
+
+# Singletons: Anchor has no global state; registries are fixed at `build()` (CLAUDE.md 4.1, PLAN.md 8.4).
+pocketmine\**::getInstance skipped global singleton: Anchor has no global state; registries are fixed at `build()` (CLAUDE.md 4.1, PLAN.md 8.4)
+pocketmine\**::setInstance skipped global singleton: Anchor has no global state; registries are fixed at `build()` (CLAUDE.md 4.1, PLAN.md 8.4)
+pocketmine\utils\SingletonTrait** skipped global singleton: Anchor has no global state; registries are fixed at `build()` (CLAUDE.md 4.1, PLAN.md 8.4)
+pocketmine\utils\RegistryTrait** skipped PHP registry plumbing: Anchor's registries are generated enums and tables (PLAN.md 7)
+pocketmine\utils\CloningRegistryTrait** skipped PHP registry plumbing: Anchor's registries are generated enums and tables (PLAN.md 7)
+pocketmine\utils\RegistrySource** skipped PHP registry plumbing: Anchor's registries are generated enums and tables (PLAN.md 7)
+pocketmine\utils\EnumTrait** skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\utils\LegacyEnumShimTrait** skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\utils\TextFormat** skipped PMMP text helpers: formatting codes are plain `§` text in a `player::Message`, and Rust strings do the rest
+pocketmine\utils\Random** skipped PMMP's seeded PRNG class: tick code uses the engine's counter RNG (PLAN.md 10.7) and users pick a Rust RNG crate
+pocketmine\utils\StringToTParser** skipped PMMP's string-keyed lookups: Anchor looks things up by typed names (`item::Type::from_name`, `block::State::find`) (PLAN.md 8.4)
+
+# ===== Events (PLAN.md 8.2, 10.8): flat structs built by the rule code =====
+
+pocketmine\event\block\BlockItemPickupEvent** skipped PMMP never raises it (PLAN.md 10.8 A4)
+pocketmine\event\entity\EntityFrostWalkerEvent** skipped Anchor has no frost walker rule yet; the event comes with the rule (PLAN.md 10.8 A4)
+pocketmine\event\player\PlayerEditBookEvent** skipped Anchor has no book editing rule yet; the event comes with the rule (PLAN.md 10.8 A4)
+pocketmine\event\player\PlayerEntityPickEvent** skipped Anchor has no entity pick rule yet; the event comes with the rule (PLAN.md 10.8 A4)
+pocketmine\event\player\PlayerRespawnAnchorUseEvent** skipped Anchor has no respawn anchor rule yet; the event comes with the rule (PLAN.md 10.8 A4)
+pocketmine\event\player\PlayerDisplayNameChangeEvent** skipped only direct API calls change display names, and direct calls raise no events (PLAN.md 8.2, 10.8 A4)
+pocketmine\event\world\WorldDisplayNameChangeEvent** skipped only direct API calls change display names, and direct calls raise no events (PLAN.md 8.2, 10.8 A4)
+pocketmine\event\player\PlayerCreationEvent** skipped PHP player class choice: the player is Anchor's `Player` (PLAN.md 10.8 A4)
+pocketmine\event\world\WorldInitEvent** skipped worlds are fixed at build (PLAN.md 10.8)
+pocketmine\event\world\WorldLoadEvent** skipped worlds are fixed at build (PLAN.md 10.8)
+pocketmine\event\world\WorldUnloadEvent** skipped worlds are fixed at build (PLAN.md 10.8)
+pocketmine\event\world\WorldDifficultyChangeEvent** skipped only direct API calls change the difficulty, and direct calls raise no events (PLAN.md 8.2, 10.8 E2)
+pocketmine\event\world\WorldSoundEvent** skipped sounds reach players from many rules with no single place to raise it; a packet send hook (`DataPacketSendEvent`) filters them (PLAN.md 10.8 E2)
+pocketmine\event\world\WorldParticleEvent** skipped particles reach players from many rules with no single place to raise it; a packet send hook (`DataPacketSendEvent`) filters them (PLAN.md 10.8 E2)
+pocketmine\event\server\DataPacketDecodeEvent::* merged DataPacketDecodeEvent
+pocketmine\event\server\DataPacketReceiveEvent::* merged DataPacketReceiveEvent
+pocketmine\event\server\DataPacketSendEvent::* merged DataPacketSendEvent
+pocketmine\event\**::__construct skipped events are built by the rule code (fields `pub(crate)`); listeners get them (PLAN.md 10.8)
+pocketmine\event\Event::call skipped only the rule code raises events; direct API calls raise none (PLAN.md 8.2, 10.8)
+pocketmine\event\Event::hasHandlers skipped only the rule code raises events, and builds one only when a listener hears it (PLAN.md 8.2)
+pocketmine\event\Event::getEventName skipped an event is its Rust type
+pocketmine\event\EventPriority::fromString skipped priorities are a Rust enum chosen in code (CLAUDE.md 2.2)
+pocketmine\event\HandlerList::register merged PluginManager::registerEvent
+pocketmine\event\HandlerList::registerAll merged PluginManager::registerEvent
+pocketmine\event\HandlerList** skipped listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\event\RegisteredListener** skipped listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\event\Listener merged PluginManager::registerEvent
+pocketmine\event\ListenerMethodTags skipped PHP docblock tags: a listener's priority is an argument of `ServerBuilder::on` (PLAN.md 8.2)
+pocketmine\event\Cancellable merged Cancellable::isCancelled
+pocketmine\event\CancellableTrait merged CancellableTrait::cancel
+pocketmine\event\block\BlockEvent merged BlockEvent::getBlock
+pocketmine\event\entity\EntityEvent merged EntityEvent::getEntity
+pocketmine\event\inventory\InventoryEvent merged InventoryEvent::getInventory
+pocketmine\event\player\PlayerEvent merged PlayerEvent::getPlayer
+pocketmine\event\world\WorldEvent merged WorldEvent::getWorld
+pocketmine\event\world\ChunkEvent merged ChunkEvent::getChunkX
+pocketmine\event\player\PlayerDisconnectEventTrait merged PlayerDisconnectEventTrait::getDisconnectReason
+pocketmine\event\server\ServerEvent merged Event
+pocketmine\event\**::isCancelled merged Cancellable::isCancelled
+
+# ===== Network (CLAUDE.md 4.2-4.3, 4.8, PLAN.md 8.3): the protocol is internal =====
+# Sessions, handlers, codecs, compression, encryption and caches are internal; the extension
+# points are the packet hooks and `Player::send_packet`, the protocol types are `anchor::protocol`.
+
+pocketmine\network\mcpe\NetworkSession::disconnect merged Player::disconnect
+pocketmine\network\mcpe\NetworkSession::disconnectWithError merged Player::disconnect
+pocketmine\network\mcpe\NetworkSession::transfer merged Player::transfer
+pocketmine\network\mcpe\NetworkSession::isConnected merged Player::isConnected
+pocketmine\network\mcpe\NetworkSession::getDisplayName merged Player::getDisplayName
+pocketmine\network\mcpe\NetworkSession::onChatMessage merged Player::sendMessage
+pocketmine\network\mcpe\NetworkSession::onTitle merged Player::sendTitle
+pocketmine\network\mcpe\NetworkSession::onSubTitle merged Player::sendSubTitle
+pocketmine\network\mcpe\NetworkSession::onActionBar merged Player::sendActionBarMessage
+pocketmine\network\mcpe\NetworkSession::onPopup merged Player::sendPopup
+pocketmine\network\mcpe\NetworkSession::onTip merged Player::sendTip
+pocketmine\network\mcpe\NetworkSession::onJukeboxPopup merged Player::sendJukeboxPopup
+pocketmine\network\mcpe\NetworkSession::onToastNotification merged Player::sendToastNotification
+pocketmine\network\mcpe\NetworkSession::onClearTitle merged Player::removeTitles
+pocketmine\network\mcpe\NetworkSession::onResetTitleOptions merged Player::resetTitles
+pocketmine\network\mcpe\NetworkSession::onTitleDuration merged Player::setTitleDuration
+pocketmine\network\mcpe\NetworkSession::onCloseAllForms merged Player::closeAllForms
+pocketmine\network\mcpe\NetworkSession::onFormSent merged Player::sendForm
+pocketmine\network\mcpe\NetworkSession::getPlayer skipped the session is the player: `Context::player` (PLAN.md 10.8)
+pocketmine\network\mcpe\NetworkSession::getPlayerInfo merged PlayerInfo::getUsername
+pocketmine\network\mcpe\NetworkSession::sendDataPacketWithReceipt skipped transport acknowledgements are internal to RakNet and NetherNet (CLAUDE.md 4.8)
+pocketmine\network\mcpe\NetworkSession::getPort skipped the client's port is not kept: `Identity.address` holds the IP only (`Player::ip`), and keeping the port changes the input log format (PLAN.md 10.8 A2)
+pocketmine\network\mcpe\NetworkSession::getPing skipped the ping stays in the session task, not tick state (PLAN.md 10.8 A1)
+pocketmine\network\mcpe\** skipped protocol internals (CLAUDE.md 4.2-4.3): the extension points are packet hooks and `Player::send_packet` (PLAN.md 8.3)
+pocketmine\network\** skipped protocol internals (CLAUDE.md 4.2-4.3, 4.8): the extension points are packet hooks and `Player::send_packet` (PLAN.md 8.3)
+
+# ===== Data (PLAN.md 7, 10.4): block, item and save formats are generated or internal =====
+
+pocketmine\data\bedrock\block\BlockStateData merged Block
+pocketmine\data\bedrock\block\BlockStateData::getName merged Block
+pocketmine\data\bedrock\block\BlockStateData::getState merged Block
+pocketmine\data\bedrock\block\BlockStateData::getStates merged Block
+pocketmine\data\bedrock\block\BlockStateData::current merged BlockStateDictionary::lookupStateIdFromData
+pocketmine\data\bedrock\block\BlockStateData::equals merged Block
+pocketmine\data\bedrock\EffectIdMap merged EffectIdMap::fromId
+pocketmine\data\bedrock\EnchantmentIdMap merged EnchantmentIdMap::fromId
+pocketmine\data\bedrock\PotionTypeIdMap merged PotionTypeIdMap::fromId
+pocketmine\data\bedrock\BannerPatternTypeIdMap merged BannerPatternTypeIdMap::fromId
+pocketmine\data\bedrock\*IdMap::register skipped save ID maps are generated and fixed (PLAN.md 7, CLAUDE.md 4.1)
+pocketmine\data\bedrock\**::reset skipped global singleton: Anchor has no global state; registries are fixed at `build()` (CLAUDE.md 4.1, PLAN.md 8.4)
+pocketmine\data\bedrock\EffectIds merged EffectIdMap::fromId
+pocketmine\data\bedrock\EnchantmentIds merged EnchantmentIdMap::fromId
+pocketmine\data\bedrock\PotionTypeIds merged PotionTypeIdMap::fromId
+pocketmine\data\bedrock\item\ItemDeserializer merged ItemDeserializer::deserializeType
+pocketmine\data\SavedDataLoadingException skipped PHP exception: a corrupt record keeps its original and reports through `Result` (CLAUDE.md 2.1, 5)
+pocketmine\data\runtime\** skipped PMMP's runtime state bit packing: Anchor's block states are a generated table (PLAN.md 7)
+pocketmine\data\bedrock\block\upgrade\** skipped save upgrades are generated from PMMP's schemas at build time (PLAN.md 7)
+pocketmine\data\bedrock\item\upgrade\** skipped save upgrades are generated from PMMP's schemas at build time (PLAN.md 7)
+pocketmine\data\bedrock\block\** skipped Bedrock block (de)serialisation is generated from the PMMP dump (PLAN.md 7)
+pocketmine\data\bedrock\item\** skipped Bedrock item (de)serialisation is generated from the PMMP dump (PLAN.md 7)
+pocketmine\data\bedrock\Legacy** skipped legacy numeric IDs: Anchor's data is the 1.26 string IDs (PLAN.md 7)
+pocketmine\data\bedrock\** skipped save ID tables are generated from the PMMP dump (PLAN.md 7)
+pocketmine\data\java\** skipped Java Edition IDs: Anchor is Bedrock only (CLAUDE.md 1)
+
+# ===== Blocks (PLAN.md 7, 8.1): `block::Kind` is a kind, `block::State` a Bedrock block state =====
+# A PMMP block object is a kind plus a state: per-class property getters and setters are the
+# state's properties (`State::name`, `value`, `with`, `find`); behaviour hooks are tick rules
+# (PLAN.md 10.7) that listeners change through events (PLAN.md 8.2) and custom blocks through
+# behaviour traits (PLAN.md 8.3).
+
+pocketmine\block\VanillaBlocks::* merged VanillaBlocks
+
+# Block entity storage objects: their NBT, spawn data and lifetime are internal (PLAN.md 6).
+pocketmine\block\tile\**::readSaveData skipped block entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\block\tile\**::addAdditionalSpawnData skipped block entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\block\tile\**::addNameSpawnData skipped block entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\block\tile\**::copyDataFromItem skipped block entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\block\tile\**::getCleanedNBT skipped block entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\block\tile\**::saveNBT skipped block entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\block\tile\**::getRenderUpdateBugWorkaroundStateProperties skipped block entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\block\tile\**::createFakeUpdatePacket skipped protocol internals (CLAUDE.md 4.2-4.3)
+pocketmine\block\tile\Spawnable** skipped block entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\block\tile\TileFactory** skipped block entity kinds are generated (PLAN.md 7)
+pocketmine\block\tile\**::__construct skipped block entities are made by the block rules with their block (PLAN.md 10.7)
+pocketmine\block\tile\**::__destruct skipped block entities are made by the block rules with their block (PLAN.md 10.7)
+pocketmine\block\tile\**::close skipped block entities are made by the block rules with their block (PLAN.md 10.7)
+pocketmine\block\tile\Tile::isClosed skipped block entities are made by the block rules with their block (PLAN.md 10.7)
+pocketmine\block\tile\Tile::onBlockDestroyed skipped block entities are made by the block rules with their block (PLAN.md 10.7)
+pocketmine\block\tile\**::onUpdate skipped block rule code (PLAN.md 10.7)
+pocketmine\block\tile\*Furnace::getFurnaceType merged Block
+pocketmine\block\tile\Smoker::getFurnaceType merged Block
+pocketmine\block\tile\**::getInventory merged InventoryHolder::getInventory
+pocketmine\block\tile\**::getRealInventory merged Container::getRealInventory
+
+# Block inventories: `Context::block_inventory` reads a container block's slots by position.
+pocketmine\block\inventory\AnvilInventory merged Player::getCurrentWindow
+pocketmine\block\inventory\CartographyTableInventory merged Player::getCurrentWindow
+pocketmine\block\inventory\CraftingTableInventory merged Player::getCurrentWindow
+pocketmine\block\inventory\EnchantInventory merged Player::getCurrentWindow
+pocketmine\block\inventory\LoomInventory merged Player::getCurrentWindow
+pocketmine\block\inventory\SmithingTableInventory merged Player::getCurrentWindow
+pocketmine\block\inventory\StonecutterInventory merged Player::getCurrentWindow
+pocketmine\block\inventory\EnderChestInventory merged Human::getEnderInventory
+pocketmine\block\inventory\*Inventory merged Container::getRealInventory
+pocketmine\block\inventory\**::__construct skipped block inventories are made with their block by the rules (PLAN.md 10.7)
+pocketmine\block\inventory\**::getHolder skipped a block inventory is found by its position (`Context::block_inventory`)
+pocketmine\block\inventory\**::onOpen skipped block rule code: lid animation and viewers (PLAN.md 10.7)
+pocketmine\block\inventory\**::onClose skipped block rule code: lid animation and viewers (PLAN.md 10.7)
+pocketmine\block\inventory\**::animatedBlockInventoryTrait_onClose skipped block rule code: lid animation and viewers (PLAN.md 10.7)
+pocketmine\block\inventory\**::getViewerCount skipped block rule code: lid animation and viewers (PLAN.md 10.7)
+pocketmine\block\inventory\**::getViewers skipped block rule code: lid animation and viewers (PLAN.md 10.7)
+pocketmine\block\inventory\ChestInventory::animateBlock skipped block rule code: lid animation and viewers (PLAN.md 10.7)
+pocketmine\block\inventory\AnimatedBlockInventoryTrait skipped block rule code: lid animation and viewers (PLAN.md 10.7)
+pocketmine\block\inventory\BlockInventoryTrait skipped a block inventory is found by its position (`Context::block_inventory`)
+pocketmine\block\inventory\DoubleChestInventory::getLeftSide skipped a double chest is one inventory at either half's position, left half first (`Context::block_inventory`)
+pocketmine\block\inventory\DoubleChestInventory::getRightSide skipped a double chest is one inventory at either half's position, left half first (`Context::block_inventory`)
+pocketmine\block\inventory\EnderChestInventory::getEnderInventory merged Human::getEnderInventory
+pocketmine\block\inventory\EnchantInventory::getOption merged PlayerEnchantingOptionsRequestEvent::getOptions
+pocketmine\block\inventory\EnchantInventory::getOutput merged PlayerItemEnchantEvent::getOutputItem
+pocketmine\block\inventory\FurnaceInventory::getFurnaceType merged Block
+pocketmine\block\inventory\FurnaceInventory::* merged Container::getRealInventory
+
+# Block type registration: kinds, break info and type tags are generated (PLAN.md 7, 10.7).
+pocketmine\block\BlockBreakInfo::* skipped break info is generated from the PMMP dump; custom blocks give theirs in the definition (PLAN.md 7, 10.8)
+pocketmine\block\BlockIdentifier::getTileClass skipped block entity kinds are generated (PLAN.md 7)
+pocketmine\block\BlockIdentifier::getBlockTypeId merged Block::getTypeId
+pocketmine\block\BlockIdentifier** skipped kinds are generated from the PMMP dump (PLAN.md 7)
+pocketmine\block\BlockTypeIds** skipped kinds are generated from the PMMP dump (PLAN.md 7)
+pocketmine\block\BlockTypeInfo::getBreakInfo merged Block::getBreakInfo
+pocketmine\block\BlockTypeInfo::getTypeTags merged Block::hasTypeTag
+pocketmine\block\BlockTypeInfo::hasTypeTag merged Block::hasTypeTag
+pocketmine\block\BlockTypeInfo** skipped kinds are generated from the PMMP dump (PLAN.md 7)
+pocketmine\block\Block::getIdInfo merged Block::getTypeId
+pocketmine\block\Block::hasSameTypeId merged Block::getTypeId
+pocketmine\block\Block::getTypeTags merged Block::hasTypeTag
+pocketmine\block\Block::isSameState merged Block
+pocketmine\block\Block::generateStatePermutations merged BlockStateDictionary::getStates
+pocketmine\block\**::getFuelTime merged Item::getFuelTime
+pocketmine\block\**::getMaxStackSize merged Item::getMaxStackSize
+pocketmine\block\Block::isFireProofAsItem merged Item::isFireProof
+pocketmine\block\**::collidesWithBB merged Block::getCollisionBoxes
+pocketmine\block\**::isFullCube merged Block::getCollisionBoxes
+pocketmine\block\Fence::getThickness merged Block::getCollisionBoxes
+pocketmine\block\**::describeBlockItemState skipped PMMP's runtime state bit packing: Anchor's block states are a generated table (PLAN.md 7)
+pocketmine\block\**::describeBlockOnlyState skipped PMMP's runtime state bit packing: Anchor's block states are a generated table (PLAN.md 7)
+pocketmine\block\**::__construct skipped kinds are generated from the PMMP dump; users do not make block objects (PLAN.md 7)
+pocketmine\block\Block::getPosition skipped a `block::State` is a value without a position (PLAN.md 8.1): the caller has the `BlockPos`
+pocketmine\block\Block::getName skipped English block names are client-side translations (Anchor sends translation keys, PLAN.md 10.8 C1); `Kind::name` is the registry name
+pocketmine\item\Item::getName skipped English item names are client-side translations (Anchor sends translation keys, PLAN.md 10.8 C1); `item::Type::name` is the registry name
+pocketmine\item\Item::getVanillaName skipped English item names are client-side translations (Anchor sends translation keys, PLAN.md 10.8 C1); `item::Type::name` is the registry name
+
+# Data-driven values: overrides of implemented `Block` methods.
+pocketmine\block\**::asItem merged Block::asItem
+pocketmine\block\**::blocksDirectSkyLight merged Block::blocksDirectSkyLight
+pocketmine\block\**::burnsForever merged Block::burnsForever
+pocketmine\block\**::canBeFlowedInto merged Block::canBeFlowedInto
+pocketmine\block\**::canBeReplaced merged Block::canBeReplaced
+pocketmine\block\**::canClimb merged Block::canClimb
+pocketmine\block\**::getFlameEncouragement merged Block::getFlameEncouragement
+pocketmine\block\**::getFlammability merged Block::getFlammability
+pocketmine\block\**::getFrictionFactor merged Block::getFrictionFactor
+pocketmine\block\**::getLightFilter merged Block::getLightFilter
+pocketmine\block\**::getLightLevel merged Block::getLightLevel
+pocketmine\block\Candle::getBaseLightLevel merged Block::getLightLevel
+pocketmine\block\**::getModelPositionOffset merged Block::getModelPositionOffset
+pocketmine\block\**::getSupportType merged Block::getSupportType
+pocketmine\block\**::hasEntityCollision merged Block::hasEntityCollision
+pocketmine\block\**::isAffectedBySilkTouch merged Block::isAffectedBySilkTouch
+pocketmine\block\**::isSolid merged Block::isSolid
+pocketmine\block\**::isTransparent merged Block::isTransparent
+pocketmine\block\**::ticksRandomly merged Block::ticksRandomly
+pocketmine\block\BaseCake::getFoodRestore skipped cake is eaten by the block rule (PLAN.md 10.7)
+pocketmine\block\BaseCake::getSaturationRestore skipped cake is eaten by the block rule (PLAN.md 10.7)
+pocketmine\block\BaseCake::requiresHunger skipped cake is eaten by the block rule (PLAN.md 10.7)
+pocketmine\block\BaseCake::getAdditionalEffects skipped cake is eaten by the block rule (PLAN.md 10.7)
+pocketmine\block\*Cake*::getResidue skipped cake is eaten by the block rule (PLAN.md 10.7)
+pocketmine\block\*Cake*::onConsume skipped cake is eaten by the block rule (PLAN.md 10.7)
+
+# Behaviour hooks: tick rules, not public API (PLAN.md 10.7).
+pocketmine\block\**::onNearbyBlockChange skipped block rule code (PLAN.md 10.7): listeners see BlockUpdate (PLAN.md 10.8 B5)
+pocketmine\block\**::onInteract skipped block rule code (PLAN.md 10.7): listeners see PlayerInteract (PLAN.md 10.8 B1)
+pocketmine\block\**::onInteractCandle skipped block rule code (PLAN.md 10.7): listeners see PlayerInteract (PLAN.md 10.8 B1)
+pocketmine\block\**::onInteractCopper skipped block rule code (PLAN.md 10.7): listeners see PlayerInteract (PLAN.md 10.8 B1)
+pocketmine\block\**::onAttack skipped block rule code (PLAN.md 10.7): listeners see PlayerInteract (PLAN.md 10.8 B1)
+pocketmine\block\**::onBreak skipped block rule code (PLAN.md 10.7): listeners see BlockBreak (PLAN.md 10.8 B1)
+pocketmine\block\**::getDrops skipped block rule code (PLAN.md 10.7): listeners see and change the drops in BlockBreak (PLAN.md 10.8 B1)
+pocketmine\block\**::getDropsForCompatibleTool skipped block rule code (PLAN.md 10.7): listeners see and change the drops in BlockBreak (PLAN.md 10.8 B1)
+pocketmine\block\**::getDropsForIncompatibleTool skipped block rule code (PLAN.md 10.7): listeners see and change the drops in BlockBreak (PLAN.md 10.8 B1)
+pocketmine\block\**::traitGetDropsForIncompatibleTool skipped block rule code (PLAN.md 10.7): listeners see and change the drops in BlockBreak (PLAN.md 10.8 B1)
+pocketmine\block\**::getSilkTouchDrops skipped block rule code (PLAN.md 10.7): listeners see and change the drops in BlockBreak (PLAN.md 10.8 B1)
+pocketmine\block\**::getXpDropForTool skipped block rule code (PLAN.md 10.7): listeners see and change the experience in BlockBreak (PLAN.md 10.8 B1)
+pocketmine\block\**::getXpDropAmount skipped block rule code (PLAN.md 10.7): listeners see and change the experience in BlockBreak (PLAN.md 10.8 B1)
+pocketmine\block\SweetBerryBush::getBerryDropAmount skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::place skipped block rule code (PLAN.md 10.7): listeners see BlockPlace (PLAN.md 10.8 B1)
+pocketmine\block\**::onPostPlace skipped block rule code (PLAN.md 10.7): listeners see BlockPlace (PLAN.md 10.8 B1)
+pocketmine\block\**::canBePlaced skipped block rule code (PLAN.md 10.7): listeners see BlockPlace (PLAN.md 10.8 B1)
+pocketmine\block\**::canBePlacedAt skipped block rule code (PLAN.md 10.7): listeners see BlockPlace (PLAN.md 10.8 B1)
+pocketmine\block\**::supportedWhenPlacedAt skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::canBeSupportedBy skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::onSupportBlockChange skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::isValidHalfPlant skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::getAffectedBlocks skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::onRandomTick skipped block rule code (PLAN.md 10.7): listeners see BlockGrow, BlockSpread and the other update events (PLAN.md 10.8 B5)
+pocketmine\block\**::onScheduledUpdate skipped block rule code (PLAN.md 10.7): listeners see BlockUpdate (PLAN.md 10.8 B5)
+pocketmine\block\**::onEntityInside skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::onEntityLand skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::onProjectileHit skipped block rule code (PLAN.md 10.7): listeners see ProjectileHitBlock (PLAN.md 10.8 B4)
+pocketmine\block\**::onIncinerate skipped block rule code (PLAN.md 10.7): listeners see BlockBurn (PLAN.md 10.8 B5)
+pocketmine\block\**::addVelocityToEntity skipped block rule code: liquid currents (PLAN.md 10.7)
+pocketmine\block\**::readStateFromWorld skipped Anchor computes neighbour-dependent properties in the rules and stores the result (PLAN.md 7)
+pocketmine\block\**::writeStateToWorld skipped Anchor computes neighbour-dependent properties in the rules and stores the result (PLAN.md 7)
+pocketmine\block\**::getPickedItem skipped block rule code (PLAN.md 10.7): listeners see PlayerBlockPick (PLAN.md 10.8 B2)
+pocketmine\block\Block::calculateIntercept skipped block rule code: ray tests of the interaction and projectile rules (PLAN.md 10.7)
+pocketmine\block\Bed::getOtherHalf skipped block rule code (PLAN.md 10.7)
+pocketmine\block\Bell::ring skipped block rule code (PLAN.md 10.7)
+pocketmine\block\DragonEgg::teleport skipped block rule code (PLAN.md 10.7): listeners see BlockTeleport (PLAN.md 10.8 B1)
+pocketmine\block\Jukebox::ejectRecord skipped block rule code (PLAN.md 10.7)
+pocketmine\block\Jukebox::insertRecord skipped block rule code (PLAN.md 10.7)
+pocketmine\block\Jukebox::startSound skipped block rule code (PLAN.md 10.7)
+pocketmine\block\Jukebox::stopSound skipped block rule code (PLAN.md 10.7)
+pocketmine\block\Lectern::onPageTurn skipped block rule code (PLAN.md 10.7)
+pocketmine\block\FlowerPot::canAddPlant skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::getEmptySound skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::getFillSound skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::getBucketEmptySound skipped block rule code (PLAN.md 10.7)
+pocketmine\block\**::getBucketFillSound skipped block rule code (PLAN.md 10.7)
+pocketmine\block\Liquid::getFlowVector skipped liquid rule code (PLAN.md 10.7)
+pocketmine\block\*::getFlowDecayPerBlock skipped liquid rule code (PLAN.md 10.7)
+pocketmine\block\*::getMinAdjacentSourcesToFormSource skipped liquid rule code (PLAN.md 10.7)
+pocketmine\block\Liquid::getFluidHeightPercent skipped liquid rule code (PLAN.md 10.7)
+pocketmine\block\*::tickRate skipped liquid rule code (PLAN.md 10.7)
+pocketmine\block\Liquid::getStillForm merged Block
+pocketmine\block\Campfire::getInventory merged InventoryHolder::getInventory
+pocketmine\block\Note::*etPitch skipped Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came (PLAN.md 10.8 F3)
+pocketmine\block\Liquid::getFlowingForm merged Block
+pocketmine\block\utils\Fallable** skipped falling block rule code (PLAN.md 10.7)
+pocketmine\block\**::getFallDamagePerBlock skipped falling block rule code (PLAN.md 10.7)
+pocketmine\block\**::getLandSound skipped falling block rule code (PLAN.md 10.7)
+pocketmine\block\**::getMaxFallDamage skipped falling block rule code (PLAN.md 10.7)
+pocketmine\block\**::onHitGround skipped falling block rule code (PLAN.md 10.7)
+pocketmine\block\**::tickFalling skipped falling block rule code (PLAN.md 10.7)
+pocketmine\block\utils\BlockEventHelper** skipped block rule code: the rules raise the grow, spread, form, melt and death events (PLAN.md 10.8 B5)
+pocketmine\block\utils\CropGrowthHelper** skipped farming rule code (PLAN.md 10.7)
+pocketmine\block\utils\FortuneDropHelper** skipped drop rule code (PLAN.md 10.7)
+pocketmine\block\utils\MinimumCostFlowCalculator** skipped liquid rule code (PLAN.md 10.7)
+pocketmine\block\utils\RailConnectionInfo skipped rail shape rule code (PLAN.md 10.7)
+pocketmine\block\utils\StaticSupportTrait** skipped block rule code (PLAN.md 10.7)
+pocketmine\block\utils\AmethystTrait** skipped block rule code (PLAN.md 10.7)
+
+# Property getters and setters: values of the state (`State::name`, `value`, `with`, `find`).
+# Block-entity data (sign text, banner patterns, frame and pot contents, records, books, skull
+# rotation, note pitch, cauldron potion and colour, campfire cooking times) is not a state
+# value: those accessors are `open` rules above.
+pocketmine\block\*::getStage merged Block
+pocketmine\block\*::setStage merged Block
+pocketmine\block\Anvil::getDamage merged Block
+pocketmine\block\Anvil::setDamage merged Block
+pocketmine\block\*::getLeafSize merged Block
+pocketmine\block\*::setLeafSize merged Block
+pocketmine\block\*::isReady merged Block
+pocketmine\block\*::setReady merged Block
+pocketmine\block\*::isThick merged Block
+pocketmine\block\*::setThick merged Block
+pocketmine\block\*::isOpen merged Block
+pocketmine\block\*::setOpen merged Block
+pocketmine\block\*::isHeadPart merged Block
+pocketmine\block\*::setHead merged Block
+pocketmine\block\*::isHead merged Block
+pocketmine\block\*::isOccupied merged Block
+pocketmine\block\*::setOccupied merged Block
+pocketmine\block\Bedrock::setBurnsForever merged Block
+pocketmine\block\*::getAttachmentType merged Block
+pocketmine\block\*::setAttachmentType merged Block
+pocketmine\block\*::getLeafState merged Block
+pocketmine\block\*::setLeafState merged Block
+pocketmine\block\*::isPressed merged Block
+pocketmine\block\*::setPressed merged Block
+pocketmine\block\*::getBites merged Block
+pocketmine\block\*::setBites merged Block
+pocketmine\block\*::getCount merged Block
+pocketmine\block\*::setCount merged Block
+pocketmine\block\*::hasBerries merged Block
+pocketmine\block\*::setBerries merged Block
+pocketmine\block\*::isInverted merged Block
+pocketmine\block\*::setInverted merged Block
+pocketmine\block\*::isActivated merged Block
+pocketmine\block\*::setActivated merged Block
+pocketmine\block\*::getDirtType merged Block
+pocketmine\block\*::setDirtType merged Block
+pocketmine\block\*::isHingeRight merged Block
+pocketmine\block\*::setHingeRight merged Block
+pocketmine\block\*::isTop merged Block
+pocketmine\block\*::setTop merged Block
+pocketmine\block\*::hasEye merged Block
+pocketmine\block\*::setEye merged Block
+pocketmine\block\*::getWetness merged Block
+pocketmine\block\*::setWetness merged Block
+pocketmine\block\*::isInWall merged Block
+pocketmine\block\*::setInWall merged Block
+pocketmine\block\*::getFillLevel merged Block
+pocketmine\block\*::setFillLevel merged Block
+pocketmine\block\**::getAxis merged Block
+pocketmine\block\**::setAxis merged Block
+pocketmine\block\*::getFroglightType merged Block
+pocketmine\block\*::setFroglightType merged Block
+pocketmine\block\*::getFurnaceType merged Block
+pocketmine\block\*::getFacing merged Block
+pocketmine\block\*::setFacing merged Block
+pocketmine\block\utils\*Facing*::getFacing merged Block
+pocketmine\block\utils\*Facing*::setFacing merged Block
+pocketmine\block\*::isHanging merged Block
+pocketmine\block\*::setHanging merged Block
+pocketmine\block\*::getLeavesType merged Block
+pocketmine\block\*::isCheckDecay merged Block
+pocketmine\block\*::setCheckDecay merged Block
+pocketmine\block\*::isNoDecay merged Block
+pocketmine\block\*::setNoDecay merged Block
+pocketmine\block\Light::setLightLevel merged Block
+pocketmine\block\*::getDecay merged Block
+pocketmine\block\*::setDecay merged Block
+pocketmine\block\*::isFalling merged Block
+pocketmine\block\*::setFalling merged Block
+pocketmine\block\*::isStill merged Block
+pocketmine\block\*::setStill merged Block
+pocketmine\block\*::isSource merged Block
+pocketmine\block\*::getMobHeadType merged Block
+pocketmine\block\*::setMobHeadType merged Block
+pocketmine\block\CeilingCenterHangingSign::*etRotation merged Block
+pocketmine\block\FloorBanner::*etRotation merged Block
+pocketmine\block\FloorSign::*etRotation merged Block
+pocketmine\block\OminousFloorBanner::*etRotation merged Block
+pocketmine\block\utils\SignLikeRotation*::*etRotation merged Block
+pocketmine\block\utils\FacesOppositePlacingPlayerTrait::*etFacing merged Block
+pocketmine\block\*::getShape merged Block
+pocketmine\block\*::setShape merged Block
+pocketmine\block\*::getMushroomBlockType merged Block
+pocketmine\block\*::setMushroomBlockType merged Block
+pocketmine\block\*::isSubtractMode merged Block
+pocketmine\block\*::setSubtractMode merged Block
+pocketmine\block\*::getDelay merged Block
+pocketmine\block\*::setDelay merged Block
+pocketmine\block\*::getCharges merged Block
+pocketmine\block\*::setCharges merged Block
+pocketmine\block\*::isUnderwater merged Block
+pocketmine\block\*::setUnderwater merged Block
+pocketmine\block\*::getSlabType merged Block
+pocketmine\block\*::setSlabType merged Block
+pocketmine\block\*::getLayers merged Block
+pocketmine\block\*::setLayers merged Block
+pocketmine\block\*::isWet merged Block
+pocketmine\block\*::setWet merged Block
+pocketmine\block\*::isUpsideDown merged Block
+pocketmine\block\*::setUpsideDown merged Block
+pocketmine\block\*::isUnstable merged Block
+pocketmine\block\*::setUnstable merged Block
+pocketmine\block\TNT::worksUnderwater merged Block
+pocketmine\block\TNT::setWorksUnderwater merged Block
+pocketmine\block\*::isConnected merged Block
+pocketmine\block\*::setConnected merged Block
+pocketmine\block\*::isDisarmed merged Block
+pocketmine\block\*::setDisarmed merged Block
+pocketmine\block\*::isSuspended merged Block
+pocketmine\block\*::setSuspended merged Block
+pocketmine\block\*::isTriggered merged Block
+pocketmine\block\*::setTriggered merged Block
+pocketmine\block\**::getFaces merged Block
+pocketmine\block\**::hasFace merged Block
+pocketmine\block\**::setFace merged Block
+pocketmine\block\**::setFaces merged Block
+pocketmine\block\*::getConnection merged Block
+pocketmine\block\*::getConnections merged Block
+pocketmine\block\*::isPost merged Block
+pocketmine\block\*::setConnection merged Block
+pocketmine\block\*::setConnections merged Block
+pocketmine\block\*::setPost merged Block
+pocketmine\block\*::isStripped merged Block
+pocketmine\block\*::setStripped merged Block
+pocketmine\block\*::getSlots merged Block
+pocketmine\block\*::hasSlot merged Block
+pocketmine\block\*::setSlot merged Block
+pocketmine\block\*::setSlots merged Block
+pocketmine\block\**::getAge merged Block
+pocketmine\block\**::setAge merged Block
+pocketmine\block\**::getMaxAge merged Block
+pocketmine\block\*::getColor merged Block
+pocketmine\block\*::setColor merged Block
+pocketmine\block\utils\Colored*::getColor merged Block
+pocketmine\block\utils\Colored*::setColor merged Block
+pocketmine\block\**::getWoodType merged Block
+pocketmine\block\**::getOxidation merged Block
+pocketmine\block\**::setOxidation merged Block
+pocketmine\block\Copper*::isWaxed merged Block
+pocketmine\block\Copper*::setWaxed merged Block
+pocketmine\block\LightningRod::isWaxed merged Block
+pocketmine\block\LightningRod::setWaxed merged Block
+pocketmine\block\utils\Copper*::isWaxed merged Block
+pocketmine\block\utils\Copper*::setWaxed merged Block
+pocketmine\block\**::getCoralType merged Block
+pocketmine\block\**::setCoralType merged Block
+pocketmine\block\**::isDead merged Block
+pocketmine\block\**::setDead merged Block
+pocketmine\block\**::isLit merged Block
+pocketmine\block\**::setLit merged Block
+pocketmine\block\CakeWithCandle::getCandle merged Block
+pocketmine\block\ItemFrame::hasMap merged Block
+pocketmine\block\ItemFrame::setHasMap merged Block
+pocketmine\block\InfestedStone::getImitatedBlock merged Block
+
+# Value sets of state properties (colours, wood types, shapes...): the state's property values.
+pocketmine\block\utils\**::getDisplayName skipped English names are client-side translations (Anchor sends translation keys, PLAN.md 10.8 C1)
+pocketmine\block\utils\**::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\**::from skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\**::tryFrom skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\*Type::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\*Slot::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\*State::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\*Shape::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\*Facing::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\CopperOxidation::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\DyeColor::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\block\utils\* merged Block
+
+# Every other block class is a set of kinds: its blocks are `block::State`s (`State::is(Class)`).
+pocketmine\block\* merged Block
+
+# ===== Items (PLAN.md 7, 8.1): `item::Type` is a type, `item::Stack` an immutable stack =====
+
+pocketmine\item\VanillaItems::* merged VanillaItems
+pocketmine\item\**::getAdditionalEffects merged Consumable::getAdditionalEffects
+pocketmine\item\**::getResidue merged ConsumableItem::getResidue
+pocketmine\item\**::getFoodRestore merged FoodSource::getFoodRestore
+pocketmine\item\**::getSaturationRestore merged FoodSource::getSaturationRestore
+pocketmine\item\**::requiresHunger merged FoodSource::requiresHunger
+pocketmine\item\**::getMaxDurability merged Durable::getMaxDurability
+pocketmine\item\**::getAttackPoints merged Item::getAttackPoints
+pocketmine\item\**::getBlock merged Item::getBlock
+pocketmine\item\**::getBlockToolHarvestLevel merged Item::getBlockToolHarvestLevel
+pocketmine\item\**::getBlockToolType merged Item::getBlockToolType
+pocketmine\item\**::getCooldownTag merged Item::getCooldownTag
+pocketmine\item\**::getCooldownTicks merged Item::getCooldownTicks
+pocketmine\item\Armor::getDefensePoints merged Item::getDefensePoints
+pocketmine\item\ArmorTypeInfo::getDefensePoints merged Item::getDefensePoints
+pocketmine\item\**::getEnchantability merged Item::getEnchantability
+pocketmine\item\**::getFuelResidue merged Item::getFuelResidue
+pocketmine\item\**::getFuelTime merged Item::getFuelTime
+pocketmine\item\**::getMaxStackSize merged Item::getMaxStackSize
+pocketmine\item\**::getMiningEfficiency merged Item::getMiningEfficiency
+pocketmine\item\**::isFireProof merged Item::isFireProof
+pocketmine\item\**::getThrowForce merged ProjectileItem::getThrowForce
+pocketmine\item\ArmorTypeInfo::getArmorSlot merged Armor::getArmorSlot
+pocketmine\item\ItemTypeIds** skipped item types are generated from the PMMP dump (PLAN.md 7)
+pocketmine\item\ItemIdentifier** skipped item types are generated from the PMMP dump (PLAN.md 7)
+pocketmine\item\LegacyStringToItemParser** skipped legacy numeric IDs: Anchor's data is the 1.26 string IDs (PLAN.md 7)
+pocketmine\item\**::onInteractBlock skipped item rule code (PLAN.md 10.7): listeners see PlayerInteract (PLAN.md 10.8 B1)
+pocketmine\item\**::onInteractEntity skipped item rule code (PLAN.md 10.7): listeners see PlayerEntityInteract (PLAN.md 10.8 B1)
+pocketmine\item\**::onClickAir skipped item rule code (PLAN.md 10.7): listeners see PlayerItemUse (PLAN.md 10.8 B1)
+pocketmine\item\**::onReleaseUsing skipped item rule code (PLAN.md 10.7): listeners see EntityShootBow (PLAN.md 10.8 B4)
+pocketmine\item\**::onAttackEntity skipped item rule code (PLAN.md 10.7): listeners see EntityDamage (PLAN.md 10.8 B3)
+pocketmine\item\**::onDestroyBlock skipped item rule code (PLAN.md 10.7): listeners see BlockBreak (PLAN.md 10.8 B1)
+pocketmine\item\**::onTickWorn skipped item rule code (PLAN.md 10.7)
+pocketmine\item\**::onConsume skipped item rule code (PLAN.md 10.7): listeners see PlayerItemConsume (PLAN.md 10.8 B3)
+pocketmine\item\**::canStartUsingItem skipped item rule code (PLAN.md 10.7)
+pocketmine\item\**::getPlacementTransaction skipped item rule code (PLAN.md 10.7): listeners see BlockPlace (PLAN.md 10.8 B1)
+pocketmine\item\**::describeBlockItemState skipped PMMP's runtime state bit packing: Anchor's item types are a generated table (PLAN.md 7)
+pocketmine\item\CoralFan::encodeCoralType skipped PMMP's runtime state bit packing: Anchor's item types are a generated table (PLAN.md 7)
+pocketmine\item\Item::nbtSerialize skipped item NBT is internal to the stores; `item::Stack` is the value (PLAN.md 8.1, 8.4)
+pocketmine\item\Item::nbtDeserialize skipped item NBT is internal to the stores; `item::Stack` is the value (PLAN.md 8.1, 8.4)
+pocketmine\item\Item::safeNbtDeserialize skipped item NBT is internal to the stores; `item::Stack` is the value (PLAN.md 8.1, 8.4)
+pocketmine\item\Item::jsonSerialize skipped PMMP's JSON item format (crafting data files): Anchor's recipe data is generated (PLAN.md 7)
+pocketmine\item\Item::legacyJsonDeserialize skipped legacy numeric IDs: Anchor's data is the 1.26 string IDs (PLAN.md 7)
+pocketmine\item\Item::getStateId skipped PMMP's runtime state bit packing: Anchor's item types are a generated table (PLAN.md 7)
+pocketmine\item\*::__construct skipped item types are generated from the PMMP dump; a stack is made with `item::Stack::new` (PLAN.md 7)
+pocketmine\item\ItemUseResult** skipped item rule code (PLAN.md 10.7)
+pocketmine\item\*Type::__callStatic skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\item\*Type::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\item\*Type::equals skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\item\*Type::getAll skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\item\*Type::id skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\item\*Type::name skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\item\ToolTier::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\item\**::getDisplayName skipped English names are client-side translations (Anchor sends translation keys, PLAN.md 10.8 C1)
+pocketmine\item\enchantment\Enchantment::__clone skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\item\enchantment\Enchantment::__serialize skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\item\enchantment\Enchantment::__unserialize skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\item\enchantment\*Enchantment::__construct skipped enchantments are a generated table (PLAN.md 7, 10.7)
+pocketmine\item\enchantment\*Enchantment::getDamageBonus skipped enchantment rule code (PLAN.md 10.7)
+pocketmine\item\enchantment\*Enchantment::isApplicableTo skipped enchantment rule code (PLAN.md 10.7)
+pocketmine\item\enchantment\*Enchantment::onPostAttack skipped enchantment rule code (PLAN.md 10.7)
+pocketmine\item\enchantment\ProtectionEnchantment::* skipped enchantment rule code (PLAN.md 10.7)
+pocketmine\item\enchantment\EnchantingHelper** skipped enchanting table rule code (PLAN.md 10.7): listeners see PlayerEnchantingOptionsRequest and PlayerItemEnchant (PLAN.md 10.8 B2)
+pocketmine\item\enchantment\VanillaEnchantments::* merged VanillaEnchantments
+pocketmine\item\enchantment\*Enchantment merged Enchantment
+pocketmine\item\enchantment\EnchantmentInstance** merged Item::getEnchantments
+pocketmine\item\enchantment\EnchantingOption::__construct skipped enchanting options are made by the enchanting table rule (PLAN.md 10.8 B2)
+pocketmine\item\enchantment\IncompatibleEnchantmentRegistry::areCompatible merged Enchantment::isCompatibleWith
+pocketmine\item\enchantment\IncompatibleEnchantmentRegistry** skipped enchantment tables are generated and fixed (PLAN.md 7, CLAUDE.md 4.1)
+pocketmine\item\enchantment\IncompatibleEnchantmentGroups merged Enchantment::isCompatibleWith
+pocketmine\item\enchantment\AvailableEnchantmentRegistry::isAvailableForItem merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
+pocketmine\item\enchantment\AvailableEnchantmentRegistry** skipped enchantment tables are generated and fixed (PLAN.md 7, CLAUDE.md 4.1)
+pocketmine\item\enchantment\ItemEnchantmentTagRegistry** skipped item tags are a generated table (PLAN.md 7, 10.7)
+pocketmine\item\enchantment\StringToEnchantmentParser** skipped PMMP's string-keyed lookups: Anchor looks things up by typed names (PLAN.md 8.4)
+pocketmine\item\enchantment\Rarity merged Enchantment::getRarity
+pocketmine\item\enchantment\ItemFlags skipped legacy item flags: Anchor uses the item tags (PLAN.md 10.7)
+pocketmine\item\enchantment\Enchantment::getPrimaryItemFlags skipped legacy item flags: Anchor uses the item tags (PLAN.md 10.7)
+pocketmine\item\enchantment\Enchantment::getSecondaryItemFlags skipped legacy item flags: Anchor uses the item tags (PLAN.md 10.7)
+pocketmine\item\enchantment\Enchantment::hasPrimaryItemType skipped legacy item flags: Anchor uses the item tags (PLAN.md 10.7)
+pocketmine\item\enchantment\Enchantment::hasSecondaryItemType skipped legacy item flags: Anchor uses the item tags (PLAN.md 10.7)
+pocketmine\item\VanillaArmorMaterials** skipped armour materials are a generated table (PLAN.md 7, 10.7)
+pocketmine\item\ArmorMaterial** skipped armour materials are a generated table (PLAN.md 7, 10.7)
+pocketmine\item\Armor::getMaterial skipped armour materials are a generated table (PLAN.md 7, 10.7)
+pocketmine\item\ArmorTypeInfo::getMaterial skipped armour materials are a generated table (PLAN.md 7, 10.7)
+pocketmine\item\Armor::getEnchantmentProtectionFactor skipped enchantment rule code (PLAN.md 10.7)
+pocketmine\item\StringToItemParser** skipped PMMP's string-keyed lookups: Anchor looks items up by typed name (`item::Type::from_name`, PLAN.md 8.4)
+pocketmine\item\ItemCooldownTags merged Item::getCooldownTag
+
+# Stack data: count, damage and the extra data (custom name, lore, enchantments, raw NBT) of an
+# immutable `item::Stack` (PLAN.md 8.1); PMMP setters become `with_*` copies.
+pocketmine\item\Item::pop merged Item::setCount
+pocketmine\item\ItemBlock::isNull merged Item::isNull
+pocketmine\item\Item::equals merged Item
+pocketmine\item\Item::equalsExact merged Item
+pocketmine\item\Item::canBePlaced merged Item::getBlock
+pocketmine\item\Item::*CustomName merged Item::getCustomName
+pocketmine\item\Item::setLore merged Item::getLore
+pocketmine\item\Item::getEnchantmentTags merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
+pocketmine\item\Item::*Enchantment* merged Item::getEnchantments
+pocketmine\item\ItemEnchantmentHandlingTrait** merged Item::getEnchantments
+pocketmine\item\Item::*NamedTag merged Item::getNamedTag
+pocketmine\item\Item::*CustomBlockData merged Item::getNamedTag
+pocketmine\item\Item::*CanDestroy merged Item::getNamedTag
+pocketmine\item\Item::*CanPlaceOn merged Item::getNamedTag
+pocketmine\item\Item::*KeepOnDeath merged Item::getNamedTag
+pocketmine\item\Item::keepOnDeath merged Item::getNamedTag
+pocketmine\item\Durable::applyDamage merged Durable::setDamage
+pocketmine\item\Durable::isBroken merged Durable::getDamage
+pocketmine\item\Durable::*Unbreakable merged Item::getNamedTag
+pocketmine\item\Armor::*CustomColor merged Item::getNamedTag
+pocketmine\item\Banner::*Patterns merged Item::getNamedTag
+pocketmine\item\FireworkRocket::* merged Item::getNamedTag
+pocketmine\item\FireworkStar::* merged Item::getNamedTag
+pocketmine\item\FireworkRocketExplosion** merged Item::getNamedTag
+pocketmine\item\WritableBookBase::* merged Item::getNamedTag
+pocketmine\item\WritableBookPage** merged Item::getNamedTag
+pocketmine\item\WrittenBook::* merged Item::getNamedTag
+pocketmine\item\FireworkRocketType::getExplosionSound skipped entity rule code (PLAN.md 10.7): the burst sound is played by the firework rocket entity (`entity::Type::FireworkRocket`)
+
+# Variants carried by the item type (its meta): `item::Type` names each one.
+pocketmine\item\Banner::*etColor merged Item::getTypeId
+pocketmine\item\Boat::getType merged Item::getTypeId
+pocketmine\item\BoatType::getWoodType merged Item::getTypeId
+pocketmine\item\CoralFan::* merged Item::getTypeId
+pocketmine\item\Dye::setColor merged Item::getTypeId
+pocketmine\item\GoatHorn::*etHornType merged Item::getTypeId
+pocketmine\item\Medicine::*etType merged Item::getTypeId
+pocketmine\item\Potion::setType merged Item::getTypeId
+pocketmine\item\SplashPotion::*etType merged Item::getTypeId
+pocketmine\item\SplashPotion::willLinger merged Item::getTypeId
+pocketmine\item\SuspiciousStew::*etType merged Item::getTypeId
+pocketmine\item\SuspiciousStewType::getEffects merged Consumable::getAdditionalEffects
+pocketmine\item\MedicineType::getCuredEffect skipped item rule code (PLAN.md 10.7)
+pocketmine\item\Record::getRecordType merged Item::getTypeId
+pocketmine\item\LiquidBucket::getLiquid merged Item::getTypeId
+pocketmine\item\*Type merged Item::getTypeId
+
+# Every other item class is a set of item types: its items are `item::Stack`s of an `item::Type`.
+pocketmine\item\* merged Item
+
+# Crafting data is generated from PMMP's bedrock-data (PLAN.md 8.4); the recipe API is C4's.
+pocketmine\crafting\json\** skipped PMMP's JSON recipe files: Anchor's recipe data is generated (PLAN.md 7, 8.4)
+pocketmine\crafting\CraftingManagerFromDataHelper** skipped PMMP's JSON recipe files: Anchor's recipe data is generated (PLAN.md 7, 8.4)
+pocketmine\crafting\*Type::__callStatic skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\crafting\*Type::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\crafting\*Type::equals skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\crafting\*Type::getAll skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\crafting\*Type::id skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\crafting\*Type::name skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\crafting\FurnaceType::getCookSound skipped furnace rule code (PLAN.md 10.7)
+pocketmine\crafting\CraftingManager::getDestructorCallbacks skipped PHP destructor hooks: Rust has Drop and Anchor states each resource's release (CLAUDE.md 2.2)
+pocketmine\crafting\CraftingManager::getRecipeRegisteredCallbacks skipped recipes are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\crafting\FurnaceRecipeManager::getRecipeRegisteredCallbacks skipped recipes are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\inventory\CreativeInventory** skipped the creative inventory is fixed at build (CLAUDE.md 4.1) and encoded once at start: PMMP's list plus `custom::Creative` entries; it is not changed or reread while the server runs
+pocketmine\inventory\CreativeGroup** skipped the creative inventory is fixed at build (CLAUDE.md 4.1) and encoded once at start: PMMP's list plus `custom::Creative` entries; it is not changed or reread while the server runs
+pocketmine\player\Player::*etCreativeInventory skipped the creative inventory is fixed at build (CLAUDE.md 4.1) and encoded once at start: PMMP's list plus `custom::Creative` entries; it is not changed or reread while the server runs
+
+# ===== Entities (PLAN.md 10.7, 10.8 A6): `Entity`, `entity::Mut`, `entity::Type` =====
+
+pocketmine\entity\**::getNetworkTypeId merged Entity::getNetworkTypeId
+pocketmine\entity\**::canBeCollidedWith merged Entity::canBeCollidedWith
+pocketmine\entity\object\ItemEntity::canSaveWithChunk merged Entity::canSaveWithChunk
+pocketmine\entity\object\*::isFireProof merged Entity::isFireProof
+pocketmine\entity\object\FallingBlock::attack merged Entity::attack
+pocketmine\entity\object\PrimedTNT::attack merged Entity::attack
+pocketmine\entity\projectile\Projectile::attack merged Entity::attack
+pocketmine\entity\projectile\Arrow::__construct merged Projectile::__construct
+pocketmine\entity\projectile\SplashPotion::__construct merged Projectile::__construct
+pocketmine\entity\projectile\Throwable merged Projectile::__construct
+pocketmine\entity\object\ItemEntity::__construct merged World::dropItem
+pocketmine\entity\animation\**::encode merged Entity::broadcastAnimation
+pocketmine\entity\**::onCollideWithPlayer skipped entity rule code (PLAN.md 10.7): listeners see EntityItemPickup (PLAN.md 10.8 B4)
+pocketmine\entity\**::onNearbyBlockChange skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\**::onRandomUpdate skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\**::hasMovementUpdate skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\**::canCollideWith skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\**::canBeMovedByCurrents skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\**::getOffsetPosition skipped protocol internals: the network position offset (CLAUDE.md 4.2-4.3)
+pocketmine\entity\**::saveNBT skipped entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\entity\**::parseBlockNBT skipped entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\entity\Human::parseSkinNBT skipped entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\entity\EntityDataHelper** skipped entity NBT is internal to the chunk store (PLAN.md 6)
+pocketmine\entity\EntityFactory** skipped entity types are a closed enum made with `Context::spawn_*` (PLAN.md 10.7, 10.8 A6)
+pocketmine\entity\NeverSavedWithChunkEntity merged Entity::canSaveWithChunk
+pocketmine\entity\**::getResultDamage skipped projectile rule code (PLAN.md 10.7): listeners see EntityDamage (PLAN.md 10.8 B4)
+pocketmine\entity\**::onHit skipped projectile rule code (PLAN.md 10.7): listeners see ProjectileHitBlock and ProjectileHitEntity (PLAN.md 10.8 B4)
+pocketmine\entity\**::getDrops skipped entity rule code (PLAN.md 10.7): listeners see and change the drops in EntityDeath (PLAN.md 10.8 B4)
+pocketmine\entity\**::getXpDropAmount skipped entity rule code (PLAN.md 10.7): listeners see and change the experience in EntityDeath (PLAN.md 10.8 B4)
+pocketmine\entity\**::getPickedItem skipped entity pick is not implemented yet; it comes with PlayerEntityPick (PLAN.md 10.8 A4)
+pocketmine\entity\object\PrimedTNT::explode merged Explosion::explodeA
+pocketmine\entity\Explosive merged Explosion::explodeA
+pocketmine\entity\object\ItemEntity::tryMergeInto skipped entity rule code (PLAN.md 10.7): listeners see ItemMerge (PLAN.md 10.8 B4)
+pocketmine\entity\object\ItemEntity::isMergeable skipped entity rule code (PLAN.md 10.7): listeners see ItemMerge (PLAN.md 10.8 B4)
+pocketmine\entity\object\ExperienceOrb::splitIntoOrbSizes skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\object\ExperienceOrb::getMaxOrbSize skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\effect\*Effect::add skipped effect rule code (PLAN.md 10.7): listeners see EntityEffectAdd (PLAN.md 10.8 B3)
+pocketmine\entity\effect\*Effect::remove skipped effect rule code (PLAN.md 10.7): listeners see EntityEffectRemove (PLAN.md 10.8 B3)
+pocketmine\entity\effect\*Effect::applyEffect skipped effect rule code (PLAN.md 10.7)
+pocketmine\entity\effect\*Effect::getApplyInterval skipped effect rule code (PLAN.md 10.7)
+pocketmine\entity\effect\*Effect::canTick skipped effect rule code (PLAN.md 10.7)
+pocketmine\entity\effect\*Effect::__construct skipped effect kinds are a generated table (PLAN.md 7, 10.7)
+pocketmine\entity\effect\Effect::__clone skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\entity\effect\Effect::__serialize skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\entity\effect\Effect::__unserialize skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\entity\effect\EffectManager::tick skipped effect rule code (PLAN.md 10.7)
+pocketmine\entity\effect\EffectManager::__construct skipped every player and living entity has its effects (PLAN.md 10.7)
+pocketmine\entity\effect\EffectCollection::__construct skipped every player and living entity has its effects (PLAN.md 10.7)
+pocketmine\entity\effect\EffectCollection::getEffectAddHooks skipped effect hooks are events: EntityEffectAdd and EntityEffectRemove (PLAN.md 10.8 B3)
+pocketmine\entity\effect\EffectCollection::getEffectRemoveHooks skipped effect hooks are events: EntityEffectAdd and EntityEffectRemove (PLAN.md 10.8 B3)
+pocketmine\entity\effect\StringToEffectParser** skipped PMMP's string-keyed lookups: Anchor looks effects up by typed name (PLAN.md 8.4)
+pocketmine\entity\effect\*Effect merged Effect
+pocketmine\entity\effect\VanillaEffects::* merged VanillaEffects
+pocketmine\entity\effect\EffectManager merged EffectManager::add
+pocketmine\entity\EntitySizeInfo::getEyeHeight merged Entity::getEyeHeight
+pocketmine\entity\ExperienceManager merged ExperienceManager::getXpLevel
+pocketmine\entity\HungerManager merged HungerManager::getFood
+pocketmine\entity\Living merged Living::getEffects
+pocketmine\entity\Location merged Location::getYaw
+pocketmine\entity\effect\EffectCollection merged EffectCollection::add
+pocketmine\entity\projectile\Projectile merged Projectile::__construct
+pocketmine\entity\projectile\ProjectileSource merged Entity::getOwningEntity
+pocketmine\permission\BanList merged BanList::addBan
+pocketmine\permission\Permissible merged Permissible::hasPermission
+pocketmine\permission\PermissibleBase merged Permissible::hasPermission
+pocketmine\permission\PermissibleDelegateTrait merged Permissible::hasPermission
+pocketmine\permission\PermissionAttachment merged PermissionAttachment::setPermission
+pocketmine\resourcepacks\ResourcePackManager merged ResourcePackManager::setResourceStack
+pocketmine\scheduler\Task merged Task::getHandler
+pocketmine\world\Position merged Position::getWorld
+pocketmine\world\WorldManager merged WorldManager::getWorld
+pocketmine\entity\EntitySizeInfo::scale merged Entity::setScale
+pocketmine\entity\EntitySizeInfo::__construct skipped entity sizes are fixed per type (PLAN.md 10.7)
+pocketmine\entity\EntitySizeInfo** merged Entity::getBoundingBox
+pocketmine\entity\Entity::getSize merged Entity::getBoundingBox
+pocketmine\entity\Entity::getDirectionPlane merged Entity::getDirectionVector
+pocketmine\entity\**::canBeRenamed skipped name tag item rule code (PLAN.md 10.7)
+pocketmine\entity\**::getSneakOffset skipped protocol internals: the network position offset (CLAUDE.md 4.2-4.3)
+pocketmine\entity\**::jump skipped movement rule code (PLAN.md 10.7): listeners see PlayerJump (PLAN.md 10.8 B3)
+pocketmine\entity\Living::getJumpVelocity skipped movement rule code (PLAN.md 10.7)
+pocketmine\entity\Living::getHighestArmorEnchantmentLevel skipped damage rule code (PLAN.md 10.7)
+pocketmine\entity\Living::canBreathe skipped breathing rule code (PLAN.md 10.7)
+pocketmine\entity\Human::canEat skipped hunger rule code (PLAN.md 10.7)
+pocketmine\entity\Human::sendSkin skipped protocol internals: skin changes are sent by the engine (CLAUDE.md 4.2-4.3)
+pocketmine\entity\Human::getHungerManager merged HungerManager::getFood
+pocketmine\entity\Human::getXpManager merged ExperienceManager::getXpLevel
+pocketmine\entity\HungerManager::getMaxFood merged HungerManager::getFood
+pocketmine\entity\ExperienceManager::setXpAndProgress merged ExperienceManager::setXpLevel
+pocketmine\world\sound\EntityLandSound** skipped the entity rules play it (PLAN.md 10.8 A6)
+pocketmine\world\sound\EntityLongFallSound** skipped the entity rules play it (PLAN.md 10.8 A6)
+pocketmine\world\sound\EntityShortFallSound** skipped the entity rules play it (PLAN.md 10.8 A6)
+pocketmine\entity\HungerManager::tick skipped hunger rule code (PLAN.md 10.7)
+pocketmine\entity\HungerManager::__construct skipped every player has its hunger (PLAN.md 10.7)
+pocketmine\entity\HungerManager::getFoodTickTimer skipped hunger rule code (PLAN.md 10.7)
+pocketmine\entity\HungerManager::setFoodTickTimer skipped hunger rule code (PLAN.md 10.7)
+pocketmine\entity\ExperienceManager::tick skipped experience rule code (PLAN.md 10.7)
+pocketmine\entity\ExperienceManager::__construct skipped every player has its experience (PLAN.md 10.7)
+pocketmine\entity\ExperienceManager::onPickupXp skipped experience rule code (PLAN.md 10.7): listeners see PlayerExperienceChange (PLAN.md 10.8 B3)
+pocketmine\entity\ExperienceManager::resetXpCooldown skipped experience rule code (PLAN.md 10.7)
+pocketmine\entity\AttributeFactory** skipped attributes are a fixed set; each is a typed getter and setter (PLAN.md 8.4)
+pocketmine\entity\AttributeMap** skipped attributes are a fixed set; each is a typed getter and setter (PLAN.md 8.4)
+pocketmine\entity\Attribute** skipped attributes are a fixed set; each is a typed getter and setter (PLAN.md 8.4)
+pocketmine\entity\Entity::getAttributeMap skipped attributes are a fixed set; each is a typed getter and setter (PLAN.md 8.4)
+pocketmine\entity\Entity::nextRuntimeId skipped runtime IDs are assigned by the engine (PLAN.md 8.1)
+pocketmine\entity\Entity::getNetworkProperties skipped protocol internals: entity metadata is sent by the engine (CLAUDE.md 4.2-4.3)
+pocketmine\entity\Entity::sendData skipped protocol internals: entity metadata is sent by the engine (CLAUDE.md 4.2-4.3)
+pocketmine\entity\**::spawnTo skipped viewers follow the chunks each player sees (PLAN.md 10.7)
+pocketmine\entity\Entity::respawnToAll skipped viewers follow the chunks each player sees (PLAN.md 10.7)
+pocketmine\entity\Entity::despawnFrom skipped viewers follow the chunks each player sees (PLAN.md 10.7)
+pocketmine\entity\Entity::despawnFromAll skipped viewers follow the chunks each player sees (PLAN.md 10.7)
+pocketmine\entity\Entity::scheduleUpdate skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\Entity::setForceMovementUpdate skipped entity rule code (PLAN.md 10.7)
+pocketmine\entity\Entity::isClosed skipped a removed entity's Id finds nothing (`Context::entity` is `None`, PLAN.md 8.1)
+pocketmine\entity\Entity::__construct skipped entities are made with `Context::spawn_*` (PLAN.md 10.8 A6)
+pocketmine\entity\Entity::broadcastSound merged World::addSound
+pocketmine\entity\Living::consumeObject skipped item rule code (PLAN.md 10.7): listeners see PlayerItemConsume (PLAN.md 10.8 B3)
+pocketmine\entity\Human::consumeObject skipped item rule code (PLAN.md 10.7): listeners see PlayerItemConsume (PLAN.md 10.8 B3)
+pocketmine\entity\Living::applyDamageModifiers skipped damage rule code (PLAN.md 10.7): listeners change the modifiers in EntityDamage (PLAN.md 10.8 B3)
+pocketmine\entity\Human::applyDamageModifiers skipped damage rule code (PLAN.md 10.7): listeners change the modifiers in EntityDamage (PLAN.md 10.8 B3)
+pocketmine\entity\Living::damageArmor skipped damage rule code (PLAN.md 10.7)
+pocketmine\entity\Living::onAirExpired skipped damage rule code (PLAN.md 10.7)
+pocketmine\entity\Living::getFrostWalkerLevel skipped Anchor has no frost walker rule yet; it comes with EntityFrostWalker (PLAN.md 10.8 A4)
+pocketmine\entity\Consumable::onConsume skipped item rule code (PLAN.md 10.7): listeners see PlayerItemConsume (PLAN.md 10.8 B3)
+pocketmine\entity\FoodSource merged FoodSource::getFoodRestore
+pocketmine\entity\InvalidSkinException merged Skin::__construct
+pocketmine\entity\**::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\entity\**::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+
+# ===== Inventories (PLAN.md 10.8 B2): `inventory::Inventory` reads, `inventory::Editor` writes =====
+
+pocketmine\inventory\transaction\** skipped transactions are the rule code's (PLAN.md 10.7): listeners see InventoryTransaction with the changed slots (PLAN.md 10.8 B2)
+pocketmine\inventory\DelegateInventory** skipped no inventory wrappers: `inventory::Inventory` reads every inventory (PLAN.md 10.8 B2)
+pocketmine\inventory\**::getHolder skipped an inventory is reached from its owner (`Player::inventory`, `Context::block_inventory`)
+pocketmine\inventory\**::getListeners skipped inventory change hooks are events: InventoryTransaction (PLAN.md 10.8 B2)
+pocketmine\inventory\InventoryListener** skipped inventory change hooks are events: InventoryTransaction (PLAN.md 10.8 B2)
+pocketmine\inventory\CallbackInventoryListener** skipped inventory change hooks are events: InventoryTransaction (PLAN.md 10.8 B2)
+pocketmine\inventory\**::getSlotValidators skipped slot rules are the rule code's (PLAN.md 10.7)
+pocketmine\inventory\SlotValidatedInventory skipped slot rules are the rule code's (PLAN.md 10.7)
+pocketmine\inventory\**::onOpen skipped window rule code (PLAN.md 10.7): listeners see InventoryOpen (PLAN.md 10.8 B2)
+pocketmine\inventory\**::onClose skipped window rule code (PLAN.md 10.7): listeners see InventoryClose (PLAN.md 10.8 B2)
+pocketmine\inventory\**::getViewers skipped window rule code (PLAN.md 10.7): writes reach every player with the window open (`inventory::Editor`)
+pocketmine\inventory\BaseInventory::removeAllViewers skipped window rule code (PLAN.md 10.7)
+pocketmine\inventory\**::setMaxStackSize skipped stack limits are per item type (`Item::getMaxStackSize`) and per slot rule (PLAN.md 10.7)
+pocketmine\inventory\**::__construct skipped inventories belong to players and blocks; the engine makes them (PLAN.md 10.7)
+pocketmine\inventory\InventoryHolder merged InventoryHolder::getInventory
+pocketmine\inventory\TemporaryInventory skipped window rule code (PLAN.md 10.7)
+pocketmine\inventory\PlayerInventory::getHeldItemIndexChangeListeners skipped held slot changes are an event: PlayerItemHeld (PLAN.md 10.8 B2)
+pocketmine\inventory\json\** skipped PMMP's JSON data files: Anchor's creative list is generated (PLAN.md 7)
+pocketmine\inventory\CreativeCategory::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+
+# ===== Scheduler (PLAN.md 10.8 C3): `Context::schedule*`, `task::Handle`, `spawn_blocking` =====
+
+pocketmine\scheduler\TaskScheduler::mainThreadHeartbeat skipped the tick loop runs scheduled work (CLAUDE.md 4.2)
+pocketmine\scheduler\TaskScheduler::shutdown skipped the tick loop runs scheduled work (CLAUDE.md 4.2)
+pocketmine\scheduler\TaskScheduler::setEnabled skipped the tick loop runs scheduled work (CLAUDE.md 4.2)
+pocketmine\scheduler\TaskScheduler::__construct skipped the tick loop runs scheduled work (CLAUDE.md 4.2)
+pocketmine\scheduler\AsyncPool::submitTaskToWorker merged AsyncPool::submitTask
+pocketmine\scheduler\AsyncPool** skipped the blocking pool is internal and bounded (CLAUDE.md 4.3, PLAN.md 10.8 C3)
+pocketmine\scheduler\AsyncTask::publishProgress skipped async work reports once: its result is the next tick's input (PLAN.md 10.8 C3)
+pocketmine\scheduler\AsyncTask::onProgressUpdate skipped async work reports once: its result is the next tick's input (PLAN.md 10.8 C3)
+pocketmine\scheduler\AsyncTask::run skipped PHP thread plumbing: `spawn_blocking` runs the work (PLAN.md 10.8 C3)
+pocketmine\scheduler\AsyncTask::setSubmitted skipped PHP thread plumbing: `spawn_blocking` runs the work (PLAN.md 10.8 C3)
+pocketmine\scheduler\AsyncTask::isSubmitted skipped PHP thread plumbing: `spawn_blocking` runs the work (PLAN.md 10.8 C3)
+pocketmine\scheduler\AsyncTask::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\scheduler\AsyncTask::getResult merged AsyncTask::onCompletion
+pocketmine\scheduler\AsyncTask::setResult merged AsyncTask::onRun
+pocketmine\scheduler\AsyncTask::hasResult merged AsyncTask::onCompletion
+pocketmine\scheduler\AsyncTask::isCrashed merged AsyncTask::onCompletion
+pocketmine\scheduler\AsyncTask::onError merged AsyncTask::onCompletion
+pocketmine\scheduler\ClosureTask::onRun merged ClosureTask
+pocketmine\scheduler\ClosureTask::__construct merged ClosureTask
+pocketmine\scheduler\ClosureTask::getName skipped a scheduled closure has no name
+pocketmine\scheduler\Task::getName skipped a scheduled closure has no name
+pocketmine\scheduler\Task::onRun merged ClosureTask
+pocketmine\scheduler\Task::setHandler merged Task::getHandler
+pocketmine\scheduler\TaskHandler::getTask skipped a scheduled closure is owned by the scheduler; its `task::Handle` names it (PLAN.md 10.8 C3)
+pocketmine\scheduler\TaskHandler::getTaskName skipped a scheduled closure has no name
+pocketmine\scheduler\TaskHandler::__construct skipped handles are made by `Context::schedule*` (PLAN.md 10.8 C3)
+pocketmine\scheduler\CancelTaskException skipped PHP exception: a repeating closure cancels itself with `Context::cancel_task(ctx.current_task())` (PLAN.md 10.8 C3)
+
+# ===== Commands and permissions (PLAN.md 10.8 A2, C1) =====
+
+pocketmine\command\Command::__construct merged ClosureCommand
+pocketmine\command\ClosureCommand::__construct merged ClosureCommand
+pocketmine\command\ClosureCommand::execute merged ClosureCommand
+pocketmine\command\Command::execute merged ClosureCommand
+pocketmine\command\CommandExecutor** merged ClosureCommand
+pocketmine\command\Command::register skipped commands are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\command\Command::unregister skipped commands are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\command\Command::isRegistered skipped commands are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\command\*CommandMap::clearCommands skipped commands are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\command\*CommandMap::registerAll merged SimpleCommandMap::register
+pocketmine\command\SimpleCommandMap::registerServerAliases skipped PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`, PLAN.md 10.8)
+pocketmine\command\SimpleCommandMap::__construct skipped the command table is built by `ServerBuilder::command` (PLAN.md 10.8)
+pocketmine\command\utils\CommandStringHelper** skipped command line parsing is the engine's; handlers get typed `Args` (PLAN.md 10.8 A2)
+pocketmine\command\utils\InvalidCommandSyntaxException merged CommandMap::dispatch
+pocketmine\command\utils\CommandException merged CommandMap::dispatch
+pocketmine\Server::getCommandMap merged SimpleCommandMap::getCommand
+pocketmine\Server::getCommandAliases skipped PMMP's pocketmine.yml command aliases: aliases are given in code (`Command::alias`, PLAN.md 10.8)
+pocketmine\permission\PermissionManager::removePermission skipped permissions are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\permission\PermissionManager::clearPermissions skipped permissions are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\command\CommandMap merged CommandMap::register
+pocketmine\command\SimpleCommandMap merged SimpleCommandMap::register
+pocketmine\command\Command::testPermission merged Command::testPermissionSilent
+pocketmine\command\Command::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\command\CommandSender::getServer skipped global singleton: callbacks get `&mut Context` (CLAUDE.md 4.1, PLAN.md 8.4)
+pocketmine\command\CommandSender::getLanguage skipped server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1)
+pocketmine\console\ConsoleCommandSender::__construct skipped the console sender is `command::Sender`'s console case (PLAN.md 10.8 A2)
+pocketmine\console\ConsoleCommandSender::getServer skipped global singleton: callbacks get `&mut Context` (CLAUDE.md 4.1, PLAN.md 8.4)
+pocketmine\console\ConsoleCommandSender::getLanguage skipped server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1)
+pocketmine\console\ConsoleCommandSender::getPermissionRecalculationCallbacks skipped permissions are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\console\ConsoleCommandSender::recalculatePermissions skipped permission checks read the current table each time; nothing to recalculate (PLAN.md 10.8 A2)
+pocketmine\console\ConsoleCommandSender::hasPermission merged Permissible::hasPermission
+pocketmine\console\ConsoleCommandSender::isPermissionSet merged Permissible::isPermissionSet
+pocketmine\console\ConsoleCommandSender::addAttachment merged PermissionAttachment::setPermission
+pocketmine\console\ConsoleCommandSender::removeAttachment merged PermissionAttachment::unsetPermission
+pocketmine\permission\Permissible::addAttachment merged PermissionAttachment::setPermission
+pocketmine\permission\Permissible::removeAttachment merged PermissionAttachment::unsetPermission
+pocketmine\permission\PermissibleBase::__construct skipped permission holders are players and the console (`command::Sender`, PLAN.md 10.8 A2)
+pocketmine\permission\Permissible*::hasPermission merged Permissible::hasPermission
+pocketmine\permission\Permissible*::isPermissionSet merged Permissible::isPermissionSet
+pocketmine\permission\Permissible*::addAttachment merged PermissionAttachment::setPermission
+pocketmine\permission\Permissible*::removeAttachment merged PermissionAttachment::unsetPermission
+pocketmine\permission\PermissionManager merged PermissionManager::addPermission
+pocketmine\scheduler\TaskScheduler merged TaskScheduler::scheduleTask
+pocketmine\permission\Permission::recalculatePermissibles skipped permissions are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\permission\Permission::addChild skipped permissions are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\permission\Permission::removeChild skipped permissions are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\permission\**::getPermissionRecalculationCallbacks skipped permissions are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\permission\**::recalculatePermissions skipped permission checks read the current table each time; nothing to recalculate (PLAN.md 10.8 A2)
+pocketmine\permission\DefaultPermissions::registerCorePermissions skipped the default permissions are registered by `build()` (PLAN.md 10.8 A2)
+pocketmine\permission\DefaultPermissions::registerPermission merged PermissionManager::addPermission
+pocketmine\permission\DefaultPermissions merged DefaultPermissionNames
+pocketmine\permission\PermissionParser::loadPermissions skipped PMMP's plugin.yml permissions: permissions are given in code (`Permission::new`, PLAN.md 10.8 A2)
+pocketmine\permission\PermissionParserException merged PermissionParser::defaultFromString
+pocketmine\permission\BanList::load skipped bans live in redb and commit with the world (PLAN.md 10.8 A2)
+pocketmine\permission\BanList::save skipped bans live in redb and commit with the world (PLAN.md 10.8 A2)
+pocketmine\permission\BanList::__construct skipped bans live in redb and commit with the world (PLAN.md 10.8 A2)
+pocketmine\permission\BanEntry::fromString skipped PMMP's banned-players.txt line format: bans live in redb (PLAN.md 10.8 A2)
+pocketmine\permission\BanEntry::getString skipped PMMP's banned-players.txt line format: bans live in redb (PLAN.md 10.8 A2)
+pocketmine\permission\BanEntry::__construct merged BanList::addBan
+
+# ===== Server, players and worlds: decided in PLAN.md 10.8 A1, A6 =====
+
+pocketmine\Server::__construct skipped the server is made by `Server::builder()` (PLAN.md 8.1)
+pocketmine\Server::isRunning skipped a `Context` exists only while the server runs
+pocketmine\Server::forceShutdown merged Server::shutdown
+pocketmine\Server::getTicksPerSecond skipped TPS needs the wall clock, which tick state does not read (CLAUDE.md 2.1, PLAN.md 10.8 A1)
+pocketmine\Server::getTicksPerSecondAverage skipped TPS needs the wall clock, which tick state does not read (CLAUDE.md 2.1, PLAN.md 10.8 A1)
+pocketmine\Server::getTickUsage skipped tick usage needs the wall clock, which tick state does not read (CLAUDE.md 2.1, PLAN.md 10.8 A1)
+pocketmine\Server::getTickUsageAverage skipped tick usage needs the wall clock, which tick state does not read (CLAUDE.md 2.1, PLAN.md 10.8 A1)
+pocketmine\Server::getStartTime skipped game logic has no wall clock (CLAUDE.md 2.1)
+pocketmine\Server::addOnlinePlayer skipped players join through the login flow (PLAN.md 10.8)
+pocketmine\Server::removeOnlinePlayer skipped players join through the login flow (PLAN.md 10.8)
+pocketmine\Server::createPlayer skipped players join through the login flow (PLAN.md 10.8)
+pocketmine\Server::getNetwork skipped protocol internals (CLAUDE.md 4.2-4.3, 4.8)
+pocketmine\Server::getAsyncPool merged AsyncPool::submitTask
+pocketmine\Server::getWorldManager merged WorldManager::getWorld
+pocketmine\Server::getResourcePackManager merged ResourcePackManager::setResourceStack
+pocketmine\Server::getAllowedViewDistance merged Server::getViewDistance
+pocketmine\Server::getLanguage skipped server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1)
+pocketmine\Server::isLanguageForced skipped server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1)
+pocketmine\Server::__* skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\player\Player::__construct skipped players join through the login flow (PLAN.md 10.8)
+pocketmine\player\Player::__* skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\player\Player::getServer skipped global singleton: callbacks get `&mut Context` (CLAUDE.md 4.1, PLAN.md 8.4)
+pocketmine\player\Player::getNetworkSession skipped protocol internals: `Player::send_packet` sends packets (CLAUDE.md 4.2-4.3, PLAN.md 10.8)
+pocketmine\player\Player::getFirstPlayed skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\Player::getLastPlayed skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\Player::hasPlayedBefore skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\IPlayer::getFirstPlayed skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\IPlayer::getLastPlayed skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\IPlayer::hasPlayedBefore skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\OfflinePlayer::getFirstPlayed skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\OfflinePlayer::getLastPlayed skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\OfflinePlayer::hasPlayedBefore skipped first and last play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\Player::getLocale skipped the locale stays in the session task, not tick state (PLAN.md 10.8 A1)
+pocketmine\player\PlayerInfo::getLocale skipped the locale stays in the session task, not tick state (PLAN.md 10.8 A1)
+pocketmine\player\Player::getPlayerInfo merged PlayerInfo::getUsername
+pocketmine\player\XboxLivePlayerInfo merged XboxLivePlayerInfo::getXuid
+pocketmine\player\Player::canBeCollidedWith skipped player rule code (PLAN.md 10.7)
+pocketmine\player\Player::sendSkin skipped protocol internals: skin changes are sent by the engine (CLAUDE.md 4.2-4.3)
+pocketmine\player\Player::setSneakPressed skipped the client's input sets it (PLAN.md 10.7)
+pocketmine\player\Player::setUsingItem skipped the client's input sets it (PLAN.md 10.7)
+pocketmine\player\Player::getLanguage skipped server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1)
+pocketmine\player\Player::canSaveWithChunk skipped players are saved in player records, never with chunks (PLAN.md 6)
+pocketmine\player\Player::setCanSaveWithChunk skipped players are saved in player records, never with chunks (PLAN.md 6)
+pocketmine\player\Player::doChunkRequests skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\Player::doFirstSpawn skipped the spawn flow is the engine's (PLAN.md 10.2)
+pocketmine\player\Player::onChunk* skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\Player::onBlockChanged skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\Player::getUsedChunks skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\Player::getUsedChunkStatus skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\Player::hasReceivedChunk skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\Player::isUsingChunk skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\UsedChunkStatus** skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\ChunkSelector** skipped chunk sending is the engine's (PLAN.md 10.4)
+pocketmine\player\Player::handleMovement skipped movement rule code (PLAN.md 10.7): listeners see PlayerMove (PLAN.md 10.8 B3)
+pocketmine\player\Player::onUpdate skipped player rule code (PLAN.md 10.7)
+pocketmine\player\Player::sendData skipped protocol internals: entity metadata is sent by the engine (CLAUDE.md 4.2-4.3)
+pocketmine\player\Player::spawnTo skipped viewers follow the chunks each player sees (PLAN.md 10.7)
+pocketmine\player\Player::getSaveData skipped player records are internal and commit with the world (PLAN.md 6); user values are `Player::data` (PLAN.md 10.8 C3)
+pocketmine\player\Player::save skipped player records commit with the world (CLAUDE.md 4.7)
+pocketmine\player\Player::getDrops skipped player rule code (PLAN.md 10.7): listeners see and change the drops in PlayerDeath (PLAN.md 10.8 B3)
+pocketmine\player\Player::getXpDropAmount skipped player rule code (PLAN.md 10.7): listeners see and change the experience in PlayerDeath (PLAN.md 10.8 B3)
+pocketmine\player\Player::canBeMovedByCurrents skipped player rule code (PLAN.md 10.7)
+pocketmine\player\Player::canCollideWith skipped player rule code (PLAN.md 10.7)
+pocketmine\player\Player::continueBreakBlock skipped block breaking rule code (PLAN.md 10.7): listeners see BlockBreak (PLAN.md 10.8 B1)
+pocketmine\player\Player::stopBreakBlock skipped block breaking rule code (PLAN.md 10.7): listeners see BlockBreak (PLAN.md 10.8 B1)
+pocketmine\player\SurvivalBlockBreakHandler** skipped block breaking rule code (PLAN.md 10.7): listeners see BlockBreak (PLAN.md 10.8 B1)
+pocketmine\player\Player::pickEntity skipped entity pick is not implemented yet; it comes with PlayerEntityPick (PLAN.md 10.8 A4)
+pocketmine\player\Player::isValidUserName skipped login checks the name (PLAN.md 10.2)
+pocketmine\player\Player::toggle* skipped movement rule code (PLAN.md 10.7): listeners see PlayerToggle* (PLAN.md 10.8 B3)
+pocketmine\player\Player::missSwing skipped player rule code (PLAN.md 10.7): listeners see PlayerMissSwing (PLAN.md 10.8 B3)
+pocketmine\player\Player::jump skipped player rule code (PLAN.md 10.7): listeners see PlayerJump (PLAN.md 10.8 B3)
+pocketmine\player\Player::emote skipped player rule code (PLAN.md 10.7): listeners see PlayerEmote (PLAN.md 10.8 B3)
+pocketmine\player\Player::pickBlock skipped player rule code (PLAN.md 10.7): listeners see PlayerBlockPick (PLAN.md 10.8 B2)
+pocketmine\player\Player::selectHotbarSlot merged PlayerInventory::setHeldItemIndex
+pocketmine\player\Player::consumeHeldItem skipped item rule code (PLAN.md 10.7): listeners see PlayerItemConsume (PLAN.md 10.8 B3)
+pocketmine\player\Player::releaseHeldItem merged Player::useHeldItem
+pocketmine\player\Player::canEat skipped hunger rule code (PLAN.md 10.7)
+pocketmine\player\Player::canBreathe skipped player rule code (PLAN.md 10.7)
+pocketmine\player\Player::canBeRenamed skipped player rule code (PLAN.md 10.7)
+pocketmine\player\Player::getPermissionRecalculationCallbacks skipped permissions are fixed at `build()` (CLAUDE.md 4.1)
+pocketmine\player\Player::recalculatePermissions skipped permission checks read the current table each time; nothing to recalculate (PLAN.md 10.8 A2)
+pocketmine\player\Player::addAttachment merged PermissionAttachment::setPermission
+pocketmine\player\Player::removeAttachment merged PermissionAttachment::unsetPermission
+pocketmine\player\Player::broadcastSound merged World::addSound
+pocketmine\player\PlayerInfo::__construct skipped login makes it (PLAN.md 10.2)
+pocketmine\player\XboxLivePlayerInfo::__construct skipped login makes it (PLAN.md 10.2)
+pocketmine\player\XboxLivePlayerInfo::withoutXboxData skipped login makes it (PLAN.md 10.2)
+pocketmine\player\PlayerDataLoadException skipped a corrupt record keeps its original and reports through `Result` (CLAUDE.md 2.1)
+pocketmine\player\PlayerDataSaveException skipped player records commit with the world (CLAUDE.md 4.7)
+pocketmine\player\GameMode::__callStatic skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\player\GameMode::cases skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\player\GameMode::equals skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\player\GameMode::getAll skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\player\GameMode::id skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\player\GameMode::name skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\player\GameMode::getEnglishName skipped English names are client-side translations (Anchor sends translation keys, PLAN.md 10.8 C1)
+pocketmine\player\GameMode::getTranslatableName skipped English names are client-side translations (Anchor sends translation keys, PLAN.md 10.8 C1)
+pocketmine\player\chat\** skipped PMMP chat formatters: listeners change the format in PlayerChat (PLAN.md 10.8 B3)
+
+pocketmine\world\World::__construct skipped worlds are fixed at build (PLAN.md 10.8)
+pocketmine\world\World::__debugInfo skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\world\World::isLoaded skipped worlds are fixed at build (PLAN.md 10.8)
+pocketmine\world\World::addOnUnloadCallback skipped worlds are fixed at build (PLAN.md 10.8)
+pocketmine\world\World::removeOnUnloadCallback skipped worlds are fixed at build (PLAN.md 10.8)
+pocketmine\world\World::getServer skipped global singleton: callbacks get `&mut Context` (CLAUDE.md 4.1, PLAN.md 8.4)
+pocketmine\world\World::startTime skipped time stop changes the clock and the world record format (PLAN.md 10.8 A6)
+pocketmine\world\World::stopTime skipped time stop changes the clock and the world record format (PLAN.md 10.8 A6)
+pocketmine\world\World::getDifficulty merged Server::getDifficulty
+pocketmine\world\World::setDifficulty skipped per-world difficulty: one server setting (PLAN.md 10.8 A6)
+pocketmine\world\World::getDifficultyFromString skipped settings are typed `Config` fields (PLAN.md 8.5)
+pocketmine\world\World::getAutoSave merged WorldManager::getAutoSave
+pocketmine\world\World::setAutoSave merged WorldManager::setAutoSave
+pocketmine\world\World::useBreakOn merged Player::breakBlock
+pocketmine\world\World::useItemOn merged Player::interactBlock
+pocketmine\world\World::*ChunkLoader* skipped chunk loaders: the engine keeps players' and spawn chunks loaded (PLAN.md 10.8 A6)
+pocketmine\world\World::*ChunkListener* skipped chunk listeners: world changes are events (PLAN.md 10.8)
+pocketmine\world\World::*TickingChunk* skipped chunk ticking is the engine's (PLAN.md 10.7)
+pocketmine\world\World::getChunkTickRadius skipped chunk ticking is the engine's (PLAN.md 10.7)
+pocketmine\world\World::setChunkTickRadius skipped chunk ticking is the engine's (PLAN.md 10.7)
+pocketmine\world\World::getTickRateTime skipped tick timing needs the wall clock, which tick state does not read (CLAUDE.md 2.1)
+pocketmine\world\World::isDoingTick skipped callbacks run only in the tick's serial step (CLAUDE.md 4.5)
+pocketmine\world\World::*RandomTickedBlock* skipped which states tick randomly is fixed by the block table (`State::ticks_randomly`, PLAN.md 7)
+pocketmine\world\World::blockHash skipped chunk store internals (CLAUDE.md 4.2)
+pocketmine\world\World::chunkHash skipped chunk store internals (CLAUDE.md 4.2)
+pocketmine\world\World::chunkBlockHash skipped chunk store internals (CLAUDE.md 4.2)
+pocketmine\world\World::getBlockXYZ skipped chunk store internals (CLAUDE.md 4.2)
+pocketmine\world\World::getXZ skipped chunk store internals (CLAUDE.md 4.2)
+pocketmine\world\World::clearCache skipped chunk store internals (CLAUDE.md 4.2)
+pocketmine\world\World::doChunkGarbageCollection skipped chunk store internals (CLAUDE.md 4.2)
+pocketmine\world\World::unloadChunks skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::unloadChunk skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::unloadChunkRequest skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::cancelUnloadChunkRequest skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::loadChunk skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::lockChunk skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::unlockChunk skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::isChunkLocked skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::isChunkInUse skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::isChunkGenerated skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::isChunkPopulated skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::requestChunkPopulation skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::orderChunkPopulation skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\World::saveChunks skipped saving commits the whole state at the save interval (CLAUDE.md 4.7)
+pocketmine\world\World::isInLoadedTerrain merged World::isChunkLoaded
+pocketmine\world\World::checkSleep skipped sleep rule code (PLAN.md 10.7)
+pocketmine\world\World::setSleepTicks skipped sleep rule code (PLAN.md 10.7)
+pocketmine\world\World::computeSkyLightReduction skipped light rule code (PLAN.md 10.7)
+pocketmine\world\World::getSkyLightReduction skipped light rule code (PLAN.md 10.7)
+pocketmine\world\World::updateAllLight skipped light rule code (PLAN.md 10.7)
+pocketmine\world\World::getHighestAdjacent* skipped light rule code (PLAN.md 10.7)
+pocketmine\world\World::getFullLight merged World::getFullLightAt
+pocketmine\world\World::computeSunAnglePercentage skipped sky light rule code (PLAN.md 10.7)
+pocketmine\world\World::getSunAngle* skipped sky light rule code (PLAN.md 10.7)
+pocketmine\world\World::addEntity skipped an entity joins its world when made with `Context::spawn_*` (PLAN.md 10.8 A6)
+pocketmine\world\World::removeEntity merged Entity::flagForDespawn
+pocketmine\world\WorldManager::__construct skipped worlds are fixed at build (PLAN.md 10.8)
+pocketmine\world\WorldManager::setDefaultWorld skipped worlds are fixed at build (PLAN.md 10.8 A6)
+pocketmine\world\WorldManager::loadWorld skipped worlds are fixed at build (PLAN.md 10.8 A6)
+pocketmine\world\WorldManager::unloadWorld skipped worlds are fixed at build (PLAN.md 10.8 A6)
+pocketmine\world\WorldManager::isWorldGenerated skipped worlds are fixed at build (PLAN.md 10.8 A6)
+pocketmine\world\WorldManager::tick skipped the tick loop ticks every world (CLAUDE.md 4.2)
+pocketmine\world\WorldManager::getAutoSaveInterval skipped the save interval is the `save-interval` setting (CLAUDE.md 4.7, PLAN.md 8.5)
+pocketmine\world\WorldManager::setAutoSaveInterval skipped the save interval is the `save-interval` setting (CLAUDE.md 4.7, PLAN.md 8.5)
+pocketmine\world\WorldCreationOptions** skipped worlds are fixed at build (PLAN.md 10.8 A6)
+pocketmine\world\WorldTimings** skipped PHP timings profiler
+pocketmine\world\WorldException skipped PHP exception: Anchor returns `Result` with module `Error` enums (CLAUDE.md 5)
+pocketmine\world\ChunkListener** skipped chunk listeners: world changes are events (PLAN.md 10.8)
+pocketmine\world\ChunkLoader skipped chunk loaders: the engine keeps players' and spawn chunks loaded (PLAN.md 10.8 A6)
+pocketmine\world\ChunkTicker skipped chunk ticking is the engine's (PLAN.md 10.7)
+pocketmine\world\ChunkLockId** skipped chunk loading is the engine's (PLAN.md 6, 10.4)
+pocketmine\world\light\** skipped light rule code on the CPU pool (PLAN.md 10.7, CLAUDE.md 4.3)
+pocketmine\world\utils\** skipped chunk store internals (CLAUDE.md 4.2)
+pocketmine\world\format\SubChunk** skipped chunk store internals (CLAUDE.md 4.2): `Chunk` reads and writes blocks and biomes
+pocketmine\world\format\HeightArray** skipped chunk store internals (CLAUDE.md 4.2): `Chunk::getHighestBlockAt`
+pocketmine\world\format\Chunk::*HeightMap* merged Chunk::getHighestBlockAt
+pocketmine\world\format\Chunk::* skipped chunk store internals (CLAUDE.md 4.2): `Chunk` reads and writes blocks and biomes
+pocketmine\world\format\ChunkException skipped PHP exception: Anchor returns `Result` with module `Error` enums (CLAUDE.md 5)
+pocketmine\world\generator\GeneratorManager** skipped generators are registered by type at build (PLAN.md 8.3, 10.8)
+pocketmine\world\generator\InvalidGeneratorOptionsException skipped generators are registered by type at build (PLAN.md 8.3, 10.8)
+pocketmine\world\generator\Generator::__construct skipped generators are Rust types implementing `Generator` (PLAN.md 8.3)
+pocketmine\world\generator\Flat::__construct skipped generators are Rust types implementing `Generator` (PLAN.md 8.3)
+pocketmine\world\generator\Generator::convertSeed skipped a world seed is an `i64` setting (PLAN.md 8.5)
+pocketmine\world\generator\Flat::generateChunk merged Generator::generateChunk
+pocketmine\world\generator\object\*::__construct skipped tree growth rule code (PLAN.md 10.7): listeners see StructureGrow (PLAN.md 10.8 B5)
+pocketmine\world\generator\object\** skipped tree growth rule code (PLAN.md 10.7): listeners see StructureGrow (PLAN.md 10.8 B5)
+pocketmine\world\BlockTransaction** skipped multi-block changes are the rule code's (`Tx`); listeners see StructureGrow and BlockPlace with the block list (PLAN.md 10.8 B5)
+pocketmine\world\SimpleChunkManager** skipped generator plumbing: a generator fills a `Chunk` (PLAN.md 8.3)
+pocketmine\world\ChunkManager** skipped generator plumbing: a generator fills a `Chunk` (PLAN.md 8.3)
+pocketmine\world\Explosion merged Explosion::explodeA
+pocketmine\world\Position::__construct skipped a position is `world::Id` plus a `BlockPos` or `Vec3` value (PLAN.md 8.1)
+pocketmine\world\Position::asPosition skipped a position is `world::Id` plus a `BlockPos` or `Vec3` value (PLAN.md 8.1)
+pocketmine\world\Position::fromObject skipped a position is `world::Id` plus a `BlockPos` or `Vec3` value (PLAN.md 8.1)
+pocketmine\world\Position::equals skipped a position is `world::Id` plus a `BlockPos` or `Vec3` value (PLAN.md 8.1)
+pocketmine\world\Position::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\entity\Location::__construct skipped a location is a `Vec3` plus yaw and pitch values (PLAN.md 8.1)
+pocketmine\entity\Location::asLocation skipped a location is a `Vec3` plus yaw and pitch values (PLAN.md 8.1)
+pocketmine\entity\Location::fromObject skipped a location is a `Vec3` plus yaw and pitch values (PLAN.md 8.1)
+pocketmine\entity\Location::equals skipped a location is a `Vec3` plus yaw and pitch values (PLAN.md 8.1)
+
+# Sounds and particles: `world::Sound` and `world::Particle` values for `Context::add_sound`
+# and `add_particle` (PLAN.md 10.8 A6).
+pocketmine\world\sound\**::encode merged World::addSound
+pocketmine\world\sound\**::__construct merged World::addSound
+pocketmine\world\sound\**::getPitch merged World::addSound
+pocketmine\world\sound\**::getBlock merged World::addSound
+pocketmine\world\sound\**::getXpLevel merged World::addSound
+pocketmine\world\sound\NoteInstrument::* skipped PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2)
+pocketmine\world\particle\FloatingTextParticle** skipped floating text is a name-tag NPC (`Context::spawn_human`, PLAN.md 10.8 A6)
+pocketmine\world\particle\**::encode merged World::addParticle
+pocketmine\world\particle\**::__construct merged World::addParticle
+pocketmine\world\particle\**::getColor merged World::addParticle
+pocketmine\world\particle\PotionSplashParticle::DEFAULT_COLOR merged World::addParticle
+
+# Translations: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1).
+pocketmine\lang\Language** skipped server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1)
+pocketmine\lang\Translatable** merged Player::sendMessage
+
+# Promises: callbacks run in the tick; async results are the next tick's input (PLAN.md 10.8 C3).
+pocketmine\promise\** skipped PHP promises: async results are the next tick's input and run the done callback (`Context::spawn_blocking`, PLAN.md 10.8 C3)
+
+# Resource pack manifests: read by `pack::Pack` (PLAN.md 10.8 A3).
+pocketmine\resourcepacks\json\** merged ResourcePack::getPackId
+pocketmine\resourcepacks\ZippedResourcePack::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\resourcepacks\**::getPath skipped a pack is read once at build; Anchor keeps no path (PLAN.md 10.8 A3)
+
+# ===== Last: PHP magic methods and enum plumbing left anywhere =====
+pocketmine\**::__toString skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\**::__clone skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+pocketmine\**::__destruct skipped PHP magic method: Rust types use derives (Clone, Debug) and traits
+
+# F1: player-side rows (Player, Human, Living, Entity for players, NetworkSession, permission,
+# player\**) decided after the F1 API (PLAN.md 10.8).
+pocketmine\entity\Human::getName merged Player::getName
+pocketmine\entity\Human::getUniqueId merged Player::getUniqueId
+pocketmine\entity\Living::getName merged Player::getName
+pocketmine\entity\Living::getDisplayName merged Player::getDisplayName
+pocketmine\player\IPlayer::getName merged Player::getName
+pocketmine\player\Player::changeSkin merged Human::setSkin
+pocketmine\player\Player::getLeaveMessage merged PlayerQuitEvent::getQuitMessage
+pocketmine\player\PlayerInfo::getSkin merged Human::getSkin
+pocketmine\player\PlayerInfo::getExtraData skipped the raw login JSON is not kept: the getters read what the login checked (PLAN.md 10.2)
+pocketmine\player\IPlayer skipped PMMP's interface over Player and OfflinePlayer: Anchor has no offline player objects (operator, ban and whitelist calls take names, PLAN.md 10.8 A2)
+pocketmine\player\OfflinePlayer** skipped no offline player objects: operator, ban and whitelist calls take names (PLAN.md 10.8 A2), and play times are not saved (PLAN.md 10.8 A1)
+pocketmine\player\GameMode::getAliases skipped the settings take one name per game mode (PLAN.md 8.5)
+pocketmine\entity\Entity::*TargetEntity* skipped mob AI targets and fishing hooks are out of scope (CLAUDE.md 1)
+pocketmine\permission\BanEntry::setCreated skipped a ban's creation time is the engine tick `Context::ban` adds it at (PLAN.md 10.8 A2)
+pocketmine\permission\BanList::isEnabled skipped bans always apply: nothing in PMMP turns a ban list off either (PLAN.md 10.8 A2)
+pocketmine\permission\BanList::setEnabled skipped bans always apply: nothing in PMMP turns a ban list off either (PLAN.md 10.8 A2)
+pocketmine\permission\BanList::removeExpired skipped ended bans never apply, and `Context::ban` drops them (PLAN.md 10.8 A2)
+pocketmine\permission\Permissible*::getEffectivePermissions merged Permissible::getEffectivePermissions
+pocketmine\permission\Permissible*::setBasePermission merged PermissionAttachment::setPermission
+pocketmine\permission\Permissible*::unsetBasePermission merged PermissionAttachment::unsetPermission
+pocketmine\player\Player::setBasePermission merged PermissionAttachment::setPermission
+pocketmine\player\Player::unsetBasePermission merged PermissionAttachment::unsetPermission
+pocketmine\permission\PermissionAttachment::__construct merged PermissionAttachment::setPermission
+pocketmine\permission\PermissionAttachment::setPermissions merged PermissionAttachment::setPermission
+pocketmine\permission\PermissionAttachment::unsetPermissions merged PermissionAttachment::unsetPermission
+pocketmine\permission\PermissionAttachment::getSubscribers skipped permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders (PLAN.md 10.8 A2)
+pocketmine\permission\PermissionManager::*ubscri* skipped permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders (PLAN.md 10.8 A2)
+pocketmine\permission\Permission::getPermissibles skipped permission subscriptions are PMMP's broadcast plumbing: `Context::players` with `Context::has_permission` finds the holders (PLAN.md 10.8 A2)
+pocketmine\permission\Permission::getChildren skipped no child permissions: a command takes any of up to 16 permissions (PLAN.md 10.8 C1)
+pocketmine\permission\Permission::*etDescription skipped a permission is a name and a default, fixed at `build()` (PLAN.md 10.8 A2, CLAUDE.md 4.1)
+pocketmine\permission\PermissionAttachmentInfo::getAttachment skipped grants are entries of a per-player table, not attachment objects (PLAN.md 10.8 A2)
+pocketmine\permission\PermissionAttachmentInfo::getGroupPermissionInfo skipped no permission groups or child permissions (PLAN.md 10.8 A2)
+pocketmine\permission\PermissionAttachmentInfo** merged Permissible::getEffectivePermissions
+
+# F2: world and crafting rows (PLAN.md 10.8 F2). The crafting lines decide rows only once the
+# `pocketmine\crafting\**` and `Server::getCraftingManager` `open` lines above are gone.
+pocketmine\world\World::getCollisionBlocks merged World::getBlockCollisionBoxes
+pocketmine\world\World::getCollisionBoxes merged World::getBlockCollisionBoxes
+pocketmine\world\World::getOrLoadChunkAtPosition skipped chunks load off the tick and arrive as a later tick's input (PLAN.md 6, CLAUDE.md 4.3): a block of a chunk that is not loaded reads as `None`
+pocketmine\world\World::getPotentialLight* merged World::getFullLightAt
+pocketmine\world\World::notifyNeighbourBlockUpdate merged World::setBlock
+pocketmine\world\World::requestSafeSpawn merged World::getSafeSpawn
+pocketmine\world\World::setChunk skipped the engine loads, generates and replaces chunks, and their light, block entities, entities and players' views follow (CLAUDE.md 4.2); blocks change through `World::set_block`
+pocketmine\world\World::setDisplayName skipped a world's name is its storage key and the reference of players' spawn points, fixed at build (PLAN.md 6, 10.8 A6)
+pocketmine\Server::getCraftingManager merged CraftingManager::matchRecipe
+pocketmine\crafting\CraftingManager merged CraftingManager::matchRecipe
+pocketmine\crafting\CraftingManager::getFurnaceRecipeManager merged FurnaceRecipeManager::match
+pocketmine\crafting\FurnaceRecipeManager merged FurnaceRecipeManager::match
+pocketmine\crafting\*Manager::__construct skipped the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe` (CLAUDE.md 4.1)
+pocketmine\crafting\CraftingManager::sort skipped the recipe lookups are made at `build()` from the generated tables and `ServerBuilder::recipe` (CLAUDE.md 4.1)
+pocketmine\crafting\CraftingRecipe merged CraftingManager::matchRecipe
+pocketmine\crafting\*Recipe::getResultsFor merged CraftingManager::matchRecipe
+pocketmine\crafting\*Recipe::matchesCraftingGrid merged CraftingManager::matchRecipe
+pocketmine\crafting\*RecipeIngredient::accepts merged CraftingManager::matchRecipe
+pocketmine\crafting\FurnaceRecipe::getResult merged FurnaceRecipeManager::match
+pocketmine\crafting\BrewingRecipe merged CraftingManager::matchBrewingRecipe
+pocketmine\crafting\*Recipe::getResultFor merged CraftingManager::matchBrewingRecipe
+pocketmine\crafting\CraftingGrid merged Player::getCraftingGrid
+pocketmine\crafting\CraftingGrid::__construct skipped the engine makes each player's crafting grid (PLAN.md 10.7)
+pocketmine\crafting\CraftingGrid::getGridWidth merged Inventory::getSize
+pocketmine\crafting\CraftingGrid::getIngredient merged Inventory::getItem
+pocketmine\crafting\CraftingGrid::getRecipe* merged CraftingManager::matchRecipe
+pocketmine\crafting\ShapedRecipe merged ShapedRecipe::__construct
+pocketmine\crafting\ShapelessRecipe merged ShapelessRecipe::__construct
+pocketmine\crafting\FurnaceRecipe merged FurnaceRecipe::__construct
+pocketmine\crafting\*RecipeIngredient merged ExactRecipeIngredient::__construct
+pocketmine\crafting\Potion*Recipe** skipped brewing recipes are PMMP's: a server adds crafting and furnace recipes (`ServerBuilder::recipe`, PLAN.md 8.4, 10.8 C4)
+pocketmine\crafting\CraftingManager::registerPotion* skipped brewing recipes are PMMP's: a server adds crafting and furnace recipes (`ServerBuilder::recipe`, PLAN.md 8.4, 10.8 C4)
+pocketmine\crafting\ShapelessRecipe*Type** skipped stonecutter recipes are PMMP's: a server adds crafting-table recipes (PLAN.md 10.8 C4)
+pocketmine\crafting\ShapelessRecipe::getType skipped stonecutter recipes are PMMP's: a server adds crafting-table recipes (PLAN.md 10.8 C4)
+pocketmine\crafting\** skipped recipe objects are internal: PMMP's recipes are generated static tables and a server's own are `custom::Recipe` values fixed at build; the lookups answer by items (`Context::crafting_result`, `furnace_result`, `brewing_result`, PLAN.md 10.8 F2)
+
+# F3
+# Block entities (PLAN.md 10.8): `Context::block_entity` lends a `Tile` to read and
+# `block_entity_mut` a `tile::Mut` to change; the classes are one type with a getter per kind.
+pocketmine\block\tile\Bell** skipped Anchor keeps no bell block entity: a ring is an effect sent to clients with nothing to store (PLAN.md 10.7)
+pocketmine\block\tile\Note** skipped Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came (PLAN.md 10.8 F3)
+pocketmine\block\tile\MonsterSpawner skipped spawners spawn mobs: no mob AI (CLAUDE.md 1)
+pocketmine\block\tile\SporeBlossom skipped a block entity without data: Anchor keeps a saved one as it came (PLAN.md 10.7)
+pocketmine\block\tile\*::getName merged Nameable::getName
+pocketmine\block\tile\*::hasName merged Nameable::getName
+pocketmine\block\tile\*::setName merged Nameable::setName
+pocketmine\block\tile\*::getDefaultName skipped the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either)
+pocketmine\block\tile\*::canOpenWith merged Container::canOpenWith
+pocketmine\block\tile\Chest::isPaired merged block\tile\Chest::getPair
+pocketmine\block\tile\EnderChest::setViewerCount skipped the engine counts the windows open on a block (PLAN.md 10.7)
+pocketmine\block\tile\Campfire::getCookingTimes merged block\Campfire::getCookingTime
+pocketmine\block\tile\Campfire::setCookingTimes merged block\Campfire::setCookingTime
+pocketmine\block\tile\ItemFrame::hasItem merged block\tile\ItemFrame::getItem
+pocketmine\block\tile\MobHead::*etMobHeadType merged Block
+pocketmine\block\tile\Sign::*EditorEntityRuntimeId skipped Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS)
+pocketmine\block\tile\Sign::fixTextBlob skipped deprecated PMMP helper: `SignText::from_blob` reads a text blob
+pocketmine\block\tile\* merged Tile
+pocketmine\block\BaseSign::*EditorEntityRuntimeId skipped Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS)
+pocketmine\block\BaseSign::update*Text skipped a player's edit goes through the sign rules and raises SignChange; direct writes raise no events (PLAN.md 8.2)
+
+# F4: entity, effect, animation and server rows decided after the F4 API (PLAN.md 10.8).
+pocketmine\Server::getPlayerByRawUUID merged Server::getPlayerByUUID
+pocketmine\Server::*OfflinePlayer* skipped saved player data is in the world file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players`
+pocketmine\Server::*BroadcastChannel* skipped PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones (PLAN.md 8.4 merges the message methods)
+pocketmine\entity\Entity::setGravity skipped an entity kind's physics are PMMP's constants per kind (PLAN.md 10.7): `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off
+pocketmine\entity\Entity::setStepHeight skipped an entity kind's physics are PMMP's constants per kind (PLAN.md 10.7): `Entity::step_height` reads them
+pocketmine\entity\Entity::isFlaggedForDespawn skipped a flagged entity is gone from the API at once: `Context::entity` is `None` (PLAN.md 8.1)
+pocketmine\entity\Explosive::explode merged Explosion::explodeA
+pocketmine\entity\effect\EffectInstance::decreaseDuration merged EffectInstance::setDuration
+pocketmine\entity\effect\EffectInstance::*etColor skipped an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved (PLAN.md 10.7)
+pocketmine\entity\effect\EffectCollection::setEffectFilterForBubbles skipped bubbles follow each effect's `is_visible` and `Type::has_bubbles` (`effect::bubble_colour`); no filter callbacks (PLAN.md 8.4)
+
+# G1
+pocketmine\world\World::getAdjacentChunks merged World::getChunk
+pocketmine\event\world\ChunkEvent::getChunk merged World::getChunk
+pocketmine\block\Block::getSide merged Position::getSide
+
+# G2: the last rows that are not entities (PLAN.md 10.8).
+pocketmine\block\Block::getEnchantmentTags merged AvailableEnchantmentRegistry::getAllEnchantmentsForItem
+pocketmine\block\CakeWithDyedCandle::getCandle merged Block
+pocketmine\block\Element::* skipped Education Edition chemistry values (symbol, atomic weight, group) are not in the PMMP dump Anchor's block data comes from (PLAN.md 7); the element number is in the block's name (`minecraft:element_<number>`)
+pocketmine\block\inventory\DoubleChestInventory::getInventory merged InventoryHolder::getInventory
+pocketmine\command\Command::getLabel merged Command::getName
+pocketmine\command\Command::setLabel merged ClosureCommand
+pocketmine\command\Command::setDescription merged ClosureCommand
+pocketmine\command\Command::*etPermissionMessage skipped a refused sender gets the client's `commands.generic.error.permissions` text, as BDS sends it (PLAN.md 10.8 E1); a handler that wants its own text checks `Context::has_permission` and fails with it
+pocketmine\command\CommandSender::getScreenLineHeight merged Player::getScreenLineHeight
+pocketmine\command\CommandSender::setScreenLineHeight merged Player::setScreenLineHeight
+pocketmine\console\ConsoleCommandSender::*etScreenLineHeight skipped the console's output goes to the log (PLAN.md 10.8 A2), which pages nothing
+pocketmine\console\ConsoleCommandSender::getEffectivePermissions merged Permissible::getEffectivePermissions
+pocketmine\console\ConsoleCommandSender::*etBasePermission skipped the console counts as an operator (PLAN.md 10.8 A2): its permissions are the operators' defaults
+pocketmine\event\block\BrewItemEvent::getRecipe skipped recipe objects are not public (PLAN.md 10.8 F2): the event gives the input and the result, and `Context::brewing_result` asks by item
+pocketmine\event\inventory\CraftItemEvent::getRecipe skipped recipe objects are not public (PLAN.md 10.8 F2): the event gives the inputs and the outputs, and `Context::crafting_result` asks by item
+pocketmine\event\inventory\CraftItemEvent::getTransaction merged InventoryTransactionEvent::getTransaction
+pocketmine\event\player\PlayerItemEnchantEvent::getTransaction merged InventoryTransactionEvent::getTransaction
+pocketmine\event\inventory\InventoryEvent::getViewers merged Player::getCurrentWindow
+pocketmine\event\entity\EntityItemPickupEvent::*etInventory skipped the pickup rule puts the item into the picker's inventory (PLAN.md 10.8 B4); a listener changes the item (`set_item`), or cancels and gives it elsewhere through `Player::inventory_mut`
+pocketmine\event\entity\EntityShootBowEvent::setProjectile skipped the arrow is an entity the rule has made (PLAN.md 10.8 B4): a listener changes it through `Context::entity_mut`, or cancels and spawns another with `Context::spawn_projectile`
+pocketmine\event\player\PlayerDataSaveEvent::*etSaveData skipped the saved record is Anchor's own format, written whole in one commit (PLAN.md 6, 10.8 E2); a user's values ride it through `ServerBuilder::player_data` (PLAN.md 10.8 C3)
+pocketmine\event\player\PlayerDeathEvent::deriveMessage skipped Anchor sends translation keys and the client translates (PLAN.md 10.8 C1): the death screen shows the key of the cause, and listeners set their own texts (`set_death_message`, `set_death_screen_message`)
+pocketmine\event\player\PlayerLoginEvent::cancel merged PlayerPreLoginEvent::setKickFlag
+pocketmine\event\player\PlayerLoginEvent::uncancel merged PlayerPreLoginEvent::clearAllKickFlags
+pocketmine\event\player\PlayerLoginEvent::getKickMessage merged PlayerPreLoginEvent::getFinalDisconnectScreenMessage
+pocketmine\event\player\PlayerLoginEvent::setKickMessage merged PlayerPreLoginEvent::setKickFlag
+pocketmine\event\player\PlayerPreLoginEvent::*AuthRequired skipped Xbox sign-in is checked by the session before the tick, from `xbox-auth` (PLAN.md 3); a listener refuses a player without one through a kick flag (`PlayerInfo::xuid` is `None`)
+pocketmine\event\player\PlayerResourcePackOfferEvent::getEncryptionKeys merged ResourcePackManager::getPackEncryptionKey
+pocketmine\event\player\PlayerResourcePackOfferEvent::*ustAccept merged ResourcePackManager::resourcePacksRequired
+pocketmine\event\player\PlayerResourcePackOfferEvent** merged ResourcePackManager::setResourceStack
+pocketmine\inventory\PlayerInventory::isHotbarSlot merged PlayerInventory::getHotbarSize
+pocketmine\inventory\PlayerInventory::setItemInHand merged Inventory::setItem
+pocketmine\item\enchantment\ItemEnchantmentTags skipped item tags are a generated table (PLAN.md 7, 10.7)
+pocketmine\resourcepacks\ResourcePackManager::get* skipped the packs are fixed when the server is built and offered by the sessions before the tick (PLAN.md 10.8 A3): the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`)
+pocketmine\scheduler\AsyncTask::cancelRun skipped blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does (PLAN.md 10.8 C3)
+pocketmine\scheduler\AsyncTask::hasCancelledRun skipped blocking work is not stopped once it is handed to the pool: a `spawn_blocking` job runs to its end and its `done` callback decides what the result does (PLAN.md 10.8 C3)
+pocketmine\scheduler\AsyncTask::isFinished merged AsyncTask::onCompletion
+pocketmine\scheduler\Task::onCancel skipped a scheduled closure has no cancel hook: the code that cancels it (`Context::cancel_task`) does what follows (PLAN.md 10.8 C3)
+pocketmine\scheduler\TaskHandler::getDelay merged TaskHandler::getNextRun
+pocketmine\scheduler\TaskHandler::isDelayed merged TaskHandler::getNextRun
+pocketmine\scheduler\TaskHandler::isCancelled merged TaskScheduler::isQueued
+
+# F5: paintings, end crystals, firework rockets, thrown tridents and ice bombs (PLAN.md 10.8).
+pocketmine\entity\object\EndCrystal::attack merged Entity::attack
+pocketmine\entity\object\EndCrystal::explode merged Explosion::explodeA
+pocketmine\entity\object\FireworkRocket::explode skipped entity rule code (PLAN.md 10.7): a rocket bursts when its flight time is up, and `Mut::set_max_flight_time_ticks` with an age it reached bursts it at its next tick
+pocketmine\entity\object\PaintingMotive::__construct skipped the motives are the closed set Bedrock clients draw (`PaintingMotive`): a new name needs client resources
+pocketmine\entity\object\PaintingMotive::registerMotive skipped the motives are the closed set Bedrock clients draw (`PaintingMotive`): a new name needs client resources
+pocketmine\entity\object\PaintingMotive::init skipped PHP lazy setup of the motive table: `PaintingMotive` is an enum

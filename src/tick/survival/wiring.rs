@@ -1,0 +1,1098 @@
+//! Tests of the events the survival, movement, chat and leave rules raise (PLAN.md 10.8): the
+//! listener sees the right fields, cancelling leaves the game as it was and resyncs the client,
+//! a changed field changes the outcome, a monitor sees the applied state, and a listener that
+//! changes the game so the rule's check fails cancels the action.
+
+use tokio::sync::mpsc;
+
+use super::*;
+use crate::action::{self, Action};
+use crate::block::{self, PropertyValue};
+use crate::config::Config;
+use crate::event::{
+    Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
+    EntityEffectRemove, EntityExtinguish, EntityRegainHealth, ExtinguishCause, Listeners,
+    PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin, PlayerChat, PlayerDeath, PlayerEmote,
+    PlayerExhaust, PlayerExperienceChange, PlayerGameModeChange, PlayerItemConsume, PlayerJump,
+    PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn, PlayerToggleFlight,
+    PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer,
+    Priority,
+};
+use crate::item::{Kind as ItemKind, Stack};
+use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
+use crate::protocol::packet::{self as p, Packet};
+use crate::protocol::{FlagSet, InputFlags};
+use crate::tick::queue::{Input, Outbound};
+use crate::tick::tests::{initialised, input, join, new_state, packet, radius, received, settings};
+use crate::tick::{Output, inventory};
+use crate::world;
+
+/// Players 1..=n spawned with `listeners`; session k has runtime ID k.
+struct Game {
+    state: State,
+    receivers: Vec<mpsc::Receiver<Outbound>>,
+    seq: u64,
+}
+
+impl Game {
+    fn new(n: u64, listeners: Listeners) -> Self {
+        Self::with(n, listeners, |_| {})
+    }
+
+    fn with(n: u64, mut listeners: Listeners, edit: impl FnOnce(&mut Config)) -> Self {
+        listeners.sort();
+        let mut game = Self {
+            state: new_state(settings(edit), listeners),
+            receivers: Vec::new(),
+            seq: 10,
+        };
+        let mut first = Vec::new();
+        for s in 1..=n {
+            let (j, rx) = join(s, 0);
+            game.receivers.push(rx);
+            first.extend([j, radius(s, 1, 8)]);
+        }
+        game.run(first);
+        game.run((1..=n).map(|s| initialised(s, 2, s)).collect());
+        for s in 1..=n {
+            game.take(s);
+        }
+        game
+    }
+
+    fn run(&mut self, mut inputs: Vec<Input>) {
+        crate::tick::tests::tick(&mut self.state, &mut inputs, &mut Output::default());
+    }
+
+    fn idle(&mut self, ticks: u32) {
+        for _ in 0..ticks {
+            self.run(Vec::new());
+        }
+    }
+
+    fn send(&mut self, s: u64, packet_: Packet) -> Input {
+        self.seq += 1;
+        input(s, self.seq, packet(packet_))
+    }
+
+    fn take(&mut self, s: u64) -> Vec<Packet> {
+        let index = usize::try_from(s - 1).unwrap();
+        received(&mut self.receivers[index]).0
+    }
+
+    /// The last packet of session `s`, if it was closed, and what it got before.
+    fn closed(&mut self, s: u64) -> (Vec<Packet>, Option<Packet>) {
+        let index = usize::try_from(s - 1).unwrap();
+        let (packets, close, _) = received(&mut self.receivers[index]);
+        (packets, close)
+    }
+
+    fn player(&self, s: u64) -> &Player {
+        &self.state.players[&sid(s)]
+    }
+
+    fn player_mut(&mut self, s: u64) -> &mut Player {
+        self.state.players.get_mut(&sid(s)).unwrap()
+    }
+
+    fn survival(&mut self, s: u64) -> &mut Survival {
+        &mut self.player_mut(s).survival
+    }
+
+    /// Runs `action` as a listener or task would, then one tick.
+    fn perform(&mut self, action: impl Action) {
+        Context {
+            state: &mut self.state,
+        }
+        .perform(action)
+        .unwrap();
+        self.idle(1);
+    }
+
+    /// Sends an auth input of session `s` at its position with `flags`.
+    fn flags(&mut self, s: u64, flags: &[InputFlag]) -> Input {
+        let set: FlagSet<InputFlag> = flags.iter().copied().collect();
+        let auth = p::PlayerAuthInput {
+            position: self.player(s).position.to_f32(),
+            input_data: InputFlags::from_set(&set),
+            ..Default::default()
+        };
+        self.send(s, Packet::PlayerAuthInput(Box::new(auth)))
+    }
+}
+
+fn sid(s: u64) -> SessionId {
+    SessionId::new(s)
+}
+
+fn pid(s: u64) -> Id {
+    Id::new(sid(s))
+}
+
+fn stack(kind: ItemKind, count: u8) -> Stack {
+    Stack::new(kind.default_type(), count)
+}
+
+/// A bounded record of what listeners saw.
+fn record<T>() -> (mpsc::Sender<T>, mpsc::Receiver<T>) {
+    mpsc::channel(1024)
+}
+
+/// Everything recorded since the last call.
+fn drain<T>(rx: &mut mpsc::Receiver<T>) -> Vec<T> {
+    let mut out = Vec::new();
+    while let Ok(x) = rx.try_recv() {
+        out.push(x);
+    }
+    out
+}
+
+/// Listeners with `listener` at normal priority.
+fn on<E: Event>(listener: impl FnMut(&mut E, &mut Context<'_>) + Send + 'static) -> Listeners {
+    let mut listeners = Listeners::default();
+    listeners.push(Priority::Normal, listener);
+    listeners
+}
+
+/// Every item a player carries, counted.
+fn carried(player: &Player) -> u32 {
+    let inv = &player.inventory;
+    (0..36)
+        .filter_map(|i| inv.main_stack(i))
+        .chain(inv.armor())
+        .chain(std::iter::once(inv.offhand()))
+        .map(|s| u32::from(s.count()))
+        .sum()
+}
+
+/// The items of the dropped items `packets` show, counted.
+fn dropped(packets: &[Packet]) -> u32 {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::AddItemActor(a) => Some(u32::from(a.item.stack.count)),
+            _ => None,
+        })
+        .sum()
+}
+
+// pmmp: EntityDamageEvent, EntityDamageByEntityEvent
+#[test]
+fn damage_listeners_see_the_hit_and_cancel_or_change_it() {
+    let (tx, mut seen) = record();
+    let mut listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
+        tx.try_send((
+            e.entity(),
+            e.cause(),
+            e.source(),
+            e.modifier(DamageModifier::Armor),
+        ))
+        .unwrap();
+        if e.base_damage() == 3.0 {
+            e.cancel();
+        } else if e.base_damage() == 4.0 {
+            e.set_base_damage(1.0);
+        } else if e.base_damage() == 5.0 {
+            e.set_modifier(DamageModifier::Armor, 0.0);
+        }
+    });
+    let (mtx, mut watched) = record();
+    listeners.push_monitor(move |e: &EntityDamage, cx: &Context<'_>| {
+        let Actor::Player(p) = e.entity() else {
+            panic!("a player is hurt");
+        };
+        mtx.try_send(cx.player(p).unwrap().health()).unwrap();
+    });
+    let mut game = Game::new(1, listeners);
+    let before = game.state.hash();
+    assert!(!damage(&mut game.state, sid(1), 3.0, Damage::Contact));
+    assert_eq!(game.state.hash(), before, "a cancelled hit changes nothing");
+    assert!(drain(&mut watched).is_empty());
+    assert!(damage(&mut game.state, sid(1), 4.0, Damage::Contact));
+    assert_eq!(game.survival(1).health, 19.0);
+    assert_eq!(drain(&mut watched), [19.0]);
+    game.idle(10);
+    game.survival(1).health = 20.0;
+    let chest = stack(ItemKind::DiamondChestplate, 1);
+    inventory::set_armor(game.player_mut(1), 1, chest);
+    assert!(damage(&mut game.state, sid(1), 5.0, Damage::Contact));
+    assert_eq!(
+        game.survival(1).health,
+        15.0,
+        "the armour modifier was set to 0"
+    );
+    let calls = drain(&mut seen);
+    assert_eq!(calls.len(), 3);
+    assert!(calls.iter().all(|c| c.0 == Actor::Player(pid(1))
+        && c.1 == DamageCause::Contact
+        && c.2 == DamageSource::None));
+    assert!(calls[2].3 < 0.0, "armour reduces the hit");
+}
+
+// pmmp: EntityDamageByEntityEvent, EntityDamageEvent
+#[test]
+fn a_melee_hit_names_its_attacker_and_its_knockback_can_change() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
+        tx.try_send((e.source(), e.knockback())).unwrap();
+        e.set_knockback(2.0);
+        e.set_vertical_knockback_limit(f64::INFINITY);
+    });
+    let mut game = Game::new(2, listeners);
+    let base = game.player(1).position;
+    game.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
+    game.idle(1);
+    game.take(2);
+    attack_player(&mut game.state, sid(1), sid(2));
+    assert_eq!(
+        drain(&mut seen),
+        [(DamageSource::Entity(Actor::Player(pid(1))), 0.4)]
+    );
+    game.idle(1);
+    let motion = game.take(2).into_iter().find_map(|p| match p {
+        Packet::SetActorMotion(m) => Some(m.velocity),
+        _ => None,
+    });
+    // The force is 2 and the upward limit (infinite, ignored) stays 0.4.
+    assert_eq!(motion.map(|v| (v[1], v[2] > 1.9)), Some((0.4, true)));
+}
+
+// pmmp: EntityDamageEvent
+#[test]
+fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {
+    let listeners = on(|e: &mut EntityDamage, cx: &mut Context<'_>| {
+        let Actor::Player(p) = e.entity() else {
+            return;
+        };
+        cx.player_mut(p).unwrap().set_game_mode(GameMode::Creative);
+    });
+    let mut game = Game::new(1, listeners);
+    assert!(!damage(&mut game.state, sid(1), 5.0, Damage::Contact));
+    assert_eq!(game.survival(1).health, 20.0);
+    // A suicide spares no game mode.
+    let source = DamageSource::Entity(Actor::Player(pid(1)));
+    assert!(damage_by(
+        &mut game.state,
+        sid(1),
+        30.0,
+        Damage::Suicide,
+        source
+    ));
+    assert!(game.survival(1).is_dead());
+}
+
+// pmmp: EntityRegainHealthEvent
+#[test]
+fn regain_listeners_change_or_cancel_the_healing() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut EntityRegainHealth, _: &mut Context<'_>| {
+        tx.try_send((e.regain_reason(), e.amount())).unwrap();
+        match e.regain_reason() {
+            RegainReason::Magic => e.set_amount(5.0),
+            RegainReason::Regen => e.cancel(),
+            _ => {}
+        }
+    });
+    let mut game = Game::with(1, listeners, |c| {
+        c.general.difficulty = Difficulty::Peaceful;
+    });
+    game.survival(1).health = 10.0;
+    heal(&mut game.state, sid(1), 1.0);
+    assert_eq!(game.survival(1).health, 15.0);
+    effects::add(
+        &mut game.state,
+        sid(1),
+        effect::Type::Regeneration,
+        effects::Active::new(99, 4),
+    );
+    game.survival(1).food_timer = 59;
+    game.idle(1);
+    let calls = drain(&mut seen);
+    assert!(calls.contains(&(RegainReason::Magic, 1.0)));
+    assert!(calls.contains(&(RegainReason::Regen, 1.0)));
+    assert!(calls.contains(&(RegainReason::Saturation, 1.0)));
+    // The regeneration was cancelled; the peaceful saturation healed.
+    assert_eq!(game.survival(1).health, 16.0);
+}
+
+// pmmp: PlayerDeathEvent
+#[test]
+fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
+    let listeners = on(|e: &mut PlayerDeath, _: &mut Context<'_>| {
+        assert_eq!(e.drops().len(), 2);
+        assert_eq!(e.xp_drop_amount(), 70);
+        e.set_drops(vec![stack(ItemKind::Apple, 3)]);
+        e.set_keep_xp(true);
+        e.set_death_message("player1 fell".to_owned());
+        e.set_death_screen_message("you fell".to_owned());
+    });
+    let mut game = Game::new(2, listeners);
+    let player = game.player_mut(1);
+    inventory::give(player, stack(ItemKind::Bread, 5));
+    inventory::give(player, stack(ItemKind::Bowl, 2));
+    game.survival(1).xp_level = 10;
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    assert_eq!(carried(game.player(1)), 0, "the replaced stacks are gone");
+    assert_eq!(game.survival(1).xp_level, 10, "the experience is kept");
+    game.idle(1);
+    let own = game.take(1);
+    assert_eq!(dropped(&own), 3, "only the listener's drops fall");
+    assert!(
+        own.iter()
+            .any(|p| matches!(p, Packet::DeathInfo(d) if d.cause == "you fell"))
+    );
+    assert!(game.take(2).iter().any(|p| matches!(
+        p,
+        Packet::Text(t) if t.message == "player1 fell" && t.text_type == u8::from(TextType::Raw)
+    )));
+}
+
+// pmmp: PlayerDeathEvent
+#[test]
+fn deaths_with_random_listeners_neither_duplicate_nor_lose_items() {
+    let mut r = crate::random::Random::new(7, 0, 1);
+    for _ in 0..12 {
+        let keep = r.range(0, 1) == 1;
+        let reverse = r.range(0, 1) == 1;
+        let (mtx, mut watched) = record();
+        let mut listeners = on(move |e: &mut PlayerDeath, _: &mut Context<'_>| {
+            e.set_keep_inventory(keep);
+            if reverse {
+                let mut drops = e.drops().to_vec();
+                drops.reverse();
+                e.set_drops(drops);
+            }
+        });
+        listeners.push_monitor(move |e: &PlayerDeath, cx: &Context<'_>| {
+            mtx.try_send(cx.player(e.player()).unwrap().is_alive())
+                .unwrap();
+        });
+        let mut game = Game::new(1, listeners);
+        let count = u8::try_from(r.range(1, 20)).unwrap();
+        for kind in [ItemKind::Bread, ItemKind::Apple, ItemKind::Bowl] {
+            inventory::give(game.player_mut(1), stack(kind, count));
+        }
+        let before = carried(game.player(1));
+        assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+        game.idle(1);
+        let on_ground = dropped(&game.take(1));
+        let left = carried(game.player(1));
+        assert_eq!(left + on_ground, before, "keep {keep}, reverse {reverse}");
+        assert_eq!(left == before, keep);
+        assert_eq!(
+            drain(&mut watched),
+            [false],
+            "the monitor sees the dead player"
+        );
+    }
+}
+
+// pmmp: PlayerRespawnEvent, PlayerGameModeChangeEvent
+#[test]
+fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
+    let target = Vec3::new(4.5, -60.0, 4.5);
+    let mut listeners = on(move |e: &mut PlayerRespawn, _: &mut Context<'_>| {
+        assert_eq!(e.world(), world::Id::DEFAULT);
+        e.set_position(e.world(), target);
+    });
+    listeners.push(
+        Priority::Normal,
+        |e: &mut PlayerGameModeChange, _: &mut Context<'_>| {
+            assert_eq!(e.new_game_mode(), GameMode::Spectator);
+            e.cancel();
+        },
+    );
+    let mut game = Game::with(1, listeners, |c| {
+        c.general.hardcore = true;
+        c.general.difficulty = Difficulty::Hard;
+    });
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    damage::respawn(&mut game.state, sid(1));
+    assert_eq!(game.player(1).position(), target);
+    assert_eq!(game.player(1).game_mode(), GameMode::Survival);
+    // A world the server does not run is ignored.
+    let listeners = on(|e: &mut PlayerRespawn, _: &mut Context<'_>| {
+        e.set_position(world::Id::new(9).unwrap(), Vec3::ZERO);
+    });
+    let mut game = Game::new(1, listeners);
+    let spawn = game.player(1).position;
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    damage::respawn(&mut game.state, sid(1));
+    assert_eq!(game.player(1).position, spawn);
+}
+
+// pmmp: PlayerGameModeChangeEvent, Player::setGamemode
+#[test]
+fn the_game_mode_action_asks_and_the_direct_call_does_not() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut PlayerGameModeChange, _: &mut Context<'_>| {
+        tx.try_send(e.new_game_mode()).unwrap();
+        if e.new_game_mode() == GameMode::Adventure {
+            e.cancel();
+        }
+    });
+    let mut game = Game::new(1, listeners);
+    game.perform(action::SetGameMode::new(pid(1), GameMode::Adventure));
+    assert_eq!(game.player(1).game_mode(), GameMode::Survival);
+    game.perform(action::SetGameMode::new(pid(1), GameMode::Creative));
+    assert_eq!(game.player(1).game_mode(), GameMode::Creative);
+    assert!(game.player_mut(1).set_game_mode(GameMode::Spectator));
+    assert_eq!(
+        drain(&mut seen),
+        [GameMode::Adventure, GameMode::Creative],
+        "the direct call raised nothing"
+    );
+}
+
+// pmmp: PlayerMoveEvent
+#[test]
+fn move_listeners_send_the_player_back_or_elsewhere() {
+    let elsewhere = Vec3::new(2.5, -60.0, 2.5);
+    let (mtx, mut watched) = record();
+    let mut listeners = on(move |e: &mut PlayerMove, _: &mut Context<'_>| {
+        if e.target().x > e.origin().x + 1.5 {
+            e.cancel();
+        } else if e.target().x > e.origin().x {
+            e.set_target(elsewhere);
+        }
+    });
+    listeners.push_monitor(move |e: &PlayerMove, cx: &Context<'_>| {
+        mtx.try_send(cx.player(e.player()).unwrap().position())
+            .unwrap();
+    });
+    let mut game = Game::new(1, listeners);
+    let start = game.player(1).position;
+    let far = p::PlayerAuthInput {
+        position: (start + Vec3::new(2.0, 0.0, 0.0)).to_f32(),
+        ..Default::default()
+    };
+    let input = game.send(1, Packet::PlayerAuthInput(Box::new(far)));
+    game.run(vec![input]);
+    assert_eq!(
+        game.player(1).position,
+        start,
+        "cancelled: back to the start"
+    );
+    assert!(game.take(1).iter().any(|p| matches!(
+        p,
+        Packet::MovePlayer(m) if m.mode == u8::from(MoveMode::Reset)
+    )));
+    game.survival(1).motion.force_sync = false;
+    let near = p::PlayerAuthInput {
+        position: (start + Vec3::new(1.0, 0.0, 0.0)).to_f32(),
+        tick: 1,
+        ..Default::default()
+    };
+    let input = game.send(1, Packet::PlayerAuthInput(Box::new(near)));
+    game.run(vec![input]);
+    assert_eq!(game.player(1).position(), elsewhere);
+    assert_eq!(drain(&mut watched), [elsewhere]);
+}
+
+/// Listeners of the movement toggles that record their names in `tx`: sneaking, swimming,
+/// flying and missed swings are cancelled.
+fn toggle_listeners(tx: mpsc::Sender<&'static str>) -> Listeners {
+    let mut listeners = Listeners::default();
+    let t = tx.clone();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerToggleSneak, _: &mut Context<'_>| {
+            t.try_send("sneak").unwrap();
+            assert!(e.is_sneaking() && e.is_sneak_pressed());
+            e.cancel();
+        },
+    );
+    let t = tx.clone();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerToggleSprint, _: &mut Context<'_>| {
+            t.try_send("sprint").unwrap();
+            assert!(e.is_sprinting());
+        },
+    );
+    let t = tx.clone();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerToggleSwim, _: &mut Context<'_>| {
+            t.try_send("swim").unwrap();
+            assert!(e.is_swimming());
+            e.cancel();
+        },
+    );
+    let t = tx.clone();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerToggleGlide, _: &mut Context<'_>| {
+            t.try_send("glide").unwrap();
+            assert!(e.is_gliding());
+        },
+    );
+    let t = tx.clone();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerToggleFlight, _: &mut Context<'_>| {
+            t.try_send("fly").unwrap();
+            assert!(e.is_flying());
+            e.cancel();
+        },
+    );
+    let t = tx.clone();
+    listeners.push(
+        Priority::Normal,
+        move |_: &mut PlayerJump, _: &mut Context<'_>| {
+            t.try_send("jump").unwrap();
+        },
+    );
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerMissSwing, _: &mut Context<'_>| {
+            tx.try_send("miss").unwrap();
+            e.cancel();
+        },
+    );
+    listeners
+}
+
+// pmmp: PlayerToggleSneakEvent, PlayerToggleSprintEvent, PlayerToggleSwimEvent, PlayerToggleGlideEvent, PlayerToggleFlightEvent, PlayerJumpEvent, PlayerMissSwingEvent
+#[test]
+fn toggles_ask_their_events_and_a_refused_one_resends_the_data() {
+    let (tx, mut seen) = record();
+    let mut game = Game::new(2, toggle_listeners(tx));
+    game.player_mut(1).set_allow_flight(true);
+    game.idle(1);
+    game.take(1);
+    let input = game.flags(
+        1,
+        &[
+            InputFlag::Sneaking,
+            InputFlag::StartSneaking,
+            InputFlag::StartSprinting,
+            InputFlag::StartSwimming,
+            InputFlag::StartGliding,
+            InputFlag::StartFlying,
+            InputFlag::StartJumping,
+            InputFlag::MissedSwing,
+        ],
+    );
+    game.take(2);
+    game.run(vec![input]);
+    assert_eq!(
+        drain(&mut seen),
+        ["sneak", "sprint", "swim", "glide", "fly", "jump", "miss"]
+    );
+    let m = &game.player(1).survival.motion;
+    assert!(!m.sneaking && m.sneak_pressed && m.sprinting && !m.swimming && m.gliding);
+    assert!(!m.flying);
+    // The refusals resent the player's whole entity data; the cancelled miss swung nothing.
+    assert!(
+        game.take(1)
+            .iter()
+            .any(|p| matches!(p, Packet::SetActorData(d) if d.entity_runtime_id == 1))
+    );
+    assert!(!game.take(2).iter().any(|p| matches!(
+        p,
+        Packet::ActorEvent(e) if e.event_type == u8::from(crate::protocol::consts::ActorEvent::StartAttacking)
+    )));
+    // The older `PlayerAction` toggles ask too.
+    let action = p::PlayerAction {
+        entity_runtime_id: 1,
+        action_type: i32::from(ActionType::StartSneak),
+        ..Default::default()
+    };
+    let input = game.send(1, Packet::PlayerAction(action));
+    game.run(vec![input]);
+    assert_eq!(drain(&mut seen), ["sneak"]);
+    assert!(!game.player(1).survival.motion.sneaking);
+}
+
+// pmmp: PlayerExhaustEvent
+#[test]
+fn exhaust_listeners_change_or_cancel_the_exhaustion() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut PlayerExhaust, _: &mut Context<'_>| {
+        tx.try_send((e.player(), e.cause(), e.amount())).unwrap();
+        match e.cause() {
+            ExhaustCause::SprintJumping => e.set_amount(4.0),
+            ExhaustCause::Mining => e.cancel(),
+            _ => {}
+        }
+    });
+    let mut game = Game::new(1, listeners);
+    let input = game.flags(1, &[InputFlag::StartSprinting, InputFlag::StartJumping]);
+    game.run(vec![input]);
+    let s = game.survival(1);
+    assert_eq!(
+        (s.saturation, s.exhaustion),
+        (4.0, 0.0),
+        "4 cost a saturation point"
+    );
+    exhaust_by(&mut game.state, sid(1), 3.0, ExhaustCause::Mining);
+    assert_eq!(game.survival(1).exhaustion, 0.0);
+    let calls = drain(&mut seen);
+    assert_eq!(calls[0], (pid(1), ExhaustCause::SprintJumping, 0.2));
+    assert_eq!(calls[1], (pid(1), ExhaustCause::Mining, 3.0));
+}
+
+// pmmp: PlayerExperienceChangeEvent
+#[test]
+fn experience_listeners_choose_the_level_or_cancel_the_gain() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut PlayerExperienceChange, _: &mut Context<'_>| {
+        tx.try_send((e.old_level(), e.new_level())).unwrap();
+        if e.new_level() == Some(0) {
+            e.cancel();
+        } else {
+            e.set_new_level(Some(30));
+            e.set_new_progress(Some(1.0));
+        }
+    });
+    let mut game = Game::new(1, listeners);
+    assert!(pickup_experience(&mut game.state, sid(1), 3));
+    assert_eq!(game.survival(1).xp_lifetime, 0, "cancelled");
+    game.idle(3);
+    assert!(pickup_experience(&mut game.state, sid(1), 20));
+    let s = game.survival(1);
+    assert_eq!(s.xp_level, 30);
+    assert!(s.xp_progress < 1.0);
+    assert_eq!(s.xp_lifetime, 20);
+    assert_eq!(drain(&mut seen), [(0, Some(0)), (0, Some(2))]);
+}
+
+// pmmp: PlayerItemConsumeEvent
+#[test]
+fn consume_listeners_cancel_the_meal_or_replace_its_residue() {
+    let mut calls = 0;
+    let listeners = on(move |e: &mut PlayerItemConsume, _: &mut Context<'_>| {
+        assert_eq!(e.residue(), [stack(ItemKind::Bowl, 1)]);
+        assert_eq!(e.item(), &stack(ItemKind::MushroomStew, 1));
+        calls += 1;
+        if calls == 1 {
+            e.cancel();
+        } else {
+            e.set_residue(vec![stack(ItemKind::Bowl, 1), stack(ItemKind::Apple, 200)]);
+        }
+    });
+    let mut game = Game::new(1, listeners);
+    game.survival(1).food = 10.0;
+    inventory::set_held(game.player_mut(1), stack(ItemKind::MushroomStew, 1));
+    let eat = |game: &mut Game| {
+        assert!(use_consumable(&mut game.state, sid(1)));
+        game.idle(32);
+        assert!(use_consumable(&mut game.state, sid(1)));
+    };
+    eat(&mut game);
+    assert_eq!(game.survival(1).food, 10.0, "cancelled");
+    assert_eq!(
+        game.player(1).inventory.held(),
+        &stack(ItemKind::MushroomStew, 1)
+    );
+    eat(&mut game);
+    assert!(game.survival(1).food > 10.0);
+    let player = game.player(1);
+    assert_eq!(
+        player.inventory.held().item(),
+        Some(ItemKind::Bowl.default_type())
+    );
+    // The listener's 200 apples are one stack of at most 64.
+    assert_eq!(carried(player), 1 + 64);
+}
+
+/// A bed of the default direction.
+fn bed(head: bool) -> block::State {
+    block::State::find(
+        "minecraft:bed",
+        &[
+            ("direction", PropertyValue::Int(0)),
+            ("head_piece_bit", PropertyValue::Byte(u8::from(head))),
+            ("occupied_bit", PropertyValue::Byte(0)),
+        ],
+    )
+    .unwrap()
+}
+
+// pmmp: PlayerBedEnterEvent, PlayerBedLeaveEvent
+#[test]
+fn bed_listeners_keep_a_player_up_and_hear_it_leave() {
+    let (tx, mut seen) = record();
+    let mut listeners = Listeners::default();
+    let t = tx.clone();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerBedEnter, cx: &mut Context<'_>| {
+            t.try_send(("enter", e.bed())).unwrap();
+            if cx.tick().is_multiple_of(2) {
+                e.cancel();
+            }
+        },
+    );
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerBedLeave, _: &mut Context<'_>| {
+            tx.try_send(("leave", e.bed())).unwrap();
+        },
+    );
+    let mut game = Game::new(1, listeners);
+    let spawn = game.state.worlds[0].spawn();
+    let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
+    let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 2);
+    game.state.worlds[0].set_block(foot, bed(false)).unwrap();
+    game.state.worlds[0].set_block(head, bed(true)).unwrap();
+    game.state.worlds[0].set_time(13_000);
+    if game.state.tick % 2 == 1 {
+        game.idle(1);
+    }
+    assert!(!sleep(&mut game.state, sid(1), 0, foot), "cancelled");
+    assert_eq!(game.survival(1).sleeping, None);
+    assert_eq!(game.state.worlds[0].block(head), Some(bed(true)));
+    game.idle(1);
+    assert!(sleep(&mut game.state, sid(1), 0, foot));
+    clock::wake(&mut game.state, sid(1));
+    assert_eq!(
+        drain(&mut seen),
+        [("enter", head), ("enter", head), ("leave", head)]
+    );
+}
+
+// pmmp: EntityEffectAddEvent, EntityEffectRemoveEvent
+#[test]
+fn effect_listeners_refuse_or_keep_effects_but_not_expired_ones() {
+    let mut listeners = on(|e: &mut EntityEffectAdd, _: &mut Context<'_>| {
+        if e.effect().effect() == effect::Type::Speed {
+            e.cancel();
+        }
+    });
+    let (tx, mut seen) = record();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntityEffectRemove, _: &mut Context<'_>| {
+            tx.try_send(e.effect().duration()).unwrap();
+            e.cancel();
+        },
+    );
+    let mut game = Game::new(1, listeners);
+    let speed = effect::Instance::new(effect::Type::Speed, 100, 0, true, false);
+    assert!(!add_effect(&mut game.state, sid(1), speed));
+    assert!(!game.player(1).has_effect(effect::Type::Speed));
+    let haste = effect::Instance::new(effect::Type::Haste, 2, 0, true, false);
+    assert!(add_effect(&mut game.state, sid(1), haste));
+    effects::remove(&mut game.state, sid(1), effect::Type::Haste);
+    assert!(game.player(1).has_effect(effect::Type::Haste), "kept");
+    game.idle(3);
+    assert!(!game.player(1).has_effect(effect::Type::Haste), "ran out");
+    assert_eq!(drain(&mut seen), [2, 0]);
+}
+
+// pmmp: EntityCombustEvent, EntityCombustByEntityEvent, EntityExtinguishEvent
+#[test]
+fn combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end() {
+    let mut listeners = on(
+        |e: &mut EntityCombust, _: &mut Context<'_>| match e.source() {
+            CombustSource::Entity(_) => e.set_duration_secs(1),
+            _ => e.cancel(),
+        },
+    );
+    let (tx, mut seen) = record();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntityExtinguish, _: &mut Context<'_>| {
+            tx.try_send(e.cause()).unwrap();
+        },
+    );
+    let mut game = Game::new(1, listeners);
+    set_on_fire(&mut game.state, sid(1), 8);
+    assert_eq!(game.survival(1).fire_ticks, 0, "cancelled");
+    let by = CombustSource::Entity(Actor::Player(pid(1)));
+    set_on_fire_by(&mut game.state, sid(1), 8, by);
+    assert_eq!(game.survival(1).fire_ticks, 20);
+    game.idle(20);
+    assert_eq!(game.survival(1).fire_ticks, 0);
+    assert_eq!(drain(&mut seen), [ExtinguishCause::Ticking]);
+}
+
+/// A chat packet of session `s`.
+fn chat(game: &mut Game, s: u64, message: &str) -> Input {
+    let text = p::Text {
+        text_type: TextType::Chat.into(),
+        message: message.to_owned(),
+        ..p::Text::default()
+    };
+    game.send(s, Packet::Text(Box::new(text)))
+}
+
+/// The texts of the `Text` packets in `packets`.
+fn texts(packets: &[Packet]) -> Vec<String> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::Text(t) => Some(t.message.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+// pmmp: PlayerChatEvent, Player::chat
+#[test]
+fn chat_listeners_change_the_line_its_format_and_recipients() {
+    let listeners = on(|e: &mut PlayerChat, _: &mut Context<'_>| {
+        assert_eq!(e.recipients().len(), 2);
+        match e.message() {
+            "secret" => e.cancel(),
+            "whisper" => {
+                e.set_recipients(vec![e.player(), e.player()]);
+            }
+            _ => {
+                let loud = e.message().to_uppercase();
+                e.set_message(loud);
+                e.set_format(Some("[{%0}] {%1} {%2".to_owned()));
+            }
+        }
+    });
+    let mut game = Game::new(2, listeners);
+    let inputs = vec![chat(&mut game, 1, "secret"), chat(&mut game, 1, "hi")];
+    game.run(inputs);
+    assert_eq!(texts(&game.take(2)), ["[player1] HI {%2"]);
+    game.take(1);
+    let input = chat(&mut game, 1, "whisper");
+    game.run(vec![input]);
+    assert!(texts(&game.take(2)).is_empty());
+    assert_eq!(texts(&game.take(1)), ["whisper"], "once, to the speaker");
+    // A line starting with `/` is the player's command; its answer goes to it alone.
+    game.perform(action::Chat::new(pid(1), "/nosuchcommand"));
+    assert!(texts(&game.take(2)).is_empty());
+    let own = texts(&game.take(1));
+    assert_eq!(own, ["commands.generic.unknown"]);
+}
+
+// pmmp: PlayerKickEvent, PlayerQuitEvent, Player::kick
+#[test]
+fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
+    let mut listeners = on(|e: &mut PlayerKick, _: &mut Context<'_>| {
+        if e.disconnect_reason() == "stay" {
+            e.cancel();
+        } else {
+            e.set_quit_message("player1 was kicked".to_owned());
+            e.set_disconnect_screen_message(Some("bye".to_owned()));
+        }
+    });
+    let (tx, mut seen) = record();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerQuit, _: &mut Context<'_>| {
+            tx.try_send((
+                e.player(),
+                e.quit_reason().to_owned(),
+                e.quit_message().to_owned(),
+            ))
+            .unwrap();
+        },
+    );
+    let mut game = Game::new(2, listeners);
+    game.perform(action::Kick::new(pid(1), "stay"));
+    assert!(game.player(1).is_online());
+    game.perform(action::Kick::new(pid(1), "rules").with_quit_message("unused"));
+    let (_, close) = game.closed(1);
+    assert!(matches!(close, Some(Packet::Disconnect(d)) if d.message == "bye"));
+    assert!(!game.state.players.contains_key(&sid(1)));
+    assert_eq!(texts(&game.take(2)), ["player1 was kicked"]);
+    assert_eq!(
+        drain(&mut seen),
+        [(pid(1), "rules".to_owned(), "player1 was kicked".to_owned())]
+    );
+    // A direct kick raises no `PlayerKick`, but its leaving raises `PlayerQuit`.
+    game.player_mut(2).kick("direct").unwrap();
+    game.idle(1);
+    assert_eq!(
+        drain(&mut seen),
+        [(
+            pid(2),
+            "direct".to_owned(),
+            crate::tick::player::LEFT.to_owned()
+        )]
+    );
+}
+
+// pmmp: PlayerTransferEvent, Player::transfer
+#[test]
+fn transfer_listeners_keep_the_player_or_send_it_elsewhere() {
+    let listeners = on(|e: &mut PlayerTransfer, _: &mut Context<'_>| {
+        assert_eq!(e.message(), "Transferred to another server");
+        if e.port() == 1 {
+            e.cancel();
+        } else {
+            e.set_address("b.example.com".to_owned());
+            e.set_port(19_134);
+        }
+    });
+    let mut game = Game::new(1, listeners);
+    game.perform(action::Transfer::new(pid(1), "a.example.com", 1));
+    assert!(game.player(1).is_online());
+    game.perform(action::Transfer::new(pid(1), "a.example.com", 19_132));
+    let (_, close) = game.closed(1);
+    assert!(matches!(
+        close,
+        Some(Packet::Transfer(t)) if t.address == "b.example.com" && t.port == 19_134
+    ));
+}
+
+// pmmp: Entity::attack, Living::attack, Player::attack, EntityDamageEvent, PlayerDeathEvent
+#[test]
+fn the_damage_action_hurts_through_the_rules() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut PlayerDeath, _: &mut Context<'_>| {
+        tx.try_send(e.player()).unwrap();
+    });
+    let mut game = Game::new(2, listeners);
+    let by = DamageSource::Entity(Actor::Player(pid(2)));
+    game.perform(action::Damage::new(pid(1), 6.0, DamageCause::Magic).with_source(by));
+    assert_eq!(game.player(1).health(), 14.0);
+    game.player_mut(1).set_game_mode(GameMode::Creative);
+    game.perform(action::Damage::new(pid(1), 1000.0, DamageCause::Suicide));
+    assert!(!game.player(1).is_alive());
+    assert_eq!(drain(&mut seen), [pid(1)]);
+}
+
+/// An emote packet of session `s`.
+fn emote(game: &mut Game, s: u64, id: &str) -> Input {
+    let e = p::Emote {
+        entity_runtime_id: s,
+        emote_length: 99,
+        emote_id: id.to_owned(),
+        xuid: "x".to_owned(),
+        platform_id: String::new(),
+        flags: 0,
+    };
+    game.send(s, Packet::Emote(e))
+}
+
+/// The emote IDs in `packets`.
+fn emotes(packets: &[Packet]) -> Vec<String> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::Emote(e) => {
+                assert_eq!((e.flags, e.emote_length, e.xuid.as_str()), (3, 0, ""));
+                Some(e.emote_id.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+// pmmp: PlayerEmoteEvent
+#[test]
+fn emotes_reach_the_viewers_once_every_six_ticks_as_listeners_allow() {
+    let listeners = on(
+        |e: &mut PlayerEmote, _: &mut Context<'_>| match e.emote_id() {
+            "no" => e.cancel(),
+            "swap" => e.set_emote_id("other".to_owned()),
+            _ => {}
+        },
+    );
+    let mut game = Game::new(2, listeners);
+    let first = emote(&mut game, 1, "wave");
+    let again = emote(&mut game, 1, "wave");
+    game.run(vec![first, again]);
+    assert_eq!(emotes(&game.take(2)), ["wave"]);
+    assert!(emotes(&game.take(1)).is_empty(), "not to the player itself");
+    for (id, want) in [("no", None), ("swap", Some("other")), ("", None)] {
+        game.idle(6);
+        let input = emote(&mut game, 1, id);
+        game.run(vec![input]);
+        assert_eq!(emotes(&game.take(2)), want.into_iter().collect::<Vec<_>>());
+    }
+}
+
+/// A valid skin with full ID `id`.
+fn skin(id: &str) -> crate::protocol::Skin {
+    crate::protocol::Skin {
+        skin_image_width: 64,
+        skin_image_height: 32,
+        skin_data: vec![7; 64 * 32 * 4],
+        full_id: id.to_owned(),
+        ..crate::protocol::Skin::default()
+    }
+}
+
+/// A skin packet of session `s`.
+fn skin_input(game: &mut Game, s: u64, skin: crate::protocol::Skin) -> Input {
+    let packet = p::PlayerSkin {
+        uuid: crate::protocol::Uuid::default(),
+        skin,
+        new_skin_name: String::new(),
+        old_skin_name: String::new(),
+    };
+    game.send(s, Packet::PlayerSkin(Box::new(packet)))
+}
+
+/// The full skin IDs of the `PlayerSkin` packets in `packets`.
+fn skins(packets: &[Packet]) -> Vec<String> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::PlayerSkin(s) => Some(s.skin.full_id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+// pmmp: PlayerChangeSkinEvent
+#[test]
+fn skin_changes_reach_everyone_or_go_back_to_the_player() {
+    let listeners = on(|e: &mut PlayerChangeSkin, _: &mut Context<'_>| {
+        if e.new_skin().full_id == "no" {
+            e.cancel();
+        }
+    });
+    let mut game = Game::new(2, listeners);
+    let old = game.player(1).skin().full_id.clone();
+    let input = skin_input(&mut game, 1, skin("no"));
+    game.run(vec![input]);
+    assert_eq!(skins(&game.take(1)), [old], "its own skin back");
+    assert!(skins(&game.take(2)).is_empty());
+    game.idle(20);
+    let input = skin_input(&mut game, 1, skin("new"));
+    game.run(vec![input]);
+    assert_eq!(skins(&game.take(2)), ["new"]);
+    assert_eq!(game.player(1).skin().full_id, "new");
+    // Sent back, too fast, or with images that do not match their size: ignored.
+    for s in [skin("new"), skin("fast")] {
+        let input = skin_input(&mut game, 1, s);
+        game.run(vec![input]);
+    }
+    game.idle(20);
+    let mut bad = skin("bad");
+    bad.skin_data.pop();
+    let packet = p::PlayerSkin {
+        uuid: crate::protocol::Uuid::default(),
+        skin: bad,
+        new_skin_name: String::new(),
+        old_skin_name: String::new(),
+    };
+    on_skin(&mut game.state, sid(1), &packet);
+    game.idle(1);
+    assert!(skins(&game.take(2)).is_empty());
+    assert_eq!(game.player(1).skin().full_id, "new");
+}
+
+#[test]
+fn rules_without_listeners_build_no_events_and_change_nothing() {
+    // The same script with and without monitors gives the same state.
+    let script = |listeners: Listeners| {
+        let mut game = Game::new(2, listeners);
+        inventory::give(game.player_mut(1), stack(ItemKind::Bread, 9));
+        attack_player(&mut game.state, sid(2), sid(1));
+        let input = game.flags(1, &[InputFlag::StartSprinting, InputFlag::StartJumping]);
+        game.run(vec![input]);
+        assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+        game.idle(2);
+        damage::respawn(&mut game.state, sid(1));
+        game.idle(2);
+        game.state.hash()
+    };
+    let mut watching = Listeners::default();
+    watching.push_monitor(|_: &EntityDamage, _: &Context<'_>| {});
+    watching.push_monitor(|_: &PlayerDeath, _: &Context<'_>| {});
+    watching.push_monitor(|_: &PlayerExhaust, _: &Context<'_>| {});
+    watching.push_monitor(|_: &PlayerRespawn, _: &Context<'_>| {});
+    assert_eq!(script(Listeners::default()), script(watching));
+}

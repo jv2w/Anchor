@@ -11,6 +11,8 @@ mod generator;
 mod index;
 mod light;
 mod paletted;
+mod particle;
+mod sound;
 mod sub_chunk;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -20,16 +22,20 @@ use crate::block::{Facing, State};
 
 pub use chunk::Chunk;
 pub use generator::{Flat, Generator, Void};
+pub use particle::Particle;
+pub use sound::{NoteInstrument, Sound};
 
 pub(crate) use chunk::{NO_HEIGHT, PLAINS, SUB_CHUNKS};
 pub(crate) use paletted::Paletted;
 pub(crate) use sub_chunk::{Entry, SubChunk};
 
 /// The lowest block y of the world.
+#[doc(alias = "World::getMinY")]
 pub const MIN_Y: i32 = -64;
 /// Ticks in a day (PMMP `World::TIME_FULL`).
 pub(crate) const DAY: i64 = 24_000;
-/// The highest block y of the world.
+/// The highest block y of the world (PMMP's `getMaxY` is one above: the first y outside).
+#[doc(alias = "World::getMaxY")]
 pub const MAX_Y: i32 = 319;
 
 /// A block position.
@@ -49,6 +55,17 @@ impl BlockPos {
         Self { x, y, z }
     }
 
+    /// The block that holds the point `v`: each coordinate rounded down, saturating at the `i32`
+    /// range (a coordinate that is not a number counts as 0).
+    pub fn containing(v: crate::math::Vec3) -> Self {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "consistency: `as` saturates and maps NaN to 0, the same on every platform"
+        )]
+        let floor = |c: f64| c.floor() as i32;
+        Self::new(floor(v.x), floor(v.y), floor(v.z))
+    }
+
     /// The chunk that holds the position.
     pub const fn chunk(self) -> ChunkPos {
         ChunkPos::new(self.x >> 4, self.z >> 4)
@@ -65,8 +82,9 @@ impl BlockPos {
     }
 
     /// The position one block toward `face`, if it is a valid `i32` position (the world height
-    /// is not checked).
-    pub(crate) fn step(self, face: crate::block::Face) -> Option<Self> {
+    /// is not checked). PMMP's `step` argument is this, repeated.
+    #[doc(alias = "Position::getSide")]
+    pub fn step(self, face: crate::block::Face) -> Option<Self> {
         let (dx, dy, dz) = face.offset();
         self.offset(dx, dy, dz)
     }
@@ -106,6 +124,36 @@ impl ChunkPos {
     /// The chunk position (x, z).
     pub const fn new(x: i32, z: i32) -> Self {
         Self { x, z }
+    }
+}
+
+/// A world of the server: its place in registration order (the default world is first). Worlds
+/// are fixed when the server is built, so an `Id` stays valid while the server runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Id(u32);
+
+impl Id {
+    /// The default world: the one the settings name (`level-name`), where players join.
+    pub const DEFAULT: Self = Self(0);
+
+    /// The world at `index` in the state's world list.
+    pub(crate) fn new(index: usize) -> Option<Self> {
+        u32::try_from(index).ok().map(Self)
+    }
+
+    /// The world at `index` of a world the server has.
+    pub(crate) fn of(index: usize) -> Self {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the worlds come from the settings, far fewer than 2^32"
+        )]
+        Self::new(index).expect("a world index fits u32")
+    }
+
+    /// The index in the state's world list.
+    pub(crate) fn index(self) -> usize {
+        // u32 fits usize on every target Anchor builds for (32 and 64 bits).
+        self.0 as usize
     }
 }
 
@@ -152,7 +200,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// Only the tick thread changes it (PLAN.md 4.2). The engine loads and unloads chunks; a block
 /// of a chunk that is not loaded reads as `None` and cannot be set.
+// pmmp-class: World
 pub struct World {
+    /// Its place in the server's world list (the tick numbers the worlds when it starts).
+    id: Id,
     name: String,
     kind: Kind,
     seed: i64,
@@ -173,6 +224,8 @@ pub struct World {
     fed: BTreeSet<BlockPos>,
     /// The light work of the loaded chunks.
     light: light::Engine,
+    /// The server's custom blocks, which loaded chunks resolve their unknown states against.
+    custom: Option<std::sync::Arc<crate::custom::Registry>>,
 }
 
 /// Whether a block change notifies the block update rules ([`World::next_changed`]).
@@ -189,6 +242,7 @@ impl World {
     /// generator; the tick only needs its seed and spawn.
     pub(crate) fn new(name: impl Into<String>, kind: Kind, seed: i64, spawn: BlockPos) -> Self {
         Self {
+            id: Id::DEFAULT,
             name: name.into(),
             kind,
             seed,
@@ -201,11 +255,37 @@ impl World {
             feed: VecDeque::new(),
             fed: BTreeSet::new(),
             light: light::Engine::new(),
+            custom: None,
         }
     }
 
-    /// The world's name, unique on the server.
+    /// Gives the world the server's custom blocks: chunks loaded from now on read their saved
+    /// custom states (PLAN.md 10.8).
+    pub(crate) fn set_custom(&mut self, custom: std::sync::Arc<crate::custom::Registry>) {
+        self.custom = Some(custom);
+    }
+
+    /// The server's custom content, for the loaders of saved block entities and entities in
+    /// this world's chunks.
+    pub(crate) fn custom(&self) -> Option<&crate::custom::Registry> {
+        self.custom.as_deref()
+    }
+
+    /// Its ID on the server.
+    #[doc(alias = "World::getId")]
+    pub fn id(&self) -> Id {
+        self.id
+    }
+
+    /// Numbers the world: its place in the server's world list.
+    pub(crate) fn set_id(&mut self, id: Id) {
+        self.id = id;
+    }
+
+    /// The world's name, unique on the server: its folder name and the name it shows (PMMP keeps
+    /// a display name apart; Anchor's worlds have one name).
     #[doc(alias = "World::getFolderName")]
+    #[doc(alias = "World::getDisplayName")]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -227,10 +307,19 @@ impl World {
         self.spawn
     }
 
-    /// Moves the spawn.
+    /// Moves the spawn, saved with the world. The 3 × 3 spawn chunks the server keeps loaded move
+    /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
+    /// sees them (PMMP keeps the old ones held and does not hold the new ones).
     #[doc(alias = "World::setSpawnLocation")]
     pub fn set_spawn(&mut self, spawn: BlockPos) {
         self.spawn = spawn;
+    }
+
+    /// Whether the chunk is one of the 3 × 3 spawn chunks the server keeps loaded.
+    #[doc(alias = "World::isSpawnChunk")]
+    pub fn is_spawn_chunk(&self, pos: ChunkPos) -> bool {
+        let center = self.spawn.chunk();
+        pos.x.abs_diff(center.x) <= 1 && pos.z.abs_diff(center.z) <= 1
     }
 
     /// Ticks since the world was created (0 for a new world), saved with the world. It goes up
@@ -257,6 +346,7 @@ impl World {
     /// the world height, or the block is a state Anchor does not know.
     #[doc(alias = "World::getBlockAt")]
     #[doc(alias = "World::getBlock")]
+    #[inline]
     pub fn block(&self, pos: BlockPos) -> Option<State> {
         match self.entry(pos)? {
             Entry::Known(state) => Some(state),
@@ -330,6 +420,50 @@ impl World {
         let pos = BlockPos::new(x, 0, z);
         let (lx, lz) = pos.local();
         self.chunks.get(pos.chunk())?.highest_block(lx, lz)
+    }
+
+    /// Whether `pos` is inside the world height (x and z are always inside).
+    #[doc(alias = "World::isInWorld")]
+    pub fn is_in_world(pos: BlockPos) -> bool {
+        (MIN_Y..=MAX_Y).contains(&pos.y)
+    }
+
+    /// The loaded chunks, in position order.
+    #[doc(alias = "World::getLoadedChunks")]
+    pub fn loaded_chunks(&self) -> impl ExactSizeIterator<Item = ChunkPos> + '_ {
+        self.loaded.iter().copied()
+    }
+
+    /// The biome ID at `pos` (such as 1 for plains), or `None` if its chunk is not loaded or
+    /// `pos` is outside the world height.
+    #[doc(alias = "World::getBiomeId")]
+    #[doc(alias = "World::getBiome")]
+    pub fn biome(&self, pos: BlockPos) -> Option<u32> {
+        let (x, z) = pos.local();
+        self.chunks.get(pos.chunk())?.biome(x, pos.y, z)
+    }
+
+    /// Sets the biome ID at `pos`, saved with the chunk. Players see it when they are sent the
+    /// chunk again (as in PMMP).
+    #[doc(alias = "World::setBiomeId")]
+    pub fn set_biome(&mut self, pos: BlockPos, biome: u32) -> Result<()> {
+        if !Self::is_in_world(pos) {
+            return Err(Error::OutOfRange);
+        }
+        let (x, z) = pos.local();
+        let quarantined = self.quarantined.contains(&pos.chunk());
+        let Some(chunk) = self.chunks.get_mut(pos.chunk()) else {
+            return Err(if quarantined {
+                Error::Quarantined
+            } else {
+                Error::NotLoaded
+            });
+        };
+        if chunk.biome(x, pos.y, z) != Some(biome) {
+            chunk.set_biome(x, pos.y, z, biome)?;
+            chunk.set_dirty(true);
+        }
+        Ok(())
     }
 
     /// The block light at `pos`, 0 to 15, or `None` if its chunk is not loaded or not lit yet,
@@ -414,6 +548,7 @@ impl World {
     }
 
     /// The layer 0 entry at `pos`, if its chunk is loaded and `pos` is in the world height.
+    #[inline]
     pub(crate) fn entry(&self, pos: BlockPos) -> Option<Entry> {
         let (x, z) = pos.local();
         self.chunks.get(pos.chunk())?.entry(x, pos.y, z)
@@ -443,8 +578,11 @@ impl World {
         Some(old)
     }
 
-    /// The loaded chunk at `pos`.
-    pub(crate) fn chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
+    /// The loaded chunk at `pos`, to read; `None` if it is not loaded (PMMP loads it). Blocks
+    /// change through [`Self::set_block`], which keeps the block rules, light and viewers up to
+    /// date.
+    #[doc(alias = "World::getChunk")]
+    pub fn chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
         self.chunks.get(pos)
     }
 
@@ -455,6 +593,11 @@ impl World {
     /// to its lit neighbours; one without light is lit on the tick.
     pub(crate) fn insert_chunk(&mut self, pos: ChunkPos, mut chunk: Chunk) -> Option<Chunk> {
         chunk.set_dirty(false);
+        // Saved custom blocks load as unknown states (the save thread knows no custom blocks);
+        // those of a registered block become its states, the rest stay as saved.
+        if let Some(custom) = &self.custom {
+            chunk.resolve_unknown(|nbt| custom.find_state_nbt(nbt));
+        }
         self.put_chunk(pos, chunk)
     }
 
@@ -509,7 +652,7 @@ impl World {
     /// The loaded positions, in order.
     #[cfg(test)]
     pub(crate) fn loaded(&self) -> impl ExactSizeIterator<Item = ChunkPos> + '_ {
-        self.loaded.iter().copied()
+        self.loaded_chunks()
     }
 
     /// The quarantined positions, in order.
@@ -561,7 +704,7 @@ impl fmt::Debug for World {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::{self, PropertyValue};
+    use crate::block::{self, Face, PropertyValue};
     use crate::protocol::Rng;
     use chunk::tests::plain_states;
 
@@ -578,6 +721,20 @@ mod tests {
         w
     }
 
+    #[test]
+    fn a_point_is_in_the_block_its_coordinates_round_down_to() {
+        use crate::math::Vec3;
+        let at = |x, y, z| BlockPos::containing(Vec3::new(x, y, z));
+        assert_eq!(at(0.5, -59.0, 15.99), BlockPos::new(0, -59, 15));
+        assert_eq!(at(-0.01, -64.5, -16.0), BlockPos::new(-1, -65, -16));
+        assert_eq!(
+            at(f64::NAN, 1e300, -1e300),
+            BlockPos::new(0, i32::MAX, i32::MIN)
+        );
+        assert_eq!(at(-0.5, 0.0, 0.0).chunk(), ChunkPos::new(-1, 0));
+    }
+
+    // pmmp: World::getBlock, World::getBlockAt, World::setBlock, World::setBlockAt, World
     #[test]
     fn random_sets_over_chunks_match_an_array() {
         let states = plain_states();
@@ -619,6 +776,77 @@ mod tests {
         let changes = w.take_changes();
         assert!(changes.iter().all(|(p, s)| model.get(p) == Some(s)));
         assert!(w.take_changes().is_empty());
+    }
+
+    // pmmp: World::getChunk, Position::getSide
+    #[test]
+    fn loaded_chunks_read_through_the_world_and_sides_are_one_block_away() {
+        let w = world(&Flat, 0);
+        let chunk = w.chunk(ChunkPos::new(0, 0)).unwrap();
+        for (x, y, z) in [(3, -61, 5), (0, -64, 15), (15, 40, 0)] {
+            let pos = BlockPos::new(i32::from(x), y, i32::from(z));
+            assert_eq!(chunk.block(x, y, z), w.block(pos));
+        }
+        assert!(w.chunk(ChunkPos::new(1, 0)).is_none(), "not loaded");
+        let p = BlockPos::new(1, 2, 3);
+        let sides = Face::ALL.map(|f| p.step(f).unwrap());
+        assert_eq!(
+            sides,
+            [
+                BlockPos::new(1, 1, 3),
+                BlockPos::new(1, 3, 3),
+                BlockPos::new(1, 2, 2),
+                BlockPos::new(1, 2, 4),
+                BlockPos::new(0, 2, 3),
+                BlockPos::new(2, 2, 3),
+            ]
+        );
+        assert_eq!(BlockPos::new(i32::MAX, 0, 0).step(Face::East), None);
+        assert_eq!(BlockPos::new(0, i32::MIN, 0).step(Face::Down), None);
+    }
+
+    // pmmp: World::getSeed, World::getTime, World::getTimeOfDay
+    #[test]
+    fn the_seed_and_the_day_cycle_are_the_worlds() {
+        let mut w = world(&Flat, 0);
+        assert_eq!(w.seed(), 3);
+        assert_eq!((w.time(), w.time_of_day()), (0, 0));
+        w.set_time(30_000);
+        assert_eq!((w.time(), w.time_of_day()), (30_000, 6_000));
+        w.set_time(-1);
+        assert_eq!(w.time_of_day(), 23_999);
+    }
+
+    // pmmp: World::isInWorld, World::getMinY, World::getMaxY, World::getLoadedChunks, World::getBiomeId, World::getBiome, World::setBiomeId, World::getHighestBlockAt, World::isChunkLoaded
+    #[test]
+    fn heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only() {
+        assert!(World::is_in_world(BlockPos::new(i32::MAX, MIN_Y, i32::MIN)));
+        assert!(World::is_in_world(BlockPos::new(0, MAX_Y, 0)));
+        assert!(!World::is_in_world(BlockPos::new(0, MAX_Y + 1, 0)));
+        assert!(!World::is_in_world(BlockPos::new(0, MIN_Y - 1, 0)));
+        let mut w = world(&Flat, 1);
+        let loaded: Vec<ChunkPos> = w.loaded_chunks().collect();
+        assert_eq!(loaded.len(), 9);
+        assert!(loaded.iter().all(|&p| w.is_chunk_loaded(p)));
+        assert!(loaded.windows(2).all(|p| p[0] < p[1]), "in position order");
+        let at = BlockPos::new(3, 10, -5);
+        let plains = w.biome(at).unwrap();
+        assert_eq!(w.highest_block(3, -5), Some(-61));
+        w.take_dirty();
+        w.set_biome(at, plains).unwrap();
+        assert!(w.take_dirty().is_empty(), "the same biome changes nothing");
+        w.set_biome(at, 2).unwrap();
+        assert_eq!(w.biome(at), Some(2));
+        assert_eq!(w.take_dirty().len(), 1, "saved with the chunk");
+        assert_eq!(
+            w.set_biome(BlockPos::new(0, 400, 0), 2),
+            Err(Error::OutOfRange)
+        );
+        assert_eq!(
+            w.set_biome(BlockPos::new(1000, 0, 0), 2),
+            Err(Error::NotLoaded)
+        );
+        assert_eq!(w.biome(BlockPos::new(1000, 0, 0)), None);
     }
 
     #[test]

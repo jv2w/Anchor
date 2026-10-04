@@ -6,6 +6,7 @@
 use super::Cx;
 use super::props::{self, HORIZONTAL};
 use crate::block::{self, Face, Kind, SupportType};
+use crate::event::BlockBurn;
 use crate::random::Random;
 use crate::world::{BlockPos, MAX_Y, MIN_Y};
 
@@ -89,10 +90,10 @@ pub(super) fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
             return;
         };
         for face in HORIZONTAL {
-            burn(cx, &mut rng, fire, age, pos.step(face), 300);
+            burn(cx, &mut rng, (pos, fire, age), pos.step(face), 300);
         }
-        burn(cx, &mut rng, fire, age, pos.step(Face::Up), 350);
-        burn(cx, &mut rng, fire, age, pos.step(Face::Down), 350);
+        burn(cx, &mut rng, (pos, fire, age), pos.step(Face::Up), 350);
+        burn(cx, &mut rng, (pos, fire, age), pos.step(Face::Down), 350);
         spread_fire(cx, &mut rng, pos, fire, age);
     }
 }
@@ -103,14 +104,14 @@ fn older(rng: &mut Random, fire: block::State, age: i32) -> Option<block::State>
     props::with_int(fire, "age", next)
 }
 
-/// PMMP `Fire::burnBlock`: the block burns with a chance of its flammability in `bound`, then
-/// catches fire or is gone. Burning TNT is primed instead (PMMP `TNT::onIncinerate`); at the
-/// world's entity limit it stays TNT.
+/// PMMP `Fire::burnBlock`: the block burns with a chance of its flammability in `bound`
+/// ([`BlockBurn`]), then the fire at `source` (its state `fire` and `age`) spreads into it or it
+/// is gone. Burning TNT is primed instead (PMMP `TNT::onIncinerate`); at the world's entity
+/// limit it stays TNT.
 fn burn(
     cx: &mut Cx<'_>,
     rng: &mut Random,
-    fire: block::State,
-    age: i32,
+    (source, fire, age): (BlockPos, block::State, i32),
     pos: Option<BlockPos>,
     bound: i32,
 ) {
@@ -123,19 +124,33 @@ fn burn(
     if rng.range(0, bound) >= i32::from(target.flammability()) {
         return;
     }
+    let Ok(event) = cx.ask(
+        [pos, source],
+        |cx| BlockBurn {
+            world: cx.world_id(),
+            pos,
+            block: target,
+            causing_block: source,
+            cancelled: false,
+        },
+        BlockBurn::is_cancelled,
+    ) else {
+        return;
+    };
     if target.kind() == Kind::Tnt {
         crate::tick::entity::ignite(cx.state, cx.world, pos, TNT_FUSE);
-        return;
+    } else {
+        let mut spread = false;
+        if rng.range(0, age + 9) < 5
+            && let Some(new) = older(rng, fire, age)
+        {
+            spread = cx.spread(pos, new, source);
+        }
+        if !spread {
+            cx.set(pos, block::AIR);
+        }
     }
-    let mut spread = false;
-    if rng.range(0, age + 9) < 5
-        && let Some(new) = older(rng, fire, age)
-    {
-        spread = cx.set(pos, new);
-    }
-    if !spread {
-        cx.set(pos, block::AIR);
-    }
+    cx.tell(event);
 }
 
 /// PMMP `Fire::spreadFire`: air around the fire, up to four blocks above, catches fire by the
@@ -173,7 +188,7 @@ fn spread_fire(cx: &mut Cx<'_>, rng: &mut Random, pos: BlockPos, fire: block::St
                     && rng.range(0, bound - 1) <= chance
                     && let Some(new) = older(rng, fire, age)
                 {
-                    cx.set(at, new);
+                    cx.spread(at, new, pos);
                 }
             }
         }

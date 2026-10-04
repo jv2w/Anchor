@@ -1,7 +1,7 @@
 //! `src/effect/table.rs`: the status effect and potion tables (PLAN.md 10.7) from the PMMP dump
 //! (`tables.json`).
 
-use super::blocks::{by_id, enumeration, strings, variants};
+use super::blocks::{by_id, enumeration, pmmp_enumeration, strings, variants};
 use super::body::str_lit;
 use super::data::{Data, int_lit};
 use super::emit::HEADER;
@@ -24,9 +24,11 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     );
     let names: Vec<&str> = effects.iter().map(|e| e.name.as_str()).collect();
     let effect_variants = variants(&names)?;
-    enumeration(
+    pmmp_enumeration(
         &mut out,
         "A status effect type (PMMP `VanillaEffects`).",
+        "#[doc(alias = \"Effect\", alias = \"VanillaEffects\")]
+",
         "Type",
         &effect_variants,
     );

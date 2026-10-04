@@ -17,9 +17,12 @@ pub(crate) use registry::SHIELD_RUNTIME_ID;
 pub use stack::{Extra, Stack};
 pub use table::{Class, Enchantment, Kind, ToolTier, Trait};
 
+use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use crate::block::{self, ToolType};
+use crate::custom;
 use crate::effect;
 use crate::nbt::{self, StaticCompound};
 use crate::protocol::{self, ItemType, packet};
@@ -27,9 +30,24 @@ use crate::protocol::{self, ItemType, packet};
 /// An item type: a Bedrock item name with its meta value and, for a block item, the block state
 /// it places.
 ///
-/// It is a small `Copy` number into Anchor's static item table.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Type(u16);
+/// It is a small `Copy` value: a number into Anchor's static item table, or a custom item or the
+/// item of a custom block the server registered ([`custom::Item`], [`custom::Block`]), which
+/// carries its definition and the runtime ID the server gave it. Only the server makes custom
+/// types ([`Context::custom_item`](crate::Context::custom_item)).
+#[derive(Clone, Copy)]
+pub struct Type(Repr);
+
+/// What a [`Type`] is.
+#[derive(Clone, Copy)]
+enum Repr {
+    /// An index of the static item table.
+    Vanilla(u16),
+    /// A custom item and its runtime ID.
+    Item(&'static custom::Item, i16),
+    /// A custom block's item, its runtime ID and the network ID of the block's default state
+    /// (the block it places and is sent with).
+    Block(&'static custom::Block, i16, u32),
+}
 
 /// One row of the item table.
 #[derive(Debug)]
@@ -66,48 +84,121 @@ impl Data {
 impl Type {
     /// The type with this table index. Only generated tables call it, with indices of the item
     /// table.
+    #[inline]
     pub(crate) const fn from_index(index: u16) -> Self {
-        Self(index)
+        Self(Repr::Vanilla(index))
     }
 
-    fn data(self) -> &'static Data {
+    /// The registered custom item `item` with the runtime ID the server gave it. Only the custom
+    /// registry calls it.
+    pub(crate) const fn from_custom_item(item: &'static custom::Item, runtime_id: i16) -> Self {
+        Self(Repr::Item(item, runtime_id))
+    }
+
+    /// The item of the registered custom block `block`, with the runtime ID the server gave it;
+    /// `None` if the block has no default state (a registered block always has one).
+    pub(crate) fn from_custom_block(
+        block: &'static custom::Block,
+        runtime_id: i16,
+    ) -> Option<Self> {
+        let placed = block::State::custom(block, 0, runtime_id)?;
+        Some(Self(Repr::Block(block, runtime_id, placed.network_id())))
+    }
+
+    /// The custom item this is, `None` for any other type.
+    #[inline]
+    pub fn custom_item(self) -> Option<&'static custom::Item> {
+        match self.0 {
+            Repr::Item(item, _) => Some(item),
+            Repr::Vanilla(_) | Repr::Block(..) => None,
+        }
+    }
+
+    /// The custom block this is the item of, `None` for any other type.
+    #[inline]
+    pub fn custom_block(self) -> Option<&'static custom::Block> {
+        match self.0 {
+            Repr::Block(block, ..) => Some(block),
+            Repr::Vanilla(_) | Repr::Item(..) => None,
+        }
+    }
+
+    /// The index into the static tables, `None` for a custom type.
+    #[inline]
+    fn vanilla(self) -> Option<usize> {
+        match self.0 {
+            Repr::Vanilla(i) => Some(usize::from(i)),
+            Repr::Item(..) | Repr::Block(..) => None,
+        }
+    }
+
+    #[inline]
+    fn data(index: u16) -> &'static Data {
         #[expect(
             clippy::indexing_slicing,
             reason = "invariant: a Type is only made from an index of the item table"
         )]
-        &table::ITEMS[usize::from(self.0)]
+        &table::ITEMS[usize::from(index)]
     }
 
-    /// The Bedrock item name, such as `minecraft:stick`.
+    /// The Bedrock item name, such as `minecraft:stick`, or a custom item's or block's
+    /// identifier.
+    #[inline]
     pub fn name(self) -> &'static str {
-        self.data().name
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).name,
+            Repr::Item(item, _) => item.identifier(),
+            Repr::Block(block, ..) => block.identifier(),
+        }
     }
 
-    /// The meta (damage) value that tells apart types sharing a name, such as potion kinds.
+    /// The meta (damage) value that tells apart types sharing a name, such as potion kinds; 0
+    /// for custom types.
+    #[inline]
     pub fn meta(self) -> u16 {
-        self.data().meta
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).meta,
+            Repr::Item(..) | Repr::Block(..) => 0,
+        }
     }
 
     /// The block state a block item places.
     pub fn block(self) -> Option<block::State> {
-        self.data().block
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).block,
+            Repr::Item(..) => None,
+            Repr::Block(block, runtime_id, _) => block::State::custom(block, 0, runtime_id),
+        }
     }
 
     /// The network ID of the block state a block item is sent with, 0 for other items. It is the
     /// state BDS sends with the item (the vanilla creative state), which may differ from the
     /// state the item places (PLAN.md 10.4).
+    #[inline]
     pub(crate) fn block_network_id(self) -> u32 {
-        self.data().block_network_id
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).block_network_id,
+            Repr::Item(..) => 0,
+            Repr::Block(_, _, network_id) => network_id,
+        }
     }
 
-    /// The 1.26.50 network runtime ID of the name.
+    /// The 1.26.50 network runtime ID of the name; for a custom type, the one the server gave it
+    /// (after every vanilla runtime ID, in registration order).
+    #[inline]
     pub fn runtime_id(self) -> i16 {
-        self.data().runtime_id
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).runtime_id,
+            Repr::Item(_, id) | Repr::Block(_, id, _) => id,
+        }
     }
 
     /// NBT that is part of the type rather than of a stack, such as an ominous banner's `Type`.
     pub(crate) fn nbt(self) -> Option<StaticCompound> {
-        self.data().nbt
+        match self.0 {
+            Repr::Vanilla(i) => Self::data(i).nbt,
+            Repr::Item(..) | Repr::Block(..) => None,
+        }
     }
 
     /// The type of an item in saved Bedrock form: its name, meta, the block state of a block item
@@ -131,7 +222,12 @@ impl Type {
             .binary_search_by(|(n, _)| (*n).cmp(name))
             .ok()?;
         let (_, runtime_id) = table::NAMES.get(index)?;
-        Self::lookup(*runtime_id, |e| Self(e.3).block() == block, Some(meta), nbt)
+        Self::lookup(
+            *runtime_id,
+            |e| Self::from_index(e.3).block() == block,
+            Some(meta),
+            nbt,
+        )
     }
 
     /// The type of an item in network form, as a client sends it: runtime ID, meta, the network
@@ -176,7 +272,7 @@ impl Type {
             if exact.next().is_some() {
                 return None;
             }
-            Some(Self(one.3))
+            Some(Self::from_index(one.3))
         })
     }
 
@@ -205,10 +301,14 @@ impl Type {
             1 => exact().next()?,
             // The generator checked that type NBT sizes differ here, so the best is unique.
             _ => exact()
-                .filter(|e| Self(e.3).nbt().is_none_or(|need| nbt::contains(nbt, need)))
-                .max_by_key(|e| Self(e.3).nbt().map_or(0, <[_]>::len))?,
+                .filter(|e| {
+                    Self::from_index(e.3)
+                        .nbt()
+                        .is_none_or(|need| nbt::contains(nbt, need))
+                })
+                .max_by_key(|e| Self::from_index(e.3).nbt().map_or(0, <[_]>::len))?,
         };
-        Some(Self(found.3))
+        Some(Self::from_index(found.3))
     }
 }
 
@@ -221,9 +321,68 @@ impl fmt::Debug for Type {
     }
 }
 
-/// A row of the item data table: PMMP's data for an item type.
+impl PartialEq for Type {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        match (self.0, other.0) {
+            (Repr::Vanilla(a), Repr::Vanilla(b)) => a == b,
+            // A server gives each custom type its own runtime ID.
+            (Repr::Item(a, x), Repr::Item(b, y)) => x == y && a.identifier() == b.identifier(),
+            (Repr::Block(a, x, _), Repr::Block(b, y, _)) => {
+                x == y && a.identifier() == b.identifier()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Type {}
+
+impl PartialOrd for Type {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Types of the table come first, in table order; then custom types by runtime ID and
+/// identifier (never by address, so the order is the same on every run).
+impl Ord for Type {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let key = |t: &Self| match t.0 {
+            Repr::Vanilla(i) => (0, i32::from(i), ""),
+            Repr::Item(item, id) => (1, i32::from(id), item.identifier()),
+            Repr::Block(block, id, _) => (1, i32::from(id), block.identifier()),
+        };
+        key(self).cmp(&key(other))
+    }
+}
+
+impl Hash for Type {
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        match self.0 {
+            Repr::Vanilla(i) => i.hash(h),
+            Repr::Item(_, id) | Repr::Block(_, id, _) => id.hash(h),
+        }
+    }
+}
+
+/// The data of a custom block's item: a plain block item of 64.
+static CUSTOM_BLOCK_ITEM: Info = Info::custom(64, 0, 1, None);
+
+/// [`Trait`] bits of every PMMP item (`ItemEnchantmentHandling`).
+const TRAITS_ITEM: u32 = 1 << Trait::ItemEnchantmentHandling as u32;
+/// [`Trait`] bits of a PMMP food item (`Food`: consumable, food source, releasable).
+const TRAITS_FOOD: u32 = TRAITS_ITEM
+    | 1 << Trait::Consumable as u32
+    | 1 << Trait::ConsumableItem as u32
+    | 1 << Trait::FoodSource as u32
+    | 1 << Trait::FoodSourceItem as u32
+    | 1 << Trait::Releasable as u32;
+
+/// A row of the item data table: PMMP's data for an item type. A custom item holds one of its
+/// own ([`Info::custom`]).
 #[derive(Debug)]
-struct Info {
+pub(crate) struct Info {
     kind: Option<Kind>,
     /// The first of the type's classes in [`table::CLASS_CHAINS`] and their count.
     class: (u16, u8),
@@ -250,6 +409,70 @@ struct Info {
     cooldown: Option<Cooldown>,
     throw_force: Option<f64>,
     potion: Option<effect::Potion>,
+}
+
+impl Info {
+    /// The row of a custom item: a plain PMMP item (enchantability 1, like every `Item`) with
+    /// this stack size, durability (0: none), attack damage and food. A food item is a PMMP
+    /// `Food`: consumed whole, leaving nothing, with no effects.
+    pub(crate) const fn custom(
+        max_stack: u8,
+        max_durability: u16,
+        attack_points: u8,
+        food: Option<Food>,
+    ) -> Self {
+        let edible = food.is_some();
+        Self {
+            kind: None,
+            class: (0, 0),
+            traits: if edible { TRAITS_FOOD } else { TRAITS_ITEM },
+            max_stack,
+            max_durability,
+            fire_proof: false,
+            attack_points,
+            defense_points: 0,
+            tool_type: ToolType::NONE,
+            harvest_level: 0,
+            efficiency: 1.0,
+            tier: None,
+            armor: None,
+            food,
+            consumable: if edible {
+                Some(Consumable::new(None, Some((0, 0))))
+            } else {
+                None
+            },
+            fuel_time: 0,
+            fuel_residue: None,
+            enchantability: 1,
+            primary_enchantments: EnchantmentSet(0),
+            enchantments: EnchantmentSet(0),
+            cooldown: None,
+            throw_force: None,
+            potion: None,
+        }
+    }
+
+    /// The most items a stack holds.
+    pub(crate) const fn max_stack(&self) -> u8 {
+        self.max_stack
+    }
+
+    /// The durability; 0 for none.
+    #[inline]
+    pub(crate) const fn max_durability(&self) -> u16 {
+        self.max_durability
+    }
+
+    /// What eating restores.
+    pub(crate) const fn food(&self) -> Option<Food> {
+        self.food
+    }
+
+    /// The damage of a hit.
+    pub(crate) const fn attack_points(&self) -> u8 {
+        self.attack_points
+    }
 }
 
 /// The state index sentinel of [`table::TYPE_PLACES`]: none.
@@ -307,7 +530,7 @@ pub struct Food {
 }
 
 impl Food {
-    const fn new(points: u8, saturation: f64, requires_hunger: bool) -> Self {
+    pub(crate) const fn new(points: u8, saturation: f64, requires_hunger: bool) -> Self {
         Self {
             points,
             saturation,
@@ -336,6 +559,7 @@ impl Food {
 
 /// What consuming an item leaves and does (PMMP `ConsumableItem`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pmmp-class: Consumable
 pub struct Consumable {
     residue: Option<Type>,
     /// The first of the effects in [`table::CONSUME_EFFECTS`] and their count; `None` if PMMP
@@ -449,6 +673,7 @@ impl EnchantmentData {
 }
 
 impl Enchantment {
+    #[inline]
     fn data(self) -> &'static EnchantmentData {
         #[expect(
             clippy::indexing_slicing,
@@ -536,6 +761,7 @@ pub struct Tag(u8);
 
 impl Tag {
     /// The tag at this index of the tag table. Only generated tables call it.
+    #[inline]
     pub(crate) const fn from_index(index: u8) -> Self {
         Self(index)
     }
@@ -547,6 +773,7 @@ impl Tag {
     }
 
     /// The name.
+    #[inline]
     pub fn name(self) -> &'static str {
         table::TAG_NAMES
             .get(usize::from(self.0))
@@ -555,10 +782,12 @@ impl Tag {
     }
 
     /// Whether the item type has the tag.
-    #[doc(alias = "ItemTagToIdMap::tagContainsId")]
     pub fn contains(self, item: Type) -> bool {
+        let Some(index) = item.vanilla() else {
+            return false;
+        };
         let set = table::TYPE_TAGS
-            .get(usize::from(item.0))
+            .get(index)
             .and_then(|s| table::TAG_SETS.get(usize::from(*s)));
         set.is_some_and(|set| set & (1 << self.0) != 0)
     }
@@ -577,6 +806,7 @@ impl Kind {
     }
 
     /// The `VanillaItems` name, lowercase, such as `iron_ingot`.
+    #[inline]
     pub fn name(self) -> &'static str {
         table::KIND_NAMES
             .get(self as usize)
@@ -598,6 +828,7 @@ impl Kind {
 
 impl Class {
     /// The PMMP class name, such as `Food`.
+    #[inline]
     pub fn name(self) -> &'static str {
         table::CLASS_NAMES
             .get(self as usize)
@@ -608,6 +839,7 @@ impl Class {
 
 impl Trait {
     /// The PMMP name without `Trait`, such as `Releasable`.
+    #[inline]
     pub fn name(self) -> &'static str {
         table::TRAIT_NAMES
             .get(self as usize)
@@ -617,6 +849,7 @@ impl Trait {
 }
 
 impl ToolTier {
+    #[inline]
     fn data(self) -> (ToolTier, u8, u16, u8, u8, u8) {
         #[expect(
             clippy::indexing_slicing,
@@ -633,6 +866,7 @@ impl ToolTier {
 
     /// The durability of a tool of this tier.
     #[doc(alias = "ToolTier::getMaxDurability")]
+    #[inline]
     pub fn max_durability(self) -> u16 {
         self.data().2
     }
@@ -657,24 +891,39 @@ impl ToolTier {
 }
 
 impl Type {
+    #[inline]
     fn info(self) -> &'static Info {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "invariant: the generated tables have a data row index per item type, and \
-                      each indexes the data table"
-        )]
-        &table::INFO[usize::from(table::TYPE_INFO[usize::from(self.0)])]
+        match self.0 {
+            Repr::Vanilla(i) =>
+            {
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "invariant: the generated tables have a data row index per item \
+                              type, and each indexes the data table"
+                )]
+                &table::INFO[usize::from(table::TYPE_INFO[usize::from(i)])]
+            }
+            Repr::Item(item, _) => item.info(),
+            Repr::Block(..) => &CUSTOM_BLOCK_ITEM,
+        }
     }
 
     /// The PMMP item type (`VanillaItems` entry); `None` for block items, whose block state has
     /// a [`block::Kind`].
     #[doc(alias = "Item::getTypeId")]
+    #[inline]
     pub fn kind(self) -> Option<Kind> {
         self.info().kind
     }
 
     /// The PMMP class and its parents, leaf first, ending with [`Class::Item`].
+    #[inline]
     pub fn classes(self) -> &'static [Class] {
+        match self.0 {
+            Repr::Vanilla(_) => {}
+            Repr::Item(item, _) => return item.classes(),
+            Repr::Block(..) => return &[Class::ItemBlock, Class::Item],
+        }
         let (start, count) = self.info().class;
         let start = usize::from(start);
         table::CLASS_CHAINS
@@ -683,34 +932,40 @@ impl Type {
     }
 
     /// The PMMP class, such as [`Class::Sword`].
+    #[inline]
     pub fn class(self) -> Class {
         self.classes().first().copied().unwrap_or(Class::Item)
     }
 
     /// Whether the item is of the PMMP class or a subclass of it (`instanceof`).
+    #[inline]
     pub fn is(self, class: Class) -> bool {
         self.classes().contains(&class)
     }
 
     /// Whether the item's PMMP class has the trait or interface, such as [`Trait::Releasable`].
+    #[inline]
     pub fn has_trait(self, t: Trait) -> bool {
         self.info().traits & (1 << t as u32) != 0
     }
 
     /// The most items a stack holds.
     #[doc(alias = "Item::getMaxStackSize")]
+    #[inline]
     pub fn max_stack_size(self) -> u8 {
         self.info().max_stack
     }
 
     /// The durability of a new item; `None` for items that do not wear.
     #[doc(alias = "Durable::getMaxDurability")]
+    #[inline]
     pub fn max_durability(self) -> Option<u16> {
         Some(self.info().max_durability).filter(|d| *d > 0)
     }
 
     /// Whether the item survives fire and lava as a dropped item.
     #[doc(alias = "Item::isFireProof")]
+    #[inline]
     pub fn is_fire_proof(self) -> bool {
         self.info().fire_proof
     }
@@ -729,6 +984,7 @@ impl Type {
 
     /// The block tool types the item counts as.
     #[doc(alias = "Item::getBlockToolType")]
+    #[inline]
     pub fn block_tool_type(self) -> ToolType {
         self.info().tool_type
     }
@@ -769,6 +1025,7 @@ impl Type {
 
     /// The ticks one item burns as fuel; 0 if it is not fuel.
     #[doc(alias = "Item::getFuelTime")]
+    #[inline]
     pub fn fuel_time(self) -> u16 {
         self.info().fuel_time
     }
@@ -824,9 +1081,14 @@ impl Type {
     /// wall form (signs, torches, banners) put that down against a side of a block.
     #[doc(alias = "Item::getBlock")]
     pub fn placed_block(self, clicked: Option<block::Face>) -> Option<block::State> {
+        let index = match self.0 {
+            Repr::Vanilla(i) => usize::from(i),
+            Repr::Item(..) => return None,
+            Repr::Block(..) => return self.block(),
+        };
         let state = |table: &[u16]| {
             table
-                .get(usize::from(self.0))
+                .get(index)
                 .copied()
                 .filter(|s| *s != NO_STATE)
                 .map(block::State::from_index)
@@ -1000,6 +1262,20 @@ pub(crate) fn creative_content() -> packet::CreativeContent {
     }
 }
 
+/// How many items [`creative_content`] has (their network IDs are 1 to it).
+pub(crate) fn creative_count() -> u32 {
+    u32::try_from(creative::ITEMS.len()).unwrap_or(u32::MAX)
+}
+
+/// The highest runtime ID of the vanilla item registry (custom items take the ones after it).
+pub(crate) fn max_runtime_id() -> i16 {
+    registry::ENTRIES
+        .iter()
+        .map(|e| e.runtime_id)
+        .max()
+        .unwrap_or(0)
+}
+
 /// The stack of the creative item with this network ID as [`creative_content`] numbers them (from
 /// 1), one item; `None` for an unknown ID. O(1).
 pub(crate) fn creative_stack(network_id: u32) -> Option<Stack> {
@@ -1057,7 +1333,7 @@ mod tests {
     const CREATIVE: &str = include_str!("../xtask/data/pmmp/creative.json");
 
     fn all() -> impl Iterator<Item = Type> {
-        (0..u16::try_from(table::ITEMS.len()).unwrap()).map(Type)
+        (0..u16::try_from(table::ITEMS.len()).unwrap()).map(Type::from_index)
     }
 
     fn reference() -> Vec<Json> {
@@ -1233,6 +1509,7 @@ mod tests {
         }
     }
 
+    // pmmp: CreativeInventoryCache::buildPacket
     #[test]
     fn creative_content_is_the_pmmp_inventory() {
         let ids = reference_ids();
@@ -1327,6 +1604,7 @@ mod tests {
         }
     }
 
+    // pmmp: ItemDeserializer::deserializeType, ItemTranslator::fromNetworkId
     #[test]
     fn lookups_round_trip_for_every_type() {
         for t in all() {
@@ -1394,6 +1672,13 @@ mod tests {
     }
 
     /// PMMP values of well-known items (PMMP `VanillaItems`, `ToolTier`, `Steak`, `Coal`).
+    // pmmp: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability, Item::getAttackPoints,
+    // pmmp: TieredTool::getTier, Item::getBlockToolType, Item::getEnchantability, ToolTier,
+    // pmmp: AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
+    // pmmp: AvailableEnchantmentRegistry::getAllEnchantmentsForItem, Item::getBlockToolHarvestLevel,
+    // pmmp: Item::getMiningEfficiency, Item::getFuelTime, ToolTier::getHarvestLevel,
+    // pmmp: ToolTier::getMaxDurability, ToolTier::getBaseAttackPoints, ToolTier::getBaseEfficiency,
+    // pmmp: ToolTier::getEnchantability
     #[test]
     fn item_data_are_pmmp_values() {
         let ingot = by_name("minecraft:iron_ingot");
@@ -1432,6 +1717,11 @@ mod tests {
     }
 
     /// PMMP values of food, fuel, armour and other item data.
+    // pmmp: FoodSource::getFoodRestore, FoodSource::getSaturationRestore, FoodSource::requiresHunger,
+    // pmmp: Consumable, ConsumableItem::getResidue, Consumable::getAdditionalEffects,
+    // pmmp: Item::getFuelTime, Item::getFuelResidue, Armor::getArmorSlot, ArmorTypeInfo::getToughness,
+    // pmmp: Item::getDefensePoints, Item::isFireProof, Item::getCooldownTicks, Item::getCooldownTag,
+    // pmmp: ProjectileItem::getThrowForce, Potion::getType, Item::getBlock
     #[test]
     fn food_fuel_and_armour_are_pmmp_values() {
         // Cooked beef: 8 food, 12.8 saturation.
@@ -1527,6 +1817,10 @@ mod tests {
         assert_eq!(by_name("minecraft:stick").placed_block(None), None);
     }
 
+    // pmmp: Enchantment, VanillaEnchantments, Enchantment::getMaxLevel, Enchantment::getRarity,
+    // pmmp: Enchantment::getName, AvailableEnchantmentRegistry::isRegistered,
+    // pmmp: Enchantment::getMinEnchantingPower, Enchantment::getMaxEnchantingPower,
+    // pmmp: Enchantment::isCompatibleWith, EnchantmentIdMap::fromId, EnchantmentIdMap::toId
     #[test]
     fn enchantments_are_pmmp_values() {
         assert_eq!(Enchantment::all().len(), 23);
@@ -1562,6 +1856,7 @@ mod tests {
         assert_eq!(Enchantment::from_id(1000), None);
     }
 
+    // pmmp: VanillaItems
     #[test]
     fn every_type_has_its_data_and_tags_resolve() {
         // PMMP 5.44.3: the item kinds are VanillaItems without air.
@@ -1604,6 +1899,194 @@ mod tests {
         assert!(by_name("minecraft:coal").has_tag(Tag::find("minecraft:coals").unwrap()));
         assert_eq!(Tag::find("minecraft:nope"), None);
         assert_eq!(format!("{logs:?}"), "Tag(\"minecraft:logs\")");
+    }
+
+    /// The PMMP item dump (`items.json`), one entry per item type in table order.
+    fn item_dump() -> Vec<Json> {
+        serde_json::from_str(include_str!("../xtask/data/pmmp/items.json")).unwrap()
+    }
+
+    /// The PMMP dump's tables (`tables.json`).
+    fn dump_tables() -> Json {
+        serde_json::from_str(include_str!("../xtask/data/pmmp/tables.json")).unwrap()
+    }
+
+    /// The index of the entry named `name` in the dump table `list` (effects, enchantments,
+    /// potions): the enums are in the tables' order.
+    fn table_index(tables: &Json, list: &str, name: &Json) -> usize {
+        tables[list]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|e| e["name"] == *name)
+            .unwrap_or_else(|| panic!("{list} {name}"))
+    }
+
+    /// The item type a dumped `{name, meta}` names; `None` for JSON null.
+    fn dumped_type(json: &Json) -> Option<Type> {
+        if json.is_null() {
+            return None;
+        }
+        let found = all().find(|t| {
+            t.name() == json["name"] && u64::from(t.meta()) == json["meta"].as_u64().unwrap()
+        });
+        Some(found.unwrap_or_else(|| panic!("no item {json}")))
+    }
+
+    fn int(json: &Json) -> u64 {
+        json.as_u64().unwrap()
+    }
+
+    /// Every item type has the identity, stack, tool and armour data of its PMMP dump entry.
+    // pmmp: Item::getTypeId, Item::getMaxStackSize, Durable::getMaxDurability, Item::isFireProof,
+    // pmmp: Item::getAttackPoints, Item::getDefensePoints, Item::getBlockToolType,
+    // pmmp: Item::getBlockToolHarvestLevel, Item::getMiningEfficiency, TieredTool::getTier,
+    // pmmp: Armor::getArmorSlot, ArmorTypeInfo::getToughness
+    #[test]
+    fn every_type_has_its_pmmp_tool_and_armour_data() {
+        let dump = item_dump();
+        assert_eq!(dump.len(), all().count());
+        for (t, entry) in all().zip(&dump) {
+            let (bedrock, d) = (&entry["bedrock"], &entry["data"]);
+            assert_eq!(t.name(), bedrock["name"]);
+            // BDS sends the ominous banner white (meta 15) where PMMP has it black (PLAN.md 10.4).
+            let meta = match int(&bedrock["meta"]) {
+                0 if bedrock["nbt"]["Type"]["int"] == 1 => 15,
+                m => m,
+            };
+            assert_eq!(u64::from(t.meta()), meta, "{t:?}");
+            assert_eq!(t.kind().map(Kind::name), d["kind"].as_str(), "{t:?}");
+            assert_eq!(u64::from(t.max_stack_size()), int(&d["max_stack"]), "{t:?}");
+            let durability = t.max_durability().map(u64::from);
+            assert_eq!(durability, d["max_durability"].as_u64(), "{t:?}");
+            assert_eq!(Some(t.is_fire_proof()), d["fire_proof"].as_bool(), "{t:?}");
+            assert_eq!(u64::from(t.attack_points()), int(&d["attack_points"]));
+            assert_eq!(u64::from(t.defense_points()), int(&d["defense_points"]));
+            let tool = &d["tool"];
+            assert_eq!(u64::from(t.block_tool_type().bits()), int(&tool["type"]));
+            let level = u64::from(t.block_tool_harvest_level());
+            assert_eq!(level, int(&tool["harvest_level"]), "{t:?}");
+            assert_eq!(Some(t.mining_efficiency()), tool["efficiency"].as_f64());
+            let tier = t.tool_tier().map(|x| format!("{x:?}").to_lowercase());
+            assert_eq!(tier.as_deref(), tool["tier"].as_str(), "{t:?}");
+            match (t.armor(), &d["armor"]) {
+                (None, Json::Null) => {}
+                (Some(a), want) => {
+                    let slot = match a.slot() {
+                        ArmorSlot::Head => 0,
+                        ArmorSlot::Chest => 1,
+                        ArmorSlot::Legs => 2,
+                        ArmorSlot::Feet => 3,
+                    };
+                    assert_eq!(slot, int(&want["slot"]), "{t:?}");
+                    assert_eq!(u64::from(a.toughness()), int(&want["toughness"]), "{t:?}");
+                }
+                (None, want) => panic!("{t:?} has no armour, PMMP {want}"),
+            }
+        }
+    }
+
+    /// Every item type has the food, consumable and fuel data of its PMMP dump entry.
+    // pmmp: FoodSource::getFoodRestore, FoodSource::getSaturationRestore, FoodSource::requiresHunger,
+    // pmmp: ConsumableItem::getResidue, Consumable::getAdditionalEffects, Item::getFuelTime,
+    // pmmp: Item::getFuelResidue
+    #[test]
+    fn every_type_has_its_pmmp_food_and_fuel_data() {
+        let tables = dump_tables();
+        for (t, entry) in all().zip(&item_dump()) {
+            let d = &entry["data"];
+            match (t.food(), &d["food"]) {
+                (None, Json::Null) => {}
+                (Some(f), want) => {
+                    assert_eq!(u64::from(f.food_restore()), int(&want["food"]), "{t:?}");
+                    assert_eq!(Some(f.saturation_restore()), want["saturation"].as_f64());
+                    assert_eq!(Some(f.requires_hunger()), want["requires_hunger"].as_bool());
+                }
+                (None, want) => panic!("{t:?} is no food, PMMP {want}"),
+            }
+            match (t.consumable(), &d["consumable"]) {
+                (None, Json::Null) => {}
+                (Some(c), want) => {
+                    assert_eq!(c.residue(), dumped_type(&want["residue"]), "{t:?}");
+                    match (c.effects(), &want["effects"]) {
+                        (None, Json::String(random)) => assert_eq!(random, "random"),
+                        (Some(effects), Json::Array(wanted)) => {
+                            assert_eq!(effects.len(), wanted.len(), "{t:?}");
+                            for (e, w) in effects.iter().zip(wanted) {
+                                let at = table_index(&tables, "effects", &w["effect"]);
+                                assert_eq!(e.effect(), effect::Type::all()[at], "{t:?}");
+                                assert_eq!(u64::from(e.duration()), int(&w["duration"]));
+                                assert_eq!(u64::from(e.amplifier()), int(&w["amplifier"]));
+                            }
+                        }
+                        (got, want) => panic!("{t:?} effects {got:?}, PMMP {want}"),
+                    }
+                }
+                (None, want) => panic!("{t:?} is not consumable, PMMP {want}"),
+            }
+            let fuel = &d["fuel"];
+            assert_eq!(u64::from(t.fuel_time()), int(&fuel["time"]), "{t:?}");
+            assert_eq!(t.fuel_residue(), dumped_type(&fuel["residue"]), "{t:?}");
+        }
+    }
+
+    /// Every item type has the enchanting, cooldown, throwing, potion and placing data of its
+    /// PMMP dump entry.
+    // pmmp: Item::getEnchantability, AvailableEnchantmentRegistry::getPrimaryEnchantmentsForItem,
+    // pmmp: AvailableEnchantmentRegistry::getAllEnchantmentsForItem, Item::getCooldownTicks,
+    // pmmp: Item::getCooldownTag, ProjectileItem::getThrowForce, Potion::getType, Item::getBlock
+    #[test]
+    fn every_type_has_its_pmmp_use_data() {
+        let tables = dump_tables();
+        for (t, entry) in all().zip(&item_dump()) {
+            let d = &entry["data"];
+            assert_eq!(u64::from(t.enchantability()), int(&d["enchantability"]));
+            for (set, key) in [
+                (t.primary_enchantments(), "primary"),
+                (t.enchantments(), "all"),
+            ] {
+                let wanted: BTreeSet<usize> = d["enchantments"][key]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|n| table_index(&tables, "enchantments", n))
+                    .collect();
+                for (i, e) in Enchantment::all().iter().enumerate() {
+                    assert_eq!(set.contains(*e), wanted.contains(&i), "{t:?} {key} {e:?}");
+                }
+            }
+            match (t.cooldown(), &d["cooldown"]) {
+                (None, Json::Null) => {}
+                (Some(c), want) => {
+                    assert_eq!(u64::from(c.ticks()), int(&want["ticks"]), "{t:?}");
+                    assert_eq!(c.tag(), want["tag"].as_str(), "{t:?}");
+                }
+                (None, want) => panic!("{t:?} has no cooldown, PMMP {want}"),
+            }
+            assert_eq!(t.throw_force(), d["throw_force"].as_f64(), "{t:?}");
+            let potion = &d["potion"];
+            let want = (!potion.is_null()).then(|| table_index(&tables, "potions", potion));
+            assert_eq!(t.potion(), want.map(|i| effect::Potion::all()[i]), "{t:?}");
+            let places = |face| t.placed_block(Some(face)).map(block::State::name);
+            let floor = d["places"]["name"].as_str();
+            assert_eq!(places(block::Face::Up), floor, "{t:?}");
+            if let Some(wall) = d["places_on_wall"]["name"].as_str() {
+                assert_eq!(places(block::Face::North), Some(wall), "{t:?}");
+            }
+        }
+    }
+
+    /// Dye items have PMMP `DyeColorIdMap` IDs (white 0 … black 15) and PMMP's RGB values.
+    // pmmp: Dye::getColor
+    #[test]
+    fn dyes_have_pmmp_colour_ids() {
+        assert_eq!(dye_colour(by_name("minecraft:white_dye")), Some(0));
+        assert_eq!(dye_colour(by_name("minecraft:red_dye")), Some(14));
+        assert_eq!(dye_colour(by_name("minecraft:black_dye")), Some(15));
+        assert_eq!(dye_colour(by_name("minecraft:stick")), None);
+        // PMMP `DyeColor::RED`: (176, 46, 38).
+        assert_eq!(dye_argb(14), Some(0xffb0_2e26));
+        assert_eq!(dye_argb(16), None);
     }
 
     /// splitmix64: a fixed-seed generator for the unknown input tests.

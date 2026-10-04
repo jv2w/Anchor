@@ -25,7 +25,7 @@ use crate::crafting::{self, Recipe};
 use crate::event::Listeners;
 use crate::item::{Kind as ItemKind, Stack, Type};
 use crate::math::Vec3;
-use crate::nbt::{Compound, List, Value};
+use crate::nbt::{List, Value};
 use crate::protocol::consts::{
     ContainerId as C, InputFlag, PlayerAction as Action, UseItemAction, UseItemOnEntityAction,
 };
@@ -220,16 +220,21 @@ impl Scenario {
     }
 
     /// Gives the player `stack` through the task API.
-    fn give(&mut self, stack: Stack) {
+    fn give(&mut self, stack: &Stack) {
         let mut ctx = self.task();
         let player = ctx.player_exact("player1").unwrap();
-        assert!(ctx.give(player, stack).is_empty());
+        let left = ctx
+            .player_mut(player)
+            .unwrap()
+            .inventory_mut(crate::inventory::Kind::Main)
+            .add(stack);
+        assert!(left.is_empty());
     }
 
     /// Sets a block through the task API.
     fn set(&mut self, pos: BlockPos, kind: BlockKind) {
         self.task()
-            .world_mut()
+            .default_world_mut()
             .set_block(pos, kind.default_state())
             .unwrap();
     }
@@ -664,8 +669,8 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     let window = s.open(TABLE);
     s.craft("furnace", 3);
     s.close(window);
-    s.give(Stack::new(item(ItemKind::Coal), 1));
-    s.give(Stack::new(item(ItemKind::RawIron), 2));
+    s.give(&Stack::new(item(ItemKind::Coal), 1));
+    s.give(&Stack::new(item(ItemKind::RawIron), 2));
     s.hold(block_item(BlockKind::Furnace));
     s.click(FURNACE.offset(0, -1, 0).unwrap(), FACE_UP);
     assert!(s.block(FURNACE).is(block::Class::Furnace));
@@ -707,8 +712,8 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     );
 
     // 6. The grass tilled with the hoe, seeds planted, bone meal until ripe, the wheat harvested.
-    s.give(Stack::new(item(ItemKind::WheatSeeds), 1));
-    s.give(Stack::new(item(ItemKind::BoneMeal), 8));
+    s.give(&Stack::new(item(ItemKind::WheatSeeds), 1));
+    s.give(&Stack::new(item(ItemKind::BoneMeal), 8));
     let hoe = item(ItemKind::WoodenHoe);
     s.hold(hoe);
     s.click(SOIL, FACE_UP);
@@ -745,11 +750,11 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
 
     // 7. The pickaxe enchanted at an enchanting table with lapis and levels.
     s.set(ENCHANTING, BlockKind::EnchantingTable);
-    s.give(Stack::new(item(ItemKind::LapisLazuli), 3));
+    s.give(&Stack::new(item(ItemKind::LapisLazuli), 3));
     {
         let mut ctx = s.task();
         let player = ctx.player_exact("player1").unwrap();
-        ctx.add_experience(player, 300);
+        ctx.player_mut(player).unwrap().add_xp(300);
     }
     let levels = survival::xp_level(s.player());
     let window = s.open(ENCHANTING);
@@ -814,19 +819,17 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
     s.expect("enchanting", &enchanted_stage);
 
     // 8. A trade with a villager NPC: two emeralds for bread.
-    s.give(Stack::new(item(ItemKind::Emerald), 4));
-    let offer = Compound::from([
-        (
-            "buyA".to_owned(),
-            Value::Compound(Stack::new(item(ItemKind::Emerald), 2).to_nbt()),
-        ),
-        (
-            "sell".to_owned(),
-            Value::Compound(Stack::new(item(ItemKind::Bread), 3).to_nbt()),
-        ),
-        ("maxUses".to_owned(), Value::Int(4)),
-    ]);
-    assert!(s.task().spawn_villager(VILLAGER, 1, &[offer]).is_some());
+    s.give(&Stack::new(item(ItemKind::Emerald), 4));
+    let offer = crate::custom::Offer::new(
+        Stack::new(item(ItemKind::Emerald), 2),
+        Stack::new(item(ItemKind::Bread), 3),
+        4,
+    );
+    assert!(
+        s.task()
+            .spawn_villager(crate::world::Id::DEFAULT, VILLAGER, 1, &[offer])
+            .is_ok()
+    );
     s.idle(3);
     let villager = s
         .take()

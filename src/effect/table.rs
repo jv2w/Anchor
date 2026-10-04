@@ -4,6 +4,7 @@
 use super::{Data, Instance, PotionData};
 
 /// A status effect type (PMMP `VanillaEffects`).
+#[doc(alias = "Effect", alias = "VanillaEffects")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Type {
     /// `absorption`.

@@ -5,7 +5,9 @@
 use super::attributes::{ABSORPTION, HEALTH, MOVEMENT};
 use super::damage::{self, Damage};
 use super::{Survival, food};
-use crate::effect::{self, Instance, Type};
+use crate::effect::{self, Instance, MAX_DURATION, Type};
+use crate::event::{Actor, EntityEffectAdd, EntityEffectRemove, ExhaustCause, RegainReason};
+use crate::player::Id;
 use crate::protocol::consts::MobEffectOperation;
 use crate::protocol::packet::{MobEffect, Packet};
 use crate::tick::{Phase, Player, SessionId, State};
@@ -25,18 +27,15 @@ pub(super) struct Active {
     pub(super) infinite: bool,
 }
 
-/// The longest finite duration (PMMP `Limits::INT32_MAX`).
-pub(super) const MAX_DURATION: u32 = i32::MAX.cast_unsigned();
-
 impl Active {
-    /// The effect a potion or food gives.
+    /// The effect a potion, food or the API gives.
     pub(super) fn of(instance: Instance) -> Self {
         Self {
             duration: instance.duration().min(MAX_DURATION),
             amplifier: instance.amplifier(),
             visible: instance.is_visible(),
             ambient: instance.is_ambient(),
-            infinite: false,
+            infinite: instance.is_infinite(),
         }
     }
 
@@ -54,6 +53,18 @@ impl Active {
     /// The level: amplifier + 1 (PMMP `getEffectLevel`).
     pub(super) fn level(self) -> u32 {
         u32::from(self.amplifier) + 1
+    }
+
+    /// The public form of the effect of type `effect`.
+    pub(super) fn instance(self, effect: Type) -> Instance {
+        Instance::new(
+            effect,
+            self.duration,
+            self.amplifier,
+            self.visible,
+            self.ambient,
+        )
+        .with_infinite(self.infinite)
     }
 
     #[cfg(test)]
@@ -83,22 +94,50 @@ pub(super) fn interval(effect: Type, amplifier: u8) -> u32 {
     }
 }
 
-/// Whether `new` may replace `old` (PMMP `EffectCollection::canAdd`): not a weaker one, nor an
-/// equal one that ends sooner.
-fn can_replace(old: Active, new: Active) -> bool {
-    !(new.amplifier < old.amplifier
-        || (new.amplifier == old.amplifier && new.duration < old.duration))
+/// Whether `new` may replace `old`, both of type `effect` ([`Instance::can_replace`]).
+fn can_replace(effect: Type, old: Active, new: Active) -> bool {
+    new.instance(effect).can_replace(old.instance(effect))
 }
 
 /// Adds an effect to the player (PMMP `EffectManager::add`): false if a stronger or longer one is
-/// active. A replaced effect is removed first, so its changes (health boost, speed) undo.
+/// active or an [`EntityEffectAdd`] listener cancels it. A replaced effect is removed first, so
+/// its changes (health boost, speed) undo.
 pub(super) fn add(state: &mut State, session: SessionId, effect: Type, new: Active) -> bool {
-    let Some(player) = state.players.get_mut(&session) else {
+    let addable = |state: &State| {
+        state.players.get(&session).map(|p| {
+            let old = p.survival.effects.get(&effect).copied();
+            (old.is_none_or(|old| can_replace(effect, old, new)), old)
+        })
+    };
+    let Some((true, old)) = addable(state) else {
         return false;
     };
+    let Ok(event) = super::ask(
+        state,
+        || EntityEffectAdd {
+            entity: Actor::Player(Id::new(session)),
+            effect: new.instance(effect),
+            old_effect: old.map(|o| o.instance(effect)),
+            cancelled: false,
+        },
+        EntityEffectAdd::is_cancelled,
+        |state, _| matches!(addable(state), Some((true, _))),
+    ) else {
+        return false;
+    };
+    let added = state
+        .players
+        .get_mut(&session)
+        .is_some_and(|player| add_to(player, effect, new));
+    super::watch(state, event.as_ref());
+    added
+}
+
+/// [`add`] on a player at hand.
+pub(super) fn add_to(player: &mut Player, effect: Type, new: Active) -> bool {
     let s = &mut player.survival;
     let old = s.effects.get(&effect).copied();
-    if old.is_some_and(|old| !can_replace(old, new)) {
+    if old.is_some_and(|old| !can_replace(effect, old, new)) {
         return false;
     }
     if let Some(old) = old {
@@ -115,25 +154,53 @@ pub(super) fn add(state: &mut State, session: SessionId, effect: Type, new: Acti
     };
     if player.phase == Phase::Spawned {
         let packet = packet(player, effect, Some(new), operation);
-        player.send(packet);
+        player.send_packet(packet);
     }
     true
 }
 
-/// Removes an effect, undoing what it changed.
+/// Removes an effect, undoing what it changed, unless an [`EntityEffectRemove`] listener keeps
+/// it (one that ran out cannot stay).
 pub(super) fn remove(state: &mut State, session: SessionId, effect: Type) {
-    let Some(player) = state.players.get_mut(&session) else {
+    let active = |state: &State| {
+        state
+            .players
+            .get(&session)
+            .and_then(|p| p.survival.effects.get(&effect).copied())
+    };
+    let Some(old) = active(state) else {
         return;
     };
-    let Some(old) = player.survival.effects.remove(&effect) else {
+    let Ok(event) = super::ask(
+        state,
+        || EntityEffectRemove {
+            entity: Actor::Player(Id::new(session)),
+            effect: old.instance(effect),
+            cancelled: false,
+        },
+        EntityEffectRemove::is_cancelled,
+        |state, _| active(state).is_some(),
+    ) else {
         return;
+    };
+    if let Some(player) = state.players.get_mut(&session) {
+        remove_from(player, effect);
+    }
+    super::watch(state, event.as_ref());
+}
+
+/// [`remove`] on a player at hand; false if the effect was not active.
+pub(super) fn remove_from(player: &mut Player, effect: Type) -> bool {
+    let Some(old) = player.survival.effects.remove(&effect) else {
+        return false;
     };
     on_remove(&mut player.survival, effect, old);
     player.data_dirty = true;
     if player.phase == Phase::Spawned {
         let packet = packet(player, effect, None, MobEffectOperation::Remove);
-        player.send(packet);
+        player.send_packet(packet);
     }
+    true
 }
 
 /// Removes every effect (milk, respawn, a totem).
@@ -274,8 +341,13 @@ fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
         Type::Wither => {
             damage::damage(state, session, 1.0, Damage::Magic);
         }
-        Type::Regeneration => damage::heal(state, session, 1.0),
-        Type::InstantHealth => damage::heal(state, session, 4.0 * doubled(active.amplifier)),
+        Type::Regeneration => damage::heal(state, session, 1.0, RegainReason::Regen),
+        Type::InstantHealth => damage::heal(
+            state,
+            session,
+            4.0 * doubled(active.amplifier),
+            RegainReason::Magic,
+        ),
         Type::InstantDamage => {
             damage::damage(
                 state,
@@ -285,9 +357,8 @@ fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
             );
         }
         Type::Hunger => {
-            if let Some(player) = state.players.get_mut(&session) {
-                food::exhaust(&mut player.survival, 0.1 * f64::from(active.level()));
-            }
+            let amount = 0.1 * f64::from(active.level());
+            food::exhaust_as(state, session, amount, ExhaustCause::Potion);
         }
         Type::Saturation => {
             if let Some(player) = state.players.get_mut(&session) {
@@ -356,10 +427,26 @@ mod tests {
     #[test]
     fn weaker_or_shorter_effects_do_not_replace() {
         let old = Active::new(100, 1);
-        assert!(!can_replace(old, Active::new(500, 0)));
-        assert!(!can_replace(old, Active::new(99, 1)));
-        assert!(can_replace(old, Active::new(100, 1)));
-        assert!(can_replace(old, Active::new(1, 2)));
+        let speed = Type::Speed;
+        assert!(!can_replace(speed, old, Active::new(500, 0)));
+        assert!(!can_replace(speed, old, Active::new(99, 1)));
+        assert!(can_replace(speed, old, Active::new(100, 1)));
+        assert!(can_replace(speed, old, Active::new(1, 2)));
+    }
+
+    #[test]
+    fn an_instance_keeps_its_flags_through_an_active_effect() {
+        let given = Type::Speed
+            .instance()
+            .with_duration(40)
+            .with_amplifier(2)
+            .with_visible(false)
+            .with_ambient(true)
+            .with_infinite(true);
+        let active = Active::of(given);
+        assert!(active.infinite);
+        assert_eq!(active.instance(Type::Speed), given);
+        assert!(!Active::of(given.with_infinite(false)).infinite);
     }
 
     #[test]

@@ -11,18 +11,22 @@
 //! health and damage apply. Drowning is not counted (no air supply).
 //!
 //! Melee hits on items, orbs, projectiles and clouds do nothing (PMMP kicks the player for items
-//! and arrows; a hit packet is not worth a kick). A hit on an NPC counts what the survival rules
-//! count for a hit on a player: the attacker's Strength and Weakness, Sharpness and a critical
-//! hit.
+//! and arrows; a hit packet is not worth a kick). A hit on an NPC, a painting or an end crystal
+//! counts what the survival rules count for a hit on a player: the attacker's Strength and
+//! Weakness, Sharpness and a critical hit (a painting breaks, an end crystal explodes; the hit
+//! animations, knockback and Fire Aspect are for NPCs, PMMP `Living`).
 
 use super::super::{Phase, SessionId, survival, update};
-use super::kind::{Character, Form, Kind};
+use std::sync::Arc;
+
+use super::kind::{Character, Form, Kind, MAX_NAME_TAG_BYTES};
 use super::{
-    Cause, Hooks, Hurt, Knock, Npc, PLAYER_EYE_HEIGHT, State, create, hurt, level_of, send_to,
-    with, worn,
+    Blow, Cause, Hooks, Hurt, Knock, Npc, PLAYER_EYE_HEIGHT, State, combust, create, hurt,
+    level_of, player_actor, push_entity, send_to, with, worn,
 };
 use crate::config::GameMode;
 use crate::entity::Id;
+use crate::event::{CombustSource, DamageSource};
 use crate::item::{Class, Enchantment};
 use crate::math::Vec3;
 use crate::protocol::Uuid;
@@ -38,8 +42,6 @@ pub(super) const ATTACK_COOLDOWN: u8 = 10;
 const REACH: f64 = 8.0;
 /// How far behind the look direction a target may be (PMMP `canInteract`: √3 / 2).
 const REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
-/// The longest human NPC name, in bytes.
-pub(super) const MAX_NAME_BYTES: usize = 256;
 /// The eye heights of a villager (PMMP `EntitySizeInfo`: half the height plus 0.1) and a human.
 const VILLAGER_EYE: f64 = 1.05;
 const HUMAN_EYE: f64 = 1.62;
@@ -49,18 +51,21 @@ const SAFE_FALL: f64 = 3.0;
 const WEAR_RANDOM: u64 = random::tag("npc-attack-wear");
 
 /// Spawns `npc` at `pos`; `None` at the entity limit, in an unloaded chunk, or for a name longer
-/// than [`MAX_NAME_BYTES`]. The NPC is invulnerable (see the module documentation).
+/// than [`MAX_NAME_TAG_BYTES`]. The NPC is invulnerable (see the module documentation).
 pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -> Option<Id> {
-    let form = match npc {
-        Npc::Villager { profession, offers } => Form::Villager { profession, offers },
-        Npc::Human { name } => {
-            if name.len() > MAX_NAME_BYTES {
+    let (form, name) = match npc {
+        Npc::Villager { profession, offers } => {
+            (Form::Villager { profession, offers }, String::new())
+        }
+        Npc::Human { name, skin } => {
+            if name.len() > MAX_NAME_TAG_BYTES {
                 return None;
             }
-            Form::Human {
-                name,
+            let form = Form::Human {
                 uuid: Uuid::from_bytes([0; 16]),
-            }
+                skin: skin.map(Arc::new),
+            };
+            (form, name)
         }
     };
     let kind = Kind::Npc(Character {
@@ -70,7 +75,9 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
         last_damage: 0.0,
         dead_ticks: None,
     });
-    create(state, world, pos, kind, |_| (Vec3::ZERO, 0.0, 0.0))
+    let id = create(state, world, pos, kind, |_| (Vec3::ZERO, 0.0, 0.0))?;
+    with(state, id, |e| e.name_tag = name);
+    Some(id)
 }
 
 /// The eye height of a kind (NPCs; 0 for others).
@@ -91,7 +98,12 @@ pub(super) fn eye_height(kind: &Kind) -> f64 {
 /// The player `session` if it can act on the entity `target`: spawned, alive, not a spectator,
 /// in the same world and within reach of its eyes and look (PMMP `Player::canInteract`). Gives
 /// the player's eye position and the entity's position.
-fn reaches(state: &State, session: SessionId, target: Id, hooks: Hooks) -> Option<(Vec3, Vec3)> {
+pub(super) fn reaches(
+    state: &State,
+    session: SessionId,
+    target: Id,
+    hooks: Hooks,
+) -> Option<(Vec3, Vec3)> {
     let player = state.players.get(&session)?;
     let e = state.rules.entities.get(target).filter(|e| !e.flagged)?;
     if player.phase != Phase::Spawned
@@ -111,7 +123,8 @@ fn reaches(state: &State, session: SessionId, target: Id, hooks: Hooks) -> Optio
 }
 
 /// `session` interacts with the entity `target` (PMMP `Player::interactEntity`): a villager NPC
-/// within reach opens trading with `open` (`trade::open`). False if nothing happened.
+/// within reach opens trading with `open` (`trade::open`), a live custom entity calls its
+/// behaviour. False if nothing happened.
 pub(super) fn interact_with(
     state: &mut State,
     session: SessionId,
@@ -121,6 +134,14 @@ pub(super) fn interact_with(
 ) -> bool {
     if reaches(state, session, target, hooks).is_none() {
         return false;
+    }
+    if state
+        .rules
+        .entities
+        .get(target)
+        .is_some_and(|e| e.kind.custom().is_some())
+    {
+        return super::custom::interact(state, session, target);
     }
     let villager = state.rules.entities.get(target).is_some_and(|e| {
         matches!(
@@ -143,17 +164,12 @@ pub(super) fn interact_with(
 /// enchanted hit on the NPC.
 pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hooks: Hooks) {
     let Some(npc) = state.rules.entities.get(target).filter(|e| {
-        e.kind.is_living()
-            && !matches!(
-                e.kind,
-                Kind::Npc(Character {
-                    dead_ticks: Some(_),
-                    ..
-                })
-            )
+        let object = matches!(e.kind, Kind::Painting(_) | Kind::EndCrystal(_)) && e.is_alive();
+        object || e.kind.is_living()
     }) else {
         return;
     };
+    let living = npc.kind.is_living();
     let middle = npc.body.position + Vec3::new(0.0, npc.kind.physics().height / 2.0, 0.0);
     let (npc_runtime_id, viewers) = (npc.runtime_id, npc.viewers.clone());
     let Some(melee) = survival::melee(state, session) else {
@@ -164,7 +180,13 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
         Some((eye, at)) => {
             let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
             let knock = Knock::new(at.x - feet.x, at.z - feet.z);
-            hurt(state, target, Cause::Attack, melee.damage, Some(knock))
+            let by = DamageSource::Entity(player_actor(session));
+            hurt(
+                state,
+                target,
+                Blow::of(Cause::Attack, melee.damage).by(by),
+                Some(knock),
+            )
         }
         None => Hurt::Ignored,
     };
@@ -179,9 +201,14 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
     let Some((eye, at)) = reached.filter(|_| landed) else {
         return;
     };
+    let (melee_critical, melee_magic) = if living {
+        (melee.critical, melee.magic)
+    } else {
+        (false, false)
+    };
     for (on, action) in [
-        (melee.critical, AnimateAction::CriticalHit),
-        (melee.magic, AnimateAction::MagicCriticalHit),
+        (melee_critical, AnimateAction::CriticalHit),
+        (melee_magic, AnimateAction::MagicCriticalHit),
     ] {
         if on {
             let packet = Packet::Animate(Animate {
@@ -203,23 +230,8 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
     let held = player.inventory.held().clone();
     let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
     let (dx, dz) = (at.x - feet.x, at.z - feet.z);
-    let knockback = level_of(&held, Enchantment::Knockback);
-    if knockback > 0 {
-        let knock = Knock {
-            force: f64::from(knockback) * 0.5,
-            ..Knock::new(dx, dz)
-        };
-        with(state, target, |e| {
-            if let Some(m) = knock.applied_to(e.body.motion) {
-                e.body.motion = super::physics::bounded(m);
-            }
-        });
-    }
-    let fire = level_of(&held, Enchantment::FireAspect);
-    if fire > 0 {
-        with(state, target, |e| {
-            e.set_on_fire(i16::from(fire).saturating_mul(4));
-        });
+    if living {
+        enchanted_hit(state, session, target, &held, (dx, dz));
     }
     let wear = held.item().map_or(0, |t| {
         if t.is(Class::Sword) || t.is(Class::Hoe) || t.is(Class::Trident) {
@@ -244,6 +256,37 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
     }
 }
 
+/// The Knockback and Fire Aspect of the weapon `held` on a hit that landed along `(dx, dz)`.
+fn enchanted_hit(
+    state: &mut State,
+    session: SessionId,
+    target: Id,
+    held: &crate::item::Stack,
+    (dx, dz): (f64, f64),
+) {
+    let knockback = level_of(held, Enchantment::Knockback);
+    if knockback > 0 {
+        let knock = Knock {
+            force: f64::from(knockback) * 0.5,
+            ..Knock::new(dx, dz)
+        };
+        let motion = state
+            .rules
+            .entities
+            .get(target)
+            .filter(|e| !e.flagged)
+            .and_then(|e| knock.applied_to(e.body.motion));
+        if let Some(m) = motion {
+            push_entity(state, target, m);
+        }
+    }
+    let fire = level_of(held, Enchantment::FireAspect);
+    if fire > 0 {
+        let by = CombustSource::Entity(player_actor(session));
+        combust(state, target, i16::from(fire).saturating_mul(4), by);
+    }
+}
+
 /// An NPC's own tick (PMMP `Living::entityBaseTick`): suffocation inside a solid block, then the
 /// hit cooldown counts down.
 pub(super) fn tick(state: &mut State, id: Id, _hooks: Hooks) {
@@ -252,11 +295,7 @@ pub(super) fn tick(state: &mut State, id: Id, _hooks: Hooks) {
     };
     let eye = e.body.position + Vec3::new(0.0, eye_height(&e.kind), 0.0);
     let bounds = e.bounding_box();
-    let cell = BlockPos::new(
-        super::physics_block(eye.x),
-        super::physics_block(eye.y),
-        super::physics_block(eye.z),
-    );
+    let cell = BlockPos::containing(eye);
     let inside = state
         .worlds
         .get(e.world)
@@ -270,7 +309,7 @@ pub(super) fn tick(state: &mut State, id: Id, _hooks: Hooks) {
                     .any(|b| b.offset(at).intersects(bounds))
         });
     if inside {
-        hurt(state, id, Cause::Suffocation, 1.0, None);
+        hurt(state, id, Blow::of(Cause::Suffocation, 1.0), None);
     }
     with(state, id, |e| {
         if let Kind::Npc(c) = &mut e.kind
@@ -288,11 +327,7 @@ pub(super) fn landed(state: &mut State, id: Id, fall: f64) {
         return;
     };
     let (world, p) = (e.world, e.body.position);
-    let mut pos = BlockPos::new(
-        super::physics_block(p.x),
-        super::physics_block(p.y),
-        super::physics_block(p.z),
-    );
+    let mut pos = BlockPos::containing(p);
     let empty = state
         .worlds
         .get(world)
@@ -301,10 +336,10 @@ pub(super) fn landed(state: &mut State, id: Id, fall: f64) {
     if empty {
         pos = BlockPos::new(pos.x, pos.y.saturating_sub(1), pos.z);
     }
-    update::trample(state, world, pos, fall);
+    update::trample(state, world, pos, fall, crate::event::Actor::Entity(id));
     let damage = (fall - SAFE_FALL).ceil();
     if damage > 0.0 {
-        hurt(state, id, Cause::Fall, damage, None);
+        hurt(state, id, Blow::of(Cause::Fall, damage), None);
     }
 }
 
@@ -361,14 +396,17 @@ mod tests {
                 ("uses".to_owned(), Value::Int(0)),
             ])
         };
-        Offers::from_nbt(&crate::nbt::Compound::from([(
-            "Recipes".to_owned(),
-            Value::List(crate::nbt::List::Compound(vec![
-                offer(1),
-                offer(2),
-                offer(3),
-            ])),
-        )]))
+        Offers::from_nbt(
+            &crate::nbt::Compound::from([(
+                "Recipes".to_owned(),
+                Value::List(crate::nbt::List::Compound(vec![
+                    offer(1),
+                    offer(2),
+                    offer(3),
+                ])),
+            )]),
+            &crate::custom::Registry::default(),
+        )
     }
 
     fn villager(h: &mut Harness, pos: Vec3) -> Id {
@@ -382,6 +420,7 @@ mod tests {
     fn human(h: &mut Harness, pos: Vec3, name: &str) -> Id {
         let npc = Npc::Human {
             name: name.to_owned(),
+            skin: None,
         };
         spawn(&mut h.state, 0, pos, npc).unwrap()
     }
@@ -418,7 +457,10 @@ mod tests {
         let all = h.state.rules.entities.unload(key).expect("changed");
         let first = ours(&all);
         assert_eq!(first.len(), 2);
-        h.state.rules.entities.load(key, &all);
+        h.state
+            .rules
+            .entities
+            .load(key, &all, &crate::custom::Registry::default());
         h.state.rules.entities.changed.insert(key);
         let again = h.state.rules.entities.take_changed();
         let second = ours(&again[0].1);
@@ -440,6 +482,7 @@ mod tests {
         );
     }
 
+    // pmmp: Player::interactEntity
     #[test]
     fn interacting_with_a_villager_in_reach_opens_trading() {
         let mut h = Harness::new(1);
@@ -472,6 +515,7 @@ mod tests {
         assert_eq!(OPENED.with(Cell::get), 1);
     }
 
+    // pmmp: Player::attackEntity
     #[test]
     fn hits_on_npcs_follow_pmmps_living_rules() {
         let mut h = Harness::new(1);

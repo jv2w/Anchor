@@ -272,6 +272,22 @@ fn enchanting(
     (w, s, options)
 }
 
+// pmmp: EnchantInventory::getInput, EnchantInventory::getLapis
+#[test]
+fn the_window_slots_read_the_enchanting_input_and_lapis() {
+    let (w, s, _) = enchanting(3);
+    let player = &w.state.players[&s];
+    assert_eq!(
+        player.window_item(0),
+        Some(&Stack::new(item(Kind::IronPickaxe), 1))
+    );
+    assert_eq!(
+        player.window_item(1),
+        Some(&Stack::new(item(Kind::LapisLazuli), 3))
+    );
+    assert_eq!(player.window_item(2), None);
+}
+
 #[test]
 fn enchanting_options_have_the_bds_shape() {
     let (_, _, options) = enchanting(3);
@@ -522,7 +538,7 @@ fn smithing_upgrades_keeping_enchantments_and_trims_armour() {
     put(&mut w, s, 0, 1, (C::SmithingTableInput, 51));
     put(&mut w, s, 1, 1, (C::SmithingTableMaterial, 52));
     put(&mut w, s, 2, 1, (C::SmithingTableTemplate, 53));
-    let recipes: Vec<(u32, Recipe)> = (1..)
+    let recipes: Vec<(u32, Recipe<'static>)> = (1..)
         .map_while(|id| crate::crafting::recipe(id).map(|r| (id, r)))
         .collect();
     let upgrade = recipes
@@ -818,7 +834,7 @@ fn block_entities_survive_chunk_unload_and_reload_unchanged() {
     w.state
         .rules
         .block_entities
-        .load(key, &list, &w.state.worlds[0]);
+        .load(key, &list, &w.state.worlds[0], &w.state.custom);
     for (p, e) in before {
         assert_eq!(w.state.rules.block_entities.get(0, p).cloned(), e);
     }

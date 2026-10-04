@@ -185,7 +185,7 @@ impl Client {
         villagers: &BTreeSet<u64>,
     ) -> Vec<Packet> {
         let feet = player.position - Vec3::new(0.0, EYE, 0.0);
-        let at = block_at(feet);
+        let at = BlockPos::containing(feet);
         match rng.below(18) {
             0..=2 => {
                 let request = self.stack_request(rng);
@@ -677,16 +677,6 @@ pub(super) fn planks_recipe() -> (u32, u8) {
             })
             .expect("a planks recipe")
     })
-}
-
-/// The block an entity position is in.
-fn block_at(v: Vec3) -> BlockPos {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "invariant: player positions are finite and inside the world border"
-    )]
-    let c = |x: f64| x.floor() as i32;
-    BlockPos::new(c(v.x), c(v.y), c(v.z))
 }
 
 /// A random face, sometimes one that does not exist.

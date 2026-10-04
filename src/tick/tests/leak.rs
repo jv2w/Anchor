@@ -219,10 +219,13 @@ fn offers() -> trade::Offers {
         ("sell".to_owned(), Value::Compound(bread.to_nbt())),
         ("maxUses".to_owned(), Value::Int(12)),
     ]);
-    trade::Offers::from_nbt(&Compound::from([(
-        "Recipes".to_owned(),
-        Value::List(List::Compound(vec![offer])),
-    )]))
+    trade::Offers::from_nbt(
+        &Compound::from([(
+            "Recipes".to_owned(),
+            Value::List(List::Compound(vec![offer])),
+        )]),
+        &crate::custom::Registry::default(),
+    )
 }
 
 /// One cycle of session `n`: join, every window, block entities placed and broken, entities,

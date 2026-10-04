@@ -14683,6 +14683,8 @@ pub(super) static TAG_NAMES: [&str; 76] = [
 ];
 
 /// An enchantment (PMMP `VanillaEnchantments`).
+// pmmp-class: Enchantment
+#[doc(alias = "VanillaEnchantments")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Enchantment {
     /// `aqua_affinity`.
@@ -15389,6 +15391,7 @@ pub(super) static TRAIT_NAMES: [&str; 7] = [
 ];
 
 /// A tool tier (PMMP `ToolTier`), in harvest level order.
+// pmmp-class: ToolTier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ToolTier {
     /// `wood`.

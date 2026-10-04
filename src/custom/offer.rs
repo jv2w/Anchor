@@ -1,0 +1,163 @@
+//! Villager trade offers as typed values (PLAN.md 8.6): what the API takes and gives instead of
+//! offer NBT. The villager keeps them in its entity; [`Context::set_trade_offers`] and the other
+//! trade methods read and change them.
+//!
+//! [`Context::set_trade_offers`]: crate::Context::set_trade_offers
+
+use crate::item::Stack;
+
+/// The price multiplier BDS gives most offers (m7-facts.md 6).
+const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
+
+/// One trade a villager offers: what the player pays (one or two stacks, their counts are the
+/// price) and what one trade gives, with its limits and rewards.
+///
+/// Prices are the stacks' real counts; the price multipliers and the demand are only sent to
+/// the client as they are (Anchor runs no villager economy, CLAUDE.md 1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Offer {
+    pub(crate) buy_a: Stack,
+    pub(crate) buy_b: Stack,
+    pub(crate) any_damage: bool,
+    pub(crate) sell: Stack,
+    pub(crate) max_uses: u32,
+    pub(crate) uses: u32,
+    pub(crate) tier: u8,
+    pub(crate) trader_exp: u32,
+    pub(crate) reward_exp: bool,
+    pub(crate) price_multipliers: (f32, f32),
+    pub(crate) demand: i32,
+}
+
+impl Offer {
+    /// `sell` for `buy` at most `max_uses` times, with BDS's defaults: no second payment, tier
+    /// 0 (novice), no villager experience, reward orbs for the player, price multipliers 0.05,
+    /// demand 0.
+    pub fn new(buy: Stack, sell: Stack, max_uses: u32) -> Self {
+        Self {
+            buy_a: buy,
+            buy_b: Stack::EMPTY,
+            any_damage: false,
+            sell,
+            max_uses,
+            uses: 0,
+            tier: 0,
+            trader_exp: 0,
+            reward_exp: true,
+            price_multipliers: (DEFAULT_PRICE_MULTIPLIER, DEFAULT_PRICE_MULTIPLIER),
+            demand: 0,
+        }
+    }
+
+    /// The same offer with a second payment.
+    #[must_use]
+    pub fn with_second_payment(mut self, buy: Stack) -> Self {
+        self.buy_b = buy;
+        self
+    }
+
+    /// The same offer taking its payments of any damage (worn tools, any meta), as BDS offers
+    /// carry `Damage` 32767.
+    #[must_use]
+    pub fn with_any_damage(mut self) -> Self {
+        self.any_damage = true;
+        self
+    }
+
+    /// The same offer unlocked at villager tier `tier` (0 novice to 4 master).
+    #[must_use]
+    pub fn with_tier(mut self, tier: u8) -> Self {
+        self.tier = tier;
+        self
+    }
+
+    /// The same offer with `uses` trades already made.
+    #[must_use]
+    pub fn with_uses(mut self, uses: u32) -> Self {
+        self.uses = uses;
+        self
+    }
+
+    /// The same offer giving the villager `experience` per trade (towards its next tier).
+    #[must_use]
+    pub fn with_trader_experience(mut self, experience: u32) -> Self {
+        self.trader_exp = experience;
+        self
+    }
+
+    /// The same offer dropping no experience orbs for the player.
+    #[must_use]
+    pub fn without_reward_experience(mut self) -> Self {
+        self.reward_exp = false;
+        self
+    }
+
+    /// The same offer sent with these price multipliers (they do not change the price).
+    #[must_use]
+    pub fn with_price_multipliers(mut self, first: f32, second: f32) -> Self {
+        self.price_multipliers = (first, second);
+        self
+    }
+
+    /// The same offer sent with this demand (it does not change the price).
+    #[must_use]
+    pub fn with_demand(mut self, demand: i32) -> Self {
+        self.demand = demand;
+        self
+    }
+
+    /// The first payment; its count is the price.
+    pub fn buy(&self) -> &Stack {
+        &self.buy_a
+    }
+
+    /// The second payment, or the empty stack.
+    pub fn second_payment(&self) -> &Stack {
+        &self.buy_b
+    }
+
+    /// Whether the payments are taken of any damage.
+    pub fn takes_any_damage(&self) -> bool {
+        self.any_damage
+    }
+
+    /// What one trade gives.
+    pub fn sell(&self) -> &Stack {
+        &self.sell
+    }
+
+    /// The trades the offer allows until its uses are reset.
+    pub fn max_uses(&self) -> u32 {
+        self.max_uses
+    }
+
+    /// The trades made since the last reset.
+    pub fn uses(&self) -> u32 {
+        self.uses
+    }
+
+    /// The villager tier that unlocks the offer.
+    pub fn tier(&self) -> u8 {
+        self.tier
+    }
+
+    /// The villager experience per trade.
+    pub fn trader_experience(&self) -> u32 {
+        self.trader_exp
+    }
+
+    /// Whether each trade drops experience orbs for the player.
+    pub fn rewards_experience(&self) -> bool {
+        self.reward_exp
+    }
+
+    /// The price multipliers sent with the offer.
+    pub fn price_multipliers(&self) -> (f32, f32) {
+        self.price_multipliers
+    }
+
+    /// The demand sent with the offer.
+    pub fn demand(&self) -> i32 {
+        self.demand
+    }
+}

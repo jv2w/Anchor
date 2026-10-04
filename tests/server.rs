@@ -2,12 +2,15 @@
 
 #![cfg(test)]
 
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroU32};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use anchor::command::{Command, Output};
 use anchor::config::Threads;
 use anchor::event::{PlayerDuplicateLogin, Priority};
+use anchor::pack::Pack;
+use anchor::world::{Flat, Kind, Void, World};
 use anchor::{Config, Error, Server, ShutdownHandle};
 
 /// A path in Cargo's test temporary folder, unique to this process and test; not created.
@@ -66,15 +69,20 @@ fn default_settings_build() {
     Server::builder().build().unwrap();
 }
 
+// pmmp: Server, PluginManager::registerEvent, Event, EventPriority
 #[test]
 fn listeners_of_every_priority_build_and_run() {
     let mut seen = 0_u32;
     let server = Server::builder()
         .config(local_config())
         .data_dir(temp_path("listeners"))
-        .on(Priority::Highest, PlayerDuplicateLogin::uncancel)
-        .on(Priority::Lowest, PlayerDuplicateLogin::cancel)
-        .on(Priority::Normal, move |e: &mut PlayerDuplicateLogin| {
+        .on(Priority::Highest, |e: &mut PlayerDuplicateLogin, _| {
+            e.uncancel();
+        })
+        .on(Priority::Lowest, |e: &mut PlayerDuplicateLogin, _| {
+            e.cancel();
+        })
+        .on(Priority::Normal, move |e: &mut PlayerDuplicateLogin, _| {
             seen += 1;
             if e.is_cancelled() && e.existing().xuid().is_none() {
                 e.set_disconnect_screen_message(Some(format!(
@@ -90,12 +98,80 @@ fn listeners_of_every_priority_build_and_run() {
     server.run().unwrap();
 }
 
+// pmmp: EventPriority
 #[test]
 fn priorities_order_from_lowest_to_highest() {
     use Priority::{High, Highest, Low, Lowest, Normal};
     let mut all = [Highest, Normal, Lowest, High, Low];
     all.sort();
     assert_eq!(all, [Lowest, Low, Normal, High, Highest]);
+}
+
+// pmmp: WorldManager::generateWorld
+#[test]
+fn extra_worlds_need_names_of_their_own() {
+    let built = Server::builder()
+        .world("arena", Kind::Temporary, Flat)
+        .world("lobby", Kind::Persistent, Void)
+        .build();
+    assert!(built.is_ok());
+    let twice = Server::builder()
+        .world("arena", Kind::Temporary, Flat)
+        .world("arena", Kind::Persistent, Void)
+        .build();
+    assert!(matches!(twice, Err(Error::DuplicateWorld { name }) if name == "arena"));
+    // The default world is `level-name`.
+    let default = Server::builder()
+        .world(Config::default().general.level_name, Kind::Temporary, Flat)
+        .build();
+    assert!(matches!(default, Err(Error::DuplicateWorld { name }) if name == "world"));
+}
+
+// pmmp: WorldManager::generateWorld
+#[test]
+fn an_extra_world_runs_beside_the_default_one() {
+    let server = Server::builder()
+        .config(local_config())
+        .data_dir(temp_path("worlds"))
+        .world("arena", Kind::Temporary, Flat)
+        .every(NonZeroU32::MIN, |cx| {
+            let names: Vec<&str> = cx.worlds().map(World::name).collect();
+            assert_eq!(names, ["world", "arena"]);
+            let arena = cx.worlds().nth(1).map(World::id).expect("the arena");
+            assert!(cx.world(arena).is_some_and(|w| w.kind() == Kind::Temporary));
+            cx.shutdown();
+        })
+        .build()
+        .unwrap();
+    // A failed check panics the tick thread, and `run` returns the panic.
+    server.run().unwrap();
+}
+
+// pmmp: Command
+#[test]
+fn a_server_builds_with_a_command_of_the_users() {
+    let kit = Command::new("Kit", "Gives a kit")
+        .alias("k")
+        .overload(&[], |_, _, _| Ok(Output::from("given")));
+    assert_eq!((kit.name(), kit.description()), ("kit", "Gives a kit"));
+    assert_eq!(kit.aliases(), ["k"]);
+    Server::builder().command(kit).build().unwrap();
+}
+
+#[test]
+fn pack_errors_convert_for_the_question_mark_in_main() {
+    fn main() -> Result<(), Error> {
+        let _pack = Pack::from_bytes(b"not a zip archive".to_vec())?;
+        Ok(())
+    }
+    let err = main().unwrap_err();
+    assert!(matches!(err, Error::Pack(_)));
+    assert_eq!(err.to_string(), "a resource pack is invalid");
+    let source = std::error::Error::source(&err).expect("the pack error");
+    assert!(
+        source.to_string().starts_with("invalid zip archive"),
+        "{source}"
+    );
 }
 
 #[test]

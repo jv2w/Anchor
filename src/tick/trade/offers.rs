@@ -28,6 +28,7 @@ use std::fmt;
 
 use tracing::warn;
 
+use crate::custom::Registry;
 use crate::item::Stack;
 use crate::nbt::{Compound, List, Value};
 
@@ -116,28 +117,12 @@ pub(in crate::tick) enum Error {
     /// A price multiplier that is NaN or infinite.
     Multiplier,
     /// Tier experience requirements that go down or exceed `TAG_Int`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     TierExperience,
     /// The list would hold more than [`MAX_OFFERS`].
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     Full,
     /// No offer at that index.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     NoOffer,
     /// The entity is not a villager NPC.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     NotVillager,
 }
 
@@ -212,10 +197,6 @@ pub(in crate::tick) struct Recipe {
 impl Recipe {
     /// An offer of `sell` for `buy_a` (and `buy_b`, or empty) at most `max_uses` times, with
     /// BDS's defaults: tier 0, no villager experience, reward orbs, multipliers 0.05, demand 0.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     pub(in crate::tick) fn new(buy_a: Stack, buy_b: Stack, sell: Stack, max_uses: u32) -> Self {
         Self {
             buy_a,
@@ -304,11 +285,13 @@ impl Recipe {
     }
 
     /// The offer a recipe compound holds, or why it cannot be used. The price is `buyCountA`
-    /// (BDS's actual count) when present, otherwise the item's `Count`.
-    fn from_nbt(c: &Compound) -> std::result::Result<Self, &'static str> {
-        let (buy_a, damage_a) = payment(c, BUY_A, BUY_COUNT_A)?.ok_or("no first payment")?;
-        let (buy_b, damage_b) = payment(c, BUY_B, BUY_COUNT_B)?.unwrap_or_default();
-        let sell = item(c, SELL)?.ok_or("nothing sold")?;
+    /// (BDS's actual count) when present, otherwise the item's `Count`. Custom items are read
+    /// through `custom`.
+    fn from_nbt(c: &Compound, custom: &Registry) -> std::result::Result<Self, &'static str> {
+        let (buy_a, damage_a) =
+            payment(c, BUY_A, BUY_COUNT_A, custom)?.ok_or("no first payment")?;
+        let (buy_b, damage_b) = payment(c, BUY_B, BUY_COUNT_B, custom)?.unwrap_or_default();
+        let sell = item(c, SELL, custom)?.ok_or("nothing sold")?;
         let max_uses = counter(c, MAX_USES)?.ok_or("no maximum uses")?;
         let mut unknown = c.clone();
         for key in RECIPE_KEYS {
@@ -441,8 +424,9 @@ impl Default for Offers {
 impl Offers {
     /// The offers of a saved entity (its `Offers` compound). Recipes Anchor cannot use are
     /// skipped with a warning and kept to be written back; a bad tier, experience or tier
-    /// requirement list falls back to its default with a warning.
-    pub(in crate::tick) fn from_nbt(saved: &Compound) -> Self {
+    /// requirement list falls back to its default with a warning. Custom items are read
+    /// through `custom`, the server's custom content.
+    pub(in crate::tick) fn from_nbt(saved: &Compound, custom: &Registry) -> Self {
         let mut offers = Self::default();
         let mut unknown = saved.clone();
         for key in [RECIPES, TIER_EXPERIENCE, TRADE_TIER, TRADE_EXPERIENCE] {
@@ -453,7 +437,7 @@ impl Offers {
             None | Some(Value::List(List::End)) => {}
             Some(Value::List(List::Compound(list))) => {
                 for c in list {
-                    match Recipe::from_nbt(c) {
+                    match Recipe::from_nbt(c, custom) {
                         Ok(r) if offers.recipes.len() < MAX_OFFERS => offers.recipes.push(r),
                         Ok(_) => {
                             warn!(max = MAX_OFFERS, "villager offer past the limit skipped");
@@ -552,10 +536,6 @@ impl Offers {
 
     /// Replaces the whole list. Every offer must pass [`Recipe::check`]; nothing changes
     /// otherwise.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     pub(in crate::tick) fn set(&mut self, recipes: Vec<Recipe>) -> Result<()> {
         if recipes.len() > MAX_OFFERS {
             return Err(Error::Full);
@@ -567,10 +547,6 @@ impl Offers {
     }
 
     /// Adds an offer at the end.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     pub(in crate::tick) fn add(&mut self, recipe: Recipe) -> Result<()> {
         recipe.check()?;
         if self.recipes.len() >= MAX_OFFERS {
@@ -582,10 +558,6 @@ impl Offers {
     }
 
     /// Removes and returns the offer at `index`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     pub(in crate::tick) fn remove(&mut self, index: usize) -> Result<Recipe> {
         if index >= self.recipes.len() {
             return Err(Error::NoOffer);
@@ -595,10 +567,6 @@ impl Offers {
     }
 
     /// Replaces the offer at `index`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     pub(in crate::tick) fn replace(&mut self, index: usize, recipe: Recipe) -> Result<()> {
         recipe.check()?;
         let slot = self.recipes.get_mut(index).ok_or(Error::NoOffer)?;
@@ -609,10 +577,6 @@ impl Offers {
 
     /// Sets the villager's tier; its experience rises to the tier's requirement so progress
     /// continues from there. Offers keep their network IDs.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     pub(in crate::tick) fn set_tier(&mut self, tier: u8) -> Result<()> {
         let need = *self
             .tier_experience
@@ -624,10 +588,6 @@ impl Offers {
     }
 
     /// Sets the experience each tier needs (non-decreasing, at most `i32::MAX`).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     pub(in crate::tick) fn set_tier_experience(&mut self, tiers: [u32; TIERS]) -> Result<()> {
         if tiers.windows(2).any(|w| w.first() > w.get(1)) || tiers.iter().any(|&x| x > MAX_INT) {
             return Err(Error::TierExperience);
@@ -637,10 +597,6 @@ impl Offers {
     }
 
     /// Sets every offer's uses back to 0 (a restock). Offers keep their network IDs.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-    )]
     pub(in crate::tick) fn reset_uses(&mut self) {
         for r in &mut self.recipes {
             r.uses = 0;
@@ -753,11 +709,15 @@ fn item_nbt(stack: &Stack, damage: Damage) -> Value {
 }
 
 /// The item under `key`: `None` if absent or empty air.
-fn item(c: &Compound, key: &str) -> std::result::Result<Option<Stack>, &'static str> {
+fn item(
+    c: &Compound,
+    key: &str,
+    custom: &Registry,
+) -> std::result::Result<Option<Stack>, &'static str> {
     match c.get(key) {
         None => Ok(None),
         Some(Value::Compound(item)) => {
-            let stack = Stack::from_nbt(item).ok_or("unknown item")?;
+            let stack = Stack::from_nbt_with(item, custom).ok_or("unknown item")?;
             Ok((!stack.is_empty()).then_some(stack))
         }
         Some(_) => Err("item is not a compound"),
@@ -770,16 +730,17 @@ fn payment(
     c: &Compound,
     key: &str,
     count_key: &str,
+    custom: &Registry,
 ) -> std::result::Result<Option<(Stack, Damage)>, &'static str> {
     // `Damage` 32767 is any damage; the item is the one of damage 0.
     let (stack, damage) = match c.get(key) {
         Some(Value::Compound(i)) if i.get("Damage") == Some(&Value::Short(ANY_DAMAGE)) => {
             let mut i = i.clone();
             i.insert("Damage".to_owned(), Value::Short(0));
-            let stack = Stack::from_nbt(&i).ok_or("unknown item")?;
+            let stack = Stack::from_nbt_with(&i, custom).ok_or("unknown item")?;
             ((!stack.is_empty()).then_some(stack), Damage::Any)
         }
-        _ => (item(c, key)?, Damage::Exact),
+        _ => (item(c, key, custom)?, Damage::Exact),
     };
     let Some(stack) = stack else {
         return Ok(None);
@@ -1038,7 +999,10 @@ pub(in crate::tick) mod tests {
         offers.allocate_net_ids(&mut next, 100);
 
         let wire = network_bytes(&offers.wire_nbt().unwrap());
-        let mut back = Offers::from_nbt(&from_network_bytes(&wire));
+        let mut back = Offers::from_nbt(
+            &from_network_bytes(&wire),
+            &crate::custom::Registry::default(),
+        );
         assert_eq!(
             back.recipes, offers.recipes,
             "the wire form holds every offer"
@@ -1047,7 +1011,7 @@ pub(in crate::tick) mod tests {
         assert_eq!(network_bytes(&back.wire_nbt().unwrap()), wire);
 
         let saved = little_endian_bytes(&offers.to_nbt());
-        let back = Offers::from_nbt(&offers.to_nbt());
+        let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default());
         assert_eq!(little_endian_bytes(&back.to_nbt()), saved);
         assert_eq!(back.recipes, offers.recipes);
         assert_eq!(
@@ -1062,7 +1026,7 @@ pub(in crate::tick) mod tests {
         let mut offers = sample();
         offers.set_tier_experience([0, 5, 20, 40, 80]).unwrap();
         offers.apply(0, 16).unwrap();
-        let back = Offers::from_nbt(&offers.to_nbt());
+        let back = Offers::from_nbt(&offers.to_nbt(), &crate::custom::Registry::default());
         assert_eq!(back.recipes[0].uses, 16);
         assert_eq!(back.experience, 32);
         assert_eq!(back.tier, 2);
@@ -1093,7 +1057,7 @@ pub(in crate::tick) mod tests {
             RECIPES.to_owned(),
             Value::List(List::Compound(vec![wheat.clone(), book.clone()])),
         )]);
-        let offers = Offers::from_nbt(&saved);
+        let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default());
         assert!(offers.skipped.is_empty(), "no offer is skipped");
         let [w, b] = offers.recipes.as_slice() else {
             panic!("{offers:?}");
@@ -1158,7 +1122,7 @@ pub(in crate::tick) mod tests {
             (TRADE_TIER.to_owned(), Value::Int(9)),
             (TIER_EXPERIENCE.to_owned(), Value::Int(3)),
         ]);
-        let offers = Offers::from_nbt(&saved);
+        let offers = Offers::from_nbt(&saved, &crate::custom::Registry::default());
         assert_eq!(offers.recipes.len(), 1);
         assert_eq!(offers.skipped.len(), bad.len());
         assert_eq!(offers.tier, 0, "a bad tier falls back to 0");

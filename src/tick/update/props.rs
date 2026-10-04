@@ -4,6 +4,7 @@
 use crate::block::{Face, PropertyValue, State};
 
 /// An integer or boolean property as a number.
+#[inline]
 pub(super) fn int(s: State, name: &str) -> Option<i32> {
     match s.value(name)? {
         PropertyValue::Byte(b) => Some(i32::from(b)),
@@ -13,6 +14,7 @@ pub(super) fn int(s: State, name: &str) -> Option<i32> {
 }
 
 /// A boolean property.
+#[inline]
 pub(super) fn flag(s: State, name: &str) -> Option<bool> {
     int(s, name).map(|v| v != 0)
 }

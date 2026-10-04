@@ -30,9 +30,9 @@ MobArmourEquipment - mob armour, sent only for mobs and villagers in view, never
 AddItemActor - items the flat world's mobs drop (chicken eggs); Anchor spawns no mobs, and no item lies near a new world's spawn
 LevelSoundEvent - the spawn sound BDS plays for each entity it adds (the joining player at the origin, mobs); PMMP and dragonfly send none
 
-# API (M8)
-AvailableCommands M8 commands
-SetCommandsEnabled M8 commands
-CameraPresets M8 camera API
-CameraAimAssistPresets M8 camera API
-CameraSpline M8 camera API
+# Camera: BDS sends its vanilla camera presets (first_person, fixed_boom, follow_orbit, free,
+# third_person, third_person_front), aim assist presets and an empty spline list in the spawn window
+# (m8-facts.md 1); PMMP and dragonfly send none and the client joins without them.
+CameraPresets - PMMP has no camera API
+CameraAimAssistPresets - PMMP has no camera API
+CameraSpline - PMMP has no camera API

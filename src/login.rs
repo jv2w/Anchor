@@ -503,23 +503,27 @@ fn parse_xuid(xid: &str) -> Result<Option<u64>> {
         .ok_or(Error::Identity("xuid out of range"))
 }
 
-/// Offline name rules: PMMP `Player::isValidUserName` (user decision, PLAN.md 10.3): 1 to 16
-/// bytes of `A-Z a-z 0-9 _` and space only, and not `rcon` or `console` in any case. Spaces may
-/// lead, trail or repeat, as in PMMP.
+/// Offline name rules ([`check_user_name`], user decision, PLAN.md 10.3).
 fn check_offline_name(name: &str) -> Result<()> {
+    check_user_name(name).map_err(Error::Identity)
+}
+
+/// Whether `name` can be a player's name, PMMP `Player::isValidUserName`: 1 to 16 bytes of
+/// `A-Z a-z 0-9 _` and space only, and not `rcon` or `console` in any case. Spaces may lead,
+/// trail or repeat, as in PMMP. The error says which rule `name` breaks. Logins without Xbox
+/// sign-in and the commands that take a player's name (`/op`, `/whitelist`) check it.
+pub(crate) fn check_user_name(name: &str) -> std::result::Result<(), &'static str> {
     if name.is_empty() || name.len() > 16 {
-        return Err(Error::Identity("name must be 1 to 16 bytes"));
+        return Err("name must be 1 to 16 bytes");
     }
     if !name
         .bytes()
         .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b' ')
     {
-        return Err(Error::Identity(
-            "name has characters other than a-z, A-Z, 0-9, _ and space",
-        ));
+        return Err("name has characters other than a-z, A-Z, 0-9, _ and space");
     }
     if name.eq_ignore_ascii_case("rcon") || name.eq_ignore_ascii_case("console") {
-        return Err(Error::Identity("name is reserved"));
+        return Err("name is reserved");
     }
     Ok(())
 }
@@ -533,7 +537,7 @@ fn parse_identity_uuid(text: &str) -> Result<Uuid> {
 
 /// Parses the forms Go `uuid.Parse` accepts: 36 characters with hyphens, the same in braces or
 /// after `urn:uuid:`, or 32 hex digits.
-fn parse_uuid(text: &str) -> Option<Uuid> {
+pub(crate) fn parse_uuid(text: &str) -> Option<Uuid> {
     let canonical = match text.len() {
         36 => text,
         38 => text.strip_prefix('{')?.strip_suffix('}')?,

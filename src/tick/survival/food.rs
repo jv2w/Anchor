@@ -1,6 +1,8 @@
 //! Hunger, experience and consumables (PMMP `HungerManager`, `ExperienceManager`,
 //! `ExperienceUtils`, `Human::consumeObject`, `Player::useHeldItem`/`consumeHeldItem`).
 
+use tracing::debug;
+
 use super::attributes::{EXHAUSTION, EXPERIENCE, HUNGER, LEVEL, SATURATION};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
@@ -10,19 +12,22 @@ use super::{
 };
 use crate::config::{Difficulty, GameMode};
 use crate::effect::Type as Effect;
+use crate::event::{
+    ExhaustCause, PlayerExhaust, PlayerExperienceChange, PlayerItemConsume, RegainReason,
+};
 use crate::item::{Class, Consumable, Enchantment, Food, Stack, Type};
 use crate::math;
+use crate::player::{Id, MAX_LEVEL, level_from_xp, xp_to_complete_level, xp_to_reach_level};
 use crate::protocol::consts::{ActorEvent, LevelEvent, SoundEvent};
 use crate::protocol::packet::{self, Packet};
 use crate::random;
 use crate::tick::{Phase, Player, SessionId, State, entity, inventory};
+use crate::world::BlockPos;
 
 /// Exhaustion that costs one saturation or food point (PMMP `HungerManager::exhaust`).
 const EXHAUSTION_PER_POINT: f64 = 4.0;
 /// Ticks of one food cycle (PMMP `HungerManager::tick`).
 const FOOD_CYCLE: u32 = 80;
-/// The highest experience level (PMMP `Attribute::EXPERIENCE_LEVEL` maximum).
-pub(super) const MAX_LEVEL: u32 = 24_791;
 /// The most experience points a player holds (PMMP `Limits::INT32_MAX`).
 const MAX_XP: u64 = i32::MAX.cast_unsigned() as u64;
 /// Ticks an item takes to eat or drink (Bedrock: 1.6 s; dried kelp 0.8 s).
@@ -110,9 +115,43 @@ pub(super) fn exhaust(s: &mut Survival, amount: f64) {
     s.mark(EXHAUSTION);
 }
 
+/// Adds exhaustion for `cause` (PMMP `HungerManager::exhaust` with its `PlayerExhaustEvent`):
+/// while hunger runs for the player, the [`PlayerExhaust`] listeners may cancel it or change the
+/// amount (a value that is not positive adds nothing). An amount of 0 is still announced (PMMP's
+/// walking).
+pub(super) fn exhaust_as(state: &mut State, session: SessionId, amount: f64, cause: ExhaustCause) {
+    let hungry = |state: &State| {
+        state
+            .players
+            .get(&session)
+            .is_some_and(|p| p.survival.motion.hunger)
+    };
+    if !amount.is_finite() || amount < 0.0 || !hungry(state) {
+        return;
+    }
+    let Ok(event) = super::ask(
+        state,
+        || PlayerExhaust {
+            player: Id::new(session),
+            amount,
+            cause,
+            cancelled: false,
+        },
+        PlayerExhaust::is_cancelled,
+        |state, _| hungry(state),
+    ) else {
+        return;
+    };
+    let amount = event.as_ref().map_or(amount, |e| e.amount);
+    if let Some(player) = state.players.get_mut(&session) {
+        exhaust(&mut player.survival, amount);
+    }
+    super::watch(state, event.as_ref());
+}
+
 /// Sets the food level, restarting the food cycle when it crosses 17, 6 or 0 (PMMP
 /// `HungerManager::setFood`).
-fn set_food(s: &mut Survival, food: f64) {
+pub(super) fn set_food(s: &mut Survival, food: f64) {
     let food = if food < 0.0 { 0.0 } else { food };
     if [17.0, 6.0, 0.0].iter().any(|&b| (s.food > b) != (food > b)) {
         s.food_timer = 0;
@@ -134,7 +173,7 @@ pub(super) fn add_food(s: &mut Survival, food: f64, saturation: f64) {
 /// to 1, hard to death); food at 6 or below stops sprinting.
 pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
     let peaceful = difficulty(state) == Difficulty::Peaceful;
-    let starve = {
+    let (heal, regen, starve) = {
         let Some(player) = state.players.get_mut(&session) else {
             return;
         };
@@ -156,26 +195,32 @@ pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
                 heal += 1.0;
             }
         }
-        let mut starve = false;
+        let (mut regen, mut starve) = (false, false);
         if s.food_timer == 0 {
             if s.food >= 18.0 {
                 if s.health + heal < s.max_health() {
                     heal += 1.0;
-                    exhaust(s, 6.0);
+                    regen = true;
                 }
             } else if s.food <= 0.0 {
                 starve = true;
             }
         }
+        (heal, regen, starve)
+    };
+    if regen {
+        exhaust_as(state, session, 6.0, ExhaustCause::HealthRegen);
+    }
+    if let Some(player) = state.players.get_mut(&session) {
+        let s = &mut player.survival;
         if s.food <= 6.0 && s.motion.sprinting {
             s.motion.sprinting = false;
             s.mark(super::attributes::MOVEMENT);
         }
-        if heal > 0.0 {
-            damage::heal_player(player, heal);
-        }
-        starve
-    };
+    }
+    if heal > 0.0 {
+        damage::heal(state, session, heal, RegainReason::Saturation);
+    }
     if starve {
         let health = state
             .players
@@ -193,59 +238,6 @@ pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
     }
 }
 
-/// The experience needed to reach `level` from 0 (PMMP `ExperienceUtils::getXpToReachLevel`).
-pub(super) fn xp_to_reach(level: u32) -> u64 {
-    let l = u64::from(level);
-    if level <= 16 {
-        l * l + 6 * l
-    } else if level <= 31 {
-        // 2.5 l² - 40.5 l + 360, exact in halves: (5 l² - 81 l + 720) / 2, rounded down.
-        (5 * l * l + 720 - 81 * l) / 2
-    } else {
-        // 4.5 l² - 162.5 l + 2220 = (9 l² - 325 l + 4440) / 2.
-        (9 * l * l + 4440 - 325 * l) / 2
-    }
-}
-
-/// The experience from `level` to the next (PMMP `ExperienceUtils::getXpToCompleteLevel`).
-pub(super) fn xp_to_complete(level: u32) -> u64 {
-    let l = u64::from(level);
-    if level <= 15 {
-        2 * l + 7
-    } else if level <= 30 {
-        5 * l - 38
-    } else {
-        9 * l - 158
-    }
-}
-
-/// The level and the progress through it that `xp` points make. PMMP solves the level's
-/// quadratic and keeps the fraction of the root, which is not the share of points collected in
-/// the level; Anchor keeps the share, as the client shows it.
-pub(super) fn level_of(xp: u64) -> (u32, f64) {
-    let (mut lo, mut hi) = (0, MAX_LEVEL);
-    while lo < hi {
-        let mid = lo + (hi - lo).div_ceil(2);
-        if xp_to_reach(mid) <= xp {
-            lo = mid;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    let into = xp.saturating_sub(xp_to_reach(lo));
-    let need = xp_to_complete(lo);
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "invariant: experience points stay below 2^31, exact in f64"
-    )]
-    let progress = if lo >= MAX_LEVEL || need == 0 {
-        0.0
-    } else {
-        into as f64 / need as f64
-    };
-    (lo, progress)
-}
-
 /// The player's current experience points (PMMP `getCurrentTotalXp`).
 pub(super) fn current_xp(s: &Survival) -> u64 {
     #[expect(
@@ -254,13 +246,13 @@ pub(super) fn current_xp(s: &Survival) -> u64 {
         clippy::cast_sign_loss,
         reason = "invariant: the points into a level are below 2^31 and progress is in [0, 1)"
     )]
-    let into = (xp_to_complete(s.xp_level) as f64 * s.xp_progress) as u64;
-    xp_to_reach(s.xp_level) + into
+    let into = (xp_to_complete_level(s.xp_level) as f64 * s.xp_progress) as u64;
+    xp_to_reach_level(s.xp_level) + into
 }
 
 /// Sets the player's level and progress from a total.
-fn set_xp(s: &mut Survival, total: u64) {
-    let (level, progress) = level_of(total.min(MAX_XP));
+pub(super) fn set_xp(s: &mut Survival, total: u64) {
+    let (level, progress) = level_from_xp(total.min(MAX_XP));
     s.xp_level = level;
     s.xp_progress = progress;
     s.mark(LEVEL | EXPERIENCE);
@@ -344,7 +336,10 @@ pub(super) fn pickup_experience(state: &mut State, session: SessionId, amount: u
     }
     let s = &player.survival;
     let (old_level, old_total) = (s.xp_level, current_xp(s));
-    add_experience(player, amount);
+    gain(state, session, amount);
+    let Some(player) = state.players.get_mut(&session) else {
+        return true;
+    };
     player.survival.xp_cooldown = XP_PICKUP_COOLDOWN;
     let s = &player.survival;
     let (level, total) = (s.xp_level, current_xp(s));
@@ -359,6 +354,65 @@ pub(super) fn pickup_experience(state: &mut State, session: SessionId, amount: u
         sound::level_event(state, session, LevelEvent::SoundExperienceOrbPickup);
     }
     true
+}
+
+/// The largest experience progress: just below a full bar, which is the next level.
+const MAX_PROGRESS: f64 = 1.0 - f64::EPSILON / 2.0;
+
+/// Adds `amount` experience points the game gives (PMMP `ExperienceManager::addXp`): the
+/// [`PlayerExperienceChange`] listeners may cancel it or choose the level and progress it ends
+/// at (the level at most 24,791, the progress below a full bar). The points ever collected grow
+/// by `amount` unless it is cancelled.
+fn gain(state: &mut State, session: SessionId, amount: u32) {
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    let s = &player.survival;
+    let room = i32::MAX.cast_unsigned().saturating_sub(s.xp_lifetime);
+    let amount = amount.min(room);
+    if amount == 0 {
+        return;
+    }
+    let (old_level, old_progress, total) = (s.xp_level, s.xp_progress, current_xp(s));
+    let (level, progress) = level_from_xp((total + u64::from(amount)).min(MAX_XP));
+    let Ok(event) = super::ask(
+        state,
+        || PlayerExperienceChange {
+            player: Id::new(session),
+            old_level,
+            old_progress,
+            new_level: Some(level),
+            new_progress: Some(progress),
+            cancelled: false,
+        },
+        PlayerExperienceChange::is_cancelled,
+        |state, _| state.players.contains_key(&session),
+    ) else {
+        return;
+    };
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    let chosen = event
+        .as_ref()
+        .map(|e| (e.new_level, e.new_progress))
+        .filter(|&(l, p)| l != Some(level) || p.map(f64::to_bits) != Some(progress.to_bits()));
+    match chosen {
+        None => add_experience(player, amount),
+        Some((l, p)) => {
+            let s = &mut player.survival;
+            if let Some(l) = l {
+                s.xp_level = l.min(MAX_LEVEL);
+            }
+            if let Some(p) = p {
+                s.xp_progress = math::clamp(p, 0.0, MAX_PROGRESS);
+            }
+            s.xp_lifetime = s.xp_lifetime.saturating_add(amount);
+            s.mark(LEVEL | EXPERIENCE);
+            player.data_dirty = true;
+        }
+    }
+    super::watch(state, event.as_ref());
 }
 
 /// Repairs the mending item at `slot` with up to `amount` points (2 durability each); returns
@@ -388,14 +442,20 @@ fn mend(player: &mut Player, slot: Worn, amount: u32) -> u32 {
     amount.saturating_sub(repair.div_ceil(MENDING_PER_POINT))
 }
 
-/// Empties the player's experience after death (PMMP `Player::onDeath`); returns the points to
-/// drop: 7 per level, at most 100 (PMMP `Human::getXpDropAmount`).
-pub(super) fn take_death_xp(s: &mut Survival, finite: bool) -> u32 {
-    let drop = if finite {
+/// The experience points a dead player drops: 7 per level, at most 100 (PMMP
+/// `Human::getXpDropAmount`), none in creative.
+pub(super) fn death_xp(s: &Survival, finite: bool) -> u32 {
+    if finite {
         s.xp_level.saturating_mul(7).min(100)
     } else {
         0
-    };
+    }
+}
+
+/// Empties the player's experience after death (PMMP `Player::onDeath`); returns the points to
+/// drop ([`death_xp`]).
+pub(super) fn take_death_xp(s: &mut Survival, finite: bool) -> u32 {
+    let drop = death_xp(s, finite);
     s.xp_level = 0;
     s.xp_progress = 0.0;
     s.mark(LEVEL | EXPERIENCE);
@@ -421,39 +481,49 @@ fn is_consumable(item: Type) -> bool {
     item.food().is_some() || item.consumable().is_some()
 }
 
-/// The cooldown key of an item, if it has a cooldown (PMMP `Item::getCooldownTag`).
-fn cooldown_of(item: Type) -> Option<(CooldownKey, u16)> {
-    let c = item.cooldown()?;
-    let key = c
-        .tag()
-        .map_or(CooldownKey::Item(item.runtime_id()), CooldownKey::Tag);
-    Some((key, c.ticks()))
+/// What an item's cooldown is kept under (PMMP `Item::getCooldownTag`, else the item).
+fn cooldown_key(item: Type) -> CooldownKey {
+    item.cooldown()
+        .and_then(crate::item::Cooldown::tag)
+        .map_or(CooldownKey::Item(item.runtime_id()), CooldownKey::Tag)
+}
+
+/// The engine tick the item's cooldown ends, while it runs (PMMP
+/// `Player::getItemCooldownExpiry`).
+pub(super) fn cooldown_end(tick: u64, s: &Survival, item: Type) -> Option<u64> {
+    s.cooldowns
+        .get(&cooldown_key(item))
+        .copied()
+        .filter(|&end| end > tick)
 }
 
 /// Whether the item's cooldown runs (PMMP `Player::hasItemCooldown`).
 pub(super) fn has_cooldown(tick: u64, s: &Survival, item: Type) -> bool {
-    cooldown_of(item)
-        .and_then(|(key, _)| s.cooldowns.get(&key))
-        .is_some_and(|&end| end > tick)
+    cooldown_end(tick, s, item).is_some()
 }
 
-/// Starts the item's cooldown (PMMP `Player::resetItemCooldown`) and tells the client
+/// Starts the item's own cooldown (PMMP `Player::resetItemCooldown`), if it has one.
+pub(super) fn reset_cooldown(tick: u64, player: &mut Player, item: Type) {
+    if let Some(c) = item.cooldown() {
+        start_cooldown(tick, player, item, u32::from(c.ticks()));
+    }
+}
+
+/// Starts a cooldown of `ticks` (more than 0) for the item and tells the client
 /// (`NetworkSession::onItemCooldownChanged`: the item's name and the ticks); ended cooldowns are
 /// dropped first, so the map holds at most one entry per cooldown key.
-pub(super) fn reset_cooldown(tick: u64, player: &mut Player, item: Type) {
+pub(super) fn start_cooldown(tick: u64, player: &mut Player, item: Type, ticks: u32) {
     let s = &mut player.survival;
     s.cooldowns.retain(|_, &mut end| end > tick);
-    if let Some((key, ticks)) = cooldown_of(item) {
-        s.cooldowns
-            .insert(key, tick.saturating_add(u64::from(ticks)));
-        player.data_dirty = true;
-        player.send(Packet::ClientStartItemCooldown(
-            packet::ClientStartItemCooldown {
-                category: item.name().to_owned(),
-                duration: i32::from(ticks),
-            },
-        ));
-    }
+    s.cooldowns
+        .insert(cooldown_key(item), tick.saturating_add(u64::from(ticks)));
+    player.data_dirty = true;
+    player.send_packet(Packet::ClientStartItemCooldown(
+        packet::ClientStartItemCooldown {
+            category: item.name().to_owned(),
+            duration: i32::try_from(ticks).unwrap_or(i32::MAX),
+        },
+    ));
 }
 
 /// The player uses its held item in the air (PMMP `InGamePacketHandler` click-air): the first
@@ -505,30 +575,43 @@ pub(super) fn use_consumable(state: &mut State, session: SessionId) -> bool {
 /// goes into the inventory or drops at the feet; if it can go nowhere (entity limit) nothing is
 /// consumed.
 fn consume(state: &mut State, session: SessionId, item: Type) {
-    let Some(player) = state.players.get_mut(&session) else {
+    let Some(held) = consumable_now(state, session, item) else {
         return;
     };
-    let mode = super::game_mode_of(&state.settings, player);
-    let held = player.inventory.held().clone();
-    if held.item() != Some(item) {
-        return;
-    }
-    let s = &player.survival;
-    if item.food().is_some_and(Food::requires_hunger)
-        && !(s.food < MAX_FOOD
-            || state.settings.difficulty == Difficulty::Peaceful
-            || mode == GameMode::Creative)
-    {
-        return;
-    }
-    if has_cooldown(state.tick, s, item) {
-        return;
-    }
-    let residue = item
+    let residue: Option<Stack> = item
         .consumable()
         .and_then(Consumable::residue)
         .map(|t| Stack::new(t, 1));
-    let finite = mode != GameMode::Creative;
+    let Ok(event) = super::ask(
+        state,
+        || PlayerItemConsume {
+            player: Id::new(session),
+            item: held.clone(),
+            residue: residue.iter().cloned().collect(),
+            cancelled: false,
+        },
+        PlayerItemConsume::is_cancelled,
+        |state, _| consumable_now(state, session, item).is_some_and(|h| h == held),
+    ) else {
+        return;
+    };
+    // A listener's residue is checked like external input; the first one takes the residue's
+    // place, the others go into the inventory or drop at the feet (those the world refuses are
+    // not made).
+    let (residue, extra) = match &event {
+        Some(e)
+            if e.residue.len() != usize::from(residue.is_some())
+                || e.residue.first() != residue.as_ref() =>
+        {
+            let mut chosen = valid_residue(&e.residue).into_iter();
+            (chosen.next(), chosen.collect())
+        }
+        _ => (residue, Vec::new()),
+    };
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    let finite = player.survival.mode() != GameMode::Creative;
     if finite {
         let remaining = held.with_count(held.count().saturating_sub(1));
         match residue {
@@ -548,7 +631,53 @@ fn consume(state: &mut State, session: SessionId, item: Type) {
             None => inventory::set_held(player, remaining),
         }
     }
+    for stack in extra {
+        let Some(player) = state.players.get_mut(&session) else {
+            break;
+        };
+        let left = inventory::give(player, stack);
+        let (world, at) = (player.world, feet(player));
+        if !left.is_empty() && !entity::drop_item(state, world, at, left) {
+            debug!(
+                session = session.get(),
+                "a residue a listener added was not dropped"
+            );
+        }
+    }
     apply(state, session, item);
+    super::watch(state, event.as_ref());
+}
+
+/// The held stack if the player can finish eating or drinking `item` now: it still holds it, has
+/// room to eat (food that needs hunger) and its cooldown has ended.
+fn consumable_now(state: &State, session: SessionId, item: Type) -> Option<Stack> {
+    let player = state.players.get(&session)?;
+    let mode = player.survival.mode();
+    let held = player.inventory.held();
+    let s = &player.survival;
+    let ok = held.item() == Some(item)
+        && (!item.food().is_some_and(Food::requires_hunger)
+            || s.food < MAX_FOOD
+            || state.settings.difficulty == Difficulty::Peaceful
+            || mode == GameMode::Creative)
+        && !has_cooldown(state.tick, s, item);
+    ok.then(|| held.clone())
+}
+
+/// The most residue stacks a listener may leave after eating or drinking.
+const MAX_RESIDUE: usize = 4;
+
+/// Residue a listener set, checked: at most [`MAX_RESIDUE`] non-empty stacks, each within its
+/// item's stack size.
+fn valid_residue(residue: &[Stack]) -> Vec<Stack> {
+    residue
+        .iter()
+        .filter_map(|s| {
+            let max = s.item()?.max_stack_size();
+            (!s.is_empty()).then(|| s.with_count(s.count().min(max)))
+        })
+        .take(MAX_RESIDUE)
+        .collect()
 }
 
 /// The effect a medicine cures (PMMP `MedicineType::getCuredEffect`, Bedrock meta from PMMP
@@ -658,7 +787,7 @@ fn chorus_teleport(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    let origin = super::block_at(feet(player));
+    let origin = BlockPos::containing(feet(player));
     let world_index = player.world;
     let mut r = player_random(seed, tick, player, CHORUS_FRUIT);
     let Some(world) = state.worlds.get(world_index) else {
@@ -726,34 +855,6 @@ pub(super) fn using_tick(state: &mut State, session: SessionId) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn level_thresholds_follow_pmmp() {
-        // PMMP ExperienceUtils at the three formula boundaries.
-        assert_eq!(xp_to_reach(0), 0);
-        assert_eq!(xp_to_reach(1), 7);
-        assert_eq!(xp_to_reach(16), 352);
-        assert_eq!(xp_to_reach(17), 394);
-        assert_eq!(xp_to_reach(30), 1395);
-        assert_eq!(xp_to_reach(31), 1507);
-        assert_eq!(xp_to_reach(32), 1628);
-        assert_eq!(xp_to_complete(0), 7);
-        assert_eq!(xp_to_complete(15), 37);
-        assert_eq!(xp_to_complete(16), 42);
-        assert_eq!(xp_to_complete(30), 112);
-        assert_eq!(xp_to_complete(31), 121);
-        for level in 0..200 {
-            assert_eq!(
-                xp_to_reach(level + 1) - xp_to_reach(level),
-                xp_to_complete(level),
-                "level {level}"
-            );
-            assert_eq!(level_of(xp_to_reach(level)), (level, 0.0));
-        }
-        let (level, progress) = level_of(xp_to_reach(10) + xp_to_complete(10) / 2);
-        assert_eq!(level, 10);
-        assert!((progress - 13.0 / 27.0).abs() < 1e-12);
-    }
 
     #[test]
     fn exhaustion_spends_saturation_then_food() {

@@ -131,23 +131,72 @@ impl Brewing {
         results
     }
 
-    /// One tick (PMMP `BrewingStand::onUpdate`).
+    /// One tick (PMMP `BrewingStand::onUpdate`) without events: [`begin`](Self::begin), the
+    /// fuel that is due, the brewing, every bottle of a finished brew, the ingredient used up,
+    /// [`finish`](Self::finish). The tick raises its events between these steps
+    /// (`tick_brewing`).
+    #[cfg(test)]
     pub(in crate::tick) fn step(&mut self, items: &mut [Stack]) -> Step {
-        let mut out = Step::default();
-        let (prev_brew, prev_fuel, prev_total) = (self.brew, self.fuel, self.fuel_total);
+        let mut t = self.begin();
+        if self.fuel_due(items) {
+            self.refuel(items, FUEL_BREWS, &mut t);
+        }
+        if let Some(results) = self.brew_tick(items, &mut t) {
+            for (slot, result) in BOTTLES.into_iter().zip(results) {
+                if let Some(result) = result {
+                    bottle(items, slot, result, &mut t);
+                }
+            }
+            use_ingredient(items, &mut t);
+        }
+        self.finish(t)
+    }
+
+    /// Starts a tick: what [`finish`](Self::finish) compares with.
+    pub(in crate::tick) fn begin(&self) -> Tick {
+        Tick {
+            prev: (self.brew, self.fuel, self.fuel_total),
+            out: Step::default(),
+        }
+    }
+
+    /// The result of each bottle slot for the ingredient now.
+    pub(in crate::tick) fn bottle_results(&mut self, items: &[Stack]) -> [Option<Stack>; 3] {
+        self.results(items)
+    }
+
+    /// Whether a blaze powder is to be used now (PMMP `checkFuel`'s condition: no fuel left,
+    /// something can brew, the fuel slot holds blaze powder; PMMP raises its event cancelled
+    /// for another item, Anchor raises none).
+    pub(in crate::tick) fn fuel_due(&mut self, items: &[Stack]) -> bool {
+        let powder = items.get(FUEL).cloned().unwrap_or_default();
+        self.fuel == 0
+            && self.results(items).iter().any(Option::is_some)
+            && powder.item().and_then(crate::item::Type::kind)
+                == Some(crate::item::Kind::BlazePowder)
+    }
+
+    /// Uses up one blaze powder for `brews` brews of fuel (at least 1).
+    pub(in crate::tick) fn refuel(&mut self, items: &mut [Stack], brews: u16, t: &mut Tick) {
+        let powder = items.get(FUEL).cloned().unwrap_or_default();
+        set(
+            items,
+            FUEL,
+            powder.with_count(powder.count().saturating_sub(1)),
+            &mut t.out,
+        );
+        self.fuel = brews.max(1);
+        self.fuel_total = self.fuel;
+    }
+
+    /// Brews one tick; the result of each bottle when the brew finishes now.
+    pub(in crate::tick) fn brew_tick(
+        &mut self,
+        items: &[Stack],
+        t: &mut Tick,
+    ) -> Option<[Option<Stack>; 3]> {
         let results = self.results(items);
         let can_brew = results.iter().any(Option::is_some);
-        if self.fuel == 0 && can_brew {
-            // PMMP `checkFuel`: only blaze powder.
-            let powder = items.get(FUEL).cloned().unwrap_or_default();
-            if powder.item().and_then(crate::item::Type::kind)
-                == Some(crate::item::Kind::BlazePowder)
-            {
-                set(items, FUEL, powder.with_count(powder.count() - 1), &mut out);
-                self.fuel = FUEL_BREWS;
-                self.fuel_total = FUEL_BREWS;
-            }
-        }
         if self.fuel > 0 {
             if can_brew {
                 if self.brew == 0 {
@@ -156,28 +205,24 @@ impl Brewing {
                 }
                 self.brew -= 1;
                 if self.brew == 0 {
-                    for (slot, result) in BOTTLES.into_iter().zip(results) {
-                        if let Some(result) = result {
-                            set(items, slot, result, &mut out);
-                            out.brewed = true;
-                        }
-                    }
-                    let ingredient = items.get(INGREDIENT).cloned().unwrap_or_default();
-                    set(
-                        items,
-                        INGREDIENT,
-                        ingredient.with_count(ingredient.count().saturating_sub(1)),
-                        &mut out,
-                    );
-                } else {
-                    out.active = true;
+                    return Some(results);
                 }
+                t.out.active = true;
             } else {
                 self.brew = 0;
             }
         } else {
             (self.brew, self.fuel, self.fuel_total) = (0, 0, 0);
         }
+        None
+    }
+
+    /// Ends a tick: what it did, with the window data that changed.
+    pub(in crate::tick) fn finish(&self, t: Tick) -> Step {
+        let Tick {
+            prev: (prev_brew, prev_fuel, prev_total),
+            mut out,
+        } = t;
         for (key, before, now) in [
             (DATA_BREW_TIME, prev_brew, self.brew),
             (DATA_FUEL_AMOUNT, prev_fuel, self.fuel),
@@ -192,6 +237,31 @@ impl Brewing {
         out.active |= out.slots != 0;
         out
     }
+}
+
+/// A brewing tick in progress.
+#[derive(Debug)]
+pub(in crate::tick) struct Tick {
+    /// The brew, fuel and fuel total when it began.
+    prev: (u16, u16, u16),
+    out: Step,
+}
+
+/// Puts the brewed `result` into bottle slot `slot`.
+pub(in crate::tick) fn bottle(items: &mut [Stack], slot: usize, result: Stack, t: &mut Tick) {
+    set(items, slot, result, &mut t.out);
+    t.out.brewed = true;
+}
+
+/// Uses up one ingredient at the end of a brew (PMMP: whatever the bottles became).
+pub(in crate::tick) fn use_ingredient(items: &mut [Stack], t: &mut Tick) {
+    let ingredient = items.get(INGREDIENT).cloned().unwrap_or_default();
+    set(
+        items,
+        INGREDIENT,
+        ingredient.with_count(ingredient.count().saturating_sub(1)),
+        &mut t.out,
+    );
 }
 
 /// Sets slot `i`, marking it changed (and kept if only its count changed).

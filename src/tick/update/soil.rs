@@ -10,6 +10,7 @@ use super::Cx;
 use super::props;
 use super::support::{self, side};
 use crate::block::{self, Class, Face, Kind, Trait};
+use crate::event::{Actor, EntityTrampleFarmland, FarmlandHydrationChange, LeavesDecay};
 use crate::random::Random;
 use crate::world::BlockPos;
 
@@ -19,14 +20,14 @@ fn is_plain_dirt(s: block::State) -> bool {
 }
 
 /// PMMP `Grass::onRandomTick`: grass in the dark under a light filter dies; in the light it
-/// spreads to plain dirt nearby.
+/// spreads to plain dirt nearby. Both are spreads, as in PMMP.
 pub(super) fn grass(cx: &mut Cx<'_>, pos: BlockPos) {
     let Some(up) = pos.step(Face::Up) else {
         return;
     };
     let light_above = cx.full_light(up);
     if light_above < 4 && cx.block(Some(up)).light_filter() >= 2 {
-        cx.set(pos, block::DIRT);
+        cx.spread(pos, block::DIRT, pos);
     } else if light_above >= 9 {
         let mut rng = cx.rng();
         for _ in 0..4 {
@@ -39,7 +40,7 @@ pub(super) fn grass(cx: &mut Cx<'_>, pos: BlockPos) {
                 && cx.full_light(above) >= 4
                 && cx.block(Some(above)).light_filter() < 2
             {
-                cx.set(at, block::GRASS_BLOCK);
+                cx.spread(at, block::GRASS_BLOCK, pos);
             }
         }
     }
@@ -53,7 +54,7 @@ pub(super) fn mycelium(cx: &mut Cx<'_>, pos: BlockPos) {
     let z = rng.range(pos.z - 1, pos.z + 1);
     let at = BlockPos::new(x, y, z);
     if cx.get(at).is_some_and(is_plain_dirt) && cx.block(at.step(Face::Up)).is(Class::Transparent) {
-        cx.set(at, Kind::Mycelium.default_state());
+        cx.spread(at, Kind::Mycelium.default_state(), pos);
     }
 }
 
@@ -61,7 +62,7 @@ pub(super) fn mycelium(cx: &mut Cx<'_>, pos: BlockPos) {
 /// netherrack nearby.
 pub(super) fn nylium(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if !cx.block(pos.step(Face::Up)).is_transparent() {
-        cx.set(pos, Kind::Netherrack.default_state());
+        cx.spread(pos, Kind::Netherrack.default_state(), pos);
         return;
     }
     let mut rng = cx.rng();
@@ -73,7 +74,7 @@ pub(super) fn nylium(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         if cx.get(at).is_some_and(|s| s.kind() == Kind::Netherrack)
             && cx.block(at.step(Face::Up)).is_transparent()
         {
-            cx.set(at, block);
+            cx.spread(at, block, pos);
         }
     }
 }
@@ -91,7 +92,7 @@ fn adjacent_block_light(cx: &Cx<'_>, pos: BlockPos) -> u8 {
 /// PMMP `Ice::onRandomTick`: melts next to block light of 12 or more.
 pub(super) fn ice(cx: &mut Cx<'_>, pos: BlockPos) {
     if adjacent_block_light(cx, pos) >= 12 {
-        cx.set(pos, Kind::Water.default_state());
+        cx.melt(pos, Kind::Water.default_state());
     }
 }
 
@@ -137,11 +138,12 @@ pub(super) fn frosted_ice(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
 }
 
-/// PMMP `FrostedIce::tryMelt`: older, or water at the last age. Whether it melted.
+/// PMMP `FrostedIce::tryMelt`: older, or water at the last age. Whether it reached the last age
+/// (melted, unless a listener kept it).
 fn melt_frosted(cx: &mut Cx<'_>, rng: &mut Random, pos: BlockPos, block: block::State) -> bool {
     let age = props::int(block, "age").unwrap_or(3);
     if age >= 3 {
-        cx.set(pos, Kind::Water.default_state());
+        cx.melt(pos, Kind::Water.default_state());
         return true;
     }
     if let Some(s) = props::with_int(block, "age", age + 1) {
@@ -155,7 +157,7 @@ fn melt_frosted(cx: &mut Cx<'_>, rng: &mut Random, pos: BlockPos, block: block::
 /// PMMP `SnowLayer::onRandomTick`: melts in block light of 12 or more.
 pub(super) fn snow_layer(cx: &mut Cx<'_>, pos: BlockPos) {
     if cx.block_light(pos) >= 12 {
-        cx.set(pos, block::AIR);
+        cx.melt(pos, block::AIR);
     }
 }
 
@@ -176,16 +178,40 @@ pub(super) fn farmland(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
     if !water {
         if wetness > 0 {
-            if let Some(s) = props::with_int(block, "moisturized_amount", wetness - 1) {
-                cx.set_quietly(pos, s);
-            }
+            hydrate(cx, pos, block, wetness, wetness - 1);
         } else {
             cx.set(pos, block::DIRT);
         }
-    } else if wetness < 7
-        && let Some(s) = props::with_int(block, "moisturized_amount", 7)
+    } else if wetness < 7 {
+        hydrate(cx, pos, block, wetness, 7);
+    }
+}
+
+/// Farmland's wetness goes from `old` to `new` (0 to 7), raising
+/// [`FarmlandHydrationChange`], whose listeners may set another wetness.
+fn hydrate(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, old: i32, new: i32) {
+    let wetness = |v: i32| u8::try_from(v.clamp(0, 7)).unwrap_or(0);
+    let Ok(event) = cx.ask(
+        [pos],
+        |cx| FarmlandHydrationChange {
+            world: cx.world_id(),
+            pos,
+            block,
+            old_hydration: wetness(old),
+            new_hydration: wetness(new),
+            cancelled: false,
+        },
+        FarmlandHydrationChange::is_cancelled,
+    ) else {
+        return;
+    };
+    let new = event
+        .as_ref()
+        .map_or(new, |e| i32::from(e.new_hydration().min(7)));
+    if let Some(s) = props::with_int(block, "moisturized_amount", new)
+        && cx.set_quietly(pos, s)
     {
-        cx.set_quietly(pos, s);
+        cx.tell(event);
     }
 }
 
@@ -210,7 +236,10 @@ pub(super) fn leaves_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::Sta
     }
 }
 
-/// PMMP `Leaves::onRandomTick`: leaves without a log within four leaves decay.
+/// PMMP `Leaves::onRandomTick`: leaves without a log within four leaves decay, raising
+/// [`LeavesDecay`]; leaves that find a log, or whose decay is cancelled, stop checking until a
+/// neighbour changes. PMMP raises the event before it looks for a log, so for leaves that do not
+/// decay too: Anchor raises it only for leaves that decay.
 pub(super) fn leaves_on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if props::flag(block, "persistent_bit") != Some(false)
         || props::flag(block, "update_bit") != Some(true)
@@ -218,12 +247,29 @@ pub(super) fn leaves_on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::Sta
         return;
     }
     let mut visited = BTreeSet::new();
-    if find_log(cx, pos, &mut visited, 0) {
-        if let Some(s) = props::with_flag(block, "update_bit", false) {
-            cx.set_quietly(pos, s);
+    if !find_log(cx, pos, &mut visited, 0) {
+        let asked = cx.ask(
+            [pos],
+            |cx| LeavesDecay {
+                world: cx.world_id(),
+                pos,
+                block,
+                cancelled: false,
+            },
+            LeavesDecay::is_cancelled,
+        );
+        if let Ok(event) = asked {
+            cx.destroy(pos);
+            cx.tell(event);
+            return;
         }
-    } else {
-        cx.destroy(pos);
+        // Cancelled: the leaves stay, and a listener that put another block there keeps it.
+        if cx.get(pos) != Some(block) {
+            return;
+        }
+    }
+    if let Some(s) = props::with_flag(block, "update_bit", false) {
+        cx.set_quietly(pos, s);
     }
 }
 
@@ -323,7 +369,7 @@ pub(super) fn budding_amethyst(cx: &mut Cx<'_>, pos: BlockPos) {
     }) else {
         return;
     };
-    cx.set(at, bud);
+    cx.grow(at, bud);
 }
 
 /// The oxidation prefixes of copper names, by level.
@@ -474,19 +520,20 @@ pub(super) fn coral_check(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         && let Some(rest) = block.name().strip_prefix("minecraft:")
         && let Some(dead) = props::renamed(block, &format!("minecraft:dead_{rest}"))
     {
-        cx.set(pos, dead);
+        cx.die(pos, dead);
     }
 }
 
-/// PMMP `ConcretePowder::onNearbyBlockChange`: water beside or above hardens it; otherwise it
-/// falls.
+/// PMMP `ConcretePowder::onNearbyBlockChange`: water beside or above (the first in PMMP's face
+/// order) hardens it; otherwise it falls.
 pub(super) fn concrete_powder(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     let water = [Face::Up, Face::North, Face::South, Face::West, Face::East]
         .into_iter()
-        .any(|f| cx.block(pos.step(f)).class() == Class::Water);
-    if water {
+        .filter_map(|f| pos.step(f))
+        .find(|p| cx.block(Some(*p)).class() == Class::Water);
+    if let Some(water) = water {
         if let Some(concrete) = block.name().strip_suffix("_powder").and_then(props::plain) {
-            cx.set(pos, concrete);
+            cx.form(pos, concrete, water);
         }
     } else {
         support::fall_unless_hardened(cx, pos, block);
@@ -641,13 +688,32 @@ fn nylium_vegetation(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
 }
 
-/// An entity landed on farmland after falling `fall_distance` blocks: a living one tramples it
-/// to dirt with PMMP's chance (`getRandomFloat() < fallDistance - 0.5`).
-pub(super) fn trample(cx: &mut Cx<'_>, pos: BlockPos, fall_distance: f64) {
-    if cx.get(pos).is_some_and(|s| s.kind() == Kind::Farmland)
-        && cx.rng().unit() < fall_distance - 0.5
-    {
-        cx.set(pos, block::DIRT);
+/// `entity` landed on farmland after falling `fall_distance` blocks: a living one tramples it
+/// to dirt with PMMP's chance (`getRandomFloat() < fallDistance - 0.5`), raising
+/// [`EntityTrampleFarmland`].
+pub(super) fn trample(cx: &mut Cx<'_>, pos: BlockPos, fall_distance: f64, entity: Actor) {
+    let Some(block) = cx.get(pos).filter(|s| s.kind() == Kind::Farmland) else {
+        return;
+    };
+    let tramples = cx.rng().unit() < fall_distance - 0.5;
+    if !tramples {
+        return;
+    }
+    let Ok(event) = cx.ask(
+        [pos],
+        |cx| EntityTrampleFarmland {
+            entity,
+            world: cx.world_id(),
+            pos,
+            block,
+            cancelled: false,
+        },
+        EntityTrampleFarmland::is_cancelled,
+    ) else {
+        return;
+    };
+    if cx.set(pos, block::DIRT) {
+        cx.tell(event);
     }
 }
 

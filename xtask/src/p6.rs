@@ -19,7 +19,9 @@
 //!   the block updates BDS sent for each step are reported with their states (`blocks.txt`). The
 //!   biome definitions and jigsaw data of each spawn capture are checked against `CloudburstMC`'s
 //!   data (`cloudburst`). Last, it runs the game session once (`game`: craft, furnace, enchant,
-//!   crops, trade into `target/p6/bds-game/`).
+//!   crops, trade into `target/p6/bds-game/`) and the API session once (`api`: commands,
+//!   particles, kick, forms into `target/p6/bds-api/`).
+//! - `p6 api bds|anchor [scenario]...`, `p6 api compare A B`: the API session alone (see `api`).
 //! - `p6 game bds [scenario]...`: the game session alone; `p6 game anchor [scenario]...`: the
 //!   same session against Anchor into `target/p6/anchor-game/`, compared with `bds-game/`;
 //!   `p6 game compare A B` compares the game traces of two capture folders (see `game`).
@@ -28,7 +30,8 @@
 //!   `anchor-nethernet-<compression>/`, and the `auto` bot against an unreachable NetherNet
 //!   address into `anchor-fallback/`; each capture is compared with its BDS capture. Last, it runs
 //!   the game session against Anchor (`p6 game anchor`, into `anchor-game/`, compared with
-//!   `bds-game/`).
+//!   `bds-game/`) and the API session (`p6 api anchor`, into `anchor-api/`, compared with
+//!   `bds-api/`).
 //! - `p6 run --addr HOST:PORT --out DIR [--transport T] [--token-key PEM --kid KID --iss ISS]`:
 //!   runs the scenarios against a running server; the token flags add the online scenario.
 //! - `p6 compare A B`: compares the spawn windows of two captures, their answer SDP structures
@@ -36,6 +39,7 @@
 //!   their chunk packets, and the `blocks.jsonl` captures next to them when both exist (see
 //!   `compare`).
 
+mod api;
 mod compare;
 mod game;
 
@@ -63,6 +67,7 @@ const SCENARIOS: &[&str] = &["spawn", "big-skin"];
 const BDS_SETTINGS: &[(&str, &str)] = &[
     ("online-mode", "false"),
     ("allow-list", "false"),
+    ("allow-cheats", "false"),
     ("enable-lan-visibility", "true"),
     ("level-name", "p6"),
     ("level-type", "FLAT"),
@@ -200,7 +205,10 @@ pub(crate) const USAGE: &str = "cargo xtask p6 bds [zlib|snappy]... | cargo xtas
                                 [--token-key PEM --kid KID --iss ISS] | cargo xtask p6 compare A B \
                                 | cargo xtask p6 game bds [craft|furnace|enchant|crops|trade]... \
                                 | cargo xtask p6 game anchor [craft|furnace|enchant|crops|trade]... \
-                                | cargo xtask p6 game compare DIR_A DIR_B";
+                                | cargo xtask p6 game compare DIR_A DIR_B \
+                                | cargo xtask p6 api bds [commands|particles|kick|forms|script]... \
+                                | cargo xtask p6 api anchor [commands|particles|kick|forms|script]... \
+                                | cargo xtask p6 api compare DIR_A DIR_B";
 
 /// Runs `cargo xtask p6 <args>`.
 pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
@@ -212,6 +220,9 @@ pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Resul
         ["game", "bds", rest @ ..] => game::bds(root, rest, out),
         ["game", "anchor", rest @ ..] => game::anchor(root, rest, out),
         ["game", "compare", a, b] => game::compare(root, Path::new(a), Path::new(b), out),
+        ["api", "bds", rest @ ..] => api::bds(root, rest, out),
+        ["api", "anchor", rest @ ..] => api::anchor(root, rest, out),
+        ["api", "compare", a, b] => api::compare(root, Path::new(a), Path::new(b), out),
         _ => Err(format!("usage: {USAGE}")),
     }
 }
@@ -280,6 +291,7 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
         )?;
     }
     passed &= game::session(root, &exe, &bot, &game::SCENARIOS, out)?;
+    passed &= api::session(root, &exe, &bot, &api::SCENARIOS, out)?;
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
@@ -333,6 +345,37 @@ fn bds_session<W: Write>(
     out: &mut W,
     run: impl FnOnce(&str, &mut Bds, &mut W) -> Result<bool, String>,
 ) -> Result<bool, String> {
+    let session = BdsSession {
+        transport,
+        compression,
+        settings: &[],
+    };
+    bds_session_with(exe, out_dir, &session, |_| Ok(()), out, run)
+}
+
+/// What a BDS session runs with besides the test settings.
+struct BdsSession<'a> {
+    transport: &'a str,
+    compression: &'a str,
+    /// Settings that override the test settings.
+    settings: &'a [(&'a str, &'a str)],
+}
+
+/// [`bds_session`] with more settings, and `prepare` called with the copy's folder once its
+/// `worlds` folder is gone, before BDS starts (to install a pack into the new world).
+fn bds_session_with<W: Write>(
+    exe: &Path,
+    out_dir: &Path,
+    session: &BdsSession<'_>,
+    prepare: impl FnOnce(&Path) -> Result<(), String>,
+    out: &mut W,
+    run: impl FnOnce(&str, &mut Bds, &mut W) -> Result<bool, String>,
+) -> Result<bool, String> {
+    let BdsSession {
+        transport,
+        compression,
+        settings: extra,
+    } = *session;
     let dir = exe
         .parent()
         .ok_or_else(|| format!("{} has no parent", exe.display()))?;
@@ -346,8 +389,10 @@ fn bds_session<W: Write>(
         ("server-portv6", port_v6_text.as_str()),
         ("compression-algorithm", compression),
     ]);
+    settings.extend_from_slice(extra);
     set_properties(&dir.join("server.properties"), &settings)?;
     remove_dir(&dir.join("worlds"))?;
+    prepare(dir)?;
     say(
         out,
         &format!(
@@ -411,6 +456,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
         },
     )?;
     passed &= game::anchor_session(root, &bot, &game::SCENARIOS, out)?;
+    passed &= api::anchor_session(root, &bot, &api::SCENARIOS, out)?;
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
 }
@@ -573,7 +619,7 @@ fn anchor_steps(
         };
         // A change that fails (its chunk is not loaded yet) is tried again on the next call.
         if let Some((pos, state)) = change
-            && ctx.world_mut().set_block(pos, state).is_ok()
+            && ctx.default_world_mut().set_block(pos, state).is_ok()
         {
             action += 1;
         }

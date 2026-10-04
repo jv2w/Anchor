@@ -18,6 +18,7 @@
 use super::extra::Extras;
 use super::view::Key;
 use super::{block_entity, entity, update};
+use crate::custom::Registry;
 use crate::save::ChunkExtras;
 use crate::storage::ChunkKind;
 use crate::world::World;
@@ -34,15 +35,18 @@ pub(super) struct Rules {
 }
 
 impl Rules {
-    /// A chunk and its extras are loaded (from the file or from memory).
+    /// A chunk and its extras are loaded (from the file or from memory). Saved items are read
+    /// with the world's custom content (a world without it, in tests, reads vanilla items only).
     pub(super) fn load(&mut self, key: Key, extras: &ChunkExtras, world: &World) {
         let Self {
             block_entities,
             entities,
             updates,
         } = self;
-        block_entities.load(key, extras.get(ChunkKind::BlockEntities), world);
-        entities.load(key, extras.get(ChunkKind::Entities));
+        let vanilla = Registry::default();
+        let custom = world.custom().unwrap_or(&vanilla);
+        block_entities.load(key, extras.get(ChunkKind::BlockEntities), world, custom);
+        entities.load(key, extras.get(ChunkKind::Entities), custom);
         updates.load(key, extras.get(ChunkKind::ScheduledUpdates));
     }
 

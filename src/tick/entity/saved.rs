@@ -3,9 +3,14 @@
 //!
 //! Common keys: `identifier` (the Bedrock actor type; PMMP's save names `Item`, `XPOrb`,
 //! `FallingSand`, `PrimedTNT`, `Arrow`, `Snowball`, `Egg`, `ThrownEnderpearl`, `ThrownPotion`,
-//! `ThrownExpBottle`, `Villager` are read too), `Pos` and `Motion` (lists of three doubles; floats
+//! `ThrownExpBottle`, `Villager`, `Painting`, `EnderCrystal`, `minecraft:trident`, `Trident`,
+//! `ThrownTrident` are read too), `Pos` and `Motion` (lists of three doubles; floats
 //! are read too), `Rotation` (yaw and pitch floats), `FallDistance` (float), `Fire` (short),
-//! `OnGround` (byte). Then per kind:
+//! `OnGround` (byte); with a name tag `CustomName` (string) and `CustomNameVisible` (byte, PMMP's
+//! "shown when looked at"). Anchor's own keys, written only when they differ from the kind's
+//! default: `CustomNameAlwaysVisible` (byte), `Scale` (float), `Invisible` and `NoGravity`
+//! (bytes). An entity that is not saved with its chunk (the API's choice) writes nothing. Then per
+//! kind:
 //! - items: `Item` (the stack, [`Stack::to_nbt`]), `Health`, `Age` and `PickupDelay` (shorts),
 //!   `Owner` and `Thrower` (strings);
 //! - orbs: `Age`, `Value` (short) and `experience value` (int);
@@ -14,11 +19,22 @@
 //! - projectiles: `damage` (double), `StuckToBlockPos` (three ints, while stuck); arrows `pickup`,
 //!   `crit` (bytes), `life` (short) and `punch` (byte, Anchor's: PMMP forgets Punch on a load);
 //!   potions `PotionId` (short; a lingering one is saved as `minecraft:lingering_potion`, which
-//!   PMMP loses);
+//!   PMMP loses); tridents `Trident` (the item, [`Stack::to_nbt`]) and `isCreative` (byte);
+//! - paintings: `TileX`, `TileY`, `TileZ` (ints: the wall block, which is the position's block one
+//!   step against the facing), `Facing` and `Direction` (bytes: south 0, west 1, north 2, east 3)
+//!   and `Motive` (string);
+//! - end crystals: `ShowBottom` (byte) and, with a beam target, `BlockTargetX`, `BlockTargetY`,
+//!   `BlockTargetZ` (ints);
+//! - firework rockets are never saved (PMMP `NeverSavedWithChunkEntity`);
 //! - clouds: PMMP's `AreaEffectCloud` keys; `SpawnTick` is minus the cloud's age (the world clock
 //!   is not at hand here; only the difference is read back);
 //! - NPCs: `Health` (float), `Invulnerable` (byte); villagers `Profession` (int) and `Offers`
-//!   (the offer list, [`Offers::to_nbt`]); human NPCs `CustomName` (the name).
+//!   (the offer list, [`Offers::to_nbt`]); human NPCs their name as the name tag and, with a skin,
+//!   PMMP's `Skin` compound (`Name`, `Data`, `CapeData`, `GeometryName`, `GeometryData`; a skin
+//!   that does not pass [`Skin`]'s checks loads as the default skin);
+//! - custom entities: the type's identifier, the NPC keys and, when not empty, `AnchorData` (the
+//!   user's compound, at most [`custom::MAX_DATA_BYTES`]). One whose type the server does not
+//!   register is not an entity here (like an unknown block) and stays as saved.
 //!
 //! Runtime and unique IDs are not saved: they are numbers of one run; so are the owner of a
 //! projectile and who a cloud affected (PMMP does not save them either).
@@ -28,15 +44,21 @@
 //! tick, and the store keeps it as saved.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use super::super::trade::Offers;
 use super::Entity;
+use super::custom::{self, Customs};
 use super::kind::{
-    ARROW_LIFE, Arrow, Character, Cloud, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind,
-    MAX_CLOUD_EFFECTS, MAX_DESPAWN_DELAY, MAX_FUSE, NEVER, Orb, Pickup, Projectile, Shot, Tnt,
+    ARROW_LIFE, Arrow, Character, Cloud, Crystal, Custom, DEFAULT_DESPAWN_DELAY, Falling, Form,
+    Item, Kind, MAX_CLOUD_EFFECTS, MAX_DESPAWN_DELAY, MAX_FUSE, MAX_NAME_TAG_BYTES, NEVER, Orb,
+    Painting, Pickup, Projectile, Shot, TRIDENT_DAMAGE, Tnt, Trident,
 };
+use super::object::{data_facing, facing_data};
 use super::physics::{self, Body};
+use crate::custom::Registry;
 use crate::effect::{self, Potion};
+use crate::entity::{PaintingMotive, Skin};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -50,18 +72,18 @@ const AGE_NEVER: i16 = i16::MIN;
 const MAX_COORDINATE: f64 = 30_000_000.0;
 /// How far below and above the world height a saved position may be: entities fall out of the
 /// world and die 16 blocks under it.
-const HEIGHT_MARGIN: f64 = 64.0;
+pub(super) const HEIGHT_MARGIN: f64 = 64.0;
 /// The largest projectile base damage read (a bow with Power V gives 5).
-const MAX_PROJECTILE_DAMAGE: f64 = 1024.0;
+pub(super) const MAX_PROJECTILE_DAMAGE: f64 = 1024.0;
 /// The largest cloud radius and radius change read, in blocks (PMMP's default radius is 3).
-const MAX_CLOUD_RADIUS: f64 = 64.0;
+pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
 /// The longest a cloud lives, in ticks (one day of the world; PMMP's default is 600).
-const MAX_CLOUD_AGE: i32 = 24_000;
+pub(super) const MAX_CLOUD_AGE: i32 = 24_000;
 /// The longest effect a cloud gives, in ticks (PMMP's longest potion is 9,600).
 const MAX_EFFECT_TICKS: i32 = 1_000_000;
-/// The longest NPC name read, in bytes (a player name is at most 16 characters).
-const MAX_NAME_BYTES: usize = 256;
-
+/// The key of a custom entity's data (Anchor's: PMMP keeps plugin data in the entity's own
+/// compound).
+pub(super) const DATA_KEY: &str = "AnchorData";
 /// What a saved compound describes, before the store gives it a slot.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Loaded {
@@ -71,6 +93,19 @@ pub(super) struct Loaded {
     pub(super) health: f64,
     pub(super) fire_ticks: i16,
     pub(super) kind: Kind,
+    pub(super) looks: Looks,
+}
+
+/// The saved name tag and looks of an entity.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Looks {
+    pub(super) name_tag: String,
+    pub(super) name_tag_visible: bool,
+    /// `None`: the kind's default.
+    pub(super) name_tag_always_visible: Option<bool>,
+    pub(super) scale: f64,
+    pub(super) invisible: bool,
+    pub(super) gravity: bool,
 }
 
 /// The saved compound of an entity.
@@ -99,6 +134,29 @@ pub(super) fn save(entity: &Entity) -> Compound {
     put("FallDistance", Value::Float(to_f32(fall_distance)));
     put("Fire", Value::Short(entity.fire_ticks));
     put("OnGround", Value::Byte(u8::from(on_ground)));
+    if !entity.name_tag.is_empty() {
+        put("CustomName", Value::String(entity.name_tag.clone()));
+        put(
+            "CustomNameVisible",
+            Value::Byte(u8::from(entity.name_tag_visible)),
+        );
+    }
+    if entity.name_tag_always_visible != entity.kind.shows_name_always() {
+        put(
+            "CustomNameAlwaysVisible",
+            Value::Byte(u8::from(entity.name_tag_always_visible)),
+        );
+    }
+    // The scale is a value a float holds exactly (the setter checks it).
+    if entity.scale != 1.0 {
+        put("Scale", Value::Float(to_f32(entity.scale)));
+    }
+    if entity.invisible {
+        put("Invisible", Value::Byte(1));
+    }
+    if !entity.gravity {
+        put("NoGravity", Value::Byte(1));
+    }
     match &entity.kind {
         Kind::Item(item) => {
             put("Item", Value::Compound(item.stack.to_nbt()));
@@ -131,21 +189,62 @@ pub(super) fn save(entity: &Entity) -> Compound {
         }
         Kind::Projectile(p) => save_projectile(p, &mut put),
         Kind::Cloud(cloud) => save_cloud(cloud, &mut put),
-        Kind::Npc(npc) => {
-            put("Health", Value::Float(to_f32(entity.health)));
-            put("Invulnerable", Value::Byte(u8::from(npc.invulnerable)));
-            match &npc.form {
-                Form::Villager { profession, offers } => {
-                    put("Profession", Value::Int(i32::from(*profession)));
-                    put("Offers", Value::Compound(offers.to_nbt()));
-                }
-                Form::Human { name, uuid: _ } => {
-                    put("CustomName", Value::String(name.clone()));
-                }
+        Kind::Npc(npc) => save_npc(npc, entity.health, &mut put),
+        Kind::Painting(painting) => save_painting(*painting, position, &mut put),
+        Kind::EndCrystal(crystal) => save_crystal(*crystal, &mut put),
+        // Never saved: `Entities::list` leaves it out (`can_be_saved`); the compound is only
+        // the common keys.
+        Kind::Firework(_) => {}
+    }
+    c
+}
+
+/// An NPC's keys: its health, `Invulnerable` and its form's own (PMMP `Living::saveNBT`,
+/// `Villager::saveNBT`, `Human::saveNBT`; a custom entity's data).
+fn save_npc(npc: &Character, health: f64, put: &mut impl FnMut(&str, Value)) {
+    put("Health", Value::Float(to_f32(health)));
+    put("Invulnerable", Value::Byte(u8::from(npc.invulnerable)));
+    match &npc.form {
+        Form::Villager { profession, offers } => {
+            put("Profession", Value::Int(i32::from(*profession)));
+            put("Offers", Value::Compound(offers.to_nbt()));
+        }
+        Form::Human { uuid: _, skin } => {
+            if let Some(skin) = skin {
+                put("Skin", Value::Compound(save_skin(skin)));
+            }
+        }
+        Form::Custom(custom) => {
+            if !custom.data.is_empty() {
+                put(DATA_KEY, Value::Compound(custom.data.clone()));
             }
         }
     }
-    c
+}
+
+/// A painting's keys (PMMP `Painting::saveNBT`): the wall block, the facing twice (Java's and
+/// Bedrock's key) and the motive.
+fn save_painting(painting: Painting, position: Vec3, put: &mut impl FnMut(&str, Value)) {
+    let block = BlockPos::containing(position);
+    let (dx, dy, dz) = painting.facing.opposite().offset();
+    let wall = block.offset(dx, dy, dz).unwrap_or(block);
+    put("TileX", Value::Int(wall.x));
+    put("TileY", Value::Int(wall.y));
+    put("TileZ", Value::Int(wall.z));
+    let data = facing_data(painting.facing);
+    put("Facing", Value::Byte(data));
+    put("Direction", Value::Byte(data));
+    put("Motive", Value::String(painting.motive.name().to_owned()));
+}
+
+/// An end crystal's keys (PMMP `EndCrystal::saveNBT`): the base shown and the beam target.
+fn save_crystal(crystal: Crystal, put: &mut impl FnMut(&str, Value)) {
+    put("ShowBottom", Value::Byte(u8::from(crystal.show_base)));
+    if let Some(t) = crystal.beam_target {
+        put("BlockTargetX", Value::Int(t.x));
+        put("BlockTargetY", Value::Int(t.y));
+        put("BlockTargetZ", Value::Int(t.z));
+    }
 }
 
 /// A projectile's keys (PMMP `Projectile::saveNBT`, `Arrow::saveNBT`, `SplashPotion::saveNBT`).
@@ -157,7 +256,7 @@ fn save_projectile(p: &Projectile, put: &mut impl FnMut(&str, Value)) {
             Value::List(List::Int(vec![pos.x, pos.y, pos.z])),
         );
     }
-    match p.shot {
+    match &p.shot {
         Shot::Arrow(a) => {
             put("pickup", Value::Byte(a.pickup.to_byte()));
             put("crit", Value::Byte(u8::from(a.critical)));
@@ -169,7 +268,11 @@ fn save_projectile(p: &Projectile, put: &mut impl FnMut(&str, Value)) {
         Shot::Potion { potion, .. } => {
             put("PotionId", Value::Short(i16::from(potion.id())));
         }
-        Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::ExperienceBottle => {}
+        Shot::Trident(t) => {
+            put("Trident", Value::Compound(t.item.to_nbt()));
+            put("isCreative", Value::Byte(u8::from(t.creative)));
+        }
+        Shot::Snowball | Shot::Egg | Shot::EnderPearl | Shot::ExperienceBottle | Shot::IceBomb => {}
     }
 }
 
@@ -214,8 +317,13 @@ fn save_cloud(cloud: &Cloud, put: &mut impl FnMut(&str, Value)) {
 }
 
 /// The entity a saved compound of chunk `chunk` describes, or `None` (the store keeps such a
-/// compound as it is).
-pub(super) fn load(c: &Compound, chunk: ChunkPos) -> Option<Loaded> {
+/// compound as it is); its items are read through `content`, the server's custom content.
+pub(super) fn load(
+    c: &Compound,
+    chunk: ChunkPos,
+    customs: &Customs,
+    content: &Registry,
+) -> Option<Loaded> {
     let identifier = match c.get("identifier").or_else(|| c.get("id")) {
         Some(Value::String(s)) => s.as_str(),
         _ => return None,
@@ -252,7 +360,13 @@ pub(super) fn load(c: &Compound, chunk: ChunkPos) -> Option<Loaded> {
         _ => 0,
     };
     let on_ground = matches!(c.get("OnGround"), Some(Value::Byte(b)) if *b != 0);
-    let kind = load_kind(c, identifier)?;
+    let kind = load_kind(c, identifier, customs, content)?;
+    if let Kind::Painting(p) = kind
+        && !hangs_at(c, p, position)
+    {
+        return None;
+    }
+    let looks = load_looks(c)?;
     let health = match (&kind, c.get("Health")) {
         (Kind::Item(_), Some(Value::Short(h))) => f64::from(*h),
         (Kind::Npc(_), Some(Value::Float(h))) if h.is_finite() => {
@@ -273,13 +387,50 @@ pub(super) fn load(c: &Compound, chunk: ChunkPos) -> Option<Loaded> {
         health,
         fire_ticks,
         kind,
+        looks,
+    })
+}
+
+/// The name tag and looks (PMMP `Entity::initEntity` and Anchor's keys); `None` for a name tag
+/// over [`MAX_NAME_TAG_BYTES`] or a scale that is not finite and in `(0, MAX_SCALE]`.
+fn load_looks(c: &Compound) -> Option<Looks> {
+    let flag = |k: &str| match c.get(k) {
+        Some(Value::Byte(b)) => Some(*b != 0),
+        _ => None,
+    };
+    let name_tag = match c.get("CustomName") {
+        Some(Value::String(s)) if s.len() <= MAX_NAME_TAG_BYTES => s.clone(),
+        Some(_) => return None,
+        None => String::new(),
+    };
+    let name_tag_visible = match c.get("CustomNameVisible") {
+        // Older PMMP versions saved a string (PMMP 890f72d).
+        Some(Value::String(s)) => !s.is_empty(),
+        _ => flag("CustomNameVisible").unwrap_or(true),
+    };
+    let scale = match c.get("Scale") {
+        Some(Value::Float(s)) => Some(f64::from(*s)).filter(|s| super::is_valid_scale(*s))?,
+        _ => 1.0,
+    };
+    Some(Looks {
+        name_tag,
+        name_tag_visible,
+        name_tag_always_visible: flag("CustomNameAlwaysVisible"),
+        scale,
+        invisible: flag("Invisible").unwrap_or(false),
+        gravity: !flag("NoGravity").unwrap_or(false),
     })
 }
 
 /// The kind a saved compound with `identifier` describes, with its own keys.
-fn load_kind(c: &Compound, identifier: &str) -> Option<Kind> {
+fn load_kind(
+    c: &Compound,
+    identifier: &str,
+    customs: &Customs,
+    content: &Registry,
+) -> Option<Kind> {
     Some(match identifier {
-        "minecraft:item" | "Item" => Kind::Item(load_item(c)?),
+        "minecraft:item" | "Item" => Kind::Item(load_item(c, content)?),
         "minecraft:xp_orb" | "XPOrb" => Kind::ExperienceOrb(load_orb(c)),
         "minecraft:falling_block" | "FallingSand" => {
             let Some(Value::Compound(block)) = c.get("FallingBlock") else {
@@ -301,6 +452,12 @@ fn load_kind(c: &Compound, identifier: &str) -> Option<Kind> {
         "minecraft:egg" | "Egg" => load_projectile(c, Shot::Egg)?,
         "minecraft:ender_pearl" | "ThrownEnderpearl" => load_projectile(c, Shot::EnderPearl)?,
         "minecraft:xp_bottle" | "ThrownExpBottle" => load_projectile(c, Shot::ExperienceBottle)?,
+        "minecraft:ice_bomb" => load_projectile(c, Shot::IceBomb)?,
+        "minecraft:thrown_trident" | "minecraft:trident" | "Trident" | "ThrownTrident" => {
+            load_projectile(c, Shot::Trident(load_trident(c, content)?))?
+        }
+        "minecraft:painting" | "Painting" => Kind::Painting(load_painting(c)?),
+        "minecraft:ender_crystal" | "EnderCrystal" => Kind::EndCrystal(load_crystal(c)),
         "minecraft:splash_potion" | "ThrownPotion" => load_projectile(c, potion(c, false)?)?,
         "minecraft:lingering_potion" => load_projectile(c, potion(c, true)?)?,
         "minecraft:area_effect_cloud" => Kind::Cloud(load_cloud(c)?),
@@ -313,7 +470,7 @@ fn load_kind(c: &Compound, identifier: &str) -> Option<Kind> {
                 },
                 // The trade module bounds and checks the offers it reads (PLAN.md 8.6).
                 offers: match c.get("Offers") {
-                    Some(Value::Compound(offers)) => Offers::from_nbt(offers),
+                    Some(Value::Compound(offers)) => Offers::from_nbt(offers, content),
                     None => Offers::default(),
                     Some(_) => return None,
                 },
@@ -322,24 +479,63 @@ fn load_kind(c: &Compound, identifier: &str) -> Option<Kind> {
         "Human" => Kind::Npc(load_npc(
             c,
             Form::Human {
-                name: match c.get("CustomName") {
-                    Some(Value::String(s)) if s.len() <= MAX_NAME_BYTES => s.clone(),
-                    Some(_) => return None,
-                    None => String::new(),
-                },
                 uuid: Uuid::from_bytes([0; 16]),
+                skin: match c.get("Skin") {
+                    Some(Value::Compound(skin)) => load_skin(skin).map(Arc::new),
+                    _ => None,
+                },
             },
         )),
-        _ => return None,
+        _ => load_custom(c, identifier, customs)?,
     })
 }
 
+/// A human NPC's `Skin` compound (PMMP `Human::saveNBT`).
+fn save_skin(skin: &Skin) -> Compound {
+    Compound::from([
+        ("Name".to_owned(), Value::String(skin.id().to_owned())),
+        ("Data".to_owned(), Value::ByteArray(skin.data().to_vec())),
+        (
+            "CapeData".to_owned(),
+            Value::ByteArray(skin.cape().to_vec()),
+        ),
+        (
+            "GeometryName".to_owned(),
+            Value::String(skin.geometry_name().to_owned()),
+        ),
+        (
+            "GeometryData".to_owned(),
+            Value::ByteArray(skin.geometry_data().to_vec()),
+        ),
+    ])
+}
+
+/// The skin of a saved `Skin` compound (PMMP `Human::parseSkinNBT`); `None` (the default skin)
+/// when it does not pass [`Skin`]'s checks.
+fn load_skin(c: &Compound) -> Option<Skin> {
+    let bytes = |k: &str| match c.get(k) {
+        Some(Value::ByteArray(b)) => Some(b.clone()),
+        None => Some(Vec::new()),
+        Some(_) => None,
+    };
+    let Some(Value::String(name)) = c.get("Name") else {
+        return None;
+    };
+    let geometry = match c.get("GeometryName") {
+        Some(Value::String(g)) => g.as_str(),
+        _ => return None,
+    };
+    Skin::new(name.clone(), bytes("Data")?)?
+        .with_cape(bytes("CapeData")?)?
+        .with_geometry(geometry, bytes("GeometryData")?)
+}
+
 /// A dropped item's keys (PMMP `ItemEntity::initEntity`); `None` without a valid stack.
-fn load_item(c: &Compound) -> Option<Item> {
+fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     let Some(Value::Compound(stack)) = c.get("Item") else {
         return None;
     };
-    let stack = Stack::from_nbt(stack).filter(|s| !s.is_empty())?;
+    let stack = Stack::from_nbt_with(stack, content).filter(|s| !s.is_empty())?;
     let pickup_delay = match c.get("PickupDelay") {
         Some(Value::Short(d)) => (*d).max(NEVER),
         _ => 0,
@@ -382,6 +578,7 @@ fn load_projectile(c: &Compound, shot: Shot) -> Option<Kind> {
         Some(_) => return None,
         None => match shot {
             Shot::Arrow(_) => super::projectile::ARROW_DAMAGE,
+            Shot::Trident(_) => TRIDENT_DAMAGE,
             _ => 0.0,
         },
     };
@@ -399,6 +596,68 @@ fn load_projectile(c: &Compound, shot: Shot) -> Option<Kind> {
         owner: None,
         owner_runtime_id: 0,
     }))
+}
+
+/// A thrown trident's keys (PMMP's `Trident` factory and `initEntity`); `None` without a valid
+/// item.
+fn load_trident(c: &Compound, content: &Registry) -> Option<Trident> {
+    let Some(Value::Compound(item)) = c.get("Trident") else {
+        return None;
+    };
+    let item = Stack::from_nbt_with(item, content).filter(|s| !s.is_empty())?;
+    Some(Trident {
+        item,
+        creative: matches!(c.get("isCreative"), Some(Value::Byte(1))),
+        can_collide: true,
+    })
+}
+
+/// A painting's keys (PMMP's `Painting` factory): a known motive and a facing (`Direction`,
+/// else `Facing`).
+fn load_painting(c: &Compound) -> Option<Painting> {
+    let Some(Value::String(motive)) = c.get("Motive") else {
+        return None;
+    };
+    let facing = match (c.get("Direction"), c.get("Facing")) {
+        (Some(Value::Byte(d)), _) | (None, Some(Value::Byte(d))) => data_facing(*d),
+        _ => return None,
+    };
+    Some(Painting {
+        motive: PaintingMotive::from_name(motive)?,
+        facing,
+        drops: true,
+    })
+}
+
+/// Whether a saved painting's wall block (`TileX`, `TileY`, `TileZ`) is the block behind its
+/// position, as every painting PMMP or Anchor saves has it.
+fn hangs_at(c: &Compound, painting: Painting, position: Vec3) -> bool {
+    let (Some(Value::Int(x)), Some(Value::Int(y)), Some(Value::Int(z))) =
+        (c.get("TileX"), c.get("TileY"), c.get("TileZ"))
+    else {
+        return false;
+    };
+    BlockPos::new(*x, *y, *z).step(painting.facing) == Some(BlockPos::containing(position))
+}
+
+/// An end crystal's keys (PMMP `EndCrystal::initEntity`): the beam target only with all three
+/// ints.
+fn load_crystal(c: &Compound) -> Crystal {
+    let target = match (
+        c.get("BlockTargetX"),
+        c.get("BlockTargetY"),
+        c.get("BlockTargetZ"),
+    ) {
+        (Some(Value::Int(x)), Some(Value::Int(y)), Some(Value::Int(z))) => {
+            Some(BlockPos::new(*x, *y, *z))
+        }
+        _ => None,
+    };
+    Crystal {
+        show_base: matches!(c.get("ShowBottom"), Some(Value::Byte(1))),
+        beam_target: target,
+        primed: false,
+    }
 }
 
 /// An arrow's keys (PMMP `Arrow::initEntity`).
@@ -495,6 +754,19 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
     })
 }
 
+/// A custom entity of the registered type `identifier` (`None` for a type the server does not
+/// have, or data over [`custom::MAX_DATA_BYTES`]): an NPC's keys and its data.
+fn load_custom(c: &Compound, identifier: &str, customs: &Customs) -> Option<Kind> {
+    let spec = customs.find(identifier)?;
+    let data = match c.get(DATA_KEY) {
+        Some(Value::Compound(data)) if custom::fits(data) => data.clone(),
+        Some(_) => return None,
+        None => Compound::new(),
+    };
+    let spec = Arc::clone(spec);
+    Some(Kind::Npc(load_npc(c, Form::Custom(Custom { spec, data }))))
+}
+
 /// An NPC's keys.
 fn load_npc(c: &Compound, form: Form) -> Character {
     Character {
@@ -571,7 +843,7 @@ fn vector(v: Option<&Value>) -> Option<Vec3> {
 pub(super) mod tests {
     use super::super::physics::tests::named;
     use super::*;
-    use crate::block;
+    use crate::block::{self, Face};
     use crate::item::{Enchantment, Extra, Type};
 
     /// `count` of the item `name` (a block's item for a block name).
@@ -747,10 +1019,13 @@ pub(super) mod tests {
             Kind::Npc(Character {
                 form: Form::Villager {
                     profession: 3,
-                    offers: Offers::from_nbt(&crate::nbt::Compound::from([(
-                        "Recipes".to_owned(),
-                        Value::List(crate::nbt::List::Compound(vec![offer(0), offer(1)])),
-                    )])),
+                    offers: Offers::from_nbt(
+                        &crate::nbt::Compound::from([(
+                            "Recipes".to_owned(),
+                            Value::List(crate::nbt::List::Compound(vec![offer(0), offer(1)])),
+                        )]),
+                        &crate::custom::Registry::default(),
+                    ),
                 },
                 invulnerable: true,
                 attack_time: 0,
@@ -759,7 +1034,7 @@ pub(super) mod tests {
             }),
             Kind::Npc(Character {
                 form: Form::Human {
-                    name: "Guide".to_owned(),
+                    skin: None,
                     uuid: Uuid::from_bytes([0; 16]),
                 },
                 invulnerable: false,
@@ -767,7 +1042,61 @@ pub(super) mod tests {
                 last_damage: 0.0,
                 dead_ticks: None,
             }),
+            Kind::Painting(Painting {
+                motive: PaintingMotive::Kebab,
+                facing: Face::West,
+                drops: true,
+            }),
+            Kind::Painting(Painting {
+                motive: PaintingMotive::Skeleton,
+                facing: Face::South,
+                drops: true,
+            }),
+            Kind::EndCrystal(Crystal {
+                show_base: true,
+                beam_target: Some(BlockPos::new(3, -50, -9)),
+                primed: false,
+            }),
+            Kind::EndCrystal(Crystal {
+                show_base: false,
+                beam_target: None,
+                primed: false,
+            }),
+            projectile(
+                Shot::Trident(Trident {
+                    item: stack("minecraft:trident", 1).with_damage(3),
+                    creative: false,
+                    can_collide: true,
+                }),
+                TRIDENT_DAMAGE,
+                Some(BlockPos::new(5, -61, -4)),
+            ),
+            projectile(
+                Shot::Trident(Trident {
+                    item: stack("minecraft:trident", 1),
+                    creative: true,
+                    can_collide: true,
+                }),
+                TRIDENT_DAMAGE,
+                None,
+            ),
+            projectile(Shot::IceBomb, 0.0, None),
+            Kind::Firework(super::super::kind::Firework {
+                max_flight: 60,
+                explosions: vec![Compound::from([
+                    ("FireworkType".to_owned(), Value::Byte(1)),
+                    ("FireworkColor".to_owned(), Value::ByteArray(vec![4, 11])),
+                    ("FireworkFlicker".to_owned(), Value::Byte(1)),
+                ])],
+                owner: None,
+                owner_runtime_id: 0,
+            }),
         ]
+    }
+
+    /// [`load`] on a server without custom entities or custom items.
+    fn vanilla_load(c: &Compound, chunk: ChunkPos) -> Option<Loaded> {
+        load(c, chunk, &Customs::default(), &Registry::default())
     }
 
     /// The disk bytes of a compound (little-endian NBT, as chunk extras are written).
@@ -780,13 +1109,13 @@ pub(super) mod tests {
     #[test]
     fn every_kind_round_trips_through_its_saved_form() {
         let at = Vec3::new(5.25, -59.5, -3.75);
-        for kind in kinds() {
+        for kind in kinds().into_iter().filter(Kind::can_be_saved) {
             let mut e = entity(kind.clone(), at);
             if matches!(kind, Kind::Npc(_)) {
                 e.health = 13.0;
             }
             let saved = save(&e);
-            let loaded = load(&saved, ChunkPos::new(0, -1)).expect("loads");
+            let loaded = vanilla_load(&saved, ChunkPos::new(0, -1)).expect("loads");
             assert_eq!(loaded.kind, kind);
             assert_eq!(loaded.body, e.body);
             assert_eq!((loaded.yaw, loaded.pitch), (e.yaw, e.pitch));
@@ -805,15 +1134,15 @@ pub(super) mod tests {
     fn saved_compounds_that_are_not_entities_here_do_not_load() {
         let e = entity(kinds().remove(0), Vec3::new(5.25, -59.5, -3.75));
         let good = save(&e);
-        assert!(load(&good, ChunkPos::new(0, -1)).is_some());
+        assert!(vanilla_load(&good, ChunkPos::new(0, -1)).is_some());
         assert!(
-            load(&good, ChunkPos::new(1, -1)).is_none(),
+            vanilla_load(&good, ChunkPos::new(1, -1)).is_none(),
             "outside its chunk"
         );
         let broken = |edit: &dyn Fn(&mut Compound)| {
             let mut c = good.clone();
             edit(&mut c);
-            load(&c, ChunkPos::new(0, -1))
+            vanilla_load(&c, ChunkPos::new(0, -1))
         };
         assert!(
             broken(&|c| {
@@ -864,20 +1193,20 @@ pub(super) mod tests {
         let tnt = save(&entity(kinds().remove(6), Vec3::new(5.25, -59.5, -3.75)));
         let mut bad = tnt.clone();
         bad.insert("Fuse".to_owned(), Value::Short(-3));
-        assert!(load(&bad, ChunkPos::new(0, -1)).is_none());
+        assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
         let arrow = save(&entity(kinds().remove(8), Vec3::new(5.25, -59.5, -3.75)));
         let mut bad = arrow.clone();
         bad.insert("damage".to_owned(), Value::Double(f64::INFINITY));
-        assert!(load(&bad, ChunkPos::new(0, -1)).is_none());
+        assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
         let mut bad = arrow;
         bad.insert(
             "StuckToBlockPos".to_owned(),
             Value::List(List::Int(vec![1, 2])),
         );
-        assert!(load(&bad, ChunkPos::new(0, -1)).is_none());
+        assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
         let npc = save(&entity(kinds().remove(17), Vec3::new(5.25, -59.5, -3.75)));
         let mut bad = npc;
         bad.insert("Profession".to_owned(), Value::Int(1000));
-        assert!(load(&bad, ChunkPos::new(0, -1)).is_none());
+        assert!(vanilla_load(&bad, ChunkPos::new(0, -1)).is_none());
     }
 }

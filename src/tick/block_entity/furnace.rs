@@ -4,6 +4,7 @@
 //! the whole part, and the fraction as a chance); taking from the output drops it as orbs.
 
 use crate::crafting::{self, FurnaceType};
+use crate::custom::Registry;
 use crate::item::Stack;
 use crate::nbt::{Compound, Value};
 use crate::random::Random;
@@ -132,79 +133,175 @@ impl Furnace {
         ]
     }
 
-    /// The recipe for `input`, looked up only when the input differs from the last one.
-    fn recipe(&mut self, input: &Stack) -> Option<&'static crate::crafting::Furnace> {
+    /// The recipe for `input` among PMMP's and the server's custom ones (`custom`, fixed for
+    /// the server's life), looked up only when the input differs from the last one.
+    fn recipe(&mut self, input: &Stack, custom: &Registry) -> Option<crafting::Furnace> {
         let one = input.with_count(1);
         let index = match &self.recipe {
             Some((last, index)) if *last == one => *index,
             _ => {
-                let index = crafting::furnace_recipe(self.kind, &one);
+                let index = custom.furnace_recipe(self.kind, &one);
                 self.recipe = Some((one, index));
                 index
             }
         };
-        index.and_then(crafting::furnace_at)
+        index.and_then(|i| custom.furnace_at(i))
     }
 
-    /// One tick (PMMP `Furnace::onUpdate`). `items` are the three slots; `lit` whether the block
-    /// is lit now.
+    /// One tick (PMMP `Furnace::onUpdate`) without events: [`begin`](Self::begin), the fuel
+    /// that is due burns, the cooking, the smelt that is due, [`finish`](Self::finish). `items`
+    /// are the three slots; `lit` whether the block is lit now. The tick raises its events
+    /// between these steps (`tick_furnace`).
+    #[cfg(test)]
     pub(in crate::tick) fn step(
         &mut self,
         items: &mut [Stack],
         lit: bool,
         rng: &mut Random,
+        custom: &Registry,
     ) -> Step {
-        let mut out = Step::default();
-        let (prev_cook, prev_burn, prev_max) = (self.cook, self.burn, self.max_burn);
+        let mut t = self.begin(lit);
+        if let Some((_, time)) = self.fuel_due(items, custom) {
+            self.burn(items, time, true, &mut t);
+        }
+        if let Some((_, result)) = self.cook(items, custom, &mut t) {
+            self.smelt(items, &result, rng, &mut t);
+        }
+        self.finish(t)
+    }
+
+    /// Starts a tick: what [`finish`](Self::finish) compares with.
+    pub(in crate::tick) fn begin(&self, lit: bool) -> Tick {
+        Tick {
+            prev: (self.cook, self.burn, self.max_burn),
+            lit,
+            out: Step::default(),
+        }
+    }
+
+    /// The input and what one smelt of it makes, if it can smelt now: it has a recipe and the
+    /// output has room for the result (PMMP `canSmelt`).
+    pub(in crate::tick) fn ready(
+        &mut self,
+        items: &[Stack],
+        custom: &Registry,
+    ) -> Option<(Stack, Stack)> {
         let raw = items.get(INPUT).cloned().unwrap_or_default();
-        let fuel = items.get(FUEL).cloned().unwrap_or_default();
+        let result = self.recipe(&raw, custom).and_then(|r| r.result.to_item())?;
         let product = items.get(OUTPUT).cloned().unwrap_or_default();
-        let smelt = self.recipe(&raw);
-        let result = smelt.and_then(|r| r.result.to_item());
-        let can_smelt = result.as_ref().is_some_and(|result| {
-            raw.count() > 0
-                && (product.is_empty()
-                    || (result.can_stack_with(&product) && product.count() < product.max_count()))
-        });
-        let fuel_time = fuel.item().map_or(0, crate::item::Type::fuel_time);
-        if self.burn == 0 && can_smelt && fuel_time > 0 && fuel.count() > 0 {
-            // PMMP `checkFuel`: the fuel's time, the block lit, the residue in the slot.
-            self.burn = fuel_time;
-            self.max_burn = fuel_time;
-            if !lit {
-                out.lit = Some(true);
-            }
+        let room = product.is_empty()
+            || (result.can_stack_with(&product) && product.count() < product.max_count());
+        (raw.count() > 0 && room).then(|| (raw.with_count(1), result))
+    }
+
+    /// The fuel that starts burning now (PMMP `checkFuel`'s condition: nothing burns, the input
+    /// can smelt, the fuel slot holds fuel): one of it and its burn time.
+    pub(in crate::tick) fn fuel_due(
+        &mut self,
+        items: &[Stack],
+        custom: &Registry,
+    ) -> Option<(Stack, u16)> {
+        let fuel = items.get(FUEL).cloned().unwrap_or_default();
+        let time = fuel.item().map_or(0, crate::item::Type::fuel_time);
+        (self.burn == 0 && time > 0 && fuel.count() > 0 && self.ready(items, custom).is_some())
+            .then(|| (fuel.with_count(1), time))
+    }
+
+    /// Starts burning the fuel of [`fuel_due`](Self::fuel_due) for `time` ticks (at least 1):
+    /// the block lights; when `consume`, the fuel item is used up (its residue stays).
+    pub(in crate::tick) fn burn(
+        &mut self,
+        items: &mut [Stack],
+        time: u16,
+        consume: bool,
+        t: &mut Tick,
+    ) {
+        let fuel = items.get(FUEL).cloned().unwrap_or_default();
+        self.burn = time.max(1);
+        self.max_burn = self.burn;
+        if !t.lit {
+            t.out.lit = Some(true);
+        }
+        if consume {
             let residue = match fuel.item().and_then(crate::item::Type::fuel_residue) {
                 Some(residue) => Stack::new(residue, 1),
-                None => fuel.with_count(fuel.count() - 1),
+                None => fuel.with_count(fuel.count().saturating_sub(1)),
             };
-            set(items, FUEL, residue, &mut out);
-            out.fuel = Some(fuel.with_count(1));
+            set(items, FUEL, residue, &mut t.out);
         }
+        t.out.fuel = Some(fuel.with_count(1));
+    }
+
+    /// Burns one tick and cooks the input: the input and result of a smelt that is due now.
+    pub(in crate::tick) fn cook(
+        &mut self,
+        items: &[Stack],
+        custom: &Registry,
+        t: &mut Tick,
+    ) -> Option<(Stack, Stack)> {
+        let mut due = None;
         if self.burn > 0 {
             self.burn -= 1;
-            if let (Some(result), true) = (result, can_smelt) {
+            if let Some(ready) = self.ready(items, custom) {
                 self.cook = self.cook.saturating_add(1);
                 let need = self.kind.cook_ticks();
                 if self.cook >= need {
-                    let count = product.count().saturating_add(result.count());
-                    set(items, OUTPUT, result.with_count(count), &mut out);
-                    set(items, INPUT, raw.with_count(raw.count() - 1), &mut out);
                     self.cook -= need;
-                    self.xp = self.xp.saturating_add(earned(&result, rng));
+                    due = Some(ready);
                 }
             } else if self.burn == 0 {
                 (self.burn, self.cook, self.max_burn) = (0, 0, 0);
             } else {
                 self.cook = 0;
             }
-            out.active = true;
+            t.out.active = true;
         } else {
-            if lit {
-                out.lit = Some(false);
+            if t.lit {
+                t.out.lit = Some(false);
             }
             (self.burn, self.cook, self.max_burn) = (0, 0, 0);
         }
+        due
+    }
+
+    /// Whether `result` goes onto the output slot: it is not empty and stacks onto the output
+    /// within the stack size.
+    pub(in crate::tick) fn fits(items: &[Stack], result: &Stack) -> bool {
+        let product = items.get(OUTPUT).cloned().unwrap_or_default();
+        !result.is_empty()
+            && (product.is_empty() || product.can_stack_with(result))
+            && u16::from(product.count()) + u16::from(result.count())
+                <= u16::from(result.max_count())
+    }
+
+    /// Smelts one input into `result` (which [`fits`](Self::fits)) and stores its experience.
+    pub(in crate::tick) fn smelt(
+        &mut self,
+        items: &mut [Stack],
+        result: &Stack,
+        rng: &mut Random,
+        t: &mut Tick,
+    ) {
+        let raw = items.get(INPUT).cloned().unwrap_or_default();
+        let product = items.get(OUTPUT).cloned().unwrap_or_default();
+        let count = product.count().saturating_add(result.count());
+        set(items, OUTPUT, result.with_count(count), &mut t.out);
+        set(
+            items,
+            INPUT,
+            raw.with_count(raw.count().saturating_sub(1)),
+            &mut t.out,
+        );
+        self.xp = self.xp.saturating_add(earned(result, rng));
+    }
+
+    /// Ends a tick: what it did, with the window data that changed.
+    pub(in crate::tick) fn finish(&self, t: Tick) -> Step {
+        let Tick {
+            prev: (prev_cook, prev_burn, prev_max),
+            mut out,
+            ..
+        } = t;
         for (key, before, now) in [
             (DATA_COOK, prev_cook, self.cook),
             (DATA_BURN, prev_burn, self.burn),
@@ -216,6 +313,16 @@ impl Furnace {
         }
         out
     }
+}
+
+/// A furnace tick in progress.
+#[derive(Debug)]
+pub(in crate::tick) struct Tick {
+    /// The cook, burn and max burn times when it began.
+    prev: (u16, u16, u16),
+    /// Whether the block was lit when it began.
+    lit: bool,
+    out: Step,
 }
 
 /// Sets slot `i`, marking it changed (and kept if only its count changed).
@@ -265,7 +372,7 @@ mod tests {
         let mut rng = Random::new(1, 0, 1);
         (0..ticks)
             .map(|_| {
-                let step = f.step(items, *lit, &mut rng);
+                let step = f.step(items, *lit, &mut rng, &Registry::default());
                 if let Some(l) = step.lit {
                     *lit = l;
                 }

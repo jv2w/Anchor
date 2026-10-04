@@ -539,28 +539,7 @@ func playTrade(g *game) error {
 		return err
 	}
 	g.check("offer", nbtJSON(offer.raw, 0))
-	src, _, ok := g.find(offer.buyName)
-	if !ok {
-		return fmt.Errorf("no %v to pay with", offer.buyName)
-	}
-	if _, err := g.request("payment into the trade", g.requestID(), protocol.ItemStack{},
-		place(offer.buyCount, g.slotInfo(src), g.uiSlot(protocol.ContainerTradeTwoIngredientOne, 4))); err != nil {
-		return err
-	}
-	g.trade = nil
-	sell := protocol.ItemStack{ItemType: protocol.ItemType{NetworkID: offer.sellID}, Count: uint16(offer.sellCount)}
-	dst, err := g.destination(sell, true)
-	if err != nil {
-		return err
-	}
-	id := g.requestID()
-	actions := []protocol.StackRequestAction{
-		&protocol.CraftRecipeStackRequestAction{RecipeNetworkID: offer.netID, NumberOfCrafts: 1},
-		&protocol.CraftResultsDeprecatedStackRequestAction{ResultItems: []protocol.StackRequestItem{g.resultItem(sell)}, TimesCrafted: 1},
-		consume(offer.buyCount, g.uiSlot(protocol.ContainerTradeTwoIngredientOne, 4)),
-		place(offer.sellCount, createdSlot(id), g.slotInfo(dst)),
-	}
-	if _, err := g.request("trade", id, sell, actions...); err != nil {
+	if err := g.takeOffer(offer); err != nil {
 		return err
 	}
 	if err := g.settle(3 * time.Second); err != nil {
@@ -615,6 +594,34 @@ func playTrade(g *game) error {
 		return err
 	}
 	return g.settle(time.Second)
+}
+
+// takeOffer trades once in the open trade window, like the client: the payment into the first ingredient
+// slot, then the offer's recipe with the result placed into the inventory.
+func (g *game) takeOffer(o offer) error {
+	src, _, ok := g.find(o.buyName)
+	if !ok {
+		return fmt.Errorf("no %v to pay with", o.buyName)
+	}
+	if _, err := g.request("payment into the trade", g.requestID(), protocol.ItemStack{},
+		place(o.buyCount, g.slotInfo(src), g.uiSlot(protocol.ContainerTradeTwoIngredientOne, 4))); err != nil {
+		return err
+	}
+	g.trade = nil
+	sell := protocol.ItemStack{ItemType: protocol.ItemType{NetworkID: o.sellID}, Count: uint16(o.sellCount)}
+	dst, err := g.destination(sell, true)
+	if err != nil {
+		return err
+	}
+	id := g.requestID()
+	actions := []protocol.StackRequestAction{
+		&protocol.CraftRecipeStackRequestAction{RecipeNetworkID: o.netID, NumberOfCrafts: 1},
+		&protocol.CraftResultsDeprecatedStackRequestAction{ResultItems: []protocol.StackRequestItem{g.resultItem(sell)}, TimesCrafted: 1},
+		consume(o.buyCount, g.uiSlot(protocol.ContainerTradeTwoIngredientOne, 4)),
+		place(o.sellCount, createdSlot(id), g.slotInfo(dst)),
+	}
+	_, err = g.request("trade", id, sell, actions...)
+	return err
 }
 
 // summonForms are the console forms tried for a villager; the first that makes one is used from then on.

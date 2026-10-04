@@ -9,6 +9,7 @@
 use super::Cx;
 use super::props::HORIZONTAL;
 use crate::block::{self, Class, Face, Kind, PropertyValue};
+use crate::event::BlockSpread;
 use crate::world::{BlockPos, MAX_Y, MIN_Y};
 
 /// The highest decay (PMMP `Liquid::MAX_DECAY`).
@@ -195,7 +196,7 @@ pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) 
     }
     let (bottom_pos, bottom) = at(cx, pos, 0, -1, 0);
     if let Some(b) = bottom_pos {
-        flow_into(cx, this, b, bottom, 0, true);
+        flow_into(cx, (pos, this), b, bottom, 0, true);
     }
     if this.is_source() || !bottom.can_be_flowed_into() {
         let adjacent = if this.falling {
@@ -208,7 +209,7 @@ pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) 
                 let (dx, dy, dz) = face.offset();
                 let (p, s) = at(cx, pos, dx, dy, dz);
                 if let Some(p) = p {
-                    flow_into(cx, this, p, s, adjacent, false);
+                    flow_into(cx, (pos, this), p, s, adjacent, false);
                 }
             }
         }
@@ -216,17 +217,18 @@ pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) 
     harden(cx, pos, this);
 }
 
-/// PMMP `flowIntoBlock` (with lava's override: lava flowing into water turns it to stone).
+/// PMMP `flowIntoBlock`: the liquid at `from` spreads into `pos` ([`BlockSpread`]), breaking
+/// what was there; with lava's override, lava flowing into water forms stone of the water.
 fn flow_into(
     cx: &mut Cx<'_>,
-    this: Liquid,
+    (from, this): (BlockPos, Liquid),
     pos: BlockPos,
     s: block::State,
     decay: i32,
     falling: bool,
 ) {
     if !this.is_water() && s.class() == Class::Water {
-        cx.set(pos, Kind::Stone.default_state());
+        cx.form(pos, Kind::Stone.default_state(), from);
         return;
     }
     if !Liquid::can_flow_into(pos, s) || Liquid::of(s).is_some() {
@@ -235,14 +237,34 @@ fn flow_into(
     let Some(new) = this.with(if falling { 0 } else { decay }, falling) else {
         return;
     };
+    let Ok(event) = cx.ask(
+        [pos, from],
+        |cx| BlockSpread {
+            world: cx.world_id(),
+            pos,
+            block: s,
+            new_state: new,
+            source: from,
+            cancelled: false,
+        },
+        BlockSpread::is_cancelled,
+    ) else {
+        return;
+    };
     if s.kind() != Kind::Air {
         cx.destroy(pos);
     }
-    cx.set(pos, new);
+    if cx.set(pos, new) {
+        cx.tell(event);
+    }
 }
 
 /// Lava next to water hardens (PMMP `Lava::checkForHarden`): a source to obsidian, decay up to 4
-/// to cobblestone; on soul soil next to blue ice, to basalt. Water never hardens.
+/// to cobblestone; on soul soil next to blue ice, to basalt ([`BlockForm`] caused by the water or
+/// the ice). Water never hardens. True when the lava meets what hardens it, formed or not (PMMP
+/// `liquidCollide`).
+///
+/// [`BlockForm`]: crate::event::BlockForm
 fn harden(cx: &mut Cx<'_>, pos: BlockPos, this: Liquid) -> bool {
     if this.is_water() || this.falling {
         return false;
@@ -250,12 +272,15 @@ fn harden(cx: &mut Cx<'_>, pos: BlockPos, this: Liquid) -> bool {
     let around = [Face::Up, Face::North, Face::South, Face::West, Face::East];
     for face in around {
         let (dx, dy, dz) = face.offset();
-        if at(cx, pos, dx, dy, dz).1.class() == Class::Water {
+        let (cause, s) = at(cx, pos, dx, dy, dz);
+        if s.class() == Class::Water
+            && let Some(cause) = cause
+        {
             if this.decay == 0 {
-                cx.set(pos, Kind::Obsidian.default_state());
+                cx.form(pos, Kind::Obsidian.default_state(), cause);
                 return true;
             } else if this.decay <= 4 {
-                cx.set(pos, Kind::Cobblestone.default_state());
+                cx.form(pos, Kind::Cobblestone.default_state(), cause);
                 return true;
             }
         }
@@ -263,8 +288,10 @@ fn harden(cx: &mut Cx<'_>, pos: BlockPos, this: Liquid) -> bool {
     if at(cx, pos, 0, -1, 0).1.kind() == Kind::SoulSoil {
         for face in around {
             let (dx, dy, dz) = face.offset();
-            if at(cx, pos, dx, dy, dz).1.kind() == Kind::BlueIce {
-                cx.set(pos, Kind::Basalt.default_state());
+            if let (Some(cause), s) = at(cx, pos, dx, dy, dz)
+                && s.kind() == Kind::BlueIce
+            {
+                cx.form(pos, Kind::Basalt.default_state(), cause);
                 return true;
             }
         }

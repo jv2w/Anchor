@@ -2,15 +2,12 @@
 //! entity data (`SetActorData`), abilities (`UpdateAbilities`), adventure settings and game
 //! rules, with the values BDS sends (P6 facts 7) and the changes sent at the end of each tick.
 
-use super::{
-    MAX_AIR, Survival, broadcast_to_viewers, effects, f32_of, first_session, game_mode_of,
-    next_session,
-};
+use super::{Survival, broadcast_to_viewers, effects, f32_of, first_session, next_session};
 use crate::config::GameMode;
 use crate::effect;
 use crate::protocol::consts::{
-    ABILITY_BASE_FLY_SPEED, ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability,
-    AbilityLayerType, EntityDataFlag, EntityDataKey,
+    ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability, AbilityLayerType,
+    CommandPermissionLevel, EntityDataFlag, EntityDataKey, PermissionLevel,
 };
 use crate::protocol::packet::{
     GameRulesChanged, Packet, SetActorData, UpdateAbilities, UpdateAdventureSettings,
@@ -20,7 +17,7 @@ use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, EntityProperties,
     FlagSet, GameRule, GameRuleValue, MetadataValue,
 };
-use crate::tick::{Phase, Player, Settings, State};
+use crate::tick::{Phase, Player, SessionId, Settings, State};
 
 /// Health changed.
 pub(super) const HEALTH: u16 = 1;
@@ -42,9 +39,15 @@ pub(super) const MOVEMENT: u16 = 1 << 7;
 pub(super) const ALL: u16 = 0xff;
 /// Abilities changed (game mode, flying).
 pub(super) const ABILITIES: u16 = 1 << 8;
+/// The name tag or the score tag changed.
+pub(super) const TAGS: u16 = 1 << 9;
+/// Entity data the API set changed (flags, fire): the end of the tick compares it.
+pub(super) const DATA: u16 = 1 << 10;
+/// The adventure settings changed (auto jump).
+pub(super) const ADVENTURE: u16 = 1 << 11;
 
 /// The base movement speed (BDS and PMMP `Attribute::MOVEMENT_SPEED` default).
-const BASE_SPEED: f64 = 0.1;
+pub(super) const BASE_SPEED: f64 = 0.1;
 /// The absorption maximum BDS sends; more absorption raises it.
 const ABSORPTION_MAX: f32 = 16.0;
 
@@ -92,7 +95,7 @@ const DEFS: [Def; 17] = [
     Def::new("minecraft:air_drag_modifier", 0.0, 256.0, 1.0, 0),
 ];
 
-/// The movement speed: the base, times 1.3 sprinting, times 1 + 0.2 per speed level, times
+/// The movement speed: the base (0.1 unless the API set another), times 1.3 sprinting, times 1 + 0.2 per speed level, times
 /// 1 - 0.15 per slowness level (at least 0). PMMP multiplies and divides the attribute as each
 /// changes, which drifts and stays at 0 once slowness reached it; Anchor works it out again.
 pub(super) fn movement_speed(s: &Survival) -> f64 {
@@ -100,7 +103,7 @@ pub(super) fn movement_speed(s: &Survival) -> f64 {
     let speed = 1.0 + 0.2 * f64::from(s.effect_level(effect::Type::Speed));
     let slow = 1.0 - 0.15 * f64::from(s.effect_level(effect::Type::Slowness));
     let slow = if slow > 0.0 { slow } else { 0.0 };
-    BASE_SPEED * sprint * speed * slow
+    s.custom.movement_speed * sprint * speed * slow
 }
 
 /// One attribute with its current value.
@@ -153,13 +156,15 @@ fn attributes_packet(player: &Player, bits: u16) -> Packet {
     })
 }
 
-/// The entity data of a player that changes (keys 0, 7, 26, 28, 92, 127, 129, 130, 131).
+/// The entity data of a player that changes (keys 0, 7, 26, 28, 42, 92, 127, 129, 130, 131).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(super) struct Shown {
     /// Entity flags, keys 0 and 92.
     flags: [u64; 2],
     /// Air supply, key 7.
     air: i16,
+    /// The full air supply, key 42.
+    max_air: i16,
     /// Player flags (bit 1: sleeping), key 26.
     player_flags: u8,
     /// The bed position, key 28.
@@ -179,6 +184,7 @@ impl Shown {
         let Self {
             flags,
             air,
+            max_air,
             player_flags,
             bed,
             died,
@@ -190,6 +196,7 @@ impl Shown {
             h.u64(*w);
         }
         h.u64(u64::from(air.cast_unsigned()));
+        h.u64(u64::from(max_air.cast_unsigned()));
         h.u64(u64::from(*player_flags));
         for c in bed.iter().chain(death) {
             h.u64(u64::from(c.cast_unsigned()));
@@ -206,12 +213,11 @@ impl Shown {
 const PLAYER_FLAG_SLEEP: u8 = 1 << 1;
 
 /// The changing entity data of a player now.
-pub(super) fn shown(settings: &Settings, player: &Player) -> Shown {
+pub(super) fn shown(player: &Player) -> Shown {
     let s = &player.survival;
-    let mode = game_mode_of(settings, player);
+    let mode = player.survival.mode();
     let mut flags: FlagSet<EntityDataFlag> = FlagSet::new();
     // BDS sends these for every player (P6 facts 7); PMMP sets `CAN_CLIMB` for players too.
-    flags.insert(EntityDataFlag::Climb);
     flags.insert(EntityDataFlag::HiddenWhenInvisible);
     flags.insert(EntityDataFlag::PushTowardsClosestSpace);
     if mode != GameMode::Spectator {
@@ -221,12 +227,16 @@ pub(super) fn shown(settings: &Settings, player: &Player) -> Shown {
         flags.insert(EntityDataFlag::HasGravity);
     }
     for (on, flag) in [
+        (s.custom.can_climb, EntityDataFlag::Climb),
+        (s.custom.can_climb_walls, EntityDataFlag::WallClimbing),
         (s.fire_ticks > 0, EntityDataFlag::OnFire),
+        (s.custom.silent, EntityDataFlag::Silent),
+        (s.custom.no_client_predictions, EntityDataFlag::NoAi),
         (s.motion.sneaking, EntityDataFlag::Sneaking),
         (s.motion.sprinting, EntityDataFlag::Sprinting),
         (s.using.is_some(), EntityDataFlag::UsingItem),
         (
-            s.effects.contains_key(&effect::Type::Invisibility),
+            s.custom.invisible || s.effects.contains_key(&effect::Type::Invisibility),
             EntityDataFlag::Invisible,
         ),
         (s.motion.gliding, EntityDataFlag::Gliding),
@@ -241,6 +251,7 @@ pub(super) fn shown(settings: &Settings, player: &Player) -> Shown {
     Shown {
         flags: [w0, w1],
         air: s.air,
+        max_air: s.custom.max_air,
         player_flags: if s.sleeping.is_some() {
             PLAYER_FLAG_SLEEP
         } else {
@@ -288,6 +299,12 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
             MetadataValue::Int16(new.air),
         );
     }
+    if old.is_none_or(|o| o.max_air != new.max_air) {
+        out.insert(
+            EntityDataKey::AirSupplyMax.into(),
+            MetadataValue::Int16(new.max_air),
+        );
+    }
     if old.is_none_or(|o| o.player_flags != new.player_flags) {
         out.insert(
             EntityDataKey::PlayerFlags.into(),
@@ -331,8 +348,8 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
 }
 
 /// The whole entity data of a player as BDS sends it at spawn (P6 facts 7: 72 keys; the types
-/// match BDS's packet size).
-pub(in crate::tick) fn full_metadata(settings: &Settings, player: &Player) -> EntityMetadata {
+/// match BDS's packet size). The settings argument is the spawn module's calling form.
+pub(in crate::tick) fn full_metadata(_settings: &Settings, player: &Player) -> EntityMetadata {
     use EntityDataKey as K;
     use MetadataValue as V;
     let mut m = EntityMetadata::new();
@@ -342,14 +359,13 @@ pub(in crate::tick) fn full_metadata(settings: &Settings, player: &Player) -> En
     put(K::StructuralIntegrity, V::Int32(1));
     put(K::Variant, V::Int32(0));
     put(K::ColorIndex, V::Byte(0));
-    put(K::Name, V::String(player.identity.name.clone()));
+    put(K::Name, V::String(player.name_tag().to_owned()));
     put(K::Owner, V::Int64(-1));
     put(K::Target, V::Int64(0));
     put(K::ChargeAmount, V::Byte(0));
     put(K::PlayerIndex, V::Int32(1));
     put(K::LeashHolder, V::Int64(0));
     put(K::HasNpc, V::Byte(0));
-    put(K::AirSupplyMax, V::Int16(MAX_AIR));
     put(K::MarkVariant, V::Int32(0));
     put(K::ContainerType, V::Byte(0));
     put(K::ContainerSize, V::Int32(0));
@@ -369,7 +385,7 @@ pub(in crate::tick) fn full_metadata(settings: &Settings, player: &Player) -> En
     put(K::DataLifetimeTicks, V::Int32(-1));
     put(K::AlwaysShowNameTag, V::Byte(1));
     put(K::ColorTwoIndex, V::Byte(0));
-    put(K::Score, V::String(String::new()));
+    put(K::Score, V::String(player.score_tag().to_owned()));
     put(K::Agent, V::Int64(-1));
     put(K::EatingCounter, V::Int32(0));
     put(K::InteractText, V::String(String::new()));
@@ -402,13 +418,13 @@ pub(in crate::tick) fn full_metadata(settings: &Settings, player: &Player) -> En
     put(K::AimAssistPriorityCategoryId, V::Int32(-1));
     put(K::AimAssistPriorityActorId, V::Int64(-1));
     put(K::FireworkDirection, V::Float32(64.0));
-    changed_metadata(&shown(settings, player), None, &mut m);
+    changed_metadata(&shown(player), None, &mut m);
     m
 }
 
-/// The base ability layer for a game mode, as BDS sends it for a member (P6 facts 7: every
-/// ability defined, survival `Values` 63).
-fn layer(mode: GameMode, flying: bool) -> AbilityLayer {
+/// The base abilities of a game mode, as BDS sends them for a member (P6 facts 7: survival
+/// `Values` 63).
+fn mode_abilities(mode: GameMode, flying: bool) -> FlagSet<Ability> {
     let survival = [
         Ability::Build,
         Ability::Mine,
@@ -417,7 +433,7 @@ fn layer(mode: GameMode, flying: bool) -> AbilityLayer {
         Ability::AttackPlayers,
         Ability::AttackMobs,
     ];
-    let set: FlagSet<Ability> = match mode {
+    match mode {
         GameMode::Survival => survival.into_iter().collect(),
         GameMode::Adventure => survival[2..].iter().copied().collect(),
         GameMode::Creative => survival
@@ -437,41 +453,101 @@ fn layer(mode: GameMode, flying: bool) -> AbilityLayer {
         ]
         .into_iter()
         .collect(),
-    };
+    }
+}
+
+/// The base ability layer with `values`, every ability defined (BDS).
+fn layer_of(values: FlagSet<Ability>, fly_speed: f32) -> AbilityLayer {
     let all: FlagSet<Ability> = Ability::ALL.into_iter().collect();
-    let [values, ..] = set.words();
+    let [values, ..] = values.words();
     let [abilities, ..] = all.words();
     AbilityLayer {
         r#type: AbilityLayerType::Base.into(),
         abilities: u32::try_from(abilities).unwrap_or(u32::MAX),
         values: u32::try_from(values).unwrap_or(0),
-        fly_speed: ABILITY_BASE_FLY_SPEED,
+        fly_speed,
         vertical_fly_speed: ABILITY_BASE_VERTICAL_FLY_SPEED,
         walk_speed: ABILITY_BASE_WALK_SPEED,
     }
 }
 
-/// `UpdateAbilities` for the player (member permissions, BDS values).
-pub(in crate::tick) fn update_abilities(settings: &Settings, player: &Player) -> Packet {
-    let mode = game_mode_of(settings, player);
+/// The player's ability layers: its game mode's base layer with what the API set (PMMP
+/// `NetworkSession::syncAbilities`): operator commands and teleporting for an operator, flight
+/// allowed, flying in any mode, block collision and the flight speed. Without block collision outside spectator mode, a spectator layer makes the
+/// client fly, as PMMP does: the client falls through the blocks otherwise.
+fn layers(s: &Survival) -> Vec<AbilityLayer> {
+    let mode = s.mode();
+    let mut values = mode_abilities(mode, s.motion.flying);
+    let collides = s.collides();
+    for (on, ability) in [
+        (s.custom.operator, Ability::OperatorCommands),
+        (s.custom.operator, Ability::Teleport),
+        (s.may_fly(), Ability::MayFly),
+        (
+            mode == GameMode::Spectator || s.motion.flying,
+            Ability::Flying,
+        ),
+        (!collides, Ability::NoClip),
+    ] {
+        if on {
+            values.insert(ability);
+        } else {
+            values.remove(ability);
+        }
+    }
+    let mut layers = vec![layer_of(values, s.custom.flight_speed)];
+    if !collides && mode != GameMode::Spectator {
+        let flying: FlagSet<Ability> = [Ability::Flying].into_iter().collect();
+        let [bits, ..] = flying.words();
+        let bits = u32::try_from(bits).unwrap_or(0);
+        layers.push(AbilityLayer {
+            r#type: AbilityLayerType::Spectator.into(),
+            abilities: bits,
+            values: bits,
+            fly_speed: 0.0,
+            vertical_fly_speed: 0.0,
+            walk_speed: 0.0,
+        });
+    }
+    layers
+}
+
+/// `UpdateAbilities` for the player, with BDS's values: a member's permissions, or an operator's
+/// (P6: `op` sends command permissions 1 and player permissions 2). The settings argument is the
+/// spawn module's calling form.
+pub(in crate::tick) fn update_abilities(_settings: &Settings, player: &Player) -> Packet {
+    let (player_permissions, command_permissions) = if player.survival.custom.operator {
+        (
+            PermissionLevel::Operator,
+            CommandPermissionLevel::GameDirectors,
+        )
+    } else {
+        (PermissionLevel::Member, CommandPermissionLevel::Any)
+    };
     Packet::UpdateAbilities(UpdateAbilities {
         ability_data: AbilityData {
             entity_unique_id: i64::try_from(player.runtime_id).unwrap_or(i64::MAX),
-            player_permissions: 1,
-            command_permissions: 0,
-            layers: vec![layer(mode, player.survival.motion.flying)],
+            player_permissions: player_permissions.into(),
+            command_permissions: command_permissions.into(),
+            layers: layers(&player.survival),
         },
     })
 }
 
 /// `UpdateAdventureSettings` as BDS sends it (P6 facts 7).
 pub(in crate::tick) fn adventure_settings() -> Packet {
+    adventure_packet(true)
+}
+
+/// `UpdateAdventureSettings` with BDS's values and `auto_jump` (PMMP
+/// `NetworkSession::syncAdventureSettings`).
+fn adventure_packet(auto_jump: bool) -> Packet {
     Packet::UpdateAdventureSettings(UpdateAdventureSettings {
         no_pv_m: false,
         no_mv_p: false,
         immutable_world: false,
         show_name_tags: false,
-        auto_jump: true,
+        auto_jump,
     })
 }
 
@@ -541,68 +617,96 @@ pub(super) fn flush(state: &mut State) {
     let mut next = first_session(state);
     while let Some(session) = next {
         next = next_session(state, session);
-        let Some(player) = state.players.get(&session) else {
-            continue;
-        };
-        if player.phase != Phase::Spawned {
-            continue;
+        flush_one(state, session);
+    }
+}
+
+/// [`flush`] for one player, if it is spawned.
+pub(super) fn flush_one(state: &mut State, session: SessionId) {
+    let Some(player) = state.players.get(&session) else {
+        return;
+    };
+    if player.phase != Phase::Spawned {
+        return;
+    }
+    let dirty = player.survival.dirty;
+    let now = shown(player);
+    let old = player.survival.shown;
+    let abilities = (dirty & ABILITIES != 0).then(|| update_abilities(&state.settings, player));
+    let adventure =
+        (dirty & ADVENTURE != 0).then(|| adventure_packet(player.survival.custom.auto_jump));
+    let attributes = (dirty & ALL != 0).then(|| attributes_packet(player, dirty & ALL));
+    let tags = dirty & TAGS != 0;
+    let data = (now != old || tags).then(|| {
+        let mut m = EntityMetadata::new();
+        changed_metadata(&now, Some(&old), &mut m);
+        if tags {
+            m.insert(
+                EntityDataKey::Name.into(),
+                MetadataValue::String(player.name_tag().to_owned()),
+            );
+            m.insert(
+                EntityDataKey::Score.into(),
+                MetadataValue::String(player.score_tag().to_owned()),
+            );
         }
-        let dirty = player.survival.dirty;
-        let now = shown(&state.settings, player);
-        let old = player.survival.shown;
-        let abilities = (dirty & ABILITIES != 0).then(|| update_abilities(&state.settings, player));
-        let attributes = (dirty & ALL != 0).then(|| attributes_packet(player, dirty & ALL));
-        let data = (now != old).then(|| {
-            let mut m = EntityMetadata::new();
-            changed_metadata(&now, Some(&old), &mut m);
-            Packet::SetActorData(SetActorData {
-                entity_runtime_id: player.runtime_id,
-                entity_metadata: m,
-                entity_properties: EntityProperties::default(),
-                tick: 0,
-            })
-        });
-        let Some(player) = state.players.get_mut(&session) else {
-            continue;
-        };
-        player.survival.dirty = 0;
-        player.survival.shown = now;
-        for packet in [attributes, abilities].into_iter().flatten() {
-            player.send(packet);
-        }
-        if let Some(data) = data {
-            player.send(data.clone());
-            broadcast_to_viewers(state, session, &data);
-        }
+        Packet::SetActorData(SetActorData {
+            entity_runtime_id: player.runtime_id,
+            entity_metadata: m,
+            entity_properties: EntityProperties::default(),
+            tick: 0,
+        })
+    });
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    player.survival.dirty = 0;
+    player.survival.shown = now;
+    for packet in [attributes, abilities, adventure].into_iter().flatten() {
+        player.send_packet(packet);
+    }
+    if let Some(data) = data {
+        player.send_packet(data.clone());
+        broadcast_to_viewers(state, session, &data);
     }
 }
 
 /// Marks the player's current entity data as known to the client (its spawn window held it).
-pub(super) fn spawned(settings: &Settings, player: &mut Player) {
-    let now = shown(settings, player);
+/// The spawn window's adventure settings jump by themselves: a player the API keeps from it gets
+/// its own at the next flush.
+pub(super) fn spawned(player: &mut Player) {
+    let now = shown(player);
     player.survival.shown = now;
-    player.survival.dirty = 0;
+    player.survival.dirty = if player.survival.custom.auto_jump {
+        0
+    } else {
+        ADVENTURE
+    };
+    player.survival.custom.touched = false;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 
     #[test]
     fn the_ability_layers_have_bds_values() {
-        let survival = layer(GameMode::Survival, false);
+        let mode_layer =
+            |mode, flying| layer_of(mode_abilities(mode, flying), ABILITY_BASE_FLY_SPEED);
+        let survival = mode_layer(GameMode::Survival, false);
         assert_eq!(survival.abilities, 1_048_575);
         assert_eq!(survival.values, 63);
         assert_eq!(survival.fly_speed, 0.05);
         assert_eq!(survival.vertical_fly_speed, 1.0);
         assert_eq!(survival.walk_speed, 0.1);
         assert_eq!(survival.r#type, 1);
-        assert_eq!(layer(GameMode::Adventure, false).values, 60);
-        let creative = layer(GameMode::Creative, true).values;
+        assert_eq!(mode_layer(GameMode::Adventure, false).values, 60);
+        let creative = mode_layer(GameMode::Creative, true).values;
         assert_ne!(creative & 512, 0, "flying");
         assert_ne!(creative & 1024, 0, "may fly");
         assert_eq!(
-            layer(GameMode::Spectator, false).values & 1,
+            mode_layer(GameMode::Spectator, false).values & 1,
             0,
             "no building"
         );

@@ -18,10 +18,20 @@
 //! dropped (the world's entity limit) waits in a bounded list given back as slots free up: no
 //! item is ever lost.
 //!
+//! A menu ([`menu`]) is a window of server-owned items on fake container blocks; requests never
+//! move items into or out of it.
+//!
 //! Furnaces and brewing stands are block containers whose block entity ticks ([`block_changed`]
 //! tells their viewers). Station windows (enchanting, anvil, smithing, stonecutter, loom,
 //! beacon, trading) keep their input slots in the window and craft through [`station`].
+//!
+//! Events (PLAN.md 10.8): opening a window raises `InventoryOpen` and closing it
+//! `InventoryClose`; selecting a hotbar slot `PlayerItemHeld`; picking a block `PlayerBlockPick`;
+//! the legacy drop `PlayerDropItem`; a request its own ([`request`]). After a listener the rule
+//! checks again and does nothing if the check fails; the public API ([`api`]) raises none.
 
+mod api;
+mod menu;
 mod request;
 mod station;
 
@@ -32,10 +42,14 @@ use std::collections::{BTreeSet, VecDeque};
 
 use tracing::{error, warn};
 
-use super::{Phase, Player, SessionId, State, block_entity, trade};
+use super::{Phase, Player, SessionId, State, block_entity, dispatch, trade};
 use crate::block::{self, Class, ItemForm};
 use crate::config::GameMode;
 use crate::crafting::FurnaceType;
+use crate::event::{
+    InventoryClose, InventoryOpen, PlayerBlockPick, PlayerDropItem, PlayerItemHeld,
+    Window as PublicWindow,
+};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -51,12 +65,14 @@ use crate::protocol::{FullContainerName, ItemInstance};
 use crate::save::WorldIndex;
 use crate::world::BlockPos;
 
+pub(super) use menu::{Handlers as Menus, tick as tick_menus};
 pub(super) use request::on_item_stack_request;
+pub(super) use station::enchant_item;
 
 /// Main inventory slots: the hotbar (0–8) and the 27 above it.
 const MAIN: usize = 36;
 /// Hotbar slots.
-const HOTBAR: u8 = 9;
+const HOTBAR: u8 = crate::inventory::HOTBAR_SIZE;
 /// Armour slots: helmet, chestplate, leggings, boots.
 const ARMOR: usize = 4;
 /// Slots of the armour window the client takes (the fifth is a mount's body slot).
@@ -242,6 +258,10 @@ pub(super) struct Inventory {
     /// The next recipe network ID of an enchanting option: counting from after the last recipe
     /// (P6 facts 4), so a request for options no longer shown finds none.
     next_option_id: u32,
+    /// The open menu, exactly while the window is a [`WindowKind::Menu`].
+    menu: Option<menu::Open>,
+    /// The number of the next menu ([`crate::menu::Id`]); numbers at or past 2^32 are refused.
+    next_menu: u64,
 }
 
 impl Default for Inventory {
@@ -264,6 +284,8 @@ impl Default for Inventory {
             resent: None,
             pending: Vec::new(),
             next_option_id: crate::crafting::first_special_id(),
+            menu: None,
+            next_menu: 0,
         }
     }
 }
@@ -306,6 +328,12 @@ enum WindowKind {
     },
     /// Trading with a villager NPC: two payment slots kept by the window (BDS facts 6).
     Trade { villager: crate::entity::Id },
+    /// A menu on fake container blocks from `pos` (a double chest's other half beside it); its
+    /// items are [`Inventory::menu`]'s, its slots' IDs the window's `ids`.
+    Menu {
+        pos: BlockPos,
+        kind: crate::menu::Kind,
+    },
 }
 
 /// A container block kind.
@@ -455,10 +483,11 @@ const TRADE: [Part; 2] = [
 ];
 
 impl WindowKind {
-    /// The request slots of the window.
+    /// The request slots of the window; a menu has none, as requests never move its items
+    /// ([`menu::click_of`]).
     fn parts(self) -> &'static [Part] {
         match self {
-            Self::Own => &[],
+            Self::Own | Self::Menu { .. } => &[],
             Self::Container { kind, pair, .. } => match kind {
                 Container::Chest if pair.is_some() => &DOUBLE_CHEST,
                 Container::Chest => &CHEST,
@@ -507,6 +536,12 @@ impl WindowKind {
                 Station::Beacon => ContainerType::Beacon,
             },
             Self::Trade { .. } => ContainerType::Trade,
+            Self::Menu { kind, .. } => match kind {
+                crate::menu::Kind::Hopper => ContainerType::Hopper,
+                crate::menu::Kind::Chest | crate::menu::Kind::DoubleChest => {
+                    ContainerType::Container
+                }
+            },
         };
         t as u8
     }
@@ -514,7 +549,7 @@ impl WindowKind {
     /// The blocks the window shows: its block, and a double chest's other half.
     fn blocks(self) -> [Option<(WorldIndex, BlockPos)>; 2] {
         match self {
-            Self::Own | Self::Trade { .. } => [None, None],
+            Self::Own | Self::Trade { .. } | Self::Menu { .. } => [None, None],
             Self::Container {
                 world, pos, pair, ..
             } => [Some((world, pos)), pair.map(|p| (world, p))],
@@ -585,6 +620,11 @@ impl Inventory {
     /// The stack in the off hand.
     pub(super) fn offhand(&self) -> &Stack {
         self.offhand.stack(0)
+    }
+
+    /// The stack on the cursor.
+    pub(super) fn cursor(&self) -> &Stack {
+        self.cursor.stack(0)
     }
 
     /// Whether a window is open (tests).
@@ -756,6 +796,8 @@ impl Inventory {
             resent: _,
             pending,
             next_option_id,
+            menu,
+            next_menu,
         } = self;
         let mut slots = |stacks: &[Stack], ids: &[StackId]| {
             for (s, id) in stacks.iter().zip(ids) {
@@ -805,6 +847,11 @@ impl Inventory {
             hash_stack(h, s);
         }
         h.u64(u64::from(*next_option_id));
+        match menu {
+            Some(m) => m.hash_into(h),
+            None => h.u64(0),
+        }
+        h.u64(*next_menu);
     }
 }
 
@@ -889,19 +936,19 @@ fn set_own(player: &mut Player, r: SlotRef, stack: Stack) {
 fn send_own(player: &mut Player, r: SlotRef, item: ItemInstance) {
     match r {
         // PMMP and BDS: the client may ignore `InventorySlot` for the off hand.
-        SlotRef::Offhand => player.send(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
+        SlotRef::Offhand => player.send_packet(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
         SlotRef::Ender(i) => {
             if let Some(window) = &player.inventory.window
                 && window.id != 0
                 && matches!(window.kind, WindowKind::Ender { .. })
             {
                 let id = u32::from(window.id);
-                player.send(slot_packet(id, u32::from(i), item));
+                player.send_packet(slot_packet(id, u32::from(i), item));
             }
         }
         r => {
             if let Some((window, slot)) = client_slot(&player.inventory, r) {
-                player.send(slot_packet(window, slot, item));
+                player.send_packet(slot_packet(window, slot, item));
             }
         }
     }
@@ -923,7 +970,7 @@ fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntiti
         packets.push(content_packet(u32::from(window.id), content));
     }
     for p in packets {
-        player.send(p);
+        player.send_packet(p);
     }
 }
 
@@ -991,6 +1038,15 @@ fn window_content(
                 .map(|(s, id)| s.to_instance(id.net))
                 .collect(),
         ),
+        WindowKind::Menu { .. } => Some(
+            inv.menu
+                .as_ref()
+                .map_or(&[][..], |m| m.stacks.as_slice())
+                .iter()
+                .zip(&window.ids)
+                .map(|(s, id)| s.to_instance(id.net))
+                .collect(),
+        ),
         WindowKind::Own
         | WindowKind::Workbench { .. }
         | WindowKind::Station { .. }
@@ -1047,29 +1103,21 @@ fn window_slot_of(kind: WindowKind, pos: BlockPos, index: usize) -> Option<u8> {
         .filter(|i| usize::from(*i) < kind.block_slots())
 }
 
-/// The block a position is in (for the eye position).
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "safety: tick positions are finite and inside the world border (±30,000,000)"
-)]
-fn block_of(v: f64) -> i32 {
-    v.floor() as i32
-}
-
 /// Reads the player's inventory keys from its saved extra (empty for a new player).
 ///
 /// Keys (Bedrock player NBT): `Inventory` (main slots by `Slot` 0–35), `Armor` (4 items),
 /// `Offhand` (1 item), `EnderChestInventory` (by `Slot` 0–26), `SelectedInventorySlot`; and
 /// Anchor's `PendingItems` (stacks waiting for room, and what was held outside the slots: see
 /// [`save`]), at most [`MAX_SAVED_PENDING`]. Unknown items are left out with a warning (PMMP
-/// `Item::safeNbtDeserialize`).
-pub(super) fn load(inventory: &mut Inventory, extra: &Compound) {
+/// `Item::safeNbtDeserialize`). Custom items are read through `custom`, the server's custom
+/// content.
+pub(super) fn load(inventory: &mut Inventory, extra: &Compound, custom: &crate::custom::Registry) {
     let list = |key: &str| match extra.get(key) {
         Some(Value::List(List::Compound(list))) => list.as_slice(),
         _ => &[],
     };
     let read = |nbt: &Compound| {
-        Stack::from_nbt(nbt).unwrap_or_else(|| {
+        Stack::from_nbt_with(nbt, custom).unwrap_or_else(|| {
             warn!(?nbt, "a saved inventory item is unknown; it is left out");
             Stack::EMPTY
         })
@@ -1211,23 +1259,56 @@ fn hotbar_packet(slot: u8) -> Packet {
 /// The client selected a hotbar slot (`MobEquipment`, PMMP `handleMobEquipment`): the off hand
 /// window is ignored; a slot outside the hotbar is answered with the selected one.
 pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &MobEquipment) {
+    let heard = dispatch::heard::<PlayerItemHeld>(state);
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     if player.phase == Phase::Loading || u32::from(packet.window_id) != WINDOW_ID_INVENTORY {
         return;
     }
-    if packet.hot_bar_slot < HOTBAR {
-        if player.inventory.held != packet.hot_bar_slot {
-            player.inventory.held = packet.hot_bar_slot;
-            player.data_dirty = true;
-        }
+    let slot = packet.hot_bar_slot;
+    if slot >= HOTBAR {
+        send_held(player);
         return;
     }
+    if player.inventory.held == slot {
+        return;
+    }
+    if !heard {
+        hold(player, slot);
+        return;
+    }
+    let mut event = PlayerItemHeld {
+        player: crate::player::Id::new(session),
+        item: player.inventory.main.stack(slot).clone(),
+        slot,
+        cancelled: false,
+    };
+    dispatch::call(state, &mut event);
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    if event.cancelled {
+        send_held(player);
+        return;
+    }
+    hold(player, slot);
+    dispatch::watch(state, &event);
+}
+
+/// The client selected hotbar slot `slot`, which the server takes as it is.
+fn hold(player: &mut Player, slot: u8) {
+    player.inventory.held = slot;
+    player.data_dirty = true;
+}
+
+/// Tells the client which hotbar slot is selected and what it holds (a selection the server did
+/// not take).
+fn send_held(player: &mut Player) {
     let held = player.inventory.held;
     let slot = player.inventory.main.get(held).unwrap_or_default();
     let runtime_id = player.runtime_id;
-    player.send(Packet::MobEquipment(Box::new(MobEquipment {
+    player.send_packet(Packet::MobEquipment(Box::new(MobEquipment {
         entity_runtime_id: runtime_id,
         new_item: slot.stack.to_instance(slot.id.net),
         inventory_slot: held,
@@ -1254,12 +1335,12 @@ pub(super) fn on_container_close(state: &mut State, session: SessionId, packet: 
     };
     let current = inv.window.as_ref().is_some_and(|w| w.id == id && w.id != 0);
     if current && inv.pending_close != Some(id) {
-        close(state, session, false);
+        close(state, session, Notice::Skip);
     }
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    player.send(Packet::ContainerClose(ContainerClose {
+    player.send_packet(Packet::ContainerClose(ContainerClose {
         window_id: id,
         container_type: CONTAINER_TYPE_NONE,
         server_side: false,
@@ -1278,12 +1359,58 @@ pub(super) fn on_interact(state: &mut State, session: SessionId, packet: &Intera
     };
     if packet.action_type != InteractAction::OpenInventory as u8
         || packet.target_entity_runtime_id != player.runtime_id
-        || player.phase == Phase::Loading
-        || player.inventory.pending.len() + MAX_GIVE_BACK > MAX_PENDING
     {
         return;
     }
-    open(state, session, WindowKind::Own);
+    open_checked(state, session, |state| {
+        may_open(state, session).then_some(WindowKind::Own)
+    });
+}
+
+/// The selected hotbar slot of `session` and its stack (with its stack network ID), to see after
+/// listeners that the hand is the one a rule began with.
+pub(super) fn held_of(state: &State, session: SessionId) -> Option<(u8, Slot)> {
+    let inv = &state.players.get(&session)?.inventory;
+    Some((inv.held, inv.main.get(inv.held)?))
+}
+
+/// Whether `session` may open a window now: it is joined and loaded, and it waits with few
+/// enough stacks for room that a window's items can go back.
+fn may_open(state: &State, session: SessionId) -> bool {
+    state.players.get(&session).is_some_and(|p| {
+        p.phase != Phase::Loading && p.inventory.pending.len() + MAX_GIVE_BACK <= MAX_PENDING
+    })
+}
+
+/// Opens the window `check` finds for `session` now (none: nothing opens), with
+/// [`InventoryOpen`] (PLAN.md 10.8): a cancelled event opens nothing, and after a listener the
+/// check runs again and must find the same window.
+fn open_checked(
+    state: &mut State,
+    session: SessionId,
+    check: impl Fn(&State) -> Option<WindowKind>,
+) {
+    let Some(kind) = check(state) else {
+        return;
+    };
+    let Some(window) = public_window(kind).filter(|_| dispatch::heard::<InventoryOpen>(state))
+    else {
+        let _opened = open(state, session, kind);
+        return;
+    };
+    let mut event = InventoryOpen {
+        player: crate::player::Id::new(session),
+        window,
+        cancelled: false,
+    };
+    dispatch::call(state, &mut event);
+    if event.cancelled || (dispatch::listened::<InventoryOpen>(state) && check(state) != Some(kind))
+    {
+        return;
+    }
+    if open(state, session, kind) {
+        dispatch::watch(state, &event);
+    }
 }
 
 /// Creative pick block (PMMP `Player::pickBlock`): the block's item (with its block entity data
@@ -1295,34 +1422,31 @@ pub(super) fn on_block_pick_request(
     session: SessionId,
     packet: &BlockPickRequest,
 ) {
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    if player.phase == Phase::Loading {
-        return;
-    }
-    let world = player.world;
-    let finite = !matches!(
-        super::survival::game_mode(state, player),
-        GameMode::Creative | GameMode::Spectator
-    );
     let [x, y, z] = packet.position;
     let pos = BlockPos::new(x, y, z);
-    let Some(block) = state.worlds.get(world).and_then(|w| w.block(pos)) else {
+    let add_data = packet.add_block_nbt;
+    let Some((world, block, picked)) = pick(state, session, pos, add_data) else {
         return;
     };
-    let picked = match block.item() {
-        ItemForm::Item(item) if packet.add_block_nbt => {
-            block_entity::with_block_data(state, world, pos, Stack::new(item, 1))
+    let mut event = dispatch::heard::<PlayerBlockPick>(state).then(|| PlayerBlockPick {
+        player: crate::player::Id::new(session),
+        world: world_id(world),
+        pos,
+        block,
+        result_item: picked.clone(),
+        cancelled: false,
+    });
+    if let Some(e) = &mut event {
+        let held = held_of(state, session);
+        dispatch::call(state, e);
+        if e.cancelled
+            || (dispatch::listened::<PlayerBlockPick>(state)
+                && (pick(state, session, pos, add_data).map(|(_, _, p)| p) != Some(picked.clone())
+                    || held_of(state, session) != held))
+        {
+            return;
         }
-        ItemForm::Item(item) => Stack::new(item, 1),
-        // A bed's or banner's item is its block entity's (PMMP `getPickedItem` = `asItem`).
-        ItemForm::BlockEntity => match block_entity::own_item(state, world, pos) {
-            Some(stack) => stack,
-            None => return,
-        },
-        ItemForm::None => return,
-    };
+    }
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -1330,7 +1454,6 @@ pub(super) fn on_block_pick_request(
     match player.inventory.first(&picked) {
         Some(slot) if slot < HOTBAR => select(player, slot),
         Some(slot) => swap_main(player, held, slot),
-        None if finite => {}
         None => match player.inventory.first_empty() {
             None => set_own(player, SlotRef::Main(held), picked),
             Some(slot) if slot < HOTBAR => {
@@ -1343,13 +1466,50 @@ pub(super) fn on_block_pick_request(
             }
         },
     }
+    if let Some(e) = event {
+        dispatch::watch(state, &e);
+    }
+}
+
+/// What picking the block at `pos` gives `session` now: its world, the block and the item;
+/// `None` if nothing would happen (no block item, or a player with finite resources who does not
+/// carry it: PMMP raises its event cancelled then; Anchor raises none).
+fn pick(
+    state: &State,
+    session: SessionId,
+    pos: BlockPos,
+    add_data: bool,
+) -> Option<(WorldIndex, block::State, Stack)> {
+    let player = state.players.get(&session)?;
+    if player.phase == Phase::Loading {
+        return None;
+    }
+    let world = player.world;
+    let finite = !matches!(
+        super::survival::game_mode(state, player),
+        GameMode::Creative | GameMode::Spectator
+    );
+    let block = state.worlds.get(world).and_then(|w| w.block(pos))?;
+    let picked = match block.item() {
+        ItemForm::Item(item) if add_data => {
+            block_entity::with_block_data(state, world, pos, Stack::new(item, 1))
+        }
+        ItemForm::Item(item) => Stack::new(item, 1),
+        // A bed's or banner's item is its block entity's (PMMP `getPickedItem` = `asItem`).
+        ItemForm::BlockEntity => block_entity::own_item(state, world, pos)?,
+        ItemForm::None => return None,
+    };
+    if finite && player.inventory.first(&picked).is_none() {
+        return None;
+    }
+    Some((world, block, picked))
 }
 
 /// Selects hotbar slot `slot` and tells the client.
 fn select(player: &mut Player, slot: u8) {
     player.inventory.held = slot;
     player.data_dirty = true;
-    player.send(hotbar_packet(slot));
+    player.send_packet(hotbar_packet(slot));
 }
 
 /// Swaps two main slots outside a request.
@@ -1379,6 +1539,18 @@ pub(super) fn set_armor(player: &mut Player, slot: usize, stack: Stack) {
 /// Replaces the off-hand stack (a totem used up, mending) and tells the client.
 pub(super) fn set_offhand(player: &mut Player, stack: Stack) {
     set_own(player, SlotRef::Offhand, stack);
+}
+
+/// Replaces main slot `slot` (0 to 35; others are ignored) and tells the client.
+pub(super) fn set_main(player: &mut Player, slot: u8, stack: Stack) {
+    if usize::from(slot) < MAIN {
+        set_own(player, SlotRef::Main(slot), stack);
+    }
+}
+
+/// Replaces the stack on the cursor and tells the client.
+pub(super) fn set_cursor(player: &mut Player, stack: Stack) {
+    set_own(player, SlotRef::Cursor, stack);
 }
 
 /// Whether a stack is arrows (PMMP `VanillaItems::ARROW`).
@@ -1432,7 +1604,7 @@ pub(super) fn give(player: &mut Player, stack: Stack) -> Stack {
     for i in changed {
         if let Some(slot) = player.inventory.main.get(i) {
             let item = slot.stack.to_instance(slot.id.net);
-            player.send(slot_packet(WINDOW_ID_INVENTORY, u32::from(i), item));
+            player.send_packet(slot_packet(WINDOW_ID_INVENTORY, u32::from(i), item));
         }
     }
     left
@@ -1471,22 +1643,27 @@ pub(super) fn open_block(
     let Some(kind) = window_of(block, world, pos) else {
         return false;
     };
-    let Some(player) = state.players.get(&session) else {
-        return true;
-    };
-    if player.phase == Phase::Loading
-        || player.inventory.pending.len() + MAX_GIVE_BACK > MAX_PENDING
-    {
+    if !may_open(state, session) {
         return true;
     }
-    let held_name = player.inventory.held().custom_name().to_owned();
     if !kind.is_workbench() && state.rules.block_entities.get(world, pos).is_none() {
         block_entity::missing(state, world, pos);
     }
-    let Some(kind) = openable(state, kind, &held_name) else {
-        return true;
-    };
-    open(state, session, kind);
+    // The interaction that opens the window goes on with the held item: a listener that
+    // changes the hand cancels the open, so the rest of the interaction sees the hand it began
+    // with.
+    let held = held_of(state, session);
+    open_checked(state, session, |state| {
+        let block = state.worlds.get(world).and_then(|w| w.block(pos))?;
+        if window_of(block, world, pos) != Some(kind)
+            || !may_open(state, session)
+            || held_of(state, session) != held
+        {
+            return None;
+        }
+        let held_name = state.players.get(&session)?.inventory.held().custom_name();
+        openable(state, kind, held_name)
+    });
     true
 }
 
@@ -1579,25 +1756,12 @@ fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKi
             kind: Container::Chest,
             ..
         } => {
-            let pair = entity
-                .and_then(block_entity::BlockEntity::pair)
-                .filter(|p| {
-                    blocks
-                        .get(world, *p)
-                        .and_then(block_entity::BlockEntity::pair)
-                        == Some(pos)
-                });
-            if blocked(pos, block::Face::Up, false)
-                || pair.is_some_and(|p| blocked(p, block::Face::Up, false))
+            let (left, right) = block_entity_halves(blocks, world, pos);
+            if blocked(left, block::Face::Up, false)
+                || right.is_some_and(|p| blocked(p, block::Face::Up, false))
             {
                 return None;
             }
-            // PMMP `Chest::checkPairing`: the half with the larger `x + (z << 15)` is the left.
-            let key = |p: BlockPos| i64::from(p.x) + (i64::from(p.z) << 15);
-            let (left, right) = match pair {
-                Some(p) if key(p) > key(pos) => (p, Some(pos)),
-                pair => (pos, pair),
-            };
             Some(WindowKind::Container {
                 world,
                 pos: left,
@@ -1624,14 +1788,67 @@ fn openable(state: &State, kind: WindowKind, held_name: &str) -> Option<WindowKi
     }
 }
 
+/// The halves of the chest at `pos`: the left one (PMMP `Chest::checkPairing`: the half with the
+/// larger `x + (z << 15)`) and the right one, if the chest pairs with a chest that pairs back.
+fn block_entity_halves(
+    blocks: &block_entity::BlockEntities,
+    world: WorldIndex,
+    pos: BlockPos,
+) -> (BlockPos, Option<BlockPos>) {
+    let pair = blocks
+        .get(world, pos)
+        .and_then(block_entity::BlockEntity::pair)
+        .filter(|p| {
+            blocks
+                .get(world, *p)
+                .and_then(block_entity::BlockEntity::pair)
+                == Some(pos)
+        });
+    let key = |p: BlockPos| i64::from(p.x) + (i64::from(p.z) << 15);
+    match pair {
+        Some(p) if key(p) > key(pos) => (p, Some(pos)),
+        pair => (pos, pair),
+    }
+}
+
+/// A window as events and the API name it; `None` for a menu, which they do not name.
+fn public_window(kind: WindowKind) -> Option<PublicWindow> {
+    Some(match kind {
+        WindowKind::Own => PublicWindow::Own,
+        WindowKind::Container { world, pos, .. }
+        | WindowKind::Ender { world, pos }
+        | WindowKind::Workbench { world, pos }
+        | WindowKind::Station { world, pos, .. } => PublicWindow::Block {
+            world: world_id(world),
+            pos,
+        },
+        WindowKind::Trade { villager } => PublicWindow::Trade(villager),
+        WindowKind::Menu { .. } => return None,
+    })
+}
+
+/// The public ID of the world at `index` (a server has fewer than 2^32 worlds, so every index
+/// has one).
+pub(super) fn world_id(index: WorldIndex) -> crate::world::Id {
+    crate::world::Id::new(index).unwrap_or(crate::world::Id::DEFAULT)
+}
+
 /// Opens `kind` for `session`: the current window closes from the server side first, and the
-/// new one is announced once that close is acknowledged.
-fn open(state: &mut State, session: SessionId, kind: WindowKind) {
+/// new one is announced once that close is acknowledged. False, opening nothing, if the player
+/// has left or an [`InventoryClose`] listener opened a window in place of the closed one.
+fn open(state: &mut State, session: SessionId, kind: WindowKind) -> bool {
     let Some(player) = state.players.get(&session) else {
-        return;
+        return false;
     };
     if player.inventory.window.is_some() {
-        close(state, session, true);
+        close(state, session, Notice::Send);
+        if state
+            .players
+            .get(&session)
+            .is_none_or(|p| p.inventory.window.is_some())
+        {
+            return false;
+        }
     }
     for (world, pos) in kind.blocks().into_iter().flatten() {
         let viewers = state.rules.block_entities.add_viewer(world, pos, session);
@@ -1640,7 +1857,7 @@ fn open(state: &mut State, session: SessionId, kind: WindowKind) {
         }
     }
     let Some(player) = state.players.get_mut(&session) else {
-        return;
+        return false;
     };
     player.inventory.window = Some(Window {
         id: 0,
@@ -1652,6 +1869,7 @@ fn open(state: &mut State, session: SessionId, kind: WindowKind) {
     if player.inventory.pending_close.is_none() {
         announce(state, session);
     }
+    true
 }
 
 /// Sends a window that waits to be opened: `ContainerOpen` with a new window ID, then its content
@@ -1664,6 +1882,9 @@ fn announce(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
+    if !menu::is_ready(player, state.tick) {
+        return;
+    }
     let eye = player.position;
     let inv = &mut player.inventory;
     let Some(kind) = inv.window.as_ref().filter(|w| w.id == 0).map(|w| w.kind) else {
@@ -1671,7 +1892,10 @@ fn announce(state: &mut State, session: SessionId) {
     };
     let id = (inv.last_window.wrapping_add(1) % WINDOW_LAST).max(WINDOW_FIRST);
     inv.last_window = id;
-    let stacks = block_stacks(kind, blocks);
+    let stacks = match (kind, &inv.menu) {
+        (WindowKind::Menu { .. }, Some(m)) => m.stacks.clone(),
+        _ => block_stacks(kind, blocks),
+    };
     let ids: Vec<StackId> = stacks
         .iter()
         .map(|s| StackId {
@@ -1680,9 +1904,12 @@ fn announce(state: &mut State, session: SessionId) {
         })
         .collect();
     let mut packets = Vec::with_capacity(4);
-    let at = match kind.blocks() {
-        [Some((_, pos)), _] => [pos.x, pos.y, pos.z],
-        _ => [block_of(eye.x), block_of(eye.y), block_of(eye.z)],
+    let at = match (kind, kind.blocks()) {
+        (WindowKind::Menu { pos, .. }, _) | (_, [Some((_, pos)), _]) => [pos.x, pos.y, pos.z],
+        _ => {
+            let b = BlockPos::containing(eye);
+            [b.x, b.y, b.z]
+        }
     };
     packets.push(Packet::ContainerOpen(ContainerOpen {
         window_id: id,
@@ -1716,13 +1943,60 @@ fn announce(state: &mut State, session: SessionId) {
         packets.push(station::options_packet(0, &[]));
     }
     for p in packets {
-        player.send(p);
+        player.send_packet(p);
     }
 }
 
-/// Closes the window of `session` (with a server-side `ContainerClose` when `notify`) and gives
-/// the cursor, the grid and the window's own slots back (PMMP `doCloseInventory`).
-fn close(state: &mut State, session: SessionId, notify: bool) {
+/// Whether closing a window tells the client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Notice {
+    /// The server closes it: the client gets a server-side `ContainerClose` and the close waits
+    /// for its acknowledgement.
+    Send,
+    /// The client closed it itself, or a new screen replaces it on the client.
+    Skip,
+}
+
+/// What tells the window `inv` has open apart from a window opened in its place: its ID, its
+/// kind and its menu (a new menu has a new [`crate::menu::Id`], since menu IDs never repeat).
+fn window_key(inv: &Inventory) -> Option<(u8, WindowKind, Option<crate::menu::Id>)> {
+    let menu = inv.menu.as_ref().map(menu::Open::id);
+    inv.window.as_ref().map(|w| (w.id, w.kind, menu))
+}
+
+/// Closes the window of `session` as [`close_now`] does, with [`InventoryClose`] when a window
+/// is open (its listeners run before the close, its monitors after). The close applies only to
+/// the window that was open before the listeners: one a listener closed is not closed twice, and
+/// one a listener opened in its place (a menu) stays open.
+fn close(state: &mut State, session: SessionId, notice: Notice) {
+    let Some(inv) = state.players.get(&session).map(|p| &p.inventory) else {
+        return;
+    };
+    let before = window_key(inv);
+    let window = inv.window.as_ref().and_then(|w| public_window(w.kind));
+    match window.filter(|_| dispatch::heard::<InventoryClose>(state)) {
+        Some(window) => {
+            let mut event = InventoryClose {
+                player: crate::player::Id::new(session),
+                window,
+            };
+            dispatch::call(state, &mut event);
+            let same = state
+                .players
+                .get(&session)
+                .is_some_and(|p| window_key(&p.inventory) == before);
+            if same {
+                close_now(state, session, notice);
+            }
+            dispatch::watch(state, &event);
+        }
+        None => close_now(state, session, notice),
+    }
+}
+
+/// Closes the window of `session` (telling the client as `notice` says) and gives the cursor,
+/// the grid and the window's own slots back (PMMP `doCloseInventory`), raising no event.
+fn close_now(state: &mut State, session: SessionId, notice: Notice) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -1736,8 +2010,8 @@ fn close(state: &mut State, session: SessionId, notify: bool) {
                 .filter(|s| !s.stack.is_empty())
                 .map(|s| s.stack.clone()),
         );
-        if w.id != 0 && notify {
-            player.send(Packet::ContainerClose(ContainerClose {
+        if w.id != 0 && notice == Notice::Send {
+            player.send_packet(Packet::ContainerClose(ContainerClose {
                 window_id: w.id,
                 container_type: w.kind.container_type(),
                 server_side: true,
@@ -1748,7 +2022,7 @@ fn close(state: &mut State, session: SessionId, notify: bool) {
     if !back.is_empty() {
         // The client clears these slots itself when a window closes; say so anyway.
         let ui = ui_content(&player.inventory);
-        player.send(content_packet(WINDOW_ID_UI, ui));
+        player.send_packet(content_packet(WINDOW_ID_UI, ui));
         player.data_dirty = true;
     }
     if let Some(w) = &window {
@@ -1763,8 +2037,10 @@ fn close(state: &mut State, session: SessionId, notify: bool) {
         }
     }
     give_back(state, session, back);
-    if window.is_some_and(|w| matches!(w.kind, WindowKind::Trade { .. })) {
-        trade::closed(state, session);
+    match window.map(|w| w.kind) {
+        Some(WindowKind::Trade { .. }) => trade::closed(state, session),
+        Some(WindowKind::Menu { .. }) => menu::closed(state, session),
+        _ => {}
     }
 }
 
@@ -1806,7 +2082,7 @@ fn give_back(state: &mut State, session: SessionId, stacks: Vec<Stack>) {
 /// Closes whatever window `session` has open and returns the cursor, crafting grid and input
 /// slots to its inventory (dropping what does not fit), as on leaving, dying or a server close.
 pub(super) fn close_window(state: &mut State, session: SessionId) {
-    close(state, session, true);
+    close(state, session, Notice::Send);
 }
 
 /// Closes the windows open on the block at `pos` (a station block that broke).
@@ -1835,7 +2111,7 @@ pub(super) fn open_trade(
             .is_some_and(|w| matches!(w.kind, WindowKind::Trade { .. }))
     });
     if trading {
-        close(state, session, false);
+        close(state, session, Notice::Skip);
     }
     let player = state.players.get_mut(&session)?;
     let inv = &mut player.inventory;
@@ -1904,7 +2180,7 @@ pub(super) fn block_changed(
             continue;
         };
         for &(key, value) in data {
-            player.send(Packet::ContainerSetData(ContainerSetData {
+            player.send_packet(Packet::ContainerSetData(ContainerSetData {
                 window_id: id,
                 key,
                 value,
@@ -1935,7 +2211,7 @@ pub(super) fn take_all(player: &mut Player) -> Vec<Stack> {
     let mut packets = Vec::with_capacity(4);
     own_windows(&player.inventory, &mut packets);
     for p in packets {
-        player.send(p);
+        player.send_packet(p);
     }
     player.data_dirty = true;
     out
@@ -1965,6 +2241,23 @@ pub(super) fn drop_from_main(state: &mut State, session: SessionId, slot: u8, co
     if count == 0 || have.count() < count || player.phase == Phase::Loading {
         return false;
     }
+    let mut event = dispatch::heard::<PlayerDropItem>(state).then(|| PlayerDropItem {
+        player: crate::player::Id::new(session),
+        item: have.with_count(count),
+        cancelled: false,
+    });
+    if let Some(e) = &mut event {
+        dispatch::call(state, e);
+        let changed = dispatch::listened::<PlayerDropItem>(state)
+            && state
+                .players
+                .get(&session)
+                .is_none_or(|p| *p.inventory.main.stack(slot) != have);
+        if e.cancelled || changed {
+            resend_main(state, session, slot);
+            return false;
+        }
+    }
     if !throw_stack(state, session, have.with_count(count)) {
         return false;
     }
@@ -1977,7 +2270,20 @@ pub(super) fn drop_from_main(state: &mut State, session: SessionId, slot: u8, co
         have.with_count(have.count() - count),
     );
     give_pending(player);
+    if let Some(e) = event {
+        dispatch::watch(state, &e);
+    }
     true
+}
+
+/// Sends main slot `slot` as it is, undoing what the client predicted.
+fn resend_main(state: &mut State, session: SessionId, slot: u8) {
+    if let Some(player) = state.players.get_mut(&session)
+        && let Some(s) = player.inventory.main.get(slot)
+    {
+        let item = s.stack.to_instance(s.id.net);
+        send_own(player, SlotRef::Main(slot), item);
+    }
 }
 
 /// The player of `session` throws `stack` (PMMP `Player::dropItem`: the Q key, a request's drop,

@@ -30,6 +30,7 @@ pub(super) const COLUMNS: usize = 256;
 const MAX_UNKNOWN: usize = SUB_CHUNKS * 2 * 4096;
 
 /// The sub-chunk index and the y inside it of a height, if it is in the world.
+#[inline]
 pub(super) fn split_y(y: i32) -> Option<(usize, u8)> {
     if !(MIN_Y..=MAX_Y).contains(&y) {
         return None;
@@ -50,6 +51,7 @@ pub(super) fn column(x: u8, z: u8) -> usize {
 ///
 /// A clone shares the blocks and biomes and has no light: light is never saved, and a copy is
 /// lit again where it is loaded (PLAN.md 6).
+// pmmp-class: Chunk
 pub struct Chunk {
     sub_chunks: [Option<Arc<SubChunk>>; SUB_CHUNKS],
     biomes: [Arc<Paletted<u32>>; SUB_CHUNKS],
@@ -187,6 +189,7 @@ impl Chunk {
     }
 
     /// The layer 0 entry at local (x, y, z), or `None` outside the chunk.
+    #[inline]
     pub(crate) fn entry(&self, x: u8, y: i32, z: u8) -> Option<Entry> {
         let (index, y) = split_y(y).filter(|_| x < 16 && z < 16)?;
         Some(match self.sub_chunks.get(index)? {
@@ -263,6 +266,35 @@ impl Chunk {
         self.biomes.get(index).map(AsRef::as_ref)
     }
 
+    /// Turns the unknown states `known` names into the states it gives (the server's custom
+    /// blocks, PLAN.md 10.8): their entries become known; the others stay unknown with their
+    /// original NBT. The light is dropped if anything changed, so the world lights the chunk
+    /// again. Returns whether anything changed.
+    pub(crate) fn resolve_unknown(
+        &mut self,
+        known: impl Fn(&nbt::Compound) -> Option<State>,
+    ) -> bool {
+        if self.unknown.is_empty() {
+            return false;
+        }
+        let found: Vec<Option<State>> = self.unknown.iter().map(&known).collect();
+        if found.iter().all(Option::is_none) {
+            return false;
+        }
+        let map = |e: Entry| match e {
+            Entry::Unknown(i) => usize::try_from(i)
+                .ok()
+                .and_then(|i| found.get(i).copied().flatten())
+                .map_or(e, Entry::Known),
+            Entry::Known(_) => e,
+        };
+        for slot in self.sub_chunks.iter_mut().flatten() {
+            *slot = Arc::new(slot.map(map));
+        }
+        self.light = None;
+        true
+    }
+
     /// The original NBT of the unknown states, by [`Entry::Unknown`] index.
     pub(crate) fn unknown(&self) -> &[nbt::Compound] {
         &self.unknown
@@ -308,6 +340,7 @@ impl Chunk {
     }
 
     /// The layer 0 entry at an offset of sub-chunk `index` (air in an empty sub-chunk).
+    #[inline]
     pub(super) fn entry_at(&self, index: usize, offset: u16) -> Entry {
         match self.sub_chunks.get(index) {
             Some(Some(sub)) => sub.get(offset),
@@ -485,10 +518,12 @@ pub(crate) mod tests {
         }
     }
 
+    // pmmp: Chunk::getBlockStateId, Chunk::setBlockStateId, Chunk::getBiomeId, Chunk::setBiomeId, Chunk::getHighestBlockAt, Chunk
     #[test]
     fn a_clone_keeps_its_contents_while_the_original_changes() {
         let mut chunk = Chunk::generate(&Flat, 1, ChunkPos::new(0, 0));
-        chunk.put(3, 100, 3, Entry::Known(block::DIRT));
+        chunk.set_block(3, 100, 3, block::DIRT).unwrap();
+        assert!(chunk.set_block(3, 400, 3, block::DIRT).is_err());
         let snapshot = chunk.clone();
         assert!(Arc::ptr_eq(
             snapshot.sub_chunks[0].as_ref().unwrap(),
@@ -539,6 +574,7 @@ pub(crate) mod tests {
         assert_eq!(void.level_chunk_payload(), empty);
     }
 
+    // pmmp: Generator::generateChunk, Generator, Flat
     #[test]
     fn generators_give_the_same_bytes_for_the_same_seed_and_position() {
         for pos in [ChunkPos::new(0, 0), ChunkPos::new(-7, 12)] {

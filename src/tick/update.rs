@@ -19,7 +19,8 @@
 //!    whose 3 × 3 neighbourhood is loaded and lit, in position order; in each sub-chunk that is
 //!    not air, `random-tick-speed` positions from the engine random stream of the chunk and tick
 //!    (PMMP uses the global `mt_rand`; dragonfly a per-world generator that depends on thread
-//!    timing: both fixed). Blocks named in `disable-block-ticking` never tick.
+//!    timing: both fixed). Blocks named in `disable-block-ticking` never tick. A custom block
+//!    ticks if its definition asks for it, through its behaviour's `on_random_tick`.
 //!
 //! A rule never reads a chunk that is not loaded as air: it waits (PMMP loads it, or reads air
 //! and breaks blocks on chunk borders: fixed). Liquids that need such a block try again after
@@ -31,6 +32,7 @@ mod fire;
 mod liquid;
 mod plant;
 mod props;
+mod raise;
 mod soil;
 mod support;
 mod tree;
@@ -41,16 +43,18 @@ use tracing::warn;
 
 use super::interact::{self, Destroy};
 use super::view::{self, Key};
-use super::{Phase, State, block_entity, entity};
+use super::{Context, Phase, State, block_entity, dispatch, entity};
 use crate::block::{self, Class, Face, Kind};
 use crate::config::Difficulty;
+use crate::event::{Actor, BlockUpdate};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, Value};
+use crate::player;
 use crate::pool::Pool;
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::world::{BlockPos, ChunkPos, Entry, MAX_Y, MIN_Y, SUB_CHUNKS, World};
+use crate::world::{self, BlockPos, ChunkPos, Entry, MAX_Y, MIN_Y, SUB_CHUNKS, World};
 
 /// The most scheduled updates a world runs in one tick; the rest run in the next ticks, in
 /// order (PMMP has no limit). Measured (release): a water flow front costs about 4.3 µs an
@@ -357,12 +361,43 @@ pub(super) fn schedule(state: &mut State, world: WorldIndex, pos: BlockPos, dela
     state.rules.updates.schedule_at(world, pos, due);
 }
 
+impl Context<'_> {
+    /// Schedules an update of the block at `pos` in `world` in `delay_ticks` ticks (PMMP
+    /// `World::scheduleDelayedBlockUpdate`): the block then reacts as to its own scheduled
+    /// updates (a liquid flows, a pressed button pops out, fire burns; a custom block does
+    /// nothing). It runs in the block update pass of that tick, or of the next tick if this
+    /// tick's pass is over. A position has at most one pending update: an earlier request moves
+    /// it, a later one changes nothing. Pending updates are saved with their chunk.
+    ///
+    /// False, changing nothing, if the server has no world `world`, `pos` is outside the world
+    /// height or in a chunk that is not loaded, or the position has an update due no later.
+    #[doc(alias = "World::scheduleDelayedBlockUpdate")]
+    pub fn schedule_block_update(
+        &mut self,
+        world: world::Id,
+        pos: BlockPos,
+        delay_ticks: u32,
+    ) -> bool {
+        let Some(world) = super::world_api::index(self.state, world) else {
+            return false;
+        };
+        let due = self.state.tick.saturating_add(u64::from(delay_ticks));
+        self.state.rules.updates.schedule_at(world, pos, due)
+    }
+}
+
 /// Bone meal used on the block at `pos` (PMMP `onInteract` with `Fertilizer`: crops, stems,
-/// saplings, grass, sweet berries, bamboo, cocoa…): grows it and returns true if the bone meal is
-/// used up. The player is taken to use finite resources (PMMP's chances for saplings of azalea
-/// and fungi).
-pub(super) fn fertilize(state: &mut State, world: WorldIndex, pos: BlockPos) -> bool {
+/// saplings, grass, sweet berries, bamboo, cocoa…) by `player`: grows it and returns true if the
+/// bone meal is used up. The player is taken to use finite resources (PMMP's chances for saplings
+/// of azalea and fungi), and is named in the growth events.
+pub(super) fn fertilize(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    player: Option<player::Id>,
+) -> bool {
     let mut cx = Cx::new(state, world, pos);
+    cx.player = player;
     let Some(block) = cx.get(pos) else {
         return false;
     };
@@ -400,17 +435,25 @@ pub(super) fn fertilize(state: &mut State, world: WorldIndex, pos: BlockPos) -> 
 }
 
 /// A living entity (a player or a mob) landed on the block at `pos` after falling
-/// `fall_distance` blocks (PMMP `Farmland::onEntityLand`): farmland may be trampled to dirt.
-pub(super) fn trample(state: &mut State, world: WorldIndex, pos: BlockPos, fall_distance: f64) {
-    soil::trample(&mut Cx::new(state, world, pos), pos, fall_distance);
+/// `fall_distance` blocks (PMMP `Farmland::onEntityLand`): farmland may be trampled to dirt,
+/// raising [`EntityTrampleFarmland`](crate::event::EntityTrampleFarmland).
+pub(super) fn trample(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    fall_distance: f64,
+    entity: Actor,
+) {
+    soil::trample(&mut Cx::new(state, world, pos), pos, fall_distance, entity);
 }
 
 /// One tick of block updates: due scheduled updates, neighbour updates of the blocks changed
 /// since the last tick, then random ticks.
 ///
-/// Everything runs on the tick thread: random ticks of 20 players at `tick-radius` 4 (318
-/// chunks of a flat world) cost about 76 µs a tick (release), less than handing the candidate
-/// positions to the CPU pool would save, and rules change the blocks later candidates read.
+/// Everything runs on the tick thread, in the serial step, so the rules raise their events where
+/// they change blocks: random ticks of 20 players at `tick-radius` 4 (318 chunks of a flat world)
+/// cost about 76 µs a tick (release), less than handing the candidate positions to the CPU pool
+/// would save, and rules change the blocks later candidates read.
 pub(super) fn tick(state: &mut State, pool: &Pool) {
     let _ = pool;
     for world in 0..state.worlds.len() {
@@ -444,6 +487,28 @@ fn run_neighbours(state: &mut State, world: WorldIndex) {
             break;
         };
         queue.queued.remove(&pos);
+        // PMMP `BlockUpdateEvent`: cancelling skips the reaction of the block and of the
+        // entities in it.
+        let mut update = None;
+        if dispatch::heard::<BlockUpdate>(state) {
+            let mut cx = Cx::new(state, world, pos);
+            if let Some(block) = cx.get(pos) {
+                let asked = cx.ask(
+                    [pos],
+                    |cx| BlockUpdate {
+                        world: cx.world_id(),
+                        pos,
+                        block,
+                        cancelled: false,
+                    },
+                    BlockUpdate::is_cancelled,
+                );
+                let Ok(event) = asked else {
+                    continue;
+                };
+                update = event;
+            }
+        }
         // Entities resting on or in the block see the change too (PMMP
         // `Entity::onNearbyBlockChange` through the world's neighbour update).
         super::entity::block_changed(state, world, pos);
@@ -452,6 +517,7 @@ fn run_neighbours(state: &mut State, world: WorldIndex) {
         if let Some(block) = cx.get(pos) {
             on_nearby(&mut cx, pos, block);
         }
+        cx.tell(update);
     }
 }
 
@@ -610,8 +676,13 @@ fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
 }
 
-/// A random tick reached the block (PMMP `onRandomTick`).
+/// A random tick reached the block (PMMP `onRandomTick`); a custom block's goes to its
+/// behaviour.
 fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
+    if block.custom_block().is_some() {
+        interact::random_tick(cx.state, cx.world, pos, block);
+        return;
+    }
     match block.class() {
         Class::Fire => fire::on_random(cx, pos, block),
         Class::Grass => soil::grass(cx, pos),
@@ -638,6 +709,8 @@ pub(super) struct Cx<'a> {
     at: BlockPos,
     /// A number that tells apart two runs at the same position in one tick.
     seq: u64,
+    /// The player whose bone meal runs the rule, named in its growth events.
+    player: Option<player::Id>,
 }
 
 impl<'a> Cx<'a> {
@@ -647,15 +720,18 @@ impl<'a> Cx<'a> {
             world,
             at,
             seq: 0,
+            player: None,
         }
     }
 
+    #[inline]
     fn w(&self) -> Option<&World> {
         self.state.worlds.get(self.world)
     }
 
     /// The block at `pos`, or `None` if its chunk is not loaded or `pos` is outside the world
     /// height. A state Anchor does not know reads as bedrock: solid, full and unchanged.
+    #[inline]
     pub(super) fn get(&self, pos: BlockPos) -> Option<block::State> {
         match self.w()?.entry(pos)? {
             Entry::Known(s) => Some(s),
@@ -665,11 +741,13 @@ impl<'a> Cx<'a> {
 
     /// The block at `pos`, air where [`Self::get`] has none (PMMP `getBlockAt`, which reads air
     /// outside the world): for rules that only look for a kind of block.
+    #[inline]
     pub(super) fn block(&self, pos: Option<BlockPos>) -> block::State {
         pos.and_then(|p| self.get(p)).unwrap_or(block::AIR)
     }
 
     /// Whether `pos` is in the world height and its chunk is loaded.
+    #[inline]
     pub(super) fn is_loaded(&self, pos: BlockPos) -> bool {
         self.get(pos).is_some()
     }
@@ -792,8 +870,12 @@ impl<'a> Cx<'a> {
     }
 
     /// Whether the block takes random ticks here: PMMP's `ticksRandomly`, copper that can
-    /// oxidize (dragonfly), and not disabled by `disable-block-ticking`.
+    /// oxidize (dragonfly), and not disabled by `disable-block-ticking`; a custom block if its
+    /// definition asks for them ([`crate::custom::Block::random_ticks`]).
     fn ticks_randomly(&self, block: block::State) -> bool {
+        if block.custom_block().is_some() {
+            return block.ticks_randomly();
+        }
         (block.ticks_randomly() || soil::is_oxidizable(block))
             && self
                 .state
@@ -810,7 +892,8 @@ mod tests {
     use super::super::{Output, boundary, deliver, step};
     use super::*;
     use crate::block::PropertyValue;
-    use crate::event::Listeners;
+    use crate::event::{BlockGrow, BlockSpread, FarmlandHydrationChange, Listeners, Priority};
+    use crate::tick::Context;
     use crate::tick::InputLog;
     use crate::tick::queue::Input;
 
@@ -990,6 +1073,128 @@ mod tests {
         }
     }
 
+    // pmmp: World::scheduleDelayedBlockUpdate
+    #[test]
+    fn the_api_schedules_one_update_per_position_and_it_runs_when_due() {
+        let pool = pool();
+        let mut state = server();
+        let pos = BlockPos::new(2, -60, 2);
+        let pressed = find(
+            "minecraft:stone_button",
+            &[
+                ("button_pressed_bit", PropertyValue::Byte(1)),
+                ("facing_direction", PropertyValue::Int(1)),
+            ],
+        );
+        assert!(state.worlds[0].set_block_quietly(pos, pressed));
+        let mut cx = Context { state: &mut state };
+        let id = world::Id::DEFAULT;
+        assert!(cx.schedule_block_update(id, pos, 5));
+        assert!(
+            !cx.schedule_block_update(id, pos, 9),
+            "a later request changes nothing"
+        );
+        assert!(
+            cx.schedule_block_update(id, pos, 3),
+            "an earlier one moves it"
+        );
+        assert!(!cx.schedule_block_update(id, BlockPos::new(2, MAX_Y + 1, 2), 1));
+        assert!(
+            !cx.schedule_block_update(id, BlockPos::new(100_000, -60, 0), 1),
+            "not loaded"
+        );
+        assert!(!cx.schedule_block_update(world::Id::new(7).unwrap(), pos, 1));
+        let (queue, pending, _) = state.rules.updates.len();
+        assert_eq!((queue, pending), (1, 1));
+        for _ in 0..3 {
+            advance(&mut state, &pool);
+        }
+        assert_eq!(get(&state, pos), pressed, "not due yet");
+        advance(&mut state, &pool);
+        let released = props::with_flag(pressed, "button_pressed_bit", false).unwrap();
+        assert_eq!(get(&state, pos), released);
+        assert_eq!(state.rules.updates.len().0, 0);
+    }
+
+    /// Lights the block on a random tick.
+    struct Glow;
+
+    impl crate::custom::Behaviour for Glow {
+        fn on_random_tick(
+            &self,
+            ctx: &mut Context<'_>,
+            world: world::Id,
+            pos: BlockPos,
+            state: block::State,
+        ) {
+            let lit = state.with("lit", PropertyValue::Byte(1)).unwrap();
+            ctx.world_mut(world).unwrap().set_block(pos, lit).unwrap();
+        }
+    }
+
+    static TICKING: crate::custom::Block = crate::custom::Block::new("test:ticking", "t")
+        .with_properties(&[crate::custom::Property::bool("lit")])
+        .with_behaviour(&Glow)
+        .random_ticks();
+    static STILL: crate::custom::Block = crate::custom::Block::new("test:still", "s")
+        .with_properties(&[crate::custom::Property::bool("lit")])
+        .with_behaviour(&Glow);
+
+    /// A floor of custom blocks around a player, every other one taking random ticks: those get
+    /// them through their behaviour, the same way in a second run; the others never do.
+    #[test]
+    fn custom_blocks_that_ask_for_random_ticks_get_them_deterministically() {
+        let run = || {
+            let pool = pool();
+            let mut registry = crate::custom::Registry::default();
+            registry.add_block(&TICKING);
+            registry.add_block(&STILL);
+            registry.finish().unwrap();
+            let registry = std::sync::Arc::new(registry);
+            let mut state = server();
+            state.custom = std::sync::Arc::clone(&registry);
+            for w in &mut state.worlds {
+                w.set_custom(std::sync::Arc::clone(&registry));
+            }
+            let ticking = registry.block_state(&TICKING).unwrap();
+            let still = registry.block_state(&STILL).unwrap();
+            assert!(ticking.ticks_randomly() && !still.ticks_randomly());
+            for x in -16..16 {
+                for z in -16..16 {
+                    let s = if (x + z) % 2 == 0 { ticking } else { still };
+                    set(&mut state, BlockPos::new(x, -60, z), s);
+                }
+            }
+            let mut output = Output::default();
+            let (j, rx) = join(1, 0);
+            full_tick(&mut state, vec![j, radius(1, 1, 4)], &pool, &mut output);
+            let mut hashes = Vec::new();
+            for _ in 0..200 {
+                full_tick(&mut state, Vec::new(), &pool, &mut output);
+                hashes.push(state.hash());
+            }
+            let mut lit = [0, 0];
+            for x in -16..16 {
+                for z in -16..16 {
+                    let s = get(&state, BlockPos::new(x, -60, z));
+                    let def = s.custom_block().unwrap().identifier();
+                    if s.value("lit") == Some(PropertyValue::Byte(1)) {
+                        lit[usize::from(def == "test:still")] += 1;
+                    }
+                }
+            }
+            drop(rx);
+            assert!(pool.shutdown());
+            (hashes, lit)
+        };
+        let (first, [ticked, still]) = run();
+        assert!(ticked > 0, "no random tick reached a custom block");
+        assert_eq!(still, 0, "a block that did not ask got random ticks");
+        let (second, lit) = run();
+        assert_eq!(first, second);
+        assert_eq!(lit, [ticked, 0]);
+    }
+
     #[test]
     fn scheduled_updates_survive_unload_save_and_reload() {
         let (name, actions, ticks, b) = scenes().swap_remove(0);
@@ -1131,13 +1336,40 @@ mod tests {
         assert_eq!(state.worlds[0].changed_len(), 0);
     }
 
+    /// Listeners and monitors that change nothing on the events random ticks raise; the
+    /// receiver gets one message per growth.
+    fn pass_through() -> (Listeners, tokio::sync::mpsc::Receiver<()>) {
+        let (tx, rx) = tokio::sync::mpsc::channel(1 << 16);
+        let mut listeners = Listeners::default();
+        listeners.push(
+            Priority::Normal,
+            move |_: &mut BlockGrow, _: &mut Context<'_>| {
+                tx.try_send(()).unwrap();
+            },
+        );
+        listeners.push_monitor(|_: &BlockGrow, _: &Context<'_>| {});
+        listeners.push(
+            Priority::High,
+            |_: &mut BlockSpread, _: &mut Context<'_>| {},
+        );
+        listeners.push(Priority::Low, |_: &mut BlockUpdate, _: &mut Context<'_>| {});
+        listeners.push_monitor(|_: &BlockUpdate, _: &Context<'_>| {});
+        listeners.push(
+            Priority::Normal,
+            |_: &mut FarmlandHydrationChange, _: &mut Context<'_>| {},
+        );
+        listeners.sort();
+        (listeners, rx)
+    }
+
     /// A field of wheat on wet farmland around a player: random ticks grow it, the same way
-    /// with one pool thread or four, and the same in a second run.
+    /// with one pool thread or four, in a second run, and with listeners that change nothing.
+    // pmmp: BlockGrowEvent
     #[test]
     fn random_ticks_are_deterministic_and_grow_crops() {
-        let run = |threads: usize| {
+        let run = |threads: usize, listeners: Listeners| {
             let pool = crate::runtime::cpu_pool(threads).unwrap();
-            let mut state = server();
+            let mut state = new_state(settings(|c| c.developer.lighting = false), listeners);
             let farmland = find(
                 "minecraft:farmland",
                 &[("moisturized_amount", PropertyValue::Int(7))],
@@ -1171,11 +1403,17 @@ mod tests {
             assert!(pool.shutdown());
             (hashes, grown)
         };
-        let (one, grown) = run(1);
+        let (one, grown) = run(1, Listeners::default());
         assert!(grown > 0, "random ticks grew nothing");
-        let (four, grown4) = run(4);
+        let (four, grown4) = run(4, Listeners::default());
         assert_eq!(one, four);
         assert_eq!(grown, grown4);
+        let (listeners, mut growths) = pass_through();
+        let (heard, grown_heard) = run(4, listeners);
+        assert_eq!(one, heard, "listeners that change nothing change nothing");
+        assert_eq!(grown, grown_heard);
+        let calls = std::iter::from_fn(|| growths.try_recv().ok()).count();
+        assert!(calls > 0 && calls <= usize::try_from(grown).unwrap());
     }
 
     #[test]
@@ -1367,7 +1605,7 @@ mod tests {
                 );
             }
             state.tick = 1234;
-            assert_eq!(fertilize(&mut state, 0, at), !blocked);
+            assert_eq!(fertilize(&mut state, 0, at, None), !blocked);
             let mut blocks = Vec::new();
             for x in 14..27 {
                 for y in -61..-45 {
@@ -1571,7 +1809,7 @@ mod tests {
         set(&mut state, at, named("minecraft:wheat"));
         let mut ages = vec![0];
         while props::int(get(&state, at), "growth") != Some(7) {
-            assert!(fertilize(&mut state, 0, at));
+            assert!(fertilize(&mut state, 0, at, None));
             ages.push(props::int(get(&state, at), "growth").unwrap());
         }
         assert!(
@@ -1580,11 +1818,11 @@ mod tests {
             "{ages:?}"
         );
         assert!(
-            !fertilize(&mut state, 0, at),
+            !fertilize(&mut state, 0, at, None),
             "a grown crop takes no bone meal"
         );
         // Grass grows flowers and grass on the grass around.
-        assert!(fertilize(&mut state, 0, BlockPos::new(-10, -61, -10)));
+        assert!(fertilize(&mut state, 0, BlockPos::new(-10, -61, -10), None));
         let grew = (-12..=-8)
             .flat_map(|x| (-12..=-8).map(move |z| BlockPos::new(x, -60, z)))
             .filter(|p| get(&state, *p) != block::AIR)
@@ -1592,18 +1830,24 @@ mod tests {
         assert!(grew > 0);
     }
 
+    /// Who lands on farmland in the tests.
+    fn lander() -> Actor {
+        Actor::Player(player::Id::new(crate::tick::SessionId::new(1)))
+    }
+
     #[test]
     fn landing_on_farmland_tramples_it_by_the_fall() {
         let mut state = server();
         let at = BlockPos::new(2, -61, 2);
         set(&mut state, at, named("minecraft:farmland"));
-        trample(&mut state, 0, at, 0.5);
+        trample(&mut state, 0, at, 0.5, lander());
         assert_eq!(get(&state, at), named("minecraft:farmland"));
-        trample(&mut state, 0, at, 1.5);
+        trample(&mut state, 0, at, 1.5, lander());
         assert_eq!(get(&state, at), block::DIRT);
     }
 
-    /// Measures random ticks with 20 players at tick radius 4 and a large water flow:
+    /// Measures random ticks with 20 players at tick radius 4 on the flat world, over a wheat
+    /// field without listeners and with a listener on every growth, and a large water flow:
     /// `cargo test --release --lib tick::update::tests::block_update_cost -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement"]
@@ -1614,37 +1858,17 @@ mod tests {
     )]
     fn block_update_cost() {
         let pool = pool();
-        let mut state = server();
-        let mut output = Output::default();
-        let mut joins = Vec::new();
-        let mut receivers = Vec::new();
-        for n in 1..=20u64 {
-            let (j, rx) = join(n, 0);
-            receivers.push(rx);
-            joins.extend([j, radius(n, 1, 6)]);
+        for (wheat, listening) in [(false, false), (true, false), (true, true)] {
+            let (listeners, growths) = pass_through();
+            let listeners = if listening {
+                listeners
+            } else {
+                Listeners::default()
+            };
+            let mut state = new_state(settings(|c| c.developer.lighting = false), listeners);
+            random_tick_cost(&mut state, &pool, wheat, listening);
+            drop(growths);
         }
-        full_tick(&mut state, joins, &pool, &mut output);
-        let mut moves = Vec::new();
-        for n in 1..=20i16 {
-            let i = n - 1;
-            let x = f32::from((i % 5) * 48 - 96);
-            let z = f32::from((i / 5) * 48 - 72);
-            moves.push(moved_to(u64::from(n.cast_unsigned()), 2, [x, -59.0, z]));
-        }
-        full_tick(&mut state, moves, &pool, &mut output);
-        for _ in 0..40 {
-            full_tick(&mut state, Vec::new(), &pool, &mut output);
-        }
-        let chunks = ticking_chunks(&state, 0, 4).len();
-        let ticks = 200u32;
-        let start = std::time::Instant::now();
-        for _ in 0..ticks {
-            run_random(&mut state, 0);
-            state.tick += 1;
-        }
-        let per = start.elapsed().as_secs_f64() * 1e6 / f64::from(ticks);
-        eprintln!("random ticks: {chunks} chunks, {per:.1} us per tick");
-        drop(receivers);
         // Water sources flowing over the open flat area until it settles.
         let mut state = server();
         for i in 0..64 {
@@ -1666,5 +1890,58 @@ mod tests {
             total += took;
         }
         eprintln!("water: 64 sources, 200 ticks: {total:.1} ms in all, worst tick {worst:.2} ms");
+    }
+
+    /// The random tick part of [`block_update_cost`] on `state`, with wheat everywhere near the
+    /// players or none.
+    #[expect(
+        clippy::print_stderr,
+        clippy::disallowed_methods,
+        reason = "consistency: a measurement prints its result and reads the wall clock"
+    )]
+    fn random_tick_cost(state: &mut State, pool: &Pool, wheat: bool, listening: bool) {
+        let farmland = find(
+            "minecraft:farmland",
+            &[("moisturized_amount", PropertyValue::Int(7))],
+        );
+        let crop = named("minecraft:wheat");
+        for x in (-64..80).filter(|_| wheat) {
+            for z in -64..80 {
+                set(state, BlockPos::new(x, -61, z), farmland);
+                set(state, BlockPos::new(x, -60, z), crop);
+            }
+        }
+        let mut output = Output::default();
+        let mut joins = Vec::new();
+        let mut receivers = Vec::new();
+        for n in 1..=20u64 {
+            let (j, rx) = join(n, 0);
+            receivers.push(rx);
+            joins.extend([j, radius(n, 1, 6)]);
+        }
+        full_tick(state, joins, pool, &mut output);
+        let mut moves = Vec::new();
+        for n in 1..=20i16 {
+            let i = n - 1;
+            let x = f32::from((i % 5) * 48 - 96);
+            let z = f32::from((i / 5) * 48 - 72);
+            moves.push(moved_to(u64::from(n.cast_unsigned()), 2, [x, -59.0, z]));
+        }
+        full_tick(state, moves, pool, &mut output);
+        for _ in 0..40 {
+            full_tick(state, Vec::new(), pool, &mut output);
+        }
+        let chunks = ticking_chunks(state, 0, 4).len();
+        let ticks = 200u32;
+        let start = std::time::Instant::now();
+        for _ in 0..ticks {
+            run_random(state, 0);
+            state.tick += 1;
+        }
+        let per = start.elapsed().as_secs_f64() * 1e6 / f64::from(ticks);
+        eprintln!(
+            "random ticks (wheat {wheat}, BlockGrow listener {listening}): {chunks} chunks, {per:.1} us"
+        );
+        drop(receivers);
     }
 }

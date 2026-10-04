@@ -1,0 +1,7 @@
+# The script scenario of `cargo xtask p6 api` (xtask/src/p6/api.rs): a self-test of the bot's -script
+# actions (xtask/go/bot/api.go) that passes on BDS and on Anchor. Nothing here needs a permission.
+chat hello
+expect-text hello
+command no_such_command
+expect-output no_such_command
+wait 500ms

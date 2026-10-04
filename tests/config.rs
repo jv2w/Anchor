@@ -451,6 +451,7 @@ fn missing_file_reads_like_the_file_it_writes() {
     assert_eq!(again, first);
 }
 
+// pmmp: GameMode
 #[test]
 fn every_key_reaches_its_field() {
     let file = File::new("every_key_reaches_its_field");

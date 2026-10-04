@@ -12,7 +12,7 @@
 //! session ends with `p6 game compare target/p6/bds-game target/p6/anchor-game` for the
 //! scenarios it ran, also written to `anchor-game/compare.txt`.
 
-mod console;
+pub(super) mod console;
 mod trace;
 
 use std::collections::BTreeMap;
@@ -107,7 +107,15 @@ pub(crate) fn anchor_session(
         }
         passed &= console.settle(out)?;
         for scenario in scenarios {
-            passed &= run_scenario(bot, addr, &dir, scenario, |line| console.send(line), out)?;
+            passed &= run_scenario(
+                bot,
+                addr,
+                &dir,
+                scenario,
+                None,
+                |line| console.send(line),
+                out,
+            )?;
             passed &= console.settle(out)?;
             write_report(&dir, scenario, &blocks)?;
         }
@@ -146,7 +154,15 @@ pub(crate) fn session(
             server.command(line)?;
         }
         for scenario in scenarios {
-            passed &= run_scenario(bot, addr, &dir, scenario, |line| server.command(line), out)?;
+            passed &= run_scenario(
+                bot,
+                addr,
+                &dir,
+                scenario,
+                None,
+                |line| server.command(line),
+                out,
+            )?;
             write_report(&dir, scenario, &blocks)?;
         }
         Ok(passed)
@@ -251,19 +267,25 @@ fn run_spawn(bot: &Path, addr: &str, dir: &Path, out: &mut impl Write) -> Result
 }
 
 /// Runs one game scenario's bot into `<dir>/<scenario>.jsonl`, passing each command record to
-/// `console` as it appears, and returns whether the bot passed and its failure text.
+/// `console` as it appears, and returns whether the bot passed and its failure text. `script` is
+/// the action file of the `script` scenario.
 pub(crate) fn run_scenario(
     bot: &Path,
     addr: &str,
     dir: &Path,
     scenario: &str,
+    script: Option<&Path>,
     mut console: impl FnMut(&str) -> Result<(), String>,
     out: &mut impl Write,
 ) -> Result<bool, String> {
     let capture = dir.join(format!("{scenario}.jsonl"));
     super::remove_file(&capture)?;
     let name = player(scenario);
-    let mut child = Command::new(bot)
+    let mut command = Command::new(bot);
+    if let Some(script) = script {
+        command.arg("-script").arg(script);
+    }
+    let mut child = command
         .args(["-addr", addr, "-transport", "raknet", "-scenario", scenario])
         .args(["-name", &name, "-timeout", BOT_TIMEOUT, "-out"])
         .arg(&capture)

@@ -8,10 +8,12 @@
 //! server's own progress for that block (PMMP `SurvivalBlockBreakHandler`, counted per client
 //! input tick and limited by server time) has reached it. A refused break or placement leaves
 //! the world unchanged and sends the client the real blocks around it (PMMP
-//! `syncBlocksNearby`). Every rule is split into a check that only reads and an apply step
-//! (events in M8 go between them).
+//! `syncBlocksNearby`). Every rule is split into a check that only reads and an apply step;
+//! its event goes between them (PLAN.md 10.8), and the actions in [`crate::action`] run the same
+//! rules.
 
 mod breaking;
+mod custom;
 mod decor;
 mod drops;
 mod place;
@@ -20,11 +22,15 @@ mod rail;
 mod sign;
 mod using;
 
+pub(super) use custom::random_tick;
+
 use tracing::{debug, warn};
 
-use super::{Phase, Player, SessionId, State, entity, inventory, survival};
+use super::{Context, Phase, Player, SessionId, State, dispatch, entity, inventory, survival};
+use crate::action;
 use crate::block::{self, Class, Face, Kind, TypeTag};
 use crate::config::GameMode;
+use crate::event::{BlockBreak, InteractAction, PlayerInteract};
 use crate::item::{self, Enchantment, Stack};
 use crate::math::{self, Vec3};
 use crate::protocol::consts::{
@@ -139,7 +145,7 @@ impl Breaking {
                 h.u64(1);
                 h.usize(*world);
                 hash_pos(h, *pos);
-                h.u64(u64::from(props::face_index(*face)));
+                h.u64(u64::from(face.index()));
                 h.u64(u64::from(block.network_id()));
                 h.u64(*start);
                 h.u64(u64::from(*inputs));
@@ -299,7 +305,7 @@ fn block_pos(p: [i32; 3]) -> BlockPos {
 
 /// A face of a packet; `None` for an invalid face (PMMP `validateFacing`).
 fn face_of(face: i32) -> Option<Face> {
-    props::face_from_index(face)
+    Face::from_index(face)
 }
 
 /// The engine random stream of `purpose` at `pos` this tick.
@@ -349,7 +355,9 @@ pub(super) fn on_inventory_transaction(
                 return;
             }
             if let Ok(action) = UseItemOnEntityAction::try_from(data.action_type) {
-                using::on_entity(state, session, data.target_entity_runtime_id, action);
+                let [x, y, z] = data.clicked_position.map(|v| f64::from(finite(v)));
+                let click = Vec3::new(x, y, z);
+                using::on_entity(state, session, data.target_entity_runtime_id, action, click);
             }
         }
         InventoryTransactionData::ReleaseItem(data) => {
@@ -441,17 +449,82 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
             return;
         }
     };
-    let allowed = state
-        .players
-        .get(&session)
-        .is_some_and(|p| p.breaking.sign_editor == Some((actor.world, pos)));
-    if !allowed || !using::write_sign(state, actor.world, pos, &edit) {
+    let Some(old) = sign_edit_check(state, &actor, pos, block) else {
         resync(state, session, &[pos]);
         return;
+    };
+    // PMMP `InGamePacketHandler::handleBlockActorData`: one side changes at a time, the front
+    // first; a side the client sent unchanged is no edit.
+    let (front, mut lines) = if edit.front != old.front {
+        (true, edit.front)
+    } else if edit.back != old.back {
+        (false, edit.back)
+    } else {
+        return;
+    };
+    let mut event = None;
+    if dispatch::heard::<crate::event::SignChange>(state) {
+        let Some(world) = crate::world::Id::new(actor.world) else {
+            return;
+        };
+        let old_text = if front {
+            old.front.clone()
+        } else {
+            old.back.clone()
+        };
+        let mut e = crate::event::SignChange {
+            player: crate::player::Id::new(session),
+            world,
+            pos,
+            block,
+            old_text,
+            new_text: lines,
+            front_face: front,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        // A listener may have moved the player, written or broken the sign.
+        let changed = dispatch::listened::<crate::event::SignChange>(state)
+            && !self::actor(state, session).is_some_and(|again| {
+                again.world == actor.world
+                    && sign_edit_check(state, &again, pos, block).as_ref() == Some(&old)
+            });
+        let checked = (!e.cancelled && !changed)
+            .then(|| sign::check(&e.new_text))
+            .flatten();
+        let Some(checked) = checked else {
+            resync(state, session, &[pos]);
+            return;
+        };
+        lines = checked;
+        event = Some(e);
     }
+    decor::write_sign(state, actor.world, pos, front, lines);
     if let Some(p) = state.players.get_mut(&session) {
         p.breaking.sign_editor = None;
     }
+    if let Some(e) = event {
+        dispatch::watch(state, &e);
+    }
+}
+
+/// Whether `actor` may write the sign `block` at `pos` now (PMMP `BaseSign::updateFaceText`: it
+/// is the sign's editor and the sign is not waxed); the sign's text if so.
+fn sign_edit_check(
+    state: &State,
+    actor: &Actor,
+    pos: BlockPos,
+    block: block::State,
+) -> Option<decor::SignText> {
+    let editor = state
+        .players
+        .get(&actor.session)
+        .is_some_and(|p| p.breaking.sign_editor == Some((actor.world, pos)));
+    let here = state.worlds.get(actor.world).and_then(|w| w.block(pos)) == Some(block);
+    if !editor || !here {
+        return None;
+    }
+    decor::sign_text(state, actor.world, pos).filter(|s| !s.waxed)
 }
 
 /// Destroys the block at `pos` for `cause`: sets air (or the liquid it held), removes its block
@@ -504,8 +577,8 @@ pub(super) fn tick(state: &mut State) {
         if target.fx % FX_INTERVAL == 0 && target.progress < 1.0 {
             // PMMP `BlockPunchParticle` (and dragonfly): the runtime ID with the face in bits
             // 24 and up.
-            let data = target.block.network_id().cast_signed()
-                | (i32::from(props::face_index(target.face)) << 24);
+            let data =
+                target.block.network_id().cast_signed() | (i32::from(target.face.index()) << 24);
             packets[1] = Some((Event::ParticlesCrackBlock, data));
         }
         if let Some(p) = state.players.get_mut(&session)
@@ -570,7 +643,8 @@ pub(super) fn sound(state: &mut State, world: WorldIndex, at: Vec3, sound: Sound
     state.broadcast(world, chunk, &packet, None);
 }
 
-/// Sends `session` the real blocks at `positions` it has been sent (a refused change).
+/// Sends `session` again the blocks at `positions` as it is shown them (a refused change): the
+/// fake block where it has one (its open menu's or the user's), otherwise the real block.
 fn resync(state: &mut State, session: SessionId, positions: &[BlockPos]) {
     let Some(player) = state.players.get(&session) else {
         return;
@@ -589,7 +663,7 @@ fn resync(state: &mut State, session: SessionId, positions: &[BlockPos]) {
         if !player.view.sees(pos.chunk()) {
             continue;
         }
-        if let Some(block) = world.block(pos) {
+        if let Some(block) = player.view.shown(pos).or_else(|| world.block(pos)) {
             packets.push(Packet::UpdateBlock(UpdateBlock {
                 position: [pos.x, pos.y, pos.z],
                 new_block_runtime_id: block.network_id(),
@@ -600,7 +674,7 @@ fn resync(state: &mut State, session: SessionId, positions: &[BlockPos]) {
     }
     if let Some(player) = state.players.get_mut(&session) {
         for packet in packets {
-            player.send(packet);
+            player.send_packet(packet);
         }
     }
 }
@@ -758,7 +832,7 @@ fn apply_block_action(
             set_last(state, Some(pos));
         }
         PlayerAction::PredictDestroyBlock => {
-            if !break_block(state, session, pos) {
+            if !break_block(state, session, pos, Timing::Counted) {
                 sync_nearby(state, session, pos, Some(face));
             }
             set_last(state, None);
@@ -804,24 +878,89 @@ pub(super) fn stop_breaking(state: &mut State, session: SessionId) {
     }
 }
 
-/// PMMP `Player::attackBlock`: a left click on a block starts breaking it (or acts on it: fire
-/// on the clicked face goes out, a dragon egg jumps away).
+/// PMMP `Player::attackBlock`: a left click on a block ([`PlayerInteract`]) starts breaking it
+/// (or acts on it: fire on the clicked face goes out, a dragon egg jumps away).
 fn attack_block(state: &mut State, session: SessionId, pos: BlockPos, face: Face) -> bool {
-    let Some(actor) = actor(state, session) else {
+    let Some(mut actor) = actor(state, session) else {
         return false;
     };
+    let Some(target) = left_click(state, &actor, pos) else {
+        return false;
+    };
+    let mut event = None;
+    if dispatch::heard::<PlayerInteract>(state) {
+        let Some(world) = crate::world::Id::new(actor.world) else {
+            return false;
+        };
+        let mut e = PlayerInteract {
+            player: crate::player::Id::new(session),
+            world,
+            pos,
+            block: target,
+            face,
+            item: held(state, session),
+            touch_vector: Vec3::ZERO,
+            action: InteractAction::LeftClickBlock,
+            use_item: true,
+            use_block: true,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        if e.cancelled {
+            return false;
+        }
+        if dispatch::listened::<PlayerInteract>(state) {
+            // A listener may have moved the player or changed the block.
+            let again = self::actor(state, session)
+                .filter(|a| a.world == actor.world && left_click(state, a, pos) == Some(target));
+            let Some(again) = again else {
+                return false;
+            };
+            actor = again;
+        }
+        event = Some(e);
+    }
+    let done = attack(state, &actor, pos, face, target);
+    if let Some(e) = event.filter(|_| done) {
+        dispatch::watch(state, &e);
+    }
+    done
+}
+
+/// PMMP `Player::attackBlock`'s checks: the block is near (100 blocks) and loaded, and the
+/// player is not a spectator. The block if so.
+fn left_click(state: &State, actor: &Actor, pos: BlockPos) -> Option<block::State> {
     if center(pos).distance_squared(actor.feet) > MAX_ACTION_DISTANCE_SQUARED
         || actor.mode == GameMode::Spectator
     {
-        return false;
+        return None;
     }
-    let Some(target) = state.worlds.get(actor.world).and_then(|w| w.block(pos)) else {
-        return false;
-    };
+    state.worlds.get(actor.world)?.block(pos)
+}
+
+/// The held item of `session` (empty if it is not a player).
+fn held(state: &State, session: SessionId) -> Stack {
+    state
+        .players
+        .get(&session)
+        .map(|p| p.inventory.held().clone())
+        .unwrap_or_default()
+}
+
+/// The left click on `target` at `pos` after [`PlayerInteract`] (PMMP `Player::attackBlock`
+/// from `Block::onAttack` on).
+fn attack(
+    state: &mut State,
+    actor: &Actor,
+    pos: BlockPos,
+    face: Face,
+    target: block::State,
+) -> bool {
+    let session = actor.session;
     // PMMP `Block::onAttack`.
     if target.is(Class::ItemFrame) || target.is(Class::Lectern) {
         let mut rng = stream(state, actor.world, USE, pos);
-        if decor::attack(state, &actor, pos, &mut rng) {
+        if decor::attack(state, actor, pos, &mut rng) {
             return true;
         }
     }
@@ -902,32 +1041,109 @@ fn break_done(state: &State, session: SessionId, actor: &Actor, pos: BlockPos) -
     })
 }
 
+/// Whether a break waits for the break time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Timing {
+    /// The client's break: the server's own progress must have reached it.
+    Counted,
+    /// A break the API asks for ([`action::BreakBlock`], PMMP `Player::breakBlock`): now.
+    Instant,
+}
+
 /// PMMP `Player::breakBlock`: the client says it broke the block at `pos`. False (the caller
 /// resyncs) when the player cannot reach it, has not broken it long enough, or the world
-/// refuses (PMMP `World::useBreakOn`).
-fn break_block(state: &mut State, session: SessionId, pos: BlockPos) -> bool {
+/// refuses (PMMP `World::useBreakOn`, with [`BlockBreak`]).
+fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Timing) -> bool {
     inventory::close_window(state, session);
-    let Some(actor) = actor(state, session) else {
+    let Some(mut actor) = actor(state, session) else {
         return false;
     };
     if !actor.can_interact(center(pos), actor.reach()) {
         debug!(session = session.get(), "break out of reach");
         return false;
     }
-    if actor.finite() && !break_done(state, session, &actor, pos) {
+    let counted = timing == Timing::Counted && actor.finite();
+    if !dispatch::heard::<BlockBreak>(state) {
+        if counted && !break_done(state, session, &actor, pos) {
+            debug!(session = session.get(), "break before its time");
+            stop_breaking(state, session);
+            return false;
+        }
+        let tool = held(state, session);
+        let plan = break_plan(state, &actor, pos, &tool);
+        return finish_break(state, &actor, pos, &tool, plan);
+    }
+    // With listeners the break time is checked after them: `insta_break` may skip it.
+    let tool = held(state, session);
+    let Some(mut plan) = break_plan(state, &actor, pos, &tool) else {
+        stop_breaking(state, session);
+        return false;
+    };
+    let Some(world) = crate::world::Id::new(actor.world) else {
+        return false;
+    };
+    let mut e = BlockBreak {
+        player: crate::player::Id::new(session),
+        world,
+        pos,
+        block: plan.block,
+        item: tool.clone(),
+        insta_break: !counted,
+        drops: plan.destruction.items.clone(),
+        xp_drop_amount: plan.destruction.xp,
+        cancelled: false,
+    };
+    dispatch::call(state, &mut e);
+    if e.cancelled {
+        stop_breaking(state, session);
+        return false;
+    }
+    if dispatch::listened::<BlockBreak>(state) {
+        // A listener may have moved the player, changed the block or its contents (the drops
+        // would copy them), or taken the tool: the break must come out the same.
+        let again = self::actor(state, session).filter(|a| {
+            a.world == actor.world
+                && a.can_interact(center(pos), a.reach())
+                && held(state, session) == tool
+                && break_plan(state, a, pos, &tool).as_ref() == Some(&plan)
+        });
+        let Some(again) = again else {
+            stop_breaking(state, session);
+            return false;
+        };
+        actor = again;
+    }
+    if counted && !e.insta_break && !break_done(state, session, &actor, pos) {
         debug!(session = session.get(), "break before its time");
         stop_breaking(state, session);
         return false;
     }
+    plan.destruction.items.clone_from(&e.drops);
+    plan.destruction.xp = e.xp_drop_amount;
+    if !finish_break(state, &actor, pos, &tool, Some(plan)) {
+        return false;
+    }
+    dispatch::watch(state, &e);
+    true
+}
+
+/// The end of a break whose time is checked: the breaking stops, then the break `plan` (`None`
+/// when the checks refused it) is applied and the player gets hungrier. A refused break stops
+/// the cracking the viewers see.
+fn finish_break(
+    state: &mut State,
+    actor: &Actor,
+    pos: BlockPos,
+    tool: &Stack,
+    plan: Option<BreakPlan>,
+) -> bool {
+    let session = actor.session;
     let target = state
         .players
         .get_mut(&session)
         .and_then(|p| p.breaking.target.take());
-    let Some(player) = state.players.get(&session) else {
-        return false;
-    };
-    let tool = player.inventory.held().clone();
-    if !use_break_on(state, &actor, pos, &tool) {
+    let broke = plan.is_some_and(|plan| use_break_on(state, actor, pos, tool, plan));
+    if !broke {
         // The break handler stays gone, as in PMMP; the client starts again.
         if target.is_some() {
             level_event(
@@ -946,29 +1162,54 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos) -> bool {
     true
 }
 
-/// PMMP `World::useBreakOn` for a player: the checks, the destruction with drops, and the tool's
-/// wear (`Item::onDestroyBlock`).
-fn use_break_on(state: &mut State, actor: &Actor, pos: BlockPos, tool: &Stack) -> bool {
-    let Some(target) = state.worlds.get(actor.world).and_then(|w| w.block(pos)) else {
-        return false;
-    };
-    // Checks (PMMP cancels the BlockBreakEvent for these).
+/// A player's break worked out before anything changes: the block and its destruction.
+#[derive(Debug, Clone, PartialEq)]
+struct BreakPlan {
+    block: block::State,
+    destruction: Destruction,
+}
+
+/// PMMP `World::useBreakOn`'s checks for a player (PMMP cancels the `BlockBreakEvent` for
+/// these: air, a spectator, an unbreakable block with finite resources, adventure mode without
+/// `CanDestroy`) and the drops and experience the break gives.
+fn break_plan(state: &State, actor: &Actor, pos: BlockPos, tool: &Stack) -> Option<BreakPlan> {
+    let target = state.worlds.get(actor.world)?.block(pos)?;
     if target == block::AIR
         || actor.mode == GameMode::Spectator
         || (actor.finite() && !target.break_info().is_breakable())
         || (actor.mode == GameMode::Adventure && !adventure_allows(tool, "CanDestroy", target))
     {
-        return false;
+        return None;
     }
     let cause = Destroy::Player {
         session: actor.session,
         tool: tool.clone(),
     };
-    if !destroy_with(state, actor.world, pos, &cause, true) {
+    let destruction = plan_destruction(state, actor.world, pos, &cause)?;
+    Some(BreakPlan {
+        block: target,
+        destruction,
+    })
+}
+
+/// PMMP `World::useBreakOn` for a player after its checks: the destruction with drops, and the
+/// tool's wear (`Item::onDestroyBlock`).
+fn use_break_on(
+    state: &mut State,
+    actor: &Actor,
+    pos: BlockPos,
+    tool: &Stack,
+    plan: BreakPlan,
+) -> bool {
+    let cause = Destroy::Player {
+        session: actor.session,
+        tool: tool.clone(),
+    };
+    if !apply_destruction(state, actor.world, pos, &cause, plan.destruction, true) {
         return false;
     }
     let mut rng = stream(state, actor.world, USE, pos);
-    let worn = tool_after_break(tool, target, &mut rng);
+    let worn = tool_after_break(tool, plan.block, &mut rng);
     return_items(state, actor, tool, worn, Vec::new());
     true
 }
@@ -1015,13 +1256,18 @@ fn adventure_allows(stack: &Stack, key: &str, block: block::State) -> bool {
 }
 
 /// PMMP `Player::returnItemsFromAction`: the held stack becomes `new` if the action changed it
-/// (in creative only a change of item, not of count or damage); `returned` items go to the
-/// inventory, the first into the hand if it emptied, and what does not fit is thrown.
+/// (in creative only a change of item, not of count or damage) and the hand still holds `old`
+/// (a listener during the action may have changed it); `returned` items go to the inventory,
+/// the first into the hand if it emptied, and what does not fit is thrown.
 fn return_items(state: &mut State, actor: &Actor, old: &Stack, new: Stack, returned: Vec<Stack>) {
     let session = actor.session;
     let mut changed = false;
     let emptied = new.is_empty();
-    if new != *old {
+    let holds_old = state
+        .players
+        .get(&session)
+        .is_some_and(|p| p.inventory.held() == old);
+    if new != *old && holds_old {
         let deducted = new.is_empty() || (new.item() == old.item() && new.extra() == old.extra());
         if !deducted || actor.finite() {
             // A tool worn out (PMMP `ItemBreakSound`).
@@ -1099,14 +1345,33 @@ fn destroy_with(
     cause: &Destroy,
     particles: bool,
 ) -> bool {
-    let Some(w) = state.worlds.get(world) else {
-        return false;
-    };
-    let Some(target) = w.block(pos) else {
-        return false;
-    };
+    match plan_destruction(state, world, pos, cause) {
+        Some(plan) => apply_destruction(state, world, pos, cause, plan, particles),
+        None => false,
+    }
+}
+
+/// What destroying a block does, worked out before anything changes: the blocks that go
+/// together, then the drops (the block entity's contents included) and the experience.
+#[derive(Debug, Clone, PartialEq)]
+struct Destruction {
+    affected: [Option<(BlockPos, block::State)>; 2],
+    items: Vec<Stack>,
+    xp: u32,
+}
+
+/// The destruction of the block at `pos` for `cause`; `None` if the position is not loaded or
+/// already air.
+fn plan_destruction(
+    state: &State,
+    world: WorldIndex,
+    pos: BlockPos,
+    cause: &Destroy,
+) -> Option<Destruction> {
+    let w = state.worlds.get(world)?;
+    let target = w.block(pos)?;
     if target == block::AIR {
-        return false;
+        return None;
     }
     let affected = affected_blocks(w, pos, target);
     let mut rng = stream(state, world, DROPS, pos);
@@ -1137,8 +1402,32 @@ fn destroy_with(
             }
         }
     }
+    Some(Destruction {
+        affected,
+        items: out.items,
+        xp,
+    })
+}
+
+/// Applies a destruction (PMMP `World::useBreakOn` after its checks, `destroyBlockInternal`,
+/// `Block::onBreak`): every affected block removed with its block entity, then the drops and
+/// experience. A player's break whose first drop finds no room for an entity changes nothing
+/// (the world's entity limit, PLAN.md 10.7).
+fn apply_destruction(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    cause: &Destroy,
+    plan: Destruction,
+    particles: bool,
+) -> bool {
+    let Destruction {
+        affected,
+        items,
+        xp,
+    } = plan;
     let at = center(pos);
-    let mut items = out.items.into_iter();
+    let mut items = items.into_iter();
     let first = items.next();
     if let Some(first) = &first
         && matches!(cause, Destroy::Player { .. })
@@ -1159,6 +1448,13 @@ fn destroy_with(
         }
         super::block_entity::removed(state, world, p);
         on_break(state, world, p, s, cause);
+        if s.custom_block().is_some() {
+            let session = match cause {
+                Destroy::Player { session, .. } => Some(*session),
+                _ => None,
+            };
+            custom::broken(state, session, world, p, s);
+        }
     }
     let rest = if matches!(cause, Destroy::Player { .. }) {
         items.collect::<Vec<_>>()
@@ -1216,6 +1512,12 @@ fn drops_of(
             });
             if finite {
                 for (p, s) in affected.iter().flatten() {
+                    if s.custom_block().is_some() {
+                        let (items, x) = custom::drops_of(state, *s, tool, rng);
+                        add(custom_drops(items), *p, rng);
+                        xp = xp.saturating_add(x);
+                        continue;
+                    }
                     add(drops::drops(*s, tool, rng), *p, rng);
                     xp = xp.saturating_add(drops::experience(*s, tool, rng));
                 }
@@ -1223,6 +1525,11 @@ fn drops_of(
         }
         Destroy::Rules => {
             for (p, s) in affected.iter().flatten() {
+                if s.custom_block().is_some() {
+                    let (items, _) = custom::drops_of(state, *s, &Stack::EMPTY, rng);
+                    add(custom_drops(items), *p, rng);
+                    continue;
+                }
                 add(drops::drops(*s, &Stack::EMPTY, rng), *p, rng);
             }
         }
@@ -1235,7 +1542,12 @@ fn drops_of(
             };
             if f64::from(rng.range(0, 100)) < chance {
                 for (p, s) in affected.iter().flatten() {
-                    if s.kind() != Kind::Tnt {
+                    if s.custom_block().is_some() {
+                        // PMMP `Explosion::explodeB`: as by hand with a compatible tool where
+                        // the block is explosion harvestable.
+                        let (items, _) = custom::drops_of(state, *s, &Stack::EMPTY, rng);
+                        add(custom_drops(items), *p, rng);
+                    } else if s.kind() != Kind::Tnt {
                         add(drops::explosion(*s, rng), *p, rng);
                     }
                 }
@@ -1244,6 +1556,14 @@ fn drops_of(
         Destroy::NoDrops => {}
     }
     (out, xp)
+}
+
+/// The drops of a custom block as the vanilla drop rules give them.
+fn custom_drops(items: Vec<Stack>) -> drops::Drops {
+    drops::Drops {
+        items,
+        from_block_entity: 0,
+    }
 }
 
 /// PMMP `Block::onBreak` per class: ice melts into water when a survival player (or the world)
@@ -1317,19 +1637,24 @@ fn use_item(state: &mut State, session: SessionId, data: &UseItemTransactionData
     match action {
         UseItemAction::ClickBlock => click_block(state, session, data),
         UseItemAction::ClickAir => {
-            let Some(actor) = actor(state, session) else {
-                return;
-            };
-            if !held_matches(state, session, data) {
-                return;
-            }
-            if !survival::use_consumable(state, session) {
-                using::use_held_item(state, &actor);
+            if held_matches(state, session, data) {
+                use_in_air(state, session);
             }
         }
         // Breaking is server-authoritative through block actions; attacks come as
         // `UseItemOnEntity`.
         UseItemAction::BreakBlock | UseItemAction::UseAsAttack => {}
+    }
+}
+
+/// A click in the air (PMMP `handleUseItemTransaction` `ACTION_CLICK_AIR`): eating or drinking
+/// is the survival rules', anything else [`using::use_held_item`].
+fn use_in_air(state: &mut State, session: SessionId) {
+    let Some(actor) = actor(state, session) else {
+        return;
+    };
+    if !survival::use_consumable(state, session) {
+        using::use_held_item(state, &actor);
     }
 }
 
@@ -1349,7 +1674,12 @@ fn held_matches(state: &State, session: SessionId, data: &UseItemTransactionData
 
 /// A finite float's bits; non-finite values are 0.
 fn bits(v: f32) -> u32 {
-    if v.is_finite() { v.to_bits() } else { 0 }
+    finite(v).to_bits()
+}
+
+/// A finite float, or 0.
+fn finite(v: f32) -> f32 {
+    if v.is_finite() { v } else { 0.0 }
 }
 
 /// A click on a block (PMMP `ACTION_CLICK_BLOCK`): the repeat filter, the held item check, then
@@ -1429,10 +1759,56 @@ fn open_sign_editor(
 ) {
     if let Some(player) = state.players.get_mut(&session) {
         player.breaking.sign_editor = Some((world, pos));
-        player.send(Packet::OpenSign(OpenSign {
+        player.send_packet(Packet::OpenSign(OpenSign {
             position: [pos.x, pos.y, pos.z],
             front_side: front,
         }));
+    }
+}
+
+/// A point an action gives: each part that is not a finite number counts as 0.
+fn finite_vec(v: Vec3) -> Vec3 {
+    let part = |c: f64| if c.is_finite() { c } else { 0.0 };
+    Vec3::new(part(v.x), part(v.y), part(v.z))
+}
+
+impl action::Sealed for action::AttackBlock {
+    fn perform(self, cx: &mut Context<'_>) {
+        let _attacked = attack_block(cx.state, self.player.session(), self.pos, self.face);
+    }
+}
+
+impl action::Sealed for action::BreakBlock {
+    fn perform(self, cx: &mut Context<'_>) {
+        let _broke = break_block(cx.state, self.player.session(), self.pos, Timing::Instant);
+    }
+}
+
+impl action::Sealed for action::UseItemOn {
+    fn perform(self, cx: &mut Context<'_>) {
+        let click = finite_vec(self.click);
+        let click = Vec3::new(
+            math::clamp(click.x, 0.0, 1.0),
+            math::clamp(click.y, 0.0, 1.0),
+            math::clamp(click.z, 0.0, 1.0),
+        );
+        let _used = interact_block(cx.state, self.player.session(), self.pos, self.face, click);
+    }
+}
+
+impl action::Sealed for action::UseItem {
+    fn perform(self, cx: &mut Context<'_>) {
+        use_in_air(cx.state, self.player.session());
+    }
+}
+
+impl action::Sealed for action::InteractEntity {
+    fn perform(self, cx: &mut Context<'_>) {
+        let session = self.player.session();
+        if actor(cx.state, session).is_some() {
+            let click = finite_vec(self.click);
+            let _used = using::interact_entity(cx.state, session, self.entity, click);
+        }
     }
 }
 

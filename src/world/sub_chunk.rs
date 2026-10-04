@@ -57,6 +57,7 @@ impl SubChunk {
     }
 
     /// The layer 0 entry of a slot.
+    #[inline]
     pub(crate) fn get(&self, offset: u16) -> Entry {
         let [blocks, _] = &self.layers;
         blocks.get(offset)
@@ -66,6 +67,14 @@ impl SubChunk {
     pub(crate) fn set(&mut self, offset: u16, entry: Entry) -> Entry {
         let [blocks, _] = &mut self.layers;
         blocks.set(offset, entry)
+    }
+
+    /// The sub-chunk with every palette entry of both layers passed through `f`.
+    pub(crate) fn map(&self, f: impl Fn(Entry) -> Entry) -> Self {
+        let [blocks, water] = &self.layers;
+        Self {
+            layers: [blocks.map(&f), water.map(&f)],
+        }
     }
 
     /// Compacts both layers ([`Paletted::compact`]).

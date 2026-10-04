@@ -1,0 +1,66 @@
+//! Actions on entities: a player's melee hit and an explosion, done through the game rules with
+//! their events (the entity rules do them, `tick::entity`).
+
+use crate::math::Vec3;
+use crate::{entity, player, world};
+
+/// A player hits an entity in melee as its client's hit would (PMMP `Player::attackEntity`):
+/// reach, the damage of the held item with Strength, Weakness, Sharpness and a critical hit,
+/// knockback, Knockback and Fire Aspect, wear and hunger, with the events of each
+/// ([`EntityDamage`](crate::event::EntityDamage), [`EntityMotion`](crate::event::EntityMotion),
+/// [`EntityCombust`](crate::event::EntityCombust), [`EntityDeath`](crate::event::EntityDeath)).
+/// Nothing happens for a target that is not a living NPC, or a player who cannot reach it.
+#[doc(alias = "Player::attackEntity")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Attack {
+    pub(crate) attacker: player::Id,
+    pub(crate) target: entity::Id,
+}
+
+impl Attack {
+    /// `attacker` hits `target`.
+    pub fn new(attacker: player::Id, target: entity::Id) -> Self {
+        Self { attacker, target }
+    }
+}
+
+impl super::Action for Attack {}
+
+/// An explosion as the game makes one (PMMP `Explosion::explodeA` then `explodeB`): what
+/// [`Context::explode`](crate::Context::explode) does, with the events of the entities it hurts
+/// and pushes ([`EntityDamage`](crate::event::EntityDamage),
+/// [`EntityMotion`](crate::event::EntityMotion)). It has no source entity, so no
+/// [`EntityExplode`](crate::event::EntityExplode). Nothing happens for a world the server does
+/// not have, a centre that is not finite or outside the world border, or a size that is not
+/// above 0.
+#[doc(alias = "Explosion::explodeA")]
+#[doc(alias = "Explosion::explodeB")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Explode {
+    pub(crate) world: world::Id,
+    pub(crate) center: Vec3,
+    pub(crate) size: f64,
+    pub(crate) fire: bool,
+}
+
+impl Explode {
+    /// An explosion of `size` (at most 8) at `center` in `world`, without fire.
+    pub fn new(world: world::Id, center: Vec3, size: f64) -> Self {
+        Self {
+            world,
+            center,
+            size,
+            fire: false,
+        }
+    }
+
+    /// The same explosion, setting a third of the broken blocks on fire (PMMP's default fire
+    /// chance) where the block under them can hold fire.
+    #[doc(alias = "Explosion::setFireChance")]
+    #[must_use]
+    pub fn with_fire(self) -> Self {
+        Self { fire: true, ..self }
+    }
+}
+
+impl super::Action for Explode {}

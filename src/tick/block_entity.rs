@@ -16,7 +16,13 @@
 //!
 //! Items that cannot be dropped when a container breaks (the world's entity limit) wait in the
 //! chunk as spills ([`Spill`], saved with the chunk) and drop on later ticks: nothing is lost.
+//!
+//! Events (PLAN.md 10.8) sit between the steps of a tick: `FurnaceBurn` before a fuel burns,
+//! `FurnaceSmelt` before an item smelts, `BrewingFuelUse` and `BrewItem` (one per bottle),
+//! `CampfireCook` before a cooked item drops, `ChestPair` before two chests pair. After a
+//! listener the step is checked again on the block as the listener left it.
 
+mod api;
 mod beacon;
 mod brewing;
 mod campfire;
@@ -28,9 +34,11 @@ use std::collections::{BTreeMap, BTreeSet, btree_map};
 use tracing::{error, warn};
 
 use super::view::Key;
-use super::{SessionId, State, entity, interact, inventory, survival};
+use super::{SessionId, State, dispatch, entity, interact, inventory, survival};
 use crate::block::{self, Class, Face, Facing, PropertyValue};
 use crate::crafting::FurnaceType;
+use crate::custom::Registry;
+use crate::event::{BrewItem, BrewingFuelUse, CampfireCook, ChestPair, FurnaceBurn, FurnaceSmelt};
 use crate::item::{self, Stack};
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -397,7 +405,7 @@ impl BlockEntity {
         clippy::too_many_lines,
         reason = "consistency: one arm per Bedrock block entity id, side by side with PMMP's tiles"
     )]
-    fn read(mut nbt: Compound, pos: BlockPos) -> Self {
+    fn read(mut nbt: Compound, pos: BlockPos, custom: &Registry) -> Self {
         for key in ["x", "y", "z"] {
             nbt.remove(key);
         }
@@ -422,7 +430,7 @@ impl BlockEntity {
             "BrewingStand" => Kind::BrewingStand(brewing::Brewing::read(&mut nbt)),
             "Campfire" => {
                 items = vec![Stack::EMPTY; campfire::SLOTS];
-                Kind::Campfire(campfire::Campfire::read(&mut nbt, &mut items))
+                Kind::Campfire(campfire::Campfire::read(&mut nbt, &mut items, custom))
             }
             "EnchantTable" => Kind::EnchantTable,
             "Beacon" => {
@@ -442,19 +450,20 @@ impl BlockEntity {
             "ItemFrame" | "GlowItemFrame" => Kind::ItemFrame(Box::new(decor::Frame::read(
                 &mut nbt,
                 id == "GlowItemFrame",
+                custom,
             ))),
             "Jukebox" | "RecordPlayer" => Kind::Jukebox {
-                record: decor::read_item(&mut nbt, "RecordItem"),
+                record: decor::read_item(&mut nbt, "RecordItem", custom),
             },
             "Lectern" => {
-                let (book, page) = decor::read_lectern(&mut nbt);
+                let (book, page) = decor::read_lectern(&mut nbt, custom);
                 Kind::Lectern { book, page }
             }
             "ChiseledBookshelf" => {
                 items = vec![Stack::EMPTY; BOOKSHELF_SLOTS];
                 if let Some(Value::List(List::Compound(list))) = nbt.remove("Items") {
                     for (slot, entry) in items.iter_mut().zip(&list) {
-                        *slot = decor::read_stack(entry, "bookshelf").with_count(1);
+                        *slot = decor::read_stack(entry, "bookshelf", custom).with_count(1);
                     }
                 }
                 let last = match nbt.remove("LastInteractedSlot") {
@@ -480,7 +489,7 @@ impl BlockEntity {
             };
             items = vec![Stack::EMPTY; slots];
             if let Some(Value::List(List::Compound(list))) = nbt.remove("Items") {
-                read_items(&mut items, &list, pos);
+                read_items(&mut items, &list, pos, custom);
             }
         }
         let mut entity = Self::new(kind, 0);
@@ -606,7 +615,7 @@ impl BlockEntity {
 
     /// Whether clients get it (PMMP `Spawnable` tiles; a chiseled bookshelf and unknown kinds are
     /// not).
-    fn is_spawnable(&self) -> bool {
+    pub(super) fn is_spawnable(&self) -> bool {
         !matches!(
             self.kind,
             Kind::Other(_) | Kind::ChiseledBookshelf { .. } | Kind::EnderChest
@@ -626,15 +635,17 @@ impl BlockEntity {
     }
 }
 
-/// Reads an `Items` list into `slots` by `Slot`; entries of unknown items or slots are dropped
-/// with a warning (PMMP `Item::safeNbtDeserialize`).
-fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos) {
+/// Reads an `Items` list into `slots` by `Slot` (custom items through `custom`); entries of
+/// unknown items or slots are dropped with a warning (PMMP `Item::safeNbtDeserialize`).
+fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos, custom: &Registry) {
     for entry in items {
         let slot = match entry.get("Slot") {
             Some(Value::Byte(s)) => usize::from(*s),
             _ => usize::MAX,
         };
-        if let (Some(target), Some(stack)) = (slots.get_mut(slot), Stack::from_nbt(entry)) {
+        if let (Some(target), Some(stack)) =
+            (slots.get_mut(slot), Stack::from_nbt_with(entry, custom))
+        {
             *target = stack;
         } else {
             warn!(
@@ -674,7 +685,7 @@ fn position(nbt: &Compound, key: Key) -> Option<BlockPos> {
 }
 
 impl Chunk {
-    fn read(key: Key, list: &[Compound]) -> Self {
+    fn read(key: Key, list: &[Compound], custom: &Registry) -> Self {
         let mut chunk = Self::default();
         for nbt in list {
             let Some(pos) = position(nbt, key) else {
@@ -684,14 +695,14 @@ impl Chunk {
             if nbt.get("id") == Some(&Value::String(SPILL_ID.to_owned())) {
                 let mut items = vec![Stack::EMPTY; 54];
                 if let Some(Value::List(List::Compound(list))) = nbt.get("Items") {
-                    read_items(&mut items, list, pos);
+                    read_items(&mut items, list, pos, custom);
                 }
                 items.retain(|s| !s.is_empty());
                 if !items.is_empty() {
                     chunk.spills.push(Spill { pos, items });
                 }
             } else if let btree_map::Entry::Vacant(free) = chunk.entities.entry(pos) {
-                free.insert(BlockEntity::read(nbt.clone(), pos));
+                free.insert(BlockEntity::read(nbt.clone(), pos, custom));
             } else {
                 chunk.raw.push(nbt.clone());
             }
@@ -717,15 +728,16 @@ impl Chunk {
 }
 
 impl BlockEntities {
-    /// A chunk's saved list arrived ([`super::rules`]); `world` holds the chunk's blocks.
+    /// A chunk's saved list arrived ([`super::rules`]); `world` holds the chunk's blocks and
+    /// `custom` is the server's custom content (saved custom items read back through it).
     ///
     /// A block entity whose block does not take it (an older Anchor, a world edited outside) is
     /// removed with a warning, as PMMP drops a tile without its block on load; what it held
     /// waits as a spill and drops in the next ticks (PMMP drops nothing: fixed, no item is
     /// lost). A furnace's stored experience goes with it. With the chunk's spills full it is kept
     /// as it is.
-    pub(super) fn load(&mut self, key: Key, list: &[Compound], world: &World) {
-        let mut chunk = Chunk::read(key, list);
+    pub(super) fn load(&mut self, key: Key, list: &[Compound], world: &World, custom: &Registry) {
+        let mut chunk = Chunk::read(key, list, custom);
         let stray: Vec<BlockPos> = chunk
             .entities
             .iter()
@@ -802,6 +814,28 @@ impl BlockEntities {
         let entity = self.chunks.get_mut(&key)?.entities.get_mut(&pos)?;
         self.changed.insert(key);
         Some(entity)
+    }
+
+    /// Changes the block entity at `pos` with `f`; its chunk is marked changed when `f` gives
+    /// `Some` (`None`: `f` changed nothing).
+    fn update<T>(
+        &mut self,
+        world: WorldIndex,
+        pos: BlockPos,
+        f: impl FnOnce(&mut BlockEntity) -> Option<T>,
+    ) -> Option<T> {
+        let key = (world, pos.chunk());
+        let out = f(self.chunks.get_mut(&key)?.entities.get_mut(&pos)?)?;
+        self.changed.insert(key);
+        Some(out)
+    }
+
+    /// The positions of the block entities of a loaded chunk, in order.
+    fn positions(&self, world: WorldIndex, pos: ChunkPos) -> impl Iterator<Item = BlockPos> + '_ {
+        self.chunks
+            .get(&(world, pos))
+            .into_iter()
+            .flat_map(|c| c.entities.keys().copied())
     }
 
     /// The slots of the block entity at `pos` changed outside its tick (a window, an interaction):
@@ -1165,11 +1199,11 @@ fn create(
     let tag = item.tag();
     match &mut entity.kind {
         Kind::ShulkerBox { facing } => {
-            *facing = face_index(face);
+            *facing = face.index();
             if let Some(Value::List(List::Compound(items))) =
                 tag.as_ref().and_then(|t| t.get("Items"))
             {
-                read_items(&mut entity.items, items, pos);
+                read_items(&mut entity.items, items, pos, &state.custom);
             }
         }
         Kind::Bed { colour } => {
@@ -1219,44 +1253,80 @@ fn create(
         );
     }
     if is_chest {
-        pair_chest(state, world, pos, block);
+        pair_chest(state, world, pos, block, session);
     }
     true
 }
 
-/// The Bedrock `facing` byte of a face (0 down … 5 east).
-fn face_index(face: Face) -> u8 {
-    Face::ALL
-        .iter()
-        .position(|f| *f == face)
-        .and_then(|i| u8::try_from(i).ok())
-        .unwrap_or(1)
-}
-
-/// Pairs the new chest at `pos` with a free chest of the same kind and facing beside it.
-fn pair_chest(state: &mut State, world: WorldIndex, pos: BlockPos, block: block::State) {
+/// Pairs the new chest at `pos` with a free chest of the same kind and facing beside it. After a
+/// [`ChestPair`] listener the chests must be as they were, and the hand of `session` (the player
+/// placing, whose interaction goes on with it) the same stack.
+fn pair_chest(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    block: block::State,
+    session: Option<SessionId>,
+) {
     let Some(facing) = cardinal(block) else {
         return;
     };
-    // PMMP tries `rotateY(facing, false)` (counter-clockwise) first.
-    for side in [facing.clockwise().opposite(), facing.clockwise()] {
+    let held = session.map(|s| inventory::held_of(state, s));
+    // PMMP tries `rotateY(facing, false)` (counter-clockwise) first; that side's chest is the
+    // right half.
+    for (side, clockwise) in [
+        (facing.clockwise().opposite(), false),
+        (facing.clockwise(), true),
+    ] {
         let Some(other) = beside(pos, side) else {
             continue;
         };
         let Some(other_block) = block_at(state, world, other) else {
             continue;
         };
-        if other_block.kind() != block.kind() || cardinal(other_block) != Some(facing) {
+        let pairable = |state: &State| {
+            session.map(|s| inventory::held_of(state, s)) == held
+                && block_at(state, world, pos) == Some(block)
+                && block_at(state, world, other) == Some(other_block)
+                && matches!(
+                    state.rules.block_entities.get(world, pos).map(|e| &e.kind),
+                    Some(Kind::Chest { pair: None })
+                )
+                && matches!(
+                    state
+                        .rules
+                        .block_entities
+                        .get(world, other)
+                        .map(|e| &e.kind),
+                    Some(Kind::Chest { pair: None })
+                )
+        };
+        if other_block.kind() != block.kind()
+            || cardinal(other_block) != Some(facing)
+            || !pairable(state)
+        {
             continue;
+        }
+        let mut event = dispatch::heard::<ChestPair>(state).then(|| {
+            let (left, right) = if clockwise {
+                (other, pos)
+            } else {
+                (pos, other)
+            };
+            ChestPair {
+                world: inventory::world_id(world),
+                left,
+                right,
+                cancelled: false,
+            }
+        });
+        if let Some(e) = &mut event {
+            dispatch::call(state, e);
+            if e.cancelled || (dispatch::listened::<ChestPair>(state) && !pairable(state)) {
+                continue;
+            }
         }
         let entities = &mut state.rules.block_entities;
-        let free = matches!(
-            entities.get(world, other).map(|e| &e.kind),
-            Some(Kind::Chest { pair: None })
-        );
-        if !free {
-            continue;
-        }
         for (at, with) in [(pos, other), (other, pos)] {
             if let Some(BlockEntity {
                 kind: Kind::Chest { pair },
@@ -1268,6 +1338,9 @@ fn pair_chest(state: &mut State, world: WorldIndex, pos: BlockPos, block: block:
         }
         broadcast_spawn(state, world, pos);
         broadcast_spawn(state, world, other);
+        if let Some(e) = event {
+            dispatch::watch(state, &e);
+        }
         return;
     }
 }
@@ -1511,6 +1584,50 @@ pub(super) fn set_beacon(
     }
 }
 
+/// Puts `stack` into slot `index` of the block entity at `pos` outside a window (the inventory
+/// API): it may have work again, a campfire slot starts cooking from 0, and the players who see a
+/// campfire's or brewing stand's items get its client data. Ok(false) if the slot held `stack`
+/// already; `NoSlot` without such a block entity or slot. The caller tells the window viewers.
+pub(super) fn set_slot(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    index: usize,
+    stack: Stack,
+) -> crate::inventory::Result<bool> {
+    let entities = &mut state.rules.block_entities;
+    let entity = entities
+        .get_mut(world, pos)
+        .ok_or(crate::inventory::Error::NoSlot)?;
+    let slot = entity
+        .items
+        .get_mut(index)
+        .ok_or(crate::inventory::Error::NoSlot)?;
+    if *slot == stack {
+        return Ok(false);
+    }
+    *slot = stack;
+    let shown = match &mut entity.kind {
+        Kind::Campfire(c) => {
+            if let Some(t) = c.times.get_mut(index) {
+                *t = 0;
+            }
+            true
+        }
+        Kind::BrewingStand(_) => true,
+        _ => false,
+    };
+    if entity.kind.ticks(&entity.items) {
+        entities.active.insert((world, pos));
+    } else {
+        entities.active.remove(&(world, pos));
+    }
+    if shown {
+        broadcast_spawn(state, world, pos);
+    }
+    Ok(true)
+}
+
 /// Takes a furnace's stored experience (when its output is taken); 0 for other blocks.
 pub(super) fn take_experience(state: &mut State, world: WorldIndex, pos: BlockPos) -> u32 {
     match state.rules.block_entities.get_mut(world, pos) {
@@ -1568,7 +1685,7 @@ fn tick_one(state: &mut State, world: WorldIndex, pos: BlockPos) {
     };
     match &entity.kind {
         Kind::Furnace(_) => tick_furnace(state, world, pos, block, seed),
-        Kind::BrewingStand(_) => tick_brewing(state, world, pos),
+        Kind::BrewingStand(_) => tick_brewing(state, world, pos, block),
         Kind::Campfire(_) => {
             if (tick + stagger(pos, campfire::INTERVAL)).is_multiple_of(campfire::INTERVAL) {
                 tick_campfire(state, world, pos, block);
@@ -1608,22 +1725,25 @@ fn tick_furnace(
             ],
         ),
     );
-    let entities = &mut state.rules.block_entities;
     let key = (world, pos.chunk());
-    let Some(BlockEntity {
-        kind: Kind::Furnace(f),
-        items,
-        ..
-    }) = entities
-        .chunks
-        .get_mut(&key)
-        .and_then(|c| c.entities.get_mut(&pos))
-    else {
+    let Some((f, _, _)) = furnace_at(state, world, pos) else {
         return;
     };
     let before = (f.burn, f.cook, f.max_burn, f.xp);
-    let step = f.step(items, lit, &mut rng);
-    if (f.burn, f.cook, f.max_burn, f.xp) != before || step.slots != 0 {
+    let mut t = f.begin(lit);
+    let (mut burnt, mut smelted) = (None, None);
+    if furnace_fuel(state, world, pos, block, &mut t, &mut burnt).is_none()
+        || furnace_smelt(state, world, pos, block, &mut rng, &mut t, &mut smelted).is_none()
+    {
+        return;
+    }
+    let Some((f, _, _)) = furnace_at(state, world, pos) else {
+        return;
+    };
+    let step = f.finish(t);
+    let after = (f.burn, f.cook, f.max_burn, f.xp);
+    let entities = &mut state.rules.block_entities;
+    if after != before || step.slots != 0 {
         entities.changed.insert(key);
     }
     if !step.active {
@@ -1654,6 +1774,121 @@ fn tick_furnace(
         state.broadcast(world, pos.chunk(), &packet, None);
     }
     inventory::block_changed(state, world, pos, step.slots, step.kept, &step.data);
+    if let Some(e) = burnt {
+        dispatch::watch(state, &e);
+    }
+    if let Some(e) = smelted {
+        dispatch::watch(state, &e);
+    }
+}
+
+/// The fuel step of a furnace tick: the fuel that is due burns, after [`FurnaceBurn`] (a burn
+/// time of 0 burns nothing, as cancelled); `burnt` gets the event if it applied. `None` if the
+/// furnace is gone.
+fn furnace_fuel(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    block: block::State,
+    t: &mut furnace::Tick,
+    burnt: &mut Option<FurnaceBurn>,
+) -> Option<()> {
+    let (f, items, custom) = furnace_at(state, world, pos)?;
+    let Some((fuel, time)) = f.fuel_due(items, custom) else {
+        return Some(());
+    };
+    let mut burn = Some((time, true));
+    if dispatch::heard::<FurnaceBurn>(state) {
+        let mut e = FurnaceBurn {
+            world: inventory::world_id(world),
+            pos,
+            block,
+            fuel: fuel.clone(),
+            burn_time_ticks: u32::from(time),
+            burning: true,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        let changed = dispatch::listened::<FurnaceBurn>(state)
+            && furnace_at(state, world, pos)
+                .and_then(|(f, items, custom)| f.fuel_due(items, custom))
+                .is_none_or(|due| due != (fuel, time));
+        burn = (!e.cancelled && !changed && e.burn_time_ticks > 0).then(|| {
+            let time = u16::try_from(e.burn_time_ticks).unwrap_or(u16::MAX);
+            (time, e.burning)
+        });
+        *burnt = burn.is_some().then_some(e);
+    }
+    let (f, items, _) = furnace_at(state, world, pos)?;
+    if let Some((time, consume)) = burn {
+        f.burn(items, time, consume, t);
+    }
+    Some(())
+}
+
+/// The cooking step of a furnace tick: a smelt that is due puts its result (after
+/// [`FurnaceSmelt`], which may change it; one that does not fit the output cancels the smelt) on
+/// the output; `smelted` gets the event if it applied. `None` if the furnace is gone.
+fn furnace_smelt(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    block: block::State,
+    rng: &mut Random,
+    t: &mut furnace::Tick,
+    smelted: &mut Option<FurnaceSmelt>,
+) -> Option<()> {
+    let (f, items, custom) = furnace_at(state, world, pos)?;
+    let Some((source, result)) = f.cook(items, custom, t) else {
+        return Some(());
+    };
+    let mut made = Some(result.clone());
+    if dispatch::heard::<FurnaceSmelt>(state) {
+        let mut e = FurnaceSmelt {
+            world: inventory::world_id(world),
+            pos,
+            block,
+            source: source.clone(),
+            result: result.clone(),
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        let changed = dispatch::listened::<FurnaceSmelt>(state)
+            && furnace_at(state, world, pos)
+                .and_then(|(f, items, custom)| f.ready(items, custom))
+                .is_none_or(|ready| ready != (source, result));
+        made = (!e.cancelled && !changed).then(|| e.result.clone());
+        *smelted = made.is_some().then_some(e);
+    }
+    let (f, items, _) = furnace_at(state, world, pos)?;
+    match made {
+        Some(made) if furnace::Furnace::fits(items, &made) => f.smelt(items, &made, rng, t),
+        _ => *smelted = None,
+    }
+    Some(())
+}
+
+/// The furnace at `pos`, its slots and the server's custom content (for its recipes).
+fn furnace_at(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+) -> Option<(&mut furnace::Furnace, &mut Vec<Stack>, &Registry)> {
+    let custom = &*state.custom;
+    let entities = &mut state.rules.block_entities;
+    match entities
+        .chunks
+        .get_mut(&(world, pos.chunk()))?
+        .entities
+        .get_mut(&pos)?
+    {
+        BlockEntity {
+            kind: Kind::Furnace(f),
+            items,
+            ..
+        } => Some((f, items, custom)),
+        _ => None,
+    }
 }
 
 /// The name of a furnace-like block lit or not (`minecraft:furnace` ↔ `minecraft:lit_furnace`).
@@ -1668,23 +1903,26 @@ fn lit_name(block: block::State, lit: bool) -> Option<String> {
 }
 
 /// A brewing stand tick.
-fn tick_brewing(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    let entities = &mut state.rules.block_entities;
+fn tick_brewing(state: &mut State, world: WorldIndex, pos: BlockPos, block: block::State) {
     let key = (world, pos.chunk());
-    let Some(BlockEntity {
-        kind: Kind::BrewingStand(b),
-        items,
-        ..
-    }) = entities
-        .chunks
-        .get_mut(&key)
-        .and_then(|c| c.entities.get_mut(&pos))
-    else {
+    let Some((b, _)) = brewing_at(state, world, pos) else {
         return;
     };
     let before = (b.brew, b.fuel, b.fuel_total);
-    let step = b.step(items);
-    if (b.brew, b.fuel, b.fuel_total) != before || step.slots != 0 {
+    let mut t = b.begin();
+    let mut watched = Vec::new();
+    if brewing_fuel(state, world, pos, block, &mut t, &mut watched).is_none()
+        || brewing_brew(state, world, pos, block, &mut t, &mut watched).is_none()
+    {
+        return;
+    }
+    let Some((b, _)) = brewing_at(state, world, pos) else {
+        return;
+    };
+    let step = b.finish(t);
+    let after = (b.brew, b.fuel, b.fuel_total);
+    let entities = &mut state.rules.block_entities;
+    if after != before || step.slots != 0 {
         entities.changed.insert(key);
     }
     if !step.active {
@@ -1703,6 +1941,134 @@ fn tick_brewing(state: &mut State, world: WorldIndex, pos: BlockPos) {
     if step.slots != 0 || !step.data.is_empty() {
         broadcast_spawn(state, world, pos);
     }
+    for e in watched {
+        match e {
+            Watched::Fuel(e) => dispatch::watch(state, &e),
+            Watched::Brew(e) => dispatch::watch(state, &e),
+        }
+    }
+}
+
+/// The fuel step of a brewing tick: a blaze powder that is due is used up, after
+/// [`BrewingFuelUse`] (which may change how many brews it fuels). `None` if the stand is gone.
+fn brewing_fuel(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    block: block::State,
+    t: &mut brewing::Tick,
+    watched: &mut Vec<Watched>,
+) -> Option<()> {
+    let (b, items) = brewing_at(state, world, pos)?;
+    if !b.fuel_due(items) {
+        return Some(());
+    }
+    let mut brews = Some(brewing::FUEL_BREWS);
+    if dispatch::heard::<BrewingFuelUse>(state) {
+        let mut e = BrewingFuelUse {
+            world: inventory::world_id(world),
+            pos,
+            block,
+            fuel_time: u32::from(brewing::FUEL_BREWS),
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        let changed = dispatch::listened::<BrewingFuelUse>(state)
+            && brewing_at(state, world, pos).is_none_or(|(b, items)| !b.fuel_due(items));
+        brews = (!e.cancelled && !changed).then(|| u16::try_from(e.fuel_time).unwrap_or(u16::MAX));
+        if brews.is_some() {
+            watched.push(Watched::Fuel(e));
+        }
+    }
+    let (b, items) = brewing_at(state, world, pos)?;
+    if let Some(brews) = brews {
+        b.refuel(items, brews, t);
+    }
+    Some(())
+}
+
+/// The brewing step of a brewing tick: when the brew finishes, every bottle with a result
+/// becomes it, after [`BrewItem`] (which may change it; an empty result keeps the bottle), and
+/// one ingredient is used up. `None` if the stand is gone.
+fn brewing_brew(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    block: block::State,
+    t: &mut brewing::Tick,
+    watched: &mut Vec<Watched>,
+) -> Option<()> {
+    let (b, items) = brewing_at(state, world, pos)?;
+    let Some(results) = b.brew_tick(items, t) else {
+        return Some(());
+    };
+    for (k, (slot, result)) in brewing::BOTTLES.into_iter().zip(results).enumerate() {
+        let Some(result) = result else {
+            continue;
+        };
+        let (_, items) = brewing_at(state, world, pos)?;
+        let input = items.get(slot).cloned().unwrap_or_default();
+        let mut made = Some(result.clone());
+        if dispatch::heard::<BrewItem>(state) {
+            let mut e = BrewItem {
+                world: inventory::world_id(world),
+                pos,
+                block,
+                slot: u8::try_from(slot).unwrap_or(u8::MAX),
+                input: input.clone(),
+                result: result.clone(),
+                cancelled: false,
+            };
+            dispatch::call(state, &mut e);
+            let changed = dispatch::listened::<BrewItem>(state)
+                && brewing_at(state, world, pos).is_none_or(|(b, items)| {
+                    items.get(slot) != Some(&input)
+                        || b.bottle_results(items).get(k).cloned().flatten() != Some(result.clone())
+                });
+            made = (!e.cancelled && !changed)
+                .then(|| e.result.clone())
+                .filter(|r| !r.is_empty());
+            if made.is_some() {
+                watched.push(Watched::Brew(e));
+            }
+        }
+        let (_, items) = brewing_at(state, world, pos)?;
+        if let Some(made) = made {
+            brewing::bottle(items, slot, made, t);
+        }
+    }
+    let (_, items) = brewing_at(state, world, pos)?;
+    brewing::use_ingredient(items, t);
+    Some(())
+}
+
+/// A brewing event that applied, for its monitors.
+enum Watched {
+    Fuel(BrewingFuelUse),
+    Brew(BrewItem),
+}
+
+/// The brewing stand at `pos` and its slots.
+fn brewing_at(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+) -> Option<(&mut brewing::Brewing, &mut Vec<Stack>)> {
+    match state
+        .rules
+        .block_entities
+        .chunks
+        .get_mut(&(world, pos.chunk()))?
+        .entities
+        .get_mut(&pos)?
+    {
+        BlockEntity {
+            kind: Kind::BrewingStand(b),
+            items,
+            ..
+        } => Some((b, items)),
+        _ => None,
+    }
 }
 
 /// A campfire cooking update: lit campfires cook; done items drop above the fire (an item whose
@@ -1713,6 +2079,8 @@ fn tick_campfire(state: &mut State, world: WorldIndex, pos: BlockPos, block: blo
     }
     let kind = campfire::kind_of(block.is(Class::SoulCampfire));
     let key = (world, pos.chunk());
+    let heard = dispatch::heard::<CampfireCook>(state);
+    let custom = &*state.custom;
     let entities = &mut state.rules.block_entities;
     let Some(BlockEntity {
         kind: Kind::Campfire(c),
@@ -1725,7 +2093,14 @@ fn tick_campfire(state: &mut State, world: WorldIndex, pos: BlockPos, block: blo
     else {
         return;
     };
-    let done = c.step(kind, items);
+    let done = c.step(kind, items, custom);
+    let inputs: Vec<Stack> = if heard {
+        done.iter()
+            .map(|(slot, _)| items.get(*slot).cloned().unwrap_or_default())
+            .collect()
+    } else {
+        Vec::new()
+    };
     entities.changed.insert(key);
     let at = Vec3::new(
         f64::from(pos.x) + 0.5,
@@ -1733,7 +2108,30 @@ fn tick_campfire(state: &mut State, world: WorldIndex, pos: BlockPos, block: blo
         f64::from(pos.z) + 0.5,
     );
     let mut changed = false;
-    for (slot, result) in done {
+    for (k, (slot, mut result)) in done.into_iter().enumerate() {
+        let mut event = inputs.get(k).map(|input| CampfireCook {
+            world: inventory::world_id(world),
+            pos,
+            block,
+            slot: u8::try_from(slot).unwrap_or(u8::MAX),
+            input: input.clone(),
+            result: result.clone(),
+            cancelled: false,
+        });
+        if let Some(e) = &mut event {
+            dispatch::call(state, e);
+            let moved = dispatch::listened::<CampfireCook>(state)
+                && state
+                    .rules
+                    .block_entities
+                    .get(world, pos)
+                    .and_then(|b| b.items.get(slot))
+                    != Some(&e.input);
+            if e.cancelled || moved {
+                continue;
+            }
+            result = e.result.clone();
+        }
         if !result.is_empty() && !inventory::drop_stack(state, world, at, result) {
             continue;
         }
@@ -1750,6 +2148,9 @@ fn tick_campfire(state: &mut State, world: WorldIndex, pos: BlockPos, block: blo
                 *t = 0;
             }
             changed = true;
+        }
+        if let Some(e) = event {
+            dispatch::watch(state, &e);
         }
     }
     if changed {
@@ -1886,6 +2287,7 @@ mod tests {
                     ("BurnTime".to_owned(), Value::Short(7)),
                 ]),
                 BlockPos::new(18, 3, -32),
+                &Registry::default(),
             ),
         );
         chunk.spills.push(Spill {
@@ -1893,19 +2295,19 @@ mod tests {
             items: vec![stick.clone()],
         });
         let list = chunk.write();
-        let read = Chunk::read(key, &list);
+        let read = Chunk::read(key, &list, &Registry::default());
         assert_eq!(read, chunk);
         assert_eq!(read.write(), list);
         // The chunk's blocks are not loaded: nothing is checked against them.
         let world = World::new("be", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
         let mut store = BlockEntities::default();
-        store.load(key, &list, &world);
+        store.load(key, &list, &world, &Registry::default());
         assert_eq!(
             store.unload(key),
             None,
             "unchanged chunks hand nothing back"
         );
-        store.load(key, &list, &world);
+        store.load(key, &list, &world, &Registry::default());
         assert!(store.get_mut(0, a).is_some());
         assert_eq!(store.take_changed(), vec![(key, list.clone())]);
         assert_eq!(store.take_changed(), vec![]);
@@ -1938,6 +2340,7 @@ mod tests {
         let mut cooking = BlockEntity::read(
             Compound::from([("id".to_owned(), Value::String("Furnace".to_owned()))]),
             furnace,
+            &Registry::default(),
         );
         cooking.items[0] = stick.clone();
         let list = vec![
@@ -1946,7 +2349,7 @@ mod tests {
             framed.write(frame),
         ];
         let mut store = BlockEntities::default();
-        store.load(key, &list, &world);
+        store.load(key, &list, &world, &Registry::default());
         assert!(store.get(0, chest).is_none(), "air takes no chest");
         assert!(store.get(0, frame).is_none());
         assert!(store.get(0, furnace).is_some(), "a furnace keeps its own");
@@ -1970,7 +2373,7 @@ mod tests {
         assert_eq!(changed.len(), 1, "the chunk is saved without them");
         // Read back, the spills stay and nothing more is removed.
         let mut again = BlockEntities::default();
-        again.load(key, &changed[0].1, &world);
+        again.load(key, &changed[0].1, &world, &Registry::default());
         assert_eq!(again.chunks[&key], store.chunks[&key]);
         assert!(again.take_changed().is_empty());
     }
@@ -1986,10 +2389,13 @@ mod tests {
         ]);
         let inside = chest_entity(&[], None).write(BlockPos::new(1, 2, 3));
         let list = vec![inside.clone(), inside.clone(), outside.clone()];
-        let chunk = Chunk::read(key, &list);
+        let chunk = Chunk::read(key, &list, &Registry::default());
         assert_eq!(chunk.entities.len(), 1);
         assert_eq!(chunk.raw, vec![inside, outside]);
-        assert_eq!(Chunk::read(key, &chunk.write()), chunk);
+        assert_eq!(
+            Chunk::read(key, &chunk.write(), &Registry::default()),
+            chunk
+        );
     }
 
     #[test]
@@ -2003,12 +2409,16 @@ mod tests {
         let mut chunk = Chunk::default();
         chunk.entities.insert(a, chest_entity(&[], Some(b)));
         let furnace = Compound::from([("id".to_owned(), Value::String("Furnace".to_owned()))]);
-        chunk.entities.insert(b, BlockEntity::read(furnace, b));
+        chunk
+            .entities
+            .insert(b, BlockEntity::read(furnace, b, &Registry::default()));
         let unknown = Compound::from([("id".to_owned(), Value::String("Mystery".to_owned()))]);
-        chunk.entities.insert(c, BlockEntity::read(unknown, c));
+        chunk
+            .entities
+            .insert(c, BlockEntity::read(unknown, c, &Registry::default()));
         let mut store = BlockEntities::default();
         let world = World::new("be", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
-        store.load(key, &chunk.write(), &world);
+        store.load(key, &chunk.write(), &world, &Registry::default());
         let sent = store.client_nbt(key);
         assert_eq!(sent.len(), 2);
         assert_eq!(sent[0].get("pairx"), Some(&Value::Int(2)));
@@ -2038,7 +2448,10 @@ mod tests {
         let mut nbt = chest_entity(&[], None).write(pos);
         nbt.insert("pairx".to_owned(), Value::Int(5));
         nbt.insert("pairz".to_owned(), Value::Int(3));
-        assert_eq!(BlockEntity::read(nbt, pos).pair(), None);
+        assert_eq!(
+            BlockEntity::read(nbt, pos, &Registry::default()).pair(),
+            None
+        );
     }
 
     /// One entity of every typed kind with data, as Anchor writes it.
@@ -2175,7 +2588,7 @@ mod tests {
         let pos = BlockPos::new(5, 70, -9);
         for e in every_kind() {
             let saved = e.write(pos);
-            let read = BlockEntity::read(saved.clone(), pos);
+            let read = BlockEntity::read(saved.clone(), pos, &Registry::default());
             assert_eq!(read, e, "{saved:?}");
             assert_eq!(read.write(pos), saved);
             let mut a = crate::protocol::Writer::new(Vec::new(), 0);

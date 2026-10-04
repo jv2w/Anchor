@@ -1,0 +1,23 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "P6 forms",
+    "description": "cargo xtask p6: shows the forms of the forms scenario on /scriptevent p6:<kind>",
+    "uuid": "9894fbd7-1be2-4df2-943d-69fc0fbc216b",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 90]
+  },
+  "modules": [
+    {
+      "type": "script",
+      "language": "javascript",
+      "uuid": "328f2ead-f0d8-497d-b4ea-41fc7b7b2dfc",
+      "version": [1, 0, 0],
+      "entry": "scripts/main.js"
+    }
+  ],
+  "dependencies": [
+    { "module_name": "@minecraft/server", "version": "2.0.0" },
+    { "module_name": "@minecraft/server-ui", "version": "2.0.0" }
+  ]
+}

@@ -55,12 +55,16 @@ pub struct Stack {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Extra {
     /// The name shown instead of the item's name (`display.Name`).
+    #[doc(alias = "Item::getCustomName")]
     pub custom_name: Option<String>,
     /// Lines under the name (`display.Lore`).
+    #[doc(alias = "Item::getLore")]
     pub lore: Vec<String>,
     /// Enchantments and their levels (`ench`), in the order applied.
+    #[doc(alias = "Item::getEnchantments")]
     pub enchantments: Vec<(Enchantment, u8)>,
     /// Every other NBT key of the stack, kept as received (book pages, fireworks, patterns…).
+    #[doc(alias = "Item::getNamedTag")]
     pub nbt: Compound,
 }
 
@@ -88,21 +92,28 @@ impl Stack {
     }
 
     /// Whether the stack holds nothing.
+    #[doc(alias = "Item::isNull")]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.item.is_none()
     }
 
     /// The item type, `None` for an empty stack.
+    #[inline]
     pub fn item(&self) -> Option<Type> {
         self.item
     }
 
     /// How many items the stack holds (0 for an empty stack).
+    #[doc(alias = "Item::getCount")]
+    #[inline]
     pub fn count(&self) -> u8 {
         self.count
     }
 
     /// The damage (durability used) or meta state.
+    #[doc(alias = "Durable::getDamage")]
+    #[inline]
     pub fn damage(&self) -> u16 {
         self.damage
     }
@@ -113,11 +124,13 @@ impl Stack {
     }
 
     /// The most items a stack of this type holds (0 for an empty stack).
+    #[inline]
     pub fn max_count(&self) -> u8 {
         self.item.map_or(0, Type::max_stack_size)
     }
 
     /// The same stack with `count` items, limited to the maximum stack size; empty when 0.
+    #[doc(alias = "Item::setCount")]
     #[must_use]
     pub fn with_count(&self, count: u8) -> Self {
         match self.item {
@@ -130,6 +143,7 @@ impl Stack {
     }
 
     /// The same stack with `damage`.
+    #[doc(alias = "Durable::setDamage")]
     #[must_use]
     pub fn with_damage(&self, damage: u16) -> Self {
         if self.is_empty() {
@@ -155,6 +169,8 @@ impl Stack {
 
     /// Whether `other` can join this stack: the same type, damage and extra data (PMMP
     /// `Item::canStackWith`). Empty stacks stack with nothing.
+    #[doc(alias = "Item::canStackWith")]
+    #[inline]
     pub fn can_stack_with(&self, other: &Self) -> bool {
         self.item.is_some()
             && self.item == other.item
@@ -354,8 +370,19 @@ impl Stack {
 
     /// The stack a disk item compound holds: empty for air or a count of 0, `None` if Anchor does
     /// not know the item or the compound is not an item. Counts above the stack size are cut to
-    /// it.
+    /// it. Vanilla items only, so tests only: saved data is read with [`Stack::from_nbt_with`].
+    #[cfg(test)]
     pub(crate) fn from_nbt(nbt: &Compound) -> Option<Self> {
+        Self::read_nbt(nbt, None)
+    }
+
+    /// [`Stack::from_nbt`] knowing the server's custom items and blocks too: a custom item, a
+    /// custom block's item (its `Block` a custom state) and a vanilla block item read back.
+    pub(crate) fn from_nbt_with(nbt: &Compound, custom: &crate::custom::Registry) -> Option<Self> {
+        Self::read_nbt(nbt, Some(custom))
+    }
+
+    fn read_nbt(nbt: &Compound, custom: Option<&crate::custom::Registry>) -> Option<Self> {
         let Some(Value::String(name)) = nbt.get("Name") else {
             return None;
         };
@@ -372,7 +399,9 @@ impl Stack {
             Some(_) => return None,
         };
         let block = match nbt.get("Block") {
-            Some(Value::Compound(b)) => Some(crate::save::find_state(b)?),
+            Some(Value::Compound(b)) => Some(
+                crate::save::find_state(b).or_else(|| custom.and_then(|c| c.find_state_nbt(b)))?,
+            ),
             None => None,
             Some(_) => return None,
         };
@@ -382,7 +411,11 @@ impl Stack {
             Some(_) => return None,
         };
         let empty = Compound::new();
-        let item = Type::from_name(name, meta, block, tag.as_ref().unwrap_or(&empty))?;
+        let tag_or_empty = tag.as_ref().unwrap_or(&empty);
+        let item = match custom {
+            Some(c) => c.item_by_name(name, meta, block, tag_or_empty)?,
+            None => Type::from_name(name, meta, block, tag_or_empty)?,
+        };
         Some(Self::from_parts(item, count, meta, tag))
     }
 }
@@ -523,6 +556,59 @@ mod tests {
         let net = stack.to_network();
         assert_eq!(net.item_type.metadata_value, 0);
         assert_eq!(Stack::from_network(&net), Some(stack));
+    }
+
+    /// A stack's getters read what its `with_*` methods set, and a change makes a new value: the
+    /// count is kept to the type's stack size and 0 empties the stack (PMMP `Item::setCount`,
+    /// `Item::isNull`), the damage and extra data are kept apart (PMMP `Durable`, the item tag).
+    // pmmp: Item, Item::getCount, Item::setCount, Item::isNull, Item::canStackWith,
+    // pmmp: Durable::getDamage, Durable::setDamage, Item::getCustomName, Item::getLore,
+    // pmmp: Item::getEnchantments, Item::getNamedTag
+    #[test]
+    fn getters_read_what_the_with_methods_set() {
+        let pearls = Stack::new(kind(Kind::EnderPearl), 10);
+        assert!(!pearls.is_empty() && Stack::EMPTY.is_empty());
+        assert_eq!(pearls.count(), 10);
+        assert_eq!(pearls.with_count(3).count(), 3);
+        assert_eq!(
+            pearls.with_count(64).count(),
+            16,
+            "an ender pearl stacks to 16"
+        );
+        assert!(pearls.with_count(0).is_empty());
+        assert_eq!(pearls.count(), 10, "a change makes a new stack");
+        assert!(Stack::EMPTY.with_count(5).is_empty());
+        assert!(pearls.can_stack_with(&pearls.with_count(1)));
+        assert!(!Stack::EMPTY.can_stack_with(&Stack::EMPTY));
+
+        let sword = Stack::new(kind(Kind::DiamondSword), 1);
+        assert_eq!(sword.damage(), 0);
+        let worn = sword.with_damage(100);
+        assert_eq!(worn.damage(), 100);
+        assert!(
+            !worn.can_stack_with(&sword),
+            "a different damage does not stack"
+        );
+        assert!(Stack::EMPTY.with_damage(5).is_empty());
+
+        let extra = Extra {
+            custom_name: Some("Edge".to_owned()),
+            lore: vec!["sharp".to_owned()],
+            enchantments: vec![(Enchantment::Sharpness, 3)],
+            nbt: Compound::from([("custom".to_owned(), Value::Byte(1))]),
+        };
+        let named = worn.with_extra(Some(extra.clone()));
+        let got = named.extra().expect("the extra data is kept");
+        assert_eq!(got.custom_name.as_deref(), Some("Edge"));
+        assert_eq!(got.lore, ["sharp"]);
+        assert_eq!(got.enchantments, [(Enchantment::Sharpness, 3)]);
+        assert_eq!(got.nbt.get("custom"), Some(&Value::Byte(1)));
+        assert_eq!(named.damage(), 100);
+        assert_eq!(named.with_extra(None).extra(), None);
+        assert_eq!(worn.with_extra(Some(Extra::default())).extra(), None);
+        // The tag holds the extra data with the damage and reads back the same fields.
+        let back = Stack::from_parts(kind(Kind::DiamondSword), 1, 0, named.tag());
+        assert_eq!(back, named);
     }
 
     #[test]

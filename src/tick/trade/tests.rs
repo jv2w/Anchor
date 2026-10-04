@@ -270,7 +270,7 @@ fn the_trade_screen_is_the_one_bds_sends() {
         offers.keys().collect::<Vec<_>>(),
         ["Recipes", "TierExpRequirements"]
     );
-    let first = first_net_id();
+    let first = first_net_id(&server.state);
     assert!(crate::crafting::recipe(first - 1).is_some());
     assert!(crate::crafting::recipe(first).is_none());
     assert_eq!(net_ids(u), [first, first + 1, first + 2]);
@@ -605,7 +605,7 @@ fn opening_and_closing_a_hundred_times_leaves_nothing_behind() {
     assert!(server.state.trades.sessions.is_empty());
     assert!(server.state.trades.by_villager.is_empty());
     // Reopening unchanged lists allocates nothing new.
-    let first = first_net_id();
+    let first = first_net_id(&server.state);
     assert_eq!(server.state.trades.next_net_id, first + 6);
 }
 
@@ -653,7 +653,7 @@ fn offers_with_counters_survive_saving_through_the_entity() {
     let ids = server.net_ids(1);
     server.traded(1, ids[0], 5);
     let saved = server.offers(v).to_nbt();
-    let back = Offers::from_nbt(&saved);
+    let back = Offers::from_nbt(&saved, &crate::custom::Registry::default());
     assert_eq!(back.recipes(), server.offers(v).recipes());
     assert_eq!(back.recipes()[0].uses, 5);
     assert_eq!((back.tier(), back.experience()), (1, 10));

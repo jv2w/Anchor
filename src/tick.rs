@@ -5,11 +5,17 @@
 //! through each session's bounded queue and the save thread's request queue.
 
 mod block_entity;
+mod chat;
+mod command;
+mod dispatch;
 mod entity;
 mod extra;
+mod form;
+mod hook;
 mod interact;
 mod inventory;
 mod log;
+mod player;
 pub(crate) mod queue;
 mod rules;
 mod save;
@@ -19,6 +25,7 @@ mod task;
 mod trade;
 mod update;
 mod view;
+mod world_api;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
@@ -39,10 +46,13 @@ use crate::world::World;
 
 use self::log::EntryKind;
 pub(crate) use self::log::{InputLog, write_crash_log};
+#[cfg(test)]
+pub(crate) use entity::Customs;
+pub use entity::{Entity, Mut};
 use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId};
 pub(crate) use spawn::Shared;
+pub use task::Context;
 pub(crate) use task::Tasks;
-pub use task::{Context, PlayerId};
 
 /// The length of a tick: 20 ticks per second.
 pub(crate) const TICK: Duration = Duration::from_millis(50);
@@ -119,6 +129,26 @@ impl Settings {
     }
 }
 
+/// What the user registers on the [`ServerBuilder`](crate::ServerBuilder), fixed when the server is
+/// built and moved into the state when it runs. Each field belongs to the module that uses it.
+#[derive(Debug, Default)]
+pub(crate) struct Setup {
+    /// The event listeners and monitors, sorted by [`Listeners::sort`].
+    pub(crate) listeners: Listeners,
+    /// The scheduled tasks.
+    pub(crate) tasks: Tasks,
+    /// The commands and permissions.
+    pub(crate) commands: command::Commands,
+    /// The packet hooks.
+    pub(crate) hooks: hook::Hooks,
+    /// The user's data types and the server's values.
+    pub(crate) data: task::UserData,
+    /// The custom entity types.
+    pub(crate) custom_entities: entity::Customs,
+    /// The custom items, blocks and recipes, numbered by `build`.
+    pub(crate) custom: crate::custom::Registry,
+}
+
 /// The game state.
 #[derive(Debug)]
 pub(crate) struct State {
@@ -135,8 +165,21 @@ pub(crate) struct State {
     index: BTreeMap<PlayerKey, SessionId>,
     /// The user's event listeners, called only in [`step`].
     listeners: Listeners,
-    /// The user's scheduled tasks, called only in [`step`].
+    /// The user's tasks and blocking jobs, called only in [`step`].
     tasks: Tasks,
+    /// The user's data types and the server's values.
+    data: task::UserData,
+    /// The user's commands and permissions.
+    commands: command::Commands,
+    /// The user's packet hooks.
+    hooks: hook::Hooks,
+    /// Open forms, scoreboards and boss bars of the players.
+    forms: form::Forms,
+    /// The click handlers of the players' open menus.
+    menus: inventory::Menus,
+    /// Callbacks deferred to after the running one ([`Context::defer`]); empty between ticks
+    /// unless a tick hit its run limit.
+    deferred: dispatch::Deferred,
     /// The worlds; the default world is the first.
     worlds: Vec<World>,
     /// Which chunks are held, in flight or waiting for a commit.
@@ -154,6 +197,8 @@ pub(crate) struct State {
     clock: survival::Clock,
     /// Who trades with which villager NPC.
     trades: trade::Trades,
+    /// The custom items, blocks and recipes (fixed at build).
+    custom: std::sync::Arc<crate::custom::Registry>,
 }
 
 /// What makes two logins the same player (PLAN.md 10.3): the XUID with Xbox sign-in, otherwise
@@ -173,9 +218,14 @@ impl PlayerKey {
     }
 }
 
-/// A joined player.
+/// A joined player, as a [`Context`] lends it (PLAN.md 10.8). Its getters show what the player
+/// is and has; its setters change it and tell its client and the players who see it by the end
+/// of the tick.
 #[derive(Debug)]
-struct Player {
+// pmmp-class: Player
+pub struct Player {
+    /// The player's session: its [`crate::player::Id`].
+    session: SessionId,
     runtime_id: u64,
     identity: Identity,
     /// [`PlayerKey::of`] the identity, kept to leave the index without rebuilding it.
@@ -203,10 +253,15 @@ struct Player {
     /// Block breaking in progress.
     breaking: interact::Breaking,
     /// Packets the serial phases queued for this player this tick, sent after the output phase's
-    /// packets ([`Player::send`]).
+    /// packets ([`Player::send_packet`]).
     outbox: Vec<Packet>,
+    /// Packets held once for every player they go to (a skin of up to 4 MiB), queued by the
+    /// serial phases this tick and sent after the outbox ([`Player::send_shared`]).
+    shared_outbox: Vec<std::sync::Arc<Packet>>,
     /// The outbox overflowed this tick: the player is disconnected at the end of the tick.
     overflowed: bool,
+    /// What the public API marked for the end of the tick ([`player::sync`]).
+    marks: player::Marks,
 }
 
 /// The most packets the serial phases may queue for one player in one tick; more means a runaway
@@ -214,10 +269,22 @@ struct Player {
 const MAX_OUTBOX: usize = 4096;
 
 impl Player {
-    /// Queues `packet` for this player at the end of the tick.
-    fn send(&mut self, packet: Packet) {
-        if self.outbox.len() < MAX_OUTBOX {
+    /// Queues `packet` for this player: it is sent after this tick's other packets. More than
+    /// 4,096 packets in one tick disconnect the player instead (a runaway rule or callback).
+    #[doc(alias = "NetworkSession::sendDataPacket")]
+    pub fn send_packet(&mut self, packet: Packet) {
+        if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
             self.outbox.push(packet);
+        } else {
+            self.overflowed = true;
+        }
+    }
+
+    /// Queues `packet`, which other players get too, without a copy for this player: it is sent
+    /// after this tick's outbox and counts against the same bound.
+    pub(crate) fn send_shared(&mut self, packet: std::sync::Arc<Packet>) {
+        if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {
+            self.shared_outbox.push(packet);
         } else {
             self.overflowed = true;
         }
@@ -238,19 +305,29 @@ enum Phase {
 }
 
 impl State {
-    /// A server at engine time `tick` with `worlds` (the default world first, none loaded) whose
-    /// events go to `listeners` (already sorted). The spawn chunks of every world are held from
-    /// the start.
+    /// A server at engine time `tick` with `worlds` (the default world first, none loaded) and
+    /// what the user registered (`setup`, listeners already sorted). The spawn chunks of every
+    /// world are held from the start.
     pub(crate) fn new(
         settings: Settings,
         shared: Shared,
-        listeners: Listeners,
-        tasks: Tasks,
+        setup: Setup,
         mut worlds: Vec<World>,
         tick: u64,
     ) -> Self {
+        let Setup {
+            listeners,
+            tasks,
+            commands,
+            hooks,
+            data,
+            custom_entities,
+            custom,
+        } = setup;
+        let custom = std::sync::Arc::new(custom);
         for world in &mut worlds {
             world.set_lighting(settings.lighting);
+            world.set_custom(std::sync::Arc::clone(&custom));
         }
         let saving = save::Saving::new(tick, settings.save_interval, settings.save_player_data);
         let mut state = Self {
@@ -262,6 +339,12 @@ impl State {
             index: BTreeMap::new(),
             listeners,
             tasks,
+            commands,
+            hooks,
+            data,
+            forms: form::Forms::default(),
+            menus: inventory::Menus::default(),
+            deferred: dispatch::Deferred::default(),
             worlds,
             chunks: view::Chunks::default(),
             saving,
@@ -270,7 +353,9 @@ impl State {
             rules: rules::Rules::default(),
             clock: survival::Clock::default(),
             trades: trade::Trades::default(),
+            custom,
         };
+        state.rules.entities.set_customs(custom_entities);
         view::hold_spawns(&mut state);
         state
     }
@@ -284,7 +369,8 @@ impl State {
     /// tick speed) and the shared batches are fixed at start; outbound queues are not state;
     /// pending output and the outbox are empty between ticks, and a player whose outbox
     /// overflowed is gone by then. Each world's light and light work are hashed by the world
-    /// ([`World::light_hash`]). Every field is named (no `..`), so a new field does not compile
+    /// ([`World::light_hash`]). Task bodies are code too: when they run is hashed. Every field is
+    /// named (no `..`), so a new field does not compile
     /// until it is hashed or left out here.
     #[cfg(test)]
     #[expect(
@@ -300,7 +386,14 @@ impl State {
             players,
             index: _,
             listeners: _,
-            tasks: _,
+            tasks,
+            data,
+            commands,
+            hooks: _,
+            forms,
+            // Handlers are code; which menus are open is in each player's inventory.
+            menus: _,
+            deferred,
             worlds,
             chunks,
             saving,
@@ -309,15 +402,21 @@ impl State {
             rules,
             clock,
             trades,
+            custom: _,
         } = self;
         let mut h = Fnv::new();
-        // The one setting a task can change (`Context::set_random_tick_speed`).
+        // The settings a task can change (`Context::set_random_tick_speed`, `set_max_players`).
         h.u64(u64::from(settings.random_tick_speed));
+        h.u64(u64::from(settings.max_players));
         h.u64(*tick);
         h.u64(*next_runtime_id);
+        // Callbacks are code; how many wait is state.
+        h.usize(deferred.len());
         h.usize(players.len());
         for (session, p) in players {
             let Player {
+                // The map key, hashed below.
+                session: _,
                 runtime_id,
                 identity,
                 key: _,
@@ -334,7 +433,9 @@ impl State {
                 survival,
                 breaking,
                 outbox: _,
+                shared_outbox: _,
                 overflowed: _,
+                marks,
             } = p;
             h.u64(session.get());
             h.u64(*runtime_id);
@@ -356,6 +457,7 @@ impl State {
             inventory.hash_into(&mut h);
             survival.hash_into(&mut h);
             breaking.hash_into(&mut h);
+            marks.hash_into(&mut h);
         }
         for world in worlds {
             h.bytes(world.name().as_bytes());
@@ -396,6 +498,10 @@ impl State {
         rules.hash_into(&mut h);
         clock.hash_into(&mut h);
         trades.hash_into(&mut h);
+        commands.hash_into(&mut h);
+        forms.hash_into(&mut h);
+        tasks.hash_into(&mut h);
+        data.hash_into(players, &mut h);
         h.0
     }
 
@@ -428,6 +534,8 @@ impl State {
         self.index.remove(&player.key);
         self.runtime_ids.remove(&player.runtime_id);
         spawn::left(self, &mut player);
+        form::left(self, session);
+        command::left(self, session);
         let stored = save::storage_key(&player.key);
         if self.loading.get(&stored) == Some(&session) {
             self.loading.remove(&stored);
@@ -455,7 +563,7 @@ impl State {
     ) {
         for (&session, player) in &mut self.players {
             if Some(session) != except && player.world == world && player.view.sees(chunk) {
-                player.send(packet.clone());
+                player.send_packet(packet.clone());
             }
         }
     }
@@ -464,6 +572,8 @@ impl State {
     fn close_all(&mut self, output: &mut Output) {
         let sessions: Vec<SessionId> = self.players.keys().copied().collect();
         for session in sessions {
+            let reason = self.settings.shutdown_message.clone();
+            player::quit(self, session, &reason, String::new());
             let Some(p) = self.remove(session) else {
                 continue;
             };
@@ -531,6 +641,7 @@ pub(crate) fn step(
     for response in responses.drain(..) {
         respond(state, response, output, log);
     }
+    let mut deferred_runs = 0;
     // Keys are unique per input, so the unstable sort is deterministic and allocates nothing.
     inputs.sort_unstable_by_key(|i| (i.session, i.seq));
     for input in inputs.drain(..) {
@@ -548,21 +659,42 @@ pub(crate) fn step(
                 }
             }
             InputKind::Packet { packet, size } => {
-                apply_packet(state, session, &packet);
+                if let Some(packet) = hook::receive(state, session, &packet) {
+                    apply_packet(state, session, &packet);
+                }
+                dispatch::run_deferred(state, &mut deferred_runs);
                 log.record(session, seq, EntryKind::Packet(packet), size);
             }
             InputKind::Leave => {
                 log.record(session, seq, EntryKind::Leave, 0);
+                player::quit(state, session, "client disconnect", String::new());
                 state.leave(session);
+            }
+            InputKind::Console(line) => {
+                command::console(state, &line);
+                dispatch::run_deferred(state, &mut deferred_runs);
+                let size = line.len();
+                log.record(session, seq, EntryKind::Console(line), size);
+            }
+            InputKind::Job(outcome) => {
+                task::finish(state, seq, &outcome);
+                dispatch::run_deferred(state, &mut deferred_runs);
+                let size = outcome.as_ref().map_or(0, Vec::len);
+                log.record(session, seq, EntryKind::Job(outcome), size);
             }
         }
     }
     Tasks::run(state);
+    dispatch::run_deferred(state, &mut deferred_runs);
     rules(state, pool);
+    dispatch::run_deferred(state, &mut deferred_runs);
+    command::sync(state);
+    player::sync(state, output);
     drop_overflowed(state, output);
     if let Some(request) = view::update(state) {
         output.requests.push(request);
     }
+    dispatch::run_deferred(state, &mut deferred_runs);
     let changes = view::take_changes(&mut state.worlds);
     output.packets = spawn::output(state, pool, &changes);
     state.tick = state.tick.saturating_add(1);
@@ -625,6 +757,11 @@ fn apply_packet(state: &mut State, session: SessionId, packet: &Packet) {
         Packet::PlayerAction(p) => survival::on_player_action(state, session, p),
         Packet::Animate(p) => survival::on_animate(state, session, p),
         Packet::Respawn(p) => survival::on_respawn(state, session, p),
+        Packet::Text(p) => chat::on_text(state, session, p),
+        Packet::Emote(p) => survival::on_emote(state, session, p),
+        Packet::PlayerSkin(p) => survival::on_skin(state, session, p),
+        Packet::CommandRequest(p) => command::on_request(state, session, p),
+        Packet::ModalFormResponse(p) => form::on_response(state, session, p),
         p => trace!(
             session = session.get(),
             id = p.id(),
@@ -657,6 +794,7 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
         .map(|(&s, _)| s)
         .collect();
     for session in overflowed {
+        player::quit(state, session, "too many packets", String::new());
         if let Some(p) = state.remove(session) {
             warn!(
                 session = session.get(),
@@ -790,6 +928,9 @@ pub(crate) fn run(
             failed = true;
             break;
         }
+        if state.commands.stop_requested() {
+            break;
+        }
         clock::sleep_until(pacer.schedule(clock::now()));
     }
     state.close_all(&mut output);
@@ -891,6 +1032,7 @@ impl Fnv {
 #[cfg(test)]
 mod tests {
     mod bench;
+    mod busy;
     mod client;
     mod crash;
     mod leak;
@@ -935,8 +1077,10 @@ mod tests {
         let mut state = State::new(
             settings,
             shared(),
-            listeners,
-            Tasks::default(),
+            Setup {
+                listeners,
+                ..Setup::default()
+            },
             vec![world],
             0,
         );
@@ -985,7 +1129,14 @@ mod tests {
     fn shared() -> Shared {
         static SHARED: std::sync::OnceLock<Shared> = std::sync::OnceLock::new();
         SHARED
-            .get_or_init(|| Shared::new(crate::protocol::batch::Settings::default()).unwrap())
+            .get_or_init(|| {
+                Shared::new(
+                    crate::protocol::batch::Settings::default(),
+                    &crate::custom::Registry::default(),
+                    &entity::Customs::default(),
+                )
+                .unwrap()
+            })
             .clone()
     }
 
@@ -1023,6 +1174,7 @@ mod tests {
             uuid: Uuid::from_bytes([u8::try_from(n % 256).unwrap(); 16]),
             skin: crate::tick::queue::Skin::default(),
             device_os: -1,
+            address: None,
         }
     }
 
@@ -1102,6 +1254,10 @@ mod tests {
                             Message::Packet(p) => {
                                 sent.push(p.id());
                                 packets.push(p);
+                            }
+                            Message::SharedPacket(p) => {
+                                sent.push(p.id());
+                                packets.push((*p).clone());
                             }
                             Message::Shared(batches) => {
                                 for body in batches.iter() {
@@ -1506,6 +1662,7 @@ mod tests {
             uuid: Uuid::from_bytes([7; 16]),
             skin: crate::tick::queue::Skin::default(),
             device_os: -1,
+            address: None,
         }
     }
 
@@ -1523,7 +1680,9 @@ mod tests {
     fn with(listeners: &[(Priority, Hook)]) -> Listeners {
         let mut all = Listeners::default();
         for &(priority, listener) in listeners {
-            all.push(priority, listener);
+            all.push(priority, move |e: &mut PlayerDuplicateLogin, _| {
+                listener(e);
+            });
         }
         all
     }
@@ -1690,7 +1849,7 @@ mod tests {
         let mut calls = 0_u32;
         let mut listeners = Listeners::default();
         // Every other duplicate login is cancelled, so both outcomes repeat.
-        listeners.push(Priority::Normal, move |e: &mut PlayerDuplicateLogin| {
+        listeners.push(Priority::Normal, move |e: &mut PlayerDuplicateLogin, _| {
             calls += 1;
             if calls.is_multiple_of(2) {
                 e.cancel();
@@ -1723,7 +1882,8 @@ mod tests {
     /// right and wrong initialisations, moves (some to positions that are not finite), sub-chunk
     /// requests, packets the tick does not handle, leaves, and sessions whose outbound queue
     /// closes, which the tick must forget; and the M7 inputs of each session's scripted
-    /// [`client::Client`]. The state also runs [`script_task`].
+    /// [`client::Client`]. The state also runs [`script_task`]. A [`busy`](Self::busy) script
+    /// adds the M8 inputs of [`busy`]: chat, commands, form answers and blocking job results.
     struct Script {
         rng: crate::protocol::Rng,
         sessions: usize,
@@ -1737,6 +1897,10 @@ mod tests {
         villagers: BTreeSet<u64>,
         /// What the clients received, by kind.
         seen: client::Seen,
+        /// Whether the script sends the M8 inputs too.
+        extras: bool,
+        /// The forms each session was sent and has not answered, by session.
+        forms: BTreeMap<u64, Vec<u32>>,
     }
 
     impl Script {
@@ -1750,13 +1914,30 @@ mod tests {
                 clients: BTreeMap::new(),
                 villagers: BTreeSet::new(),
                 seen: client::Seen::new(),
+                extras: false,
+                forms: BTreeMap::new(),
+            }
+        }
+
+        /// The script of `seed` with the M8 inputs.
+        fn busy(seed: u64, sessions: usize) -> Self {
+            Self {
+                extras: true,
+                ..Self::new(seed, sessions)
             }
         }
 
         /// The inputs of one tick, in an arrival order unlike the applied (session, seq) order.
         /// The M7 inputs follow what the clients were sent and where their players are.
+        #[expect(
+            clippy::too_many_lines,
+            reason = "consistency: one generator keeps the input mix in one place"
+        )]
         fn tick(&mut self, state: &State) -> Vec<Input> {
             let mut batch = Vec::new();
+            if self.extras {
+                batch.extend(busy::job_results(&mut self.rng, state));
+            }
             for _ in 0..self.rng.below(12) {
                 let i = self.rng.below(self.sessions);
                 let s = u64::try_from(i).unwrap();
@@ -1778,6 +1959,12 @@ mod tests {
                         outbound: tx,
                     };
                     batch.push(input(s, seq, kind));
+                    continue;
+                }
+                if self.extras && self.rng.below(6) == 0 {
+                    let forms = self.forms.entry(s).or_default();
+                    let p = busy::client_input(&mut self.rng, forms);
+                    batch.push(input(s, seq, round_trip(p)));
                     continue;
                 }
                 let kind = match self.rng.below(40) {
@@ -1877,6 +2064,13 @@ mod tests {
                     {
                         self.villagers.insert(a.entity_runtime_id);
                     }
+                    if let Packet::ModalFormRequest(f) = p {
+                        *self.seen.entry("form").or_default() += 1;
+                        let forms = self.forms.entry(*s).or_default();
+                        if forms.len() < busy::MAX_REMEMBERED_FORMS {
+                            forms.push(f.form_id);
+                        }
+                    }
                 }
                 if !ids.is_empty() || close.is_some() {
                     out.push((*s, ids, close));
@@ -1933,16 +2127,7 @@ mod tests {
             block_item(B::Furnace, 1),
             item(I::Diamond, 3),
         ];
-        let offer = |buy: Stack, sell: Stack| {
-            crate::nbt::Compound::from([
-                ("buyA".to_owned(), crate::nbt::Value::Compound(buy.to_nbt())),
-                (
-                    "sell".to_owned(),
-                    crate::nbt::Value::Compound(sell.to_nbt()),
-                ),
-                ("maxUses".to_owned(), crate::nbt::Value::Int(12)),
-            ])
-        };
+        let offer = |buy: Stack, sell: Stack| crate::custom::Offer::new(buy, sell, 12);
         let offers = [
             offer(item(I::Apple, 2), item(I::Bread, 1)),
             offer(block_item(B::Dirt, 4), item(I::Arrow, 2)),
@@ -1957,7 +2142,7 @@ mod tests {
                 if t % 2 == 0 {
                     let at = BlockPos::new((t * 7) % 48 - 16, -60 + t % 3, (t * 13) % 48 - 16);
                     let state = if t % 3 == 0 { crate::block::AIR } else { stone };
-                    assert!(ctx.world_mut().set_block(at, state).is_ok());
+                    assert!(ctx.default_world_mut().set_block(at, state).is_ok());
                 }
                 // A gift a tick; 15 gifts and 64 players, so every player meets most gifts.
                 let name = if tick.is_multiple_of(8) {
@@ -1966,18 +2151,23 @@ mod tests {
                     format!("p{}", tick % 64)
                 };
                 let gift = gifts[usize::try_from(tick).unwrap() % gifts.len()].clone();
-                if let Some(player) = ctx.player_exact(&name) {
-                    ctx.give(player, gift);
+                if let Some(player) = ctx.player_exact(&name).and_then(|id| ctx.player_mut(id)) {
+                    player
+                        .inventory_mut(crate::inventory::Kind::Main)
+                        .add(&gift);
                 }
                 if tick % 150 == 30 {
                     let x = 2.5 + f64::from(u32::try_from(tick / 150).unwrap()) * 2.0;
                     let at = crate::math::Vec3::new(x, -60.0, 3.5);
-                    villagers.extend(ctx.spawn_villager(at, 1, &offers));
+                    villagers.extend(
+                        ctx.spawn_villager(crate::world::Id::DEFAULT, at, 1, &offers)
+                            .ok(),
+                    );
                 }
                 if tick == 260
                     && let Some(&first) = villagers.first()
                 {
-                    assert!(ctx.remove_entity(first));
+                    ctx.entity_mut(first).unwrap().flag_for_despawn();
                 }
                 // The runs leave commits unanswered, so the first snapshot is the only one: it
                 // comes after the first villager and gifts.
@@ -1992,13 +2182,24 @@ mod tests {
     /// Ticks of a determinism run.
     const TICKS: usize = 400;
 
-    /// Runs the script of `seed` live with a pool of `threads` threads: the observed ticks, the
-    /// log and what the clients received.
-    fn live(threads: usize, seed: u64) -> (Vec<Observed>, InputLog, client::Seen) {
-        let pool = crate::runtime::cpu_pool(threads).unwrap();
-        let mut script = Script::new(seed, 64);
-        let mut state = new_state(settings(|_| {}), Listeners::default());
+    /// The start state of the determinism runs, with `listeners` (sorted): the spawn area loaded,
+    /// [`script_task`] and Anchor's commands.
+    fn script_state(listeners: Listeners) -> State {
+        let mut state = new_state(settings(|_| {}), listeners);
         state.tasks = script_task();
+        state.commands.finish().unwrap();
+        state
+    }
+
+    /// Runs `script` live with a pool of `threads` threads and `listeners` (sorted): the observed
+    /// ticks, the log and what the clients received.
+    fn live(
+        threads: usize,
+        mut script: Script,
+        listeners: Listeners,
+    ) -> (Vec<Observed>, InputLog, client::Seen) {
+        let pool = crate::runtime::cpu_pool(threads).unwrap();
+        let mut state = script_state(listeners);
         let mut output = Output::default();
         let mut log = InputLog::default();
         let mut observed = Vec::new();
@@ -2040,8 +2241,7 @@ mod tests {
     /// the replay records itself. Sessions the live run forgot after its output are forgotten at
     /// the same point.
     fn replay(ticks: &[log::Tick], listeners: Listeners, pool: &Pool) -> (Vec<u64>, InputLog) {
-        let mut state = new_state(settings(|_| {}), listeners);
-        state.tasks = script_task();
+        let mut state = script_state(listeners);
         let mut output = Output::default();
         let mut log = InputLog::default();
         let mut receivers = BTreeMap::new();
@@ -2063,6 +2263,8 @@ mod tests {
                         }
                         EntryKind::Packet(p) => packet(p.clone()),
                         EntryKind::Leave => InputKind::Leave,
+                        EntryKind::Console(line) => InputKind::Console(line.clone()),
+                        EntryKind::Job(outcome) => InputKind::Job(outcome.clone()),
                     };
                     Input {
                         session: e.session,
@@ -2155,8 +2357,9 @@ mod tests {
         let many_pool = crate::runtime::cpu_pool(many).unwrap();
         let mut reached = client::Seen::new();
         for seed in SEEDS {
-            let (one, log_one, seen) = live(1, seed);
-            let (more, log_more, seen_more) = live(many, seed);
+            let (one, log_one, seen) = live(1, Script::new(seed, 64), Listeners::default());
+            let (more, log_more, seen_more) =
+                live(many, Script::new(seed, 64), Listeners::default());
             assert_eq!(one, more, "seed {seed:#x}: 1 and {many} threads");
             assert_eq!(seen, seen_more, "seed {seed:#x}");
             for (what, n) in seen {
@@ -2206,7 +2409,7 @@ mod tests {
 
     #[test]
     fn corrupt_logs_are_errors_without_panics() {
-        let (_, log, _) = live(2, SEEDS[0]);
+        let (_, log, _) = live(2, Script::new(SEEDS[0], 64), Listeners::default());
         let bytes = log.encode().unwrap();
         // A shorter seed keeps the run fast; the mutations still reach every field kind.
         let seed = &bytes[..bytes.len().min(4096)];
@@ -2248,7 +2451,7 @@ mod tests {
     fn a_panicking_tick_leaves_a_log_that_reproduces_the_panic() {
         let panicking = || {
             let mut listeners = Listeners::default();
-            listeners.push(Priority::Normal, |_: &mut PlayerDuplicateLogin| {
+            listeners.push(Priority::Normal, |_: &mut PlayerDuplicateLogin, _| {
                 panic!("listener failed");
             });
             listeners.sort();
@@ -2503,7 +2706,7 @@ mod tests {
             move |ctx: &mut task::Context<'_>| {
                 for &(at, pos, state) in &script {
                     if at == ctx.tick() {
-                        ctx.world_mut().set_block(pos, state).unwrap();
+                        ctx.default_world_mut().set_block(pos, state).unwrap();
                     }
                 }
                 if save_at.contains(&ctx.tick()) {

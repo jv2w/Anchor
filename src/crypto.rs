@@ -1,6 +1,7 @@
-//! Cryptography over aws-lc-rs: ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR, randomness, base64, JWS and RakNet encryption.
+//! Cryptography over aws-lc-rs: ES384, RS256, ECDH P-384, SHA-256, AES-256-CTR, randomness, base64, JWS and RakNet encryption; and the CRC-32 checksum.
 
 mod base64;
+mod crc32;
 pub(crate) mod encryption;
 mod json;
 mod jws;
@@ -17,6 +18,7 @@ use aws_lc_rs::signature::{
 };
 
 pub(crate) use base64::{RAW_STD, RAW_URL, STD};
+pub(crate) use crc32::crc32;
 pub(crate) use json::{bounded_vec, is_object_or_null};
 pub(crate) use jws::{
     Algorithm, Jws, parse as parse_jws, sign_compact as sign_jwt_bytes, sign_detached,

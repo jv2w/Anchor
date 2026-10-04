@@ -1,5 +1,6 @@
-//! Primed TNT and explosions (PMMP `TNT::ignite`, `PrimedTNT`, `Explosion::explodeA`,
-//! `explodeB`, `getExposure`).
+//! Primed TNT, end crystals' explosions and explosions (PMMP `TNT::ignite`, `PrimedTNT`,
+//! `EndCrystal::onDeathUpdate`, `EndCrystal::explode`, `Explosion::explodeA`, `explodeB`,
+//! `getExposure`).
 //!
 //! An explosion casts PMMP's 1,352 rays from its centre; each ray starts with the size × 0.7 to
 //! 1.3 (engine randomness) and loses force per 0.3-block step and per block by the block's blast
@@ -12,27 +13,36 @@
 //! Bounds (PLAN.md 10.7): the size is at most [`MAX_SIZE`], so one explosion looks at no more
 //! than 1,352 × 47 cells; primed TNT explodes while the tick has done fewer than
 //! [`MAX_EXPLOSIONS_PER_TICK`] explosions and affected fewer than [`MAX_BLOCKS_PER_TICK`]
-//! blocks, and waits with an empty fuse otherwise. Rays stop at chunks that are not loaded
+//! blocks, and waits with an empty fuse otherwise (an end crystal that died waits the same
+//! way). Rays stop at chunks that are not loaded
 //! (PMMP skips such cells and goes on), so an explosion never reaches past the loaded border.
 //! Clouds are not hurt by explosions (their box can be 128 blocks wide; PMMP hurts them).
+//!
+//! Primed TNT and end crystals raise `EntityPreExplode` before they explode (PMMP
+//! `ExplosionPrimeEvent` is this event here): its listeners may cancel it, or change the radius, the fire chance and whether
+//! blocks break. The explosion of an entity then raises `EntityExplode` once its blocks are known.
 
-use super::super::{SessionId, interact};
+use super::super::{SessionId, dispatch, interact};
 use super::kind::{Kind, MAX_FUSE, Tnt};
 use super::{
-    Budget, Cause, Hooks, Knock, PLAYER_EYE_HEIGHT, State, create, hurt, is_valid_position,
-    level_event, level_of, physics, player_box, sound, targetable, with,
+    Blow, Budget, Cause, Hooks, Knock, PLAYER_EYE_HEIGHT, Raise, State, create, hurt, hurt_in,
+    is_valid_position, level_event, level_of, physics, player_box, push_entity, sound, targetable,
+    with,
 };
 use crate::block::{self, Class, Face, SupportType};
 use crate::entity::Id;
+use crate::event::{Actor, DamageSource, EntityExplode, EntityPreExplode};
 use crate::item::Enchantment;
 use crate::math::{self, Aabb, Vec3};
 use crate::protocol::consts::{LevelEvent, SoundEvent};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::world::{BlockPos, MAX_Y, MIN_Y, World};
+use crate::world::{self, BlockPos, MAX_Y, MIN_Y, World};
 
 /// The size of a TNT explosion (PMMP `PrimedTNT::explode`).
 const TNT_SIZE: f64 = 4.0;
+/// The size of an end crystal's explosion (PMMP `EndCrystal::explode`).
+const CRYSTAL_SIZE: f64 = 6.0;
 /// The largest explosion size taken; larger ones are cut to it (PMMP has no limit).
 const MAX_SIZE: f64 = 8.0;
 /// Primed TNT explosions per tick; the rest wait for the next tick with an empty fuse.
@@ -114,30 +124,116 @@ pub(super) fn tnt_tick(state: &mut State, id: Id, budget: &mut Budget, hooks: Ho
     if budget.explosions >= MAX_EXPLOSIONS_PER_TICK || budget.blocks >= MAX_BLOCKS_PER_TICK {
         return;
     }
+    let (world, position) = due;
+    let center = position + Vec3::new(0.0, TNT_CENTRE, 0.0);
+    blow_up(state, id, world, center, TNT_SIZE, budget, hooks);
+}
+
+/// The end crystal `id`, at 0 health, ends (PMMP `EndCrystal::onDeathUpdate`): a primed one
+/// explodes with size 6 at its position if the tick's budget allows (else it waits), then it
+/// goes; one the void killed just goes.
+pub(super) fn crystal_died(state: &mut State, id: Id, budget: &mut Budget, hooks: Hooks) {
+    let Some(e) = state.rules.entities.get(id) else {
+        return;
+    };
+    let (world, center) = (e.world, e.body.position);
+    if !matches!(e.kind, Kind::EndCrystal(c) if c.primed) {
+        state.rules.entities.doom(id);
+        return;
+    }
+    if budget.explosions >= MAX_EXPLOSIONS_PER_TICK || budget.blocks >= MAX_BLOCKS_PER_TICK {
+        return;
+    }
+    blow_up(state, id, world, center, CRYSTAL_SIZE, budget, hooks);
+}
+
+/// The explosive entity `id` goes and explodes with `size` at `center` (PMMP `PrimedTNT::explode`,
+/// `EndCrystal::explode`), counted in the tick's `budget`: `EntityPreExplode` first, whose
+/// listeners may cancel it or change the radius, the fire chance and whether blocks break.
+fn blow_up(
+    state: &mut State,
+    id: Id,
+    world: WorldIndex,
+    center: Vec3,
+    size: f64,
+    budget: &mut Budget,
+    hooks: Hooks,
+) {
     with(state, id, |e| e.flagged = true);
     state.rules.entities.doomed.insert(id);
     budget.explosions += 1;
-    let (world, position) = due;
-    let center = position + Vec3::new(0.0, TNT_CENTRE, 0.0);
-    let blocks = explode_with(state, world, center, TNT_SIZE, false, Some(id), hooks);
+    let mut blast = Blast::new(size, false);
+    let mut event = None;
+    if dispatch::heard::<EntityPreExplode>(state) {
+        let mut e = EntityPreExplode {
+            entity: id,
+            radius: blast.size,
+            fire_chance: blast.fire_chance,
+            block_breaking: blast.breaks,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        if e.cancelled {
+            return;
+        }
+        blast = Blast {
+            size: e.radius,
+            fire_chance: e.fire_chance,
+            breaks: e.block_breaking,
+        };
+        event = Some(e);
+    }
+    let blocks = explode_with(state, world, center, blast, Some(id), hooks, Raise::Events);
     budget.blocks = budget.blocks.saturating_add(blocks);
+    if let Some(e) = event {
+        dispatch::watch(state, &e);
+    }
+}
+
+/// What an explosion is (PMMP `Explosion`'s radius and fire chance, and whether `explodeA`
+/// runs).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Blast {
+    /// The size (radius), above 0; cut to [`MAX_SIZE`].
+    pub(super) size: f64,
+    /// The chance, 0 to 1, that a destroyed block catches fire.
+    pub(super) fire_chance: f64,
+    /// It breaks blocks.
+    pub(super) breaks: bool,
+}
+
+impl Blast {
+    /// A block-breaking explosion of `size`, with PMMP's default fire chance when `fire`.
+    pub(super) fn new(size: f64, fire: bool) -> Self {
+        Self {
+            size,
+            fire_chance: if fire { FIRE_CHANCE } else { 0.0 },
+            breaks: true,
+        }
+    }
 }
 
 /// [`explode`] by the entity `source` (excluded from the hurt, and the point living things are
 /// knocked back from) with the given hooks; returns the number of blocks it affected. Called by
 /// the entity tick, it makes the entities near it move again from their new state.
+///
+/// With [`Raise::Events`], an explosion by an entity raises [`EntityExplode`] once the blocks are
+/// known (PMMP `explodeB`): cancelling stops it there (no block breaks, nothing is hurt), and
+/// the listeners' block list (at most [`MAX_BLOCKS_PER_TICK`], unloaded blocks left alone),
+/// ignitions and yield are used; the hits and pushes raise their own events.
 pub(super) fn explode_with(
     state: &mut State,
     world: WorldIndex,
     center: Vec3,
-    size: f64,
-    fire: bool,
+    blast: Blast,
     source: Option<Id>,
     hooks: Hooks,
+    raise: Raise,
 ) -> usize {
     let Some(w) = state.worlds.get(world) else {
         return 0;
     };
+    let size = blast.size;
     if !is_valid_position(center) || size.is_nan() || size <= 0.0 || !size.is_finite() {
         return 0;
     }
@@ -155,12 +251,46 @@ pub(super) fn explode_with(
             ],
         ),
     );
-    let (blocks, ignitions) = if size < 0.1 {
+    let (mut blocks, mut ignitions) = if size < 0.1 || !blast.breaks {
         (Vec::new(), Vec::new())
     } else {
-        affected(w, center, size, fire, &mut random)
+        affected(w, center, size, blast.fire_chance, &mut random)
     };
-    hit_entities(state, world, center, size, source, hooks);
+    // The size whose 1 / size drop chance the blocks get: the yield as a size.
+    let mut drop_size = size;
+    let mut event = None;
+    if let Some(entity) = source
+        && raise == Raise::Events
+        && dispatch::heard::<EntityExplode>(state)
+    {
+        let yield_percent = math::min(100.0, 100.0 / size);
+        let mut e = EntityExplode {
+            entity,
+            world: world::Id::of(world),
+            position: center,
+            blocks,
+            yield_percent,
+            ignitions,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        if e.cancelled || state.worlds.get(world).is_none() {
+            return 0;
+        }
+        blocks = e.blocks.iter().copied().take(MAX_BLOCKS_PER_TICK).collect();
+        ignitions = e
+            .ignitions
+            .iter()
+            .copied()
+            .take(MAX_BLOCKS_PER_TICK)
+            .collect();
+        if e.yield_percent != yield_percent {
+            // A yield of 0 is an infinite size: no drops.
+            drop_size = 100.0 / e.yield_percent;
+        }
+        event = Some(e);
+    }
+    hit_entities(state, world, center, size, source, hooks, raise);
     if source.is_some() {
         let reach = size * 2.0 + 1.0 + RESTEP_REACH;
         let area = Aabb::new(center, center).grow(Vec3::new(reach, reach, reach));
@@ -178,7 +308,8 @@ pub(super) fn explode_with(
             let fuse = random.range(CHAIN_FUSE.0, CHAIN_FUSE.1);
             light(state, world, pos, fuse.unsigned_abs());
         } else {
-            interact::destroy(state, world, pos, interact::Destroy::Explosion { size });
+            let cause = interact::Destroy::Explosion { size: drop_size };
+            interact::destroy(state, world, pos, cause);
         }
     }
     let flame = block::Kind::Fire.default_state();
@@ -187,6 +318,9 @@ pub(super) fn explode_with(
     }
     level_event(state, world, center, LevelEvent::ParticlesExplosion, 0);
     sound(state, world, center, SoundEvent::Explode);
+    if let Some(e) = event {
+        dispatch::watch(state, &e);
+    }
     blocks.len()
 }
 
@@ -212,7 +346,7 @@ fn affected(
     w: &World,
     center: Vec3,
     size: f64,
-    fire: bool,
+    fire_chance: f64,
     random: &mut Random,
 ) -> (Vec<BlockPos>, Vec<BlockPos>) {
     let mut seen = std::collections::BTreeSet::new();
@@ -233,11 +367,7 @@ fn affected(
                 let mut pointer = center;
                 let mut force = size * (f64::from(random.range(700, 1300)) / 1000.0);
                 while force > 0.0 {
-                    let pos = BlockPos::new(
-                        super::physics_block(pointer.x),
-                        super::physics_block(pointer.y),
-                        super::physics_block(pointer.z),
-                    );
+                    let pos = BlockPos::containing(pointer);
                     pointer += shift;
                     if (MIN_Y..=MAX_Y).contains(&pos.y) {
                         let Some(state) = w.block(pos) else {
@@ -249,7 +379,7 @@ fn affected(
                             force -= (resistance / 5.0 + 0.3) * STEP;
                             if force > 0.0 && seen.insert(pos) {
                                 blocks.push(pos);
-                                if fire && random.unit() <= FIRE_CHANCE {
+                                if fire_chance > 0.0 && random.unit() <= fire_chance {
                                     ignitions.push(pos);
                                 }
                             }
@@ -273,6 +403,7 @@ fn hit_entities(
     size: f64,
     source: Option<Id>,
     hooks: Hooks,
+    raise: Raise,
 ) {
     let reach = size * 2.0;
     let area = Aabb::new(
@@ -315,20 +446,25 @@ fn hit_entities(
             players.push((s, impact.0, impact.1));
         }
     }
+    let by = source.map_or(DamageSource::None, |s| {
+        DamageSource::Entity(Actor::Entity(s))
+    });
     for (id, impact, direction) in hits {
         let damage = damage_of(impact, reach);
         let knock = from.and_then(|f| {
             let e = state.rules.entities.get(id)?;
             Some(Knock::new(e.body.position.x - f.x, e.body.position.z - f.z))
         });
-        hurt(state, id, Cause::Explosion, damage, knock);
-        with(state, id, |e| {
-            e.body.motion = physics::bounded(e.body.motion + direction * impact);
-        });
+        let blow = Blow::of(Cause::Explosion, damage).by(by);
+        hit_entity(state, id, blow, knock, direction * impact, raise);
     }
     for (session, impact, direction) in players {
         let damage = damage_of(impact, reach);
-        let landed = (hooks.damage)(state, session, damage, super::survival::Damage::Explosion);
+        let cause = super::survival::Damage::Explosion;
+        let landed = match raise {
+            Raise::Events => (hooks.damage)(state, session, damage, cause),
+            Raise::Quiet => super::survival::damage_quiet(state, session, damage, cause),
+        };
         let mut push = direction * impact;
         if landed
             && let Some(f) = from
@@ -354,7 +490,40 @@ fn hit_entities(
                 push += m;
             }
         }
-        super::push_player(state, session, push);
+        super::push_player(state, session, push, raise);
+    }
+}
+
+/// An entity takes an explosion's `blow` with `knock`, then its `push` (PMMP `explodeB`).
+fn hit_entity(
+    state: &mut State,
+    id: Id,
+    blow: Blow,
+    knock: Option<Knock>,
+    push: Vec3,
+    raise: Raise,
+) {
+    match raise {
+        Raise::Events => {
+            hurt(state, id, blow, knock);
+            if let Some(motion) = state.rules.entities.get(id).map(|e| e.body.motion + push) {
+                push_entity(state, id, motion);
+            }
+        }
+        Raise::Quiet => {
+            let State { rules, players, .. } = &mut *state;
+            hurt_in(
+                &mut rules.entities,
+                players,
+                id,
+                blow.cause,
+                blow.amount,
+                knock,
+            );
+            with(state, id, |e| {
+                e.body.motion = physics::bounded(e.body.motion + push);
+            });
+        }
     }
 }
 
@@ -460,6 +629,20 @@ mod tests {
             }
         }
         out
+    }
+
+    /// A size 4 explosion at `center` without a source, with the test hooks.
+    fn size_four(h: &mut Harness, center: Vec3) {
+        let blast = Blast::new(4.0, false);
+        explode_with(
+            &mut h.state,
+            0,
+            center,
+            blast,
+            None,
+            TEST_HOOKS,
+            Raise::Events,
+        );
     }
 
     fn tnt_count(h: &Harness) -> usize {
@@ -608,6 +791,7 @@ mod tests {
         assert!(air(&h, walls[2].0, walls[2].1).contains(&BlockPos::new(0, -50, -2)));
     }
 
+    // pmmp: TNT::ignite
     #[test]
     fn tnt_lights_the_tnt_it_reaches_with_ten_to_thirty_ticks() {
         let mut h = Harness::new(1);
@@ -683,6 +867,7 @@ mod tests {
             Vec3::new(-5.5, -60.0, 0.5),
             super::super::Npc::Human {
                 name: "target".to_owned(),
+                skin: None,
             },
         )
         .unwrap();
@@ -692,6 +877,7 @@ mod tests {
             Vec3::new(0.5, -60.0, -5.5),
             super::super::Npc::Human {
                 name: "hidden".to_owned(),
+                skin: None,
             },
         )
         .unwrap();
@@ -724,7 +910,7 @@ mod tests {
         let p = &h.state.players[&SessionId::new(1)];
         let feet = p.position - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
         let player_damage = expected(&h, feet, player_box(p));
-        explode_with(&mut h.state, 0, center, 4.0, false, None, TEST_HOOKS);
+        size_four(&mut h, center);
         let health = |h: &Harness, id: Id| h.state.rules.entities.get(id).unwrap().health;
         assert_eq!(health(&h, npc), 20.0 - npc_damage);
         assert_eq!(hidden_damage, 1.0, "behind obsidian: no ray reaches it");
@@ -756,7 +942,7 @@ mod tests {
             }
         });
         let before = health(&h, hidden);
-        explode_with(&mut h.state, 0, center, 4.0, false, None, TEST_HOOKS);
+        size_four(&mut h, center);
         assert_eq!(health(&h, hidden), before);
         let sticks = h
             .live()
@@ -831,7 +1017,7 @@ mod tests {
         let edge = Vec3::new(79.5, -60.0, 0.5);
         assert!(w.block(BlockPos::new(80, -61, 0)).is_none());
         let mut r = Random::new(0, 0, 1);
-        let (blocks, _) = affected(w, edge, 4.0, false, &mut r);
+        let (blocks, _) = affected(w, edge, 4.0, 0.0, &mut r);
         assert!(!blocks.is_empty());
         assert!(blocks.iter().all(|p| p.x < 80), "nothing past the border");
         // Fire: a third of the destroyed blocks with a full top under them burn.
@@ -841,10 +1027,10 @@ mod tests {
             &mut h.state,
             0,
             Vec3::new(0.5, -60.0, 0.5),
-            4.0,
-            true,
+            Blast::new(4.0, true),
             None,
             TEST_HOOKS,
+            Raise::Events,
         );
         let fire = named("minecraft:fire");
         let burning = air(&h, BlockPos::new(-5, -64, -5), BlockPos::new(5, -55, 5));

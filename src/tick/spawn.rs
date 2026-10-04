@@ -10,8 +10,12 @@
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+use std::collections::BTreeSet;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+use super::command;
+use super::hook::{self, StartHook};
 use super::queue::{Identity, Message, Outbound, SessionId, SharedBatches};
 use super::save::storage_key;
 use super::view::{self, Changes, Encoded};
@@ -19,19 +23,25 @@ use super::{
     DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION, MAX_COORDINATE, Output, Phase, Player, PlayerKey,
     Settings, State,
 };
-use super::{extra, interact, inventory, survival};
+use super::{dispatch, extra, interact, inventory, survival};
 use crate::config::Difficulty;
 use crate::crafting;
-use crate::event::{DuplicateOutcome, PlayerDuplicateLogin};
-use crate::item::{self, SHIELD_RUNTIME_ID};
+use crate::custom;
+use crate::event::{
+    DuplicateOutcome, KickFlag, PlayerDuplicateLogin, PlayerInfo, PlayerJoin, PlayerLogin,
+    PlayerViewDistanceChange,
+};
+use crate::item::SHIELD_RUNTIME_ID;
 use crate::math::Vec3;
+use crate::player::{self, Message as Text};
 use crate::pool::Pool;
-use crate::protocol::batch;
+use crate::protocol::consts::DisconnectReason;
 use crate::protocol::packet::{
     self, AvailableActorIdentifiers, ChunkRadiusUpdated, Disconnect, Packet, PlayStatus, PlayerFog,
-    PlayerList, RequestChunkRadius, Respawn, SetActorData, SetDifficulty, SetHealth,
-    SetLocalPlayerAsInitialised, SetSpawnPosition, StartGame, TrimData, VoxelShapes,
+    PlayerList, RequestChunkRadius, Respawn, SetActorData, SetCommandsEnabled, SetDifficulty,
+    SetHealth, SetLocalPlayerAsInitialised, SetSpawnPosition, StartGame, TrimData, VoxelShapes,
 };
+use crate::protocol::{self, batch};
 use crate::protocol::{
     EntityProperties, PlayerListEntry, PlayerMovementSettings, Rgba, ServerJoinInformation,
     TrimMaterial, TrimPattern, VoxelCells, VoxelShape, VoxelShapeNameEntry,
@@ -59,6 +69,8 @@ const LIMITED_WORLD_SIZE: i32 = 16;
 const REWIND_HISTORY_SIZE: i32 = 40;
 /// Player permission 1, member.
 const PERMISSION_MEMBER: u8 = 1;
+/// Player permission 2, operator.
+const PERMISSION_OPERATOR: u8 = 2;
 /// The position BDS's `SetSpawnPosition` carries for a default spawn (P6).
 const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
 /// The dimension BDS's `SetSpawnPosition` names at join (P6).
@@ -77,6 +89,8 @@ pub(crate) struct Shared {
     voxel_shapes: SharedBatches,
     actor_identifiers: SharedBatches,
     trim_data: SharedBatches,
+    /// The custom block definitions `StartGame` carries (empty without custom blocks).
+    blocks: Arc<[protocol::BlockEntry]>,
 }
 
 /// The entity types BDS 1.26.52 sends in `AvailableActorIdentifiers`: `CloudburstMC`'s
@@ -93,30 +107,42 @@ const VOXEL_SHAPES: &str = include_str!("../../xtask/data/reference/voxel_shapes
 impl Shared {
     /// Builds the batches with the server's batch settings. Fails if a packet cannot be encoded
     /// or its batch is larger than `max-batch-bytes`.
-    pub(crate) fn new(settings: batch::Settings) -> Result<Self, batch::Error> {
+    ///
+    /// With the server's custom content (PLAN.md 10.8): the custom items after the vanilla ones
+    /// in the item registry and the creative inventory, the custom recipes after PMMP's, the
+    /// custom block definitions for `StartGame` and the custom entity identifiers. Without custom
+    /// content the batches are byte for byte the vanilla ones.
+    pub(crate) fn new(
+        settings: batch::Settings,
+        custom: &custom::Registry,
+        custom_entities: &super::entity::Customs,
+    ) -> Result<Self, batch::Error> {
         let mut encoder = batch::Encoder::new(settings);
         Ok(Self {
-            item_registry: encode(&mut encoder, &Packet::ItemRegistry(item::registry()))?,
+            item_registry: encode(&mut encoder, &Packet::ItemRegistry(custom.item_registry()))?,
             biome_definitions: encode(
                 &mut encoder,
                 &Packet::BiomeDefinitionList(biome::definition_list()),
             )?,
             creative_content: encode(
                 &mut encoder,
-                &Packet::CreativeContent(item::creative_content()),
+                &Packet::CreativeContent(custom.creative_content()),
             )?,
             crafting_data: encode(
                 &mut encoder,
-                &Packet::CraftingData(Box::new(crafting::crafting_data())),
+                &Packet::CraftingData(Box::new(custom.crafting_data())),
             )?,
             voxel_shapes: encode(&mut encoder, &Packet::VoxelShapes(voxel_shapes()))?,
             actor_identifiers: encode(
                 &mut encoder,
                 &Packet::AvailableActorIdentifiers(AvailableActorIdentifiers {
-                    serialised_entity_identifiers: ENTITY_IDENTIFIERS.to_vec(),
+                    serialised_entity_identifiers: custom_entities
+                        .identifier_list(ENTITY_IDENTIFIERS)
+                        .map_err(batch::Error::Packet)?,
                 }),
             )?,
             trim_data: encode(&mut encoder, &Packet::TrimData(trim_data()))?,
+            blocks: custom.block_entries().into(),
         })
     }
 }
@@ -270,12 +296,13 @@ pub(super) struct RadiusAnswer {
 
 /// The output phase: the sub-chunks the answers need, encoded once each on the CPU pool; then the
 /// packets of every player with something to send, built on the CPU pool from read-only state in
-/// session order; then the pending marks are cleared.
+/// session order and passed through the send hooks; then the pending marks are cleared.
 pub(super) fn output(
     state: &mut State,
     pool: &Pool,
     changes: &Changes,
 ) -> Vec<(SessionId, Vec<Message>)> {
+    let ops = operators_starting(state);
     let wanted = view::wanted_sub_chunks(state);
     let worlds = &state.worlds;
     let blocks = &state.rules.block_entities;
@@ -291,24 +318,54 @@ pub(super) fn output(
             p.pending != Pending::default()
                 || !p.view.out.is_empty()
                 || !p.outbox.is_empty()
+                || !p.shared_outbox.is_empty()
                 || (!changes.is_empty() && p.view.is_open())
         })
         .map(|(&s, p)| (s, p))
         .collect();
     let window = Window::new(state, &marked);
     let (settings, shared) = (&state.settings, &state.shared);
+    let (sends, starts) = (state.hooks.send(), state.hooks.start_game());
+    let commands = state.commands.listing();
     let mut packets: Vec<(SessionId, Vec<Message>)> = pool.map(&marked, |&(session, player)| {
         let world = worlds.get(player.world);
-        (
-            session,
-            messages(settings, shared, world, player, &encoded, changes, &window),
-        )
+        let built = Built {
+            settings,
+            shared,
+            encoded: &encoded,
+            changes,
+            window: &window,
+            starts,
+            commands,
+            ops: &ops,
+        };
+        let mut out = messages(&built, world, session, player);
+        if !sends.is_empty() {
+            // The hooks need the packets to change; only then are the serial phases' copied.
+            out.extend(player.outbox.iter().cloned().map(Message::Packet));
+            out.extend(
+                player
+                    .shared_outbox
+                    .iter()
+                    .cloned()
+                    .map(Message::SharedPacket),
+            );
+            hook::send(sends, session, &mut out);
+        }
+        (session, out)
     });
-    // The serial phases' packets follow the output phase's ([`Player::send`]); the outbox keeps
+    // The serial phases' packets follow the output phase's ([`Player::send_packet`]); the outbox keeps
     // its capacity for the next tick.
+    let hooked = !sends.is_empty();
     for (session, out) in &mut packets {
         if let Some(player) = state.players.get_mut(session) {
-            out.extend(player.outbox.drain(..).map(Message::Packet));
+            if hooked {
+                player.outbox.clear();
+                player.shared_outbox.clear();
+            } else {
+                out.extend(player.outbox.drain(..).map(Message::Packet));
+                out.extend(player.shared_outbox.drain(..).map(Message::SharedPacket));
+            }
         }
     }
     packets.retain(|(_, m)| !m.is_empty());
@@ -374,6 +431,38 @@ impl Window {
 /// the eyes and at the feet (P6 facts 7).
 const RESPAWN_SEARCH_Y: f64 = 32_768.0;
 
+/// What every player's packets of a tick are built from.
+struct Built<'a> {
+    settings: &'a Settings,
+    shared: &'a Shared,
+    encoded: &'a Encoded,
+    changes: &'a Changes,
+    window: &'a Window,
+    starts: &'a [StartHook],
+    /// What the `AvailableCommands` of a player whose spawn window goes out this tick is built
+    /// from: the commands' network form without their handlers, so it is `Sync`.
+    commands: command::Listing<'a>,
+    /// The operators among the players whose `StartGame` goes out this tick.
+    ops: &'a BTreeSet<SessionId>,
+}
+
+/// The operators among the players whose `StartGame` goes out this tick: their `StartGame`
+/// carries operator permissions, as their abilities do.
+fn operators_starting(state: &mut State) -> BTreeSet<SessionId> {
+    let starting: Vec<(SessionId, String)> = state
+        .players
+        .iter()
+        .filter(|(_, p)| p.pending.start_game)
+        .map(|(&s, p)| (s, p.identity.name.clone()))
+        .collect();
+    let cx = super::Context { state };
+    starting
+        .into_iter()
+        .filter(|(_, name)| cx.is_op(name))
+        .map(|(s, _)| s)
+        .collect()
+}
+
 /// One player's packets of the tick, in the order BDS sends them (P6, PLAN.md 10.2, 10.4, 10.6,
 /// m7-facts.md 7): the start-game packets; for the first chunk radius answer the spawn window
 /// (spawn position, clocks, difficulty, settings, abilities, rules, player list, biomes, entity
@@ -381,14 +470,21 @@ const RESPAWN_SEARCH_Y: f64 = 32_768.0;
 /// the granted radius; the chunk packets; the health and the spawn status; then the block changes
 /// it sees.
 fn messages(
-    settings: &Settings,
-    shared: &Shared,
+    built: &Built<'_>,
     world: Option<&World>,
+    session: SessionId,
     player: &Player,
-    encoded: &Encoded,
-    changes: &Changes,
-    window: &Window,
 ) -> Vec<Message> {
+    let Built {
+        settings,
+        shared,
+        encoded,
+        changes,
+        window,
+        starts,
+        commands,
+        ops,
+    } = *built;
     let mut out = Vec::new();
     let Some(world) = world else {
         return out;
@@ -399,14 +495,15 @@ fn messages(
         out.push(window.player_list());
         out.extend(window.world(index, 0));
         out.push(Message::Shared(Arc::clone(&shared.voxel_shapes)));
-        out.push(Message::Packet(Packet::StartGame(Box::new(start_game(
-            settings, world, player,
-        )))));
+        let op = ops.contains(&session);
+        let start = hook::start_game(starts, start_game(settings, shared, world, player, op));
+        out.push(Message::Packet(Packet::StartGame(Box::new(start))));
         out.push(Message::Shared(Arc::clone(&shared.item_registry)));
     }
     if let Some(answer) = player.pending.radius {
         if answer.first {
-            spawn_window(settings, shared, player, window, &mut out);
+            let commands = command::available_commands(commands, session, player);
+            spawn_window(settings, shared, player, window, commands, &mut out);
         }
         out.push(Message::Packet(Packet::ChunkRadiusUpdated(
             ChunkRadiusUpdated {
@@ -435,14 +532,15 @@ fn messages(
     out
 }
 
-/// The packets BDS sends between the chunk radius request and the chunks (m7-facts.md 7), but
-/// for `SetCommandsEnabled`, the camera presets and `AvailableCommands` (M8) and the sound and
-/// structure packets Anchor never sends (deferred.txt).
+/// The packets BDS sends between the chunk radius request and the chunks (m7-facts.md 7), with
+/// the player's `AvailableCommands`, but for the camera presets and the sound and structure
+/// packets Anchor never sends (deferred.txt).
 fn spawn_window(
     settings: &Settings,
     shared: &Shared,
     player: &Player,
     window: &Window,
+    commands: Packet,
     out: &mut Vec<Message>,
 ) {
     let index = player.world;
@@ -456,6 +554,9 @@ fn spawn_window(
     out.extend(window.world(index, 1));
     out.push(packet(Packet::SetDifficulty(SetDifficulty {
         difficulty: difficulty_id(settings.difficulty).cast_unsigned(),
+    })));
+    out.push(packet(Packet::SetCommandsEnabled(SetCommandsEnabled {
+        enabled: true,
     })));
     out.push(packet(survival::adventure_settings()));
     let abilities = survival::update_abilities(settings, player);
@@ -474,6 +575,7 @@ fn spawn_window(
     inventory::spawn_packets(player, &mut inventory);
     out.extend(inventory.into_iter().map(Message::Packet));
     out.push(Message::Shared(Arc::clone(&shared.crafting_data)));
+    out.push(packet(commands));
     let eye = player.position;
     for (y, state) in [
         (RESPAWN_SEARCH_Y + EYE_HEIGHT, 0),
@@ -531,7 +633,7 @@ fn announce(state: &mut State, player: &Player) {
     });
     for p in state.players.values_mut() {
         if p.phase != Phase::Loading && !p.pending.start_game {
-            p.send(packet.clone());
+            p.send_packet(packet.clone());
         }
     }
 }
@@ -552,7 +654,7 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
     });
     for p in state.players.values_mut() {
         if p.phase != Phase::Loading && !p.pending.start_game {
-            p.send(packet.clone());
+            p.send_packet(packet.clone());
         }
     }
 }
@@ -577,7 +679,7 @@ pub(super) fn join(
     }
     let key = PlayerKey::of(&identity);
     if let Some(&existing) = state.index.get(&key) {
-        let (back, outcome) = duplicate_login(state, existing, identity);
+        let (back, outcome, event) = duplicate_login(state, existing, identity);
         identity = back;
         let packet = logged_in_other_location(outcome.message);
         if outcome.cancelled {
@@ -588,8 +690,17 @@ pub(super) fn join(
                 "join rejected: the player is already online"
             );
             output.close(outbound, packet);
+            if let Some(e) = &event {
+                dispatch::watch(state, e);
+            }
             return None;
         }
+        super::player::quit(
+            state,
+            existing,
+            PlayerDuplicateLogin::DEFAULT_REASON,
+            super::player::LEFT.to_owned(),
+        );
         if let Some(old) = state.remove(existing) {
             info!(
                 session = existing.get(),
@@ -599,13 +710,34 @@ pub(super) fn join(
             );
             output.close(old.outbound, packet);
         }
+        if let Some(e) = &event {
+            dispatch::watch(state, e);
+        }
     }
-    let max_players = usize::try_from(state.settings.max_players).unwrap_or(usize::MAX);
-    if state.players.len() >= max_players {
-        info!(session = session.get(), name = %identity.name, "join rejected: server full");
-        output.close(outbound, server_full());
-        return None;
+    let (refused, event) = login(state, &identity);
+    let request = match refused {
+        Some(Refused { reason, packet }) => {
+            info!(session = session.get(), name = %identity.name, %reason, "join rejected");
+            output.close(outbound, packet);
+            None
+        }
+        None => enter(state, session, identity, key, outbound, output),
+    };
+    if let Some(e) = &event {
+        dispatch::watch(state, e);
     }
+    request
+}
+
+/// Registers the admitted player of `session` (see [`join`]).
+fn enter(
+    state: &mut State,
+    session: SessionId,
+    identity: Identity,
+    key: PlayerKey,
+    outbound: mpsc::Sender<Outbound>,
+    output: &mut Output,
+) -> Option<Request> {
     let Some(next) = state.next_runtime_id.checked_add(1) else {
         // 2^64 joins never happen in one process; refuse rather than reuse an ID.
         warn!(session = session.get(), "entity runtime IDs exhausted");
@@ -617,6 +749,7 @@ pub(super) fn join(
     info!(session = session.get(), name = %identity.name, runtime_id, "player joined");
     let stored = storage_key(&key);
     let mut player = Player {
+        session,
         runtime_id,
         identity,
         key,
@@ -630,11 +763,15 @@ pub(super) fn join(
         pending: Pending::default(),
         extra: extra::PlayerExtra::default(),
         inventory: inventory::Inventory::default(),
-        survival: survival::Survival::default(),
+        survival: survival::Survival::new(&state.settings),
         breaking: interact::Breaking::default(),
         outbox: Vec::new(),
+        shared_outbox: Vec::new(),
         overflowed: false,
+        marks: super::player::Marks::default(),
     };
+    let op = super::Context { state: &mut *state }.is_op(&player.identity.name);
+    player.survival.set_operator(op);
     let request = if !state.saving.players {
         place(state, &mut player, None);
         None
@@ -659,12 +796,13 @@ pub(super) fn join(
 fn place(state: &mut State, player: &mut Player, data: Option<PlayerData>) {
     let saved = data.and_then(|d| {
         player.extra = extra::player_loaded(d.extra);
-        inventory::load(&mut player.inventory, player.extra.raw());
+        inventory::load(&mut player.inventory, player.extra.raw(), &state.custom);
         inventory::restore(&mut player.inventory);
-        survival::load(&mut player.survival, player.extra.raw());
+        survival::load(&mut player.survival, player.extra.raw(), &state.custom);
         let world = state.worlds.iter().position(|w| w.name() == d.world)?;
         Some((world, tick_position(d.position)?))
     });
+    super::task::placed(&state.data, &mut player.extra);
     let (world, position) = saved.unwrap_or_else(|| (0, spawn_position(state.worlds.first())));
     player.world = world;
     player.position = position;
@@ -745,10 +883,9 @@ fn duplicate_login(
     state: &mut State,
     existing: SessionId,
     connecting: Identity,
-) -> (Identity, DuplicateOutcome) {
-    let listeners = state.listeners.duplicate_login();
-    if listeners.is_empty() {
-        return (connecting, DuplicateOutcome::unheard());
+) -> (Identity, DuplicateOutcome, Option<PlayerDuplicateLogin>) {
+    if !dispatch::heard::<PlayerDuplicateLogin>(state) {
+        return (connecting, DuplicateOutcome::unheard(), None);
     }
     let Some(old) = state.players.get(&existing) else {
         // The index names only joined players (State::insert and State::remove keep it so).
@@ -756,12 +893,98 @@ fn duplicate_login(
             session = existing.get(),
             "player index names a missing player"
         );
-        return (connecting, DuplicateOutcome::unheard());
+        return (connecting, DuplicateOutcome::unheard(), None);
     };
-    // One clone of the existing identity per duplicate login, only when someone listens.
+    // One clone of the existing identity per duplicate login, only when someone listens; the
+    // monitors get a copy of the event after the outcome is applied.
     let mut event = PlayerDuplicateLogin::new(connecting, old.identity.clone());
-    listeners.call(&mut event);
-    event.into_outcome()
+    dispatch::call(state, &mut event);
+    let watched = event.clone();
+    let (identity, outcome) = event.into_outcome();
+    (identity, outcome, Some(watched))
+}
+
+/// How a refused join ends: the reason for the log and the session's last packet.
+struct Refused {
+    reason: String,
+    packet: Packet,
+}
+
+/// The kick flags of [`PlayerLogin`] that Anchor sets, in the order of [`command::refusals`].
+const REFUSAL_FLAGS: [KickFlag; 3] = [
+    KickFlag::ServerFull,
+    KickFlag::ServerWhitelisted,
+    KickFlag::Banned,
+];
+
+/// Whether `identity` may join (PMMP `PlayerPreLoginEvent`, which Anchor raises here, in the
+/// tick, after the duplicate login check): Anchor's refusals ([`command::refusals`]) are the
+/// event's kick flags, listeners may clear them or set others, and the first flag left refuses
+/// the player with its screen message. Without listeners the first refusal decides
+/// ([`command::admit`]) and no event is built. Returns the refusal, if any, and the event for
+/// the monitors, who see it after the join is applied.
+fn login(state: &mut State, identity: &Identity) -> (Option<Refused>, Option<PlayerLogin>) {
+    if !dispatch::heard::<PlayerLogin>(state) {
+        let refused = command::admit(state, identity).err().map(|r| Refused {
+            reason: r.message(),
+            packet: r.packet(),
+        });
+        return (refused, None);
+    }
+    let mut anchor = command::refusals(state, identity);
+    // The input log keeps only the address (IP bans match it), so the port is 0.
+    let ip = identity
+        .address
+        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    let mut event = PlayerLogin {
+        info: PlayerInfo(identity.clone()),
+        address: SocketAddr::new(ip, 0),
+        kicks: Default::default(),
+    };
+    for (flag, refusal) in REFUSAL_FLAGS.into_iter().zip(&anchor) {
+        if let Some(r) = refusal {
+            event.set_kick_flag(flag, r.message(), None);
+        }
+    }
+    dispatch::call(state, &mut event);
+    if dispatch::listened::<PlayerLogin>(state) {
+        // A listener may have changed the game (banned the player, whitelisted the server): a
+        // refusal that was not there before sets its flag; one a listener cleared stays clear.
+        let now = command::refusals(state, identity);
+        for ((flag, was), is) in REFUSAL_FLAGS.into_iter().zip(&mut anchor).zip(now) {
+            if was.is_none()
+                && let Some(r) = is
+            {
+                event.set_kick_flag(flag, r.message(), None);
+                *was = Some(r);
+            }
+        }
+    }
+    let refused = event.kick_flags().next().map(|flag| {
+        let reason = event.disconnect_reason(flag).unwrap_or_default().to_owned();
+        let screen = event.disconnect_screen_message(flag).unwrap_or_default();
+        // Anchor's own refusal, unchanged, ends as without listeners (a full server's
+        // `PlayStatus` lets the client show its own text).
+        let own = REFUSAL_FLAGS
+            .iter()
+            .position(|&f| f == flag)
+            .and_then(|i| anchor.get(i))
+            .and_then(Option::as_ref)
+            .filter(|r| r.message() == reason && r.message() == screen);
+        let packet = own.map_or_else(
+            || {
+                Packet::Disconnect(Disconnect {
+                    reason: i32::from(DisconnectReason::NotAllowed),
+                    hide_disconnection_screen: false,
+                    message: screen.to_owned(),
+                    filtered_message: String::new(),
+                })
+            },
+            command::Refusal::packet,
+        );
+        Refused { reason, packet }
+    });
+    (refused, Some(event))
 }
 
 /// The packet that disconnects the losing side of a duplicate login.
@@ -795,23 +1018,69 @@ pub(super) fn request_chunk_radius(
     let Some(mut player) = state.players.remove(&session) else {
         return;
     };
+    let mut changed = None;
     if player.phase == Phase::Loading {
         debug!(
             session = session.get(),
             "chunk radius before the player data ignored"
         );
     } else {
-        let earlier = player.pending.radius.unwrap_or_default();
-        player.pending.radius = Some(RadiusAnswer {
-            radius,
-            first: earlier.first || player.chunk_radius.is_none(),
-        });
-        player.chunk_radius = Some(radius);
-        if player.view.radius() != radius {
-            view::set_radius(state, &mut player, radius);
+        let old = grant_radius(state, &mut player, radius);
+        if old != Some(radius) {
+            changed = Some(old);
         }
     }
     state.players.insert(session, player);
+    if let Some(old_distance) = changed
+        && dispatch::heard::<PlayerViewDistanceChange>(state)
+    {
+        let mut event = PlayerViewDistanceChange {
+            player: player::Id::new(session),
+            old_distance,
+            new_distance: radius,
+        };
+        dispatch::call(state, &mut event);
+        dispatch::watch(state, &event);
+    }
+}
+
+/// Grants `radius` to `player`, taken out of the player table and past loading: the view opens
+/// or resizes, and the output phase sends the radius (the first time with the spawn window).
+/// Returns the radius it had.
+fn grant_radius(state: &mut State, player: &mut Player, radius: u8) -> Option<u8> {
+    let earlier = player.pending.radius.unwrap_or_default();
+    player.pending.radius = Some(RadiusAnswer {
+        radius,
+        first: earlier.first || player.chunk_radius.is_none(),
+    });
+    let old = player.chunk_radius;
+    player.chunk_radius = Some(radius);
+    if player.view.radius() != radius {
+        view::set_radius(state, player, radius);
+    }
+    old
+}
+
+impl super::Context<'_> {
+    /// Sets the chunk radius `player` sees (PMMP `Player::setViewDistance`), kept from 1 to
+    /// `view-distance`: its view grows or shrinks at once, and its client is told the radius at
+    /// the end of the tick. The client asks again when its own setting changes, and that request
+    /// wins. A direct call: it raises no [`PlayerViewDistanceChange`] (PLAN.md 8.2).
+    ///
+    /// Returns the radius set; `None`, changing nothing, if the player is not in the game or its
+    /// client has not asked for a radius yet (the first answer opens the spawn window).
+    #[doc(alias = "Player::setViewDistance")]
+    pub fn set_view_distance(&mut self, player: player::Id, distance: u8) -> Option<u8> {
+        let session = player.session();
+        let radius = distance.min(self.state.settings.view_distance).max(1);
+        let mut p = self.state.players.remove(&session)?;
+        let ready = p.phase != Phase::Loading && p.chunk_radius.is_some();
+        if ready {
+            grant_radius(self.state, &mut p, radius);
+        }
+        self.state.players.insert(session, p);
+        ready.then_some(radius)
+    }
 }
 
 /// Marks the player spawned when the client confirms with its own runtime ID.
@@ -838,11 +1107,88 @@ pub(super) fn initialised(
             player.phase = Phase::Spawned;
             survival::spawned(settings, player);
         }
-        Phase::Spawned => {}
-        Phase::Loading | Phase::Joined => warn!(
-            session = session.get(),
-            "initialised before spawning; ignored"
-        ),
+        Phase::Spawned => return,
+        Phase::Loading | Phase::Joined => {
+            warn!(
+                session = session.get(),
+                "initialised before spawning; ignored"
+            );
+            return;
+        }
+    }
+    joined(state, session);
+}
+
+/// The translation key of the join message (PMMP `KnownTranslationFactory::
+/// multiplayer_player_joined` with its yellow prefix): BDS sends it the same, as a translated
+/// `Text` with the name (P6 duplicate capture).
+const JOINED_KEY: &str = "\u{a7}e%multiplayer.player.joined";
+
+/// The join message as listeners see it: the English text of [`JOINED_KEY`]. Left unchanged,
+/// the client gets the translation instead.
+fn join_text(name: &str) -> String {
+    format!("\u{a7}e{name} joined the game")
+}
+
+/// The player of `session` spawned (PMMP `Player::doFirstSpawn`): [`PlayerJoin`] may change the
+/// join message, which every other player in the game then sees (BDS sends it to the others
+/// only; PMMP to everyone). An empty message shows nothing; a player a listener kicked shows
+/// none.
+fn joined(state: &mut State, session: SessionId) {
+    let Some(name) = state
+        .players
+        .get(&session)
+        .map(|p| p.display_name().to_owned())
+    else {
+        return;
+    };
+    let translated = |name: String| Text::Translation {
+        key: JOINED_KEY.to_owned(),
+        parameters: vec![name],
+    };
+    let mut event = None;
+    let message = if dispatch::heard::<PlayerJoin>(state) {
+        let default = join_text(&name);
+        let e = event.insert(PlayerJoin {
+            player: player::Id::new(session),
+            join_message: default.clone(),
+        });
+        dispatch::call(state, e);
+        let still = state.players.get(&session).is_some_and(Player::is_online);
+        if !still || e.join_message.is_empty() {
+            None
+        } else if e.join_message == default {
+            Some(translated(name))
+        } else {
+            Some(Text::Raw(e.join_message.clone()))
+        }
+    } else {
+        Some(translated(name))
+    };
+    if let Some(message) = message {
+        tell_others(state, session, message);
+    }
+    if let Some(e) = &event {
+        dispatch::watch(state, e);
+    }
+}
+
+/// Sends `message` to every player in the game but the one of `session` (join and quit
+/// messages). A message a client does not decode is not sent.
+pub(super) fn tell_others(state: &mut State, session: SessionId, message: Text) {
+    let packets = match message.into_packets() {
+        Ok(packets) => packets,
+        Err(e) => {
+            debug!(session = session.get(), error = %e, "message to the others not sent");
+            return;
+        }
+    };
+    for (&s, p) in &mut state.players {
+        if s != session && p.phase != Phase::Loading && p.is_online() {
+            for packet in packets.iter().flatten() {
+                p.send_packet(packet.clone());
+            }
+        }
     }
 }
 
@@ -854,7 +1200,7 @@ fn server_full() -> Packet {
 }
 
 /// The protocol ID of a difficulty.
-fn difficulty_id(difficulty: Difficulty) -> i32 {
+pub(super) fn difficulty_id(difficulty: Difficulty) -> i32 {
     match difficulty {
         Difficulty::Peaceful => 0,
         Difficulty::Easy => 1,
@@ -863,7 +1209,13 @@ fn difficulty_id(difficulty: Difficulty) -> i32 {
     }
 }
 
-fn start_game(settings: &Settings, world: &World, player: &Player) -> StartGame {
+fn start_game(
+    settings: &Settings,
+    shared: &Shared,
+    world: &World,
+    player: &Player,
+    op: bool,
+) -> StartGame {
     let game_mode = survival::game_mode_id(settings.game_mode);
     let difficulty = difficulty_id(settings.difficulty);
     // BDS sends 5 (the world's mode) for a player without its own mode (P6).
@@ -888,7 +1240,11 @@ fn start_game(settings: &Settings, world: &World, player: &Player) -> StartGame 
         multi_player_game: true,
         lan_broadcast_enabled: true,
         commands_enabled: true,
-        player_permissions: PERMISSION_MEMBER,
+        player_permissions: if op {
+            PERMISSION_OPERATOR
+        } else {
+            PERMISSION_MEMBER
+        },
         server_chunk_tick_radius: i32::from(settings.tick_radius),
         // BDS sends "*" (P6): any base game version.
         base_game_version: "*".to_owned(),
@@ -902,6 +1258,9 @@ fn start_game(settings: &Settings, world: &World, player: &Player) -> StartGame 
         server_join_information: Some(ServerJoinInformation::default()),
         game_version: packet::GAME_VERSION.to_owned(),
         use_block_network_id_hashes: true,
+        // The custom block definitions (PLAN.md 10.8); none for a vanilla server, as BDS's
+        // data-driven blocks are not PMMP blocks (PLAN.md 7).
+        blocks: shared.blocks.to_vec(),
         // PMMP `PreSpawnPacketHandler`: the world's time, so the day cycle starts where it is.
         time: world.time(),
         ..StartGame::default()
@@ -1036,5 +1395,387 @@ mod tests {
         let pixels = usize::try_from(skin.skin_image_width * skin.skin_image_height).unwrap();
         assert_eq!(skin.skin_data.len(), pixels * 4);
         assert_eq!(crate::protocol::skin_validate(skin), None);
+    }
+
+    /// The login, join, duplicate login and view distance events (PLAN.md 10.8 판정식 "이벤트").
+    mod events {
+        use std::cell::Cell;
+        use std::net::{IpAddr, Ipv4Addr};
+
+        use tokio::sync::mpsc;
+
+        use super::super::super::tests::{
+            initialised, input, join, new_state, radius, received, settings, tick,
+        };
+        use super::super::super::{Context, InputKind, Output, Phase, SessionId, State};
+        use super::super::{Identity, JOINED_KEY, Outbound, PLAY_STATUS_SERVER_FULL};
+        use crate::event::{
+            Event, KickFlag, Listeners, PlayerDuplicateLogin, PlayerJoin, PlayerLogin,
+            PlayerViewDistanceChange, Priority,
+        };
+        use crate::permission::BanEntry;
+        use crate::player::Id;
+        use crate::protocol::consts::TextType;
+        use crate::protocol::packet::Packet;
+
+        thread_local! {
+            /// What the listeners of a test saw, in order.
+            static LOG: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
+        }
+
+        fn log(line: String) {
+            let mut lines = LOG.take();
+            lines.push(line);
+            LOG.set(lines);
+        }
+
+        fn logged() -> Vec<String> {
+            LOG.take()
+        }
+
+        /// Listeners with one listener of `E` at normal priority.
+        fn on<E: Event>(
+            listener: impl FnMut(&mut E, &mut Context<'_>) + Send + 'static,
+        ) -> Listeners {
+            let mut l = Listeners::default();
+            l.push(Priority::Normal, listener);
+            l
+        }
+
+        fn state(edit: impl FnOnce(&mut crate::config::Config), listeners: Listeners) -> State {
+            LOG.set(Vec::new());
+            let mut listeners = listeners;
+            listeners.sort();
+            new_state(settings(edit), listeners)
+        }
+
+        fn run(state: &mut State, inputs: Vec<crate::tick::queue::Input>) {
+            tick(state, &mut { inputs }, &mut Output::default());
+        }
+
+        /// Joins session `s`, opens a view of radius 2 and confirms the spawn; its queue.
+        fn spawn(state: &mut State, s: u64) -> mpsc::Receiver<Outbound> {
+            let (j, rx) = join(s, 0);
+            let mut output = Output::default();
+            tick(state, &mut vec![j], &mut output);
+            tick(state, &mut vec![radius(s, 1, 2)], &mut output);
+            let runtime_id = state.players[&SessionId::new(s)].runtime_id;
+            tick(state, &mut vec![initialised(s, 2, runtime_id)], &mut output);
+            rx
+        }
+
+        fn identity(name: &str, address: Option<IpAddr>) -> Identity {
+            Identity {
+                name: name.to_owned(),
+                xuid: None,
+                uuid: crate::protocol::Uuid::from_bytes([9; 16]),
+                skin: crate::tick::queue::Skin::default(),
+                device_os: -1,
+                address,
+            }
+        }
+
+        fn join_as(
+            s: u64,
+            identity: Identity,
+        ) -> (crate::tick::queue::Input, mpsc::Receiver<Outbound>) {
+            let (outbound, rx) = crate::tick::queue::outbound_queue();
+            (input(s, 0, InputKind::Join { identity, outbound }), rx)
+        }
+
+        /// The texts in what `rx` was sent: (type, message, parameters).
+        fn texts(rx: &mut mpsc::Receiver<Outbound>) -> Vec<(u8, String, Vec<String>)> {
+            received(rx)
+                .0
+                .into_iter()
+                .filter_map(|p| match p {
+                    Packet::Text(t) => Some((t.text_type, t.message, t.parameters)),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn flags(e: &PlayerLogin) -> String {
+            format!("{:?}", e.kick_flags().collect::<Vec<_>>())
+        }
+
+        // pmmp: PlayerLoginEvent, PlayerPreLoginEvent
+        #[test]
+        fn login_listeners_get_every_refusal_and_decide_the_join() {
+            let listener = |e: &mut PlayerLogin, _: &mut Context<'_>| {
+                log(format!(
+                    "{} {} {} {}",
+                    e.info().name(),
+                    e.ip(),
+                    e.port(),
+                    flags(e)
+                ));
+                e.clear_kick_flag(KickFlag::ServerFull);
+            };
+            let mut state = state(|c| c.general.max_players = 1, on(listener));
+            let _first = spawn(&mut state, 1);
+            Context { state: &mut state }
+                .ban(BanEntry::new("Banned"))
+                .unwrap();
+            let address = Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 7)));
+            let (j, mut rx) = join_as(2, identity("Banned", address));
+            run(&mut state, vec![j]);
+            // Clearing the full flag does not let in a player the ban refuses.
+            assert_eq!(
+                logged(),
+                [
+                    "player1 0.0.0.0 0 []",
+                    "Banned 192.0.2.7 0 [ServerFull, Banned]"
+                ]
+            );
+            let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
+                panic!("a refused join ends with a Disconnect");
+            };
+            assert_eq!(d.message, "You are banned from this server");
+            assert_eq!(state.players.len(), 1);
+            Context { state: &mut state }.pardon("banned");
+            let (j, mut rx) = join_as(3, identity("Banned", address));
+            run(&mut state, vec![j]);
+            assert_eq!(logged(), ["Banned 192.0.2.7 0 [ServerFull]"]);
+            assert!(
+                received(&mut rx).1.is_none(),
+                "a listener lets a full server take one more"
+            );
+            assert_eq!(state.players.len(), 2);
+        }
+
+        // pmmp: PlayerPreLoginEvent
+        #[test]
+        fn anchors_own_refusal_left_set_ends_as_without_listeners() {
+            for listeners in [
+                Listeners::default(),
+                on(|_: &mut PlayerLogin, _: &mut Context<'_>| {}),
+            ] {
+                let mut state = state(|c| c.general.max_players = 1, listeners);
+                let _first = spawn(&mut state, 1);
+                let (j, mut rx) = join(2, 0);
+                run(&mut state, vec![j]);
+                let Some(Packet::PlayStatus(s)) = received(&mut rx).1 else {
+                    panic!("a full server answers with PlayStatus");
+                };
+                assert_eq!(s.status, PLAY_STATUS_SERVER_FULL);
+            }
+        }
+
+        // pmmp: PlayerPreLoginEvent
+        #[test]
+        fn a_plugin_kick_flag_refuses_the_join_and_changes_nothing() {
+            let refuse = |e: &mut PlayerLogin, _: &mut Context<'_>| {
+                e.set_kick_flag(
+                    KickFlag::Plugin,
+                    "closed",
+                    Some("Come back later".to_owned()),
+                );
+            };
+            let mut refused = state(|_| {}, on(refuse));
+            let mut idle = state(|_| {}, on(refuse));
+            let (j, mut rx) = join(1, 0);
+            run(&mut refused, vec![j]);
+            run(&mut idle, Vec::new());
+            assert_eq!(refused.hash(), idle.hash());
+            let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
+                panic!("a refused join ends with a Disconnect");
+            };
+            assert_eq!(d.message, "Come back later");
+            assert!(refused.players.is_empty());
+        }
+
+        // pmmp: PlayerPreLoginEvent
+        #[test]
+        fn a_login_listener_that_bans_the_player_refuses_it() {
+            let ban = |e: &mut PlayerLogin, cx: &mut Context<'_>| {
+                cx.ban(BanEntry::new(e.info().name()).with_reason("spam"))
+                    .unwrap();
+            };
+            let mut state = state(|_| {}, on(ban));
+            let (j, mut rx) = join(1, 0);
+            run(&mut state, vec![j]);
+            let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
+                panic!("a refused join ends with a Disconnect");
+            };
+            assert_eq!(d.message, "You are banned from this server. Reason: spam");
+            assert!(state.players.is_empty());
+        }
+
+        // pmmp: PlayerPreLoginEvent
+        #[test]
+        fn login_monitors_see_the_joined_player() {
+            let mut listeners = Listeners::default();
+            listeners.push_monitor(|e: &PlayerLogin, cx: &Context<'_>| {
+                log(format!(
+                    "{} {} {}",
+                    e.info().name(),
+                    e.is_allowed(),
+                    cx.state.players.len()
+                ));
+            });
+            let mut state = state(|_| {}, listeners);
+            let (j, _rx) = join(1, 0);
+            run(&mut state, vec![j]);
+            assert_eq!(logged(), ["player1 true 1"]);
+        }
+
+        // pmmp: PlayerJoinEvent
+        #[test]
+        fn the_join_message_goes_to_the_others_as_bds_sends_it() {
+            let noop = on(|_: &mut PlayerJoin, _: &mut Context<'_>| {});
+            for listeners in [Listeners::default(), noop] {
+                let mut state = state(|_| {}, listeners);
+                let mut first = spawn(&mut state, 1);
+                let first_own = texts(&mut first);
+                let mut second = spawn(&mut state, 2);
+                assert!(first_own.is_empty(), "a player is not told of its own join");
+                assert!(texts(&mut second).is_empty());
+                assert_eq!(
+                    texts(&mut first),
+                    [(
+                        u8::from(TextType::Translation),
+                        JOINED_KEY.to_owned(),
+                        vec!["player2".to_owned()]
+                    )]
+                );
+            }
+        }
+
+        // pmmp: PlayerJoinEvent
+        #[test]
+        fn join_listeners_change_or_clear_the_message() {
+            for (set, expected) in [
+                (
+                    Some("hello"),
+                    vec![(u8::from(TextType::Raw), "hello".to_owned(), Vec::new())],
+                ),
+                (Some(""), Vec::new()),
+                // A player kicked by a listener gets no join line, only the usual left line.
+                (
+                    None,
+                    vec![(
+                        u8::from(TextType::Translation),
+                        "\u{a7}e%multiplayer.player.left".to_owned(),
+                        vec!["player2".to_owned()],
+                    )],
+                ),
+            ] {
+                let listener = move |e: &mut PlayerJoin, cx: &mut Context<'_>| {
+                    if e.player() != Id::new(SessionId::new(2)) {
+                        return;
+                    }
+                    log(e.join_message().to_owned());
+                    match set {
+                        Some(text) => e.set_join_message(text.to_owned()),
+                        None => cx.player_mut(e.player()).unwrap().kick("bye").unwrap(),
+                    }
+                };
+                let mut listeners = on(listener);
+                listeners.push_monitor(|e: &PlayerJoin, cx: &Context<'_>| {
+                    let spawned = cx.state.players[&e.player().session()].phase == Phase::Spawned;
+                    log(format!("monitor {spawned}"));
+                });
+                let mut state = state(|_| {}, listeners);
+                let mut first = spawn(&mut state, 1);
+                texts(&mut first);
+                logged();
+                let _second = spawn(&mut state, 2);
+                assert_eq!(logged(), ["\u{a7}eplayer2 joined the game", "monitor true"]);
+                assert_eq!(texts(&mut first), expected);
+            }
+        }
+
+        // pmmp: PlayerDuplicateLoginEvent
+        #[test]
+        fn duplicate_login_monitors_see_the_outcome_applied() {
+            let mut listeners = Listeners::default();
+            listeners.push_monitor(|e: &PlayerDuplicateLogin, cx: &Context<'_>| {
+                let sessions: Vec<u64> = cx.state.players.keys().map(|s| s.get()).collect();
+                log(format!("{} {sessions:?}", e.is_cancelled()));
+            });
+            let mut state = state(|_| {}, listeners);
+            let (a, _rx1) = join_as(1, identity("Alex", None));
+            run(&mut state, vec![a]);
+            let (b, _rx2) = join_as(2, identity("alex", None));
+            run(&mut state, vec![b]);
+            assert_eq!(logged(), ["false []"]);
+            assert_eq!(state.players.len(), 1);
+        }
+
+        // pmmp: PlayerViewDistanceChangeEvent
+        #[test]
+        fn a_view_distance_change_is_raised_once_per_change() {
+            let mut listeners = on(|e: &mut PlayerViewDistanceChange, _: &mut Context<'_>| {
+                log(format!("{:?} {}", e.old_distance(), e.new_distance()));
+            });
+            listeners.push_monitor(|e: &PlayerViewDistanceChange, cx: &Context<'_>| {
+                let radius = cx.state.players[&e.player().session()].chunk_radius;
+                log(format!("monitor {radius:?}"));
+            });
+            let mut state = state(|_| {}, listeners);
+            let (j, _rx) = join(1, 0);
+            run(&mut state, vec![j]);
+            run(&mut state, vec![radius(1, 1, 2), radius(1, 2, 2)]);
+            run(&mut state, vec![radius(1, 3, 4), radius(1, 4, 99)]);
+            assert_eq!(
+                logged(),
+                [
+                    "None 2",
+                    "monitor Some(2)",
+                    "Some(2) 4",
+                    "monitor Some(4)",
+                    "Some(4) 16",
+                    "monitor Some(16)"
+                ]
+            );
+        }
+
+        // pmmp: Player::setViewDistance
+        #[test]
+        fn the_api_sets_the_view_distance_within_the_setting_and_tells_the_client() {
+            let listeners = on(|e: &mut PlayerViewDistanceChange, _: &mut Context<'_>| {
+                log(format!("{:?} {}", e.old_distance(), e.new_distance()));
+            });
+            let mut state = state(|c| c.general.view_distance = 6, listeners);
+            let mut rx = spawn(&mut state, 1);
+            let (j, _rx2) = join(2, 0);
+            run(&mut state, vec![j]);
+            logged();
+            received(&mut rx);
+            let (one, two) = (Id::new(SessionId::new(1)), Id::new(SessionId::new(2)));
+            let mut cx = Context { state: &mut state };
+            assert_eq!(
+                cx.set_view_distance(two, 4),
+                None,
+                "its client has not asked"
+            );
+            assert_eq!(cx.set_view_distance(Id::new(SessionId::new(9)), 4), None);
+            assert_eq!(
+                cx.set_view_distance(one, 99),
+                Some(6),
+                "at most view-distance"
+            );
+            assert_eq!(cx.player(one).unwrap().view_distance(), Some(6));
+            assert_eq!(state.players[&SessionId::new(1)].view.radius(), 6);
+            run(&mut state, Vec::new());
+            let told = |rx: &mut mpsc::Receiver<Outbound>| -> Vec<i32> {
+                received(rx)
+                    .0
+                    .into_iter()
+                    .filter_map(|p| match p {
+                        Packet::ChunkRadiusUpdated(c) => Some(c.chunk_radius),
+                        _ => None,
+                    })
+                    .collect()
+            };
+            assert_eq!(told(&mut rx), [6]);
+            let mut cx = Context { state: &mut state };
+            assert_eq!(cx.set_view_distance(one, 0), Some(1), "at least 1");
+            assert_eq!(state.players[&SessionId::new(1)].view.radius(), 1);
+            run(&mut state, Vec::new());
+            assert_eq!(told(&mut rx), [1]);
+            assert!(logged().is_empty(), "a direct call raises no event");
+        }
     }
 }

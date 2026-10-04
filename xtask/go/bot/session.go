@@ -43,6 +43,7 @@ type result struct {
 	transport, nethernetError, joinScheme string
 	join                                  map[string]any
 	answerMaxMessageSize                  string
+	packsOffered, packsDownloaded         int
 	reader                                *batchReader
 	segments                              *segmentConn
 	blocks                                *blockCheck
@@ -84,6 +85,10 @@ func (r *result) json(c config) map[string]any {
 	if r.answerMaxMessageSize != "" {
 		m["answer_max_message_size"] = r.answerMaxMessageSize
 	}
+	if r.packsOffered > 0 {
+		m["packs_offered"] = r.packsOffered
+		m["packs_downloaded"] = r.packsDownloaded
+	}
 	if r.reader != nil {
 		r.reader.summary(m)
 	}
@@ -109,6 +114,8 @@ type session struct {
 	shieldID int32
 	res      *result
 	blocks   *blockCheck
+	// packs is the resource pack download, when the server offers packs (packs.go).
+	packs *packDownload
 
 	runtimeID           uint64
 	gotRadius, gotSpawn bool
@@ -134,6 +141,8 @@ type session struct {
 	feed     *feed
 	gameErr  error
 	gameDone chan struct{}
+	// disconnectExpected is set by a script that waits for the server to disconnect the bot (api.go).
+	disconnectExpected atomic.Bool
 }
 
 // play runs the scenario and returns its result. Failures to reach the server are failed results.
@@ -247,12 +256,15 @@ func (s *session) judge(ctx context.Context, loopErr error) {
 		default:
 			res.reason = s.failure(ctx, loopErr)
 		}
-	case "craft", "furnace", "enchant", "crops", "trade":
-		res.pass = res.ended && s.gameErr == nil && res.disconnect == "" && res.decodeErrors == 0
+	case "craft", "furnace", "enchant", "crops", "trade", "commands", "particles", "kick", "forms", "script":
+		disconnected := res.disconnect != "" && !s.disconnectExpected.Load()
+		res.pass = res.ended && s.gameErr == nil && !disconnected && res.decodeErrors == 0
 		switch {
 		case res.pass:
 		case s.gameErr != nil:
 			res.reason = s.gameErr.Error()
+		case disconnected:
+			res.reason = "disconnected: " + res.disconnect
 		case res.ended:
 			res.reason = fmt.Sprintf("%v packets failed to decode", res.decodeErrors)
 		default:
@@ -479,7 +491,11 @@ func (s *session) react(pk packet.Packet, index int, request []byte) error {
 		}
 	case *packet.ResourcePacksInfo:
 		s.res.packsInfoIndex = index
-		return s.send(&packet.ResourcePackClientResponse{Response: packet.PackResponseAllPacksDownloaded})
+		return s.packsInfo(pk)
+	case *packet.ResourcePackDataInfo:
+		return s.packDataInfo(pk)
+	case *packet.ResourcePackChunkData:
+		return s.packChunk(pk)
 	case *packet.ResourcePackStack:
 		return s.send(&packet.ResourcePackClientResponse{Response: packet.PackResponseCompleted})
 	case *packet.StartGame:

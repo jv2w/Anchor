@@ -8,7 +8,8 @@
 //! - [`open`]: an interaction with a villager opens the trade window (`inventory::open_trade`)
 //!   and sends `UpdateTrade` (BDS: no `ContainerOpen`; window type 15, size 0, the villager's
 //!   tier and unique ID, entity -1, the profession's display name, new trade UI, demand-based
-//!   prices, the offers in network NBT). Offers get network IDs from a server counter that
+//!   prices, the offers in network NBT), after `TradeOpen` (PLAN.md 8.6; cancelled, nothing
+//!   opens). Offers get network IDs from a server counter that
 //!   starts after the last `CraftingData` recipe; reopening an unchanged list shows the same IDs
 //!   (BDS), and every change of the list gives it new ones, so a stale screen's IDs fail.
 //! - The inventory executor checks a trade with [`offer`] and counts it with [`traded`] after
@@ -20,6 +21,7 @@
 //!   payment slots). [`tick`] closes the window of every player whose villager is gone or in
 //!   another world.
 
+mod api;
 mod offers;
 #[cfg(test)]
 mod tests;
@@ -28,8 +30,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use tracing::{error, warn};
 
-use super::{SessionId, State, entity, inventory};
+use super::{SessionId, State, dispatch, entity, inventory};
 use crate::entity::Id;
+use crate::event::TradeOpen;
 use crate::item::{Stack, Type};
 use crate::math::Vec3;
 use crate::nbt::Encoding;
@@ -39,15 +42,8 @@ use crate::protocol::packet::{Packet, UpdateTrade};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_imports,
-        reason = "consistency: the P6 console (C5) and the M8 API build offers with it"
-    )
-)]
-pub(super) use self::offers::Recipe;
-pub(super) use self::offers::{Damage, Error, MAX_TIER, Offers, Result};
+pub(super) use self::api::new_offers;
+pub(super) use self::offers::{Damage, Error, MAX_TIER, Offers, Recipe, Result};
 
 /// The most trades one request may repeat (PLAN.md 8.6).
 pub(super) const MAX_REPEAT: u32 = 256;
@@ -62,8 +58,6 @@ const REWARD_SPREAD: u32 = 4;
 const REWARD_HEIGHT: f64 = 0.5;
 /// The random stream of reward orbs.
 const REWARD_RANDOM: u64 = random::tag("trade-reward");
-/// Recipe network IDs stay below this (more than every `CraftingData` recipe).
-const RECIPE_ID_BOUND: u32 = 1 << 20;
 /// The trade screen titles by profession (`EntityVariant`), from BDS 1.26.52's `villager_v2`
 /// economy trade tables: unskilled, farmer, fisherman, shepherd, fletcher, librarian,
 /// cartographer, cleric, armorer, weaponsmith, toolsmith, butcher, leatherworker, mason.
@@ -238,13 +232,34 @@ pub(super) fn open(state: &mut State, session: SessionId, villager: Id) -> bool 
 }
 
 fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -> bool {
-    let Some(world) = state.players.get(&session).map(|p| p.world) else {
-        return false;
+    let may_open = |state: &State| {
+        let world = state.players.get(&session).map(|p| p.world);
+        (hooks.villager)(state, villager)
+            .is_some_and(|v| Some(v.world) == world && !v.offers.is_empty())
     };
-    match (hooks.villager)(state, villager) {
-        Some(v) if v.world == world && !v.offers.is_empty() => {}
-        _ => return false,
+    if !may_open(state) {
+        return false;
     }
+    let mut event = dispatch::heard::<TradeOpen>(state).then(|| TradeOpen {
+        player: crate::player::Id::new(session),
+        villager,
+        cancelled: false,
+    });
+    if let Some(e) = &mut event {
+        dispatch::call(state, e);
+        if e.cancelled || (dispatch::listened::<TradeOpen>(state) && !may_open(state)) {
+            return false;
+        }
+    }
+    let opened = open_now(state, session, villager, hooks);
+    if let Some(e) = event.filter(|_| opened) {
+        dispatch::watch(state, &e);
+    }
+    opened
+}
+
+/// Opens the trade window of a villager the player may trade with ([`open_with`]).
+fn open_now(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -> bool {
     allocate_net_ids(state, villager, hooks);
     let Some(view) = View::of(state, villager, hooks) else {
         return false;
@@ -254,7 +269,7 @@ fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) 
     };
     state.trades.start(session, villager, window);
     if let Some(p) = state.players.get_mut(&session) {
-        p.send(view.packet(window));
+        p.send_packet(view.packet(window));
     }
     true
 }
@@ -278,6 +293,15 @@ fn offer_with(state: &State, session: SessionId, net_id: u32, hooks: Hooks) -> O
         sell: r.sell.clone(),
         max_times: r.uses_left().min(MAX_REPEAT),
     })
+}
+
+/// The villager `session` trades with and the place of the offer with network ID `net_id` in its
+/// list (for the trade event).
+pub(super) fn trading(state: &State, session: SessionId, net_id: u32) -> Option<(Id, u32)> {
+    let s = state.trades.sessions.get(&session)?;
+    let v = (HOOKS.villager)(state, s.villager)?;
+    let index = v.offers.index_of(net_id)?;
+    Some((s.villager, u32::try_from(index).ok()?))
 }
 
 /// Whether `given` pays for the payment `want` of an offer, counts aside: the same item type and
@@ -399,10 +423,6 @@ fn tick_with(state: &mut State, hooks: Hooks) {
 /// methods: `set`, `add`, `remove`, `replace`, `set_tier`, `set_tier_experience`, `reset_uses`)
 /// and shows the result to every player trading with it. The M8 API and the P6 console wrap
 /// it. Nothing changes if `change` fails.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-)]
 pub(super) fn change_offers<T>(
     state: &mut State,
     villager: Id,
@@ -411,10 +431,6 @@ pub(super) fn change_offers<T>(
     change_offers_with(state, villager, change, HOOKS)
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "consistency: PLAN.md 8.6, the M8 API")
-)]
 fn change_offers_with<T>(
     state: &mut State,
     villager: Id,
@@ -446,7 +462,7 @@ fn refresh(state: &mut State, villager: Id, hooks: Hooks) {
     };
     for (s, window) in traders {
         if let Some(p) = state.players.get_mut(&s) {
-            p.send(view.packet(window));
+            p.send_packet(view.packet(window));
         }
     }
 }
@@ -454,26 +470,17 @@ fn refresh(state: &mut State, villager: Id, hooks: Hooks) {
 /// Gives the villager's offers network IDs from the server counter unless they have them.
 fn allocate_net_ids(state: &mut State, villager: Id, hooks: Hooks) {
     let mut next = state.trades.next_net_id;
+    let first = first_net_id(state);
     if let Some(offers) = (hooks.offers_mut)(state, villager) {
-        offers.allocate_net_ids(&mut next, first_net_id());
+        offers.allocate_net_ids(&mut next, first);
     }
     state.trades.next_net_id = next;
 }
 
-/// The first network ID after the last `CraftingData` recipe (BDS numbers trade offers after it,
-/// m7-facts.md 4): a binary search over the O(1) recipe lookup, which has recipes exactly for
-/// 1 to the last ID (about a dozen probes).
-fn first_net_id() -> u32 {
-    let (mut known, mut past) = (0_u32, RECIPE_ID_BOUND);
-    while past - known > 1 {
-        let mid = known + (past - known) / 2;
-        if crate::crafting::recipe(mid).is_some() {
-            known = mid;
-        } else {
-            past = mid;
-        }
-    }
-    known + 1
+/// The first network ID after the last `CraftingData` recipe, the server's own recipes included
+/// (BDS numbers trade offers after it, m7-facts.md 4).
+fn first_net_id(state: &State) -> u32 {
+    state.custom.first_special_id()
 }
 
 /// The trade screen of a villager: everything `UpdateTrade` sends but the window.

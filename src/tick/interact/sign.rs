@@ -2,26 +2,59 @@
 //! `updateSignText`, `SignText::fromBlob`, `BaseSign::updateFaceText`, `TextFormat::clean`).
 //!
 //! A client sends the sign's whole block entity data; the text of each side is one string of
-//! lines joined by newlines. This module checks and cleans it; the block entity keeps it.
+//! lines joined by newlines. This module checks and cleans it; the block entity keeps it. The
+//! editor opens when a player places or uses a sign, or through [`Context::open_sign_editor`].
 
+use super::super::{Context, Phase};
+use crate::block::Class;
 use crate::nbt::{Compound, Value};
+use crate::player;
+use crate::tile::{MAX_SIGN_TEXT_BYTES, SIGN_LINES, Side};
+use crate::world::BlockPos;
 
-/// The lines of a sign side (PMMP `SignText::LINE_COUNT`).
-pub(super) const LINES: usize = 4;
-/// The most text bytes one side may hold (PMMP `BaseSign::updateFaceText`).
-const MAX_BYTES: usize = 1000;
 /// PMMP `Sign::TAG_FRONT_TEXT`, `TAG_BACK_TEXT`, `TAG_TEXT_BLOB`.
 const FRONT: &str = "FrontText";
 const BACK: &str = "BackText";
 const TEXT: &str = "Text";
 
+impl Context<'_> {
+    /// Opens the editor of the sign at `pos` in `player`'s world for the player, on its `side`
+    /// (PMMP `Player::openSignEditor`): the player may then write that sign once, as after
+    /// placing it (a waxed sign still refuses the text), and its edit raises
+    /// [`SignChange`](crate::event::SignChange). False, sending nothing, if the player is not in
+    /// the game or the block there is not a sign (or its chunk is not loaded).
+    #[doc(alias = "Player::openSignEditor")]
+    pub fn open_sign_editor(&mut self, player: player::Id, pos: BlockPos, side: Side) -> bool {
+        let session = player.session();
+        let Some(world) = self
+            .state
+            .players
+            .get(&session)
+            .filter(|p| p.phase != Phase::Loading)
+            .map(|p| p.world)
+        else {
+            return false;
+        };
+        let sign = self
+            .state
+            .worlds
+            .get(world)
+            .and_then(|w| w.block(pos))
+            .is_some_and(|b| b.is(Class::BaseSign));
+        if sign {
+            super::open_sign_editor(self.state, session, world, pos, side == Side::Front);
+        }
+        sign
+    }
+}
+
 /// The text a client wrote on both sides of a sign, cleaned.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Edit {
     /// The front side's lines.
-    pub(super) front: [String; LINES],
+    pub(super) front: [String; SIGN_LINES],
     /// The back side's lines.
-    pub(super) back: [String; LINES],
+    pub(super) back: [String; SIGN_LINES],
 }
 
 /// Why an edit is refused (PMMP disconnects for these; Anchor drops the packet).
@@ -43,23 +76,36 @@ pub(super) fn parse(nbt: &Compound) -> Result<Edit, Refused> {
 
 /// One side's lines (PMMP `SignText::fromBlob`: split at newlines into at most four lines, the
 /// rest dropped), each cleaned (PMMP `TextFormat::clean($line, false)`).
-fn side(nbt: &Compound, tag: &str) -> Result<[String; LINES], Refused> {
+fn side(nbt: &Compound, tag: &str) -> Result<[String; SIGN_LINES], Refused> {
     let Some(Value::Compound(side)) = nbt.get(tag) else {
         return Err(Refused::Malformed);
     };
     let Some(Value::String(blob)) = side.get(TEXT) else {
         return Err(Refused::Malformed);
     };
-    let mut lines: [String; LINES] = Default::default();
+    let mut lines: [String; SIGN_LINES] = Default::default();
     let mut total = 0usize;
-    for (slot, line) in lines.iter_mut().zip(blob.splitn(LINES + 1, '\n')) {
+    for (slot, line) in lines.iter_mut().zip(blob.splitn(SIGN_LINES + 1, '\n')) {
         total = total.saturating_add(line.len());
         *slot = clean(line);
     }
-    if total > MAX_BYTES {
+    if total > MAX_SIGN_TEXT_BYTES {
         return Err(Refused::TooLong);
     }
     Ok(lines)
+}
+
+/// Lines a listener set, checked like the player's (PMMP `SignText` refuses a line with a
+/// newline; `BaseSign::updateFaceText` more than 1000 bytes) and cleaned; `None` if they fail.
+pub(super) fn check(lines: &[String; SIGN_LINES]) -> Option<[String; SIGN_LINES]> {
+    let mut total = 0usize;
+    for line in lines {
+        if line.contains('\n') {
+            return None;
+        }
+        total = total.saturating_add(line.len());
+    }
+    (total <= MAX_SIGN_TEXT_BYTES).then(|| lines.each_ref().map(|l| clean(l)))
 }
 
 /// PMMP `TextFormat::clean($text, false)`: drops private-use characters and terminal escape

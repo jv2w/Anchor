@@ -19,6 +19,8 @@
 //! inventory and the grid, must be exactly the recipe's ingredients for the crafted count.
 //! `CraftResultsDeprecated` is ignored (BDS does not check it either).
 
+mod events;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -27,12 +29,12 @@ use tracing::debug;
 use super::super::{Phase, Player, SessionId, State, block_entity, entity, survival};
 use super::{
     Container, GRID, Inventory, Slot, SlotRef, StackId, Station, UI_CREATED_OUTPUT, Window,
-    WindowKind, block_slot, give_pending, resend_all, station, throw_stack, window_slot_of,
+    WindowKind, block_slot, give_pending, menu, resend_all, station, throw_stack, window_slot_of,
 };
 use crate::block::{self, Class};
 use crate::config::GameMode;
 use crate::crafting::{self, Recipe, ShapelessType};
-use crate::item::{self, ArmorSlot, Stack};
+use crate::item::{ArmorSlot, Stack};
 use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
 use crate::protocol::packet::Packet;
 use crate::protocol::{
@@ -88,6 +90,11 @@ pub(super) enum Error {
     Unreturnable,
     /// An action of a station that is not open or not handled.
     Unsupported,
+    /// A listener cancelled the request, or changed the game so that it no longer does what
+    /// the listeners saw.
+    Cancelled,
+    /// A slot of the open menu, whose items are the server's ([`super::menu`]).
+    Menu,
 }
 
 /// Request results.
@@ -114,6 +121,8 @@ impl fmt::Display for Error {
             Self::Drops => "more than one drop",
             Self::Unreturnable => "held items could not go back",
             Self::Unsupported => "station action not available",
+            Self::Cancelled => "cancelled by a listener",
+            Self::Menu => "menu slots are the server's",
         })
     }
 }
@@ -131,8 +140,8 @@ pub(super) struct Created {
 
 /// A craft in progress in a request.
 #[derive(Debug)]
-struct Craft {
-    recipe: Recipe,
+struct Craft<'a> {
+    recipe: Recipe<'a>,
     times: u8,
     /// The recipe's results, one craft's worth each.
     results: Vec<Stack>,
@@ -159,7 +168,7 @@ pub(super) struct Exec<'a> {
     seen: BTreeSet<(u8, u8)>,
     next_id: i32,
     created: Option<Created>,
-    craft: Option<Craft>,
+    craft: Option<Craft<'a>>,
     /// A station's craft in progress.
     pub(super) station: Option<station::Craft>,
     /// What the request's station crafts do once committed.
@@ -167,6 +176,36 @@ pub(super) struct Exec<'a> {
     /// What consume actions took, and from where (`None`: the created output).
     pub(super) consumed: Vec<(Option<SlotRef>, Stack)>,
     drop: Option<Stack>,
+    /// Whether the plan describes itself for the events (the slots before, what is made).
+    pub(super) describe: bool,
+    /// What the request makes, when it describes itself.
+    pub(super) made: Option<Made>,
+}
+
+/// What a request makes, for its events.
+#[derive(Debug, Clone)]
+pub(super) enum Made {
+    /// A recipe (crafting grid, recipe book, stonecutter, smithing table, loom) `times` times;
+    /// `inputs` is filled at the end from what the request consumed.
+    Craft {
+        inputs: Vec<Stack>,
+        outputs: Vec<Stack>,
+        times: u32,
+    },
+    /// An enchanting option.
+    Enchant {
+        choice: station::Choice,
+        input: Stack,
+        output: Stack,
+        cost: u8,
+    },
+    /// `times` trades of the offer with network ID `net_id`.
+    Trade {
+        net_id: u32,
+        inputs: [Stack; 2],
+        output: Stack,
+        times: u32,
+    },
 }
 
 impl fmt::Debug for Exec<'_> {
@@ -180,12 +219,30 @@ impl fmt::Debug for Exec<'_> {
 
 /// What a request does once every check passed.
 #[derive(Debug)]
-struct Plan {
+pub(super) struct Plan {
     writes: Vec<(SlotRef, Slot)>,
+    /// The stacks of `writes`' slots before the request, when the plan describes itself.
+    before: Vec<Stack>,
     touched: Vec<(u8, u8)>,
     next_id: i32,
     drop: Option<Stack>,
     effects: Vec<station::Effect>,
+    made: Option<Made>,
+}
+
+impl Plan {
+    /// Whether `other` does the same: the same slots to the same stacks, the same drop and the
+    /// same station effects (stack network IDs aside).
+    fn same(&self, other: &Self) -> bool {
+        self.writes.len() == other.writes.len()
+            && self
+                .writes
+                .iter()
+                .zip(&other.writes)
+                .all(|((ra, a), (rb, b))| ra == rb && a.stack == b.stack)
+            && self.drop == other.drop
+            && self.effects == other.effects
+    }
 }
 
 /// An item stack request, sent alone or inside `PlayerAuthInput`.
@@ -218,23 +275,15 @@ pub(in crate::tick) fn on_item_stack_request(
     if refusal.is_none() {
         inv.remember(request.request_id);
     }
-    let result = if let Some(e) = refusal {
-        Err(e)
-    } else {
-        let creative = player_creative(state, session);
-        let ctx = station::context(state, session, request);
-        state.players.get(&session).map_or(Err(Error::NoSlot), |p| {
-            Exec::new(
-                &p.inventory,
-                &state.rules.block_entities,
-                request.request_id,
-                creative,
-                &ctx,
-            )
-            .run(&request.actions)
-        })
+    let touch = match refusal {
+        Some(_) => menu::Touch::Nothing,
+        None => menu::touch(state, session, request),
     };
-    let result = result.and_then(|plan| commit(state, session, request.request_id, plan));
+    let result = match (refusal, &touch) {
+        (Some(e), _) => Err(e),
+        (None, menu::Touch::Nothing) => run(state, session, request),
+        (None, menu::Touch::Refused | menu::Touch::Click(_)) => Err(Error::Menu),
+    };
     if let Err(e) = result {
         debug!(
             session = session.get(),
@@ -244,23 +293,62 @@ pub(in crate::tick) fn on_item_stack_request(
         );
         refuse(state, session, request.request_id);
     }
+    // After the refusal and its resend, so what the handler changes in the menu is sent last.
+    if let menu::Touch::Click(click) = touch {
+        menu::clicked(state, session, click);
+    }
 }
 
-/// Checks a request without applying it.
-#[cfg(test)]
-pub(super) fn dry_run(state: &State, session: SessionId, request: &ItemStackRequest) -> Result<()> {
+/// Checks a request, raises its events and applies it (PLAN.md 10.8): the events see the plan;
+/// a cancelled one refuses the request. If a listener ran, the request is checked again on the
+/// game as the listeners left it, and refused unless it still does exactly what they saw.
+fn run(state: &mut State, session: SessionId, request: &ItemStackRequest) -> Result<()> {
+    let describe = events::heard(state);
+    let plan = check(state, session, request, describe)?;
+    if !describe {
+        return commit(state, session, request.request_id, plan);
+    }
+    let mut raised = events::Raised::of(state, session, &plan);
+    raised.call(state)?;
+    let plan = if raised.listened(state) {
+        let again = check(state, session, request, false)?;
+        if !again.same(&plan) {
+            return Err(Error::Cancelled);
+        }
+        again
+    } else {
+        plan
+    };
+    commit(state, session, request.request_id, plan)?;
+    raised.watch(state);
+    Ok(())
+}
+
+/// Checks a request on the game as it is now; describes the plan for the events if asked.
+fn check(
+    state: &State,
+    session: SessionId,
+    request: &ItemStackRequest,
+    describe: bool,
+) -> Result<Plan> {
     let creative = player_creative(state, session);
     let ctx = station::context(state, session, request);
     let player = state.players.get(&session).ok_or(Error::NoSlot)?;
-    Exec::new(
+    let mut exec = Exec::new(
         &player.inventory,
         &state.rules.block_entities,
         request.request_id,
         creative,
         &ctx,
-    )
-    .run(&request.actions)
-    .map(|_| ())
+    );
+    exec.describe = describe;
+    exec.run(&request.actions)
+}
+
+/// Checks a request without applying it.
+#[cfg(test)]
+pub(super) fn dry_run(state: &State, session: SessionId, request: &ItemStackRequest) -> Result<()> {
+    check(state, session, request, false).map(|_| ())
 }
 
 /// Whether the player is in creative mode (destroying and creating items).
@@ -279,7 +367,7 @@ fn refuse(state: &mut State, session: SessionId, request: i32) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    player.send(Packet::ItemStackResponse(
+    player.send_packet(Packet::ItemStackResponse(
         crate::protocol::packet::ItemStackResponse {
             responses: vec![ItemStackResponse {
                 status: ItemStackResponseStatus::Error as u8,
@@ -363,7 +451,7 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
         request,
         &plan.touched,
     );
-    player.send(Packet::ItemStackResponse(
+    player.send_packet(Packet::ItemStackResponse(
         crate::protocol::packet::ItemStackResponse {
             responses: vec![response],
         },
@@ -446,7 +534,7 @@ pub(super) fn notify(
     {
         *slot_id = kept.unwrap_or(StackId { net, request: None });
     }
-    player.send(super::slot_packet(
+    player.send_packet(super::slot_packet(
         u32::from(id),
         u32::from(slot),
         stack.to_instance(net),
@@ -553,6 +641,8 @@ impl<'a> Exec<'a> {
             effects: Vec::new(),
             consumed: Vec::new(),
             drop: None,
+            describe: false,
+            made: None,
         }
     }
 
@@ -562,12 +652,25 @@ impl<'a> Exec<'a> {
             self.action(action)?;
         }
         self.finish()?;
+        let before = if self.describe {
+            self.overlay
+                .keys()
+                .map(|r| self.base(*r).map(|s| s.stack).unwrap_or_default())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if let Some(Made::Craft { inputs, times, .. }) = &mut self.made {
+            *inputs = per_craft(&self.consumed, *times);
+        }
         Ok(Plan {
             writes: self.overlay.into_iter().collect(),
+            before,
             touched: self.touched,
             next_id: self.next_id,
             drop: self.drop,
             effects: self.effects,
+            made: self.made,
         })
     }
 
@@ -621,8 +724,11 @@ impl<'a> Exec<'a> {
                 if !self.creative {
                     return Err(Error::NotCreative);
                 }
-                let stack =
-                    item::creative_stack(a.creative_item_network_id).ok_or(Error::Recipe)?;
+                let stack = self
+                    .ctx
+                    .custom
+                    .creative_stack(a.creative_item_network_id)
+                    .ok_or(Error::Recipe)?;
                 self.set_created(Some(Created {
                     stack,
                     total: 0,
@@ -758,7 +864,7 @@ impl<'a> Exec<'a> {
                         kind: Container::ShulkerBox,
                         ..
                     })
-                ) || !item.block().is_some_and(|b| b.is(Class::ShulkerBox))
+                ) || !crate::inventory::is_shulker_box(stack)
             }
             _ => true,
         };
@@ -879,7 +985,7 @@ impl<'a> Exec<'a> {
         if self.craft.is_some() || times == 0 {
             return Err(Error::Crafting);
         }
-        let recipe = crafting::recipe(id).ok_or(Error::Recipe)?;
+        let recipe = self.ctx.custom.recipe(id).ok_or(Error::Recipe)?;
         let workbench = self.window.is_some_and(|w| w.kind.is_workbench());
         let side = if workbench { 3 } else { 2 };
         let results = match recipe {
@@ -914,6 +1020,13 @@ impl<'a> Exec<'a> {
             [one] => Some(Created::of(one, u32::from(times))),
             _ => None,
         };
+        if self.describe {
+            self.made = Some(Made::Craft {
+                inputs: Vec::new(),
+                outputs: results.clone(),
+                times: u32::from(times),
+            });
+        }
         self.craft = Some(Craft {
             recipe,
             times,
@@ -961,7 +1074,7 @@ impl<'a> Exec<'a> {
     }
 
     /// Whether the consume actions took exactly what `craft` takes.
-    fn check_consumed(&self, craft: &Craft) -> Result<()> {
+    fn check_consumed(&self, craft: &Craft<'_>) -> Result<()> {
         let times = u32::from(craft.times);
         let Some((cells, refs, side)) = &craft.grid else {
             return self.check_auto(craft, times);
@@ -992,7 +1105,7 @@ impl<'a> Exec<'a> {
 
     /// The recipe book: what was consumed, from the inventory and the grids, is exactly `times`
     /// of every ingredient.
-    fn check_auto(&self, craft: &Craft, times: u32) -> Result<()> {
+    fn check_auto(&self, craft: &Craft<'_>, times: u32) -> Result<()> {
         let workbench = self.window.is_some_and(|w| w.kind.is_workbench());
         let mut provided = Vec::with_capacity(self.consumed.len());
         for (r, stack) in &self.consumed {
@@ -1031,6 +1144,22 @@ impl Created {
             creative: false,
         }
     }
+}
+
+/// What one of `times` crafts used up: the consumed stacks, those that stack together summed,
+/// divided by `times` (the checks made the consumption exactly `times` crafts' worth).
+fn per_craft(consumed: &[(Option<SlotRef>, Stack)], times: u32) -> Vec<Stack> {
+    let mut sums: Vec<(Stack, u32)> = Vec::with_capacity(consumed.len());
+    for (_, stack) in consumed {
+        match sums.iter_mut().find(|(s, _)| s.can_stack_with(stack)) {
+            Some((_, n)) => *n = n.saturating_add(u32::from(stack.count())),
+            None => sums.push((stack.clone(), u32::from(stack.count()))),
+        }
+    }
+    sums.into_iter()
+        .map(|(s, n)| s.with_count(u8::try_from(n / times.max(1)).unwrap_or(u8::MAX)))
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// Whether a request slot is the created output (container 60, slot 50).

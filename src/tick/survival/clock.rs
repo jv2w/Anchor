@@ -11,13 +11,15 @@ use super::{Point, feet, first_session, next_session};
 use tracing::debug;
 
 use crate::block::{self, Class, PropertyValue};
+use crate::event::{PlayerBedEnter, PlayerBedLeave};
 use crate::nbt::{self, Encoding};
+use crate::player::Id;
 use crate::protocol::consts::{AnimateAction, ClockPayloadType, LevelEvent};
 use crate::protocol::packet::{Animate, LevelEventGeneric, Packet, SyncWorldClocks};
 use crate::protocol::{SyncWorldClockStateData, TimeMarkerData, WorldClockData, Writer};
 use crate::save::WorldIndex;
 use crate::tick::{Phase, Player, SessionId, State};
-use crate::world::{BlockPos, DAY};
+use crate::world::{self, BlockPos, DAY};
 
 /// When night starts and beds work (PMMP `World::TIME_NIGHT`).
 const NIGHT: i64 = 13_000;
@@ -203,7 +205,7 @@ fn compound_body(data: &nbt::Compound) -> Vec<u8> {
 fn send_to_world(state: &mut State, world: WorldIndex, packet: &Packet) {
     for p in state.players.values_mut() {
         if p.world == world && p.phase == Phase::Spawned {
-            p.send(packet.clone());
+            p.send_packet(packet.clone());
         }
     }
 }
@@ -275,54 +277,60 @@ fn is_head(bed: block::State) -> bool {
 }
 
 /// The player lies down in the bed at `pos` (PMMP `Bed::onInteract` then `Player::sleepOn`):
-/// only at night, within 2 blocks of either half of a whole bed nobody sleeps in. The bed shows
-/// occupied, becomes the player's respawn point, and the night may be skipped in 60 ticks.
+/// only at night, within 2 blocks of either half of a whole bed nobody sleeps in, and unless a
+/// [`PlayerBedEnter`] listener keeps it up. The bed shows occupied, becomes the player's respawn
+/// point, and the night may be skipped in 60 ticks.
 pub(super) fn sleep(
     state: &mut State,
     session: SessionId,
     world: WorldIndex,
     pos: BlockPos,
 ) -> bool {
-    let Some(player) = state.players.get(&session) else {
+    let Some((head, other)) = bed_for(state, session, world, pos) else {
         return false;
     };
-    if player.phase != Phase::Spawned
-        || player.world != world
-        || player.survival.is_dead()
-        || player.survival.sleeping.is_some()
-        || !is_night(time(state, world))
-    {
-        return false;
-    }
-    let Some(bed) = state.worlds.get(world).and_then(|w| w.block(pos)) else {
-        return false;
-    };
-    if !bed.is(Class::Bed) {
-        return false;
-    }
-    let Some(other) = other_half(state, world, pos, bed) else {
+    let Ok(event) = super::ask(
+        state,
+        || PlayerBedEnter {
+            player: Id::new(session),
+            world: world::Id::of(world),
+            bed: head,
+            cancelled: false,
+        },
+        PlayerBedEnter::is_cancelled,
+        |state, _| bed_for(state, session, world, pos) == Some((head, other)),
+    ) else {
         return false;
     };
-    let at = feet(player);
-    let near = |b: BlockPos| {
-        at.distance_squared(crate::math::Vec3::new(
-            f64::from(b.x),
-            f64::from(b.y),
-            f64::from(b.z),
-        )) <= BED_REACH_SQUARED
+    lie_down(state, session, world, pos, (head, other));
+    super::watch(state, event.as_ref());
+    true
+}
+
+/// The player of `session` lies down in the bed at `pos` in its world, night or day and however
+/// far (PMMP `Player::sleepOn`, without its event: a direct API call raises none). False unless
+/// it is spawned, alive and awake, and `pos` is a half of a whole bed nobody sleeps in.
+pub(super) fn sleep_on(state: &mut State, session: SessionId, pos: BlockPos) -> bool {
+    let Some(world) = state.players.get(&session).map(|p| p.world) else {
+        return false;
     };
-    if !near(pos) && !near(other) {
+    let Some(bed) = bed_at(state, session, world, pos, false) else {
         return false;
-    }
-    let head = if is_head(bed) { pos } else { other };
-    let occupied = state
-        .worlds
-        .get(world)
-        .and_then(|w| w.block(head))
-        .is_some_and(|b| matches!(b.value("occupied_bit"), Some(PropertyValue::Byte(1))));
-    if occupied {
-        return false;
-    }
+    };
+    lie_down(state, session, world, pos, bed);
+    true
+}
+
+/// The player lies down in the bed whose head and other half are `bed`, `pos` being one of
+/// them: the bed shows occupied and becomes its respawn point, and the night may be skipped in
+/// 60 ticks.
+fn lie_down(
+    state: &mut State,
+    session: SessionId,
+    world: WorldIndex,
+    pos: BlockPos,
+    (head, other): (BlockPos, BlockPos),
+) {
     set_occupied(state, world, [head, block_at_other(head, pos, other)], true);
     let name = state
         .worlds
@@ -330,7 +338,7 @@ pub(super) fn sleep(
         .map(|w| w.name().to_owned())
         .unwrap_or_default();
     let Some(player) = state.players.get_mut(&session) else {
-        return false;
+        return;
     };
     player.survival.sleeping = Some(head);
     player.survival.motion.in_bed = true;
@@ -343,7 +351,60 @@ pub(super) fn sleep(
         c.sleep_ticks = SLEEP_DELAY;
     }
     send_to_world(state, world, &sleeping_players(state, world));
-    true
+}
+
+/// The head and the other half of the bed at `pos` the player of `session` may lie down in now
+/// (PMMP `Bed::onInteract`): spawned, alive and awake in `world` at night, within 2 blocks of
+/// either half of a whole bed nobody sleeps in.
+fn bed_for(
+    state: &State,
+    session: SessionId,
+    world: WorldIndex,
+    pos: BlockPos,
+) -> Option<(BlockPos, BlockPos)> {
+    bed_at(state, session, world, pos, true)
+}
+
+/// [`bed_for`], checking the night and the reach only when `nearby_at_night`.
+fn bed_at(
+    state: &State,
+    session: SessionId,
+    world: WorldIndex,
+    pos: BlockPos,
+    nearby_at_night: bool,
+) -> Option<(BlockPos, BlockPos)> {
+    let player = state.players.get(&session)?;
+    if player.phase != Phase::Spawned
+        || player.world != world
+        || player.survival.is_dead()
+        || player.survival.sleeping.is_some()
+        || (nearby_at_night && !is_night(time(state, world)))
+    {
+        return None;
+    }
+    let bed = state.worlds.get(world).and_then(|w| w.block(pos))?;
+    if !bed.is(Class::Bed) {
+        return None;
+    }
+    let other = other_half(state, world, pos, bed)?;
+    let at = feet(player);
+    let near = |b: BlockPos| {
+        at.distance_squared(crate::math::Vec3::new(
+            f64::from(b.x),
+            f64::from(b.y),
+            f64::from(b.z),
+        )) <= BED_REACH_SQUARED
+    };
+    if nearby_at_night && !near(pos) && !near(other) {
+        return None;
+    }
+    let head = if is_head(bed) { pos } else { other };
+    let occupied = state
+        .worlds
+        .get(world)
+        .and_then(|w| w.block(head))
+        .is_some_and(|b| matches!(b.value("occupied_bit"), Some(PropertyValue::Byte(1))));
+    (!occupied).then_some((head, other))
 }
 
 /// The half of a bed that is not `head`.
@@ -373,7 +434,8 @@ fn set_occupied(state: &mut State, world: WorldIndex, halves: [BlockPos; 2], occ
     }
 }
 
-/// The player of `session` wakes up, if asleep.
+/// The player of `session` wakes up, if asleep; the [`PlayerBedLeave`] listeners and monitors
+/// hear it once the bed is free.
 pub(super) fn wake(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -385,9 +447,15 @@ pub(super) fn wake(state: &mut State, session: SessionId) {
     let world = player.world;
     woke(player);
     after_wake(state, world, bed);
+    super::notify(state, || PlayerBedLeave {
+        player: Id::new(session),
+        world: world::Id::of(world),
+        bed,
+    });
 }
 
-/// A player that is not in the player map wakes up (it leaves).
+/// A player that is not in the player map wakes up (it leaves): no event, the player is gone
+/// ([`PlayerQuit`](crate::event::PlayerQuit) announced it).
 pub(super) fn stop_sleep(state: &mut State, player: &mut Player) {
     let Some(bed) = player.survival.sleeping.take() else {
         return;
@@ -407,7 +475,7 @@ fn woke(player: &mut Player) {
             data: 0.0,
             swing_source: 0,
         });
-        player.send(packet);
+        player.send_packet(packet);
     }
 }
 

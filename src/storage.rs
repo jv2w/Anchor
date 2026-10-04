@@ -4,8 +4,11 @@
 //! sealed values ([`seal`](seal::seal)): `meta` (one [`Meta`]), `worlds` (world name →
 //! [`WorldRecord`](codec::WorldRecord)), `chunks` ([`ChunkKey`] →
 //! [`ChunkRecord`](codec::ChunkRecord) for kind 0, [`ExtraRecord`](codec::ExtraRecord) for kinds
-//! 1 to 3) and `players` ([`PlayerKey`] → [`PlayerRecord`](codec::PlayerRecord)). Values are
-//! external input when read back: the seal's checksum and the record decoders check them.
+//! 1 to 3), `players` ([`PlayerKey`] → [`PlayerRecord`](codec::PlayerRecord)), `access`
+//! ([`AccessKey`] → [`Mark`](codec::Mark) for operators and the whitelist,
+//! [`BanRecord`](codec::BanRecord) for bans) and `user` (a server data name →
+//! [`UserRecord`](codec::UserRecord)). Values are external input when read back: the seal's
+//! checksum and the record decoders check them.
 //!
 //! Start ([`Storage::open`]): copy the closed file to `data/backups/`, open it (redb recovers a
 //! crash here), run `check_integrity()`, refuse a damaged file or a newer format, compact, and
@@ -47,12 +50,18 @@ pub(crate) const RETRIES: usize = 3;
 const CACHE_BYTES: usize = 64 << 20;
 /// Most worlds [`Storage::worlds`] returns.
 pub(crate) const MAX_WORLDS: usize = 1024;
+/// Most `access` values [`Storage::access`] returns: every list full.
+const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
 
 type Table = TableDefinition<'static, &'static [u8], &'static [u8]>;
 const META: Table = TableDefinition::new("meta");
 const WORLDS: Table = TableDefinition::new("worlds");
 const CHUNKS: Table = TableDefinition::new("chunks");
 const PLAYERS: Table = TableDefinition::new("players");
+const ACCESS: Table = TableDefinition::new("access");
+/// The user's server data (PLAN.md 10.8): one value per registered name. A file without the table
+/// (before M8) reads as having no values; an older Anchor ignores it.
+const USER: Table = TableDefinition::new("user");
 /// The one key of the `meta` table.
 const META_KEY: &[u8] = b"meta";
 
@@ -87,6 +96,8 @@ pub(crate) enum Error {
     Encode(crate::protocol::Error),
     /// [`Storage::worlds`] found more than [`MAX_WORLDS`] worlds.
     TooManyWorlds,
+    /// [`Storage::access`] found more values than the lists hold.
+    TooManyAccessEntries,
 }
 
 /// The result of a storage operation.
@@ -134,6 +145,12 @@ impl fmt::Display for Error {
             ),
             Self::Encode(_) => f.write_str("a record cannot be encoded"),
             Self::TooManyWorlds => write!(f, "more than {MAX_WORLDS} worlds are stored"),
+            Self::TooManyAccessEntries => {
+                write!(
+                    f,
+                    "more than {MAX_ACCESS} operator, ban and whitelist entries are stored"
+                )
+            }
         }
     }
 }
@@ -150,7 +167,8 @@ impl std::error::Error for Error {
             | Self::Checksum
             | Self::Malformed(_)
             | Self::NewerFormat { .. }
-            | Self::TooManyWorlds => None,
+            | Self::TooManyWorlds
+            | Self::TooManyAccessEntries => None,
         }
     }
 }
@@ -263,6 +281,54 @@ impl PlayerKey {
     }
 }
 
+/// What an `access` value holds: the first byte of its key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum AccessKind {
+    /// An operator ([`Mark`](codec::Mark)).
+    Op = 0,
+    /// A banned name ([`BanRecord`](codec::BanRecord)).
+    Ban = 1,
+    /// A banned IP address ([`BanRecord`](codec::BanRecord)).
+    IpBan = 2,
+    /// A whitelisted name ([`Mark`](codec::Mark)).
+    Whitelist = 3,
+}
+
+/// The key of an `access` value: the kind, then the name in ASCII lowercase or the IP address as
+/// text.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct AccessKey {
+    pub(crate) kind: AccessKind,
+    pub(crate) name: String,
+}
+
+impl AccessKey {
+    /// The kind byte, then the name's bytes.
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.name.len() + 1);
+        out.push(self.kind as u8);
+        out.extend_from_slice(self.name.as_bytes());
+        out
+    }
+
+    /// The key these bytes encode; the name is not checked beyond UTF-8.
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let (&kind, name) = bytes
+            .split_first()
+            .ok_or(Error::Malformed("empty access key"))?;
+        let kind = match kind {
+            0 => AccessKind::Op,
+            1 => AccessKind::Ban,
+            2 => AccessKind::IpBan,
+            3 => AccessKind::Whitelist,
+            _ => return Err(Error::Malformed("unknown access kind")),
+        };
+        let name = String::from_utf8(name.to_vec())
+            .map_err(|_| Error::Malformed("access name is not utf-8"))?;
+        Ok(Self { kind, name })
+    }
+}
+
 /// A stored value's place: its table and key.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Key {
@@ -274,6 +340,10 @@ pub(crate) enum Key {
     Chunk(ChunkKey),
     /// A `players` value.
     Player(PlayerKey),
+    /// An `access` value.
+    Access(AccessKey),
+    /// A `user` value, by the server data's name.
+    User(String),
 }
 
 impl Key {
@@ -281,31 +351,37 @@ impl Key {
     pub(crate) fn to_bytes(&self) -> Cow<'_, [u8]> {
         match self {
             Self::Meta => Cow::Borrowed(META_KEY),
-            Self::World(name) => Cow::Borrowed(name.as_bytes()),
+            Self::World(name) | Self::User(name) => Cow::Borrowed(name.as_bytes()),
             Self::Chunk(key) => Cow::Owned(key.to_bytes().to_vec()),
             Self::Player(PlayerKey(key)) => Cow::Borrowed(key.as_bytes()),
+            Self::Access(key) => Cow::Owned(key.to_bytes()),
         }
     }
 
-    /// The key's table among `tables`, given in the order `meta`, `worlds`, `chunks`, `players`.
-    fn pick<'a, T>(&self, tables: &'a [T; 4]) -> &'a T {
-        let [meta, worlds, chunks, players] = tables;
+    /// The key's table among `tables`, given in the order `meta`, `worlds`, `chunks`, `players`,
+    /// `access`, `user`.
+    fn pick<'a, T>(&self, tables: &'a [T; 6]) -> &'a T {
+        let [meta, worlds, chunks, players, access, user] = tables;
         match self {
             Self::Meta => meta,
             Self::World(_) => worlds,
             Self::Chunk(_) => chunks,
             Self::Player(_) => players,
+            Self::Access(_) => access,
+            Self::User(_) => user,
         }
     }
 
     /// [`pick`](Self::pick) for writing.
-    fn pick_mut<'a, T>(&self, tables: &'a mut [T; 4]) -> &'a mut T {
-        let [meta, worlds, chunks, players] = tables;
+    fn pick_mut<'a, T>(&self, tables: &'a mut [T; 6]) -> &'a mut T {
+        let [meta, worlds, chunks, players, access, user] = tables;
         match self {
             Self::Meta => meta,
             Self::World(_) => worlds,
             Self::Chunk(_) => chunks,
             Self::Player(_) => players,
+            Self::Access(_) => access,
+            Self::User(_) => user,
         }
     }
 }
@@ -510,6 +586,8 @@ impl Storage {
             open_read(&txn, WORLDS)?,
             open_read(&txn, CHUNKS)?,
             open_read(&txn, PLAYERS)?,
+            open_read(&txn, ACCESS)?,
+            open_read(&txn, USER)?,
         ];
         Ok(keys
             .iter()
@@ -543,6 +621,28 @@ impl Storage {
             worlds.push((name, sealed.value().to_vec()));
         }
         Ok(worlds)
+    }
+
+    /// Every stored operator, ban and whitelist entry: its key and sealed value, in key order.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread reads the world file"
+    )]
+    pub(crate) fn access(&mut self) -> Result<Vec<(AccessKey, Vec<u8>)>> {
+        let txn = self.database()?.begin_read()?;
+        let Some(table) = open_read(&txn, ACCESS)? else {
+            return Ok(Vec::new());
+        };
+        let count = usize::try_from(table.len()?).unwrap_or(usize::MAX);
+        if count > MAX_ACCESS {
+            return Err(Error::TooManyAccessEntries);
+        }
+        let mut entries = Vec::with_capacity(count);
+        for entry in table.iter()?.take(MAX_ACCESS) {
+            let (key, sealed) = entry?;
+            entries.push((AccessKey::from_bytes(key.value())?, sealed.value().to_vec()));
+        }
+        Ok(entries)
     }
 
     /// Writes `batch` in one durable write transaction with quick repair. On failure it drops
@@ -603,6 +703,8 @@ fn write(db: &Database, batch: &Batch) -> Result<()> {
             txn.open_table(WORLDS)?,
             txn.open_table(CHUNKS)?,
             txn.open_table(PLAYERS)?,
+            txn.open_table(ACCESS)?,
+            txn.open_table(USER)?,
         ];
         for (key, value) in &batch.writes {
             let table = key.pick_mut(&mut tables);
@@ -625,7 +727,9 @@ pub(crate) mod tests {
     use redb::StorageBackend;
 
     use super::codec::tests::{empty_chunk, random_chunk, random_compound, terrain_chunk};
-    use super::codec::{ChunkRecord, ExtraRecord, PlayerRecord, WorldRecord};
+    use super::codec::{
+        BanRecord, ChunkRecord, ExtraRecord, Mark, PlayerRecord, UserRecord, WorldRecord,
+    };
     use super::seal::seal;
     use super::*;
     use crate::clock;
@@ -841,6 +945,12 @@ pub(crate) mod tests {
             }) => drop(unseal::<ChunkRecord>(&bytes, sealed).unwrap()),
             Key::Chunk(_) => drop(unseal::<ExtraRecord<'_>>(&bytes, sealed).unwrap()),
             Key::Player(_) => drop(unseal::<PlayerRecord>(&bytes, sealed).unwrap()),
+            Key::Access(AccessKey {
+                kind: AccessKind::Ban | AccessKind::IpBan,
+                ..
+            }) => drop(unseal::<BanRecord>(&bytes, sealed).unwrap()),
+            Key::Access(_) => drop(unseal::<Mark>(&bytes, sealed).unwrap()),
+            Key::User(_) => drop(unseal::<UserRecord<'_>>(&bytes, sealed).unwrap()),
         }
     }
 
@@ -894,6 +1004,38 @@ pub(crate) mod tests {
                 batch.put(key, sealed);
             }
         }
+        for _ in 0..=rng.below(3) {
+            let n = rng.below(4);
+            let key = access_key(n);
+            if rng.below(3) == 0 {
+                model.remove(&key);
+                batch.delete(key);
+            } else {
+                let sealed = if n.is_multiple_of(2) {
+                    seal(&key.to_bytes(), &Mark).unwrap()
+                } else {
+                    let record = BanRecord {
+                        reason: format!("reason {}", rng.below(100)),
+                        source: "console".to_owned(),
+                        created: tick,
+                        expires: (rng.below(2) == 0).then_some(tick + 100),
+                    };
+                    seal(&key.to_bytes(), &record).unwrap()
+                };
+                model.insert(key.clone(), sealed.clone());
+                batch.put(key, sealed);
+            }
+        }
+        let key = Key::User(format!("value-{}", rng.below(3)));
+        if rng.below(4) == 0 {
+            model.remove(&key);
+            batch.delete(key);
+        } else {
+            let json = format!("{{\"n\":{}}}", rng.below(1000)).into_bytes();
+            let sealed = seal(&key.to_bytes(), &UserRecord(json.into())).unwrap();
+            model.insert(key.clone(), sealed.clone());
+            batch.put(key, sealed);
+        }
         let key = Key::Player(PlayerKey::offline("Steve"));
         let player = PlayerRecord {
             world: "world".to_owned(),
@@ -909,6 +1051,20 @@ pub(crate) mod tests {
         batch
     }
 
+    /// One of four `access` keys: an operator, a ban, a whitelist entry and an IP ban.
+    fn access_key(n: usize) -> Key {
+        let (kind, name) = match n {
+            0 => (AccessKind::Op, "steve"),
+            1 => (AccessKind::Ban, "alex"),
+            2 => (AccessKind::Whitelist, "steve"),
+            _ => (AccessKind::IpBan, "10.0.0.1"),
+        };
+        Key::Access(AccessKey {
+            kind,
+            name: name.to_owned(),
+        })
+    }
+
     fn all_keys() -> Vec<Key> {
         let mut keys: Vec<Key> = (-8..8)
             .flat_map(|x| {
@@ -920,6 +1076,8 @@ pub(crate) mod tests {
             .collect();
         keys.push(Key::Player(PlayerKey::offline("steve")));
         keys.push(Key::Meta);
+        keys.extend((0..4).map(access_key));
+        keys.extend((0..3).map(|n| Key::User(format!("value-{n}"))));
         keys
     }
 

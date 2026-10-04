@@ -29,6 +29,7 @@ impl ChunkIndex {
     }
 
     /// The home slot of a key: Fibonacci hashing of the coordinates (fixed, deterministic).
+    #[inline]
     fn home(&self, pos: ChunkPos) -> usize {
         let key = (u64::from(pos.x.cast_unsigned()) << 32) | u64::from(pos.z.cast_unsigned());
         let bits = self.slots.len().trailing_zeros();
@@ -36,11 +37,13 @@ impl ChunkIndex {
         usize::try_from(hash).unwrap_or(0)
     }
 
+    #[inline]
     fn mask(&self) -> usize {
         self.slots.len() - 1
     }
 
     /// The slot holding `pos`.
+    #[inline]
     fn find(&self, pos: ChunkPos) -> Option<usize> {
         let mut i = self.home(pos);
         loop {
@@ -52,6 +55,7 @@ impl ChunkIndex {
         }
     }
 
+    #[inline]
     pub(crate) fn get(&self, pos: ChunkPos) -> Option<&Chunk> {
         let i = self.find(pos)?;
         self.slots.get(i)?.as_ref().map(|(_, c)| c.as_ref())
@@ -62,6 +66,7 @@ impl ChunkIndex {
         self.slots.get_mut(i)?.as_mut().map(|(_, c)| c.as_mut())
     }
 
+    #[inline]
     pub(crate) fn contains(&self, pos: ChunkPos) -> bool {
         self.find(pos).is_some()
     }

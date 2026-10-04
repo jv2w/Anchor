@@ -2,6 +2,7 @@
 //! and the outbound queue of each session.
 
 use std::fmt;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -22,6 +23,16 @@ const OUTBOUND_CAPACITY: usize = 1_024;
 pub(crate) struct SessionId(u64);
 
 impl SessionId {
+    /// The console's lines (`console-input`): a session of its own, so its inputs are stamped
+    /// and ordered like a connection's. Connections are numbered from 0 and would need 2^64 of
+    /// them to reach it.
+    pub(crate) const CONSOLE: Self = Self(u64::MAX);
+
+    /// The results of blocking jobs ([`InputKind::Job`]): a session of its own whose sequence
+    /// number is the job's id, so results applied in one tick are ordered by job, after every
+    /// connection's inputs and before the console's.
+    pub(crate) const JOBS: Self = Self(u64::MAX - 1);
+
     /// The session numbered `id`.
     pub(crate) const fn new(id: u64) -> Self {
         Self(id)
@@ -48,6 +59,9 @@ pub(crate) struct Identity {
     /// The client's device (`DeviceOS` of the login's client data, 1 to 15; -1 unknown), the
     /// player list's `BuildPlatform` (BDS sends it, P6 facts 7).
     pub(crate) device_os: i32,
+    /// The address the client connected from, which IP bans match; `None` when unknown (tests,
+    /// replays of logs before format 5).
+    pub(crate) address: Option<IpAddr>,
 }
 
 impl Identity {
@@ -60,12 +74,18 @@ impl Identity {
             uuid,
             skin,
             device_os,
+            address,
         } = self;
         h.bytes(name.as_bytes());
         h.u64(xuid.map_or(0, |x| x.wrapping_add(1)));
         h.bytes(uuid.as_bytes());
         skin.hash_into(h);
         h.u64(u64::from(device_os.cast_unsigned()));
+        match address {
+            None => h.u64(0),
+            Some(IpAddr::V4(a)) => h.bytes(&a.octets()),
+            Some(IpAddr::V6(a)) => h.bytes(&a.octets()),
+        }
     }
 }
 
@@ -161,7 +181,18 @@ pub(crate) enum InputKind {
     Packet { packet: Packet, size: usize },
     /// The connection closed.
     Leave,
+    /// A line typed on the console ([`SessionId::CONSOLE`]), at most
+    /// [`MAX_LINE_BYTES`](crate::command::parse::MAX_LINE_BYTES) bytes, without its line end.
+    Console(String),
+    /// The result of the blocking job whose id is the input's sequence number, on
+    /// [`SessionId::JOBS`] (PLAN.md 10.8).
+    Job(JobOutcome),
 }
+
+/// A blocking job's result as it travels to the tick and into the input log: the JSON of the
+/// value its work returned, at most [`MAX_RESULT_BYTES`](crate::task::MAX_RESULT_BYTES), or why
+/// there is none.
+pub(crate) type JobOutcome = std::result::Result<Vec<u8>, crate::task::Error>;
 
 /// Batches encoded and compressed once at start and sent to every player as they are (PLAN.md 3,
 /// 10.4): batch bodies, each a compression header and the compressed packets, without the
@@ -173,6 +204,9 @@ pub(crate) type SharedBatches = Arc<[Vec<u8>]>;
 pub(crate) enum Message {
     /// A packet the session encodes into its own batches.
     Packet(Packet),
+    /// A packet several sessions send (a skin of up to 4 MiB), held once: each session encodes
+    /// it into a batch of its own.
+    SharedPacket(Arc<Packet>),
     /// Batches shared by every session, sent after the packets before them.
     Shared(SharedBatches),
 }
@@ -226,6 +260,17 @@ pub(crate) fn outbound_queue() -> (mpsc::Sender<Outbound>, mpsc::Receiver<Outbou
 pub(crate) struct InputSender(mpsc::Sender<Input>);
 
 impl InputSender {
+    /// Queues the result of job `id`, waiting for room so that the job's callback always runs.
+    /// Fails only if the tick has stopped.
+    pub(crate) async fn job(&self, id: u64, outcome: JobOutcome) -> Result<()> {
+        let input = Input {
+            session: SessionId::JOBS,
+            seq: id,
+            kind: InputKind::Job(outcome),
+        };
+        self.0.send(input).await.map_err(|_| Error::Closed)
+    }
+
     /// A sender that stamps the inputs of session `id` with its sequence numbers.
     pub(crate) fn session(&self, id: SessionId) -> SessionInputs {
         SessionInputs {

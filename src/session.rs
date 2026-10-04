@@ -5,9 +5,11 @@
 //! [`SessionId`]s, so no shared counter is needed), spawns a session task for each and keeps the
 //! server-list status current (the RakNet pong and the NetherNet JSON).
 //! A session task owns one connection: it decodes batches, runs the login sequence of PLAN.md
-//! 10.2 and then relays packets between the connection and the tick.
+//! 10.2 (with the resource pack download of [`packs`]) and then relays packets between the
+//! connection and the tick.
 
 mod connection;
+mod packs;
 mod transport;
 
 use std::net::{SocketAddrV4, SocketAddrV6};
@@ -26,6 +28,7 @@ use crate::config::{Config, GameMode};
 use crate::crypto::{self, ServerKey};
 use crate::error::{Error, Result};
 use crate::nethernet;
+use crate::pack::{Offer, Pack};
 use crate::protocol::batch;
 use crate::protocol::packet::{GAME_VERSION, PROTOCOL_VERSION};
 use crate::raknet;
@@ -59,6 +62,8 @@ struct Shared {
     batch: batch::Settings,
     auth: Option<Auth>,
     server_key: ServerKey,
+    /// The resource packs offered to every player.
+    packs: Offer,
     inputs: InputSender,
     events: mpsc::Sender<Event>,
     shutdown: watch::Receiver<bool>,
@@ -75,14 +80,26 @@ enum Event {
 
 /// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
 ///
-/// With `xbox-auth = true` the authorization keys load first (PLAN.md 10.2), and a server
-/// without keys does not start. NetherNet loads its identity key from `data_dir` (PLAN.md 10.3).
+/// The resource packs load first: the `resource-packs` files, then `packs` given in code
+/// (PLAN.md 10.8); one that cannot be offered stops the start. With `xbox-auth = true` the
+/// authorization keys load next (PLAN.md 10.2), and a server without keys does not start.
+/// NetherNet loads its identity key from `data_dir` (PLAN.md 10.3).
 pub(crate) async fn start(
     config: Arc<Config>,
+    packs: Vec<Pack>,
     data_dir: &Path,
     inputs: InputSender,
 ) -> Result<Network> {
     let batch = config.batch_settings()?;
+    let paths = config.resource_pack_paths();
+    let force = config.general.force_resources;
+    let packs = tokio::task::spawn_blocking(move || Offer::load(&paths, packs, force))
+        .await
+        .map_err(|e| Error::Start(std::io::Error::other(e)))?
+        .map_err(|e| Error::Start(std::io::Error::other(e)))?;
+    if !packs.packs().is_empty() {
+        info!(count = packs.packs().len(), "resource packs loaded");
+    }
     let auth = if config.general.xbox_auth {
         let auth = Auth::start(data_dir, unix_now)
             .await
@@ -148,6 +165,7 @@ pub(crate) async fn start(
         batch,
         auth,
         server_key,
+        packs,
         inputs,
         events: events_tx,
         shutdown: shutdown_rx,

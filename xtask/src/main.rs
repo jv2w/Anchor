@@ -3,11 +3,13 @@
 //! error that stopped it; `cargo xtask dump [--check]` rebuilds the committed block and item data
 //! from the pinned PMMP, dragonfly and `CloudburstMC` checkouts; `cargo xtask p6 ...` runs the
 //! reference server comparison. Neither of the last two is part of `verify`: they need `.cache/`
-//! checkouts or BDS.
+//! checkouts or BDS. `cargo xtask table [--check]` writes (or checks) the PMMP mapping table;
+//! `verify` runs its check.
 
 mod dump;
 mod r#gen;
 mod p6;
+mod table;
 
 use std::env;
 use std::io::{self, Write};
@@ -74,6 +76,8 @@ fn run() -> io::Result<bool> {
         ["verify"] => verify(&mut out),
         ["dump"] => dump_command(&mut out, false),
         ["dump", "--check"] => dump_command(&mut out, true),
+        ["table"] => table_command(&mut out, false),
+        ["table", "--check"] => table_command(&mut out, true),
         ["p6", rest @ ..] => match p6::command(&root(), rest, &mut out) {
             Ok(passed) => Ok(passed),
             Err(e) => {
@@ -85,7 +89,7 @@ fn run() -> io::Result<bool> {
             writeln!(
                 out,
                 "usage: cargo xtask gen [--check] | cargo xtask verify | cargo xtask dump [--check] \
-                 | {}",
+                 | cargo xtask table [--check] | {}",
                 p6::USAGE
             )?;
             Ok(false)
@@ -125,6 +129,29 @@ fn dump_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
     }
 }
 
+/// Writes (or with `check` compares) the PMMP mapping table and prints its counts. Passes
+/// without errors; a check also needs the committed table current and no blank row.
+fn table_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
+    let report = match table::run(&root(), check) {
+        Ok(report) => report,
+        Err(e) => {
+            writeln!(out, "error: {e}")?;
+            return Ok(false);
+        }
+    };
+    for error in &report.errors {
+        writeln!(out, "error: {error}")?;
+    }
+    if report.stale {
+        writeln!(
+            out,
+            "out of date: xtask/data/pmmp/table.md (run `cargo xtask table`)"
+        )?;
+    }
+    writeln!(out, "pmmp table: {}", report.counts)?;
+    Ok(report.errors.is_empty() && !(check && (report.stale || report.counts.blank > 0)))
+}
+
 fn verify(out: &mut impl Write) -> io::Result<bool> {
     // `CARGO` is the cargo that launched this task, so every check uses the same toolchain.
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
@@ -137,6 +164,15 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
     writeln!(
         out,
         "{} cargo xtask gen --check",
+        if ok { "ok  " } else { "FAIL" }
+    )?;
+    passed &= ok;
+    let mut log = Vec::new();
+    let ok = table_command(&mut log, true)?;
+    out.write_all(&log)?;
+    writeln!(
+        out,
+        "{} cargo xtask table --check",
         if ok { "ok  " } else { "FAIL" }
     )?;
     passed &= ok;

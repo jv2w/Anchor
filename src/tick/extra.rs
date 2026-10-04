@@ -177,11 +177,14 @@ impl Extras {
 }
 
 /// What the rule modules keep of an online player, between [`player_loaded`] and
-/// [`player_saved`].
-#[derive(Debug, Clone, Default, PartialEq)]
+/// [`player_saved`], and the user's values on it (`task::PlayerUser`: its data, saved under one
+/// key of the compound, and its extensions, never saved).
+#[derive(Debug, Default)]
 pub(super) struct PlayerExtra {
     /// The compound as saved; modules take their keys out of it when they own them.
     raw: Compound,
+    /// The user's data and extensions.
+    pub(super) user: super::task::PlayerUser,
 }
 
 impl PlayerExtra {
@@ -190,16 +193,29 @@ impl PlayerExtra {
         &self.raw
     }
 
+    /// A save wrote `saved`: the value of `key` in it becomes the one kept as saved, so a later
+    /// save that cannot write that key keeps the newest saved form.
+    pub(super) fn keep_saved(&mut self, key: &str, saved: &Compound) {
+        match saved.get(key) {
+            Some(value) => self.raw.insert(key.to_owned(), value.clone()),
+            None => self.raw.remove(key),
+        };
+    }
+
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        let Self { raw } = self;
+        // The user's values are hashed with their types' codecs (`task::UserData::hash_into`).
+        let Self { raw, user: _ } = self;
         hash_nbt(h, raw);
     }
 }
 
 /// A player's saved extra arrived (empty for a new player): what the player keeps while online.
 pub(super) fn player_loaded(extra: Compound) -> PlayerExtra {
-    PlayerExtra { raw: extra }
+    PlayerExtra {
+        raw: extra,
+        user: super::task::PlayerUser::default(),
+    }
 }
 
 /// The extra to save for a player: every module's keys, and the raw keys no module owns.
@@ -449,7 +465,7 @@ pub(super) mod tests {
         driver.tick(&mut state, Vec::new());
         let player = state.players.values().next().unwrap();
         assert_eq!(player.phase, Phase::Joined);
-        assert_eq!(player.extra, player_loaded(extra.clone()));
+        assert_eq!(player.extra.raw(), &extra);
         // A move makes the data dirty; the snapshot carries the extra as it came.
         super::super::tests::teleported(&mut state, 1, [4.5, -58.38, 3.5]);
         driver.tick(&mut state, Vec::new());

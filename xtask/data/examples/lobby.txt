@@ -1,0 +1,24 @@
+# The lobby example (examples/lobby.rs), played by the bot from its join.
+# The welcome: the compass, the boss bar and the sidebar with who is online.
+expect-item minecraft:compass
+expect-bossbar Welcome to the lobby
+expect-score sidebar Online: 1
+# /games opens the games menu; the second button is the shop, a chest menu.
+command games
+expect-form Pick one
+answer-form 1
+expect-window
+# The window's items follow the window.
+wait 500ms
+# A click on the sword gives a copy and closes the shop.
+click 11
+expect-item minecraft:diamond_sword
+# The first button teleports to the arena, onto its start block.
+command games
+expect-form Pick one
+answer-form 0
+expect-position 8.5 -60 8.5
+# /spawn brings the player back to the lobby spawn.
+command spawn
+expect-output Back at the lobby spawn
+expect-position 0.5 -60 0.5

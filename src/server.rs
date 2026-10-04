@@ -11,23 +11,26 @@ use tracing::{error, info, warn};
 
 use crate::config::{Config, LevelType};
 use crate::error::{Error, Result};
-use crate::event::{self, Listeners, Priority};
+use crate::event::{self, Priority};
+use crate::pack::Pack;
 use crate::runtime::{self, Runtime, ThreadCounts};
 use crate::save::{self, WorldSpec};
 use crate::session;
-use crate::tick::{self, Context, Tasks, queue::InputSender};
+use crate::tick::{self, Context, Setup, queue::InputSender};
 use crate::world::{Flat, Generator, Kind, Void};
 
 /// A Minecraft: Bedrock Edition server. Make one with [`Server::builder`], then call
 /// [`Server::run`].
 #[derive(Debug)]
+// pmmp-class: Server
 pub struct Server {
     config: Arc<Config>,
     data_dir: PathBuf,
     threads: ThreadCounts,
-    listeners: Listeners,
-    tasks: Tasks,
+    setup: Setup,
     worlds: Vec<WorldSpec>,
+    /// The resource packs given in code, offered after those of the settings.
+    packs: Vec<Pack>,
     shutdown: ShutdownHandle,
     shutdown_requests: mpsc::Receiver<()>,
 }
@@ -37,10 +40,12 @@ pub struct Server {
 pub struct ServerBuilder {
     config: Config,
     data_dir: PathBuf,
-    listeners: Listeners,
-    tasks: Tasks,
+    /// What the user registers; modules add their builder methods in their own files.
+    pub(crate) setup: Setup,
     /// Worlds besides the default one, in registration order.
     worlds: Vec<WorldSpec>,
+    /// The resource packs given in code ([`ServerBuilder::resource_pack`]), in order.
+    pub(crate) packs: Vec<Pack>,
 }
 
 /// Asks a [`Server`] to stop. Cheap to clone and usable from any thread.
@@ -53,9 +58,9 @@ impl Server {
         ServerBuilder {
             config: Config::default(),
             data_dir: PathBuf::from("data"),
-            listeners: Listeners::default(),
-            tasks: Tasks::default(),
+            setup: Setup::default(),
             worlds: Vec::new(),
+            packs: Vec::new(),
         }
     }
 
@@ -73,25 +78,43 @@ impl Server {
     /// and the threads are joined. Fails if the world file is damaged or cannot be opened, if the
     /// runtime, the threads or networking cannot start, if a save fails after its retries, or if
     /// the tick thread panics.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: one function starts every part of the server in its order"
+    )]
     pub fn run(self) -> Result<()> {
         let Self {
             config,
             data_dir,
             threads,
-            listeners,
-            tasks,
+            setup,
             worlds,
+            packs,
             shutdown,
             shutdown_requests,
         } = self;
         // Built before any thread starts: encoding the shared spawn batches takes a while once.
-        let shared = tick::Shared::new(config.batch_settings()?)
-            .map_err(|e| Error::Start(std::io::Error::other(e)))?;
+        let shared = tick::Shared::new(
+            config.batch_settings()?,
+            &setup.custom,
+            &setup.custom_entities,
+        )
+        .map_err(|e| Error::Start(std::io::Error::other(e)))?;
         let mut opened = save::open(&data_dir, worlds)?;
+        let mut setup = setup;
+        setup.data.load(&mut opened.thread)?;
+        setup.commands.start(
+            std::mem::take(&mut opened.access),
+            config.general.white_list,
+        );
         opened.thread.set_lighting(config.developer.lighting);
         let runtime = Runtime::new(threads)?;
         let pool = Arc::new(runtime::cpu_pool(threads.cpu)?);
         let (inputs, input_queue) = tick::queue::input_queue();
+        setup.tasks.start(runtime.handle(), &inputs);
+        if config.developer.console_input {
+            crate::console::start(&inputs).map_err(Error::Start)?;
+        }
         let (stop_tick, stop) = mpsc::channel(1);
         let (done, tick_done) = oneshot::channel();
         let (crash, mut crash_log) = oneshot::channel();
@@ -104,8 +127,7 @@ impl Server {
         let state = tick::State::new(
             tick::Settings::new(&config),
             shared,
-            listeners,
-            tasks,
+            setup,
             opened.worlds,
             opened.tick,
         );
@@ -128,7 +150,7 @@ impl Server {
             stop_tick,
             tick_done,
         };
-        let served = runtime.block_on(running.serve(config, &data_dir, inputs));
+        let served = runtime.block_on(running.serve(config, packs, &data_dir, inputs));
         // `serve` returns only after the tick thread has ended, so this does not wait long.
         let joined = tick_thread.join();
         // The tick dropped its request sender, so the save thread commits what it holds,
@@ -194,7 +216,13 @@ struct Running {
 impl Running {
     /// Starts networking, waits for a shutdown request or the end of the tick thread, then stops
     /// the tick (which disconnects every player) and networking.
-    async fn serve(self, config: Arc<Config>, data_dir: &Path, inputs: InputSender) -> Result<()> {
+    async fn serve(
+        self,
+        config: Arc<Config>,
+        packs: Vec<Pack>,
+        data_dir: &Path,
+        inputs: InputSender,
+    ) -> Result<()> {
         let Self {
             shutdown,
             mut shutdown_requests,
@@ -211,7 +239,7 @@ impl Running {
                 Err(e) => warn!(error = %e, "cannot listen for Ctrl+C"),
             }
         });
-        let network = match session::start(config, data_dir, inputs).await {
+        let network = match session::start(config, packs, data_dir, inputs).await {
             Ok(network) => network,
             Err(e) => {
                 stop(&stop_tick, tick_done).await;
@@ -272,30 +300,45 @@ impl ServerBuilder {
     }
 
     /// Calls `listener` on every `E` event at `priority`, in the tick, after the listeners of
-    /// lower priority and those added earlier at the same priority.
+    /// lower priority and those added earlier at the same priority. The listener may change the
+    /// event and, through the [`Context`], the game; its calls raise no events
+    /// ([`event`](crate::event) explains the order).
     #[doc(alias = "PluginManager::registerEvent")]
     #[must_use]
     pub fn on<E: event::Event>(
         mut self,
         priority: Priority,
-        listener: impl FnMut(&mut E) + Send + 'static,
+        listener: impl FnMut(&mut E, &mut Context<'_>) + Send + 'static,
     ) -> Self {
-        self.listeners.push(priority, listener);
+        self.setup.listeners.push(priority, listener);
+        self
+    }
+
+    /// Calls `monitor` on every `E` event after its outcome is applied, with shared access only,
+    /// in registration order (PMMP's `MONITOR` priority, enforced by the types).
+    #[doc(alias = "EventPriority::MONITOR")]
+    #[must_use]
+    pub fn monitor<E: event::Event>(
+        mut self,
+        monitor: impl FnMut(&E, &Context<'_>) + Send + 'static,
+    ) -> Self {
+        self.setup.listeners.push_monitor(monitor);
         self
     }
 
     /// Runs `task` in the tick every `period` ticks (on ticks that are multiples of `period`),
     /// after the tick's inputs and in registration order, with a [`Context`] that reaches the
     /// worlds. Like listeners, tasks run only in the tick, so a replay of the input log runs
-    /// them the same way.
-    #[doc(alias = "TaskScheduler::scheduleRepeatingTask")]
+    /// them the same way. This is the build-time way, fixed for the server's life; the runtime
+    /// one, counted from its call and cancellable, is
+    /// [`Context::schedule_repeating`] (PMMP `TaskScheduler::scheduleRepeatingTask`).
     #[must_use]
     pub fn every(
         mut self,
         period: NonZeroU32,
         task: impl FnMut(&mut Context<'_>) + Send + 'static,
     ) -> Self {
-        self.tasks.push(period, task);
+        self.setup.tasks.push(period, task);
         self
     }
 
@@ -325,7 +368,14 @@ impl ServerBuilder {
             developer.cpu_threads,
             runtime::logical_cpus(),
         )?;
-        self.listeners.sort();
+        self.setup.listeners.sort();
+        self.setup.commands.finish().map_err(Error::Command)?;
+        self.setup.custom.finish().map_err(Error::Custom)?;
+        self.setup
+            .custom_entities
+            .finish()
+            .map_err(Error::CustomEntity)?;
+        self.setup.data.finish().map_err(Error::Data)?;
         let general = &self.config.general;
         let generator: Arc<dyn Generator> = match general.level_type {
             LevelType::Flat => Arc::new(Flat),
@@ -349,9 +399,9 @@ impl ServerBuilder {
             config: Arc::new(self.config),
             data_dir: self.data_dir,
             threads,
-            listeners: self.listeners,
-            tasks: self.tasks,
+            setup: self.setup,
             worlds,
+            packs: self.packs,
             shutdown: ShutdownHandle(requests),
             shutdown_requests,
         })

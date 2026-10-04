@@ -2,7 +2,9 @@
 //! (inputs, rules, views, output and delivery; the stand-in save thread answers outside the
 //! measured time, lighting new chunks on the CPU pool as the save thread does) on a CPU pool of
 //! max(logical CPUs, 4) threads, with a flat world and a view distance of 8:
-//! `cargo test --release --lib tick::tests::bench -- --ignored --nocapture`.
+//! `cargo test --release --lib tick::tests::bench -- --ignored --nocapture`. Each measurement
+//! runs without listeners, then with an idle listener and monitor on every event (PLAN.md 10.8
+//! 판정식 "결정성·성능"), so every event is built and every rule checks again.
 //!
 //! Each tick is timed per phase by [`phased_step`], which is [`step`] with a clock between its
 //! parts; [`the_phased_step_is_the_step`] keeps the two the same.
@@ -13,8 +15,9 @@ use tokio::sync::mpsc;
 
 use super::super::queue::{Input, InputKind, Outbound};
 use super::super::{
-    EntryKind, InputLog, Output, Phase, Settings, State, Tasks, block_entity, boundary, deliver,
-    drop_overflowed, entity, interact, respond, spawn, step, survival, trade, update, view,
+    EntryKind, InputLog, Output, Phase, Settings, State, Tasks, block_entity, boundary, command,
+    deliver, dispatch, drop_overflowed, entity, hook, interact, player, respond, spawn, step,
+    survival, trade, update, view,
 };
 use super::{initialised, input, join, new_state, packet, radius, received, settings};
 use crate::block::{self, PropertyValue};
@@ -67,6 +70,7 @@ fn phased_step(
     for response in responses.drain(..) {
         respond(state, response, output, log);
     }
+    let mut deferred_runs = 0;
     inputs.sort_unstable_by_key(|i| (i.session, i.seq));
     for input in inputs.drain(..) {
         let (session, seq) = (input.session, input.seq);
@@ -83,16 +87,33 @@ fn phased_step(
                 }
             }
             InputKind::Packet { packet, size } => {
-                super::super::apply_packet(state, session, &packet);
+                if let Some(packet) = hook::receive(state, session, &packet) {
+                    super::super::apply_packet(state, session, &packet);
+                }
+                dispatch::run_deferred(state, &mut deferred_runs);
                 log.record(session, seq, EntryKind::Packet(packet), size);
             }
             InputKind::Leave => {
                 log.record(session, seq, EntryKind::Leave, 0);
+                player::quit(state, session, "client disconnect", String::new());
                 state.leave(session);
+            }
+            InputKind::Console(line) => {
+                command::console(state, &line);
+                dispatch::run_deferred(state, &mut deferred_runs);
+                let size = line.len();
+                log.record(session, seq, EntryKind::Console(line), size);
+            }
+            InputKind::Job(outcome) => {
+                super::super::task::finish(state, seq, &outcome);
+                dispatch::run_deferred(state, &mut deferred_runs);
+                let size = outcome.as_ref().map_or(0, Vec::len);
+                log.record(session, seq, EntryKind::Job(outcome), size);
             }
         }
     }
     Tasks::run(state);
+    dispatch::run_deferred(state, &mut deferred_runs);
     mark(0);
     survival::tick(state);
     mark(1);
@@ -110,10 +131,14 @@ fn phased_step(
         world.step_light(super::super::LIGHT_BUDGET);
     }
     mark(7);
+    dispatch::run_deferred(state, &mut deferred_runs);
+    command::sync(state);
+    player::sync(state, output);
     drop_overflowed(state, output);
     if let Some(request) = view::update(state) {
         output.requests.push(request);
     }
+    dispatch::run_deferred(state, &mut deferred_runs);
     let changes = view::take_changes(&mut state.worlds);
     mark(8);
     output.packets = spawn::output(state, pool, &changes);
@@ -167,8 +192,9 @@ struct Bench {
 }
 
 impl Bench {
-    /// A flat world with `edit` applied to the measurement settings, its spawn area lit.
-    fn new(edit: impl FnOnce(&mut Config)) -> Self {
+    /// A flat world with `edit` applied to the measurement settings and `listeners`, its spawn
+    /// area lit.
+    fn new(listeners: Listeners, edit: impl FnOnce(&mut Config)) -> Self {
         let threads = crate::runtime::logical_cpus().max(4);
         let settings = settings(|c| {
             c.general.view_distance = VIEW_DISTANCE;
@@ -176,14 +202,14 @@ impl Bench {
             c.developer.chunks_per_tick = Config::default().developer.chunks_per_tick;
             edit(c);
         });
-        let mut bench = Self::with(settings, threads);
+        let mut bench = Self::with(settings, listeners, threads);
         bench.settle(0);
         bench
     }
 
-    fn with(settings: Settings, threads: usize) -> Self {
+    fn with(settings: Settings, listeners: Listeners, threads: usize) -> Self {
         Self {
-            state: new_state(settings, Listeners::default()),
+            state: new_state(settings, listeners),
             pool: crate::runtime::cpu_pool(threads).expect("CPU pool"),
             output: Output::default(),
             receivers: Vec::new(),
@@ -330,8 +356,8 @@ fn grid(i: u64, n: u64) -> Vec3 {
 
 /// `n` players spawned, placed on a grid, then walking east together for 300 ticks (each
 /// crossing about four chunks, so views keep loading and sending chunks).
-fn players_walking(n: u64) {
-    let mut b = Bench::new(|_| {});
+fn players_walking(n: u64, run: Run) {
+    let mut b = Bench::new((run.listeners)(), |_| {});
     b.join(n);
     let sessions: Vec<_> = b.state.players.keys().copied().collect();
     for (i, s) in (0u64..).zip(&sessions) {
@@ -359,13 +385,13 @@ fn players_walking(n: u64) {
             .collect();
         b.tick(inputs);
     }
-    b.report(&format!("{n} players walking"));
+    b.report(&format!("{n} players walking{}", run.label));
 }
 
 /// One player at the spawn watching `count` dropped swords (they do not merge), four to a block
 /// around it, once they lie still.
-fn items(count: u32) {
-    let mut b = Bench::new(|_| {});
+fn items(count: u32, run: Run) {
+    let mut b = Bench::new((run.listeners)(), |_| {});
     b.join(1);
     let sword =
         Type::from_name("minecraft:diamond_sword", 0, None, &Compound::new()).expect("sword");
@@ -388,7 +414,7 @@ fn items(count: u32) {
     for _ in 0..300 {
         b.tick(Vec::new());
     }
-    b.report(&format!("{count} items lying"));
+    b.report(&format!("{count} items lying{}", run.label));
 }
 
 /// The block state `name` with `properties`.
@@ -398,8 +424,8 @@ fn state(name: &str, properties: &[(&str, PropertyValue<'_>)]) -> block::State {
 
 /// Wheat on wet farmland on every column of the chunks within the tick radius (4) of one player,
 /// at the default random tick speed (3).
-fn crops() {
-    let mut b = Bench::new(|_| {});
+fn crops(run: Run) {
+    let mut b = Bench::new((run.listeners)(), |_| {});
     let farmland = state(
         "minecraft:farmland",
         &[("moisturized_amount", PropertyValue::Int(7))],
@@ -436,16 +462,17 @@ fn crops() {
         .count();
     assert!(grown > 0, "no crop grew: the random ticks did not run");
     b.report(&format!(
-        "random ticks, {} crops ({grown} grew)",
-        planted.len()
+        "random ticks, {} crops ({grown} grew){}",
+        planted.len(),
+        run.label
     ));
 }
 
 /// One player at the spawn, then 1,000 glowstone blocks set at once in the air around it (each
 /// a light source that also shades the sky light below), and the ticks after it until the light
 /// work is done (at least 100).
-fn burst(lighting: bool) {
-    let mut b = Bench::new(|c| c.developer.lighting = lighting);
+fn burst(lighting: bool, run: Run) {
+    let mut b = Bench::new((run.listeners)(), |c| c.developer.lighting = lighting);
     b.join(1);
     b.settle(20);
     b.reset();
@@ -475,8 +502,9 @@ fn burst(lighting: bool) {
         assert!(after < 10_000, "the light work did not end");
     }
     let name = format!(
-        "1000 changes, lighting {}",
-        if lighting { "on" } else { "off" }
+        "1000 changes, lighting {}{}",
+        if lighting { "on" } else { "off" },
+        run.label
     );
     b.report(&name);
     #[expect(
@@ -492,26 +520,60 @@ fn burst(lighting: bool) {
     }
 }
 
+/// The listeners of a measurement and the label its report ends with.
+#[derive(Clone, Copy)]
+struct Run {
+    listeners: fn() -> Listeners,
+    label: &'static str,
+}
+
 #[test]
 #[ignore = "measurement; run in release with --ignored --nocapture"]
 fn tick_costs() {
+    let runs = [
+        Run {
+            listeners: Listeners::default,
+            label: "",
+        },
+        Run {
+            listeners: super::busy::idle,
+            label: ", idle listeners",
+        },
+    ];
+    // Each measurement runs with and without listeners side by side: later measurements in one
+    // process run slower, so two passes one after the other would not compare.
     for n in [1, 20, 100] {
-        players_walking(n);
+        for run in runs {
+            players_walking(n, run);
+        }
     }
     for count in [1_000, 10_000] {
-        items(count);
+        for run in runs {
+            items(count, run);
+        }
     }
-    crops();
+    for run in runs {
+        crops(run);
+    }
     for lighting in [true, false] {
-        burst(lighting);
+        for run in runs {
+            burst(lighting, run);
+        }
     }
 }
 
-/// The measured step does what the tick's step does: the same state and packets every tick.
+/// The measured step does what the tick's step does: the same state and packets every tick,
+/// without and with listeners.
 #[test]
 fn the_phased_step_is_the_step() {
+    phased_like_step(Listeners::default);
+    phased_like_step(super::busy::idle);
+}
+
+/// [`the_phased_step_is_the_step`] with `listeners`.
+fn phased_like_step(listeners: fn() -> Listeners) {
     let pool = crate::runtime::cpu_pool(2).expect("CPU pool");
-    let new = || new_state(settings(|_| {}), Listeners::default());
+    let new = || new_state(settings(|_| {}), listeners());
     let (mut a, mut b) = (new(), new());
     let (mut out_a, mut out_b) = (Output::default(), Output::default());
     let mut phases = [Duration::ZERO; PHASES.len()];

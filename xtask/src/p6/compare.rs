@@ -41,6 +41,19 @@ impl Deferred {
 #[derive(Debug, Default)]
 pub(crate) struct Fields(BTreeMap<String, Vec<Vec<String>>>);
 
+impl Fields {
+    /// The fields of the named packets only.
+    pub(crate) fn only(&self, names: &[&str]) -> Self {
+        Self(
+            self.0
+                .iter()
+                .filter(|(name, _)| names.contains(&name.as_str()))
+                .map(|(name, paths)| (name.clone(), paths.clone()))
+                .collect(),
+        )
+    }
+}
+
 /// Reads the deferral table: one `<packet> <milestone> <reason>` per line, `#` starts a comment.
 pub(crate) fn parse_deferred(text: &str) -> Result<Deferred, String> {
     let mut map = BTreeMap::new();
@@ -250,6 +263,42 @@ pub(crate) fn compare(
         let pick_a = a.iter().filter(|p| &p.name == name).map(|p| &p.fields);
         let pick_b = b.iter().filter(|p| &p.name == name).map(|p| &p.fields);
         for (n, (x, y)) in pick_a.zip(pick_b).enumerate() {
+            for path in paths {
+                let (vx, vy) = (lookup(x, path), lookup(y, path));
+                if vx != vy {
+                    differences.push(format!(
+                        "{name}#{n}.{}: A {} != B {}",
+                        path.join("."),
+                        show(vx),
+                        show(vy)
+                    ));
+                }
+            }
+        }
+    }
+    differences
+}
+
+/// Compares the packets of two lists whose names the fixed-field list holds: the same number of
+/// each, and their fixed fields paired in order (`p6 api` compares each step this way). Returns
+/// the differences.
+pub(crate) fn compare_listed(a: &[Received], b: &[Received], fields: &Fields) -> Vec<String> {
+    let mut differences = Vec::new();
+    for (name, paths) in &fields.0 {
+        let pick_a: Vec<&Value> = a
+            .iter()
+            .filter(|p| &p.name == name)
+            .map(|p| &p.fields)
+            .collect();
+        let pick_b: Vec<&Value> = b
+            .iter()
+            .filter(|p| &p.name == name)
+            .map(|p| &p.fields)
+            .collect();
+        if pick_a.len() != pick_b.len() {
+            differences.push(format!("{name}: A {} != B {}", pick_a.len(), pick_b.len()));
+        }
+        for (n, (x, y)) in pick_a.iter().zip(&pick_b).enumerate() {
             for path in paths {
                 let (vx, vy) = (lookup(x, path), lookup(y, path));
                 if vx != vy {

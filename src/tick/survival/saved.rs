@@ -8,9 +8,10 @@
 
 use tracing::warn;
 
-use super::effects::{Active, MAX_DURATION};
+use super::effects::Active;
 use super::{MAX_AIR, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, Point, Survival};
 use crate::config::GameMode;
+use crate::effect::MAX_DURATION;
 use crate::effect::Type as Effect;
 use crate::item::Stack;
 use crate::nbt::{Compound, List, Value};
@@ -51,7 +52,7 @@ const MAX_EXHAUSTION: f64 = 5.0;
 /// The most effects read: one per effect type.
 const MAX_EFFECTS: usize = 27;
 
-/// The protocol's game type of a game mode (`SetPlayerGameType`, `StartGame`).
+/// The protocol's game type of a game mode (`UpdatePlayerGameType`, `StartGame`).
 pub(in crate::tick) fn game_mode_id(mode: GameMode) -> i32 {
     match mode {
         GameMode::Survival => 0,
@@ -120,16 +121,20 @@ fn point(extra: &Compound, world: &str, keys: [&str; 3]) -> Option<Point> {
     })
 }
 
-/// Reads the survival keys; each missing or bad key keeps its default.
-pub(super) fn load(survival: &mut Survival, extra: &Compound) {
+/// Reads the survival keys; each missing or bad key keeps its default. With `force-gamemode` the
+/// saved game mode is not loaded: the player joins in the server's mode (PMMP). Held-back items
+/// read with the server's `custom` items and blocks, so a custom item is not lost.
+pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::custom::Registry) {
     let s = survival;
-    s.game_mode = int(extra, GAME_MODE).and_then(|mode| match mode {
-        0 => Some(GameMode::Survival),
-        1 => Some(GameMode::Creative),
-        2 => Some(GameMode::Adventure),
-        3 => Some(GameMode::Spectator),
-        _ => None,
-    });
+    s.game_mode = int(extra, GAME_MODE)
+        .filter(|_| !s.forced_mode)
+        .and_then(|mode| match mode {
+            0 => Some(GameMode::Survival),
+            1 => Some(GameMode::Creative),
+            2 => Some(GameMode::Adventure),
+            3 => Some(GameMode::Spectator),
+            _ => None,
+        });
     if let Some(Value::List(List::Compound(list))) = extra.get(EFFECTS) {
         for e in list.iter().take(MAX_EFFECTS) {
             if let Some((effect, active)) = load_effect(e) {
@@ -157,7 +162,7 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound) {
         s.food_timer = timer % 80;
     }
     if let Some(level) = int(extra, XP_LEVEL).and_then(|level| u32::try_from(level).ok()) {
-        s.xp_level = level.min(super::food::MAX_LEVEL);
+        s.xp_level = level.min(crate::player::MAX_LEVEL);
     }
     if let Some(progress) = float(extra, XP_PROGRESS, 0.0, 1.0) {
         s.xp_progress = if progress >= 1.0 { 0.0 } else { progress };
@@ -193,7 +198,7 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound) {
             .iter()
             .take(MAX_HELD_BACK)
             .filter_map(|nbt| {
-                let stack = Stack::from_nbt(nbt);
+                let stack = Stack::from_nbt_with(nbt, custom);
                 if stack.is_none() {
                     // PMMP `Item::safeNbtDeserialize`: an item it does not know is left out.
                     warn!(?nbt, "a held-back death drop is unknown; it is left out");
@@ -378,7 +383,7 @@ mod tests {
         extra.insert("Other".to_owned(), Value::String("kept".to_owned()));
         save(&s, &mut extra);
         let mut loaded = Survival::default();
-        load(&mut loaded, &extra);
+        load(&mut loaded, &extra, &crate::custom::Registry::default());
         let mut again = extra.clone();
         save(&loaded, &mut again);
         assert_eq!(extra, again, "the bytes of unchanged data stay the same");
@@ -454,7 +459,7 @@ mod tests {
         list.extend(std::iter::repeat_n(Compound::new(), 1000));
         extra.insert(EFFECTS.to_owned(), Value::List(List::Compound(list)));
         let mut s = Survival::default();
-        load(&mut s, &extra);
+        load(&mut s, &extra, &crate::custom::Registry::default());
         assert_eq!(s.health, 20.0);
         assert_eq!(s.food, 20.0);
         assert_eq!(s.saturation, 5.0);
@@ -465,5 +470,23 @@ mod tests {
         assert_eq!(s.game_mode, None);
         assert_eq!(s.spawn, None);
         assert!(s.effects.is_empty());
+    }
+
+    #[test]
+    fn a_held_back_custom_item_survives_a_save_and_reload() {
+        let custom = crate::custom::tests::registry();
+        let ruby = custom.item_type(&crate::custom::tests::RUBY).unwrap();
+        let s = Survival {
+            held_back: vec![Stack::new(ruby, 3)],
+            ..Survival::default()
+        };
+        let mut extra = Compound::new();
+        save(&s, &mut extra);
+        let mut loaded = Survival::default();
+        load(&mut loaded, &extra, &custom);
+        assert_eq!(loaded.held_back, s.held_back);
+        let mut again = Compound::new();
+        save(&loaded, &mut again);
+        assert_eq!(again, extra, "saved again byte for byte");
     }
 }

@@ -78,36 +78,43 @@ pub(crate) enum ShapelessType {
     Stonecutter,
 }
 
+// pmmp-class: FurnaceType
 /// The block a furnace recipe is made in (PMMP `FurnaceType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FurnaceType {
+pub enum FurnaceType {
+    /// A furnace.
     Furnace,
+    /// A blast furnace (ores and metal, twice as fast).
     BlastFurnace,
+    /// A smoker (food, twice as fast).
     Smoker,
+    /// A campfire (food, slowly, without fuel).
     Campfire,
+    /// A soul campfire.
     SoulCampfire,
 }
 
-/// A shaped crafting recipe.
-#[derive(Debug)]
-pub(crate) struct Shaped {
+/// A shaped crafting recipe: PMMP's in the static table, or a view of a server's own
+/// ([`custom::Registry`](crate::custom::Registry)).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shaped<'a> {
     pub(crate) width: u8,
     pub(crate) height: u8,
     /// Row-major, `width * height` cells; `None` is an empty cell.
-    pub(crate) grid: &'static [Option<Ingredient>],
-    pub(crate) results: &'static [Stack],
+    pub(crate) grid: &'a [Option<Ingredient>],
+    pub(crate) results: &'a [Stack],
 }
 
-/// A shapeless recipe.
-#[derive(Debug)]
-pub(crate) struct Shapeless {
+/// A shapeless recipe: PMMP's in the static table, or a view of a server's own.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shapeless<'a> {
     pub(crate) kind: ShapelessType,
-    pub(crate) ingredients: &'static [Ingredient],
-    pub(crate) results: &'static [Stack],
+    pub(crate) ingredients: &'a [Ingredient],
+    pub(crate) results: &'a [Stack],
 }
 
 /// A furnace recipe.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Furnace {
     pub(crate) kind: FurnaceType,
     pub(crate) input: Ingredient,
@@ -148,11 +155,11 @@ pub(crate) struct SmithingTrim {
 }
 
 /// A recipe of any kind the `CraftingData` packet numbers (PMMP `CraftingManager` recipes by
-/// network ID).
+/// network ID), borrowed from the static table or a server's own recipes.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Recipe {
-    Shaped(&'static Shaped),
-    Shapeless(&'static Shapeless),
+pub(crate) enum Recipe<'a> {
+    Shaped(Shaped<'a>),
+    Shapeless(Shapeless<'a>),
     /// A furnace recipe: furnaces cook by themselves, so no request crafts with it.
     Furnace,
     SmithingTransform(&'static SmithingTransform),
@@ -161,16 +168,18 @@ pub(crate) enum Recipe {
 
 /// The recipe with this network ID, as [`crafting_data`] numbers them: from 1, shaped, then
 /// shapeless, furnace, smithing transform and smithing trim recipes. `None` for 0 and IDs past
-/// the last recipe. O(1).
+/// the last recipe. O(1). The table order fixes the IDs, so PMMP's map from recipe to ID is this
+/// function read backwards.
 #[doc(alias = "CraftingManager::getCraftingRecipeIndex")]
-pub(crate) fn recipe(network_id: u32) -> Option<Recipe> {
+#[doc(alias = "CraftingManager::getCraftingRecipeFromIndex")]
+pub(crate) fn recipe(network_id: u32) -> Option<Recipe<'static>> {
     let mut i = usize::try_from(network_id).ok()?.checked_sub(1)?;
     if let Some(r) = table::SHAPED.get(i) {
-        return Some(Recipe::Shaped(r));
+        return Some(Recipe::Shaped(*r));
     }
     i -= table::SHAPED.len();
     if let Some(r) = table::SHAPELESS.get(i) {
-        return Some(Recipe::Shapeless(r));
+        return Some(Recipe::Shapeless(*r));
     }
     i -= table::SHAPELESS.len();
     if i < table::FURNACE.len() {
@@ -196,7 +205,7 @@ impl Stack {
     }
 
     /// The network form (PMMP `TypeConverter::coreItemStackToNet`), with the stack's meta.
-    fn network(&self) -> ItemStack {
+    pub(crate) fn network(&self) -> ItemStack {
         item::network_stack(self.item, self.meta, self.count, self.nbt)
     }
 }
@@ -221,7 +230,7 @@ impl Name {
 
 impl ShapelessType {
     /// PMMP `CraftingRecipeBlockName`.
-    const fn block_name(self) -> &'static str {
+    pub(crate) const fn block_name(self) -> &'static str {
         match self {
             Self::Crafting => "crafting_table",
             Self::Stonecutter => "stonecutter",
@@ -230,9 +239,9 @@ impl ShapelessType {
 }
 
 impl FurnaceType {
-    /// The ticks one item takes to cook.
+    /// The ticks one item takes to cook in this block.
     #[doc(alias = "FurnaceType::getCookDurationTicks")]
-    pub(crate) fn cook_ticks(self) -> u16 {
+    pub fn cook_ticks(self) -> u16 {
         #[expect(
             clippy::indexing_slicing,
             reason = "invariant: the generated table has a cook time per furnace type, in enum \
@@ -242,7 +251,7 @@ impl FurnaceType {
     }
 
     /// PMMP `FurnaceRecipeBlockName`.
-    const fn block_name(self) -> &'static str {
+    pub(crate) const fn block_name(self) -> &'static str {
         match self {
             Self::Furnace => "furnace",
             Self::BlastFurnace => "blast_furnace",
@@ -312,9 +321,9 @@ pub(crate) fn crafting_data() -> CraftingData {
     }
 }
 
-impl Shaped {
+impl Shaped<'_> {
     /// The network form, as PMMP's `CraftingDataCache` writes it.
-    fn network(&self, id: u32) -> ShapedRecipe {
+    pub(crate) fn network(&self, id: u32) -> ShapedRecipe {
         ShapedRecipe {
             recipe_id: recipe_id(id),
             width: i32::from(self.width),
@@ -387,7 +396,7 @@ impl PotionContainerChange {
 }
 
 /// A shapeless recipe entry as PMMP writes one.
-fn shapeless(
+pub(crate) fn shapeless(
     id: u32,
     input: Vec<ItemDescriptorCount>,
     output: Vec<ItemStack>,
@@ -423,7 +432,7 @@ fn always_unlocked() -> RecipeUnlockRequirement {
 /// The network form of an ingredient (PMMP `TypeConverter::coreRecipeIngredientToNet`): an empty
 /// cell is the invalid descriptor with count 0, everything else has count 1. Since 1.26.40 the
 /// default descriptor names the item instead of giving its runtime ID.
-fn descriptor(ingredient: Option<&Ingredient>) -> ItemDescriptorCount {
+pub(crate) fn descriptor(ingredient: Option<&Ingredient>) -> ItemDescriptorCount {
     let default = |name: &str, meta: i32| {
         ItemDescriptor::Default(DefaultItemDescriptor {
             name: name.to_owned(),
@@ -506,7 +515,7 @@ fn bounds(
     b.map(|(x0, x1, y0, y1)| (x0, y0, x1 - x0 + 1, y1 - y0 + 1))
 }
 
-impl Shaped {
+impl Shaped<'_> {
     /// The recipe's shape without empty border rows and columns (PMMP's data pads some shapes,
     /// such as hoes, to 3x3): (first column, first row, columns, rows).
     fn shape(&self) -> (usize, usize, usize, usize) {
@@ -560,7 +569,7 @@ impl Shaped {
     }
 }
 
-impl Shapeless {
+impl Shapeless<'_> {
     /// Whether the occupied cells of a crafting grid hold exactly the ingredients, one item per
     /// ingredient in any cell. Unlike PMMP's greedy pass, the cells are matched to the ingredients
     /// as a whole (bipartite matching), so overlapping wildcard ingredients cannot steal a cell
@@ -679,17 +688,36 @@ pub(crate) fn first_special_id() -> u32 {
     u32::try_from(count).map_or(u32::MAX, |c| c.saturating_add(1))
 }
 
-/// The index of the furnace recipe of `kind` that takes `input` (PMMP
-/// `FurnaceRecipeManager::match`: the first recipe whose input accepts it). A linear scan: the
-/// block entities cache the answer per input, so it runs only when the input changes.
-pub(crate) fn furnace_recipe(kind: FurnaceType, input: &item::Stack) -> Option<u16> {
-    if input.is_empty() {
-        return None;
-    }
-    table::FURNACE
+/// The rows of a generated index (sorted by item name) for the item name `name`.
+fn by_name<'a>(index: &'a [(&'static str, u16)], name: &str) -> &'a [(&'static str, u16)] {
+    let start = index.partition_point(|(n, _)| *n < name);
+    let end = index.partition_point(|(n, _)| *n <= name);
+    index.get(start..end).unwrap_or_default()
+}
+
+/// The network IDs of PMMP's crafting-table recipes (shaped and shapeless, ascending) that can
+/// take an item named `name` as the first item of a grid, row by row: no other recipe can match
+/// the grid. Two binary searches in a generated index.
+pub(crate) fn crafting_candidates(name: &str) -> impl Iterator<Item = u32> {
+    by_name(&table::CRAFTING_BY_ITEM, name)
         .iter()
-        .position(|r| r.kind == kind && r.input.accepts(input))
-        .and_then(|i| u16::try_from(i).ok())
+        .map(|(_, id)| u32::from(*id))
+}
+
+/// The index of the furnace recipe of `kind` that takes `input` (PMMP
+/// `FurnaceRecipeManager::match`: the first recipe whose input accepts it). Only the recipes
+/// whose input takes the item's name are looked at (a generated index), in table order.
+pub(crate) fn furnace_recipe(kind: FurnaceType, input: &item::Stack) -> Option<u16> {
+    let item = input.item()?;
+    by_name(&table::FURNACE_BY_ITEM, item.name())
+        .iter()
+        .map(|(_, i)| *i)
+        .find(|i| furnace_at(*i).is_some_and(|r| r.kind == kind && r.input.accepts(input)))
+}
+
+/// How many furnace recipes PMMP has (a server's own count on from it).
+pub(crate) fn furnace_count() -> usize {
+    table::FURNACE.len()
 }
 
 /// The furnace recipe at `index` ([`furnace_recipe`]).
@@ -699,11 +727,11 @@ pub(crate) fn furnace_at(index: u16) -> Option<&'static Furnace> {
 
 /// What brewing `reagent` into the potion `input` makes (PMMP
 /// `CraftingManager::matchBrewingRecipe` and `BrewingRecipe::getResultFor`: container changes
-/// first, then potion types); `None` if no recipe takes them. A linear scan over the ~200
-/// brewing recipes; the brewing stand caches the answer per input pair.
+/// first, then potion types); `None` if no recipe takes them. Potion types are looked up by the
+/// reagent's name (a generated index), in table order.
 pub(crate) fn brew(input: &item::Stack, reagent: &item::Stack) -> Option<item::Stack> {
     let item = input.item()?;
-    reagent.item()?;
+    let by = reagent.item()?;
     for r in &table::POTION_CONTAINER_CHANGE {
         if !Ingredient::Exact(r.reagent).accepts(reagent) || item.name() != r.input.name {
             continue;
@@ -719,8 +747,9 @@ pub(crate) fn brew(input: &item::Stack, reagent: &item::Stack) -> Option<item::S
         )?;
         return Some(item::Stack::from_parts(output, 1, input.meta(), tag));
     }
-    table::POTION_TYPE
+    by_name(&table::POTION_TYPE_BY_REAGENT, by.name())
         .iter()
+        .filter_map(|(_, i)| table::POTION_TYPE.get(usize::from(*i)))
         .find(|r| {
             Ingredient::Exact(r.reagent).accepts(reagent)
                 && Ingredient::Exact(r.input).accepts(input)
@@ -1177,6 +1206,7 @@ mod tests {
 
     /// Every network ID of the packet finds the recipe the packet sends with it, and no other ID
     /// finds one.
+    // pmmp: CraftingManager::getCraftingRecipeIndex, CraftingManager::getCraftingRecipeFromIndex
     #[test]
     fn network_ids_find_their_recipes() {
         let packet = crafting_data();
@@ -1223,6 +1253,7 @@ mod tests {
         assert!(recipe(u32::MAX).is_none());
     }
 
+    // pmmp: FurnaceType, FurnaceType::getCookDurationTicks
     #[test]
     fn furnace_cook_times_are_pmmp_values() {
         // PMMP `FurnaceType`: furnace 200 ticks, blast furnace and smoker 100, campfires 600.
@@ -1279,6 +1310,101 @@ mod tests {
             }
         }
         assert!(seen > 0);
+    }
+
+    /// A stack an ingredient takes, for the ingredients that name one item (not tags).
+    fn stack_for(ingredient: &Ingredient) -> Option<item::Stack> {
+        match ingredient {
+            Ingredient::Exact(e) => Some(item::Stack::from_parts(
+                e.item,
+                1,
+                e.meta,
+                e.nbt.map(crate::nbt::compound),
+            )),
+            Ingredient::AnyMeta(n) => {
+                Type::from_name(n.name, 0, None, &crate::nbt::Compound::new())
+                    .map(|t| item::Stack::new(t, 1))
+            }
+            Ingredient::Tag(_) => None,
+        }
+    }
+
+    /// Every crafting-table recipe laid out in a grid (shaped ones as they are and mirrored,
+    /// shapeless ones in two orders) is among the index candidates of the grid's first item.
+    #[test]
+    fn the_crafting_index_finds_every_recipe_from_a_grids_first_item() {
+        let found = |grid: &[item::Stack], id: usize| {
+            let first = grid.iter().find(|s| !s.is_empty()).unwrap().item().unwrap();
+            let id = u32::try_from(id).unwrap();
+            crafting_candidates(first.name()).any(|c| c == id)
+        };
+        let mut checked = 0;
+        for (i, r) in table::SHAPED.iter().enumerate() {
+            let width = usize::from(r.width);
+            for mirror in [false, true] {
+                let mut grid = vec![item::Stack::EMPTY; GRID_CELLS];
+                let mut named = true;
+                for (cell, ingredient) in r.grid.iter().enumerate() {
+                    let (x, y) = (cell % width, cell / width);
+                    let x = if mirror { width - 1 - x } else { x };
+                    match ingredient.as_ref().map(stack_for) {
+                        Some(Some(s)) => grid[y * 3 + x] = s,
+                        Some(None) => named = false,
+                        None => {}
+                    }
+                }
+                if named {
+                    assert!(r.matches(&grid, 3), "shaped {i}");
+                    assert!(found(&grid, 1 + i), "shaped {i} mirrored {mirror}");
+                    checked += 1;
+                }
+            }
+        }
+        for (i, r) in table::SHAPELESS.iter().enumerate() {
+            if r.kind != ShapelessType::Crafting {
+                continue;
+            }
+            let Some(mut grid) = r
+                .ingredients
+                .iter()
+                .map(stack_for)
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            grid.resize(GRID_CELLS, item::Stack::EMPTY);
+            for _ in 0..2 {
+                assert!(r.matches(&grid), "shapeless {i}");
+                assert!(found(&grid, 1 + table::SHAPED.len() + i), "shapeless {i}");
+                grid[..r.ingredients.len()].reverse();
+                checked += 1;
+            }
+        }
+        assert!(checked > 1_700, "{checked}");
+    }
+
+    /// The furnace index finds what a scan of every furnace recipe finds.
+    #[test]
+    fn the_furnace_index_finds_the_first_recipe_a_scan_finds() {
+        let mut checked = 0;
+        for r in &table::FURNACE {
+            let Some(input) = stack_for(&r.input) else {
+                continue;
+            };
+            for kind in [
+                FurnaceType::Furnace,
+                FurnaceType::Smoker,
+                FurnaceType::Campfire,
+            ] {
+                let scan = table::FURNACE
+                    .iter()
+                    .position(|f| f.kind == kind && f.input.accepts(&input))
+                    .map(|i| u16::try_from(i).unwrap());
+                assert_eq!(furnace_recipe(kind, &input), scan, "{r:?}");
+            }
+            checked += 1;
+        }
+        assert!(checked > 100, "{checked}");
     }
 
     #[test]

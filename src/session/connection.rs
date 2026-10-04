@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+use super::packs::{self, CHUNK_INTERVAL, Reply, Transfer};
 use super::transport::{self, Transport};
 use super::{Event, Shared, unix_now};
 use crate::auth::Keys;
@@ -26,8 +27,7 @@ use crate::login::{self, Login, Mode};
 use crate::protocol::batch::{self, Header};
 use crate::protocol::packet::{
     self, Disconnect, NetworkSettings, PROTOCOL_VERSION, Packet, PlayStatus,
-    RequestNetworkSettings, ResourcePackClientResponse, ResourcePackStack, ResourcePacksInfo,
-    ServerToClientHandshake,
+    RequestNetworkSettings, ResourcePackClientResponse, ServerToClientHandshake,
 };
 use crate::tick::queue::{
     self, Identity, InputKind, Message, Outbound, SessionId, SessionInputs, Skin,
@@ -35,7 +35,8 @@ use crate::tick::queue::{
 
 /// From connection to verified login (PLAN.md 10.2).
 const LOGIN_DEADLINE: Duration = Duration::from_secs(10);
-/// From connection to `SetLocalPlayerAsInitialised` (PLAN.md 10.2).
+/// From connection to `SetLocalPlayerAsInitialised` (PLAN.md 10.2), plus the allowance of a
+/// resource pack download (PLAN.md 10.8, [`packs`]).
 const SPAWN_DEADLINE: Duration = Duration::from_secs(60);
 /// The largest message before `NetworkSettings` (PLAN.md 3).
 const FIRST_MESSAGE_BYTES: usize = 1024;
@@ -52,13 +53,12 @@ const SHIELD_ID: i32 = crate::item::SHIELD_RUNTIME_ID;
 const LOGIN_SUCCESS: i32 = 0;
 const LOGIN_FAILED_CLIENT: i32 = 1;
 const LOGIN_FAILED_SERVER: i32 = 2;
-/// `ResourcePackClientResponse` values (gophertunnel `PackResponse*`).
-const PACKS_REFUSED: u32 = 0;
-const PACKS_SEND: u32 = 1;
-const PACKS_ALL_DOWNLOADED: u32 = 2;
-const PACKS_COMPLETED: u32 = 3;
 /// `Disconnect` reason for a failed login (gophertunnel `DisconnectReasonNotAuthenticated`).
 const REASON_NOT_AUTHENTICATED: i32 = 46;
+/// `Disconnect` reason for refused packs (gophertunnel `DisconnectReasonResourcePackProblem`).
+const REASON_RESOURCE_PACK_PROBLEM: i32 = 58;
+/// What a player who refuses required packs sees (PMMP's text).
+const PACKS_REFUSED_MESSAGE: &str = "You must accept resource packs to join this server.";
 
 /// Runs one connection until it closes, then tells the tick and the accept task.
 pub(super) async fn run(id: SessionId, conn: Transport, shared: Arc<Shared>) {
@@ -88,6 +88,11 @@ struct Session {
     shared: Arc<Shared>,
     stage: Stage,
     started: Instant,
+    /// When the spawn deadline passes: [`SPAWN_DEADLINE`] after the start, later by the
+    /// allowance of a pack download.
+    spawn_at: Instant,
+    /// The resource pack sequence.
+    transfer: Transfer,
     encoder: Option<batch::Encoder>,
     decoder: Option<batch::Decoder>,
     encryptor: Option<Encryptor>,
@@ -137,6 +142,7 @@ enum Error {
     Crypto(crate::crypto::Error),
     Transport(transport::Error),
     Queue(queue::Error),
+    Packs(packs::Error),
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;
@@ -154,6 +160,7 @@ impl fmt::Display for Error {
             Self::Crypto(_) => f.write_str("encryption failed"),
             Self::Transport(_) => f.write_str("connection failed"),
             Self::Queue(_) => f.write_str("tick queue unavailable"),
+            Self::Packs(_) => f.write_str("resource pack sequence failed"),
         }
     }
 }
@@ -167,6 +174,7 @@ impl std::error::Error for Error {
             Self::Crypto(e) => Some(e),
             Self::Transport(e) => Some(e),
             Self::Queue(e) => Some(e),
+            Self::Packs(e) => Some(e),
             Self::Order(_) | Self::Limit(_) | Self::Protocol(_) | Self::Binding => None,
         }
     }
@@ -181,6 +189,8 @@ impl Session {
             conn,
             stage: Stage::NetworkSettings,
             started,
+            spawn_at: started + SPAWN_DEADLINE,
+            transfer: Transfer::default(),
             encoder: None,
             decoder: None,
             encryptor: None,
@@ -201,8 +211,11 @@ impl Session {
 
     async fn serve(&mut self) -> End {
         let login_deadline = deadline(self.started + LOGIN_DEADLINE);
-        let spawn_deadline = deadline(self.started + SPAWN_DEADLINE);
-        tokio::pin!(login_deadline, spawn_deadline);
+        let mut spawn_at = self.spawn_at;
+        let spawn_deadline = deadline(spawn_at);
+        // Already passed: the first pack chunk goes out as soon as it is asked for.
+        let pace = deadline(self.started);
+        tokio::pin!(login_deadline, spawn_deadline, pace);
         let mut shutdown = self.shared.shutdown.clone();
         if *shutdown.borrow_and_update() {
             return End::Shutdown;
@@ -214,6 +227,16 @@ impl Session {
                     if let Err(e) = self.on_message(message).await {
                         return End::Failed(e);
                     }
+                    if self.spawn_at != spawn_at {
+                        spawn_at = self.spawn_at;
+                        spawn_deadline.as_mut().reset(tokio::time::Instant::from_std(spawn_at));
+                    }
+                }
+                () = &mut pace, if self.stage == Stage::Packs && self.transfer.has_chunks() => {
+                    if let Err(e) = self.send_chunk().await {
+                        return End::Failed(e);
+                    }
+                    pace.as_mut().reset(tokio::time::Instant::from_std(clock::now() + CHUNK_INTERVAL));
                 }
                 outbound = next_outbound(self.outbound.as_mut()) => match outbound {
                     Some(Outbound::Send(messages)) => {
@@ -361,13 +384,17 @@ impl Session {
                     Packet::PlayStatus(PlayStatus {
                         status: LOGIN_SUCCESS,
                     }),
-                    Packet::ResourcePacksInfo(resource_packs_info()),
+                    Packet::ResourcePacksInfo(self.shared.packs.info().clone()),
                 ])
                 .await
             }
             (Stage::Packs, Packet::ResourcePackClientResponse(response)) => {
-                self.on_pack_response(response).await
+                self.on_pack_response(&response).await
             }
+            (Stage::Packs, Packet::ResourcePackChunkRequest(request)) => self
+                .transfer
+                .on_chunk_request(&self.shared.packs, &request)
+                .map_err(Error::Packs),
             // The blob cache is not used until chunks are (M6); the answer needs no reply.
             (Stage::Handshake | Stage::Packs, Packet::ClientCacheStatus(_)) => Ok(()),
             (
@@ -375,7 +402,8 @@ impl Session {
                 Packet::RequestNetworkSettings(_)
                 | Packet::Login(_)
                 | Packet::ClientToServerHandshake(_)
-                | Packet::ResourcePackClientResponse(_),
+                | Packet::ResourcePackClientResponse(_)
+                | Packet::ResourcePackChunkRequest(_),
             ) => Err(Error::Order("login sequence packet repeated or early")),
             (Stage::Joined, packet) => {
                 if matches!(packet, Packet::SetLocalPlayerAsInitialised(_)) {
@@ -439,6 +467,7 @@ impl Session {
             uuid: identity.uuid,
             skin: Skin::new(skin),
             device_os: client_data.device_os,
+            address: Some(self.conn.addr().ip()),
         });
         self.logged_in = true;
         self.conn.logged_in();
@@ -484,18 +513,37 @@ impl Session {
         login::verify(request, Mode::Online(&keys), unix_now()).map_err(Error::Login)
     }
 
-    async fn on_pack_response(&mut self, response: ResourcePackClientResponse) -> Result<()> {
-        match response.response {
-            PACKS_ALL_DOWNLOADED => {
-                self.send(&[Packet::ResourcePackStack(resource_pack_stack())])
-                    .await
+    async fn on_pack_response(&mut self, response: &ResourcePackClientResponse) -> Result<()> {
+        let reply = self
+            .transfer
+            .on_response(&self.shared.packs, response)
+            .map_err(Error::Packs)?;
+        match reply {
+            Reply::Send { packets, extend } => {
+                self.spawn_at = self.spawn_at.checked_add(extend).unwrap_or(self.spawn_at);
+                if packets.is_empty() {
+                    return Ok(());
+                }
+                self.send(&packets).await
             }
-            PACKS_COMPLETED => self.join(),
-            // Anchor offers no packs until M8, so there is nothing to send.
-            PACKS_SEND if response.packs_to_download.is_empty() => Ok(()),
-            PACKS_SEND => Err(Error::Order("requested a pack that was not offered")),
-            PACKS_REFUSED => Err(Error::Order("resource packs refused")),
-            _ => Err(Error::Order("unknown resource pack response")),
+            Reply::Join => self.join(),
+            Reply::Refused => {
+                self.send(&[Packet::Disconnect(Disconnect {
+                    reason: REASON_RESOURCE_PACK_PROBLEM,
+                    message: PACKS_REFUSED_MESSAGE.to_owned(),
+                    ..Disconnect::default()
+                })])
+                .await?;
+                Err(Error::Order("resource packs refused"))
+            }
+        }
+    }
+
+    /// Sends the next resource pack chunk the client asked for.
+    async fn send_chunk(&mut self) -> Result<()> {
+        match self.transfer.next_chunk(&self.shared.packs) {
+            Some(chunk) => self.send(&[chunk]).await,
+            None => Ok(()),
         }
     }
 
@@ -579,13 +627,20 @@ impl Session {
         Ok(())
     }
 
-    /// Sends the tick's messages in order: runs of packets batched here, shared batches as
-    /// they are.
+    /// Sends the tick's messages in order: runs of packets batched here, a shared packet in a
+    /// batch of its own (encoded from the shared copy), shared batches as they are.
     async fn send_messages(&mut self, messages: Vec<Message>) -> Result<()> {
         let mut run = Vec::new();
         for message in messages {
             match message {
                 Message::Packet(packet) => run.push(packet),
+                Message::SharedPacket(packet) => {
+                    if !run.is_empty() {
+                        self.send(&run).await?;
+                        run.clear();
+                    }
+                    self.send(std::slice::from_ref(&*packet)).await?;
+                }
                 Message::Shared(batches) => {
                     if !run.is_empty() {
                         self.send(&run).await?;
@@ -622,22 +677,6 @@ async fn next_outbound(outbound: Option<&mut mpsc::Receiver<Outbound>>) -> Optio
 
 fn deadline(at: Instant) -> tokio::time::Sleep {
     tokio::time::sleep_until(tokio::time::Instant::from_std(at))
-}
-
-/// `ResourcePacksInfo` with no packs, as BDS sends it (P6).
-fn resource_packs_info() -> ResourcePacksInfo {
-    ResourcePacksInfo {
-        world_template_version: "0.0.0".to_owned(),
-        ..ResourcePacksInfo::default()
-    }
-}
-
-/// `ResourcePackStack` with no packs, as BDS sends it (P6).
-fn resource_pack_stack() -> ResourcePackStack {
-    ResourcePackStack {
-        base_game_version: "*".to_owned(),
-        ..ResourcePackStack::default()
-    }
 }
 
 /// A token bucket over decompressed input bytes (PLAN.md 10.2).
@@ -702,12 +741,5 @@ mod tests {
             Some(())
         );
         assert_eq!(budget.take(1, start + Duration::from_secs(100)), None);
-    }
-
-    #[test]
-    fn empty_pack_stacks_match_bds() {
-        assert_eq!(resource_pack_stack().base_game_version, "*");
-        assert!(resource_pack_stack().texture_packs.is_empty());
-        assert_eq!(resource_packs_info().world_template_version, "0.0.0");
     }
 }

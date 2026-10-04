@@ -128,7 +128,7 @@ pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
         &mut out,
         "Shaped crafting recipes, in dump order.",
         "SHAPED",
-        "Shaped",
+        "Shaped<'static>",
         &recipes.shaped,
         |r| shaped(data, r).map_err(|e| format!("shaped recipe: {e}")),
     )?;
@@ -136,7 +136,7 @@ pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
         &mut out,
         "Shapeless recipes, in dump order.",
         "SHAPELESS",
-        "Shapeless",
+        "Shapeless<'static>",
         &recipes.shapeless,
         |r| shapeless(data, r).map_err(|e| format!("shapeless recipe: {e}")),
     )?;
@@ -157,6 +157,7 @@ pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
         |r| furnace(data, r).map_err(|e| format!("furnace recipe: {e}")),
     )?;
     brewing_and_smithing(&mut out, data, &recipes)?;
+    indexes(&mut out, data, &recipes, &furnaces)?;
     let mut ticks = Vec::with_capacity(FURNACE_TYPES.len());
     for (name, _) in FURNACE_TYPES {
         let t = data
@@ -243,6 +244,139 @@ fn brewing_and_smithing(out: &mut String, data: &Data, recipes: &Recipes) -> R<(
             ))
         },
     )
+}
+
+/// Appends the item name indexes of the recipe lookups, so that none scans every recipe: each
+/// row is (item name, recipe), sorted by name and then recipe, for every name an ingredient that
+/// decides the lookup takes.
+///
+/// - `CRAFTING_BY_ITEM`: crafting-table recipes by network ID (shaped from 1, then shapeless),
+///   under the names the first item of a grid (row by row) can have: for a shaped recipe the
+///   leftmost and the rightmost ingredient of its top row (the shape as laid out and mirrored),
+///   for a shapeless one every ingredient.
+/// - `FURNACE_BY_ITEM`: furnace recipes by `FURNACE` index, under their input's names.
+/// - `POTION_TYPE_BY_REAGENT`: potion type recipes by `POTION_TYPE` index, under their reagent's
+///   name.
+fn indexes(out: &mut String, data: &Data, recipes: &Recipes, furnaces: &[&FurnaceJson]) -> R<()> {
+    let mut crafting = Vec::new();
+    for (i, r) in recipes.shaped.iter().enumerate() {
+        let id = 1 + i;
+        let top = r
+            .grid
+            .iter()
+            .filter(|c| c.ingredient.is_some())
+            .map(|c| c.y)
+            .min()
+            .ok_or("shaped recipe without ingredients")?;
+        let row = r.grid.iter().filter(|c| c.y == top);
+        let first = row
+            .clone()
+            .filter(|c| c.ingredient.is_some())
+            .min_by_key(|c| c.x);
+        let last = row.filter(|c| c.ingredient.is_some()).max_by_key(|c| c.x);
+        for cell in [first, last].into_iter().flatten() {
+            if let Some(i) = &cell.ingredient {
+                for name in names(data, i)? {
+                    crafting.push((name, id));
+                }
+            }
+        }
+    }
+    for (i, r) in recipes.shapeless.iter().enumerate() {
+        if r.block != "crafting_table" {
+            continue;
+        }
+        let id = 1 + recipes.shaped.len() + i;
+        for ingredient in &r.ingredients {
+            for name in names(data, ingredient)? {
+                crafting.push((name, id));
+            }
+        }
+    }
+    let mut furnace = Vec::new();
+    for (i, r) in furnaces.iter().enumerate() {
+        for name in names(data, &r.input)? {
+            furnace.push((name, i));
+        }
+    }
+    let mut potion = Vec::new();
+    for (i, r) in recipes.potion_type.iter().enumerate() {
+        for name in names(data, &r.ingredient)? {
+            potion.push((name, i));
+        }
+    }
+    index(
+        out,
+        "Crafting-table recipe network IDs by the item names the first item of a grid can have.",
+        "CRAFTING_BY_ITEM",
+        crafting,
+    )?;
+    index(
+        out,
+        "`FURNACE` indexes by the item names of the input.",
+        "FURNACE_BY_ITEM",
+        furnace,
+    )?;
+    index(
+        out,
+        "`POTION_TYPE` indexes by the item name of the reagent.",
+        "POTION_TYPE_BY_REAGENT",
+        potion,
+    )
+}
+
+/// Appends a sorted, deduplicated `static` index of (item name, recipe) rows.
+fn index(out: &mut String, doc: &str, name: &str, mut rows: Vec<(String, usize)>) -> R<()> {
+    rows.sort_unstable();
+    rows.dedup();
+    put!(
+        out,
+        "/// {doc}\npub(super) static {name}: [(&str, u16); {}] = [",
+        rows.len()
+    );
+    for (item, recipe) in rows {
+        let recipe = u16::try_from(recipe).map_err(|_| format!("{name}: recipe {recipe}"))?;
+        put!(out, "({},{recipe}),", str_lit(&item));
+    }
+    out.push_str("];\n\n");
+    Ok(())
+}
+
+/// The item names an ingredient takes: the exact item's, the wildcard's, or the tag's items
+/// (`item::Tag::contains` reads the tags by item name too).
+fn names(data: &Data, json: &Json) -> R<Vec<String>> {
+    let obj = json.as_object().ok_or("ingredient is not an object")?;
+    let mut entries = obj.iter();
+    let (Some((kind, value)), None) = (entries.next(), entries.next()) else {
+        return Err("ingredient must have exactly one kind".to_owned());
+    };
+    match kind.as_str() {
+        "exact" => {
+            let s = data.stack(value)?;
+            let item = data
+                .items
+                .get(usize::from(s.item))
+                .ok_or("exact ingredient outside the item table")?;
+            Ok(vec![item.name.clone()])
+        }
+        "any_meta" => Ok(vec![
+            value
+                .as_str()
+                .ok_or("any_meta name is not a string")?
+                .to_owned(),
+        ]),
+        "tag" => {
+            let tag = value.as_str().ok_or("tag is not a string")?;
+            let tag = data
+                .tables
+                .item_tags
+                .iter()
+                .find(|t| t.tag == tag)
+                .ok_or_else(|| format!("item tag {tag} is not in PMMP's tag map"))?;
+            Ok(tag.items.clone())
+        }
+        other => Err(format!("unknown ingredient kind {other}")),
+    }
 }
 
 /// Appends a `static` array with a row for each recipe.

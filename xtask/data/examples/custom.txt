@@ -1,0 +1,28 @@
+# The custom example (examples/custom.rs), played by the bot from its join.
+# The bot downloaded the pack built in code.
+expect-packs 1
+# /ruby gives the custom item.
+command ruby
+expect-output Gave you 8 rubies
+expect-item example:ruby 8
+# Four rubies make a ruby block in the inventory grid (the custom shaped recipe).
+craft example:ruby_block example:ruby
+expect-item example:ruby_block 1
+expect-item example:ruby 4
+# The block placed next to the spawn, in its default state; using it toggles its property.
+place example:ruby_block 1 -60 0
+expect-block 1 -60 0 example:ruby_block {"example:glowing":false}
+use 1 -60 0
+expect-text The ruby block glows
+expect-block 1 -60 0 example:ruby_block {"example:glowing":true}
+# Broken by hand after its break time, it drops four rubies (which fly off at random: the bot
+# may or may not pick them up).
+break 1 -60 0 1s
+expect-drop example:ruby 4
+# The wisp, a custom entity, is shown with its identifier and answers a poke.
+expect-entity example:wisp
+interact example:wisp
+expect-text The wisp whispers: poked 1 times
+# The cleric's typed offers: a ruby for an emerald.
+trade minecraft:villager_v2
+expect-item minecraft:emerald 1

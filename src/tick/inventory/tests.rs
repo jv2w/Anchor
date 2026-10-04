@@ -6,6 +6,10 @@ use std::collections::BTreeMap;
 
 use tokio::sync::mpsc::Receiver;
 
+mod api;
+mod events;
+mod menu;
+
 use super::super::queue::{Input, Message, Outbound};
 use super::super::tests::{answer, join, new_state, radius, settings};
 use super::super::{
@@ -36,6 +40,8 @@ thread_local! {
     /// drop takes one place of `room` and is kept in [`DROPPED`].
     static ROOM: Cell<Option<usize>> = const { Cell::new(None) };
     static DROPPED: Cell<Vec<Stack>> = const { Cell::new(Vec::new()) };
+    /// The menu clicks the model test's handlers heard.
+    static MENU_CLICKS: Cell<u32> = const { Cell::new(0) };
 }
 
 /// The stand-in's answer to a drop: `None` when no test stands in.
@@ -73,12 +79,15 @@ pub(super) struct World {
 
 impl World {
     pub(super) fn new(mode: GameMode) -> Self {
+        Self::with_listeners(mode, Listeners::default())
+    }
+
+    /// A world whose events go to `listeners` (sorted here).
+    pub(super) fn with_listeners(mode: GameMode, mut listeners: Listeners) -> Self {
         set_room(usize::MAX);
         DROPPED.set(Vec::new());
-        let mut state = new_state(
-            settings(|c| c.general.gamemode = mode),
-            Listeners::default(),
-        );
+        listeners.sort();
+        let mut state = new_state(settings(|c| c.general.gamemode = mode), listeners);
         // The test server loads its spawn chunks without the rule modules; hand them over.
         let loaded: Vec<_> = state.worlds[0].loaded().collect();
         for pos in loaded {
@@ -104,7 +113,12 @@ impl World {
     }
 
     /// One tick; the packets it delivered to the joined sessions.
-    pub(super) fn tick_delivered(&mut self, mut inputs: Vec<Input>) -> Vec<Packet> {
+    pub(super) fn tick_delivered(&mut self, inputs: Vec<Input>) -> Vec<Packet> {
+        self.tick_each(inputs).into_iter().flatten().collect()
+    }
+
+    /// One tick; the packets it delivered to each joined session, in join order.
+    pub(super) fn tick_each(&mut self, mut inputs: Vec<Input>) -> Vec<Vec<Packet>> {
         let mut output = Output::default();
         let mut log = InputLog::default();
         let mut answers = std::mem::take(&mut self.answers);
@@ -121,16 +135,19 @@ impl World {
         boundary(state, &mut output, &mut log);
         let requests = std::mem::take(&mut output.requests);
         self.answers = answer(state, requests);
-        let mut delivered = Vec::new();
+        let mut delivered = Vec::with_capacity(self.receivers.len());
         for rx in &mut self.receivers {
+            let mut packets = Vec::new();
             while let Ok(o) = rx.try_recv() {
                 if let Outbound::Send(messages) = o {
-                    delivered.extend(messages.into_iter().filter_map(|m| match m {
+                    packets.extend(messages.into_iter().filter_map(|m| match m {
                         Message::Packet(p) => Some(p),
+                        Message::SharedPacket(p) => Some((*p).clone()),
                         Message::Shared(_) => None,
                     }));
                 }
             }
+            delivered.push(packets);
         }
         delivered
     }
@@ -221,6 +238,15 @@ impl World {
 
     pub(super) fn try_slot(&self, s: SessionId, container: C, slot: u8) -> Option<Slot> {
         let inv = self.inv(s);
+        if let Some(window) = inv.window.as_ref().filter(|w| w.id != 0)
+            && let (WindowKind::Menu { .. }, Some(menu), C::LevelEntity) =
+                (window.kind, &inv.menu, container)
+        {
+            return Some(Slot {
+                stack: menu.stacks.get(usize::from(slot))?.clone(),
+                id: *window.ids.get(usize::from(slot))?,
+            });
+        }
         match inv.locate(container as u8, slot)? {
             SlotRef::Block(i) => {
                 let window = inv.window.as_ref()?;
@@ -416,7 +442,7 @@ pub(super) fn ok(r: &ItemStackResponse) -> bool {
 use crate::protocol::consts::ItemStackResponseStatus;
 
 /// The crafting recipes in network ID order with their ingredients and their one result.
-fn crafting_recipes() -> Vec<(u32, Recipe)> {
+fn crafting_recipes() -> Vec<(u32, Recipe<'static>)> {
     (1..)
         .map_while(|id| crafting::recipe(id).map(|r| (id, r)))
         .filter(|(_, r)| match r {
@@ -427,7 +453,7 @@ fn crafting_recipes() -> Vec<(u32, Recipe)> {
         .collect()
 }
 
-fn ingredients(r: Recipe) -> Vec<Ingredient> {
+fn ingredients(r: Recipe<'static>) -> Vec<Ingredient> {
     match r {
         Recipe::Shaped(s) => s.ingredients().copied().collect(),
         Recipe::Shapeless(s) => s.ingredients.to_vec(),
@@ -435,7 +461,7 @@ fn ingredients(r: Recipe) -> Vec<Ingredient> {
     }
 }
 
-fn results(r: Recipe) -> Vec<Stack> {
+fn results(r: Recipe<'static>) -> Vec<Stack> {
     let list = match r {
         Recipe::Shaped(s) => s.results,
         Recipe::Shapeless(s) => s.results,
@@ -445,7 +471,7 @@ fn results(r: Recipe) -> Vec<Stack> {
 }
 
 /// The lowest recipe ID making `result` from only `allowed` items (the bot's `recipeFor`).
-fn recipe_for(result: Type, allowed: &[Type]) -> (u32, Recipe) {
+fn recipe_for(result: Type, allowed: &[Type]) -> (u32, Recipe<'static>) {
     let allowed: Vec<Stack> = allowed.iter().map(|t| Stack::new(*t, 1)).collect();
     crafting_recipes()
         .into_iter()
@@ -511,13 +537,13 @@ fn stack_network_ids_and_responses_follow_the_bds_craft_scenario() {
     w.sent(s);
     w.open_inventory(s);
     let open = w.sent(s);
-    let eye = w.player(s).position;
+    let eye = BlockPos::containing(w.player(s).position);
     assert_eq!(
         open,
         vec![Packet::ContainerOpen(ContainerOpen {
             window_id: 2,
             container_type: 255,
-            container_position: [block_of(eye.x), block_of(eye.y), block_of(eye.z)],
+            container_position: [eye.x, eye.y, eye.z],
             container_entity_unique_id: -1,
         })]
     );
@@ -807,6 +833,20 @@ pub(super) fn check_slots(state: &State) {
                     check(s, Some(*id));
                 }
             }
+            if let WindowKind::Menu { kind, .. } = w.kind {
+                let stacks = &inv
+                    .menu
+                    .as_ref()
+                    .expect("a menu window has its menu")
+                    .stacks;
+                assert_eq!(stacks.len(), kind.size());
+                if w.id != 0 {
+                    assert_eq!(stacks.len(), w.ids.len());
+                    for (s, id) in stacks.iter().zip(&w.ids) {
+                        check(s, Some(*id));
+                    }
+                }
+            }
         }
         let window = inv.window.as_ref().map_or(&[][..], |w| w.ui.as_slice());
         let held = inv
@@ -844,6 +884,10 @@ fn addressable(inv: &Inventory, rng: &mut Random) -> Vec<(C, u8)> {
     out.push((C::Offhand, 0));
     out.push((C::Cursor, 0));
     out.extend((28..32).map(|i| (C::CraftingInput, i)));
+    if let Some(WindowKind::Menu { kind, .. }) = window.map(|w| w.kind) {
+        let size = u8::try_from(kind.size()).unwrap();
+        out.extend((0..size).map(|i| (C::LevelEntity, i)));
+    }
     if let Some(w) = window {
         for p in w.kind.parts() {
             let c = C::ALL
@@ -962,7 +1006,7 @@ fn random_request(
     s: SessionId,
     rng: &mut Random,
     request: i32,
-    recipes: &[(u32, Recipe)],
+    recipes: &[(u32, Recipe<'static>)],
 ) -> Vec<StackRequestAction> {
     let inv = w.inv(s);
     let slots = addressable(inv, rng);
@@ -1139,7 +1183,7 @@ fn lay_out(
     s: SessionId,
     rng: &mut Random,
     request: i32,
-    recipes: &[(u32, Recipe)],
+    recipes: &[(u32, Recipe<'static>)],
 ) -> Vec<StackRequestAction> {
     let inv = w.inv(s);
     let workbench = inv
@@ -1151,7 +1195,7 @@ fn lay_out(
     } else {
         (28u8, 2usize)
     };
-    let fitting: Vec<&(u32, Recipe)> = recipes
+    let fitting: Vec<&(u32, Recipe<'static>)> = recipes
         .iter()
         .filter(|(_, r)| match r {
             Recipe::Shaped(r) => usize::from(r.width) <= side && usize::from(r.height) <= side,
@@ -1245,8 +1289,11 @@ fn stock(w: &mut World, s: SessionId) {
     clippy::too_many_lines,
     reason = "consistency: the model test checks every request kind in one loop"
 )]
-fn run_model(mode: GameMode, seed: i64, count: u32) {
-    let mut w = World::new(mode);
+fn run_model(mode: GameMode, seed: i64, count: u32, listeners: Option<Listeners>) {
+    // Listeners may move items themselves (keeping their totals), so a refused request keeps
+    // the totals but not every slot.
+    let listening = listeners.is_some();
+    let mut w = World::with_listeners(mode, listeners.unwrap_or_default());
     let players = [w.join(1), w.join(2)];
     let chest = BlockPos::new(3, -60, 3);
     w.double_chest(chest);
@@ -1265,7 +1312,7 @@ fn run_model(mode: GameMode, seed: i64, count: u32) {
         item(it::Kind::Stick),
         block_item(blk::Kind::Cobblestone),
     ];
-    let recipes: Vec<(u32, Recipe)> = crafting_recipes()
+    let recipes: Vec<(u32, Recipe<'static>)> = crafting_recipes()
         .into_iter()
         .filter(|(_, r)| {
             results(*r).len() == 1
@@ -1285,12 +1332,13 @@ fn run_model(mode: GameMode, seed: i64, count: u32) {
         let snap = snapshot(&w.state);
         match rng.below(100) {
             0..=2 => {
-                match rng.below(6) {
+                match rng.below(8) {
                     0 => w.open_inventory(s),
                     1 => w.open_block(s, chest),
                     2 => w.open_block(s, barrel),
                     3 => w.open_block(s, bench),
                     4 => w.open_block(s, ender),
+                    5 | 6 => open_model_menu(&mut w, s, rng.below(3)),
                     _ => w.close(s),
                 }
                 w.sent(s);
@@ -1329,6 +1377,18 @@ fn run_model(mode: GameMode, seed: i64, count: u32) {
                 let dropping = actions
                     .iter()
                     .any(|a| matches!(a, StackRequestAction::Drop(_)));
+                let touch = super::menu::touch(
+                    &w.state,
+                    s,
+                    &ItemStackRequest {
+                        request_id: id,
+                        actions: actions.clone(),
+                        filter_strings: Vec::new(),
+                        filter_cause: 0,
+                    },
+                );
+                // A menu handler changes the menu's slots and may close it, never an item.
+                let menu_request = !matches!(touch, super::menu::Touch::Nothing);
                 let r = w.request_as(s, id, actions.clone());
                 let after = totals(&w.state);
                 if ok(&r) {
@@ -1351,15 +1411,18 @@ fn run_model(mode: GameMode, seed: i64, count: u32) {
                 } else {
                     errors += 1;
                     assert_eq!(after, before, "request {n}");
-                    assert_eq!(
-                        snapshot(&w.state),
-                        snap,
-                        "a refused request changes nothing"
-                    );
+                    if !listening && !menu_request {
+                        assert_eq!(
+                            snapshot(&w.state),
+                            snap,
+                            "a refused request changes nothing"
+                        );
+                    }
                 }
                 last = Some((s, id, actions));
             }
         }
+        tick_menus(&mut w.state);
         check_slots(&w.state);
         for p in players {
             w.sent(p);
@@ -1372,12 +1435,62 @@ fn run_model(mode: GameMode, seed: i64, count: u32) {
     );
     assert!(crafts > 100, "{crafts} crafts");
     assert!(drops > 100, "{drops} drops");
+    let clicks = MENU_CLICKS.take();
+    assert!(clicks > 20, "{clicks} menu clicks");
+}
+
+/// Opens a menu of kind `k` for `s` in the model test: its handler counts the click, puts a copy
+/// of the player's cursor into the clicked slot (the menu's items are the server's: the copy
+/// makes no item), and closes the menu on every seventh slot.
+fn open_model_menu(w: &mut World, s: SessionId, k: u32) {
+    let kind = [
+        crate::menu::Kind::Chest,
+        crate::menu::Kind::DoubleChest,
+        crate::menu::Kind::Hopper,
+    ][k as usize];
+    let menu = crate::menu::Menu::new(kind).item(1, Stack::new(item(it::Kind::Stick), 3));
+    let opened = super::super::Context {
+        state: &mut w.state,
+    }
+    .open_menu(crate::player::Id::new(s), menu, |cx, player, click| {
+        MENU_CLICKS.set(MENU_CLICKS.get() + 1);
+        cx.set_menu_item(player, click.slot(), click.cursor().clone())
+            .expect("the cursor's stack fits a slot");
+        if click.slot() % 7 == 0 {
+            crate::menu::Response::Close
+        } else {
+            crate::menu::Response::Keep
+        }
+    });
+    assert!(
+        matches!(opened, Ok(_) | Err(crate::menu::Error::Busy)),
+        "{opened:?}"
+    );
 }
 
 #[test]
 fn random_requests_keep_every_item_accounted_for() {
-    run_model(GameMode::Survival, 1, 50_000);
-    run_model(GameMode::Creative, 2, 50_000);
+    run_model(GameMode::Survival, 1, 50_000, None);
+    run_model(GameMode::Creative, 2, 50_000, None);
+}
+
+// pmmp: InventoryTransactionEvent, CraftItemEvent, PlayerDropItemEvent
+#[test]
+fn random_requests_with_random_listeners_keep_every_item_accounted_for() {
+    // PLAN.md 10.8: listeners from a fixed seed cancel, change fields or move items themselves
+    // through the Context; no item is made or lost but by the requests' own crafts and drops.
+    run_model(
+        GameMode::Survival,
+        3,
+        50_000,
+        Some(events::random_listeners(3)),
+    );
+    run_model(
+        GameMode::Creative,
+        4,
+        50_000,
+        Some(events::random_listeners(4)),
+    );
 }
 
 #[test]
@@ -1532,7 +1645,7 @@ fn closing_leaving_or_dying_mid_craft_returns_every_item() {
     let mut saved = Compound::new();
     save(w.inv(s), &mut saved);
     let mut back = Inventory::default();
-    load(&mut back, &saved);
+    load(&mut back, &saved, &crate::custom::Registry::default());
     assert_eq!(back.pending, w.inv(s).pending, "waiting stacks are saved");
     let id = w.id(s, C::HotBar, 1);
     set_room(usize::MAX);
@@ -1615,7 +1728,7 @@ fn a_leaving_player_keeps_its_items_in_its_saved_data() {
     let mut extra = Compound::new();
     save(w.inv(s), &mut extra);
     let mut back = Inventory::default();
-    load(&mut back, &extra);
+    load(&mut back, &extra, &crate::custom::Registry::default());
     let count: u64 = back.main.stacks.iter().map(|s| u64::from(s.count())).sum();
     assert_eq!(count, 64);
 }
@@ -1645,7 +1758,7 @@ fn a_save_holds_the_cursor_grids_and_window_slots_once_and_a_load_gives_them_bac
     save(w.inv(s), &mut saved);
     assert_eq!(saved_count(&saved), 64, "every plank once");
     let mut back = Inventory::default();
-    load(&mut back, &saved);
+    load(&mut back, &saved, &crate::custom::Registry::default());
     assert!(back.window.is_none() && back.cursor.stack(0).is_empty());
     assert_eq!(back.pending.len(), 1 + 4 + 9);
     restore(&mut back);
@@ -1696,7 +1809,7 @@ fn the_inventory_round_trips_through_the_player_extra_byte_for_byte() {
     let mut first = Compound::new();
     save(w.inv(s), &mut first);
     let mut back = Inventory::default();
-    load(&mut back, &first);
+    load(&mut back, &first, &crate::custom::Registry::default());
     let mut second = Compound::new();
     save(&back, &mut second);
     let bytes = |c: &Compound| {
@@ -1710,7 +1823,11 @@ fn the_inventory_round_trips_through_the_player_extra_byte_for_byte() {
     assert_eq!(back.armor.stacks, w.inv(s).armor.stacks);
     // A new player has nothing, and unknown keys are no inventory.
     let mut empty = Inventory::default();
-    load(&mut empty, &Compound::new());
+    load(
+        &mut empty,
+        &Compound::new(),
+        &crate::custom::Registry::default(),
+    );
     assert!(empty.main.stacks.iter().all(Stack::is_empty));
 }
 
@@ -2110,7 +2227,7 @@ fn sample(i: &Ingredient, by_name: &BTreeMap<String, Stack>) -> Option<Stack> {
 }
 
 /// The recipe laid out in the top left of a 3x3 grid; `None` if an ingredient has no item.
-fn layout(recipe: Recipe, by_name: &BTreeMap<String, Stack>) -> Option<Vec<Stack>> {
+fn layout(recipe: Recipe<'static>, by_name: &BTreeMap<String, Stack>) -> Option<Vec<Stack>> {
     let mut cells = vec![Stack::EMPTY; 9];
     match recipe {
         Recipe::Shaped(r) => {

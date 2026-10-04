@@ -539,9 +539,16 @@ fn item_crash_child() {
     tasks.push(NonZeroU32::MIN, move |ctx| mover.tick(ctx));
     let state = State::new(
         Settings::new(&Config::default()),
-        Shared::new(crate::protocol::batch::Settings::default()).unwrap(),
-        Listeners::default(),
-        tasks,
+        Shared::new(
+            crate::protocol::batch::Settings::default(),
+            &crate::custom::Registry::default(),
+            &crate::tick::entity::Customs::default(),
+        )
+        .unwrap(),
+        crate::tick::Setup {
+            tasks,
+            ..crate::tick::Setup::default()
+        },
         opened.worlds,
         opened.tick,
     );
@@ -557,6 +564,7 @@ fn item_crash_child() {
                 uuid: Uuid::from_bytes([3; 16]),
                 skin: crate::tick::queue::Skin::default(),
                 device_os: -1,
+                address: None,
             },
             outbound,
         })

@@ -341,6 +341,23 @@ impl Record for ExtraRecord<'_> {
     }
 }
 
+/// A server data value of the user: the `user` value, keyed by the data's name (PLAN.md 10.8).
+/// The JSON bytes as they are; the user type's deserializer checks them. A commit encodes the
+/// tick's bytes in place (borrowed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UserRecord<'a>(pub(crate) Cow<'a, [u8]>);
+
+impl Record for UserRecord<'_> {
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        w.bytes(&self.0);
+        Ok(())
+    }
+
+    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
+        Ok(Self(Cow::Owned(r.bytes()?)))
+    }
+}
+
 /// A persistent world: the `worlds` value, keyed by the world name.
 ///
 /// Format 3: the number, the seed, the spawn, the generator name, then the world time (i64).
@@ -408,6 +425,59 @@ impl Record for Meta {
         let tick = r.uint64()?;
         end(r)?;
         Ok(Self { tick })
+    }
+}
+
+/// The value of an operator or whitelist entry in `access`: the key says it all, so the record
+/// is empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Mark;
+
+impl Record for Mark {
+    fn encode(&self, _w: &mut Writer) -> Result<()> {
+        Ok(())
+    }
+
+    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
+        end(r)?;
+        Ok(Self)
+    }
+}
+
+/// The value of a name or IP ban in `access` (PMMP `BanEntry` without the name, which is the
+/// key): the reason and the source as names (at most [`MAX_NAME`] bytes), the engine tick it was
+/// added at, then a flag byte and the engine tick it ends at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BanRecord {
+    pub(crate) reason: String,
+    pub(crate) source: String,
+    pub(crate) created: u64,
+    pub(crate) expires: Option<u64>,
+}
+
+impl Record for BanRecord {
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        write_name(w, &self.reason)?;
+        write_name(w, &self.source)?;
+        w.uint64(self.created);
+        w.bool(self.expires.is_some());
+        w.uint64(self.expires.unwrap_or(0));
+        Ok(())
+    }
+
+    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
+        let reason = read_name(r)?;
+        let source = read_name(r)?;
+        let created = r.uint64()?;
+        let has_end = r.bool()?;
+        let end_tick = r.uint64()?;
+        end(r)?;
+        Ok(Self {
+            reason,
+            source,
+            created,
+            expires: has_end.then_some(end_tick),
+        })
     }
 }
 
@@ -778,6 +848,8 @@ pub(crate) mod tests {
             assert_eq!(decode::<WorldRecord>(&encode(&world)).unwrap(), world);
             let meta = Meta { tick: rng.next() };
             assert_eq!(decode::<Meta>(&encode(&meta)).unwrap(), meta);
+            let user = UserRecord(format!("[{}]", rng.below(1 << 20)).into_bytes().into());
+            assert_eq!(decode::<UserRecord<'_>>(&encode(&user)).unwrap(), user);
         }
     }
 

@@ -554,7 +554,11 @@ fn a_cancelled_duplicate_login_turns_the_new_player_away() {
         "duplicate-cancelled",
         config(Compression::Snappy),
         &data_dir("duplicate-cancelled"),
-        |builder| builder.on(Priority::Normal, |e: &mut PlayerDuplicateLogin| e.cancel()),
+        |builder| {
+            builder.on(Priority::Normal, |e: &mut PlayerDuplicateLogin, _| {
+                e.cancel();
+            })
+        },
     );
     let first = start_bot(
         &server,
@@ -700,4 +704,102 @@ fn read(path: &Path) -> String {
 )]
 fn pause() {
     std::thread::sleep(Duration::from_millis(100));
+}
+
+/// A stored (uncompressed) zip archive of `files`, the smallest a pack can be.
+fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &byte in bytes {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+    let (mut out, mut directory) = (Vec::new(), Vec::new());
+    for (name, data) in files {
+        let offset = u32::try_from(out.len()).unwrap();
+        let mut common = Vec::new();
+        common.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // version, flags, stored, time, date
+        common.extend_from_slice(&crc32(data).to_le_bytes());
+        let len = u32::try_from(data.len()).unwrap().to_le_bytes();
+        common.extend_from_slice(&len);
+        common.extend_from_slice(&len);
+        common.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
+        common.extend_from_slice(&[0, 0]); // extra
+        out.extend_from_slice(b"PK\x03\x04");
+        out.extend_from_slice(&common);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(data);
+        directory.extend_from_slice(b"PK\x01\x02\x14\x00");
+        directory.extend_from_slice(&common);
+        directory.extend_from_slice(&[0; 10]); // comment, disk, attributes
+        directory.extend_from_slice(&offset.to_le_bytes());
+        directory.extend_from_slice(name.as_bytes());
+    }
+    let offset = u32::try_from(out.len()).unwrap();
+    let count = u16::try_from(files.len()).unwrap().to_le_bytes();
+    out.extend_from_slice(&directory);
+    out.extend_from_slice(b"PK\x05\x06\0\0\0\0");
+    out.extend_from_slice(&count);
+    out.extend_from_slice(&count);
+    out.extend_from_slice(&u32::try_from(directory.len()).unwrap().to_le_bytes());
+    out.extend_from_slice(&offset.to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    out
+}
+
+/// A resource pack with `uuid` and `size` bytes of texture that do not compress.
+fn pack_bytes(uuid: &str, size: usize) -> Vec<u8> {
+    let manifest = format!(
+        r#"{{"format_version": 2, "header": {{"name": "P5", "uuid": "{uuid}", "version": [1, 0, 0]}},
+        "modules": [{{"type": "resources", "uuid": "{uuid}", "version": [1, 0, 0]}}]}}"#
+    );
+    let mut seed = 0x9e37_79b9_u32;
+    let texture: Vec<u8> = (0..size)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed.to_le_bytes()[0]
+        })
+        .collect();
+    zip(&[
+        ("manifest.json", manifest.as_bytes()),
+        ("textures/noise.png", &texture),
+    ])
+}
+
+#[test]
+fn the_bot_downloads_the_resource_packs_over_both_transports() {
+    let dir = data_dir("packs");
+    let file = dir.join("a.zip");
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    std::fs::write(
+        &file,
+        pack_bytes("6f1d9c2a-3b4e-4f50-8a61-7c2d3e4f5a6b", 400_000),
+    )
+    .unwrap();
+    let mut config = config(Compression::Snappy);
+    config.general.resource_packs = vec![file];
+    config.general.force_resources = true;
+    // A pack of exactly one 128 KiB chunk, given in code.
+    let code = pack_bytes("9e8d7c6b-5a49-4382-a170-6f5e4d3c2b1a", 131_072);
+    let server = Running::start_with("packs", config, &dir, |builder| {
+        builder.resource_pack(anchor::pack::Pack::from_bytes(code.clone()).expect("a pack"))
+    });
+    for (transport, name) in [("raknet", "packs-raknet"), ("nethernet", "packs-nethernet")] {
+        let lines = play(&server, "spawn", name, &["-transport", transport]);
+        let result = result(&lines);
+        assert_eq!(result["packs_offered"], 2, "{transport}");
+        assert_eq!(result["packs_downloaded"], 2, "{transport}");
+        assert_eq!(result["spawned"], true, "{transport}");
+    }
+    server.stop();
 }

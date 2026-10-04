@@ -322,25 +322,6 @@ pub(super) const fn rotate_y(face: Face, clockwise: bool) -> Face {
     }
 }
 
-/// The face of a PMMP facing number (down 0, up 1, north 2, south 3, west 4, east 5).
-pub(super) fn face_from_index(index: i32) -> Option<Face> {
-    usize::try_from(index)
-        .ok()
-        .and_then(|i| Face::ALL.get(i).copied())
-}
-
-/// The PMMP facing number of a face.
-pub(super) const fn face_index(face: Face) -> u8 {
-    match face {
-        Face::Down => 0,
-        Face::Up => 1,
-        Face::North => 2,
-        Face::South => 3,
-        Face::West => 4,
-        Face::East => 5,
-    }
-}
-
 /// The state named `name` with exactly the properties of `state`, as PMMP copies a block's
 /// properties to another type (stripping a log, waxing copper, a dead coral); `None` if no such
 /// state exists.

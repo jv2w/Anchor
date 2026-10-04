@@ -11,13 +11,14 @@
 
 use std::collections::VecDeque;
 use std::fmt;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
 use tracing::warn;
 
 #[cfg(test)]
 use super::queue::Skin;
-use super::queue::{Identity, SessionId};
+use super::queue::{Identity, JobOutcome, SessionId};
 use crate::clock;
 use crate::item::SHIELD_RUNTIME_ID;
 use crate::nbt::Encoding;
@@ -34,11 +35,24 @@ const ENTRY_COST: usize = 32;
 /// The first bytes of a written log.
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// The written format's version: 2 adds the start tick; 3 adds chunk checksums and player
-/// extras (f64 positions); 4 adds the joining player's device and skin.
-const FORMAT: u32 = 4;
+/// extras (f64 positions); 4 adds the joining player's device and skin; 5 adds the joining
+/// player's address and console lines; 6 adds blocking job results.
+const FORMAT: u32 = 6;
+/// The oldest format [`InputLog::decode`] reads: 4 and 5 differ from 6 only by what the later
+/// formats add.
+#[cfg(test)]
+const OLDEST_READ: u32 = 4;
 const KIND_JOIN: u8 = 0;
 const KIND_PACKET: u8 = 1;
 const KIND_LEAVE: u8 = 2;
+const KIND_CONSOLE: u8 = 3;
+const KIND_JOB: u8 = 4;
+/// The outcome byte of a job result that has its JSON; other values are
+/// [`Error::code`](crate::task::Error::code)s.
+const JOB_DONE: u8 = 0;
+const ADDRESS_NONE: u8 = 0;
+const ADDRESS_V4: u8 = 4;
+const ADDRESS_V6: u8 = 6;
 
 /// The input log.
 #[derive(Debug)]
@@ -239,6 +253,11 @@ pub(crate) enum EntryKind {
     Join(Identity),
     Packet(Packet),
     Leave,
+    /// A console line ([`InputKind::Console`](super::queue::InputKind::Console)).
+    Console(String),
+    /// A blocking job's result ([`InputKind::Job`](super::queue::InputKind::Job)); the entry's
+    /// sequence number is the job's id.
+    Job(JobOutcome),
 }
 
 /// What counting an entry against the bound gave.
@@ -472,6 +491,17 @@ impl InputLog {
                         protocol::Codec::encode(identity.skin.get(), &mut w)
                             .map_err(Error::Packet)?;
                         put_bytes(&mut out, w.as_bytes())?;
+                        match identity.address {
+                            None => out.push(ADDRESS_NONE),
+                            Some(IpAddr::V4(a)) => {
+                                out.push(ADDRESS_V4);
+                                out.extend_from_slice(&a.octets());
+                            }
+                            Some(IpAddr::V6(a)) => {
+                                out.push(ADDRESS_V6);
+                                out.extend_from_slice(&a.octets());
+                            }
+                        }
                     }
                     EntryKind::Packet(packet) => {
                         out.push(KIND_PACKET);
@@ -483,6 +513,20 @@ impl InputLog {
                         put_bytes(&mut out, &body)?;
                     }
                     EntryKind::Leave => out.push(KIND_LEAVE),
+                    EntryKind::Console(line) => {
+                        out.push(KIND_CONSOLE);
+                        put_bytes(&mut out, line.as_bytes())?;
+                    }
+                    EntryKind::Job(outcome) => {
+                        out.push(KIND_JOB);
+                        match outcome {
+                            Ok(json) => {
+                                out.push(JOB_DONE);
+                                put_bytes(&mut out, json)?;
+                            }
+                            Err(e) => out.push(e.code()),
+                        }
+                    }
                 }
             }
             put_len(&mut out, tick.dropped.len())?;
@@ -505,7 +549,8 @@ impl InputLog {
         if r.take(MAGIC.len())? != MAGIC {
             return Err(Error::Format("magic"));
         }
-        if r.u32()? != FORMAT {
+        let format = r.u32()?;
+        if !(OLDEST_READ..=FORMAT).contains(&format) {
             return Err(Error::Format("format version"));
         }
         if r.u32()?.cast_signed() != protocol::packet::PROTOCOL_VERSION {
@@ -542,9 +587,11 @@ impl InputLog {
                             protocol::Reader::new(skin, skin.len().saturating_mul(2), 0);
                         let skin = <protocol::Skin as protocol::Codec>::decode(&mut skin_reader)
                             .map_err(Error::Packet)?;
+                        let address = if format < 5 { None } else { r.address()? };
                         EntryKind::Join(Identity {
                             skin: Skin::new(skin),
                             device_os,
+                            address,
                             name,
                             xuid: match has_xuid {
                                 0 => None,
@@ -562,6 +609,8 @@ impl InputLog {
                         EntryKind::Packet(packet)
                     }
                     KIND_LEAVE => EntryKind::Leave,
+                    KIND_CONSOLE if format >= 5 => EntryKind::Console(r.text()?),
+                    KIND_JOB if format >= 6 => EntryKind::Job(r.job()?),
                     _ => return Err(Error::Format("input kind")),
                 };
                 inputs.push(Entry { session, seq, kind });
@@ -761,6 +810,42 @@ impl<'a> Read<'a> {
         String::from_utf8(self.bytes()?.to_vec()).map_err(|_| Error::Format("text"))
     }
 
+    fn job(&mut self) -> Result<JobOutcome> {
+        match self.u8()? {
+            JOB_DONE => {
+                let json = self.bytes()?;
+                if json.len() > crate::task::MAX_RESULT_BYTES {
+                    return Err(Error::Format("job result over its limit"));
+                }
+                Ok(Ok(json.to_vec()))
+            }
+            code => crate::task::Error::from_code(code)
+                .map(Err)
+                .ok_or(Error::Format("job outcome")),
+        }
+    }
+
+    fn address(&mut self) -> Result<Option<IpAddr>> {
+        Ok(match self.u8()? {
+            ADDRESS_NONE => None,
+            ADDRESS_V4 => {
+                let b: [u8; 4] = self
+                    .take(4)?
+                    .try_into()
+                    .map_err(|_| Error::Format("ipv4"))?;
+                Some(IpAddr::from(b))
+            }
+            ADDRESS_V6 => {
+                let b: [u8; 16] = self
+                    .take(16)?
+                    .try_into()
+                    .map_err(|_| Error::Format("ipv6"))?;
+                Some(IpAddr::from(b))
+            }
+            _ => return Err(Error::Format("address kind")),
+        })
+    }
+
     fn answer(&mut self) -> Result<Answer> {
         Ok(match self.u8()? {
             ANSWER_CHUNK => {
@@ -869,6 +954,99 @@ mod tests {
         log.committed(2);
         log.begin(2);
         assert_eq!((log.start(), numbers(&log)), (2, vec![2]));
+    }
+
+    #[test]
+    fn console_lines_and_addresses_survive_and_format_4_logs_still_read() {
+        let identity = |address| Identity {
+            name: "Steve".to_owned(),
+            xuid: None,
+            uuid: protocol::Uuid::from_bytes([1; 16]),
+            skin: Skin::default(),
+            device_os: 7,
+            address,
+        };
+        let mut log = InputLog::default();
+        log.begin(0);
+        let v6: IpAddr = "2001:db8::7".parse().unwrap();
+        log.record(SessionId::new(1), 0, EntryKind::Join(identity(Some(v6))), 0);
+        log.record(
+            SessionId::new(2),
+            0,
+            EntryKind::Join(identity(Some(IpAddr::from([1, 2, 3, 4])))),
+            0,
+        );
+        log.record(
+            SessionId::CONSOLE,
+            0,
+            EntryKind::Console("op steve".to_owned()),
+            8,
+        );
+        let bytes = log.encode().unwrap();
+        let read = InputLog::decode(&bytes).unwrap();
+        assert_eq!(read.ticks(), log.ticks());
+        // Format 4: the same bytes without the address byte of a join and with no console line.
+        let mut old = InputLog::default();
+        old.begin(0);
+        old.record(SessionId::new(1), 0, EntryKind::Join(identity(None)), 0);
+        old.record(SessionId::new(1), 1, EntryKind::Leave, 0);
+        let mut bytes = old.encode().unwrap();
+        bytes[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&4_u32.to_le_bytes());
+        // The tick ends with the leave (17 bytes), no dropped sessions and no answers (8 bytes);
+        // the join's address byte comes right before the leave.
+        let address = bytes.len() - 8 - 17 - 1;
+        assert_eq!(bytes.remove(address), ADDRESS_NONE);
+        assert_eq!(InputLog::decode(&bytes).unwrap().ticks(), old.ticks());
+        let mut console = InputLog::default();
+        console.begin(0);
+        console.record(SessionId::CONSOLE, 0, EntryKind::Console("x".to_owned()), 1);
+        let mut bytes = console.encode().unwrap();
+        bytes[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&4_u32.to_le_bytes());
+        assert!(
+            InputLog::decode(&bytes).is_err(),
+            "format 4 has no console lines"
+        );
+    }
+
+    #[test]
+    fn job_results_survive_the_written_log_and_format_5_logs_have_none() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        let results = [
+            Ok(br#"{"a":[1,2]}"#.to_vec()),
+            Ok(Vec::new()),
+            Err(crate::task::Error::Panicked),
+            Err(crate::task::Error::TooLarge),
+        ];
+        for (id, outcome) in (0..).zip(results) {
+            let size = outcome.as_ref().map_or(0, Vec::len);
+            log.record(SessionId::JOBS, id, EntryKind::Job(outcome), size);
+        }
+        let bytes = log.encode().unwrap();
+        let read = InputLog::decode(&bytes).unwrap();
+        assert_eq!(read.ticks(), log.ticks());
+        assert_eq!(read.encode().unwrap(), bytes);
+        let mut old = bytes.clone();
+        old[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&5_u32.to_le_bytes());
+        assert!(
+            InputLog::decode(&old).is_err(),
+            "format 5 has no job results"
+        );
+        // An unknown outcome byte is an error.
+        let mut bad = InputLog::default();
+        bad.begin(0);
+        bad.record(
+            SessionId::JOBS,
+            0,
+            EntryKind::Job(Err(crate::task::Error::Encode)),
+            0,
+        );
+        let mut bytes = bad.encode().unwrap();
+        // The tick ends with the outcome byte, then no dropped sessions and no answers.
+        let at = bytes.len() - 8 - 1;
+        assert_eq!(bytes[at], crate::task::Error::Encode.code());
+        bytes[at] = 99;
+        assert!(InputLog::decode(&bytes).is_err());
     }
 
     #[test]

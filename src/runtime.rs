@@ -15,9 +15,14 @@ use crate::pool::Pool;
 /// recurses (PLAN.md 10.2); one size for every thread keeps the bound independent of the OS
 /// default and of `RUST_MIN_STACK`.
 const STACK_BYTES: usize = 4 << 20;
-/// Threads tokio may start for blocking work (the authorization fetch). tokio's default of 512
-/// would let blocking work exceed the thread budget (PLAN.md 5).
-const MAX_BLOCKING_THREADS: usize = 4;
+/// Blocking jobs of the user ([`Context::spawn_blocking`](crate::Context::spawn_blocking)) that
+/// run at once; the others wait their turn, so they never hold every blocking thread.
+pub(crate) const USER_BLOCKING_THREADS: usize = 4;
+/// Threads tokio may start for blocking work: 4 for the engine's own (the authorization fetch,
+/// pack and key loading) and [`USER_BLOCKING_THREADS`] for the user's jobs. tokio's default of 512
+/// would let blocking work grow without bound (PLAN.md 5). Blocking threads wait on I/O and are
+/// not counted in the compute thread budget.
+const MAX_BLOCKING_THREADS: usize = 4 + USER_BLOCKING_THREADS;
 /// How long stopping the runtime waits for blocking work: the authorization fetch's 10 s request
 /// limit (PLAN.md 10.2), so a fetch in progress finishes and its thread is joined.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
@@ -102,6 +107,11 @@ impl Runtime {
     )]
     pub(crate) fn block_on<F: Future>(&self, future: F) -> F::Output {
         self.0.block_on(future)
+    }
+
+    /// A handle that starts work on the runtime from any thread (the tick's blocking jobs).
+    pub(crate) fn handle(&self) -> tokio::runtime::Handle {
+        self.0.handle().clone()
     }
 
     /// Stops the runtime, waiting up to [`SHUTDOWN_GRACE`] for blocking work.

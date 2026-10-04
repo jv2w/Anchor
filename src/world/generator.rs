@@ -17,6 +17,7 @@ use super::{BlockPos, Chunk, ChunkPos};
 /// The generator's block states are kept as written: neighbour connections (fences, panes,
 /// walls, stairs, tripwire) are worked out only for blocks set through
 /// [`World::set_block`](super::World::set_block).
+// pmmp-class: Generator
 pub trait Generator: Send + Sync + 'static {
     /// Fills `chunk`, the empty chunk at `pos` (all air, plains biomes), with blocks and biomes.
     #[doc(alias = "Generator::generateChunk")]
@@ -37,6 +38,7 @@ pub trait Generator: Send + Sync + 'static {
 /// BDS's default flat world: bedrock at y -64, dirt at -63 and -62, grass at -61, plains
 /// everywhere. Its chunks are the same bytes as BDS's flat world (P6).
 #[derive(Debug, Clone, Copy, Default)]
+// pmmp-class: Flat
 pub struct Flat;
 
 impl Generator for Flat {

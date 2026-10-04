@@ -143,6 +143,16 @@ impl<T: Copy + Ord> Paletted<T> {
         Ok(stored.compacted())
     }
 
+    /// The cube with every entry passed through `f`, compacted ([`Self::from_parts`]): entries
+    /// `f` makes equal merge.
+    pub(crate) fn map(&self, f: impl Fn(T) -> T) -> Self {
+        let mut mapped = self.clone();
+        for v in &mut mapped.palette {
+            *v = f(*v);
+        }
+        mapped.compacted()
+    }
+
     /// Compacts the cube as [`Self::from_parts`] does. Generated chunks are compacted, which
     /// gives BDS's palette order (P6).
     pub(crate) fn compact(&mut self) {

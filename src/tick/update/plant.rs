@@ -34,8 +34,11 @@ pub(super) fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
             }
         }
         Class::NetherWartPlant => {
-            if props::int(block, "age").is_some_and(|a| a < 3) && cx.rng().range(0, 10) == 0 {
-                bump(cx, pos, block, "age", 1);
+            if props::int(block, "age").is_some_and(|a| a < 3)
+                && cx.rng().range(0, 10) == 0
+                && let Some(s) = aged(block, "age", 1)
+            {
+                cx.grow(pos, s);
             }
         }
         Class::SweetBerryBush => {
@@ -105,7 +108,7 @@ pub(super) fn fertilize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> 
                 return false;
             };
             let next = (a + cx.rng().range(2, 5)).min(7);
-            props::with_int(block, GROWTH, next).is_some_and(|s| cx.set(pos, s))
+            props::with_int(block, GROWTH, next).is_some_and(|s| cx.grow(pos, s))
         }
         Class::Sugarcane => {
             let Some(bottom) = seek(cx, pos, block, Face::Down) else {
@@ -138,7 +141,7 @@ pub(super) fn fertilize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> 
             }
             let head = side(cx, pos, Face::Down).is_some_and(|d| d.kind() != block.kind());
             cave_vine_state(block, vine_age(block).unwrap_or(0), true, head)
-                .is_some_and(|s| cx.set(pos, s))
+                .is_some_and(|s| cx.grow(pos, s))
         }
         Class::PitcherCrop => pitcher_grow(cx, pos, block),
         Class::DoublePitcherCrop => double_pitcher_grow(cx, pos, block),
@@ -148,7 +151,7 @@ pub(super) fn fertilize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> 
                 return false;
             };
             if count < 3 {
-                props::with_int(block, GROWTH, count + 1).is_some_and(|s| cx.set(pos, s))
+                props::with_int(block, GROWTH, count + 1).is_some_and(|s| cx.grow(pos, s))
             } else {
                 drop_self(cx, pos, block, 1);
                 true
@@ -213,16 +216,14 @@ fn age(block: block::State) -> Option<i32> {
     props::int(block, GROWTH)
 }
 
-/// Sets the block `by` stages older (PMMP `BlockEventHelper::grow`).
+/// Grows the block `by` stages older (PMMP `BlockEventHelper::grow`).
 fn grow_age(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, by: i32) -> bool {
-    bump(cx, pos, block, GROWTH, by)
+    aged(block, GROWTH, by).is_some_and(|s| cx.grow(pos, s))
 }
 
-/// Sets the integer property `name` `by` more.
-fn bump(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, name: &str, by: i32) -> bool {
-    props::int(block, name)
-        .and_then(|v| props::with_int(block, name, v + by))
-        .is_some_and(|s| cx.set(pos, s))
+/// The block with the integer property `name` `by` more.
+fn aged(block: block::State, name: &str, by: i32) -> Option<block::State> {
+    props::int(block, name).and_then(|v| props::with_int(block, name, v + by))
 }
 
 /// Drops `count` of the block's item at its position.
@@ -350,7 +351,7 @@ fn stem(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         .is_some_and(|s| s.has_type_tag(TypeTag::Dirt));
     if empty
         && soil
-        && cx.set(at, fruit.default_state())
+        && cx.grow(at, fruit.default_state())
         && let Some(attached) = stem_with(block, face)
     {
         cx.set(pos, attached);
@@ -441,8 +442,8 @@ fn sugarcane(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         Some(true) => {
             if props::int(block, "age") == Some(15) {
                 sugarcane_grow(cx, pos, block);
-            } else {
-                bump(cx, pos, block, "age", 1);
+            } else if let Some(s) = aged(block, "age", 1) {
+                cx.set(pos, s);
             }
         }
         None => {}
@@ -461,7 +462,7 @@ fn sugarcane_grow(cx: &mut Cx<'_>, bottom: BlockPos, block: block::State) -> boo
             break;
         };
         if b.kind() == Kind::Air {
-            if cx.set(at, Kind::Sugarcane.default_state()) {
+            if cx.grow(at, Kind::Sugarcane.default_state()) {
                 grew = true;
             } else {
                 break;
@@ -509,7 +510,7 @@ fn cactus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         if flower {
             let chance = if height >= 3 { 25 } else { 10 };
             if cx.rng().range(1, 100) <= chance {
-                if cx.set(up_pos, Kind::CactusFlower.default_state())
+                if cx.grow(up_pos, Kind::CactusFlower.default_state())
                     && let Some(young) = props::with_int(block, "age", 0)
                 {
                     cx.set_quietly(pos, young);
@@ -520,7 +521,7 @@ fn cactus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
     let next = if age == 15 {
         if height < 3 {
-            cx.set(up_pos, Kind::Cactus.default_state());
+            cx.grow(up_pos, Kind::Cactus.default_state());
         }
         0
     } else {
@@ -533,7 +534,8 @@ fn cactus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
 
 /// PMMP `CocoaBlock::grow`.
 fn cocoa_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
-    props::int(block, "age").is_some_and(|a| a < 2) && bump(cx, pos, block, "age", 1)
+    props::int(block, "age").is_some_and(|a| a < 2)
+        && aged(block, "age", 1).is_some_and(|s| cx.grow(pos, s))
 }
 
 /// Whether a cocoa pod's log is still there (PMMP `CocoaBlock::canAttachTo`: jungle wood).
@@ -635,7 +637,7 @@ fn bamboo_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, max: i32, am
             tx.add(at, s);
         }
     }
-    tx.apply(cx)
+    tx.apply(cx, pos)
 }
 
 /// PMMP `BambooSapling::onRandomTick`.
@@ -672,7 +674,7 @@ fn bamboo_sapling_grow(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
     let mut tx = Tx::default();
     tx.add(pos, bamboo);
     tx.add(up, small);
-    tx.apply(cx)
+    tx.apply(cx, pos)
 }
 
 /// PMMP `PitcherCrop::grow`: stages 0 to 2, then the two-block plant.
@@ -692,7 +694,7 @@ fn pitcher_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
             let mut tx = Tx::default();
             tx.add(pos, bottom);
             tx.add(up, top);
-            tx.apply(cx)
+            tx.apply(cx, pos)
         }
         _ => false,
     }
@@ -741,7 +743,7 @@ fn double_pitcher_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> b
     let mut tx = Tx::default();
     tx.add(bottom, b);
     tx.add(top, t);
-    tx.apply(cx)
+    tx.apply(cx, bottom)
 }
 
 /// PMMP `TorchflowerCrop::getNextState`: ready, then the torchflower.
@@ -751,7 +753,7 @@ fn torchflower_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool
     } else {
         props::with_int(block, GROWTH, 1)
     };
-    next.is_some_and(|s| cx.set(pos, s))
+    next.is_some_and(|s| cx.grow(pos, s))
 }
 
 /// The most age of cave and nether vines.
@@ -826,7 +828,7 @@ fn cave_vines(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if age < MAX_VINE_AGE && rng.range(1, 10) == 1 && down.kind() == Kind::Air {
         let fruit = rng.range(1, 9) == 1;
         if let Some(s) = cave_vine_state(block, age + 1, fruit, false) {
-            cx.set(below, s);
+            cx.grow(below, s);
         }
     }
 }
@@ -861,7 +863,7 @@ fn nether_vines_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, amount
         }
         at = next;
     }
-    !tx.is_empty() && tx.apply(cx)
+    !tx.is_empty() && tx.apply(cx, tip)
 }
 
 /// PMMP `ChorusFlower::onRandomTick`.
@@ -941,7 +943,7 @@ fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         }
     } else {
         tx.add(pos, Kind::ChorusPlant.default_state());
-        tx.apply(cx);
+        tx.apply(cx, pos);
     }
 }
 
@@ -1008,7 +1010,7 @@ fn glow_lichen(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
                         (Some(pos), spread)
                     }
                 };
-                replace.is_some_and(|r| lichen_spread(cx, r, toward))
+                replace.is_some_and(|r| lichen_spread(cx, pos, r, toward))
             });
             if done {
                 return true;
@@ -1018,9 +1020,9 @@ fn glow_lichen(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
     true
 }
 
-/// PMMP `GlowLichen::spread`: a lichen face at `replace` on the side `toward`, if a full face is
-/// there.
-fn lichen_spread(cx: &mut Cx<'_>, replace: BlockPos, toward: Face) -> bool {
+/// PMMP `GlowLichen::spread`: the lichen at `source` spreads a face to `replace` on the side
+/// `toward`, if a full face is there.
+fn lichen_spread(cx: &mut Cx<'_>, source: BlockPos, replace: BlockPos, toward: Face) -> bool {
     let Some(support) = replace.step(toward).and_then(|p| cx.get(p)) else {
         return false;
     };
@@ -1042,7 +1044,8 @@ fn lichen_spread(cx: &mut Cx<'_>, replace: BlockPos, toward: Face) -> bool {
     };
     let bits =
         props::int(base, "multi_face_direction_bits").unwrap_or(0) | props::multi_face_bit(toward);
-    props::with_int(base, "multi_face_direction_bits", bits).is_some_and(|s| cx.set(replace, s))
+    props::with_int(base, "multi_face_direction_bits", bits)
+        .is_some_and(|s| cx.spread(replace, s, source))
 }
 
 /// PMMP `SmallDripleaf::grow`: a big dripleaf two to five blocks high.
@@ -1079,7 +1082,7 @@ fn small_dripleaf(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
             tx.add(at, s);
         }
     }
-    grown > 1 && tx.apply(cx)
+    grown > 1 && tx.apply(cx, bottom)
 }
 
 /// A big dripleaf part facing `facing`, stable.
@@ -1125,7 +1128,7 @@ fn big_dripleaf(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
     let mut tx = Tx::default();
     tx.add(head_pos, stem);
     tx.add(up, new_head);
-    tx.apply(cx)
+    tx.apply(cx, head_pos)
 }
 
 /// PMMP `BigDripleafHead::onScheduledUpdate`: a tilted leaf tilts further, then comes back.

@@ -20,15 +20,17 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::time::Duration;
 
 use anchor::block::State;
+use anchor::custom::Offer;
 use anchor::entity::Id;
+use anchor::form::{Button, Custom, Form, Image, Menu, Modal};
 use anchor::item::{Stack, Type};
 use anchor::math::Vec3;
-use anchor::nbt::{Compound, Value};
+use anchor::nbt::Compound;
 use anchor::world::{self, BlockPos};
-use anchor::{Context, effect};
+use anchor::{Context, effect, inventory};
 
 /// The task's period: every tick.
-pub(super) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
+pub(in crate::p6) const EVERY_TICK: NonZeroU32 = NonZeroU32::MIN;
 /// Commands waiting in the task at most; the harness's send blocks beyond it.
 const MAX_PENDING: usize = 256;
 /// How long a command may wait for its player or chunk: 10 seconds.
@@ -72,6 +74,18 @@ pub(super) enum Command {
     KillNonPlayers,
     /// `gamerule randomtickspeed <n>`.
     RandomTickSpeed(u32),
+    /// `op <player>`: [`Context::op`].
+    Op(String),
+    /// `kick <player> <reason>`: [`anchor::player::Player::kick`].
+    Kick { player: String, reason: String },
+    /// `scriptevent p6:<kind>`: the forms scenario's form of that kind to every player, as the
+    /// BDS script pack shows it (`xtask/data/p6/forms-pack`, [`p6_form`]).
+    Form(&'static str),
+    /// `summon snowball|egg <x> <y> <z>`: the projectile, dropped without motion.
+    Projectile {
+        projectile: anchor::entity::Projectile,
+        pos: Vec3,
+    },
     /// A command Anchor has no counterpart for; the text says why it is fine.
     Accepted(&'static str),
 }
@@ -96,19 +110,22 @@ enum Outcome {
 
 /// The harness side of the console.
 #[derive(Debug)]
-pub(super) struct Console {
+pub(in crate::p6) struct Console {
     commands: SyncSender<(String, Command)>,
     reports: Receiver<Report>,
     /// Commands sent and not reported yet.
     outstanding: usize,
     /// Lines that did not parse, reported by the next [`Console::settle`].
     refused: Vec<Report>,
+    /// What the players answered to the forms of `scriptevent` commands, as notes.
+    answers: Receiver<String>,
 }
 
 /// The console and the task for `ServerBuilder::every(EVERY_TICK, ..)`.
-pub(super) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'static) {
+pub(in crate::p6) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'static) {
     let (commands, received) = channel(MAX_PENDING);
     let (reported, reports) = channel(MAX_PENDING);
+    let (answered, answers) = channel(MAX_PENDING);
     let mut pending: VecDeque<(String, Command, u32)> = VecDeque::with_capacity(MAX_PENDING);
     let mut villagers: Vec<Id> = Vec::new();
     let task = move |ctx: &mut Context<'_>| {
@@ -119,7 +136,7 @@ pub(super) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'stat
             pending.push_back((line, command, 0));
         }
         while let Some((line, command, waited)) = pending.front_mut() {
-            let result = match execute(ctx, command, &mut villagers) {
+            let result = match execute(ctx, command, &mut villagers, &answered) {
                 Outcome::Wait(_) if *waited < MAX_WAIT_TICKS => {
                     *waited += 1;
                     break;
@@ -145,13 +162,14 @@ pub(super) fn console() -> (Console, impl FnMut(&mut Context<'_>) + Send + 'stat
         reports,
         outstanding: 0,
         refused: Vec::new(),
+        answers,
     };
     (console, task)
 }
 
 impl Console {
     /// Hands `line` to Anchor's task, or keeps the reason it does not parse for [`Self::settle`].
-    pub(super) fn send(&mut self, line: &str) -> Result<(), String> {
+    pub(in crate::p6) fn send(&mut self, line: &str) -> Result<(), String> {
         match parse(line) {
             Ok(command) => {
                 self.commands
@@ -169,7 +187,7 @@ impl Console {
 
     /// Waits for the reports of every command sent, prints the notes and failures, and returns
     /// whether every command ran.
-    pub(super) fn settle(&mut self, out: &mut impl Write) -> Result<bool, String> {
+    pub(in crate::p6) fn settle(&mut self, out: &mut impl Write) -> Result<bool, String> {
         let mut reports = std::mem::take(&mut self.refused);
         let deadline = super::super::now() + SETTLE_TIMEOUT;
         while self.outstanding > 0 {
@@ -187,6 +205,9 @@ impl Console {
                     });
                 }
             }
+        }
+        while let Ok(answer) = self.answers.try_recv() {
+            super::super::say(out, &format!("note anchor form: {answer}"))?;
         }
         let mut ran = true;
         for Report { line, result } in &reports {
@@ -304,6 +325,31 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             )),
             _ => Err(format!("game rule {rule} {value} is not supported")),
         },
+        _ => parse_api(&words),
+    }
+}
+
+/// Parses a console command of the API scenarios (`p6 api`).
+fn parse_api(words: &[&str]) -> Result<Command, String> {
+    match words {
+        ["op", player] => Ok(Command::Op((*player).to_owned())),
+        ["kick", player, reason @ ..] => Ok(Command::Kick {
+            player: (*player).to_owned(),
+            reason: reason.join(" "),
+        }),
+        ["scriptevent", id] => id
+            .strip_prefix("p6:")
+            .and_then(|kind| FORM_KINDS.iter().find(|k| **k == kind))
+            .map(|kind| Command::Form(kind))
+            .ok_or_else(|| format!("no P6 form {id}")),
+        ["summon", entity @ ("snowball" | "egg"), x, y, z] => Ok(Command::Projectile {
+            projectile: if *entity == "egg" {
+                anchor::entity::Projectile::Egg
+            } else {
+                anchor::entity::Projectile::Snowball
+            },
+            pos: Vec3::new(number(x)?, number(y)?, number(z)?),
+        }),
         _ => Err("not a command the P6 console knows".to_owned()),
     }
 }
@@ -393,72 +439,65 @@ fn effect_type(name: &str) -> Result<effect::Type, String> {
         .ok_or_else(|| format!("no effect {name}"))
 }
 
-/// The offers of the console's villager: a farmer's first-tier trades in Bedrock's offer form
-/// (P6 facts 6; the trade module numbers them, `netId`).
-fn farmer_offers() -> Vec<Compound> {
-    let item = |name: &str, count: u8, any_meta: bool| {
-        let mut c = Compound::new();
-        c.insert("Count".to_owned(), Value::Byte(count));
-        c.insert(
-            "Damage".to_owned(),
-            Value::Short(if any_meta { i16::MAX } else { 0 }),
-        );
-        c.insert(
-            "Name".to_owned(),
-            Value::String(format!("minecraft:{name}")),
-        );
-        c.insert("WasPickedUp".to_owned(), Value::Byte(0));
-        Value::Compound(c)
+/// The offers of the console's villager: a farmer's first-tier trades as BDS sends them (P6
+/// facts 6: payments of any damage, price multipliers 0.05 and 0; the trade module numbers
+/// them, `netId`).
+fn farmer_offers() -> Result<Vec<Offer>, String> {
+    let offer = |buy: (&str, u8), sell: (&str, u8), trader_exp: u32| {
+        let buy = Stack::new(item_type(buy.0)?, buy.1);
+        let sell = Stack::new(item_type(sell.0)?, sell.1);
+        Ok(Offer::new(buy, sell, 16)
+            .with_any_damage()
+            .with_trader_experience(trader_exp)
+            .with_price_multipliers(0.05, 0.0))
     };
-    let offer = |buy: (&str, u8), sell: (&str, u8), trader_exp: i32| {
-        let mut c = Compound::new();
-        c.insert("buyA".to_owned(), item(buy.0, buy.1, true));
-        c.insert("buyCountA".to_owned(), Value::Int(i32::from(buy.1)));
-        c.insert("buyCountB".to_owned(), Value::Int(0));
-        c.insert("demand".to_owned(), Value::Int(0));
-        c.insert("maxUses".to_owned(), Value::Int(16));
-        c.insert("priceMultiplierA".to_owned(), Value::Float(0.05));
-        c.insert("priceMultiplierB".to_owned(), Value::Float(0.0));
-        c.insert("rewardExp".to_owned(), Value::Byte(1));
-        c.insert("sell".to_owned(), item(sell.0, sell.1, false));
-        c.insert("tier".to_owned(), Value::Int(0));
-        c.insert("traderExp".to_owned(), Value::Int(trader_exp));
-        c.insert("uses".to_owned(), Value::Int(0));
-        c
-    };
-    vec![
-        offer(("wheat", 20), ("emerald", 1), 2),
-        offer(("potato", 26), ("emerald", 1), 2),
-        offer(("carrot", 22), ("emerald", 1), 2),
-        offer(("beetroot", 15), ("emerald", 1), 2),
-        offer(("emerald", 1), ("bread", 6), 1),
+    [
+        (("wheat", 20), ("emerald", 1), 2),
+        (("potato", 26), ("emerald", 1), 2),
+        (("carrot", 22), ("emerald", 1), 2),
+        (("beetroot", 15), ("emerald", 1), 2),
+        (("emerald", 1), ("bread", 6), 1),
     ]
+    .into_iter()
+    .map(|(buy, sell, exp)| offer(buy, sell, exp))
+    .collect()
 }
 
-/// Runs `command` once on Anchor.
-fn execute(ctx: &mut Context<'_>, command: &Command, villagers: &mut Vec<Id>) -> Outcome {
+/// Runs `command` once on Anchor; the answers to the forms it sends go to `answers`.
+fn execute(
+    ctx: &mut Context<'_>,
+    command: &Command,
+    villagers: &mut Vec<Id>,
+    answers: &SyncSender<String>,
+) -> Outcome {
     let not_joined = |player: &str| Outcome::Wait(format!("{player} has not joined"));
     match command {
-        Command::Teleport { player, feet } => match ctx.player_exact(player) {
-            None => not_joined(player),
-            Some(p) if ctx.teleport(p, *feet) => Outcome::Done(None),
-            Some(_) => Outcome::Failed("the position is outside the world".to_owned()),
-        },
+        Command::Teleport { player, feet } => {
+            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
+                return not_joined(player);
+            };
+            let world = p.world();
+            match p.teleport(world, *feet) {
+                Ok(()) => Outcome::Done(None),
+                Err(_) => Outcome::Failed("the position is outside the world".to_owned()),
+            }
+        }
         Command::Give { player, stacks } => {
             let Some(p) = ctx.player_exact(player) else {
                 return not_joined(player);
             };
-            let left: u32 = stacks
-                .iter()
-                .map(|s| u32::from(ctx.give(p, s.clone()).count()))
-                .sum();
+            let Some(p) = ctx.player_mut(p) else {
+                return not_joined(player);
+            };
+            let mut main = p.inventory_mut(inventory::Kind::Main);
+            let left: u32 = stacks.iter().map(|s| u32::from(main.add(s).count())).sum();
             Outcome::Done((left > 0).then(|| format!("{left} did not fit")))
         }
         Command::Experience { player, points } => {
-            let Some(p) = ctx.player_exact(player) else {
+            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
                 return not_joined(player);
             };
-            ctx.add_experience(p, *points);
+            p.add_xp(*points);
             Outcome::Done(None)
         }
         Command::Fill { from, to, state } => fill(ctx, *from, *to, *state),
@@ -472,15 +511,19 @@ fn execute(ctx: &mut Context<'_>, command: &Command, villagers: &mut Vec<Id>) ->
                 pos.y.floor() as i32,
                 pos.z.floor() as i32,
             );
-            if !ctx.world().is_chunk_loaded(at.chunk()) {
+            if !ctx.default_world().is_chunk_loaded(at.chunk()) {
                 return Outcome::Wait("the villager's chunk is not loaded".to_owned());
             }
-            match ctx.spawn_villager(*pos, FARMER, &farmer_offers()) {
-                Some(id) => {
+            let offers = match farmer_offers() {
+                Ok(offers) => offers,
+                Err(e) => return Outcome::Failed(e),
+            };
+            match ctx.spawn_villager(world::Id::DEFAULT, *pos, FARMER, &offers) {
+                Ok(id) => {
                     villagers.push(id);
                     Outcome::Done(None)
                 }
-                None => Outcome::Failed("no villager NPC was spawned".to_owned()),
+                Err(e) => Outcome::Failed(format!("no villager NPC was spawned: {e}")),
             }
         }
         Command::Effect {
@@ -489,16 +532,16 @@ fn execute(ctx: &mut Context<'_>, command: &Command, villagers: &mut Vec<Id>) ->
             ticks,
             amplifier,
         } => {
-            let Some(p) = ctx.player_exact(player) else {
+            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
                 return not_joined(player);
             };
-            let added = ctx.add_effect(p, *effect, *ticks, *amplifier);
+            let added = p.add_effect(*effect, *ticks, *amplifier);
             Outcome::Done((!added).then(|| "not added".to_owned()))
         }
         Command::KillNonPlayers => {
             let removed = villagers
                 .drain(..)
-                .filter(|id| ctx.remove_entity(*id))
+                .filter_map(|id| ctx.entity_mut(id).map(|mut e| e.flag_for_despawn()))
                 .count();
             Outcome::Done(Some(format!(
                 "removed {removed} villagers (Context lists no other entities until M8)"
@@ -512,6 +555,79 @@ fn execute(ctx: &mut Context<'_>, command: &Command, villagers: &mut Vec<Id>) ->
             }
         }
         Command::Accepted(note) => Outcome::Done(Some((*note).to_owned())),
+        Command::Op(_) | Command::Kick { .. } | Command::Form(_) | Command::Projectile { .. } => {
+            execute_api(ctx, command, answers)
+        }
+    }
+}
+
+/// Runs a command of the API scenarios (`p6 api`) once on Anchor.
+fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<String>) -> Outcome {
+    let done = |result: Result<(), String>| match result {
+        Ok(()) => Outcome::Done(None),
+        Err(e) => Outcome::Failed(e),
+    };
+    match command {
+        Command::Op(player) => done(ctx.op(player).map_err(|e| e.to_string())),
+        Command::Kick { player, reason } => {
+            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
+                return Outcome::Wait(format!("{player} has not joined"));
+            };
+            done(p.kick(reason.as_str()).map_err(|e| e.to_string()))
+        }
+        Command::Form(kind) => {
+            let kind: &'static str = kind;
+            let players: Vec<_> = ctx.players().map(anchor::player::Player::id).collect();
+            for player in players {
+                let answers = answers.clone();
+                let sent = ctx.send_form(player, p6_form(kind), move |_, _, response| {
+                    match answers.try_send(format!("{kind} answered {response:?}")) {
+                        // A full or closed queue loses the note only.
+                        Ok(()) | Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {}
+                    }
+                });
+                if let Err(e) = sent {
+                    return Outcome::Failed(e.to_string());
+                }
+            }
+            Outcome::Done(None)
+        }
+        Command::Projectile { projectile, pos } => {
+            match ctx.spawn_projectile(world::Id::DEFAULT, *pos, *projectile, Vec3::ZERO) {
+                Some(_) => Outcome::Done(None),
+                None => Outcome::Failed("no projectile was spawned".to_owned()),
+            }
+        }
+        _ => Outcome::Failed("not a command of the API scenarios".to_owned()),
+    }
+}
+
+/// The kinds of form the forms scenario asks for (`scriptevent p6:<kind>`).
+const FORM_KINDS: [&str; 4] = ["modal", "menu", "custom", "closed"];
+
+/// The forms scenario's form of `kind`, the same as the BDS script pack's
+/// (`xtask/data/p6/forms-pack/scripts/main.js`); keep the two the same.
+fn p6_form(kind: &str) -> Form {
+    match kind {
+        "menu" => Menu::new("P6 menu")
+            .content("Menu body")
+            .button("First")
+            .header("Menu header")
+            .label("Menu label")
+            .divider()
+            .button(Button::new("Second").image(Image::Path("textures/items/apple".to_owned())))
+            .into(),
+        "custom" => Custom::new("P6 custom")
+            .header("A header")
+            .label("A label")
+            .divider()
+            .input("Name", "placeholder", "default")
+            .toggle("Toggle", false)
+            .slider("Slider", 0.0, 10.0, 1.0, 3.0)
+            .dropdown("Dropdown", ["a", "b", "c"], 0)
+            .into(),
+        "closed" => Modal::new("P6 closed", "Closed body", "Yes", "No").into(),
+        _ => Modal::new("P6 modal", "Modal body", "Yes", "No").into(),
     }
 }
 
@@ -522,7 +638,10 @@ fn fill(ctx: &mut Context<'_>, from: BlockPos, to: BlockPos, state: State) -> Ou
     for x in range(from.x, to.x) {
         for y in range(from.y, to.y) {
             for z in range(from.z, to.z) {
-                match ctx.world_mut().set_block(BlockPos::new(x, y, z), state) {
+                match ctx
+                    .default_world_mut()
+                    .set_block(BlockPos::new(x, y, z), state)
+                {
                     Ok(()) => {}
                     Err(world::Error::NotLoaded) => {
                         return Outcome::Wait(format!("the chunk of {x} {y} {z} is not loaded"));
@@ -670,28 +789,38 @@ mod tests {
     }
 
     #[test]
-    fn the_villager_offers_have_the_bds_offer_keys() {
-        let offers = farmer_offers();
-        assert!(!offers.is_empty());
-        for offer in &offers {
-            let keys: Vec<&str> = offer.keys().map(String::as_str).collect();
+    fn the_villager_offers_are_the_bds_farmer_trades() {
+        let offers = farmer_offers().expect("every item exists");
+        let trades: Vec<(&str, u8, &str, u8, u32)> = offers
+            .iter()
+            .map(|o| {
+                (
+                    o.buy().item().map_or("", |t| t.name()),
+                    o.buy().count(),
+                    o.sell().item().map_or("", |t| t.name()),
+                    o.sell().count(),
+                    o.trader_experience(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            trades,
+            [
+                ("minecraft:wheat", 20, "minecraft:emerald", 1, 2),
+                ("minecraft:potato", 26, "minecraft:emerald", 1, 2),
+                ("minecraft:carrot", 22, "minecraft:emerald", 1, 2),
+                ("minecraft:beetroot", 15, "minecraft:emerald", 1, 2),
+                ("minecraft:emerald", 1, "minecraft:bread", 6, 1),
+            ]
+        );
+        for o in &offers {
+            assert!(o.takes_any_damage() && o.rewards_experience());
+            assert!(o.second_payment().is_empty());
             assert_eq!(
-                keys,
-                [
-                    "buyA",
-                    "buyCountA",
-                    "buyCountB",
-                    "demand",
-                    "maxUses",
-                    "priceMultiplierA",
-                    "priceMultiplierB",
-                    "rewardExp",
-                    "sell",
-                    "tier",
-                    "traderExp",
-                    "uses"
-                ]
+                (o.max_uses(), o.uses(), o.tier(), o.demand()),
+                (16, 0, 0, 0)
             );
+            assert_eq!(o.price_multipliers(), (0.05, 0.0));
         }
     }
 }

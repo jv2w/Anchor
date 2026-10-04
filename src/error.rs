@@ -3,7 +3,7 @@
 use std::fmt;
 use std::io;
 
-use crate::{config, storage};
+use crate::{command, config, data, entity, pack, storage};
 
 /// A failure to build or run a [`Server`](crate::Server).
 #[derive(Debug)]
@@ -57,6 +57,17 @@ pub enum Error {
         /// The name.
         name: String,
     },
+    /// The registered commands or permissions break a rule; the source says which.
+    Command(command::Error),
+    /// A registered custom entity type breaks a rule; the source says which.
+    CustomEntity(entity::Error),
+    /// The registered custom items, blocks or recipes break a rule; the source says which.
+    Custom(crate::custom::Error),
+    /// The registered user data types break a rule; the source says which.
+    Data(data::Error),
+    /// A resource pack cannot be read or offered; the source says why. Lets a program's `main`
+    /// use `?` on [`Pack::from_bytes`](crate::pack::Pack::from_bytes) and the other pack calls.
+    Pack(pack::Error),
 }
 
 /// A result with the crate [`enum@Error`].
@@ -88,6 +99,11 @@ impl fmt::Display for Error {
             ),
             Self::Storage(_) => f.write_str("the world file could not be opened, read or saved"),
             Self::DuplicateWorld { name } => write!(f, "two worlds are named {name:?}"),
+            Self::Command(_) => f.write_str("a registered command is invalid"),
+            Self::CustomEntity(_) => f.write_str("a registered custom entity type is invalid"),
+            Self::Custom(_) => f.write_str("a registered custom item, block or recipe is invalid"),
+            Self::Data(_) => f.write_str("a registered data type is invalid"),
+            Self::Pack(_) => f.write_str("a resource pack is invalid"),
         }
     }
 }
@@ -97,6 +113,11 @@ impl std::error::Error for Error {
         match self {
             Self::Config(e) => Some(e),
             Self::Start(e) | Self::Network(e) => Some(e),
+            Self::Command(e) => Some(e),
+            Self::CustomEntity(e) => Some(e),
+            Self::Custom(e) => Some(e),
+            Self::Data(e) => Some(e),
+            Self::Pack(e) => Some(e),
             Self::Auth(e)
             | Self::IdentityKey(e)
             | Self::TlsCertificate(e)
@@ -113,6 +134,12 @@ impl std::error::Error for Error {
 impl From<config::Error> for Error {
     fn from(e: config::Error) -> Self {
         Self::Config(e)
+    }
+}
+
+impl From<pack::Error> for Error {
+    fn from(e: pack::Error) -> Self {
+        Self::Pack(e)
     }
 }
 

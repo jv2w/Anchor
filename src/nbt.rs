@@ -22,17 +22,18 @@ pub(crate) const MAX_ROOT_BYTES: usize = 4 << 20;
 /// The longest string in bytes (gophertunnel `maxStringSize`).
 const MAX_STRING_LEN: u16 = 0x7fff;
 
-const TAG_END: u8 = 0;
-const TAG_BYTE: u8 = 1;
+/// The tag types, by number (the network block hash writes NBT tags too).
+pub(crate) const TAG_END: u8 = 0;
+pub(crate) const TAG_BYTE: u8 = 1;
 const TAG_SHORT: u8 = 2;
-const TAG_INT: u8 = 3;
+pub(crate) const TAG_INT: u8 = 3;
 const TAG_LONG: u8 = 4;
 const TAG_FLOAT: u8 = 5;
 const TAG_DOUBLE: u8 = 6;
 const TAG_BYTE_ARRAY: u8 = 7;
-const TAG_STRING: u8 = 8;
+pub(crate) const TAG_STRING: u8 = 8;
 const TAG_LIST: u8 = 9;
-const TAG_COMPOUND: u8 = 10;
+pub(crate) const TAG_COMPOUND: u8 = 10;
 const TAG_INT_ARRAY: u8 = 11;
 const TAG_LONG_ARRAY: u8 = 12;
 
@@ -453,9 +454,28 @@ enum Next<'v> {
 struct Encoder<'w> {
     w: &'w mut Writer,
     encoding: Encoding,
+    /// The buffer length writing must not pass: the root's start plus its byte limit.
+    end: usize,
 }
 
 impl Encoder<'_> {
+    /// Fails once the buffer passed [`Self::end`]: checked after each scalar (at most 10 bytes
+    /// over) and before each byte run, so the buffer never grows far past the limit.
+    fn check(&self) -> Result<()> {
+        if self.w.as_bytes().len() > self.end {
+            return Err(Error::Size);
+        }
+        Ok(())
+    }
+
+    /// Fails if `n` more bytes would pass [`Self::end`]; checked before a byte run is copied.
+    fn room(&self, n: usize) -> Result<()> {
+        if self.w.as_bytes().len().saturating_add(n) > self.end {
+            return Err(Error::Size);
+        }
+        Ok(())
+    }
+
     fn int32(&mut self, x: i32) {
         match self.encoding {
             Encoding::NetworkLittleEndian => self.w.varint32(x),
@@ -479,6 +499,7 @@ impl Encoder<'_> {
         if x.len() > usize::from(MAX_STRING_LEN) {
             return Err(Error::Size);
         }
+        self.room(x.len())?;
         match self.encoding {
             Encoding::NetworkLittleEndian => self.w.string(x),
             Encoding::LittleEndian => self.w.string_utf(x),
@@ -487,24 +508,25 @@ impl Encoder<'_> {
 
     fn byte_array(&mut self, x: &[u8]) -> Result<()> {
         self.length(x.len())?;
+        self.room(x.len())?;
         self.w.bytes(x);
         Ok(())
     }
 
     fn int_array(&mut self, x: &[i32]) -> Result<()> {
         self.length(x.len())?;
-        for v in x {
+        x.iter().try_for_each(|v| {
             self.int32(*v);
-        }
-        Ok(())
+            self.check()
+        })
     }
 
     fn long_array(&mut self, x: &[i64]) -> Result<()> {
         self.length(x.len())?;
-        for v in x {
+        x.iter().try_for_each(|v| {
             self.int64(*v);
-        }
-        Ok(())
+            self.check()
+        })
     }
 
     /// Writes the payload of a value that is not a container.
@@ -532,12 +554,30 @@ impl Encoder<'_> {
         self.length(list.len())?;
         match list {
             List::End => {}
-            List::Byte(x) => self.w.bytes(x),
-            List::Short(x) => x.iter().for_each(|v| self.w.int16(*v)),
-            List::Int(x) => x.iter().for_each(|v| self.int32(*v)),
-            List::Long(x) => x.iter().for_each(|v| self.int64(*v)),
-            List::Float(x) => x.iter().for_each(|v| self.w.float32(*v)),
-            List::Double(x) => x.iter().for_each(|v| self.w.float64(*v)),
+            List::Byte(x) => {
+                self.room(x.len())?;
+                self.w.bytes(x);
+            }
+            List::Short(x) => x.iter().try_for_each(|v| {
+                self.w.int16(*v);
+                self.check()
+            })?,
+            List::Int(x) => x.iter().try_for_each(|v| {
+                self.int32(*v);
+                self.check()
+            })?,
+            List::Long(x) => x.iter().try_for_each(|v| {
+                self.int64(*v);
+                self.check()
+            })?,
+            List::Float(x) => x.iter().try_for_each(|v| {
+                self.w.float32(*v);
+                self.check()
+            })?,
+            List::Double(x) => x.iter().try_for_each(|v| {
+                self.w.float64(*v);
+                self.check()
+            })?,
             List::ByteArray(x) => x.iter().try_for_each(|v| self.byte_array(v))?,
             List::String(x) => x.iter().try_for_each(|v| self.string(v))?,
             List::IntArray(x) => x.iter().try_for_each(|v| self.int_array(v))?,
@@ -553,6 +593,7 @@ impl Encoder<'_> {
         let mut stack = Vec::with_capacity(16);
         stack.push(WriteFrame::Compound(root.iter()));
         while let Some(top) = stack.last_mut() {
+            self.check()?;
             let next = match top {
                 WriteFrame::Compound(entries) => {
                     if let Some((name, value)) = entries.next() {
@@ -617,14 +658,32 @@ impl Reader<'_> {
 }
 
 impl Writer {
-    /// `NBT`: a root compound with an empty name.
+    /// `NBT`: a root compound with an empty name, at most [`MAX_ROOT_BYTES`].
     pub(crate) fn nbt(&mut self, x: &Compound, encoding: Encoding) -> Result<()> {
+        self.nbt_within(x, encoding, MAX_ROOT_BYTES)
+    }
+
+    /// [`Self::nbt`] for a root of at most `limit` bytes (and [`MAX_ROOT_BYTES`]): a larger one
+    /// is a size error, found as writing passes the limit, so the buffer never holds much more
+    /// than `limit` bytes of it whatever `x` holds. On an error the buffer holds part of the root.
+    pub(crate) fn nbt_within(
+        &mut self,
+        x: &Compound,
+        encoding: Encoding,
+        limit: usize,
+    ) -> Result<()> {
         let start = self.as_bytes().len();
+        let limit = limit.min(MAX_ROOT_BYTES);
         self.uint8(TAG_COMPOUND);
-        let mut e = Encoder { w: self, encoding };
+        let end = start.saturating_add(limit);
+        let mut e = Encoder {
+            w: self,
+            encoding,
+            end,
+        };
         e.string("")?;
         e.compound(x)?;
-        if self.as_bytes().len().saturating_sub(start) > MAX_ROOT_BYTES {
+        if self.as_bytes().len().saturating_sub(start) > limit {
             return Err(Error::Size);
         }
         Ok(())
@@ -912,6 +971,44 @@ mod tests {
             write(&deep, Encoding::NetworkLittleEndian),
             Err(Error::Size)
         );
+    }
+
+    #[test]
+    fn a_bounded_write_stops_at_its_limit_before_copying_more() {
+        const LIMIT: usize = 4096;
+        let huge = [
+            Value::ByteArray(vec![0; 16 << 20]),
+            Value::IntArray(vec![-1; 1 << 20]),
+            Value::LongArray(vec![-1; 1 << 20]),
+            Value::List(List::Int(vec![-1; 1 << 20])),
+            Value::List(List::Byte(vec![0; 16 << 20])),
+            Value::List(List::Compound(vec![Compound::new(); 1 << 20])),
+        ];
+        for encoding in [Encoding::LittleEndian, Encoding::NetworkLittleEndian] {
+            for value in &huge {
+                let map = Compound::from([("v".to_owned(), value.clone())]);
+                let mut w = Writer::new(Vec::new(), 0);
+                assert_eq!(w.nbt_within(&map, encoding, LIMIT), Err(Error::Size));
+                // At most one scalar past the limit.
+                assert!(w.as_bytes().len() <= LIMIT + 10, "{}", w.as_bytes().len());
+            }
+            // A root of exactly the limit fits; one more byte does not.
+            let fit =
+                |len: usize| Compound::from([("v".to_owned(), Value::ByteArray(vec![0; len]))]);
+            // The array length's varint takes two bytes from 128 to 16,383.
+            let overhead = write(&fit(LIMIT / 2), encoding).unwrap().len() - LIMIT / 2;
+            let mut w = Writer::new(Vec::new(), 0);
+            assert_eq!(
+                w.nbt_within(&fit(LIMIT - overhead), encoding, LIMIT),
+                Ok(())
+            );
+            assert_eq!(w.as_bytes().len(), LIMIT);
+            let mut w = Writer::new(Vec::new(), 0);
+            assert_eq!(
+                w.nbt_within(&fit(LIMIT - overhead + 1), encoding, LIMIT),
+                Err(Error::Size)
+            );
+        }
     }
 
     #[test]

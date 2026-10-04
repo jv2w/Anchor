@@ -3,13 +3,16 @@
 //! an arm in each `match` here and in the rules of [`super`]; nothing else changes shape.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use super::super::SessionId;
 use super::super::trade::Offers;
-use crate::block;
+use super::custom::Spec;
+use crate::block::{self, Face};
 use crate::effect::{self, Potion};
-use crate::entity::Id;
+use crate::entity::{Id, PaintingMotive, Skin, Type};
 use crate::item::Stack;
+use crate::nbt::Compound;
 use crate::protocol::Uuid;
 use crate::world::BlockPos;
 
@@ -30,7 +33,56 @@ pub(super) enum Kind {
     Cloud(Cloud),
     /// A non-player character without AI (PLAN.md 8.6: villager NPCs trade; human NPCs).
     Npc(Character),
+    /// A painting on a wall (PMMP `Painting`).
+    Painting(Painting),
+    /// An end crystal (PMMP `EndCrystal`).
+    EndCrystal(Crystal),
+    /// A flying firework rocket (PMMP `FireworkRocket`).
+    Firework(Firework),
 }
+
+/// A painting (PMMP `Painting`). It hangs in the block of its position, on the wall behind
+/// `facing` (PMMP `blockIn` is that wall block: the position's block one step against `facing`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Painting {
+    /// The picture.
+    pub(super) motive: PaintingMotive,
+    /// The side of the wall it hangs on: north, south, west or east.
+    pub(super) facing: Face,
+    /// Whether it drops its item when it dies (not when a player with infinite items broke it,
+    /// PMMP `onDeath`). Not saved: it matters only between its death and its removal.
+    pub(super) drops: bool,
+}
+
+/// An end crystal (PMMP `EndCrystal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Crystal {
+    /// Its bedrock base shows (PMMP `showBase`).
+    pub(super) show_base: bool,
+    /// The block its beam points at (PMMP `beamTarget`).
+    pub(super) beam_target: Option<BlockPos>,
+    /// A hit other than the void's landed (PMMP `primed`): at its death it explodes. Not saved.
+    pub(super) primed: bool,
+}
+
+/// A firework rocket (PMMP `FireworkRocket`; never saved with its chunk).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Firework {
+    /// The age in ticks at which it bursts (PMMP `maxFlightTimeTicks`).
+    pub(super) max_flight: u32,
+    /// Its explosions: the item's `Explosions` compounds, each checked ([`MAX_EXPLOSIONS`] at
+    /// most).
+    pub(super) explosions: Vec<Compound>,
+    /// The player who launched it (not saved).
+    pub(super) owner: Option<SessionId>,
+    /// The runtime ID of the owner, shown to clients (0: none).
+    pub(super) owner_runtime_id: u64,
+}
+
+/// The most explosions a firework rocket holds. Crafting gives at most 7 (one gunpowder and up
+/// to 7 stars); the bound keeps its metadata and its burst bounded whatever the API or an item's
+/// NBT asks.
+pub(super) const MAX_EXPLOSIONS: usize = 256;
 
 /// A dropped item (PMMP `ItemEntity`).
 #[derive(Debug, Clone, PartialEq)]
@@ -94,7 +146,7 @@ pub(super) struct Projectile {
 }
 
 /// What a projectile is.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) enum Shot {
     /// PMMP `Arrow`.
     Arrow(Arrow),
@@ -113,7 +165,27 @@ pub(super) enum Shot {
     },
     /// PMMP `ExperienceBottle`.
     ExperienceBottle,
+    /// PMMP `Trident`.
+    Trident(Trident),
+    /// PMMP `IceBomb`.
+    IceBomb,
 }
+
+/// A thrown trident's own data (PMMP `Trident`).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Trident {
+    /// The trident item it holds (never empty); a player picks it up whole.
+    pub(super) item: Stack,
+    /// Thrown by a creative player (PMMP `spawnedInCreative`): a pickup takes it away without
+    /// giving the item.
+    pub(super) creative: bool,
+    /// It may hit players and NPCs (PMMP `canCollide`): not between an entity hit and the next
+    /// block. Not saved.
+    pub(super) can_collide: bool,
+}
+
+/// A thrown trident's base damage (PMMP `Trident::$damage`).
+pub(super) const TRIDENT_DAMAGE: f64 = 8.0;
 
 /// An arrow's own data (PMMP `Arrow`).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -132,35 +204,7 @@ pub(super) struct Arrow {
 pub(super) const ARROW_LIFE: i16 = 1200;
 
 /// Who may pick up a stuck arrow (PMMP `Arrow::PICKUP_*`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Pickup {
-    /// Nobody.
-    None,
-    /// Every player (survival players get the arrow back).
-    Any,
-    /// Creative players only (shot with Infinity), who get nothing back.
-    Creative,
-}
-
-impl Pickup {
-    /// The saved byte (PMMP `pickup`).
-    pub(super) fn to_byte(self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::Any => 1,
-            Self::Creative => 2,
-        }
-    }
-
-    /// The mode of a saved byte; PMMP's default (any) for an unknown one.
-    pub(super) fn from_byte(b: u8) -> Self {
-        match b {
-            0 => Self::None,
-            2 => Self::Creative,
-            _ => Self::Any,
-        }
-    }
-}
+pub(super) use crate::entity::ArrowPickup as Pickup;
 
 /// A lingering potion's cloud (PMMP `AreaEffectCloud`).
 #[derive(Debug, Clone, PartialEq)]
@@ -232,14 +276,29 @@ pub(super) enum Form {
         /// Its trades.
         offers: Offers,
     },
-    /// A player-shaped NPC (PMMP `Human`), shown with `AddPlayer` and a default skin.
+    /// A player-shaped NPC (PMMP `Human`), shown with `AddPlayer`; its name tag is its player
+    /// list name.
     Human {
-        /// The name tag and player list name.
-        name: String,
         /// The player list UUID, made from the runtime ID when it gets one.
         uuid: Uuid,
+        /// Its skin; `None` shows the default skin.
+        skin: Option<Arc<Skin>>,
     },
+    /// An entity of a custom type ([`super::custom`]).
+    Custom(Custom),
 }
+
+/// A custom entity's own data.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Custom {
+    /// Its type.
+    pub(super) spec: Arc<Spec>,
+    /// The user's payload, saved (at most [`super::custom::MAX_DATA_BYTES`] encoded).
+    pub(super) data: Compound,
+}
+
+/// The longest name tag, in bytes (a player name is at most 16 characters).
+pub(super) const MAX_NAME_TAG_BYTES: usize = 1024;
 
 /// "Never" for a pickup or despawn delay (PMMP `NEVER_DESPAWN`).
 pub(super) const NEVER: i16 = -1;
@@ -271,10 +330,13 @@ pub(super) struct Physics {
     /// Whether it moves along a ray that stops at the first block (PMMP `Projectile::move`)
     /// instead of sliding along blocks.
     pub(super) ray: bool,
+    /// Whether its ray stops at water as at a full block (PMMP `IceBomb::
+    /// calculateInterceptWithBlock`).
+    pub(super) water: bool,
 }
 
 /// PMMP `ItemEntity`: 0.25 × 0.25, gravity 0.04, drag 0.02 before gravity.
-const ITEM: Physics = Physics {
+pub(super) const ITEM: Physics = Physics {
     width: 0.25,
     height: 0.25,
     gravity: 0.04,
@@ -284,6 +346,7 @@ const ITEM: Physics = Physics {
     unstuck: true,
     currents: true,
     ray: false,
+    water: false,
 };
 
 /// PMMP `ExperienceOrb`: as an item, with drag after gravity.
@@ -303,6 +366,7 @@ const FALLING: Physics = Physics {
     unstuck: false,
     currents: false,
     ray: false,
+    water: false,
 };
 
 /// PMMP `PrimedTNT`: as a falling block, moved by liquids.
@@ -322,6 +386,7 @@ const ARROW: Physics = Physics {
     unstuck: false,
     currents: true,
     ray: true,
+    water: false,
 };
 
 /// PMMP `Throwable`: as an arrow with gravity 0.03.
@@ -342,6 +407,52 @@ const BOTTLE: Physics = Physics {
     ..THROWN
 };
 
+/// PMMP `IceBomb` (a `Throwable`): its ray stops at water.
+const ICE_BOMB: Physics = Physics {
+    water: true,
+    ..THROWN
+};
+
+/// PMMP `Trident`: 0.25 wide, 0.35 high, gravity 0.1, drag 0.01 before gravity.
+const TRIDENT: Physics = Physics {
+    width: 0.25,
+    height: 0.35,
+    gravity: 0.1,
+    ..ARROW
+};
+
+/// PMMP `Painting`: a 0.5 box (PMMP: "not accurate, but not used"; [`Kind::size`] is not its box
+/// either, `Entity::bounding_box` is), no gravity, a drag of 1 that stops every motion. Liquids do
+/// not move it (PMMP: it has no movement update).
+const PAINTING: Physics = Physics {
+    width: 0.5,
+    height: 0.5,
+    gravity: 0.0,
+    drag: 1.0,
+    drag_before_gravity: false,
+    step_height: 0.0,
+    unstuck: false,
+    currents: false,
+    ray: false,
+    water: false,
+};
+
+/// PMMP `EndCrystal`: 2 × 2, no gravity, a drag of 1 that stops every motion before it moves.
+const END_CRYSTAL: Physics = Physics {
+    width: 2.0,
+    height: 2.0,
+    ..PAINTING
+};
+
+/// PMMP `FireworkRocket`: 0.25 × 0.25, no gravity, no drag; liquids push it.
+const FIREWORK: Physics = Physics {
+    width: 0.25,
+    height: 0.25,
+    drag: 0.0,
+    currents: true,
+    ..PAINTING
+};
+
 /// PMMP `AreaEffectCloud`: no gravity, no drag; [`Kind::size`] gives its box.
 const CLOUD: Physics = Physics {
     width: 0.5,
@@ -353,6 +464,7 @@ const CLOUD: Physics = Physics {
     unstuck: false,
     currents: false,
     ray: false,
+    water: false,
 };
 
 /// PMMP `Villager` (`Living`: gravity 0.08, drag 0.02): 0.6 × 1.9.
@@ -366,6 +478,7 @@ const VILLAGER: Physics = Physics {
     unstuck: false,
     currents: true,
     ray: false,
+    water: false,
 };
 
 /// PMMP `Human`: 0.6 × 1.8.
@@ -402,11 +515,54 @@ pub(super) enum Cause {
     Suffocation,
     /// A falling anvil.
     FallingBlock,
+    /// Damage dealt through the API (PMMP `CAUSE_CUSTOM`).
+    Custom,
 }
 
 impl Kind {
+    /// What it is, as the API names it.
+    pub(super) fn entity_type(&self) -> Type {
+        match self {
+            Self::Item(_) => Type::Item,
+            Self::ExperienceOrb(_) => Type::ExperienceOrb,
+            Self::FallingBlock(_) => Type::FallingBlock,
+            Self::Tnt(_) => Type::PrimedTnt,
+            Self::Projectile(p) => match p.shot {
+                Shot::Arrow(_) => Type::Arrow,
+                Shot::Snowball => Type::Snowball,
+                Shot::Egg => Type::Egg,
+                Shot::EnderPearl => Type::EnderPearl,
+                Shot::Potion { .. } => Type::SplashPotion,
+                Shot::ExperienceBottle => Type::ExperienceBottle,
+                Shot::Trident(_) => Type::Trident,
+                Shot::IceBomb => Type::IceBomb,
+            },
+            Self::Cloud(_) => Type::AreaEffectCloud,
+            Self::Npc(n) => match n.form {
+                Form::Villager { .. } => Type::Villager,
+                Form::Human { .. } => Type::Human,
+                Form::Custom(_) => Type::Custom,
+            },
+            Self::Painting(_) => Type::Painting,
+            Self::EndCrystal(_) => Type::EndCrystal,
+            Self::Firework(_) => Type::FireworkRocket,
+        }
+    }
+
+    /// Whether a new entity of this kind shows its name tag always (human NPCs: their name, as
+    /// a player's shows).
+    pub(super) fn shows_name_always(&self) -> bool {
+        matches!(
+            self,
+            Self::Npc(Character {
+                form: Form::Human { .. },
+                ..
+            })
+        )
+    }
+
     /// The physics constants.
-    pub(super) fn physics(&self) -> &'static Physics {
+    pub(super) fn physics(&self) -> &Physics {
         match self {
             Self::Item(_) => &ITEM,
             Self::ExperienceOrb(_) => &ORB,
@@ -417,12 +573,18 @@ impl Kind {
                 Shot::Snowball | Shot::Egg | Shot::EnderPearl => &THROWN,
                 Shot::Potion { .. } => &POTION,
                 Shot::ExperienceBottle => &BOTTLE,
+                Shot::Trident(_) => &TRIDENT,
+                Shot::IceBomb => &ICE_BOMB,
             },
             Self::Cloud(_) => &CLOUD,
-            Self::Npc(n) => match n.form {
+            Self::Npc(n) => match &n.form {
                 Form::Villager { .. } => &VILLAGER,
                 Form::Human { .. } => &HUMAN,
+                Form::Custom(c) => &c.spec.physics,
             },
+            Self::Painting(_) => &PAINTING,
+            Self::EndCrystal(_) => &END_CRYSTAL,
+            Self::Firework(_) => &FIREWORK,
         }
     }
 
@@ -438,7 +600,7 @@ impl Kind {
     }
 
     /// The Bedrock actor type sent to clients (PMMP `getNetworkTypeId`).
-    pub(super) fn identifier(&self) -> &'static str {
+    pub(super) fn identifier(&self) -> &str {
         match self {
             Self::Item(_) => "minecraft:item",
             Self::ExperienceOrb(_) => "minecraft:xp_orb",
@@ -451,19 +613,25 @@ impl Kind {
                 Shot::EnderPearl => "minecraft:ender_pearl",
                 Shot::Potion { .. } => "minecraft:splash_potion",
                 Shot::ExperienceBottle => "minecraft:xp_bottle",
+                Shot::Trident(_) => "minecraft:thrown_trident",
+                Shot::IceBomb => "minecraft:ice_bomb",
             },
             Self::Cloud(_) => "minecraft:area_effect_cloud",
-            Self::Npc(n) => match n.form {
+            Self::Npc(n) => match &n.form {
                 Form::Villager { .. } => "minecraft:villager_v2",
                 Form::Human { .. } => "minecraft:player",
+                Form::Custom(c) => &c.spec.identifier,
             },
+            Self::Painting(_) => "minecraft:painting",
+            Self::EndCrystal(_) => "minecraft:ender_crystal",
+            Self::Firework(_) => "minecraft:fireworks_rocket",
         }
     }
 
     /// The saved `identifier`: the actor type, except a lingering potion's (Bedrock's
     /// `minecraft:lingering_potion`, so it still lingers after a load: PMMP saves no flag and a
     /// loaded lingering potion splashes) and a human NPC's (PMMP's `Human`).
-    pub(super) fn saved_identifier(&self) -> &'static str {
+    pub(super) fn saved_identifier(&self) -> &str {
         match self {
             Self::Projectile(Projectile {
                 shot: Shot::Potion { linger: true, .. },
@@ -486,37 +654,51 @@ impl Kind {
                 form: Form::Human { .. },
                 ..
             }) => 1.621,
-            Self::ExperienceOrb(_) | Self::Projectile(_) | Self::Cloud(_) | Self::Npc(_) => 0.0,
+            Self::ExperienceOrb(_)
+            | Self::Projectile(_)
+            | Self::Cloud(_)
+            | Self::Npc(_)
+            | Self::Painting(_)
+            | Self::EndCrystal(_)
+            | Self::Firework(_) => 0.0,
         }
     }
 
-    /// The health of a new entity of this kind (PMMP: 5 for items, 1 for projectiles, the
-    /// `Entity` default 20 otherwise).
+    /// The health of a new entity of this kind (PMMP: 5 for items, 1 for projectiles,
+    /// paintings and end crystals, the `Entity` default 20 otherwise; a custom type's own).
     pub(super) fn max_health(&self) -> f64 {
         match self {
             Self::Item(_) => 5.0,
-            Self::Projectile(_) => 1.0,
+            Self::Projectile(_) | Self::Painting(_) | Self::EndCrystal(_) => 1.0,
+            Self::Npc(Character {
+                form: Form::Custom(c),
+                ..
+            }) => c.spec.max_health,
             Self::ExperienceOrb(_)
             | Self::FallingBlock(_)
             | Self::Tnt(_)
             | Self::Cloud(_)
-            | Self::Npc(_) => 20.0,
+            | Self::Npc(_)
+            | Self::Firework(_) => 20.0,
         }
     }
 
-    /// Whether fire and lava leave it alone (PMMP `isFireProof`: netherite items, clouds).
+    /// Whether fire and lava leave it alone (PMMP `isFireProof`: netherite items, clouds, end
+    /// crystals).
     pub(super) fn is_fire_proof(&self) -> bool {
         match self {
             Self::Item(item) => item
                 .stack
                 .item()
                 .is_some_and(crate::item::Type::is_fire_proof),
-            Self::Cloud(_) => true,
+            Self::Cloud(_) | Self::EndCrystal(_) => true,
             Self::ExperienceOrb(_)
             | Self::FallingBlock(_)
             | Self::Tnt(_)
             | Self::Projectile(_)
-            | Self::Npc(_) => false,
+            | Self::Npc(_)
+            | Self::Painting(_)
+            | Self::Firework(_) => false,
         }
     }
 
@@ -527,7 +709,13 @@ impl Kind {
         match self {
             Self::FallingBlock(_) | Self::Tnt(_) | Self::Projectile(_) => cause == Cause::Void,
             Self::Npc(n) if n.invulnerable => cause == Cause::Void,
-            Self::Item(_) | Self::ExperienceOrb(_) | Self::Cloud(_) | Self::Npc(_) => {
+            Self::Item(_)
+            | Self::ExperienceOrb(_)
+            | Self::Cloud(_)
+            | Self::Npc(_)
+            | Self::Painting(_)
+            | Self::EndCrystal(_)
+            | Self::Firework(_) => {
                 !(self.is_fire_proof()
                     && matches!(cause, Cause::Fire | Cause::FireTick | Cause::Lava))
             }
@@ -535,17 +723,51 @@ impl Kind {
     }
 
     /// Whether placing a block in its box is refused (PMMP `canBeCollidedWith`: alive and not an
-    /// item, orb, projectile or cloud).
+    /// item, orb, projectile, cloud, painting or firework rocket; an end crystal is alive while
+    /// its health is above 0, which `Entity::can_be_collided_with` adds).
     pub(super) fn blocks_placing(&self) -> bool {
         match self {
-            Self::FallingBlock(_) | Self::Tnt(_) => true,
+            Self::FallingBlock(_) | Self::Tnt(_) | Self::EndCrystal(_) => true,
             Self::Npc(n) => n.dead_ticks.is_none(),
-            Self::Item(_) | Self::ExperienceOrb(_) | Self::Projectile(_) | Self::Cloud(_) => false,
+            Self::Item(_)
+            | Self::ExperienceOrb(_)
+            | Self::Projectile(_)
+            | Self::Cloud(_)
+            | Self::Painting(_)
+            | Self::Firework(_) => false,
         }
     }
 
     /// Whether it is a living NPC that projectiles, potions and clouds can hit (PMMP `Living`).
     pub(super) fn is_living(&self) -> bool {
         matches!(self, Self::Npc(n) if n.dead_ticks.is_none())
+    }
+
+    /// A custom entity's own data.
+    pub(super) fn custom(&self) -> Option<&Custom> {
+        match self {
+            Self::Npc(Character {
+                form: Form::Custom(c),
+                ..
+            }) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// The name tag a new entity of this kind starts with (a custom type's; empty otherwise).
+    pub(super) fn default_name_tag(&self) -> &str {
+        self.custom().map_or("", |c| &c.spec.name_tag)
+    }
+
+    /// Whether a new entity of this kind is saved with its chunk (all but a temporary custom
+    /// type's and a firework rocket).
+    pub(super) fn is_saved(&self) -> bool {
+        self.can_be_saved() && self.custom().is_none_or(|c| c.spec.saved)
+    }
+
+    /// Whether an entity of this kind may be saved with its chunk at all (PMMP
+    /// `NeverSavedWithChunkEntity`: firework rockets never are).
+    pub(super) fn can_be_saved(&self) -> bool {
+        !matches!(self, Self::Firework(_))
     }
 }

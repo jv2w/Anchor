@@ -36,17 +36,25 @@ impl Tx {
             .unwrap_or_else(|| cx.block(pos))
     }
 
-    /// Sets the blocks if every position is loaded (PMMP validates the world height and loads
-    /// chunks; Anchor does not load chunks for a tree). Whether a block changed.
-    pub(super) fn apply(self, cx: &mut Cx<'_>) -> bool {
+    /// Sets the blocks the block at `origin` grows if every position is loaded (PMMP validates
+    /// the world height and loads chunks; Anchor does not load chunks for a tree) and the
+    /// listeners of [`StructureGrow`](crate::event::StructureGrow) let it. Whether a block
+    /// changed.
+    pub(super) fn apply(self, cx: &mut Cx<'_>, origin: BlockPos) -> bool {
         if !self.blocks.keys().all(|p| cx.is_loaded(*p)) {
             return false;
         }
+        let Ok(event) = cx.ask_structure(origin, &self.blocks) else {
+            return false;
+        };
         let mut changed = false;
         for (pos, s) in self.blocks {
             if cx.get(pos) != Some(s) && cx.set(pos, s) {
                 changed = true;
             }
+        }
+        if changed {
+            cx.tell(event);
         }
         changed
     }
@@ -82,7 +90,7 @@ pub(super) fn grow_sapling(cx: &mut Cx<'_>, pos: BlockPos, sapling: block::State
 pub(super) fn grow(cx: &mut Cx<'_>, pos: BlockPos, kind: Type) -> bool {
     let mut rng = cx.rng();
     let tx = generate(cx, pos, kind, &mut rng);
-    tx.is_some_and(|tx| tx.apply(cx))
+    tx.is_some_and(|tx| tx.apply(cx, pos))
 }
 
 /// The tree a generator would place at `pos` (PMMP `TreeFactory::get` then
