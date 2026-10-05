@@ -93,6 +93,8 @@ pub(crate) enum Response {
     /// A batch of chunks could not be read, even after reopening the file: the server stops
     /// without saving, as for a failed commit.
     LoadFailed,
+    /// What the check a snapshot asked for found (`/check`).
+    Checked(storage::Checked),
 }
 
 /// Where a loaded chunk came from. The extras come from the file either way.
@@ -192,6 +194,8 @@ pub(crate) struct Snapshot {
     /// Whether an online backup of the file is made once this snapshot is committed
     /// ([`Context::backup`](crate::Context::backup)).
     pub(crate) backup: bool,
+    /// Whether a check of the file starts once this snapshot is committed (`/check`).
+    pub(crate) check: bool,
 }
 
 /// What a world record keeps of the tick's world (`World`): the rest is its plan's.
@@ -468,24 +472,29 @@ impl Thread {
 /// Opens the world file (PLAN.md 10.6: backup, integrity check, compaction) and resolves the
 /// worlds: a persistent world the file holds keeps its seed, spawn, time and number; a new one
 /// gets the spec's seed or a random one, the generator's spawn, time 0 and the next free number.
-/// Keeps the start copy of the file unless `start` is [`storage::StartBackup::Transient`]
-/// (`backups`). Runs before the threads start.
+/// Keeps the start copy of the file unless `start` says [`storage::StartBackup::Transient`]
+/// (`backups`), and checks the file as it says (`integrity-check`). Runs before the threads
+/// start.
 pub(crate) fn open_with(
     data_dir: &std::path::Path,
     specs: Vec<WorldSpec>,
-    start: storage::StartBackup,
+    start: storage::Start,
 ) -> Result<Opened, crate::Error> {
     let backups = data_dir.join(storage::BACKUP_DIR);
     resolve(Storage::open(data_dir, start)?, specs, None, backups)
 }
 
-/// [`open_with`] a start backup, as the tests open world files.
+/// [`open_with`] a start backup and a check, as the tests open world files.
 #[cfg(test)]
 pub(crate) fn open(
     data_dir: &std::path::Path,
     specs: Vec<WorldSpec>,
 ) -> Result<Opened, crate::Error> {
-    open_with(data_dir, specs, storage::StartBackup::Make)
+    open_with(
+        data_dir,
+        specs,
+        storage::Start::checked(storage::StartBackup::Make),
+    )
 }
 
 /// Opens the world file `path` read-only for a replay ([`Storage::open_replica`]) and resolves the
@@ -679,7 +688,9 @@ fn random_seed() -> Result<i64, crate::Error> {
 /// unless one is being made: that request is refused. The backup is copied in steps whenever no
 /// request waits, so a request waits at most one step; `Finish` completes it before the file
 /// closes, and a tick that died drops it. Its result is logged, not answered: the tick's state
-/// does not depend on it.
+/// does not depend on it. A snapshot with its check flag starts a check the same way (`/check`),
+/// after the backup if both are asked for; its result is logged and answered, and the file's
+/// close drops a check that has not ended.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the save thread waits for the tick's requests and for room for its answers"
@@ -704,10 +715,10 @@ pub(crate) fn run(
     loop {
         let request = match &mut rest {
             Some(rest) => rest.pop_front(),
-            None if storage.is_backing_up() => match requests.try_recv() {
+            None if storage.is_backing_up() || storage.is_checking() => match requests.try_recv() {
                 Ok(request) => Some(request),
                 Err(mpsc::error::TryRecvError::Empty) => {
-                    backup_step(&mut storage);
+                    background_step(&mut storage, responses);
                     continue;
                 }
                 Err(mpsc::error::TryRecvError::Disconnected) => None,
@@ -755,12 +766,7 @@ pub(crate) fn run(
             Request::Commit(snapshot) => {
                 let start = snapshot.start;
                 match commit(&mut storage, &mut plans, pool, &snapshot) {
-                    Ok(()) => {
-                        if snapshot.backup {
-                            begin_backup(&mut storage, &backups, start);
-                        }
-                        vec![Response::Committed { start }]
-                    }
+                    Ok(()) => committed(&mut storage, &backups, &snapshot),
                     Err(e) => {
                         error!(error = %e, start, "commit failed after its retries");
                         failure = Some(e);
@@ -780,7 +786,9 @@ pub(crate) fn run(
             }
         }
     }
-    let closed = if finished {
+    // A failed read or commit makes no normal stop: the file gets no mark of one, so the next
+    // start with `integrity-check = "after-unclean-shutdown"` checks it.
+    let closed = if finished && failure.is_none() {
         while storage.is_backing_up() {
             backup_step(&mut storage);
         }
@@ -806,6 +814,74 @@ fn begin_backup(storage: &mut Storage, dir: &std::path::Path, start: u64) {
         ),
         Err(e) => error!(error = %e, start, "world backup failed; no backup file is left"),
     }
+}
+
+/// The answers to `snapshot`, just committed, after starting the backup and the check it asked
+/// for.
+fn committed(
+    storage: &mut Storage,
+    backups: &std::path::Path,
+    snapshot: &Snapshot,
+) -> Vec<Response> {
+    let start = snapshot.start;
+    if snapshot.backup {
+        begin_backup(storage, backups, start);
+    }
+    let mut answers = vec![Response::Committed { start }];
+    if snapshot.check
+        && let Some(found) = begin_check(storage, start)
+    {
+        answers.push(Response::Checked(found));
+    }
+    answers
+}
+
+/// Takes the next step of the work done while no request waits: the online backup, then the
+/// check, whose result goes to the tick.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the save thread waits for room for its answer"
+)]
+fn background_step(storage: &mut Storage, responses: &mpsc::Sender<Response>) {
+    if storage.is_backing_up() {
+        backup_step(storage);
+    } else if let Some(found) = check_step(storage) {
+        // A closed queue means the tick has ended; nothing waits for the answer.
+        drop(responses.blocking_send(Response::Checked(found)));
+    }
+}
+
+/// Starts the check the snapshot taken before tick `start` asked for; returns what it found if it
+/// could not start. The tick asks for one at a time.
+fn begin_check(storage: &mut Storage, start: u64) -> Option<storage::Checked> {
+    match storage.begin_check() {
+        Ok(true) => {
+            info!(start, "world file check started");
+            None
+        }
+        Ok(false) => Some(storage::Checked::Failed(
+            "another check is being made".to_owned(),
+        )),
+        Err(e) => {
+            error!(error = %e, start, "world file check could not start");
+            Some(storage::Checked::Failed(e.to_string()))
+        }
+    }
+}
+
+/// Reads the next step of the check, and logs and returns what it found once it ends.
+fn check_step(storage: &mut Storage) -> Option<storage::Checked> {
+    let found = storage.check_step()?;
+    match &found {
+        storage::Checked::Passed { values } => info!(values, "world file check passed"),
+        storage::Checked::Damaged {
+            values,
+            damaged,
+            first,
+        } => error!(values, damaged, first, "world file check found damage"),
+        storage::Checked::Failed(error) => error!(error, "world file check failed"),
+    }
+    Some(found)
 }
 
 /// Copies the next step of the online backup, and logs its end.
@@ -1834,7 +1910,11 @@ pub(crate) mod tests {
         let dir = TempDir::new("user-damaged");
         let key = Key::User("kills".to_owned());
         {
-            let mut storage = Storage::open(&dir.0, crate::storage::StartBackup::Make).unwrap();
+            let mut storage = Storage::open(
+                &dir.0,
+                crate::storage::Start::checked(crate::storage::StartBackup::Make),
+            )
+            .unwrap();
             let mut batch = Batch::default();
             let mut sealed = seal(&key.to_bytes(), &UserRecord(b"[1]".to_vec().into())).unwrap();
             let last = sealed.len() - 1;
@@ -1873,7 +1953,11 @@ pub(crate) mod tests {
             (access_key(AccessKind::Op, "steve"), Some("x")),
         ] {
             let dir = TempDir::new("access-damaged");
-            let mut storage = Storage::open(&dir.0, crate::storage::StartBackup::Make).unwrap();
+            let mut storage = Storage::open(
+                &dir.0,
+                crate::storage::Start::checked(crate::storage::StartBackup::Make),
+            )
+            .unwrap();
             let key = Key::Access(key);
             let sealed = match record {
                 None => seal(&key.to_bytes(), &Mark).unwrap(),
@@ -2125,7 +2209,71 @@ pub(crate) mod tests {
             panic!("{backups:?}");
         };
         assert_eq!(committed_tick(backup).unwrap(), 10);
+        // A normal stop marks the file.
+        assert!(storage::closed_normally(&dir.0.join(storage::WORLD_FILE)));
         assert_eq!(open(&dir.0, specs()).unwrap().tick, 30);
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the test sends requests and waits for the save thread's answers"
+    )]
+    fn a_check_reads_the_commit_it_followed_and_answers_while_the_tick_runs() {
+        let dir = TempDir::new("check");
+        let pos = ChunkPos::new(2, 2);
+        let opened = open(&dir.0, specs()).unwrap();
+        let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
+        let (answer, mut answers) = mpsc::channel(RESPONSE_CAPACITY);
+        let thread = opened.thread;
+        let handle = crate::runtime::spawn_save(move || {
+            let pool = crate::runtime::cpu_pool(2).unwrap();
+            let result = run(thread, &pool, rx, &answer);
+            assert!(pool.shutdown());
+            result
+        })
+        .unwrap();
+        let snapshot = Snapshot {
+            start: 10,
+            chunks: vec![(0, pos, changed_chunk(pos))],
+            check: true,
+            ..Snapshot::default()
+        };
+        tx.blocking_send(Request::Commit(Box::new(snapshot)))
+            .unwrap();
+        assert!(matches!(
+            answers.blocking_recv(),
+            Some(Response::Committed { start: 10 })
+        ));
+        let found = answers.blocking_recv();
+        let Some(Response::Checked(storage::Checked::Passed { values })) = found else {
+            panic!("{found:?}");
+        };
+        // The meta value, the world and the chunk's sub-chunk values at least.
+        assert!(values > 2, "{values}");
+        tx.blocking_send(Request::Finish).unwrap();
+        drop(tx);
+        handle.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_check_still_being_made_at_a_stop_is_dropped() {
+        let dir = TempDir::new("check-stop");
+        let pos = ChunkPos::new(2, 2);
+        let snapshot = Snapshot {
+            start: 10,
+            chunks: vec![(0, pos, changed_chunk(pos))],
+            check: true,
+            ..Snapshot::default()
+        };
+        let (answers, _, result) = serve(&dir, vec![Request::Commit(Box::new(snapshot))]);
+        result.unwrap();
+        assert!(
+            matches!(answers[..], [Response::Committed { start: 10 }]),
+            "{answers:?}"
+        );
+        // The stop closed the file normally all the same.
+        assert!(storage::closed_normally(&dir.0.join(storage::WORLD_FILE)));
     }
 
     #[test]
@@ -2160,7 +2308,9 @@ pub(crate) mod tests {
             ),
             "{answers:?}"
         );
-        // Nothing after the failed snapshot was written: the file is as it was.
+        // Nothing after the failed snapshot was written: the file is as it was, without the
+        // mark of a normal stop.
+        assert!(!storage::closed_normally(&dir.0.join(storage::WORLD_FILE)));
         let opened = open(&dir.0, specs()).unwrap();
         assert_eq!(opened.tick, 0);
         let mut storage = opened.thread.storage;

@@ -104,10 +104,10 @@ impl Server {
     /// out.
     ///
     /// It blocks the calling thread, opens the world file as [`run`](Self::run) does (backup as
-    /// `backups` says, integrity check), uses a CPU pool of `cpu-threads` that it joins before
-    /// returning, and writes the whole world in one transaction: on any failure, a chunk that
-    /// cannot be read included, the world file is left as it was. The source folder is only read,
-    /// and the import fails if it changes meanwhile.
+    /// `backups` says, integrity check as `integrity-check` says), uses a CPU pool of
+    /// `cpu-threads` that it joins before returning, and writes the whole world in one
+    /// transaction: on any failure, a chunk that cannot be read included, the world file is left
+    /// as it was. The source folder is only read, and the import fails if it changes meanwhile.
     #[doc(alias = "FormatConverter::execute")]
     pub fn import_world(
         &self,
@@ -117,7 +117,7 @@ impl Server {
         let _log = self.console_log().map_err(Error::Start)?;
         crate::import::run(
             &self.data_dir,
-            crate::storage::StartBackup::from_backups(self.config.general.backups),
+            crate::storage::Start::of(&self.config),
             &self.worlds,
             self.threads.cpu,
             &self.setup.custom,
@@ -139,11 +139,11 @@ impl Server {
     /// thread's default and that of every thread Anchor starts.
     ///
     /// It first opens the world file `data/world.redb` (PLAN.md 10.6): it backs up the closed
-    /// file to `data/backups/`, checks it and refuses a damaged one, leaving it as it was. On
-    /// shutdown every player sees `shutdown-message`, the last state is saved, networking stops,
-    /// and the threads are joined. Fails if the world file is damaged or cannot be opened, if the
-    /// runtime, the threads or networking cannot start, if a save fails after its retries, or if
-    /// the tick thread panics.
+    /// file to `data/backups/`, checks it as `integrity-check` says and refuses a damaged one,
+    /// leaving it as it was. On shutdown every player sees `shutdown-message`, the last state is
+    /// saved, networking stops, and the threads are joined. Fails if the world file is damaged or
+    /// cannot be opened, if the runtime, the threads or networking cannot start, if a save fails
+    /// after its retries, or if the tick thread panics.
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: one function starts every part of the server in its order"
@@ -177,8 +177,7 @@ impl Server {
         .map_err(|e| Error::Start(std::io::Error::other(e)))?;
         let mut setup = setup;
         setup.fingerprints = tick::Fingerprints::of(&tick::Settings::new(&config), &worlds, &setup);
-        let start = crate::storage::StartBackup::from_backups(config.general.backups);
-        let mut opened = save::open_with(&data_dir, worlds, start)?;
+        let mut opened = save::open_with(&data_dir, worlds, crate::storage::Start::of(&config))?;
         setup.data.load(&mut opened.thread)?;
         setup.commands.start(
             std::mem::take(&mut opened.access),

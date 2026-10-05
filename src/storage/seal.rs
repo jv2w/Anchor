@@ -107,8 +107,21 @@ pub(crate) fn version(sealed: &[u8]) -> Result<u16> {
     Ok(u16::from_le_bytes(*bytes))
 }
 
-/// Checks a sealed value and returns its record bytes.
-fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
+/// Checks a sealed value as [`unseal`] does, without decompressing or decoding its record: its
+/// header and its checksum, which covers the stored body (`/check`).
+pub(crate) fn verify(key: &[u8], sealed: &[u8]) -> Result<()> {
+    match checked(key, sealed)? {
+        (STORED, raw_len, body) if body.len() != raw_len => {
+            Err(Error::Malformed("stored length differs from the header"))
+        }
+        (STORED | SNAPPY, _, _) => Ok(()),
+        _ => Err(Error::Malformed("unknown compression method")),
+    }
+}
+
+/// Checks a sealed value's header and checksum; returns its compression method, its record
+/// length (at most [`MAX_RECORD`]) and its body.
+fn checked<'a>(key: &[u8], sealed: &'a [u8]) -> Result<(u8, usize, &'a [u8])> {
     let version = version(sealed)?;
     if version > FORMAT_VERSION {
         return Err(Error::NewerFormat { version });
@@ -128,6 +141,12 @@ fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
     if raw_len > MAX_RECORD {
         return Err(Error::Malformed("record length over the limit"));
     }
+    Ok((method, raw_len, body))
+}
+
+/// Checks a sealed value and returns its record bytes.
+fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
+    let (method, raw_len, body) = checked(key, sealed)?;
     match method {
         STORED if body.len() == raw_len => Ok(Cow::Borrowed(body)),
         STORED => Err(Error::Malformed("stored length differs from the header")),

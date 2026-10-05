@@ -33,7 +33,7 @@ use crate::storage::codec::{
     Biomes, BlockLayer, ChunkRecord, MAX_EXTRA_ENTRIES, SubChunkRecord, WorldRecord,
 };
 use crate::storage::seal::{MAX_RECORD, seal};
-use crate::storage::{Batch, ChunkKind, Import, Key, StartBackup, Storage};
+use crate::storage::{Batch, ChunkKind, Import, Key, Start, Storage};
 use crate::world::{Chunk, ChunkPos, Entry, Kind, MIN_Y, Paletted, SLOTS, SUB_CHUNKS};
 
 /// Most chunks read, then converted, per step: bounds the chunk data held at once.
@@ -174,11 +174,11 @@ struct Target<'a> {
 }
 
 /// Imports the world folder `dir` as the persistent world `name` of `worlds` into the world file
-/// of `data_dir`, opened with `start`, with `custom` resolving custom blocks, on a CPU pool of
-/// `cpu` threads that is joined before returning.
+/// of `data_dir`, opened as `start` says, with `custom` resolving custom blocks, on a
+/// CPU pool of `cpu` threads that is joined before returning.
 pub(crate) fn run(
     data_dir: &Path,
-    start: StartBackup,
+    start: Start,
     worlds: &[WorldSpec],
     cpu: usize,
     custom: &Registry,

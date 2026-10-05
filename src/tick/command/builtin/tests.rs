@@ -109,10 +109,14 @@ fn pmmp_texts_fill_each_parameter_once() {
 fn every_builtin_registers_and_users_replace_or_drop_them() {
     let (state, _rx) = server(vec![]);
     let mut names: Vec<&str> = state.commands.list.iter().map(Command::name).collect();
-    assert_eq!(names.len(), 38, "PMMP's 41 commands but 4, and backup");
+    assert_eq!(
+        names.len(),
+        39,
+        "PMMP's 41 commands but 4, backup and check"
+    );
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 38);
+    assert_eq!(names.len(), 39);
     for skipped in ["dumpmemory", "gc", "plugins", "timings"] {
         assert!(!names.contains(&skipped));
     }
@@ -155,7 +159,7 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
     let Packet::AvailableCommands(p) = &packet else {
         panic!("{packet:?}");
     };
-    assert_eq!(p.commands.len(), 37, "all but help");
+    assert_eq!(p.commands.len(), 38, "all but help");
     let tp = p.commands.iter().find(|c| c.name == "tp").unwrap();
     assert_eq!(tp.overloads.len(), 4);
     let shapes: Vec<Vec<&str>> = tp
@@ -1136,12 +1140,12 @@ fn help_pages_the_usable_commands_and_describes_one() {
     assert_eq!(ok(&mut state, id(1), "? 2").len(), 8, "7 a page");
     assert_eq!(
         ok(&mut state, id(1), "help 99").len(),
-        4,
-        "the last page: 38 = 5 * 7 + 3"
+        5,
+        "the last page: 39 = 5 * 7 + 4"
     );
     assert_eq!(
         ok(&mut state, Sender::Console, "help").len(),
-        39,
+        40,
         "one page"
     );
     assert_eq!(
@@ -1328,6 +1332,62 @@ fn backup_is_for_operators_and_backs_up_after_the_next_save() {
     assert!(snapshot.backup);
     ok(&mut state, Sender::Console, "backup");
     assert!(state.saving.backup);
+}
+
+#[test]
+fn check_is_for_operators_one_at_a_time_and_tells_who_asked() {
+    let (mut state, mut rx) = with_op();
+    // The commit `op` asked for is taken and answered.
+    let mut output = TickOutput::default();
+    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut vec![], &mut output);
+    assert_eq!(permission::COMMAND_CHECK.default(), permission::Default::Op);
+    assert!(is_refused(&run(&mut state, id(2), "check")));
+    assert_eq!(
+        ok(&mut state, id(1), "check"),
+        ["Saving and checking the world file; you are told the result when it ends"]
+    );
+    assert_eq!(
+        fails(&mut state, Sender::Console, "check"),
+        "A world file check is already running"
+    );
+    let mut log = InputLog::default();
+    let Some(crate::save::Request::Commit(snapshot)) = save::snapshot(&mut state, &mut log, false)
+    else {
+        panic!("the check saves first");
+    };
+    assert!(snapshot.check);
+    received(&mut rx[0]);
+    save::checked(
+        &mut state,
+        &crate::storage::Checked::Damaged {
+            values: 9,
+            damaged: 1,
+            first: "table chunks: a stored value does not match its checksum".to_owned(),
+        },
+    );
+    let (texts, _) = chat(&mut state, &mut rx[0]);
+    assert_eq!(
+        texts,
+        [(
+            "World file check found 1 damaged of 9 stored values (first: table chunks: a stored \
+             value does not match its checksum); the server log has the details"
+                .to_owned(),
+            vec![]
+        )]
+    );
+    // The next check may start; its result goes to the console, and a result nobody waits for
+    // goes nowhere.
+    ok(&mut state, Sender::Console, "check");
+    save::checked(&mut state, &crate::storage::Checked::Passed { values: 9 });
+    save::checked(&mut state, &crate::storage::Checked::Passed { values: 9 });
+    // A player who has left is told nothing.
+    assert!(save::ask_check(&mut state, id(77)));
+    save::checked(
+        &mut state,
+        &crate::storage::Checked::Failed("why".to_owned()),
+    );
+    ok(&mut state, Sender::Console, "check");
 }
 
 /// `backups = false`: `/backup` refuses and asks for no save.

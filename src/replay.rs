@@ -584,6 +584,7 @@ impl Replayer {
                 Answer::Committed(start) => Response::Committed { start: *start },
                 Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
                 Answer::LoadFailed => Response::LoadFailed,
+                Answer::Checked(found) => Response::Checked(found.clone()),
             });
         }
         Ok(out)

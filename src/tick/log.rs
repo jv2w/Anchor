@@ -41,6 +41,7 @@ use crate::item::SHIELD_RUNTIME_ID;
 use crate::nbt::Encoding;
 use crate::protocol::{self, Writer, packet::Packet};
 use crate::save::{Loaded, PlayerData, PlayerLoad, Response, WorldIndex};
+use crate::storage::Checked;
 use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
 use crate::storage::seal::Crc32c;
 use crate::world::ChunkPos;
@@ -59,8 +60,8 @@ const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// 8 keeps segments with their checkpoints, the settings and registration fingerprints and a
 /// closing checksum; 9 adds the joining player's client data (locale, input mode, device,
 /// version, server address, port, join time) and the measures (tick times, pings, connection
-/// counts); 10 adds each segment's commit identity.
-const FORMAT: u32 = 10;
+/// counts); 10 adds each segment's commit identity; 11 adds world file check results.
+const FORMAT: u32 = 11;
 /// The first format with segments and checkpoints, the oldest [`InputLog::decode`] reads: older
 /// logs have no checkpoint to replay from.
 const SEGMENTS: u32 = 8;
@@ -267,6 +268,7 @@ pub(crate) enum Answer {
     Committed(u64),
     CommitFailed(u64),
     LoadFailed,
+    Checked(Checked),
 }
 
 /// A player load as the log keeps it: the extra compound as its little-endian NBT bytes, which
@@ -377,6 +379,14 @@ impl Answer {
             Response::Committed { start } => (Self::Committed(*start), 0),
             Response::CommitFailed { start } => (Self::CommitFailed(*start), 0),
             Response::LoadFailed => (Self::LoadFailed, 0),
+            Response::Checked(found) => {
+                let size = match found {
+                    Checked::Passed { .. } => 0,
+                    Checked::Damaged { first, .. } => first.len(),
+                    Checked::Failed(why) => why.len(),
+                };
+                (Self::Checked(found.clone()), size)
+            }
         })
     }
 }
@@ -697,6 +707,7 @@ impl InputLog {
                 Response::Committed { .. } => ANSWER_COMMITTED,
                 Response::CommitFailed { .. } => ANSWER_COMMIT_FAILED,
                 Response::LoadFailed => ANSWER_LOAD_FAILED,
+                Response::Checked(_) => ANSWER_CHECKED,
             },
         ]);
         if self.segments.back().is_none_or(|s| s.truncated) {
@@ -821,7 +832,7 @@ impl InputLog {
         Err(Error::TooLarge)
     }
 
-    /// The written form in `format` (10, or 8 and 9 for tests of older formats) of the segments
+    /// The written form in `format` (11, or 8 and 9 for tests of older formats) of the segments
     /// from the one at place `from` on.
     fn encode_in(&self, format: u32, from: usize) -> Result<Vec<u8>> {
         let mut out = Vec::with_capacity(self.bytes.saturating_add(128));
@@ -943,7 +954,7 @@ impl InputLog {
     }
 }
 
-/// Appends a tick in `format` (10; 8 or 9 for tests of older formats): its number, its inputs, the
+/// Appends a tick in `format` (11; 8 or 9 for tests of older formats): its number, its inputs, the
 /// sessions it forgot and the answers it applied. `body` is scratch space for packet bodies.
 fn put_tick(out: &mut Vec<u8>, tick: &Tick, format: u32, body: &mut Vec<u8>) -> Result<()> {
     out.extend_from_slice(&tick.number.to_le_bytes());
@@ -1102,6 +1113,10 @@ const ANSWER_PLAYER: u8 = 1;
 const ANSWER_COMMITTED: u8 = 2;
 const ANSWER_COMMIT_FAILED: u8 = 3;
 const ANSWER_LOAD_FAILED: u8 = 4;
+const ANSWER_CHECKED: u8 = 5;
+const CHECK_PASSED: u8 = 0;
+const CHECK_DAMAGED: u8 = 1;
+const CHECK_FAILED: u8 = 2;
 const PLAYER_FOUND: u8 = 0;
 const PLAYER_ABSENT: u8 = 1;
 const PLAYER_DAMAGED: u8 = 2;
@@ -1159,6 +1174,29 @@ fn put_answer(out: &mut Vec<u8>, answer: &Answer) -> Result<()> {
             out.extend_from_slice(&start.to_le_bytes());
         }
         Answer::LoadFailed => out.push(ANSWER_LOAD_FAILED),
+        Answer::Checked(found) => {
+            out.push(ANSWER_CHECKED);
+            match found {
+                Checked::Passed { values } => {
+                    out.push(CHECK_PASSED);
+                    out.extend_from_slice(&values.to_le_bytes());
+                }
+                Checked::Damaged {
+                    values,
+                    damaged,
+                    first,
+                } => {
+                    out.push(CHECK_DAMAGED);
+                    out.extend_from_slice(&values.to_le_bytes());
+                    out.extend_from_slice(&damaged.to_le_bytes());
+                    put_bytes(out, first.as_bytes())?;
+                }
+                Checked::Failed(why) => {
+                    out.push(CHECK_FAILED);
+                    put_bytes(out, why.as_bytes())?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -1437,6 +1475,18 @@ impl<'a> Read<'a> {
             ANSWER_COMMITTED => Answer::Committed(self.u64()?),
             ANSWER_COMMIT_FAILED => Answer::CommitFailed(self.u64()?),
             ANSWER_LOAD_FAILED => Answer::LoadFailed,
+            ANSWER_CHECKED => Answer::Checked(match self.u8()? {
+                CHECK_PASSED => Checked::Passed {
+                    values: self.u64()?,
+                },
+                CHECK_DAMAGED => Checked::Damaged {
+                    values: self.u64()?,
+                    damaged: self.u64()?,
+                    first: self.text()?,
+                },
+                CHECK_FAILED => Checked::Failed(self.text()?),
+                _ => return Err(Error::Format("check result kind")),
+            }),
             _ => return Err(Error::Format("answer kind")),
         })
     }
@@ -1850,6 +1900,27 @@ mod tests {
         let read = InputLog::decode(&bytes).unwrap();
         assert_eq!(read.ticks(), log.ticks());
         assert_eq!(read.ticks()[0].responses, [Answer::LoadFailed]);
+    }
+
+    #[test]
+    fn check_results_survive_the_written_log() {
+        let found = [
+            Checked::Passed { values: 7 },
+            Checked::Damaged {
+                values: 9,
+                damaged: 2,
+                first: "table chunks: a stored value does not match its checksum".to_owned(),
+            },
+            Checked::Failed("the world file was reopened after a failure".to_owned()),
+        ];
+        let mut log = InputLog::default();
+        log.begin(0);
+        for found in &found {
+            log.response(&Response::Checked(found.clone()));
+        }
+        let read = InputLog::decode(&log.encode().unwrap()).unwrap();
+        assert_eq!(read.ticks(), log.ticks());
+        assert_eq!(read.ticks()[0].responses, found.map(Answer::Checked));
     }
 
     #[test]

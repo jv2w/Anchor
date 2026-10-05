@@ -1031,6 +1031,7 @@ fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut
             save::load_failed();
             output.save_failed = true;
         }
+        Response::Checked(found) => save::checked(state, &found),
     }
 }
 
@@ -1517,9 +1518,16 @@ mod tests {
                     key,
                     data: PlayerLoad::Absent,
                 }),
-                Request::Commit(snapshot) => out.push(Response::Committed {
-                    start: snapshot.start,
-                }),
+                Request::Commit(snapshot) => {
+                    out.push(Response::Committed {
+                        start: snapshot.start,
+                    });
+                    if snapshot.check {
+                        out.push(Response::Checked(crate::storage::Checked::Passed {
+                            values: 0,
+                        }));
+                    }
+                }
                 Request::Worlds(_) | Request::Finish => {}
             }
         }
@@ -3033,6 +3041,7 @@ mod tests {
                     log::Answer::Committed(start) => Response::Committed { start: *start },
                     log::Answer::CommitFailed(start) => Response::CommitFailed { start: *start },
                     log::Answer::LoadFailed => Response::LoadFailed,
+                    log::Answer::Checked(found) => Response::Checked(found.clone()),
                 })
                 .collect();
             step(

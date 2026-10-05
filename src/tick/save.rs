@@ -17,11 +17,12 @@ use tracing::{debug, error};
 use super::extra::{self, Held};
 use super::log::InputLog;
 use super::view::Key;
-use super::{Phase, Player, PlayerKey, State, dispatch};
+use super::{Context, Phase, Player, PlayerKey, State, dispatch};
+use crate::command::Sender;
 use crate::event::{PlayerDataSave, WorldSave};
 use crate::player;
 use crate::save::{PlayerData, Request, Snapshot, WorldValues};
-use crate::storage::PlayerKey as StoredPlayer;
+use crate::storage::{Checked, PlayerKey as StoredPlayer};
 use crate::world::{Chunk, Kind, World};
 
 /// Unloaded chunks waiting for a commit beyond which the tick asks for one at once.
@@ -110,6 +111,10 @@ pub(super) struct Saving {
     pub(super) requested: bool,
     /// A task or command asked for an online backup after the next save (PLAN.md 10.9 백업).
     pub(super) backup: bool,
+    /// `/check` asked for a check of the world file after the next save.
+    check: bool,
+    /// Who asked for the check asked for or being made, until its result comes: one at a time.
+    checker: Option<Sender>,
     /// The snapshot sent to the save thread and not answered yet.
     in_flight: Option<InFlight>,
     /// Players who left, by storage key.
@@ -134,6 +139,8 @@ impl Saving {
             next_due: start.saturating_add(interval.max(1)),
             requested: false,
             backup: false,
+            check: false,
+            checker: None,
             in_flight: None,
             offline: BTreeMap::new(),
             players,
@@ -162,6 +169,8 @@ impl Saving {
             next_due,
             requested,
             backup,
+            check,
+            checker,
             in_flight,
             offline,
             players: _,
@@ -169,6 +178,12 @@ impl Saving {
         h.u64(*next_due);
         h.u64(u64::from(*requested));
         h.u64(u64::from(*backup));
+        h.u64(u64::from(*check));
+        h.u64(match checker {
+            None => 0,
+            Some(Sender::Console) => 1,
+            Some(Sender::Player(id)) => id.session().get().wrapping_add(2),
+        });
         match in_flight {
             None => h.u64(0),
             Some(InFlight {
@@ -212,6 +227,8 @@ super::checkpoint::fields!(Saving {
     next_due,
     requested,
     backup,
+    check,
+    checker,
     in_flight,
     offline,
     players,
@@ -222,6 +239,10 @@ super::checkpoint::fields!(InFlight {
     players
 });
 super::checkpoint::fields!(Offline { data, snapshot });
+super::checkpoint::variants!(Sender {
+    0 => Player(id),
+    1 => Console,
+});
 
 /// The storage key of a player (PLAN.md 6): the XUID in decimal, or `offline:` and the name in
 /// ASCII lowercase.
@@ -316,6 +337,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         identity: log.identity(),
         new_worlds: super::world_api::take_new_worlds(state),
         backup: std::mem::take(&mut state.saving.backup),
+        check: std::mem::take(&mut state.saving.check),
         ..Snapshot::default()
     };
     let mut held = InFlight {
@@ -471,6 +493,42 @@ pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
             dispatch::call(state, &mut e);
             dispatch::watch(state, &e);
         }
+    }
+}
+
+/// Asks for a check of the world file after the next save (`/check`), for `sender`; false, asking
+/// for nothing, while another is asked for or being made.
+pub(super) fn ask_check(state: &mut State, sender: Sender) -> bool {
+    if state.saving.checker.is_some() {
+        return false;
+    }
+    state.saving.checker = Some(sender);
+    state.saving.check = true;
+    state.saving.requested = true;
+    true
+}
+
+/// Tells who asked for the check what it `found`; a player who has left is told nothing.
+pub(super) fn checked(state: &mut State, found: &Checked) {
+    let Some(sender) = state.saving.checker.take() else {
+        return;
+    };
+    let text = match found {
+        Checked::Passed { values } => {
+            format!("World file check passed: all {values} stored values are whole")
+        }
+        Checked::Damaged {
+            values,
+            damaged,
+            first,
+        } => format!(
+            "World file check found {damaged} damaged of {values} stored values (first: \
+             {first}); the server log has the details"
+        ),
+        Checked::Failed(why) => format!("World file check could not finish: {why}"),
+    };
+    if let Err(e) = (Context { state }).send_to(sender, player::Message::Raw(text)) {
+        debug!(error = %e, "the check result was not sent: the player is leaving");
     }
 }
 

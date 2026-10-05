@@ -9,7 +9,7 @@ use crate::import::level_dat::WorldData;
 use crate::storage::codec::{ExtraRecord, Meta};
 use crate::storage::seal::unseal;
 use crate::storage::tests::{Disk, Fault, memory};
-use crate::storage::{ChunkId, ChunkKey, ChunkPart};
+use crate::storage::{ChunkId, ChunkKey, ChunkPart, StartBackup};
 use crate::world::{Flat, Generator as _, Void};
 
 const NAME: &str = "imported";
@@ -837,7 +837,7 @@ fn an_undeclared_or_temporary_world_is_refused_before_anything_is_opened() {
     for (worlds, name) in [(vec![spec()], "other"), (vec![temporary], NAME)] {
         let err = run(
             &data,
-            StartBackup::Make,
+            Start::checked(StartBackup::Make),
             &worlds,
             1,
             &Registry::default(),
@@ -936,7 +936,11 @@ fn file_mib(path: &Path) -> u64 {
 )]
 fn measure_100k_chunk_import() {
     let dir = crate::save::tests::TempDir::new("import-measure");
-    let mut storage = Storage::open(&dir.0, crate::storage::StartBackup::Make).unwrap();
+    let mut storage = Storage::open(
+        &dir.0,
+        crate::storage::Start::checked(crate::storage::StartBackup::Make),
+    )
+    .unwrap();
     let mut rng = crate::protocol::Rng(0x0010_0000);
     // A few distinct chunks, read again and again: generating each would dominate the time.
     let templates: Vec<Raw> = (0..64).map(|_| terrain_raw(&mut rng)).collect();
@@ -989,7 +993,7 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
     let data = dir.0.join("data");
     let report = run(
         &data,
-        StartBackup::Make,
+        Start::checked(StartBackup::Make),
         &[spec()],
         2,
         &Registry::default(),
@@ -1000,7 +1004,7 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
     let mut source = Source::open(Path::new(FIXTURE)).unwrap();
     let catalog = source.catalog().unwrap();
     let mut ticks = 0u64;
-    let mut storage = Storage::open(&data, StartBackup::Make).unwrap();
+    let mut storage = Storage::open(&data, Start::checked(StartBackup::Make)).unwrap();
     let record = world_record(&mut storage).unwrap();
     assert_eq!((record.seed, record.time), (7, source.world().time));
     for &(x, z) in &catalog.chunks {
