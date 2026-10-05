@@ -237,6 +237,10 @@ pub(crate) enum Kind {
     Bool,
     /// Players: a name or `@s`, `@a`, `@p`, `@r`.
     Target,
+    /// A player's name, online or not; a target for the client.
+    Name,
+    /// A 32-bit whole number with `suffix` after it, such as `10L`.
+    Suffixed { suffix: String },
     /// Three coordinates, each a number, `~` or `~` and a number.
     Position,
     /// The rest of the line, as a chat message.
@@ -293,6 +297,25 @@ impl Param {
         Self::new(name, Kind::Target)
     }
 
+    /// A player's name, online or not, as typed ([`Args::string`]), for commands on players who
+    /// may be offline, such as `/op` and `/ban`. The client offers it as a target (online
+    /// players); a selector (`@a`) does not fit.
+    pub fn player_name(name: impl Into<String>) -> Self {
+        Self::new(name, Kind::Name)
+    }
+
+    /// A 32-bit whole number with `suffix` right after it ([`Args::int`]), such as `/xp`'s `10L`
+    /// with the suffix `l` (ASCII case does not matter). A suffix other than 1 to 64 ASCII letters
+    /// refuses the build ([`Error::InvalidOverload`]).
+    pub fn suffixed_int(name: impl Into<String>, suffix: &str) -> Self {
+        Self::new(
+            name,
+            Kind::Suffixed {
+                suffix: suffix.to_ascii_lowercase(),
+            },
+        )
+    }
+
     /// A position ([`Args::position`]): three coordinates, each a number, or `~` and an optional
     /// number for one relative to the sender's feet (the default world's spawn for the console).
     /// Local coordinates (`^`) are not supported.
@@ -318,12 +341,13 @@ impl Param {
     /// One of `values` ([`Args::string`] gives the value as listed, whatever ASCII case was
     /// typed). `type_name` is the enum type the client shows: every enum of a type name must have
     /// the same values in the same order, or [`build`](crate::ServerBuilder::build) fails with
-    /// [`Error::ConflictingEnum`]. Anchor's own commands use `Boolean`, `Item`, `Block`,
-    /// `Effect`, `Enchant`, `GameMode`, `Difficulty`, `BanListType`, `WhitelistAction`,
-    /// `WhitelistEdit`, `TitleKind`, `TimeSpec`, `TimeQuery`, `ParticleName`, `<name>CommandAliases`
-    /// for a command with aliases, and each [`literal`](Self::literal)'s word, unless the user
-    /// replaces or drops the command. `CommandName` is the client's list of command names: no
-    /// parameter may take it.
+    /// [`Error::ConflictingEnum`]. Anchor's own commands use BDS's names and values: `Boolean`,
+    /// `Item`, `Block`, `Effect`, `Enchant`, `GameMode`, `Difficulty`, `ClearEffects`,
+    /// `TitleClear`, `TitleReset`, `TitleSet`, `TitleTimes`, `TimeModeAdd`, `TimeModeSet`,
+    /// `TimeModeQuery`, `TimeSpec`, `TimeQuery` and `<name>CommandAliases` for a command with
+    /// aliases, and Anchor's `TimeModeStart`, `TimeModeStop`, `BanListType`, `WhitelistAction`,
+    /// `WhitelistEdit` and `ParticleName`, unless the user replaces or drops the command.
+    /// `CommandName` is the client's list of command names: no parameter may take it.
     pub fn enumeration(
         name: impl Into<String>,
         type_name: impl Into<String>,
@@ -388,12 +412,17 @@ impl Param {
 
     /// `<name: type>`, or `[name: type]` when optional.
     fn write_usage(&self, out: &mut String) {
+        let suffixed;
         let ty = match &self.kind {
             Kind::Int => "int",
+            Kind::Suffixed { suffix } => {
+                suffixed = format!("int{suffix}");
+                &suffixed
+            }
             Kind::Float => "float",
             Kind::String => "string",
             Kind::Bool => "Boolean",
-            Kind::Target => "target",
+            Kind::Target | Kind::Name => "target",
             Kind::Position => "x y z",
             Kind::Message => "message",
             Kind::RawText => "text",
@@ -466,7 +495,7 @@ impl Args {
         self.get(name).is_some()
     }
 
-    /// A [`Param::int`].
+    /// A [`Param::int`] or [`Param::suffixed_int`] (its number).
     pub fn int(&self, name: &str) -> Option<i32> {
         match self.get(name)? {
             Value::Int(v) => Some(*v),
@@ -482,8 +511,8 @@ impl Args {
         }
     }
 
-    /// The text of a [`Param::string`], [`message`](Param::message),
-    /// [`raw_text`](Param::raw_text), [`json`](Param::json) or
+    /// The text of a [`Param::string`], [`player_name`](Param::player_name),
+    /// [`message`](Param::message), [`raw_text`](Param::raw_text), [`json`](Param::json) or
     /// [`enumeration`](Param::enumeration).
     pub fn string(&self, name: &str) -> Option<&str> {
         match self.get(name)? {

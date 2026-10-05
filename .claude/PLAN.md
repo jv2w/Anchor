@@ -1190,6 +1190,7 @@ console-input = true
 - U8 패킷 합침: 다른 플레이어 이동을 MovePlayer에서 `MoveActorAbsolute`(눈 위치, 땅 플래그, 회전, 보간됨)로 바꿈. 순간이동과 본인 보정만 MovePlayer. P6 others 차이는 intended에 등록.
 - U8 틱 합침: Windows std `thread::sleep`이 이미 고해상도 타이머임을 std 소스와 실측(200틱 p99 50.5 ms)으로 확인해 대기 방식은 그대로 둠(tokio 42~63 ms, 돌며 기다리기는 틱마다 CPU 2 ms). 측정 시험 `tests/server.rs` `tick_intervals`(ignored).
 - U1 합침: 별칭 enum을 BDS 모양 `<name>CommandAliases`(이름 먼저)로, 플레이어마다 쓸 수 있는 이름·별칭의 `CommandName` enum을 보냄, `help`는 명령으로 보내지 않음(클라이언트 자체 명령, BDS·PMMP와 같음). 권한별 목록·op 변경 뒤 다시 보내기는 원래 맞았음. 실제 클라이언트 확인 대기.
+- U2 합침: 기본 명령 21개(give, effect, enchant, gamemode, tp, kill, tell, clear, difficulty, kick, op, deop, me, say, list, stop, time, title, xp, spawnpoint, setworldspawn)의 인자 타입·이름·enum을 BDS 기록에 맞춤(고정 기록 대조 시험), Item·Block 인자에 semantic constraint 2, 새 API `Param::player_name`·`Param::suffixed_int`. 결정: 공식 클라이언트에 보이는 것은 BDS와 같게(CLAUDE.md 8절) — PMMP 전용 입력 `gamemode v|view|3`, 문자열 숫자 난이도, `op @a`는 더 받지 않음. `particle`·`whitelist`·`transferserver`·`time start|stop`은 PMMP 모양 유지. 검증 필요: gamemode 숫자 5·6을 BDS가 받는지.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

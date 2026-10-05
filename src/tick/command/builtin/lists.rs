@@ -16,7 +16,10 @@ pub(super) fn add(commands: &mut Vec<Command>) {
         Command::new("ban", "commands.ban.description")
             .permission(permission::COMMAND_BAN_PLAYER)
             .overload(
-                &[Param::string("name"), Param::message("reason").optional()],
+                &[
+                    Param::player_name("name"),
+                    Param::message("reason").optional(),
+                ],
                 ban,
             ),
         Command::new("ban-ip", "commands.banip.description")
@@ -37,17 +40,17 @@ pub(super) fn add(commands: &mut Vec<Command>) {
         Command::new("pardon", "Lifts the ban on a name")
             .alias("unban")
             .permission(permission::COMMAND_UNBAN_PLAYER)
-            .overload(&[Param::string("name")], infallible(pardon)),
+            .overload(&[Param::player_name("name")], infallible(pardon)),
         Command::new("pardon-ip", "Lifts the ban on an IP address")
             .alias("unban-ip")
             .permission(permission::COMMAND_UNBAN_IP)
             .overload(&[Param::string("address")], pardon_ip),
         Command::new("op", "commands.op.description")
             .permission(permission::COMMAND_OP_GIVE)
-            .overload(&[Param::string("player")], op),
+            .overload(&[Param::player_name("player")], op),
         Command::new("deop", "commands.deop.description")
             .permission(permission::COMMAND_OP_TAKE)
-            .overload(&[Param::string("player")], deop),
+            .overload(&[Param::player_name("player")], deop),
         Command::new("whitelist", "commands.allowlist.description")
             .permission(permission::COMMAND_WHITELIST_ENABLE)
             .permission(permission::COMMAND_WHITELIST_DISABLE)
@@ -72,7 +75,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
         Command::new("kick", "commands.kick.description")
             .permission(permission::COMMAND_KICK)
             .overload(
-                &[Param::target("player"), Param::message("reason").optional()],
+                &[Param::target("name"), Param::message("reason").optional()],
                 kick_command,
             ),
     ]);
@@ -321,7 +324,7 @@ fn kick_command(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Ou
     let reason = args.string("reason").unwrap_or_default().trim();
     let text = if reason.is_empty() { KICKED } else { reason };
     let mut out = Output::new();
-    for &id in args.targets("player").unwrap_or_default() {
+    for &id in args.targets("name").unwrap_or_default() {
         let name = player_name(cx, id);
         kick(cx, id, text)?;
         let line = if reason.is_empty() {

@@ -29,7 +29,7 @@ use tracing::{debug, info};
 
 use super::{ADMIN_PREFIX, CONSOLE_NAME, Context};
 use crate::action::{self, Action};
-use crate::command::{Args, Command, Error, Output, Result, Sender};
+use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
 use crate::config::GameMode;
 use crate::math::{self, Vec3};
 use crate::permission::Permission;
@@ -350,10 +350,37 @@ fn two_decimals(v: f64) -> String {
     format!("{v:.2}")
 }
 
-/// PMMP's names of the game modes (`GameMode::getAliases`, the names [`GameMode::from_name`]
-/// takes), the values of the client's `GameMode` enum.
-fn game_mode_names() -> [&'static str; 13] {
-    GameMode::ALIASES.map(|(name, _)| name)
+/// BDS's `GameMode` enum (P6, m9-facts.md): the names, their letters and `default` (`d`), the
+/// server's default game mode.
+const GAME_MODE_NAMES: [&str; 9] = [
+    "default",
+    "creative",
+    "spectator",
+    "survival",
+    "adventure",
+    "d",
+    "c",
+    "s",
+    "a",
+];
+
+/// The `gameMode` parameter of the game mode commands: one of [`GAME_MODE_NAMES`].
+fn game_mode_param() -> Param {
+    Param::enumeration("gameMode", "GameMode", &GAME_MODE_NAMES)
+}
+
+/// The game mode a `gameMode` argument names: a name or letter, or a Bedrock game type number
+/// (0 survival, 1 creative, 2 adventure, 6 spectator); `default` (`d`, 5) gives `default`.
+fn game_mode_arg(args: &Args, default: Option<GameMode>) -> Option<GameMode> {
+    match (args.string("gameMode"), args.int("gameMode")) {
+        (Some("default" | "d"), _) | (_, Some(5)) => default,
+        (Some(name), _) => GameMode::from_name(name),
+        (_, Some(0)) => Some(GameMode::Survival),
+        (_, Some(1)) => Some(GameMode::Creative),
+        (_, Some(2)) => Some(GameMode::Adventure),
+        (_, Some(6)) => Some(GameMode::Spectator),
+        _ => None,
+    }
 }
 
 /// The game mode's name for the client to translate, as BDS sends it (P6:

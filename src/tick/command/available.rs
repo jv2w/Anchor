@@ -20,10 +20,10 @@ use std::collections::BTreeMap;
 use super::access::Access;
 use super::{Grants, allowed, has_permission_of};
 use crate::block;
-use crate::command::parse::Names;
+use crate::command::parse::{NAMESPACE, Names};
 use crate::command::{self, Command, Error, Kind, Param};
 use crate::permission::Permission;
-use crate::protocol::consts::{CommandArg, CommandArgType};
+use crate::protocol::consts::{CommandArg, CommandArgType, ParamOption};
 use crate::protocol::packet::{AvailableCommands, Packet};
 use crate::protocol::{Command as NetCommand, CommandEnum, CommandOverload, CommandParameter};
 use crate::tick::Player;
@@ -51,6 +51,8 @@ pub(crate) struct Catalog {
     enums: Vec<Enum>,
     /// The commands in registration order.
     commands: Vec<Entry>,
+    /// The number suffixes (`/xp`'s `l`), each once; few, so every packet carries them all.
+    suffixes: Vec<String>,
 }
 
 /// An enum of the catalog: its type name and its values' positions in [`Catalog::values`].
@@ -85,6 +87,8 @@ struct Parameter {
     name: String,
     r#type: Type,
     optional: bool,
+    /// `ParamOption` bits: BDS marks its item and block names as checked by the server.
+    options: u8,
 }
 
 /// A parameter's network type.
@@ -94,6 +98,8 @@ enum Type {
     Basic(CommandArgType),
     /// `VALID | ENUM | index`, the index the enum's in the catalog.
     Enum(u32),
+    /// `SUFFIXED | index`, the suffix's index (BDS sets no `VALID` bit).
+    Suffixed(u32),
 }
 
 impl Catalog {
@@ -131,10 +137,17 @@ impl Catalog {
                             {
                                 used.push(index);
                             }
+                            let options = match p.kind {
+                                Kind::Item | Kind::Block => {
+                                    u8::from(ParamOption::HasSemanticConstraint)
+                                }
+                                _ => 0,
+                            };
                             Parameter {
                                 name: p.name.clone(),
                                 r#type,
                                 optional: p.optional,
+                                options,
                             }
                         })
                         .collect()
@@ -231,9 +244,10 @@ pub(crate) fn available_commands(
                                     | u32::from(CommandArg::Enum)
                                     | renumbered(index)
                             }
+                            Type::Suffixed(index) => u32::from(CommandArg::Suffixed) | index,
                         },
                         optional: p.optional,
-                        options: 0,
+                        options: p.options,
                     })
                     .collect(),
             })
@@ -259,7 +273,7 @@ pub(crate) fn available_commands(
     Packet::AvailableCommands(Box::new(AvailableCommands {
         enum_values: values,
         chained_subcommand_values: Vec::new(),
-        suffixes: Vec::new(),
+        suffixes: catalog.suffixes.clone(),
         enums,
         chained_subcommands: Vec::new(),
         commands,
@@ -340,14 +354,26 @@ impl Builder {
         index
     }
 
-    /// The network type of `param`: a basic type, or an enum (PMMP's assembler: `VALID | type`
-    /// or `VALID | ENUM | index`).
+    /// The index of `suffix`, added on first use.
+    fn suffix(&mut self, suffix: &str) -> u32 {
+        let suffixes = &mut self.catalog.suffixes;
+        if let Some(i) = suffixes.iter().position(|s| s == suffix) {
+            return index_of(i);
+        }
+        suffixes.push(suffix.to_owned());
+        index_of(suffixes.len() - 1)
+    }
+
+    /// The network type of `param` as BDS sends it (P6, m9-facts.md): a basic type, an enum
+    /// (`VALID | type` or `VALID | ENUM | index`, as PMMP's assembler) or a suffixed number.
+    /// Item and block names come with and without `minecraft:`.
     fn parameter(&mut self, names: &Names, param: &Param) -> Type {
         match &param.kind {
             Kind::Int => Type::Basic(CommandArgType::Int),
+            Kind::Suffixed { suffix } => Type::Suffixed(self.suffix(suffix)),
             Kind::Float => Type::Basic(CommandArgType::Float),
             Kind::String => Type::Basic(CommandArgType::String),
-            Kind::Target => Type::Basic(CommandArgType::Target),
+            Kind::Target | Kind::Name => Type::Basic(CommandArgType::Target),
             Kind::Position => Type::Basic(CommandArgType::Position),
             // BDS and PMMP (`ARG_TYPE_MESSAGE`) send 68, gophertunnel's `Message` is 67.
             Kind::Message => Type::Basic(CommandArgType::MessageRoot),
@@ -357,14 +383,25 @@ impl Builder {
             Kind::Enum { name, values } => {
                 Type::Enum(self.enumeration(name, values.iter().map(String::as_str)))
             }
-            Kind::Item => Type::Enum(self.enumeration("Item", names.item_names().iter().copied())),
+            Kind::Item => {
+                let values = namespaced(names.item_names().iter().copied());
+                Type::Enum(self.enumeration("Item", values.iter().map(String::as_str)))
+            }
             Kind::Block => {
-                Type::Enum(self.enumeration("Block", block::Kind::all().iter().map(|k| k.name())))
+                let values = namespaced(block::Kind::all().iter().map(|k| k.name()));
+                Type::Enum(self.enumeration("Block", values.iter().map(String::as_str)))
             }
             Kind::Effect => Type::Enum(self.enumeration("Effect", names.effect_names())),
             Kind::Enchantment => Type::Enum(self.enumeration("Enchant", names.enchantment_names())),
         }
     }
+}
+
+/// Each of `names` as `minecraft:<name>` and as itself, BDS's order.
+fn namespaced<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    names
+        .flat_map(|n| [format!("{NAMESPACE}{n}"), n.to_owned()])
+        .collect()
 }
 
 /// A list index as the packet's u32. Lists here are far below 2^32 entries (bounded command,

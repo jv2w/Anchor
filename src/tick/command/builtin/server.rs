@@ -10,7 +10,7 @@ use super::{
     require, usage,
 };
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
-use crate::config::{Difficulty, GameMode};
+use crate::config::Difficulty;
 use crate::item::{self, Kind as ItemKind};
 use crate::math::Vec3;
 use crate::permission;
@@ -40,7 +40,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .overload(&[], infallible(list)),
         Command::new("me", "commands.me.description")
             .permission(permission::COMMAND_ME)
-            .overload(&[Param::message("action")], me),
+            .overload(&[Param::message("message")], me),
         Command::new("say", "commands.say.description")
             .permission(permission::COMMAND_SAY)
             .overload(&[Param::message("message")], say),
@@ -53,14 +53,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .overload(&[Param::position("spawnPoint")], setworldspawn),
         Command::new("defaultgamemode", "commands.defaultgamemode.description")
             .permission(permission::COMMAND_DEFAULTGAMEMODE)
-            .overload(
-                &[Param::enumeration(
-                    "gameMode",
-                    "GameMode",
-                    &super::game_mode_names(),
-                )],
-                defaultgamemode,
-            ),
+            .overload(&[super::game_mode_param()], defaultgamemode),
         Command::new("difficulty", "commands.difficulty.description")
             .permission(permission::COMMAND_DIFFICULTY)
             .overload(
@@ -70,7 +63,8 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                     &DIFFICULTIES.map(|(name, _)| name),
                 )],
                 difficulty,
-            ),
+            )
+            .overload(&[Param::int("difficulty")], difficulty),
         Command::new("time", "commands.time.description")
             .permission(permission::COMMAND_TIME_ADD)
             .permission(permission::COMMAND_TIME_SET)
@@ -78,23 +72,29 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .permission(permission::COMMAND_TIME_START)
             .permission(permission::COMMAND_TIME_STOP)
             .overload(
+                &[time_mode("TimeModeAdd", "add"), Param::int("amount")],
+                time,
+            )
+            .overload(
+                &[time_mode("TimeModeSet", "set"), Param::int("amount")],
+                time,
+            )
+            .overload(
                 &[
-                    Param::literal("set"),
-                    Param::enumeration("time", "TimeSpec", &TIME_NAMES),
+                    time_mode("TimeModeSet", "set"),
+                    Param::enumeration("time", "TimeSpec", &TIME_NAMES.map(|(name, _)| name)),
                 ],
                 time,
             )
-            .overload(&[Param::literal("set"), Param::int("amount")], time)
-            .overload(&[Param::literal("add"), Param::int("amount")], time)
             .overload(
                 &[
-                    Param::literal("query"),
+                    time_mode("TimeModeQuery", "query"),
                     Param::enumeration("time", "TimeQuery", &TIME_QUERIES),
                 ],
                 time,
             )
-            .overload(&[Param::literal("start")], time)
-            .overload(&[Param::literal("stop")], time),
+            .overload(&[time_mode("TimeModeStart", "start")], time)
+            .overload(&[time_mode("TimeModeStop", "stop")], time),
         Command::new("particle", "commands.particle.description")
             .permission(permission::COMMAND_PARTICLE)
             .overload(
@@ -177,24 +177,34 @@ const MAX_PARTICLES: i32 = 1024;
 /// The random stream that spreads `/particle`'s particles.
 const PARTICLE_SPREAD: u64 = random::tag("command-particle-spread");
 
-/// PMMP's names of the difficulties (`World::getDifficultyFromString`): the values of the
-/// client's `Difficulty` enum and what `/difficulty` reads them as.
-const DIFFICULTIES: [(&str, Difficulty); 12] = [
-    ("peaceful", Difficulty::Peaceful),
-    ("p", Difficulty::Peaceful),
-    ("0", Difficulty::Peaceful),
-    ("easy", Difficulty::Easy),
-    ("e", Difficulty::Easy),
-    ("1", Difficulty::Easy),
+/// BDS's `Difficulty` enum (P6, m9-facts.md; PMMP `World::getDifficultyFromString` takes the
+/// same words) and what `/difficulty` reads them as; a number is the difficulty's ID.
+const DIFFICULTIES: [(&str, Difficulty); 8] = [
     ("normal", Difficulty::Normal),
-    ("n", Difficulty::Normal),
-    ("2", Difficulty::Normal),
+    ("peaceful", Difficulty::Peaceful),
+    ("easy", Difficulty::Easy),
     ("hard", Difficulty::Hard),
+    ("p", Difficulty::Peaceful),
+    ("e", Difficulty::Easy),
+    ("n", Difficulty::Normal),
     ("h", Difficulty::Hard),
-    ("3", Difficulty::Hard),
 ];
-/// PMMP's names of times of day (`TimeCommand`).
-const TIME_NAMES: [&str; 6] = ["day", "noon", "sunset", "night", "midnight", "sunrise"];
+/// The difficulties by ID (`/difficulty <0-3>`).
+const DIFFICULTY_IDS: [Difficulty; 4] = [
+    Difficulty::Peaceful,
+    Difficulty::Easy,
+    Difficulty::Normal,
+    Difficulty::Hard,
+];
+/// Times of day, as BDS's `TimeSpec` enum names them, and their ticks (PMMP `TimeCommand`).
+const TIME_NAMES: [(&str, i32); 6] = [
+    ("day", 1000),
+    ("sunrise", 23_000),
+    ("noon", 6000),
+    ("sunset", 12_000),
+    ("night", 13_000),
+    ("midnight", 18_000),
+];
 /// What `/time query` reads, as BDS names it (its `TimeQuery` enum).
 const TIME_QUERIES: [&str; 3] = ["daytime", "gametime", "day"];
 /// Ticks in a Minecraft day.
@@ -237,6 +247,12 @@ const PARTICLE_NAMES: [&str; 35] = [
     "blockdust",
     "sonicexplosion",
 ];
+
+/// The first word of a `/time` form: `word`, BDS's enum `type_name` (`TimeModeStart` and
+/// `TimeModeStop` are Anchor's names for PMMP's forms BDS lacks).
+fn time_mode(type_name: &str, word: &str) -> Param {
+    Param::enumeration("mode", type_name, &[word])
+}
 
 /// `/help [page]` and `/help <command>` (alias `/?`; PMMP `HelpCommand`, in Anchor's layout):
 /// the first usage line of each command the sender may use, in name order, a player's screen
@@ -305,7 +321,7 @@ fn broadcast(cx: &mut Context<'_>, message: Message, text: &str) -> Result<Outpu
 
 /// `/me <action>` (PMMP `MeCommand`): `* name action` to everyone.
 fn me(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    let action = args.string("action").unwrap_or_default();
+    let action = args.string("message").unwrap_or_default();
     let name = display_name_of(cx, *sender);
     let text = format!("§r{action}");
     broadcast(cx, EMOTE.chat("", &[&name, &text]), action)
@@ -361,7 +377,8 @@ fn setworldspawn(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<O
 /// `/defaultgamemode <mode>` (PMMP `DefaultGamemodeCommand`): the game mode new players get,
 /// until the server stops.
 fn defaultgamemode(cx: &mut Context<'_>, _: &Sender, args: &Args) -> Result<Output> {
-    let Some(mode) = args.string("gameMode").and_then(GameMode::from_name) else {
+    // `default` names no mode here.
+    let Some(mode) = super::game_mode_arg(args, None) else {
         return Err(usage(cx, "defaultgamemode"));
     };
     cx.set_default_game_mode(mode);
@@ -371,8 +388,18 @@ fn defaultgamemode(cx: &mut Context<'_>, _: &Sender, args: &Args) -> Result<Outp
 /// `/difficulty <difficulty>` (PMMP `DifficultyCommand`): the difficulty until the server stops;
 /// always hard on a hardcore server.
 fn difficulty(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    let name = args.string("difficulty").unwrap_or_default();
-    let Some(&(_, chosen)) = DIFFICULTIES.iter().find(|(n, _)| *n == name) else {
+    let chosen = match (args.string("difficulty"), args.int("difficulty")) {
+        (Some(name), _) => DIFFICULTIES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|&(_, d)| d),
+        (_, Some(id)) => usize::try_from(id)
+            .ok()
+            .and_then(|i| DIFFICULTY_IDS.get(i))
+            .copied(),
+        _ => None,
+    };
+    let Some(chosen) = chosen else {
         return Err(usage(cx, "difficulty"));
     };
     let chosen = if cx.is_hardcore() {
@@ -391,7 +418,8 @@ fn difficulty(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outp
 /// moves) or the days passed. Each action has its own permission. A number is taken from 0 to
 /// 30,000,000.
 fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
-    if args.has("query") {
+    let mode = args.string("mode").unwrap_or_default();
+    if mode == "query" {
         require(cx, *sender, permission::COMMAND_TIME_QUERY, "time")?;
         let world = sender_world(cx, *sender);
         let now = cx.world(world).map_or(0, world::World::time_ticks);
@@ -404,8 +432,8 @@ fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     }
     let amount = args.int("amount").map(|n| n.clamp(0, super::MAX_COORD));
     let worlds: Vec<(world::Id, i64)> = cx.worlds().map(|w| (w.id(), w.time_ticks())).collect();
-    if args.has("stop") || args.has("start") {
-        let stop = args.has("stop");
+    if mode == "stop" || mode == "start" {
+        let stop = mode == "stop";
         let (needed, msg) = if stop {
             (permission::COMMAND_TIME_STOP, TIME_STOPPED)
         } else {
@@ -421,7 +449,7 @@ fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         }
         return Ok(announce(cx, *sender, msg, &[]));
     }
-    if args.has("add") {
+    if mode == "add" {
         require(cx, *sender, permission::COMMAND_TIME_ADD, "time")?;
         let added = amount.unwrap_or(0);
         for (id, now) in worlds {
@@ -430,15 +458,12 @@ fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         return Ok(announce(cx, *sender, TIME_ADDED, &[&added.to_string()]));
     }
     require(cx, *sender, permission::COMMAND_TIME_SET, "time")?;
-    let value = match (args.string("time"), amount) {
-        (Some("day"), _) => 1000,
-        (Some("noon"), _) => 6000,
-        (Some("sunset"), _) => 12_000,
-        (Some("night"), _) => 13_000,
-        (Some("midnight"), _) => 18_000,
-        (Some("sunrise"), _) => 23_000,
-        (_, Some(n)) => n,
-        _ => return Err(usage(cx, "time")),
+    let named = args
+        .string("time")
+        .and_then(|t| TIME_NAMES.iter().find(|(name, _)| *name == t))
+        .map(|&(_, ticks)| ticks);
+    let Some(value) = named.or(amount) else {
+        return Err(usage(cx, "time"));
     };
     for (id, _) in worlds {
         cx.set_time(id, i64::from(value));

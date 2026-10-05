@@ -167,17 +167,18 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
         shapes,
         [
             vec!["destination"],
-            vec!["position"],
             vec!["victim", "destination"],
-            vec!["victim", "position"]
-        ]
+            vec!["destination"],
+            vec!["victim", "destination"]
+        ],
+        "a position, then a player, as BDS"
     );
     let gamemode = p.commands.iter().find(|c| c.name == "gamemode").unwrap();
     let mode = &gamemode.overloads[0].parameters[0];
     assert_ne!(mode.r#type & u32::from(CommandArg::Enum), 0);
     let index = usize::try_from(mode.r#type & 0xffff).unwrap();
     assert_eq!(p.enums[index].r#type, "GameMode");
-    assert_eq!(p.enums[index].value_indices.len(), 13);
+    assert_eq!(p.enums[index].value_indices.len(), 9, "BDS's names");
     let tell = p.commands.iter().find(|c| c.name == "tell").unwrap();
     let aliases = &p.enums[usize::try_from(tell.aliases_offset).unwrap()];
     let aliases: Vec<&str> = aliases
@@ -460,7 +461,7 @@ fn gamemode_changes_players_and_needs_the_permission_for_others() {
         "gamemode flying @a"
     )));
     assert_eq!(
-        ok(&mut state, Sender::Console, "gamemode view player2"),
+        ok(&mut state, Sender::Console, "gamemode spectator player2"),
         ["commands.gamemode.success.other"]
     );
     assert_eq!(player(&state, 2).game_mode(), GameMode::Spectator);
@@ -586,11 +587,11 @@ fn clear_counts_and_takes_items_from_every_slot() {
     // Clearing oneself is everyone's; others need the operator's permission.
     assert!(is_refused(&run(&mut state, id(2), "clear player1")));
     assert_eq!(
-        ok(&mut state, id(1), "clear player2 stone 0"),
+        ok(&mut state, id(1), "clear player2 stone -1 0"),
         ["commands.clear.testing"]
     );
     assert_eq!(
-        ok(&mut state, id(1), "clear player2 stone 70"),
+        ok(&mut state, id(1), "clear player2 stone 0 70"),
         ["commands.clear.success"]
     );
     let inv = &player(&state, 2).inventory;
@@ -1363,4 +1364,345 @@ fn transferserver_sends_the_sending_player_only() {
         panic!("{last:?}");
     };
     assert_eq!((t.address.as_str(), t.port), ("example.com", 19132));
+}
+
+/// BDS 1.26.52.3's overloads of the commands Anchor shares with it, from the `AvailableCommands`
+/// the P6 bot received (`p6 api bds`, scenario `commands`): `command name=type ...`, `?` for an
+/// optional parameter.
+const BDS_OVERLOADS: [&str; 42] = [
+    "clear player=target? itemName=enum:Item? data=int? maxCount=int?",
+    "deop player=target",
+    "difficulty difficulty=enum:Difficulty",
+    "difficulty difficulty=int",
+    "effect player=target Mode=enum:ClearEffects effect=enum:Effect?",
+    "effect player=target effect=enum:Effect seconds=int? amplifier=int? hideParticles=enum:Boolean?",
+    "effect player=target effect=enum:Effect Mode=enum:AddInfiniteEffect amplifier=int? hideParticles=enum:Boolean?",
+    "enchant player=target enchantmentName=enum:Enchant level=int?",
+    "enchant player=target enchantmentId=int level=int?",
+    "gamemode gameMode=enum:GameMode player=target?",
+    "gamemode gameMode=int player=target?",
+    "give player=target itemName=enum:Item amount=int? data=int? components=json?",
+    "kick name=target reason=message",
+    "kill target=target?",
+    "list",
+    "me message=message",
+    "op player=target",
+    "say message=message",
+    "setworldspawn spawnPoint=position?",
+    "spawnpoint player=target? spawnPos=position?",
+    "stop",
+    "tell target=target message=message",
+    "teleport destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position yRot=value? xRot=value? checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtPosition=position checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport victim=target destination=position facing=enum:TeleportFacing lookAtEntity=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "teleport destination=target",
+    "teleport victim=target destination=target checkForBlocks=enum:Boolean? forceProvidedPositionOnDimensionChange=enum:Boolean?",
+    "time mode=enum:TimeModeAdd amount=int",
+    "time mode=enum:TimeModeSet amount=int",
+    "time mode=enum:TimeModeSet time=enum:TimeSpec",
+    "time mode=enum:TimeModeQuery time=enum:TimeQuery",
+    "title player=target clear=enum:TitleClear",
+    "title player=target reset=enum:TitleReset",
+    "title player=target titleLocation=enum:TitleSet titleText=message",
+    "title player=target times=enum:TitleTimes fadeIn=int stay=int fadeOut=int",
+    "xp amount=int player=target?",
+    "xp amount=suffix:l player=target?",
+];
+
+/// BDS's values of the enums of [`BDS_OVERLOADS`] (but `Item`), from the same packet.
+const BDS_ENUMS: [(&str, &[&str]); 15] = [
+    ("Boolean", &["true", "false"]),
+    ("ClearEffects", &["clear"]),
+    (
+        "Difficulty",
+        &["normal", "peaceful", "easy", "hard", "p", "e", "n", "h"],
+    ),
+    (
+        "Effect",
+        &[
+            "wither",
+            "speed",
+            "slowness",
+            "haste",
+            "mining_fatigue",
+            "strength",
+            "instant_health",
+            "instant_damage",
+            "jump_boost",
+            "nausea",
+            "regeneration",
+            "resistance",
+            "fire_resistance",
+            "water_breathing",
+            "invisibility",
+            "blindness",
+            "night_vision",
+            "hunger",
+            "weakness",
+            "poison",
+            "health_boost",
+            "absorption",
+            "saturation",
+            "levitation",
+            "fatal_poison",
+            "conduit_power",
+            "slow_falling",
+            "bad_omen",
+            "village_hero",
+            "darkness",
+            "trial_omen",
+            "wind_charged",
+            "weaving",
+            "oozing",
+            "infested",
+            "raid_omen",
+            "breath_of_the_nautilus",
+        ],
+    ),
+    (
+        "Enchant",
+        &[
+            "protection",
+            "fire_protection",
+            "feather_falling",
+            "blast_protection",
+            "projectile_protection",
+            "thorns",
+            "respiration",
+            "depth_strider",
+            "aqua_affinity",
+            "sharpness",
+            "smite",
+            "bane_of_arthropods",
+            "knockback",
+            "fire_aspect",
+            "looting",
+            "efficiency",
+            "silk_touch",
+            "unbreaking",
+            "fortune",
+            "power",
+            "punch",
+            "flame",
+            "infinity",
+            "luck_of_the_sea",
+            "lure",
+            "frost_walker",
+            "mending",
+            "binding",
+            "vanishing",
+            "impaling",
+            "riptide",
+            "loyalty",
+            "channeling",
+            "multishot",
+            "piercing",
+            "quick_charge",
+            "soul_speed",
+            "swift_sneak",
+            "wind_burst",
+            "density",
+            "breach",
+            "lunge",
+        ],
+    ),
+    (
+        "GameMode",
+        &[
+            "default",
+            "creative",
+            "spectator",
+            "survival",
+            "adventure",
+            "d",
+            "c",
+            "s",
+            "a",
+        ],
+    ),
+    ("TimeModeAdd", &["add"]),
+    ("TimeModeQuery", &["query"]),
+    ("TimeModeSet", &["set"]),
+    ("TimeQuery", &["daytime", "gametime", "day"]),
+    (
+        "TimeSpec",
+        &["day", "sunrise", "noon", "sunset", "night", "midnight"],
+    ),
+    ("TitleClear", &["clear"]),
+    ("TitleReset", &["reset"]),
+    ("TitleSet", &["title", "subtitle", "actionbar"]),
+    ("TitleTimes", &["times"]),
+];
+
+/// The record form of the overloads of an `AvailableCommands`: `command name=type ...`.
+fn overloads_of(p: &crate::protocol::packet::AvailableCommands) -> Vec<String> {
+    use crate::protocol::consts::CommandArgType as T;
+    let basic = [
+        (T::Int, "int"),
+        (T::Float, "float"),
+        (T::Target, "target"),
+        (T::String, "string"),
+        (T::Position, "position"),
+        (T::MessageRoot, "message"),
+        (T::RawText, "raw_text"),
+        (T::Json, "json"),
+    ];
+    let mut out = Vec::new();
+    for c in &p.commands {
+        let name = if c.name == "tp" { "teleport" } else { &c.name };
+        for o in &c.overloads {
+            let mut line = name.to_owned();
+            for param in &o.parameters {
+                let t = param.r#type;
+                let index = usize::try_from(t & 0xffff).unwrap();
+                let ty = if t & u32::from(CommandArg::Suffixed) != 0 {
+                    format!("suffix:{}", p.suffixes[index])
+                } else if t & u32::from(CommandArg::Enum) != 0 {
+                    format!("enum:{}", p.enums[index].r#type)
+                } else {
+                    let (_, ty) = basic
+                        .iter()
+                        .find(|(b, _)| u32::from(*b) == t & 0xffff)
+                        .unwrap_or_else(|| panic!("type {t:#x}"));
+                    (*ty).to_owned()
+                };
+                line.push(' ');
+                line.push_str(&param.name);
+                line.push('=');
+                line.push_str(&ty);
+                if param.optional {
+                    line.push('?');
+                }
+            }
+            out.push(line);
+        }
+    }
+    out
+}
+
+#[test]
+fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
+    let (mut state, _rx) = server(vec![]);
+    let s1 = SessionId::new(1);
+    Context { state: &mut state }.op("player1").unwrap();
+    let packet = available_commands(state.commands.listing(), s1, &state.players[&s1]);
+    let Packet::AvailableCommands(p) = &packet else {
+        panic!("{packet:?}");
+    };
+    let ours = overloads_of(p);
+    let words = |line: &str| -> Vec<String> { line.split(' ').map(str::to_owned).collect() };
+    for bds in BDS_OVERLOADS {
+        let command = bds.split(' ').next().unwrap();
+        assert!(
+            ours.iter().any(|o| o.split(' ').next() == Some(command)),
+            "{command} is shared"
+        );
+    }
+    for line in &ours {
+        let command = line.split(' ').next().unwrap();
+        let bds: Vec<&&str> = BDS_OVERLOADS
+            .iter()
+            .filter(|b| b.split(' ').next() == Some(command))
+            .collect();
+        // PMMP's `/time start|stop`, which BDS does not have.
+        if bds.is_empty() || line.contains("TimeModeStart") || line.contains("TimeModeStop") {
+            continue;
+        }
+        // Each overload is one of BDS's, perhaps without optional parameters at the end. A
+        // parameter BDS requires may be optional here (PMMP's `/kick` reason).
+        let ours = words(line);
+        let fits = bds.iter().any(|b| {
+            let theirs = words(b);
+            ours.len() <= theirs.len()
+                && ours
+                    .iter()
+                    .zip(&theirs)
+                    .all(|(o, t)| o.trim_end_matches('?') == t.trim_end_matches('?'))
+                && theirs[ours.len()..].iter().all(|t| t.ends_with('?'))
+        });
+        assert!(fits, "{line} is not one of BDS's {bds:?}");
+    }
+    let enums: std::collections::BTreeMap<&str, Vec<&str>> = p
+        .enums
+        .iter()
+        .map(|e| {
+            let values = e
+                .value_indices
+                .iter()
+                .map(|&i| p.enum_values[usize::try_from(i).unwrap()].as_str())
+                .collect();
+            (e.r#type.as_str(), values)
+        })
+        .collect();
+    // `Boolean` is only in BDS's forms Anchor leaves out (`hideParticles`).
+    assert!(!enums.contains_key("Boolean"));
+    for (name, values) in BDS_ENUMS.iter().filter(|(name, _)| *name != "Boolean") {
+        let ours = &enums[name];
+        if matches!(*name, "Effect" | "Enchant") {
+            // Anchor has PMMP's effects and enchantments, each under BDS's name.
+            assert!(ours.iter().all(|v| values.contains(v)), "{name}: {ours:?}");
+        } else {
+            assert_eq!(ours, values, "{name}");
+        }
+    }
+    let item = &enums["Item"];
+    for name in [
+        "minecraft:stone",
+        "stone",
+        "minecraft:diamond_sword",
+        "diamond_sword",
+    ] {
+        assert!(item.contains(&name), "{name}");
+    }
+    let give = p.commands.iter().find(|c| c.name == "give").unwrap();
+    assert_eq!(
+        give.overloads[0].parameters[1].options,
+        u8::from(crate::protocol::consts::ParamOption::HasSemanticConstraint),
+        "BDS's item parameters"
+    );
+}
+
+#[test]
+fn bds_forms_of_the_shared_commands_run() {
+    let (mut state, _rx) = with_op();
+    let me = id(1);
+    assert_eq!(
+        ok(&mut state, me, "gamemode 1"),
+        ["commands.gamemode.success.self"]
+    );
+    assert_eq!(
+        ok(&mut state, me, "gamemode d"),
+        ["commands.gamemode.success.self"],
+        "the default mode, survival"
+    );
+    assert!(is_usage(&run(&mut state, me, "gamemode 4")));
+    assert_eq!(
+        ok(&mut state, me, "difficulty 3"),
+        ["commands.difficulty.success"]
+    );
+    assert_eq!(Context { state: &mut state }.difficulty(), Difficulty::Hard);
+    assert_eq!(ok(&mut state, me, "xp 3L"), ["commands.xp.success.levels"]);
+    assert_eq!(
+        ok(&mut state, me, "xp 3l @s"),
+        ["commands.xp.success.levels"]
+    );
+    assert_eq!(ok(&mut state, me, "xp 5"), ["commands.xp.success"]);
+    assert!(run(&mut state, me, "xp 3x").is_err());
+    assert_eq!(
+        ok(&mut state, me, "time set sunrise"),
+        ["commands.time.set"]
+    );
+    assert_eq!(
+        ok(&mut state, Sender::Console, "op player2"),
+        ["commands.op.success"]
+    );
+    assert!(
+        run(&mut state, Sender::Console, "op @a").is_err(),
+        "a name, not a selector"
+    );
 }

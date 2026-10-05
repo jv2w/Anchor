@@ -19,7 +19,7 @@ pub(crate) const MAX_LINE_BYTES: usize = 2048;
 /// The longest line, in characters (PMMP `Player::MAX_CHAT_CHAR_LENGTH`).
 pub(crate) const MAX_LINE_CHARS: usize = 512;
 /// The namespace item and block names may carry.
-const NAMESPACE: &str = "minecraft:";
+pub(crate) const NAMESPACE: &str = "minecraft:";
 
 /// A word of a line and where it starts (its opening quote, if quoted).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,6 +265,22 @@ pub(crate) fn fit(
                 return Err(bad);
             })),
             Kind::Target => Raw::Target(target(word).ok_or(bad)?),
+            Kind::Name => match target(word) {
+                Some(Target::Name(name)) => Raw::Value(Value::Text(name)),
+                _ => return Err(bad),
+            },
+            Kind::Suffixed { suffix } => {
+                let digits = text
+                    .len()
+                    .checked_sub(suffix.len())
+                    .filter(|&at| {
+                        text.get(at..)
+                            .is_some_and(|s| s.eq_ignore_ascii_case(suffix))
+                    })
+                    .and_then(|at| text.get(..at))
+                    .ok_or(bad)?;
+                Raw::Value(Value::Int(digits.parse().map_err(|_| bad)?))
+            }
             Kind::Position => {
                 let mut coords = [Coord {
                     relative: false,

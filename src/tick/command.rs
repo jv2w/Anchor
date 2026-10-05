@@ -402,6 +402,13 @@ fn check(command: &Command) -> command::Result<()> {
             {
                 return invalid("an enum has no type name, no values or a value with spaces");
             }
+            if let Kind::Suffixed { suffix } = &param.kind
+                && (suffix.is_empty()
+                    || suffix.len() > MAX_NAME
+                    || !suffix.chars().all(|c| c.is_ascii_alphabetic()))
+            {
+                return invalid("a suffix is not one to 64 ASCII letters");
+            }
         }
     }
     Ok(())

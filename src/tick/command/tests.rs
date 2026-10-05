@@ -1461,6 +1461,19 @@ fn every_name_and_alias_reaches_the_client_as_bds_lists_them() {
 }
 
 #[test]
+fn a_number_suffix_is_ascii_letters() {
+    let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
+    for (suffix, fine) in [("l", true), ("ticks", true), ("", false), ("1", false)] {
+        let mut commands = Commands::default();
+        commands.register(
+            Command::new("a", "").overload(&[Param::suffixed_int("n", suffix)], handler),
+            Origin::User,
+        );
+        assert_eq!(commands.finish().is_ok(), fine, "{suffix:?}");
+    }
+}
+
+#[test]
 fn a_parameter_may_not_take_the_command_name_enum() {
     let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
     let mut commands = Commands::default();

@@ -12,7 +12,6 @@ use super::{
 };
 use crate::action;
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
-use crate::config::GameMode;
 use crate::item::Stack;
 use crate::permission;
 use crate::player::{self, Message, Player, TitleTimes};
@@ -32,7 +31,8 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .overload(
                 &[
                     Param::target("player").optional(),
-                    Param::item("item").optional(),
+                    Param::item("itemName").optional(),
+                    Param::int("data").optional(),
                     Param::int("maxCount").optional(),
                 ],
                 clear,
@@ -40,7 +40,13 @@ pub(super) fn add(commands: &mut Vec<Command>) {
         Command::new("effect", "commands.effect.description")
             .permission(permission::COMMAND_EFFECT_SELF)
             .permission(permission::COMMAND_EFFECT_OTHER)
-            .overload(&[Param::target("player"), Param::literal("clear")], effect)
+            .overload(
+                &[
+                    Param::target("player"),
+                    Param::enumeration("Mode", "ClearEffects", &["clear"]),
+                ],
+                effect,
+            )
             .overload(
                 &[
                     Param::target("player"),
@@ -56,7 +62,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .overload(
                 &[
                     Param::target("player"),
-                    Param::enchantment("enchantment"),
+                    Param::enchantment("enchantmentName"),
                     Param::int("level").optional(),
                 ],
                 enchant,
@@ -65,10 +71,11 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .permission(permission::COMMAND_GAMEMODE_SELF)
             .permission(permission::COMMAND_GAMEMODE_OTHER)
             .overload(
-                &[
-                    Param::enumeration("gameMode", "GameMode", &super::game_mode_names()),
-                    Param::target("player").optional(),
-                ],
+                &[super::game_mode_param(), Param::target("player").optional()],
+                gamemode,
+            )
+            .overload(
+                &[Param::int("gameMode"), Param::target("player").optional()],
                 gamemode,
             ),
         Command::new("give", "commands.give.description")
@@ -86,7 +93,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .alias("suicide")
             .permission(permission::COMMAND_KILL_SELF)
             .permission(permission::COMMAND_KILL_OTHER)
-            .overload(&[Param::target("player").optional()], kill),
+            .overload(&[Param::target("target").optional()], kill),
         Command::new("spawnpoint", "commands.spawnpoint.description")
             .permission(permission::COMMAND_SPAWNPOINT_SELF)
             .permission(permission::COMMAND_SPAWNPOINT_OTHER)
@@ -99,40 +106,63 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             .alias("teleport")
             .permission(permission::COMMAND_TELEPORT_SELF)
             .permission(permission::COMMAND_TELEPORT_OTHER)
-            .overload(&[Param::target("destination")], teleport)
-            .overload(&[Param::position("position")], teleport)
+            .overload(&[Param::position("destination")], teleport)
             .overload(
-                &[Param::target("victim"), Param::target("destination")],
+                &[Param::target("victim"), Param::position("destination")],
                 teleport,
             )
+            .overload(&[Param::target("destination")], teleport)
             .overload(
-                &[Param::target("victim"), Param::position("position")],
+                &[Param::target("victim"), Param::target("destination")],
                 teleport,
             ),
         Command::new("xp", "commands.xp.description")
             .permission(permission::COMMAND_XP_SELF)
             .permission(permission::COMMAND_XP_OTHER)
             .overload(
-                &[Param::string("amount"), Param::target("player").optional()],
-                xp,
+                &[Param::int("amount"), Param::target("player").optional()],
+                |cx, sender, args| xp(cx, sender, args, Xp::Points),
+            )
+            .overload(
+                &[
+                    Param::suffixed_int("amount", "l"),
+                    Param::target("player").optional(),
+                ],
+                |cx, sender, args| xp(cx, sender, args, Xp::Levels),
             ),
         Command::new("title", "commands.title.description")
             .permission(permission::COMMAND_TITLE_SELF)
             .permission(permission::COMMAND_TITLE_OTHER)
-            .overload(&[Param::target("player"), Param::literal("clear")], title)
-            .overload(&[Param::target("player"), Param::literal("reset")], title)
             .overload(
                 &[
                     Param::target("player"),
-                    Param::enumeration("kind", "TitleKind", &["title", "subtitle", "actionbar"]),
-                    Param::message("text"),
+                    Param::enumeration("clear", "TitleClear", &["clear"]),
                 ],
                 title,
             )
             .overload(
                 &[
                     Param::target("player"),
-                    Param::literal("times"),
+                    Param::enumeration("reset", "TitleReset", &["reset"]),
+                ],
+                title,
+            )
+            .overload(
+                &[
+                    Param::target("player"),
+                    Param::enumeration(
+                        "titleLocation",
+                        "TitleSet",
+                        &["title", "subtitle", "actionbar"],
+                    ),
+                    Param::message("titleText"),
+                ],
+                title,
+            )
+            .overload(
+                &[
+                    Param::target("player"),
+                    Param::enumeration("times", "TitleTimes", &["times"]),
                     Param::int("fadeIn"),
                     Param::int("stay"),
                     Param::int("fadeOut"),
@@ -231,16 +261,17 @@ fn set_slot(p: &mut Player, slot: Slot, stack: Stack) {
     }
 }
 
-/// `/clear [player] [item] [maxCount]` (PMMP `ClearCommand`): empties the inventory, cursor,
-/// armour and off hand, or takes the stacks of `item` (any damage), at most `maxCount` items of
-/// them (-1: all; 0 only counts them).
+/// `/clear [player] [item] [data] [maxCount]` (PMMP `ClearCommand`, BDS's parameters): empties
+/// the inventory, cursor, armour and off hand, or takes the stacks of `item` with damage `data`
+/// (-1 or none: any damage), at most `maxCount` items of them (-1: all; 0 only counts them).
 fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_CLEAR_SELF,
         permission::COMMAND_CLEAR_OTHER,
     );
     let targets = permitted_targets(cx, *sender, args, "player", own, "clear")?;
-    let item = args.item("item");
+    let item = args.item("itemName");
+    let data = args.int("data").filter(|&d| d != -1);
     let max = args.int("maxCount").map(|n| n.clamp(-1, super::MAX_COORD));
     let mut results = Results::default();
     for id in targets {
@@ -248,7 +279,11 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         let Some(p) = cx.state.players.get_mut(&id.session()) else {
             continue;
         };
-        let matches = |s: &Stack| !s.is_empty() && item.is_none_or(|t| s.item() == Some(t));
+        let matches = |s: &Stack| {
+            !s.is_empty()
+                && item.is_none_or(|t| s.item() == Some(t))
+                && data.is_none_or(|d| i32::from(s.damage()) == d)
+        };
         let held: Vec<(Slot, Stack)> = slots(p)
             .into_iter()
             .filter(|(_, s)| matches(s))
@@ -355,7 +390,7 @@ fn enchant(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output>
         permission::COMMAND_ENCHANT_OTHER,
     );
     let targets = permitted_targets(cx, *sender, args, "player", own, "enchant")?;
-    let Some(kind) = args.enchantment("enchantment") else {
+    let Some(kind) = args.enchantment("enchantmentName") else {
         return Err(usage(cx, "enchant"));
     };
     let level = bounded(
@@ -398,7 +433,7 @@ fn gamemode(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
         permission::COMMAND_GAMEMODE_OTHER,
     );
     let targets = permitted_targets(cx, *sender, args, "player", own, "gamemode")?;
-    let Some(mode) = args.string("gameMode").and_then(GameMode::from_name) else {
+    let Some(mode) = super::game_mode_arg(args, Some(cx.default_game_mode())) else {
         return Err(usage(cx, "gamemode"));
     };
     let mode_name = game_mode_name(mode);
@@ -471,7 +506,7 @@ fn kill(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         permission::COMMAND_KILL_SELF,
         permission::COMMAND_KILL_OTHER,
     );
-    let targets = permitted_targets(cx, *sender, args, "player", own, "kill")?;
+    let targets = permitted_targets(cx, *sender, args, "target", own, "kill")?;
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
@@ -564,7 +599,7 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
         }
         return results.finish();
     }
-    let Some(pos) = args.position("position").map(in_world) else {
+    let Some(pos) = args.position("destination").map(in_world) else {
         return Err(usage(cx, "tp"));
     };
     for id in victims {
@@ -580,25 +615,28 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     results.finish()
 }
 
-/// `/xp <amount>[L] [player]` (PMMP `XpCommand`): points, or levels with `L`; negative levels
-/// take levels away, negative points are refused. Fails with `experience = false`.
-fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
+/// What `/xp` gives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Xp {
+    /// `/xp <amount>`.
+    Points,
+    /// `/xp <amount>L`.
+    Levels,
+}
+
+/// `/xp <amount>[L] [player]` (PMMP `XpCommand`): points, or levels with `L` (BDS's suffixed
+/// number, any case); negative levels take levels away, negative points are refused. Fails with
+/// `experience = false`.
+fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args, what: Xp) -> Result<Output> {
     if !cx.state.settings.experience {
         return Err(Error::failed(player::Error::Disabled.to_string()));
     }
     let own = (permission::COMMAND_XP_SELF, permission::COMMAND_XP_OTHER);
     let targets = permitted_targets(cx, *sender, args, "player", own, "xp")?;
-    let text = args.string("amount").unwrap_or_default();
-    let (number, levels) = match text.strip_suffix('L') {
-        Some(n) => (n, true),
-        None => (text, false),
-    };
-    // PMMP reads any text as a number (0 for none); only whole numbers fit here.
-    let Ok(value) = number.parse::<i64>() else {
+    let Some(value) = args.int("amount") else {
         return Err(usage(cx, "xp"));
     };
-    let value =
-        i32::try_from(value.clamp(i64::from(i32::MIN), i64::from(i32::MAX))).unwrap_or_default();
+    let levels = what == Xp::Levels;
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
@@ -641,7 +679,7 @@ fn title(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         permission::COMMAND_TITLE_OTHER,
     );
     let targets = permitted_targets(cx, *sender, args, "player", own, "title")?;
-    let text = args.string("text").unwrap_or_default().to_owned();
+    let text = args.string("titleText").unwrap_or_default().to_owned();
     let message = if args.has("clear") {
         Message::ClearTitle
     } else if args.has("reset") {
@@ -658,7 +696,7 @@ fn title(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
             fade_out: ticks(int("fadeOut")),
         })
     } else {
-        match args.string("kind") {
+        match args.string("titleLocation") {
             Some("subtitle") => Message::Subtitle(text),
             Some("actionbar") => Message::ActionBar(text),
             _ => Message::Title {
