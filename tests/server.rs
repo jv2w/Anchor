@@ -382,3 +382,61 @@ fn a_shutdown_from_another_thread_ends_run() {
     let warnings = WARNINGS.lock().expect("the warnings");
     assert!(warnings.is_empty(), "{warnings:#?}");
 }
+
+/// Measurement for PLAN.md 5 (U8): the spread of the real tick loop's intervals over 200 ticks,
+/// as a task sees them. A wait on Windows' default 15.625 ms timer makes 50 ms ticks 46.9 or
+/// 62.5 ms, which other players' movement shows as stutter. `cargo test --release --test server
+/// tick_intervals -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test times the ticks by the wall clock and runs the server on a thread of its own"
+)]
+#[expect(
+    clippy::print_stdout,
+    reason = "consistency: a measurement prints its results"
+)]
+fn tick_intervals() {
+    /// Ticks left out at the start, while the spawn area loads.
+    const WARM_UP: usize = 20;
+    const INTERVALS: usize = 200;
+    let data = TempPath::new("intervals");
+    let mut config = local_config();
+    config.developer.console_input = false;
+    let (ticked, ticks) = std::sync::mpsc::sync_channel(WARM_UP + INTERVALS + 1);
+    let server = Server::builder()
+        .config(config)
+        .data_dir(&data.0)
+        .without_console_log()
+        .every(NonZeroU32::MIN, move |_| {
+            ticked.try_send(std::time::Instant::now()).unwrap_or(());
+        })
+        .build()
+        .unwrap();
+    let handle = server.shutdown_handle();
+    let running = std::thread::Builder::new()
+        .name("anchor-test-run".to_owned())
+        .spawn(move || server.run())
+        .expect("start the server thread");
+    let times: Vec<_> = (0..=WARM_UP + INTERVALS)
+        .map(|_| ticks.recv().expect("a tick"))
+        .collect();
+    handle.shutdown();
+    running.join().expect("run does not panic").unwrap();
+    let mut ms: Vec<f64> = times[WARM_UP..]
+        .windows(2)
+        .map(|w| w[1].duration_since(w[0]).as_secs_f64() * 1e3)
+        .collect();
+    ms.sort_by(f64::total_cmp);
+    let at = |percent: usize| ms[(ms.len() - 1) * percent / 100];
+    println!(
+        "{INTERVALS} tick intervals: min {:.2} ms, p1 {:.2}, p50 {:.2}, p99 {:.2}, max {:.2}",
+        at(0),
+        at(1),
+        at(50),
+        at(99),
+        at(100)
+    );
+    assert!(at(1) > 47.0 && at(99) < 53.0, "ticks within 3 ms of 50");
+}

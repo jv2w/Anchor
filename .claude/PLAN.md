@@ -78,6 +78,7 @@ vendor/               결함을 고친 의존성 사본과 그 사이의 바꾸�
 
 ## 5. 틱과 스레드
 - 20 TPS, 엔진 시계. 50ms를 넘으면 최대 1틱만 따라잡고 기록한다. 대기는 `std::thread::sleep`(Rust 1.98 Windows는 이미 고해상도 타이머).
+  - 틱 간격(U8, 2026-10-05 실측): Windows 기본 타이머(15.625 ms)로 기다리면 50 ms 틱이 46.9/62.5 ms로 흔들려 다른 플레이어 이동이 끊긴다(Endstone SmoothMotion이 BDS에서 잰 원인). Rust 1.98 std 소스(`sys/thread/windows.rs`)의 `sleep`은 `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` 타이머(Windows 10 1803 이상)로 기다리고, 만들지 못할 때만 `Sleep`으로 내려간다. 그래서 Anchor 틱 루프에는 이 문제가 없다. 실제 틱 루프 200틱(release, `tests/server.rs` `tick_intervals`, 무시된 측정 시험): 최소 49.0~49.3, p99 50.4~50.6, 최대 50.5~51.0 ms. 같은 시험에 15.625 ms 단위 대기를 일부러 넣으면 46.9/63.0 ms가 나와 시험이 실패한다. 비교(빈 루프 200회): tokio `sleep_until` 42.3~63.1 ms(p99 62.7, 타이머가 거칠다), 2 ms 전까지 자고 나머지 돌기 p99 50.1 ms(틱마다 CPU 2 ms를 태움). 클라이언트 보간 창(약 50 ms)에 0.5 ms 차이는 보이지 않으므로 std 대기를 그대로 둔다. `timeBeginPeriod`는 `unsafe`나 새 의존성이 필요하고 고해상도 타이머에는 필요 없다.
 - 틱 함수는 `fn step(state: &mut State, input: &[Input]) -> Output`이고 입력은 (세션 ID, 도착 순번)으로 정렬한다.
 - 단계: 1 입력(직렬: 입력, 수신 훅, 비동기 완료) → 2 계산(병렬 읽기 전용) → 3 적용(직렬: 결과, 이벤트, 예약 작업) → 4 출력(병렬 읽기 전용: 패킷 생성, 송신 훅).
 - 직렬 단계 밖의 사용자 코드는 셋뿐이다: 송신 훅(읽기 전용), 월드 생성기(시드와 좌표만 받는 순수 함수), `spawn`/`spawn_blocking` 본문(게임 상태에 닿지 못함).
@@ -1181,12 +1182,13 @@ console-input = true
 |---|---|---|
 | U1 명령 등록, U2 인자 타입, U3 콘솔 문장 | CMD | 진행 중 |
 | U5 활과 아이템 사용, U4 교육판 아이템, R4 삼지창 소리·투척 물약 | ITEMUSE | 진행 중 |
-| U8 움직임 끊김 | MOVE | 진행 중 |
+| U8 움직임 끊김 | MOVE | 완료 |
 | U9 무결성 검사·`/check`, R2 백업 단계, 남은 지적 7 | STORE | 진행 중 |
 | R1 P6 격리, R6 번개 난이도, 남은 지적 10·12 | P6 | 진행 중 |
 | R5 1명 p99 | PERF | 진행 중 |
 | R7 숫돌 삭제, U6 경험치, U7 내구도, 남은 지적 4·5·6·9 | CLEAN | 진행 중 |
 - U8 패킷 합침: 다른 플레이어 이동을 MovePlayer에서 `MoveActorAbsolute`(눈 위치, 땅 플래그, 회전, 보간됨)로 바꿈. 순간이동과 본인 보정만 MovePlayer. P6 others 차이는 intended에 등록.
+- U8 틱 합침: Windows std `thread::sleep`이 이미 고해상도 타이머임을 std 소스와 실측(200틱 p99 50.5 ms)으로 확인해 대기 방식은 그대로 둠(tokio 42~63 ms, 돌며 기다리기는 틱마다 CPU 2 ms). 측정 시험 `tests/server.rs` `tick_intervals`(ignored).
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
