@@ -1067,6 +1067,8 @@ type inputLoop struct {
 	ack      bool
 	actions  []protocol.PlayerBlockAction
 	interact *protocol.UseItemTransactionData
+	// using sets the StartUsingItem flag in the next input (itemuse.go).
+	using bool
 	// step and steps walk the bot (verify.go): each tick moves the position by step and turns the view by
 	// turn (pitch, yaw), while steps is above zero.
 	step    mgl32.Vec3
@@ -1129,7 +1131,11 @@ func (l *inputLoop) packet() (*packet.PlayerAuthInput, bool) {
 		PlayMode: packet.PlayModeNormal, InteractionModel: packet.InteractionModelCrosshair,
 		InteractPitch: l.pitch, InteractYaw: l.yaw, Tick: l.tick, CameraOrientation: direction(l.pitch, l.yaw),
 	}
-	notable := l.ack || len(l.actions) > 0 || l.interact != nil
+	notable := l.ack || len(l.actions) > 0 || l.interact != nil || l.using
+	if l.using {
+		flags.Set(packet.InputFlagStartUsingItem)
+		l.using = false
+	}
 	if l.ack {
 		flags.Set(packet.InputFlagHandledTeleport)
 		l.ack = false
@@ -1177,6 +1183,14 @@ func (l *inputLoop) blockActions(actions []protocol.PlayerBlockAction, interact 
 	l.mu.Lock()
 	l.actions = append(l.actions, actions...)
 	l.interact = interact
+	l.mu.Unlock()
+}
+
+// startUsing sets the StartUsingItem flag in the next input, as the client does on the tick it starts an
+// item's use animation.
+func (l *inputLoop) startUsing() {
+	l.mu.Lock()
+	l.using = true
 	l.mu.Unlock()
 }
 

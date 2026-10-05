@@ -1618,8 +1618,15 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
         return true;
     }
     if item.kind() == Some(item::Kind::GoatHorn) {
-        // PMMP `GoatHorn::onClickAir`: the call of the horn's type.
+        // PMMP `GoatHorn::onClickAir`: the call of the horn's type; the horn stays raised
+        // (`canStartUsingItem`).
         sound(state, actor.world, actor.eye, Sound::GoatHorn(item));
+        start_using(state, actor.session);
+        return true;
+    }
+    if item.kind() == Some(item::Kind::Spyglass) {
+        // PMMP `Spyglass::canStartUsingItem`: looking through it is a use.
+        start_using(state, actor.session);
         return true;
     }
     // PMMP `ProjectileItem::onClickAir`: the entity rules throw it; one is used up.
@@ -1634,27 +1641,31 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
     // PMMP `item\Trident::canStartUsingItem`: drawing starts while one more throw does not break
     // it; the release throws.
     if item.is(item::Class::Trident) {
-        let tick = state.tick;
         let whole = item
             .max_durability()
             .is_none_or(|max| held.damage() < max.saturating_sub(1));
-        if whole && let Some(player) = state.players.get_mut(&actor.session) {
-            player.breaking.using_since = Some(tick);
+        if whole {
+            start_using(state, actor.session);
         }
         return true;
     }
     // PMMP `Bow::canStartUsingItem`: drawing starts with an arrow to shoot (or infinite
     // resources); the release shoots.
     if item.is(item::Class::Bow) {
-        let tick = state.tick;
-        if let Some(player) = state.players.get_mut(&actor.session)
-            && (!actor.finite() || inventory::has_arrow(player))
-        {
-            player.breaking.using_since = Some(tick);
+        if !actor.finite() || inventory::has_arrow(player) {
+            start_using(state, actor.session);
         }
         return true;
     }
     false
+}
+
+/// PMMP `Player::setUsingItem(true)`: the use starts now.
+fn start_using(state: &mut State, session: SessionId) {
+    let tick = state.tick;
+    if let Some(player) = state.players.get_mut(&session) {
+        player.breaking.using_since = Some(tick);
+    }
 }
 
 /// PMMP `Player::releaseHeldItem`: a drawn bow shoots and a drawn trident is thrown (the entity

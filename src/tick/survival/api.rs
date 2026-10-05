@@ -1164,10 +1164,10 @@ impl Player {
         self.survival.motion.gliding
     }
 
-    /// Whether the player eats or drinks.
+    /// Whether the player eats, drinks or uses a bow, trident, goat horn or spyglass.
     #[doc(alias = "Player::isUsingItem")]
     pub fn is_using_item(&self) -> bool {
-        self.survival.using.is_some()
+        self.survival.using.is_some() || self.breaking.is_using()
     }
 
     /// Whether the player flies.

@@ -86,7 +86,8 @@ pub(super) struct Breaking {
     last_click: Option<(u64, Click)>,
     /// The sign this player may write (PMMP `BaseSign::$editorEntityRuntimeId`).
     sign_editor: Option<(WorldIndex, BlockPos)>,
-    /// The tick the player started drawing a bow (PMMP `Player::$startAction`).
+    /// The tick the player started using a bow, trident, goat horn or spyglass (PMMP
+    /// `Player::$startAction` for its `Releasable` items; eating is the survival rules').
     using_since: Option<u64>,
 }
 
@@ -127,6 +128,12 @@ impl Breaking {
     /// item changed, or the player did something else with it.
     pub(super) fn stop_using(&mut self) {
         self.using_since = None;
+    }
+
+    /// Whether a bow, trident, goat horn or spyglass is in use (part of PMMP
+    /// `Player::isUsingItem`).
+    pub(super) fn is_using(&self) -> bool {
+        self.using_since.is_some()
     }
 
     #[cfg(test)]

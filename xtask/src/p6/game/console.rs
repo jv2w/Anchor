@@ -608,6 +608,11 @@ fn execute(
             let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
                 return not_joined(player);
             };
+            // As on BDS, 0 seconds takes the effect away.
+            if *ticks == 0 {
+                let removed = p.remove_effect(*effect);
+                return Outcome::Done((!removed).then(|| "not removed".to_owned()));
+            }
             let added = p.add_effect(*effect, *ticks, *amplifier);
             Outcome::Done((!added).then(|| "not added".to_owned()))
         }

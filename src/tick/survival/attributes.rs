@@ -259,7 +259,13 @@ pub(super) fn shown(player: &Player) -> Shown {
         (s.custom.no_client_predictions, EntityDataFlag::NoAi),
         (s.motion.sneaking, EntityDataFlag::Sneaking),
         (s.motion.sprinting, EntityDataFlag::Sprinting),
-        (s.using.is_some(), EntityDataFlag::UsingItem),
+        // The client predicts the use animation and stops it unless the server agrees with this
+        // flag (bedrock-protocol-docs changelog 776 `StartUsingItem`): eating, drinking and
+        // using a bow, trident, goat horn or spyglass (PMMP `ACTION`, set from `startAction`).
+        (
+            s.using.is_some() || player.breaking.is_using(),
+            EntityDataFlag::UsingItem,
+        ),
         (
             s.custom.invisible || s.effects.contains_key(&effect::Type::Invisibility),
             EntityDataFlag::Invisible,

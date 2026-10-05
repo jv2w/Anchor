@@ -1434,6 +1434,56 @@ fn switching_the_held_slot_cancels_a_drawn_bow() {
     }
 }
 
+/// The client starts the use of a bow, trident, goat horn or spyglass on its own and stops it
+/// unless the server sends the `UsingItem` entity flag (P6 `itemuse`: BDS sends it, as PMMP's
+/// `ACTION` flag for its `Releasable` items): the flag is on while in use and off once released.
+#[test]
+fn a_used_bow_trident_horn_or_spyglass_shows_the_using_item_flag() {
+    let flag = |packets: &[Packet]| {
+        packets.iter().rev().find_map(|p| match p {
+            Packet::SetActorData(d) if d.entity_runtime_id == 1 => d
+                .entity_metadata
+                .get(&crate::protocol::consts::EntityDataKey::Flags.into())
+                .map(|v| {
+                    let bit = 1 << u32::from(crate::protocol::consts::EntityDataFlag::UsingItem);
+                    matches!(v, crate::protocol::MetadataValue::Int64(f) if f & bit != 0)
+                }),
+            _ => None,
+        })
+    };
+    let used = [
+        crate::item::Kind::Bow,
+        crate::item::Kind::Trident,
+        crate::item::Kind::GoatHorn,
+        crate::item::Kind::Spyglass,
+    ];
+    for weapon in used {
+        let mut h = Harness::new(|_| {});
+        let held = stack(weapon);
+        h.hold(held.clone());
+        assert!(inventory::give(h.player_mut(), stack(crate::item::Kind::Arrow)).is_empty());
+        h.run(Vec::new());
+        h.packets();
+        let draw = h.input(Packet::InventoryTransaction(InventoryTransaction {
+            transaction_data: InventoryTransactionData::UseItem(Box::new(air(&held))),
+            ..InventoryTransaction::default()
+        }));
+        h.run(vec![draw]);
+        assert_eq!(flag(&h.packets()), Some(true), "{weapon:?} drawn");
+        assert!(h.player().is_using_item());
+        for _ in 0..20 {
+            h.run(Vec::new());
+        }
+        let release = h.input(Packet::InventoryTransaction(InventoryTransaction {
+            transaction_data: InventoryTransactionData::ReleaseItem(Box::default()),
+            ..InventoryTransaction::default()
+        }));
+        h.run(vec![release]);
+        assert_eq!(flag(&h.packets()), Some(false), "{weapon:?} released");
+        assert!(!h.player().is_using_item());
+    }
+}
+
 /// An explosion at the world's entity limit breaks an item frame: the frame and its item wait as
 /// a spill in the chunk instead of being lost (PLAN.md 10.7).
 #[test]

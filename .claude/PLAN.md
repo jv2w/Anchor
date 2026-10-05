@@ -1202,6 +1202,7 @@ console-input = true
 - R1 합침: P6 trace가 시나리오 영역(teleport 위치)에서 4칸 밖의 블록 변화·블록 엔티티 데이터·LevelEvent와 이 캡처에서 추가된 적 없는 엔티티의 제거를 보여 주기만 하고 비교하지 않음(영역 8칸 간격의 절반). 시험 `what_other_scenarios_left_behind_is_shown_only`.
 - R6 합침: BDS 대조 — 번개 피해 5와 불붙음은 모든 난이도, 맞은 블록의 불은 normal·hard에서만(peaceful·easy 없음). `ignite`가 월드 난이도를 봄, `world::Lightning` 문서. P6 시나리오 `boltpeaceful`·`bolteasy`·`bolthard`와 P6 콘솔 `difficulty`. 검증 필요 B 닫음.
 - 남은 지적 10 합침: spawn 시험이 서버 debug 로그를 모아(최대 5만 줄) 실패 때 마지막 300줄을 보이고, RakNet은 봇 로컬 주소·NetherNet은 ICE ufrag로 서버 로그를 찾아 봇이 닫은 것과 idle timeout을 구별함(`nethernet peer closed` 로그에 `ufrag` 필드).
+- U5 합침: 원인은 실제 클라이언트가 사용 시작 때 ClickAir와 PlayerAuthInput `StartUsingItem`을 보내고 서버가 UsingItem 엔티티 플래그를 켜 주기를 기다리는데(프로토콜 문서 776), Anchor는 먹기·마시기만 켜고 활·삼지창은 안 켠 것. 활·삼지창·염소 뿔·망원경(PMMP `Releasable`)도 플래그를 켬, `Player::is_using_item`도 포함. 음식·물약·투척은 원래 정상, 양동이·부싯돌·뼛가루는 블록 클릭 경로라 무관, 방패 막기는 PMMP에 없음. 봇 시나리오 `itemuse`가 실제 클라이언트 순서로 당기고 놓음(고치기 전 DIFFERENT, 뒤 SAME). 남은 위험: 마시기 끝은 BDS 자기 시계, Anchor는 PMMP처럼 두 번째 ClickAir.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

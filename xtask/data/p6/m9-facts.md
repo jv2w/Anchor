@@ -102,3 +102,9 @@ M9 서브에이전트가 BDS에서 확인한 사실이다. 메인이 PLAN.md 10.
 ### SWITCH-A: 낮 주기·낙하·익사 규칙
 - `gamerule dodaylightcycle false`(세션 설정) 뒤 들어오면 StartGame `DayCycleLockTime` = 그때 시각(이번 6), `Time`은 계속 세는 월드 시각(4322), SyncWorldClocks 시각 6·`Paused` false, 몇 초마다 같은 시각으로 다시 보냄. → Anchor `daylight-cycle = false`: 시계를 멈춤 표시(paused)하지 않고 잠금 시각을 StartGame에 넣고 보정을 계속 보냄.
 - `falldamage`·`drowningdamage` false: GameRulesChanged에 바뀐 규칙 하나씩, 그 뒤 들어온 플레이어의 StartGame·스폰 GameRulesChanged에 false. Anchor 스폰 GameRulesChanged는 설정 값(같음). BDS는 StartGame GameRules에도 모든 규칙을 넣고 Anchor는 비운다(남은 차이, 스폰 비교 필드 밖).
+
+## ITEMUSE: 공중 아이템 사용 (M9 후속 U5, R4)
+- 출처: `cargo xtask p6 api bds itemuse`(2026-10-05, 봇 `xtask/go/bot/itemuse.go`, 세 번 같은 값). Anchor 비교는 `p6 api anchor itemuse`(checks only).
+- 공식 클라이언트 순서(bedrock-protocol-docs changelog 776 `StartUsingItem`, 고정 gophertunnel `InputFlagStartUsingItem`): 사용 동작이 있는 아이템은 InventoryTransaction UseItem ClickAir와 같은 틱 PlayerAuthInput의 `StartUsingItem` 플래그로 시작한다. 서버는 동의하면 SetActorData 플래그 UsingItem(4)을 켜고, 아니면 끈다. 클라이언트는 이 답으로 동작을 잇거나 멈춘다. 활·삼지창은 InventoryTransaction ReleaseItem으로 끝난다. 던지는 아이템은 ClickAir뿐이다.
+- BDS: 활·삼지창을 당기는 동안 자신에게 UsingItem을 켜고 놓으면 끈다(화살·삼지창 나감). 물약을 마시는 동안 켜고, 마시기는 BDS 자기 시계로 끝낸다(CompletedUsingItem). Anchor는 PMMP·dragonfly처럼 사용 시간이 지난 뒤의 두 번째 ClickAir로 끝낸다(효과·병 같음).
+- Anchor 결함(U5): UsingItem에 먹기·마시기만 넣고 활·삼지창은 넣지 않았다 → 클라이언트가 당기기를 바로 멈췄다. PMMP `ACTION` 플래그(`startAction`)처럼 활·삼지창·염소 뿔·망원경(PMMP `Releasable`) 사용도 넣었다.
