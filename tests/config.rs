@@ -945,6 +945,34 @@ fn unknown_keys_are_rejected_by_name() {
 }
 
 #[test]
+fn renamed_keys_are_rejected_with_their_new_name() {
+    let file = File::new("renamed_keys");
+    let error = file
+        .load("[general]\nexperience-bottles = false\n")
+        .expect_err("renamed key");
+    assert!(
+        matches!(
+            error,
+            Error::RenamedKey { ref key, renamed: "general.experience-orbs" }
+                if key == "general.experience-bottles"
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        "`general.experience-bottles` was renamed to `general.experience-orbs`"
+    );
+    // The old name in another table is just unknown.
+    let error = file
+        .load("[developer]\nexperience-bottles = false\n")
+        .expect_err("unknown key");
+    assert!(
+        matches!(error, Error::UnknownKey(ref k) if k == "developer.experience-bottles"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn oversized_file_is_rejected_before_parsing() {
     let file = File::new("oversized");
     let line = format!("#{}\n", "x".repeat(1022));

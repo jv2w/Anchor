@@ -291,7 +291,7 @@ console-input = true
 # view-distance = 8
 # chunks-per-tick = 8
 ```
-- PMMP에서 이름을 바꾼 것: `batch-threshold` → `compression-threshold`, `blocks-per-subchunk-per-tick` → `random-tick-speed`(Java판 이름과 기본값 3, Bedrock 기본 1과 다름), `chunk-sending.per-tick` → `chunks-per-tick`, `ticks-per.autosave` → `save-interval-minutes`, 중첩 경로는 평평하게. PMMP에 없는 키: NetherNet 포트와 TLS, `public-ip`, `max-batch-bytes`, `raknet`, 스레드 수, `lighting`, `hunger`(사용자가 확정한 토글). M9(사용자 결정, 2026-10-04): PMMP `network.enable-encryption` → `enable-encryption`, PMMP `debug.level` → `log-level`(끄기와 모든 수준). PMMP에 없는 M9 키: 기능 스위치(`experience`, `experience-bottles`, `fall-damage`, `drowning`, `armor`, `beds`, `daylight-cycle`, `recipe-book`, `vanilla-recipes`, `break-time-check`, `movement-check`, `backups`), `item-despawn-ticks`, `sprint-critical-hits`, `slow-empty-worlds`, `lighting`(값 셋)·`fixed-light-level`, `item-pickup-interval`, `hook-movement-packets`, `hook-player-input`, 월드별 `[worlds.<이름>]` 표(`view-distance`, `chunks-per-tick`, `spawn-radius`, `tick-radius`). 옛 `lighting = true/false`도 받는다(true → "dynamic", false → "fixed", 15).
+- PMMP에서 이름을 바꾼 것: `batch-threshold` → `compression-threshold`, `blocks-per-subchunk-per-tick` → `random-tick-speed`(Java판 이름과 기본값 3, Bedrock 기본 1과 다름), `chunk-sending.per-tick` → `chunks-per-tick`, `ticks-per.autosave` → `save-interval-minutes`, 중첩 경로는 평평하게. PMMP에 없는 키: NetherNet 포트와 TLS, `public-ip`, `max-batch-bytes`, `raknet`, 스레드 수, `lighting`, `hunger`(사용자가 확정한 토글). M9(사용자 결정, 2026-10-04): PMMP `network.enable-encryption` → `enable-encryption`, PMMP `debug.level` → `log-level`(끄기와 모든 수준). PMMP에 없는 M9 키: 기능 스위치(`experience`, `experience-orbs`, `fall-damage`, `drowning`, `armor`, `beds`, `daylight-cycle`, `recipe-book`, `vanilla-recipes`, `break-time-check`, `movement-check`, `backups`), `item-despawn-ticks`, `sprint-critical-hits`, `slow-empty-worlds`, `lighting`(값 셋)·`fixed-light-level`, `item-pickup-interval`, `hook-movement-packets`, `hook-player-input`, 월드별 `[worlds.<이름>]` 표(`view-distance`, `chunks-per-tick`, `spawn-radius`, `tick-radius`). 옛 `lighting = true/false`도 받는다(true → "dynamic", false → "fixed", 15). 이름을 바꾸거나 합친 Anchor 키는 `config.rs` `RENAMED_KEYS` 한 곳에 두고, 옛 키는 새 키를 알려 주는 `config::Error::RenamedKey`로 거부한다(조용히 받지 않는다): `general.experience-bottles` → `general.experience-orbs`. 위 PMMP 이름 바꿈은 Anchor 키였던 적이 없어 표에 넣지 않는다.
 - PMMP에서 뺀 것: PHP 전용(메모리, GC, async-workers, timings, 통계·보고·업데이트), 플러그인, 범위 밖(query, upnp, 월드 형식), 구조로 대체(XUID 검사, 생성기 문자열, 별칭, 월드 목록, 언어, IPv6 포트, auto-save). 암호화(항상 켬이었음)와 디버그 레벨은 M9에서 사용자 결정으로 설정이 됨.
 - 기능 스위치(사용자 결정, 2026-10-04): false인 기능은 그 코드가 아예 돌지 않는다(틱 작업, 이벤트, 패킷, 메모리 0). 숨기기만 하지 않고, 끈 상태에서 그 코드가 실행되지 않음을 시험으로 확인한다. 설정에 없는 동작은 가장 성능적이고 안전하며 어떤 서버에서도 맞는 기본값이다. 새 키의 기본값은 지금 동작과 같다.
 - 검증: 모르는 키와 표, 타입 오류, 범위 밖 값, hardcore인데 hard가 아님, `[worlds]`에 선언되지 않은 월드 이름은 시작을 거부한다(조용히 고치지 않는다). 빠진 키는 기본값이다. 모르는 표 검사는 `build()`에서 한다. `spawn-radius`와 `tick-radius`의 실제 값은 min(값, `view-distance`)이다.
@@ -1188,6 +1188,8 @@ console-input = true
 | R1 P6 격리, R6 번개 난이도, 남은 지적 10·12 | P6 | 완료 |
 | R5 1명 p99 | PERF | 완료 |
 | R7 숫돌 삭제, U6 경험치, U7 내구도, 남은 지적 4·5·6·9 | CLEAN | 완료 |
+| U10-a `server.redb` 이름, U10 설정을 redb에 두지 않음(사용자 결정) | U10 | 진행 중 |
+| U11 바닐라 월드 가져오기(블록·블록 엔티티만, 사용자 결정), U11b 옛 설정 키 안내 | U11 | 진행 중 |
 - U8 패킷 합침: 다른 플레이어 이동을 MovePlayer에서 `MoveActorAbsolute`(눈 위치, 땅 플래그, 회전, 보간됨)로 바꿈. 순간이동과 본인 보정만 MovePlayer. P6 others 차이는 intended에 등록.
 - U8 틱 합침: Windows std `thread::sleep`이 이미 고해상도 타이머임을 std 소스와 실측(200틱 p99 50.5 ms)으로 확인해 대기 방식은 그대로 둠(tokio 42~63 ms, 돌며 기다리기는 틱마다 CPU 2 ms). 측정 시험 `tests/server.rs` `tick_intervals`(ignored).
 - U1 합침: 별칭 enum을 BDS 모양 `<name>CommandAliases`(이름 먼저)로, 플레이어마다 쓸 수 있는 이름·별칭의 `CommandName` enum을 보냄, `help`는 명령으로 보내지 않음(클라이언트 자체 명령, BDS·PMMP와 같음). 권한별 목록·op 변경 뒤 다시 보내기는 원래 맞았음. 실제 클라이언트 확인 대기.
@@ -1211,6 +1213,7 @@ console-input = true
 - 남은 지적 6 합침: 로그 스레드가 끝을 알리고 종료 때 최대 5초(`END_WAIT`)만 기다린 뒤 스레드를 놓음.
 - 남은 지적 5 합침: 생성기가 인코더에도 디코더와 같은 Mojang 상한 검사(`string_max`, `length_max`, 원소·옵션 포함)를 넣음(packet 62, types 53), 손으로 쓴 PackSetting도. 상한을 넘는 사용자 패킷은 인코드에 실패해 그 연결이 끝남(기존 정책, `Player::send_packet` 문서). 책 시험을 512글자이면서 768바이트 안의 페이지로 고침.
 - U4 합침: 교육판 아이템은 클라이언트 안 chemistry 팩으로 그려지고, 그 팩은 StartGame `EducationFeaturesEnabled`가 켜진 월드에서만 적용됨(BDS `resource_packs/chemistry`가 `chemistry` 기능 요구). Anchor는 PMMP처럼 꺼서 보냈음. `education-items = true`면 켬. false면 크리에이티브·명령 Item enum·아이템 인자 해석에서 뺌(`item::is_education` 한 곳). 결정: ItemRegistry에는 남김(옛 저장·블록에서 나온 아이템을 클라이언트가 읽어야 함). P6 하네스는 BDS 월드와 맞추려 false. `/particle` 아이템 데이터는 거르지 않음.
+- U11b 합침: 이름이 바뀐 설정 키는 `config::Error::RenamedKey { key, renamed }`(예: `general.experience-bottles` was renamed to `general.experience-orbs`)로 새 이름을 알림. 표는 `src/config.rs` `RENAMED_KEYS` 한 곳. 8.5의 PMMP 이름 바꿈은 Anchor 키였던 적이 없어 넣지 않음.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

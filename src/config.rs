@@ -168,6 +168,10 @@ console-input = true
 /// The largest settings file read. A real file is about 4 KiB; the cap bounds the parser's memory.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
+/// Keys an older Anchor knew, by old path, and the key that replaced each: a file still using
+/// one fails with [`Error::RenamedKey`] naming the new key.
+const RENAMED_KEYS: [(&str, &str); 1] = [("general.experience-bottles", "general.experience-orbs")];
+
 /// Bounds the player and session tables that are sized from it.
 const MAX_PLAYERS: RangeInclusive<u32> = 1..=10_000;
 /// PLAN.md 8.5.
@@ -364,7 +368,7 @@ impl Config {
                 _ if value.is_table() => {
                     self.unknown_tables.insert(name.clone());
                 }
-                _ => return Err(Error::UnknownKey(name.clone())),
+                _ => return Err(Key::top(name).unknown()),
             }
         }
         self.check()?;
@@ -617,7 +621,7 @@ impl General {
                 }
                 "force-resources" => self.force_resources = boolean(value, key)?,
                 "log-level" => self.log_level = choice(value, key, &LogLevel::NAMES)?,
-                _ => return Err(Error::UnknownKey(key.path())),
+                _ => return Err(key.unknown()),
             }
         }
         Ok(())
@@ -783,7 +787,7 @@ impl Developer {
                     self.integrity_check = choice(value, key, &IntegrityCheck::NAMES)?;
                 }
                 "console-input" => self.console_input = boolean(value, key)?,
-                _ => return Err(Error::UnknownKey(key.path())),
+                _ => return Err(key.unknown()),
             }
         }
         Ok(())
@@ -847,7 +851,7 @@ impl WorldSettings {
                 "chunks-per-tick" => self.chunks_per_tick = Some(int(value, key, CHUNKS_PER_TICK)?),
                 "spawn-radius" => self.spawn_radius = Some(int(value, key, RADIUS)?),
                 "tick-radius" => self.tick_radius = Some(int(value, key, RADIUS)?),
-                _ => return Err(Error::UnknownKey(key.path())),
+                _ => return Err(key.unknown()),
             }
         }
         Ok(())
@@ -1119,6 +1123,14 @@ pub enum Error {
     },
     /// A key Anchor does not know, such as `general.motdd`.
     UnknownKey(String),
+    /// A key an older Anchor knew that was renamed or merged into another, such as
+    /// `general.experience-bottles`.
+    RenamedKey {
+        /// The old key.
+        key: String,
+        /// The key that replaced it, such as `general.experience-orbs`.
+        renamed: &'static str,
+    },
     /// A top-level table Anchor does not know, such as `plugin` for `[plugin]`.
     UnknownTable(String),
     /// A `[worlds.<name>]` table whose name is not a world the server declares, such as
@@ -1174,6 +1186,7 @@ impl fmt::Display for Error {
                 message,
             } => write!(f, "invalid toml: {message}"),
             Self::UnknownKey(key) => write!(f, "unknown key `{key}`"),
+            Self::RenamedKey { key, renamed } => write!(f, "`{key}` was renamed to `{renamed}`"),
             Self::UnknownTable(name) => write!(f, "unknown table `[{name}]`"),
             Self::UnknownWorld(name) => write!(f, "`[worlds.{name}]` names no declared world"),
             Self::Invalid { key, expected } => write!(f, "`{key}` must be {expected}"),
@@ -1231,6 +1244,16 @@ impl<'a> Key<'a> {
             self.name.to_owned()
         } else {
             format!("{}.{}", self.table, self.name)
+        }
+    }
+
+    /// The error for a key Anchor does not read: [`Error::RenamedKey`] for an old name, else
+    /// [`Error::UnknownKey`].
+    fn unknown(self) -> Error {
+        let key = self.path();
+        match RENAMED_KEYS.iter().find(|(old, _)| *old == key) {
+            Some(&(_, renamed)) => Error::RenamedKey { key, renamed },
+            None => Error::UnknownKey(key),
         }
     }
 
