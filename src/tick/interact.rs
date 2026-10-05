@@ -1225,7 +1225,7 @@ fn use_break_on(
         return false;
     }
     let mut rng = stream(state, actor.world, USE, pos);
-    let worn = tool_after_break(tool, plan.block, &mut rng);
+    let worn = tool_after_break(&state.settings, tool, plan.block, &mut rng);
     return_items(state, actor, tool, worn, Vec::new());
     true
 }
@@ -1233,7 +1233,12 @@ fn use_break_on(
 /// The tool after breaking `block` (PMMP `Item::onDestroyBlock`): pickaxes, axes, shovels and
 /// hoes lose 1 durability, swords and tridents 2, on blocks that do not break at once; shears 1
 /// always.
-fn tool_after_break(tool: &Stack, block: block::State, rng: &mut Random) -> Stack {
+fn tool_after_break(
+    settings: &super::Settings,
+    tool: &Stack,
+    block: block::State,
+    rng: &mut Random,
+) -> Stack {
     let Some(item) = tool.item() else {
         return tool.clone();
     };
@@ -1254,7 +1259,7 @@ fn tool_after_break(tool: &Stack, block: block::State, rng: &mut Random) -> Stac
     if amount == 0 {
         return tool.clone();
     }
-    breaking::damage(tool, amount, rng)
+    breaking::damage(settings, tool, amount, rng)
 }
 
 /// Whether the stack's adventure-mode list `key` (`CanDestroy`, `CanPlaceOn`) names the block

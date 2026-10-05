@@ -119,8 +119,8 @@ impl Use {
     }
 
     /// The item worn by `amount` (PMMP `Durable::applyDamage`).
-    pub(super) fn wear(&mut self, amount: u32) {
-        self.item = breaking::damage(&self.item, amount, &mut self.rng);
+    pub(super) fn wear(&mut self, settings: &crate::tick::Settings, amount: u32) {
+        self.item = breaking::damage(settings, &self.item, amount, &mut self.rng);
     }
 
     /// Whether the item is of a PMMP item class.
@@ -571,7 +571,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 if u.item_is(item::Class::Shears)
                     && matches!(u.face, Face::North | Face::South | Face::West | Face::East)
                 {
-                    u.wear(1);
+                    u.wear(&state.settings, 1);
                     let carved = props::with_facing(Kind::CarvedPumpkin.default_state(), u.face);
                     if let Some(carved) = carved {
                         set(state, u.actor.world, u.pos, carved);
@@ -663,7 +663,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                     if u.item_kind(item::Kind::FireCharge) {
                         u.pop();
                     } else {
-                        u.wear(1);
+                        u.wear(&state.settings, 1);
                     }
                     return true;
                 }
@@ -687,7 +687,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                         props::renamed(block, &name)
                     });
                     if let Some(stripped) = stripped {
-                        u.wear(1);
+                        u.wear(&state.settings, 1);
                         set(state, u.actor.world, u.pos, stripped);
                         let used = Sound::ItemUseOnBlock(stripped);
                         sound(state, u.actor.world, center(u.pos), used);
@@ -1017,7 +1017,7 @@ fn campfire(state: &mut State, u: &mut Use) -> bool {
             return true;
         }
         if u.lights() {
-            u.wear(1);
+            u.wear(&state.settings, 1);
             if let Some(s) = props::with_flag(u.block, "extinguished", false) {
                 set(state, world, u.pos, s);
             }
@@ -1026,7 +1026,7 @@ fn campfire(state: &mut State, u: &mut Use) -> bool {
             return true;
         }
     } else if u.item_is(item::Class::Shovel) {
-        u.wear(1);
+        u.wear(&state.settings, 1);
         if let Some(s) = props::with_flag(u.block, "extinguished", true) {
             set(state, world, u.pos, s);
         }
@@ -1045,7 +1045,7 @@ fn candle(state: &mut State, u: &mut Use) -> bool {
             return true;
         }
         if u.item.item().and_then(item::Type::max_durability).is_some() {
-            u.wear(1);
+            u.wear(&state.settings, 1);
         } else if u.item_kind(item::Kind::FireCharge) {
             u.pop();
             sound(state, world, block_vec(u.pos), Sound::BlazeShoot);
@@ -1187,7 +1187,7 @@ fn copper(state: &mut State, u: &mut Use) -> bool {
         if let Some(next) = next {
             set(state, world, u.pos, next);
             sound(state, world, block_vec(u.pos), played);
-            u.wear(1);
+            u.wear(&state.settings, 1);
             return true;
         }
     }
@@ -1219,7 +1219,7 @@ fn dirt(state: &mut State, u: &mut Use) -> bool {
         if above != block::AIR {
             return true;
         }
-        u.wear(1);
+        u.wear(&state.settings, 1);
         let farmland = name == "minecraft:dirt";
         let next = if farmland {
             Kind::Farmland.default_state()
@@ -1302,7 +1302,7 @@ fn grass(state: &mut State, u: &mut Use) -> bool {
     } else {
         return false;
     };
-    u.wear(1);
+    u.wear(&state.settings, 1);
     sound(state, world, center(u.pos), Sound::ItemUseOnBlock(next));
     set(state, world, u.pos, next);
     true
@@ -1408,7 +1408,7 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
             u.pop();
         } else {
             sound(state, world, center(pos), Sound::FlintSteel);
-            u.wear(1);
+            u.wear(&state.settings, 1);
         }
         return Outcome::Success;
     }

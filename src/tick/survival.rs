@@ -1821,6 +1821,29 @@ mod tests {
         assert_eq!(server.survival(2).health, 20.0 - points - 1.0);
     }
 
+    /// `durability = false`: a hit wears neither the weapon nor the armour, which still
+    /// protects; with it both wear.
+    #[test]
+    fn durability_off_wears_neither_weapons_nor_armour() {
+        for durability in [true, false] {
+            let mut server = duel(|c| c.general.durability = durability);
+            inventory::set_held(server.player_mut(1), stack(ItemKind::DiamondSword, 1));
+            inventory::set_armor(
+                server.player_mut(2),
+                1,
+                stack(ItemKind::DiamondChestplate, 1),
+            );
+            attack_player(&mut server.state, sid(1), sid(2));
+            assert!(server.survival(2).health > 20.0 - 8.0, "the armour protects");
+            let worn = (
+                server.player(1).inventory.held().damage(),
+                server.player(2).inventory.armor()[1].damage(),
+            );
+            let want = if durability { (1, 2) } else { (0, 0) };
+            assert_eq!(worn, want, "durability {durability}");
+        }
+    }
+
     #[test]
     fn attacks_need_pvp_reach_and_a_living_target() {
         let mut server = duel(|c| c.general.pvp = false);

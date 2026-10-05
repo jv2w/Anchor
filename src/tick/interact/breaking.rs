@@ -5,6 +5,7 @@
 use crate::block::State;
 use crate::item::{self, Enchantment, Stack};
 use crate::random::Random;
+use crate::tick::Settings;
 
 use super::drops::level;
 
@@ -84,8 +85,17 @@ pub(super) fn progress_per_tick(state: State, tool: &Stack, conditions: Conditio
 /// PMMP `Durable::applyDamage($amount)` on a copy of `tool`: Unbreaking may spare each point (by
 /// `1 / (level + 1)` chance it counts; armour only 40% of the time at best); a tool worn to its
 /// durability breaks (the stack loses one item). The stack unchanged for items without
-/// durability, unbreakable items and broken ones.
-pub(in crate::tick) fn damage(tool: &Stack, amount: u32, rng: &mut Random) -> Stack {
+/// durability, unbreakable items and broken ones, and for every item with `durability = false`:
+/// every rule that wears an item (tools, weapons, armour, bows, tridents) comes here.
+pub(in crate::tick) fn damage(
+    settings: &Settings,
+    tool: &Stack,
+    amount: u32,
+    rng: &mut Random,
+) -> Stack {
+    if !settings.durability {
+        return tool.clone();
+    }
     let Some(item) = tool.item() else {
         return tool.clone();
     };
@@ -257,25 +267,49 @@ mod tests {
         );
     }
 
+    /// The tick settings with `durability` as given.
+    fn settings(durability: bool) -> Settings {
+        let mut config = crate::config::Config::default();
+        config.general.durability = durability;
+        Settings::new(&config)
+    }
+
     #[test]
     fn tools_wear_and_break_at_their_durability() {
+        let on = settings(true);
         let mut rng = Random::new(0, 0, 0);
         let pick = tool(I::WoodenPickaxe);
         let max = pick.item().unwrap().max_durability().unwrap();
-        let worn = damage(&pick, 1, &mut rng);
+        let worn = damage(&on, &pick, 1, &mut rng);
         assert_eq!(worn.damage(), 1);
         let almost = pick.with_damage(max - 1);
-        assert!(damage(&almost, 1, &mut rng).is_empty());
-        assert_eq!(damage(&Stack::EMPTY, 1, &mut rng), Stack::EMPTY);
+        assert!(damage(&on, &almost, 1, &mut rng).is_empty());
+        assert_eq!(damage(&on, &Stack::EMPTY, 1, &mut rng), Stack::EMPTY);
         let stick = tool(I::Stick);
-        assert_eq!(damage(&stick, 1, &mut rng), stick);
+        assert_eq!(damage(&on, &stick, 1, &mut rng), stick);
         // Unbreaking III spares about three of four points.
         let tough = enchanted(I::DiamondPickaxe, Enchantment::Unbreaking, 3);
         let mut taken = 0;
         for seed in 0..4_000 {
             let mut rng = Random::new(seed, 0, 0);
-            taken += u32::from(damage(&tough, 1, &mut rng).damage());
+            taken += u32::from(damage(&on, &tough, 1, &mut rng).damage());
         }
         assert!((800..1_200).contains(&taken), "{taken}");
+    }
+
+    /// `durability = false`: nothing wears, not even an item one point from breaking, and no
+    /// random draw is taken.
+    #[test]
+    fn without_durability_nothing_wears() {
+        let off = settings(false);
+        let mut rng = Random::new(0, 0, 0);
+        let pick = tool(I::WoodenPickaxe);
+        let max = pick.item().unwrap().max_durability().unwrap();
+        let almost = pick.with_damage(max - 1);
+        assert_eq!(damage(&off, &almost, 5, &mut rng), almost);
+        let tough = enchanted(I::DiamondPickaxe, Enchantment::Unbreaking, 3);
+        assert_eq!(damage(&off, &tough, 1, &mut rng), tough);
+        let fresh = Random::new(0, 0, 0).unit();
+        assert_eq!(rng.unit().to_bits(), fresh.to_bits(), "no draw taken");
     }
 }

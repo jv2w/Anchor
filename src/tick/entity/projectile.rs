@@ -272,7 +272,7 @@ pub(super) fn release_bow_with(
             if !infinity {
                 (hooks.take_arrow)(player);
             }
-            inventory::set_held(player, worn(&bow, 1, &mut r));
+            inventory::set_held(player, worn(&state.settings, &bow, 1, &mut r));
         }
     }
     true
@@ -304,7 +304,12 @@ pub(super) fn release_trident_with(
     if matches!(mode, GameMode::Survival | GameMode::Adventure) {
         let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
         let key = random::key(TRIDENT_RANDOM, &[session.get()]);
-        item = worn(&item, 1, &mut Random::new(seed, state.tick, key));
+        item = worn(
+            &state.settings,
+            &item,
+            1,
+            &mut Random::new(seed, state.tick, key),
+        );
     }
     if item.is_empty() {
         return false;

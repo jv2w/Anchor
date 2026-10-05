@@ -603,6 +603,19 @@ fn hoes_till_and_axes_strip_with_wear() {
     assert!(h.block(TARGET).name().contains("stripped_oak_log"));
 }
 
+/// `durability = false`: tilling and breaking do not wear the tool.
+#[test]
+fn durability_off_keeps_tools_as_they_are() {
+    let mut h = Harness::new(|c| c.general.durability = false);
+    let hoe = stack(crate::item::Kind::WoodenHoe);
+    h.hold(hoe.clone());
+    let grass = BlockPos::new(2, -61, 0);
+    let input = h.auth(Vec::new(), Some(click(grass, Face::Up, &hoe)));
+    h.run(vec![input]);
+    assert_eq!(h.block(grass).kind(), Kind::Farmland);
+    assert_eq!(h.held(), hoe);
+}
+
 #[test]
 fn buckets_take_and_pour_water() {
     let mut h = Harness::new(|_| {});

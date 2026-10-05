@@ -867,8 +867,13 @@ fn use_totem(state: &mut State, session: SessionId, raise: entity::Raise) {
 
 /// Wears a durable stack by `amount` (PMMP `Durable::applyDamage`, the one rule of
 /// [`interact::breaking::damage`]); `None` if the stack does not change.
-pub(super) fn wear(stack: &Stack, amount: u32, r: &mut Random) -> Option<Stack> {
-    let worn = interact::breaking::damage(stack, amount, r);
+pub(super) fn wear(
+    settings: &crate::tick::Settings,
+    stack: &Stack,
+    amount: u32,
+    r: &mut Random,
+) -> Option<Stack> {
+    let worn = interact::breaking::damage(settings, stack, amount, r);
     (worn != *stack).then_some(worn)
 }
 
@@ -895,7 +900,7 @@ fn damage_armor(state: &mut State, session: SessionId, base: f64) {
         if stack.item().and_then(Type::armor).is_none() {
             continue;
         }
-        if let Some(worn) = wear(stack, points, &mut r) {
+        if let Some(worn) = wear(&state.settings, stack, points, &mut r) {
             broke |= worn.count() < stack.count();
             inventory::set_armor(player, slot, worn);
         }
@@ -940,7 +945,7 @@ fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
             (1, 0.0)
         };
         dealt += damage;
-        if let Some(worn) = wear(stack, wear_by, &mut r) {
+        if let Some(worn) = wear(&state.settings, stack, wear_by, &mut r) {
             broke |= worn.count() < stack.count();
             inventory::set_armor(player, slot, worn);
         }
@@ -1285,7 +1290,7 @@ fn wear_weapon(state: &mut State, session: SessionId) {
         return;
     };
     let mut r = player_random(seed, tick, player, TOOL_WEAR);
-    if let Some(worn) = wear(&held, amount, &mut r) {
+    if let Some(worn) = wear(&state.settings, &held, amount, &mut r) {
         let broke = worn.count() < held.count();
         inventory::set_held(player, worn);
         if broke {

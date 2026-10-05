@@ -265,7 +265,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
         && wear > 0
         && player.inventory.held() == &held
     {
-        super::super::inventory::set_held(player, worn(&held, wear, &mut r));
+        super::super::inventory::set_held(player, worn(&state.settings, &held, wear, &mut r));
     }
     survival::exhaust_by(state, session, 0.1, ExhaustCause::Attack);
 }
