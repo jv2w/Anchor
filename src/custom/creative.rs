@@ -202,6 +202,9 @@ impl CreativeInventory {
         } else {
             Vec::new()
         };
+        if !custom.has_education_items() {
+            entries.retain(|e| !e.stack.item().is_some_and(|t| item::is_education(t.name())));
+        }
         for change in &self.changes {
             match change {
                 Change::Add {

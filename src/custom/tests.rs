@@ -1235,6 +1235,59 @@ fn a_hidden_recipe_book_sends_every_recipe_locked() {
     assert!(shown.has_recipe_book());
 }
 
+/// `education-items = false`: no Education item in the creative inventory; PMMP's recipes make
+/// and take none either way (they come from BDS's chemistry pack), so `CraftingData` is the same.
+#[test]
+fn without_education_items_the_creative_inventory_leaves_them_out() {
+    let names: std::collections::BTreeMap<i32, String> = item::registry()
+        .items
+        .into_iter()
+        .map(|e| (i32::from(e.runtime_id), e.name))
+        .collect();
+    let is_education = |s: &crate::protocol::ItemStack| {
+        names
+            .get(&s.item_type.network_id)
+            .is_some_and(|n| item::is_education(n))
+    };
+    let mut with = Registry::default();
+    with.finish().unwrap();
+    let mut r = Registry::default();
+    r.drop_education_items();
+    r.finish().unwrap();
+    assert!(with.has_education_items() && !r.has_education_items());
+    let education = |r: &Registry| {
+        let content = r.creative_content();
+        content
+            .items
+            .iter()
+            .filter(|c| is_education(&c.item))
+            .count()
+    };
+    assert!(
+        education(&with) > 100,
+        "elements, compounds, hardened glass"
+    );
+    assert_eq!(education(&r), 0);
+    let all = with.creative_content().items.len();
+    assert_eq!(r.creative_content().items.len(), all - education(&with));
+    let data = r.crafting_data();
+    let takes_or_makes = data.shaped_recipes.iter().any(|s| {
+        s.output.iter().any(is_education)
+            || s.input.iter().any(|i| {
+                matches!(&i.descriptor,
+                crate::protocol::ItemDescriptor::Default(d) if item::is_education(&d.name))
+            })
+    }) || data.shapeless_recipes.iter().any(|s| {
+        s.output.iter().any(is_education)
+            || s.input.iter().any(|i| {
+                matches!(&i.descriptor,
+                crate::protocol::ItemDescriptor::Default(d) if item::is_education(&d.name))
+            })
+    });
+    assert!(!takes_or_makes);
+    assert_eq!(data, with.crafting_data());
+}
+
 #[test]
 fn nothing_registered_sends_exactly_the_vanilla_content() {
     let mut r = Registry::default();

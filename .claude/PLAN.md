@@ -197,7 +197,7 @@ daylight-cycle = true
 recipe-book = true
 # The vanilla recipes; false keeps only recipes the server program registers.
 vanilla-recipes = true
-# Education Edition items (elements, compounds and their tools). false: they do not exist.
+# Education Edition items (elements, compounds and their tools). false: they are not offered in the creative inventory or commands.
 education-items = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
@@ -1182,7 +1182,7 @@ console-input = true
 | 항목 | 담당 | 상태 |
 |---|---|---|
 | U1 명령 등록, U2 인자 타입, U3 콘솔 문장 | CMD | 완료 |
-| U5 활과 아이템 사용, U4 교육판 아이템, R4 삼지창 소리·투척 물약 | ITEMUSE | 진행 중 |
+| U5 활과 아이템 사용, U4 교육판 아이템, R4 삼지창 소리·투척 물약 | ITEMUSE | 완료 |
 | U8 움직임 끊김 | MOVE | 완료 |
 | U9 무결성 검사·`/check`, R2 백업 단계, 남은 지적 7 | STORE | 완료 |
 | R1 P6 격리, R6 번개 난이도, 남은 지적 10·12 | P6 | 완료 |
@@ -1210,6 +1210,7 @@ console-input = true
 - 남은 지적 9 합침: 불 확률 1/3을 `event::DEFAULT_FIRE_CHANCE` 하나로.
 - 남은 지적 6 합침: 로그 스레드가 끝을 알리고 종료 때 최대 5초(`END_WAIT`)만 기다린 뒤 스레드를 놓음.
 - 남은 지적 5 합침: 생성기가 인코더에도 디코더와 같은 Mojang 상한 검사(`string_max`, `length_max`, 원소·옵션 포함)를 넣음(packet 62, types 53), 손으로 쓴 PackSetting도. 상한을 넘는 사용자 패킷은 인코드에 실패해 그 연결이 끝남(기존 정책, `Player::send_packet` 문서). 책 시험을 512글자이면서 768바이트 안의 페이지로 고침.
+- U4 합침: 교육판 아이템은 클라이언트 안 chemistry 팩으로 그려지고, 그 팩은 StartGame `EducationFeaturesEnabled`가 켜진 월드에서만 적용됨(BDS `resource_packs/chemistry`가 `chemistry` 기능 요구). Anchor는 PMMP처럼 꺼서 보냈음. `education-items = true`면 켬. false면 크리에이티브·명령 Item enum·아이템 인자 해석에서 뺌(`item::is_education` 한 곳). 결정: ItemRegistry에는 남김(옛 저장·블록에서 나온 아이템을 클라이언트가 읽어야 함). P6 하네스는 BDS 월드와 맞추려 false. `/particle` 아이템 데이터는 거르지 않음.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

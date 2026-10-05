@@ -152,6 +152,8 @@ pub(crate) struct Registry {
     without_vanilla: bool,
     /// The recipe book is hidden (`recipe-book = false`).
     without_book: bool,
+    /// The Education items are left out (`education-items = false`).
+    without_education: bool,
 }
 
 impl Registry {
@@ -195,6 +197,19 @@ impl Registry {
     /// the crafting grid still crafts.
     pub(crate) fn hide_recipe_book(&mut self) {
         self.without_book = true;
+    }
+
+    /// Leaves the Education items ([`item::is_education`]) out (`education-items = false`, before
+    /// [`Self::finish`]): of PMMP's creative inventory (PMMP's recipes make and take none). The
+    /// `ItemRegistry` keeps them, so a stack that still exists (an old save, a world's element
+    /// block broken) stays readable to the client.
+    pub(crate) fn drop_education_items(&mut self) {
+        self.without_education = true;
+    }
+
+    /// Whether the Education items exist.
+    pub(crate) fn has_education_items(&self) -> bool {
+        !self.without_education
     }
 
     /// Whether the recipe book is shown and its quick crafting (`CraftRecipeAuto`) accepted.
@@ -273,6 +288,7 @@ impl Registry {
             by_name,
             without_vanilla: self.without_vanilla,
             without_book: self.without_book,
+            without_education: self.without_education,
             ..Self::default()
         };
         finished.resolve_creatives(&self.creative_inventory, &self.alternatives, &places)?;

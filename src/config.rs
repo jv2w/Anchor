@@ -70,7 +70,7 @@ daylight-cycle = true
 recipe-book = true
 # The vanilla recipes; false keeps only recipes the server program registers.
 vanilla-recipes = true
-# Education Edition items (elements, compounds and their tools). false: they do not exist.
+# Education Edition items (elements, compounds and their tools). false: they are not offered in the creative inventory or commands.
 education-items = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
@@ -525,7 +525,8 @@ pub struct General {
     pub recipe_book: bool,
     /// `vanilla-recipes`: whether the vanilla recipes exist besides those the server registers.
     pub vanilla_recipes: bool,
-    /// `education-items`: whether the Education Edition items exist.
+    /// `education-items`: whether the Education Edition items are offered (creative inventory,
+    /// commands) and drawn (`StartGame` Education features).
     pub education_items: bool,
     /// `item-despawn-ticks`: ticks a dropped item stays on the ground.
     pub item_despawn_ticks: u32,

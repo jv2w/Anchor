@@ -189,6 +189,12 @@ impl Commands {
         }
     }
 
+    /// Leaves the Education items out of item parameters (`education-items = false`, before
+    /// [`Self::finish`]).
+    pub(crate) fn drop_education_items(&mut self) {
+        self.names.drop_education_items();
+    }
+
     /// Registers Anchor's own commands the user kept, builds the commands' network form and
     /// reports the first registration error. `ServerBuilder::build` calls it once.
     pub(crate) fn finish(&mut self) -> command::Result<()> {

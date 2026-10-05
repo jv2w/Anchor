@@ -132,6 +132,8 @@ pub(crate) struct Settings {
     item_despawn_ticks: u32,
     /// Whether a hit while sprinting can be critical (`sprint-critical-hits`).
     sprint_critical_hits: bool,
+    /// Whether the Education items exist (`education-items`).
+    education_items: bool,
     /// Whether block breaking time is checked (`break-time-check`).
     break_time_check: bool,
     /// Whether moves of more than 15 blocks are refused (`movement-check`).
@@ -191,6 +193,7 @@ impl Settings {
             daylight_cycle: general.daylight_cycle,
             item_despawn_ticks: general.item_despawn_ticks,
             sprint_critical_hits: general.sprint_critical_hits,
+            education_items: general.education_items,
             break_time_check: general.break_time_check,
             movement_check: general.movement_check,
             slow_empty_worlds: developer.slow_empty_worlds,
@@ -629,6 +632,7 @@ impl State {
             daylight_cycle: _,
             item_despawn_ticks: _,
             sprint_critical_hits: _,
+            education_items: _,
             break_time_check: _,
             movement_check: _,
             slow_empty_worlds: _,

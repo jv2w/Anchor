@@ -665,6 +665,10 @@ impl ServerBuilder {
             runtime::logical_cpus(),
         )?;
         self.setup.listeners.sort();
+        if !self.config.general.education_items {
+            self.setup.commands.drop_education_items();
+            self.setup.custom.drop_education_items();
+        }
         self.setup.commands.finish().map_err(Error::Command)?;
         if !self.config.general.vanilla_recipes {
             self.setup.custom.drop_vanilla_recipes();

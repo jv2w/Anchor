@@ -1161,6 +1161,35 @@ impl RegistryEntry {
     }
 }
 
+/// Whether the item named `name` is an Education Edition item (`education-items`): PMMP's
+/// chemistry items and blocks (elements, compounds, bleach, ice bombs, medicine, the chemistry
+/// tables, the heat block, coloured and underwater torches, hardened glass) and the reference
+/// list's other Education entries (balloons, sparklers, glow sticks, rapid fertilizer,
+/// underwater TNT and the old chemistry names). `name` may leave out `minecraft:`. The one
+/// place that says which items they are.
+pub(crate) fn is_education(name: &str) -> bool {
+    const PREFIXES: [&str; 3] = ["element_", "colored_torch_", "hard_"];
+    const NAMES: [&str; 15] = [
+        "balloon",
+        "bleach",
+        "chemical_heat",
+        "chemistry_table",
+        "compound",
+        "compound_creator",
+        "glow_stick",
+        "ice_bomb",
+        "lab_table",
+        "material_reducer",
+        "medicine",
+        "rapid_fertilizer",
+        "sparkler",
+        "underwater_tnt",
+        "underwater_torch",
+    ];
+    let name = name.strip_prefix("minecraft:").unwrap_or(name);
+    PREFIXES.iter().any(|p| name.starts_with(p)) || NAMES.contains(&name)
+}
+
 /// The `ItemRegistry` packet: every item of the 1.26.50 reference list with its component data,
 /// in runtime ID order (PLAN.md 10.4). The client does not depend on the order: PMMP sends the
 /// list by name and dragonfly in Go map order. Built once when the server is built.
