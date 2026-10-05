@@ -1,7 +1,8 @@
 //! The API scenarios of `cargo xtask p6` (PLAN.md 10.8 P6): `commands`, `particles`, `kick`,
 //! `forms` and `script` (the bot's `api.go`), and `weather`, `joinrain` and `joinstorm` (the
 //! bot's `weather.go`, PLAN.md 10.9 날씨와 번개: each runs after the one before it, whose weather
-//! it joins in). They run on the game scenarios' machinery (`game`):
+//! it joins in), and `boltpeaceful`, `bolteasy` and `bolthard` (a bolt next to the bot at that
+//! difficulty). They run on the game scenarios' machinery (`game`):
 //! the bot plays each one with its own player name and writes the console commands it needs as
 //! `command` records, which the harness runs on the server's console. The script scenario runs
 //! the actions of `SCRIPT`.
@@ -10,7 +11,7 @@
 //!   allowed (player commands need them) and the forms script pack (`FORMS_PACK`) installed in the
 //!   new world, into `target/p6/bds-api/`; the session first runs `game::SESSION_SETUP`.
 //! - `p6 api anchor [scenario]...`: the same against Anchor in this process (`game::console`
-//!   carries out `op`, `kick`, `scriptevent p6:<kind>`, `summon snowball|egg`, `weather` and
+//!   carries out `op`, `kick`, `scriptevent p6:<kind>`, `summon snowball|egg`, `weather`, `difficulty` and
 //!   `summon lightning_bolt` through Anchor's public API; player commands are Anchor's own), into
 //!   `target/p6/anchor-api/`, then compared with `bds-api/` (also written to
 //!   `anchor-api/compare.txt`).
@@ -41,7 +42,7 @@ use super::compare::{self, Received, field};
 use super::game;
 
 /// The API scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 42] = [
+pub(crate) const SCENARIOS: [&str; 45] = [
     "commands",
     "particles",
     "kick",
@@ -50,6 +51,9 @@ pub(crate) const SCENARIOS: [&str; 42] = [
     "weather",
     "joinrain",
     "joinstorm",
+    "boltpeaceful",
+    "bolteasy",
+    "bolthard",
     "enchants",
     "stations",
     "potions",

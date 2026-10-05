@@ -394,10 +394,11 @@ pub enum Weather {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Lightning {
     /// The players and living entities near the strike take 5 damage, as from BDS's bolt, and
-    /// burn for 8 seconds.
+    /// burn for 8 seconds, at every difficulty.
     pub damage: bool,
     /// The block of the strike and blocks around it catch fire where fire can stand: air on a
-    /// block with a full top.
+    /// block with a full top. As with BDS's bolt, only at normal and hard difficulty (the
+    /// world's).
     pub fire: bool,
 }
 

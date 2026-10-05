@@ -183,6 +183,48 @@ func (g *game) settleWeather(lightning bool) error {
 	return g.settle(boltSettle)
 }
 
+// boltDifficulties are the bolt scenarios (PLAN.md 10.9 날씨와 번개, the M9 "검증 필요 B"): each sets its
+// difficulty on the console, strikes a bolt 2 blocks from the bot like the weather scenario's "lightning
+// near" step with the same check, and sets the difficulty back to normal. Each runs with a new player of
+// full health in its own area.
+var boltDifficulties = map[string]struct {
+	difficulty string
+	area       protocol.BlockPos
+}{
+	"boltpeaceful": {"peaceful", protocol.BlockPos{28, -60, -12}},
+	"bolteasy":     {"easy", protocol.BlockPos{28, -60, -4}},
+	"bolthard":     {"hard", protocol.BlockPos{28, -60, 4}},
+}
+
+func init() {
+	for name, b := range boltDifficulties {
+		gameScenarios[name] = func(g *game) error { return playBolt(g, b.difficulty) }
+		gameAreas[name] = b.area
+	}
+}
+
+// playBolt is a bolt scenario at the difficulty.
+func playBolt(g *game, difficulty string) error {
+	g.setup("difficulty " + difficulty)
+	g.command("difficulty %v", difficulty)
+	if err := g.settleSetup(); err != nil {
+		return err
+	}
+	g.weather = weatherLog{}
+	at := g.offset(2, 0, 0)
+	line := fmt.Sprintf("summon lightning_bolt %v %v %v", at[0], at[1], at[2])
+	g.step("lightning "+difficulty, map[string]any{"line": line})
+	g.weather.target = &at
+	g.command("%v", line)
+	if err := g.settleWeather(true); err != nil {
+		return err
+	}
+	g.checkWeather()
+	g.setup("difficulty normal")
+	g.command("difficulty normal")
+	return g.settleSetup()
+}
+
 // playJoinRain is the joinrain scenario.
 func playJoinRain(g *game) error {
 	return g.joined("weather thunder")

@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use super::*;
 use crate::Server;
 use crate::block;
+use crate::config::Difficulty;
 use crate::event::Listeners;
 use crate::math::Vec3;
 use crate::player;
@@ -507,4 +508,37 @@ fn lightning_sets_fire_around_its_block_only_with_fire() {
     assert!(found.len() <= 5);
     // Fire stands only on the grass layer: air with a full block under it.
     assert!(found.iter().all(|p| p.y == strike.y), "{found:?}");
+}
+
+#[test]
+fn lightning_sets_fire_at_normal_and_hard_difficulty_only_and_hurts_at_every_one() {
+    let bolt = Lightning {
+        damage: true,
+        fire: true,
+    };
+    for (difficulty, burns) in [
+        (Difficulty::Peaceful, false),
+        (Difficulty::Easy, false),
+        (Difficulty::Normal, true),
+        (Difficulty::Hard, true),
+    ] {
+        let (mut state, mut output, _rx) = spawned([1]);
+        let feet = spawn_feet(&state, 0);
+        let at = feet + Vec3::new(2.0, 0.0, 0.0);
+        let mut c = cx(&mut state);
+        assert!(c.set_difficulty(difficulty));
+        assert!(c.strike_lightning(WORLD, at, bolt));
+        let player = c.player(player::Id::new(SessionId::new(1))).unwrap();
+        assert_eq!(player.health(), 15.0, "{difficulty:?}: BDS's 5 damage");
+        let fire = state.worlds[0]
+            .block(BlockPos::containing(at))
+            .unwrap()
+            .kind()
+            == block::Kind::Fire;
+        assert_eq!(
+            fire, burns,
+            "{difficulty:?}: fire as BDS's bolt (P6 bolt scenarios)"
+        );
+        tick(&mut state, &mut Vec::new(), &mut output);
+    }
 }

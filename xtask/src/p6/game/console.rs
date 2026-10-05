@@ -20,6 +20,7 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::time::Duration;
 
 use anchor::block::State;
+use anchor::config::Difficulty;
 use anchor::custom::Offer;
 use anchor::entity::Id;
 use anchor::form::{Button, Custom, Form, Image, Menu, Modal};
@@ -92,6 +93,8 @@ pub(super) enum Command {
     },
     /// `weather clear|rain|thunder`: [`Context::set_weather`] in the default world.
     Weather(world::Weather),
+    /// `difficulty peaceful|easy|normal|hard`: [`Context::set_difficulty`].
+    Difficulty(Difficulty),
     /// `summon lightning_bolt <x> <y> <z>` (whole coordinates, the bolt at the middle of the
     /// block's floor as BDS puts it): [`Context::strike_lightning`] with BDS's damage and fire.
     Lightning { pos: Vec3 },
@@ -392,6 +395,13 @@ fn parse_api(words: &[&str]) -> Result<Command, String> {
             "thunder" => Ok(Command::Weather(world::Weather::Thunder)),
             _ => Err(format!("no weather {weather}")),
         },
+        ["difficulty", difficulty] => match *difficulty {
+            "peaceful" => Ok(Command::Difficulty(Difficulty::Peaceful)),
+            "easy" => Ok(Command::Difficulty(Difficulty::Easy)),
+            "normal" => Ok(Command::Difficulty(Difficulty::Normal)),
+            "hard" => Ok(Command::Difficulty(Difficulty::Hard)),
+            _ => Err(format!("no difficulty {difficulty}")),
+        },
         [
             "summon",
             "lightning_bolt" | "minecraft:lightning_bolt",
@@ -625,6 +635,7 @@ fn execute(
         | Command::Kill(_)
         | Command::EndCrystal { .. }
         | Command::Weather(_)
+        | Command::Difficulty(_)
         | Command::Lightning { .. } => execute_api(ctx, command, answers),
     }
 }
@@ -684,6 +695,11 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
             ctx.set_weather(world::Id::DEFAULT, *weather)
                 .then_some(())
                 .ok_or_else(|| "the default world is not loaded".to_owned()),
+        ),
+        Command::Difficulty(difficulty) => done(
+            ctx.set_difficulty(*difficulty)
+                .then_some(())
+                .ok_or_else(|| "a hardcore server keeps hard".to_owned()),
         ),
         Command::Lightning { pos } => {
             let bds = world::Lightning {
@@ -850,6 +866,10 @@ mod tests {
         assert_eq!(
             parse("weather thunder"),
             Ok(Command::Weather(world::Weather::Thunder))
+        );
+        assert_eq!(
+            parse("difficulty peaceful"),
+            Ok(Command::Difficulty(Difficulty::Peaceful))
         );
         assert_eq!(
             parse("summon lightning_bolt 4 -60 -20"),

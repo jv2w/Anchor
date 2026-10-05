@@ -9,7 +9,8 @@
 //! entities in the box from 3 blocks around and below the strike to 9 above it (dragonfly
 //! `lightningState.dealDamage`, the box of Java's bolt) burn for 8 seconds and take 5 damage;
 //! with [`Lightning::fire`] the strike's block and 4 random blocks next to it catch fire where
-//! fire can stand (dragonfly `spreadFire`, each try from the strike's block as in Java). Like
+//! fire can stand (dragonfly `spreadFire`, each try from the strike's block as in Java), at
+//! normal and hard difficulty only, as BDS (P6 `boltpeaceful`, `bolteasy`, `bolthard`). Like
 //! every direct call it raises no events.
 
 use std::collections::BTreeSet;
@@ -18,6 +19,7 @@ use super::explosion::set_fire;
 use super::kind::Cause;
 use super::{EPSILON, HOOKS, chunk_of, hurt_in, is_valid_position, player_box, targetable, with};
 use crate::block;
+use crate::config::Difficulty;
 use crate::entity::Id;
 use crate::math::{Aabb, Vec3};
 use crate::protocol::consts::{EntityDataKey, SoundEvent};
@@ -225,8 +227,16 @@ fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
     }
 }
 
-/// Sets fire in the block of `at` and tries [`FIRE_TRIES`] random blocks next to it.
+/// Sets fire in the block of `at` and tries [`FIRE_TRIES`] random blocks next to it, at normal
+/// and hard difficulty only: BDS's bolt sets no fire at peaceful and easy (P6 `boltpeaceful`,
+/// `bolteasy`; dragonfly and Java the same) and hurts at every difficulty.
 fn ignite(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
+    if matches!(
+        world_api::difficulty(state, world),
+        Difficulty::Peaceful | Difficulty::Easy
+    ) {
+        return;
+    }
     let Some(seed) = state.worlds.get(world).map(crate::world::World::seed) else {
         return;
     };

@@ -1092,7 +1092,7 @@ console-input = true
 - `enable-encryption = false`: RakNet 로그인에서 ServerToClientHandshake와 암호화를 하지 않는다(NetherNet은 원래 Minecraft 암호화가 없음). 위험은 설정 주석에 적음.
 - 로그(4번): Anchor가 자기 콘솔 출력기를 둔다. 전역 상태 없이(CLAUDE.md 4.1) `tracing` 디스패치를 Anchor가 만든 스레드(틱, 저장, 런타임 작업자, 콘솔, CPU 풀, `run`을 부른 스레드의 실행 동안)에만 건다. 수준은 `log-level`, 사용자 바이너리는 `ServerBuilder`로 끄고 자기 구독자를 쓴다. 기본 로그 항목: 시작·종료, 여는 주소와 포트, 월드 로드·언로드, 접속·퇴장, 경고·오류. 문장과 형식은 Anchor 고유. 새 크레이트 없이 쓴다(필요하면 6·7절 절차).
 - status(3번): 가동 시간, TPS·MSPT(평균·최근), 프로세스 메모리, 스레드 수(틱·저장·네트워크·CPU 풀), 접속자, 월드별 로드된 청크·엔티티·블록 엔티티 수. Anchor 고유 형식.
-- 날씨와 번개(5번): 월드별 날씨 상태(맑음, 비·눈, 천둥; 지속 시간 없음, 자연 순환 없음)를 `World`/`Context` API로 바꾸고, 바뀌면 그 월드의 플레이어에게, 접속·월드 이동 때 그 플레이어에게 BDS와 같은 패킷(LevelEvent 등, P6)으로 보낸다. 번개는 `Context::strike_lightning(world, pos, options)`(보이는 것과 소리는 늘, 피해·불은 선택)로 BDS의 번개 엔티티 패킷 모양. 모든 날씨·번개 패킷은 송신 훅을 거친다. 저장: 날씨 상태는 월드 기록(형식 올림).
+- 날씨와 번개(5번): 월드별 날씨 상태(맑음, 비·눈, 천둥; 지속 시간 없음, 자연 순환 없음)를 `World`/`Context` API로 바꾸고, 바뀌면 그 월드의 플레이어에게, 접속·월드 이동 때 그 플레이어에게 BDS와 같은 패킷(LevelEvent 등, P6)으로 보낸다. 번개는 `Context::strike_lightning(world, pos, options)`(보이는 것과 소리는 늘, 피해·불은 선택)로 BDS의 번개 엔티티 패킷 모양. BDS처럼 피해는 모든 난이도, 불은 normal·hard에서만(P6 `boltpeaceful`·`bolteasy`·`bolthard`). 모든 날씨·번개 패킷은 송신 훅을 거친다. 저장: 날씨 상태는 월드 기록(형식 올림).
 - 숫돌(6번): 인챈트 제거(저주 제외), 경험치 돌려주기, 같은 아이템 둘을 합쳐 수리(내구도 합 + 5%), 동작은 BDS P6로 대조. 블록이 PMMP 데이터에 없으면 사용자 예외로 BDS·기준 목록 상태를 블록 표에 더한다(덤프·gen 경로, 상태 해시가 기준 목록과 같음).
 - 사용자 정의 효과·인챈트(7번): 안 함(사용자 결정 2026-10-05: 클라이언트가 새 효과·인챈트를 표시할 수 없어 뺌; 다른 Claude 세션이 사용자 대신 전함).
 - 주민(2번): 생성 알·명령·API 소환 기본 오퍼는 빈 목록(바닐라 거래 템플릿 없음).
@@ -1200,6 +1200,7 @@ console-input = true
 - R5 합침: 1명 p99 +15%의 원인은 M9에서 커진 `light::Engine::step` 안의 `level`·`relax`·`relax_at`이 인라인되지 않은 것(일의 양 같음, codegen-units=1이면 M7과 같음). `#[inline]`으로 청크 한 줄 빛 일 0.267 → 0.172 ms(M7 0.186), 1명 p99 0.469 → 0.376 ms(M7 0.380). 표 9 검증 필요 A 닫음.
 - 남은 지적 12 합침: verify의 비공개 문서 검사를 `target/verify-private-docs`로 옮김(바뀐 것 없을 때 두 문서 검사 약 25초 → 약 1초).
 - R1 합침: P6 trace가 시나리오 영역(teleport 위치)에서 4칸 밖의 블록 변화·블록 엔티티 데이터·LevelEvent와 이 캡처에서 추가된 적 없는 엔티티의 제거를 보여 주기만 하고 비교하지 않음(영역 8칸 간격의 절반). 시험 `what_other_scenarios_left_behind_is_shown_only`.
+- R6 합침: BDS 대조 — 번개 피해 5와 불붙음은 모든 난이도, 맞은 블록의 불은 normal·hard에서만(peaceful·easy 없음). `ignite`가 월드 난이도를 봄, `world::Lightning` 문서. P6 시나리오 `boltpeaceful`·`bolteasy`·`bolthard`와 P6 콘솔 `difficulty`. 검증 필요 B 닫음.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
