@@ -87,6 +87,15 @@ pub(crate) fn length<T: TryFrom<usize>>(len: usize) -> Result<T> {
     T::try_from(len).map_err(|_| Error::Size)
 }
 
+/// [`length`] of a field that holds at most `max` elements: more is [`Error::Size`], as the
+/// reader would answer.
+pub(crate) fn length_max<T: TryFrom<usize>>(len: usize, max: usize) -> Result<T> {
+    if len > max {
+        return Err(Error::Size);
+    }
+    length(len)
+}
+
 /// Reads protocol values from a byte slice under the decode limits.
 #[derive(Debug)]
 pub(crate) struct Reader<'a> {
@@ -566,6 +575,12 @@ impl Writer {
         self.byte_slice(x.as_bytes())
     }
 
+    /// `String` of a field that holds at most `max` bytes: more is [`Error::Size`], as the
+    /// reader would answer.
+    pub(crate) fn string_max(&mut self, x: &str, max: usize) -> Result<()> {
+        self.byte_slice_max(x.as_bytes(), max)
+    }
+
     /// `StringUTF`: fails with [`Error::Size`] past `i16::MAX` bytes.
     pub(crate) fn string_utf(&mut self, x: &str) -> Result<()> {
         self.int16(length(x.len())?);
@@ -575,7 +590,12 @@ impl Writer {
 
     /// `ByteSlice`: fails with [`Error::Size`] past `u32::MAX` bytes.
     pub(crate) fn byte_slice(&mut self, x: &[u8]) -> Result<()> {
-        self.varuint32(length(x.len())?);
+        self.byte_slice_max(x, usize::MAX)
+    }
+
+    /// `ByteSlice` of a field that holds at most `max` bytes: more is [`Error::Size`].
+    pub(crate) fn byte_slice_max(&mut self, x: &[u8], max: usize) -> Result<()> {
+        self.varuint32(length_max(x.len(), max)?);
         self.bytes(x);
         Ok(())
     }

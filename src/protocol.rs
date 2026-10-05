@@ -27,7 +27,7 @@ pub use login::ConnectionRequest;
 pub use types::*;
 pub use values::{AbilityValue, GameRule, GameRuleValue, PackSetting, PackSettingValue};
 
-pub(crate) use io::{Codec, Reader, Writer, length};
+pub(crate) use io::{Codec, Reader, Writer, length, length_max};
 
 #[cfg(test)]
 pub(crate) use io::tests::{Rng, fuzz, fuzz_round_trip};

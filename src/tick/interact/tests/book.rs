@@ -110,15 +110,9 @@ fn book_edits_replace_insert_delete_and_swap_pages_as_pmmp() {
 fn book_edits_keep_pmmps_page_and_text_limits() {
     let mut h = Harness::new(|_| {});
     let slot = quill(&mut h);
-    // 512 characters fit on a page, 513 do not.
-    edit(
-        &mut h,
-        slot,
-        BookAction::ReplacePage,
-        0,
-        0,
-        &"é".repeat(512),
-    );
+    // 512 characters fit on a page (768 bytes, the wire limit), 513 do not.
+    let page = format!("{}{}", "é".repeat(256), "x".repeat(256));
+    edit(&mut h, slot, BookAction::ReplacePage, 0, 0, &page);
     assert_eq!(pages(&h)[0].chars().count(), 512);
     edit(
         &mut h,

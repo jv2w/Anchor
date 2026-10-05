@@ -1187,7 +1187,7 @@ console-input = true
 | U9 무결성 검사·`/check`, R2 백업 단계, 남은 지적 7 | STORE | 완료 |
 | R1 P6 격리, R6 번개 난이도, 남은 지적 10·12 | P6 | 완료 |
 | R5 1명 p99 | PERF | 완료 |
-| R7 숫돌 삭제, U6 경험치, U7 내구도, 남은 지적 4·5·6·9 | CLEAN | 진행 중 |
+| R7 숫돌 삭제, U6 경험치, U7 내구도, 남은 지적 4·5·6·9 | CLEAN | 완료 |
 - U8 패킷 합침: 다른 플레이어 이동을 MovePlayer에서 `MoveActorAbsolute`(눈 위치, 땅 플래그, 회전, 보간됨)로 바꿈. 순간이동과 본인 보정만 MovePlayer. P6 others 차이는 intended에 등록.
 - U8 틱 합침: Windows std `thread::sleep`이 이미 고해상도 타이머임을 std 소스와 실측(200틱 p99 50.5 ms)으로 확인해 대기 방식은 그대로 둠(tokio 42~63 ms, 돌며 기다리기는 틱마다 CPU 2 ms). 측정 시험 `tests/server.rs` `tick_intervals`(ignored).
 - U1 합침: 별칭 enum을 BDS 모양 `<name>CommandAliases`(이름 먼저)로, 플레이어마다 쓸 수 있는 이름·별칭의 `CommandName` enum을 보냄, `help`는 명령으로 보내지 않음(클라이언트 자체 명령, BDS·PMMP와 같음). 권한별 목록·op 변경 뒤 다시 보내기는 원래 맞았음. 실제 클라이언트 확인 대기.
@@ -1209,6 +1209,7 @@ console-input = true
 - 남은 지적 4 합침: `.clippy.toml` 금지 목록에 std `Read::read_to_end`·`Read::read_to_string`·`io::read_to_string`. 사용처는 `src/fs.rs` 한 곳(`take` 상한, `safety` 태그 `#[expect]`)과 xtask 시험. LevelDB·zip은 상한 있는 `read_exact`라 해당 없음.
 - 남은 지적 9 합침: 불 확률 1/3을 `event::DEFAULT_FIRE_CHANCE` 하나로.
 - 남은 지적 6 합침: 로그 스레드가 끝을 알리고 종료 때 최대 5초(`END_WAIT`)만 기다린 뒤 스레드를 놓음.
+- 남은 지적 5 합침: 생성기가 인코더에도 디코더와 같은 Mojang 상한 검사(`string_max`, `length_max`, 원소·옵션 포함)를 넣음(packet 62, types 53), 손으로 쓴 PackSetting도. 상한을 넘는 사용자 패킷은 인코드에 실패해 그 연결이 끝남(기존 정책, `Player::send_packet` 문서). 책 시험을 512글자이면서 768바이트 안의 페이지로 고침.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

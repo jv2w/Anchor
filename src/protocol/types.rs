@@ -3,7 +3,7 @@
 
 use super::{
     BlockPos, Codec, Error, ItemInstance, ItemStack, Reader, Result, Rgba, StackRequestItem, Uuid,
-    Writer, length,
+    Writer, length, length_max,
 };
 use crate::nbt;
 
@@ -468,14 +468,14 @@ impl Codec for AttributeLayerData {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.name)?;
+        w.string_max(&self.name, 128)?;
         w.bool(self.noise_name.is_some());
         if let Some(v) = &self.noise_name {
-            w.string(v)?;
+            w.string_max(v, 128)?;
         }
         w.varint32(self.dimension_id);
         self.settings.encode(w)?;
-        w.varuint32(length(self.environment_attributes.len())?);
+        w.varuint32(length_max(self.environment_attributes.len(), 1024)?);
         for v in &self.environment_attributes {
             v.encode(w)?;
         }
@@ -2613,7 +2613,7 @@ impl Codec for CameraSplineInstruction {
         }
         w.bool(self.spline_identifier.is_some());
         if let Some(v) = &self.spline_identifier {
-            w.string(v)?;
+            w.string_max(v, 1024)?;
         }
         w.bool(self.load_from_json.is_some());
         if let Some(v) = self.load_from_json {
@@ -2707,8 +2707,8 @@ impl Codec for ChainedSubcommand {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.name)?;
-        w.varuint32(length(self.values.len())?);
+        w.string_max(&self.name, 1000)?;
+        w.varuint32(length_max(self.values.len(), 32)?);
         for v in &self.values {
             v.encode(w)?;
         }
@@ -2755,7 +2755,7 @@ impl Codec for CodeBuilderRuntimeActionEvent {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.action)?;
+        w.string_max(&self.action, 16)?;
         Ok(())
     }
 }
@@ -2778,7 +2778,7 @@ impl Codec for CodeBuilderScoreboardEvent {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.objective_name)?;
+        w.string_max(&self.objective_name, 256)?;
         w.varint32(self.score);
         Ok(())
     }
@@ -2821,17 +2821,17 @@ impl Codec for Command {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         let permission_str: &str = command_permission_to_string(self.permission_level);
-        w.string(&self.name)?;
-        w.string(&self.description)?;
+        w.string_max(&self.name, 1000)?;
+        w.string_max(&self.description, 1000)?;
         w.uint16(self.flags);
         w.string(permission_str)?;
         command_permission_from_string(permission_str)?;
         w.uint32(self.aliases_offset);
-        w.varuint32(length(self.chained_subcommand_offsets.len())?);
+        w.varuint32(length_max(self.chained_subcommand_offsets.len(), 250)?);
         for &v in &self.chained_subcommand_offsets {
             w.uint32(v);
         }
-        w.varuint32(length(self.overloads.len())?);
+        w.varuint32(length_max(self.overloads.len(), 250)?);
         for v in &self.overloads {
             v.encode(w)?;
         }
@@ -2871,7 +2871,7 @@ impl Codec for CommandEnumConstraint {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.uint32(self.enum_value_index);
         w.uint32(self.enum_index);
-        w.byte_slice(&self.constraints)?;
+        w.byte_slice_max(&self.constraints, 250)?;
         Ok(())
     }
 }
@@ -3397,13 +3397,13 @@ impl Codec for DataStoreChangeEntry {
                 self.update.encode(w)?;
             }
             1 => {
-                w.string(&self.change.data_store_name)?;
-                w.string(&self.change.property)?;
+                w.string_max(&self.change.data_store_name, 1000)?;
+                w.string_max(&self.change.property, 1000)?;
                 w.uint32(self.change.update_count);
                 encode_marshal_data_store_property_value(w, &self.change.new_value)?;
             }
             2 => {
-                w.string(&self.removal.data_store_name)?;
+                w.string_max(&self.removal.data_store_name, 1000)?;
             }
             _ => {
                 return Err(Error::UnknownEnum {
@@ -3506,9 +3506,9 @@ impl Codec for DataStoreUpdate {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.data_store_name)?;
-        w.string(&self.property)?;
-        w.string(&self.path)?;
+        w.string_max(&self.data_store_name, 1000)?;
+        w.string_max(&self.property, 1000)?;
+        w.string_max(&self.path, 1000)?;
         w.varuint32(self.control_type);
         match self.control_type {
             0 => {
@@ -3518,7 +3518,7 @@ impl Codec for DataStoreUpdate {
                 w.bool(self.bool_value);
             }
             2 => {
-                w.string(&self.string_value)?;
+                w.string_max(&self.string_value, 5000)?;
             }
             _ => {
                 return Err(Error::UnknownEnum {
@@ -3616,13 +3616,13 @@ impl Codec for DimensionDefinition {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.name)?;
+        w.string_max(&self.name, 256)?;
         w.varint32(self.minimum_y);
         w.varint32(self.height_range);
         w.varint32(self.generator);
         w.varint32(self.dimension_type);
         w.uuid(self.pack_id);
-        w.string(&self.default_biome)?;
+        w.string_max(&self.default_biome, 256)?;
         Ok(())
     }
 }
@@ -3675,7 +3675,7 @@ impl Codec for DynamicEnum {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.r#type)?;
+        w.string_max(&self.r#type, 1000)?;
         w.varuint32(length(self.values.len())?);
         for v in &self.values {
             w.string(v)?;
@@ -3806,7 +3806,7 @@ impl Codec for EnchantmentOption {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.uint8(self.cost);
         self.enchantments.encode(w)?;
-        w.string(&self.name)?;
+        w.string_max(&self.name, 256)?;
         w.varuint32(self.recipe_network_id);
         Ok(())
     }
@@ -3827,7 +3827,7 @@ impl Codec for EntityDefinitionTriggerEvent {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.event_name)?;
+        w.string_max(&self.event_name, 256)?;
         Ok(())
     }
 }
@@ -4032,7 +4032,7 @@ impl Codec for EnvironmentAttributeData {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         let easing_type: &str = easing_type_to_string(self.ease_type);
-        w.string(&self.attribute_name)?;
+        w.string_max(&self.attribute_name, 128)?;
         w.bool(self.from_attribute.is_some());
         if let Some(v) = &self.from_attribute {
             v.encode(w)?;
@@ -4549,27 +4549,27 @@ impl Codec for GatheringJoinInfo {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.uuid(self.experience_id);
-        w.string(&self.experience_name)?;
+        w.string_max(&self.experience_name, 29)?;
         w.bool(self.experience_world_id.is_some());
         if let Some(v) = self.experience_world_id {
             w.uuid(v);
         }
         w.bool(self.experience_world_name.is_some());
         if let Some(v) = &self.experience_world_name {
-            w.string(v)?;
+            w.string_max(v, 29)?;
         }
-        w.string(&self.creator_id)?;
+        w.string_max(&self.creator_id, 60)?;
         w.bool(self.target_id.is_some());
         if let Some(v) = self.target_id {
             w.uuid(v);
         }
         w.bool(self.scenario_id.is_some());
         if let Some(v) = &self.scenario_id {
-            w.string(v)?;
+            w.string_max(v, 100)?;
         }
         w.bool(self.server_id.is_some());
         if let Some(v) = &self.server_id {
-            w.string(v)?;
+            w.string_max(v, 100)?;
         }
         Ok(())
     }
@@ -4984,13 +4984,13 @@ impl Codec for ItemStackRequest {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.varint32(self.request_id);
-        w.varuint32(length(self.actions.len())?);
+        w.varuint32(length_max(self.actions.len(), 100)?);
         for v in &self.actions {
             w.stack_request_action(v)?;
         }
         w.varuint32(length(self.filter_strings.len())?);
         for v in &self.filter_strings {
-            w.string(v)?;
+            w.string_max(v, 1000)?;
         }
         w.int32(self.filter_cause);
         Ok(())
@@ -5442,7 +5442,7 @@ impl Codec for MobKilledEvent {
         w.varint32(self.killer_entity_type);
         w.varint32(self.entity_damage_cause);
         w.varint32(self.villager_trade_tier);
-        w.string(&self.villager_display_name)?;
+        w.string_max(&self.villager_display_name, 128)?;
         Ok(())
     }
 }
@@ -5578,7 +5578,7 @@ impl Codec for NoiseDescriptor {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.string(&self.name)?;
         w.int32(self.first_octave);
-        w.varuint32(length(self.amplitudes.len())?);
+        w.varuint32(length_max(self.amplitudes.len(), 100)?);
         for &v in &self.amplitudes {
             w.float32(v);
         }
@@ -6089,7 +6089,7 @@ impl Codec for PresenceInfo {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.bool(self.rich_presence_id.is_some());
         if let Some(v) = &self.rich_presence_id {
-            w.string(v)?;
+            w.string_max(v, 50)?;
         }
         Ok(())
     }
@@ -6272,7 +6272,7 @@ impl Codec for RecipeUnlockRequirement {
         let present: bool = self.context == 0;
         w.bool(present);
         if present {
-            w.varuint32(length(self.ingredients.len())?);
+            w.varuint32(length_max(self.ingredients.len(), 128)?);
             for v in &self.ingredients {
                 w.item_descriptor_count(v)?;
             }
@@ -6811,14 +6811,14 @@ impl Codec for Skin {
         w.byte_slice(&self.skin_resource_patch)?;
         w.uint32(self.skin_image_width);
         w.uint32(self.skin_image_height);
-        w.byte_slice(&self.skin_data)?;
+        w.byte_slice_max(&self.skin_data, 67_108_864)?;
         w.varuint32(length(self.animations.len())?);
         for v in &self.animations {
             v.encode(w)?;
         }
         w.uint32(self.cape_image_width);
         w.uint32(self.cape_image_height);
-        w.byte_slice(&self.cape_data)?;
+        w.byte_slice_max(&self.cape_data, 67_108_864)?;
         w.byte_slice(&self.skin_geometry)?;
         w.byte_slice(&self.geometry_data_engine_version)?;
         w.byte_slice(&self.animation_data)?;
@@ -6887,7 +6887,7 @@ impl Codec for SkinAnimation {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.uint32(self.image_width);
         w.uint32(self.image_height);
-        w.byte_slice(&self.image_data)?;
+        w.byte_slice_max(&self.image_data, 67_108_864)?;
         w.varuint32(self.animation_type);
         w.float32(self.frame_count);
         w.varuint32(self.expression_type);
@@ -6921,8 +6921,8 @@ impl Codec for SlashCommandExecutedEvent {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.varint32(self.success_count);
         w.varint32(self.message_count);
-        w.string(&self.command_name)?;
-        w.string(&self.output_messages)?;
+        w.string_max(&self.command_name, 1000)?;
+        w.string_max(&self.output_messages, 2048)?;
         Ok(())
     }
 }
@@ -7514,7 +7514,7 @@ impl Codec for StructureSettings {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.palette_name)?;
+        w.string_max(&self.palette_name, 256)?;
         w.bool(self.ignore_entities);
         w.bool(self.ignore_blocks);
         w.bool(self.allow_non_ticking_chunks);
@@ -7924,7 +7924,7 @@ impl Codec for TimeMarkerData {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.varuint64(self.id);
-        w.string(&self.name)?;
+        w.string_max(&self.name, 128)?;
         w.varint32(self.time);
         w.bool(self.period.is_some());
         if let Some(v) = self.period {
@@ -8154,7 +8154,7 @@ impl Codec for VoxelCells {
         w.uint8(self.x_size);
         w.uint8(self.y_size);
         w.uint8(self.z_size);
-        w.varuint32(length(self.storage.len())?);
+        w.varuint32(length_max(self.storage.len(), 256_048)?);
         for &v in &self.storage {
             w.uint8(v);
         }
@@ -8187,15 +8187,15 @@ impl Codec for VoxelShape {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         self.cells.encode(w)?;
-        w.varuint32(length(self.x_coordinates.len())?);
+        w.varuint32(length_max(self.x_coordinates.len(), 128)?);
         for &v in &self.x_coordinates {
             w.float32(v);
         }
-        w.varuint32(length(self.y_coordinates.len())?);
+        w.varuint32(length_max(self.y_coordinates.len(), 128)?);
         for &v in &self.y_coordinates {
             w.float32(v);
         }
-        w.varuint32(length(self.z_coordinates.len())?);
+        w.varuint32(length_max(self.z_coordinates.len(), 128)?);
         for &v in &self.z_coordinates {
             w.float32(v);
         }
@@ -8412,10 +8412,10 @@ impl Codec for WorldClockData {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.varuint64(self.id);
-        w.string(&self.name)?;
+        w.string_max(&self.name, 128)?;
         w.varint32(self.time);
         w.bool(self.paused);
-        w.varuint32(length(self.time_markers.len())?);
+        w.varuint32(length_max(self.time_markers.len(), 256)?);
         for v in &self.time_markers {
             v.encode(w)?;
         }
@@ -8488,7 +8488,7 @@ pub(crate) fn encode_command_origin_data(w: &mut Writer, x: &CommandOrigin) -> R
     let origin_str: &str = command_origin_to_string(x.origin);
     w.string(origin_str)?;
     w.uuid(x.uuid);
-    w.string(&x.request_id)?;
+    w.string_max(&x.request_id, 39)?;
     w.actor_unique_id_int64(x.player_unique_id);
     command_origin_from_string(origin_str)?;
     Ok(())
@@ -8749,7 +8749,7 @@ pub(crate) fn encode_marshal_shaped(w: &mut Writer, recipe: &ShapedRecipe) -> Re
     w.string(&recipe.recipe_id)?;
     w.varint32(recipe.width);
     w.varint32(recipe.height);
-    w.varuint32(length(recipe.input.len())?);
+    w.varuint32(length_max(recipe.input.len(), 128)?);
     for v in &recipe.input {
         w.item_descriptor_count(v)?;
     }
@@ -8800,7 +8800,7 @@ pub(crate) fn decode_marshal_shapeless(
 /// Writes like gophertunnel `marshalShapeless`.
 pub(crate) fn encode_marshal_shapeless(w: &mut Writer, recipe: &ShapelessRecipe) -> Result<()> {
     w.string(&recipe.recipe_id)?;
-    w.varuint32(length(recipe.input.len())?);
+    w.varuint32(length_max(recipe.input.len(), 128)?);
     for v in &recipe.input {
         w.item_descriptor_count(v)?;
     }

@@ -402,7 +402,9 @@ const MAX_OUTBOX: usize = 4096;
 
 impl Player {
     /// Queues `packet` for this player: it is sent after this tick's other packets. More than
-    /// 4,096 packets in one tick disconnect the player instead (a runaway rule or callback).
+    /// 4,096 packets in one tick disconnect the player instead (a runaway rule or callback). A
+    /// packet that does not encode, such as one with a string or list over its Mojang limit
+    /// (the client would refuse it), ends the player's connection when it is sent.
     #[doc(alias = "NetworkSession::sendDataPacket")]
     pub fn send_packet(&mut self, packet: Packet) {
         if self.outbox.len().saturating_add(self.shared_outbox.len()) < MAX_OUTBOX {

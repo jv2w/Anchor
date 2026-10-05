@@ -163,7 +163,7 @@ impl Writer {
 
     /// `PackSetting`
     pub(crate) fn pack_setting(&mut self, x: &PackSetting) -> Result<()> {
-        self.string(&x.name)?;
+        self.string_max(&x.name, PACK_SETTING_NAME_MAX_LEN)?;
         match &x.value {
             PackSettingValue::Float32(v) => {
                 self.varuint32(PackSettingType::Float.into());

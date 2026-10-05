@@ -618,10 +618,51 @@ fn text_payload(params: usize, filtered: usize) -> Vec<u8> {
     payload
 }
 
-/// Cases of one packet at a field's Mojang `maxLength` or `maxItems` and the payload of the
-/// same packet just over it.
-fn field_limit_cases() -> Vec<(&'static str, Packet, Vec<u8>)> {
-    let bytes = |packet: &Packet| encode(packet).expect("encoding has no field limits");
+/// `payload` with its string of `len` bytes `fill`, after its varuint length, one byte longer:
+/// a payload over a limit the encoder refuses to write.
+fn one_longer(payload: &[u8], fill: u8, len: usize) -> Vec<u8> {
+    let mut run = varuint(u64::try_from(len).expect("fits u64"));
+    run.resize(run.len() + len, fill);
+    let at = payload
+        .windows(run.len())
+        .position(|w| w == run.as_slice())
+        .expect("the string is in the payload");
+    let (before, rest) = payload.split_at(at);
+    let mut out = before.to_vec();
+    put_varuint(&mut out, u64::try_from(len + 1).expect("fits u64"));
+    out.resize(out.len() + len + 1, fill);
+    out.extend_from_slice(rest.get(run.len()..).expect("the run is in the payload"));
+    out
+}
+
+/// `payload`, a varuint count `count` (below 127) and that many equal elements, with one element
+/// more: a payload over a limit the encoder refuses to write.
+fn one_more(payload: &[u8], count: u8) -> Vec<u8> {
+    let (first, elements) = payload.split_first().expect("a count");
+    assert!(*first == count && count < 127, "a one-byte count {count}");
+    let size = elements.len() / usize::from(count);
+    assert_eq!(size * usize::from(count), elements.len(), "equal elements");
+    let mut out = vec![count + 1];
+    out.extend_from_slice(elements);
+    out.extend_from_slice(elements.get(..size).expect("one element"));
+    out
+}
+
+/// The translation `Text` of [`text_payload`].
+fn text(params: usize, filtered: usize) -> Packet {
+    Packet::Text(Box::new(Text {
+        text_type: 2, // translation
+        message: "m".to_owned(),
+        parameters: vec!["p".to_owned(); params],
+        filtered_message: Some("f".repeat(filtered)),
+        ..Text::default()
+    }))
+}
+
+/// Cases of one packet at a field's Mojang `maxLength` or `maxItems`, the same packet just over
+/// it, and the payload of that packet.
+fn field_limit_cases() -> Vec<(&'static str, Packet, Packet, Vec<u8>)> {
+    let bytes = |packet: &Packet| encode(packet).expect("the packet at the limit encodes");
     let request = |filter: usize, requests: usize| {
         Packet::ItemStackRequest(ItemStackRequestPacket {
             requests: vec![
@@ -632,15 +673,6 @@ fn field_limit_cases() -> Vec<(&'static str, Packet, Vec<u8>)> {
                 requests
             ],
         })
-    };
-    let text = |params: usize, filtered: usize| {
-        Packet::Text(Box::new(Text {
-            text_type: 2, // translation
-            message: "m".to_owned(),
-            parameters: vec!["p".to_owned(); params],
-            filtered_message: Some("f".repeat(filtered)),
-            ..Text::default()
-        }))
     };
     let pack_setting = |name: usize| {
         Packet::ServerBoundPackSettingChange(ServerBoundPackSettingChange {
@@ -679,48 +711,61 @@ fn field_limit_cases() -> Vec<(&'static str, Packet, Vec<u8>)> {
         (
             "CommandRequest.CommandLine (string)",
             command(1000),
-            bytes(&command(1001)),
+            command(1001),
+            one_longer(&bytes(&command(1000)), b'c', 1000),
         ),
         (
             "BookEdit.Text (string in a switch case)",
             book(768),
-            bytes(&book(769)),
+            book(769),
+            one_longer(&bytes(&book(768)), b't', 768),
         ),
         (
             "PlayerEnchantOptions.Options (list)",
             enchant(3),
-            bytes(&enchant(4)),
+            enchant(4),
+            one_more(&bytes(&enchant(3)), 3),
         ),
         (
             "ItemStackRequest.Requests (list)",
             request(0, 100),
-            bytes(&request(0, 101)),
+            request(0, 101),
+            one_more(&bytes(&request(0, 100)), 100),
         ),
         (
             "ItemStackRequest.FilterStrings[] (list element)",
             request(1000, 1),
-            bytes(&request(1001, 1)),
+            request(1001, 1),
+            one_longer(&bytes(&request(1000, 1)), b'f', 1000),
         ),
-        ("Text.Parameters (list)", at_text, text_payload(5, 1)),
+        (
+            "Text.Parameters (list)",
+            at_text,
+            text(5, 1),
+            text_payload(5, 1),
+        ),
         (
             "Text.FilteredMessage (optional string)",
             text(0, 65536),
+            text(0, 65537),
             text_payload(0, 65537),
         ),
         (
             "PackSetting.Name (hand codec)",
             pack_setting(128),
-            bytes(&pack_setting(129)),
+            pack_setting(129),
+            one_longer(&bytes(&pack_setting(128)), b'n', 128),
         ),
     ]
 }
 
 #[test]
 fn a_field_over_its_mojang_limit_is_a_size_error() {
-    for (what, at, over) in field_limit_cases() {
-        let payload = encode(&at).expect("the packet at the limit encodes");
-        assert_eq!(decode(at.id(), &payload).as_ref(), Ok(&at), "{what}");
-        assert_eq!(decode(at.id(), &over).err(), Some(Error::Size), "{what}");
+    for (what, at, over, payload) in field_limit_cases() {
+        let encoded = encode(&at).expect("the packet at the limit encodes");
+        assert_eq!(decode(at.id(), &encoded).as_ref(), Ok(&at), "{what}");
+        assert_eq!(encode(&over), Err(Error::Size), "{what}: the encoder refuses it");
+        assert_eq!(decode(at.id(), &payload).err(), Some(Error::Size), "{what}");
     }
 }
 

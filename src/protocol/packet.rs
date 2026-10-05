@@ -24,7 +24,7 @@ use super::{
     SubChunkPos, SyncWorldClockStateData, SystemCategory, SystemDiagnosticTimingInfo, TeleportData,
     TexturePackInfo, TimeMarkerData, TrimMaterial, TrimPattern, UseItemTransactionData,
     UserDataShapelessRecipe, Uuid, VoxelShape, VoxelShapeNameEntry, WhiskerScopeDataSummary,
-    WorldClockData, Writer, length,
+    WorldClockData, Writer, length, length_max,
 };
 use crate::nbt;
 
@@ -707,7 +707,7 @@ impl Codec for AvailableCommands {
         for v in &self.enums {
             super::types::encode_command_enum_context_marshal(w, v)?;
         }
-        w.varuint32(length(self.chained_subcommands.len())?);
+        w.varuint32(length_max(self.chained_subcommands.len(), 16)?);
         for v in &self.chained_subcommands {
             v.encode(w)?;
         }
@@ -921,8 +921,8 @@ impl Codec for BookEdit {
         match self.action_type {
             0 | 1 => {
                 w.varint32(self.page_number);
-                w.string(&self.text)?;
-                w.string(&self.photo_name)?;
+                w.string_max(&self.text, 768)?;
+                w.string_max(&self.photo_name, 768)?;
             }
             2 => {
                 w.varint32(self.page_number);
@@ -932,9 +932,9 @@ impl Codec for BookEdit {
                 w.varint32(self.secondary_page_number);
             }
             4 => {
-                w.string(&self.title)?;
-                w.string(&self.author)?;
-                w.string(&self.xuid)?;
+                w.string_max(&self.title, 768)?;
+                w.string_max(&self.author, 768)?;
+                w.string_max(&self.xuid, 768)?;
             }
             _ => {
                 return Err(Error::UnknownEnum {
@@ -982,8 +982,8 @@ impl Codec for BossEvent {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.actor_unique_id(self.boss_entity_unique_id);
         w.uint8(self.event_type);
-        w.string(&self.boss_bar_title)?;
-        w.string(&self.filtered_boss_bar_title)?;
+        w.string_max(&self.boss_bar_title, 256)?;
+        w.string_max(&self.filtered_boss_bar_title, 256)?;
         w.float32(self.health_percentage);
         w.uint8(self.colour);
         w.uint8(self.overlay);
@@ -1447,30 +1447,30 @@ impl Codec for ClientBoundAttributeLayerSync {
         w.varuint32(self.payload_type);
         match self.payload_type {
             0 => {
-                w.varuint32(length(self.layers.len())?);
+                w.varuint32(length_max(self.layers.len(), 512)?);
                 for v in &self.layers {
                     v.encode(w)?;
                 }
             }
             1 => {
-                w.string(&self.layer_name)?;
+                w.string_max(&self.layer_name, 128)?;
                 w.varint32(self.dimension_id);
                 self.settings.encode(w)?;
             }
             2 => {
-                w.string(&self.layer_name)?;
+                w.string_max(&self.layer_name, 128)?;
                 w.varint32(self.dimension_id);
-                w.varuint32(length(self.environment_attributes.len())?);
+                w.varuint32(length_max(self.environment_attributes.len(), 1024)?);
                 for v in &self.environment_attributes {
                     v.encode(w)?;
                 }
             }
             3 => {
-                w.string(&self.layer_name)?;
+                w.string_max(&self.layer_name, 128)?;
                 w.varint32(self.dimension_id);
-                w.varuint32(length(self.remove_attribute_names.len())?);
+                w.varuint32(length_max(self.remove_attribute_names.len(), 1024)?);
                 for v in &self.remove_attribute_names {
-                    w.string(v)?;
+                    w.string_max(v, 128)?;
                 }
             }
             _ => {
@@ -1580,7 +1580,7 @@ impl Codec for ClientBoundDataDrivenUiShowScreen {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.screen_id)?;
+        w.string_max(&self.screen_id, 500)?;
         w.uint32(self.form_id);
         w.bool(self.data_instance_id.is_some());
         if let Some(v) = self.data_instance_id {
@@ -1605,7 +1605,7 @@ impl Codec for ClientBoundDataStore {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.updates.len())?);
+        w.varuint32(length_max(self.updates.len(), 500)?);
         for v in &self.updates {
             v.encode(w)?;
         }
@@ -1720,7 +1720,7 @@ impl Codec for ClientBoundMapItemData {
         w.block_pos(self.origin);
         w.bool(self.maps_included_in.is_some());
         if let Some(x) = &self.maps_included_in {
-            w.varuint32(length(x.len())?);
+            w.varuint32(length_max(x.len(), 65_535)?);
             for &v in x {
                 w.varint64(v);
             }
@@ -1731,14 +1731,14 @@ impl Codec for ClientBoundMapItemData {
         }
         w.bool(self.tracked_objects.is_some());
         if let Some(x) = &self.tracked_objects {
-            w.varuint32(length(x.len())?);
+            w.varuint32(length_max(x.len(), 65_535)?);
             for v in x {
                 v.encode(w)?;
             }
         }
         w.bool(self.decorations.is_some());
         if let Some(x) = &self.decorations {
-            w.varuint32(length(x.len())?);
+            w.varuint32(length_max(x.len(), 65_535)?);
             for v in x {
                 v.encode(w)?;
             }
@@ -1761,7 +1761,7 @@ impl Codec for ClientBoundMapItemData {
         }
         w.bool(self.pixels.is_some());
         if let Some(x) = &self.pixels {
-            w.varuint32(length(x.len())?);
+            w.varuint32(length_max(x.len(), 16_384)?);
             for &v in x {
                 w.be_argb(v);
             }
@@ -1839,11 +1839,11 @@ impl Codec for ClientCacheBlobStatus {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.miss_hashes.len())?);
+        w.varuint32(length_max(self.miss_hashes.len(), 4095)?);
         for &v in &self.miss_hashes {
             w.uint64(v);
         }
-        w.varuint32(length(self.hit_hashes.len())?);
+        w.varuint32(length_max(self.hit_hashes.len(), 4095)?);
         for &v in &self.hit_hashes {
             w.uint64(v);
         }
@@ -1866,7 +1866,7 @@ impl Codec for ClientCacheMissResponse {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.blobs.len())?);
+        w.varuint32(length_max(self.blobs.len(), 4095)?);
         for v in &self.blobs {
             v.encode(w)?;
         }
@@ -2301,7 +2301,7 @@ impl Codec for CommandRequest {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.command_line)?;
+        w.string_max(&self.command_line, 1000)?;
         super::types::encode_command_origin_data(w, &self.command_origin)?;
         w.bool(self.internal);
         w.string(&self.version)?;
@@ -2742,7 +2742,7 @@ impl Codec for DebugMarkerData {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.text)?;
+        w.string_max(&self.text, 4096)?;
         w.vec3(self.position);
         w.be_argb(self.colour);
         w.uint64(self.duration);
@@ -3239,7 +3239,7 @@ impl Codec for GraphicsOverrideParameter {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.values.len())?);
+        w.varuint32(length_max(self.values.len(), 255)?);
         for v in &self.values {
             v.encode(w)?;
         }
@@ -3251,10 +3251,10 @@ impl Codec for GraphicsOverrideParameter {
         if let Some(v) = self.vec3_value {
             w.vec3(v);
         }
-        w.string(&self.biome_identifier)?;
+        w.string_max(&self.biome_identifier, 255)?;
         w.bool(self.player_identifier.is_some());
         if let Some(v) = &self.player_identifier {
-            w.string(v)?;
+            w.string_max(v, 255)?;
         }
         w.uint8(self.parameter_type);
         w.bool(self.reset);
@@ -3494,7 +3494,7 @@ impl Codec for ItemStackRequest {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.requests.len())?);
+        w.varuint32(length_max(self.requests.len(), 100)?);
         for v in &self.requests {
             v.encode(w)?;
         }
@@ -3684,7 +3684,7 @@ impl Codec for LevelChunk {
             w.varint32(v);
         }
         w.bool(self.cache_enabled);
-        w.varuint32(length(self.blob_hashes.len())?);
+        w.varuint32(length_max(self.blob_hashes.len(), 65)?);
         for &v in &self.blob_hashes {
             w.uint64(v);
         }
@@ -3811,7 +3811,7 @@ impl Codec for LocatorBar {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.waypoints.len())?);
+        w.varuint32(length_max(self.waypoints.len(), 40_000)?);
         for v in &self.waypoints {
             v.encode(w)?;
         }
@@ -3886,7 +3886,7 @@ impl Codec for MapInfoRequest {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.varint64(self.map_id);
-        w.uint32(length(self.client_pixels.len())?);
+        w.uint32(length_max(self.client_pixels.len(), 16_384)?);
         for v in &self.client_pixels {
             v.encode(w)?;
         }
@@ -4471,7 +4471,9 @@ impl Codec for NetworkChunkPublisherUpdate {
                 reason: "saved chunks exceeds maximum length of 9216 chunk positions",
             });
         }
-        if self.saved_chunks.len() != usize::try_from(count).map_err(|_| Error::Size)? {
+        if self.saved_chunks.len() != usize::try_from(count).map_err(|_| Error::Size)?
+            || self.saved_chunks.len() > 9216
+        {
             return Err(Error::Size);
         }
         for &v in &self.saved_chunks {
@@ -4662,7 +4664,7 @@ impl Codec for PartyDestinationCookieResponse {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.cookie)?;
+        w.string_max(&self.cookie, 2048)?;
         w.bool(self.accepted);
         Ok(())
     }
@@ -4686,7 +4688,7 @@ impl Codec for PartyInfo {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.party_id)?;
+        w.string_max(&self.party_id, 49)?;
         w.bool(self.party_leader);
         Ok(())
     }
@@ -4746,7 +4748,7 @@ impl Codec for PhotoTransfer {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.string(&self.photo_name)?;
-        w.byte_slice(&self.photo_data)?;
+        w.byte_slice_max(&self.photo_data, 20_971_520)?;
         w.string(&self.book_id)?;
         w.uint8(self.photo_type);
         w.uint8(self.source_type);
@@ -4881,7 +4883,7 @@ impl Codec for PlayerArmourDamage {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.list.len())?);
+        w.varuint32(length_max(self.list.len(), 5)?);
         for v in &self.list {
             v.encode(w)?;
         }
@@ -5005,7 +5007,7 @@ impl Codec for PlayerAuthInput {
         }
         w.bool(self.block_actions.is_some());
         if let Some(x) = &self.block_actions {
-            w.varuint32(length(x.len())?);
+            w.varuint32(length_max(x.len(), 100)?);
             for v in x {
                 v.encode(w)?;
             }
@@ -5040,7 +5042,7 @@ impl Codec for PlayerEnchantOptions {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.options.len())?);
+        w.varuint32(length_max(self.options.len(), 3)?);
         for v in &self.options {
             v.encode(w)?;
         }
@@ -5114,7 +5116,7 @@ impl Codec for PlayerList {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.entries.len())?);
+        w.varuint32(length_max(self.entries.len(), 1000)?);
         for v in &self.entries {
             v.encode(w)?;
         }
@@ -5425,7 +5427,7 @@ impl Codec for PrimitiveShapes {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.shapes.len())?);
+        w.varuint32(length_max(self.shapes.len(), 1_048_576)?);
         for v in &self.shapes {
             v.encode(w)?;
         }
@@ -5448,7 +5450,7 @@ impl Codec for PurchaseReceipt {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length(self.receipts.len())?);
+        w.varuint32(length_max(self.receipts.len(), 10_000)?);
         for v in &self.receipts {
             w.string(v)?;
         }
@@ -5750,7 +5752,7 @@ impl Codec for ResourcePackClientResponse {
         }
         w.string(name)?;
         if self.response == 1 {
-            w.varuint32(length(self.packs_to_download.len())?);
+            w.varuint32(length_max(self.packs_to_download.len(), 65_535)?);
             for v in &self.packs_to_download {
                 w.string(v)?;
             }
@@ -5834,7 +5836,7 @@ impl Codec for ResourcePackStack {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.bool(self.texture_pack_required);
-        w.varuint32(length(self.texture_packs.len())?);
+        w.varuint32(length_max(self.texture_packs.len(), 65_535)?);
         for v in &self.texture_packs {
             v.encode(w)?;
         }
@@ -5888,7 +5890,7 @@ impl Codec for ResourcePacksInfo {
         w.bool(self.force_disable_vibrant_visuals);
         w.uuid(self.world_template_uuid);
         w.string(&self.world_template_version)?;
-        w.varuint32(length(self.texture_packs.len())?);
+        w.varuint32(length_max(self.texture_packs.len(), 65_535)?);
         for v in &self.texture_packs {
             v.encode(w)?;
         }
@@ -6007,9 +6009,9 @@ impl Codec for SendPartyDestinationCookie {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.cookie)?;
+        w.string_max(&self.cookie, 2048)?;
         w.string(&self.intent)?;
-        w.string(&self.destination_name)?;
+        w.string_max(&self.destination_name, 64)?;
         Ok(())
     }
 }
@@ -7527,7 +7529,7 @@ impl Codec for StructureTemplateDataRequest {
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.string(&self.structure_name)?;
+        w.string_max(&self.structure_name, 256)?;
         w.block_pos(self.position);
         self.settings.encode(w)?;
         w.uint8(self.request_type);
@@ -7604,7 +7606,7 @@ impl Codec for SubChunk {
         w.bool(self.cache_enabled);
         w.varint32(self.dimension);
         w.sub_chunk_pos(self.position);
-        w.varuint32(length(self.sub_chunk_entries.len())?);
+        w.varuint32(length_max(self.sub_chunk_entries.len(), 8192)?);
         for v in &self.sub_chunk_entries {
             v.encode(w)?;
         }
@@ -7634,7 +7636,7 @@ impl Codec for SubChunkRequest {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.varint32(self.dimension);
-        w.varuint32(length(self.offsets.len())?);
+        w.varuint32(length_max(self.offsets.len(), 8192)?);
         for &v in &self.offsets {
             v.encode(w)?;
         }
@@ -7737,27 +7739,27 @@ impl Codec for SyncWorldClocks {
         w.varuint32(self.payload_type);
         match self.payload_type {
             0 => {
-                w.varuint32(length(self.sync_states.len())?);
+                w.varuint32(length_max(self.sync_states.len(), 256)?);
                 for v in &self.sync_states {
                     v.encode(w)?;
                 }
             }
             1 => {
-                w.varuint32(length(self.clocks.len())?);
+                w.varuint32(length_max(self.clocks.len(), 256)?);
                 for v in &self.clocks {
                     v.encode(w)?;
                 }
             }
             2 => {
                 w.varuint64(self.add_clock_id);
-                w.varuint32(length(self.add_time_markers.len())?);
+                w.varuint32(length_max(self.add_time_markers.len(), 256)?);
                 for v in &self.add_time_markers {
                     v.encode(w)?;
                 }
             }
             3 => {
                 w.varuint64(self.remove_clock_id);
-                w.varuint32(length(self.remove_time_marker_ids.len())?);
+                w.varuint32(length_max(self.remove_time_marker_ids.len(), 256)?);
                 for &v in &self.remove_time_marker_ids {
                     w.varuint64(v);
                 }
@@ -7909,21 +7911,21 @@ impl Codec for Text {
         w.uint8(self.text_type);
         match self.text_type {
             1 | 7 | 8 => {
-                w.string(&self.source_name)?;
+                w.string_max(&self.source_name, 256)?;
                 if self.source_name.len() > 256 {
                     return Err(Error::InvalidValue {
                         field: "source name",
                         reason: "string too long",
                     });
                 }
-                w.string(&self.message)?;
+                w.string_max(&self.message, 65_536)?;
             }
             0 | 5 | 6 | 9..=11 => {
-                w.string(&self.message)?;
+                w.string_max(&self.message, 65_536)?;
             }
             2..=4 => {
-                w.string(&self.message)?;
-                w.varuint32(length(self.parameters.len())?);
+                w.string_max(&self.message, 65_536)?;
+                w.varuint32(length_max(self.parameters.len(), 4)?);
                 for v in &self.parameters {
                     w.string(v)?;
                 }
@@ -7948,14 +7950,14 @@ impl Codec for Text {
                 reason: "string too long",
             });
         }
-        w.string(&self.xuid)?;
+        w.string_max(&self.xuid, 64)?;
         if self.xuid.len() > 64 {
             return Err(Error::InvalidValue {
                 field: "XUID",
                 reason: "string too long",
             });
         }
-        w.string(&self.platform_chat_id)?;
+        w.string_max(&self.platform_chat_id, 256)?;
         if self.platform_chat_id.len() > 256 {
             return Err(Error::InvalidValue {
                 field: "platform chat ID",
@@ -7964,7 +7966,7 @@ impl Codec for Text {
         }
         w.bool(self.filtered_message.is_some());
         if let Some(v) = &self.filtered_message {
-            w.string(v)?;
+            w.string_max(v, 65_536)?;
         }
         if let Some(filtered_message) = &self.filtered_message
             && filtered_message.len() > 65_536

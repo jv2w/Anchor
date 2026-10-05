@@ -824,6 +824,39 @@ mod tests {
         assert_eq!(out, [1, 2]);
     }
 
+    /// A packet with a string or list over its Mojang limit does not encode, whoever built it:
+    /// the client would reject it.
+    #[test]
+    fn packets_over_a_field_limit_do_not_encode() {
+        use super::super::packet::{BossEvent, ClientBoundAttributeLayerSync, PlayerList};
+        let encodes = |packet: Packet| packet.encode(&mut Vec::new(), SHIELD_ID);
+        let title = |len: usize| {
+            Packet::BossEvent(BossEvent {
+                boss_bar_title: "a".repeat(len),
+                ..BossEvent::default()
+            })
+        };
+        assert_eq!(encodes(title(256)), Ok(()));
+        assert_eq!(encodes(title(257)), Err(protocol::Error::Size));
+        let entries = |count: usize| {
+            Packet::PlayerList(PlayerList {
+                entries: vec![crate::protocol::PlayerListEntry::default(); count],
+            })
+        };
+        assert_eq!(encodes(entries(1000)), Ok(()));
+        assert_eq!(encodes(entries(1001)), Err(protocol::Error::Size));
+        // A limit on each element of a list.
+        let names = |len: usize| {
+            Packet::ClientBoundAttributeLayerSync(ClientBoundAttributeLayerSync {
+                payload_type: 3,
+                remove_attribute_names: vec!["n".repeat(len)],
+                ..ClientBoundAttributeLayerSync::default()
+            })
+        };
+        assert_eq!(encodes(names(128)), Ok(()));
+        assert_eq!(encodes(names(129)), Err(protocol::Error::Size));
+    }
+
     #[test]
     fn payloads_over_the_limit_end_in_a_size_error() {
         let limit = Settings::new(Compression::Snappy, 256, 6, MIB).unwrap();

@@ -98,6 +98,7 @@ fn imports(m: &Model<'_>, text: &str, module: Module) -> String {
         "Result",
         "Error",
         "length",
+        "length_max",
         "AbilityValue",
         "Uuid",
         "Rgba",

@@ -240,8 +240,8 @@ struct Lower<'m, 'a> {
     fallible: bool,
     /// Go names bound to `usize` values (range keys).
     usize_names: BTreeSet<String>,
-    /// Decode: the limit key of the locals that list and optional bodies read into, innermost
-    /// last (`None` for a local of a place without a key).
+    /// The limit key of the locals that list and optional bodies read into or write from,
+    /// innermost last (`None` for a local of a place without a key).
     limit_vars: Vec<(String, Option<String>)>,
 }
 
@@ -1054,14 +1054,15 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    /// Decode: the limit of the string or list read into a place, marked as applied.
+    /// The limit of the string or list read into or written from a place: the decoder refuses
+    /// what is over it, and the encoder does not write it, so a packet the client would refuse
+    /// is never sent, whoever built it. Decode marks it as applied.
     fn limit(&mut self, place: Option<&Expr>) -> Option<usize> {
-        if self.dir != Dir::Decode {
-            return None;
-        }
         let key = self.limit_key(place?)?;
         let max = *self.m.limits.get(&key)?;
-        self.helpers.insert(format!("{LIMIT_USED}{key}"));
+        if self.dir == Dir::Decode {
+            self.helpers.insert(format!("{LIMIT_USED}{key}"));
+        }
         Some(max)
     }
 
@@ -1093,9 +1094,24 @@ impl<'m, 'a> Lower<'m, 'a> {
                 };
                 let mut args = vec![arg.code.clone()];
                 args.extend(Self::io_args(s)?);
-                let q = if spec.write_fails { self.q() } else { "" };
+                let (method, q) = match self.limit(Some(place)) {
+                    Some(max) => {
+                        if !matches!(spec.rust, "string" | "byte_slice") || args.len() != 1 {
+                            return Err(format!(
+                                "{} has no writer that takes a field limit",
+                                s.method
+                            ));
+                        }
+                        args.push(int_lit(&max.to_string()));
+                        (format!("{}_max", spec.rust), self.q())
+                    }
+                    None => (
+                        spec.rust.to_owned(),
+                        if spec.write_fails { self.q() } else { "" },
+                    ),
+                };
                 out.push(S::Expr(
-                    arg.code(format!("w.{}({}){q}", spec.rust, args.join(", ")))
+                    arg.code(format!("w.{method}({}){q}", args.join(", ")))
                         .effect(),
                 ));
                 Ok(())
@@ -1333,20 +1349,28 @@ impl<'m, 'a> Lower<'m, 'a> {
                 let v = self.expr(place)?;
                 let list = Self::ref_iter(&v);
                 let recv = method_recv(&v.e.code);
+                let max = self.limit(Some(place)).map(|max| int_lit(&max.to_string()));
                 match s.prefix.as_str() {
                     "varuint32" | "uint8" | "uint32" => {
                         let q = self.q();
-                        let code = format!("w.{}(length({recv}.len()){q})", s.prefix);
+                        let len = match &max {
+                            Some(max) => format!("length_max({recv}.len(), {max})"),
+                            None => format!("length({recv}.len())"),
+                        };
+                        let code = format!("w.{}({len}{q})", s.prefix);
                         out.push(S::Expr(v.e.clone().code(code).effect()));
                     }
                     "" => {
                         let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
                         let len = self.usize_value(len)?;
                         self.fallible = true;
+                        let over = max.map_or_else(String::new, |max| {
+                            format!(" || {recv}.len() > {max}")
+                        });
                         let cond = len
                             .clone()
                             .with(&v.e)
-                            .code(format!("{recv}.len() != {}", len.code));
+                            .code(format!("{recv}.len() != {}{over}", len.code));
                         out.push(S::If {
                             cond: Cond::Plain { e: cond, neg: None },
                             then: vec![S::Fail(E::new("Error::Size"))],
@@ -1355,7 +1379,12 @@ impl<'m, 'a> Lower<'m, 'a> {
                     }
                     other => return Err(format!("unsupported slice prefix {other}")),
                 }
-                let (pat, body) = self.encode_elem_body(&s.body, elem)?;
+                let key = self.limit_key(place);
+                self.limit_vars
+                    .push((elem.name.clone(), key.map(|k| format!("{k}[]"))));
+                let body = self.encode_elem_body(&s.body, elem);
+                self.limit_vars.pop();
+                let (pat, body) = body?;
                 let code = format!("for {pat} in {} {{ {} }}", list.code, body.code);
                 out.push(S::Expr(list.with(&body).code(code).effect()));
                 Ok(())
@@ -1417,7 +1446,11 @@ impl<'m, 'a> Lower<'m, 'a> {
                         .code(format!("w.bool({recv}.is_some())"))
                         .effect(),
                 ));
-                let (pat, body) = self.encode_elem_body(&s.body, elem)?;
+                let key = self.limit_key(place);
+                self.limit_vars.push((elem.name.clone(), key));
+                let body = self.encode_elem_body(&s.body, elem);
+                self.limit_vars.pop();
+                let (pat, body) = body?;
                 if body.code.trim().is_empty() {
                     return Ok(());
                 }
