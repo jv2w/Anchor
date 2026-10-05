@@ -86,7 +86,7 @@ fn a_generator_fills_an_empty_chunk() {
     );
 }
 
-/// A generator whose name is longer than the server file holds (256 bytes).
+/// A generator whose name is longer than the data files hold (256 bytes).
 #[derive(Debug)]
 struct LongName;
 
@@ -105,20 +105,29 @@ impl Generator for LongName {
 }
 
 #[test]
-fn build_refuses_a_world_or_generator_name_longer_than_the_store_holds() {
-    let longest = "w".repeat(256);
+fn build_refuses_a_world_name_that_is_no_file_name_and_a_generator_name_too_long() {
+    // A world name is its file's name (`data/world/<name>.redb`): at most 250 bytes.
+    let longest = "w".repeat(250);
     assert!(
         Server::builder()
             .world(longest.clone(), Kind::Persistent, Flat)
             .build()
             .is_ok()
     );
-    let long = format!("{longest}w");
+    for name in [format!("{longest}w"), "con".to_owned(), "a/b".to_owned()] {
+        let e = Server::builder()
+            .world(name.clone(), Kind::Temporary, Flat)
+            .build()
+            .expect_err("a world name that is no file name");
+        assert!(matches!(e, anchor::Error::InvalidWorldName { name: ref n } if *n == name));
+    }
+    // Names that differ only in letter case are one world.
     let e = Server::builder()
-        .world(long.clone(), Kind::Temporary, Flat)
+        .world("Lobby", Kind::Persistent, Flat)
+        .world("LOBBY", Kind::Temporary, Flat)
         .build()
-        .expect_err("a world name the store cannot hold");
-    assert!(matches!(e, anchor::Error::NameTooLong { ref name } if *name == long));
+        .expect_err("one file for two worlds");
+    assert!(matches!(e, anchor::Error::DuplicateWorld { ref name } if name == "LOBBY"));
     let e = Server::builder()
         .world("arena", Kind::Persistent, LongName)
         .build()

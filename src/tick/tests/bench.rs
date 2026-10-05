@@ -57,7 +57,7 @@ fn answer(state: &State, pool: &Pool, requests: Vec<Request>) -> Vec<Response> {
             Request::Commit(snapshot) => out.push(Response::Committed {
                 start: snapshot.start,
             }),
-            Request::Worlds(_) | Request::Finish => {}
+            Request::Worlds(_) | Request::DeleteWorlds(_) | Request::Finish => {}
         }
     }
     let seeds: Vec<i64> = state.worlds.iter().map(crate::world::World::seed).collect();

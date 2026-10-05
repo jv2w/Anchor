@@ -250,11 +250,8 @@ fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Ve
 }
 
 fn world_record(storage: &mut Storage) -> Option<WorldRecord> {
-    save::stored_worlds(storage)
-        .unwrap()
-        .into_iter()
-        .find(|(n, _)| n == NAME)
-        .map(|(_, r)| r)
+    let sealed = storage.read(&[Key::World]).unwrap().pop()?.unwrap()?;
+    Some(crate::storage::seal::unseal(&Key::World.to_bytes(), &sealed).unwrap())
 }
 
 fn known(nbt: &Compound) -> crate::block::State {
@@ -339,26 +336,20 @@ fn blocks_only_clients_know_import_inert_over_their_water_and_are_counted_apart(
 fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_entities() {
     let disk = Disk::default();
     let mut storage = memory(&disk);
-    // An existing file with another world numbered 3.
-    let mut batch = Batch::with_capacity(1);
-    let other = Key::World("other".to_owned());
-    let record = WorldRecord { number: 3, time: 0 };
-    batch.put(other.clone(), seal(&other.to_bytes(), &record).unwrap());
-    storage.commit(&batch).unwrap();
-
     let raws = BTreeMap::from([((7, -2), full_raw())]);
     let report = imported(&mut storage, 2, &raws, [10, 70, -20]);
 
-    // The record keeps the state alone: the number and the time, no setting of level.dat.
+    // The record keeps the state alone: the number (the file holds the world alone) and the
+    // time, no setting of level.dat.
     let record = world_record(&mut storage).unwrap();
     assert_eq!(
         record,
         WorldRecord {
-            number: 4,
+            number: 0,
             time: 5678
         }
     );
-    let (chunk, [block_entities, entities, updates]) = read_chunk(&mut storage, 4, 7, -2);
+    let (chunk, [block_entities, entities, updates]) = read_chunk(&mut storage, 0, 7, -2);
     let stone = known(&state("minecraft:stone", &[]));
     assert_eq!(
         chunk.block(0, -64, 0),
@@ -830,12 +821,16 @@ fn a_spawn_without_a_height_lands_above_the_highest_block_or_at_the_generator_sp
 }
 
 #[test]
-fn an_undeclared_or_temporary_world_is_refused_before_anything_is_opened() {
+fn a_temporary_world_or_a_name_that_is_no_file_name_is_refused_before_anything_is_opened() {
     let dir = crate::save::tests::TempDir::new("import-undeclared");
     let data = dir.0.join("data");
     let mut temporary = spec();
     temporary.kind = Kind::Temporary;
-    for (worlds, name) in [(vec![spec()], "other"), (vec![temporary], NAME)] {
+    for (worlds, name) in [
+        (vec![temporary], NAME),
+        (vec![spec()], "a/b"),
+        (vec![spec()], "nul"),
+    ] {
         let err = run(
             &data,
             Start::checked(StartBackup::Make),
@@ -847,7 +842,8 @@ fn an_undeclared_or_temporary_world_is_refused_before_anything_is_opened() {
         )
         .unwrap_err();
         assert!(
-            matches!(&err, crate::Error::Import(Error::UnknownWorld { name: n }) if n == name),
+            matches!(&err, crate::Error::Import(Error::UnknownWorld { name: n }) if n == name)
+                || matches!(&err, crate::Error::InvalidWorldName { name: n } if n == name),
             "{err:?}"
         );
     }
@@ -936,8 +932,9 @@ fn file_mib(path: &Path) -> u64 {
 )]
 fn measure_100k_chunk_import() {
     let dir = crate::save::tests::TempDir::new("import-measure");
+    let place = crate::storage::Place::world(&dir.0, NAME);
     let mut storage = Storage::open(
-        &dir.0,
+        &place,
         crate::storage::Start::checked(crate::storage::StartBackup::Make),
     )
     .unwrap();
@@ -969,7 +966,7 @@ fn measure_100k_chunk_import() {
     let committed = ms(start);
     let peak = peak_memory_mib();
     assert!(pool.shutdown());
-    let file = dir.0.join(crate::storage::SERVER_FILE);
+    let file = place.file.clone();
     let size = file_mib(&file);
     let start = crate::clock::now();
     storage.close().unwrap();
@@ -1004,7 +1001,11 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
     .unwrap();
     let mut source = Source::open(Path::new(FIXTURE)).unwrap();
     let catalog = source.catalog().unwrap();
-    let mut storage = Storage::open(&data, Start::checked(StartBackup::Make)).unwrap();
+    let mut storage = Storage::open(
+        &crate::storage::Place::world(&data, NAME),
+        Start::checked(StartBackup::Make),
+    )
+    .unwrap();
     let record = world_record(&mut storage).unwrap();
     assert_eq!(record.time, source.world().time);
     // No height in level.dat: above the highest block of the fixture's spawn column.
@@ -1074,7 +1075,11 @@ fn chunks_a_game_saved_import_with_every_block_entity_whole() {
     assert_eq!((report.block_entities(), report.entities()), (8, 3));
     assert_eq!(report.ignored_tags().get(&0x2b), Some(&2));
     let mut source = Source::open(&world).unwrap();
-    let mut storage = Storage::open(&data, Start::checked(StartBackup::Make)).unwrap();
+    let mut storage = Storage::open(
+        &crate::storage::Place::world(&data, NAME),
+        Start::checked(StartBackup::Make),
+    )
+    .unwrap();
     let record = world_record(&mut storage).unwrap();
     for (x, z) in [(-198, 8), (-5, -44)] {
         let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();

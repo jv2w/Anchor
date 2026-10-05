@@ -93,10 +93,15 @@ impl Server {
     /// Imports the Bedrock world folder `dir` (a `level.dat` and its `db` database folder, as BDS
     /// and the game write it) as the persistent world `world`, before [`run`](Self::run).
     ///
-    /// The world must be declared ([`ServerBuilder::world`] with [`Kind::Persistent`], or
-    /// `level-name`) and not yet be in the server file: an import only creates a world, so a
-    /// second run is refused with [`import::Error::WorldExists`](crate::import::Error) and
-    /// changes nothing. Blocks and items of older versions are upgraded as PMMP upgrades them;
+    /// The world becomes the new file `data/world/<world>.redb` (PLAN.md 6), and nothing else is
+    /// written: several Bedrock worlds import side by side under their own names. A declared
+    /// world ([`ServerBuilder::world`], or `level-name`) must be [`Kind::Persistent`]; a name not
+    /// declared takes the default world's generator for its biomes, and the tick loads it with
+    /// [`Context::load_world`]. The name must be a file name
+    /// ([`world::Error::InvalidName`](crate::world::Error::InvalidName) tells the rule;
+    /// [`Error::InvalidWorldName`] otherwise). An import only creates a world: a world file of the
+    /// name (in any letter case) refuses it with
+    /// [`import::Error::WorldExists`](crate::import::Error) and changes nothing. Blocks and items of older versions are upgraded as PMMP upgrades them;
     /// blocks Anchor does not know are kept as unknown blocks. The overworld's blocks and block
     /// entities (with their whole NBT: container items, sign text, ...) are imported, with the
     /// time; a chunk's biomes are those the world's generator gives it. Biomes,
@@ -108,11 +113,11 @@ impl Server {
     /// ([`import::Report::spawn`](crate::import::Report::spawn)) to copy into the world's
     /// `[worlds.<name>]` table.
     ///
-    /// It blocks the calling thread, opens the server file as [`run`](Self::run) does (backup as
-    /// `backups` says, integrity check as `integrity-check` says), uses a CPU pool of
-    /// `cpu-threads` that it joins before returning, and writes the whole world in one
-    /// transaction: on any failure, a chunk that cannot be read included, the server file is left
-    /// as it was; the error names the chunk and the key at fault
+    /// It blocks the calling thread, first moves the server file of an older Anchor to the data
+    /// files as [`run`](Self::run) does, uses a CPU pool of `cpu-threads` that it joins before
+    /// returning, and writes the whole world in one transaction: on any failure, a chunk that
+    /// cannot be read included, no world file is left; the error names the chunk and the key at
+    /// fault
     /// ([`import::Error::Key`](crate::import::Error::Key)). The source folder is only read, and the
     /// import fails if it changes meanwhile.
     #[doc(alias = "FormatConverter::execute")]
@@ -145,13 +150,23 @@ impl Server {
     /// While it runs, Anchor's console log ([`ServerBuilder::without_console_log`]) is the calling
     /// thread's default and that of every thread Anchor starts.
     ///
-    /// It first opens the server file `data/server.redb` (PLAN.md 10.6): it backs up the closed
-    /// file to `data/backups/`, checks it as `integrity-check` says and refuses a damaged one,
-    /// leaving it as it was. Then a `packs` folder next to the settings file, where earlier
+    /// It first opens the data files (PLAN.md 6): `data/main.redb` (the save's tick),
+    /// `data/players.redb`, `data/access.redb` (operators, bans, whitelist), `data/user.redb` (the
+    /// server data) and the file `data/world/<name>.redb` of each persistent world it starts
+    /// with; the other world files there are worlds [`Context::load_world`] may load. Each is
+    /// backed up into its own folder of `data/backups/` and checked as `backups` and
+    /// `integrity-check` say, and a damaged one refuses the start, left as it was. The one server
+    /// file of an older Anchor (`data/server.redb`) is moved to the data files first, once: every
+    /// value is written again in the current format, the new files are checked, and only then is
+    /// the old file removed; a move that fails stops the start with the old file as it was. A
+    /// file holding a later save than the main file (a crash in the middle of a save) is logged
+    /// as an error naming it. Then a `packs` folder next to the settings file, where earlier
     /// versions kept the resource packs, is renamed to `data/packs` unless that exists (then it is
     /// left as it is, with a warning), and the packs load from `data/packs`. On shutdown every
-    /// player sees `shutdown-message`, the last state is saved, networking stops, and the threads
-    /// are joined. Fails if the server file is damaged or cannot be opened, if the old pack folder
+    /// player sees `shutdown-message`, the last state is saved to every data file it changed (one
+    /// tick's state, the main file last), networking stops, and the threads are joined. Fails if a
+    /// data file is damaged or cannot be opened, if the old server file cannot be moved, if the
+    /// old pack folder
     /// cannot be moved (it stays where it was) or a pack cannot be offered, if the runtime, the
     /// threads or networking cannot start, if a save fails after its retries, or if the tick
     /// thread panics.
@@ -188,7 +203,18 @@ impl Server {
         .map_err(|e| Error::Start(std::io::Error::other(e)))?;
         let mut setup = setup;
         setup.fingerprints = tick::Fingerprints::of(&tick::Settings::new(&config), &worlds, &setup);
-        let mut opened = save::open_with(&data_dir, worlds, crate::storage::Start::of(&config))?;
+        let mut opened = save::open_with(
+            &data_dir,
+            worlds,
+            crate::storage::Start::of(&config),
+            threads.cpu,
+        )?;
+        if !opened.later.is_empty() {
+            warn!(
+                files = opened.later.len(),
+                "the server starts on data files of different saves; see the errors above"
+            );
+        }
         setup.data.load(&mut opened.thread)?;
         setup.commands.start(
             std::mem::take(&mut opened.access),
@@ -300,12 +326,13 @@ impl Server {
     /// Replays the crash log at `log` (a `data/crash/input-*.log` the server wrote when it
     /// stopped on a panic or a failed save) with this server's settings, worlds and
     /// registrations, and reports how it ended ([`crate::replay`]): it starts from the saved
-    /// state of the log's oldest segment that `data/server.redb` or a backup still holds, and
-    /// applies the logged ticks. A tick that panics again ends it with
+    /// state of the log's oldest segment whose save `data/main.redb` or one of its backups still
+    /// holds, with each other data file's newest copy (the file or a backup) of that save or an
+    /// earlier one, and applies the logged ticks. A tick that panics again ends it with
     /// [`End::Panicked`](crate::replay::End::Panicked).
     ///
     /// Build the server as the run that wrote the log was built: the same settings, worlds and
-    /// registrations, or the replay is refused. It opens the server files read-only, runs no
+    /// registrations, or the replay is refused. It opens the data files read-only, runs no
     /// network, commits nothing and writes no file. State that listeners, tasks and behaviours
     /// keep in their closures starts over, and their callbacks run again, so what they do outside
     /// the server (files, network) happens again.
@@ -623,7 +650,7 @@ impl ServerBuilder {
     }
 
     /// Adds a world besides the default one (`level-name`), loaded from the start. A
-    /// [`Kind::Persistent`] world is saved in the server file under its name; a
+    /// [`Kind::Persistent`] world is saved in its file `data/world/<name>.redb`; a
     /// [`Kind::Temporary`] one is generated fresh at every start and never saved. Its seed is
     /// made from its name and its spawn is the generator's, or `spawn` of its `[worlds.<name>]`
     /// table: like every setting, they come from here at every start and are never saved.
@@ -715,10 +742,23 @@ impl ServerBuilder {
             spawn: None,
         });
         for world in self.worlds {
-            if worlds.iter().any(|w| w.name == world.name) {
+            // Names that differ only in letter case would be one file (PLAN.md 6).
+            let key = crate::storage::world_name_key(&world.name);
+            if worlds
+                .iter()
+                .any(|w| crate::storage::world_name_key(&w.name) == key)
+            {
                 return Err(Error::DuplicateWorld { name: world.name });
             }
             worlds.push(world);
+        }
+        if let Some(world) = worlds
+            .iter()
+            .find(|w| !crate::storage::is_world_file_name(&w.name))
+        {
+            return Err(Error::InvalidWorldName {
+                name: world.name.clone(),
+            });
         }
         self.config
             .check_world_names(|name| worlds.iter().any(|w| w.name == name))?;
@@ -726,12 +766,7 @@ impl ServerBuilder {
             world.spawn = self.config.worlds.get(&world.name).and_then(|w| w.spawn);
         }
         let too_long = |name: &&str| name.len() > crate::storage::codec::MAX_NAME;
-        if let Some(name) = worlds
-            .iter()
-            .map(|w| w.name.as_str())
-            .find(too_long)
-            .or_else(|| self.setup.generators.names().find(too_long))
-        {
+        if let Some(name) = self.setup.generators.names().find(too_long) {
             return Err(Error::NameTooLong {
                 name: name.to_owned(),
             });

@@ -1,5 +1,5 @@
 //! Run-state checkpoints (PLAN.md 10.9 운영 기능 설계, 재생 도구): the whole [`State`] at a save
-//! snapshot or at the start of the process, except the raw chunk extras, which the server file of
+//! snapshot or at the start of the process, except the raw chunk extras, which the data files of
 //! the same tick (or a generator) gives back as they were stored, so that a replay can start from
 //! a committed state of a crash log.
 //!
@@ -12,7 +12,7 @@
 //!
 //! Light and terrain are kept as shared copies (copy-on-write light arrays and sub-chunks) and
 //! encoded only when a crash log is written ([`Checkpoint::to_bytes`]), so taking a checkpoint
-//! copies little on the tick. Terrain is kept although the server file holds it: a load compacts
+//! copies little on the tick. Terrain is kept although the data files holds it: a load compacts
 //! the palettes, and a replay must go on from the exact chunks.
 //!
 //! The format: little-endian integers of fixed width, a count before every collection (u64), a
@@ -1021,7 +1021,7 @@ variants!(super::Phase {
 });
 
 /// What a restore reads the chunks with: the terrain the checkpoint kept of the unloaded chunks
-/// waiting for a commit, and the raw extras of every chunk it names, which the server file or the
+/// waiting for a commit, and the raw extras of every chunk it names, which the data files or the
 /// generator gives ([`Checkpoint::loaded`], [`Checkpoint::unsaved`]).
 #[derive(Debug, Default)]
 pub(crate) struct Ground {
@@ -1080,14 +1080,14 @@ impl Checkpoint {
         &self.worlds
     }
 
-    /// The loaded chunks, whose terrain and extras a replay reads from the server file.
+    /// The loaded chunks, whose terrain and extras a replay reads from the data files.
     pub(crate) fn loaded(&self) -> impl Iterator<Item = Key> + '_ {
         (0..)
             .zip(&self.saved)
             .flat_map(|(w, s)| s.loaded.iter().map(move |&p| (w, p)))
     }
 
-    /// The unloaded chunks waiting for a commit, whose extras a replay reads from the server file.
+    /// The unloaded chunks waiting for a commit, whose extras a replay reads from the data files.
     pub(crate) fn unsaved(&self) -> impl Iterator<Item = Key> + '_ {
         self.unsaved.iter().map(|(k, _)| *k)
     }
@@ -1302,7 +1302,7 @@ impl State {
 
     /// Puts the state of `checkpoint` into this state, which [`State::new`] made at its tick from
     /// the same build (listeners, tasks, commands, custom content) and worlds. `extras` gives the
-    /// raw extras the server file or the generator has for the chunks the checkpoint names;
+    /// raw extras the data files or the generator has for the chunks the checkpoint names;
     /// `outbound` gives each player a new outbound queue.
     pub(crate) fn restore(
         &mut self,
@@ -1427,7 +1427,7 @@ pub(super) mod tests {
 
     use super::*;
 
-    /// The raw extras a server file holds for `state`'s chunks right after a snapshot.
+    /// The raw extras the data files hold for `state`'s chunks right after a snapshot.
     pub(in crate::tick) fn extras_of(state: &State) -> BTreeMap<Key, ChunkExtras> {
         let mut extras = BTreeMap::new();
         for (w, world) in state.worlds.iter().enumerate() {

@@ -15,7 +15,9 @@ mod lifecycle;
 mod recipes;
 
 pub(crate) use lifecycle::WorldSlot;
-pub(super) use lifecycle::{Catalog, difficulty, difficulty_of, step, take_new_worlds};
+pub(super) use lifecycle::{
+    Catalog, difficulty, difficulty_of, step, take_deleted_worlds, take_new_worlds,
+};
 
 use super::view::chunk_of;
 use super::{Context, MAX_OUTBOX, Phase, State, entity, survival, weather};

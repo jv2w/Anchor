@@ -98,15 +98,15 @@ pub enum Error {
         /// Why.
         source: Box<Error>,
     },
-    /// No persistent world of this name is declared on the builder: the target must be one
-    /// ([`ServerBuilder::world`](crate::ServerBuilder::world) with
-    /// [`Kind::Persistent`](crate::world::Kind::Persistent), or `level-name`).
+    /// A temporary world of this name is declared on the builder
+    /// ([`Kind::Temporary`](crate::world::Kind::Temporary)): it is never saved, so nothing can be
+    /// imported into it.
     UnknownWorld {
         /// The name.
         name: String,
     },
-    /// The server file already holds the world. An import only creates a world, so running it
-    /// again changes nothing.
+    /// The world's file `data/world/<name>.redb` (or one whose name differs only in letter case)
+    /// is already there. An import only creates a world, so running it again changes nothing.
     WorldExists {
         /// The name.
         name: String,
@@ -140,10 +140,10 @@ impl fmt::Display for Error {
             Self::Chunk { x, z, .. } => write!(f, "overworld chunk {x} {z}"),
             Self::Key { kind, key, .. } => write!(f, "{kind} key {key}"),
             Self::UnknownWorld { name } => {
-                write!(f, "no persistent world named {name:?} is declared")
+                write!(f, "the world {name:?} is declared temporary")
             }
             Self::WorldExists { name } => {
-                write!(f, "the server file already holds the world {name:?}")
+                write!(f, "the world {name:?} already has a file")
             }
         }
     }

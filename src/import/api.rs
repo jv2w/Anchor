@@ -20,6 +20,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use tracing::{info, warn};
 
@@ -33,7 +34,7 @@ use crate::storage::codec::{
     BlockLayer, ChunkRecord, MAX_EXTRA_ENTRIES, SubChunkRecord, WorldRecord,
 };
 use crate::storage::seal::{MAX_RECORD, seal};
-use crate::storage::{Batch, ChunkKind, Import, Key, Start, Storage};
+use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
 use crate::world::{BlockPos, Chunk, ChunkPos, Entry, Kind, MIN_Y, Paletted, SLOTS, SUB_CHUNKS};
 
 /// Most chunks read, then converted, per step: bounds the chunk data held at once.
@@ -208,22 +209,47 @@ pub(crate) fn run(
     dir: &Path,
     name: &str,
 ) -> crate::Result<Report> {
-    let spec = worlds
-        .iter()
-        .find(|w| w.name == name && w.kind == Kind::Persistent)
-        .ok_or_else(|| Error::UnknownWorld {
+    // A declared world's settings; any other name takes the default world's generator.
+    let declared = worlds.iter().find(|w| w.name == name);
+    let base = match declared.or(worlds.first()) {
+        Some(w) if declared.is_none_or(|w| w.kind == Kind::Persistent) => w,
+        _ => {
+            return Err(Error::UnknownWorld {
+                name: name.to_owned(),
+            }
+            .into());
+        }
+    };
+    let spec = WorldSpec {
+        name: name.to_owned(),
+        kind: Kind::Persistent,
+        generator: Arc::clone(&base.generator),
+        seed: declared.and_then(|w| w.seed),
+        spawn: None,
+    };
+    if !crate::storage::is_world_file_name(name) {
+        return Err(crate::Error::InvalidWorldName {
             name: name.to_owned(),
-        })?;
+        });
+    }
+    save::migrate(data_dir, cpu)?;
+    if save::world_file_exists(data_dir, name)? {
+        return Err(Error::WorldExists {
+            name: name.to_owned(),
+        }
+        .into());
+    }
     let mut source = Source::open(dir)?;
     let catalog = source.catalog()?;
     let world = *source.world();
-    let mut storage = Storage::open(data_dir, start)?;
+    let place = Place::world(data_dir, name);
+    let mut storage = Storage::open(&place, start)?;
     let pool = crate::runtime::cpu_pool(cpu)?;
     let imported = (|| {
         let (import, report) = prepare(
             &mut storage,
             &pool,
-            spec,
+            &spec,
             custom,
             &catalog,
             &world,
@@ -239,7 +265,15 @@ pub(crate) fn run(
     if !pool.shutdown() {
         warn!("the import's CPU pool threads did not all end");
     }
-    let report = imported?;
+    let report = match imported {
+        Ok(report) => report,
+        Err(e) => {
+            // The world file is the import's own: it goes whole.
+            drop(storage);
+            remove_file(&place.file);
+            return Err(e);
+        }
+    };
     storage.close()?;
     info!(
         world = name,
@@ -263,6 +297,17 @@ pub(crate) fn run(
     Ok(report)
 }
 
+/// Removes the world file of a failed import.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the import removes its own world file before the server runs"
+)]
+fn remove_file(file: &Path) {
+    if let Err(e) = std::fs::remove_file(file) {
+        warn!(file = %file.display(), error = %e, "could not remove the failed import's world file");
+    }
+}
+
 /// Writes the world `spec` names into `storage` from `catalog`'s chunks, read with `read` (`size`
 /// tells the bytes a read holds) and decoded with `decode`, and the world record from `world`,
 /// without committing: the caller commits the returned [`Import`] once the source proved
@@ -282,8 +327,13 @@ fn prepare<E: Sync>(
     decode: impl Fn(&E) -> super::Result<Raw> + Sync,
     size: impl Fn(&E) -> usize,
 ) -> crate::Result<(Import, Report)> {
-    let stored = save::stored_worlds(storage)?;
-    if stored.iter().any(|(n, _)| *n == spec.name) {
+    if storage
+        .read(&[Key::World])?
+        .pop()
+        .transpose()?
+        .flatten()
+        .is_some()
+    {
         return Err(Error::WorldExists {
             name: spec.name.clone(),
         }
@@ -294,7 +344,8 @@ fn prepare<E: Sync>(
     // those of the chunks the world generates itself.
     let seed = spec.seed.unwrap_or_else(|| save::default_seed(&spec.name));
     let target = Target {
-        number: save::next_world_number(stored.iter().map(|(_, r)| r.number)),
+        // The world's file holds it alone.
+        number: 0,
         spec,
         seed,
         custom,
@@ -330,7 +381,7 @@ fn prepare<E: Sync>(
     };
     report.spawn = BlockPos::new(x, spawn_y, z);
     // The world's state alone: its time. Its settings come from the server's.
-    let key = Key::World(spec.name.clone());
+    let key = Key::World;
     let record = WorldRecord {
         number: target.number,
         time: world.time,

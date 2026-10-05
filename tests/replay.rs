@@ -1,7 +1,7 @@
 //! The replay tool through the public API (PLAN.md 10.9 재생 도구): a server process whose task
 //! saves and then panics writes a crash log; the same build replays it to the same panic without
-//! changing the server file, and again after a restart moved the server file on, from the backup
-//! the restart made. A server file another run committed at a segment's tick is not replayed on.
+//! changing the data files, and again after a restart moved the data files on, from the backups
+//! the restart made. Data files another run committed at a segment's tick are not replayed on.
 //!
 //! The test runs its own test binary as the server process (`replay_child`).
 
@@ -187,6 +187,21 @@ fn rename(from: &Path, to: &Path) {
     std::fs::rename(from, to).unwrap();
 }
 
+/// The data files of the runs: the server's and the default world's.
+fn data_files(data: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = ["main", "players", "access", "user"]
+        .iter()
+        .map(|name| data.join(format!("{name}.redb")))
+        .collect();
+    files.push(data.join("world").join("world.redb"));
+    files
+}
+
+/// The bytes of every data file.
+fn read_all(data: &Path) -> Vec<Vec<u8>> {
+    data_files(data).iter().map(|f| read(f)).collect()
+}
+
 /// The one crash log in `data`.
 #[expect(
     clippy::disallowed_methods,
@@ -208,8 +223,7 @@ fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
     fresh(&data);
     child(&data, "crash");
     let log = crash_log(&data);
-    let world = data.join("server.redb");
-    let before = read(&world);
+    let before = read_all(&data);
     let panicked = End::Panicked {
         tick: PANIC_AT,
         message: format!("child panic at {PANIC_AT}"),
@@ -218,11 +232,15 @@ fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
     let replay = build(&data, CRASH, true).replay(&log).unwrap();
     assert_eq!(replay.end(), &panicked);
     assert_eq!(replay.base_tick(), SAVE_AT + 1, "from the save's commit");
-    assert_eq!(read(&world), before, "a replay writes nothing");
+    assert_eq!(read_all(&data), before, "a replay writes nothing");
 
-    // A restart backs the server file up and commits on: the replay starts from the backup.
+    // A restart backs the data files up and commits on: the replay starts from the backups.
     child(&data, "restart");
-    assert_ne!(read(&world), before, "the restart moved the server file on");
+    assert_ne!(
+        read_all(&data),
+        before,
+        "the restart moved the data files on"
+    );
     let replay = build(&data, CRASH, true).replay(&log).unwrap();
     assert_eq!(replay.end(), &panicked);
     assert_eq!(replay.base_tick(), SAVE_AT + 1);
@@ -234,15 +252,16 @@ fn a_crash_log_is_not_replayed_on_a_server_file_another_run_committed_at_its_tic
     let data =
         Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("replay-fork-{}", std::process::id()));
     fresh(&data);
-    let world = data.join("server.redb");
-    // A server file stopped at some tick, without backups.
+    // Data files stopped at some tick, without backups.
     child(&data, "base");
-    let base = read(&world);
+    let base = read_all(&data);
     // Run A from there commits its save and panics; its commit never reached the disk.
     child(&data, "fork");
     let log = data.join("a.log");
     rename(&crash_log(&data), &log);
-    write(&world, &base);
+    for (file, bytes) in data_files(&data).iter().zip(&base) {
+        write(file, bytes);
+    }
     // Run B from the same state commits a save of its own at the same tick, from other inputs
     // (its measured tick times at least).
     child(&data, "fork");

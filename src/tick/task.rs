@@ -323,9 +323,10 @@ impl Context<'_> {
         self.state.saving.requested = true;
     }
 
-    /// Saves as [`save`](Self::save) does, then copies the saved server file into
-    /// `data/backups/server-<unix seconds>.redb` while the server runs, keeping the 3 newest
-    /// backups (those made at start included). The save thread copies it in steps between its
+    /// Saves as [`save`](Self::save) does, then copies every open data file, as that save left
+    /// it, into its own backup folder (`data/backups/<file>/<unix seconds>.redb`, a world's in
+    /// `data/backups/world/<name>/`) while the server runs, keeping each file's 3 newest backups
+    /// (those made at start included). The save thread copies it in steps between its
     /// other work, so players do not wait for it; what came of it is in the log, not here: a
     /// backup asked for while another is being made is not made, and a failed one leaves no
     /// file. A stop waits for the backup being made. Calling it again before the save changes

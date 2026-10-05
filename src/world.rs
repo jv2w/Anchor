@@ -195,11 +195,19 @@ pub enum Error {
     NotGenerated,
     /// The world is the default world, where players join: make another the default first.
     DefaultWorld,
+    /// The world is loaded: unload it first.
+    WorldLoaded,
     /// No generator of that name is registered ([`ServerBuilder::generator`]).
     ///
     /// [`ServerBuilder::generator`]: crate::ServerBuilder::generator
     UnknownGenerator,
-    /// The name is empty or longer than 256 bytes.
+    /// The name cannot be the name of the world's file `data/world/<name>.redb` on Windows and
+    /// Linux alike: it is empty or longer than 250 bytes; holds a control character or one of
+    /// `< > : " / \ | ? *` (so no path); ends in a dot or a space or starts with a space; or is a
+    /// name Windows keeps for a device, in any letter case and with any extension (`CON`, `PRN`,
+    /// `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0` to `COM9`, `LPT0` to `LPT9`, and those with a
+    /// superscript digit). Letter case is kept in the file name, but names that differ only in
+    /// letter case are one world ([`WorldExists`](Self::WorldExists)), as Windows sees one file.
     InvalidName,
     /// A view value of the world's [`Options::settings`] is outside the range its
     /// `[worlds.<name>]` key allows.
@@ -220,8 +228,9 @@ impl fmt::Display for Error {
             Self::WorldExists => f.write_str("world already exists"),
             Self::NotGenerated => f.write_str("world was never generated"),
             Self::DefaultWorld => f.write_str("world is the default world"),
+            Self::WorldLoaded => f.write_str("world is loaded"),
             Self::UnknownGenerator => f.write_str("no generator of that name is registered"),
-            Self::InvalidName => f.write_str("world name is empty or too long"),
+            Self::InvalidName => f.write_str("world name cannot be a file name"),
             Self::InvalidSettings => f.write_str("world view value is out of range"),
             Self::Full => f.write_str("world or chunk ticket limit reached"),
         }
@@ -661,6 +670,13 @@ impl World {
     /// Gives a persistent world its `chunks` key number.
     pub(crate) fn set_number(&mut self, number: Option<u32>) {
         self.number = number;
+    }
+
+    /// Makes an unloaded persistent world temporary when it is deleted: nothing of it is saved
+    /// again, and a world of its name may be made in its place.
+    pub(crate) fn forget(&mut self) {
+        self.kind = Kind::Temporary;
+        self.number = None;
     }
 
     /// The name of the generator that fills the chunks never saved ([`Generator::name`]).

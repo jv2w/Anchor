@@ -1,8 +1,10 @@
-//! Forced shutdown (PLAN.md 10.6 판정식): a server that keeps moving one block and saving is killed
-//! a random number of ticks after its first commit (counted from its reports, never in wall-clock
-//! time), during a later commit or between two, again and again; every restart must find an
-//! undamaged server file whose last commit is newer than the last restart's and holds the block
-//! exactly once, where that commit's tick put it.
+//! Forced shutdown (PLAN.md 10.6 판정식, U16): a server that keeps moving one block and saving is
+//! killed a random number of ticks after its first commit (counted from its reports, never in
+//! wall-clock time), during a later commit or between two, again and again; every restart must
+//! find undamaged data files whose main file's last save is newer than the last restart's, and the
+//! block exactly once (it lives in one world file, whose commits are whole) where the tick of the
+//! world file's last save put it: that save's or a later one's, since a kill between the world
+//! file's commit and the main file's leaves the world file one save ahead (CLAUDE.md 4.7).
 //!
 //! The test runs its own test binary as the server process (`crash_child`) and kills only that
 //! child, through its process handle.
@@ -262,6 +264,10 @@ fn data_dir() -> PathBuf {
 }
 
 #[test]
+#[expect(
+    clippy::print_stdout,
+    reason = "consistency: the test tells how often a kill split a save"
+)]
 fn forced_kills_never_damage_duplicate_or_lose_the_block() {
     let data = data_dir();
     fresh(&data);
@@ -277,21 +283,28 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
     let mut checked = 0;
     // Runs whose kill came after at least one commit: the start tick moved on.
     let (mut last_start, mut advanced) = (0, 0);
+    // Restarts whose world file held a later save than the main file.
+    let mut ahead = 0;
     for kill in 0..=KILLS {
         let mode = if kill == KILLS { "check" } else { "run" };
         let mut server = start(&data, mode);
         let (start, golds) = report(&mut server);
         // Exactly one block once one was committed (no duplicate, no loss), at the place the
-        // committed tick put it (the chunks and the tick were committed together).
+        // tick of the world file's last save put it: the main file's save, or one after it.
         match golds[..] {
             [] => assert!(!placed, "kill {kill}: the block was lost (start {start})"),
             [(x, z)] => {
-                let expected = path(start - 1);
-                assert_eq!(
-                    (x, z),
-                    (expected.x, expected.z),
-                    "kill {kill}: start {start}"
-                );
+                let at = |tick: u64| {
+                    let p = path(tick - 1);
+                    (p.x, p.z)
+                };
+                if at(start) != (x, z) {
+                    ahead += 1;
+                    assert!(
+                        (start..start + CHILD_TICKS).any(|t| at(t) == (x, z)),
+                        "kill {kill}: start {start}, block at {x} {z}"
+                    );
+                }
                 placed = true;
             }
             _ => panic!("kill {kill}: the block was duplicated: {golds:?} (start {start})"),
@@ -325,5 +338,6 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
     }
     assert_eq!(checked, KILLS + 1);
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
+    println!("restarts with the world file a save ahead: {ahead} of {KILLS}");
     remove(&data);
 }

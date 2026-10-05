@@ -1,5 +1,7 @@
-//! Copies of the server file: `data/backups/server-<unix seconds>[-<n>].redb`. Backups an older
-//! Anchor named `world-...` count as backups too, until pruned.
+//! Copies of a data file: `<unix seconds>[-<n>].redb` in the file's own backup folder
+//! ([`Place::backups`](super::Place), such as `data/backups/players/`). The backups of the one
+//! server file of an older Anchor (`data/backups/server-*.redb`, `world-*.redb`) are left as they
+//! are: no folder of a data file holds them.
 //!
 //! A start copy is taken from the closed file, under an exclusive lock that also tells whether
 //! another process has the file open, when a start backup or the start's integrity check asks
@@ -32,9 +34,6 @@ pub(crate) const KEPT: usize = 3;
 pub(super) const STEP_BYTES: usize = 8 << 20;
 /// Names tried when another process takes the chosen one first.
 const ATTEMPTS: u32 = 100;
-const PREFIX: &str = "server-";
-/// The prefix of the backups of an older Anchor, before the server file was renamed.
-const OLD_PREFIX: &str = "world-";
 const SUFFIX: &str = ".redb";
 /// Added to a backup's name while it is being written.
 const TEMP_SUFFIX: &str = ".tmp";
@@ -211,9 +210,9 @@ fn new_file(dir: &Path) -> Result<(PathBuf, Temp, std::fs::File)> {
     };
     for _ in 0..ATTEMPTS {
         let name = if n == 0 {
-            format!("{PREFIX}{secs}{SUFFIX}")
+            format!("{secs}{SUFFIX}")
         } else {
-            format!("{PREFIX}{secs}-{n}{SUFFIX}")
+            format!("{secs}-{n}{SUFFIX}")
         };
         let temp = dir.join(format!("{name}{TEMP_SUFFIX}"));
         // Read too: an online backup is a database redb reads back as it writes.
@@ -301,10 +300,7 @@ pub(super) fn backups(dir: &Path) -> Result<Vec<((u64, u32), PathBuf)>> {
 
 /// The (seconds, n) a backup name sorts by, or `None` for any other name.
 pub(crate) fn order(name: &str) -> Option<(u64, u32)> {
-    let stem = name
-        .strip_prefix(PREFIX)
-        .or_else(|| name.strip_prefix(OLD_PREFIX))?
-        .strip_suffix(SUFFIX)?;
+    let stem = name.strip_suffix(SUFFIX)?;
     match stem.split_once('-') {
         Some((secs, n)) => Some((number(secs)?, number(n).filter(|&n| n != 0)?)),
         None => Some((number(stem)?, 0)),
@@ -504,27 +500,24 @@ mod tests {
 
     #[test]
     fn only_backup_names_have_an_order() {
-        assert_eq!(order("server-17.redb"), Some((17, 0)));
-        assert_eq!(order("server-17-3.redb"), Some((17, 3)));
-        // An older Anchor's backups.
-        assert_eq!(order("world-17.redb"), Some((17, 0)));
-        assert_eq!(order("world-17-3.redb"), Some((17, 3)));
+        assert_eq!(order("17.redb"), Some((17, 0)));
+        assert_eq!(order("17-3.redb"), Some((17, 3)));
         for other in [
-            "server-.redb",
-            "server-17-0.redb",
-            "server-17-.redb",
-            "server-+1.redb",
-            "server-1-+2.redb",
-            "server-17.redb.tmp",
-            "world-17.redb.tmp",
+            ".redb",
+            "17-0.redb",
+            "17-.redb",
+            "+1.redb",
+            "1-+2.redb",
+            "17.redb.tmp",
             "notes.txt",
-            "server-a.redb",
-            "worlds-17.redb",
+            "a.redb",
+            // An older Anchor's backups of its one server file.
+            "server-17.redb",
+            "world-17.redb",
         ] {
             assert_eq!(order(other), None, "{other}");
         }
-        assert!(order("server-9-1.redb") < order("server-10.redb"));
-        assert!(order("world-9-1.redb") < order("server-10.redb"));
+        assert!(order("9-1.redb") < order("10.redb"));
     }
 
     /// A copy source whose second read never returns: the process is killed mid-copy.
@@ -557,9 +550,7 @@ mod tests {
             "the incomplete copy has a backup name"
         );
         // The unwinding removed the temporary file; a kill runs no drop and leaves it.
-        std::fs::write(dir.join("server-1.redb.tmp"), b"partial").unwrap();
-        // An older Anchor's killed copy too.
-        std::fs::write(dir.join("world-1.redb.tmp"), b"partial").unwrap();
+        std::fs::write(dir.join("1.redb.tmp"), b"partial").unwrap();
         // The next start removes what the killed copy left and makes a whole backup.
         let world = dir.join("server.redb");
         std::fs::write(&world, b"world bytes").unwrap();
@@ -582,19 +573,19 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap_or(());
         let backups = dir.join("backups");
         std::fs::create_dir_all(&backups).unwrap();
-        std::fs::write(backups.join("server-1.redb.tmp"), b"partial").unwrap();
-        std::fs::write(backups.join("server-2.redb"), b"whole").unwrap();
+        std::fs::write(backups.join("1.redb.tmp"), b"partial").unwrap();
+        std::fs::write(backups.join("2.redb"), b"whole").unwrap();
         let world = dir.join("server.redb");
         // No server file, then an empty one: neither is copied, and both clean the folder.
         assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
-        std::fs::write(backups.join("server-1.redb.tmp"), b"partial").unwrap();
+        std::fs::write(backups.join("1.redb.tmp"), b"partial").unwrap();
         std::fs::write(&world, b"").unwrap();
         assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
         let names: Vec<_> = std::fs::read_dir(&backups)
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert_eq!(names, ["server-2.redb"]);
+        assert_eq!(names, ["2.redb"]);
         // No backup folder at all is no error.
         std::fs::remove_dir_all(&backups).unwrap();
         assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
@@ -607,12 +598,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("anchor-backup-names-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).unwrap_or(());
         std::fs::create_dir_all(&dir).unwrap();
-        // A backup from far in the future, by an older Anchor: the clock went back since.
-        std::fs::write(dir.join("world-99999999999-4.redb"), b"").unwrap();
+        // A backup from far in the future: the clock went back since.
+        std::fs::write(dir.join("99999999999-4.redb"), b"").unwrap();
         let (path, _, file) = new_file(&dir).unwrap();
         drop(file);
         let name = path.file_name().unwrap().to_str().unwrap();
-        assert_eq!(name, "server-99999999999-5.redb");
+        assert_eq!(name, "99999999999-5.redb");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

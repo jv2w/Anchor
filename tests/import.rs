@@ -175,29 +175,54 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
     clippy::disallowed_methods,
     reason = "off-tick: counts the backups on disk"
 )]
-fn an_import_keeps_a_backup_only_with_backups_on() {
-    for (backups, kept) in [(false, 0), (true, 1)] {
-        let data = TempPath::new(&format!("backups-{backups}"));
-        let server = || {
-            let mut config = config(1);
-            config.general.backups = backups;
-            Server::builder()
-                .config(config)
-                .data_dir(&data.0)
-                .world(NAME, Kind::Persistent, Void)
-                .world("second", Kind::Persistent, Void)
-                .build()
-                .expect("the server builds")
-        };
-        // The first import creates the server file, the second opens (and copies) it.
-        for world in [NAME, "second"] {
-            server().import_world(FIXTURE, world).expect("the import");
-        }
-        let files = std::fs::read_dir(data.0.join("backups"))
-            .map(Iterator::count)
-            .unwrap_or_default();
-        assert_eq!(files, kept, "backups = {backups}");
+fn each_import_writes_its_own_world_file_and_nothing_else() {
+    let data = TempPath::new("two-worlds");
+    let server = || {
+        Server::builder()
+            .config(config(1))
+            .data_dir(&data.0)
+            .world(NAME, Kind::Persistent, Void)
+            .build()
+            .expect("the server builds")
+    };
+    // A declared world and one that is not: both become a world file of their own.
+    for world in [NAME, "second"] {
+        server().import_world(FIXTURE, world).expect("the import");
     }
+    let mut files: Vec<String> = std::fs::read_dir(data.0.join("world"))
+        .expect("the world folder")
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .into_string()
+                .expect("a name")
+        })
+        .collect();
+    files.sort();
+    assert_eq!(files, [format!("{NAME}.redb"), "second.redb".to_owned()]);
+    let mut top: Vec<String> = std::fs::read_dir(&data.0)
+        .expect("the data folder")
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .into_string()
+                .expect("a name")
+        })
+        .collect();
+    top.sort();
+    assert_eq!(
+        top,
+        ["world"],
+        "an import writes no other data file and no backup"
+    );
+    // A second import of a name is refused and changes nothing.
+    let err = server()
+        .import_world(FIXTURE, "SECOND")
+        .expect_err("the world exists");
+    assert!(
+        matches!(&err, Error::Import(import::Error::WorldExists { .. })),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -212,7 +237,8 @@ fn one_and_many_threads_write_the_same_server_file() {
         server(&data.0, cpu)
             .import_world(FIXTURE, NAME)
             .expect("the import");
-        files.push(std::fs::read(data.0.join("server.redb")).expect("the server file"));
+        let file = data.0.join("world").join(format!("{NAME}.redb"));
+        files.push(std::fs::read(file).expect("the world file"));
     }
     assert!(files[0] == files[1], "the server files differ");
 }
@@ -222,22 +248,20 @@ fn one_and_many_threads_write_the_same_server_file() {
     clippy::disallowed_methods,
     reason = "off-tick: checks the data folder on disk"
 )]
-fn only_a_declared_persistent_world_can_be_imported_into() {
+fn a_temporary_world_cannot_be_imported_into() {
     let data = TempPath::new("undeclared");
-    for name in ["other", "arena"] {
-        let err = Server::builder()
-            .config(config(1))
-            .data_dir(&data.0)
-            .world("arena", Kind::Temporary, Void)
-            .build()
-            .expect("the server builds")
-            .import_world(FIXTURE, name)
-            .expect_err("no such persistent world");
-        assert!(
-            matches!(&err, Error::Import(import::Error::UnknownWorld { name: n }) if n == name),
-            "{err:?}"
-        );
-    }
+    let err = Server::builder()
+        .config(config(1))
+        .data_dir(&data.0)
+        .world("arena", Kind::Temporary, Void)
+        .build()
+        .expect("the server builds")
+        .import_world(FIXTURE, "arena")
+        .expect_err("a temporary world");
+    assert!(
+        matches!(&err, Error::Import(import::Error::UnknownWorld { name }) if name == "arena"),
+        "{err:?}"
+    );
     assert!(!data.0.exists(), "nothing was written");
 }
 
@@ -252,5 +276,5 @@ fn a_folder_that_is_not_a_bedrock_world_fails_and_writes_no_world() {
         .import_world(data.0.join("missing"), NAME)
         .expect_err("not a world");
     assert!(matches!(err, Error::Import(_)), "{err:?}");
-    assert!(!data.0.join("server.redb").exists());
+    assert!(!data.0.join("world").join(format!("{NAME}.redb")).exists());
 }

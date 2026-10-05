@@ -872,7 +872,7 @@ fn run_saved(state: &mut State, link: &mut crate::tick::SaveLink, pool: &Pool, n
             expected += match &request {
                 Request::Chunks(keys) => keys.len(),
                 Request::Player(_) | Request::Commit(_) => 1,
-                Request::Worlds(_) | Request::Finish => 0,
+                Request::Worlds(_) | Request::DeleteWorlds(_) | Request::Finish => 0,
             };
             link.requests.blocking_send(request).unwrap();
         }
@@ -954,6 +954,61 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     assert_eq!(lobby.difficulty(), Some(Difficulty::Hard));
     assert_eq!(lobby.weather(), Weather::Clear);
     finish(link, handle);
+    assert!(pool.shutdown());
+}
+
+/// A world is its file (U16): a deleted world loses its file alone and its name is free again,
+/// a name that cannot be a file name or differs only in letter case from a world's is refused.
+#[test]
+fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
+    let dir = crate::save::tests::TempDir::new("world-delete");
+    let pool = crate::runtime::cpu_pool(1).unwrap();
+    let files = || crate::save::world_files(&dir.0).unwrap();
+    {
+        let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
+        let mut c = cx(&mut state);
+        assert_eq!(
+            c.create_world("con", &Options::new()),
+            Err(world::Error::InvalidName)
+        );
+        assert_eq!(
+            c.create_world("a/b", &Options::new()),
+            Err(world::Error::InvalidName)
+        );
+        assert_eq!(
+            c.create_world("WORLD", &Options::new()),
+            Err(world::Error::WorldExists)
+        );
+        let lobby = c.create_world("lobby", &Options::new()).unwrap();
+        c.create_world("arena", &Options::new()).unwrap();
+        run_saved(&mut state, &mut link, &pool, 3);
+        let mut c = cx(&mut state);
+        assert_eq!(c.delete_world("lobby"), Err(world::Error::WorldLoaded));
+        assert_eq!(c.delete_world("world"), Err(world::Error::WorldLoaded));
+        assert_eq!(c.delete_world("nope"), Err(world::Error::NotGenerated));
+        c.world_mut(lobby)
+            .unwrap()
+            .set_block(BlockPos::new(1, -60, 1), stone())
+            .unwrap();
+        c.unload_world(lobby).unwrap();
+        run_saved(&mut state, &mut link, &pool, 3);
+        assert_eq!(files(), ["arena", "lobby", "world"]);
+        let mut c = cx(&mut state);
+        c.delete_world("lobby").unwrap();
+        assert!(!c.is_world_generated("lobby"));
+        assert_eq!(c.delete_world("lobby"), Err(world::Error::NotGenerated));
+        // The name is free at once, in any letter case.
+        c.create_world("Lobby", &Options::new()).unwrap();
+        run_saved(&mut state, &mut link, &pool, 3);
+        finish(link, handle);
+    }
+    assert_eq!(files(), ["Lobby", "arena", "world"]);
+    // A world stored and not loaded this run is deleted as well.
+    let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
+    cx(&mut state).delete_world("arena").unwrap();
+    run_saved(&mut state, &mut link, &pool, 1);
+    finish(link, handle);
+    assert_eq!(files(), ["Lobby", "world"]);
     assert!(pool.shutdown());
 }
 

@@ -1543,7 +1543,7 @@ mod tests {
                         }));
                     }
                 }
-                Request::Worlds(_) | Request::Finish => {}
+                Request::Worlds(_) | Request::DeleteWorlds(_) | Request::Finish => {}
             }
         }
         out

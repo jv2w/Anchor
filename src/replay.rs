@@ -2,15 +2,17 @@
 //! runs the ticks a crashed server applied again, from a saved state, with the same build.
 //!
 //! A crash log (`data/crash/input-*.log`) holds segments: the inputs of every tick from a state
-//! on, and a checkpoint of that state. The replay starts from the oldest segment whose state a
-//! server file still holds (`data/server.redb`, then the backups newest first, each opened
+//! on, and a checkpoint of that state. The replay starts from the oldest segment whose save a
+//! main data file still holds (`data/main.redb`, then its backups newest first, each opened
 //! read-only and picked by the tick and commit identity of its last commit, so a file another run
 //! committed at the same tick is not taken for it), preferring one after the log's last
 //! truncation, and applies the logged ticks in order to the end of the log or to its first
-//! truncation. Chunks load from that file and the generators as they did, checked against the
-//! logged checksums; the server's own snapshots are committed to memory on top of the file, so a
-//! later load sees them as the live one did. Every later segment's checkpoint is compared with
-//! the replayed state.
+//! truncation. Every other data file (players, access, user data, each world) is the newest of
+//! its copies (the file, then its backups) whose last commit is that save or an earlier one: a
+//! save writes only the files that changed. Chunks load from those files and the generators as
+//! they did, checked against the logged checksums; the server's own snapshots are committed to
+//! memory on top of the files, so a later load sees them as the live one did. Every later
+//! segment's checkpoint is compared with the replayed state.
 //!
 //! A replay runs no network and no runtime, commits nothing and writes no file. Blocking jobs
 //! do not run: their logged results are handed to their callbacks. The listeners, tasks and
@@ -22,7 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
@@ -32,6 +34,7 @@ use crate::config::Config;
 use crate::pool::Pool;
 use crate::runtime::{self, ThreadCounts};
 use crate::save::{self, Loaded, Request, Response, WorldSpec};
+use crate::storage::codec::Meta;
 use crate::tick::checkpoint::Checkpoint;
 use crate::tick::queue::{Input, InputKind, Outbound, SessionId, outbound_queue};
 use crate::tick::{self, Answer, EntryKind, Fingerprints, InputLog, Origin, Segment, Setup, State};
@@ -97,9 +100,10 @@ pub enum Error {
     /// What the server registers (commands, custom content, listeners, tasks, data types,
     /// hooks) differs from what the run that wrote the log registered.
     RegistrationsDiffer,
-    /// No server file in the data folder holds the state of a segment of the log.
+    /// No main data file (the file or a backup) holds the save of a segment of the log, or
+    /// another data file has no copy of that save or an earlier one.
     NoMatchingWorld,
-    /// The segments a server file holds have checkpoints that hold what cannot be replayed.
+    /// The segments the data files hold have checkpoints that hold what cannot be replayed.
     Opaque {
         /// The tick of the segment's state.
         tick: u64,
@@ -112,7 +116,7 @@ pub enum Error {
         /// The tick where it was seen.
         tick: u64,
     },
-    /// A server file failed.
+    /// A data file failed.
     Storage(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -129,14 +133,14 @@ impl fmt::Display for Error {
                 f.write_str("the registrations differ from the logged run's")
             }
             Self::NoMatchingWorld => {
-                f.write_str("no server file holds the state of a segment of the log")
+                f.write_str("no data files hold the save of a segment of the log")
             }
             Self::Opaque { tick, what } => write!(
                 f,
                 "the checkpoint of tick {tick} cannot be replayed from: it holds {what}"
             ),
             Self::Diverged { tick } => write!(f, "the replay left the logged run at tick {tick}"),
-            Self::Storage(_) => f.write_str("a server file failed"),
+            Self::Storage(_) => f.write_str("a data file failed"),
         }
     }
 }
@@ -193,7 +197,7 @@ pub(crate) fn run(
     }
     let (from, file, checkpoint) = choose(&log, data_dir, &setup)?;
     info!(
-        file = %file.display(),
+        file = %file.main.display(),
         tick = checkpoint.tick(),
         "replaying the crash log"
     );
@@ -297,8 +301,57 @@ fn read(path: &Path) -> Result<InputLog> {
     InputLog::decode(&bytes).map_err(format)
 }
 
-/// The segment to start from (its place among the log's), its server file and its checkpoint:
-/// the oldest segment with a checkpoint whose state a server file holds, after the log's last
+/// The copies of the data file at `place` with the meta value of each one's last commit, as
+/// [`crate::storage::copies`] lists them; copies that do not open are left out.
+fn copies(place: &crate::storage::Place) -> Result<Vec<(Meta, PathBuf)>> {
+    let mut files = Vec::new();
+    for file in crate::storage::copies(place).map_err(storage)? {
+        match save::committed_meta(&file) {
+            Ok(meta) => files.push((meta, file)),
+            Err(e) => {
+                info!(file = %file.display(), error = %e, "data file left out of the replay");
+            }
+        }
+    }
+    Ok(files)
+}
+
+/// The data files of the save `main` names, whose main file is `file`: each other file is its
+/// newest copy committed at that save or before (see the module's documentation).
+fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayFiles> {
+    use crate::storage::{ACCESS_FILE, PLAYERS_FILE, Place, USER_FILE};
+    let at_or_before = |meta: &Meta| {
+        meta.tick < main.tick
+            || (meta.tick == main.tick
+                && meta.identity.zip(main.identity).is_none_or(|(a, b)| a == b))
+    };
+    let pick = |place: &Place| -> Result<Option<PathBuf>> {
+        Ok(copies(place)?
+            .into_iter()
+            .filter(|(meta, _)| at_or_before(meta))
+            .max_by_key(|(meta, _)| meta.tick)
+            .map(|(_, path)| path))
+    };
+    let need = |name: &str| -> Result<PathBuf> {
+        pick(&Place::data(data_dir, name))?.ok_or(Error::NoMatchingWorld)
+    };
+    let mut worlds = BTreeMap::new();
+    for name in save::world_files(data_dir).map_err(storage)? {
+        if let Some(path) = pick(&Place::world(data_dir, &name))? {
+            worlds.insert(name, path);
+        }
+    }
+    Ok(save::ReplayFiles {
+        main: file,
+        players: need(PLAYERS_FILE)?,
+        access: need(ACCESS_FILE)?,
+        user: need(USER_FILE)?,
+        worlds,
+    })
+}
+
+/// The segment to start from (its place among the log's), its data files and its checkpoint:
+/// the oldest segment with a checkpoint whose save a main data file holds, after the log's last
 /// truncation if one is; refuses an opaque checkpoint. A file holds a segment's state if its last
 /// commit is of the segment's tick and has the segment's commit identity, unless either identity
 /// is unknown (a file an older Anchor committed last, a log of an older format).
@@ -306,16 +359,9 @@ fn choose(
     log: &InputLog,
     data_dir: &Path,
     setup: &Setup,
-) -> Result<(usize, std::path::PathBuf, Checkpoint)> {
-    let mut files = Vec::new();
-    for file in crate::storage::replay_files(data_dir).map_err(storage)? {
-        match save::committed_meta(&file) {
-            Ok(meta) => files.push((meta, file)),
-            Err(e) => {
-                info!(file = %file.display(), error = %e, "server file left out of the replay");
-            }
-        }
-    }
+) -> Result<(usize, save::ReplayFiles, Checkpoint)> {
+    let main = crate::storage::Place::data(data_dir, crate::storage::MAIN_FILE);
+    let files = copies(&main)?;
     let segments: Vec<&Segment> = log.segments().collect();
     let after = segments
         .iter()
@@ -327,14 +373,14 @@ fn choose(
         let Some(bytes) = segment.checkpoint() else {
             continue;
         };
-        let holds = |meta: &crate::storage::codec::Meta| {
+        let holds = |meta: &Meta| {
             meta.tick == segment.start()
                 && meta
                     .identity
                     .zip(segment.identity())
                     .is_none_or(|(file, logged)| file == logged)
         };
-        let Some((_, file)) = files.iter().find(|(meta, _)| holds(meta)) else {
+        let Some((meta, file)) = files.iter().find(|(meta, _)| holds(meta)) else {
             continue;
         };
         let checkpoint =
@@ -346,16 +392,17 @@ fn choose(
             });
             continue;
         }
-        usable.push((i, file.clone(), checkpoint));
+        usable.push((i, (*meta, file.clone()), checkpoint));
     }
     let pick = usable.iter().position(|(i, _, _)| *i >= after).unwrap_or(0);
     if usable.is_empty() {
         return Err(opaque.unwrap_or(Error::NoMatchingWorld));
     }
-    Ok(usable.swap_remove(pick))
+    let (i, (meta, file), checkpoint) = usable.swap_remove(pick);
+    Ok((i, files_of(data_dir, &meta, file)?, checkpoint))
 }
 
-/// The raw extras the server file (or the generator) has for the chunks `checkpoint` names: the
+/// The raw extras the data files (or the generator) have for the chunks `checkpoint` names: the
 /// checkpoint keeps their terrain and typed state, and the extras as they are stored.
 fn extras(
     disk: &mut save::Thread,
@@ -403,7 +450,7 @@ impl Drop for Progress {
 /// The replay on its tick thread.
 struct Replayer {
     state: State,
-    /// The server file, read-only, with the replay's commits in memory.
+    /// The data files, read-only, with the replay's commits in memory.
     disk: save::Thread,
     pool: Pool,
     /// The replay's own log: its checkpoints are compared with the replayed log's.
@@ -455,6 +502,7 @@ impl Replayer {
                             self.disk.commit(&self.pool, &snapshot).map_err(storage)?;
                         }
                         Request::Worlds(worlds) => self.disk.add_worlds(&worlds),
+                        Request::DeleteWorlds(worlds) => self.disk.delete_worlds(&worlds),
                         Request::Chunks(_) | Request::Player(_) | Request::Finish => {}
                     }
                 }
@@ -515,7 +563,7 @@ impl Replayer {
             .collect()
     }
 
-    /// The save thread's logged answers of tick `t`: chunks loaded again from the server file and
+    /// The save thread's logged answers of tick `t`: chunks loaded again from the data files and
     /// the generators, each checked against its logged origin and checksum.
     fn responses(&mut self, t: &tick::LoggedTick) -> Result<Vec<Response>> {
         let keys: Vec<_> = t

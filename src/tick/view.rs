@@ -1041,9 +1041,13 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
     request_spawn_loads(worlds, chunks);
     request_ticket_loads(worlds, chunks);
     let batch = std::mem::take(&mut chunks.batch);
+    let deleted = world_api::take_deleted_worlds(state);
     let new = world_api::take_new_worlds(state);
     announce(state, &moved);
-    let mut requests = Vec::with_capacity(2);
+    let mut requests = Vec::with_capacity(3);
+    if !deleted.is_empty() {
+        requests.push(Request::DeleteWorlds(deleted));
+    }
     if !new.is_empty() {
         requests.push(Request::Worlds(new));
     }

@@ -280,7 +280,7 @@ fn the_smallest_explicit_thread_counts_always_fit() {
     Server::builder().config(config).build().unwrap();
 }
 
-/// `backups = false`: a start keeps no copy of the server file; with it on, the second start
+/// `backups = false`: a start keeps no copy of the data files; with it on, the second start
 /// does.
 #[test]
 fn without_backups_a_start_keeps_no_copy() {
@@ -297,10 +297,23 @@ fn without_backups_a_start_keeps_no_copy() {
             server.shutdown_handle().shutdown();
             server.run().unwrap();
         }
+        // Each data file has its own backup folder, a world's under `world/`.
         let dir = data.0.join("backups");
-        let copies = if exists(&dir) { entries(&dir).len() } else { 0 };
+        let copies = if exists(&dir) { files_in(&dir) } else { 0 };
         assert_eq!(copies > 0, backups, "backups: {backups}");
     }
+}
+
+/// The files in `dir` and the folders in it, at any depth.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test inspects the file system"
+)]
+fn files_in(dir: &Path) -> usize {
+    entries(dir)
+        .iter()
+        .map(|entry| if entry.is_dir() { files_in(entry) } else { 1 })
+        .sum()
 }
 
 #[test]

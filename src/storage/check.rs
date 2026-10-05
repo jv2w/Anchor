@@ -1,4 +1,4 @@
-//! The server file check while the server runs (`/check`): every value of one read transaction
+//! The check of one data file while the server runs (`/check`): every value of one read transaction
 //! of the open file, read in steps of at most [`STEP_BYTES`] between the save thread's other
 //! work, and checked against its seal (header and checksum, [`seal::verify`]). redb's own
 //! integrity check needs the file closed, so it runs only at start (`integrity-check`); this
@@ -22,6 +22,44 @@ pub(crate) enum Checked {
     },
     /// The check could not finish: why.
     Failed(String),
+}
+
+impl Checked {
+    /// What a check of several files found: this, then `next`, the result of the file `file`.
+    /// The first failure or damage is the one told.
+    pub(crate) fn and(self, next: Self, file: &std::path::Path) -> Self {
+        let (values, damaged, first) = match self {
+            Self::Failed(_) => return self,
+            Self::Passed { values } => (values, 0, None),
+            Self::Damaged {
+                values,
+                damaged,
+                first,
+            } => (values, damaged, Some(first)),
+        };
+        let (more, more_damaged, next_first) = match next {
+            Self::Failed(why) => return Self::Failed(format!("{}: {why}", file.display())),
+            Self::Passed { values } => (values, 0, None),
+            Self::Damaged {
+                values,
+                damaged,
+                first,
+            } => (
+                values,
+                damaged,
+                Some(format!("{}: {first}", file.display())),
+            ),
+        };
+        let values = values.saturating_add(more);
+        match first.or(next_first) {
+            Some(first) => Self::Damaged {
+                values,
+                damaged: damaged.saturating_add(more_damaged),
+                first,
+            },
+            None => Self::Passed { values },
+        }
+    }
 }
 
 /// A check being made: the tables left of one read transaction, and what it found so far.

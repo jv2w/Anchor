@@ -8,15 +8,15 @@ use crate::tick::{Context, save};
 /// Adds `/check`.
 pub(super) fn add(commands: &mut Vec<Command>) {
     commands.push(
-        Command::new("check", "Checks the server file for damage")
+        Command::new("check", "Checks the data files for damage")
             .permission(permission::COMMAND_CHECK)
             .overload(&[], check),
     );
 }
 
 const CHECK_START: Msg =
-    Msg::own("Saving and checking the server file; you are told the result when it ends");
-const CHECK_BUSY: Msg = Msg::own("A server file check is already running");
+    Msg::own("Saving and checking the data files; you are told the result when it ends");
+const CHECK_BUSY: Msg = Msg::own("A data file check is already running");
 
 /// `/check` (Anchor's own): saves everything at the end of the tick, then the save thread reads
 /// every stored value of that commit back and checks it against its checksum, in steps between

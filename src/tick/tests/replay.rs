@@ -127,9 +127,9 @@ fn setup(plan: Plan, hashes: mpsc::Sender<(u64, u64)>, extra: usize) -> Setup {
     }
 }
 
-/// The tick of the last commit of the server file in `dir`.
+/// The tick of the last save of the data files in `dir`.
 fn committed(dir: &Path) -> u64 {
-    crate::save::committed_tick(&dir.join("server.redb")).unwrap()
+    crate::save::committed_tick(dir).unwrap()
 }
 
 /// The hashes sent so far.
@@ -285,7 +285,7 @@ fn a_crash_log_replays_from_its_last_commit_to_the_same_states_and_panics_where_
         command_at: None,
     };
     let (log, live) = crash(&dir, plan);
-    let before = read(&dir.join("server.redb"));
+    let before = read(&dir.join("main.redb"));
     let (result, replayed) = replay(&dir, &log, plan, 0, &Config::default());
     let replay = result.unwrap();
     // The server file's last commit: the snapshot asked for at tick 25, before tick 26, unless the
@@ -309,7 +309,7 @@ fn a_crash_log_replays_from_its_last_commit_to_the_same_states_and_panics_where_
         "the replayed states are the live ones"
     );
     assert_eq!(
-        read(&dir.join("server.redb")),
+        read(&dir.join("main.redb")),
         before,
         "the replay writes nothing"
     );
@@ -518,8 +518,7 @@ fn a_commit_the_tick_never_learnt_of_is_where_the_replay_starts() {
         .map(super::super::Segment::start)
         .collect();
     assert_eq!(starts, [0, 11, 26]);
-    let file = dir.join("server.redb");
-    assert_eq!(crate::save::committed_tick(&file).unwrap(), 26);
+    assert_eq!(crate::save::committed_tick(&dir).unwrap(), 26);
     let (result, replayed) = replay(&dir, &log, plan, 0, &Config::default());
     let replay = result.unwrap();
     assert_eq!(

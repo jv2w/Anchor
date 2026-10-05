@@ -1,14 +1,15 @@
 //! The server's worlds while it runs (PLAN.md 10.9 대응표 재검토; PMMP `WorldManager`,
-//! `World::stopTime`, `World::setDifficulty`): making, loading and unloading worlds, the default
-//! world, the time stop and each world's difficulty.
+//! `World::stopTime`, `World::setDifficulty`): making, loading, unloading and deleting worlds,
+//! the default world, the time stop and each world's difficulty.
 //!
 //! Every world keeps its index, its [`world::Id`], for the run: an unloaded world stays in the
 //! state's list without chunks, holding only its settings, and loads again in the same place; a
 //! temporary world made again under its name takes the place too. A run names at most
 //! [`MAX_WORLDS`] worlds, as many as the server file holds.
 //!
-//! Loading a world reads nothing on the tick: the server file's records are read when it opens
-//! and live here after (only the tick writes records, so memory is never older than the file),
+//! Every persistent world is its file `data/world/<name>.redb` (PLAN.md 6). Loading a world reads
+//! nothing on the tick: the records of the world files are read when the server starts and live
+//! here after (only the tick writes records, so memory is never older than the files),
 //! and the chunks load through the save thread as always. Unloading waits for the view phase,
 //! where [`WorldUnload`] may cancel it: the world's players go to the default world's spawn
 //! (PMMP), its chunks unload as every chunk does (their changes wait in memory for the commit
@@ -26,8 +27,8 @@ use crate::config::Difficulty;
 use crate::event::{WorldInit, WorldLoad, WorldUnload};
 use crate::math::Vec3;
 use crate::protocol::packet::{Packet, SetDifficulty};
-use crate::save::{self, NewWorld, WorldIndex};
-use crate::storage::codec::{MAX_NAME, WorldRecord};
+use crate::save::{self, DeletedWorld, NewWorld, WorldIndex};
+use crate::storage::codec::WorldRecord;
 use crate::world::{self, Generators, Kind, World};
 
 /// The most worlds a run names, and the most persistent worlds the server file holds.
@@ -53,6 +54,8 @@ pub(in crate::tick) struct Catalog {
     announced: Vec<(WorldIndex, bool)>,
     /// Unloads asked for, for the next view phase.
     unloads: BTreeMap<WorldIndex, Unload>,
+    /// Worlds deleted the save thread has not heard of, in order.
+    deleted: Vec<DeletedWorld>,
     /// The generators, fixed at build.
     generators: Generators,
 }
@@ -75,6 +78,7 @@ crate::tick::checkpoint::variants!(Kind {
     1 => Temporary,
 });
 crate::tick::checkpoint::fields!(WorldRecord { number, time });
+crate::tick::checkpoint::fields!(DeletedWorld { name, index });
 
 /// A world of the list as a checkpoint keeps it, before the state that holds it is made: a
 /// replay makes the same worlds from it ([`crate::replay`]).
@@ -150,6 +154,7 @@ impl Catalog {
             pending,
             announced,
             unloads,
+            deleted,
             generators: _,
         } = self;
         stored.encode(w);
@@ -158,6 +163,7 @@ impl Catalog {
         pending.encode(w);
         announced.encode(w);
         unloads.encode(w);
+        deleted.encode(w);
     }
 
     /// Reads what [`Self::checkpoint`] wrote, with the list `slots` the checkpoint kept.
@@ -175,6 +181,7 @@ impl Catalog {
         self.pending = Codec::decode(r)?;
         self.announced = Codec::decode(r)?;
         self.unloads = Codec::decode(r)?;
+        self.deleted = Codec::decode(r)?;
         if !self.is_loaded(self.default) {
             return Err(crate::tick::checkpoint::Error::Format("default world"));
         }
@@ -192,6 +199,7 @@ impl Catalog {
             pending,
             announced,
             unloads,
+            deleted,
             generators: _,
         } = self;
         h.usize(loaded.len());
@@ -218,6 +226,14 @@ impl Catalog {
         for (&i, &how) in unloads {
             h.usize(i);
             h.u64(u64::from(how == Unload::Forced));
+        }
+        h.usize(deleted.len());
+        for d in deleted {
+            h.bytes(d.name.as_bytes());
+            h.u64(
+                d.index
+                    .map_or(0, |i| u64::try_from(i).unwrap_or(u64::MAX).wrapping_add(1)),
+            );
         }
     }
 }
@@ -356,6 +372,24 @@ pub(in crate::tick) fn take_new_worlds(state: &mut State) -> Vec<NewWorld> {
         .collect()
 }
 
+/// The worlds deleted that the save thread must hear of, taken: for the next requests, before any
+/// world made in the same tick (one may take a deleted world's name).
+pub(in crate::tick) fn take_deleted_worlds(state: &mut State) -> Vec<DeletedWorld> {
+    std::mem::take(&mut state.catalog.deleted)
+}
+
+/// Whether a world of the run (persistent, or loaded) or a stored one has a name that differs
+/// from `name` at most in letter case: its file would be the same (PLAN.md 6).
+fn name_taken(state: &State, name: &str) -> bool {
+    let key = crate::storage::world_name_key(name);
+    let same = |n: &str| crate::storage::world_name_key(n) == key;
+    state.catalog.names.iter().any(|(n, &i)| {
+        same(n)
+            && (state.catalog.is_loaded(i)
+                || state.worlds.get(i).map(World::kind) == Some(Kind::Persistent))
+    }) || state.catalog.stored.keys().any(|n| same(n))
+}
+
 /// The start of the view phase: the events of the worlds made and loaded since the last one
 /// ([`WorldInit`], then [`WorldLoad`]), then the unloads asked for, each after [`WorldUnload`].
 /// The save thread hears of new worlds later in the phase, with the worlds these listeners make.
@@ -449,9 +483,12 @@ impl Context<'_> {
     /// a spawn they leave out is the generator's. The server file keeps the world's chunks and
     /// time, never its options: [`load_world`](Self::load_world) after a restart takes them again.
     ///
-    /// Fails, making nothing, with [`world::Error::InvalidName`] for an empty name or one over
-    /// 256 bytes, [`WorldExists`](world::Error::WorldExists) if the server runs a world of that
-    /// name or the server file holds one ([`is_world_generated`](Self::is_world_generated)),
+    /// A persistent world is its file `data/world/<name>.redb`, made by the save thread.
+    ///
+    /// Fails, making nothing, with [`world::Error::InvalidName`] for a name that cannot be a file
+    /// name (the rule is there), [`WorldExists`](world::Error::WorldExists) if the server runs a
+    /// world of that name or `data/world/` holds one
+    /// ([`is_world_generated`](Self::is_world_generated)), also in another letter case,
     /// [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
     /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value of
     /// [`Options::settings`](world::Options::settings) out of its range, and
@@ -466,20 +503,14 @@ impl Context<'_> {
         options: &world::Options,
     ) -> world::Result<world::Id> {
         let state = &mut *self.state;
-        if name.is_empty() || name.len() > MAX_NAME {
+        if !crate::storage::is_world_file_name(name) {
             return Err(world::Error::InvalidName);
         }
         if options.settings().check("worlds").is_err() {
             return Err(world::Error::InvalidSettings);
         }
         let place = named(state, name);
-        if let Some(i) = place
-            && (state.catalog.is_loaded(i)
-                || state.worlds.get(i).map(World::kind) == Some(Kind::Persistent))
-        {
-            return Err(world::Error::WorldExists);
-        }
-        if state.catalog.stored.contains_key(name) {
+        if name_taken(state, name) {
             return Err(world::Error::WorldExists);
         }
         let generator = state
@@ -514,11 +545,11 @@ impl Context<'_> {
         Ok(install(state, index, world, generator.as_ref(), true))
     }
 
-    /// Loads the persistent world `name` the server file holds (PMMP `WorldManager::loadWorld`)
-    /// with the settings of `options`, as [`create_world`](Self::create_world) makes one: the
-    /// server file keeps its chunks and time, never its settings (PLAN.md 10.6), so a world
-    /// stored in an earlier run gets its generator, seed, spawn, difficulty and view values from
-    /// here (its kind is persistent whatever the options say). Its spawn chunks load from the
+    /// Loads the persistent world `name` whose file `data/world/<name>.redb` was there when the
+    /// server started, declared or not (PMMP `WorldManager::loadWorld`), with the settings of
+    /// `options`, as [`create_world`](Self::create_world) makes one: the file keeps its chunks and
+    /// time, never its settings (PLAN.md 10.6), so a world stored in an earlier run gets its
+    /// generator, seed, spawn, difficulty and view values from here (its kind is persistent whatever the options say). Its spawn chunks load from the
     /// next view phase on, where [`WorldLoad`] is raised. A world the server already has this run
     /// keeps the settings it has and the options are not used: a loaded one is its `Id` as it is,
     /// and an unload asked for it before the next view phase is dropped (the later call wins; no
@@ -526,7 +557,8 @@ impl Context<'_> {
     /// is what keeps the world.
     ///
     /// Fails with [`world::Error::NotGenerated`] if the server runs no world of that name and
-    /// the server file holds none (a temporary world unloaded is gone), and, for a stored world,
+    /// `data/world/` held none at start (a temporary world unloaded is gone), and, for a stored
+    /// world,
     /// with [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
     /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value out of its range and
     /// [`Full`](world::Error::Full) past 1,024 worlds named this run.
@@ -605,7 +637,7 @@ impl Context<'_> {
         Ok(())
     }
 
-    /// Whether a world named `name` exists: the server runs it, or the server file holds it
+    /// Whether a world named `name` exists: the server runs it, or its file is in `data/world/`
     /// (PMMP `WorldManager::isWorldGenerated`). A temporary world unloaded does not.
     #[doc(alias = "WorldManager::isWorldGenerated")]
     pub fn is_world_generated(&self, name: &str) -> bool {
@@ -614,6 +646,40 @@ impl Context<'_> {
             state.catalog.is_loaded(i)
                 || state.worlds.get(i).map(World::kind) == Some(Kind::Persistent)
         }) || state.catalog.stored.contains_key(name)
+    }
+
+    /// Deletes the persistent world `name` and its file `data/world/<name>.redb`, and nothing
+    /// else: other worlds and the players' data stay as they are (a player saved in it joins the
+    /// default world). PMMP has no such call; it is the deletion of a world's folder. The world
+    /// must not be loaded ([`unload_world`](Self::unload_world) first, which saves it; its
+    /// changes since are dropped). The save thread removes the file after the saves already
+    /// asked for; a world of the name may be made at once. The file's backups in
+    /// `data/backups/world/<name>/` are kept.
+    ///
+    /// Fails with [`world::Error::WorldLoaded`] for a loaded world, and with
+    /// [`NotGenerated`](world::Error::NotGenerated) if no persistent world of that name exists
+    /// ([`is_world_generated`](Self::is_world_generated)).
+    pub fn delete_world(&mut self, name: &str) -> world::Result<()> {
+        let state = &mut *self.state;
+        let index = match named(state, name) {
+            Some(i) if state.catalog.is_loaded(i) => return Err(world::Error::WorldLoaded),
+            Some(i) if state.worlds.get(i).map(World::kind) == Some(Kind::Persistent) => Some(i),
+            _ if state.catalog.stored.remove(name).is_some() => None,
+            _ => return Err(world::Error::NotGenerated),
+        };
+        if let Some(i) = index {
+            // Its chunks waiting in memory are its file's: none may reach a world made here.
+            state.chunks.unsaved.retain(|&(w, _), _| w != i);
+            if let Some(world) = state.worlds.get_mut(i) {
+                world.forget();
+            }
+        }
+        state.catalog.deleted.push(DeletedWorld {
+            name: name.to_owned(),
+            index,
+        });
+        info!(world = name, "world deleted");
+        Ok(())
     }
 
     /// Whether the world named `name` is loaded (PMMP `WorldManager::isWorldLoaded`,

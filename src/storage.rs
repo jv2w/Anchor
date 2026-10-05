@@ -1,26 +1,31 @@
-//! The server file `data/server.redb`: start policy, batched reads and commits (PLAN.md 10.6).
+//! One data file (PLAN.md 6): start policy, batched reads and commits. The server's data is split
+//! into such files ([`Place`]): `data/main.redb` (the save tick), `data/players.redb`,
+//! `data/access.redb` (operators, bans, whitelist), `data/user.redb` (the user's server data) and
+//! `data/world/<world>.redb` for each persistent world (its record and chunks). The save thread
+//! (`save`) commits one snapshot to each file that changed, the main file last.
 //!
-//! Only the save thread, the world import before the server runs, and a replay ([`replay_files`],
-//! [`Storage::open_replica`]) use this module; every call blocks on file I/O. Tables map raw keys
-//! to sealed values ([`seal`](seal::seal)): `meta` (one [`Meta`]), `worlds` (world name →
-//! [`WorldRecord`](codec::WorldRecord)), `chunks` ([`ChunkKey`] → the record its [`ChunkPart`]
-//! names), `players` ([`PlayerKey`] → [`PlayerRecord`](codec::PlayerRecord)), `access`
-//! ([`AccessKey`] → [`Mark`](codec::Mark) for operators and the whitelist,
-//! [`BanRecord`](codec::BanRecord) for bans) and `user` (a server data name →
-//! [`UserRecord`](codec::UserRecord)). Values are external input when read back: the seal's
-//! checksum and the record decoders check them.
+//! Only the save thread, the world import before the server runs, and a replay
+//! ([`Storage::open_replica`]) use this module; every call blocks on file I/O. Tables map raw keys
+//! to sealed values ([`seal`](seal::seal)): `meta` (one [`Meta`]: the save it last committed),
+//! `worlds` (in a world file, [`WORLD_KEY`] → [`WorldRecord`](codec::WorldRecord)), `chunks`
+//! ([`ChunkKey`] → the record its [`ChunkPart`] names), `players` ([`PlayerKey`] →
+//! [`PlayerRecord`](codec::PlayerRecord)), `access` ([`AccessKey`] → [`Mark`](codec::Mark) for
+//! operators and the whitelist, [`BanRecord`](codec::BanRecord) for bans) and `user` (a server data
+//! name → [`UserRecord`](codec::UserRecord)). Each file uses the tables of its part. Values are
+//! external input when read back: the seal's checksum and the record decoders check them.
 //!
-//! Start ([`Storage::open`]): copy the closed file to `data/backups/` (with `backups = false`, a
+//! Start ([`Storage::open`]): copy the closed file to its backup folder (with `backups = false`, a
 //! copy for this start only, under its temporary name, and only when the file is checked), open
 //! it (redb recovers a crash here), run `check_integrity()` as `integrity-check` says (with
 //! `after-unclean-shutdown`, only when the file lacks the mark a normal stop leaves,
-//! [`CLOSED_KEY`]), refuse a damaged file or a newer format, create the tables, and compact a
-//! file that existed. A refused start writes the copy back, so the file is left exactly as it
+//! [`CLOSED_KEY`]), refuse a damaged file or a newer format and create the tables. A start does
+//! not compact: freed pages are reused by later commits, and only data that shrinks leaves free
+//! pages at the end (U16). A refused start writes the copy back, so the file is left exactly as it
 //! was, and removes the copy. `check_integrity()` rewrites the file when it repairs it, and the
-//! open itself writes the header, so the copy is what keeps the original bytes. A start that
-//! fails for another reason keeps its copy as a backup and prunes to the [`backup::KEPT`] newest.
-//! Only a refused start whose copy cannot be written back keeps it without pruning, so copies of
-//! a damaged file never push out older good backups; the operator is asked to act then.
+//! open itself writes the header, so the copy is what keeps the original bytes. A start that fails
+//! for another reason keeps its copy as a backup and prunes to the [`backup::KEPT`] newest. Only a
+//! refused start whose copy cannot be written back keeps it without pruning, so copies of a
+//! damaged file never push out older good backups; the operator is asked to act then.
 //!
 //! Commits ([`Storage::commit`]) write a whole batch in one quick-repair write transaction. A
 //! failure drops the handle, reopens the file and retries, at most [`RETRIES`] times. Values are
@@ -48,20 +53,36 @@ use redb::{
     ReadableTable, ReadableTableMetadata, StorageError, TableDefinition, TableError,
     WriteTransaction,
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::IntegrityCheck;
 pub(crate) use check::Checked;
 use codec::Meta;
 use seal::{FORMAT_VERSION, unseal};
 
-/// The server file in the data folder.
-pub(crate) const SERVER_FILE: &str = "server.redb";
+/// The one server file of Anchor before the data was split into files (U16): a start moves it to
+/// the data files once (`save::migrate`).
+pub(crate) const OLD_SERVER_FILE: &str = "server.redb";
 /// The name the server file had before it held more than worlds: a start renames it to
-/// [`SERVER_FILE`] ([`rename_old_file`]).
-const OLD_FILE: &str = "world.redb";
+/// [`OLD_SERVER_FILE`] ([`rename_old_file`]) before it moves it to the data files.
+const OLDEST_FILE: &str = "world.redb";
+/// The file of the save's tick and commit identity, committed last of a save.
+pub(crate) const MAIN_FILE: &str = "main";
+/// The file of the players' data.
+pub(crate) const PLAYERS_FILE: &str = "players";
+/// The file of the operators, bans and whitelist.
+pub(crate) const ACCESS_FILE: &str = "access";
+/// The file of the user's server data.
+pub(crate) const USER_FILE: &str = "user";
+/// The folder of the world files in the data folder.
+pub(crate) const WORLD_DIR: &str = "world";
+/// The extension of every data file.
+pub(crate) const EXTENSION: &str = "redb";
 /// The backup folder in the data folder.
 pub(crate) const BACKUP_DIR: &str = "backups";
+/// Most bytes of a world name that is a file name: `<name>.redb` fits the 255 bytes of a file
+/// name on Linux and the 255 UTF-16 units on Windows.
+pub(crate) const MAX_FILE_NAME: usize = 250;
 /// Failed commits retried before [`Storage::commit`] gives up.
 pub(crate) const RETRIES: usize = 3;
 /// redb's page cache. Loaded chunks live in the world, and the OS caches the file, so this only
@@ -83,22 +104,105 @@ const ACCESS: Table = TableDefinition::new("access");
 const USER: Table = TableDefinition::new("user");
 /// The key of the `meta` value.
 const META_KEY: &[u8] = b"meta";
+/// The key of a world file's record in its `worlds` table: the file's name is the world's.
+const WORLD_KEY: &[u8] = b"world";
+/// The key, in the `meta` table of each data file the move from the one server file wrote, of the
+/// sealed meta value of that server file: tells a file of that move (`save::migrate`).
+const MOVED_KEY: &[u8] = b"moved";
 /// The mark of a normal stop, in the `meta` table with an empty value: the last commit of
 /// [`Storage::close`] writes it and the first commit of a start removes it, so it is there only
 /// while the file is closed after a normal stop (`integrity-check = "after-unclean-shutdown"`).
 const CLOSED_KEY: &[u8] = b"closed";
 
-/// A failure of the server file or of one stored value.
+/// A data file and the folder of its backups: `data/<name>.redb` and `data/backups/<name>/` for
+/// the server's files, `data/world/<world>.redb` and `data/backups/world/<world>/` for a world.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Place {
+    /// The file.
+    pub(crate) file: PathBuf,
+    /// The folder of its backups.
+    pub(crate) backups: PathBuf,
+}
+
+impl Place {
+    /// The server's file `name` ([`MAIN_FILE`], [`PLAYERS_FILE`], [`ACCESS_FILE`],
+    /// [`USER_FILE`]) in `data_dir`.
+    pub(crate) fn data(data_dir: &Path, name: &str) -> Self {
+        Self {
+            file: data_dir.join(format!("{name}.{EXTENSION}")),
+            backups: data_dir.join(BACKUP_DIR).join(name),
+        }
+    }
+
+    /// The file of the world `name` in `data_dir`; `name` passed [`is_world_file_name`].
+    pub(crate) fn world(data_dir: &Path, name: &str) -> Self {
+        Self {
+            file: data_dir.join(WORLD_DIR).join(format!("{name}.{EXTENSION}")),
+            backups: data_dir.join(BACKUP_DIR).join(WORLD_DIR).join(name),
+        }
+    }
+}
+
+/// Whether `name` is a world name Anchor can keep as a file name on Windows and Linux alike
+/// (`data/world/<name>.redb`): 1 to [`MAX_FILE_NAME`] bytes; no control character and none of
+/// `< > : " / \ | ? *` (so no path); not ending in a dot or a space and not starting with a space;
+/// and not a name Windows keeps for a device, in any letter case and with any extension (`CON`,
+/// `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0` to `COM9`, `LPT0` to `LPT9`, and those with a
+/// superscript digit). Names that differ only in letter case name one file on Windows, so they
+/// are one world on every system ([`world_name_key`]).
+pub(crate) fn is_world_file_name(name: &str) -> bool {
+    const FORBIDDEN: [char; 9] = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    if name.is_empty()
+        || name.len() > MAX_FILE_NAME
+        || name.starts_with(' ')
+        || name.ends_with(['.', ' '])
+        || name
+            .chars()
+            .any(|c| c.is_control() || FORBIDDEN.contains(&c))
+    {
+        return false;
+    }
+    let base = name
+        .split('.')
+        .next()
+        .unwrap_or(name)
+        .trim_end_matches(' ')
+        .to_ascii_lowercase();
+    let device = match base.as_str() {
+        "con" | "prn" | "aux" | "nul" | "conin$" | "conout$" => true,
+        _ => base
+            .strip_prefix("com")
+            .or_else(|| base.strip_prefix("lpt"))
+            .is_some_and(|n| {
+                let mut chars = n.chars();
+                matches!(
+                    (chars.next(), chars.next()),
+                    (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+                )
+            }),
+    };
+    !device
+}
+
+/// What world names that name one file have in common: the name in one letter case.
+pub(crate) fn world_name_key(name: &str) -> String {
+    name.chars()
+        .flat_map(char::to_uppercase)
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// A failure of a data file or of one stored value.
 #[derive(Debug)]
 #[non_exhaustive]
 pub(crate) enum Error {
     /// A file or folder under the data folder could not be read or written.
     Io(io::Error),
-    /// Another process has the server file open.
+    /// Another process has the data file open.
     InUse,
     /// redb failed for a reason other than damage, such as I/O.
     Database(redb::Error),
-    /// The server file failed redb's integrity check (or redb repaired it, which means it was
+    /// The data file failed redb's integrity check (or redb repaired it, which means it was
     /// damaged); the source is redb's report, if it gave one.
     DamagedFile(Option<redb::Error>),
     /// A value does not match its checksum.
@@ -121,6 +225,8 @@ pub(crate) enum Error {
     TooManyWorlds,
     /// [`Storage::access`] found more values than the lists hold.
     TooManyAccessEntries,
+    /// The world's data file is not open: it failed to open, or a replay has no copy of it.
+    Closed,
 }
 
 /// The result of a storage operation.
@@ -161,10 +267,10 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(_) => f.write_str("server file i/o failed"),
-            Self::InUse => f.write_str("another process has the server file open"),
+            Self::Io(_) => f.write_str("data file i/o failed"),
+            Self::InUse => f.write_str("another process has a data file open"),
             Self::Database(_) => f.write_str("the world database failed"),
-            Self::DamagedFile(_) => f.write_str("the server file failed its integrity check"),
+            Self::DamagedFile(_) => f.write_str("a data file failed its integrity check"),
             Self::Checksum => f.write_str("a stored value does not match its checksum"),
             Self::Malformed(reason) => write!(f, "a stored value is malformed: {reason}"),
             Self::Compression(_) => f.write_str("a stored value does not decompress"),
@@ -175,6 +281,7 @@ impl fmt::Display for Error {
             ),
             Self::Encode(_) => f.write_str("a record cannot be encoded"),
             Self::TooManyWorlds => write!(f, "more than {MAX_WORLDS} worlds are stored"),
+            Self::Closed => f.write_str("the world's data file is not open"),
             Self::TooManyAccessEntries => {
                 write!(
                     f,
@@ -198,7 +305,8 @@ impl std::error::Error for Error {
             | Self::Malformed(_)
             | Self::NewerFormat { .. }
             | Self::TooManyWorlds
-            | Self::TooManyAccessEntries => None,
+            | Self::TooManyAccessEntries
+            | Self::Closed => None,
         }
     }
 }
@@ -295,7 +403,7 @@ pub(crate) enum ChunkPart {
 
 impl ChunkPart {
     /// The part these key bytes after the chunk's prefix name; a key no Anchor writes is damage.
-    fn from_suffix(bytes: &[u8]) -> Result<Self> {
+    pub(crate) fn from_suffix(bytes: &[u8]) -> Result<Self> {
         let kind = |k: u8| match k {
             1 => Some(ChunkKind::BlockEntities),
             2 => Some(ChunkKind::Entities),
@@ -429,8 +537,8 @@ impl AccessKey {
 pub(crate) enum Key {
     /// The `meta` value.
     Meta,
-    /// A `worlds` value, by world name.
-    World(String),
+    /// The `worlds` value of a world file: its record.
+    World,
     /// A `chunks` value.
     Chunk(ChunkKey),
     /// A `players` value.
@@ -439,6 +547,9 @@ pub(crate) enum Key {
     Access(AccessKey),
     /// A `user` value, by the server data's name.
     User(String),
+    /// The mark of a file the move from the one server file wrote ([`MOVED_KEY`]): that file's
+    /// sealed meta value, as it was.
+    Moved,
 }
 
 impl Key {
@@ -446,7 +557,9 @@ impl Key {
     pub(crate) fn to_bytes(&self) -> Cow<'_, [u8]> {
         match self {
             Self::Meta => Cow::Borrowed(META_KEY),
-            Self::World(name) | Self::User(name) => Cow::Borrowed(name.as_bytes()),
+            Self::Moved => Cow::Borrowed(MOVED_KEY),
+            Self::World => Cow::Borrowed(WORLD_KEY),
+            Self::User(name) => Cow::Borrowed(name.as_bytes()),
             Self::Chunk(key) => Cow::Owned(key.to_bytes()),
             Self::Player(PlayerKey(key)) => Cow::Borrowed(key.as_bytes()),
             Self::Access(key) => Cow::Owned(key.to_bytes()),
@@ -458,8 +571,8 @@ impl Key {
     fn pick<'a, T>(&self, tables: &'a [T; 6]) -> &'a T {
         let [meta, worlds, chunks, players, access, user] = tables;
         match self {
-            Self::Meta => meta,
-            Self::World(_) => worlds,
+            Self::Meta | Self::Moved => meta,
+            Self::World => worlds,
             Self::Chunk(_) => chunks,
             Self::Player(_) => players,
             Self::Access(_) => access,
@@ -471,8 +584,8 @@ impl Key {
     fn pick_mut<'a, T>(&self, tables: &'a mut [T; 6]) -> &'a mut T {
         let [meta, worlds, chunks, players, access, user] = tables;
         match self {
-            Self::Meta => meta,
-            Self::World(_) => worlds,
+            Self::Meta | Self::Moved => meta,
+            Self::World => worlds,
             Self::Chunk(_) => chunks,
             Self::Player(_) => players,
             Self::Access(_) => access,
@@ -529,7 +642,6 @@ impl Batch {
     }
 
     /// Whether the batch has no writes.
-    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.writes.is_empty()
     }
@@ -570,6 +682,15 @@ impl Source {
         };
         opened.map_err(Error::from_open)
     }
+}
+
+/// A table [`Storage::scan`] reads whole.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scan {
+    Chunks,
+    Players,
+    Access,
+    User,
 }
 
 /// Whether [`Storage::open`] first copies the closed server file into the backups (`backups`).
@@ -876,19 +997,18 @@ fn failed_start(world: &Path, backups: &Path, copy: PathBuf, start: StartBackup,
     }
 }
 
-/// The server files a replay may start from, in the order it tries them: `data/server.redb`, then
-/// the backups newest first (PLAN.md 10.9 재생 도구). Missing ones are left out.
+/// The copies of the data file at `place` a replay may start from: the file, then its backups
+/// newest first (PLAN.md 10.9 재생 도구). Missing ones are left out.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: a replay lists the server files before it starts"
+    reason = "off-tick: a replay lists the data files before it starts"
 )]
-pub(crate) fn replay_files(data_dir: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn copies(place: &Place) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    let world = data_dir.join(SERVER_FILE);
-    if std::fs::exists(&world).map_err(Error::Io)? {
-        files.push(world);
+    if std::fs::exists(&place.file).map_err(Error::Io)? {
+        files.push(place.file.clone());
     }
-    let mut backups = backup::backups(&data_dir.join(BACKUP_DIR))?;
+    let mut backups = backup::backups(&place.backups)?;
     backups.sort_unstable();
     files.extend(backups.into_iter().rev().map(|(_, path)| path));
     Ok(files)
@@ -917,11 +1037,10 @@ impl Storage {
         })
     }
 
-    /// Starts on `<data_dir>/server.redb` (PLAN.md 10.6), first renaming an older Anchor's
-    /// `world.redb` to it ([`rename_old_file`]): backs up the closed file, opens it,
-    /// checks it as `start.check` says, refuses a damaged file or a newer format (leaving the file as
-    /// it was), compacts it, and keeps the [`backup::KEPT`] newest backups, or none with
-    /// [`StartBackup::Transient`]. A missing or empty file starts empty, without a compaction.
+    /// Starts on the data file at `place` (PLAN.md 6): backs up the closed file, opens it, checks
+    /// it as `start.check` says, refuses a damaged file or a newer format (leaving the file as it
+    /// was), and keeps the [`backup::KEPT`] newest backups, or none with
+    /// [`StartBackup::Transient`]. A missing or empty file starts empty. Nothing is compacted.
     ///
     /// The closed file is copied for a start backup ([`StartBackup::Make`]) and for a check,
     /// whose copy puts the file back when the check refuses it ([`StartBackup::Transient`]). A
@@ -929,20 +1048,20 @@ impl Storage {
     /// open wrote it (redb's header), not byte for byte.
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the save thread creates the data folder and compacts the file at start"
+        reason = "off-tick: the save thread creates the data folder and opens a data file"
     )]
-    pub(crate) fn open(data_dir: &Path, start: Start) -> Result<Self> {
+    pub(crate) fn open(place: &Place, start: Start) -> Result<Self> {
         let Start { backup, check } = start;
-        let world = data_dir.join(SERVER_FILE);
-        let backups = data_dir.join(BACKUP_DIR);
-        std::fs::create_dir_all(data_dir).map_err(Error::Io)?;
-        rename_old_file(data_dir)?;
-        let checked = checks(&world, check);
+        let (world, backups) = (&place.file, &place.backups);
+        if let Some(dir) = world.parent() {
+            std::fs::create_dir_all(dir).map_err(Error::Io)?;
+        }
+        let checked = checks(world, check);
         // The lock ends with the arm, before the file is opened as a database.
-        let (existed, copy) = match backup::lock(&world, &backups)? {
+        let (existed, copy) = match backup::lock(world, backups)? {
             Some(mut source) => {
                 let copy = if checked || backup == StartBackup::Make {
-                    Some(backup::copy(&mut source, &backups, backup)?)
+                    Some(backup::copy(&mut source, backups, backup)?)
                 } else {
                     None
                 };
@@ -950,60 +1069,86 @@ impl Storage {
             }
             None => (false, None),
         };
+        let file = world.display();
         if existed && !checked {
-            info!(?check, "server file opened without its integrity check");
+            debug!(%file, ?check, "data file opened without its integrity check");
         }
         let source = Source::File(world.clone());
-        let started = source
-            .open()
-            .and_then(|mut db| {
-                if checked {
-                    check_integrity(&mut db)?;
-                }
-                Self::prepare(source, db)
-            })
-            .and_then(|mut storage| {
-                // A new file has nothing to free; compacting it only costs its syncs.
-                if existed && let Some(db) = &mut storage.db {
-                    db.compact()?;
-                }
-                Ok(storage)
-            });
+        let started = source.open().and_then(|mut db| {
+            if checked {
+                check_integrity(&mut db)?;
+            }
+            Self::prepare(source, db)
+        });
         match started {
             Ok(storage) => {
                 match (&copy, backup) {
                     (Some(copy), StartBackup::Make) => {
-                        if let Err(e) = backup::prune(&backups, copy) {
-                            warn!(error = %e, "could not remove old backups");
+                        if let Err(e) = backup::prune(backups, copy) {
+                            warn!(%file, error = %e, "could not remove old backups");
                         }
-                        info!(backup = %copy.display(), "server file opened");
+                        debug!(%file, backup = %copy.display(), "data file opened");
                     }
                     (Some(copy), StartBackup::Transient) => {
                         if let Err(e) = std::fs::remove_file(copy) {
                             warn!(
                                 backup = %copy.display(),
                                 error = %e,
-                                "could not remove the start copy of the server file"
+                                "could not remove the start copy of a data file"
                             );
                         }
-                        info!("server file opened");
+                        debug!(%file, "data file opened");
                     }
-                    (None, _) if existed => info!("server file opened"),
-                    (None, _) => info!("server file created"),
+                    (None, _) if existed => debug!(%file, "data file opened"),
+                    (None, _) => info!(%file, "data file created"),
                 }
                 Ok(storage)
             }
             Err(e) => {
                 if let Some(copy) = copy {
-                    failed_start(&world, &backups, copy, backup, &e);
+                    failed_start(world, backups, copy, backup, &e);
                 }
                 Err(e)
             }
         }
     }
 
+    /// Opens the data file `path` and checks it whole (redb's `check_integrity()`), without a
+    /// copy: the move to the data files opens its own copy of the old server file and the files
+    /// it wrote so.
+    pub(crate) fn open_checked(path: &Path) -> Result<Self> {
+        Self::start(Source::File(path.to_path_buf()))
+    }
+
+    /// Calls `each` with every key and sealed value of `table`, in key order, from one read
+    /// transaction; stops at the first error, its own or a read's.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the move to the data files reads the old server file before the server runs"
+    )]
+    pub(crate) fn scan(
+        &mut self,
+        table: Scan,
+        mut each: impl FnMut(&[u8], &[u8]) -> Result<()>,
+    ) -> Result<()> {
+        let table = match table {
+            Scan::Chunks => CHUNKS,
+            Scan::Players => PLAYERS,
+            Scan::Access => ACCESS,
+            Scan::User => USER,
+        };
+        let txn = self.database()?.begin_read()?;
+        let Some(table) = open_read(&txn, table)? else {
+            return Ok(());
+        };
+        for entry in table.iter()? {
+            let (key, value) = entry?;
+            each(key.value(), value.value())?;
+        }
+        Ok(())
+    }
+
     /// Opens, checks and prepares the database at `source`, as a start that checks it.
-    #[cfg(test)]
     fn start(source: Source) -> Result<Self> {
         let mut db = source.open()?;
         check_integrity(&mut db)?;
@@ -1262,6 +1407,11 @@ impl Storage {
         self.check.is_some()
     }
 
+    /// Drops the check being made, if any, unreported.
+    pub(crate) fn stop_check(&mut self) {
+        self.check = None;
+    }
+
     /// Takes the next step of the check being made, if any; returns what it found once it ends.
     pub(crate) fn check_step(&mut self) -> Option<Checked> {
         let found = self.check.as_mut()?.step();
@@ -1296,19 +1446,29 @@ impl Storage {
         }
     }
 
-    /// Compacts the file after the last commit, marks it closed after a normal stop
-    /// ([`CLOSED_KEY`]) and closes it. Only a normal stop calls it: a failed one drops the
-    /// [`Storage`] instead, so its file has no mark.
+    /// Marks the file closed after a normal stop ([`CLOSED_KEY`]) and closes it, without
+    /// compacting it (U16: a stop writes what changed and nothing more). Only a normal stop calls
+    /// it: a failed one drops the [`Storage`] instead, so its file has no mark.
+    pub(crate) fn close(mut self) -> Result<()> {
+        // Nobody waits for its result.
+        self.check = None;
+        if let Some(db) = self.db.take() {
+            mark_closed(&db)?;
+        }
+        Ok(())
+    }
+
+    /// Compacts the file: moves its pages to the front and frees the end. Only the move to the
+    /// data files calls it, once, on files it wrote whole (U16).
     #[expect(
         clippy::disallowed_methods,
-        reason = "off-tick: the save thread compacts the server file at shutdown"
+        reason = "off-tick: the move to the data files compacts the files it wrote, before the server runs"
     )]
-    pub(crate) fn close(mut self) -> Result<()> {
-        // Its read transaction would keep the compaction waiting; nobody waits for its result.
+    pub(crate) fn compact(&mut self) -> Result<()> {
         self.check = None;
-        if let Some(mut db) = self.db.take() {
+        self.backup = None;
+        if let Some(db) = &mut self.db {
             db.compact()?;
-            mark_closed(&db)?;
         }
         Ok(())
     }
@@ -1402,8 +1562,8 @@ fn checks(world: &Path, check: IntegrityCheck) -> bool {
     }
 }
 
-/// Renames the server file of an older Anchor, [`OLD_FILE`] in `data_dir`, to [`SERVER_FILE`]
-/// when there is no [`SERVER_FILE`] yet. The rename is one atomic file system call, so the file
+/// Renames the server file of an older Anchor, [`OLDEST_FILE`] in `data_dir`, to
+/// [`OLD_SERVER_FILE`] when there is neither that nor the main data file yet. The rename is one atomic file system call, so the file
 /// is under one of the two names whatever happens; a rename that fails fails the start and leaves
 /// the file as it was. Refuses a file another process has open ([`Error::InUse`]): an older
 /// Anchor still running keeps it. With both files there, the old one is left alone.
@@ -1412,9 +1572,10 @@ fn checks(world: &Path, check: IntegrityCheck) -> bool {
     clippy::disallowed_methods,
     reason = "off-tick: the save thread renames the server file once, before opening it"
 )]
-fn rename_old_file(data_dir: &Path) -> Result<()> {
-    let (old, new) = (data_dir.join(OLD_FILE), data_dir.join(SERVER_FILE));
-    if std::fs::exists(&new).map_err(Error::Io)? {
+pub(crate) fn rename_old_file(data_dir: &Path) -> Result<()> {
+    let (old, new) = (data_dir.join(OLDEST_FILE), data_dir.join(OLD_SERVER_FILE));
+    let main = Place::data(data_dir, MAIN_FILE).file;
+    if std::fs::exists(&new).map_err(Error::Io)? || std::fs::exists(&main).map_err(Error::Io)? {
         if std::fs::exists(&old).map_err(Error::Io)? {
             warn!(file = %old.display(), "an old server file is left beside the server file");
         }
@@ -1781,7 +1942,8 @@ pub(crate) mod tests {
         let bytes = key.to_bytes();
         match key {
             Key::Meta => drop(unseal::<Meta>(&bytes, sealed).unwrap()),
-            Key::World(_) => drop(unseal::<WorldRecord>(&bytes, sealed).unwrap()),
+            Key::World => drop(unseal::<WorldRecord>(&bytes, sealed).unwrap()),
+            Key::Moved => {}
             Key::Chunk(ChunkKey { part, .. }) => match part {
                 ChunkPart::Column => drop(unseal::<ChunkRecord>(&bytes, sealed).unwrap()),
                 ChunkPart::SubChunk(_) => drop(unseal::<SubChunkRecord>(&bytes, sealed).unwrap()),
@@ -2122,7 +2284,7 @@ pub(crate) mod tests {
         let world = WorldRecord { number: 3, time: 0 };
         let keys = [
             chunk_key(-1, 1),
-            Key::World("lobby".to_owned()),
+            Key::World,
             Key::Meta,
             Key::Player(PlayerKey::xuid(7)),
         ];
@@ -2143,7 +2305,7 @@ pub(crate) mod tests {
         assert_eq!(unsealed, column);
         let world_value = world_value.unwrap().unwrap();
         assert_eq!(
-            unseal::<WorldRecord>(b"lobby", &world_value).unwrap(),
+            unseal::<WorldRecord>(WORLD_KEY, &world_value).unwrap(),
             world
         );
         assert_eq!(
@@ -2153,7 +2315,7 @@ pub(crate) mod tests {
         assert!(player_value.unwrap().is_none());
         assert_eq!(
             storage.worlds().unwrap(),
-            [("lobby".to_owned(), world_value)]
+            [("world".to_owned(), world_value)]
         );
         // A deletion removes the value.
         let mut batch = Batch::default();
@@ -2275,7 +2437,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// A crash at a random call of a commit (or of the compaction when closing after it), then a
+    /// A crash at a random call of a commit (or of the mark commit when closing after it), then a
     /// power loss: the file passes the integrity check and holds exactly the previous commit or
     /// the new one (always the new one if the commit returned). 1,000 runs, fixed seed.
     #[test]
@@ -2295,7 +2457,7 @@ pub(crate) mod tests {
             let crash = Fault::From {
                 at: 1 + u64::try_from(rng.below(40)).unwrap(),
             };
-            // One run in four commits and crashes in the compaction of the close instead.
+            // One run in four commits and crashes in the mark commit of the close instead.
             let landed = if rng.below(4) == 0 {
                 storage.commit(&batch).unwrap();
                 disk.arm(crash);
@@ -2340,22 +2502,27 @@ pub(crate) mod tests {
             Self(dir)
         }
 
+        /// The data file the tests open.
+        fn place(&self) -> Place {
+            Place::data(&self.0, MAIN_FILE)
+        }
+
         fn world(&self) -> Vec<u8> {
-            std::fs::read(self.0.join(SERVER_FILE)).unwrap()
+            std::fs::read(self.place().file).unwrap()
         }
 
         /// The file's length; readable while the file is open, unlike its bytes on Windows.
         fn world_len(&self) -> u64 {
-            std::fs::metadata(self.0.join(SERVER_FILE)).unwrap().len()
+            std::fs::metadata(self.place().file).unwrap().len()
         }
 
         fn set_world(&self, bytes: &[u8]) {
-            std::fs::write(self.0.join(SERVER_FILE), bytes).unwrap();
+            std::fs::write(self.place().file, bytes).unwrap();
         }
 
         /// Backup names, oldest first.
         fn backups(&self) -> Vec<String> {
-            let Ok(entries) = std::fs::read_dir(self.0.join(BACKUP_DIR)) else {
+            let Ok(entries) = std::fs::read_dir(self.place().backups) else {
                 return Vec::new();
             };
             let mut names: Vec<String> = entries
@@ -2376,7 +2543,7 @@ pub(crate) mod tests {
     #[test]
     fn a_new_folder_starts_empty_and_keeps_what_was_committed() {
         let dir = TempDir::new("new");
-        let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         assert!(
             storage.read(&[Key::Meta]).unwrap()[0]
                 .as_ref()
@@ -2392,7 +2559,7 @@ pub(crate) mod tests {
             dir.backups().is_empty(),
             "a new file has nothing to back up"
         );
-        let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         let meta = storage
             .read(&[Key::Meta])
             .unwrap()
@@ -2406,18 +2573,18 @@ pub(crate) mod tests {
     #[test]
     fn a_second_process_cannot_open_the_file() {
         let dir = TempDir::new("in-use");
-        let storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+        let storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         assert!(matches!(
-            Storage::open(&dir.0, Start::checked(StartBackup::Make)),
+            Storage::open(&dir.place(), Start::checked(StartBackup::Make)),
             Err(Error::InUse)
         ));
         assert!(dir.backups().is_empty(), "no copy of a file in use");
         storage.close().unwrap();
     }
 
-    /// An older Anchor's `world.redb` becomes the server file at start, byte for byte: renamed,
-    /// not copied, and only when there is no server file yet. A file another process has open is
-    /// left under its old name.
+    /// An older Anchor's `world.redb` becomes `server.redb` (which a start then moves to the data
+    /// files), byte for byte: renamed, not copied, and only when there is neither that nor a main
+    /// data file. A file another process has open is left under its old name.
     #[test]
     #[expect(
         clippy::disallowed_types,
@@ -2426,54 +2593,38 @@ pub(crate) mod tests {
     )]
     fn an_old_server_file_is_renamed_once_and_kept_whole() {
         let dir = TempDir::new("old-name");
-        let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
-        let mut batch = Batch::default();
-        batch.put(Key::Meta, seal(META_KEY, &Meta::at(9)).unwrap());
-        storage.commit(&batch).unwrap();
-        storage.close().unwrap();
-        let (old, new) = (dir.0.join(OLD_FILE), dir.0.join(SERVER_FILE));
-        std::fs::rename(&new, &old).unwrap();
-        let bytes = std::fs::read(&old).unwrap();
+        let (old, new) = (dir.0.join(OLDEST_FILE), dir.0.join(OLD_SERVER_FILE));
+        std::fs::write(&old, b"old file").unwrap();
         // An older Anchor still runs it.
         let held = std::fs::File::open(&old).unwrap();
         held.lock().unwrap();
-        assert!(matches!(
-            Storage::open(&dir.0, Start::checked(StartBackup::Make)),
-            Err(Error::InUse)
-        ));
+        assert!(matches!(rename_old_file(&dir.0), Err(Error::InUse)));
         drop(held);
         assert!(old.exists() && !new.exists());
         rename_old_file(&dir.0).unwrap();
         assert!(!old.exists());
-        assert_eq!(dir.world(), bytes);
-        let read_meta = || {
-            let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
-            let meta = storage
-                .read(&[Key::Meta])
-                .unwrap()
-                .remove(0)
-                .unwrap()
-                .unwrap();
-            storage.close().unwrap();
-            unseal::<Meta>(META_KEY, &meta).unwrap()
-        };
-        assert_eq!(read_meta(), Meta::at(9));
-        // With both, the server file is the one opened and the old one stays as it is.
-        std::fs::write(&old, b"old").unwrap();
-        assert_eq!(read_meta(), Meta::at(9));
-        assert_eq!(std::fs::read(&old).unwrap(), b"old");
+        assert_eq!(std::fs::read(&new).unwrap(), b"old file");
+        // With both, or with the data files, the old one stays as it is.
+        std::fs::write(&old, b"older").unwrap();
+        rename_old_file(&dir.0).unwrap();
+        assert_eq!(std::fs::read(&old).unwrap(), b"older");
+        std::fs::remove_file(&new).unwrap();
+        std::fs::write(Place::data(&dir.0, MAIN_FILE).file, b"").unwrap();
+        rename_old_file(&dir.0).unwrap();
+        assert_eq!(std::fs::read(&old).unwrap(), b"older");
+        assert!(!new.exists());
     }
 
     #[test]
     fn backups_are_capped_at_three_and_never_overwritten() {
         let dir = TempDir::new("backups");
-        Storage::open(&dir.0, Start::checked(StartBackup::Make))
+        Storage::open(&dir.place(), Start::checked(StartBackup::Make))
             .unwrap()
             .close()
             .unwrap();
         let mut made = Vec::new();
         for _ in 0..5 {
-            Storage::open(&dir.0, Start::checked(StartBackup::Make))
+            Storage::open(&dir.place(), Start::checked(StartBackup::Make))
                 .unwrap()
                 .close()
                 .unwrap();
@@ -2490,7 +2641,7 @@ pub(crate) mod tests {
     fn a_start_without_backups_keeps_no_copy() {
         let dir = TempDir::new("transient");
         for _ in 0..2 {
-            Storage::open(&dir.0, Start::checked(StartBackup::Transient))
+            Storage::open(&dir.place(), Start::checked(StartBackup::Transient))
                 .unwrap()
                 .close()
                 .unwrap();
@@ -2502,16 +2653,16 @@ pub(crate) mod tests {
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_start_copy_left_by_a_killed_start_without_backups_is_removed() {
         let dir = TempDir::new("transient-killed");
-        Storage::open(&dir.0, Start::checked(StartBackup::Transient))
+        Storage::open(&dir.place(), Start::checked(StartBackup::Transient))
             .unwrap()
             .close()
             .unwrap();
-        let backups = dir.0.join(BACKUP_DIR);
+        let backups = dir.place().backups;
         // A start killed after its copy never removes it.
-        backup::create(&dir.0.join(SERVER_FILE), &backups, StartBackup::Transient)
+        backup::create(&dir.place().file, &backups, StartBackup::Transient)
             .unwrap()
             .unwrap();
-        Storage::open(&dir.0, Start::checked(StartBackup::Transient))
+        Storage::open(&dir.place(), Start::checked(StartBackup::Transient))
             .unwrap()
             .close()
             .unwrap();
@@ -2526,14 +2677,14 @@ pub(crate) mod tests {
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_start_copy_kept_by_a_failed_start_without_backups_survives_the_next_start() {
         let dir = TempDir::new("transient-kept");
-        Storage::open(&dir.0, Start::checked(StartBackup::Transient))
+        Storage::open(&dir.place(), Start::checked(StartBackup::Transient))
             .unwrap()
             .close()
             .unwrap();
         let original = dir.world();
         // A start that fails with an error that is not damage (here injected, so that no file
         // permission is needed, which root would bypass) keeps its copy.
-        let (world, backups) = (dir.0.join(SERVER_FILE), dir.0.join(BACKUP_DIR));
+        let (world, backups) = (dir.place().file, dir.place().backups);
         let copy = backup::create(&world, &backups, StartBackup::Transient)
             .unwrap()
             .unwrap();
@@ -2544,13 +2695,13 @@ pub(crate) mod tests {
             StartBackup::Transient,
             &injected_io(),
         );
-        Storage::open(&dir.0, Start::checked(StartBackup::Transient))
+        Storage::open(&dir.place(), Start::checked(StartBackup::Transient))
             .unwrap()
             .close()
             .unwrap();
         let names = dir.backups();
         assert_eq!(names.len(), 1, "{names:?}");
-        let kept = std::fs::read(dir.0.join(BACKUP_DIR).join(&names[0])).unwrap();
+        let kept = std::fs::read(dir.place().backups.join(&names[0])).unwrap();
         assert!(kept == original, "the kept copy holds other bytes");
     }
 
@@ -2563,11 +2714,11 @@ pub(crate) mod tests {
     fn failed_starts_keep_only_the_newest_backups() {
         for start in [StartBackup::Transient, StartBackup::Make] {
             let dir = TempDir::new(&format!("failed-starts-{start:?}"));
-            Storage::open(&dir.0, Start::checked(StartBackup::Transient))
+            Storage::open(&dir.place(), Start::checked(StartBackup::Transient))
                 .unwrap()
                 .close()
                 .unwrap();
-            let (world, backups) = (dir.0.join(SERVER_FILE), dir.0.join(BACKUP_DIR));
+            let (world, backups) = (dir.place().file, dir.place().backups);
             for _ in 0..backup::KEPT + 2 {
                 let copy = backup::create(&world, &backups, start).unwrap().unwrap();
                 failed_start(&world, &backups, copy, start, &injected_io());
@@ -2581,11 +2732,11 @@ pub(crate) mod tests {
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_damaged_file_that_cannot_be_put_back_prunes_no_backup() {
         let dir = TempDir::new("damage-kept");
-        Storage::open(&dir.0, Start::checked(StartBackup::Transient))
+        Storage::open(&dir.place(), Start::checked(StartBackup::Transient))
             .unwrap()
             .close()
             .unwrap();
-        let (world, backups) = (dir.0.join(SERVER_FILE), dir.0.join(BACKUP_DIR));
+        let (world, backups) = (dir.place().file, dir.place().backups);
         for _ in 0..backup::KEPT {
             backup::create(&world, &backups, StartBackup::Make)
                 .unwrap()
@@ -2593,7 +2744,7 @@ pub(crate) mod tests {
         }
         let older = dir.backups();
         // Putting the copy back fails: the world's folder is gone.
-        let missing = dir.0.join("missing").join(SERVER_FILE);
+        let missing = dir.0.join("missing").join("main.redb");
         for _ in 0..2 {
             let copy = backup::create(&world, &backups, StartBackup::Make)
                 .unwrap()
@@ -2614,27 +2765,27 @@ pub(crate) mod tests {
 
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn a_new_file_is_not_compacted_at_start_and_an_existing_one_is() {
+    fn a_start_and_a_stop_never_compact_the_file() {
         let dir = TempDir::new("start-compact");
-        // A file redb creates with Anchor's tables, never compacted.
-        let fresh = dir.0.join("fresh.redb");
-        let mut storage = Storage {
-            backup: None,
-            check: None,
-            db: None,
-            source: Source::File(fresh.clone()),
-            replica: None,
-        };
-        storage.commit(&Batch::default()).unwrap();
-        drop(storage);
         let len = |path: &Path| std::fs::metadata(path).unwrap().len();
-        let world = dir.0.join(SERVER_FILE);
-        // Dropping closes the file without compacting it.
-        drop(Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap());
-        let created = len(&world);
-        assert_eq!(created, len(&fresh));
-        drop(Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap());
-        assert!(len(&world) < created, "{} {created}", len(&world));
+        let world = dir.place().file;
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
+        let mut rng = Rng(3);
+        let mut model = BTreeMap::new();
+        storage.commit(&large_batch(&mut rng, 4, 1)).unwrap();
+        // Values written again free the pages of the old ones, which a compaction would cut.
+        storage
+            .commit(&random_batch(&mut rng, &mut model, 2))
+            .unwrap();
+        storage.close().unwrap();
+        let closed = len(&world);
+        for _ in 0..2 {
+            Storage::open(&dir.place(), Start::checked(StartBackup::Make))
+                .unwrap()
+                .close()
+                .unwrap();
+            assert_eq!(len(&world), closed);
+        }
     }
 
     #[test]
@@ -2647,13 +2798,13 @@ pub(crate) mod tests {
     fn refuses_a_damaged_file(start: StartBackup) {
         let dir = TempDir::new("damaged");
         let bytes = damage_a_closed_file(&dir);
-        let e = Storage::open(&dir.0, Start::checked(start)).unwrap_err();
+        let e = Storage::open(&dir.place(), Start::checked(start)).unwrap_err();
         assert!(e.is_damage(), "{e:?}");
         assert!(dir.world().eq(&bytes), "the file is left as it was");
         assert!(dir.backups().is_empty(), "the copy went back into the file");
         // A second try finds the same file and refuses it the same way.
         assert!(
-            Storage::open(&dir.0, Start::checked(start))
+            Storage::open(&dir.place(), Start::checked(start))
                 .unwrap_err()
                 .is_damage()
         );
@@ -2663,7 +2814,7 @@ pub(crate) mod tests {
     /// Writes a player to a new server file in `dir`, closes it after a normal stop and damages
     /// the player's bytes, which only redb's integrity check reads at start; returns the bytes.
     fn damage_a_closed_file(dir: &TempDir) -> Vec<u8> {
-        let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         // Random letters compress little, so the value's body is long enough to be found.
         let mut rng = Rng(5);
         let name: String = (0..200)
@@ -2708,12 +2859,12 @@ pub(crate) mod tests {
             (Make, AfterUncleanShutdown, 0, 1),
             (Make, Never, 0, 1),
         ] {
-            Storage::open(&dir.0, Start::checked(Transient))
+            Storage::open(&dir.place(), Start::checked(Transient))
                 .unwrap()
                 .close()
                 .unwrap();
             STARTS.set((0, 0));
-            Storage::open(&dir.0, Start { backup, check })
+            Storage::open(&dir.place(), Start { backup, check })
                 .unwrap()
                 .close()
                 .unwrap();
@@ -2721,13 +2872,13 @@ pub(crate) mod tests {
         }
         // After a stop that did not close the file, every start that may check does.
         for (check, checked) in [(Always, 1), (AfterUncleanShutdown, 1), (Never, 0)] {
-            drop(Storage::open(&dir.0, Start::checked(Transient)).unwrap());
+            drop(Storage::open(&dir.place(), Start::checked(Transient)).unwrap());
             STARTS.set((0, 0));
             let start = Start {
                 backup: Transient,
                 check,
             };
-            Storage::open(&dir.0, start).unwrap().close().unwrap();
+            Storage::open(&dir.place(), start).unwrap().close().unwrap();
             assert_eq!(STARTS.get(), (checked, checked), "{check:?}");
         }
     }
@@ -2735,7 +2886,7 @@ pub(crate) mod tests {
     #[test]
     fn only_a_file_closed_after_a_normal_stop_skips_the_check_after_an_unclean_one() {
         let dir = TempDir::new("closed-mark");
-        let world = dir.0.join(SERVER_FILE);
+        let world = dir.place().file;
         let after_unclean = || checks(&world, IntegrityCheck::AfterUncleanShutdown);
         // No file: checking a new one costs nothing.
         assert!(after_unclean());
@@ -2743,24 +2894,24 @@ pub(crate) mod tests {
             backup: StartBackup::Transient,
             check: IntegrityCheck::AfterUncleanShutdown,
         };
-        Storage::open(&dir.0, start).unwrap().close().unwrap();
+        Storage::open(&dir.place(), start).unwrap().close().unwrap();
         assert!(!after_unclean());
         assert!(checks(&world, IntegrityCheck::Always));
         assert!(!checks(&world, IntegrityCheck::Never));
         // A start removes the mark at once: a stop that does not close the file leaves none.
-        drop(Storage::open(&dir.0, start).unwrap());
+        drop(Storage::open(&dir.place(), start).unwrap());
         assert!(after_unclean());
         // So does a start that does not check.
-        Storage::open(&dir.0, start).unwrap().close().unwrap();
+        Storage::open(&dir.place(), start).unwrap().close().unwrap();
         let never = Start {
             check: IntegrityCheck::Never,
             ..start
         };
-        drop(Storage::open(&dir.0, never).unwrap());
+        drop(Storage::open(&dir.place(), never).unwrap());
         assert!(after_unclean());
         // An online backup of the open file has no mark.
-        let mut storage = Storage::open(&dir.0, start).unwrap();
-        assert!(storage.begin_backup(&dir.0.join(BACKUP_DIR)).unwrap());
+        let mut storage = Storage::open(&dir.place(), start).unwrap();
+        assert!(storage.begin_backup(&dir.place().backups).unwrap());
         let made = loop {
             if let Some(made) = storage.backup_step().unwrap() {
                 break made;
@@ -2781,7 +2932,7 @@ pub(crate) mod tests {
     fn refuses_a_file_that_is_not_redb(start: StartBackup) {
         let dir = TempDir::new(&format!("not-redb-{start:?}"));
         for _ in 0..=backup::KEPT {
-            Storage::open(&dir.0, Start::checked(StartBackup::Make))
+            Storage::open(&dir.place(), Start::checked(StartBackup::Make))
                 .unwrap()
                 .close()
                 .unwrap();
@@ -2792,7 +2943,7 @@ pub(crate) mod tests {
         let bytes = b"not a redb file".to_vec();
         dir.set_world(&bytes);
         for _ in 0..=backup::KEPT {
-            let e = Storage::open(&dir.0, Start::checked(start)).unwrap_err();
+            let e = Storage::open(&dir.place(), Start::checked(start)).unwrap_err();
             assert!(e.is_damage(), "{start:?}: {e:?}");
             assert!(
                 dir.world().eq(&bytes),
@@ -2811,7 +2962,7 @@ pub(crate) mod tests {
 
     fn refuses_a_newer_format(start: StartBackup) {
         let dir = TempDir::new("newer");
-        let mut storage = Storage::open(&dir.0, Start::checked(start)).unwrap();
+        let mut storage = Storage::open(&dir.place(), Start::checked(start)).unwrap();
         let mut sealed = seal(META_KEY, &Meta::at(1)).unwrap();
         sealed[..2].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
         let mut batch = Batch::default();
@@ -2819,13 +2970,68 @@ pub(crate) mod tests {
         storage.commit(&batch).unwrap();
         storage.close().unwrap();
         let bytes = dir.world();
-        let e = Storage::open(&dir.0, Start::checked(start)).unwrap_err();
+        let e = Storage::open(&dir.place(), Start::checked(start)).unwrap_err();
         assert!(
             matches!(e, Error::NewerFormat { version } if version == FORMAT_VERSION + 1),
             "{e:?}"
         );
         assert!(dir.world().eq(&bytes), "the file is unchanged");
         assert!(dir.backups().is_empty());
+    }
+
+    #[test]
+    fn a_world_name_is_a_file_name_on_windows_and_linux() {
+        let longest = "w".repeat(MAX_FILE_NAME);
+        for good in [
+            "world", "Lobby 2", "로비", "a.b", "con1", "comx", "lpt10", "_", &longest,
+        ] {
+            assert!(is_world_file_name(good), "{good}");
+        }
+        let too_long = "w".repeat(MAX_FILE_NAME + 1);
+        for bad in [
+            "",
+            "a/b",
+            "a\\b",
+            "..",
+            ".",
+            "world.",
+            "world ",
+            " world",
+            "a:b",
+            "a*",
+            "a?",
+            "a|b",
+            "a<b",
+            "a>b",
+            "a\"b",
+            "a\u{0}b",
+            "a\nb",
+            "CON",
+            "con",
+            "Nul.txt",
+            "aux .x",
+            "COM1",
+            "lpt9.redb",
+            "com\u{b9}",
+            "CONIN$",
+            &too_long,
+        ] {
+            assert!(!is_world_file_name(bad), "{bad:?}");
+        }
+        assert_eq!(world_name_key("Lobby"), world_name_key("LOBBY"));
+        assert_ne!(world_name_key("lobby"), world_name_key("lobby2"));
+        let place = Place::world(Path::new("data"), "Lobby");
+        assert_eq!(
+            place.file,
+            Path::new("data").join("world").join("Lobby.redb")
+        );
+        assert_eq!(
+            place.backups,
+            Path::new("data")
+                .join("backups")
+                .join("world")
+                .join("Lobby")
+        );
     }
 
     #[test]
@@ -2937,14 +3143,14 @@ pub(crate) mod tests {
     fn an_online_backup_holds_the_commit_it_began_at_table_by_table() {
         let dir = TempDir::new("online");
         let mut rng = Rng(0xbac0_0001);
-        let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         let mut model = BTreeMap::new();
         storage
             .commit(&random_batch(&mut rng, &mut model, 0))
             .unwrap();
         storage.commit(&large_batch(&mut rng, 20, 1)).unwrap();
         let committed = tables(storage.database().unwrap());
-        assert!(storage.begin_backup(&dir.0.join(BACKUP_DIR)).unwrap());
+        assert!(storage.begin_backup(&dir.place().backups).unwrap());
         assert_eq!(storage.backup_step().unwrap(), None);
         // Commits and reads go on between steps; the backup does not see the new commit.
         let later = random_batch(&mut rng, &mut model, 2);
@@ -2953,7 +3159,7 @@ pub(crate) mod tests {
         let (path, steps) = finish_backup(&mut storage);
         assert!(steps >= 2, "{steps} more steps");
         assert_eq!(
-            names_in(&dir.0.join(BACKUP_DIR)),
+            names_in(&dir.place().backups),
             [path.file_name().unwrap().to_str().unwrap()]
         );
         let mut backup = Builder::new().open(&path).unwrap();
@@ -2967,14 +3173,14 @@ pub(crate) mod tests {
             assert!(copied[name] == *entries, "table {name} differs");
         }
         drop(backup);
-        assert_eq!(crate::save::committed_tick(&path).unwrap(), 1);
+        assert_eq!(crate::save::committed_meta(&path).unwrap().tick, 1);
         storage.close().unwrap();
     }
 
     #[test]
     fn a_failure_mid_copy_leaves_no_backup_and_the_file_works_on() {
         let dir = TempDir::new("online-fault");
-        let backups = dir.0.join(BACKUP_DIR);
+        let backups = dir.place().backups;
         let mut rng = Rng(0xbac0_0002);
         let disk = Disk::default();
         let mut storage = memory(&disk);
@@ -3010,7 +3216,7 @@ pub(crate) mod tests {
     #[test]
     fn a_reopen_of_the_file_stops_the_backup_and_leaves_no_file_of_it() {
         let dir = TempDir::new("online-reopen");
-        let backups = dir.0.join(BACKUP_DIR);
+        let backups = dir.place().backups;
         let mut rng = Rng(0xbac0_0003);
         let disk = Disk::default();
         let mut storage = memory(&disk);
@@ -3035,7 +3241,7 @@ pub(crate) mod tests {
     #[test]
     fn a_second_backup_is_refused_while_one_is_being_made() {
         let dir = TempDir::new("online-second");
-        let backups = dir.0.join(BACKUP_DIR);
+        let backups = dir.place().backups;
         let disk = Disk::default();
         let mut storage = memory(&disk);
         storage.commit(&large_batch(&mut Rng(4), 10, 1)).unwrap();
@@ -3051,12 +3257,12 @@ pub(crate) mod tests {
     #[test]
     fn online_and_start_backups_keep_the_three_newest_together() {
         let dir = TempDir::new("online-kept");
-        let backups = dir.0.join(BACKUP_DIR);
-        Storage::open(&dir.0, Start::checked(StartBackup::Make))
+        let backups = dir.place().backups;
+        Storage::open(&dir.place(), Start::checked(StartBackup::Make))
             .unwrap()
             .close()
             .unwrap();
-        let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         let start = dir.backups();
         assert_eq!(start.len(), 1);
         let mut made = Vec::new();
@@ -3199,7 +3405,7 @@ pub(crate) mod tests {
             "10,000 terrain chunks, {} bytes sealed on average",
             bytes / chunks.len()
         );
-        let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         for count in [1_000, 10_000] {
             let mut batch = Batch::with_capacity(count);
             for (key, value) in &chunks[..count] {
@@ -3239,7 +3445,7 @@ pub(crate) mod tests {
             dir.world_len()
         );
         let start = clock::now();
-        let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+        let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
         println!("open (backup, check, compact): {:.1} ms", ms(start));
         let start = clock::now();
         for batch in keys.chunks(64) {
@@ -3300,9 +3506,10 @@ pub(crate) mod tests {
         let records: Vec<ChunkRecord> = (0..64).map(|_| terrain_chunk(&mut rng)).collect();
         for target in [256u64 << 20, 1 << 30, 4 << 30] {
             let dir = TempDir::new(&format!("start-cost-{target}"));
-            let world = dir.0.join(SERVER_FILE);
-            let backups = dir.0.join(BACKUP_DIR);
-            let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+            let world = dir.place().file;
+            let backups = dir.place().backups;
+            let mut storage =
+                Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
             let start = clock::now();
             let chunks = fill_world(&mut storage, &dir, &records, target);
             println!(
@@ -3361,7 +3568,8 @@ pub(crate) mod tests {
             );
             drop(db);
             let start = clock::now();
-            let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
+            let mut storage =
+                Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
             println!("  whole start {:.0} ms", ms(start));
             // The online backup, with the longest step: the longest a load waits.
             let start = clock::now();

@@ -40,28 +40,36 @@ pub enum Error {
         /// The panic message, or a placeholder if the payload was not text.
         message: String,
     },
-    /// `data/server.redb` failed its integrity check at start, or a value it holds is damaged.
-    /// The server did not start, and the file is left exactly as it was; a backup from
-    /// `data/backups/` can replace it.
+    /// A data file (`data/*.redb`, `data/world/*.redb`) failed its integrity check at start, or a
+    /// value it holds is damaged. The server did not start, and the file is left exactly as it
+    /// was; a backup from its folder in `data/backups/` can replace it.
     WorldDamaged(Box<dyn std::error::Error + Send + Sync>),
-    /// `data/server.redb` was last saved by a newer Anchor; the file is left as it was.
+    /// A data file was last saved by a newer Anchor; the file is left as it was.
     WorldNewerFormat {
         /// The file's format version.
         version: u16,
         /// The newest format version this Anchor reads.
         supported: u16,
     },
-    /// `data/server.redb` could not be opened, read or saved: another process has it open, I/O
-    /// failed, or a save still failed after its retries.
+    /// A data file could not be opened, read or saved: another process has it open, I/O failed,
+    /// a save still failed after its retries, or the server file of an older Anchor could not be
+    /// moved to the data files (it is left as it was).
     Storage(Box<dyn std::error::Error + Send + Sync>),
-    /// Two worlds have the same name.
+    /// Two worlds have the same name, or names that differ only in letter case.
     DuplicateWorld {
         /// The name.
         name: String,
     },
-    /// A world's name or its generator's [`name`](crate::world::Generator::name) is longer than
-    /// the server file holds, 256 bytes.
+    /// A generator's [`name`](crate::world::Generator::name) is longer than the data files hold,
+    /// 256 bytes.
     NameTooLong {
+        /// The name.
+        name: String,
+    },
+    /// A world's name cannot be its file's name (`data/world/<name>.redb`): see
+    /// [`world::Error::InvalidName`](crate::world::Error::InvalidName) for the rule. Names that
+    /// differ only in letter case are one world.
+    InvalidWorldName {
         /// The name.
         name: String,
     },
@@ -111,16 +119,19 @@ impl fmt::Display for Error {
             Self::TlsCertificate(_) => f.write_str("the nethernet tls certificate is unusable"),
             Self::Auth(_) => f.write_str("authorization keys are unavailable"),
             Self::TickPanicked { message } => write!(f, "the tick thread panicked: {message}"),
-            Self::WorldDamaged(_) => f.write_str("the server file is damaged"),
+            Self::WorldDamaged(_) => f.write_str("a data file is damaged"),
             Self::WorldNewerFormat { version, supported } => write!(
                 f,
-                "the server file has format {version}, newer than the supported {supported}"
+                "a data file has format {version}, newer than the supported {supported}"
             ),
-            Self::Storage(_) => f.write_str("the server file could not be opened, read or saved"),
+            Self::Storage(_) => f.write_str("a data file could not be opened, read or saved"),
             Self::DuplicateWorld { name } => write!(f, "two worlds are named {name:?}"),
+            Self::InvalidWorldName { name } => {
+                write!(f, "the world name {name:?} cannot be a file name")
+            }
             Self::NameTooLong { name } => write!(
                 f,
-                "the world or generator name {name:?} is longer than {} bytes",
+                "the generator name {name:?} is longer than {} bytes",
                 storage::codec::MAX_NAME
             ),
             Self::DuplicateGenerator { name } => {
@@ -157,6 +168,7 @@ impl std::error::Error for Error {
             | Self::WorldNewerFormat { .. }
             | Self::DuplicateWorld { .. }
             | Self::NameTooLong { .. }
+            | Self::InvalidWorldName { .. }
             | Self::DuplicateGenerator { .. } => None,
         }
     }
