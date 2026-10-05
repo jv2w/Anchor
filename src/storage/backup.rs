@@ -34,32 +34,38 @@ const SUFFIX: &str = ".redb";
 /// Added to a backup's name while it is being written.
 const TEMP_SUFFIX: &str = ".tmp";
 
-/// Copies `world` into `dir` and returns the copy, or `None` if there is no file or it is empty
-/// (a new world). With [`StartBackup::Transient`] the copy keeps its temporary name: a start
-/// killed before removing it leaves no backup, and the next start removes it; a start that fails
-/// and keeps it gives it its backup name ([`keep`]). Fails with [`Error::InUse`] if another
-/// process has the file open.
+/// Removes the temporary files a killed process left in `dir`, then copies `world` into `dir`
+/// and returns the copy, or `None` if there is no file or it is empty (a new world). With
+/// [`StartBackup::Transient`] the copy keeps its temporary name: a start killed before removing
+/// it leaves no backup, and the next start removes it; a start that fails and keeps it gives it
+/// its backup name ([`keep`]). Fails with [`Error::InUse`] if another process has the file open.
 #[expect(
     clippy::disallowed_types,
     clippy::disallowed_methods,
     reason = "off-tick: the save thread backs up the world file once, before opening it"
 )]
 pub(crate) fn create(world: &Path, dir: &Path, start: StartBackup) -> Result<Option<PathBuf>> {
-    let mut source = match std::fs::File::open(world) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+    let source = match std::fs::File::open(world) {
+        Ok(file) => {
+            match file.try_lock() {
+                Ok(()) => {}
+                Err(TryLockError::WouldBlock) => return Err(Error::InUse),
+                Err(TryLockError::Error(e)) => return Err(Error::Io(e)),
+            }
+            Some(file)
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(Error::Io(e)),
     };
-    match source.try_lock() {
-        Ok(()) => {}
-        Err(TryLockError::WouldBlock) => return Err(Error::InUse),
-        Err(TryLockError::Error(e)) => return Err(Error::Io(e)),
-    }
+    // No process has the file open, or there is none, so no backup is being written.
+    remove_stale(dir)?;
+    let Some(mut source) = source else {
+        return Ok(None);
+    };
     if source.metadata().map_err(Error::Io)?.len() == 0 {
         return Ok(None);
     }
     std::fs::create_dir_all(dir).map_err(Error::Io)?;
-    remove_stale(dir)?;
     copy(&mut source, dir, start).map(Some)
 }
 
@@ -140,13 +146,18 @@ impl Drop for Temp {
     }
 }
 
-/// Removes the temporary files of backups that a killed process left in `dir`.
+/// Removes the temporary files of backups that a killed process left in `dir`, if it exists.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the save thread cleans the backup folder once, before backing up"
 )]
 fn remove_stale(dir: &Path) -> Result<()> {
-    for entry in std::fs::read_dir(dir).map_err(Error::Io)? {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(Error::Io(e)),
+    };
+    for entry in entries {
         let entry = entry.map_err(Error::Io)?;
         let name = entry.file_name();
         let stale = name
@@ -490,6 +501,32 @@ mod tests {
         let made_name = made.file_name().unwrap().to_str().unwrap();
         assert_eq!(names, [made_name, "world.redb"]);
         assert_eq!(std::fs::read(&made).unwrap(), b"world bytes");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_start_without_a_world_file_removes_what_a_killed_copy_left() {
+        let dir = std::env::temp_dir().join(format!("anchor-backup-gone-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).unwrap_or(());
+        let backups = dir.join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        std::fs::write(backups.join("world-1.redb.tmp"), b"partial").unwrap();
+        std::fs::write(backups.join("world-2.redb"), b"whole").unwrap();
+        let world = dir.join("world.redb");
+        // No world file, then an empty one: neither is copied, and both clean the folder.
+        assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
+        std::fs::write(backups.join("world-1.redb.tmp"), b"partial").unwrap();
+        std::fs::write(&world, b"").unwrap();
+        assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
+        let names: Vec<_> = std::fs::read_dir(&backups)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, ["world-2.redb"]);
+        // No backup folder at all is no error.
+        std::fs::remove_dir_all(&backups).unwrap();
+        assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

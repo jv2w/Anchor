@@ -1192,6 +1192,7 @@ console-input = true
 - U1 합침: 별칭 enum을 BDS 모양 `<name>CommandAliases`(이름 먼저)로, 플레이어마다 쓸 수 있는 이름·별칭의 `CommandName` enum을 보냄, `help`는 명령으로 보내지 않음(클라이언트 자체 명령, BDS·PMMP와 같음). 권한별 목록·op 변경 뒤 다시 보내기는 원래 맞았음. 실제 클라이언트 확인 대기.
 - U2 합침: 기본 명령 21개(give, effect, enchant, gamemode, tp, kill, tell, clear, difficulty, kick, op, deop, me, say, list, stop, time, title, xp, spawnpoint, setworldspawn)의 인자 타입·이름·enum을 BDS 기록에 맞춤(고정 기록 대조 시험), Item·Block 인자에 semantic constraint 2, 새 API `Param::player_name`·`Param::suffixed_int`. 결정: 공식 클라이언트에 보이는 것은 BDS와 같게(CLAUDE.md 8절) — PMMP 전용 입력 `gamemode v|view|3`, 문자열 숫자 난이도, `op @a`는 더 받지 않음. `particle`·`whitelist`·`transferserver`·`time start|stop`은 PMMP 모양 유지. 검증 필요: gamemode 숫자 5·6을 BDS가 받는지.
 - U3 합침: 콘솔 문장 표 `src/console/text.rs`(Anchor 고유 문장 139개: 명령 결과·설명, 일반 오류, 채팅 형식, 게임 모드·효과 이름, 접속 키; 매개변수 안 `%key`도 바꿈). 콘솔 명령 결과, 플레이어 명령 결과 로그, 콘솔로 보낸 메시지가 모두 이 표를 씀. 플레이어에게는 키 그대로. 소스의 모든 키에 문장이 있는지 보는 시험.
+- 남은 지적 7 합침: world 파일이 없거나 비어도 시작이 남은 백업 `.tmp`를 먼저 지움(잠금 확인 뒤).
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
