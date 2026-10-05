@@ -16,7 +16,7 @@ use std::iter::Peekable;
 use std::path::{Path, PathBuf};
 
 use redb::backends::FileBackend;
-use redb::{Builder, Database, ReadableDatabase, TableDefinition, TableHandle};
+use redb::{Builder, Database, Durability, ReadableDatabase, TableDefinition, TableHandle};
 use tracing::warn;
 
 use super::{CACHE_BYTES, Error, Result, StartBackup};
@@ -294,6 +294,26 @@ fn number<T: std::str::FromStr>(digits: &str) -> Option<T> {
     digits.parse().ok()
 }
 
+/// The backend of an online backup's file.
+#[cfg(not(test))]
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the save thread opens an online backup's file"
+)]
+fn target(file: std::fs::File) -> Result<FileBackend, redb::DatabaseError> {
+    FileBackend::new(file)
+}
+
+/// The backend of an online backup's file, counting its syncs ([`tests::Counted`]).
+#[cfg(test)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the save thread opens an online backup's file"
+)]
+fn target(file: std::fs::File) -> Result<tests::Counted, redb::DatabaseError> {
+    FileBackend::new(file).map(tests::Counted)
+}
+
 /// A table of the world file as an online backup copies it: its name and the entries left.
 type Source = (
     String,
@@ -302,9 +322,11 @@ type Source = (
 
 /// An online backup being made (PLAN.md 10.9 백업): every table of one read transaction of the
 /// open world file, copied in steps of at most [`STEP_BYTES`], one commit each, into a new
-/// database under `<backup>.tmp`, which is then closed, flushed to disk and renamed. The
-/// read transaction is a consistent view of one commit, so commits made between steps are not
-/// in the copy. Dropped before it is whole, it removes its temporary file.
+/// database under `<backup>.tmp`, which is then committed durably once, closed, flushed to disk
+/// and renamed. The step commits are not flushed: only the whole copy has to reach the disk, and
+/// a copy cut short is a `.tmp` file, never a backup. The read transaction is a consistent view
+/// of one commit, so commits made between steps are not in the copy. Dropped before it is whole,
+/// it removes its temporary file.
 pub(crate) struct Online {
     // Dropped in this order: the source's read transaction, the copy, then its file, which
     // Windows cannot remove while it is open.
@@ -338,7 +360,7 @@ impl Online {
         let (path, temp, file) = new_file(dir)?;
         let mut builder = Builder::new();
         builder.set_cache_size(CACHE_BYTES);
-        let backend = FileBackend::new(file).map_err(|e| Error::Database(e.into()))?;
+        let backend = target(file).map_err(|e| Error::Database(e.into()))?;
         let db = builder
             .create_with_backend(backend)
             .map_err(Error::from_open)?;
@@ -366,15 +388,17 @@ impl Online {
         self.tables.is_empty()
     }
 
-    /// Copies the next step and commits it: entries while the step stays within
-    /// [`STEP_BYTES`] (a larger value is a step alone). Each step is its own durable commit, so
-    /// no step writes or flushes more than its own entries.
+    /// Copies the next step and commits it, without flushing it to disk: entries while the step
+    /// stays within [`STEP_BYTES`] (a larger value is a step alone). Each step is its own commit,
+    /// so no step writes more than its own entries, and none waits for the disk to sync.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the save thread copies a step of an online backup"
     )]
     pub(crate) fn step(&mut self) -> Result<()> {
-        let txn = self.db.begin_write()?;
+        let mut txn = self.db.begin_write()?;
+        txn.set_durability(Durability::None)
+            .map_err(redb::Error::from)?;
         let mut bytes = 0usize;
         while let Some((name, entries)) = self.tables.last_mut() {
             // Opening it creates it, so an empty table is in the copy too.
@@ -402,14 +426,16 @@ impl Online {
         Ok(())
     }
 
-    /// Closes and flushes the whole copy, gives it its backup name and keeps the [`KEPT`] newest
-    /// backups; returns its path.
+    /// Commits the whole copy durably, closes and flushes it, gives it its backup name and keeps
+    /// the [`KEPT`] newest backups; returns its path. The durable commit is the one that makes
+    /// the steps' commits reach the disk; closing the copy alone could not report a failure.
     ///
     /// The copy is not compacted (PLAN.md 10.9 저장 시작 비용): `compact` is one call that took
     /// 3.7 to 4.1 s on copies of 116 and 456 MiB, which every request would wait for, and saves
     /// 10 to 13% of the file. A backup put back as the world file is compacted by that start.
     #[expect(
         clippy::disallowed_types,
+        clippy::disallowed_methods,
         reason = "off-tick: the save thread finishes an online backup"
     )]
     pub(crate) fn finish(self) -> Result<PathBuf> {
@@ -420,6 +446,7 @@ impl Online {
             path,
             dir,
         } = self;
+        db.begin_write()?.commit()?;
         // Closed first: Windows cannot rename an open file.
         drop(db);
         std::fs::OpenOptions::new()
@@ -542,6 +569,107 @@ mod tests {
         drop(file);
         let name = path.file_name().unwrap().to_str().unwrap();
         assert_eq!(name, "world-99999999999-5.redb");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    thread_local! {
+        /// The syncs of online backup files this thread made ([`Counted`]).
+        static SYNCS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        /// The times this thread made an online backup's file longer ([`Counted`]).
+        static GROWTHS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+
+    /// An online backup's file backend that counts its syncs and growths on this thread.
+    #[derive(Debug)]
+    pub(super) struct Counted(pub(super) FileBackend);
+
+    impl redb::StorageBackend for Counted {
+        fn len(&self) -> io::Result<u64> {
+            self.0.len()
+        }
+
+        fn read(&self, offset: u64, out: &mut [u8]) -> io::Result<()> {
+            self.0.read(offset, out)
+        }
+
+        fn set_len(&self, len: u64) -> io::Result<()> {
+            if len > self.0.len()? {
+                GROWTHS.set(GROWTHS.get() + 1);
+            }
+            self.0.set_len(len)
+        }
+
+        fn sync_data(&self) -> io::Result<()> {
+            SYNCS.set(SYNCS.get() + 1);
+            self.0.sync_data()
+        }
+
+        fn write(&self, offset: u64, data: &[u8]) -> io::Result<()> {
+            self.0.write(offset, data)
+        }
+
+        fn close(&self) -> io::Result<()> {
+            self.0.close()
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: test fixtures on disk and the backup's steps"
+    )]
+    fn an_online_backup_step_syncs_only_to_grow_its_file() {
+        let dir = std::env::temp_dir().join(format!("anchor-backup-syncs-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).unwrap_or(());
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = Builder::new().create(dir.join("world.redb")).unwrap();
+        let table = TableDefinition::<&[u8], &[u8]>::new("chunks");
+        let value = vec![7u8; 1 << 20];
+        let txn = source.begin_write().unwrap();
+        {
+            let mut t = txn.open_table(table).unwrap();
+            for n in 0u32..48 {
+                t.insert(n.to_be_bytes().as_slice(), value.as_slice())
+                    .unwrap();
+            }
+        }
+        txn.commit().unwrap();
+        let backups = dir.join("backups");
+        let mut online = Online::begin(&source, &backups).unwrap();
+        // (syncs, file growths) of each step.
+        let mut steps = Vec::new();
+        while !online.is_copied() {
+            let before = (SYNCS.get(), GROWTHS.get());
+            online.step().unwrap();
+            steps.push((SYNCS.get() - before.0, GROWTHS.get() - before.1));
+        }
+        let before = SYNCS.get();
+        let made = online.finish().unwrap();
+        let finish = SYNCS.get() - before;
+        // A step syncs only to make a growth of the file durable (redb does, before a header can
+        // name the larger file), never for its commit: before, every step synced at least once.
+        assert!(steps.len() >= 6, "{steps:?}");
+        assert!(
+            steps.iter().all(|&(syncs, grown)| syncs <= grown),
+            "{steps:?}"
+        );
+        assert!(steps.iter().any(|&(_, grown)| grown == 0), "{steps:?}");
+        // The durable commit and the close: as many for any size of copy.
+        assert!((1..=6).contains(&finish), "{finish} syncs to finish");
+        // The copy is whole.
+        drop(source);
+        let copy = Builder::new().open(&made).unwrap();
+        let read = copy.begin_read().unwrap();
+        let t = read.open_table(table).unwrap();
+        let mut n = 0;
+        for entry in redb::ReadableTable::iter(&t).unwrap() {
+            assert_eq!(entry.unwrap().1.value(), value.as_slice());
+            n += 1;
+        }
+        assert_eq!(n, 48);
+        drop(t);
+        drop(read);
+        drop(copy);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
