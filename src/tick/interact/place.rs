@@ -565,25 +565,6 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 }
             }
             Class::Bed => return bed(ctx, s),
-            // A grindstone (user exception, PLAN.md 8.4; BDS P6 m9-facts STATIONS): on a floor or
-            // a ceiling it faces the placer, on a side it faces away from the clicked block.
-            Class::Grindstone => {
-                let attachment = match face {
-                    Face::Up => {
-                        s = opposite_player(s);
-                        "standing"
-                    }
-                    Face::Down => {
-                        s = opposite_player(s);
-                        "hanging"
-                    }
-                    _ => {
-                        s = set_facing(s, face);
-                        "side"
-                    }
-                };
-                s = props::with_string(s, "attachment", attachment)?;
-            }
             Class::Bell => {
                 if ctx.support(face.opposite()) == SupportType::None {
                     return None;

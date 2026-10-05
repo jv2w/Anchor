@@ -1,11 +1,10 @@
 //! Station windows' request actions: enchanting, anvil, smithing, stonecutter, loom, beacon
-//! payment, grindstone and trades (PLAN.md 10.7 "작업대 계열", 8.4, 8.6).
+//! payment and trades (PLAN.md 10.7 "작업대 계열", 8.4, 8.6).
 //!
 //! The executor hands a station everything it does not do itself: [`takes_craft_recipe`] says
 //! whether a `CraftRecipe` belongs to the open station (an enchanting option, a stonecutter or
 //! smithing recipe, a trade offer), [`action`] runs such actions and the station-only ones
-//! (`CraftRecipeOptional`, `CraftLoomRecipe`, `BeaconPayment`, `CraftGrindstoneRecipe`) with the
-//! executor's slot
+//! (`CraftRecipeOptional`, `CraftLoomRecipe`, `BeaconPayment`) with the executor's slot
 //! operations, [`crafting()`] lets consume actions through, and [`finish`] checks at the end of the
 //! request that exactly the craft's inputs were consumed, from the station's own slots.
 //!
@@ -18,12 +17,11 @@
 
 mod anvil;
 mod enchant;
-mod grindstone;
 #[cfg(test)]
 mod tests;
 
 pub(super) use self::enchant::Choice;
-use super::super::{SessionId, State, block_entity, dispatch, entity, interact, survival, trade};
+use super::super::{SessionId, State, block_entity, dispatch, interact, survival, trade};
 use super::request::{Created, Error, Exec, Made, Result};
 use super::{SlotRef, Station, WindowKind};
 use crate::block;
@@ -46,8 +44,6 @@ const MAX_LOOM_PATTERNS: usize = 6;
 const ANVIL_DAMAGE_PERCENT: u32 = 12;
 /// The random stream purpose of anvil damage.
 const ANVIL: u64 = random::tag("anvil-damage");
-/// The random stream purpose of a grindstone's experience.
-const GRINDSTONE: u64 = random::tag("grindstone-experience");
 
 /// What a station window shows besides its slots: the enchanting options for its input now.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -177,12 +173,6 @@ pub(super) enum Craft {
     },
     /// A beacon payment of one item.
     Beacon { primary: i32, secondary: i32 },
-    /// A grindstone: what each slot holds (one or none), and the enchanting power taken off.
-    Grindstone {
-        input: Stack,
-        additional: Stack,
-        power: u32,
-    },
     /// A trade `times` times.
     Trade {
         net_id: u32,
@@ -200,8 +190,6 @@ pub(super) enum Effect {
     Anvil { cost: u32, finite: bool },
     /// Beacon effects chosen.
     Beacon { primary: i32, secondary: i32 },
-    /// A grindstone used: experience for enchanting power `power`.
-    Ground { power: u32 },
     /// `times` trades of offer `net_id`.
     Traded { net_id: u32, times: u32 },
 }
@@ -267,11 +255,6 @@ pub(super) fn action(exec: &mut Exec<'_>, action: &StackRequestAction) -> Result
         }
         (StackRequestAction::BeaconPayment(a), Some(Station::Beacon)) => {
             begin_beacon(exec, a.primary_effect, a.secondary_effect)?
-        }
-        // The recipe network ID and cost the client sends name nothing the server needs: the
-        // result and the experience follow from the slots (dragonfly ignores them too).
-        (StackRequestAction::CraftGrindstoneRecipe(_), Some(Station::Grindstone)) => {
-            begin_grindstone(exec)?
         }
         _ => return Err(Error::Unsupported),
     };
@@ -492,19 +475,6 @@ fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Cra
     Ok(Craft::Beacon { primary, secondary })
 }
 
-/// `CraftGrindstoneRecipe` ([`grindstone::craft`]): the result of the two slots.
-fn begin_grindstone(exec: &mut Exec<'_>) -> Result<Craft> {
-    let (input, additional) = (ui(exec, 0)?, ui(exec, 1)?);
-    let out = grindstone::craft(&input, &additional).map_err(|_| Error::Recipe)?;
-    exec.set_created(Some(Created::of(&out.result, 1)))?;
-    made(exec, out.result, 1);
-    Ok(Craft::Grindstone {
-        input,
-        additional,
-        power: out.power,
-    })
-}
-
 /// `CraftRecipe` in a trade window (PLAN.md 8.6, BDS facts 6): the offer with that network ID,
 /// `times` times; its payments come from the two payment slots.
 fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8) -> Result<Craft> {
@@ -644,16 +614,6 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
             });
             only_from(exec, &[0]) && exact(exec, 0, 1, &|_| true)
         }
-        Craft::Grindstone {
-            input,
-            additional,
-            power,
-        } => {
-            exec.effects.push(Effect::Ground { power: *power });
-            only_from(exec, &[0, 1])
-                && exact(exec, 0, u32::from(input.count()), &same(input))
-                && exact(exec, 1, u32::from(additional.count()), &same(additional))
-        }
         Craft::Trade {
             net_id,
             offer,
@@ -733,16 +693,6 @@ pub(super) fn apply(
                 }) = window
                 {
                     block_entity::set_beacon(state, world, pos, primary, secondary);
-                }
-            }
-            Effect::Ground { power } => {
-                if let Some(WindowKind::Station {
-                    world,
-                    kind: Station::Grindstone,
-                    ..
-                }) = window
-                {
-                    use_grindstone(state, session, world, power);
                 }
             }
             Effect::Traded { net_id, times } => trade::traded(state, session, net_id, times),
@@ -972,19 +922,6 @@ fn use_anvil(
             super::close_viewers(state, world, pos);
         }
     }
-}
-
-/// A grindstone was used: it gives the experience of the enchantments taken off as orbs at the
-/// player's eyes (dragonfly; [`grindstone::experience`]; none with `experience = false`, as
-/// `entity::drop_experience` decides).
-fn use_grindstone(state: &mut State, session: SessionId, world: WorldIndex, power: u32) {
-    let Some(eye) = state.players.get(&session).map(|p| p.position) else {
-        return;
-    };
-    let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
-    let mut rng = Random::new(seed, state.tick, random::key(GRINDSTONE, &[session.get()]));
-    let amount = grindstone::experience(power, &mut rng);
-    entity::drop_experience(state, world, eye, amount);
 }
 
 /// A block position as a packet vector (the corner).

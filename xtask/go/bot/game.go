@@ -42,39 +42,37 @@ const feedLimit = 1 << 18
 
 // gameScenarios are the game scenarios and their scripts (scenarios.go), with the API scenarios (api.go).
 var gameScenarios = map[string]func(*game) error{
-	"craft":      playCraft,
-	"furnace":    playFurnace,
-	"enchant":    playEnchant,
-	"crops":      playCrops,
-	"trade":      playTrade,
-	"commands":   playCommands,
-	"particles":  playParticles,
-	"kick":       playKick,
-	"forms":      playForms,
-	"script":     playScript,
-	"weather":    playWeather,
-	"joinrain":   playJoinRain,
-	"joinstorm":  playJoinStorm,
-	"grindstone": playGrindstone,
+	"craft":     playCraft,
+	"furnace":   playFurnace,
+	"enchant":   playEnchant,
+	"crops":     playCrops,
+	"trade":     playTrade,
+	"commands":  playCommands,
+	"particles": playParticles,
+	"kick":      playKick,
+	"forms":     playForms,
+	"script":    playScript,
+	"weather":   playWeather,
+	"joinrain":  playJoinRain,
+	"joinstorm": playJoinStorm,
 }
 
 // gameAreas are the scenarios' player positions (feet block): one area each in the spawn chunks of a flat
 // world whose grass is at y -61, far enough apart that the blocks of one never touch another. The script
 // scenario has none: it does not teleport.
 var gameAreas = map[string]protocol.BlockPos{
-	"craft":      {-12, -60, -12},
-	"furnace":    {-12, -60, -4},
-	"enchant":    {-12, -60, 4},
-	"crops":      {-12, -60, 12},
-	"trade":      {-12, -60, 20},
-	"commands":   {-4, -60, -12},
-	"particles":  {-4, -60, -4},
-	"kick":       {-4, -60, 4},
-	"forms":      {-4, -60, 12},
-	"weather":    {4, -60, -12},
-	"joinrain":   {4, -60, -4},
-	"joinstorm":  {4, -60, 4},
-	"grindstone": {4, -60, 12},
+	"craft":     {-12, -60, -12},
+	"furnace":   {-12, -60, -4},
+	"enchant":   {-12, -60, 4},
+	"crops":     {-12, -60, 12},
+	"trade":     {-12, -60, 20},
+	"commands":  {-4, -60, -12},
+	"particles": {-4, -60, -4},
+	"kick":      {-4, -60, 4},
+	"forms":     {-4, -60, 12},
+	"weather":   {4, -60, -12},
+	"joinrain":  {4, -60, -4},
+	"joinstorm": {4, -60, 4},
 }
 
 // isGame reports whether the scenario is a game scenario.

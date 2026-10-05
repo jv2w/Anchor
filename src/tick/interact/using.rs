@@ -453,7 +453,6 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
             | Class::EnchantingTable
             | Class::EnderChest
             | Class::Furnace
-            | Class::Grindstone
             | Class::Hopper
             | Class::Loom
             | Class::ShulkerBox

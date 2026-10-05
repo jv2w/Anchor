@@ -1559,16 +1559,6 @@ fn drops_of(
                     add(custom_drops(items), *p, rng);
                     continue;
                 }
-                // A grindstone that loses its support drops itself, though a hand does not
-                // harvest it (BDS P6, m9-facts STATIONS).
-                if let (true, block::ItemForm::Item(own)) = (s.is(Class::Grindstone), s.item()) {
-                    let own = drops::Drops {
-                        items: vec![Stack::new(own, 1)],
-                        from_block_entity: 0,
-                    };
-                    add(own, *p, rng);
-                    continue;
-                }
                 add(drops::drops(*s, &Stack::EMPTY, rng), *p, rng);
             }
         }

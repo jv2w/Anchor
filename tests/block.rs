@@ -142,8 +142,7 @@ impl Rng {
 #[test]
 fn every_state_is_a_reference_state_with_its_network_id() {
     let reference: BTreeMap<Key, u32> = reference().into_iter().collect();
-    // PMMP's 12,468 states and the 16 of the grindstone, a user exception (PLAN.md 8.4).
-    assert_eq!(State::all().len(), 12_484);
+    assert_eq!(State::all().len(), 12_468);
     for state in State::all() {
         let key = key_of(state);
         assert_eq!(
@@ -444,5 +443,5 @@ fn unknown_names_and_properties_give_none() {
         );
         found += usize::from(expected.is_some());
     }
-    assert_eq!(found, 12_430);
+    assert_eq!(found, 12_688);
 }

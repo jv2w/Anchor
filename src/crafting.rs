@@ -985,16 +985,10 @@ mod tests {
     use super::*;
     use crate::protocol::packet::Packet;
 
-    /// The PMMP recipe dump the tables come from, with the user exceptions' shaped recipes after
-    /// PMMP's (PLAN.md 8.4).
+    /// The PMMP recipe dump the tables come from.
     fn dump() -> Json {
         let text = include_str!("../xtask/data/pmmp/recipes.json");
-        let mut dump: Json = serde_json::from_str(text).unwrap();
-        let exceptions: Json =
-            serde_json::from_str(include_str!("../xtask/data/exceptions.json")).unwrap();
-        let shaped = exceptions["shaped"].as_array().unwrap().clone();
-        dump["shaped"].as_array_mut().unwrap().extend(shaped);
-        dump
+        serde_json::from_str(text).unwrap()
     }
 
     /// The reference item list: runtime ID by name.

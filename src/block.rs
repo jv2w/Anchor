@@ -2258,9 +2258,8 @@ mod tests {
     // pmmp: BannerPatternTypeIdMap::fromId, BannerPatternTypeIdMap::toId
     #[test]
     fn every_kind_and_state_has_its_data() {
-        // PMMP 5.44.3: 799 VanillaBlocks entries, 9 type tags, 42 banner patterns; and the
-        // grindstone, a user exception (PLAN.md 8.4).
-        assert_eq!(Kind::all().len(), 800);
+        // PMMP 5.44.3: 799 VanillaBlocks entries, 9 type tags, 42 banner patterns.
+        assert_eq!(Kind::all().len(), 799);
         assert_eq!(BannerPattern::all().len(), 42);
         for (i, k) in Kind::all().iter().enumerate() {
             assert_eq!(*k as usize, i);

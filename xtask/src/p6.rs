@@ -19,7 +19,7 @@
 //!   the block updates BDS sent for each step are reported with their states (`blocks.txt`). The
 //!   biome definitions and jigsaw data of each spawn capture are checked against `CloudburstMC`'s
 //!   data (`cloudburst`). Last, it runs the game session once (`game`: craft, furnace, enchant,
-//!   crops, trade, grindstone into `target/p6/bds-game/`) and the API session once (`api`: commands,
+//!   crops, trade into `target/p6/bds-game/`) and the API session once (`api`: commands,
 //!   particles, kick, forms into `target/p6/bds-api/`).
 //! - `p6 api bds|anchor [scenario]...`, `p6 api compare A B`: the API session alone (see `api`).
 //! - `p6 import`: a world BDS made, imported into Anchor, sends the same blocks (see `import`).

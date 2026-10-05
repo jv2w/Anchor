@@ -2243,7 +2243,7 @@ fn every_crafting_recipe_crafts_from_its_grid_and_shifted_or_short_grids_are_ref
     // wildflowers: PMMP has no such items, so neither does Anchor.
     assert_eq!(
         unknown,
-        [696, 706, 828, 1012, 1045, 1046, 1160, 1264, 1374, 1408]
+        [696, 706, 828, 1008, 1041, 1042, 1156, 1260, 1370, 1404]
     );
     assert!(all.len() > 1000, "{} crafting recipes", all.len());
     assert!(

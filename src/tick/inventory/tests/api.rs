@@ -553,7 +553,7 @@ fn a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it(
         cx.creative_items(Some("kits")),
         Some(&[Stack::new(stick, 1)][..])
     );
-    assert_eq!(cx.creative_items(None).map(<[Stack]>::len), Some(1634));
+    assert_eq!(cx.creative_items(None).map(<[Stack]>::len), Some(1633));
     assert_eq!(cx.creative_items(Some("other")), None);
     assert_eq!(sent(&mut w), [1], "the client gets the kits");
     assert!(sent(&mut w).is_empty(), "once");

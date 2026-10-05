@@ -834,10 +834,6 @@ fn stations() -> Vec<(blk::State, (C, u8))> {
         (blk::Kind::Loom.default_state(), (C::LoomInput, 9)),
         (blk::Kind::Beacon.default_state(), (C::BeaconPayment, 27)),
         (
-            blk::Kind::Grindstone.default_state(),
-            (C::GrindstoneInput, 16),
-        ),
-        (
             blk::Kind::Furnace.default_state(),
             (C::FurnaceIngredient, 0),
         ),
@@ -876,7 +872,7 @@ fn closing_leaving_or_dying_mid_use_returns_every_input() {
 #[test]
 fn opening_and_closing_every_station_a_hundred_times_leaves_nothing_behind() {
     let (mut w, s) = world(&[]);
-    let positions: Vec<BlockPos> = (0..9).map(|i| BlockPos::new(-6 + i * 2, -60, 6)).collect();
+    let positions: Vec<BlockPos> = (0..8).map(|i| BlockPos::new(-6 + i * 2, -60, 6)).collect();
     for ((block, _), pos) in stations().into_iter().zip(&positions) {
         w.place_block(*pos, block);
     }
@@ -1185,173 +1181,4 @@ fn a_brewing_stand_brews_a_servers_recipes_after_pmmps_container_changes() {
         "one emerald for both"
     );
     check_slots(&w.state);
-}
-
-/// One `kind` with `damage` and `enchantments`.
-fn enchanted(kind: Kind, damage: u16, enchantments: &[(crate::item::Enchantment, u8)]) -> Stack {
-    Stack::new(item(kind), 1)
-        .with_damage(damage)
-        .with_extra(Some(Extra {
-            enchantments: enchantments.to_vec(),
-            ..Extra::default()
-        }))
-        .unwrap()
-}
-
-/// A grindstone at [`AT`] open for a player holding `stacks`, each put into the grindstone slot
-/// given with it (16 input, 17 additional).
-fn grindstone(stacks: &[(Stack, u8)]) -> (World, super::super::super::SessionId) {
-    let all: Vec<Stack> = stacks.iter().map(|(s, _)| s.clone()).collect();
-    let (mut w, s) = world(&all);
-    w.place_block(AT, blk::Kind::Grindstone.default_state());
-    w.open_block(s, AT);
-    for (i, (_, slot)) in stacks.iter().enumerate() {
-        let container = if *slot == 16 {
-            C::GrindstoneInput
-        } else {
-            C::GrindstoneAdditional
-        };
-        put(&mut w, s, u8::try_from(i).unwrap(), 1, (container, *slot));
-    }
-    (w, s)
-}
-
-/// The client's grindstone request (dragonfly `handleGrindstoneCraft`): the craft, a consume of
-/// each filled slot and the result into main slot 8.
-fn grind_request(w: &World, s: super::super::super::SessionId, id: i32) -> Vec<StackRequestAction> {
-    let mut actions = vec![StackRequestAction::CraftGrindstoneRecipe(
-        crate::protocol::CraftGrindstoneRecipeStackRequestAction {
-            recipe_network_id: 0,
-            number_of_crafts: 1,
-            cost: 0,
-        },
-    )];
-    for (container, slot) in [(C::GrindstoneInput, 16), (C::GrindstoneAdditional, 17)] {
-        if let Some(found) = w.try_slot(s, container, slot)
-            && !found.stack.is_empty()
-        {
-            actions.push(consume(1, at(container, slot, found.id.net)));
-        }
-    }
-    actions.push(place(1, created(id), at(COMBINED, 8, 0)));
-    actions
-}
-
-/// The experience orbs in the world: their count and total value.
-fn orbs(w: &mut World) -> (usize, u32) {
-    let cx = super::super::super::Context {
-        state: &mut w.state,
-    };
-    cx.entities(crate::world::Id::DEFAULT)
-        .filter_map(|(_, e)| e.xp_value())
-        .fold((0, 0), |(n, total), v| (n + 1, total + u32::from(v)))
-}
-
-#[test]
-fn a_grindstone_takes_off_all_but_curses_and_gives_their_experience() {
-    use crate::item::Enchantment::{Sharpness, Vanishing};
-    let sword = enchanted(Kind::IronSword, 0, &[(Sharpness, 3), (Vanishing, 1)]);
-    let (mut w, s) = grindstone(&[(sword, 16)]);
-    let before = total_count(&w.state);
-    let id = w.next_id(s);
-    let actions = grind_request(&w, s, id);
-    assert!(ok(&w.request_as(s, id, actions)));
-    assert_eq!(
-        w.inv(s).main.stack(8),
-        &enchanted(Kind::IronSword, 0, &[(Vanishing, 1)])
-    );
-    assert!(ui_stack(&w, s, 0).is_empty());
-    assert_eq!(total_count(&w.state), before);
-    // Sharpness III has enchanting power 23: half rounded up (12) plus up to 11 more.
-    let (count, total) = orbs(&mut w);
-    assert!(
-        count > 0 && (12..24).contains(&total),
-        "{count} orbs, {total}"
-    );
-    check_slots(&w.state);
-}
-
-#[test]
-fn a_grindstone_joins_two_worn_items_of_a_kind_with_five_percent_more() {
-    use crate::item::Enchantment::{Unbreaking, Vanishing};
-    let first = enchanted(Kind::IronSword, 100, &[(Unbreaking, 2)]);
-    let second = enchanted(Kind::IronSword, 200, &[(Vanishing, 1)]);
-    let (mut w, s) = grindstone(&[(first, 16), (second, 17)]);
-    let before = total_count(&w.state);
-    let id = w.next_id(s);
-    let actions = grind_request(&w, s, id);
-    assert!(ok(&w.request_as(s, id, actions)));
-    // 251 - ((251 - 100) + (251 - 200) + 12) = 37.
-    assert_eq!(
-        w.inv(s).main.stack(8),
-        &enchanted(Kind::IronSword, 37, &[(Vanishing, 1)])
-    );
-    assert!(ui_stack(&w, s, 0).is_empty() && ui_stack(&w, s, 1).is_empty());
-    assert_eq!(total_count(&w.state), before - 1, "two swords become one");
-    let (_, total) = orbs(&mut w);
-    // Unbreaking II has enchanting power 13: 7 plus up to 6 more.
-    assert!((7..14).contains(&total), "{total}");
-    check_slots(&w.state);
-}
-
-#[test]
-fn a_grindstone_refuses_different_items_plain_items_and_wrong_consumes() {
-    use crate::item::Enchantment::Sharpness;
-    let iron = enchanted(Kind::IronSword, 10, &[(Sharpness, 1)]);
-    let gold = enchanted(Kind::GoldenSword, 10, &[]);
-    let (mut w, s) = grindstone(&[(iron.clone(), 16), (gold, 17)]);
-    let id = w.next_id(s);
-    let actions = grind_request(&w, s, id);
-    assert!(!ok(&w.request_as(s, id, actions)), "two kinds of sword");
-    // A plain sword alone has nothing to take off.
-    let (mut w, s) = grindstone(&[(enchanted(Kind::IronSword, 10, &[]), 16)]);
-    let id = w.next_id(s);
-    let actions = grind_request(&w, s, id);
-    assert!(!ok(&w.request_as(s, id, actions)), "a plain sword");
-    // Leaving the additional slot's item unconsumed is refused and changes nothing.
-    let (mut w, s) = grindstone(&[(iron.clone(), 16), (iron.clone(), 17)]);
-    let before = totals(&w.state);
-    let id = w.next_id(s);
-    let mut actions = grind_request(&w, s, id);
-    actions.remove(2);
-    assert!(!ok(&w.request_as(s, id, actions)));
-    assert_eq!(totals(&w.state), before);
-    assert_eq!(
-        (ui_stack(&w, s, 0), ui_stack(&w, s, 1)),
-        (iron.clone(), iron)
-    );
-    assert!(w.inv(s).main.stack(8).is_empty());
-    assert_eq!(orbs(&mut w).0, 0);
-    check_slots(&w.state);
-}
-
-#[test]
-fn a_grindstone_request_sent_twice_grinds_once() {
-    use crate::item::Enchantment::{Sharpness, Vanishing};
-    let run = |twice: bool| {
-        let sword = enchanted(Kind::IronSword, 0, &[(Sharpness, 3), (Vanishing, 1)]);
-        let (mut w, s) = grindstone(&[(sword, 16)]);
-        let actions = grind_request(&w, s, -101);
-        assert!(ok(&w.request_as(s, -101, actions.clone())));
-        if twice {
-            assert!(!ok(&w.request_as(s, -101, actions)));
-        }
-        w.state.tick = 1000;
-        (w.state.hash(), orbs(&mut w))
-    };
-    assert_eq!(run(false), run(true));
-}
-
-/// `experience = false`: the grindstone still grinds, but gives no orbs.
-#[test]
-fn without_experience_a_grindstone_gives_no_orbs() {
-    use crate::item::Enchantment::Sharpness;
-    let sword = enchanted(Kind::IronSword, 0, &[(Sharpness, 3)]);
-    let (mut w, s) = grindstone(&[(sword, 16)]);
-    w.state.settings.experience = false;
-    let id = w.next_id(s);
-    let actions = grind_request(&w, s, id);
-    assert!(ok(&w.request_as(s, id, actions)));
-    assert_eq!(w.inv(s).main.stack(8), &enchanted(Kind::IronSword, 0, &[]));
-    assert_eq!(orbs(&mut w), (0, 0));
 }

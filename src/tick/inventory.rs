@@ -99,8 +99,6 @@ const UI_STONECUTTER: u8 = 3;
 const UI_TRADE: u8 = 4;
 const UI_LOOM: u8 = 9;
 const UI_ENCHANTING: u8 = 14;
-/// The grindstone's input and additional item (dragonfly `grindstoneFirstInputSlot`).
-const UI_GRINDSTONE: u8 = 16;
 const UI_BEACON: u8 = 27;
 const UI_SMITHING: u8 = 51;
 /// The type a server answers a window close with (PMMP `WindowTypes::NONE`, -9; P6 facts 1).
@@ -366,7 +364,6 @@ enum Station {
     Stonecutter,
     Loom,
     Beacon,
-    Grindstone,
 }
 
 /// A run of request slots of a window and where they live.
@@ -476,16 +473,6 @@ const LOOM: [Part; 3] = [
     part(ContainerId::LoomMaterial, UI_LOOM + 2, 1, Store::Ui(2)),
 ];
 const BEACON: [Part; 1] = [part(ContainerId::BeaconPayment, UI_BEACON, 1, Store::Ui(0))];
-/// A grindstone: input 16, additional item 17.
-const GRINDSTONE: [Part; 2] = [
-    part(ContainerId::GrindstoneInput, UI_GRINDSTONE, 1, Store::Ui(0)),
-    part(
-        ContainerId::GrindstoneAdditional,
-        UI_GRINDSTONE + 1,
-        1,
-        Store::Ui(1),
-    ),
-];
 /// A trade: payments 4 and 5 (containers 47 and 48, BDS facts 6).
 const TRADE: [Part; 2] = [
     part(
@@ -528,7 +515,6 @@ impl WindowKind {
                 Station::Stonecutter => &STONECUTTER,
                 Station::Loom => &LOOM,
                 Station::Beacon => &BEACON,
-                Station::Grindstone => &GRINDSTONE,
             },
             Self::Trade { .. } => &TRADE,
         }
@@ -555,7 +541,6 @@ impl WindowKind {
                 Station::Stonecutter => ContainerType::Stonecutter,
                 Station::Loom => ContainerType::Loom,
                 Station::Beacon => ContainerType::Beacon,
-                Station::Grindstone => ContainerType::Grindstone,
             },
             Self::Trade { .. } => ContainerType::Trade,
             Self::Menu { kind, .. } => match kind {
@@ -912,7 +897,6 @@ variants!(Station {
     3 => Stonecutter,
     4 => Loom,
     5 => Beacon,
-    6 => Grindstone,
 });
 
 impl<const N: usize> Codec for Slots<N> {
@@ -1894,8 +1878,6 @@ fn window_of(block: block::State, world: WorldIndex, pos: BlockPos) -> Option<Wi
         station(Station::Loom)
     } else if is(Class::Beacon) {
         station(Station::Beacon)
-    } else if is(Class::Grindstone) {
-        station(Station::Grindstone)
     } else {
         return None;
     })

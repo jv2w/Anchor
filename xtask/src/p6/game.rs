@@ -1,5 +1,5 @@
 //! The game scenarios of `cargo xtask p6` (PLAN.md 10.7 P6, 10.9): `craft`, `furnace`, `enchant`,
-//! `crops`, `trade` and `grindstone`. The bot plays each one like the official client
+//! `crops` and `trade`. The bot plays each one like the official client
 //! (`xtask/go/bot/game.go`) and writes the console commands it needs into its capture as `command`
 //! records; the harness runs
 //! each new command on the server's console while the bot runs (`run_scenario`). `p6 game bds` runs
@@ -23,14 +23,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 /// The game scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 6] = [
-    "craft",
-    "furnace",
-    "enchant",
-    "crops",
-    "trade",
-    "grindstone",
-];
+pub(crate) const SCENARIOS: [&str; 5] = ["craft", "furnace", "enchant", "crops", "trade"];
 /// Console commands run once before the game scenarios: no mob spawning, weather, day cycle or
 /// random ticks (grass under a block turning to dirt), so no unrelated entity, time or block traffic
 /// lands between the steps; then every mob is removed.

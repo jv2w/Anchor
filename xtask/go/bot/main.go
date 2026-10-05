@@ -45,7 +45,6 @@
 //	script         the actions of the -script file (api.go: chat, commands, expected texts, items, positions,
 //	               forms, scores, boss bar, titles, menu clicks), for the example tests
 //	weather, joinrain, joinstorm  weather changes and lightning, and joining in rain and thunder (weather.go)
-//	grindstone     a grindstone placed, its supports removed, its window used (grindstone.go)
 //	enchants, stations, potions, entities, villagers, numbers, syntax, limits, limitchat, others, mover, rules,
 //	rulesjoin, tradeup, line<bytes>, linekorean<bytes>  the M9 verification scenarios (verify.go); the line
 //	               scenarios are the byte counts of lineScenarios

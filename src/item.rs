@@ -1361,14 +1361,6 @@ mod tests {
 
     const REFERENCE: &str = include_str!("../xtask/data/reference/items.json");
     const CREATIVE: &str = include_str!("../xtask/data/pmmp/creative.json");
-    /// The user exceptions the generator adds to the PMMP dump (PLAN.md 8.4).
-    const EXCEPTIONS: &str = include_str!("../xtask/data/exceptions.json");
-
-    /// A part of [`EXCEPTIONS`].
-    fn exceptions(part: &str) -> Vec<Json> {
-        let all: Json = serde_json::from_str(EXCEPTIONS).unwrap();
-        all[part].as_array().unwrap().clone()
-    }
 
     fn all() -> impl Iterator<Item = Type> {
         (0..u16::try_from(table::ITEMS.len()).unwrap()).map(Type::from_index)
@@ -1470,8 +1462,7 @@ mod tests {
     #[test]
     fn every_type_has_the_runtime_id_of_its_name() {
         let ids = reference_ids();
-        // PMMP's 1,613 and the grindstone, a user exception.
-        assert_eq!(all().count(), 1614);
+        assert_eq!(all().count(), 1613);
         for t in all() {
             assert_eq!(Some(&i64::from(t.runtime_id())), ids.get(t.name()), "{t:?}");
         }
@@ -1552,14 +1543,7 @@ mod tests {
     #[test]
     fn creative_content_is_the_pmmp_inventory() {
         let ids = reference_ids();
-        let mut dump: Vec<Json> = serde_json::from_str(CREATIVE).unwrap();
-        for e in exceptions("creative") {
-            let at = dump
-                .iter()
-                .position(|d| d["item"]["name"] == e["after"])
-                .unwrap();
-            dump.insert(at + 1, e["entry"].clone());
-        }
+        let dump: Vec<Json> = serde_json::from_str(CREATIVE).unwrap();
         // The 61 bare enchanted books PMMP leaves of the enchantments it lacks are left out.
         let dump: Vec<Json> = dump
             .into_iter()
@@ -1569,7 +1553,7 @@ mod tests {
             })
             .collect();
         let content = creative_content();
-        assert_eq!(content.items.len(), 1694 - 61 + 1, "and the grindstone");
+        assert_eq!(content.items.len(), 1694 - 61);
         assert_eq!(content.items.len(), dump.len());
         // Recomputed from PMMP's creative data files with PMMP's group rules.
         assert_eq!(content.groups.len(), 107);
@@ -1949,10 +1933,7 @@ mod tests {
 
     /// The PMMP item dump (`items.json`), one entry per item type in table order.
     fn item_dump() -> Vec<Json> {
-        let mut dump: Vec<Json> =
-            serde_json::from_str(include_str!("../xtask/data/pmmp/items.json")).unwrap();
-        dump.extend(exceptions("items"));
-        dump
+        serde_json::from_str(include_str!("../xtask/data/pmmp/items.json")).unwrap()
     }
 
     /// The PMMP dump's tables (`tables.json`).

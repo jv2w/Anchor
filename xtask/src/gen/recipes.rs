@@ -1,6 +1,5 @@
 //! `src/crafting/table.rs`: the recipe tables (PLAN.md 10.4) from the PMMP recipe dump
-//! (`xtask/data/pmmp/recipes.json`) and, after PMMP's shaped recipes, the user exceptions' (see
-//! `data::Exceptions`). Every item must resolve to an Anchor item type or a known
+//! (`xtask/data/pmmp/recipes.json`). Every item must resolve to an Anchor item type or a known
 //! item name, or generation fails.
 
 use std::collections::BTreeMap;
@@ -115,12 +114,7 @@ struct SmithingTrimJson {
 
 /// Generates the file text (unformatted).
 pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
-    let mut recipes: Recipes = read_json(root, PMMP_DIR, "recipes.json")?;
-    for r in &data.exceptions.shaped {
-        recipes
-            .shaped
-            .push(serde_json::from_value(r.clone()).map_err(|e| format!("shaped exception: {e}"))?);
-    }
+    let recipes: Recipes = read_json(root, PMMP_DIR, "recipes.json")?;
     let mut out = String::new();
     put!(
         out,
@@ -132,7 +126,7 @@ pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
 
     table(
         &mut out,
-        "Shaped crafting recipes, in dump order, then the user exceptions'.",
+        "Shaped crafting recipes, in dump order.",
         "SHAPED",
         "Shaped<'static>",
         &recipes.shaped,

@@ -1,6 +1,5 @@
-//! Block and item data (PLAN.md 10.4, 10.7): reads the committed PMMP dump (`xtask/data/pmmp/`)
-//! with the user exceptions (`xtask/data/exceptions.json`, see [`Exceptions`]), the reference
-//! lists (`xtask/data/reference/`) and the block upgrade schema of the protocol
+//! Block and item data (PLAN.md 10.4, 10.7): reads the committed PMMP dump (`xtask/data/pmmp/`),
+//! the reference lists (`xtask/data/reference/`) and the block upgrade schema of the protocol
 //! version (`upgrade::LATEST`), checks them against each other, and builds the block state
 //! and item type lists, with their gameplay data, and the tables the data generators emit. The
 //! index of a state or item type in these lists is its number in the generated tables, so every
@@ -21,8 +20,6 @@ type R<T> = Result<T, String>;
 pub(crate) const PMMP_DIR: &str = "xtask/data/pmmp";
 pub(crate) const REFERENCE_DIR: &str = "xtask/data/reference";
 const UPGRADE_PATH: &str = super::upgrade::LATEST;
-/// The user exceptions (PLAN.md 8.4), in `xtask/data/`: see [`Exceptions`].
-const EXCEPTIONS_FILE: &str = "exceptions.json";
 
 /// Bedrock states PMMP splits by data Anchor keeps in the block entity (PLAN.md 10.4, 10.7): the
 /// Bedrock name, the PMMP type Anchor's state takes and what the block entity holds. Only PMMP
@@ -241,9 +238,6 @@ pub(crate) struct Data {
     pub(crate) kinds: Vec<(Identity, u16)>,
     /// The effect, potion, enchantment, tag, banner pattern and furnace tables.
     pub(crate) tables: Tables,
-    /// The creative entries and shaped recipes of the user exceptions, which the creative and
-    /// recipe generators add to PMMP's.
-    pub(crate) exceptions: ExceptionEntries,
     /// Anchor state index of a PMMP (1.26.30) Bedrock state, upgraded with the default values.
     pmmp_state_index: BTreeMap<StateKey, u16>,
     /// PMMP's legacy recipe meta of a PMMP (1.26.30) Bedrock state.
@@ -280,40 +274,6 @@ struct PmmpBlock {
     drops: Json,
     #[serde(default)]
     connect: Option<Connect>,
-}
-
-/// The user exceptions (PLAN.md 8.4, user decision 2026-10-04): blocks PMMP does not have that
-/// Anchor still implements (the grindstone), written by hand in the forms of the PMMP dump. Their
-/// states must be exactly the reference list's states of their names, which PMMP rejects
-/// (`deserialized.json`), and their values come from BDS (its creative list and recipes, P6
-/// captures) and the reference lists; behaviour facts PMMP would give come from BDS P6 or, where
-/// BDS cannot show them, dragonfly. Each entry must still be needed: a block or item name PMMP
-/// has fails generation.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Exceptions {
-    blocks: Vec<PmmpBlock>,
-    items: Vec<PmmpItem>,
-    creative: Vec<CreativeException>,
-    shaped: Vec<Json>,
-}
-
-/// The parts of [`Exceptions`] other generators read.
-#[derive(Debug)]
-pub(crate) struct ExceptionEntries {
-    /// Creative entries in the dump's form, each inserted right after the entry of the item
-    /// name `after` (BDS's position).
-    pub(crate) creative: Vec<CreativeException>,
-    /// Shaped recipes in the dump's form, after PMMP's.
-    pub(crate) shaped: Vec<Json>,
-}
-
-/// A creative entry of the exceptions.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct CreativeException {
-    pub(crate) after: String,
-    pub(crate) entry: Json,
 }
 
 #[derive(Debug, Deserialize)]
@@ -422,9 +382,7 @@ impl Data {
     pub(crate) fn load(root: &Path) -> R<Self> {
         let (network, reference_names) = read_reference(root)?;
         let added = read_upgrade(root)?;
-        let exceptions: Exceptions = read_json(root, "xtask/data", EXCEPTIONS_FILE)?;
-        let (pmmp_states, kind_defaults) =
-            read_pmmp_states(root, exceptions.blocks, &reference_names)?;
+        let (pmmp_states, kind_defaults) = read_pmmp_states(root)?;
         let (states, pmmp_default) = upgrade(&pmmp_states, &added, &network, &reference_names)?;
 
         let mut list = Vec::with_capacity(states.len());
@@ -477,16 +435,12 @@ impl Data {
             items: Vec::new(),
             kinds,
             tables: read_json(root, PMMP_DIR, "tables.json")?,
-            exceptions: ExceptionEntries {
-                creative: exceptions.creative,
-                shaped: exceptions.shaped,
-            },
             pmmp_state_index,
             recipe_meta,
             item_index: BTreeMap::new(),
             runtime_ids: BTreeMap::new(),
         };
-        data.load_items(root, &network, exceptions.items)?;
+        data.load_items(root, &network)?;
         for (i, source) in sources.iter().enumerate() {
             let item = match source {
                 ItemSource::None => StateItem::None,
@@ -500,14 +454,8 @@ impl Data {
         Ok(data)
     }
 
-    /// Loads the PMMP item types, then the exceptions' ([`Exceptions`]), and gives each its
-    /// 1.26.50 runtime ID.
-    fn load_items(
-        &mut self,
-        root: &Path,
-        network: &BTreeMap<StateKey, u32>,
-        exceptions: Vec<PmmpItem>,
-    ) -> R<()> {
+    /// Loads the PMMP item types and gives each its 1.26.50 runtime ID.
+    fn load_items(&mut self, root: &Path, network: &BTreeMap<StateKey, u32>) -> R<()> {
         let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, "items.json")?;
         self.runtime_ids = reference
             .into_iter()
@@ -517,16 +465,7 @@ impl Data {
                     .map_err(|_| format!("runtime ID of {} out of range", i.name))
             })
             .collect::<R<_>>()?;
-        let mut pmmp: Vec<PmmpItem> = read_json(root, PMMP_DIR, "items.json")?;
-        for e in &exceptions {
-            let name = e.bedrock.get("name");
-            if pmmp.iter().any(|p| p.bedrock.get("name") == name) {
-                return Err(format!(
-                    "{EXCEPTIONS_FILE}: PMMP has the item {name:?}; remove the exception"
-                ));
-            }
-        }
-        pmmp.extend(exceptions);
+        let pmmp: Vec<PmmpItem> = read_json(root, PMMP_DIR, "items.json")?;
         for (i, item) in pmmp.iter().enumerate() {
             let index = u16::try_from(i).map_err(|_| "more than 65,536 item types")?;
             let form = self.item_form(&item.bedrock)?;
@@ -876,24 +815,9 @@ type PmmpStates = (
 
 /// Reads the PMMP states by their 1.26.30 Bedrock form and merges overlapping ones (see
 /// [`merge`]); also the default state and identity of each PMMP block type, which all its
-/// states must share. The exception blocks ([`Exceptions`]) join them: each must be a name PMMP
-/// does not have, with exactly the reference list's states of that name.
-fn read_pmmp_states(
-    root: &Path,
-    exceptions: Vec<PmmpBlock>,
-    reference_names: &BTreeMap<String, Vec<StateKey>>,
-) -> R<PmmpStates> {
-    let mut pmmp: Vec<PmmpBlock> = read_json(root, PMMP_DIR, "blocks.json")?;
-    let pmmp_names: BTreeSet<String> = pmmp
-        .iter()
-        .map(|b| bedrock_state(&b.bedrock).map(|k| k.name))
-        .collect::<R<_>>()?;
-    let keys = exceptions
-        .iter()
-        .map(|b| bedrock_state(&b.bedrock))
-        .collect::<R<Vec<_>>>()?;
-    check_exception_states(&pmmp_names, keys, reference_names)?;
-    pmmp.extend(exceptions);
+/// states must share.
+fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
+    let pmmp: Vec<PmmpBlock> = read_json(root, PMMP_DIR, "blocks.json")?;
     let mut groups: BTreeMap<StateKey, Vec<(Values, i32)>> = BTreeMap::new();
     let mut defaults = BTreeMap::new();
     let mut kinds: BTreeMap<String, Identity> = BTreeMap::new();
@@ -959,40 +883,6 @@ fn read_pmmp_states(
         return Err(format!("SHARED entry {name} is not needed"));
     }
     Ok((states, kind_defaults))
-}
-
-/// Checks the states of the exception blocks ([`Exceptions`]): no name PMMP has, no state twice,
-/// and for each name exactly the reference list's states.
-fn check_exception_states(
-    pmmp_names: &BTreeSet<String>,
-    keys: Vec<StateKey>,
-    reference_names: &BTreeMap<String, Vec<StateKey>>,
-) -> R<()> {
-    let mut by_name: BTreeMap<String, BTreeSet<StateKey>> = BTreeMap::new();
-    for key in keys {
-        if pmmp_names.contains(&key.name) {
-            return Err(format!(
-                "{EXCEPTIONS_FILE}: PMMP has the block {}; remove the exception",
-                key.name
-            ));
-        }
-        let name = key.name.clone();
-        if !by_name.entry(name.clone()).or_default().insert(key) {
-            return Err(format!("{EXCEPTIONS_FILE}: a state of {name} twice"));
-        }
-    }
-    for (name, states) in &by_name {
-        let reference: BTreeSet<StateKey> = reference_names
-            .get(name)
-            .map(|r| r.iter().cloned().collect())
-            .unwrap_or_default();
-        if *states != reference {
-            return Err(format!(
-                "{EXCEPTIONS_FILE}: the states of {name} are not the reference list's"
-            ));
-        }
-    }
-    Ok(())
 }
 
 /// PMMP classes whose collision box is inside out, with min above max (PMMP defect): a wall
@@ -1496,28 +1386,6 @@ mod tests {
             name: name.to_owned(),
             properties: Vec::new(),
         }
-    }
-
-    #[test]
-    fn exception_states_must_be_new_unique_and_the_reference_lists() {
-        let state = |dir: i32| StateKey {
-            name: "minecraft:grindstone".to_owned(),
-            properties: vec![("direction".to_owned(), Prop::Int(dir))],
-        };
-        let reference =
-            BTreeMap::from([("minecraft:grindstone".to_owned(), vec![state(0), state(1)])]);
-        let none = BTreeSet::new();
-        assert_eq!(
-            check_exception_states(&none, vec![state(1), state(0)], &reference),
-            Ok(())
-        );
-        let pmmp = BTreeSet::from(["minecraft:grindstone".to_owned()]);
-        let err = check_exception_states(&pmmp, vec![state(0), state(1)], &reference);
-        assert!(err.unwrap_err().contains("PMMP has the block"));
-        let err = check_exception_states(&none, vec![state(0), state(0)], &reference);
-        assert!(err.unwrap_err().contains("twice"));
-        let err = check_exception_states(&none, vec![state(0)], &reference);
-        assert!(err.unwrap_err().contains("not the reference list's"));
     }
 
     /// The value check of overlapping PMMP states (PLAN.md 10.4, 10.7): any difference fails
