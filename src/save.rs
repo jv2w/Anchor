@@ -8,7 +8,8 @@
 //!
 //! A chunk is its terrain and its extras (PLAN.md 10.7): block entities, entities and scheduled
 //! block updates. Every value is under [`MAX_RECORD`] however
-//! much a chunk holds (PLAN.md 6): the terrain is one value per sub-chunk and each extras list is
+//! much a chunk holds (PLAN.md 6): the terrain is one value per sub-chunk (none for an empty
+//! sub-chunk of plains, [`seal_terrain`]) and each extras list is
 //! split into pages, all under keys that share the chunk's prefix. One load reads them all in
 //! one read transaction and answers them together; damage in any of them quarantines the chunk.
 //!
@@ -998,15 +999,11 @@ fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Regis
             );
         }
         (Some(record), 0) => Some(record),
-        (None, SUB_CHUNKS) => {
-            let sub_chunks: Vec<SubChunkRecord> = sub_chunks.into_iter().flatten().collect();
-            sub_chunks
-                .into_boxed_slice()
-                .try_into()
-                .ok()
-                .map(|sub_chunks| ChunkRecord { sub_chunks })
-        }
-        _ => None,
+        // A sub-chunk without a value is empty (format 9; formats 4 to 8 wrote all of them).
+        (None, _) => Some(ChunkRecord {
+            sub_chunks: Box::new(sub_chunks.map(|s| s.unwrap_or_else(empty_sub_chunk))),
+        }),
+        (Some(_), _) => None,
     };
     match record.and_then(|r| to_chunk(r, custom)) {
         Some(mut chunk) => {
@@ -1124,7 +1121,10 @@ fn commit(
     });
     for (id, split, values) in sealed.into_iter().flatten() {
         for (key, value) in values? {
-            batch.put(key, value);
+            match value {
+                Some(value) => batch.put(key, value),
+                None => batch.delete(key),
+            }
         }
         // The whole value of formats 1 to 3 goes in the commit that writes every sub-chunk.
         if !split {
@@ -1189,23 +1189,44 @@ fn world_record(plan: Option<&Plan>, values: WorldValues) -> Option<(Key, WorldR
     Some((Key::World(plan.name.clone()), record))
 }
 
-/// The sealed sub-chunk values a commit writes for a changed chunk's terrain: its changed
-/// sub-chunks, or all 24 when the file does not hold it by sub-chunk yet (air ones too: a chunk
-/// with sub-chunk values has all of them, PLAN.md 6).
-pub(crate) fn seal_terrain(
-    id: ChunkId,
-    chunk: &Chunk,
-) -> Result<Vec<(Key, Vec<u8>)>, storage::Error> {
-    let saved = chunk.saved_sub_chunks();
+/// What a commit does to a key: writes these sealed bytes, or with `None` removes its value.
+pub(crate) type Write = (Key, Option<Vec<u8>>);
+
+/// The sub-chunk values a commit writes for a changed chunk's terrain, by key: its changed
+/// sub-chunks, or all 24 when the file does not hold it by sub-chunk yet. An empty sub-chunk of
+/// plains has no value (format 9, PLAN.md 6), `None` here: a load reads it back from no value.
+/// Only a chunk whose every sub-chunk is so keeps the value of its lowest one, written whether it
+/// changed or not, so the file still holds the chunk and does not generate it.
+pub(crate) fn seal_terrain(id: ChunkId, chunk: &Chunk) -> Result<Vec<Write>, storage::Error> {
+    let empty = |i: usize| {
+        chunk.sub_chunk(i).is_none() && chunk.biome_storage(i).is_none_or(|b| b.is_uniform(PLAINS))
+    };
+    let all_empty = (0..SUB_CHUNKS).all(empty);
+    let saved = chunk.saved_sub_chunks() | u32::from(all_empty);
     (0..SUB_CHUNKS)
         .zip(0u8..)
         .filter(|&(i, _)| saved & (1 << i) != 0)
         .map(|(i, index)| {
             let key = id.key(ChunkPart::SubChunk(index));
+            if empty(i) && !(all_empty && i == 0) {
+                return Ok((key, None));
+            }
             let value = seal(&key.to_bytes(), &sub_chunk_record(chunk, i))?;
-            Ok((key, value))
+            Ok((key, Some(value)))
         })
         .collect()
+}
+
+/// The terrain a sub-chunk without a value has (format 9): no blocks, all plains.
+pub(crate) fn empty_sub_chunk() -> SubChunkRecord {
+    SubChunkRecord {
+        layers: Vec::new(),
+        biomes: Biomes {
+            bits: 0,
+            words: Vec::new(),
+            palette: vec![PLAINS],
+        },
+    }
 }
 
 /// The sealed pages of a chunk's extras list, in order; none for an empty list.
@@ -2241,7 +2262,8 @@ pub(crate) mod tests {
             let mut storage = open(&dir.0, specs()).unwrap().thread.storage;
             // One flipped bit in the middle of this kind's value.
             let mut before = storage.read_chunks(&[id]).unwrap().remove(0).unwrap();
-            assert_eq!(before.len(), SUB_CHUNKS + 3);
+            // The one sub-chunk with blocks (the empty ones have no value) and three extras.
+            assert_eq!(before.len(), 1 + 3);
             let (_, damaged) = before
                 .iter_mut()
                 .find(|(part, _)| *part == ChunkPart::Extras(kind, 0))
@@ -2349,8 +2371,8 @@ pub(crate) mod tests {
         let Some(Response::Checked(storage::Checked::Passed { values })) = found else {
             panic!("{found:?}");
         };
-        // The meta value, the world and the chunk's sub-chunk values at least.
-        assert!(values > 2, "{values}");
+        // The meta value and the chunk's one sub-chunk with blocks at least.
+        assert!(values >= 2, "{values}");
         tx.blocking_send(Request::Finish).unwrap();
         drop(tx);
         handle.join().unwrap().unwrap();
@@ -2607,9 +2629,9 @@ pub(crate) mod tests {
         assert!(pool.shutdown());
     }
 
-    /// A whole terrain value of formats 1 to 3 is rewritten as 24 sub-chunk values and removed
-    /// in the commit after its chunk changes; from then on a commit writes only the sub-chunks
-    /// that changed.
+    /// A whole terrain value of formats 1 to 3 is rewritten as sub-chunk values (none for the
+    /// empty ones) and removed in the commit after its chunk changes; from then on a commit
+    /// writes only the sub-chunks that changed.
     #[test]
     fn a_whole_terrain_value_is_split_by_the_next_commit_and_then_only_changes_are_written() {
         use crate::storage::tests::{Disk, closed, memory};
@@ -2673,25 +2695,101 @@ pub(crate) mod tests {
         world.set_block(BlockPos::new(3, 100, 19), stone()).unwrap();
         let split = save(&mut world);
         let parts: Vec<ChunkPart> = split.iter().map(|v| v.0).collect();
-        let sub_chunks: Vec<ChunkPart> = (0..24).map(ChunkPart::SubChunk).collect();
-        assert_eq!(parts, sub_chunks, "the whole value is gone");
+        let sub_chunks = [ChunkPart::SubChunk(0), ChunkPart::SubChunk(10)];
+        assert_eq!(
+            parts, sub_chunks,
+            "the whole value and the empty sub-chunks are gone"
+        );
         load(&mut world);
         assert_eq!(world.block(BlockPos::new(1, -60, 18)), Some(stone()));
         assert_eq!(world.block(BlockPos::new(3, 100, 19)), Some(stone()));
         world.set_block(BlockPos::new(3, 0, 19), stone()).unwrap();
         let after = save(&mut world);
-        let changed: Vec<ChunkPart> = split
+        let changed: Vec<ChunkPart> = after
             .iter()
-            .zip(&after)
-            .filter(|(a, b)| a != b)
-            .map(|(a, _)| a.0)
+            .filter(|value| !split.contains(value))
+            .map(|value| value.0)
             .collect();
         assert_eq!(changed, [ChunkPart::SubChunk(4)], "y 0 is in sub-chunk 4");
+        assert_eq!(after.len(), 3, "the other values stay as they were");
         assert!(pool.shutdown());
     }
 
-    /// Values that no commit writes together are damage: some sub-chunks without the others, the
-    /// sub-chunks beside a whole terrain value, or an extras page without the one before it.
+    /// Format 9 (M9 후속 U14): an empty sub-chunk of plains has no value, so an imported world
+    /// does not hold a value for every sky sub-chunk; a chunk that is empty everywhere keeps the
+    /// value of its lowest sub-chunk, so it is loaded and not generated again.
+    #[test]
+    fn empty_sub_chunks_have_no_value_and_an_empty_chunk_keeps_its_lowest() {
+        use crate::storage::tests::{Disk, closed};
+        let disk = Disk::default();
+        let pool = crate::runtime::cpu_pool(2).unwrap();
+        let plans = plans();
+        let pos = ChunkPos::new(0, 1);
+        let id = chunk_id(0, pos);
+        let save = |world: &mut World| {
+            let snapshot = Snapshot {
+                start: 1,
+                chunks: world
+                    .take_dirty()
+                    .into_iter()
+                    .map(|(p, c)| (0, p, c))
+                    .collect(),
+                ..Snapshot::default()
+            };
+            commit(
+                &mut closed(&disk),
+                &mut super::tests::plans(),
+                &pool,
+                &snapshot,
+            )
+            .unwrap();
+            let values = closed(&disk).read_chunks(&[id]).unwrap().remove(0).unwrap();
+            values.into_iter().map(|v| v.0).collect::<Vec<_>>()
+        };
+        let load = || {
+            let answers = load_chunks(
+                &mut closed(&disk),
+                &plans,
+                &pool,
+                &[(0, pos)],
+                false,
+                &Registry::default(),
+            )
+            .unwrap();
+            match <[Response; 1]>::try_from(answers) {
+                Ok(
+                    [
+                        Response::Chunk {
+                            loaded: Loaded::Disk(chunk, _),
+                            ..
+                        },
+                    ],
+                ) => chunk,
+                other => panic!("the saved chunk is loaded: {other:?}"),
+            }
+        };
+        let mut world = World::new("world", Kind::Persistent, 5, BlockPos::new(0, 0, 0));
+        world.insert_chunk(pos, Chunk::generate(&crate::world::Void, 5, pos));
+        let high = BlockPos::new(3, 100, 19);
+        world.set_block(high, stone()).unwrap();
+        world.set_block(high, crate::block::AIR).unwrap();
+        assert_eq!(save(&mut world), [ChunkPart::SubChunk(0)]);
+        assert!(load().is_split());
+        world.set_block(high, stone()).unwrap();
+        assert_eq!(
+            save(&mut world),
+            [ChunkPart::SubChunk(0), ChunkPart::SubChunk(10)]
+        );
+        assert_eq!(load().block(3, 100, 3), Some(stone()));
+        world.set_block(high, crate::block::AIR).unwrap();
+        assert_eq!(save(&mut world), [ChunkPart::SubChunk(0)]);
+        assert_eq!(load().block(3, 100, 3), Some(crate::block::AIR));
+        assert!(pool.shutdown());
+    }
+
+    /// Values that no commit writes together are damage: the sub-chunks beside a whole terrain
+    /// value, or an extras page without the one before it. A sub-chunk without a value is empty
+    /// (format 9).
     #[test]
     fn terrain_values_that_do_not_make_one_chunk_load_as_damaged() {
         type Fill<'a> = &'a dyn Fn(&mut Batch);
@@ -2723,9 +2821,9 @@ pub(crate) mod tests {
             ),
             ("the whole value", &|b| column(b), true),
             (
-                "23 sub-chunks",
-                &|b| (1..24).for_each(|i| sub_chunk(b, i)),
-                false,
+                "the sub-chunk with blocks alone",
+                &|b| sub_chunk(b, 0),
+                true,
             ),
             (
                 "sub-chunks and the whole value",

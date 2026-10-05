@@ -461,7 +461,12 @@ fn convert(pos: ChunkPos, raw: &Raw, target: &Target<'_>) -> super::Result<Conve
         limit: MAX_RECORD as u64,
     };
     let id = save::chunk_id(target.number, pos);
-    converted.values = save::seal_terrain(id, &chunk).map_err(too_large)?;
+    // A new world: the empty sub-chunks a value leaves out are not there to delete.
+    converted.values = save::seal_terrain(id, &chunk)
+        .map_err(too_large)?
+        .into_iter()
+        .filter_map(|(key, value)| Some((key, value?)))
+        .collect();
     let mut block_entities = raw.block_entities.clone();
     for c in &mut block_entities {
         converted.upgraded_nbt += upgrade::nbt(c);

@@ -215,13 +215,15 @@ fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Ve
         z,
     };
     let values = storage.read_chunks(&[id]).unwrap().pop().unwrap().unwrap();
-    let mut sub_chunks = Vec::new();
+    // A sub-chunk without a value is empty (format 9).
+    let mut sub_chunks: [Option<SubChunkRecord>; SUB_CHUNKS] = Default::default();
     let mut extras: [Vec<Compound>; 3] = Default::default();
     for (part, sealed) in values {
         let key = ChunkKey { chunk: id, part }.to_bytes();
         match part {
-            ChunkPart::SubChunk(_) => {
-                sub_chunks.push(unseal::<SubChunkRecord>(&key, &sealed).unwrap());
+            ChunkPart::SubChunk(index) => {
+                sub_chunks[usize::from(index)] =
+                    Some(unseal::<SubChunkRecord>(&key, &sealed).unwrap());
             }
             ChunkPart::Extras(kind, _) => {
                 let list = unseal::<ExtraRecord<'_>>(&key, &sealed)
@@ -239,7 +241,7 @@ fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Ve
         }
     }
     let record = ChunkRecord {
-        sub_chunks: sub_chunks.into_boxed_slice().try_into().unwrap(),
+        sub_chunks: Box::new(sub_chunks.map(|s| s.unwrap_or_else(save::empty_sub_chunk))),
     };
     (
         save::to_chunk(record, &Registry::default()).unwrap(),

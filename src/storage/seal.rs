@@ -27,6 +27,7 @@ use super::{Error, Result};
 /// (the number and the time alone); values of formats 1 to 7 still read, their settings skipped.
 /// Format 9 (M9 후속 U14) compresses with raw DEFLATE instead of Snappy, the records unchanged:
 /// a third smaller on the disk (PLAN.md 10.6 저장 크기). Snappy bodies of older values still read.
+/// Format 9 also leaves out the values of empty sub-chunks of plains (`save::seal_terrain`).
 pub(crate) const FORMAT_VERSION: u16 = 9;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
