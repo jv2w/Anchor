@@ -1,8 +1,8 @@
 //! What players are sent of entities and of each other (PLAN.md 10.7 "추적"): the spawn packets
 //! (`AddItemActor`, `AddActor`, `AddPlayer` with their metadata, `AddPainting`; a human NPC also
 //! goes through the player list, as PMMP `Human::sendSpawnPacket` does), movement (`MoveActorDelta` as BDS
-//! sends it, `SetActorMotion`, `MovePlayer`), `SetActorData` when the flags or a cloud's radius
-//! change, equipment, and `RemoveActor`.
+//! sends it, `SetActorMotion`; `MoveActorAbsolute` for players, as PMMP sends it), `SetActorData`
+//! when the flags or a cloud's radius change, equipment, and `RemoveActor`.
 
 use super::kind::{Character, Cloud, Form, Kind, Painting, Projectile, Shot};
 use super::object;
@@ -11,11 +11,11 @@ use crate::config::GameMode;
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
-use crate::protocol::consts::{EntityDataFlag, EntityDataKey};
+use crate::protocol::consts::{EntityDataFlag, EntityDataKey, MoveFlag};
 use crate::protocol::packet::{
     AddActor, AddItemActor, AddPainting, AddPlayer, LocatorBar, MobArmourEquipment, MobEquipment,
-    MoveActorDelta, MovePlayer, Packet, PlayerList, PlayerLocation, RemoveActor, SetActorData,
-    SetActorMotion, UpdateAttributes,
+    MoveActorAbsolute, MoveActorDelta, Packet, PlayerList, PlayerLocation, RemoveActor,
+    SetActorData, SetActorMotion, UpdateAttributes,
 };
 use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, FlagSet, ItemInstance,
@@ -37,8 +37,6 @@ const WINDOW_OFF_HAND: u8 = 119;
 const GAME_TYPE_DEFAULT: i32 = 5;
 const GAME_TYPE_SPECTATOR: i32 = 6;
 const GAME_TYPE_SURVIVAL: i32 = 0;
-/// `MovePlayer` mode of ordinary movement (gophertunnel `MoveModeNormal`).
-const MOVE_MODE_NORMAL: u8 = 0;
 /// The base ability layer BDS sends with `AddPlayer` (P6 `duplicate`): every ability, the walk
 /// and fly speeds, member permissions.
 const ABILITY_LAYER_BASE: u16 = 1;
@@ -802,14 +800,28 @@ pub(in crate::tick) fn locator_life(runtime_id: u64, alive: bool) -> Vec<Packet>
     ]
 }
 
-/// A player's movement to the players who see it (dragonfly and PMMP send the eye position).
-pub(super) fn move_player(runtime_id: u64, eye: Vec3, tick: u64) -> Packet {
-    Packet::MovePlayer(MovePlayer {
+/// A player's movement and look to the players who see it (PMMP `Entity::broadcastMovement`,
+/// dragonfly `ViewEntityMovement`): `MoveActorAbsolute` at the eye position with the ground flag
+/// and without the teleport flag, so the client interpolates it over the next frames. The client
+/// puts an actor at a `MovePlayer` at once, so that packet is only for a player's own position and
+/// for teleports (BDS sends `MovePlayer` here, which makes other players jump 20 times a second).
+pub(super) fn player_moved(
+    runtime_id: u64,
+    eye: Vec3,
+    yaw: f64,
+    pitch: f64,
+    on_ground: bool,
+) -> Packet {
+    let yaw = to_f32(yaw);
+    Packet::MoveActorAbsolute(MoveActorAbsolute {
         entity_runtime_id: runtime_id,
+        flags: if on_ground {
+            u8::from(MoveFlag::OnGround)
+        } else {
+            0
+        },
         position: eye.to_f32(),
-        mode: MOVE_MODE_NORMAL,
-        tick,
-        ..MovePlayer::default()
+        rotation: [to_f32(pitch), yaw, yaw],
     })
 }
 

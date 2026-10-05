@@ -56,3 +56,8 @@ syntax | command gamemode adventure: UpdateAbilities: A 0 != B 1 | UpdateAbiliti
 syntax | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
 syntax | command gamemode spectator: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
 syntax | command gamemode survival: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
+
+# Other players' movement (U8, PLAN.md 10.7): BDS sends it as MovePlayer, which the client applies
+# at once (20 jumps a second); Anchor sends MoveActorAbsolute, which the client interpolates, as
+# PMMP and dragonfly do. Teleports stay MovePlayer mode 2 on both.
+others | wait for the other player: check moves of the other player: A {"MovePlayer mode 0":true,"MovePlayer mode 2":true} != B {"MoveActorAbsolute flags 1":true,"MovePlayer mode 2":true} | other players move by MoveActorAbsolute, which the client interpolates (PMMP broadcastMovement); MovePlayer snaps them

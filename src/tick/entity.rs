@@ -964,6 +964,8 @@ struct Watched {
     viewers: BTreeSet<SessionId>,
     /// The eye position sent.
     position: Vec3,
+    /// The yaw and pitch sent.
+    rotation: (f64, f64),
     held: Stack,
     held_slot: u8,
     off_hand: Stack,
@@ -1536,6 +1538,7 @@ super::checkpoint::fields!(Watched {
     runtime_id,
     viewers,
     position,
+    rotation,
     held,
     held_slot,
     off_hand,
@@ -1646,6 +1649,7 @@ impl Watched {
             runtime_id,
             viewers,
             position,
+            rotation: (yaw, pitch),
             held,
             held_slot,
             off_hand,
@@ -1655,7 +1659,7 @@ impl Watched {
         for v in viewers {
             h.u64(v.get());
         }
-        for c in [position.x, position.y, position.z] {
+        for c in [position.x, position.y, position.z, *yaw, *pitch] {
             h.u64(c.to_bits());
         }
         for stack in std::iter::once(held).chain([off_hand]).chain(armour) {
@@ -3905,6 +3909,7 @@ fn track_players(state: &mut State) {
             runtime_id: target.runtime_id,
             viewers: want,
             position: target.position,
+            rotation: survival::rotation(target),
             held: inv.held().clone(),
             held_slot: inv.held_slot(),
             off_hand: inv.offhand().clone(),
@@ -3947,8 +3952,11 @@ fn track_players(state: &mut State) {
             }
             let kept: Vec<SessionId> = before.viewers.intersection(&now.viewers).copied().collect();
             let mut changes = Vec::new();
-            if before.position != now.position {
-                changes.push(track::move_player(now.runtime_id, now.position, state.tick));
+            if before.position != now.position || before.rotation != now.rotation {
+                let (yaw, pitch) = now.rotation;
+                let ground = survival::is_on_ground(target);
+                let moved = track::player_moved(now.runtime_id, now.position, yaw, pitch, ground);
+                changes.push(moved);
             }
             if before.held != now.held || before.held_slot != now.held_slot {
                 changes.push(track::held(now.runtime_id, &now.held, now.held_slot));
@@ -4305,6 +4313,7 @@ mod tests {
     use super::*;
     use crate::event::Listeners;
     use crate::protocol::Rng;
+    use crate::protocol::consts::MoveFlag;
     use crate::save::Response;
 
     mod events;
@@ -4708,6 +4717,7 @@ mod tests {
             .iter()
             .filter(|p| match p {
                 Packet::MoveActorDelta(m) => m.entity_runtime_id == runtime_id,
+                Packet::MoveActorAbsolute(m) => m.entity_runtime_id == runtime_id,
                 Packet::MovePlayer(m) => m.entity_runtime_id == runtime_id,
                 _ => false,
             })
@@ -5738,6 +5748,50 @@ mod tests {
         h.step(Vec::new());
         assert_eq!(removes(&h.take(2)), vec![one]);
         assert!(h.state.rules.entities.watched.keys().all(|s| s.get() == 2));
+    }
+
+    /// Another player's walk and look reach those who see it as `MoveActorAbsolute` at its eyes
+    /// with the ground flag and no teleport flag, which the client interpolates (PMMP
+    /// `broadcastMovement`). A `MovePlayer` puts it there at once: 20 jumps a second.
+    #[test]
+    fn other_players_walk_and_turn_by_interpolated_moves() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.spawn(2, standing(3.0, 3.0));
+        let one = h.runtime_id(1);
+        h.step(Vec::new());
+        h.take(2);
+        let seen = |h: &mut Harness| {
+            let sent = h.take(2);
+            assert!(
+                !sent
+                    .iter()
+                    .any(|p| matches!(p, Packet::MovePlayer(m) if m.entity_runtime_id == one)),
+                "no MovePlayer for another player's move"
+            );
+            let moves: Vec<_> = sent
+                .into_iter()
+                .filter_map(|p| match p {
+                    Packet::MoveActorAbsolute(m) if m.entity_runtime_id == one => Some(m),
+                    _ => None,
+                })
+                .collect();
+            let [m] = moves.as_slice() else {
+                panic!("one move a tick: {moves:?}");
+            };
+            m.clone()
+        };
+        h.go(1, standing(1.0, 0.0));
+        h.step(Vec::new());
+        let walk = seen(&mut h);
+        assert_eq!(walk.position, standing(1.0, 0.0), "at the eyes");
+        assert_eq!(walk.flags, u8::from(MoveFlag::OnGround));
+        h.look(1, 90.0, 30.0);
+        h.step(Vec::new());
+        let turn = seen(&mut h);
+        assert_eq!(turn.position, walk.position);
+        assert_eq!(turn.rotation, [30.0, 90.0, 90.0], "pitch, yaw, head yaw");
+        assert_eq!(turn.flags, u8::from(MoveFlag::OnGround));
     }
 
     /// Another player is shown as BDS shows it (P6 `others`, m9-facts.md): its own whole entity
