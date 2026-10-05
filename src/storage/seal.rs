@@ -1,16 +1,18 @@
 //! Sealed values: a header, then the record bytes, compressed when that makes them smaller.
 //!
-//! Header (12 bytes, little-endian): format version u16, method u8 (0 stored, 1 Snappy),
-//! reserved u8 (0), record length u32, CRC-32C u32 over the key, the first 8 header bytes and the
+//! Header (12 bytes, little-endian): format version u16, method u8 (0 stored, 1 Snappy, 2 raw
+//! DEFLATE), reserved u8 (0), record length u32, CRC-32C u32 over the key, the first 8 header bytes and the
 //! body. The first two bytes are the format version in every format, so a newer value is told
 //! from a damaged one. Opening reads only the version before it checks the checksum, and checks
 //! the declared length against [`MAX_RECORD`] before it allocates.
 //!
 //! The header is the same in every format; the version tells the record decoder which layout the
-//! body has (`codec`). Values of an older format keep that version until they are written again.
+//! body has (`codec`). Values of an older format keep that version (and those before format 9
+//! their Snappy bodies) until they are written again.
 
 use std::borrow::Cow;
 
+use crate::protocol::compression::zlib::{self, Framing};
 use crate::protocol::compression::{Compression, Compressor, Decompressor};
 use crate::protocol::{Reader, Writer};
 
@@ -23,7 +25,9 @@ use super::{Error, Result};
 /// and the difficulty in world records, format 6 (M9) the weather in world records, format 7 (M9)
 /// the commit identity in the meta value, format 8 (M9 후속 U10) world records without settings
 /// (the number and the time alone); values of formats 1 to 7 still read, their settings skipped.
-pub(crate) const FORMAT_VERSION: u16 = 8;
+/// Format 9 (M9 후속 U14) compresses with raw DEFLATE instead of Snappy, the records unchanged:
+/// a third smaller on the disk (PLAN.md 10.6 저장 크기). Snappy bodies of older values still read.
+pub(crate) const FORMAT_VERSION: u16 = 9;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
 /// on average) and about 9.4 MB with 4096 custom states of the longest NBT (2,293 bytes); a
@@ -39,21 +43,31 @@ const HEADER: usize = 12;
 const MIN_COMPRESSED: usize = 64;
 const STORED: u8 = 0;
 const SNAPPY: u8 = 1;
+const DEFLATE: u8 = 2;
+/// The libdeflate level values are compressed at: level 9 is 1.2% smaller and level 12 4.1% on
+/// a whole imported world, both slower (PLAN.md 10.6 저장 크기).
+const DEFLATE_LEVEL: u8 = 6;
 
 /// Encodes `record` and seals it under `key` (the key's bytes).
 pub(crate) fn seal(key: &[u8], record: &impl Record) -> Result<Vec<u8>> {
     let mut w = Writer::new(Vec::new(), 0);
     record.encode(&mut w).map_err(Error::Encode)?;
-    seal_bytes(key, w.as_bytes(), FORMAT_VERSION)
+    seal_bytes(key, w.as_bytes(), FORMAT_VERSION, Compression::Zlib)
 }
 
 /// Seals record bytes already encoded in the current format (an extras page) under `key`.
 pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
-    seal_bytes(key, record, FORMAT_VERSION)
+    seal_bytes(key, record, FORMAT_VERSION, Compression::Zlib)
 }
 
-/// Seals encoded record bytes of format `version` under `key`.
-fn seal_bytes(key: &[u8], record: &[u8], version: u16) -> Result<Vec<u8>> {
+/// Seals encoded record bytes of format `version` under `key`, compressed with `compression`
+/// (raw DEFLATE, or Snappy as formats before 9 did) when that makes them smaller.
+fn seal_bytes(
+    key: &[u8],
+    record: &[u8],
+    version: u16,
+    compression: Compression,
+) -> Result<Vec<u8>> {
     if record.len() > MAX_RECORD {
         return Err(Error::Encode(crate::protocol::Error::Size));
     }
@@ -65,7 +79,7 @@ fn seal_bytes(key: &[u8], record: &[u8], version: u16) -> Result<Vec<u8>> {
     out.extend_from_slice(&raw_len.to_le_bytes());
     out.extend_from_slice(&[0; 4]);
     if record.len() >= MIN_COMPRESSED {
-        Compressor::new(Compression::Snappy, 1)
+        Compressor::new(compression, DEFLATE_LEVEL)
             .compress(record, &mut out, MAX_RECORD)
             .map_err(|_| Error::Encode(crate::protocol::Error::Size))?;
     }
@@ -74,7 +88,10 @@ fn seal_bytes(key: &[u8], record: &[u8], version: u16) -> Result<Vec<u8>> {
         out.truncate(HEADER);
         out.extend_from_slice(record);
     } else if let Some(method) = out.get_mut(2) {
-        *method = SNAPPY;
+        *method = match compression {
+            Compression::Snappy => SNAPPY,
+            Compression::Zlib => DEFLATE,
+        };
     }
     let crc = checksum(key, &out);
     if let Some(field) = out.get_mut(8..HEADER) {
@@ -115,7 +132,7 @@ pub(crate) fn verify(key: &[u8], sealed: &[u8]) -> Result<()> {
         (STORED, raw_len, body) if body.len() != raw_len => {
             Err(Error::Malformed("stored length differs from the header"))
         }
-        (STORED | SNAPPY, _, _) => Ok(()),
+        (STORED | SNAPPY | DEFLATE, _, _) => Ok(()),
         _ => Err(Error::Malformed("unknown compression method")),
     }
 }
@@ -151,11 +168,14 @@ fn unseal_bytes<'a>(key: &[u8], sealed: &'a [u8]) -> Result<Cow<'a, [u8]>> {
     match method {
         STORED if body.len() == raw_len => Ok(Cow::Borrowed(body)),
         STORED => Err(Error::Malformed("stored length differs from the header")),
-        SNAPPY => {
+        SNAPPY | DEFLATE => {
             let mut out = Vec::new();
-            Decompressor::new(Compression::Snappy)
-                .decompress(body, &mut out, raw_len)
-                .map_err(Error::Compression)?;
+            if method == SNAPPY {
+                Decompressor::new(Compression::Snappy).decompress(body, &mut out, raw_len)
+            } else {
+                zlib::Decoder::new().decompress_whole(body, &mut out, raw_len, Framing::Raw)
+            }
+            .map_err(Error::Compression)?;
             if out.len() == raw_len {
                 Ok(Cow::Owned(out))
             } else {
@@ -261,13 +281,13 @@ impl Crc32c {
 /// Seals record bytes as Anchor M6 did: format 1.
 #[cfg(test)]
 pub(crate) fn seal_v1(key: &[u8], record: &[u8]) -> Vec<u8> {
-    seal_bytes(key, record, 1).unwrap()
+    seal_bytes(key, record, 1, Compression::Snappy).unwrap()
 }
 
 /// Seals record bytes as the Anchor before M9 후속 U10 did: format 7.
 #[cfg(test)]
 pub(crate) fn seal_v7(key: &[u8], record: &[u8]) -> Vec<u8> {
-    seal_bytes(key, record, 7).unwrap()
+    seal_bytes(key, record, 7, Compression::Snappy).unwrap()
 }
 
 #[cfg(test)]
@@ -334,7 +354,7 @@ mod tests {
         let mut rng = Rng(21);
         let chunk = terrain_chunk(&mut rng);
         let sealed = seal(KEY, &chunk).unwrap();
-        assert_eq!(sealed[2], SNAPPY);
+        assert_eq!(sealed[2], DEFLATE);
         assert!(sealed.len() < encode(&chunk).len() / 4);
         assert_eq!(unseal::<ChunkRecord>(KEY, &sealed).unwrap(), chunk);
         let chunk = random_chunk(&mut rng);
@@ -347,6 +367,30 @@ mod tests {
         assert_eq!((sealed[2], sealed.len()), (STORED, HEADER + 9));
         assert_eq!(unseal::<Meta>(b"meta", &sealed).unwrap(), meta);
         assert_eq!(version(&sealed).unwrap(), FORMAT_VERSION);
+    }
+
+    /// Format 9 (M9 후속 U14): values are raw DEFLATE, a third smaller than the Snappy of
+    /// format 8 on terrain, and Snappy values of older formats still open to the same record.
+    #[test]
+    fn values_are_deflated_and_older_snappy_values_still_open() {
+        let mut rng = Rng(5);
+        let chunks: Vec<ChunkRecord> = (0..20).map(|_| terrain_chunk(&mut rng)).collect();
+        let (mut deflated, mut snappy) = (0, 0);
+        for chunk in &chunks {
+            let new = seal(KEY, chunk).unwrap();
+            let old = seal_v7(KEY, &encode(chunk));
+            assert_eq!((new[2], old[2]), (DEFLATE, SNAPPY));
+            assert_eq!(unseal::<ChunkRecord>(KEY, &new).unwrap(), *chunk);
+            assert_eq!(unseal::<ChunkRecord>(KEY, &old).unwrap(), *chunk);
+            verify(KEY, &new).unwrap();
+            verify(KEY, &old).unwrap();
+            deflated += new.len();
+            snappy += old.len();
+        }
+        assert!(
+            deflated * 4 < snappy * 3,
+            "deflate {deflated}, snappy {snappy}"
+        );
     }
 
     #[test]
@@ -415,8 +459,9 @@ mod tests {
             unseal::<ChunkRecord>(KEY, &sealed),
             Err(Error::Malformed(_))
         ));
-        // A Snappy body declaring more than the header: refused by the decoder's limit.
-        let mut sealed = seal(KEY, &terrain_chunk(&mut Rng(4))).unwrap();
+        // A Snappy body (formats before 9) declaring more than the header: refused by the
+        // decoder's limit.
+        let mut sealed = seal_v7(KEY, &encode(&terrain_chunk(&mut Rng(4))));
         let mut body = vec![0x80, 0x80, 0x80, 0x80, 0x04];
         body.extend_from_slice(&sealed[HEADER + 3..]);
         sealed.truncate(HEADER);
@@ -426,10 +471,19 @@ mod tests {
             unseal::<ChunkRecord>(KEY, &sealed),
             Err(Error::Compression(_))
         ));
+        // A DEFLATE body that inflates past the header's length: refused by the same limit.
+        let mut sealed = seal(KEY, &terrain_chunk(&mut Rng(4))).unwrap();
+        let short = u32::from_le_bytes(sealed[4..8].try_into().unwrap()) - 1;
+        sealed[4..8].copy_from_slice(&short.to_le_bytes());
+        reseal(KEY, &mut sealed);
+        assert!(matches!(
+            unseal::<ChunkRecord>(KEY, &sealed),
+            Err(Error::Compression(_))
+        ));
         // Encoding refuses a record over the limit.
         let big = vec![0u8; MAX_RECORD + 1];
         assert!(matches!(
-            seal_bytes(KEY, &big, FORMAT_VERSION),
+            seal_bytes(KEY, &big, FORMAT_VERSION, Compression::Zlib),
             Err(Error::Encode(_))
         ));
         // A player extra or an extras list whose NBT declares more than is there.
@@ -440,14 +494,14 @@ mod tests {
         });
         let at = record.len() - 5;
         record[at - 4..at].copy_from_slice(&u32::MAX.to_le_bytes());
-        let sealed = seal_bytes(KEY, &record, FORMAT_VERSION).unwrap();
+        let sealed = seal_bytes(KEY, &record, FORMAT_VERSION, Compression::Zlib).unwrap();
         assert!(matches!(
             unseal::<PlayerRecord>(KEY, &sealed),
             Err(Error::Record(_))
         ));
         let mut record = encode(&ExtraRecord(vec![Compound::new(); 3].into()));
         record[..4].copy_from_slice(&u32::MAX.to_le_bytes());
-        let sealed = seal_bytes(KEY, &record, FORMAT_VERSION).unwrap();
+        let sealed = seal_bytes(KEY, &record, FORMAT_VERSION, Compression::Zlib).unwrap();
         assert!(matches!(
             unseal::<ExtraRecord<'_>>(KEY, &sealed),
             Err(Error::Record(crate::protocol::Error::Size))

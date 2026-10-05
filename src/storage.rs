@@ -2664,7 +2664,7 @@ pub(crate) mod tests {
     /// the player's bytes, which only redb's integrity check reads at start; returns the bytes.
     fn damage_a_closed_file(dir: &TempDir) -> Vec<u8> {
         let mut storage = Storage::open(&dir.0, Start::checked(StartBackup::Make)).unwrap();
-        // Random letters do not compress, so the name is stored as it is and can be found.
+        // Random letters compress little, so the value's body is long enough to be found.
         let mut rng = Rng(5);
         let name: String = (0..200)
             .map(|_| char::from(b'a' + u8::try_from(rng.below(26)).unwrap()))
@@ -2675,15 +2675,17 @@ pub(crate) mod tests {
             position: [0.0; 3],
             extra: crate::nbt::Compound::new(),
         };
+        let sealed = seal(&key.to_bytes(), &player).unwrap();
+        let body = sealed[12..76].to_vec();
         let mut batch = Batch::default();
-        batch.put(key.clone(), seal(&key.to_bytes(), &player).unwrap());
+        batch.put(key.clone(), sealed);
         storage.commit(&batch).unwrap();
         storage.close().unwrap();
         let mut bytes = dir.world();
         let mut hits = 0;
-        for at in 0..bytes.len() - name.len() {
-            if bytes[at..].starts_with(name.as_bytes()) {
-                bytes[at + 100] ^= 0x20;
+        for at in 0..bytes.len() - body.len() {
+            if bytes[at..].starts_with(&body) {
+                bytes[at + 32] ^= 0x20;
                 hits += 1;
             }
         }
