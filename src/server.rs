@@ -97,17 +97,20 @@ impl Server {
     /// `level-name`) and not yet be in the world file: an import only creates a world, so a
     /// second run is refused with [`import::Error::WorldExists`](crate::import::Error) and
     /// changes nothing. Blocks and items of older versions are upgraded as PMMP upgrades them;
-    /// blocks Anchor does not know are kept as unknown blocks. The overworld's chunks, block
-    /// entities, entities and pending block updates are imported, with the seed, time and spawn;
-    /// the Nether, the End and the players are not (Bedrock files players by device, not by Xbox
-    /// user ID). The [`import::Report`](crate::import::Report) counts what was imported and left
-    /// out.
+    /// blocks Anchor does not know are kept as unknown blocks. The overworld's blocks and block
+    /// entities (with their whole NBT: container items, sign text, ...) are imported, with the
+    /// seed, time and spawn; a chunk's biomes are those the world's generator gives it. Biomes,
+    /// entities and pending block updates of the source are left out and counted, as are the
+    /// Nether, the End and the players (Bedrock files players by device, not by Xbox user ID).
+    /// The [`import::Report`](crate::import::Report) counts what was imported and left out.
     ///
     /// It blocks the calling thread, opens the world file as [`run`](Self::run) does (backup as
     /// `backups` says, integrity check as `integrity-check` says), uses a CPU pool of
     /// `cpu-threads` that it joins before returning, and writes the whole world in one
     /// transaction: on any failure, a chunk that cannot be read included, the world file is left
-    /// as it was. The source folder is only read, and the import fails if it changes meanwhile.
+    /// as it was; the error names the chunk and the key at fault
+    /// ([`import::Error::Key`](crate::import::Error::Key)). The source folder is only read, and the
+    /// import fails if it changes meanwhile.
     #[doc(alias = "FormatConverter::execute")]
     pub fn import_world(
         &self,

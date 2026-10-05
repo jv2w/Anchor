@@ -7,11 +7,11 @@
 //! entries Anchor knows become its states, the server's custom blocks resolve, the rest stays as
 //! unknown blocks with their NBT) and the sealing the save thread uses, so the bytes are those
 //! Anchor writes itself; an all-air chunk is written too, or it would be generated. Legacy
-//! numeric layers become paletted ones, legacy block extra data their second layer (as PMMP
-//! applies it, to sub-chunks of versions 0 to 7), and column biomes cubes (PMMP's ocean where a
-//! chunk has none). Block entities and entities keep their Bedrock compounds, upgraded; pending
-//! block updates become Anchor's scheduled updates, due as many ticks after the world file's
-//! engine tick as they were due after the chunk's.
+//! numeric layers become paletted ones, and legacy block extra data their second layer (as PMMP
+//! applies it, to sub-chunks of versions 0 to 7). Block entities keep their Bedrock compounds
+//! whole, their items upgraded. Only blocks and block entities are imported: a chunk's biomes are
+//! those the world's generator gives the chunk, and entities and pending block updates are left
+//! out and counted.
 //!
 //! Chunks are read in (x, z) order a step at a time, then decoded and converted on the CPU pool,
 //! which keeps input order, so the same source gives the same bytes whatever the thread count.
@@ -23,14 +23,14 @@ use std::path::Path;
 
 use tracing::{info, warn};
 
-use super::chunk::{self, Biomes as RawBiomes, Layer, LegacyBlock, LegacyLayer, Raw};
+use super::chunk::{self, Layer, LegacyBlock, LegacyLayer, Raw};
 use super::{Catalog, Error, Source, upgrade};
 use crate::custom::Registry;
-use crate::nbt::{Compound, List, Value};
+use crate::nbt::{Compound, Value};
 use crate::pool::Pool;
 use crate::save::{self, WorldSpec};
 use crate::storage::codec::{
-    Biomes, BlockLayer, ChunkRecord, MAX_EXTRA_ENTRIES, SubChunkRecord, WorldRecord,
+    BlockLayer, ChunkRecord, MAX_EXTRA_ENTRIES, SubChunkRecord, WorldRecord,
 };
 use crate::storage::seal::{MAX_RECORD, seal};
 use crate::storage::{Batch, ChunkKind, Import, Key, Start, Storage};
@@ -45,8 +45,6 @@ const STEP_BYTES: usize = 256 << 20;
 const LOWEST_SUB_CHUNK: i32 = MIN_Y >> 4;
 /// The `SpawnY` Bedrock writes before the spawn has a height: the game puts it on the ground.
 const SPAWN_Y_UNSET: i32 = 32_767;
-/// The biome of a chunk without biome data (PMMP `BiomeIds::OCEAN`).
-const OCEAN: u32 = 0;
 /// The newest sub-chunk version that takes legacy block extra data as its second layer.
 const LAST_EXTRA_DATA_VERSION: u8 = 7;
 /// Most unknown block names the report lists: the names come from the source's NBT. Blocks of
@@ -61,9 +59,8 @@ const MAX_LISTED_UNKNOWN_BYTES: usize = 1 << 20;
 pub struct Report {
     chunks: u64,
     block_entities: u64,
-    entities: u64,
-    scheduled_updates: u64,
     upgraded_nbt: u64,
+    entities: u64,
     ignored_tags: BTreeMap<u8, u64>,
     nether_chunks: u64,
     end_chunks: u64,
@@ -85,23 +82,23 @@ impl Report {
         self.block_entities
     }
 
-    /// The entities imported.
-    pub fn entities(&self) -> u64 {
-        self.entities
-    }
-
-    /// The pending block updates imported as scheduled updates.
-    pub fn scheduled_updates(&self) -> u64 {
-        self.scheduled_updates
-    }
-
-    /// The block states and item stacks in block entities and entities that were upgraded.
+    /// The block states and item stacks in block entities that were upgraded.
     pub fn upgraded_nbt(&self) -> u64 {
         self.upgraded_nbt
     }
 
-    /// The chunk tags present but not imported (finalization, metadata hashes, tags a newer one
-    /// replaced, ...), with how many chunks had each.
+    /// The entities stored one per key (`actorprefix`, since 1.18.30; the key does not say
+    /// the dimension, so those of the Nether and the End count too), left out: Anchor imports
+    /// blocks and block entities only. Entities of older chunks are stored in a chunk tag (50),
+    /// counted in [`ignored_tags`](Self::ignored_tags).
+    pub fn entities(&self) -> u64 {
+        self.entities
+    }
+
+    /// The chunk tags present but not imported, with how many chunks had each: biomes (43
+    /// `Data3D`, 45 `Data2D`; an imported chunk has the biomes its world's generator gives it),
+    /// entities of chunks before 1.18.30 (50), pending block updates (51), finalization (54),
+    /// metadata hashes (63 to 65), tags a newer one replaced, ...
     pub fn ignored_tags(&self) -> &BTreeMap<u8, u64> {
         &self.ignored_tags
     }
@@ -152,8 +149,6 @@ impl Report {
 struct Converted {
     values: Vec<(Key, Vec<u8>)>,
     block_entities: u64,
-    entities: u64,
-    scheduled_updates: u64,
     upgraded_nbt: u64,
     ignored: Vec<u8>,
     unknown: BTreeMap<String, u64>,
@@ -166,8 +161,9 @@ struct Converted {
 struct Target<'a> {
     /// The world's `chunks` key number.
     number: u32,
-    /// The world file's engine tick, which scheduled updates count from.
-    tick: u64,
+    /// The world, whose generator gives each chunk its biomes with `seed`.
+    spec: &'a WorldSpec,
+    seed: i64,
     custom: &'a Registry,
     /// The chunk and column of a spawn without a height.
     spawn: Option<(ChunkPos, u8, u8)>,
@@ -222,8 +218,7 @@ pub(crate) fn run(
         world = name,
         chunks = report.chunks,
         block_entities = report.block_entities,
-        entities = report.entities,
-        scheduled_updates = report.scheduled_updates,
+        left_out_entities = report.entities,
         "world imported"
     );
     if !report.unknown_blocks.is_empty() {
@@ -267,7 +262,8 @@ fn prepare<E: Sync>(
     let [x, y, z] = world.spawn;
     let target = Target {
         number: save::next_world_number(stored.iter().map(|(_, r)| r.number)),
-        tick: save::stored_tick(storage)?,
+        spec,
+        seed: world.seed,
         custom,
         spawn: (y == SPAWN_Y_UNSET).then(|| {
             let column = |c: i32| u8::try_from(c & 15).unwrap_or_default();
@@ -278,6 +274,7 @@ fn prepare<E: Sync>(
         nether_chunks: catalog.nether_chunks,
         end_chunks: catalog.end_chunks,
         other_dimension_chunks: catalog.other_dimension_chunks,
+        entities: catalog.entities,
         players: catalog.players,
         other_keys: catalog.other_keys,
         ..Report::default()
@@ -361,8 +358,6 @@ fn write_chunks<E: Sync>(
             let c = c?;
             report.chunks += 1;
             report.block_entities += c.block_entities;
-            report.entities += c.entities;
-            report.scheduled_updates += c.scheduled_updates;
             report.upgraded_nbt += c.upgraded_nbt;
             for tag in c.ignored {
                 *report.ignored_tags.entry(tag).or_default() += 1;
@@ -391,12 +386,11 @@ fn write_chunks<E: Sync>(
 
 /// Converts one chunk into its sealed values: a pure function of its inputs, for the CPU pool.
 fn convert(pos: ChunkPos, raw: &Raw, target: &Target<'_>) -> super::Result<Converted> {
-    let biomes = biomes(&raw.biomes);
-    let mut sub_chunks: Vec<SubChunkRecord> = biomes
-        .into_iter()
-        .map(|biomes| SubChunkRecord {
+    let generated = Chunk::generate(target.spec.generator.as_ref(), target.seed, pos);
+    let mut sub_chunks: Vec<SubChunkRecord> = (0..SUB_CHUNKS)
+        .map(|i| SubChunkRecord {
             layers: Vec::new(),
-            biomes,
+            biomes: save::biome_record(&generated, i),
         })
         .collect();
     for section in &raw.sections {
@@ -435,55 +429,20 @@ fn convert(pos: ChunkPos, raw: &Raw, target: &Target<'_>) -> super::Result<Conve
     let id = save::chunk_id(target.number, pos);
     converted.values = save::seal_terrain(id, &chunk).map_err(too_large)?;
     let mut block_entities = raw.block_entities.clone();
-    let mut entities = raw.entities.clone();
-    for c in block_entities.iter_mut().chain(entities.iter_mut()) {
+    for c in &mut block_entities {
         converted.upgraded_nbt += upgrade::nbt(c);
     }
-    let updates = scheduled_updates(raw.pending_ticks.as_ref(), target.tick)?;
-    for (kind, list) in [
-        (ChunkKind::BlockEntities, &block_entities),
-        (ChunkKind::Entities, &entities),
-        (ChunkKind::ScheduledUpdates, &updates),
-    ] {
-        if list.len() > MAX_EXTRA_ENTRIES {
-            return Err(Error::TooLarge {
-                what: "extras of one kind in a chunk",
-                limit: MAX_EXTRA_ENTRIES as u64,
-            });
-        }
-        converted
-            .values
-            .extend(save::seal_pages(id, kind, list).map_err(too_large)?);
+    if block_entities.len() > MAX_EXTRA_ENTRIES {
+        return Err(Error::TooLarge {
+            what: "block entities in a chunk",
+            limit: MAX_EXTRA_ENTRIES as u64,
+        });
     }
+    converted.values.extend(
+        save::seal_pages(id, ChunkKind::BlockEntities, &block_entities).map_err(too_large)?,
+    );
     converted.block_entities = u64::try_from(block_entities.len()).unwrap_or(u64::MAX);
-    converted.entities = u64::try_from(entities.len()).unwrap_or(u64::MAX);
-    converted.scheduled_updates = u64::try_from(updates.len()).unwrap_or(u64::MAX);
     Ok(converted)
-}
-
-/// One biome cube per sub-chunk: the stored cubes, column biomes stretched over every sub-chunk
-/// (PMMP `extrapolate3DBiomes`), or ocean for a chunk without biomes, as PMMP fills it.
-fn biomes(raw: &RawBiomes) -> Vec<Biomes> {
-    let cube = |p: &Paletted<u32>| Biomes {
-        bits: p.bits(),
-        words: p.words().to_vec(),
-        palette: p.palette().to_vec(),
-    };
-    match raw {
-        RawBiomes::Paletted(cubes) => cubes.clone(),
-        RawBiomes::Missing => vec![cube(&Paletted::uniform(OCEAN)); SUB_CHUNKS],
-        RawBiomes::Columns(columns) => {
-            let mut p = Paletted::uniform(OCEAN);
-            for offset in 0..SLOTS {
-                // Slot offset x << 8 | z << 4 | y; the columns are indexed z << 4 | x.
-                let (x, z) = (usize::from(offset >> 8), usize::from((offset >> 4) & 15));
-                let biome = columns.get(z << 4 | x).copied().unwrap_or_default();
-                p.set(offset, u32::from(biome));
-            }
-            p.compact();
-            vec![cube(&p); SUB_CHUNKS]
-        }
-    }
 }
 
 /// A stored layer as Anchor's, each palette entry upgraded ([`upgrade::state`]).
@@ -597,49 +556,6 @@ fn unknown_blocks(chunk: &Chunk) -> BTreeMap<String, u64> {
         *counts.entry(name).or_default() += count;
     }
     counts
-}
-
-/// Bedrock's pending block updates (`PendingTicks`: `currentTick`, `tickList` of `x`, `y`, `z`,
-/// `time`) as Anchor's scheduled updates (`x`, `y`, `z` and the engine tick `time` they are due
-/// at): due `time - currentTick` ticks (at least 0) after the world file's engine tick `tick`.
-fn scheduled_updates(pending: Option<&Compound>, tick: u64) -> super::Result<Vec<Compound>> {
-    let Some(pending) = pending else {
-        return Ok(Vec::new());
-    };
-    let long = |v: Option<&Value>| match v {
-        Some(Value::Int(t)) => Some(i64::from(*t)),
-        Some(Value::Long(t)) => Some(*t),
-        _ => None,
-    };
-    let current = long(pending.get("currentTick"))
-        .ok_or(Error::Malformed("pending ticks without their tick"))?;
-    let list = match pending.get("tickList") {
-        Some(Value::List(List::Compound(list))) => list.as_slice(),
-        Some(Value::List(List::End)) | None => &[],
-        Some(_) => {
-            return Err(Error::Malformed(
-                "pending ticks are not a list of compounds",
-            ));
-        }
-    };
-    list.iter()
-        .map(|entry| {
-            let int = |k: &str| match entry.get(k) {
-                Some(Value::Int(v)) => Ok(Value::Int(*v)),
-                _ => Err(Error::Malformed("a pending tick without its position")),
-            };
-            let time = long(entry.get("time"))
-                .ok_or(Error::Malformed("a pending tick without its time"))?;
-            let delay = u64::try_from(time.saturating_sub(current)).unwrap_or(0);
-            let due = i64::try_from(tick.saturating_add(delay)).unwrap_or(i64::MAX);
-            Ok(Compound::from([
-                ("x".to_owned(), int("x")?),
-                ("y".to_owned(), int("y")?),
-                ("z".to_owned(), int("z")?),
-                ("time".to_owned(), Value::Long(due)),
-            ]))
-        })
-        .collect()
 }
 
 #[cfg(test)]

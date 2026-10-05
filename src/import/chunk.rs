@@ -6,7 +6,8 @@
 //! since 1.18.30: `digp` + chunk position holds the chunk's 8-byte actor ids, `actorprefix` + id
 //! each actor's NBT; older chunks keep entities under tag 50.
 //!
-//! Values (PMMP `LevelDB::loadChunk`, BDS 1.26.52 output for the current forms):
+//! Anchor imports blocks and block entities only (PLAN.md 10.9). The values it reads (PMMP
+//! `LevelDB::loadChunk`, BDS 1.26.52 output for the current forms):
 //! - Version (44, or 118 in old worlds): one byte, 0 to 42 (PMMP `ChunkVersion`, 42 = 1.21.120;
 //!   BDS 1.26.52 still writes 42).
 //! - Sub-chunk (47): a version byte, then for 0 and the misnumbered 2 to 7 4,096 block ids and
@@ -19,23 +20,18 @@
 //!   sub-chunk y + 4 in the key.
 //! - Legacy terrain (48, chunk versions 0 to 2): the whole 16 × 128 × 16 column: 32,768 ids,
 //!   16,384 bytes of meta nibbles (index x << 11 | z << 7 | y), 32,768 bytes of light, a 256-byte
-//!   height map and 256 big-endian biome colours whose top byte is the biome id (layout checked
-//!   against PMMP's `SubChunkConverter::convertSubChunkFromLegacyColumn`).
-//! - `Data3D` (43): a 512-byte height map, then one biome storage per sub-chunk from y -4, laid out
-//!   like a block layer with `i32` palette entries; header 127 (×2) copies the one before. Older
-//!   chunk versions wrote more storages than 24 (PMMP `getExpected3dBiomesCount`); the extra
-//!   ones are read and dropped. `Data2D` (45, before 1.18): a 512-byte height map and 256 biome ids
-//!   (index z << 4 | x); PMMP prefers it when both exist.
-//! - Block entities (49) and old entities (50): little-endian NBT compounds back to back.
-//! - Pending ticks (51): one compound `{currentTick, tickList: [{x, y, z, time, blockState}]}`.
+//!   height map and 1,024 bytes of biome colours (layout checked against PMMP's
+//!   `SubChunkConverter::convertSubChunkFromLegacyColumn`); only the blocks are read.
+//! - Block entities (49): little-endian NBT compounds back to back.
 //! - Legacy block extra data (52, before 1.2.13): an `i32` count, then (`i32` position, `u16`
 //!   id | meta << 8) pairs; the position packs x, z, y as 4, 4, 8 bits (7 bits of y before
 //!   chunk version 3). PMMP applies it as a second layer to sub-chunks of versions 0 to 7.
 //!
-//! Every other tag (finalization 54, the 1.18+ metadata hash 63, 64, 65, ...) is not imported;
-//! [`Raw::ignored`] lists those present, and the tags a newer one replaced. Anything malformed is
-//! an error naming the chunk, where PMMP would sometimes log and go on: a skipped value loses
-//! blocks.
+//! Every other tag is not read: biomes (`Data3D` 43, `Data2D` 45), old entities (50), pending
+//! ticks (51), finalization (54), the 1.18+ metadata hash (63, 64, 65), ...; [`Raw::ignored`]
+//! lists those present, and the tags a newer one replaced. Anything malformed in a value that is
+//! read is an error naming the chunk and the key, where PMMP would sometimes log and go on: a
+//! skipped value loses blocks.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
@@ -44,33 +40,27 @@ use crate::import::{DECODE_BUDGET, Error, Result};
 use crate::nbt::{Compound, Encoding};
 use crate::protocol::Reader;
 use crate::storage::codec::{
-    BLOCKS, Biomes as PalettedBiomes, BlockLayer, MAX_EXTRA_ENTRIES, SUB_CHUNKS, WIDTHS,
-    check_indices, word_count,
+    BLOCKS, BlockLayer, MAX_EXTRA_ENTRIES, WIDTHS, check_indices, word_count,
 };
 
 /// Chunk tags.
-const DATA_3D: u8 = 0x2b;
 const VERSION: u8 = 0x2c;
-const DATA_2D: u8 = 0x2d;
 const SUB_CHUNK: u8 = 0x2f;
 const LEGACY_TERRAIN: u8 = 0x30;
 const BLOCK_ENTITIES: u8 = 0x31;
-const ENTITIES: u8 = 0x32;
-const PENDING_TICKS: u8 = 0x33;
 const LEGACY_EXTRA: u8 = 0x34;
 const OLD_VERSION: u8 = 0x76;
-/// The tags whose values are kept for decoding.
-const READ_TAGS: [u8; 9] = [
-    DATA_3D,
-    VERSION,
-    DATA_2D,
-    LEGACY_TERRAIN,
-    BLOCK_ENTITIES,
-    ENTITIES,
-    PENDING_TICKS,
-    LEGACY_EXTRA,
-    OLD_VERSION,
+/// The tags whose values are kept for decoding, with their names in Mojang's LevelDB
+/// documentation for errors.
+const READ_TAGS: [(u8, &str); 5] = [
+    (VERSION, "Version"),
+    (LEGACY_TERRAIN, "LegacyTerrain"),
+    (BLOCK_ENTITIES, "BlockEntity"),
+    (LEGACY_EXTRA, "LegacyBlockExtraData"),
+    (OLD_VERSION, "LegacyVersion"),
 ];
+/// The name of [`SUB_CHUNK`] keys, as [`READ_TAGS`] names the others.
+const SUB_CHUNK_NAME: &str = "SubChunkPrefix";
 /// The newest chunk version read (PMMP `ChunkVersion::v1_21_120`).
 const MAX_CHUNK_VERSION: u8 = 42;
 /// The newest sub-chunk version read.
@@ -82,8 +72,6 @@ const MAX_Y: i8 = 19;
 const CAVES_CLIFFS_OFFSET: i8 = 4;
 /// The most value bytes kept for one chunk.
 const MAX_CHUNK_BYTES: usize = 64 << 20;
-/// The height map before `Data3D` and `Data2D` biomes.
-const HEIGHT_MAP: usize = 512;
 /// Legacy terrain: ids, meta, light, height map, biome colours.
 const LEGACY_IDS: usize = 32_768;
 const LEGACY_META: usize = 16_384;
@@ -102,8 +90,10 @@ pub(crate) enum Key {
     Dimension { dimension: i32, version: bool },
     /// `~local_player` or `player_*`.
     Player,
-    /// `digp*` or `actorprefix*`.
-    Actor,
+    /// `actorprefix*`: one entity.
+    Entity,
+    /// `digp*`: a chunk's list of entities.
+    EntityList,
     /// Any other key.
     Other,
 }
@@ -120,9 +110,11 @@ fn le_i32(bytes: &[u8], at: usize) -> Option<i32> {
 
 /// Classifies a database key.
 pub(crate) fn classify(key: &[u8]) -> Key {
-    let digest = key.starts_with(b"digp") && matches!(key.len(), 12 | 16);
-    if digest || (key.starts_with(b"actorprefix") && key.len() == 19) {
-        return Key::Actor;
+    if key.starts_with(b"digp") && matches!(key.len(), 12 | 16) {
+        return Key::EntityList;
+    }
+    if key.starts_with(b"actorprefix") && key.len() == 19 {
+        return Key::Entity;
     }
     if key == b"~local_player" || key.starts_with(b"player_") {
         return Key::Player;
@@ -171,35 +163,6 @@ pub(crate) fn after(prefix: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// The `digp` key of the overworld chunk (`x`, `z`).
-pub(crate) fn digest_key(x: i32, z: i32) -> Vec<u8> {
-    let mut key = b"digp".to_vec();
-    key.extend_from_slice(&prefix(x, z));
-    key
-}
-
-/// The `actorprefix` key of actor `id`.
-pub(crate) fn actor_key(id: [u8; 8]) -> Vec<u8> {
-    let mut key = b"actorprefix".to_vec();
-    key.extend_from_slice(&id);
-    key
-}
-
-/// The actor ids of a `digp` value.
-pub(crate) fn actor_ids(value: &[u8]) -> Result<&[[u8; 8]]> {
-    let (ids, rest) = value.as_chunks::<8>();
-    if !rest.is_empty() {
-        return Err(Error::Malformed("digp is not whole actor ids"));
-    }
-    if ids.len() > MAX_EXTRA_ENTRIES {
-        return Err(Error::TooLarge {
-            what: "entities in a chunk",
-            limit: MAX_EXTRA_ENTRIES as u64,
-        });
-    }
-    Ok(ids)
-}
-
 /// The values of one overworld chunk, as read from the database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Entries {
@@ -211,9 +174,6 @@ pub(crate) struct Entries {
     /// Sub-chunk values by the y in their key, within the range any chunk version imports.
     sub_chunks: BTreeMap<i8, Vec<u8>>,
     ignored: BTreeSet<u8>,
-    /// Whether the chunk has a `digp` key: its entities are `actors`, not tag 50.
-    digest: bool,
-    actors: Vec<Vec<u8>>,
     bytes: usize,
 }
 
@@ -225,8 +185,6 @@ impl Entries {
             tags: BTreeMap::new(),
             sub_chunks: BTreeMap::new(),
             ignored: BTreeSet::new(),
-            digest: false,
-            actors: Vec::new(),
             bytes: 0,
         }
     }
@@ -251,7 +209,7 @@ impl Entries {
     /// Adds the value of `key`, a key starting with this chunk's 8-byte prefix.
     pub(crate) fn add(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         match key.get(8..).unwrap_or_default() {
-            &[tag] if READ_TAGS.contains(&tag) => {
+            &[tag] if READ_TAGS.iter().any(|&(t, _)| t == tag) => {
                 self.count(value.len())?;
                 self.tags.insert(tag, value.to_vec());
             }
@@ -274,16 +232,27 @@ impl Entries {
         Ok(())
     }
 
-    /// Notes that the chunk has a `digp` key.
-    pub(crate) fn set_digest(&mut self) {
-        self.digest = true;
-    }
-
-    /// Adds the NBT of an actor `digp` lists.
-    pub(crate) fn add_actor(&mut self, value: Vec<u8>) -> Result<()> {
-        self.count(value.len())?;
-        self.actors.push(value);
-        Ok(())
+    /// Names the key of this chunk ending in `suffix` (a tag, and a sub-chunk's y) in `error`.
+    fn at_key(&self, suffix: &[u8], error: Error) -> Error {
+        let kind = match suffix.first() {
+            Some(&SUB_CHUNK) => SUB_CHUNK_NAME,
+            Some(tag) => READ_TAGS
+                .iter()
+                .find(|(t, _)| t == tag)
+                .map_or("unknown", |&(_, name)| name),
+            None => "unknown",
+        };
+        let mut key = String::with_capacity(2 * (8 + suffix.len()));
+        for byte in prefix(self.x, self.z).iter().chain(suffix) {
+            for digit in [byte >> 4, byte & 0xf] {
+                key.extend(char::from_digit(digit.into(), 16));
+            }
+        }
+        Error::Key {
+            kind,
+            key,
+            source: Box::new(error),
+        }
     }
 }
 
@@ -294,14 +263,8 @@ pub(crate) struct Raw {
     pub(crate) version: u8,
     /// The stored sub-chunks from y -4 to 19, by ascending y; the others hold only air.
     pub(crate) sections: Vec<Section>,
-    /// The biomes.
-    pub(crate) biomes: Biomes,
     /// Block entity compounds.
     pub(crate) block_entities: Vec<Compound>,
-    /// Entity compounds.
-    pub(crate) entities: Vec<Compound>,
-    /// The pending ticks compound, if any.
-    pub(crate) pending_ticks: Option<Compound>,
     /// Legacy block extra data (tag 52): blocks of a second layer for sub-chunks of versions 0
     /// to 7.
     pub(crate) legacy_blocks: Vec<LegacyBlock>,
@@ -364,18 +327,8 @@ pub(crate) struct LegacyBlock {
     pub(crate) meta: u8,
 }
 
-/// A chunk's biomes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Biomes {
-    /// None stored; PMMP fills such chunks with ocean (0).
-    Missing,
-    /// One biome id per column, index `z << 4 | x` (`Data2D` or legacy terrain).
-    Columns(Box<[u8; 256]>),
-    /// One storage per sub-chunk from y -4: [`SUB_CHUNKS`] of them (`Data3D`).
-    Paletted(Vec<PalettedBiomes>),
-}
-
-/// Decodes a chunk's values into raw data. An error names the chunk.
+/// Decodes a chunk's values into raw data. An error names the chunk, and the key when one value
+/// is at fault.
 pub(crate) fn decode(entries: &Entries) -> Result<Raw> {
     decode_unlocated(entries).map_err(|e| Error::Chunk {
         x: entries.x,
@@ -387,17 +340,43 @@ pub(crate) fn decode(entries: &Entries) -> Result<Raw> {
 fn decode_unlocated(entries: &Entries) -> Result<Raw> {
     let mut ignored = entries.ignored.clone();
     let tag = |t: u8| entries.tags.get(&t).map(Vec::as_slice);
-    let version_bytes = match (tag(VERSION), tag(OLD_VERSION)) {
+    let (version_tag, version_bytes) = match (tag(VERSION), tag(OLD_VERSION)) {
         (Some(version), old) => {
             if old.is_some() {
                 ignored.insert(OLD_VERSION);
             }
-            version
+            (VERSION, version)
         }
-        (None, Some(old)) => old,
+        (None, Some(old)) => (OLD_VERSION, old),
         (None, None) => return Err(Error::Malformed("chunk has no version")),
     };
-    let &[version] = version_bytes else {
+    let version = chunk_version(version_bytes).map_err(|e| entries.at_key(&[version_tag], e))?;
+    let mut budget = DECODE_BUDGET;
+    let sections = terrain(entries, version, &mut ignored, &mut budget)?;
+    let block_entities = match tag(BLOCK_ENTITIES) {
+        Some(value) => {
+            nbt_list(value, &mut budget).map_err(|e| entries.at_key(&[BLOCK_ENTITIES], e))?
+        }
+        None => Vec::new(),
+    };
+    let legacy_blocks = match tag(LEGACY_EXTRA) {
+        Some(value) => {
+            legacy_extra(value, version).map_err(|e| entries.at_key(&[LEGACY_EXTRA], e))?
+        }
+        None => Vec::new(),
+    };
+    Ok(Raw {
+        version,
+        sections,
+        block_entities,
+        legacy_blocks,
+        ignored: ignored.into_iter().collect(),
+    })
+}
+
+/// The chunk version a version value holds.
+fn chunk_version(value: &[u8]) -> Result<u8> {
+    let &[version] = value else {
         return Err(Error::Malformed("chunk version is not one byte"));
     };
     if version > MAX_CHUNK_VERSION {
@@ -407,65 +386,23 @@ fn decode_unlocated(entries: &Entries) -> Result<Raw> {
             supported: MAX_CHUNK_VERSION.into(),
         });
     }
-    let mut budget = DECODE_BUDGET;
-    let (sections, biomes) = terrain(entries, version, &mut ignored, &mut budget)?;
-    let block_entities = match tag(BLOCK_ENTITIES) {
-        Some(value) => nbt_list(value, &mut budget)?,
-        None => Vec::new(),
-    };
-    let entities = if entries.digest {
-        if tag(ENTITIES).is_some() {
-            ignored.insert(ENTITIES);
-        }
-        let mut entities = Vec::with_capacity(entries.actors.len());
-        for actor in &entries.actors {
-            entities.push(nbt_one(actor, &mut budget)?);
-        }
-        entities
-    } else {
-        match tag(ENTITIES) {
-            Some(value) => nbt_list(value, &mut budget)?,
-            None => Vec::new(),
-        }
-    };
-    let pending_ticks = tag(PENDING_TICKS)
-        .map(|value| nbt_one(value, &mut budget))
-        .transpose()?;
-    let legacy_blocks = match tag(LEGACY_EXTRA) {
-        Some(value) => legacy_extra(value, version)?,
-        None => Vec::new(),
-    };
-    Ok(Raw {
-        version,
-        sections,
-        biomes,
-        block_entities,
-        entities,
-        pending_ticks,
-        legacy_blocks,
-        ignored: ignored.into_iter().collect(),
-    })
+    Ok(version)
 }
 
-/// The sub-chunks and biomes of a chunk of `version`; superseded tags go to `ignored`.
+/// The sub-chunks of a chunk of `version`; superseded tags go to `ignored`.
 fn terrain(
     entries: &Entries,
     version: u8,
     ignored: &mut BTreeSet<u8>,
     budget: &mut usize,
-) -> Result<(Vec<Section>, Biomes)> {
+) -> Result<Vec<Section>> {
     let tag = |t: u8| entries.tags.get(&t).map(Vec::as_slice);
     if version <= 2 {
         if !entries.sub_chunks.is_empty() {
             ignored.insert(SUB_CHUNK);
         }
-        for t in [DATA_2D, DATA_3D] {
-            if tag(t).is_some() {
-                ignored.insert(t);
-            }
-        }
         let terrain = tag(LEGACY_TERRAIN).ok_or(Error::Malformed("chunk has no legacy terrain"))?;
-        return legacy_terrain(terrain);
+        return legacy_terrain(terrain).map_err(|e| entries.at_key(&[LEGACY_TERRAIN], e));
     }
     if tag(LEGACY_TERRAIN).is_some() {
         ignored.insert(LEGACY_TERRAIN);
@@ -479,28 +416,14 @@ fn terrain(
     for (&key_y, value) in &entries.sub_chunks {
         let y = key_y - offset;
         if (MIN_Y..=MAX_Y).contains(&y) {
-            sections.push(section(value, key_y, y, budget)?);
+            let section = section(value, key_y, y, budget)
+                .map_err(|e| entries.at_key(&[SUB_CHUNK, key_y.to_le_bytes()[0]], e))?;
+            sections.push(section);
         } else {
             ignored.insert(SUB_CHUNK);
         }
     }
-    let biomes = match (tag(DATA_2D), tag(DATA_3D)) {
-        (Some(columns), data_3d) => {
-            if data_3d.is_some() {
-                ignored.insert(DATA_3D);
-            }
-            let columns = columns
-                .get(HEIGHT_MAP..)
-                .and_then(|ids| <&[u8; 256]>::try_from(ids).ok())
-                .ok_or(Error::Malformed(
-                    "Data2D is not a height map and 256 biomes",
-                ))?;
-            Biomes::Columns(Box::new(*columns))
-        }
-        (None, Some(data_3d)) => Biomes::Paletted(biomes_3d(data_3d, version, budget)?),
-        (None, None) => Biomes::Missing,
-    };
-    Ok((sections, biomes))
+    Ok(sections)
 }
 
 /// Maps a non-NBT read failure to the chunk error.
@@ -523,17 +446,6 @@ fn nbt_list(value: &[u8], budget: &mut usize) -> Result<Vec<Compound>> {
     }
     *budget = r.budget();
     Ok(list)
-}
-
-/// One little-endian NBT compound filling `value`.
-fn nbt_one(value: &[u8], budget: &mut usize) -> Result<Compound> {
-    let mut r = Reader::new(value, *budget, 0);
-    let compound = r.nbt(Encoding::LittleEndian).map_err(Error::Nbt)?;
-    if !r.remaining().is_empty() {
-        return Err(Error::Malformed("value continues after its compound"));
-    }
-    *budget = r.budget();
-    Ok(compound)
 }
 
 /// A sub-chunk value stored under `key_y`, holding sub-chunk `y`.
@@ -598,7 +510,7 @@ fn legacy_layer(body: &[u8]) -> Result<LegacyLayer> {
     })
 }
 
-/// Bits per index (checked) and the packed words of a block layer or biome storage.
+/// Bits per index (checked) and the packed words of a block layer.
 fn packed(r: &mut Reader<'_>, bits: u8) -> Result<Vec<u32>> {
     if !WIDTHS.contains(&bits) {
         return Err(Error::Malformed("bits per index"));
@@ -614,8 +526,14 @@ fn packed(r: &mut Reader<'_>, bits: u8) -> Result<Vec<u32>> {
     Ok(words)
 }
 
-/// The palette length after packed words: 1 without a length for 0 bits.
-fn palette_len(r: &mut Reader<'_>, bits: u8, elem_size: usize) -> Result<usize> {
+fn block_layer(r: &mut Reader<'_>) -> Result<BlockLayer> {
+    let header = r.uint8().map_err(short)?;
+    if header & 1 != 0 {
+        return Err(Error::Malformed("block layer holds network ids"));
+    }
+    let bits = header >> 1;
+    let words = packed(r, bits)?;
+    // The palette length: 1 without a length for 0 bits.
     let len = if bits == 0 {
         1
     } else {
@@ -624,17 +542,9 @@ fn palette_len(r: &mut Reader<'_>, bits: u8, elem_size: usize) -> Result<usize> 
             .filter(|&len| len >= 1 && len <= BLOCKS.min(1 << bits))
             .ok_or(Error::Malformed("palette length"))?
     };
-    r.limit(len as u64, len, elem_size).map_err(short)
-}
-
-fn block_layer(r: &mut Reader<'_>) -> Result<BlockLayer> {
-    let header = r.uint8().map_err(short)?;
-    if header & 1 != 0 {
-        return Err(Error::Malformed("block layer holds network ids"));
-    }
-    let bits = header >> 1;
-    let words = packed(r, bits)?;
-    let len = palette_len(r, bits, size_of::<Compound>())?;
+    let len = r
+        .limit(len as u64, len, size_of::<Compound>())
+        .map_err(short)?;
     let mut palette = Vec::with_capacity(len);
     for _ in 0..len {
         palette.push(r.nbt(Encoding::LittleEndian).map_err(Error::Nbt)?);
@@ -648,70 +558,17 @@ fn block_layer(r: &mut Reader<'_>) -> Result<BlockLayer> {
     })
 }
 
-/// The biome storages of a `Data3D` value.
-fn biomes_3d(value: &[u8], version: u8, budget: &mut usize) -> Result<Vec<PalettedBiomes>> {
-    let stored = match version {
-        40.. => 24,
-        39 => 25,
-        31..=34 | 37 | 38 => 32,
-        35 | 36 => 65,
-        _ => return Err(Error::Malformed("chunk version has no 3D biomes")),
-    };
-    let body = value
-        .get(HEIGHT_MAP..)
-        .ok_or(Error::Malformed("Data3D shorter than its height map"))?;
-    let mut r = Reader::new(body, *budget, 0);
-    let mut biomes: Vec<PalettedBiomes> = Vec::with_capacity(SUB_CHUNKS);
-    let mut previous: Option<PalettedBiomes> = None;
-    for i in 0..stored {
-        // Versions that stored extra storages sometimes stopped after the 24 used.
-        if i >= SUB_CHUNKS && r.remaining().is_empty() {
-            break;
-        }
-        let bits = r.uint8().map_err(short)? >> 1;
-        let storage = if bits == 127 {
-            previous.clone().ok_or(Error::Malformed(
-                "first biome storage copies the one before",
-            ))?
-        } else {
-            let words = packed(&mut r, bits)?;
-            let len = palette_len(&mut r, bits, size_of::<u32>())?;
-            let mut palette = Vec::with_capacity(len);
-            for _ in 0..len {
-                palette.push(r.uint32().map_err(short)?);
-            }
-            check_indices(bits, &words, palette.len())
-                .map_err(|_| Error::Malformed("biome index outside the palette"))?;
-            PalettedBiomes {
-                bits,
-                words,
-                palette,
-            }
-        };
-        if biomes.len() < SUB_CHUNKS {
-            biomes.push(storage.clone());
-        }
-        previous = Some(storage);
-    }
-    if !r.remaining().is_empty() {
-        return Err(Error::Malformed("Data3D continues after its biomes"));
-    }
-    *budget = r.budget();
-    Ok(biomes)
-}
-
-/// Legacy terrain: eight legacy sub-chunks from y 0 and the column biomes.
+/// Legacy terrain: eight legacy sub-chunks from y 0.
 #[expect(
     clippy::indexing_slicing,
     reason = "invariant: the length is checked first and every index is below its array's length"
 )]
-fn legacy_terrain(value: &[u8]) -> Result<(Vec<Section>, Biomes)> {
+fn legacy_terrain(value: &[u8]) -> Result<Vec<Section>> {
     if value.len() != LEGACY_TERRAIN_LEN {
         return Err(Error::Malformed("legacy terrain length"));
     }
     let ids = &value[..LEGACY_IDS];
     let meta = &value[LEGACY_IDS..LEGACY_IDS + LEGACY_META];
-    let colours = &value[LEGACY_TERRAIN_LEN - 1024..];
     let mut sections = Vec::with_capacity(8);
     for sy in 0..8_usize {
         let mut layer = LegacyLayer {
@@ -735,11 +592,7 @@ fn legacy_terrain(value: &[u8]) -> Result<(Vec<Section>, Biomes)> {
             layers: vec![Layer::Legacy(layer)],
         });
     }
-    let mut columns = [0; 256];
-    for (column, colour) in columns.iter_mut().zip(colours.as_chunks::<4>().0) {
-        *column = colour[0];
-    }
-    Ok((sections, Biomes::Columns(Box::new(columns))))
+    Ok(sections)
 }
 
 /// Legacy block extra data.

@@ -101,7 +101,9 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
         .expect("the import");
     assert_eq!(report.chunks(), 36);
     assert_eq!((report.block_entities(), report.entities()), (2, 2));
-    assert!(report.scheduled_updates() > 0);
+    // Pending ticks and biomes are left out, counted by the chunks that had them.
+    assert!(report.ignored_tags().get(&0x33).is_some_and(|&n| n > 0));
+    assert_eq!(report.ignored_tags().get(&0x2b), Some(&36));
     assert!(report.unknown_blocks().is_empty(), "{report:?}");
     assert_eq!(
         (
@@ -194,49 +196,6 @@ fn an_import_keeps_a_backup_only_with_backups_on() {
             .unwrap_or_default();
         assert_eq!(files, kept, "backups = {backups}");
     }
-}
-
-#[test]
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: the server task fills it on the tick thread for the test thread"
-)]
-fn an_imported_pending_tick_runs_at_its_world_position() {
-    let data = TempPath::new("pending");
-    server(&data.0, 1)
-        .import_world(FIXTURE, NAME)
-        .expect("the import");
-    // BDS left water at (3, -58, -1), over air, with an update due 2 ticks later (chunk (0, -1)
-    // stores it at those world coordinates): when it runs, the water falls.
-    let below = BlockPos::new(3, -59, -1);
-    let fell: Arc<std::sync::Mutex<Option<bool>>> = Arc::default();
-    let out = Arc::clone(&fell);
-    let mut ticks = 0;
-    let server = Server::builder()
-        .config(config(1))
-        .data_dir(&data.0)
-        .world(NAME, Kind::Persistent, Void)
-        .every(NonZeroU32::MIN, move |cx| {
-            let world = cx
-                .worlds()
-                .find(|w| w.name() == NAME)
-                .expect("the imported world");
-            if !world.is_chunk_loaded(below.chunk()) {
-                return;
-            }
-            ticks += 1;
-            let water = world
-                .block(below)
-                .is_some_and(|s| s.name() == "minecraft:water");
-            if water || ticks == 100 {
-                *out.lock().expect("not poisoned") = Some(water);
-                cx.shutdown();
-            }
-        })
-        .build()
-        .expect("the server builds");
-    server.run().expect("the server runs");
-    assert_eq!(*fell.lock().expect("not poisoned"), Some(true));
 }
 
 #[test]

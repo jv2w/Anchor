@@ -4,7 +4,8 @@
 //! overworld chunks in numeric (x, z) order (`Catalog`) and reads the values of one chunk
 //! (`chunk::Entries`); `chunk::decode` turns those into raw data (`chunk::Raw`): block
 //! palettes as stored (NBT `{name, states, version}`, older `{name, val}`, or legacy id and meta
-//! arrays), biomes, block entities, entities and pending ticks as NBT. Nothing is upgraded here.
+//! arrays) and block entities as NBT. Biomes, entities and pending ticks are not imported, only
+//! counted. Nothing is upgraded here.
 //! Reading takes `&mut self` (one block cache); decoding takes shared data, so it can run on the
 //! CPU pool. The source is never written; `Source::unchanged` fails if any of its files changed
 //! since it was opened, so the world must not be open in another program.
@@ -77,12 +78,23 @@ pub enum Error {
         /// Why.
         source: Box<Error>,
     },
-    /// The chunk at (`x`, `z`) cannot be read; the source says why.
+    /// The overworld chunk at (`x`, `z`) cannot be read; the source says why, and is
+    /// [`Error::Key`] when one of its values is at fault.
     Chunk {
         /// The chunk's x coordinate.
         x: i32,
         /// The chunk's z coordinate.
         z: i32,
+        /// Why.
+        source: Box<Error>,
+    },
+    /// The value of a database key cannot be read; the source says why.
+    Key {
+        /// The kind of key, by its name in Mojang's LevelDB documentation, such as
+        /// `SubChunkPrefix` or `BlockEntity`.
+        kind: &'static str,
+        /// The key's bytes in hexadecimal.
+        key: String,
         /// Why.
         source: Box<Error>,
     },
@@ -125,7 +137,8 @@ impl fmt::Display for Error {
                 path.display()
             ),
             Self::File { path, .. } => write!(f, "world file {}", path.display()),
-            Self::Chunk { x, z, .. } => write!(f, "chunk {x} {z}"),
+            Self::Chunk { x, z, .. } => write!(f, "overworld chunk {x} {z}"),
+            Self::Key { kind, key, .. } => write!(f, "{kind} key {key}"),
             Self::UnknownWorld { name } => {
                 write!(f, "no persistent world named {name:?} is declared")
             }
@@ -142,7 +155,9 @@ impl std::error::Error for Error {
             Self::Read(e) => Some(e),
             Self::Compression(e) => Some(e),
             Self::Nbt(e) => Some(e),
-            Self::File { source, .. } | Self::Chunk { source, .. } => Some(source.as_ref()),
+            Self::File { source, .. } | Self::Chunk { source, .. } | Self::Key { source, .. } => {
+                Some(source.as_ref())
+            }
             Self::TooLarge { .. }
             | Self::Malformed(_)
             | Self::Checksum
@@ -203,6 +218,9 @@ pub(crate) struct Catalog {
     pub(crate) end_chunks: u64,
     /// Chunks of other dimension numbers.
     pub(crate) other_dimension_chunks: u64,
+    /// Entities of every dimension (`actorprefix` keys, one per entity since 1.18.30): Anchor
+    /// imports none.
+    pub(crate) entities: u64,
     /// Player keys (`~local_player`, `player_*`): Bedrock players have no XUID to match.
     pub(crate) players: u64,
     /// World-level keys (scoreboard, maps, villages, ticking areas, ...).
@@ -237,9 +255,12 @@ impl Catalog {
                 };
                 *count += 1;
             }
+            chunk::Key::Entity => self.entities += 1,
             chunk::Key::Player => self.players += 1,
             chunk::Key::Other => self.other_keys += 1,
-            chunk::Key::Overworld { .. } | chunk::Key::Dimension { .. } | chunk::Key::Actor => {}
+            chunk::Key::Overworld { .. }
+            | chunk::Key::Dimension { .. }
+            | chunk::Key::EntityList => {}
         }
         Ok(())
     }
@@ -300,13 +321,8 @@ impl Source {
         Ok(catalog)
     }
 
-    /// Reads the values of the overworld chunk at (`x`, `z`) and the entities `digp` lists.
+    /// Reads the values of the overworld chunk at (`x`, `z`).
     pub(crate) fn read(&mut self, x: i32, z: i32) -> Result<Entries> {
-        let at = |e| Error::Chunk {
-            x,
-            z,
-            source: Box::new(e),
-        };
         let mut entries = Entries::new(x, z);
         let prefix = chunk::prefix(x, z);
         let end = chunk::after(&prefix);
@@ -315,16 +331,11 @@ impl Source {
                 entries.add(key, value)?;
                 Ok(ControlFlow::Continue(()))
             })
-            .map_err(at)?;
-        if let Some(ids) = self.db.get(&chunk::digest_key(x, z)).map_err(at)? {
-            entries.set_digest();
-            for id in chunk::actor_ids(&ids).map_err(at)? {
-                let actor = self.db.get(&chunk::actor_key(*id)).map_err(at)?;
-                let actor =
-                    actor.ok_or_else(|| at(Error::Malformed("an entity digp lists is missing")))?;
-                entries.add_actor(actor).map_err(at)?;
-            }
-        }
+            .map_err(|e| Error::Chunk {
+                x,
+                z,
+                source: Box::new(e),
+            })?;
         Ok(entries)
     }
 

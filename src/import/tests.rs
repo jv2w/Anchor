@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use super::chunk::{Biomes, Layer};
+use super::chunk::Layer;
 use super::*;
 use crate::import::leveldb::tests::database_files;
 use crate::save::tests::TempDir;
@@ -47,7 +47,7 @@ fn copy_fixture(to: &Path) {
     clippy::disallowed_methods,
     reason = "off-tick: writes a test world folder"
 )]
-fn write_world(dir: &Path, writes: &[(Vec<u8>, Option<Vec<u8>>)]) {
+pub(crate) fn write_world(dir: &Path, writes: &[(Vec<u8>, Option<Vec<u8>>)]) {
     std::fs::create_dir_all(dir.join("db")).unwrap();
     for (name, bytes) in database_files(writes) {
         std::fs::write(dir.join("db").join(name), bytes).unwrap();
@@ -87,7 +87,9 @@ fn the_bds_fixture_reads_as_raw_chunks_without_writing() {
         (0, 0, 0)
     );
     assert!(catalog.other_keys > 0);
-    let (mut entities, mut block_entities, mut ticks) = (Vec::new(), Vec::new(), 0);
+    // A pig and an armour stand, not imported.
+    assert_eq!(catalog.entities, 2);
+    let (mut block_entities, mut ticks) = (Vec::new(), 0);
     for &(x, z) in &catalog.chunks {
         let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();
         assert_eq!(raw.version, 42);
@@ -96,25 +98,14 @@ fn the_bds_fixture_reads_as_raw_chunks_without_writing() {
             assert_eq!(section.version, 9);
             assert!(matches!(section.layers[0], Layer::Paletted(_)));
         }
-        assert!(matches!(&raw.biomes, Biomes::Paletted(b) if b.len() == 24));
-        entities.extend(raw.entities.iter().map(|e| text(e, "identifier")));
+        // Biomes are not read.
+        assert!(raw.ignored.contains(&0x2b));
         block_entities.extend(raw.block_entities.iter().map(|e| text(e, "id")));
-        if let Some(pending) = &raw.pending_ticks {
-            assert!(matches!(
-                pending.get("currentTick"),
-                Some(crate::nbt::Value::Int(_))
-            ));
-            assert!(matches!(
-                pending.get("tickList"),
-                Some(crate::nbt::Value::List(_))
-            ));
-            ticks += 1;
-        }
+        ticks += u32::from(raw.ignored.contains(&0x33));
     }
-    entities.sort();
     block_entities.sort();
-    assert_eq!(entities, ["minecraft:armor_stand", "minecraft:pig"]);
     assert_eq!(block_entities, ["Chest", "Sign"]);
+    // Chunks with pending ticks, not imported.
     assert_eq!(ticks, 3);
     source.unchanged().unwrap();
     assert!(snapshot(Path::new(FIXTURE)) == before, "the source changed");
@@ -137,7 +128,9 @@ fn the_catalog_lists_overworld_chunks_in_numeric_order_and_counts_the_rest() {
             put(b"~local_player".to_vec(), b""),
             put(b"player_server_00000000".to_vec(), b""),
             put(b"scoreboard".to_vec(), b""),
-            put(chunk::digest_key(0, 0), b""),
+            put([&b"digp"[..], &chunk::prefix(0, 0)].concat(), &[1; 16]),
+            put([&b"actorprefix"[..], &[1; 8]].concat(), b""),
+            put([&b"actorprefix"[..], &[2; 8]].concat(), b""),
             (key(5, 5, &[0x2c]), None),
         ],
     );
@@ -150,6 +143,7 @@ fn the_catalog_lists_overworld_chunks_in_numeric_order_and_counts_the_rest() {
             nether_chunks: 1,
             end_chunks: 1,
             other_dimension_chunks: 1,
+            entities: 2,
             players: 2,
             other_keys: 1,
         }
@@ -157,63 +151,102 @@ fn the_catalog_lists_overworld_chunks_in_numeric_order_and_counts_the_rest() {
 }
 
 #[test]
-fn a_read_takes_the_chunks_keys_and_its_digp_actors() {
+fn a_read_takes_the_chunks_keys_only() {
     let dir = TempDir::new("import-read");
-    let actor = |id: &str| {
+    let block_entity = |id: &str| {
         let compound = crate::nbt::Compound::from([(
             "id".to_owned(),
             crate::nbt::Value::String(id.to_owned()),
         )]);
         chunk::tests::nbt(&compound)
     };
-    let mut ids = [1_u8; 8].to_vec();
-    ids.extend_from_slice(&[2; 8]);
     write_world(
         &dir.0,
         &[
             put(key(0, 0, &[0x2c]), &[42]),
-            put(key(0, 0, &[0x32]), &actor("old")),
-            put(key(0, 0, &[1, 0, 0, 0, 0x32]), &actor("nether")),
+            put(key(0, 0, &[0x31]), &block_entity("own")),
+            put(key(0, 0, &[1, 0, 0, 0, 0x31]), &block_entity("nether")),
+            put([&b"digp"[..], &chunk::prefix(0, 0)].concat(), &[1; 8]),
+            put([&b"actorprefix"[..], &[1; 8]].concat(), &[0xff]),
             put(key(0, 1, &[0x2c]), &[42]),
-            put(key(0, 1, &[0x32]), &actor("neighbour")),
+            put(key(0, 1, &[0x31]), &block_entity("neighbour")),
             put(key(-1, -1, &[0x2c]), &[42]),
-            put(key(-1, -1, &[0x32]), &actor("corner")),
-            put(chunk::digest_key(0, 0), &ids),
-            put(chunk::actor_key([1; 8]), &actor("a")),
-            put(chunk::actor_key([2; 8]), &actor("b")),
-            put(key(5, 5, &[0x2c]), &[42]),
-            put(chunk::digest_key(5, 5), &[3; 8]),
-            put(key(6, 6, &[0x2c]), &[42]),
-            put(chunk::digest_key(6, 6), &[3; 9]),
+            put(key(-1, -1, &[0x31]), &block_entity("corner")),
         ],
     );
     let mut source = Source::open(&dir.0).unwrap();
     let ids_of = |raw: chunk::Raw| -> Vec<String> {
-        raw.entities
-            .iter()
-            .map(|e| match e.get("id") {
-                Some(crate::nbt::Value::String(id)) => id.clone(),
-                _ => panic!("no id"),
-            })
-            .collect()
+        raw.block_entities.iter().map(|e| text(e, "id")).collect()
     };
     let raw = chunk::decode(&source.read(0, 0).unwrap()).unwrap();
-    assert_eq!(raw.ignored, vec![0x32]);
-    assert_eq!(ids_of(raw), vec!["a", "b"]);
+    assert!(raw.ignored.is_empty());
+    assert_eq!(ids_of(raw), vec!["own"]);
     let neighbour = chunk::decode(&source.read(0, 1).unwrap()).unwrap();
     assert_eq!(ids_of(neighbour), vec!["neighbour"]);
     // The chunk whose keys end the key space.
     let corner = chunk::decode(&source.read(-1, -1).unwrap()).unwrap();
     assert_eq!(ids_of(corner), vec!["corner"]);
-    let missing = source.read(5, 5).unwrap_err();
-    assert!(
-        matches!(&missing, Error::Chunk { x: 5, z: 5, source } if matches!(**source, Error::Malformed(_))),
-        "{missing:?}"
+}
+
+/// Keys of two chunks of a world a 1.21 game saved, which once failed the import (U11), as
+/// (little-endian `u32` length, bytes) of each key then its value, in key order: chunk (-198, 8),
+/// chunk version 41, whose `Data3D` holds 25 biome storages where 24 are read; chunk (-5, -44),
+/// with its block entities and three entities whose NBT holds a string of binary bytes (the
+/// `StorageKey` of `EntityStorageKeyComponent`), which is not UTF-8.
+const CONTINENTAL: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/xtask/data/import/continental.kv"
+));
+
+/// The key and value pairs of [`CONTINENTAL`].
+pub(crate) fn continental() -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+    fn take(rest: &mut &[u8]) -> Vec<u8> {
+        let (len, after) = rest.split_first_chunk::<4>().unwrap();
+        let (bytes, after) = after.split_at(usize::try_from(u32::from_le_bytes(*len)).unwrap());
+        *rest = after;
+        bytes.to_vec()
+    }
+    let mut rest = CONTINENTAL;
+    let mut writes = Vec::new();
+    while !rest.is_empty() {
+        let key = take(&mut rest);
+        writes.push((key, Some(take(&mut rest))));
+    }
+    writes
+}
+
+#[test]
+fn chunks_a_game_saved_read_with_their_blocks_and_block_entities() {
+    let dir = TempDir::new("import-continental");
+    write_world(&dir.0, &continental());
+    let mut source = Source::open(&dir.0).unwrap();
+    let catalog = source.catalog().unwrap();
+    assert_eq!(catalog.chunks, vec![(-198, 8), (-5, -44)]);
+    assert_eq!(catalog.entities, 3);
+    let raw = chunk::decode(&source.read(-198, 8).unwrap()).unwrap();
+    assert_eq!((raw.version, raw.sections.len()), (41, 1));
+    assert!(raw.block_entities.is_empty());
+    assert_eq!(raw.ignored, vec![0x2b, 0x3d, 0x40, 0x76]);
+    let raw = chunk::decode(&source.read(-5, -44).unwrap()).unwrap();
+    assert_eq!(raw.sections[0].y, 4);
+    let ids: Vec<String> = raw.block_entities.iter().map(|e| text(e, "id")).collect();
+    assert_eq!(
+        ids,
+        [
+            "SporeBlossom",
+            "BlastFurnace",
+            "FlowerPot",
+            "Cauldron",
+            "Sign",
+            "Sign",
+            "Sign",
+            "SporeBlossom"
+        ]
     );
-    assert!(matches!(
-        source.read(6, 6),
-        Err(Error::Chunk { x: 6, z: 6, .. })
-    ));
+    assert_eq!(
+        raw.ignored,
+        vec![0x2b, 0x35, 0x36, 0x3d, 0x3f, 0x40, 0x41, 0x76]
+    );
 }
 
 #[test]
@@ -285,9 +318,19 @@ fn error_messages_name_the_place() {
         z: -2,
         source: Box::new(Error::Malformed("empty sub-chunk")),
     };
-    assert_eq!(error.to_string(), "chunk 1 -2");
+    assert_eq!(error.to_string(), "overworld chunk 1 -2");
     assert_eq!(
         std::error::Error::source(&error).unwrap().to_string(),
+        "malformed data: empty sub-chunk"
+    );
+    let key = Error::Key {
+        kind: "SubChunkPrefix",
+        key: "01000000feffffff2f03".to_owned(),
+        source: Box::new(Error::Malformed("empty sub-chunk")),
+    };
+    assert_eq!(key.to_string(), "SubChunkPrefix key 01000000feffffff2f03");
+    assert_eq!(
+        std::error::Error::source(&key).unwrap().to_string(),
         "malformed data: empty sub-chunk"
     );
     let file = Error::File {

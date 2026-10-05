@@ -410,7 +410,8 @@ fn schemas_apply_above_the_state_version_and_after_the_first_of_its_own() {
     // Of version 20's two, the first has applied; the second still does.
     assert_eq!(run(&schemas, 20, "a", &[]).0, "b");
     assert_eq!(run(&schemas, 20, "b", &[]).0, "b");
-    assert_eq!(run(&schemas, 21, "a", &[]).0, "a");
+    // A state numbered past every schema is upgraded as one of the newest version.
+    assert_eq!(run(&schemas, 21, "a", &[]).0, "b");
 }
 
 #[test]
@@ -554,4 +555,43 @@ fn a_flattened_property_names_the_block_only_with_its_expected_type() {
         ("old".to_owned(), st(&[("kind", apply::Value::Int(3))]))
     );
     assert_eq!(run(&schemas, 0, "old", &[]).0, "old");
+}
+
+#[test]
+fn states_a_game_numbered_past_the_schemas_get_the_newest_properties() {
+    // Palette entries of a real 1.21 world (U11): version 18,186,752 (1.21.130), above the
+    // newest schema's 1.21.60.33, without the 1.26 connection and corner properties.
+    let entry = |name: &str, states: &[(&str, Value)]| {
+        Compound::from([
+            ("name".to_owned(), Value::String(name.to_owned())),
+            (
+                "states".to_owned(),
+                Value::Compound(
+                    states
+                        .iter()
+                        .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                        .collect(),
+                ),
+            ),
+            ("version".to_owned(), Value::Int(18_186_752)),
+        ])
+    };
+    let fence = state(&entry("minecraft:spruce_fence", &[])).unwrap();
+    let Some(Value::Compound(states)) = fence.get("states") else {
+        panic!("{fence:?}")
+    };
+    assert_eq!(
+        states.get("minecraft:connection_north"),
+        Some(&Value::Byte(0))
+    );
+    assert!(crate::save::find_state(&fence).is_some(), "{fence:?}");
+    let stairs = state(&entry(
+        "minecraft:spruce_stairs",
+        &[
+            ("upside_down_bit", Value::Byte(1)),
+            ("weirdo_direction", Value::Int(2)),
+        ],
+    ))
+    .unwrap();
+    assert!(crate::save::find_state(&stairs).is_some(), "{stairs:?}");
 }

@@ -5125,7 +5125,11 @@ mod tests {
                 state: &mut h.state,
             };
             let world = crate::world::Id::DEFAULT;
-            assert_eq!(cx.drop_experience(world, at(2.5, -59.0, 0.5), 100), 0, "{i}");
+            assert_eq!(
+                cx.drop_experience(world, at(2.5, -59.0, 0.5), 100),
+                0,
+                "{i}"
+            );
             assert_eq!(
                 cx.spawn_experience_orb(world, at(2.5, -59.0, 0.5), 5),
                 None,
@@ -5179,7 +5183,11 @@ mod tests {
             let both = experience && orbs;
             let kept = if both { 2 } else { 1 };
             assert_eq!(h.live().len(), kept, "experience {experience}, orbs {orbs}");
-            assert_eq!(adds(&h.take(1)).len(), kept, "experience {experience}, orbs {orbs}");
+            assert_eq!(
+                adds(&h.take(1)).len(),
+                kept,
+                "experience {experience}, orbs {orbs}"
+            );
             let saved = h.state.rules.entities.unload(key);
             if both {
                 assert_eq!(saved, None, "nothing changed");

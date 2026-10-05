@@ -2,3 +2,4 @@
 # auto-detection treats a binary without NUL bytes as text and rewrites its CR LF bytes.
 * text=auto eol=lf
 *.dat binary
+*.kv binary

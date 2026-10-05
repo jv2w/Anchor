@@ -911,11 +911,6 @@ pub(crate) fn stored_worlds(
     Ok(stored)
 }
 
-/// The engine tick of the file's last commit (0 for a new file).
-pub(crate) fn stored_tick(storage: &mut Storage) -> Result<u64, storage::Error> {
-    Ok(stored_meta(storage)?.tick)
-}
-
 /// The meta value of the file's last commit (tick 0 and no commit identity for a new file).
 fn stored_meta(storage: &mut Storage) -> Result<Meta, storage::Error> {
     match storage.read(&[Key::Meta])?.into_iter().next() {
@@ -1300,7 +1295,15 @@ fn sub_chunk_record(chunk: &Chunk, i: usize) -> SubChunkRecord {
             layers.push(block_layer(chunk, water));
         }
     }
-    let biomes = chunk.biome_storage(i).map_or_else(
+    SubChunkRecord {
+        layers,
+        biomes: biome_record(chunk, i),
+    }
+}
+
+/// The stored form of the biomes of sub-chunk `i` of a chunk.
+pub(crate) fn biome_record(chunk: &Chunk, i: usize) -> Biomes {
+    chunk.biome_storage(i).map_or_else(
         || Biomes {
             bits: 0,
             words: Vec::new(),
@@ -1311,8 +1314,7 @@ fn sub_chunk_record(chunk: &Chunk, i: usize) -> SubChunkRecord {
             words: b.words().to_vec(),
             palette: b.palette().to_vec(),
         },
-    );
-    SubChunkRecord { layers, biomes }
+    )
 }
 
 fn block_layer(chunk: &Chunk, layer: &Paletted<Entry>) -> BlockLayer {

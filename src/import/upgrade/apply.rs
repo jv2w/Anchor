@@ -124,12 +124,21 @@ impl<'a> Schema<'a> {
 /// 1.21.60.33, so 0321 runs again on current states and turns `red_mushroom_block` 10 and 15 into
 /// `mushroom_stem` (`BedrockBlockUpgradeSchema` #22). With one schema of the version this is
 /// PMMP's rule.
+///
+/// A state of a version above the newest schema's is upgraded as one of the newest version, where
+/// PMMP upgrades nothing: a 1.21 game wrote 18,186,752 (1.21.130) in a real world (U11) for states
+/// without the properties the 1.26 schemas of version 1.21.60.33 add (fence connections, stair
+/// corners), which BDS 1.26.52 still numbers 1.21.60.33. Those schemas only add properties that
+/// are missing and rename old names, so they leave a state that has them as it is.
 pub(crate) fn upgrade(
     schemas: &[Schema<'_>],
     version: i32,
     name: &mut String,
     states: &mut States,
 ) {
+    let version = schemas
+        .last()
+        .map_or(version, |newest| version.min(newest.version));
     for group in schemas.chunk_by(|a, b| a.version == b.version) {
         let Some(first) = group.first() else {
             continue;

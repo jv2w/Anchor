@@ -1834,7 +1834,10 @@ mod tests {
                 stack(ItemKind::DiamondChestplate, 1),
             );
             attack_player(&mut server.state, sid(1), sid(2));
-            assert!(server.survival(2).health > 20.0 - 8.0, "the armour protects");
+            assert!(
+                server.survival(2).health > 20.0 - 8.0,
+                "the armour protects"
+            );
             let worn = (
                 server.player(1).inventory.held().damage(),
                 server.player(2).inventory.armor()[1].damage(),

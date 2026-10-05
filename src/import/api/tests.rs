@@ -6,19 +6,34 @@ use std::sync::Arc;
 use super::*;
 use crate::import::chunk::Section;
 use crate::import::level_dat::WorldData;
-use crate::storage::codec::{ExtraRecord, Meta};
+use crate::nbt::List;
+use crate::storage::codec::ExtraRecord;
 use crate::storage::seal::unseal;
 use crate::storage::tests::{Disk, Fault, memory};
 use crate::storage::{ChunkId, ChunkKey, ChunkPart, StartBackup};
-use crate::world::{Flat, Generator as _, Void};
+use crate::world::{Flat, Generator, Void};
 
 const NAME: &str = "imported";
+
+/// An empty world whose generator marks one biome: biome 21 at (2, 50, 3) of every chunk.
+#[derive(Debug)]
+struct Marked;
+
+impl Generator for Marked {
+    fn generate(&self, _seed: i64, _pos: ChunkPos, chunk: &mut Chunk) {
+        chunk.set_biome(2, 50, 3, 21).unwrap();
+    }
+
+    fn name(&self) -> &'static str {
+        "marked"
+    }
+}
 
 fn spec() -> WorldSpec {
     WorldSpec {
         name: NAME.to_owned(),
         kind: Kind::Persistent,
-        generator: Arc::new(Void),
+        generator: Arc::new(Marked),
         seed: None,
     }
 }
@@ -54,10 +69,7 @@ fn empty_raw() -> Raw {
     Raw {
         version: 42,
         sections: Vec::new(),
-        biomes: RawBiomes::Missing,
         block_entities: Vec::new(),
-        entities: Vec::new(),
-        pending_ticks: None,
         legacy_blocks: Vec::new(),
         ignored: Vec::new(),
     }
@@ -99,23 +111,8 @@ fn item(name: &str) -> Compound {
     ])
 }
 
-fn tick(x: i32, time: Value) -> Compound {
-    Compound::from([
-        ("x".to_owned(), Value::Int(x)),
-        ("y".to_owned(), Value::Int(2)),
-        ("z".to_owned(), Value::Int(3)),
-        ("time".to_owned(), time),
-        (
-            "blockState".to_owned(),
-            Value::Compound(state("minecraft:water", &[])),
-        ),
-    ])
-}
-
 /// A chunk with every kind of data the import converts.
 fn full_raw() -> Raw {
-    let mut columns = Box::new([1u8; 256]);
-    columns[3 << 4 | 2] = 21;
     Raw {
         sections: vec![
             Section {
@@ -141,7 +138,6 @@ fn full_raw() -> Raw {
                 layers: vec![legacy(&[([1, 2, 3], (1, 0)), ([0, 0, 0], (1, 15))])],
             },
         ],
-        biomes: RawBiomes::Columns(columns),
         block_entities: vec![Compound::from([
             ("id".to_owned(), s("Chest")),
             (
@@ -149,20 +145,6 @@ fn full_raw() -> Raw {
                 Value::List(List::Compound(vec![item("minecraft:photo")])),
             ),
         ])],
-        entities: vec![Compound::from([
-            ("identifier".to_owned(), s("minecraft:item")),
-            ("Item".to_owned(), Value::Compound(item("minecraft:photo"))),
-        ])],
-        pending_ticks: Some(Compound::from([
-            ("currentTick".to_owned(), Value::Int(100)),
-            (
-                "tickList".to_owned(),
-                Value::List(List::Compound(vec![
-                    tick(1, Value::Long(105)),
-                    tick(2, Value::Long(90)),
-                ])),
-            ),
-        ])),
         legacy_blocks: vec![LegacyBlock {
             x: 5,
             y: 3,
@@ -181,6 +163,7 @@ fn catalog(chunks: Vec<(i32, i32)>) -> Catalog {
         nether_chunks: 2,
         end_chunks: 3,
         other_dimension_chunks: 4,
+        entities: 7,
         players: 5,
         other_keys: 6,
     }
@@ -279,19 +262,11 @@ fn known(nbt: &Compound) -> crate::block::State {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "consistency: one import is checked from the file it meets to its report"
-)]
-fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_extras_converted() {
+fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_entities() {
     let disk = Disk::default();
     let mut storage = memory(&disk);
-    // An existing file at engine tick 1000 with another world numbered 3.
-    let mut batch = Batch::with_capacity(2);
-    batch.put(
-        Key::Meta,
-        seal(&Key::Meta.to_bytes(), &Meta::at(1000)).unwrap(),
-    );
+    // An existing file with another world numbered 3.
+    let mut batch = Batch::with_capacity(1);
     let other = Key::World("other".to_owned());
     let record = WorldRecord {
         number: 3,
@@ -314,7 +289,7 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_extras_c
         (record.number, record.seed, record.spawn, record.time),
         (4, 1234, [10, 70, -20], 5678)
     );
-    assert_eq!(record.generator, Void.name());
+    assert_eq!(record.generator, Marked.name());
     let (chunk, [block_entities, entities, updates]) = read_chunk(&mut storage, 4, 7, -2);
     let stone = known(&state("minecraft:stone", &[]));
     assert_eq!(
@@ -347,8 +322,9 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_extras_c
         layers[1].get(offset(5, 4, 5)),
         Entry::Known(crate::block::AIR)
     );
+    // The generator's biomes.
     assert_eq!(chunk.biome(2, 50, 3), Some(21));
-    assert_eq!(chunk.biome(0, -64, 0), Some(1));
+    assert_eq!(chunk.biome(0, -64, 0), Some(crate::world::PLAINS));
 
     assert_eq!(
         block_entities[0].get("Items"),
@@ -356,29 +332,13 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_extras_c
             "minecraft:photo_item"
         )])))
     );
-    assert_eq!(
-        entities[0].get("Item"),
-        Some(&Value::Compound(item("minecraft:photo_item")))
-    );
-    let due: Vec<_> = updates
-        .iter()
-        .map(|u| (u.get("x"), u.get("time")))
-        .collect();
-    assert_eq!(
-        due,
-        [
-            (Some(&Value::Int(1)), Some(&Value::Long(1005))),
-            (Some(&Value::Int(2)), Some(&Value::Long(1000))),
-        ]
-    );
-    assert!(updates.iter().all(|u| u.len() == 4));
+    assert!(entities.is_empty() && updates.is_empty());
 
     let expected = Report {
         chunks: 1,
         block_entities: 1,
-        entities: 1,
-        scheduled_updates: 2,
-        upgraded_nbt: 2,
+        upgraded_nbt: 1,
+        entities: 7,
         ignored_tags: BTreeMap::from([(0x36, 1)]),
         nether_chunks: 2,
         end_chunks: 3,
@@ -395,14 +355,15 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_extras_c
 }
 
 #[test]
-fn an_all_air_chunk_and_a_chunk_without_biomes_are_written_air_and_ocean() {
+fn an_all_air_chunk_is_written_air_with_the_generators_biomes() {
     let disk = Disk::default();
     let mut storage = memory(&disk);
     let raws = BTreeMap::from([((0, 0), empty_raw())]);
     imported(&mut storage, 1, &raws, [0, 64, 0]);
     let (chunk, extras) = read_chunk(&mut storage, 0, 0, 0);
     assert_eq!(chunk.block(3, 3, 3), Some(crate::block::AIR));
-    assert_eq!(chunk.biome(3, 3, 3), Some(OCEAN));
+    assert_eq!(chunk.biome(3, 3, 3), Some(crate::world::PLAINS));
+    assert_eq!(chunk.biome(2, 50, 3), Some(21));
     assert!(extras.iter().all(Vec::is_empty));
 }
 
@@ -800,35 +761,6 @@ fn a_spawn_without_a_height_lands_above_the_highest_block_or_at_the_generator_sp
 }
 
 #[test]
-fn pending_ticks_must_have_their_tick_positions_and_times() {
-    let entry = |time: Value| {
-        Compound::from([
-            ("currentTick".to_owned(), Value::Long(10)),
-            (
-                "tickList".to_owned(),
-                Value::List(List::Compound(vec![tick(1, time)])),
-            ),
-        ])
-    };
-    let updates = scheduled_updates(Some(&entry(Value::Int(30))), 7).unwrap();
-    assert_eq!(updates[0].get("time"), Some(&Value::Long(27)));
-    assert!(scheduled_updates(Some(&entry(s("soon"))), 7).is_err());
-    let mut no_tick = entry(Value::Int(30));
-    no_tick.remove("currentTick");
-    assert!(scheduled_updates(Some(&no_tick), 7).is_err());
-    let mut no_position = entry(Value::Int(30));
-    if let Some(Value::List(List::Compound(list))) = no_position.get_mut("tickList") {
-        list[0].remove("y");
-    }
-    assert!(scheduled_updates(Some(&no_position), 7).is_err());
-    let empty = Compound::from([("currentTick".to_owned(), Value::Int(1))]);
-    assert_eq!(
-        scheduled_updates(Some(&empty), 7).unwrap(),
-        Vec::<Compound>::new()
-    );
-}
-
-#[test]
 fn an_undeclared_or_temporary_world_is_refused_before_anything_is_opened() {
     let dir = crate::save::tests::TempDir::new("import-undeclared");
     let data = dir.0.join("data");
@@ -883,8 +815,7 @@ fn peak_memory_mib() -> Option<u64> {
     Some(kib >> 10)
 }
 
-/// A terrain-like chunk: nine stored sub-chunks of four states each, biomes, a block entity, an
-/// entity and two pending ticks.
+/// A terrain-like chunk: nine stored sub-chunks of four states each and a block entity.
 fn terrain_raw(rng: &mut crate::protocol::Rng) -> Raw {
     let palette = vec![
         state("minecraft:stone", &[]),
@@ -984,7 +915,8 @@ fn measure_100k_chunk_import() {
 }
 
 /// The world BDS 1.26.52 made (IMPORT-R's fixture): flat, seed 7, filled blocks, water, a chest,
-/// a sign, a pig, an armor stand and pending ticks.
+/// a sign, a pig, an armor stand and pending ticks; the pig, the armor stand and the ticks are not
+/// imported.
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 
 #[test]
@@ -1003,17 +935,11 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
     .unwrap();
     let mut source = Source::open(Path::new(FIXTURE)).unwrap();
     let catalog = source.catalog().unwrap();
-    let mut ticks = 0u64;
     let mut storage = Storage::open(&data, Start::checked(StartBackup::Make)).unwrap();
     let record = world_record(&mut storage).unwrap();
     assert_eq!((record.seed, record.time), (7, source.world().time));
     for &(x, z) in &catalog.chunks {
         let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();
-        if let Some(Value::List(List::Compound(list))) =
-            raw.pending_ticks.as_ref().and_then(|p| p.get("tickList"))
-        {
-            ticks += u64::try_from(list.len()).unwrap();
-        }
         let (chunk, [block_entities, entities, updates]) =
             read_chunk(&mut storage, record.number, x, z);
         assert!(
@@ -1022,13 +948,7 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
             chunk.unknown()
         );
         assert_eq!(block_entities, raw.block_entities);
-        assert_eq!(entities.len(), raw.entities.len());
-        assert_eq!(
-            updates.len(),
-            scheduled_updates(raw.pending_ticks.as_ref(), 0)
-                .unwrap()
-                .len()
-        );
+        assert!(entities.is_empty() && updates.is_empty());
         for section in &raw.sections {
             let sub = chunk
                 .sub_chunk(usize::try_from(i32::from(section.y) + 4).unwrap())
@@ -1053,12 +973,68 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
     }
     assert_eq!(report.chunks(), 36);
     assert_eq!((report.block_entities(), report.entities()), (2, 2));
-    assert_eq!(report.scheduled_updates(), ticks);
-    assert!(ticks > 0);
+    assert_eq!(report.ignored_tags().get(&0x33), Some(&3));
+    assert_eq!(report.ignored_tags().get(&0x2b), Some(&36));
     assert!(
         report.unknown_blocks().is_empty(),
         "{:?}",
         report.unknown_blocks()
     );
     assert!(report.other_keys() > 0);
+}
+
+#[test]
+fn chunks_a_game_saved_import_with_every_block_entity_whole() {
+    let dir = crate::save::tests::TempDir::new("import-continental-run");
+    let world = dir.0.join("world");
+    crate::import::tests::write_world(&world, &crate::import::tests::continental());
+    let data = dir.0.join("data");
+    let report = run(
+        &data,
+        Start::checked(StartBackup::Make),
+        &[spec()],
+        2,
+        &Registry::default(),
+        &world,
+        NAME,
+    )
+    .unwrap();
+    assert_eq!(report.chunks(), 2);
+    assert_eq!((report.block_entities(), report.entities()), (8, 3));
+    assert_eq!(report.ignored_tags().get(&0x2b), Some(&2));
+    let mut source = Source::open(&world).unwrap();
+    let mut storage = Storage::open(&data, Start::checked(StartBackup::Make)).unwrap();
+    let record = world_record(&mut storage).unwrap();
+    for (x, z) in [(-198, 8), (-5, -44)] {
+        let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();
+        let (chunk, [block_entities, entities, updates]) =
+            read_chunk(&mut storage, record.number, x, z);
+        // Every compound whole (the signs' text, the pot's plant, the furnace's state), upgraded.
+        let mut expected = raw.block_entities.clone();
+        for c in &mut expected {
+            upgrade::nbt(c);
+        }
+        assert_eq!(block_entities, expected);
+        assert!(entities.is_empty() && updates.is_empty());
+        assert_eq!(chunk.biome(2, 50, 3), Some(21));
+        for section in &raw.sections {
+            let sub = chunk
+                .sub_chunk(usize::try_from(i32::from(section.y) + 4).unwrap())
+                .unwrap();
+            let Layer::Paletted(layer) = &section.layers[0] else {
+                panic!("the game writes paletted layers");
+            };
+            let indices: Vec<u16> = (0..u16::try_from(layer.palette.len()).unwrap()).collect();
+            let cube = Paletted::from_parts(layer.bits, &layer.words, &indices).unwrap();
+            for offset in 0..SLOTS {
+                let entry = &layer.palette[usize::from(cube.get(offset))];
+                let state = upgrade::state(entry).unwrap();
+                let stored = sub.layers()[0].get(offset);
+                match save::find_state(&state) {
+                    Some(known) => assert_eq!(stored, Entry::Known(known), "({x}, {z}) {offset}"),
+                    None => assert!(matches!(stored, Entry::Unknown(_)), "({x}, {z}) {offset}"),
+                }
+            }
+        }
+    }
 }

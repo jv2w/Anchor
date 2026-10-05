@@ -1,5 +1,5 @@
 //! Chunk keys and records on disk: key layouts, versions, paletted and legacy sub-chunks, legacy
-//! extra data, extras and their caps.
+//! extra data, block entities and their caps, the tags not read, and errors naming the key.
 
 use super::*;
 use crate::nbt::Value;
@@ -26,37 +26,6 @@ pub(crate) fn layer(bits: u8, indices: &[u16], palette: &[Compound]) -> Vec<u8> 
         out.extend(nbt(entry));
     }
     out
-}
-
-/// A biome storage on disk (header low bit set, as BDS writes it).
-pub(crate) fn biome_storage(bits: u8, indices: &[u16], palette: &[u32]) -> Vec<u8> {
-    let mut out = vec![bits << 1 | 1];
-    for word in pack(bits, indices) {
-        out.extend_from_slice(&word.to_le_bytes());
-    }
-    if bits != 0 {
-        out.extend_from_slice(&u32::try_from(palette.len()).unwrap().to_le_bytes());
-    }
-    for id in palette {
-        out.extend_from_slice(&id.to_le_bytes());
-    }
-    out
-}
-
-/// A `Data3D` value: a zero height map and `storages`.
-pub(crate) fn data_3d(storages: &[Vec<u8>]) -> Vec<u8> {
-    let mut out = vec![0; HEIGHT_MAP];
-    for storage in storages {
-        out.extend_from_slice(storage);
-    }
-    out
-}
-
-/// 24 storages: one uniform biome, then 23 copies.
-pub(crate) fn uniform_3d(id: u32) -> Vec<u8> {
-    let mut storages = vec![biome_storage(0, &[], &[id])];
-    storages.extend(std::iter::repeat_n(vec![0xff], SUB_CHUNKS - 1));
-    data_3d(&storages)
 }
 
 /// A version 9 sub-chunk at `y` with the given layers.
@@ -97,14 +66,28 @@ fn entries(version: u8, values: &[(&[u8], Vec<u8>)]) -> Entries {
     e
 }
 
-/// The error inside the chunk error.
+/// The error inside the chunk error, and inside the key error if there is one.
 fn inner(result: Result<Raw>) -> Error {
     match result {
         Err(Error::Chunk {
             x: 3,
             z: -2,
             source,
-        }) => *source,
+        }) => match *source {
+            Error::Key { source, .. } => *source,
+            other => other,
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The kind and hexadecimal bytes of the key the chunk error names.
+fn faulty_key(result: Result<Raw>) -> (&'static str, String) {
+    match result {
+        Err(Error::Chunk { source, .. }) => match *source {
+            Error::Key { kind, key, .. } => (kind, key),
+            other => panic!("{other:?}"),
+        },
         other => panic!("{other:?}"),
     }
 }
@@ -129,7 +112,7 @@ fn keys_are_classified_by_their_layout() {
         }
     );
     assert_eq!(
-        overworld(&[DATA_3D]),
+        overworld(&[0x2b]),
         Key::Overworld {
             x: -1,
             z: 2,
@@ -158,8 +141,14 @@ fn keys_are_classified_by_their_layout() {
             version: false
         }
     );
-    assert_eq!(classify(&digest_key(5, 6)), Key::Actor);
-    assert_eq!(classify(&actor_key([1; 8])), Key::Actor);
+    assert_eq!(
+        classify(&[&b"digp"[..], &prefix(5, 6)].concat()),
+        Key::EntityList
+    );
+    assert_eq!(
+        classify(&[&b"actorprefix"[..], &[1; 8]].concat()),
+        Key::Entity
+    );
     assert_eq!(classify(b"~local_player"), Key::Player);
     assert_eq!(classify(b"player_server_1234"), Key::Player);
     for other in [
@@ -201,7 +190,6 @@ fn entries_keep_what_is_decoded_and_note_other_tags() {
     let raw = decode(&e).unwrap();
     assert_eq!(raw.ignored, vec![SUB_CHUNK, 0x36, 0x3f]);
     assert!(raw.sections.is_empty());
-    assert_eq!(raw.biomes, Biomes::Missing);
 }
 
 #[test]
@@ -209,7 +197,12 @@ fn chunk_data_over_64_mib_is_refused() {
     let mut e = Entries::new(0, 0);
     e.add(&key(0, 0, &[BLOCK_ENTITIES]), &vec![0; MAX_CHUNK_BYTES / 2])
         .unwrap();
-    let error = e.add_actor(vec![0; MAX_CHUNK_BYTES / 2 + 1]).unwrap_err();
+    let error = e
+        .add(
+            &key(0, 0, &[SUB_CHUNK, 0]),
+            &vec![0; MAX_CHUNK_BYTES / 2 + 1],
+        )
+        .unwrap_err();
     assert!(matches!(
         error,
         Error::TooLarge {
@@ -235,6 +228,13 @@ fn versions_are_checked() {
     let mut long = Entries::new(3, -2);
     long.add(&key(3, -2, &[VERSION]), &[42, 0]).unwrap();
     assert!(matches!(inner(decode(&long)), Error::Malformed(_)));
+    assert_eq!(
+        faulty_key(decode(&long)),
+        ("Version", "03000000feffffff2c".to_owned())
+    );
+    let mut old_long = Entries::new(3, -2);
+    old_long.add(&key(3, -2, &[OLD_VERSION]), &[]).unwrap();
+    assert_eq!(faulty_key(decode(&old_long)).0, "LegacyVersion");
     assert!(matches!(
         inner(decode(&entries(43, &[]))),
         Error::NewerFormat {
@@ -393,80 +393,31 @@ fn malformed_sub_chunks_are_errors() {
     let mut huge_count = vec![9, 255, 1];
     huge_count.extend(stone_layer());
     assert!(bad(huge_count).to_string().contains("ends early"));
-}
-
-#[test]
-fn data_3d_biomes_decode_with_copies_and_extra_storages() {
-    let varied = biome_storage(
-        2,
-        &(0..4096_u16).map(|i| i % 3).collect::<Vec<_>>(),
-        &[1, 4, 7],
+    // The error names the key, with the sub-chunk's y.
+    assert_eq!(
+        faulty_key(decode(&entries(42, &[(&[SUB_CHUNK, 0xfd], vec![])]))),
+        ("SubChunkPrefix", "03000000feffffff2ffd".to_owned())
     );
-    let mut storages = vec![varied.clone(), vec![0xff]];
-    storages.extend((0..22).map(|i| biome_storage(0, &[], &[i])));
-    let raw = decode(&entries(42, &[(&[DATA_3D], data_3d(&storages))])).unwrap();
-    let Biomes::Paletted(biomes) = raw.biomes else {
-        panic!("not paletted")
-    };
-    assert_eq!(biomes.len(), SUB_CHUNKS);
-    assert_eq!(biomes[0], biomes[1]);
-    assert_eq!(biomes[0].palette, vec![1, 4, 7]);
-    assert_eq!(biomes[23].palette, vec![21]);
-    // Version 37 stored 32 storages; the 8 after the 24 used are read and dropped.
-    let mut many = storages.clone();
-    many.extend(std::iter::repeat_n(vec![0xff], 8));
-    let raw = decode(&entries(37, &[(&[DATA_3D], data_3d(&many))])).unwrap();
-    assert!(matches!(raw.biomes, Biomes::Paletted(b) if b.len() == SUB_CHUNKS));
-    // Version 37 data that stops after 24 is accepted too (PMMP).
-    assert!(decode(&entries(37, &[(&[DATA_3D], data_3d(&storages))])).is_ok());
-    // But storages past the version's count are trailing data.
-    assert!(matches!(
-        inner(decode(&entries(42, &[(&[DATA_3D], data_3d(&many))]))),
-        Error::Malformed("Data3D continues after its biomes")
-    ));
-    assert!(matches!(
-        inner(decode(&entries(
-            42,
-            &[(&[DATA_3D], data_3d(&storages[..23]))]
-        ))),
-        Error::Malformed(_)
-    ));
-    assert!(matches!(
-        inner(decode(&entries(
-            42,
-            &[(&[DATA_3D], data_3d(&[vec![0xff]]))]
-        ))),
-        Error::Malformed("first biome storage copies the one before")
-    ));
-    assert!(matches!(
-        inner(decode(&entries(30, &[(&[DATA_3D], uniform_3d(1))]))),
-        Error::Malformed("chunk version has no 3D biomes")
-    ));
-    assert!(matches!(
-        inner(decode(&entries(42, &[(&[DATA_3D], vec![0; 100])]))),
-        Error::Malformed(_)
-    ));
 }
 
 #[test]
-fn data_2d_biomes_win_over_data_3d_like_pmmp() {
-    let mut columns = vec![0; HEIGHT_MAP];
-    columns.extend((0..256).map(|i| u8::try_from(i).unwrap()));
-    let raw = decode(&entries(
-        20,
-        &[(&[DATA_2D], columns.clone()), (&[DATA_3D], uniform_3d(2))],
-    ))
-    .unwrap();
-    let Biomes::Columns(ids) = &raw.biomes else {
-        panic!("not columns")
-    };
-    assert_eq!(ids[0x12], 0x12);
-    assert_eq!(raw.ignored, vec![DATA_3D]);
-    columns.pop();
-    assert!(matches!(
-        inner(decode(&entries(20, &[(&[DATA_2D], columns)]))),
-        Error::Malformed(_)
-    ));
+fn biomes_entities_and_pending_ticks_are_not_read() {
+    // Values each of which failed the chunk when it was read: biomes after the storages the
+    // chunk version has (a real 1.21 chunk, U11), a short Data2D, entities and pending ticks that
+    // are not NBT.
+    let mut data_3d = vec![0; 512];
+    data_3d.extend(std::iter::repeat_n(1_u8, 25));
+    let e = entries(
+        41,
+        &[
+            (&[0x2b], data_3d),
+            (&[0x2d], vec![0; 3]),
+            (&[0x32], vec![10, 0]),
+            (&[0x33], vec![0xff]),
+        ],
+    );
+    let raw = decode(&e).unwrap();
+    assert_eq!(raw.ignored, vec![0x2b, 0x2d, 0x32, 0x33]);
 }
 
 /// The legacy terrain golden values: PMMP's `SubChunkConverter::convertSubChunkFromLegacyColumn`
@@ -485,20 +436,18 @@ fn legacy_terrain_splits_the_column_like_pmmp() {
     let mut terrain: Vec<u8> = (0..LEGACY_IDS).map(|i| byte(i * 7 + 3)).collect();
     terrain.extend((0..LEGACY_META).map(|i| byte(i * 13 + 5)));
     terrain.extend(vec![0; LEGACY_LIGHT + 256]);
-    for i in 0..256_u32 {
-        terrain.extend_from_slice(&((i % 40) << 24 | 0x00ab_cdef).to_be_bytes());
-    }
+    terrain.extend(vec![0; 1024]);
     let e = entries(
         2,
         &[
             (&[LEGACY_TERRAIN], terrain.clone()),
             (&[SUB_CHUNK, 0], vec![0]),
-            (&[DATA_2D], vec![]),
+            (&[0x2d], vec![]),
         ],
     );
     let raw = decode(&e).unwrap();
     assert_eq!(raw.sections.len(), 8);
-    assert_eq!(raw.ignored, vec![DATA_2D, SUB_CHUNK]);
+    assert_eq!(raw.ignored, vec![0x2d, SUB_CHUNK]);
     let Layer::Legacy(layer) = &raw.sections[3].layers[0] else {
         panic!("not legacy")
     };
@@ -506,10 +455,6 @@ fn legacy_terrain_splits_the_column_like_pmmp() {
         let (id, meta) = layer.get(x, y, z);
         assert_eq!(u16::from(id) << 4 | u16::from(meta), golden, "{x} {y} {z}");
     }
-    let Biomes::Columns(ids) = &raw.biomes else {
-        panic!("not columns")
-    };
-    assert_eq!(ids[45], 5);
     terrain.pop();
     assert!(matches!(
         inner(decode(&entries(2, &[(&[LEGACY_TERRAIN], terrain)]))),
@@ -608,42 +553,23 @@ fn compound(id: &str) -> Compound {
 }
 
 #[test]
-fn block_entities_entities_and_pending_ticks_are_nbt() {
+fn block_entities_are_nbt() {
     let mut chests = nbt(&compound("Chest"));
     chests.extend(nbt(&compound("Sign")));
-    let ticks = Compound::from([("currentTick".to_owned(), Value::Int(9))]);
-    let e = entries(
-        42,
-        &[
-            (&[BLOCK_ENTITIES], chests),
-            (&[ENTITIES], nbt(&compound("Pig"))),
-            (&[PENDING_TICKS], nbt(&ticks)),
-        ],
-    );
-    let raw = decode(&e).unwrap();
+    let raw = decode(&entries(42, &[(&[BLOCK_ENTITIES], chests)])).unwrap();
     assert_eq!(
         raw.block_entities,
         vec![compound("Chest"), compound("Sign")]
     );
-    assert_eq!(raw.entities, vec![compound("Pig")]);
-    assert_eq!(raw.pending_ticks, Some(ticks.clone()));
-    // With a digp key the actors are the entities, and tag 50 is old.
-    let mut digest = e.clone();
-    digest.set_digest();
-    digest.add_actor(nbt(&compound("Cow"))).unwrap();
-    let raw = decode(&digest).unwrap();
-    assert_eq!(raw.entities, vec![compound("Cow")]);
-    assert_eq!(raw.ignored, vec![ENTITIES]);
-    let mut trailing = nbt(&ticks);
-    trailing.push(0);
-    assert!(matches!(
-        inner(decode(&entries(42, &[(&[PENDING_TICKS], trailing)]))),
-        Error::Malformed("value continues after its compound")
-    ));
-    assert!(matches!(
-        inner(decode(&entries(42, &[(&[ENTITIES], vec![10, 0])]))),
-        Error::Nbt(_)
-    ));
+    assert!(
+        decode(&entries(42, &[(&[BLOCK_ENTITIES], Vec::new())]))
+            .unwrap()
+            .block_entities
+            .is_empty()
+    );
+    let bad = entries(42, &[(&[BLOCK_ENTITIES], vec![10, 0])]);
+    assert!(matches!(inner(decode(&bad)), Error::Nbt(_)));
+    assert_eq!(faulty_key(decode(&bad)).0, "BlockEntity");
 }
 
 #[test]
@@ -654,12 +580,6 @@ fn lists_over_the_extra_entry_cap_are_refused() {
         inner(decode(&entries(42, &[(&[BLOCK_ENTITIES], many)]))),
         Error::TooLarge { .. }
     ));
-    assert!(matches!(actor_ids(&[0; 9]), Err(Error::Malformed(_))));
-    assert!(matches!(
-        actor_ids(&vec![0; 8 * (MAX_EXTRA_ENTRIES + 1)]),
-        Err(Error::TooLarge { .. })
-    ));
-    assert_eq!(actor_ids(&[1; 16]).unwrap(), &[[1; 8], [1; 8]]);
 }
 
 fn fuzz_value(suffix: &'static [u8], seed: &[u8]) {
@@ -672,20 +592,12 @@ fn fuzz_value(suffix: &'static [u8], seed: &[u8]) {
 }
 
 #[test]
-fn mutated_sub_chunks_data_3d_and_nbt_never_panic() {
+fn mutated_sub_chunks_and_nbt_never_panic() {
     let water = block("minecraft:water", &[("liquid_depth", Value::Int(0))]);
     fuzz_value(
         &[SUB_CHUNK, 1],
         &sub_chunk_v9(1, &[stone_layer(), layer(0, &[], &[water])]),
     );
-    let varied = biome_storage(
-        2,
-        &(0..4096_u16).map(|i| i % 3).collect::<Vec<_>>(),
-        &[1, 4, 7],
-    );
-    let mut storages = vec![varied, vec![0xff]];
-    storages.extend((0..22).map(|i| biome_storage(0, &[], &[i])));
-    fuzz_value(&[DATA_3D], &data_3d(&storages));
     let mut list = nbt(&Compound::from([
         ("id".to_owned(), Value::String("Chest".to_owned())),
         (

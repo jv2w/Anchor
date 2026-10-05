@@ -673,7 +673,8 @@ impl Db {
         Ok(())
     }
 
-    /// The live value of `key`.
+    /// The live value of `key` (the import reads chunks with [`Db::scan`] only).
+    #[cfg(test)]
     pub(crate) fn get(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut end = Vec::with_capacity(key.len() + 1);
         end.extend_from_slice(key);
