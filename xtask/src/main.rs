@@ -32,6 +32,11 @@ const STR0M: &str = "vendor/str0m/Cargo.toml";
 const STR0M_DIMPL: &str = "patch.crates-io.dimpl.path=\"vendor/dimpl\"";
 const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto\"";
 
+/// The flag of the second documentation check. Its build writes the same files as the first, so
+/// in one target directory each rebuilt the other's output on every run, even with nothing
+/// changed; it gets a target directory of its own.
+const PRIVATE_DOCS: &str = "--document-private-items";
+
 /// Checks in run order. Each passes only if it exits successfully and prints no warning.
 const CHECKS: &[&[&str]] = &[
     // No `--all`: it also formats path dependencies, the vendor copies.
@@ -91,13 +96,7 @@ const CHECKS: &[&[&str]] = &[
     &["doc", "--workspace", "--no-deps", "--quiet"],
     // The public docs above check links from public to private items; this one checks the links
     // in private docs.
-    &[
-        "doc",
-        "--workspace",
-        "--no-deps",
-        "--document-private-items",
-        "--quiet",
-    ],
+    &["doc", "--workspace", "--no-deps", PRIVATE_DOCS, "--quiet"],
 ];
 
 fn main() -> io::Result<ExitCode> {
@@ -255,6 +254,11 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
     writeln!(out, "{} lint reason tags", if ok { "ok  " } else { "FAIL" })?;
     passed &= ok;
     for args in CHECKS {
+        let target = if args.contains(&PRIVATE_DOCS) {
+            "verify-private-docs"
+        } else {
+            "verify"
+        };
         let mut command = Command::new(&cargo);
         if cfg!(windows) && args.contains(&DIMPL) {
             command.env("OPENSSL_SRC_PERL", root().join(PERL));
@@ -265,7 +269,7 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
             // `cargo test --workspace` unifies features differently from `cargo xtask`, so in the
             // shared target directory it would rebuild the running xtask.exe, which Windows
             // cannot replace.
-            .env("CARGO_TARGET_DIR", root().join("target").join("verify"))
+            .env("CARGO_TARGET_DIR", root().join("target").join(target))
             .env("RUSTDOCFLAGS", "-D warnings")
             .env("CARGO_TERM_COLOR", "never")
             .output()?;

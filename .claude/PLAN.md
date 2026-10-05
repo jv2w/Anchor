@@ -479,7 +479,7 @@ console-input = true
   - 설정 파일이 없으면 기본 파일을 쓰고, 그 파일을 읽은 것처럼 적용한다(첫 시작과 그 뒤 시작의 결과가 같다).
   - RakNet 쿠키(security)는 쓰지 않는다. BDS가 security=false로 답하고 공식 클라이언트의 쿠키 처리는 관찰할 수 없어서다(CLAUDE.md 8절). 위조 출발지는 로그인 전 상한으로만 막는다.
   - Join 전 예상 밖 패킷은 끊지 않고 대기 큐에 둔다(세션 순서 항목).
-  - `cargo xtask verify`는 검사를 `target/verify`에서 돌린다(`cargo test --workspace`의 기능 통합이 달라 실행 중인 xtask.exe를 다시 빌드하려다 Windows에서 실패해서).
+  - `cargo xtask verify`는 검사를 `target/verify`에서 돌린다(`cargo test --workspace`의 기능 통합이 달라 실행 중인 xtask.exe를 다시 빌드하려다 Windows에서 실패해서). 비공개 문서 검사만 `target/verify-private-docs`에서 돈다: 두 문서 빌드가 같은 파일을 써서 한 폴더에서는 바뀐 것이 없어도 매번 서로를 다시 빌드했다(따뜻한 상태 두 검사 합계 약 23~30초 → 약 1초).
 - 설정 범위(정본은 `src/config.rs`): `max-players` 1~10000, `chunks-per-tick` 1~256, `spawn-radius`·`tick-radius` 1~64, `random-tick-speed` 0~4096, 스레드 `"auto"` 또는 1~65535(합계 규칙은 `build()`), `motd` 1~256바이트·`level-name` 1~64바이트(`;`와 제어 문자 금지: 핑 응답이 `;`로 나뉜다), `shutdown-message` 1024바이트 이하, `disable-block-ticking`은 `ns:path` 모양. 압축 세 키는 `batch::Settings::new` 한 곳에서 검사한다. toml 파서는 깊이 80에서 멈춘다(1 MiB 깊은 중첩 시험).
 - RakNet 상수(정본은 `src/raknet/`): 조각 수 ⌈메시지/345⌉(미리 할당 안 함), 동시 조각 묶음 16, 순서 창 2048(채널 32개 따로), 쥔 바이트 2 × 메시지 + 2048 × 1492, 데이터그램 기록 1024, 신뢰 인덱스 빈칸 8192, 혼잡 창 32(최소 4, 최대 2048, 손실 때 ×3/4), RTO 500ms(100ms~2s), flush당 데이터그램 32, 출력 32 MiB, 세션 입력 큐 1024개·2 × 메시지 바이트, 소켓 버퍼 4 MiB, 갱신 10ms, 핸드셰이크 10초, 무응답 5초 + 2·RTT, 닫기 5초, 핑 응답 1429바이트 이하. IPv6 로그인 전 상한은 /64 단위.
 - 세션·틱 상수: 틱당 입력 8192개, 스택 4 MiB(워커와 틱), 블로킹 스레드 4, 종료 유예 10초, 세션 받기 큐 64, Join 전 대기 패킷 32, 첫 메시지 1 KiB. 핑 응답은 BDS 형식 `MCPE;motd;2193;1.26.50;접속자;최대;guid;level;모드;1;포트;포트;0;1;1;`.
@@ -1198,6 +1198,7 @@ console-input = true
 - R2 합침: 실행 중 백업의 단계 커밋은 동기화 없이(`Durability::None`), 다 복사한 뒤 지속 커밋 한 번 → 닫기·동기화·이름 바꾸기. 끊긴 복사는 `.tmp`로 남아 백업이 아님(원자성 유지). 동기화 7단계 기준 13번 → 6번(redb 파일 성장 때만 남음).
 - U9 합침: `integrity-check` 연결(`after-unclean-shutdown`은 정상 종료가 compact 뒤 마지막 커밋으로 `meta`의 `closed` 표시를 쓰고 다음 시작 첫 커밋이 지움; 실패·패닉·강제 종료는 표시 없음). `backups = true`의 시작 백업은 늘, `backups = false`의 임시 사본은 검사하는 시작에서만. `/check`(op, 게임·콘솔): 다음 저장 커밋 뒤 저장 스레드가 그 커밋의 값을 8 MiB 단계로 읽어 봉인 확인, 단계 사이 요청 먼저 처리(틱 안 막음), 하나씩, 결과는 실행한 사람에게(Anchor 문장). redb `check_integrity`는 닫힌 파일이 필요하고 원본을 고쳐 쓰므로 실행 중 안 씀. 입력 로그 형식 11(검사 결과도 틱 입력), `storage::Start { backup, check }`.
 - R5 합침: 1명 p99 +15%의 원인은 M9에서 커진 `light::Engine::step` 안의 `level`·`relax`·`relax_at`이 인라인되지 않은 것(일의 양 같음, codegen-units=1이면 M7과 같음). `#[inline]`으로 청크 한 줄 빛 일 0.267 → 0.172 ms(M7 0.186), 1명 p99 0.469 → 0.376 ms(M7 0.380). 표 9 검증 필요 A 닫음.
+- 남은 지적 12 합침: verify의 비공개 문서 검사를 `target/verify-private-docs`로 옮김(바뀐 것 없을 때 두 문서 검사 약 25초 → 약 1초).
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
