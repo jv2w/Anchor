@@ -184,7 +184,10 @@ fn a_made_world_raises_init_then_load_and_loads_its_spawn_chunks() {
         c.create_world("x", &arena(1).with_generator("normal")),
         Err(world::Error::UnknownGenerator)
     );
-    assert_eq!(c.load_world("nowhere"), Err(world::Error::NotGenerated));
+    assert_eq!(
+        c.load_world("nowhere", &Options::new()),
+        Err(world::Error::NotGenerated)
+    );
     assert!(!c.is_world_generated("nowhere") && !c.is_world_loaded("nowhere"));
 }
 
@@ -237,7 +240,10 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
     );
     // A temporary world unloaded is gone; one made again takes its place.
     let mut c = cx(&mut state);
-    assert_eq!(c.load_world("arena"), Err(world::Error::NotGenerated));
+    assert_eq!(
+        c.load_world("arena", &Options::new()),
+        Err(world::Error::NotGenerated)
+    );
     assert_eq!(c.unload_world(id), Err(world::Error::WorldNotLoaded));
     assert_eq!(
         c.unload_world(world::Id::DEFAULT),
@@ -258,7 +264,10 @@ fn an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world
         c.set_default_world(world::Id::DEFAULT),
         Err(world::Error::WorldNotLoaded)
     );
-    assert_eq!(c.load_world("world"), Ok(world::Id::DEFAULT));
+    assert_eq!(
+        c.load_world("world", &Options::new()),
+        Ok(world::Id::DEFAULT)
+    );
     assert!(c.world(world::Id::DEFAULT).is_some(), "loaded in its place");
 }
 
@@ -289,15 +298,6 @@ fn a_stopped_time_stands_still_for_the_world_and_its_players() {
     ticks(&mut state, &mut output, 3);
     assert_eq!(paused(&mut rx), [false]);
     assert_eq!(state.worlds[0].time_ticks(), before + 3);
-    // The snapshot carries it: the world record keeps it (`save` tests read it back).
-    cx(&mut state).stop_time(world::Id::DEFAULT);
-    state.saving.requested = true;
-    let Some(Request::Commit(snapshot)) =
-        crate::tick::save::snapshot(&mut state, &mut InputLog::default(), false)
-    else {
-        panic!("a snapshot was asked for");
-    };
-    assert!(snapshot.worlds[0].1.time_stopped);
 }
 
 /// A world made with its own view values (the `[worlds.<name>]` keys) uses them; the others keep
@@ -544,20 +544,13 @@ fn a_hardcore_server_plays_every_world_on_hard() {
     let calm = cx(&mut state)
         .create_world("calm", &arena(1).with_difficulty(Difficulty::Peaceful))
         .unwrap();
-    state.catalog.stored.insert(
-        "old".to_owned(),
-        WorldRecord {
-            number: 7,
-            seed: 2,
-            spawn: [0, -60, 0],
-            generator: "flat".to_owned(),
-            time: 0,
-            time_stopped: false,
-            difficulty: Some(1),
-            weather: crate::world::Weather::Clear,
-        },
-    );
-    let old = cx(&mut state).load_world("old").unwrap();
+    state
+        .catalog
+        .stored
+        .insert("old".to_owned(), WorldRecord { number: 7, time: 0 });
+    let old = cx(&mut state)
+        .load_world("old", &Options::new().with_difficulty(Difficulty::Easy))
+        .unwrap();
     for id in [calm, old] {
         assert_eq!(difficulty(&state, id.index()), Difficulty::Hard);
     }
@@ -604,7 +597,7 @@ fn a_load_after_an_unload_in_the_same_call_keeps_the_world() {
     logged();
     let mut c = cx(&mut state);
     c.unload_world(lobby).unwrap();
-    assert_eq!(c.load_world("lobby"), Ok(lobby));
+    assert_eq!(c.load_world("lobby", &Options::new()), Ok(lobby));
     ticks(&mut state, &mut output, 2);
     assert!(state.catalog.is_loaded(lobby.index()));
     assert!(cx(&mut state).world(lobby).is_some());
@@ -725,7 +718,7 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
         let start = tables(&state);
         let mut c = cx(&mut state);
         assert_eq!(c.create_world("arena", &arena(round)), Ok(id));
-        assert_eq!(c.load_world("lobby"), Ok(lobby));
+        assert_eq!(c.load_world("lobby", &Options::new()), Ok(lobby));
         let ticket = c.hold_chunks(lobby, FAR, 1).unwrap();
         ticks(&mut state, &mut output, 2);
         let eye = on_spawn(&state, 1);
@@ -764,7 +757,7 @@ fn make_hold_and_unload_cycles_return_every_table_to_its_start() {
             ]
         );
         cx(&mut state).create_world("arena", &arena(round)).unwrap();
-        cx(&mut state).load_world("lobby").unwrap();
+        cx(&mut state).load_world("lobby", &Options::new()).unwrap();
         ticks(&mut state, &mut output, 1);
     }
 }
@@ -823,6 +816,7 @@ fn open_server(
         kind: Kind::Persistent,
         generator: Arc::new(Flat),
         seed: Some(0),
+        spawn: None,
     }];
     let opened = crate::save::open(&dir.0, specs).unwrap();
     listeners.sort();
@@ -921,6 +915,8 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
         assert!(c.stop_time(id));
         assert!(c.set_world_difficulty(id, Some(Difficulty::Easy)));
         assert!(c.set_weather(id, Weather::Rain));
+        assert!(c.set_time(id, 4_000));
+        c.world_mut(id).unwrap().set_spawn(BlockPos::new(9, -60, 9));
         c.unload_world(id).unwrap();
         run_saved(&mut state, &mut link, &pool, 3);
         assert!(
@@ -932,16 +928,9 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     let opened = crate::save::open(&dir.0, Vec::new()).unwrap();
     let stored = &opened.catalog.stored;
     assert_eq!(stored.len(), 2, "{stored:?}");
+    // The record keeps the state alone: none of the settings the run changed.
     let (_, lobby) = stored.iter().find(|(n, _)| n == "lobby").unwrap();
-    assert_eq!(
-        (
-            lobby.seed,
-            lobby.time_stopped,
-            lobby.difficulty,
-            lobby.weather
-        ),
-        (5, true, Some(1), Weather::Rain)
-    );
+    assert!((4_000..4_010).contains(&lobby.time), "{lobby:?}");
     drop(opened);
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
     let mut c = cx(&mut state);
@@ -950,14 +939,22 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
         c.create_world("lobby", &Options::new()),
         Err(world::Error::WorldExists)
     );
-    let id = c.load_world("lobby").unwrap();
+    // The settings come from the load: its options, else the defaults.
+    let spawn = BlockPos::new(2, -60, 3);
+    let options = Options::new()
+        .with_seed(6)
+        .with_spawn(spawn)
+        .with_difficulty(Difficulty::Hard);
+    let id = c.load_world("lobby", &options).unwrap();
     run_saved(&mut state, &mut link, &pool, 3);
     let c = cx(&mut state);
     let lobby = c.world(id).unwrap();
     assert_eq!(lobby.block(at), Some(stone()), "the unload's commit");
-    assert!(lobby.is_time_stopped());
-    assert_eq!(lobby.difficulty(), Some(Difficulty::Easy));
-    assert_eq!(lobby.weather(), Weather::Rain);
+    assert!(lobby.time_ticks() >= 4_000, "the saved time goes on");
+    assert_eq!((lobby.seed(), lobby.spawn()), (6, spawn));
+    assert!(!lobby.is_time_stopped());
+    assert_eq!(lobby.difficulty(), Some(Difficulty::Hard));
+    assert_eq!(lobby.weather(), Weather::Clear);
     finish(link, handle);
     assert!(pool.shutdown());
 }
@@ -1023,7 +1020,7 @@ fn script(state: &mut State) {
             }
             7 => {
                 let lobby = c
-                    .load_world("lobby")
+                    .load_world("lobby", &Options::new())
                     .or_else(|_| c.create_world("lobby", &Options::new().with_generator("void")));
                 let lobby = lobby.unwrap();
                 c.hold_chunks(lobby, ChunkPos::new(5, 5), 1).unwrap();

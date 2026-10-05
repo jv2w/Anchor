@@ -2612,6 +2612,7 @@ mod tests {
                 kind: crate::world::Kind::Persistent,
                 generator: std::sync::Arc::new(crate::world::Flat),
                 seed: Some(0),
+                spawn: None,
             }]
         };
         // A world 23,990 ticks old, run 5 ticks, then saved at the tick boundary.
@@ -2631,16 +2632,7 @@ mod tests {
         assert_eq!(snapshot.start, state.tick);
         assert_eq!(
             snapshot.worlds,
-            [(
-                0,
-                save::WorldValues {
-                    spawn: state.worlds[0].spawn(),
-                    time: 23_995,
-                    time_stopped: false,
-                    difficulty: None,
-                    weather: Weather::Clear,
-                }
-            )],
+            [(0, save::WorldValues { time: 23_995 })],
             "the snapshot carries the time"
         );
         let dir = TempDir::new("time");

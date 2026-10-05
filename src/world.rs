@@ -232,18 +232,20 @@ impl std::error::Error for Error {}
 /// The result of a world operation.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// How [`Context::create_world`](crate::Context::create_world) makes a world (PMMP
+/// The settings [`Context::create_world`](crate::Context::create_world) makes a world with and
+/// [`Context::load_world`](crate::Context::load_world) loads a stored one with (PMMP
 /// `WorldCreationOptions`). The defaults: a [`Kind::Persistent`] world of the `flat` generator,
-/// a seed drawn by the engine, the generator's spawn, the server's difficulty and the global
-/// view values.
+/// a seed made from the world's name, the generator's spawn, the server's difficulty and the
+/// global view values. The server file saves none of them (PLAN.md 10.6): a world loaded after a
+/// restart takes the options of that load.
 #[doc(alias = "WorldCreationOptions")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
     kind: Kind,
     generator: String,
     seed: Option<i64>,
-    spawn: Option<BlockPos>,
     difficulty: Option<crate::config::Difficulty>,
+    /// The view values and the spawn.
     settings: crate::config::WorldSettings,
 }
 
@@ -253,7 +255,6 @@ impl Default for Options {
             kind: Kind::Persistent,
             generator: "flat".to_owned(),
             seed: None,
-            spawn: None,
             difficulty: None,
             settings: crate::config::WorldSettings::default(),
         }
@@ -295,7 +296,7 @@ impl Options {
         self
     }
 
-    /// The seed, or `None` for one the engine draws (the same in a replay).
+    /// The seed, or `None` for one made from the world's name (the same at every start).
     #[doc(alias = "WorldCreationOptions::getSeed")]
     pub fn seed(&self) -> Option<i64> {
         self.seed
@@ -309,17 +310,18 @@ impl Options {
         self
     }
 
-    /// The spawn, or `None` for the generator's ([`Generator::spawn`]).
+    /// The spawn, or `None` for the generator's ([`Generator::spawn`]): the `spawn` of
+    /// [`settings`](Self::settings).
     #[doc(alias = "WorldCreationOptions::getSpawnPosition")]
     pub fn spawn(&self) -> Option<BlockPos> {
-        self.spawn
+        self.settings.spawn
     }
 
     /// The options with `spawn`.
     #[doc(alias = "WorldCreationOptions::setSpawnPosition")]
     #[must_use]
     pub fn with_spawn(mut self, spawn: BlockPos) -> Self {
-        self.spawn = Some(spawn);
+        self.settings.spawn = Some(spawn);
         self
     }
 
@@ -339,14 +341,15 @@ impl Options {
         self
     }
 
-    /// The world's own view values: each one set replaces the global one in this world, as a
-    /// `[worlds.<name>]` table does for the worlds the server is built with. They last while the
-    /// server runs: a later run loads the world with the global values.
+    /// The world's own view values and spawn: each view value set replaces the global one in
+    /// this world, as a `[worlds.<name>]` table does for the worlds the server is built with.
+    /// They last while the server runs: a later run loads the world with the options of its load.
     pub fn settings(&self) -> crate::config::WorldSettings {
         self.settings
     }
 
-    /// The options with the world's own view values `settings` (each within its key's range).
+    /// The options with the world's own view values and spawn `settings` (each view value within
+    /// its key's range); it replaces [`with_spawn`](Self::with_spawn).
     #[must_use]
     pub fn with_settings(mut self, settings: crate::config::WorldSettings) -> Self {
         self.settings = settings;
@@ -374,9 +377,53 @@ impl Ticket {
 }
 
 /// The weather of a world ([`World::weather`]). It stays as set: there is no natural cycle and
-/// no duration, and a new world is clear. Clients draw rain as snow where their biome is cold.
-/// BDS strikes lightning at random during thunder; Anchor strikes only where
+/// no duration. Clients draw rain as snow where their biome is cold. BDS strikes lightning at
+/// random during thunder; Anchor strikes only where
 /// [`Context::strike_lightning`](crate::Context::strike_lightning) says.
+///
+/// Anchor neither saves the weather nor changes it by itself: every world is clear when the
+/// server starts, and only [`Context::set_weather`](crate::Context::set_weather) changes it. A
+/// server program that wants a cycle builds one: a repeating task
+/// ([`Context::schedule_repeating`](crate::Context::schedule_repeating) or
+/// [`ServerBuilder::every`](crate::ServerBuilder::every)) sets the weather, and a server data
+/// value ([`ServerBuilder::server_data`](crate::ServerBuilder::server_data),
+/// [`Context::data_mut`](crate::Context::data_mut)) keeps it across restarts, committed with the
+/// rest of the game. No event tells of a change: only the program's own calls make one, and
+/// direct calls raise no events (PLAN.md 8.2).
+///
+/// ```no_run
+/// use std::num::NonZeroU32;
+///
+/// use anchor::world::Weather;
+/// use anchor::{Context, Server};
+/// use serde::{Deserialize, Serialize};
+///
+/// /// The default world's place in the cycle, kept across restarts.
+/// #[derive(Default, Serialize, Deserialize)]
+/// struct Sky {
+///     turn: u8,
+/// }
+///
+/// /// Ten minutes of each weather in turn: clear, rain, thunder.
+/// fn turn(cx: &mut Context<'_>) {
+///     let world = cx.default_world().id();
+///     let turn = cx.data::<Sky>().map_or(0, |sky| sky.turn.wrapping_add(1) % 3);
+///     let weather = [Weather::Clear, Weather::Rain, Weather::Thunder][usize::from(turn)];
+///     cx.set_weather(world, weather);
+///     if let Some(sky) = cx.data_mut::<Sky>() {
+///         sky.turn = turn;
+///     }
+/// }
+///
+/// # fn main() -> Result<(), anchor::Error> {
+/// let ten_minutes = NonZeroU32::new(20 * 60 * 10).expect("not zero");
+/// Server::builder()
+///     .server_data::<Sky>("sky")
+///     .every(ten_minutes, turn)
+///     .build()?
+///     .run()
+/// # }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Weather {
     /// No rain.
@@ -416,11 +463,11 @@ pub struct World {
     spawn: BlockPos,
     /// Ticks since the world was created (PMMP `World::$time`); the day cycle follows it.
     time: i64,
-    /// The time stands still (PMMP `World::$stopTime`, saved here).
+    /// The time stands still (PMMP `World::$stopTime`), until the server stops.
     time_stopped: bool,
     /// The world's own difficulty; `None` follows the server's.
     difficulty: Option<crate::config::Difficulty>,
-    /// The weather, saved with the world.
+    /// The weather, clear at start.
     weather: Weather,
     /// The `chunks` key number of a persistent world the server file holds or will hold.
     number: Option<u32>,
@@ -529,7 +576,8 @@ impl World {
         self.spawn
     }
 
-    /// Moves the spawn, saved with the world. The 3 × 3 spawn chunks the server keeps loaded move
+    /// Moves the spawn until the server stops: a restart takes the spawn of the settings again
+    /// (PLAN.md 10.6). The 3 × 3 spawn chunks the server keeps loaded move
     /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
     /// sees them (PMMP keeps the old ones held and does not hold the new ones).
     #[doc(alias = "World::setSpawnLocation")]
@@ -544,7 +592,8 @@ impl World {
         pos.x.abs_diff(center.x) <= 1 && pos.z.abs_diff(center.z) <= 1
     }
 
-    /// The world's clock in ticks (0 for a new world), saved with the world. It goes up by one
+    /// The world's clock in ticks (0 for a new world), saved with the world: it is state, not a
+    /// setting. It goes up by one
     /// each tick the world is loaded and awake, unless its time is stopped or `daylight-cycle` is
     /// off, and jumps when everyone sleeps through the night.
     #[doc(alias = "World::getTime")]
@@ -566,38 +615,39 @@ impl World {
     }
 
     /// Whether the time stands still ([`Context::stop_time`](crate::Context::stop_time)): the
-    /// day cycle and the sun stay where they are. Saved with the world (PMMP forgets it on
-    /// restart).
+    /// day cycle and the sun stay where they are. Not saved: every start runs the time, as PMMP
+    /// does (`daylight-cycle` stops every world's).
     pub fn is_time_stopped(&self) -> bool {
         self.time_stopped
     }
 
-    /// Stops or starts the time: the saved state at start and the context's calls.
+    /// Stops or starts the time: the context's calls.
     pub(crate) fn set_time_stopped(&mut self, stopped: bool) {
         self.time_stopped = stopped;
     }
 
     /// The world's own difficulty, or `None` while it follows the server's
     /// ([`Context::difficulty`](crate::Context::difficulty)), as a new world does unless it is
-    /// made with one. The rules of the world use it (hunger, fire), but on a `hardcore` server
-    /// they use hard whatever it says. Saved with the world.
+    /// made or loaded with one. The rules of the world use it (hunger, fire), but on a `hardcore`
+    /// server they use hard whatever it says. Not saved: it comes from the options of every load.
     #[doc(alias = "World::getDifficulty")]
     pub fn difficulty(&self) -> Option<crate::config::Difficulty> {
         self.difficulty
     }
 
-    /// Sets the world's own difficulty: the saved one at start and the context's calls.
+    /// Sets the world's own difficulty: the options of its making or loading and the context's
+    /// calls.
     pub(crate) fn set_difficulty(&mut self, difficulty: Option<crate::config::Difficulty>) {
         self.difficulty = difficulty;
     }
 
-    /// The weather ([`Context::set_weather`](crate::Context::set_weather) changes it). Saved with
-    /// the world.
+    /// The weather ([`Context::set_weather`](crate::Context::set_weather) changes it). Not saved:
+    /// every world is clear at start.
     pub fn weather(&self) -> Weather {
         self.weather
     }
 
-    /// Sets the weather: the saved one at start and the context's calls.
+    /// Sets the weather: the context's calls.
     pub(crate) fn set_weather(&mut self, weather: Weather) {
         self.weather = weather;
     }

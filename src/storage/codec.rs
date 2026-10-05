@@ -7,9 +7,9 @@
 //!
 //! A record is decoded in the format version its seal names: format 1 player records have no
 //! `extra` compound and a 32-bit position, format 1 has no [`ExtraRecord`], formats before 4
-//! have no [`SubChunkRecord`] values, world records before format 3 have no time, before
-//! format 5 no time stop or difficulty and before format 6 no weather, and meta values before
-//! format 7 have no commit identity. Every other record has one layout in every format. NBT keeps the codec's limits (PLAN.md 4): 512
+//! have no [`SubChunkRecord`] values, world records before format 3 have no time and before
+//! format 8 hold settings, which are skipped ([`WorldRecord`]), and meta values before format 7
+//! have no commit identity. Every other record has one layout in every format. NBT keeps the codec's limits (PLAN.md 4): 512
 //! levels and 4 MiB per root compound, except a player's extra compound, which may fill its
 //! record ([`MAX_PLAYER_EXTRA_BYTES`]).
 
@@ -19,7 +19,6 @@ use std::mem::size_of;
 use super::seal::{DECODE_BUDGET, MAX_RECORD};
 use crate::nbt::{Compound, Encoding, MAX_ROOT_BYTES};
 use crate::protocol::{Error, Reader, Result, Writer, length};
-use crate::world::Weather;
 
 /// Sub-chunks in a chunk column, from index -4 (y -64) to 19 (y 304..=319).
 pub(crate) const SUB_CHUNKS: usize = 24;
@@ -454,106 +453,54 @@ impl Record for UserRecord<'_> {
     }
 }
 
-/// A persistent world: the `worlds` value, keyed by the world name.
+/// A persistent world: the `worlds` value, keyed by the world name. It holds the world's state
+/// alone, never a setting (PLAN.md 10.6): the seed, spawn, generator, difficulty, time stop and
+/// weather come from the settings and the code at every start.
 ///
-/// Format 6: the number, the seed, the spawn, the generator name, the world time (i64), whether
-/// the time stands still (bool), the world's own difficulty (u8 0 to 3, or 255 for none: it
-/// follows the server's) and the weather (u8: 0 clear, 1 rain, 2 thunder). Format 5 ends after
-/// the difficulty and reads clear; formats 3 and 4 end after the time and read with the time
-/// running and no difficulty of their own too; formats 1 and 2 end after the generator name and
-/// read with time 0 too, as the world was new.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Format 8: the number, then the world time (i64). Formats 1 to 7 also held settings (the seed,
+/// the spawn and the generator name after the number; the time stop, the difficulty and the
+/// weather after the time); they are skipped unchecked. Formats 1 and 2 have no time and read
+/// with time 0, as the world was new.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldRecord {
     /// The number that `chunks` keys carry for this world.
     pub(crate) number: u32,
-    /// The generator seed.
-    pub(crate) seed: i64,
-    /// The spawn block position.
-    pub(crate) spawn: [i32; 3],
-    /// The name of the generator that fills chunks never saved.
-    pub(crate) generator: String,
     /// The world time in ticks at the commit (`World::time_ticks`): the day cycle goes on from it.
     pub(crate) time: i64,
-    /// Whether the time stands still (`World::is_time_stopped`).
-    pub(crate) time_stopped: bool,
-    /// The world's own difficulty, 0 (peaceful) to 3 (hard); `None` follows the server's.
-    pub(crate) difficulty: Option<u8>,
-    /// The weather (`World::weather`).
-    pub(crate) weather: Weather,
 }
-
-/// The weathers in the order of their record byte.
-const WEATHERS: [Weather; 3] = [Weather::Clear, Weather::Rain, Weather::Thunder];
-
-/// The [`WorldRecord::difficulty`] byte of a world that follows the server's difficulty.
-const SERVER_DIFFICULTY: u8 = u8::MAX;
-/// The highest difficulty byte: hard.
-const MAX_DIFFICULTY: u8 = 3;
 
 impl Record for WorldRecord {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.uint32(self.number);
-        w.int64(self.seed);
-        for &c in &self.spawn {
-            w.int32(c);
-        }
-        write_name(w, &self.generator)?;
         w.int64(self.time);
-        w.bool(self.time_stopped);
-        match self.difficulty {
-            Some(d) if d > MAX_DIFFICULTY => return Err(Error::Size),
-            d => w.uint8(d.unwrap_or(SERVER_DIFFICULTY)),
-        }
-        let weather = (0..).zip(WEATHERS).find(|&(_, x)| x == self.weather);
-        w.uint8(weather.map_or(0, |(byte, _)| byte));
         Ok(())
     }
 
     fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
         let number = r.uint32()?;
-        let seed = r.int64()?;
-        let mut spawn = [0; 3];
-        for c in &mut spawn {
-            *c = r.int32()?;
+        if version < 8 {
+            // The seed and the spawn, then the generator name.
+            for _ in 0..4 {
+                r.uint32()?;
+            }
+            r.uint8()?;
+            r.uint8()?;
+            r.uint8()?;
+            r.uint8()?;
+            read_name(r)?;
         }
-        let generator = read_name(r)?;
         let time = if version < 3 { 0 } else { r.int64()? };
-        let (time_stopped, difficulty) = if version < 5 {
-            (false, None)
-        } else {
-            let stopped = r.bool()?;
-            let difficulty = match r.uint8()? {
-                SERVER_DIFFICULTY => None,
-                d if d <= MAX_DIFFICULTY => Some(d),
-                d => {
-                    return Err(Error::UnknownEnum {
-                        name: "difficulty",
-                        value: i64::from(d),
-                    });
-                }
-            };
-            (stopped, difficulty)
+        // The time stop and the difficulty (format 5), then the weather (format 6).
+        let settings = match version {
+            5 => 2,
+            6 | 7 => 3,
+            _ => 0,
         };
-        let weather = if version < 6 {
-            Weather::Clear
-        } else {
-            let byte = r.uint8()?;
-            *WEATHERS.get(usize::from(byte)).ok_or(Error::UnknownEnum {
-                name: "weather",
-                value: i64::from(byte),
-            })?
-        };
+        for _ in 0..settings {
+            r.uint8()?;
+        }
         end(r)?;
-        Ok(Self {
-            number,
-            seed,
-            spawn,
-            generator,
-            time,
-            time_stopped,
-            difficulty,
-            weather,
-        })
+        Ok(Self { number, time })
     }
 }
 
@@ -708,6 +655,28 @@ pub(crate) mod tests {
             &mut Reader::new(bytes, BUDGET, 0),
             crate::storage::seal::FORMAT_VERSION,
         )
+    }
+
+    /// The bytes of a format 7 world record of `record` with the settings it held: seed `seed`,
+    /// spawn `spawn`, generator `generator`, the time stopped, hard and thunder.
+    pub(crate) fn world_record_v7(
+        record: WorldRecord,
+        seed: i64,
+        spawn: [i32; 3],
+        generator: &str,
+    ) -> Vec<u8> {
+        let mut w = Writer::new(Vec::new(), 0);
+        w.uint32(record.number);
+        w.int64(seed);
+        for c in spawn {
+            w.int32(c);
+        }
+        write_name(&mut w, generator).unwrap();
+        w.int64(record.time);
+        w.bool(true);
+        w.uint8(3);
+        w.uint8(2);
+        w.into_inner()
     }
 
     /// A format 1 player record, as Anchor M6 wrote it: the name and an f32 position.
@@ -1015,13 +984,7 @@ pub(crate) mod tests {
             assert_eq!(encode(&decode::<ExtraRecord<'_>>(&bytes).unwrap()), bytes);
             let world = WorldRecord {
                 number: u32::try_from(rng.below(1 << 20)).unwrap(),
-                seed: rng.next().cast_signed(),
-                spawn: [i32::MIN, 0, i32::MAX],
-                generator: "flat".to_owned(),
                 time: rng.next().cast_signed(),
-                time_stopped: rng.below(2) == 0,
-                difficulty: [None, Some(0), Some(3)][rng.below(3)],
-                weather: WEATHERS[rng.below(3)],
             };
             assert_eq!(decode::<WorldRecord>(&encode(&world)).unwrap(), world);
             let meta = Meta {
@@ -1116,23 +1079,6 @@ pub(crate) mod tests {
         assert!(player.encode(&mut w).is_err());
         let extras = ExtraRecord(vec![Compound::new(); MAX_EXTRA_ENTRIES + 1].into());
         assert_eq!(extras.encode(&mut w), Err(Error::Size));
-        let world = WorldRecord {
-            number: 0,
-            seed: 0,
-            spawn: [0; 3],
-            generator: "g".repeat(MAX_NAME + 1),
-            time: 0,
-            time_stopped: false,
-            difficulty: None,
-            weather: Weather::Clear,
-        };
-        assert!(world.encode(&mut w).is_err());
-        let world = WorldRecord {
-            generator: "g".to_owned(),
-            difficulty: Some(4),
-            ..world
-        };
-        assert_eq!(world.encode(&mut w), Err(Error::Size));
     }
 
     #[test]
@@ -1215,104 +1161,44 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn world_records_before_format_3_read_with_time_0() {
+    fn world_records_hold_the_number_and_time_and_drop_the_settings_of_older_formats() {
         let world = WorldRecord {
             number: 7,
-            seed: -3,
-            spawn: [1, -60, 2],
-            generator: "flat".to_owned(),
             time: 123_456_789,
-            time_stopped: false,
-            difficulty: None,
-            weather: Weather::Clear,
         };
         let bytes = encode(&world);
+        assert_eq!(bytes.len(), 12, "the number and the time alone");
         assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
-        // Formats 1 and 2 (Anchor M6 and early M7) end after the generator name.
-        let old = &bytes[..bytes.len() - 11];
-        for version in [1, 2] {
-            let read = WorldRecord::decode(&mut Reader::new(old, BUDGET, 0), version).unwrap();
-            assert_eq!(
-                read,
-                WorldRecord {
-                    time: 0,
-                    ..world.clone()
-                }
-            );
-            assert!(WorldRecord::decode(&mut Reader::new(&bytes, BUDGET, 0), version).is_err());
+        let old = world_record_v7(world, -3, [1, -60, 2], "flat");
+        let read = |bytes: &[u8], version| {
+            WorldRecord::decode(&mut Reader::new(bytes, BUDGET, 0), version)
+        };
+        // Formats 6 and 7 end after the weather, format 5 after the difficulty, formats 3 and 4
+        // after the time, formats 1 and 2 after the generator name (time 0).
+        for version in [6, 7] {
+            assert_eq!(read(&old, version).unwrap(), world);
         }
-        assert!(
-            decode::<WorldRecord>(old).is_err(),
-            "format 3 needs the time"
-        );
-    }
-
-    #[test]
-    fn world_records_before_format_5_read_with_the_time_running_and_the_server_difficulty() {
-        let world = WorldRecord {
-            number: 3,
-            seed: 11,
-            spawn: [0, -60, 0],
-            generator: "void".to_owned(),
-            time: 6_000,
-            time_stopped: true,
-            difficulty: Some(0),
-            weather: Weather::Clear,
-        };
-        let bytes = encode(&world);
-        assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
-        // Formats 3 and 4 end after the time.
-        let old = &bytes[..bytes.len() - 3];
+        assert_eq!(read(&old[..old.len() - 1], 5).unwrap(), world);
         for version in [3, 4] {
-            let read = WorldRecord::decode(&mut Reader::new(old, BUDGET, 0), version).unwrap();
-            assert_eq!(
-                read,
-                WorldRecord {
-                    time_stopped: false,
-                    difficulty: None,
-                    ..world.clone()
-                }
-            );
+            assert_eq!(read(&old[..old.len() - 3], version).unwrap(), world);
         }
-        assert!(decode::<WorldRecord>(old).is_err(), "format 5 needs both");
-        let mut bad = bytes.clone();
-        let at = bad.len() - 2;
-        bad[at] = 4;
-        assert!(decode::<WorldRecord>(&bad).is_err(), "no difficulty 4");
-        bad = bytes;
-        let at = bad.len() - 3;
-        bad[at] = 2;
-        assert!(decode::<WorldRecord>(&bad).is_err(), "a bool is 0 or 1");
-    }
-
-    #[test]
-    fn world_records_keep_the_weather_and_read_clear_before_format_6() {
-        let world = WorldRecord {
-            number: 4,
-            seed: 9,
-            spawn: [0, -60, 0],
-            generator: "flat".to_owned(),
-            time: 100,
-            time_stopped: false,
-            difficulty: None,
-            weather: Weather::Thunder,
-        };
-        let bytes = encode(&world);
-        assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
-        // Format 5 ends after the difficulty.
-        let old = &bytes[..bytes.len() - 1];
-        let read = WorldRecord::decode(&mut Reader::new(old, BUDGET, 0), 5).unwrap();
-        assert_eq!(
-            read,
-            WorldRecord {
-                weather: Weather::Clear,
-                ..world
-            }
+        for version in [1, 2] {
+            let read = read(&old[..old.len() - 11], version).unwrap();
+            assert_eq!(read, WorldRecord { time: 0, ..world });
+        }
+        // Dropped settings are not checked: an unknown difficulty or weather still reads.
+        let mut odd = old.clone();
+        let at = odd.len() - 2;
+        odd[at] = 9;
+        *odd.last_mut().unwrap() = 9;
+        assert_eq!(read(&odd, 7).unwrap(), world);
+        // Each format reads its own length.
+        assert!(read(&old, 8).is_err(), "format 8 has no settings");
+        assert!(read(&bytes, 7).is_err(), "format 7 has them");
+        assert!(
+            read(&old[..old.len() - 1], 6).is_err(),
+            "format 6 has the weather"
         );
-        assert!(decode::<WorldRecord>(old).is_err(), "format 6 needs it");
-        let mut bad = bytes;
-        *bad.last_mut().unwrap() = 3;
-        assert!(decode::<WorldRecord>(&bad).is_err(), "no weather 3");
     }
 
     #[test]

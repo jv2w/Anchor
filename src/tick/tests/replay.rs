@@ -53,6 +53,7 @@ fn specs() -> Vec<WorldSpec> {
         kind: Kind::Persistent,
         generator: Arc::new(Flat),
         seed: Some(0),
+        spawn: None,
     }]
 }
 

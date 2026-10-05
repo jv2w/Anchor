@@ -34,7 +34,7 @@ use crate::storage::codec::{
 };
 use crate::storage::seal::{MAX_RECORD, seal};
 use crate::storage::{Batch, ChunkKind, Import, Key, Start, Storage};
-use crate::world::{Chunk, ChunkPos, Entry, Kind, MIN_Y, Paletted, SLOTS, SUB_CHUNKS};
+use crate::world::{BlockPos, Chunk, ChunkPos, Entry, Kind, MIN_Y, Paletted, SLOTS, SUB_CHUNKS};
 
 /// Most chunks read, then converted, per step: bounds the chunk data held at once.
 const STEP: usize = 256;
@@ -69,6 +69,7 @@ pub struct Report {
     other_keys: u64,
     unknown_blocks: BTreeMap<String, u64>,
     unlisted_unknown_blocks: u64,
+    spawn: BlockPos,
 }
 
 impl Report {
@@ -141,6 +142,15 @@ impl Report {
     /// list, past its caps. They are kept as unknown blocks too.
     pub fn unlisted_unknown_blocks(&self) -> u64 {
         self.unlisted_unknown_blocks
+    }
+
+    /// The vanilla world's spawn, from `level.dat`; a spawn without a height stands on the
+    /// highest block of its column (the generator's height if the column is empty). Anchor does
+    /// not take it, nor any other setting of `level.dat` (seed, game mode, difficulty, game
+    /// rules): the world runs with the settings of the server (PLAN.md 10.6). To keep the spawn,
+    /// write it as `spawn = [x, y, z]` in the world's `[worlds.<name>]` table.
+    pub fn spawn(&self) -> BlockPos {
+        self.spawn
     }
 }
 
@@ -219,6 +229,7 @@ pub(crate) fn run(
         chunks = report.chunks,
         block_entities = report.block_entities,
         left_out_entities = report.entities,
+        spawn = ?report.spawn,
         "world imported"
     );
     if !report.unknown_blocks.is_empty() {
@@ -260,10 +271,13 @@ fn prepare<E: Sync>(
         .into());
     }
     let [x, y, z] = world.spawn;
+    // The seed the world runs with (its settings', not level.dat's), so the generated biomes are
+    // those of the chunks the world generates itself.
+    let seed = spec.seed.unwrap_or_else(|| save::default_seed(&spec.name));
     let target = Target {
         number: save::next_world_number(stored.iter().map(|(_, r)| r.number)),
         spec,
-        seed: world.seed,
+        seed,
         custom,
         spawn: (y == SPAWN_Y_UNSET).then(|| {
             let column = |c: i32| u8::try_from(c & 15).unwrap_or_default();
@@ -293,18 +307,14 @@ fn prepare<E: Sync>(
     let spawn_y = match (target.spawn, height) {
         (None, _) => y,
         (Some(_), Some(h)) => h.saturating_add(1),
-        (Some(_), None) => spec.generator.spawn(world.seed).y,
+        (Some(_), None) => spec.generator.spawn(seed).y,
     };
+    report.spawn = BlockPos::new(x, spawn_y, z);
+    // The world's state alone: its time. Its settings come from the server's.
     let key = Key::World(spec.name.clone());
     let record = WorldRecord {
         number: target.number,
-        seed: world.seed,
-        spawn: [x, spawn_y, z],
-        generator: spec.generator.name().to_owned(),
         time: world.time,
-        time_stopped: false,
-        difficulty: None,
-        weather: crate::world::Weather::Clear,
     };
     let mut batch = Batch::with_capacity(1);
     batch.put(key.clone(), seal(&key.to_bytes(), &record)?);

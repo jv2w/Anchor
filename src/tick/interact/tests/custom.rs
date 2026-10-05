@@ -355,6 +355,7 @@ impl Disk {
             kind: crate::world::Kind::Persistent,
             generator: Arc::new(crate::world::Flat),
             seed: Some(0),
+            spawn: None,
         }]
     }
 

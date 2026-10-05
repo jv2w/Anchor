@@ -78,7 +78,7 @@ fn put(key: Vec<u8>, value: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
 fn the_bds_fixture_reads_as_raw_chunks_without_writing() {
     let before = snapshot(Path::new(FIXTURE));
     let mut source = Source::open(Path::new(FIXTURE)).unwrap();
-    assert_eq!(source.world().seed, 7);
+    assert_eq!(source.world().spawn, [0, 32767, 0]);
     let catalog = source.catalog().unwrap();
     assert_eq!(catalog.chunks.len(), 36);
     assert!(catalog.chunks.is_sorted());

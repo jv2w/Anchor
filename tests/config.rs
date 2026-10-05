@@ -15,7 +15,7 @@ use anchor::config::{
     WorldSettings,
 };
 use anchor::protocol::compression::Compression;
-use anchor::world::{Flat, Kind};
+use anchor::world::{BlockPos, Flat, Kind};
 use anchor::{Config, Server};
 
 const MIB: usize = 1024 * 1024;
@@ -208,6 +208,7 @@ view-distance = 6
 chunks-per-tick = 2
 spawn-radius = 3
 tick-radius = 2
+spawn = [-2147483648, -60, 2147483647]
 
 [worlds.arena]
 tick-radius = 1
@@ -289,6 +290,7 @@ fn custom() -> Config {
         chunks_per_tick: Some(2),
         spawn_radius: Some(3),
         tick_radius: Some(2),
+        spawn: Some(BlockPos::new(i32::MIN, -60, i32::MAX)),
     };
     let arena = WorldSettings {
         tick_radius: Some(1),
@@ -816,6 +818,20 @@ fn world_tables_reject_bad_values_by_key() {
         (
             "[worlds.lobby]\nview-distance = 1.5\n",
             "worlds.lobby.view-distance",
+        ),
+        ("[worlds.lobby]\nspawn = [0, 64]\n", "worlds.lobby.spawn"),
+        (
+            "[worlds.lobby]\nspawn = [0, 64, 0, 0]\n",
+            "worlds.lobby.spawn",
+        ),
+        (
+            "[worlds.lobby]\nspawn = [0, 64.5, 0]\n",
+            "worlds.lobby.spawn",
+        ),
+        ("[worlds.lobby]\nspawn = \"0 64 0\"\n", "worlds.lobby.spawn"),
+        (
+            "[worlds.lobby]\nspawn = [0, 2147483648, 0]\n",
+            "worlds.lobby.spawn",
         ),
         ("[worlds]\nlobby = 5\n", "worlds.lobby"),
         ("worlds = 5\n", "worlds"),

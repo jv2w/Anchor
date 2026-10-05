@@ -80,10 +80,10 @@ sprint-critical-hits = false
 break-time-check = true
 # The server checks that a move is not too far (more than 15 blocks in one input).
 movement-check = true
-# Main world. Created on first start with level-type: "flat" or "void".
+# Main world. level-type fills the chunks never saved: "flat" or "void".
 level-name = "world"
 level-type = "flat"
-# Whole number as text. Empty: random, chosen once when the world is created. Other text stops the start.
+# Whole number as text. Empty: made from the world name, the same at every start. Other text stops the start.
 level-seed = ""
 # Largest view distance a player may use, in chunks (2 to 64).
 view-distance = 16
@@ -159,10 +159,12 @@ integrity-check = "always"
 console-input = true
 
 # Per-world values, by world name. They override view-distance, chunks-per-tick,
-# spawn-radius and tick-radius for that world, for example:
+# spawn-radius and tick-radius for that world, and spawn = [x, y, z] sets where players
+# appear (default: the generator's spawn), for example:
 # [worlds.lobby]
 # view-distance = 8
 # chunks-per-tick = 8
+# spawn = [0, -60, 0]
 "#;
 
 /// The largest settings file read. A real file is about 4 KiB; the cap bounds the parser's memory.
@@ -203,6 +205,10 @@ const FIXED_LIGHT_LEVEL: RangeInclusive<u8> = 0..=15;
 const ITEM_PICKUP_INTERVAL: RangeInclusive<u8> = 1..=20;
 
 /// Every server setting. [`Config::default`] holds the values of the default `anchor.toml`.
+///
+/// The server file saves none of them (PLAN.md 10.6): every start takes the settings from the
+/// config it is built with, so a value changed while the server runs (the difficulty, a world's
+/// spawn, difficulty, weather or time stop, a game rule) is back to its setting after a restart.
 ///
 /// Two configs are equal when their settings are: the folder of the loaded file, against which
 /// relative `resource-packs` paths resolve, is not a setting and is not compared.
@@ -542,9 +548,10 @@ pub struct General {
     pub movement_check: bool,
     /// `level-name`: the main world's name.
     pub level_name: String,
-    /// `level-type`: the generator of the main world when it is created.
+    /// `level-type`: the generator of the main world's chunks never saved.
     pub level_type: LevelType,
-    /// `level-seed`: the world seed; `None` picks a random one when the world is created.
+    /// `level-seed`: the main world's seed; `None` makes one from its name, the same at every
+    /// start.
     pub level_seed: Option<i64>,
     /// `view-distance`: the largest view distance a player may use, in chunks.
     pub view_distance: u8,
@@ -826,8 +833,8 @@ impl Default for Developer {
     }
 }
 
-/// One world's `[worlds.<name>]` table: the values it sets replace the global ones in that world;
-/// `None` keeps the global value.
+/// One world's `[worlds.<name>]` table: the view values it sets replace the global ones in that
+/// world, `None` keeps the global value; `spawn` sets the world's spawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WorldSettings {
     /// `view-distance`: the largest view distance a player in the world may use, in chunks.
@@ -839,6 +846,10 @@ pub struct WorldSettings {
     /// `tick-radius`: the chunk radius around players where the world's blocks and entities are
     /// ticked.
     pub tick_radius: Option<u8>,
+    /// `spawn = [x, y, z]`: where players appear in the world, at every start; `None` is the
+    /// generator's spawn. Not saved: a spawn moved while the server runs is back to this after a
+    /// restart.
+    pub spawn: Option<crate::world::BlockPos>,
 }
 
 impl WorldSettings {
@@ -851,6 +862,7 @@ impl WorldSettings {
                 "chunks-per-tick" => self.chunks_per_tick = Some(int(value, key, CHUNKS_PER_TICK)?),
                 "spawn-radius" => self.spawn_radius = Some(int(value, key, RADIUS)?),
                 "tick-radius" => self.tick_radius = Some(int(value, key, RADIUS)?),
+                "spawn" => self.spawn = Some(block_pos(value, key)?),
                 _ => return Err(key.unknown()),
             }
         }
@@ -1335,6 +1347,20 @@ fn strings<'v>(value: &'v Value, key: Key<'_>) -> Result<impl Iterator<Item = &'
         .filter(|items| items.iter().all(Value::is_str))
         .ok_or_else(|| key.invalid("a list of strings"))?;
     Ok(items.iter().filter_map(Value::as_str))
+}
+
+/// Reads `[x, y, z]`: three whole numbers that fit `i32`.
+fn block_pos(value: &Value, key: Key<'_>) -> Result<crate::world::BlockPos> {
+    let [x, y, z] = value
+        .as_array()
+        .and_then(|items| <&[Value; 3]>::try_from(items.as_slice()).ok())
+        .ok_or_else(|| key.invalid("[x, y, z], three whole numbers"))?;
+    let coordinate = |v| int(v, key, i32::MIN..=i32::MAX);
+    Ok(crate::world::BlockPos::new(
+        coordinate(x)?,
+        coordinate(y)?,
+        coordinate(z)?,
+    ))
 }
 
 /// Reads `"auto"` or a thread count.

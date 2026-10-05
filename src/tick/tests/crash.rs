@@ -541,6 +541,7 @@ fn item_crash_child() {
         kind: crate::world::Kind::Persistent,
         generator: Arc::new(Flat),
         seed: Some(0),
+        spawn: None,
     }];
     let opened = crate::save::open(Path::new(&data), specs).unwrap();
     let pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());

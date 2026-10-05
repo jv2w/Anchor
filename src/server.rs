@@ -99,10 +99,14 @@ impl Server {
     /// changes nothing. Blocks and items of older versions are upgraded as PMMP upgrades them;
     /// blocks Anchor does not know are kept as unknown blocks. The overworld's blocks and block
     /// entities (with their whole NBT: container items, sign text, ...) are imported, with the
-    /// seed, time and spawn; a chunk's biomes are those the world's generator gives it. Biomes,
+    /// time; a chunk's biomes are those the world's generator gives it. Biomes,
     /// entities and pending block updates of the source are left out and counted, as are the
     /// Nether, the End and the players (Bedrock files players by device, not by Xbox user ID).
-    /// The [`import::Report`](crate::import::Report) counts what was imported and left out.
+    /// The [`import::Report`](crate::import::Report) counts what was imported and left out. No
+    /// setting of `level.dat` is imported (seed, spawn, game mode, difficulty, game rules): the
+    /// world runs with the server's settings, and the report gives its spawn
+    /// ([`import::Report::spawn`](crate::import::Report::spawn)) to copy into the world's
+    /// `[worlds.<name>]` table.
     ///
     /// It blocks the calling thread, opens the server file as [`run`](Self::run) does (backup as
     /// `backups` says, integrity check as `integrity-check` says), uses a CPU pool of
@@ -615,8 +619,10 @@ impl ServerBuilder {
 
     /// Adds a world besides the default one (`level-name`), loaded from the start. A
     /// [`Kind::Persistent`] world is saved in the server file under its name; a
-    /// [`Kind::Temporary`] one is generated fresh at every start and never saved. A new world
-    /// gets a random seed. Players join the default world. Its generator is registered as
+    /// [`Kind::Temporary`] one is generated fresh at every start and never saved. Its seed is
+    /// made from its name and its spawn is the generator's, or `spawn` of its `[worlds.<name>]`
+    /// table: like every setting, they come from here at every start and are never saved.
+    /// Players join the default world. Its generator is registered as
     /// [`generator`](Self::generator) registers one.
     #[doc(alias = "WorldManager::generateWorld")]
     #[must_use]
@@ -627,6 +633,7 @@ impl ServerBuilder {
             kind,
             generator,
             seed: None,
+            spawn: None,
         });
         self
     }
@@ -701,6 +708,7 @@ impl ServerBuilder {
             kind: Kind::Persistent,
             generator,
             seed: general.level_seed,
+            spawn: None,
         });
         for world in self.worlds {
             if worlds.iter().any(|w| w.name == world.name) {
@@ -710,6 +718,9 @@ impl ServerBuilder {
         }
         self.config
             .check_world_names(|name| worlds.iter().any(|w| w.name == name))?;
+        for world in &mut worlds {
+            world.spawn = self.config.worlds.get(&world.name).and_then(|w| w.spawn);
+        }
         let too_long = |name: &&str| name.len() > crate::storage::codec::MAX_NAME;
         if let Some(name) = worlds
             .iter()
@@ -805,8 +816,10 @@ mod tests {
     /// build as the file's are.
     #[test]
     fn world_settings_are_the_worlds_table_of_the_settings() {
+        let spawn = crate::world::BlockPos::new(3, -50, -7);
         let own = crate::config::WorldSettings {
             view_distance: Some(6),
+            spawn: Some(spawn),
             ..crate::config::WorldSettings::default()
         };
         let server = Server::builder()
@@ -815,6 +828,13 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(server.config.worlds.get("arena"), Some(&own));
+        // The spawn reaches the world's spec, which every start makes the world from.
+        let spawns: Vec<_> = server
+            .worlds
+            .iter()
+            .map(|w| (w.name.as_str(), w.spawn))
+            .collect();
+        assert_eq!(spawns, [("world", None), ("arena", Some(spawn))]);
         let bad = crate::config::WorldSettings {
             view_distance: Some(1),
             ..crate::config::WorldSettings::default()

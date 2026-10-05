@@ -21,8 +21,9 @@ use super::{Error, Result};
 /// extras and chunk kinds 1 to 3, format 3 (M7) the world time in world records, format 4 (M9)
 /// the terrain as one value per sub-chunk and extras lists in pages, format 5 (M9) the time stop
 /// and the difficulty in world records, format 6 (M9) the weather in world records, format 7 (M9)
-/// the commit identity in the meta value; values of formats 1 to 6 still read.
-pub(crate) const FORMAT_VERSION: u16 = 7;
+/// the commit identity in the meta value, format 8 (M9 후속 U10) world records without settings
+/// (the number and the time alone); values of formats 1 to 7 still read, their settings skipped.
+pub(crate) const FORMAT_VERSION: u16 = 8;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
 /// on average) and about 9.4 MB with 4096 custom states of the longest NBT (2,293 bytes); a
@@ -261,6 +262,12 @@ impl Crc32c {
 #[cfg(test)]
 pub(crate) fn seal_v1(key: &[u8], record: &[u8]) -> Vec<u8> {
     seal_bytes(key, record, 1).unwrap()
+}
+
+/// Seals record bytes as the Anchor before M9 후속 U10 did: format 7.
+#[cfg(test)]
+pub(crate) fn seal_v7(key: &[u8], record: &[u8]) -> Vec<u8> {
+    seal_bytes(key, record, 7).unwrap()
 }
 
 #[cfg(test)]

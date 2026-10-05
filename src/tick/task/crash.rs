@@ -195,6 +195,7 @@ fn user_data_crash_child() {
         kind: crate::world::Kind::Persistent,
         generator: Arc::new(Flat),
         seed: Some(0),
+        spawn: None,
     }];
     let mut opened = crate::save::open(Path::new(&data), specs).unwrap();
     let mut user = registered::<Progress, Progress>("progress", "progress");

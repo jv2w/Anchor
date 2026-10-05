@@ -220,6 +220,7 @@ pub(crate) fn run(
                         .ok_or(Error::RegistrationsDiffer)?,
                 ),
                 seed: None,
+                spawn: None,
             })
         })
         .collect::<Result<Vec<_>>>()?;

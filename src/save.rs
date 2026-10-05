@@ -26,7 +26,6 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::block::{PropertyValue, State};
-use crate::config::Difficulty;
 use crate::custom::Registry;
 use crate::import::BLOCK_STATE_VERSION;
 use crate::nbt::{self, Compound, Value};
@@ -44,7 +43,7 @@ use crate::storage::{
 };
 use crate::world::{
     BlockPos, Chunk, ChunkPos, Entry, Generator, Kind, PLAINS, Paletted, SUB_CHUNKS, SubChunk,
-    Weather, World,
+    World,
 };
 
 /// A world of the server, by its place in the tick's world list (the default world is 0).
@@ -185,7 +184,7 @@ pub(crate) struct Snapshot {
     /// Worlds made or loaded since the last request that named them, as [`Request::Worlds`]
     /// gives them: the commit learns them before it writes their records.
     pub(crate) new_worlds: Vec<NewWorld>,
-    /// What the record of every persistent world holds besides its plan, loaded or not.
+    /// What the record of every persistent world holds of its state, loaded or not.
     pub(crate) worlds: Vec<(WorldIndex, WorldValues)>,
     /// Changed operator, ban and whitelist entries, each once.
     pub(crate) access: Vec<(AccessKey, AccessWrite)>,
@@ -198,29 +197,19 @@ pub(crate) struct Snapshot {
     pub(crate) check: bool,
 }
 
-/// What a world record keeps of the tick's world (`World`): the rest is its plan's.
+/// What a world record keeps of the tick's world (`World`): its state. Its settings (seed,
+/// spawn, generator, difficulty, time stop, weather) are not saved (PLAN.md 10.6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldValues {
-    pub(crate) spawn: BlockPos,
     /// `World::time_ticks`.
     pub(crate) time: i64,
-    /// `World::is_time_stopped`.
-    pub(crate) time_stopped: bool,
-    /// `World::difficulty`.
-    pub(crate) difficulty: Option<Difficulty>,
-    /// `World::weather`.
-    pub(crate) weather: Weather,
 }
 
 impl WorldValues {
     /// What a record keeps of `world` now.
     pub(crate) fn of(world: &World) -> Self {
         Self {
-            spawn: world.spawn(),
             time: world.time_ticks(),
-            time_stopped: world.is_time_stopped(),
-            difficulty: world.difficulty(),
-            weather: world.weather(),
         }
     }
 }
@@ -249,27 +238,6 @@ impl std::fmt::Debug for NewWorld {
     }
 }
 
-/// The difficulties in the order of their record byte (0 peaceful to 3 hard).
-const DIFFICULTIES: [Difficulty; 4] = [
-    Difficulty::Peaceful,
-    Difficulty::Easy,
-    Difficulty::Normal,
-    Difficulty::Hard,
-];
-
-/// The record byte of a difficulty: its place in [`DIFFICULTIES`], which holds every one.
-fn difficulty_byte(difficulty: Difficulty) -> u8 {
-    (0..)
-        .zip(DIFFICULTIES)
-        .find_map(|(byte, d)| (d == difficulty).then_some(byte))
-        .unwrap_or(0)
-}
-
-/// The difficulty of a record byte, which the codec checked to be 0 to 3.
-fn difficulty_of(byte: u8) -> Option<Difficulty> {
-    DIFFICULTIES.get(usize::from(byte)).copied()
-}
-
 /// What a commit writes for an `access` entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AccessWrite {
@@ -294,13 +262,15 @@ pub(crate) struct AccessData {
     pub(crate) whitelist: Vec<String>,
 }
 
-/// A world the server runs, as configured.
+/// A world the server runs, as configured: its settings, the same at every start.
 pub(crate) struct WorldSpec {
     pub(crate) name: String,
     pub(crate) kind: Kind,
     pub(crate) generator: Arc<dyn Generator>,
-    /// The seed of a new world; `None` draws one.
+    /// The seed; `None` is [`default_seed`] of the name.
     pub(crate) seed: Option<i64>,
+    /// The spawn (`[worlds.<name>] spawn`); `None` is the generator's.
+    pub(crate) spawn: Option<BlockPos>,
 }
 
 impl std::fmt::Debug for WorldSpec {
@@ -310,8 +280,36 @@ impl std::fmt::Debug for WorldSpec {
             .field("kind", &self.kind)
             .field("generator", &self.generator.name())
             .field("seed", &self.seed)
+            .field("spawn", &self.spawn)
             .finish()
     }
+}
+
+/// The seed of a world whose settings give none: made from its name, so it is the same at every
+/// start (nothing saves it) and differs between worlds.
+pub(crate) fn default_seed(name: &str) -> i64 {
+    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = crate::crypto::sha256(&[name.as_bytes()]);
+    i64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7])
+}
+
+/// A world the server runs, as its settings make it: `seed`, else [`default_seed`]; `spawn`,
+/// else the generator's. A stored world goes on from its saved state ([`resume`]).
+pub(crate) fn new_world(
+    name: &str,
+    kind: Kind,
+    generator: &dyn Generator,
+    seed: Option<i64>,
+    spawn: Option<BlockPos>,
+) -> World {
+    let seed = seed.unwrap_or_else(|| default_seed(name));
+    let spawn = spawn.unwrap_or_else(|| generator.spawn(seed));
+    World::new(name, kind, seed, spawn)
+}
+
+/// Gives `world` the state its stored `record` keeps: its number and time.
+pub(crate) fn resume(world: &mut World, record: WorldRecord) {
+    world.set_number(Some(record.number));
+    world.set_time(record.time);
 }
 
 /// A world as the save thread sees it.
@@ -347,19 +345,6 @@ pub(crate) struct Catalog {
     pub(crate) stored: Vec<(String, WorldRecord)>,
     /// The `chunks` key number of the next new persistent world.
     pub(crate) next_number: u32,
-}
-
-/// The world a stored record describes, not loaded yet: its number, seed, spawn, time, time stop,
-/// difficulty and weather.
-pub(crate) fn stored_world(name: &str, kind: Kind, record: &WorldRecord) -> World {
-    let [x, y, z] = record.spawn;
-    let mut world = World::new(name, kind, record.seed, BlockPos::new(x, y, z));
-    world.set_number(Some(record.number));
-    world.set_time(record.time);
-    world.set_time_stopped(record.time_stopped);
-    world.set_difficulty(record.difficulty.and_then(difficulty_of));
-    world.set_weather(record.weather);
-    world
 }
 
 /// The server file and the worlds, ready to run.
@@ -470,8 +455,8 @@ impl Thread {
 }
 
 /// Opens the server file (PLAN.md 10.6: backup, integrity check, compaction) and resolves the
-/// worlds: a persistent world the file holds keeps its seed, spawn, time and number; a new one
-/// gets the spec's seed or a random one, the generator's spawn, time 0 and the next free number.
+/// worlds: each gets the settings of its spec ([`new_world`]); a persistent world the file holds
+/// keeps its time and number, a new one starts at time 0 with the next free number.
 /// Keeps the start copy of the file unless `start` says [`storage::StartBackup::Transient`]
 /// (`backups`), and checks the file as it says (`integrity-check`). Runs before the threads
 /// start.
@@ -498,8 +483,8 @@ pub(crate) fn open(
 }
 
 /// Opens the server file `path` read-only for a replay ([`Storage::open_replica`]) and resolves the
-/// worlds as [`open_with`] does, with the seeds a checkpoint kept (`seeds`, by world): a world the
-/// file does not hold got a random one. Commits of the thread stay in memory.
+/// worlds as [`open_with`] does, with the seeds a checkpoint kept (`seeds`, by world). Commits of
+/// the thread stay in memory.
 pub(crate) fn open_replica(
     path: &std::path::Path,
     specs: Vec<WorldSpec>,
@@ -543,36 +528,19 @@ fn resolve(
             .flatten()
             .map(|i| stored.swap_remove(i).1);
         let new = saved.is_none();
-        let mut world = if let Some(record) = saved {
-            if record.generator != spec.generator.name() {
-                warn!(
-                    world = spec.name,
-                    saved = record.generator,
-                    configured = spec.generator.name(),
-                    "world was saved with another generator; unsaved chunks use the configured one"
-                );
-            }
-            let seed = given.unwrap_or(record.seed);
-            stored_world(&spec.name, spec.kind, &WorldRecord { seed, ..record })
-        } else {
-            let seed = match given.or(spec.seed) {
-                Some(seed) => seed,
-                None => random_seed()?,
-            };
-            let number = (spec.kind == Kind::Persistent).then(|| {
-                let n = next_number;
-                next_number = next_number.saturating_add(1);
-                n
-            });
-            let mut world = World::new(
-                spec.name.clone(),
-                spec.kind,
-                seed,
-                spec.generator.spawn(seed),
-            );
-            world.set_number(number);
-            world
-        };
+        let mut world = new_world(
+            &spec.name,
+            spec.kind,
+            spec.generator.as_ref(),
+            given.or(spec.seed),
+            spec.spawn,
+        );
+        if let Some(record) = saved {
+            resume(&mut world, record);
+        } else if spec.kind == Kind::Persistent {
+            world.set_number(Some(next_number));
+            next_number = next_number.saturating_add(1);
+        }
         info!(world = spec.name, kind = ?spec.kind, seed = world.seed(), new, "world loaded");
         world.set_generator(spec.generator.name());
         plans.push(Plan {
@@ -671,13 +639,6 @@ fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
 }
 
 /// A seed for a new world with an empty `level-seed`: chosen once, then saved.
-fn random_seed() -> Result<i64, crate::Error> {
-    let mut bytes = [0; 8];
-    crate::crypto::fill_random(&mut bytes)
-        .map_err(|e| crate::Error::Start(std::io::Error::other(e)))?;
-    Ok(i64::from_le_bytes(bytes))
-}
-
 /// The save thread: answers requests in order until [`Request::Finish`], then compacts and closes
 /// the file. If the tick drops its sender without `Finish` (it died), the requests still queued
 /// are dropped and the file is closed as it is (CLAUDE.md 4.6). Returns the error of a commit or
@@ -1220,22 +1181,10 @@ fn commit(
 /// The key and record of a world with `values`, if `plan` is of a persistent world.
 fn world_record(plan: Option<&Plan>, values: WorldValues) -> Option<(Key, WorldRecord)> {
     let plan = plan?;
-    let WorldValues {
-        spawn,
-        time,
-        time_stopped,
-        difficulty,
-        weather,
-    } = values;
+    let WorldValues { time } = values;
     let record = WorldRecord {
         number: plan.number?,
-        seed: plan.seed,
-        spawn: [spawn.x, spawn.y, spawn.z],
-        generator: plan.generator.name().to_owned(),
         time,
-        time_stopped,
-        difficulty: difficulty.map(difficulty_byte),
-        weather,
     };
     Some((Key::World(plan.name.clone()), record))
 }
@@ -1429,10 +1378,12 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::block;
+    use crate::config::Difficulty;
     use crate::protocol::{Rng, Writer};
-    use crate::storage::codec::tests::{encode, player_v1, random_compound};
-    use crate::storage::seal::seal_v1;
+    use crate::storage::codec::tests::{encode, player_v1, random_compound, world_record_v7};
+    use crate::storage::seal::{seal_v1, seal_v7};
     use crate::world::Flat;
+    use crate::world::{Flat as FlatGenerator, Weather};
 
     /// What a load of chunk `pos` of world `number` answers when the file holds exactly the
     /// non-empty lists of `extras` and no terrain (for stand-ins of the save thread).
@@ -1501,12 +1452,14 @@ pub(crate) mod tests {
                 kind: Kind::Persistent,
                 generator: Arc::new(Flat),
                 seed: Some(5),
+                spawn: None,
             },
             WorldSpec {
                 name: "arena".to_owned(),
                 kind: Kind::Temporary,
                 generator: Arc::new(Flat),
                 seed: Some(9),
+                spawn: None,
             },
         ]
     }
@@ -1523,6 +1476,15 @@ pub(crate) mod tests {
         world.set_difficulty(Some(Difficulty::Hard));
         world.set_weather(Weather::Thunder);
         world
+    }
+
+    /// Asserts that `world` has the settings of its spec, whatever a run changed: spawn `spawn`,
+    /// the time running, no difficulty of its own, clear.
+    fn assert_settings_of_spec(world: &World, spawn: BlockPos) {
+        assert_eq!(world.spawn(), spawn);
+        assert!(!world.is_time_stopped());
+        assert_eq!(world.difficulty(), None);
+        assert_eq!(world.weather(), Weather::Clear);
     }
 
     /// A flat chunk with a stone block at local (1, -60, 2).
@@ -1662,9 +1624,10 @@ pub(crate) mod tests {
         ];
         let opened = open(&dir.0, specs()).unwrap();
         assert_eq!((opened.tick, opened.worlds[0].seed()), (77, 5));
-        assert_eq!(opened.worlds[0].spawn(), BlockPos::new(4, -60, 4));
         let w = &opened.worlds[0];
         assert_eq!(WorldValues::of(w), WorldValues::of(&stopped_hard_world()));
+        // The settings changed while it ran are not saved: the spec's come back.
+        assert_settings_of_spec(w, BlockPos::new(0, -60, 0));
         assert_eq!(
             opened.worlds[1].time_ticks(),
             0,
@@ -1984,6 +1947,148 @@ pub(crate) mod tests {
         }
     }
 
+    /// Every start makes the worlds from their specs: a spawn the spec gives, and without a seed
+    /// one made from the name, the same at every start and different between worlds.
+    #[test]
+    fn every_start_takes_the_seed_and_spawn_of_the_spec() {
+        let dir = TempDir::new("spec-settings");
+        let spawn = BlockPos::new(7, -40, -7);
+        let specs = || {
+            let mut specs = specs();
+            specs[0].seed = None;
+            specs[0].spawn = Some(spawn);
+            specs
+        };
+        for _ in 0..2 {
+            let opened = open(&dir.0, specs()).unwrap();
+            let w = &opened.worlds[0];
+            assert_eq!((w.seed(), w.spawn()), (default_seed("world"), spawn));
+            assert_eq!(opened.worlds[1].spawn(), FlatGenerator.spawn(9));
+            opened.thread.storage.close().unwrap();
+        }
+        assert_eq!(default_seed("world"), default_seed("world"));
+        assert_ne!(default_seed("world"), default_seed("arena"));
+    }
+
+    /// A file of format 7, whose world records held settings, opens with the settings of the
+    /// specs and loses nothing of its state: chunks, extras, players, the world's number and time.
+    /// The first commit rewrites the record without them (PLAN.md 10.6, M9 후속 U10).
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "consistency: one old file is checked from its writing to its next commit"
+    )]
+    fn a_format_7_file_drops_its_world_settings_and_keeps_every_chunk_and_player() {
+        let dir = TempDir::new("format-7");
+        let mut rng = Rng(0x0007_0010);
+        let pos = ChunkPos::new(2, -3);
+        let id = chunk_id(0, pos);
+        let player = PlayerKey::offline("Kept");
+        let data = PlayerData {
+            world: "world".to_owned(),
+            position: [3.5, -58.0, 4.5],
+            extra: random_compound(&mut rng, 4),
+        };
+        let extras = random_extras(&mut rng);
+        let world = Key::World("world".to_owned());
+        {
+            // What the Anchor before U10 wrote: format 7 values throughout, its world record with
+            // seed 99, spawn (40, 7, -40), the void generator, time stopped, hard and thunder.
+            let mut storage = open(&dir.0, specs()).unwrap().thread.storage;
+            let mut batch = Batch::default();
+            let v7 = |key: &Key, record: &[u8]| seal_v7(&key.to_bytes(), record);
+            batch.put(Key::Meta, v7(&Key::Meta, &encode(&Meta::at(500))));
+            let record = world_record_v7(
+                WorldRecord {
+                    number: 0,
+                    time: 98_765,
+                },
+                99,
+                [40, 7, -40],
+                "void",
+            );
+            batch.put(world.clone(), v7(&world, &record));
+            let chunk = changed_chunk(pos);
+            for (i, index) in (0..SUB_CHUNKS).zip(0u8..) {
+                let key = id.key(ChunkPart::SubChunk(index));
+                batch.put(key.clone(), v7(&key, &encode(&sub_chunk_record(&chunk, i))));
+            }
+            for kind in ChunkKind::EXTRAS {
+                let list = extras.get(kind).to_vec();
+                if list.is_empty() {
+                    continue;
+                }
+                let key = id.key(ChunkPart::Extras(kind, 0));
+                let record = encode(&ExtraRecord(list.into()));
+                batch.put(key.clone(), v7(&key, &record));
+            }
+            let key = Key::Player(player.clone());
+            let record = encode(&PlayerRecord {
+                world: data.world.clone(),
+                position: data.position,
+                extra: data.extra.clone(),
+            });
+            batch.put(key.clone(), v7(&key, &record));
+            storage.commit(&batch).unwrap();
+            storage.close().unwrap();
+        }
+        let opened = open(&dir.0, specs()).unwrap();
+        assert_eq!(opened.tick, 500);
+        let w = &opened.worlds[0];
+        assert_eq!((w.seed(), w.number(), w.time_ticks()), (5, Some(0), 98_765));
+        assert_eq!(w.generator(), "flat");
+        assert_settings_of_spec(w, FlatGenerator.spawn(5));
+        drop(opened);
+        let loads = vec![
+            Request::Chunks(vec![(0, pos)]),
+            Request::Player(player.clone()),
+            Request::Commit(Box::new(Snapshot {
+                start: 501,
+                worlds: vec![(0, WorldValues { time: 98_766 })],
+                ..Snapshot::default()
+            })),
+        ];
+        let (answers, tick, result) = serve(&dir, loads);
+        result.unwrap();
+        assert_eq!(tick, 500);
+        let [
+            Response::Chunk {
+                loaded: Loaded::Disk(chunk, stored),
+                ..
+            },
+            Response::Player {
+                data: PlayerLoad::Found(found),
+                ..
+            },
+            Response::Committed { start: 501 },
+        ] = &answers[..]
+        else {
+            panic!("unexpected answers {answers:?}");
+        };
+        assert_eq!(to_record(chunk), to_record(&changed_chunk(pos)));
+        assert_eq!(stored.extras, extras);
+        assert_eq!(*found, data);
+        let mut storage = open(&dir.0, specs()).unwrap().thread.storage;
+        let sealed = storage
+            .read(std::slice::from_ref(&world))
+            .unwrap()
+            .remove(0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            crate::storage::seal::version(&sealed).unwrap(),
+            crate::storage::seal::FORMAT_VERSION
+        );
+        let record: WorldRecord = unseal(&world.to_bytes(), &sealed).unwrap();
+        assert_eq!(
+            record,
+            WorldRecord {
+                number: 0,
+                time: 98_766
+            }
+        );
+    }
+
     #[test]
     fn a_format_1_file_opens_reads_and_is_the_current_format_after_the_next_commit() {
         let dir = TempDir::new("format-1");
@@ -1993,16 +2098,7 @@ pub(crate) mod tests {
         {
             // What Anchor M6 wrote: format 1 meta, world, chunk and player values.
             let mut storage = open(&dir.0, specs()).unwrap().thread.storage;
-            let world = WorldRecord {
-                number: 0,
-                seed: 5,
-                spawn: [0, -60, 0],
-                generator: "flat".to_owned(),
-                time: 0,
-                time_stopped: false,
-                difficulty: None,
-                weather: Weather::Clear,
-            };
+            let world = WorldRecord { number: 0, time: 0 };
             let mut batch = Batch::default();
             // Format 1 meta values hold the tick alone.
             let meta = 300_u64.to_le_bytes();
@@ -2010,7 +2106,7 @@ pub(crate) mod tests {
             let key = Key::World("world".to_owned());
             // Format 1 world records end after the generator name (no time, time stop,
             // difficulty or weather).
-            let world = encode(&world);
+            let world = world_record_v7(world, 5, [0, -60, 0], "flat");
             let world = &world[..world.len() - 11];
             batch.put(key.clone(), seal_v1(&key.to_bytes(), world));
             let record = encode(&to_record(&changed_chunk(pos)));

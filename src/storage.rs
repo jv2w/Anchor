@@ -2119,16 +2119,7 @@ pub(crate) mod tests {
         let mut storage = memory(&disk);
         let mut rng = Rng(11);
         let column = random_chunk(&mut rng);
-        let world = WorldRecord {
-            number: 3,
-            seed: -9,
-            spawn: [1, 2, 3],
-            generator: "flat".to_owned(),
-            time: 0,
-            time_stopped: true,
-            difficulty: Some(2),
-            weather: crate::world::Weather::Rain,
-        };
+        let world = WorldRecord { number: 3, time: 0 };
         let keys = [
             chunk_key(-1, 1),
             Key::World("lobby".to_owned()),

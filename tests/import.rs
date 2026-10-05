@@ -114,6 +114,8 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
         (0, 0, 0)
     );
     assert!(snapshot(Path::new(FIXTURE)) == before, "the source changed");
+    // level.dat's spawn (no height: above the highest block), shown for the settings, not taken.
+    assert_eq!(report.spawn(), BlockPos::new(0, -57, 0));
 
     // A second import is refused (opening the file still backs it up and compacts it, as every
     // start does; the values stay, which the crate's own test checks).
@@ -125,8 +127,8 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
         "{err:?}"
     );
 
-    // The server runs the world: its seed, its spawn chunks loaded with BDS's flat
-    // layers at the bottom.
+    // The server runs the world with its own settings (not level.dat's seed 7 or spawn): its
+    // spawn chunks loaded with BDS's flat layers at the bottom.
     let seen: Arc<std::sync::Mutex<Option<Seen>>> = Arc::default();
     let out = Arc::clone(&seen);
     let server = Server::builder()
@@ -161,7 +163,7 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
         .expect("not poisoned")
         .take()
         .expect("the spawn chunk loaded");
-    assert_eq!(world_seed, 7);
+    assert_ne!(world_seed, 7, "level.dat's seed is a setting, not imported");
     assert_eq!(
         column,
         ["minecraft:bedrock", "minecraft:dirt", "minecraft:dirt",]

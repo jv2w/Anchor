@@ -14,13 +14,13 @@ use crate::protocol::packet::PROTOCOL_VERSION;
 /// The newest `StorageVersion` read (PMMP `WorldDataVersions::STORAGE`).
 pub(crate) const STORAGE_VERSION: i32 = 10;
 
-/// What Anchor reads of `level.dat`.
+/// What Anchor reads of `level.dat`: the spawn for the import's report and the time, which is
+/// state. No setting (seed, game mode, difficulty, game rules) is read: the imported world runs
+/// with the server's (PLAN.md 10.6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldData {
     /// `SpawnX`, `SpawnY`, `SpawnZ`. Y 32767 means "on the highest block".
     pub(crate) spawn: [i32; 3],
-    /// `RandomSeed`.
-    pub(crate) seed: i64,
     /// `Time`: the time of day in ticks.
     pub(crate) time: i64,
 }
@@ -70,7 +70,6 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<WorldData> {
             int(&root, "SpawnY", "level.dat has no int SpawnY")?,
             int(&root, "SpawnZ", "level.dat has no int SpawnZ")?,
         ],
-        seed: long(&root, "RandomSeed", "level.dat has no long RandomSeed")?,
         time: long(&root, "Time", "level.dat has no long Time")?,
     })
 }
@@ -122,7 +121,11 @@ pub(crate) mod tests {
     fn reads_the_fields_anchor_imports() {
         let world = parse(&encode(&root())).unwrap();
         assert_eq!(world.spawn, [4, 32767, -8]);
-        assert_eq!((world.seed, world.time), (-77, 6000));
+        assert_eq!(world.time, 6000);
+        // The seed is a setting: not read, so not needed.
+        let mut no_seed = root();
+        no_seed.remove("RandomSeed");
+        assert_eq!(parse(&encode(&no_seed)).unwrap(), world);
     }
 
     #[test]
@@ -135,7 +138,6 @@ pub(crate) mod tests {
         .unwrap();
         let world = parse(&bytes).unwrap();
         assert_eq!(world.spawn, [0, 32767, 0]);
-        assert_eq!(world.seed, 7);
     }
 
     #[test]
@@ -161,7 +163,6 @@ pub(crate) mod tests {
             "SpawnX",
             "SpawnY",
             "SpawnZ",
-            "RandomSeed",
             "Time",
         ] {
             let mut missing = root();

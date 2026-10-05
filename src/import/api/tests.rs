@@ -35,15 +35,12 @@ fn spec() -> WorldSpec {
         kind: Kind::Persistent,
         generator: Arc::new(Marked),
         seed: None,
+        spawn: None,
     }
 }
 
 fn world(spawn: [i32; 3]) -> WorldData {
-    WorldData {
-        spawn,
-        seed: 1234,
-        time: 5678,
-    }
+    WorldData { spawn, time: 5678 }
 }
 
 fn s(text: &str) -> Value {
@@ -268,28 +265,22 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_en
     // An existing file with another world numbered 3.
     let mut batch = Batch::with_capacity(1);
     let other = Key::World("other".to_owned());
-    let record = WorldRecord {
-        number: 3,
-        seed: 0,
-        spawn: [0, 0, 0],
-        generator: "flat".to_owned(),
-        time: 0,
-        time_stopped: false,
-        difficulty: None,
-        weather: crate::world::Weather::Clear,
-    };
+    let record = WorldRecord { number: 3, time: 0 };
     batch.put(other.clone(), seal(&other.to_bytes(), &record).unwrap());
     storage.commit(&batch).unwrap();
 
     let raws = BTreeMap::from([((7, -2), full_raw())]);
     let report = imported(&mut storage, 2, &raws, [10, 70, -20]);
 
+    // The record keeps the state alone: the number and the time, no setting of level.dat.
     let record = world_record(&mut storage).unwrap();
     assert_eq!(
-        (record.number, record.seed, record.spawn, record.time),
-        (4, 1234, [10, 70, -20], 5678)
+        record,
+        WorldRecord {
+            number: 4,
+            time: 5678
+        }
     );
-    assert_eq!(record.generator, Marked.name());
     let (chunk, [block_entities, entities, updates]) = read_chunk(&mut storage, 4, 7, -2);
     let stone = known(&state("minecraft:stone", &[]));
     assert_eq!(
@@ -350,6 +341,7 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_en
             ("legacy:1:15".to_owned(), 1),
         ]),
         unlisted_unknown_blocks: 0,
+        spawn: BlockPos::new(10, 70, -20),
     };
     assert_eq!(report, expected);
 }
@@ -747,17 +739,15 @@ fn a_spawn_without_a_height_lands_above_the_highest_block_or_at_the_generator_sp
     let raws = BTreeMap::from([((-1, 2), raw)]);
     let disk = Disk::default();
     let mut storage = memory(&disk);
-    imported(&mut storage, 1, &raws, [-13, SPAWN_Y_UNSET, 36]);
-    assert_eq!(world_record(&mut storage).unwrap().spawn, [-13, 11, 36]);
+    let report = imported(&mut storage, 1, &raws, [-13, SPAWN_Y_UNSET, 36]);
+    assert_eq!(report.spawn(), BlockPos::new(-13, 11, 36));
     // No chunk at the spawn: the configured generator's spawn height.
     let disk = Disk::default();
     let mut storage = memory(&disk);
-    imported(&mut storage, 1, &raws, [100, SPAWN_Y_UNSET, 100]);
-    assert_eq!(
-        world_record(&mut storage).unwrap().spawn,
-        [100, Void.spawn(1234).y, 100]
-    );
-    assert_ne!(Void.spawn(1234).y, Flat.spawn(1234).y);
+    let report = imported(&mut storage, 1, &raws, [100, SPAWN_Y_UNSET, 100]);
+    let seed = save::default_seed(NAME);
+    assert_eq!(report.spawn(), BlockPos::new(100, Void.spawn(seed).y, 100));
+    assert_ne!(Void.spawn(seed).y, Flat.spawn(seed).y);
 }
 
 #[test]
@@ -937,7 +927,9 @@ fn the_bds_fixture_imports_with_every_block_known_and_in_place() {
     let catalog = source.catalog().unwrap();
     let mut storage = Storage::open(&data, Start::checked(StartBackup::Make)).unwrap();
     let record = world_record(&mut storage).unwrap();
-    assert_eq!((record.seed, record.time), (7, source.world().time));
+    assert_eq!(record.time, source.world().time);
+    // No height in level.dat: above the highest block of the fixture's spawn column.
+    assert_eq!(report.spawn(), BlockPos::new(0, -57, 0));
     for &(x, z) in &catalog.chunks {
         let raw = chunk::decode(&source.read(x, z).unwrap()).unwrap();
         let (chunk, [block_entities, entities, updates]) =

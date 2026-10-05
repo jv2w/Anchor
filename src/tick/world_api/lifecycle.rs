@@ -26,15 +26,12 @@ use crate::config::Difficulty;
 use crate::event::{WorldInit, WorldLoad, WorldUnload};
 use crate::math::Vec3;
 use crate::protocol::packet::{Packet, SetDifficulty};
-use crate::random::{Random, key, tag};
 use crate::save::{self, NewWorld, WorldIndex};
 use crate::storage::codec::{MAX_NAME, WorldRecord};
 use crate::world::{self, Generators, Kind, World};
 
 /// The most worlds a run names, and the most persistent worlds the server file holds.
 pub(in crate::tick) const MAX_WORLDS: usize = crate::storage::MAX_WORLDS;
-/// The engine stream of the seeds the engine draws for new worlds.
-const WORLD_SEED: u64 = tag("world-seed");
 
 /// What the tick knows of its worlds besides the [`World`]s themselves.
 #[derive(Debug, Default)]
@@ -77,16 +74,7 @@ crate::tick::checkpoint::variants!(Kind {
     0 => Persistent,
     1 => Temporary,
 });
-crate::tick::checkpoint::fields!(WorldRecord {
-    number,
-    seed,
-    spawn,
-    generator,
-    time,
-    time_stopped,
-    difficulty,
-    weather,
-});
+crate::tick::checkpoint::fields!(WorldRecord { number, time });
 
 /// A world of the list as a checkpoint keeps it, before the state that holds it is made: a
 /// replay makes the same worlds from it ([`crate::replay`]).
@@ -327,6 +315,18 @@ fn install(
     id
 }
 
+/// Gives the world at `index` the view values of `options`: each one set replaces the global one.
+fn set_view(state: &mut State, index: WorldIndex, options: &world::Options) {
+    let settings = &mut state.settings;
+    let view = settings.global_view.apply(&options.settings());
+    if settings.world_views.len() <= index {
+        settings.world_views.resize(index + 1, settings.view);
+    }
+    if let Some(slot) = settings.world_views.get_mut(index) {
+        *slot = view;
+    }
+}
+
 /// Loads again the world at `index`, unloaded: the save thread still has it.
 fn reload(state: &mut State, index: WorldIndex) -> world::Id {
     if let Some(loaded) = state.catalog.loaded.get_mut(index) {
@@ -445,8 +445,9 @@ impl Context<'_> {
     /// Makes a world named `name` with `options` and loads it (PMMP
     /// `WorldManager::generateWorld`): its spawn chunks load from the next view phase on, where
     /// [`WorldInit`] and [`WorldLoad`] are raised. A persistent world is saved from the next
-    /// commit on; a temporary one never. A seed the options leave out is drawn by the engine (the
-    /// same in a replay).
+    /// commit on; a temporary one never. A seed the options leave out is made from the name, and
+    /// a spawn they leave out is the generator's. The server file keeps the world's chunks and
+    /// time, never its options: [`load_world`](Self::load_world) after a restart takes them again.
     ///
     /// Fails, making nothing, with [`world::Error::InvalidName`] for an empty name or one over
     /// 256 bytes, [`WorldExists`](world::Error::WorldExists) if the server runs a world of that
@@ -494,48 +495,43 @@ impl Context<'_> {
             return Err(world::Error::Full);
         }
         let index = place.unwrap_or(state.worlds.len());
-        let seed = options.seed().unwrap_or_else(|| {
-            let default_seed = state
-                .worlds
-                .get(state.catalog.default)
-                .map_or(0, World::seed);
-            let index = u64::try_from(index).unwrap_or(u64::MAX);
-            let mut random = Random::new(default_seed, state.tick, key(WORLD_SEED, &[index]));
-            random.next_u64().cast_signed()
-        });
         let number = persistent.then(|| {
             let n = state.catalog.next_number;
             state.catalog.next_number = n.saturating_add(1);
             n
         });
-        let spawn = options.spawn().unwrap_or_else(|| generator.spawn(seed));
-        let mut world = World::new(name, options.kind(), seed, spawn);
+        let mut world = save::new_world(
+            name,
+            options.kind(),
+            generator.as_ref(),
+            options.seed(),
+            options.spawn(),
+        );
         world.set_difficulty(options.difficulty());
         world.set_number(number);
-        info!(world = name, seed, "world made");
-        let settings = &mut state.settings;
-        let view = settings.global_view.apply(&options.settings());
-        if settings.world_views.len() <= index {
-            settings.world_views.resize(index + 1, settings.view);
-        }
-        if let Some(slot) = settings.world_views.get_mut(index) {
-            *slot = view;
-        }
+        info!(world = name, seed = world.seed(), "world made");
+        set_view(state, index, options);
         Ok(install(state, index, world, generator.as_ref(), true))
     }
 
-    /// Loads the persistent world `name` the server file holds (PMMP `WorldManager::loadWorld`):
-    /// its spawn chunks load from the next view phase on, where [`WorldLoad`] is raised. A world
-    /// already loaded is its `Id` as it is, and an unload asked for it before the next view phase
-    /// is dropped (the later call wins; no [`WorldUnload`] is raised for it). Inside a
-    /// [`WorldUnload`] listener, cancelling the event is what keeps the world.
+    /// Loads the persistent world `name` the server file holds (PMMP `WorldManager::loadWorld`)
+    /// with the settings of `options`, as [`create_world`](Self::create_world) makes one: the
+    /// server file keeps its chunks and time, never its settings (PLAN.md 10.6), so a world
+    /// stored in an earlier run gets its generator, seed, spawn, difficulty and view values from
+    /// here (its kind is persistent whatever the options say). Its spawn chunks load from the
+    /// next view phase on, where [`WorldLoad`] is raised. A world the server already has this run
+    /// keeps the settings it has and the options are not used: a loaded one is its `Id` as it is,
+    /// and an unload asked for it before the next view phase is dropped (the later call wins; no
+    /// [`WorldUnload`] is raised for it). Inside a [`WorldUnload`] listener, cancelling the event
+    /// is what keeps the world.
     ///
     /// Fails with [`world::Error::NotGenerated`] if the server runs no world of that name and
-    /// the server file holds none (a temporary world unloaded is gone), and with
-    /// [`UnknownGenerator`](world::Error::UnknownGenerator) if no registered generator has the
-    /// name the world was saved with.
+    /// the server file holds none (a temporary world unloaded is gone), and, for a stored world,
+    /// with [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
+    /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value out of its range and
+    /// [`Full`](world::Error::Full) past 1,024 worlds named this run.
     #[doc(alias = "WorldManager::loadWorld")]
-    pub fn load_world(&mut self, name: &str) -> world::Result<world::Id> {
+    pub fn load_world(&mut self, name: &str, options: &world::Options) -> world::Result<world::Id> {
         let state = &mut *self.state;
         if let Some(i) = named(state, name) {
             if state.catalog.is_loaded(i) {
@@ -547,21 +543,33 @@ impl Context<'_> {
             }
             return Err(world::Error::NotGenerated);
         }
-        let Some(record) = state.catalog.stored.get(name) else {
+        let Some(&record) = state.catalog.stored.get(name) else {
             return Err(world::Error::NotGenerated);
         };
+        if options.settings().check("worlds").is_err() {
+            return Err(world::Error::InvalidSettings);
+        }
         let generator = state
             .catalog
             .generators
-            .get(&record.generator)
+            .get(options.generator())
             .cloned()
             .ok_or(world::Error::UnknownGenerator)?;
         if state.worlds.len() >= MAX_WORLDS {
             return Err(world::Error::Full);
         }
-        let world = save::stored_world(name, Kind::Persistent, record);
+        let mut world = save::new_world(
+            name,
+            Kind::Persistent,
+            generator.as_ref(),
+            options.seed(),
+            options.spawn(),
+        );
+        save::resume(&mut world, record);
+        world.set_difficulty(options.difficulty());
         state.catalog.stored.remove(name);
         let index = state.worlds.len();
+        set_view(state, index, options);
         Ok(install(state, index, world, generator.as_ref(), false))
     }
 
@@ -628,7 +636,7 @@ impl Context<'_> {
     }
 
     /// Stops the time of `world`: its day cycle and sun stay where they are, for its players too,
-    /// until [`start_time`](Self::start_time). Saved with the world (PMMP forgets it on restart).
+    /// until [`start_time`](Self::start_time) or the server stops: it is not saved, as in PMMP.
     /// False for a world that is not loaded.
     #[doc(alias = "World::stopTime")]
     pub fn stop_time(&mut self, world: world::Id) -> bool {
@@ -657,7 +665,8 @@ impl Context<'_> {
 
     /// Gives `world` its own difficulty, or `None` to follow the server's
     /// ([`difficulty`](Self::difficulty)), and tells its players (PMMP `World::setDifficulty`).
-    /// Its rules (hunger, fire) use it; it is saved with the world. False, changing nothing, for
+    /// Its rules (hunger, fire) use it until the server stops: it is not saved, and a restart
+    /// takes the difficulty of the settings again (PLAN.md 10.6). False, changing nothing, for
     /// a world that is not loaded, or a difficulty other than hard on a `hardcore` server.
     #[doc(alias = "World::setDifficulty")]
     pub fn set_world_difficulty(

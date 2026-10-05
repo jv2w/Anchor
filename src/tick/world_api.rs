@@ -120,9 +120,10 @@ impl Context<'_> {
     }
 
     /// Sets the weather of `world` and tells its players at once (the level events BDS sends
-    /// for the change; none for the weather it has). It stays until changed: Anchor has no
-    /// natural weather. Players who join or arrive later are told when they get there. False for
-    /// a world that is not loaded.
+    /// for the change; none for the weather it has). It stays until changed or the server stops:
+    /// Anchor has no natural weather and does not save it, so every world is clear at start
+    /// ([`Weather`] shows how to build a cycle and keep it). Raises no event. Players who join or
+    /// arrive later are told when they get there. False for a world that is not loaded.
     pub fn set_weather(&mut self, world: world::Id, weather: Weather) -> bool {
         let Some(w) = index(self.state, world) else {
             return false;

@@ -2087,6 +2087,7 @@ mod tests {
                     chunks_per_tick: Some(7),
                     spawn_radius: Some(2),
                     tick_radius: Some(9),
+                    spawn: None,
                 },
             );
         });
