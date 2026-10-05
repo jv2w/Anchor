@@ -8,10 +8,15 @@
 //! login in both outcomes. The jigsaw and biome data on the wire equal `CloudburstMC`'s. Sessions
 //! that logged in but have not joined are capped at `max-players`, and the server's stop reaches
 //! them with the shutdown message.
+//!
+//! The servers' events down to debug go to one log of this process ([`Recorder`]): a failed test
+//! shows its server's lines, and the session cycle tests read in it that each connection ended
+//! by the bot's close, not at the idle timeout.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -67,7 +72,7 @@ fn bot() -> &'static Path {
 
 /// The addresses the starting server logs, one line per opened address (`listening …
 /// addr=…`). The servers of this process run without Anchor's console log, so their events reach
-/// [`Listening`], the global subscriber; [`START`] lets one server start at a time, so the lines
+/// [`Recorder`], the global subscriber; [`START`] lets one server start at a time, so the lines
 /// logged while it is held are that server's.
 #[expect(
     clippy::disallowed_types,
@@ -80,19 +85,48 @@ static LISTENED: std::sync::Mutex<Vec<(String, SocketAddr)>> = std::sync::Mutex:
     reason = "off-tick: the tests of this process start servers on their own threads"
 )]
 static START: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// The server log: Anchor's events down to debug of every server of this process, in order.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the subscriber hears the server's threads"
+)]
+static LOG: std::sync::Mutex<Log> = std::sync::Mutex::new(Log {
+    next: 0,
+    lines: VecDeque::new(),
+});
+/// The lines [`LOG`] keeps; older ones are dropped.
+const LOG_LINES: usize = 50_000;
+/// The last lines of the log a failed test shows.
+const SHOWN_LINES: usize = 300;
 
-/// Keeps the `listening` info events of Anchor's networking in [`LISTENED`].
-struct Listening;
+/// The last [`LOG_LINES`] lines of the server log and the number of the next one.
+struct Log {
+    next: u64,
+    lines: VecDeque<String>,
+}
 
-impl Subscriber for Listening {
+impl Log {
+    /// The lines from line number `from` on.
+    fn since(&self, from: u64) -> impl Iterator<Item = &String> {
+        let first = self.next.saturating_sub(self.lines.len() as u64);
+        let skip = usize::try_from(from.saturating_sub(first)).unwrap_or(usize::MAX);
+        self.lines.iter().skip(skip)
+    }
+}
+
+/// Keeps Anchor's events down to debug in [`LOG`], and the `listening` info events of its
+/// networking in [`LISTENED`].
+struct Recorder;
+
+impl Subscriber for Recorder {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
         metadata.is_event()
-            && *metadata.level() == Level::INFO
-            && metadata.target() == "anchor::session"
+            && *metadata.level() <= Level::DEBUG
+            && metadata.target().starts_with("anchor")
     }
 
     fn max_level_hint(&self) -> Option<LevelFilter> {
-        Some(LevelFilter::INFO)
+        Some(LevelFilter::DEBUG)
     }
 
     fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
@@ -106,11 +140,25 @@ impl Subscriber for Listening {
     fn event(&self, event: &Event<'_>) {
         let mut line = Line::default();
         event.record(&mut line);
+        let metadata = event.metadata();
         if let Some(addr) = line.addr
             && line.message.starts_with("listening")
         {
-            lock(&LISTENED).push((line.message, addr));
+            lock(&LISTENED).push((line.message.clone(), addr));
         }
+        let text = format!(
+            "{} {}: {}{}",
+            metadata.level(),
+            metadata.target(),
+            line.message,
+            line.fields
+        );
+        let mut log = lock(&LOG);
+        if log.lines.len() == LOG_LINES {
+            log.lines.pop_front();
+        }
+        log.lines.push_back(text);
+        log.next += 1;
     }
 
     fn enter(&self, _: &span::Id) {}
@@ -118,19 +166,25 @@ impl Subscriber for Listening {
     fn exit(&self, _: &span::Id) {}
 }
 
-/// The message and the `addr` field of one event.
+/// One event: its message, its `addr` field and all its fields as ` name=value`.
 #[derive(Default)]
 struct Line {
     message: String,
     addr: Option<SocketAddr>,
+    fields: String,
 }
 
 impl Visit for Line {
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         match field.name() {
             "message" => self.message = format!("{value:?}"),
-            "addr" => self.addr = format!("{value:?}").parse().ok(),
-            _ => {}
+            name => {
+                if name == "addr" {
+                    self.addr = format!("{value:?}").parse().ok();
+                }
+                std::fmt::Write::write_fmt(&mut self.fields, format_args!(" {name}={value:?}"))
+                    .expect("writing to a String");
+            }
         }
     }
 }
@@ -152,6 +206,8 @@ struct Running {
     signaling_port: u16,
     shutdown: ShutdownHandle,
     thread: Option<JoinHandle<anchor::Result<()>>>,
+    /// The number of the first server log line logged after it started.
+    log_from: u64,
 }
 
 impl Running {
@@ -170,7 +226,7 @@ impl Running {
     ) -> Self {
         static SUBSCRIBER: OnceLock<()> = OnceLock::new();
         SUBSCRIBER.get_or_init(|| {
-            tracing::subscriber::set_global_default(Listening).expect("the only global subscriber");
+            tracing::subscriber::set_global_default(Recorder).expect("the only global subscriber");
         });
         config.general.enable_ipv6 = false;
         config.general.level_name = name.to_owned();
@@ -183,6 +239,7 @@ impl Running {
         let shutdown = server.shutdown_handle();
         let _one = lock(&START);
         lock(&LISTENED).clear();
+        let log_from = lock(&LOG).next;
         let mut thread = Some(spawn(move || server.run()));
         // RakNet opens last; the limit only catches a server that neither starts nor stops.
         for _ in 0..300 {
@@ -199,6 +256,7 @@ impl Running {
                     signaling_port,
                     shutdown,
                     thread,
+                    log_from,
                 };
             }
             drop(listened);
@@ -268,6 +326,54 @@ impl Running {
         format!("127.0.0.1:{}", self.signaling_port)
     }
 
+    /// Whether a line of the server log since this server started has all of `parts`.
+    fn logged(&self, parts: &[&str]) -> bool {
+        lock(&LOG)
+            .since(self.log_from)
+            .any(|line| parts.iter().all(|part| line.contains(part)))
+    }
+
+    /// Fails unless the server ended the RakNet connection of the bot run that wrote `lines`
+    /// because the bot disconnected, not at the idle timeout.
+    fn assert_raknet_closed_by_bot(&self, lines: &str) {
+        let result = result(lines);
+        let port = result["local_addr"]
+            .as_str()
+            .and_then(|addr| addr.rsplit(':').next())
+            .unwrap_or_else(|| panic!("no local address in {result}"));
+        let addr = format!("addr=127.0.0.1:{port} ");
+        assert!(
+            self.logged(&[
+                "raknet connection closed",
+                &addr,
+                "reason=peer disconnected"
+            ]),
+            "the bot's disconnect did not end its connection ({addr})"
+        );
+    }
+
+    /// Fails unless the server ended the NetherNet peer of the bot run that wrote `lines` because
+    /// the bot closed it, not at the idle timeout. The peer is the one of the answer's ICE ufrag.
+    fn assert_nethernet_closed_by_bot(&self, lines: &str) {
+        let ufrag = lines
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|v| v["type"] == "sdp" && v["role"] == "answer")
+            .find_map(|v| {
+                v["text"].as_str().and_then(|sdp| {
+                    sdp.lines()
+                        .find_map(|l| l.strip_prefix("a=ice-ufrag:"))
+                        .map(|u| u.trim().to_owned())
+                })
+            })
+            .expect("the capture has the answer's ICE ufrag");
+        let ufrag = format!("ufrag={ufrag} ");
+        assert!(
+            self.logged(&["nethernet peer closed", &ufrag, "closed by the remote"]),
+            "the bot's close did not end its peer ({ufrag})"
+        );
+    }
+
     fn stop(mut self) {
         self.shutdown.shutdown();
         let result = self.thread.take().expect("running").join();
@@ -278,9 +384,30 @@ impl Running {
 }
 
 impl Drop for Running {
+    #[expect(
+        clippy::print_stderr,
+        reason = "consistency: the test harness shows a failed test's standard error"
+    )]
     fn drop(&mut self) {
-        // A failed assertion still stops the server so the test process can end.
+        // A failed assertion still stops the server so the test process can end, and shows the
+        // server log with the failure.
         self.shutdown.shutdown();
+        if std::thread::panicking() {
+            let log = lock(&LOG);
+            let lines: Vec<&String> = log.since(self.log_from).collect();
+            let first = lines.len().saturating_sub(SHOWN_LINES);
+            let mut text = format!(
+                "server log since this server started, the last {} of {} lines (the servers of \
+                 tests running at the same time log here too; run one test to see only its own):",
+                lines.len() - first,
+                lines.len()
+            );
+            for line in lines.iter().skip(first) {
+                text.push_str("\n  ");
+                text.push_str(line);
+            }
+            eprintln!("{text}");
+        }
     }
 }
 
@@ -415,20 +542,25 @@ fn sessions_end_cleanly_and_the_pong_counts_no_one_after_they_leave() {
     let mut server = Running::start("cycles", config(Compression::Snappy), &data_dir("cycles"));
     let online = |server: &mut Running| server.pong().split(';').nth(4).map(str::to_owned);
     assert_eq!(online(&mut server).as_deref(), Some("0"));
-    for cycle in 0..5 {
-        play(
-            &server,
-            "spawn",
-            &format!("cycle-{cycle}"),
-            &["-stay", "0s"],
-        );
-    }
+    let runs: Vec<String> = (0..5)
+        .map(|cycle| {
+            play(
+                &server,
+                "spawn",
+                &format!("cycle-{cycle}"),
+                &["-stay", "0s"],
+            )
+        })
+        .collect();
     // Sessions report their end to the accept task a moment after the bot closes.
     let counts: Vec<_> = (0..20).map(|_| online(&mut server)).collect();
     assert!(
         counts.iter().any(|n| n.as_deref() == Some("0")),
         "players still counted: {counts:?}"
     );
+    for lines in &runs {
+        server.assert_raknet_closed_by_bot(lines);
+    }
     server.stop();
 }
 
@@ -642,22 +774,27 @@ fn nethernet_sessions_end_cleanly_and_the_join_status_counts_no_one_after_they_l
         serde_json::from_str::<Value>(&body).expect("JSON status")["players"].clone()
     };
     assert_eq!(players(&server), 0);
-    for cycle in 0..CYCLES {
-        let name = format!("nn-cycle-{cycle}");
-        play(
-            &server,
-            "spawn",
-            &name,
-            &[NETHERNET, &["-stay", "0s"]].concat(),
-        );
-    }
+    let runs: Vec<String> = (0..CYCLES)
+        .map(|cycle| {
+            play(
+                &server,
+                "spawn",
+                &format!("nn-cycle-{cycle}"),
+                &[NETHERNET, &["-stay", "0s"]].concat(),
+            )
+        })
+        .collect();
     // A session queues its leave for the tick, then reports its end to the accept task; the
     // tick's quit means the session has ended. The limit only keeps a broken server from
-    // hanging the test: a session the bot's close does not end ends at the idle timeout.
+    // hanging the test: a session the bot's close does not end ends at the idle timeout, which
+    // the server log tells apart.
     for cycle in 0..CYCLES {
         quits
             .recv_timeout(Duration::from_secs(60))
             .unwrap_or_else(|e| panic!("quit {cycle} of {CYCLES}: {e}"));
+    }
+    for lines in &runs {
+        server.assert_nethernet_closed_by_bot(lines);
     }
     // What is left is the accept task taking the end report the session sent after its leave;
     // no event follows it, so the status is polled. The limit only catches a broken server.

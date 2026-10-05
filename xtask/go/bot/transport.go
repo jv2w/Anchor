@@ -62,5 +62,6 @@ func connect(ctx context.Context, c config, out *output, key *ecdsa.PrivateKey, 
 		return nil, err
 	}
 	res.transport = "raknet"
+	res.localAddr = conn.LocalAddr().String()
 	return conn, nil
 }

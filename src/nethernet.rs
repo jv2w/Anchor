@@ -808,7 +808,7 @@ impl Driver {
                     }
                 }
                 peer::Output::Closed(reason) => {
-                    debug!(peer = id, %reason, "nethernet peer closed");
+                    debug!(peer = id, ufrag = %entry.ufrag, %reason, "nethernet peer closed");
                     self.doomed.push(id);
                     return;
                 }

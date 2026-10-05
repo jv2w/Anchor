@@ -47,6 +47,9 @@ type result struct {
 	reader                                *batchReader
 	segments                              *segmentConn
 	blocks                                *blockCheck
+
+	// localAddr is the bot's own RakNet address (the server logs it with the connection's end).
+	localAddr string
 }
 
 func newResult() *result {
@@ -85,6 +88,9 @@ func (r *result) json(c config) map[string]any {
 	}
 	if r.answerMaxMessageSize != "" {
 		m["answer_max_message_size"] = r.answerMaxMessageSize
+	}
+	if r.localAddr != "" {
+		m["local_addr"] = r.localAddr
 	}
 	if r.packsOffered > 0 {
 		m["packs_offered"] = r.packsOffered
