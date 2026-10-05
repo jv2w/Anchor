@@ -147,15 +147,15 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
     names.sort_unstable();
     assert_eq!(
         names,
-        ["clear", "help", "kill", "me", "tell", "version"],
-        "PMMP's defaults for players who are not operators"
+        ["clear", "kill", "me", "tell", "version"],
+        "PMMP's defaults for players who are not operators, but help (the client has its own)"
     );
     Context { state: &mut state }.op("player2").unwrap();
     let packet = available_commands(state.commands.listing(), s2, &state.players[&s2]);
     let Packet::AvailableCommands(p) = &packet else {
         panic!("{packet:?}");
     };
-    assert_eq!(p.commands.len(), 38);
+    assert_eq!(p.commands.len(), 37, "all but help");
     let tp = p.commands.iter().find(|c| c.name == "tp").unwrap();
     assert_eq!(tp.overloads.len(), 4);
     let shapes: Vec<Vec<&str>> = tp
@@ -185,7 +185,7 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
         .iter()
         .map(|&i| p.enum_values[usize::try_from(i).unwrap()].as_str())
         .collect();
-    assert_eq!(aliases, ["w", "msg", "tell"]);
+    assert_eq!(aliases, ["tell", "w", "msg"]);
     let give = state
         .commands
         .list

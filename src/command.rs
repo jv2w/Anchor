@@ -320,9 +320,10 @@ impl Param {
     /// the same values in the same order, or [`build`](crate::ServerBuilder::build) fails with
     /// [`Error::ConflictingEnum`]. Anchor's own commands use `Boolean`, `Item`, `Block`,
     /// `Effect`, `Enchant`, `GameMode`, `Difficulty`, `BanListType`, `WhitelistAction`,
-    /// `WhitelistEdit`, `TitleKind`, `TimeSpec`, `TimeQuery`, `ParticleName`, `<Name>Aliases` for a command
-    /// with aliases, and each [`literal`](Self::literal)'s word, unless the user replaces or
-    /// drops the command.
+    /// `WhitelistEdit`, `TitleKind`, `TimeSpec`, `TimeQuery`, `ParticleName`, `<name>CommandAliases`
+    /// for a command with aliases, and each [`literal`](Self::literal)'s word, unless the user
+    /// replaces or drops the command. `CommandName` is the client's list of command names: no
+    /// parameter may take it.
     pub fn enumeration(
         name: impl Into<String>,
         type_name: impl Into<String>,

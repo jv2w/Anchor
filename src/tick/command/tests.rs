@@ -725,12 +725,12 @@ fn available_commands_list_what_each_player_may_use() {
     };
     let fly = p.commands.iter().find(|c| c.name == "fly").unwrap();
     let aliases = &p.enums[usize::try_from(fly.aliases_offset).unwrap()];
-    assert_eq!(aliases.r#type, "FlyAliases");
+    assert_eq!(aliases.r#type, "flyCommandAliases");
     let (_, enums) = listed(&packet);
     assert_eq!(
-        enums["FlyAliases"],
-        ["f", "fly"],
-        "PMMP adds the name to its aliases"
+        enums["flyCommandAliases"],
+        ["fly", "f"],
+        "BDS puts the name first"
     );
     assert_eq!(enums["Boolean"], ["true", "false"]);
     assert!(
@@ -1380,13 +1380,14 @@ fn available_commands_carry_only_the_enums_of_the_commands_a_player_may_use() {
     shared(&listing);
     let (commands, enums) = listed(&available_commands(listing, s1, &state.players[&s1]));
     assert!(!commands.contains_key("secret"));
-    assert!(!enums.contains_key("Secret") && !enums.contains_key("SecretAliases"));
+    assert!(!enums.contains_key("Secret") && !enums.contains_key("secretCommandAliases"));
+    assert!(!enums["CommandName"].contains(&"hidden".to_owned()));
     Context { state: &mut state }.op("player1").unwrap();
     let packet = available_commands(state.commands.listing(), s1, &state.players[&s1]);
     let (commands, enums) = listed(&packet);
     assert!(commands.contains_key("secret"));
     assert_eq!(enums["Secret"], ["x", "y"]);
-    assert_eq!(enums["SecretAliases"], ["hidden", "secret"]);
+    assert_eq!(enums["secretCommandAliases"], ["secret", "hidden"]);
     // The tables are renumbered for the player: each value once, every one used.
     let Packet::AvailableCommands(p) = &packet else {
         panic!();
@@ -1399,4 +1400,78 @@ fn available_commands_carry_only_the_enums_of_the_commands_a_player_may_use() {
         .flat_map(|e| e.value_indices.iter().copied())
         .collect();
     assert_eq!(used.len(), p.enum_values.len(), "every value is used");
+}
+
+#[test]
+fn every_name_and_alias_reaches_the_client_as_bds_lists_them() {
+    let (mut state, _rx) = server(Vec::new());
+    let s1 = SessionId::new(1);
+    let packet =
+        |state: &State| available_commands(state.commands.listing(), s1, &state.players[&s1]);
+    let (commands, enums) = listed(&packet(&state));
+    let typed = &enums["CommandName"];
+    for name in ["tell", "w", "msg", "kill", "suicide", "me", "help", "?"] {
+        assert!(typed.contains(&name.to_owned()), "{name}");
+    }
+    assert!(!typed.contains(&"op".to_owned()), "a member may not use op");
+    assert!(
+        !commands.contains_key("help"),
+        "the client has its own help"
+    );
+    assert_eq!(enums["tellCommandAliases"], ["tell", "w", "msg"]);
+    assert_eq!(enums["killCommandAliases"], ["kill", "suicide"]);
+    Context { state: &mut state }.op("player1").unwrap();
+    let sent = packet(&state);
+    let (commands, enums) = listed(&sent);
+    let Packet::AvailableCommands(p) = &sent else {
+        panic!();
+    };
+    let cx = Context { state: &mut state };
+    let usable: Vec<&Command> = cx.commands().filter(|c| cx.can_use(id(1), c)).collect();
+    assert!(usable.iter().any(|c| c.name() == "op"));
+    let mut names = Vec::new();
+    for c in &usable {
+        names.push(c.name().to_owned());
+        names.extend(c.aliases().iter().cloned());
+        if c.name() == "help" {
+            continue;
+        }
+        let net = p
+            .commands
+            .iter()
+            .find(|n| n.name == c.name())
+            .unwrap_or_else(|| panic!("{}", c.name()));
+        if c.aliases().is_empty() {
+            assert_eq!(net.aliases_offset, u32::MAX, "{}", c.name());
+            continue;
+        }
+        let aliases = &p.enums[usize::try_from(net.aliases_offset).unwrap()];
+        let enum_name = format!("{}CommandAliases", c.name());
+        assert_eq!(aliases.r#type, enum_name);
+        let mut expected = vec![c.name().to_owned()];
+        expected.extend(c.aliases().iter().cloned());
+        assert_eq!(enums[&enum_name], expected);
+    }
+    assert!(!commands.contains_key("help"));
+    assert_eq!(
+        enums["CommandName"], names,
+        "every name the operator may type, once"
+    );
+    assert_eq!(p.commands.len(), usable.len() - 1, "all but help");
+}
+
+#[test]
+fn a_parameter_may_not_take_the_command_name_enum() {
+    let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
+    let mut commands = Commands::default();
+    commands.register(
+        Command::new("a", "").overload(&[Param::enumeration("x", "CommandName", &["a"])], handler),
+        Origin::User,
+    );
+    assert_eq!(
+        commands.finish(),
+        Err(Error::ConflictingEnum {
+            name: "CommandName".to_owned()
+        })
+    );
 }

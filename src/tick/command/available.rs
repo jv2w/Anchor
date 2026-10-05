@@ -6,6 +6,11 @@
 //! its enums (aliases, enum parameters and the item, block, effect and enchantment names) and
 //! their values sit in shared tables, each once. A player's packet only picks the commands it
 //! may use and renumbers the enums and values they use, in first-use order, copying their texts.
+//!
+//! The names take BDS's shape (P6, m9-facts.md): a command's aliases enum is
+//! `<name>CommandAliases` with the name first, and a `CommandName` enum lists every name and
+//! alias the player may type. `help` is listed there but not sent as a command: the client has
+//! its own `/help`, and neither BDS nor PMMP sends one.
 //! The catalog holds no handler, so it is `Sync`: the spawn window builds the packet in the
 //! parallel output phase ([`Listing`]); a resend after a permission change is built at the end of
 //! the tick's serial phases.
@@ -30,6 +35,12 @@ const NO_ALIASES: u32 = u32::MAX;
 const PERMISSION_ANY: u8 = 0;
 /// A table position not given yet in a player's packet.
 const UNSET: u32 = u32::MAX;
+/// The enum of every command name and alias a player may type (BDS).
+pub(crate) const COMMAND_NAME_ENUM: &str = "CommandName";
+/// The suffix of a command's aliases enum after its name (BDS: `tellCommandAliases`).
+const ALIASES_SUFFIX: &str = "CommandAliases";
+/// The command the client runs itself: listed in [`COMMAND_NAME_ENUM`], never sent.
+const CLIENT_COMMAND: &str = "help";
 
 /// The network form of every registered command, built once at build.
 #[derive(Debug, Default)]
@@ -56,7 +67,11 @@ struct Entry {
     description: String,
     /// A player needs one of them; none: everyone.
     permissions: Vec<Permission>,
-    /// The aliases enum (the aliases and the name), if the command has aliases.
+    /// The name and the aliases, as positions in [`Catalog::values`].
+    names: Vec<u32>,
+    /// Whether the command is sent; the client's own command is only named.
+    sent: bool,
+    /// The aliases enum (the name and the aliases), if the command has aliases.
     aliases: Option<u32>,
     overloads: Vec<Vec<Parameter>>,
     /// The enums the command uses, each once, in the order a packet meets them: the aliases,
@@ -86,19 +101,23 @@ impl Catalog {
     /// enums share a type name but not their values: the client would get only the first.
     pub(crate) fn new(commands: &[Command], names: &Names) -> command::Result<Self> {
         let mut b = Builder::default();
+        // A parameter may not take the name of the enum every packet builds itself.
+        b.enum_index.insert(COMMAND_NAME_ENUM.to_owned(), UNSET);
         for command in commands {
             let mut used = Vec::new();
-            let aliases = (!command.aliases.is_empty()).then(|| {
-                // PMMP adds the name to its aliases: the client hides the name otherwise.
-                let mut values: Vec<&str> = command.aliases.iter().map(String::as_str).collect();
-                if !values.contains(&command.name.as_str()) {
-                    values.push(&command.name);
-                }
-                let index =
-                    b.enumeration(&format!("{}Aliases", capitalised(&command.name)), values);
+            // The registry keeps the name out of the aliases.
+            let typed: Vec<&str> = std::iter::once(command.name.as_str())
+                .chain(command.aliases.iter().map(String::as_str))
+                .collect();
+            let aliases = (typed.len() > 1).then(|| {
+                let index = b.enumeration(
+                    &format!("{}{ALIASES_SUFFIX}", command.name),
+                    typed.iter().copied(),
+                );
                 used.push(index);
                 index
             });
+            let typed = typed.into_iter().map(|n| b.value(n)).collect();
             let overloads = command
                 .overloads
                 .iter()
@@ -125,6 +144,8 @@ impl Catalog {
                 name: command.name.clone(),
                 description: command.description.clone(),
                 permissions: command.permissions.clone(),
+                names: typed,
+                sent: command.name != CLIENT_COMMAND,
                 aliases,
                 overloads,
                 enums: used,
@@ -161,10 +182,15 @@ pub(crate) fn available_commands(
     let mut values = Vec::new();
     let mut enums = Vec::new();
     let mut commands = Vec::new();
+    let mut names = Vec::with_capacity(catalog.commands.len());
     for entry in &catalog.commands {
         if !allowed(&entry.permissions, |p| {
             has_permission_of(grants, Some(session), op, p)
         }) {
+            continue;
+        }
+        names.extend(&entry.names);
+        if !entry.sent {
             continue;
         }
         for &index in &entry.enums {
@@ -181,15 +207,7 @@ pub(crate) fn available_commands(
             let value_indices = e
                 .values
                 .iter()
-                .map(|&v| match slot(&mut value_at, v) {
-                    Some(at) if *at == UNSET => {
-                        *at = index_of(values.len());
-                        values.push(catalog.values.get(position(v)).cloned().unwrap_or_default());
-                        *at
-                    }
-                    Some(at) => *at,
-                    None => UNSET,
-                })
+                .map(|&v| value_of(catalog, &mut value_at, &mut values, v))
                 .collect();
             enums.push(CommandEnum {
                 r#type: e.name.clone(),
@@ -230,6 +248,14 @@ pub(crate) fn available_commands(
             overloads,
         });
     }
+    let value_indices = names
+        .into_iter()
+        .map(|v| value_of(catalog, &mut value_at, &mut values, v))
+        .collect();
+    enums.push(CommandEnum {
+        r#type: COMMAND_NAME_ENUM.to_owned(),
+        value_indices,
+    });
     Packet::AvailableCommands(Box::new(AvailableCommands {
         enum_values: values,
         chained_subcommand_values: Vec::new(),
@@ -242,6 +268,19 @@ pub(crate) fn available_commands(
     }))
 }
 
+/// The packet position of catalog value `v`, copied into `values` on first use.
+fn value_of(catalog: &Catalog, value_at: &mut [u32], values: &mut Vec<String>, v: u32) -> u32 {
+    match slot(value_at, v) {
+        Some(at) if *at == UNSET => {
+            *at = index_of(values.len());
+            values.push(catalog.values.get(position(v)).cloned().unwrap_or_default());
+            *at
+        }
+        Some(at) => *at,
+        None => UNSET,
+    }
+}
+
 /// The entry of `table` at catalog position `index`.
 fn slot(table: &mut [u32], index: u32) -> Option<&mut u32> {
     table.get_mut(position(index))
@@ -250,14 +289,6 @@ fn slot(table: &mut [u32], index: u32) -> Option<&mut u32> {
 /// A catalog position as a slice index; positions come from `usize` lengths, so they fit.
 fn position(index: u32) -> usize {
     usize::try_from(index).unwrap_or(usize::MAX)
-}
-
-/// `heal` → `Heal` (PMMP `ucfirst`).
-fn capitalised(name: &str) -> String {
-    let mut chars = name.chars();
-    chars.next().map_or_else(String::new, |first| {
-        first.to_uppercase().chain(chars).collect()
-    })
 }
 
 /// The catalog as it fills.
@@ -277,11 +308,12 @@ impl Builder {
     fn enumeration<'v>(&mut self, name: &str, values: impl IntoIterator<Item = &'v str>) -> u32 {
         let values: Vec<u32> = values.into_iter().map(|v| self.value(v)).collect();
         if let Some(&index) = self.enum_index.get(name) {
+            // A reserved name has no enum of the catalog: any values conflict.
             if self
                 .catalog
                 .enums
                 .get(position(index))
-                .is_some_and(|e| e.values != values)
+                .is_none_or(|e| e.values != values)
             {
                 self.error.get_or_insert(Error::ConflictingEnum {
                     name: name.to_owned(),
