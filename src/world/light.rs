@@ -803,6 +803,10 @@ impl Engine {
     }
 
     /// The light of `channel` at a spot of a lit chunk.
+    // `level`, `relax` and `relax_at` run for every block light spreads to. Without the hint the
+    // compiler kept them as calls once `step` grew, and lighting a newly loaded chunk cost about
+    // 40% more (PLAN.md 10.9, M9 R5).
+    #[inline]
     fn level(chunks: &ChunkIndex, pos: BlockPos, channel: Channel) -> Option<u8> {
         let spot = Spot::of(pos)?;
         Some(
@@ -898,6 +902,7 @@ impl Engine {
     }
 
     /// [`Self::relax_at`] for a block of any loaded chunk.
+    #[inline]
     fn relax(&mut self, chunks: &mut ChunkIndex, q: BlockPos, channel: Channel, level: u8) {
         let Some(spot) = Spot::of(q) else {
             return;
@@ -909,6 +914,7 @@ impl Engine {
 
     /// Raises `q` (in `chunk`) to `level` less its filter if that is brighter, and queues it to
     /// spread (PMMP `LightUpdate::computeSpreadLight`).
+    #[inline]
     fn relax_at(&mut self, chunk: &mut Chunk, q: BlockPos, at: Spot, channel: Channel, level: u8) {
         let potential = level.saturating_sub(chunk.light_values_at(at.sub, at.at).filter);
         let Some(light) = chunk.light_mut() else {

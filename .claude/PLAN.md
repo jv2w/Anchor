@@ -1187,7 +1187,7 @@ console-input = true
 | U8 움직임 끊김 | MOVE | 완료 |
 | U9 무결성 검사·`/check`, R2 백업 단계, 남은 지적 7 | STORE | 완료 |
 | R1 P6 격리, R6 번개 난이도, 남은 지적 10·12 | P6 | 진행 중 |
-| R5 1명 p99 | PERF | 진행 중 |
+| R5 1명 p99 | PERF | 완료 |
 | R7 숫돌 삭제, U6 경험치, U7 내구도, 남은 지적 4·5·6·9 | CLEAN | 진행 중 |
 - U8 패킷 합침: 다른 플레이어 이동을 MovePlayer에서 `MoveActorAbsolute`(눈 위치, 땅 플래그, 회전, 보간됨)로 바꿈. 순간이동과 본인 보정만 MovePlayer. P6 others 차이는 intended에 등록.
 - U8 틱 합침: Windows std `thread::sleep`이 이미 고해상도 타이머임을 std 소스와 실측(200틱 p99 50.5 ms)으로 확인해 대기 방식은 그대로 둠(tokio 42~63 ms, 돌며 기다리기는 틱마다 CPU 2 ms). 측정 시험 `tests/server.rs` `tick_intervals`(ignored).
@@ -1197,6 +1197,7 @@ console-input = true
 - 남은 지적 7 합침: world 파일이 없거나 비어도 시작이 남은 백업 `.tmp`를 먼저 지움(잠금 확인 뒤).
 - R2 합침: 실행 중 백업의 단계 커밋은 동기화 없이(`Durability::None`), 다 복사한 뒤 지속 커밋 한 번 → 닫기·동기화·이름 바꾸기. 끊긴 복사는 `.tmp`로 남아 백업이 아님(원자성 유지). 동기화 7단계 기준 13번 → 6번(redb 파일 성장 때만 남음).
 - U9 합침: `integrity-check` 연결(`after-unclean-shutdown`은 정상 종료가 compact 뒤 마지막 커밋으로 `meta`의 `closed` 표시를 쓰고 다음 시작 첫 커밋이 지움; 실패·패닉·강제 종료는 표시 없음). `backups = true`의 시작 백업은 늘, `backups = false`의 임시 사본은 검사하는 시작에서만. `/check`(op, 게임·콘솔): 다음 저장 커밋 뒤 저장 스레드가 그 커밋의 값을 8 MiB 단계로 읽어 봉인 확인, 단계 사이 요청 먼저 처리(틱 안 막음), 하나씩, 결과는 실행한 사람에게(Anchor 문장). redb `check_integrity`는 닫힌 파일이 필요하고 원본을 고쳐 쓰므로 실행 중 안 씀. 입력 로그 형식 11(검사 결과도 틱 입력), `storage::Start { backup, check }`.
+- R5 합침: 1명 p99 +15%의 원인은 M9에서 커진 `light::Engine::step` 안의 `level`·`relax`·`relax_at`이 인라인되지 않은 것(일의 양 같음, codegen-units=1이면 M7과 같음). `#[inline]`으로 청크 한 줄 빛 일 0.267 → 0.172 ms(M7 0.186), 1명 p99 0.469 → 0.376 ms(M7 0.380). 표 9 검증 필요 A 닫음.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
