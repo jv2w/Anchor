@@ -691,13 +691,14 @@ mod tests {
         let made = online.finish().unwrap();
         let finish = SYNCS.get() - before;
         // A step syncs only to make a growth of the file durable (redb does, before a header can
-        // name the larger file), never for its commit: before, every step synced at least once.
+        // name the larger file), never for its commit: before, every step synced once more than
+        // it grew the file. The file grows by an eighth (PLAN.md 9.1 redb ③), so every step of
+        // this small copy grows it.
         assert!(steps.len() >= 6, "{steps:?}");
         assert!(
             steps.iter().all(|&(syncs, grown)| syncs <= grown),
             "{steps:?}"
         );
-        assert!(steps.iter().any(|&(_, grown)| grown == 0), "{steps:?}");
         // The durable commit and the close: as many for any size of copy.
         assert!((1..=6).contains(&finish), "{finish} syncs to finish");
         // The copy is whole.

@@ -2338,11 +2338,17 @@ impl TransactionalMemory {
             2u64.pow(required_order_allocation.into()) * u64::from(state.header.page_size());
         let max_region_size = u64::from(state.header.layout().full_region_layout().num_pages())
             * u64::from(state.header.page_size());
+        // Anchor: upstream doubles the file, or fills out its trailing region (up to 4 GiB), every
+        // time it grows. After compact() leaves no free tail, the next commit of any size then
+        // doubled the file, and a large write ended up to twice its data. Grow by an eighth of
+        // the file instead, and at least twice the allocation, so a buddy-aligned block of it
+        // fits in the new space; a step that would cross a region keeps upstream's growth.
+        let step = max(layout.usable_bytes() / 8, required_growth * 2);
         let next_desired_size = if layout.num_full_regions() > 0 {
             if let Some(trailing) = layout.trailing_region_layout() {
                 if 2 * required_growth < max_region_size - trailing.usable_bytes() {
-                    // Fill out the trailing region
-                    layout.usable_bytes() + (max_region_size - trailing.usable_bytes())
+                    // Fill out the trailing region by at most a step
+                    layout.usable_bytes() + min(step, max_region_size - trailing.usable_bytes())
                 } else {
                     // Fill out trailing & Grow by 1 region
                     layout.usable_bytes() + 2 * max_region_size - trailing.usable_bytes()
@@ -2351,6 +2357,8 @@ impl TransactionalMemory {
                 // Grow by 1 region
                 layout.usable_bytes() + max_region_size
             }
+        } else if layout.usable_bytes() + step <= max_region_size {
+            layout.usable_bytes() + step
         } else {
             max(
                 layout.usable_bytes() * 2,

@@ -1,7 +1,8 @@
-//! Reproduction test for the fixed redb copy in `vendor/redb` (PLAN.md 9.1): opening a file and
+//! Reproduction tests for the fixed redb copy in `vendor/redb` (PLAN.md 9.1): opening a file and
 //! checking it must turn a damaged byte into an error. The published 4.3.0 reads the system tree
 //! at open before anything verifies it, so one damaged byte there panics the open
-//! (cberner/redb#1505, #1334); this test fails on it with a panic. The copy's other fix, the page
+//! (cberner/redb#1505, #1334); this test fails on it with a panic. The copy also grows the file
+//! by a step instead of doubling it, which the second test checks. The copy's other fix, the page
 //! cache queue that grew with every write (#1517), is internal; the copy's own tests cover it.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
@@ -148,4 +149,47 @@ fn a_damaged_byte_is_an_error_not_a_panic() {
         }
     }
     assert!(panics.is_empty(), "damage at {panics:?} panicked");
+}
+
+/// The published 4.3.0 doubles the file whenever it needs room, so after `compact()` leaves no
+/// free tail the next commit of any size doubled the file, and a large write ended up to twice
+/// its data (the server file of a 270 MB world took 1.27 GB). The copy grows by an eighth.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test commits to and compacts a database in memory"
+)]
+fn a_small_commit_after_a_compaction_grows_the_file_by_a_step_not_double() {
+    let memory = Memory::default();
+    let mut db = Builder::new().create_with_backend(memory.clone()).unwrap();
+    let mut rng = Rng(3);
+    for round in 0..8_u32 {
+        let mut txn = db.begin_write().unwrap();
+        txn.set_quick_repair(true);
+        {
+            let mut table = txn.open_table(TABLE).unwrap();
+            for key in 0..512_u32 {
+                let len = 200 + rng.below(1500);
+                let value: Vec<u8> = (0..len).map(|_| rng.next().to_le_bytes()[0]).collect();
+                table
+                    .insert(&(round * 512 + key).to_be_bytes()[..], value.as_slice())
+                    .unwrap();
+            }
+        }
+        txn.commit().unwrap();
+    }
+    db.compact().unwrap();
+    let compacted = memory.len().unwrap();
+    let mut txn = db.begin_write().unwrap();
+    txn.set_quick_repair(true);
+    txn.open_table(TABLE)
+        .unwrap()
+        .insert(&[0xff][..], &[1, 2, 3][..])
+        .unwrap();
+    txn.commit().unwrap();
+    let after = memory.len().unwrap();
+    assert!(
+        after <= compacted + compacted / 4,
+        "a 4-byte commit grew {compacted} bytes to {after}"
+    );
 }
