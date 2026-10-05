@@ -131,19 +131,32 @@ pub(crate) struct Values {
 }
 
 /// An entry's light values are its state's; an unknown state counts as
-/// `minecraft:info_update`, the block clients see in its place.
+/// `minecraft:info_update`, the block clients see in its place. An inert state stops direct sky
+/// light when it filters any (PMMP `Block::blocksDirectSkyLight`).
 impl Derive for Entry {
     type Derived = Values;
 
     fn derive(self) -> Values {
-        let state = match self {
-            Entry::Known(state) => state,
-            Entry::Unknown(_) => block::INFO_UPDATE,
+        let (emission, filter, blocks_sky) = match self {
+            Entry::Known(s) => (
+                s.light_emission(),
+                s.light_filter(),
+                s.blocks_direct_sky_light(),
+            ),
+            Entry::Unknown(_) => {
+                let s = block::INFO_UPDATE;
+                (
+                    s.light_emission(),
+                    s.light_filter(),
+                    s.blocks_direct_sky_light(),
+                )
+            }
+            Entry::Inert(s, _) => (s.light_emission(), s.light_filter(), s.light_filter() > 0),
         };
         Values {
-            emission: state.light_emission().min(FULL),
-            filter: state.light_filter().saturating_add(1).min(FULL),
-            blocks_sky: state.blocks_direct_sky_light(),
+            emission: emission.min(FULL),
+            filter: filter.saturating_add(1).min(FULL),
+            blocks_sky,
         }
     }
 }

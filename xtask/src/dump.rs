@@ -4,7 +4,8 @@
 //! reads every reference block state with PMMP's deserializer (PLAN.md 7); then it runs PMMP's own
 //! registries through `xtask/php/dump.php` with the PMMP PHP binary into `xtask/data/pmmp/`. It
 //! also copies `CloudburstMC`'s biome definitions (PLAN.md 10.6), entity types and block shapes
-//! (10.7) into `xtask/data/reference/`, where the Go tool also writes its jigsaw structure data and
+//! (10.7) and BDS's per-state block physics (`block_physics.json`, for the block states Anchor
+//! shows but does not implement, PLAN.md 7) into `xtask/data/reference/`, where the Go tool also writes its jigsaw structure data and
 //! entity property definitions as network NBT and this command writes the per-field decode limits
 //! from Mojang's protocol schemas (`limits`, PLAN.md 10.1). The block and item upgrade schemas and
 //! their golden files go to `xtask/data/upgrade/` (see `upgrade`). With `--check` it writes into
@@ -63,6 +64,7 @@ const REFERENCE_FILES: &[&str] = &[
     biomes::FILE,
     ENTITY_IDENTIFIERS,
     VOXEL_SHAPES,
+    BLOCK_PHYSICS,
     limits::FILE,
 ];
 /// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends
@@ -72,6 +74,10 @@ const BIOMES: &str = "stripped_biome_definitions.json";
 /// and the shapes of `VoxelShapes`.
 const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
 const VOXEL_SHAPES: &str = "voxel_shapes.json";
+/// `CloudburstMC`'s per-state block data, which BDS dumps.
+const CLOUDBURST_BLOCKS: &str = "blocks.json";
+/// The block physics this command writes from [`CLOUDBURST_BLOCKS`].
+pub(crate) const BLOCK_PHYSICS: &str = "block_physics.json";
 
 /// Runs `dump`; with `check`, compares instead of writing. Returns the differing files on a
 /// failed check.
@@ -124,6 +130,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         return Err(format!("the PMMP dump failed ({status})"));
     }
     copy_biomes(root, &reference_out)?;
+    copy_block_physics(root, &reference_out)?;
     for file in [ENTITY_IDENTIFIERS, VOXEL_SHAPES] {
         let bytes = read(&root.join(CLOUDBURST.0).join(file))?;
         write(&reference_out.join(file), &bytes)?;
@@ -214,6 +221,61 @@ fn copy_biomes(root: &Path, out: &Path) -> Result<(), String> {
     }
     text.push_str("\n]\n");
     write(&out.join(biomes::FILE), text.as_bytes())
+}
+
+/// One block state of `CloudburstMC`'s per-state data: the fields Anchor reads.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CloudburstBlock {
+    block_state_hash: i64,
+    hardness: f64,
+    light_emission: u8,
+    light_dampening: u8,
+    collision_shape: Vec<[f64; 6]>,
+}
+
+/// Writes the physics of every block state of `CloudburstMC`'s per-state data (BDS's values) to
+/// `out` as [`BLOCK_PHYSICS`]: `shapes`, the distinct collision box lists in order of first use,
+/// and `states`, one `[network ID, hardness, light emission, light dampening, shape]` per line in
+/// network ID order.
+fn copy_block_physics(root: &Path, out: &Path) -> Result<(), String> {
+    let path = root.join(CLOUDBURST.0).join(CLOUDBURST_BLOCKS);
+    let all: Vec<CloudburstBlock> =
+        serde_json::from_slice(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut by_id = BTreeMap::new();
+    for b in &all {
+        let id = u32::try_from(b.block_state_hash & 0xffff_ffff)
+            .map_err(|e| format!("{CLOUDBURST_BLOCKS}: {e}"))?;
+        if by_id.insert(id, b).is_some() {
+            return Err(format!("{CLOUDBURST_BLOCKS}: network ID {id} twice"));
+        }
+    }
+    let mut shapes: Vec<&[[f64; 6]]> = Vec::new();
+    let mut rows = Vec::with_capacity(by_id.len());
+    for (id, b) in by_id {
+        let found = shapes
+            .iter()
+            .position(|s| *s == b.collision_shape.as_slice());
+        let shape = if let Some(i) = found {
+            i
+        } else {
+            shapes.push(&b.collision_shape);
+            shapes.len() - 1
+        };
+        let row = (id, b.hardness, b.light_emission, b.light_dampening, shape);
+        rows.push(serde_json::to_string(&row).map_err(|e| format!("{BLOCK_PHYSICS}: {e}"))?);
+    }
+    let shapes = shapes
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("{BLOCK_PHYSICS}: {e}"))?;
+    let text = format!(
+        "{{\"shapes\": [\n{}\n],\n\"states\": [\n{}\n]}}\n",
+        shapes.join(",\n"),
+        rows.join(",\n")
+    );
+    write(&out.join(BLOCK_PHYSICS), text.as_bytes())
 }
 
 /// Fails unless the git checkout `dir` is at `commit`.

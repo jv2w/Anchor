@@ -227,6 +227,49 @@ fn a_cancelled_break_changes_nothing_and_resyncs_the_block() {
     );
 }
 
+/// A break listener sees an inert block (one only clients know) as `minecraft:info_update` and
+/// can keep it, which the client gets back as itself; without a cancel, the listener's drops
+/// fall.
+#[test]
+fn a_block_break_listener_sees_an_inert_block_as_info_update_and_can_keep_it() {
+    let run = |cancelled: bool| {
+        let listener = listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
+            note(SEEN, e.block());
+            if cancelled {
+                e.cancel();
+            } else {
+                e.set_drops(vec![Stack::new(ItemKind::Apple.default_type(), 1)]);
+            }
+        });
+        let mut h = Harness::with(creative, listener);
+        let inert = h.state.worlds[0]
+            .put_unknown(TARGET, super::stored("minecraft:moss_block"))
+            .unwrap();
+        h.act(vec![action(
+            PlayerAction::PredictDestroyBlock,
+            TARGET,
+            Face::West,
+        )]);
+        assert_eq!(notes(SEEN), [dbg(block::INFO_UPDATE)]);
+        (
+            h.state.worlds[0].entry(TARGET),
+            inert,
+            h.packets(),
+            ground(&mut h, ItemKind::Apple.default_type()),
+        )
+    };
+    let (now, inert, sent, (apples, _)) = run(true);
+    assert_eq!(now, Some(inert));
+    assert!(
+        super::sets(&sent, TARGET, super::MOSS_BLOCK),
+        "resent as itself"
+    );
+    assert_eq!(apples, 0);
+    let (now, _, _, (apples, _)) = run(false);
+    assert_eq!(now, Some(Entry::AIR));
+    assert_eq!(apples, 1);
+}
+
 // pmmp: BlockBreakEvent
 #[test]
 fn a_listener_that_changes_the_block_or_takes_the_tool_cancels_the_break() {

@@ -69,6 +69,8 @@ pub struct Report {
     other_keys: u64,
     unknown_blocks: BTreeMap<String, u64>,
     unlisted_unknown_blocks: u64,
+    inert_blocks: u64,
+    placeholder_blocks: u64,
     spawn: BlockPos,
 }
 
@@ -144,6 +146,19 @@ impl Report {
         self.unlisted_unknown_blocks
     }
 
+    /// Of the blocks Anchor does not know, those clients know (states of the protocol's block
+    /// list, PLAN.md 7): clients see them as themselves; the server gives them no behaviour beyond
+    /// their collision, light and breaking (no drops).
+    pub fn inert_blocks(&self) -> u64 {
+        self.inert_blocks
+    }
+
+    /// Of the blocks Anchor does not know, those clients do not know either: clients see
+    /// `minecraft:info_update` ("update!") in their place.
+    pub fn placeholder_blocks(&self) -> u64 {
+        self.placeholder_blocks
+    }
+
     /// The vanilla world's spawn, from `level.dat`; a spawn without a height stands on the
     /// highest block of its column (the generator's height if the column is empty). Anchor does
     /// not take it, nor any other setting of `level.dat` (seed, game mode, difficulty, game
@@ -162,6 +177,8 @@ struct Converted {
     upgraded_nbt: u64,
     ignored: Vec<u8>,
     unknown: BTreeMap<String, u64>,
+    /// Of the unknown blocks, those clients know.
+    inert: u64,
     /// The highest block at the spawn column, if this is the spawn's chunk.
     spawn_height: Option<i32>,
 }
@@ -236,9 +253,11 @@ pub(crate) fn run(
         warn!(
             world = name,
             kinds = report.unknown_blocks.len(),
-            blocks = report.unknown_blocks.values().sum::<u64>(),
+            shown_as_themselves = report.inert_blocks,
+            shown_as_update_blocks = report.placeholder_blocks,
             unlisted_blocks = report.unlisted_unknown_blocks,
-            "imported blocks Anchor does not know are kept as unknown blocks"
+            "imported blocks Anchor does not implement are kept: clients see the ones they know \
+             as themselves, with no server behaviour, and the rest as update! blocks"
         );
     }
     Ok(report)
@@ -372,6 +391,9 @@ fn write_chunks<E: Sync>(
             for tag in c.ignored {
                 *report.ignored_tags.entry(tag).or_default() += 1;
             }
+            let unknown: u64 = c.unknown.values().sum();
+            report.inert_blocks += c.inert;
+            report.placeholder_blocks += unknown - c.inert;
             for (name, count) in c.unknown {
                 if let Some(listed) = report.unknown_blocks.get_mut(&name) {
                     *listed += count;
@@ -422,9 +444,11 @@ fn convert(pos: ChunkPos, raw: &Raw, target: &Target<'_>) -> super::Result<Conve
         .map_err(|_| Error::Malformed("a chunk has not one biome cube per sub-chunk"))?;
     let chunk = save::to_chunk(ChunkRecord { sub_chunks }, target.custom)
         .ok_or(Error::Malformed("the terrain does not make a valid chunk"))?;
+    let (unknown, inert) = unknown_blocks(&chunk);
     let mut converted = Converted {
         ignored: raw.ignored.clone(),
-        unknown: unknown_blocks(&chunk),
+        unknown,
+        inert,
         ..Converted::default()
     };
     if let Some((spawn, x, z)) = target.spawn
@@ -529,28 +553,27 @@ fn paletted_layer(cube: &Paletted<u16>) -> BlockLayer {
     }
 }
 
-/// The chunk's unknown blocks by name, with how many there are.
-fn unknown_blocks(chunk: &Chunk) -> BTreeMap<String, u64> {
+/// The chunk's unknown blocks by name, with how many there are, and how many of them are inert.
+fn unknown_blocks(chunk: &Chunk) -> (BTreeMap<String, u64>, u64) {
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    let mut inert = 0u64;
     let unknown = chunk.unknown();
     if unknown.is_empty() {
-        return counts;
+        return (counts, inert);
     }
     let mut per_entry = vec![0u64; unknown.len()];
     for sub in (0..SUB_CHUNKS).filter_map(|i| chunk.sub_chunk(i)) {
         for layer in sub.layers() {
-            if !layer
-                .palette()
-                .iter()
-                .any(|e| matches!(e, Entry::Unknown(_)))
-            {
+            if layer.palette().iter().all(|e| e.unknown_index().is_none()) {
                 continue;
             }
             for offset in 0..SLOTS {
-                if let Entry::Unknown(i) = layer.get(offset)
+                let entry = layer.get(offset);
+                if let Some(i) = entry.unknown_index()
                     && let Some(n) = usize::try_from(i).ok().and_then(|i| per_entry.get_mut(i))
                 {
                     *n += 1;
+                    inert += u64::from(matches!(entry, Entry::Inert(..)));
                 }
             }
         }
@@ -565,7 +588,7 @@ fn unknown_blocks(chunk: &Chunk) -> BTreeMap<String, u64> {
         };
         *counts.entry(name).or_default() += count;
     }
-    counts
+    (counts, inert)
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 //! `BlockBreakInfo::getBreakTime`, `Tool::getMiningEfficiency`, `Sword::getMiningEfficiency`,
 //! `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`, `Durable::applyDamage`).
 
-use crate::block::State;
+use crate::block::{Inert, State};
 use crate::item::{self, Enchantment, Stack};
 use crate::random::Random;
 use crate::tick::Settings;
@@ -58,7 +58,23 @@ fn power(base: f64, n: u8) -> f64 {
 /// PMMP `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`: the share of the block one
 /// tick breaks (1 or more breaks it at once; 0 for a block that cannot be broken).
 pub(super) fn progress_per_tick(state: State, tool: &Stack, conditions: Conditions) -> f64 {
-    let Some(seconds) = break_time(state, tool) else {
+    progress(break_time(state, tool), conditions)
+}
+
+/// [`progress_per_tick`] for an inert block, which breaks as its [`Inert::break_info`] says.
+pub(super) fn inert_progress_per_tick(state: Inert, tool: &Stack, conditions: Conditions) -> f64 {
+    let info = state.break_info();
+    let seconds = info
+        .is_breakable()
+        .then(|| info.break_time_secs(tool))
+        .flatten();
+    progress(seconds, conditions)
+}
+
+/// The share of a block one tick breaks when it takes `seconds` with the held tool (`None`: it
+/// cannot be broken).
+fn progress(seconds: Option<f64>, conditions: Conditions) -> f64 {
+    let Some(seconds) = seconds else {
         return 0.0;
     };
     let mut ticks = seconds * 20.0;

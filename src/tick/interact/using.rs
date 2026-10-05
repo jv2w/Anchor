@@ -21,7 +21,7 @@ use crate::player;
 use crate::protocol::consts::{LevelEvent as Event, UseItemOnEntityAction};
 use crate::random::Random;
 use crate::save::WorldIndex;
-use crate::world::{BlockPos, MAX_Y, MIN_Y, Particle, Sound};
+use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, Particle, Sound};
 
 use super::super::{SessionId, State, block_entity, dispatch, entity, inventory, survival, update};
 use super::{
@@ -183,8 +183,14 @@ pub(super) fn use_item_on(
     let Some((clicked, held)) = right_click(state, actor, pos, face) else {
         return false;
     };
+    // An inert block has no use of its own; events name it as `minecraft:info_update`.
+    let inert = state
+        .worlds
+        .get(actor.world)
+        .and_then(|w| w.entry(pos))
+        .is_some_and(|e| matches!(e, Entry::Inert(..)));
     // PMMP: sneaking uses neither the block (unless the hand is empty) nor the item.
-    let mut use_block = !actor.sneak_pressed || held.is_empty();
+    let mut use_block = (!actor.sneak_pressed || held.is_empty()) && !inert;
     let mut use_item = !actor.sneak_pressed;
     let mut actor = *actor;
     let mut event = None;
@@ -196,7 +202,7 @@ pub(super) fn use_item_on(
             player: player::Id::new(actor.session),
             world,
             pos,
-            block: clicked,
+            block: if inert { block::INFO_UPDATE } else { clicked },
             face,
             item: held.clone(),
             touch_vector: click,
@@ -257,8 +263,8 @@ pub(super) fn use_item_on(
 }
 
 /// PMMP `World::useItemOn`'s checks: the clicked block (not air) and the one next to its face are
-/// loaded and in the world, and the player is not a spectator. The clicked block and the held
-/// item if so.
+/// loaded and in the world, and the player is not a spectator. The clicked block (an inert one as
+/// its stand-in, [`place::placed_on`]) and the held item if so.
 fn right_click(
     state: &State,
     actor: &Actor,
@@ -266,9 +272,12 @@ fn right_click(
     face: Face,
 ) -> Option<(BlockState, Stack)> {
     let w = state.worlds.get(actor.world)?;
-    let clicked = w.block(pos)?;
+    let clicked = place::placed_on(w, pos)?;
     let replace = pos.step(face).filter(|p| (MIN_Y..=MAX_Y).contains(&p.y))?;
-    if w.block(replace).is_none() || clicked == block::AIR || actor.mode == GameMode::Spectator {
+    if place::placed_on(w, replace).is_none()
+        || clicked == block::AIR
+        || actor.mode == GameMode::Spectator
+    {
         return None;
     }
     let held = state.players.get(&actor.session)?.inventory.held().clone();
@@ -384,7 +393,12 @@ fn placement(
     let world = actor.world;
     let item = held.item()?;
     let w = state.worlds.get(world)?;
-    let clicked = w.block(pos)?;
+    // `CanPlaceOn` names the clicked block, an inert one by its own name.
+    let clicked = match w.entry(pos)? {
+        Entry::Known(s) => s.name(),
+        Entry::Inert(s, _) => s.name(),
+        Entry::Unknown(_) => return None,
+    };
     let mut rng = stream(state, world, USE, pos);
     let blocks = place::placement(w, item, pos, face, click, Some(&actor.placer()), &mut rng)?;
     if blocks.iter().any(|(p, s)| obstructed(state, world, *p, *s)) {

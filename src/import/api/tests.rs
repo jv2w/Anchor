@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use super::*;
+use crate::block::Inert;
 use crate::import::chunk::Section;
 use crate::import::level_dat::WorldData;
 use crate::nbt::List;
@@ -258,6 +259,80 @@ fn known(nbt: &Compound) -> crate::block::State {
     save::find_state(nbt).unwrap()
 }
 
+/// Kelp and seagrass in water (layer 1) and a block no client knows: the import keeps both
+/// layers and their NBT; read back from the server file, kelp and seagrass are inert (sent as
+/// the reference list's IDs, which BDS sends) over their water, and the report counts them apart
+/// from the update! block.
+#[test]
+fn blocks_only_clients_know_import_inert_over_their_water_and_are_counted_apart() {
+    let mut storage = memory(&Disk::default());
+    let kelp = state("minecraft:kelp", &[("kelp_age", Value::Int(3))]);
+    let seagrass = state("minecraft:seagrass", &[("sea_grass_type", s("default"))]);
+    let water = state("minecraft:water", &[("liquid_depth", Value::Int(0))]);
+    let air = state("minecraft:air", &[]);
+    let mut raw = empty_raw();
+    raw.sections.push(Section {
+        y: -4,
+        version: 9,
+        layers: vec![
+            paletted(
+                vec![
+                    air.clone(),
+                    kelp.clone(),
+                    seagrass.clone(),
+                    state("anchor:nope", &[]),
+                ],
+                &[
+                    (offset(0, 0, 0), 1),
+                    (offset(0, 1, 0), 1),
+                    (offset(1, 0, 0), 2),
+                    (offset(2, 0, 0), 3),
+                ],
+            ),
+            paletted(
+                vec![air, water.clone()],
+                &[
+                    (offset(0, 0, 0), 1),
+                    (offset(0, 1, 0), 1),
+                    (offset(1, 0, 0), 1),
+                ],
+            ),
+        ],
+    });
+    let report = imported(
+        &mut storage,
+        1,
+        &BTreeMap::from([((0, 0), raw)]),
+        [0, 70, 0],
+    );
+    assert_eq!((report.inert_blocks(), report.placeholder_blocks()), (3, 1));
+    let (chunk, _) = read_chunk(&mut storage, 0, 0, 0);
+    let layers = chunk.sub_chunk(0).unwrap().layers();
+    let at = |layer: usize, x, y, z| layers[layer].get(offset(x, y, z));
+    // The reference list's (and BDS's) IDs of `kelp_age` 3 and default seagrass.
+    assert_eq!(at(0, 0, 0, 0).network_id(), 3_718_566_417);
+    assert_eq!(at(0, 0, 1, 0).network_id(), 3_718_566_417);
+    assert!(matches!(at(0, 1, 0, 0), Entry::Inert(..)));
+    assert_eq!(
+        at(0, 1, 0, 0).network_id(),
+        Inert::from_nbt(&seagrass).unwrap().network_id()
+    );
+    assert_eq!(
+        at(0, 2, 0, 0).network_id(),
+        crate::block::INFO_UPDATE.network_id()
+    );
+    let water = Entry::Known(known(&water));
+    assert_eq!([at(1, 0, 0, 0), at(1, 0, 1, 0), at(1, 1, 0, 0)], [water; 3]);
+    // The NBT is kept (upgraded), so a save writes it back.
+    let kept = |c: &Compound| {
+        chunk
+            .unknown()
+            .iter()
+            .any(|k| k.get("name") == c.get("name") && k.get("states") == c.get("states"))
+    };
+    assert!(kept(&kelp) && kept(&seagrass));
+}
+
 #[test]
 fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_entities() {
     let disk = Disk::default();
@@ -341,6 +416,8 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_en
             ("legacy:1:15".to_owned(), 1),
         ]),
         unlisted_unknown_blocks: 0,
+        inert_blocks: 0,
+        placeholder_blocks: 2,
         spawn: BlockPos::new(10, 70, -20),
     };
     assert_eq!(report, expected);
@@ -1024,7 +1101,14 @@ fn chunks_a_game_saved_import_with_every_block_entity_whole() {
                 let stored = sub.layers()[0].get(offset);
                 match save::find_state(&state) {
                     Some(known) => assert_eq!(stored, Entry::Known(known), "({x}, {z}) {offset}"),
-                    None => assert!(matches!(stored, Entry::Unknown(_)), "({x}, {z}) {offset}"),
+                    None => assert_eq!(
+                        stored.unknown_index().map(|_| stored.network_id()),
+                        Some(match Inert::from_nbt(&state) {
+                            Some(inert) => inert.network_id(),
+                            None => crate::block::INFO_UPDATE.network_id(),
+                        }),
+                        "({x}, {z}) {offset}"
+                    ),
                 }
             }
         }

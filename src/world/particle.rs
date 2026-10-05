@@ -188,6 +188,12 @@ fn block_id(b: block::State) -> i32 {
     b.network_id().cast_signed()
 }
 
+/// The data of a block punch level event (`ParticlesCrackBlock`): the block's network ID with
+/// the face hit in the top byte.
+pub(crate) fn punch_data(network_id: u32, face: Face) -> i32 {
+    network_id.cast_signed() | (i32::from(face.index()) << 24)
+}
+
 /// The dragon egg trail data of one axis (PMMP `DragonEggTeleportParticle::encode`): the size in
 /// a byte at `shift` and the sign in bit `sign`.
 fn axis(v: i16, shift: u32, sign: u32) -> i32 {
@@ -217,7 +223,7 @@ impl Particle {
             Self::BlockForceField(data) => standard(id::BLOCK_FORCE_FIELD, data),
             Self::BlockPunch(b, face) => level(
                 LevelEvent::ParticlesCrackBlock,
-                block_id(b) | (i32::from(face.index()) << 24),
+                punch_data(b.network_id(), face),
             ),
             Self::Bubble => standard(id::BUBBLE, 0),
             Self::Critical(scale) => standard(id::CRITICAL, scale),

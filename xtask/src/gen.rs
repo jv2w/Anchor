@@ -1,7 +1,8 @@
 //! `cargo xtask gen`: runs the Go extractor (`xtask/go/extract`) into the protocol IR
 //! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs` and
 //! `src/protocol/packet.rs` from it, and the block, item and recipe tables (PLAN.md 10.4, see
-//! `data`), the biome table (PLAN.md 10.6) and the import's upgrade tables (PLAN.md 10.9, see
+//! `data`; with the reference states Anchor shows but does not implement, see `inert`), the biome
+//! table (PLAN.md 10.6) and the import's upgrade tables (PLAN.md 10.9, see
 //! `upgrade`) from the committed data in `xtask/data/`. With
 //! `--check` it does the same in `target/` and fails if the committed IR or a generated file
 //! differs. The protocol decoders also apply the per-field limits in
@@ -23,6 +24,7 @@ pub(crate) mod data;
 mod drops;
 mod effects;
 mod emit;
+mod inert;
 mod info;
 mod ir;
 mod items;
@@ -85,6 +87,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         (effects::PATH, finish(root, &effects::generate(&data)?)?),
         (drops::PATH, finish(root, &drops::generate(&data)?)?),
         (upgrade::PATH, finish(root, &upgrade::generate(root)?)?),
+        (inert::PATH, finish(root, &inert::generate(root, &data)?)?),
     ];
     let mut differ = Vec::new();
     if check {

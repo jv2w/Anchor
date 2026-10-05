@@ -57,7 +57,7 @@ pub struct Chunk {
     biomes: [Arc<Paletted<u32>>; SUB_CHUNKS],
     /// The highest non-air layer 0 block of each column ([`column()`]), or [`NO_HEIGHT`].
     heights: Box<[i16; COLUMNS]>,
-    /// The original NBT of each unknown state, by [`Entry::Unknown`] index.
+    /// The original NBT of each unknown state, by [`Entry::unknown_index`].
     unknown: Arc<[nbt::Compound]>,
     /// The sub-chunks changed since the world's last save snapshot, one bit per index.
     dirty: u32,
@@ -103,7 +103,7 @@ impl Chunk {
     }
 
     /// A chunk from stored parts (external input, PLAN.md 6): the sub-chunks from the bottom,
-    /// the biomes of each, and the unknown states the layers' [`Entry::Unknown`] entries index.
+    /// the biomes of each, and the unknown states the layers' unknown and inert entries index.
     /// Fails if an entry indexes past the unknown list or the list is longer than one per slot.
     /// Sub-chunks of air are dropped.
     pub(crate) fn from_parts(
@@ -114,9 +114,9 @@ impl Chunk {
         if unknown.len() > MAX_UNKNOWN {
             return Err(Error::Malformed("more unknown block states than slots"));
         }
-        let known = |e: &Entry| match e {
-            Entry::Known(_) => true,
-            Entry::Unknown(i) => usize::try_from(*i).is_ok_and(|i| i < unknown.len()),
+        let known = |e: &Entry| {
+            e.unknown_index()
+                .is_none_or(|i| usize::try_from(i).is_ok_and(|i| i < unknown.len()))
         };
         for sub in sub_chunks.iter().flatten() {
             if !sub.layers().iter().all(|l| l.palette().iter().all(known)) {
@@ -151,7 +151,7 @@ impl Chunk {
     pub fn block(&self, x: u8, y: i32, z: u8) -> Option<State> {
         match self.entry(x, y, z)? {
             Entry::Known(state) => Some(state),
-            Entry::Unknown(_) => None,
+            Entry::Unknown(_) | Entry::Inert(..) => None,
         }
     }
 
@@ -237,6 +237,24 @@ impl Chunk {
         Some(old)
     }
 
+    /// Puts the stored state `nbt`, which Anchor does not know, at local (x, y, z) as a chunk read
+    /// from the server file holds it; the entry, or `None` outside the chunk.
+    #[cfg(test)]
+    pub(crate) fn put_unknown(
+        &mut self,
+        x: u8,
+        y: i32,
+        z: u8,
+        nbt: nbt::Compound,
+    ) -> Option<Entry> {
+        let mut list = self.unknown.to_vec();
+        let entry = Entry::unknown(u32::try_from(list.len()).ok()?, &nbt);
+        list.push(nbt);
+        self.unknown = Arc::from(list);
+        self.put(x, y, z, entry)?;
+        Some(entry)
+    }
+
     /// The highest non-air layer 0 block of the column at or below `top`, or [`NO_HEIGHT`].
     fn scan_down(&self, x: u8, z: u8, top: i32) -> i16 {
         let Some((first, mut ly)) = split_y(top.min(MAX_Y)) else {
@@ -272,7 +290,7 @@ impl Chunk {
         self.biomes.get(index).map(AsRef::as_ref)
     }
 
-    /// The original NBT of the unknown states, by [`Entry::Unknown`] index.
+    /// The original NBT of the unknown states, by [`Entry::unknown_index`].
     pub(crate) fn unknown(&self) -> &[nbt::Compound] {
         &self.unknown
     }
@@ -449,9 +467,9 @@ impl crate::tick::checkpoint::Codec for Chunk {
         let sub_chunks: [Option<Arc<SubChunk>>; SUB_CHUNKS] = Codec::decode(r)?;
         let biomes = Codec::decode(r)?;
         let unknown: Vec<nbt::Compound> = Codec::decode(r)?;
-        let known = |e: &Entry| match e {
-            Entry::Known(_) => true,
-            Entry::Unknown(i) => usize::try_from(*i).is_ok_and(|i| i < unknown.len()),
+        let known = |e: &Entry| {
+            e.unknown_index()
+                .is_none_or(|i| usize::try_from(i).is_ok_and(|i| i < unknown.len()))
         };
         if unknown.len() > MAX_UNKNOWN
             || !sub_chunks
@@ -501,6 +519,10 @@ pub(crate) mod tests {
     use crate::protocol::{self, Codec, Reader, Rng};
     use crate::world::paletted::tests::check;
     use crate::world::{Flat, Void};
+
+    /// The network ID of `minecraft:kelp` with `kelp_age` 3 in the 1.26.50 reference list (the
+    /// value BDS sends, PLAN.md 7).
+    const KELP_AGE_3: u32 = 3_718_566_417;
 
     /// States without neighbour rules, so setting one changes nothing else.
     pub(crate) fn plain_states() -> Vec<State> {
@@ -692,9 +714,25 @@ pub(crate) mod tests {
         layers[0].set(offset(1, 1, 1), Entry::Unknown(0));
         layers[0].set(offset(2, 1, 1), Entry::Unknown(1));
         layers[1].set(offset(1, 2, 1), Entry::Known(water));
+        // Kelp in water: a state only clients know, with its water in layer 1.
+        let kelp = nbt::Compound::from([
+            (
+                "name".to_owned(),
+                nbt::Value::String("minecraft:kelp".to_owned()),
+            ),
+            (
+                "states".to_owned(),
+                nbt::Value::Compound(nbt::Compound::from([(
+                    "kelp_age".to_owned(),
+                    nbt::Value::Int(3),
+                )])),
+            ),
+        ]);
+        layers[0].set(offset(3, 1, 1), Entry::unknown(2, &kelp));
+        layers[1].set(offset(3, 1, 1), Entry::Known(water));
         sub = SubChunk::from_layers(layers);
         subs[1] = Some(sub);
-        let unknown = vec![nbt::Compound::new(), nbt::Compound::new()];
+        let unknown = vec![nbt::Compound::new(), nbt::Compound::new(), kelp];
         Chunk::from_parts(subs, biomes, unknown).unwrap()
     }
 
@@ -727,6 +765,11 @@ pub(crate) mod tests {
         let chunk = varied(160);
         assert_eq!(chunk.block(1, -47, 1), None, "unknown state");
         assert_eq!(chunk.entry(1, -47, 1), Some(Entry::Unknown(0)));
+        // Kelp is sent as the ID of the reference list (and BDS) for `kelp_age` 3, over water.
+        let kelp = chunk.entry(3, -47, 1).unwrap();
+        assert!(matches!(kelp, Entry::Inert(_, 2)), "{kelp:?}");
+        assert_eq!(kelp.network_id(), KELP_AGE_3);
+        assert_eq!(chunk.block(3, -47, 1), None, "inert state");
         let mut seen = 0;
         for i in 0..SUB_CHUNKS {
             let Some(payload) = chunk.sub_chunk_payload(i) else {
@@ -749,6 +792,7 @@ pub(crate) mod tests {
                             let want = match layer.get(offset(x, y, z)) {
                                 Entry::Known(s) => s.network_id(),
                                 Entry::Unknown(_) => block::INFO_UPDATE.network_id(),
+                                Entry::Inert(s, _) => s.network_id(),
                             };
                             assert_eq!(id, want);
                         }
@@ -803,7 +847,7 @@ pub(crate) mod tests {
         }
         assert_eq!(back.level_chunk_payload(), chunk.level_chunk_payload());
         assert_eq!(back.heights, chunk.heights);
-        assert_eq!(back.unknown().len(), 2);
+        assert_eq!(back.unknown().len(), 3);
         assert!(!back.is_dirty());
     }
 

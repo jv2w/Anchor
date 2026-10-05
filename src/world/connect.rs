@@ -89,7 +89,7 @@ impl World {
         };
         let old = match old {
             Entry::Known(s) => Some(s),
-            Entry::Unknown(_) => None,
+            Entry::Unknown(_) | Entry::Inert(..) => None,
         };
         if !involved(self.known(Some(pos))) && !involved(old) {
             return;
@@ -202,7 +202,7 @@ impl World {
     fn known(&self, pos: Option<BlockPos>) -> Option<State> {
         match self.entry(pos?)? {
             Entry::Known(state) => Some(state),
-            Entry::Unknown(_) => None,
+            Entry::Unknown(_) | Entry::Inert(..) => None,
         }
     }
 

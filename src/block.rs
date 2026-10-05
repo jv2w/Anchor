@@ -18,6 +18,7 @@
 #[cfg(test)]
 mod drops;
 mod hash;
+mod inert;
 mod table;
 
 use std::cmp::Ordering;
@@ -30,6 +31,7 @@ use crate::item;
 use crate::math::Aabb;
 
 pub(crate) use hash::network_hash;
+pub(crate) use inert::Inert;
 pub(crate) use table::{AIR, BEDROCK, DIRT, GRASS_BLOCK, INFO_UPDATE, MAX_PROPERTIES};
 pub use table::{BannerPattern, Class, Kind, Trait, TypeTag};
 

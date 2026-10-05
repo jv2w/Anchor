@@ -778,7 +778,7 @@ impl<'a> Cx<'a> {
     pub(super) fn get(&self, pos: BlockPos) -> Option<block::State> {
         match self.w()?.entry(pos)? {
             Entry::Known(s) => Some(s),
-            Entry::Unknown(_) => Some(block::BEDROCK),
+            Entry::Unknown(_) | Entry::Inert(..) => Some(block::BEDROCK),
         }
     }
 

@@ -17,7 +17,7 @@ use super::kind::Physics;
 use crate::block::{self, Class, Face};
 use crate::math::{self, Aabb, Vec3, max};
 use crate::random::Random;
-use crate::world::{BlockPos, MAX_Y, MIN_Y, World};
+use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
 /// A motion component at or below this counts as zero (PMMP `Entity::MOTION_THRESHOLD`).
 pub(in crate::tick) const MOTION_THRESHOLD: f64 = 0.000_01;
@@ -205,8 +205,21 @@ enum Cell {
     Outside,
     /// A known block.
     Block(block::State),
-    /// A chunk that is not loaded or a state Anchor does not know: a full cube.
+    /// A block only clients know: its collision boxes, nothing else (no liquid flows into it).
+    Inert(block::Inert),
+    /// A chunk that is not loaded or a state neither Anchor nor clients know: a full cube.
     Wall,
+}
+
+impl Cell {
+    /// The block-local collision boxes, if the cell is a block.
+    fn boxes(self) -> Option<&'static [Aabb]> {
+        match self {
+            Self::Block(state) => Some(state.collision_boxes()),
+            Self::Inert(state) => Some(state.collision_boxes()),
+            Self::Outside | Self::Wall => None,
+        }
+    }
 }
 
 /// What occupies the cell (x, y, z).
@@ -214,9 +227,11 @@ fn cell(world: &World, x: i32, y: i32, z: i32) -> Cell {
     if !(MIN_Y..=MAX_Y).contains(&y) {
         return Cell::Outside;
     }
-    world
-        .block(BlockPos::new(x, y, z))
-        .map_or(Cell::Wall, Cell::Block)
+    match world.entry(BlockPos::new(x, y, z)) {
+        Some(Entry::Known(state)) => Cell::Block(state),
+        Some(Entry::Inert(state, _)) => Cell::Inert(state),
+        Some(Entry::Unknown(_)) | None => Cell::Wall,
+    }
 }
 
 /// Whether an entity cannot stand in the cell (PMMP `isSolid`).
@@ -224,6 +239,7 @@ fn is_solid(world: &World, x: i32, y: i32, z: i32) -> bool {
     match cell(world, x, y, z) {
         Cell::Outside => false,
         Cell::Block(state) => state.is_solid(),
+        Cell::Inert(state) => state.is_solid(),
         Cell::Wall => true,
     }
 }
@@ -248,7 +264,7 @@ fn change_movement(world: &World, physics: &Physics, body: &mut Body, random: &m
         let below = BlockPos::containing(Vec3::new(p.x, p.y - 1.0, p.z));
         let below = match cell(world, below.x, below.y, below.z) {
             Cell::Block(state) => state.friction_factor(),
-            Cell::Outside | Cell::Wall => block::AIR.friction_factor(),
+            Cell::Outside | Cell::Inert(_) | Cell::Wall => block::AIR.friction_factor(),
         };
         friction *= below;
     }
@@ -324,21 +340,18 @@ pub(in crate::tick) fn collisions(world: &World, area: Aabb, out: &mut Vec<Aabb>
         for x in x0..=x1 {
             for y in y0.saturating_sub(1)..=y1.saturating_add(1) {
                 let at = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
-                match cell(world, x, y, z) {
-                    Cell::Outside => {}
-                    Cell::Wall => {
-                        let cube = Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0));
-                        if cube.overlaps(area, EPSILON) {
-                            out.push(cube);
+                let cell = cell(world, x, y, z);
+                if let Some(boxes) = cell.boxes() {
+                    for b in boxes {
+                        let b = b.offset(at);
+                        if b.overlaps(area, EPSILON) {
+                            out.push(b);
                         }
                     }
-                    Cell::Block(state) => {
-                        for b in state.collision_boxes() {
-                            let b = b.offset(at);
-                            if b.overlaps(area, EPSILON) {
-                                out.push(b);
-                            }
-                        }
+                } else if matches!(cell, Cell::Wall) {
+                    let cube = Aabb::new(at, at + Vec3::new(1.0, 1.0, 1.0));
+                    if cube.overlaps(area, EPSILON) {
+                        out.push(cube);
                     }
                 }
             }
@@ -474,13 +487,10 @@ pub(super) fn heading(motion: Vec3) -> (f64, f64) {
 fn holds(world: &World, pos: BlockPos, bounds: Aabb) -> bool {
     let area = bounds.grow(Vec3::new(STUCK_REACH, STUCK_REACH, STUCK_REACH));
     let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
-    match cell(world, pos.x, pos.y, pos.z) {
-        Cell::Outside => false,
-        Cell::Wall => true,
-        Cell::Block(state) => state
-            .collision_boxes()
-            .iter()
-            .any(|b| b.offset(at).intersects(area)),
+    let cell = cell(world, pos.x, pos.y, pos.z);
+    match cell.boxes() {
+        Some(boxes) => boxes.iter().any(|b| b.offset(at).intersects(area)),
+        None => matches!(cell, Cell::Wall),
     }
 }
 
@@ -494,10 +504,11 @@ pub(super) fn block_intercept(
 ) -> Option<(Vec3, Face)> {
     let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
     let cube = [Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0))];
-    let boxes: &[Aabb] = match cell(world, pos.x, pos.y, pos.z) {
-        Cell::Outside => return None,
-        Cell::Wall => &cube,
-        Cell::Block(state) => state.collision_boxes(),
+    let cell = cell(world, pos.x, pos.y, pos.z);
+    let boxes: &[Aabb] = match cell.boxes() {
+        Some(boxes) => boxes,
+        None if matches!(cell, Cell::Wall) => &cube,
+        None => return None,
     };
     let mut best: Option<(Vec3, Face, f64)> = None;
     for b in boxes {
@@ -742,7 +753,7 @@ fn can_flow_into(cell: Cell) -> bool {
                     !falling && decay == 0
                 })
         }
-        Cell::Outside | Cell::Wall => false,
+        Cell::Outside | Cell::Inert(_) | Cell::Wall => false,
     }
 }
 
@@ -759,7 +770,7 @@ fn flow(world: &World, x: i32, y: i32, z: i32, liquid: block::State) -> Vec3 {
             let flowable = match side {
                 Cell::Block(state) => state.can_be_flowed_into(),
                 Cell::Outside => true,
-                Cell::Wall => false,
+                Cell::Inert(_) | Cell::Wall => false,
             };
             if !flowable {
                 continue;
@@ -914,6 +925,26 @@ pub(super) mod tests {
         };
         let body = step(&w, &input(edge, item_physics())).body;
         assert_eq!(body.position.x, 48.0 - 0.125);
+    }
+
+    /// A block only clients know (inert) has BDS's collision boxes: an item comes to rest on
+    /// moss carpet (1/16 high), not on a full cube.
+    #[test]
+    fn an_item_rests_on_the_collision_box_of_an_inert_block() {
+        let mut w = flat();
+        let carpet = crate::nbt::Compound::from([(
+            "name".to_owned(),
+            crate::nbt::Value::String("minecraft:moss_carpet".to_owned()),
+        )]);
+        let entry = w.put_unknown(BlockPos::new(0, -60, 0), carpet).unwrap();
+        assert!(matches!(entry, Entry::Inert(..)));
+        let start = Body {
+            position: Vec3::new(0.5, -58.0, 0.5),
+            ..Body::default()
+        };
+        let body = run(&w, item_physics(), start, 100);
+        assert!(body.on_ground);
+        assert_eq!(body.position.y, -60.0 + 0.0625);
     }
 
     #[test]

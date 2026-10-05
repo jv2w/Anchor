@@ -27,7 +27,7 @@ use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput}
 use crate::protocol::{FlagSet, TeleportData};
 use crate::tick::entity::MOTION_THRESHOLD;
 use crate::tick::{MAX_COORDINATE, Phase, Player, SessionId, State, dispatch, entity, update};
-use crate::world::{BlockPos, World};
+use crate::world::{BlockPos, Entry, World};
 
 /// Moves the reserve gains each tick (PMMP `Player::MOVES_PER_TICK`).
 const MOVES_PER_TICK: i32 = 2;
@@ -682,7 +682,8 @@ fn stretch(bb: Aabb, d: Vec3) -> Aabb {
     out
 }
 
-/// Whether any loaded block's collision box overlaps `bb` (PMMP `World::getCollisionBlocks`).
+/// Whether any loaded block's collision box overlaps `bb` (PMMP `World::getCollisionBlocks`);
+/// inert blocks have theirs.
 pub(super) fn collides(world: &World, bb: Aabb) -> bool {
     let lo = BlockPos::containing(bb.min - Vec3::new(1.0, 1.0, 1.0));
     let hi = BlockPos::containing(bb.max + Vec3::new(1.0, 1.0, 1.0));
@@ -690,7 +691,8 @@ pub(super) fn collides(world: &World, bb: Aabb) -> bool {
         for z in lo.z..=hi.z {
             for y in lo.y..=hi.y {
                 let pos = BlockPos::new(x, y, z);
-                if world.block(pos).is_some_and(|b| block_collides(b, pos, bb)) {
+                let boxes = world.entry(pos).and_then(Entry::collision_boxes);
+                if boxes.is_some_and(|b| boxes_collide(b, pos, bb)) {
                     return true;
                 }
             }
@@ -701,11 +703,13 @@ pub(super) fn collides(world: &World, bb: Aabb) -> bool {
 
 /// Whether a block's collision boxes overlap `bb` (PMMP `Block::collidesWithBB`).
 fn block_collides(block: block::State, pos: BlockPos, bb: Aabb) -> bool {
+    boxes_collide(block.collision_boxes(), pos, bb)
+}
+
+/// Whether block-local collision boxes at `pos` overlap `bb`.
+fn boxes_collide(boxes: &[Aabb], pos: BlockPos, bb: Aabb) -> bool {
     let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
-    block
-        .collision_boxes()
-        .iter()
-        .any(|b| b.offset(at).intersects(bb))
+    boxes.iter().any(|b| b.offset(at).intersects(bb))
 }
 
 /// The fall distance after a vertical move (PMMP `Entity::updateFallState`); landing hurts

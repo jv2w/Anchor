@@ -32,6 +32,7 @@ pub(crate) use generator::Generators;
 pub(crate) use light::Mode as LightMode;
 pub(crate) use paletted::{Paletted, SLOTS};
 pub(crate) use particle::id as particle_id;
+pub(crate) use particle::punch_data;
 pub(crate) use sub_chunk::{Entry, SubChunk};
 
 /// The lowest block y of the world.
@@ -694,7 +695,7 @@ impl World {
     pub fn block(&self, pos: BlockPos) -> Option<State> {
         match self.entry(pos)? {
             Entry::Known(state) => Some(state),
-            Entry::Unknown(_) => None,
+            Entry::Unknown(_) | Entry::Inert(..) => None,
         }
     }
 
@@ -737,6 +738,21 @@ impl World {
         let pos = self.feed.pop_front()?;
         self.fed.remove(&pos);
         Some(pos)
+    }
+
+    /// Puts the stored state `nbt`, which Anchor does not know, at `pos` as a chunk read from the
+    /// server file holds it (inert if clients know it); the entry, or `None` if the chunk is not
+    /// loaded.
+    #[cfg(test)]
+    pub(crate) fn put_unknown(
+        &mut self,
+        pos: BlockPos,
+        nbt: crate::nbt::Compound,
+    ) -> Option<Entry> {
+        let (x, z) = pos.local();
+        self.chunks
+            .get_mut(pos.chunk())?
+            .put_unknown(x, pos.y, z, nbt)
     }
 
     /// The number of changed blocks waiting for [`Self::next_changed`].

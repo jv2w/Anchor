@@ -9,7 +9,7 @@ use crate::block::{self, Class, Face, Kind, State, SupportType, Trait, TypeTag};
 use crate::item;
 use crate::math::Vec3;
 use crate::random::Random;
-use crate::world::{BlockPos, MAX_Y, MIN_Y, World};
+use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
 use super::props::{self, Axis};
 
@@ -37,9 +37,20 @@ impl Placer {
 }
 
 /// The block at `pos`, air where nothing is known (an unloaded chunk, outside the world): the
-/// neighbour rules of PLAN.md 10.6.
+/// neighbour rules of PLAN.md 10.6. An inert block reads as its stand-in
+/// ([`block::Inert::stand_in`]), which no placement replaces.
 pub(super) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
-    pos.and_then(|p| world.block(p)).unwrap_or(block::AIR)
+    pos.and_then(|p| placed_on(world, p)).unwrap_or(block::AIR)
+}
+
+/// The block at `pos` as placements see it: an inert block as its stand-in; `None` if the chunk
+/// is not loaded, `pos` is outside the world height or the state is unknown.
+pub(super) fn placed_on(world: &World, pos: BlockPos) -> Option<State> {
+    match world.entry(pos)? {
+        Entry::Known(s) => Some(s),
+        Entry::Inert(s, _) => Some(s.stand_in()),
+        Entry::Unknown(_) => None,
+    }
 }
 
 /// PMMP `Block::getAdjacentSupportType`: the support the block toward `face` gives back.
@@ -72,7 +83,7 @@ pub(super) fn placement(
     placer: Option<&Placer>,
     rng: &mut Random,
 ) -> Option<Blocks> {
-    let clicked_state = world.block(clicked)?;
+    let clicked_state = placed_on(world, clicked)?;
     if clicked_state == block::AIR {
         return None;
     }
@@ -91,7 +102,7 @@ pub(super) fn placement(
         return Some(blocks);
     }
     let replace = clicked.step(face)?;
-    world.block(replace)?;
+    placed_on(world, replace)?;
     transaction(&ctx(replace, face), rng)
 }
 

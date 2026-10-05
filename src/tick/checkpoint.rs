@@ -893,6 +893,17 @@ impl Codec for crate::block::State {
     }
 }
 
+/// An inert block state by its network ID.
+impl Codec for crate::block::Inert {
+    fn encode(&self, w: &mut Writer) {
+        self.network_id().encode(w);
+    }
+
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        Self::from_network_id(u32::decode(r)?).ok_or(Error::Format("inert block state"))
+    }
+}
+
 /// A stack by its disk form, which reads back equal ([`crate::item::Stack::to_nbt`]).
 impl Codec for crate::item::Stack {
     fn encode(&self, w: &mut Writer) {

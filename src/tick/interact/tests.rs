@@ -1693,6 +1693,139 @@ fn villagers_hatched_or_spawned_without_offers_have_an_empty_trade_list() {
     assert_eq!(cx.trade_offers(spawned).map(|o| o.len()), Some(1));
 }
 
+/// A stored block state of `name` with no properties, as a server file holds it.
+fn stored(name: &str) -> crate::nbt::Compound {
+    use crate::nbt::{Compound, Value};
+    Compound::from([
+        ("name".to_owned(), Value::String(name.to_owned())),
+        ("states".to_owned(), Value::Compound(Compound::new())),
+        ("version".to_owned(), Value::Int(18_168_865)),
+    ])
+}
+
+/// The network IDs of the 1.26.50 reference list (the values BDS sends) of two blocks only
+/// clients know.
+const DRIPSTONE_BLOCK: u32 = 1_289_380_550;
+const MOSS_BLOCK: u32 = 3_743_819_255;
+
+/// Whether `packets` set `pos` to the block of network ID `id`.
+fn sets(packets: &[Packet], pos: BlockPos, id: u32) -> bool {
+    packets.iter().any(|p| {
+        matches!(p, Packet::UpdateBlock(u)
+            if block_pos(u.position) == pos && u.new_block_runtime_id == id)
+    })
+}
+
+/// An inert block (one only clients know) breaks like a block of its hardness: dripstone by
+/// hand in 1.5 × 1.5 s, 45 ticks. Too early, the client gets it back as itself; in time it
+/// becomes air, the viewers see it break, and it drops nothing.
+#[test]
+fn an_inert_block_breaks_in_its_time_into_air_with_no_drops() {
+    let mut h = Harness::new(|_| {});
+    let inert = h.state.worlds[0]
+        .put_unknown(TARGET, stored("minecraft:dripstone_block"))
+        .unwrap();
+    assert!(matches!(inert, Entry::Inert(..)), "{inert:?}");
+    assert_eq!(inert.network_id(), DRIPSTONE_BLOCK);
+    let entities = h.state.rules.entities.count(0);
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    assert!(h.player().breaking.target.is_some());
+    for _ in 0..30 {
+        h.act(Vec::new());
+    }
+    h.packets();
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.state.worlds[0].entry(TARGET), Some(inert));
+    assert!(
+        sets(&h.packets(), TARGET, DRIPSTONE_BLOCK),
+        "resent as itself"
+    );
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    for _ in 0..44 {
+        h.act(Vec::new());
+    }
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), block::AIR);
+    let sent = h.packets();
+    assert!(sent.iter().any(|p| matches!(p, Packet::LevelEvent(e)
+        if e.event_type == i32::from(Event::ParticlesDestroyBlock)
+            && e.event_data == DRIPSTONE_BLOCK.cast_signed())));
+    assert_eq!(h.state.rules.entities.count(0), entities, "no drops");
+}
+
+/// A creative player breaks an inert block at once; a spectator cannot.
+#[test]
+fn creative_breaks_an_inert_block_at_once_and_a_spectator_cannot() {
+    for (mode, broken) in [(GameMode::Creative, true), (GameMode::Spectator, false)] {
+        let mut h = Harness::new(|c| c.general.gamemode = mode);
+        let inert = h.state.worlds[0]
+            .put_unknown(TARGET, stored("minecraft:moss_block"))
+            .unwrap();
+        h.act(vec![action(
+            PlayerAction::PredictDestroyBlock,
+            TARGET,
+            Face::West,
+        )]);
+        let now = h.state.worlds[0].entry(TARGET);
+        if broken {
+            assert_eq!(now, Some(Entry::AIR), "{mode:?}");
+        } else {
+            assert_eq!(now, Some(inert), "{mode:?}");
+            assert!(sets(&h.packets(), TARGET, MOSS_BLOCK), "resent as itself");
+        }
+    }
+}
+
+/// Blocks go on inert blocks (ones only clients know) as on their stand-ins: a solid one (moss)
+/// gives full support, so stone and a torch go on top; one that is not (moss carpet) gives none,
+/// so a torch cannot stand on it but stone goes into the cell above it; seagrass is not replaced
+/// (BDS's data does not say vanilla replaces it), the stone goes above. The inert block stays.
+#[test]
+fn blocks_go_on_inert_blocks_beside_them_and_torches_need_a_solid_one() {
+    let above = BlockPos::new(2, -59, 0);
+    let cases = [
+        ("minecraft:moss_block", Kind::Stone, true),
+        ("minecraft:moss_block", Kind::Torch, true),
+        ("minecraft:moss_carpet", Kind::Torch, false),
+        ("minecraft:moss_carpet", Kind::Stone, true),
+        ("minecraft:seagrass", Kind::Stone, true),
+    ];
+    for (name, kind, placed) in cases {
+        let mut h = Harness::new(|_| {});
+        let mut nbt = stored(name);
+        if name == "minecraft:seagrass" {
+            let states = crate::nbt::Compound::from([(
+                "sea_grass_type".to_owned(),
+                crate::nbt::Value::String("default".to_owned()),
+            )]);
+            nbt.insert("states".to_owned(), crate::nbt::Value::Compound(states));
+        }
+        let inert = h.state.worlds[0].put_unknown(TARGET, nbt).unwrap();
+        assert!(matches!(inert, Entry::Inert(..)), "{name}");
+        let item = block_item(kind, 4);
+        h.hold(item.clone());
+        let input = h.auth(Vec::new(), Some(click(TARGET, Face::Up, &item)));
+        h.run(vec![input]);
+        assert_eq!(h.state.worlds[0].entry(TARGET), Some(inert), "{name} stays");
+        let now = h.block(above);
+        if placed {
+            assert_eq!(now.kind(), kind, "{name} {kind:?}");
+            assert_eq!(h.held().count(), 3);
+        } else {
+            assert_eq!(now, block::AIR, "{name} {kind:?}");
+            assert_eq!(h.held().count(), 4);
+        }
+    }
+}
+
 mod book;
 mod custom;
 mod events;

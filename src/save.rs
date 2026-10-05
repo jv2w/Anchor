@@ -1275,7 +1275,7 @@ fn block_layer(chunk: &Chunk, layer: &Paletted<Entry>) -> BlockLayer {
             .iter()
             .map(|&entry| match entry {
                 Entry::Known(state) => state_nbt(state),
-                Entry::Unknown(i) => usize::try_from(i)
+                Entry::Unknown(i) | Entry::Inert(_, i) => usize::try_from(i)
                     .ok()
                     .and_then(|i| chunk.unknown().get(i))
                     .cloned()
@@ -1333,7 +1333,8 @@ pub(crate) fn find_state(entry: &nbt::Compound) -> Option<State> {
 
 /// The chunk of a stored record, or `None` if its parts are invalid (damage: the record decoded
 /// but does not describe a chunk). A state Anchor does not know is one of `custom`'s blocks if it
-/// names one, else unknown, keeping its NBT (PLAN.md 7).
+/// names one, else inert if clients know it or unknown, keeping its NBT either way (PLAN.md 7):
+/// a stored chunk needs no new format to show its inert blocks.
 pub(crate) fn to_chunk(record: ChunkRecord, custom: &Registry) -> Option<Chunk> {
     let mut unknown: Vec<nbt::Compound> = Vec::new();
     let mut sub_chunks: [Option<SubChunk>; SUB_CHUNKS] = Default::default();
@@ -1352,8 +1353,9 @@ pub(crate) fn to_chunk(record: ChunkRecord, custom: &Registry) -> Option<Chunk> 
                         return Entry::Known(state);
                     }
                     let index = u32::try_from(unknown.len()).unwrap_or(u32::MAX);
+                    let read = Entry::unknown(index, &entry);
                     unknown.push(entry);
-                    Entry::Unknown(index)
+                    read
                 })
                 .collect();
             layers.push(Paletted::from_parts(layer.bits, &layer.words, &palette).ok()?);

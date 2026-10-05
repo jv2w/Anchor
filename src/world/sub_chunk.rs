@@ -1,7 +1,8 @@
 //! A sub-chunk (PLAN.md 10.6): a 16×16×16 cube of blocks in two layers (layer 1 holds water
 //! logging), and its network form.
 
-use crate::block::{self, State};
+use crate::block::{self, Inert, State};
+use crate::math::Aabb;
 use crate::protocol::Writer;
 
 use super::paletted::Paletted;
@@ -17,17 +18,46 @@ pub(crate) enum Entry {
     /// A block state Anchor does not know: the index of its original NBT in the chunk's unknown
     /// list (PLAN.md 7). It is kept as read and sent as `minecraft:info_update`.
     Unknown(u32),
+    /// A block state Anchor does not know that clients do ([`Inert`]), with the index of its
+    /// original NBT in the chunk's unknown list. It is kept as read and sent as itself.
+    Inert(Inert, u32),
 }
 
 impl Entry {
     /// Air, the value of an empty slot.
     pub(crate) const AIR: Self = Self::Known(block::AIR);
 
+    /// The entry of a stored state Anchor does not know, whose NBT is at `index` of the chunk's
+    /// unknown list: inert if clients know it, else unknown.
+    pub(crate) fn unknown(index: u32, nbt: &crate::nbt::Compound) -> Self {
+        Inert::from_nbt(nbt).map_or(Self::Unknown(index), |s| Self::Inert(s, index))
+    }
+
+    /// The index in the chunk's unknown list of a state Anchor does not know.
+    pub(crate) fn unknown_index(self) -> Option<u32> {
+        match self {
+            Self::Known(_) => None,
+            Self::Unknown(i) | Self::Inert(_, i) => Some(i),
+        }
+    }
+
     /// The network ID the client is sent for this entry.
-    fn network_id(self) -> u32 {
+    pub(crate) fn network_id(self) -> u32 {
         match self {
             Self::Known(state) => state.network_id(),
             Self::Unknown(_) => block::INFO_UPDATE.network_id(),
+            Self::Inert(state, _) => state.network_id(),
+        }
+    }
+
+    /// The block-local collision boxes, or `None` for a state that neither Anchor nor clients
+    /// know.
+    #[inline]
+    pub(crate) fn collision_boxes(self) -> Option<&'static [Aabb]> {
+        match self {
+            Self::Known(state) => Some(state.collision_boxes()),
+            Self::Unknown(_) => None,
+            Self::Inert(state, _) => Some(state.collision_boxes()),
         }
     }
 }
@@ -35,6 +65,7 @@ impl Entry {
 crate::tick::checkpoint::variants!(Entry {
     0 => Known(state),
     1 => Unknown(index),
+    2 => Inert(state, index),
 });
 
 /// The two block layers of a 16×16×16 cube.
@@ -93,8 +124,9 @@ impl SubChunk {
         self.layers.iter().all(|l| l.is_uniform(Entry::AIR))
     }
 
-    /// Writes the network form (version 9): the layers in runtime form with network IDs, unknown
-    /// entries as `minecraft:info_update`. Layer 1 is left out when it is all air, as BDS does.
+    /// Writes the network form (version 9): the layers in runtime form with network IDs, inert
+    /// entries as themselves, unknown ones as `minecraft:info_update`. Layer 1 is left out when it
+    /// is all air, as BDS does.
     pub(crate) fn encode(&self, y_index: i8, w: &mut Writer) {
         let [blocks, water] = &self.layers;
         let with_water = !water.is_uniform(Entry::AIR);
