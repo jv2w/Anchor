@@ -1035,6 +1035,35 @@ console-input = true
   - (3) 의존성 `opt-level = 1`: 차가운 472초 PASS, 따뜻한 208초에 시험 9개 실패(인증·시그널링 시간 시험, 그때 부하) → 느려서 되돌림.
   - (4) sccache 0.18.0(`.cache/tools`, zip sha256 확인; 사용자 지시: 효과가 있으면 모든 worktree 빌드에 적용): 차가운 `cargo build --workspace --all-targets`가 sccache 없이 83초, 새 target 폴더 둘에서 채움 95초·다시 89초(적중 0%: target 경로가 캐시 키에 들어감). `SCCACHE_BASEDIRS`로 worktree 두 개를 정규화하면 적중 43%지만 채움 127초·다시 135초로 빨라지지 않음(proc-macro·bin 크레이트, 빌드 스크립트(aws-lc C 빌드), 증분 컴파일 크레이트, 링크는 캐시되지 않음). 효과가 없어 적용하지 않고 도구와 캐시를 지웠다.
 
+#### 사용자 빌드 시간 (M9 후속 U15B, 2026-10-05, 사용자 결정 U15의 빌드 부분)
+- 측정 조건: LostUtopia처럼 Anchor를 path 의존성으로 쓰는 빈 바이너리(기본 프로필, `Config::load`·`build`·`import_world`·`run`), `CARGO_BUILD_JOBS=8`, 28스레드 기계, Windows MSVC. (a) 깨끗한 빌드, (b) Anchor `src/lib.rs` touch 뒤, (c) 사용자 `main.rs` touch 뒤. 다른 묶음의 빌드·시험과 겹쳐 노이즈가 크다(같은 조건을 번갈아 재고 중앙값; 부하가 클 때 dev (b)가 13초에서 40~98초까지 흔들림).
+- 원인(`--timings`, `-Ztime-passes`·self-profile(`RUSTC_BOOTSTRAP`는 측정에만), cargo-llvm-lines):
+  - release (b)는 거의 anchor 크레이트 하나: 프런트엔드 32초(직렬: 타입 검사 6, 빌림 검사 9, 생성 표 static 평가 5) + 코드젠 51초(LLVM CPU 약 300초를 8잡으로).
+  - anchor LLVM IR(release) 305만 줄: BTreeMap·BTreeSet 단형화 25%(타입 124개), 이벤트 리스너 정렬 6.1%(이벤트 68개마다 `sort_by_key` 한 벌, 함수 3,536개), tick 14%, protocol 9%.
+  - dev: 기본 `debug = true`라 anchor rlib가 1.25 GB(코드 20 MB, CodeView 디버그 정보 990 MB). 쓰기와 링크가 느림.
+  - 깨끗한 빌드의 앞 약 56초는 의존성: aws-lc-sys C 빌드 34초 → rustls → str0m 프런트엔드가 anchor 시작을 막음.
+  - 생성 표: 표 배열을 원소 하나로 바꾼 실험 사본에서 release (b)가 약 12초 줄어듦(75 → 63초). 평평한 `Data::new` 배열은 싸고(12,468개 0.25초), 비싼 것은 문자열·중첩 슬라이스가 많은 표(가져오기 `LEGACY_STATES`·`SCHEMAS`, crafting `SHAPED`·`SHAPELESS`, item registry `ENTRIES`, creative `ITEMS`).
+- 한 것:
+  1. 리스너를 등록할 때 우선순위 자리에 넣음(`partition_point` + `insert`, 같은 우선순위는 등록 순서), `Listeners::sort`를 지움. 이벤트마다의 정렬 코드가 없어져 release IR 305만 → 284만 줄(-7%, 정렬 28.4만 → 9.6만 줄), release (b) 약 -2%(번갈아 잰 71.8·71.4 → 70.4·69.8초). 동작은 그대로(우선순위 시험 두 개가 정렬 없이 고정).
+  2. 사용자 권장 설정(rustdoc 크레이트 첫 페이지 "Build, start and stop times" 절의 "Build"; 시작·종료 시간은 다른 묶음이 같은 절에 더함): `[profile.dev.package."*"] debug = "line-tables-only"`, Windows `.cargo/config.toml` `linker = "rust-lld.exe"`. 둘 다 release 코드는 같아 게임 성능과 무관.
+
+| 측정(초, 중앙값) | 기준 31707b7 | 권장 설정 |
+|---|---|---|
+| dev (a) 깨끗한 빌드 | 123 (번갈아 136·91) | 번갈아 104·67 (-25%) |
+| dev (b) Anchor touch | 13.3 (번갈아 9.4~15.4) | 7.9 (-35%) |
+| dev (c) 사용자 코드 touch | 4.1 (번갈아 5.3) | 2.4 (-55%) |
+| release (a) 깨끗한 빌드 | 142 | 같음(코드 같음) |
+| release (b) Anchor touch | 86 (뒤에 다시 71~78) | 리스너 변경으로 약 -2% |
+| release (c) 사용자 코드 touch | 3.2 (번갈아 2.9) | 2.5 (-14%) |
+
+- 목표(측정으로 정함): dev는 위 권장 설정으로 달성. release (b)는 크게 줄이지 못함(남은 큰 몫이 아래 후보).
+- 하지 않은 것과 다음 후보:
+  - 생성 표를 컴팩트 데이터로(예상 release (b) 약 -12초, -15%): 소비 코드가 `&'static` 구조를 직접 씀. 틱이 쓰는 표(crafting)는 시작 때 해석한 표를 넘겨야 하고(전역 상태 금지, 4절 1), 가져오기 표는 가져오기 때 해석하면 됨. 3시간 안에 못 함.
+  - BTreeMap 단형화 25%: 결정성 때문에 쓰는 순서 있는 맵. 바꾸면 틱 성능·결정성 검증이 필요해 손대지 않음.
+  - 크레이트 나누기(표·프로토콜): 2.4절이 허용(측정된 빌드 시간 문제)하나 공개 범위와 다른 묶음 충돌이 커서 미룸.
+  - release `incremental`·`codegen-units` 권장: 인라인이 달라져 틱 성능을 깎을 수 있어(R5) 권장하지 않음.
+- 측정 도구: measureme `summarize`·`mmview` 12.0.3, cargo-llvm-lines를 작업 임시 폴더에 설치(사용자 PATH 안 바꿈).
+
 #### M9로 미룬 항목과 검증 필요 (처리 방법)
 처리: 구현 = 이번에 만듦, P6 = BDS 대조로 닫음, 대기 = 실제 접속 확인 대기(공식 클라이언트), Linux = Linux 검증 대기(12절 8번).
 
@@ -1221,7 +1250,7 @@ console-input = true
 | U12 모르는 블록을 원래 블록으로 보이기(사용자 결정) | U12 | 완료 |
 | U13 `add_effect`가 `effect::Instance`를 받음(사용자 결정) | U13 | 완료 |
 | U14 저장 크기·계속 커짐(사용자 결정) | U14 | 완료 |
-| U15 작업 흐름: 빌드 시간(U15B), 시작·종료 속도(U16-b에 합침) | U15B | 진행 중 |
+| U15 작업 흐름: 빌드 시간(U15B), 시작·종료 속도(U16-b에 합침) | U15B | 완료 |
 | U16-a 리소스팩 `data/packs`, U16-b 데이터 파일 나누기·멀티월드(사용자 결정) | U16 | 진행 중 |
 - U8 패킷 합침: 다른 플레이어 이동을 MovePlayer에서 `MoveActorAbsolute`(눈 위치, 땅 플래그, 회전, 보간됨)로 바꿈. 순간이동과 본인 보정만 MovePlayer. P6 others 차이는 intended에 등록.
 - U8 틱 합침: Windows std `thread::sleep`이 이미 고해상도 타이머임을 std 소스와 실측(200틱 p99 50.5 ms)으로 확인해 대기 방식은 그대로 둠(tokio 42~63 ms, 돌며 기다리기는 틱마다 CPU 2 ms). 측정 시험 `tests/server.rs` `tick_intervals`(ignored).
@@ -1257,6 +1286,7 @@ console-input = true
 - U14 압축 합침: 저장 형식 9, 값은 raw DEFLATE(libdeflate 6단계, 이미 쓰는 의존성, 방식 바이트 2), 옛 Snappy 값도 읽음, 압축은 저장 스레드·가져오기 CPU 풀(틱 비용 없음). 값 합 498 → 332 MB(-33%). zstd는 더 작지 않았고 9·12단계는 1~4%만 작고 느림. DEFLATE 길이 위조 거부.
 - U14 빈 서브청크 합침: 블록 없는 plains 서브청크(이 월드 89만 개)는 값을 쓰지 않고 읽을 때 빈 서브청크로 채움(청크 전체가 비면 가장 아래 값 하나를 남겨 생성기가 다시 만들지 않게). 측정(release, 청크 59,740): 파일 가져온 직후 1,267 → 428 MB, 켜고 끄기 3~5회 428 MB 그대로, 시작 after-unclean-shutdown 1.1~1.6 → 0.6~0.8 s, always 7.6 → 3.1~3.4 s, 종료 3.1~3.3 → 1.5~1.9 s, 가져오기 37 → 43 s. 원본 270 MB와의 차이(서브청크마다 따로 압축 — 열 단위면 247 MB, 리프 채움 87%, 성장 여유 ≤12.5%)는 U16에서. 기존 파일은 값이 다시 쓰일 때만 새 형식(복사본 1.27 GB → 713 MB); 전체 옮기기는 U16.
 - U15B 리스너 합침: 이벤트 68개마다 생기던 `sort_by_key` 단형화(release LLVM IR 6.1%)를 없앰 — 등록 때 우선순위 자리에 넣음(`partition_point` + `insert`, 같은 우선순위는 등록 순서), `Listeners::sort`와 호출 25곳 삭제. release IR 305만 → 284만 줄(-7%), release Anchor 재빌드 약 -2%.
+- U15B 문서 합침: `src/lib.rs` 첫 페이지 "Build, start and stop times" 절의 "Build"에 사용자 dev 권장값(`[profile.dev.package."*"] debug = "line-tables-only"`, Windows `linker = "rust-lld.exe"`; release 코드 그대로). 측정(8잡, 중앙값): dev 깨끗한 빌드 -25%, Anchor를 건드린 뒤 13.3 → 7.9 s, 사용자 코드만 바꾼 뒤 4.1~5.3 → 2.4 s; release Anchor 재빌드 약 70~86 s는 거의 그대로(anchor 크레이트 프런트엔드 32 s 한 줄, 코드젠 약 300 CPU초). 결정: release `incremental`·`codegen-units`는 인라인이 달라져 틱 성능을 깎을 수 있어 권장 안 함(R5). 다음 후보(10.9 "사용자 빌드 시간"): 생성 표 컴팩트 데이터(실험에서 release 재빌드 약 -15%, 틱 표는 시작 때 해석해 넘겨야 함), BTreeMap 단형화(IR 25%, 결정성 때문에 유지), 크레이트 나누기.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.
