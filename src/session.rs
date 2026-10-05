@@ -33,7 +33,7 @@ use crate::config::{Config, GameMode};
 use crate::crypto::{self, ServerKey};
 use crate::error::{Error, Result};
 use crate::nethernet;
-use crate::pack::{Offer, Pack};
+use crate::pack::{self, Offer, Pack};
 use crate::protocol::batch;
 use crate::protocol::packet::{GAME_VERSION, PROTOCOL_VERSION};
 use crate::raknet;
@@ -99,8 +99,9 @@ enum Event {
 
 /// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
 ///
-/// The resource packs load first: the `resource-packs` files, then `packs` given in code
-/// (PLAN.md 10.8); one that cannot be offered stops the start. With `xbox-auth = true` the
+/// The resource packs load first: the pack folder of earlier versions moves to `data_dir/packs`,
+/// then the `resource-packs` files load from there, then `packs` given in code (PLAN.md 8.5,
+/// 10.8); a folder that cannot move or a pack that cannot be offered stops the start. With `xbox-auth = true` the
 /// authorization keys load next (PLAN.md 10.2), and a server without keys does not start.
 /// NetherNet loads its identity key from `data_dir` (PLAN.md 10.3). The accept task takes the
 /// tick's `controls` and reports the connection counts on `inputs`.
@@ -116,9 +117,15 @@ pub(crate) async fn start(
     controls: mpsc::Receiver<Control>,
 ) -> Result<Network> {
     let batch = config.batch_settings()?;
-    let paths = config.resource_pack_paths();
+    let old_folder = config.old_pack_folder();
+    let folder = data_dir.join(pack::FOLDER);
+    let paths = config.resource_pack_paths(&folder);
     let force = config.general.force_resources;
-    let packs = tokio::task::spawn_blocking(move || Offer::load(&paths, packs, force))
+    let load = move || {
+        pack::move_old_folder(&old_folder, &folder)?;
+        Offer::load(&paths, packs, force)
+    };
+    let packs = tokio::task::spawn_blocking(load)
         .await
         .map_err(|e| Error::Start(std::io::Error::other(e)))?
         .map_err(Error::from)?;

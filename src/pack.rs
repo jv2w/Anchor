@@ -1,11 +1,15 @@
 //! Resource packs: the `.mcpack` and `.zip` files players download when they join (PLAN.md 8.5,
 //! 10.8).
 //!
-//! The packs come from the `resource-packs` setting (files relative to the settings file, each
-//! with an optional `<file>.key` content key next to it) and from
+//! The packs come from the `resource-packs` setting (files relative to the pack folder
+//! `data/packs`, each with an optional `<file>.key` content key next to it) and from
 //! [`ServerBuilder::resource_pack`]. They are read once at start, held in memory and offered in
 //! that order, the first on top of the stack: a pack that cannot be read, or breaks a limit,
 //! stops the start with an error naming its file.
+//!
+//! Earlier versions kept the packs in `packs` next to the settings file. At start that folder is
+//! moved to `data/packs` with one rename, unless `data/packs` exists: then it is left as it is
+//! with a warning. Only `data/packs` is read.
 //!
 //! Limits: a pack is at most 256 MiB, at most 64 packs are offered, and they total at most
 //! 512 MiB (PMMP has none; these bound the memory the packs take). A pack's `manifest.json` is at
@@ -19,12 +23,18 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use tracing::{info, warn};
+
 use crate::ServerBuilder;
 use crate::protocol::Uuid;
 use crate::protocol::packet::{ResourcePackStack, ResourcePacksInfo};
 use crate::protocol::{StackResourcePack, TexturePackInfo};
 
 use self::manifest::Manifest;
+
+/// The pack folder's name, in the data folder (and, in earlier versions, next to the settings
+/// file).
+pub(crate) const FOLDER: &str = "packs";
 
 /// The largest pack file.
 pub(crate) const MAX_PACK_BYTES: u64 = 256 * 1024 * 1024;
@@ -219,6 +229,43 @@ fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
         io::ErrorKind::FileTooLarge => Error::TooLarge { limit },
         _ => Error::Read(e),
     })
+}
+
+/// Moves the pack folder of earlier versions, `old`, to the pack folder `new` with one rename,
+/// so a failure leaves it where it was. Nothing happens unless `old` is a folder; if `new` exists
+/// too, `old` is left as it is and a warning says so. The folder holding `new` must exist (the
+/// server file made the data folder). Blocking file I/O: run it before the server starts.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: runs on the blocking pool before the server starts"
+)]
+pub(crate) fn move_old_folder(old: &Path, new: &Path) -> Result<()> {
+    let failed = |source| Error::Folder {
+        from: old.to_owned(),
+        to: new.to_owned(),
+        source,
+    };
+    match std::fs::metadata(old) {
+        Ok(found) if found.is_dir() => {}
+        Ok(_) => return Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(failed(e)),
+    }
+    match std::fs::symlink_metadata(new) {
+        Ok(_) => {
+            warn!(
+                old = %old.display(),
+                new = %new.display(),
+                "both pack folders exist: the old one is left as it is and not read"
+            );
+            return Ok(());
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(failed(e)),
+    }
+    std::fs::rename(old, new).map_err(failed)?;
+    info!(from = %old.display(), to = %new.display(), "pack folder moved");
+    Ok(())
 }
 
 /// The packs offered to joining players and what the session sends of them, built once at
@@ -432,6 +479,16 @@ pub enum Error {
         /// Why.
         source: Box<Error>,
     },
+    /// The pack folder of earlier versions, `from`, cannot be moved to `to`; it is left where it
+    /// was.
+    Folder {
+        /// The old pack folder.
+        from: PathBuf,
+        /// The pack folder in the data folder.
+        to: PathBuf,
+        /// Why.
+        source: io::Error,
+    },
 }
 
 impl fmt::Display for Error {
@@ -458,6 +515,12 @@ impl fmt::Display for Error {
                 write!(f, "two resource packs have the uuid {}", uuid_text(*uuid))
             }
             Self::File { path, .. } => write!(f, "resource pack {}", path.display()),
+            Self::Folder { from, to, .. } => write!(
+                f,
+                "cannot move the pack folder {} to {}",
+                from.display(),
+                to.display()
+            ),
         }
     }
 }
@@ -465,7 +528,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Read(e) => Some(e),
+            Self::Read(e) | Self::Folder { source: e, .. } => Some(e),
             Self::Manifest(e) => Some(e.as_ref()),
             Self::File { source, .. } => Some(source.as_ref()),
             _ => None,
@@ -667,6 +730,67 @@ pub(crate) mod tests {
         let empty = Offer::new(Vec::new(), false).unwrap();
         assert!(empty.info().texture_packs.is_empty());
         assert_eq!(empty.stack().base_game_version, "*");
+    }
+
+    /// `<dir>/packs` with `a.zip` in it, the old pack folder of `dir`.
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test files")]
+    fn old_folder(dir: &TempDir) -> PathBuf {
+        let old = dir.join(FOLDER);
+        std::fs::create_dir(&old).unwrap();
+        write(&old.join("a.zip"), b"old");
+        old
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test files")]
+    fn the_old_pack_folder_moves_into_the_data_folder() {
+        let dir = TempDir::new("move");
+        let old = old_folder(&dir);
+        let data = dir.join("data");
+        std::fs::create_dir(&data).unwrap();
+        let new = data.join(FOLDER);
+        move_old_folder(&old, &new).unwrap();
+        assert!(!old.exists());
+        assert_eq!(std::fs::read(new.join("a.zip")).unwrap(), b"old");
+        // Nothing is left to move: a second start changes nothing.
+        move_old_folder(&old, &new).unwrap();
+        assert_eq!(std::fs::read(new.join("a.zip")).unwrap(), b"old");
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test files")]
+    fn a_failed_move_leaves_the_old_pack_folder_as_it_was() {
+        let dir = TempDir::new("move-fails");
+        let old = old_folder(&dir);
+        // No data folder: the rename cannot happen.
+        let new = dir.join("data").join(FOLDER);
+        let error = move_old_folder(&old, &new).unwrap_err();
+        assert!(
+            matches!(&error, Error::Folder { from, to, .. } if *from == old && *to == new),
+            "{error:?}"
+        );
+        assert!(std::error::Error::source(&error).is_some());
+        assert_eq!(std::fs::read(old.join("a.zip")).unwrap(), b"old");
+        assert!(!new.exists());
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test files")]
+    fn with_both_pack_folders_the_old_one_is_left_alone() {
+        let dir = TempDir::new("move-both");
+        let old = old_folder(&dir);
+        let new = dir.join("data").join(FOLDER);
+        std::fs::create_dir_all(&new).unwrap();
+        write(&new.join("b.zip"), b"new");
+        move_old_folder(&old, &new).unwrap();
+        assert_eq!(std::fs::read(old.join("a.zip")).unwrap(), b"old");
+        assert!(!new.join("a.zip").exists());
+        assert_eq!(std::fs::read(new.join("b.zip")).unwrap(), b"new");
+        // A file named `packs` is no pack folder and stays.
+        let file = TempDir::new("move-file");
+        write(&file.join(FOLDER), b"file");
+        move_old_folder(&file.join(FOLDER), &file.join("new")).unwrap();
+        assert!(file.join(FOLDER).is_file() && !file.join("new").exists());
     }
 
     #[test]

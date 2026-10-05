@@ -147,10 +147,14 @@ impl Server {
     ///
     /// It first opens the server file `data/server.redb` (PLAN.md 10.6): it backs up the closed
     /// file to `data/backups/`, checks it as `integrity-check` says and refuses a damaged one,
-    /// leaving it as it was. On shutdown every player sees `shutdown-message`, the last state is
-    /// saved, networking stops, and the threads are joined. Fails if the server file is damaged or
-    /// cannot be opened, if the runtime, the threads or networking cannot start, if a save fails
-    /// after its retries, or if the tick thread panics.
+    /// leaving it as it was. Then a `packs` folder next to the settings file, where earlier
+    /// versions kept the resource packs, is renamed to `data/packs` unless that exists (then it is
+    /// left as it is, with a warning), and the packs load from `data/packs`. On shutdown every
+    /// player sees `shutdown-message`, the last state is saved, networking stops, and the threads
+    /// are joined. Fails if the server file is damaged or cannot be opened, if the old pack folder
+    /// cannot be moved (it stays where it was) or a pack cannot be offered, if the runtime, the
+    /// threads or networking cannot start, if a save fails after its retries, or if the tick
+    /// thread panics.
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: one function starts every part of the server in its order"
@@ -547,7 +551,8 @@ impl ServerBuilder {
         self
     }
 
-    /// Uses `path` for the world, the authorization cache and crash reports instead of `data`.
+    /// Uses `path` for the world, the authorization cache, crash reports and the resource pack
+    /// folder `packs` instead of `data`.
     #[must_use]
     pub fn data_dir(mut self, path: impl Into<PathBuf>) -> Self {
         self.data_dir = path.into();

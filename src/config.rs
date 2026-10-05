@@ -93,7 +93,7 @@ save-player-data = true
 backups = true
 # Message players see when the server stops.
 shutdown-message = "The server has stopped"
-# Resource pack files (.mcpack or .zip), relative to this file. Earlier entries override later ones.
+# Resource pack files (.mcpack or .zip), relative to data/packs. Earlier entries override later ones.
 # An encrypted pack needs its key in "<file>.key" next to it.
 resource-packs = []
 # true: players must accept the resource packs to join.
@@ -210,8 +210,8 @@ const ITEM_PICKUP_INTERVAL: RangeInclusive<u8> = 1..=20;
 /// config it is built with, so a value changed while the server runs (the difficulty, a world's
 /// spawn, difficulty, weather or time stop, a game rule) is back to its setting after a restart.
 ///
-/// Two configs are equal when their settings are: the folder of the loaded file, against which
-/// relative `resource-packs` paths resolve, is not a setting and is not compared.
+/// Two configs are equal when their settings are: the folder of the loaded file, where the pack
+/// folder of earlier versions is looked for, is not a setting and is not compared.
 #[derive(Debug, Clone, Eq, Default)]
 pub struct Config {
     /// Settings for anyone opening a server (`[general]`).
@@ -251,8 +251,9 @@ impl Config {
     ///
     /// This does blocking file I/O: call it before the server starts.
     ///
-    /// Relative `resource-packs` paths, in the file or set in code, resolve against the folder of
-    /// the last file loaded (the working directory before any).
+    /// Relative `resource-packs` paths, in the file or set in code, resolve against `packs` in the
+    /// data folder (`data/packs`). Earlier versions resolved them against the folder of the file:
+    /// [`Server::run`](crate::Server::run) moves a `packs` folder found there to `data/packs`.
     pub fn load(mut self, path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         self.dir = path.parent().map(Path::to_path_buf);
@@ -267,16 +268,17 @@ impl Config {
         self.apply(DEFAULT_FILE.as_bytes())
     }
 
-    /// The `resource-packs` files, relative paths resolved against the loaded file's folder.
-    pub(crate) fn resource_pack_paths(&self) -> Vec<PathBuf> {
-        self.general
-            .resource_packs
-            .iter()
-            .map(|p| match &self.dir {
-                Some(dir) => dir.join(p),
-                None => p.clone(),
-            })
-            .collect()
+    /// The `resource-packs` files, relative paths resolved against the pack folder `folder`.
+    pub(crate) fn resource_pack_paths(&self, folder: &Path) -> Vec<PathBuf> {
+        let packs = &self.general.resource_packs;
+        packs.iter().map(|p| folder.join(p)).collect()
+    }
+
+    /// The pack folder of earlier versions: `packs` next to the last file loaded (in the working
+    /// directory before any).
+    pub(crate) fn old_pack_folder(&self) -> PathBuf {
+        let dir = self.dir.as_deref().unwrap_or(Path::new(""));
+        dir.join(crate::pack::FOLDER)
     }
 
     /// Returns `spawn-radius` limited to `view-distance`: the chunk radius actually sent before a
@@ -411,8 +413,14 @@ impl Config {
             g.item_despawn_ticks,
             ITEM_DESPAWN_TICKS,
         )?;
-        if g.resource_packs.iter().any(|p| p.as_os_str().is_empty()) {
-            return Err(Key::general("resource-packs").invalid("a list of non-empty paths"));
+        // A path into the old `packs` folder would now name `data/packs/packs/...`; Anchor never
+        // writes the file, so the setting must be changed.
+        if g.resource_packs
+            .iter()
+            .any(|p| p.as_os_str().is_empty() || p.starts_with(crate::pack::FOLDER))
+        {
+            return Err(Key::general("resource-packs")
+                .invalid("a list of non-empty paths relative to data/packs, not under packs/"));
         }
 
         let d = &self.developer;
@@ -562,7 +570,8 @@ pub struct General {
     pub backups: bool,
     /// `shutdown-message`: the message players see when the server stops.
     pub shutdown_message: String,
-    /// `resource-packs`: resource pack files, relative to the settings file.
+    /// `resource-packs`: resource pack files, relative to `packs` in the data folder; a relative
+    /// path may not start with `packs`.
     #[doc(alias = "ResourcePackManager::__construct")]
     pub resource_packs: Vec<PathBuf>,
     /// `force-resources`: whether players must accept the resource packs to join.
@@ -1474,6 +1483,8 @@ fn read(path: &Path) -> Result<Option<Vec<u8>>> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{Config, DEFAULT_FILE, Error, GameMode, batch};
 
     fn apply(text: &str) -> super::Result<Config> {
@@ -1561,24 +1572,39 @@ mod tests {
             .resource_packs
             .push(std::path::PathBuf::new());
         assert!(config.validate().is_err());
+
+        // A path into the old `packs` folder is refused; another relative path is not.
+        for (path, valid) in [
+            ("packs/b.zip", false),
+            ("packs", false),
+            ("sub/b.zip", true),
+        ] {
+            let mut config = Config::default();
+            config.general.resource_packs = vec![path.into()];
+            let error = config.validate().err().map(|e| e.to_string());
+            match error {
+                None => assert!(valid, "{path}"),
+                Some(error) => assert!(!valid && error.contains("not under packs/"), "{error}"),
+            }
+        }
     }
 
     // pmmp: ResourcePackManager::__construct
     #[test]
-    fn pack_paths_resolve_against_the_loaded_file_folder() {
+    fn pack_paths_resolve_against_the_data_pack_folder() {
         let mut config = Config::default();
         config.general.resource_packs = vec!["a.zip".into(), "/abs/b.mcpack".into()];
-        assert_eq!(
-            config.resource_pack_paths()[0],
-            std::path::Path::new("a.zip")
-        );
+        let folder = Path::new("data").join(crate::pack::FOLDER);
+        let paths = config.resource_pack_paths(&folder);
+        assert_eq!(paths[0], Path::new("data/packs/a.zip"));
+        assert_eq!(paths[1], Path::new("/abs/b.mcpack"));
+        assert_eq!(config.old_pack_folder(), Path::new("packs"));
         let loaded = Config {
             dir: Some("server/conf".into()),
             ..config.clone()
         };
-        let paths = loaded.resource_pack_paths();
-        assert_eq!(paths[0], std::path::Path::new("server/conf").join("a.zip"));
-        assert_eq!(paths[1], std::path::Path::new("/abs/b.mcpack"));
+        assert_eq!(loaded.resource_pack_paths(&folder), paths);
+        assert_eq!(loaded.old_pack_folder(), Path::new("server/conf/packs"));
         assert_eq!(loaded, config, "the folder is not a setting");
     }
 

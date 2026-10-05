@@ -54,7 +54,7 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::dispatchCommand` | implemented | src/tick/command.rs:987 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `pocketmine\Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\Server::exceptionHandler` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead (CLAUDE.md 4.6) |
-| `pocketmine\Server::forceShutdown` | merged | src/server.rs:753 `shutdown`<br>src/tick/command.rs:1392 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
+| `pocketmine\Server::forceShutdown` | merged | src/server.rs:758 `shutdown`<br>src/tick/command.rs:1392 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `pocketmine\Server::getAllowedViewDistance` | merged | src/tick/task.rs:193 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `pocketmine\Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\Server::getAsyncPool` | merged | src/tick/task/job.rs:181 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
@@ -70,8 +70,8 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::getGamemode` | implemented | src/tick/task.rs:173 `default_game_mode` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getIPBans` | implemented | src/tick/command.rs:1334 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` (CLAUDE.md 4.1, PLAN.md 8.4) |
-| `pocketmine\Server::getIp` | implemented | src/config.rs:481 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `pocketmine\Server::getIpV6` | implemented | src/config.rs:484 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getIp` | implemented | src/config.rs:489 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getIpV6` | implemented | src/config.rs:492 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1) |
 | `pocketmine\Server::getLoader` | skipped |  |  | PHP class loader |
 | `pocketmine\Server::getLogger` | skipped |  |  | Anchor logs with `tracing` (CLAUDE.md 5) |
@@ -83,7 +83,7 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::getNetwork` | skipped |  |  | protocol internals (CLAUDE.md 4.2-4.3, 4.8) |
 | `pocketmine\Server::getOfflinePlayer` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
 | `pocketmine\Server::getOfflinePlayerData` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
-| `pocketmine\Server::getOnlineMode` | implemented | src/config.rs:501 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getOnlineMode` | implemented | src/config.rs:509 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getOnlinePlayers` | implemented | src/tick/task.rs:206 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_online |  |
 | `pocketmine\Server::getOps` | implemented | src/tick/command.rs:1271 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\Server::getPlayerByPrefix` | implemented | src/tick/task.rs:246 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
@@ -94,10 +94,10 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::getPluginManager` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\Server::getPluginPath` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\Server::getPocketMineVersion` | implemented | src/tick/task.rs:66 `ANCHOR_VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::getPort` | implemented | src/config.rs:490 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `pocketmine\Server::getPortV6` | implemented | src/config.rs:491 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getPort` | implemented | src/config.rs:498 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getPortV6` | implemented | src/config.rs:499 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getQueryInformation` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol (CLAUDE.md 4.8) |
-| `pocketmine\Server::getResourcePackManager` | merged | src/pack.rs:208 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `pocketmine\Server::getResourcePackManager` | merged | src/pack.rs:218 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `pocketmine\Server::getResourcePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ (CLAUDE.md 2.4) |
 | `pocketmine\Server::getServerUniqueId` | skipped |  |  | PMMP usage statistics reporting |
 | `pocketmine\Server::getStartTime` | skipped |  |  | game logic has no wall clock (CLAUDE.md 2.1) |
@@ -122,11 +122,11 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::removeOnlinePlayer` | skipped |  |  | players join through the login flow (PLAN.md 10.8) |
 | `pocketmine\Server::removeOp` | implemented | src/tick/command.rs:1254 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
 | `pocketmine\Server::removeWhitelist` | implemented | src/tick/command.rs:1349 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `pocketmine\Server::requiresAuthentication` | implemented | src/config.rs:502 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::requiresAuthentication` | implemented | src/config.rs:510 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::saveOfflinePlayerData` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
 | `pocketmine\Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
 | `pocketmine\Server::shouldSavePlayerData` | implemented | src/tick/task.rs:199 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::shutdown` | implemented | src/server.rs:753 `shutdown`<br>src/tick/command.rs:1392 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
+| `pocketmine\Server::shutdown` | implemented | src/server.rs:758 `shutdown`<br>src/tick/command.rs:1392 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
 | `pocketmine\Server::subscribeToBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones (PLAN.md 8.4 merges the message methods) |
 | `pocketmine\Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones (PLAN.md 8.4 merges the message methods) |
 | `pocketmine\Server::unsubscribeFromBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones (PLAN.md 8.4 merges the message methods) |
@@ -5251,8 +5251,8 @@ implemented 657, differs 3, merged 50, skipped 199, blank 0 (of 909 rows)
 | `pocketmine\event\HandlerList::getListenerList` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
 | `pocketmine\event\HandlerList::getListenersByPriority` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
 | `pocketmine\event\HandlerList::getParent` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
-| `pocketmine\event\HandlerList::register` | merged | src/server.rs:580 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
-| `pocketmine\event\HandlerList::registerAll` | merged | src/server.rs:580 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `pocketmine\event\HandlerList::register` | merged | src/server.rs:585 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `pocketmine\event\HandlerList::registerAll` | merged | src/server.rs:585 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
 | `pocketmine\event\HandlerList::unregister` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
 | `pocketmine\event\HandlerListManager` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
 | `pocketmine\event\HandlerListManager::getAll` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
@@ -5260,7 +5260,7 @@ implemented 657, differs 3, merged 50, skipped 199, blank 0 (of 909 rows)
 | `pocketmine\event\HandlerListManager::getListFor` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
 | `pocketmine\event\HandlerListManager::global` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
 | `pocketmine\event\HandlerListManager::unregisterAll` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
-| `pocketmine\event\Listener` | merged | src/server.rs:580 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
+| `pocketmine\event\Listener` | merged | src/server.rs:585 `on` | tests/server.rs::listeners_of_every_priority_build_and_run | into `PluginManager::registerEvent` |
 | `pocketmine\event\ListenerMethodTags` | skipped |  |  | PHP docblock tags: a listener's priority is an argument of `ServerBuilder::on` (PLAN.md 8.2) |
 | `pocketmine\event\RegisteredListener` | skipped |  |  | listener tables are built by `ServerBuilder::on` and `monitor` and fixed at `build()` (CLAUDE.md 4.1) |
 | `pocketmine\event\RegisteredListener::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them (PLAN.md 10.8) |
@@ -5963,15 +5963,15 @@ implemented 657, differs 3, merged 50, skipped 199, blank 0 (of 909 rows)
 | `pocketmine\event\player\PlayerQuitEvent::getQuitMessage` | implemented | src/event/player.rs:1353 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `pocketmine\event\player\PlayerQuitEvent::getQuitReason` | implemented | src/event/player.rs:1356 `quit_reason` | src/event/player.rs::join_and_quit_messages_can_change |  |
 | `pocketmine\event\player\PlayerQuitEvent::setQuitMessage` | implemented | src/event/player.rs:1362 `set_quit_message` | src/event/player.rs::join_and_quit_messages_can_change |  |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:208 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent` | merged | src/pack.rs:218 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them (PLAN.md 10.8) |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:208 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::getEncryptionKeys` | merged | src/pack.rs:169 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file | into `ResourcePackManager::getPackEncryptionKey` |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::getPlayerInfo` | merged | src/pack.rs:208 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::getResourcePacks` | merged | src/pack.rs:208 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:569 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:569 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:208 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::addResourcePack` | merged | src/pack.rs:218 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::getEncryptionKeys` | merged | src/pack.rs:179 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file | into `ResourcePackManager::getPackEncryptionKey` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::getPlayerInfo` | merged | src/pack.rs:218 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::getResourcePacks` | merged | src/pack.rs:218 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:578 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:578 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:218 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `pocketmine\event\player\PlayerRespawnAnchorUseEvent` | implemented | src/event/player.rs:1410 `PlayerRespawnAnchorUse` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::glowstone_charges_a_respawn_anchor_and_a_charged_one_explodes_in_any_world<br>src/tick/interact/tests/events.rs::an_anchor_explosion_is_the_same_on_every_run<br>src/tick/interact/tests/events.rs::anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome |  |
 | `pocketmine\event\player\PlayerRespawnAnchorUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them (PLAN.md 10.8) |
 | `pocketmine\event\player\PlayerRespawnAnchorUseEvent::cancel` | implemented | src/event/player.rs:1708 `PlayerToggleFlight` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::cancelling_an_anchor_event_stops_what_it_announces |  |
@@ -8383,11 +8383,11 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\DatFilePlayerDataProvider::hasData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb (CLAUDE.md 4.7, PLAN.md 6) |
 | `pocketmine\player\DatFilePlayerDataProvider::loadData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb (CLAUDE.md 4.7, PLAN.md 6) |
 | `pocketmine\player\DatFilePlayerDataProvider::saveData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb (CLAUDE.md 4.7, PLAN.md 6) |
-| `pocketmine\player\GameMode` | implemented | src/config.rs:1009 `GameMode` | src/config.rs::game_modes_parse_pmmps_names_letters_and_numbers<br>tests/config.rs::every_key_reaches_its_field |  |
+| `pocketmine\player\GameMode` | implemented | src/config.rs:1018 `GameMode` | src/config.rs::game_modes_parse_pmmps_names_letters_and_numbers<br>tests/config.rs::every_key_reaches_its_field |  |
 | `pocketmine\player\GameMode::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2) |
 | `pocketmine\player\GameMode::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2) |
 | `pocketmine\player\GameMode::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2) |
-| `pocketmine\player\GameMode::fromString` | implemented | src/config.rs:1051 `from_name` | src/config.rs::game_modes_parse_pmmps_names_letters_and_numbers |  |
+| `pocketmine\player\GameMode::fromString` | implemented | src/config.rs:1060 `from_name` | src/config.rs::game_modes_parse_pmmps_names_letters_and_numbers |  |
 | `pocketmine\player\GameMode::getAliases` | skipped |  |  | the settings take one name per game mode (PLAN.md 8.5) |
 | `pocketmine\player\GameMode::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums (CLAUDE.md 2.2) |
 | `pocketmine\player\GameMode::getEnglishName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys, PLAN.md 10.8 C1) |
@@ -8727,7 +8727,7 @@ implemented 1, differs 0, merged 0, skipped 134, blank 0 (of 135 rows)
 | `pocketmine\plugin\PluginManager::getPlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\plugin\PluginManager::isPluginEnabled` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\plugin\PluginManager::loadPlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
-| `pocketmine\plugin\PluginManager::registerEvent` | implemented | src/server.rs:580 `on` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
+| `pocketmine\plugin\PluginManager::registerEvent` | implemented | src/server.rs:585 `on` | tests/server.rs::listeners_of_every_priority_build_and_run |  |
 | `pocketmine\plugin\PluginManager::registerEvents` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\plugin\PluginManager::registerInterface` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\plugin\PluginManager::tickSchedulers` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
@@ -8767,40 +8767,40 @@ implemented 22, differs 0, merged 6, skipped 6, blank 0 (of 34 rows)
 
 | PMMP | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
-| `pocketmine\resourcepacks\ResourcePack` | implemented | src/pack.rs:47 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ResourcePack::getPackChunk` | implemented | src/pack.rs:162 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ResourcePack::getPackId` | implemented | src/pack.rs:127 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ResourcePack::getPackName` | implemented | src/pack.rs:134 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ResourcePack::getPackSize` | implemented | src/pack.rs:148 `size` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ResourcePack::getPackVersion` | implemented | src/pack.rs:141 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ResourcePack::getSha256` | implemented | src/pack.rs:155 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ResourcePackException` | implemented | src/pack.rs:384 `Error` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
-| `pocketmine\resourcepacks\ResourcePackManager` | merged | src/pack.rs:208 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `pocketmine\resourcepacks\ResourcePackManager::__construct` | implemented | src/config.rs:566 `resource_packs` | src/config.rs::pack_paths_resolve_against_the_loaded_file_folder |  |
+| `pocketmine\resourcepacks\ResourcePack` | implemented | src/pack.rs:57 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ResourcePack::getPackChunk` | implemented | src/pack.rs:172 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ResourcePack::getPackId` | implemented | src/pack.rs:137 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ResourcePack::getPackName` | implemented | src/pack.rs:144 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ResourcePack::getPackSize` | implemented | src/pack.rs:158 `size` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ResourcePack::getPackVersion` | implemented | src/pack.rs:151 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ResourcePack::getSha256` | implemented | src/pack.rs:165 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ResourcePackException` | implemented | src/pack.rs:431 `Error` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `pocketmine\resourcepacks\ResourcePackManager` | merged | src/pack.rs:218 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
+| `pocketmine\resourcepacks\ResourcePackManager::__construct` | implemented | src/config.rs:575 `resource_packs` | src/config.rs::pack_paths_resolve_against_the_data_pack_folder |  |
 | `pocketmine\resourcepacks\ResourcePackManager::getPackById` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick (PLAN.md 10.8 A3): the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
-| `pocketmine\resourcepacks\ResourcePackManager::getPackEncryptionKey` | implemented | src/pack.rs:169 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `pocketmine\resourcepacks\ResourcePackManager::getPackEncryptionKey` | implemented | src/pack.rs:179 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `pocketmine\resourcepacks\ResourcePackManager::getPackIdList` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick (PLAN.md 10.8 A3): the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `pocketmine\resourcepacks\ResourcePackManager::getPath` | skipped |  |  | a pack is read once at build; Anchor keeps no path (PLAN.md 10.8 A3) |
 | `pocketmine\resourcepacks\ResourcePackManager::getResourceStack` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick (PLAN.md 10.8 A3): the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
-| `pocketmine\resourcepacks\ResourcePackManager::resourcePacksRequired` | implemented | src/config.rs:569 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
-| `pocketmine\resourcepacks\ResourcePackManager::setPackEncryptionKey` | implemented | src/pack.rs:116 `with_content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
-| `pocketmine\resourcepacks\ResourcePackManager::setResourcePacksRequired` | implemented | src/config.rs:570 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
-| `pocketmine\resourcepacks\ResourcePackManager::setResourceStack` | implemented | src/pack.rs:208 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files |  |
-| `pocketmine\resourcepacks\ZippedResourcePack` | implemented | src/pack.rs:48 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ZippedResourcePack::__construct` | implemented | src/pack.rs:84 `load` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `pocketmine\resourcepacks\ResourcePackManager::resourcePacksRequired` | implemented | src/config.rs:578 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
+| `pocketmine\resourcepacks\ResourcePackManager::setPackEncryptionKey` | implemented | src/pack.rs:126 `with_content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
+| `pocketmine\resourcepacks\ResourcePackManager::setResourcePacksRequired` | implemented | src/config.rs:579 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
+| `pocketmine\resourcepacks\ResourcePackManager::setResourceStack` | implemented | src/pack.rs:218 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files |  |
+| `pocketmine\resourcepacks\ZippedResourcePack` | implemented | src/pack.rs:58 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ZippedResourcePack::__construct` | implemented | src/pack.rs:94 `load` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `pocketmine\resourcepacks\ZippedResourcePack::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
-| `pocketmine\resourcepacks\ZippedResourcePack::getPackChunk` | implemented | src/pack.rs:163 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ZippedResourcePack::getPackId` | implemented | src/pack.rs:128 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ZippedResourcePack::getPackName` | implemented | src/pack.rs:135 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ZippedResourcePack::getPackSize` | implemented | src/pack.rs:149 `size` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\ZippedResourcePack::getPackVersion` | implemented | src/pack.rs:142 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ZippedResourcePack::getPackChunk` | implemented | src/pack.rs:173 `bytes` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ZippedResourcePack::getPackId` | implemented | src/pack.rs:138 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ZippedResourcePack::getPackName` | implemented | src/pack.rs:145 `name` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ZippedResourcePack::getPackSize` | implemented | src/pack.rs:159 `size` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\ZippedResourcePack::getPackVersion` | implemented | src/pack.rs:152 `version` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
 | `pocketmine\resourcepacks\ZippedResourcePack::getPath` | skipped |  |  | a pack is read once at build; Anchor keeps no path (PLAN.md 10.8 A3) |
-| `pocketmine\resourcepacks\ZippedResourcePack::getSha256` | implemented | src/pack.rs:156 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
-| `pocketmine\resourcepacks\json\Manifest` | merged | src/pack.rs:127 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `pocketmine\resourcepacks\json\ManifestDependencyEntry` | merged | src/pack.rs:127 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `pocketmine\resourcepacks\json\ManifestHeader` | merged | src/pack.rs:127 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `pocketmine\resourcepacks\json\ManifestMetadata` | merged | src/pack.rs:127 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
-| `pocketmine\resourcepacks\json\ManifestModuleEntry` | merged | src/pack.rs:127 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `pocketmine\resourcepacks\ZippedResourcePack::getSha256` | implemented | src/pack.rs:166 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
+| `pocketmine\resourcepacks\json\Manifest` | merged | src/pack.rs:137 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `pocketmine\resourcepacks\json\ManifestDependencyEntry` | merged | src/pack.rs:137 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `pocketmine\resourcepacks\json\ManifestHeader` | merged | src/pack.rs:137 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `pocketmine\resourcepacks\json\ManifestMetadata` | merged | src/pack.rs:137 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
+| `pocketmine\resourcepacks\json\ManifestModuleEntry` | merged | src/pack.rs:137 `uuid` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes | into `ResourcePack::getPackId` |
 
 ## `pocketmine\scheduler`
 
@@ -9405,7 +9405,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\SimpleChunkManager::setBlockAt` | skipped |  |  | generator plumbing: a generator fills a `Chunk` (PLAN.md 8.3) |
 | `pocketmine\world\SimpleChunkManager::setChunk` | skipped |  |  | generator plumbing: a generator fills a `Chunk` (PLAN.md 8.3) |
 | `pocketmine\world\World` | implemented | src/world.rs:457 `World` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `pocketmine\world\World::__construct` | merged | src/server.rs:627 `world`<br>src/tick/world_api/lifecycle.rs:462 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
+| `pocketmine\world\World::__construct` | merged | src/server.rs:632 `world`<br>src/tick/world_api/lifecycle.rs:462 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one | into `WorldManager::generateWorld` |
 | `pocketmine\world\World::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `pocketmine\world\World::addEntity` | skipped |  |  | an entity joins its world when made with `Context::spawn_*` (PLAN.md 10.8 A6) |
 | `pocketmine\world\World::addOnUnloadCallback` | implemented | src/event/world.rs:46 `WorldUnload` | src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
@@ -9554,7 +9554,7 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\WorldManager` | merged | src/tick/world_api.rs:54 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
 | `pocketmine\world\WorldManager::__construct` | skipped |  |  | the server keeps its world list; callbacks reach it through `Context` (CLAUDE.md 4.1, PLAN.md 8.1) |
 | `pocketmine\world\WorldManager::findEntity` | implemented | src/tick/entity/api.rs:1426 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
-| `pocketmine\world\WorldManager::generateWorld` | implemented | src/server.rs:627 `world`<br>src/tick/world_api/lifecycle.rs:462 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
+| `pocketmine\world\WorldManager::generateWorld` | implemented | src/server.rs:632 `world`<br>src/tick/world_api/lifecycle.rs:462 `create_world` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks<br>src/tick/world_api/lifecycle/tests.rs::a_hardcore_server_plays_every_world_on_hard<br>tests/server.rs::extra_worlds_need_names_of_their_own<br>tests/server.rs::an_extra_world_runs_beside_the_default_one |  |
 | `pocketmine\world\WorldManager::getAutoSave` | implemented | src/tick/command.rs:1413 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all |  |
 | `pocketmine\world\WorldManager::getAutoSaveInterval` | skipped |  |  | the save interval is the `save-interval` setting (CLAUDE.md 4.7, PLAN.md 8.5) |
 | `pocketmine\world\WorldManager::getDefaultWorld` | implemented | src/tick/task.rs:287 `default_world` | src/tick/task.rs::save_marks_the_tick_for_a_commit_and_the_context_reads_the_state<br>src/tick/world_api/lifecycle/tests.rs::an_unload_moves_the_players_to_the_default_world_and_a_cancel_keeps_the_world |  |
@@ -9900,10 +9900,10 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\generator\Generator::convertSeed` | skipped |  |  | a world seed is an `i64` setting (PLAN.md 8.5) |
 | `pocketmine\world\generator\Generator::generateChunk` | implemented | src/world/generator.rs:28 `generate` | src/world/chunk.rs::generators_give_the_same_bytes_for_the_same_seed_and_position |  |
 | `pocketmine\world\generator\Generator::populateChunk` | skipped |  |  | vanilla terrain generation: Anchor's generators fill a chunk in one step (CLAUDE.md 1) |
-| `pocketmine\world\generator\GeneratorManager` | merged | src/server.rs:660 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `GeneratorManager::addGenerator` |
+| `pocketmine\world\generator\GeneratorManager` | merged | src/server.rs:665 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks | into `GeneratorManager::addGenerator` |
 | `pocketmine\world\generator\GeneratorManager::__construct` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` (CLAUDE.md 4.1) |
 | `pocketmine\world\generator\GeneratorManager::addAlias` | skipped |  |  | a generator has one name, its `Generator::name` (PLAN.md 8.3) |
-| `pocketmine\world\generator\GeneratorManager::addGenerator` | implemented | src/server.rs:660 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
+| `pocketmine\world\generator\GeneratorManager::addGenerator` | implemented | src/server.rs:665 `generator` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `pocketmine\world\generator\GeneratorManager::getGenerator` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` (CLAUDE.md 4.1) |
 | `pocketmine\world\generator\GeneratorManager::getGeneratorList` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` (CLAUDE.md 4.1) |
 | `pocketmine\world\generator\GeneratorManager::getGeneratorName` | skipped |  |  | the registry is internal and fixed at build; a world names its generator in `world::Options` (CLAUDE.md 4.1) |

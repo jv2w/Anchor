@@ -78,7 +78,8 @@ pub enum Error {
     Custom(crate::custom::Error),
     /// The registered user data types break a rule; the source says which.
     Data(data::Error),
-    /// A resource pack cannot be read or offered; the source says why. Lets a program's `main`
+    /// A resource pack cannot be read or offered, or the pack folder of earlier versions cannot
+    /// be moved to `data/packs`; the source says why. Lets a program's `main`
     /// use `?` on [`Pack::from_bytes`](crate::pack::Pack::from_bytes) and the other pack calls.
     Pack(pack::Error),
     /// [`Server::import_world`](crate::Server::import_world) could not import the world; the

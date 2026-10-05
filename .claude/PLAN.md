@@ -20,7 +20,7 @@ vendor/               결함을 고친 의존성 사본과 그 사이의 바꾸�
 - vendor 규칙(사용자 결정): 결함 부분만 고친 사본을 anchor가 path 의존성(`version = "=x"` 고정과 함께)으로 직접 쓴다. `[patch.crates-io]`는 가장 바깥 workspace에만 적용되어, Anchor를 path·git 의존성으로 쓰는 사용자 프로젝트가 결함 원본을 받았기 때문이다(사용자 결정, M9에서 `[patch]`를 버림). 고친 크레이트를 타입 수준에서 쓰는 중간 크레이트(str0m-proto, str0m-aws-lc-rs, is)는 바꾸지 않은 사본으로 두고 Cargo.toml에 `path`만 더한다. `xtask/tests/downstream.rs`가 저장소 밖 임시 프로젝트의 `cargo metadata`로 일곱 크레이트가 모두 사본으로 풀리는지 본다. 결함마다 재현 시험을 두어 고치기 전 실패, 고친 뒤 통과를 확인한다. 상류가 고친 릴리스를 내면 사본을 지우고 원래 크레이트로 돌아간다. 상류에 이슈나 PR은 올리지 않는다. 사본은 작업공간에서 제외해(`exclude`) 우리 lint를 걸지 않고, 자체 시험이 있는 사본은 verify가 따로 돌린다.
 - 크레이트는 `anchor`와 `xtask` 둘이다(개발 도구 의존성이 라이브러리에 들어가지 않게). 모듈과 폴더는 필요할 때 만든다. 내려받은 외부 소스는 `.cache/`(M1에서 .gitignore에 더함).
 - 도구 설정을 점 이름으로 두면 상위 폴더와 홈의 설정이 섞이지 않는다(조사 때 실측). rust-toolchain.toml과 Cargo.lock은 점 이름을 쓸 수 없다.
-- 서버 실행 폴더는 `anchor.toml`(8.5절)과 `data/`(`server.redb`, `identity.key`, `auth.json`, `backups/`, `crash/`)뿐이다. ops, 화이트리스트, 밴은 `server.redb`의 표다. 콘솔 로그는 Anchor가 자기 스레드에만 기본 출력기를 걸고(설정 `log-level`), 사용자 바이너리는 `ServerBuilder::without_console_log`로 끄고 자기 구독자를 쓸 수 있다(CLAUDE.md 6절).
+- 서버 실행 폴더는 `anchor.toml`(8.5절)과 `data/`(`server.redb`, `identity.key`, `auth.json`, `backups/`, `crash/`, `packs/`)뿐이다. ops, 화이트리스트, 밴은 `server.redb`의 표다. 콘솔 로그는 Anchor가 자기 스레드에만 기본 출력기를 걸고(설정 `log-level`), 사용자 바이너리는 `ServerBuilder::without_console_log`로 끄고 자기 구독자를 쓸 수 있다(CLAUDE.md 6절).
 
 ## 2. 네트워크
 | 포트(기본, 설정 가능) | 용도 |
@@ -221,7 +221,7 @@ save-player-data = true
 backups = true
 # Message players see when the server stops.
 shutdown-message = "The server has stopped"
-# Resource pack files (.mcpack or .zip), relative to this file. Earlier entries override later ones.
+# Resource pack files (.mcpack or .zip), relative to data/packs. Earlier entries override later ones.
 # An encrypted pack needs its key in "<file>.key" next to it.
 resource-packs = []
 # true: players must accept the resource packs to join.
@@ -300,6 +300,7 @@ console-input = true
 - 검증: 모르는 키와 표, 타입 오류, 범위 밖 값, hardcore인데 hard가 아님, `[worlds]`에 선언되지 않은 월드 이름은 시작을 거부한다(조용히 고치지 않는다). 빠진 키는 기본값이다. 모르는 표 검사는 `build()`에서 한다. `spawn-radius`와 `tick-radius`의 실제 값은 min(값, `view-distance`)이다.
 - 우선순위: 코드가 최종 `Config` 하나를 만들고 나중에 쓴 값이 이긴다(`Config::default()` → 코드 기본값 → `load`가 파일 키를 덮음 → 강제할 값). `config()`를 안 부르면 파일을 읽지도 쓰지도 않는다. 엔진은 파일을 다시 쓰지 않고, 실행 중 변경은 종료까지만 유지된다.
 - 설정은 저장하지 않는다(사용자 결정 2026-10-05, M9 후속 U10): 설정은 시작할 때마다 `anchor.toml`과 코드(`ServerBuilder`, 실행 중 만든 월드는 `world::Options`)에서만 온다. `server.redb`에는 상태만 있다(10.6 "설정과 상태"). 실행 중 API로 바꾼 설정(서버·월드 난이도, 월드 스폰, 시간 정지, 날씨, 게임 규칙)은 다시 켜면 설정 값으로 돌아간다(rustdoc `Config`·`World`). `level-seed`가 비면 시드는 월드 이름에서 만든다(SHA-256 앞 8바이트, 시작마다 같고 월드마다 다름; 전에는 처음 만들 때 무작위로 뽑아 저장했다). `level-type`과 `ServerBuilder::world`의 생성기는 저장하지 않은 청크를 채운다. `[worlds.<이름>]`의 선택 키 `spawn = [x, y, z]`(i32 셋)는 그 월드의 스폰이고, 없으면 생성기 스폰이다(`world::Options::with_spawn`과 같은 값 `WorldSettings::spawn`). 실행 중 `create_world`로 만든 영구 월드는 다음 실행에서 `Context::load_world(이름, &Options)`로 설정을 다시 받는다.
+- 리소스팩 폴더(사용자 결정 2026-10-05, M9 후속 U16-a): `resource-packs`의 상대 경로는 데이터 폴더의 `packs`(`data/packs`) 기준이다(절대 경로는 그대로). 전에는 `anchor.toml` 폴더 기준이었고 `packs/`는 코드의 기본 폴더가 아니라 사용자 관례였다. 시작할 때(`Server::run`, 서버 파일을 연 뒤 팩을 읽기 전) 설정 파일 옆 `packs/`가 폴더이고 `data/packs`가 없으면 이름 바꾸기 한 번으로 옮긴다(실패하면 원본 그대로, `pack::Error::Folder`로 시작 실패). 둘 다 있으면 옛 폴더는 건드리지 않고 경고하며, 읽는 곳은 언제나 `data/packs` 하나다. `packs`로 시작하는 상대 경로는 `build()`가 거부한다(결정: 옛 경로를 새 곳으로 몰래 바꿔 찾지 않는다. Anchor는 설정 파일을 쓰지 않으니 사용자가 고친다; 바꿔 찾기는 숨은 규칙이 영원히 남고, 그대로 두면 `data/packs/packs/...`를 찾아 원인이 덜 분명하다).
 
 ### 8.6 주민 거래 조작 (사용자 결정, PMMP와 dragonfly에 없음)
 - 범위: 주민형 엔티티(AI 없음)의 거래 목록을 설정하고 바꾸는 API, 서버 권위 거래 처리, 거래 이벤트. 바닐라 주민 경제는 하지 않는다.
@@ -1198,6 +1199,9 @@ console-input = true
 | U11 바닐라 월드 가져오기(블록·블록 엔티티만, 사용자 결정), U11b 옛 설정 키 안내 | U11 | 완료 |
 | U12 모르는 블록을 원래 블록으로 보이기(사용자 결정) | U12 | 완료 |
 | U13 `add_effect`가 `effect::Instance`를 받음(사용자 결정) | U13 | 완료 |
+| U14 저장 크기·계속 커짐(사용자 결정) | U14 | 진행 중 |
+| U15 작업 흐름: 빌드 시간(U15B), 시작·종료 속도(U16-b에 합침) | U15B | 진행 중 |
+| U16-a 리소스팩 `data/packs`, U16-b 데이터 파일 나누기·멀티월드(사용자 결정) | U16 | 진행 중 |
 - U8 패킷 합침: 다른 플레이어 이동을 MovePlayer에서 `MoveActorAbsolute`(눈 위치, 땅 플래그, 회전, 보간됨)로 바꿈. 순간이동과 본인 보정만 MovePlayer. P6 others 차이는 intended에 등록.
 - U8 틱 합침: Windows std `thread::sleep`이 이미 고해상도 타이머임을 std 소스와 실측(200틱 p99 50.5 ms)으로 확인해 대기 방식은 그대로 둠(tokio 42~63 ms, 돌며 기다리기는 틱마다 CPU 2 ms). 측정 시험 `tests/server.rs` `tick_intervals`(ignored).
 - U1 합침: 별칭 enum을 BDS 모양 `<name>CommandAliases`(이름 먼저)로, 플레이어마다 쓸 수 있는 이름·별칭의 `CommandName` enum을 보냄, `help`는 명령으로 보내지 않음(클라이언트 자체 명령, BDS·PMMP와 같음). 권한별 목록·op 변경 뒤 다시 보내기는 원래 맞았음. 실제 클라이언트 확인 대기.
@@ -1227,6 +1231,7 @@ console-input = true
 - U10 합침(사용자 결정): redb의 설정 값은 `worlds` 기록의 여섯(시드, 스폰, 생성기, 시간 정지, 월드 난이도, 날씨)뿐이었음(10.6 "설정과 상태"). 저장 형식 8: 월드 기록은 번호와 시각만, 형식 7 이하 설정 값은 건너뜀(청크·엑스트라·플레이어·시각 무손실 시험). op·밴·화이트리스트·사용자 데이터는 redb에 둠(서버 데이터). 날씨는 저장·순환·설정 키 없음, 켜면 맑음, rustdoc에 반복 작업·`server_data` 예시(날씨 변화 이벤트는 직접 호출만 바꾸므로 8.2 규칙상 더하지 않음). `[worlds.<이름>] spawn = [x, y, z]`. 가져오기는 level.dat에서 시각만 쓰고 원래 스폰은 `Report::spawn`. 결정: 빈 `level-seed`는 월드 이름의 SHA-256 앞 8바이트로 만든 시드(저장하지 않으면 실행마다 무작위가 되어 새 청크가 달라짐; `create_world` 기본 시드도 같음). 공개 API: `Context::load_world(name, &Options)`, `WorldSettings::spawn` 필드(semver 깨짐). 남은 위험: 무작위 시드였던 기존 월드는 새 청크 경계가 생길 수 있음.
 - U13 합침(사용자 결정): 공개 API `Player::add_effect(effect::Type, duration_ticks, amplifier)` → `Player::add_effect(effect::Instance)`(입자 보임·은은한 입자·무한 지속·지속 시간·레벨을 Instance로; 같은 일의 다른 공개 함수는 없었음). `/effect`에 BDS의 `hideParticles`(Boolean)와 `infinite`(`AddInfiniteEffect`) 형태. P6 `potions`(`/effect <p> resistance 600 255 true`)에서 MobEffect `Particles`=false와 엔티티 데이터 키 131=0이 BDS와 같음(고치기 전 true·22). 무한 효과의 지속 시간 값은 PMMP처럼 효과 기본값.
 - U12 합침(사용자 결정): 저장된 모르는 블록 `{name, states}` 해시가 기준 목록의 Anchor 상태가 아닌 상태(이름 261, 상태 4,739)이면 `block::Inert`(팔레트 `Entry::Inert`, 청크 읽을 때 이분 검색 한 번, 저장 형식 그대로 → 이미 가져온 월드도 다시 가져오지 않고 적용)로 원래 해시 ID를 보냄. 서버 동작 없음(PMMP에 없는 블록 구현이 아니라 전달, 8.4). BDS 굳기·빛·충돌은 CloudburstMC `blocks.json`에서 `block_physics.json` → 생성 표. 부수기 시간 굳기×1.5÷들고 있는 도구 효율(서버가 맞는 도구를 모름), 부수면 공기·드롭 없음, `BlockBreak`·오른쪽 클릭 `PlayerInteract`는 이름 `INFO_UPDATE`로 대신(공개 API 그대로, 보호 리스너가 취소 가능). 놓기: 칸 전체 충돌이면 완전 지지, 아니면 지지·충돌 없음, 대체 안 됨(해초·켈프 칸은 데이터에 대체 정보가 없어 옆 칸에 놓음). 물 잠김 층 유지. `Report::inert_blocks`·`placeholder_blocks`. 사용자 월드 1,516만 개 모두 원래 ID(update! 0). 고친 결함: 거부된 부수기 resync가 모르는 블록을 안 보냄, `block_at`이 비활성 칸을 공기로 읽어 두 칸 블록이 덮어씀. 남은 위험: 폭발에 안 부서짐, 엔티티가 켈프·해초 칸을 물로 안 봄(기존), 왼쪽 클릭·파티클 이벤트 없음.
+- U16-a 합침(사용자 결정): 리소스팩 상대 경로 기준이 `data/packs`(`pack::FOLDER`; 원래 `packs/`는 코드의 기본 폴더가 아니라 사용자 관례였음). 시작 때 설정 파일 옆 `packs/`가 있고 `data/packs`가 없으면 rename 한 번(`pack::move_old_folder`, 실패하면 원본 그대로 `pack::Error::Folder`로 시작 실패), 둘 다 있으면 경고하고 옛 폴더 그대로. 결정: `packs`로 시작하는 상대 경로는 build에서 거부(Anchor는 설정 파일을 쓰지 않으므로 사용자가 고침; 몰래 새 위치에서 찾는 숨은 규칙을 두지 않음).
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

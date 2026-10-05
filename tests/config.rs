@@ -172,7 +172,7 @@ view-distance = 8
 save-player-data = false
 backups = false
 shutdown-message = "Bye"
-resource-packs = ["a.mcpack", "packs/b.zip"]
+resource-packs = ["a.mcpack", "lobby/b.zip"]
 force-resources = true
 log-level = "debug"
 
@@ -256,7 +256,7 @@ fn custom() -> Config {
     g.save_player_data = false;
     g.backups = false;
     g.shutdown_message = "Bye".to_owned();
-    g.resource_packs = vec!["a.mcpack".into(), "packs/b.zip".into()];
+    g.resource_packs = vec!["a.mcpack".into(), "lobby/b.zip".into()];
     g.force_resources = true;
     g.log_level = LogLevel::Debug;
     let d = &mut config.developer;
