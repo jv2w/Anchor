@@ -12,14 +12,19 @@
 //! The thread that raises an event only formats its line and queues it: one log thread of its
 //! own writes the lines, so a console that stops taking writes (a selection in a Windows console,
 //! a full pipe) never holds up the tick or the network. A line that finds the queue full is
-//! dropped, and the log thread writes how many were before its next line and at the end.
+//! dropped, and the log thread writes how many were before its next line and at the end. The end
+//! of the log waits [`END_WAIT`] at most for the thread to write what is queued: past it the
+//! thread is left to finish on its own, so such a console does not hold up the end of `run`
+//! either.
 
 use std::cell::Cell;
 use std::fmt::{self, Write as _};
 use std::io::{self, Write};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::mpsc::Receiver;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
 use tracing::dispatcher::{self, DefaultGuard};
@@ -38,6 +43,9 @@ const QUEUE_LINES: usize = 4096;
 const LINE_BYTES: usize = 4096;
 /// Ends the text of a line that was cut.
 const CUT: &str = "…(cut)";
+/// How long the end of the log waits for the log thread to write the lines still queued. A
+/// console that takes no writes for this long loses them if the program then exits.
+const END_WAIT: Duration = Duration::from_secs(5);
 
 /// The console log's subscriber: events (and `enabled!` hints) up to `max`, spans never.
 #[derive(Debug)]
@@ -105,7 +113,7 @@ impl Dropped {
 }
 
 /// Anchor's console log: its subscriber and the thread that writes its lines. Dropping it lets
-/// the thread write the lines already queued, then joins it.
+/// the thread write the lines already queued, then joins it, or leaves it after [`END_WAIT`].
 #[derive(Debug)]
 pub(crate) struct Log {
     dispatch: Dispatch,
@@ -114,6 +122,8 @@ pub(crate) struct Log {
     lines: Option<mpsc::Sender<Item>>,
     drained: Drained,
     thread: Option<JoinHandle<()>>,
+    /// Gets one message when the log thread has written its last line.
+    ended: Receiver<()>,
 }
 
 /// The console log as the calling thread's default ([`Log::install`]). Dropping it removes the
@@ -144,7 +154,8 @@ pub(crate) fn start(level: LogLevel) -> io::Result<Option<Log>> {
 /// [`start`] with the log thread writing on `out`.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the log thread blocks on its writer, which no pool may do"
+    reason = "off-tick: the log thread blocks on its writer, which no pool may do, and reports \
+              its end on a channel of one message"
 )]
 fn start_writing(level: LogLevel, out: impl Write + Send + 'static) -> io::Result<Option<Log>> {
     let max = match level {
@@ -156,6 +167,7 @@ fn start_writing(level: LogLevel, out: impl Write + Send + 'static) -> io::Resul
         LogLevel::Trace => Level::TRACE,
     };
     let (lines, queue) = mpsc::channel(QUEUE_LINES);
+    let (end, ended) = std::sync::mpsc::sync_channel(1);
     let dropped = Arc::new(Dropped::default());
     let logger = Logger {
         max,
@@ -165,12 +177,19 @@ fn start_writing(level: LogLevel, out: impl Write + Send + 'static) -> io::Resul
     // The log thread takes on no subscriber: nothing it does is logged.
     let thread = std::thread::Builder::new()
         .name("anchor-log".to_owned())
-        .spawn(move || write_lines(queue, &dropped, out))?;
+        .spawn(move || {
+            write_lines(queue, &dropped, out);
+            // The one message fits; once the end has stopped waiting, nobody needs it.
+            match end.try_send(()) {
+                Ok(()) | Err(_) => {}
+            }
+        })?;
     Ok(Some(Log {
         dispatch: Dispatch::new(logger),
         drained: Drained(lines.downgrade()),
         lines: Some(lines),
         thread: Some(thread),
+        ended,
     }))
 }
 
@@ -187,7 +206,13 @@ impl Log {
 impl Drop for Log {
     fn drop(&mut self) {
         drop(self.lines.take());
-        if let Some(thread) = self.thread.take() {
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        // A thread still writing after `END_WAIT` holds the queue's last lines, at most
+        // `QUEUE_LINES`: it ends once the console takes them, or with the process. Dropping the
+        // handle leaves it to that. A thread that panicked dropped its sender: nothing to wait for.
+        if self.ended.recv_timeout(END_WAIT).is_ok() {
             // The thread only writes; a panic there leaves nothing to clean up or report.
             match thread.join() {
                 Ok(()) | Err(_) => {}
@@ -727,6 +752,20 @@ pub(crate) mod tests {
             .collect();
         let wanted: Vec<String> = (0..10).map(|n| format!("INFO  line (n={n})")).collect();
         assert_eq!(lines, wanted);
+    }
+
+    /// A console that takes no writes holds up the end of the log for [`END_WAIT`] at most: the
+    /// log thread is left to write the rest and end once the console takes writes again.
+    #[test]
+    fn a_console_that_takes_no_writes_does_not_hold_up_the_end() {
+        let gate = Gate::default();
+        let log = start_writing(LogLevel::Info, gate.clone())
+            .unwrap()
+            .unwrap();
+        dispatcher::with_default(&log.dispatch, || info!("held"));
+        let ended = ends_in_time(move || drop(log));
+        gate.open();
+        assert!(ended, "the end waited for the console");
     }
 
     /// A thread that keeps the subscriber, as a console thread still waiting for input does,
