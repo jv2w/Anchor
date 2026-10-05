@@ -238,7 +238,7 @@ checkpoint::fields!(ViewLimits {
 /// built and moved into the state when it runs. Each field belongs to the module that uses it.
 #[derive(Debug, Default)]
 pub(crate) struct Setup {
-    /// The event listeners and monitors, sorted by [`Listeners::sort`].
+    /// The event listeners and monitors, each in calling order.
     pub(crate) listeners: Listeners,
     /// The scheduled tasks.
     pub(crate) tasks: Tasks,

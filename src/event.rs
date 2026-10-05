@@ -365,7 +365,7 @@ mod sealed {
         world_particle: super::WorldParticle,
     }
 
-    /// The listeners and monitors of one event, in calling order after [`Listeners::sort`].
+    /// The listeners and monitors of one event, in calling order (see [`Listeners::push`]).
     ///
     /// Most events have neither, so an empty list is a null pointer: the table of every event
     /// stays small and [`is_empty`](Self::is_empty) is one comparison.
