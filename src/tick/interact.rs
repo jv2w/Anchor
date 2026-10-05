@@ -1535,7 +1535,7 @@ fn drops_of(
                 )
             });
             if finite {
-                let experience = state.settings.experience;
+                let experience = state.settings.has_orbs();
                 for (p, s) in affected.iter().flatten() {
                     if s.custom_block().is_some() {
                         let (items, x) = custom::drops_of(state, *s, tool, rng);

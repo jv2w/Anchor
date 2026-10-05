@@ -125,8 +125,8 @@ pub(super) fn throw_with(
     } else if t.is(Class::EnderPearl) {
         Shot::EnderPearl
     } else if t.is(Class::ExperienceBottle) {
-        // `experience-orbs = false` refuses the throw.
-        if !state.settings.experience_orbs {
+        // Without orbs (`experience-orbs` or `experience` false) the throw is refused.
+        if !state.settings.has_orbs() {
             return false;
         }
         Shot::ExperienceBottle
@@ -2135,19 +2135,22 @@ mod tests {
         );
     }
 
-    /// `experience-orbs = false`: a bottle o' enchanting is not thrown (the caller keeps it);
-    /// other projectiles still are.
+    /// `experience-orbs = false` or `experience = false`: a bottle o' enchanting is not thrown
+    /// (the caller keeps it); other projectiles still are.
     #[test]
     fn experience_orbs_off_refuses_the_bottle_throw() {
-        let mut h = Harness::new(1);
-        h.spawn(1, standing(0.0, 0.0));
-        h.state.settings.experience_orbs = false;
-        let bottle = stack("minecraft:experience_bottle", 1);
-        assert!(!throw_with(&mut h.state, session(1), &bottle, TEST_HOOKS));
-        assert!(h.live().is_empty());
-        let snowball = stack("minecraft:snowball", 1);
-        assert!(throw_with(&mut h.state, session(1), &snowball, TEST_HOOKS));
-        assert_eq!(h.live().len(), 1);
+        for experience in [true, false] {
+            let mut h = Harness::new(1);
+            h.spawn(1, standing(0.0, 0.0));
+            h.state.settings.experience = experience;
+            h.state.settings.experience_orbs = !experience;
+            let bottle = stack("minecraft:experience_bottle", 1);
+            assert!(!throw_with(&mut h.state, session(1), &bottle, TEST_HOOKS));
+            assert!(h.live().is_empty());
+            let snowball = stack("minecraft:snowball", 1);
+            assert!(throw_with(&mut h.state, session(1), &snowball, TEST_HOOKS));
+            assert_eq!(h.live().len(), 1);
+        }
     }
 
     #[test]

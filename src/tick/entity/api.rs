@@ -1528,7 +1528,8 @@ impl Context<'_> {
     /// Drops `amount` experience points as orbs at `pos` in `world` (PMMP
     /// `World::dropExperience`: split into the orb sizes, each with a random motion) and returns
     /// the points dropped: fewer at the world's entity limit, none for a world the server does
-    /// not have, a `pos` that is not loaded, or with `experience = false`.
+    /// not have, a `pos` that is not loaded, or with `experience = false` or
+    /// `experience-orbs = false`.
     #[doc(alias = "World::dropExperience")]
     pub fn drop_experience(&mut self, world: world::Id, pos: Vec3, amount: u32) -> u32 {
         match index(self.state, world) {
@@ -1538,10 +1539,11 @@ impl Context<'_> {
     }
 
     /// Spawns one experience orb of `value` points (1 to 32,767) at `pos` in `world`, at rest.
-    /// `None` for another value, where [`Self::drop_item`] fails, or with `experience = false`.
+    /// `None` for another value, where [`Self::drop_item`] fails, or with `experience = false` or
+    /// `experience-orbs = false`.
     #[doc(alias = "ExperienceOrb::__construct")]
     pub fn spawn_experience_orb(&mut self, world: world::Id, pos: Vec3, value: u16) -> Option<Id> {
-        if !self.state.settings.experience || value == 0 || value > i16::MAX.cast_unsigned() {
+        if !self.state.settings.has_orbs() || value == 0 || value > i16::MAX.cast_unsigned() {
             return None;
         }
         let orb = Orb {

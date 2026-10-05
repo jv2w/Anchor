@@ -2044,7 +2044,7 @@ fn furnace_smelt(
         made = (!e.cancelled && !changed).then(|| e.result.clone());
         *smelted = made.is_some().then_some(e);
     }
-    let experience = state.settings.experience.then_some(rng);
+    let experience = state.settings.has_orbs().then_some(rng);
     let (f, items, _) = furnace_at(state, world, pos)?;
     match made {
         Some(made) if furnace::Furnace::fits(items, &made) => f.smelt(items, &made, experience, t),

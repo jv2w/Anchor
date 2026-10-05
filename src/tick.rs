@@ -113,7 +113,8 @@ pub(crate) struct Settings {
     hunger: bool,
     /// Whether players gain experience (`experience`).
     experience: bool,
-    /// Whether experience orbs exist and bottles o' enchanting can be thrown (`experience-orbs`).
+    /// Whether experience orbs exist and bottles o' enchanting can be thrown (`experience-orbs`);
+    /// the rules ask [`Settings::has_orbs`], which also needs `experience`.
     experience_orbs: bool,
     /// Whether falling hurts (`fall-damage`).
     fall_damage: bool,
@@ -200,6 +201,14 @@ impl Settings {
             random_tick_speed: developer.random_tick_speed,
             no_random_ticks: update::untickable(&developer.disable_block_ticking),
         }
+    }
+
+    /// Whether experience orbs exist (PLAN.md 10.9): `experience-orbs` with `experience`, as
+    /// no experience means no orbs. Off, no rule works out experience to drop, no orb is made
+    /// or loaded and no bottle o' enchanting is thrown; points and levels follow `experience`
+    /// alone.
+    fn has_orbs(&self) -> bool {
+        self.experience && self.experience_orbs
     }
 
     /// How the worlds' light is worked out (`lighting`, `fixed-light-level`).
@@ -502,7 +511,7 @@ impl State {
         state
             .rules
             .entities
-            .set_experience(state.settings.experience);
+            .set_experience(state.settings.has_orbs());
         view::hold_spawns(&mut state);
         state
     }

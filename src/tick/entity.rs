@@ -1220,7 +1220,8 @@ impl Entities {
         out
     }
 
-    /// Takes the `experience` setting (at start, before any chunk loads).
+    /// Takes whether orbs exist ([`super::Settings::has_orbs`]; at start, before any chunk
+    /// loads).
     pub(super) fn set_experience(&mut self, on: bool) {
         self.experience = on;
     }
@@ -1903,15 +1904,18 @@ fn max_delay(d: i16) -> i16 {
 
 /// Drops `amount` experience as orbs at `pos` (PMMP `World::dropExperience`: split into the orb
 /// sizes, each with a random motion). At the world's entity limit the rest is not dropped:
-/// experience is not an item a caller can keep. With `experience = false` nothing drops: every
-/// rule that gives experience (blocks, mobs, furnaces, trades, bottles, deaths) comes here.
+/// experience is not an item a caller can keep. Without orbs ([`Settings::has_orbs`]) nothing
+/// drops: every rule that gives experience (blocks, mobs, furnaces, trades, bottles, deaths)
+/// comes here.
+///
+/// [`Settings::has_orbs`]: super::Settings::has_orbs
 pub(super) fn drop_experience(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) {
     drop_orbs(state, world, pos, amount);
 }
 
 /// [`drop_experience`], returning the points dropped.
 fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u32 {
-    if !state.settings.experience {
+    if !state.settings.has_orbs() {
         return 0;
     }
     let mut left = amount;
@@ -2546,7 +2550,7 @@ fn died(state: &mut State, id: Id, world: WorldIndex, at: Vec3) {
             &[u64::from(id.index()), u64::from(id.generation())],
         );
         drops = zombie_drops(&mut Random::new(seed, state.tick, key));
-        if state.settings.experience {
+        if state.settings.has_orbs() {
             xp = ZOMBIE_XP;
         }
     }
@@ -5104,30 +5108,39 @@ mod tests {
         assert_eq!(EXPERIENCE.with(Cell::get), 100);
     }
 
-    /// `experience = false`: neither the rules nor the API make orbs.
+    /// `experience = false` or `experience-orbs = false`: neither the rules nor the API make
+    /// orbs.
     #[test]
-    fn without_experience_no_orbs_are_made() {
-        let mut h = Harness::with_config(1, Listeners::default(), |c| {
-            c.general.experience = false;
-        });
-        h.spawn(1, standing(0.0, 0.0));
-        let next = h.state.next_runtime_id;
-        drop_experience(&mut h.state, 0, at(2.5, -59.0, 0.5), 100);
-        let mut cx = crate::tick::Context {
-            state: &mut h.state,
-        };
-        let world = crate::world::Id::DEFAULT;
-        assert_eq!(cx.drop_experience(world, at(2.5, -59.0, 0.5), 100), 0);
-        assert_eq!(cx.spawn_experience_orb(world, at(2.5, -59.0, 0.5), 5), None);
-        assert!(h.live().is_empty());
-        assert_eq!(h.state.next_runtime_id, next, "no runtime ID is used");
+    fn without_experience_or_orbs_no_orbs_are_made() {
+        let off: [fn(&mut crate::config::Config); 2] = [
+            |c| c.general.experience = false,
+            |c| c.general.experience_orbs = false,
+        ];
+        for (i, edit) in off.into_iter().enumerate() {
+            let mut h = Harness::with_config(1, Listeners::default(), edit);
+            h.spawn(1, standing(0.0, 0.0));
+            let next = h.state.next_runtime_id;
+            drop_experience(&mut h.state, 0, at(2.5, -59.0, 0.5), 100);
+            let mut cx = crate::tick::Context {
+                state: &mut h.state,
+            };
+            let world = crate::world::Id::DEFAULT;
+            assert_eq!(cx.drop_experience(world, at(2.5, -59.0, 0.5), 100), 0, "{i}");
+            assert_eq!(
+                cx.spawn_experience_orb(world, at(2.5, -59.0, 0.5), 5),
+                None,
+                "{i}"
+            );
+            assert!(h.live().is_empty(), "{i}");
+            assert_eq!(h.state.next_runtime_id, next, "no runtime ID is used ({i})");
+        }
     }
 
-    /// `experience = false`: the orbs of a saved chunk are dropped as it loads, out of the tick
-    /// radius too (no runtime ID, never sent), and the chunk is saved without them; with
-    /// experience they stay.
+    /// `experience = false` or `experience-orbs = false`: the orbs of a saved chunk are dropped
+    /// as it loads, out of the tick radius too (no runtime ID, never sent), and the chunk is
+    /// saved without them; with both they stay.
     #[test]
-    fn without_experience_saved_orbs_are_dropped_as_their_chunk_loads() {
+    fn without_experience_or_orbs_saved_orbs_are_dropped_as_their_chunk_loads() {
         let key = (0, ChunkPos::new(5, 0));
         let list = {
             let mut h = Harness::new(1);
@@ -5143,9 +5156,10 @@ mod tests {
         // The stand-in save thread's markers come with them, kept as saved.
         let without: Vec<Compound> = list.iter().filter(|c| !is_orb(c)).cloned().collect();
         assert_eq!(list.len() - without.len(), 1, "one orb: {list:?}");
-        for experience in [false, true] {
+        for (experience, orbs) in [(false, true), (true, false), (true, true)] {
             let mut h = Harness::with_config(1, Listeners::default(), |c| {
                 c.general.experience = experience;
+                c.general.experience_orbs = orbs;
                 c.developer.tick_radius = 2;
             });
             let (j, rx) = join(1, 0);
@@ -5162,11 +5176,12 @@ mod tests {
             for _ in 0..3 {
                 h.step(Vec::new());
             }
-            let kept = if experience { 2 } else { 1 };
-            assert_eq!(h.live().len(), kept, "experience {experience}");
-            assert_eq!(adds(&h.take(1)).len(), kept, "experience {experience}");
+            let both = experience && orbs;
+            let kept = if both { 2 } else { 1 };
+            assert_eq!(h.live().len(), kept, "experience {experience}, orbs {orbs}");
+            assert_eq!(adds(&h.take(1)).len(), kept, "experience {experience}, orbs {orbs}");
             let saved = h.state.rules.entities.unload(key);
-            if experience {
+            if both {
                 assert_eq!(saved, None, "nothing changed");
             } else {
                 assert_eq!(saved, Some(without.clone()), "saved without the orb");
