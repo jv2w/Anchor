@@ -30,6 +30,10 @@ pub(crate) fn read_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
         return Err(io::ErrorKind::FileTooLarge.into());
     }
     let mut bytes = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "safety: `take` bounds the read to `limit + 1` bytes"
+    )]
     file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
     if u64::try_from(bytes.len()).map_or(true, |read| read > limit) {
         return Err(io::ErrorKind::FileTooLarge.into());

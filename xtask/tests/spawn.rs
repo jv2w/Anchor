@@ -969,6 +969,7 @@ fn post_offer(port: u16) -> (u16, String) {
 /// Sends one HTTP request to the signaling port and returns the status and body.
 #[expect(
     clippy::disallowed_types,
+    clippy::disallowed_methods,
     reason = "off-tick: test tooling outside the server"
 )]
 fn http(port: u16, request: &str) -> (u16, String) {
