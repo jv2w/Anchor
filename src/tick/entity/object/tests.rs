@@ -636,6 +636,23 @@ fn throw_trident(h: &mut Harness, ticks: u32) {
     release(h);
 }
 
+/// BDS sounds a trident's throw at the middle of the thrower's body (P6 `itemuse`,
+/// m9-facts.md ITEMUSE).
+#[test]
+fn a_trident_throw_sounds_at_the_middle_of_the_body() {
+    let mut h = harness();
+    hold(&mut h, stack("minecraft:trident", 1));
+    h.take(1);
+    throw_trident(&mut h, 20);
+    let feet = h.state.players[&session(1)].position.y - 1.62;
+    let throw = h.take(1).into_iter().find_map(|p| match p {
+        Packet::LevelSoundEvent(s) if s.sound_type == "item.trident.throw" => Some(s.position),
+        _ => None,
+    });
+    let [_, y, _] = throw.expect("the throw sound");
+    assert!((f64::from(y) - (feet + 0.9)).abs() < 1e-4, "{y} {feet}");
+}
+
 #[test]
 fn a_thrown_trident_hits_sticks_and_comes_back_once() {
     let mut h = harness();

@@ -24,9 +24,9 @@ use super::kind::{
 };
 use super::physics::{BlockHit, Flight, intercept};
 use super::{
-    Blow, Cause, Hooks, Hurt, Knock, PLAYER_EYE_HEIGHT, Raise, State, combust, create, direction,
-    discard, heal, hurt, is_live, level_event, level_of, npc, pickup_event, player_actor,
-    player_box, push_entity, send_to, targetable, with, worn,
+    Blow, Cause, Hooks, Hurt, Knock, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, Raise, State, combust,
+    create, direction, discard, heal, hurt, is_live, level_event, level_of, npc, pickup_event,
+    player_actor, player_box, push_entity, send_to, targetable, with, worn,
 };
 use crate::block::{self, Face, TypeTag};
 use crate::config::GameMode;
@@ -68,6 +68,10 @@ const SPLASH_REACH: Vec3 = Vec3::new(4.125, 2.125, 4.125);
 const SPLASH_RANGE: f64 = 4.0;
 /// The shortest effect a splash gives, in ticks.
 const SPLASH_MIN_TICKS: f64 = 20.0;
+/// BDS's splash duration share ([`duration_share`]): `1.05 − 0.225 × distance`, at most 1
+/// (measured: 2565, 1755 and 945 of 3600 ticks at 1.5, 2.5 and 3.5 blocks).
+const SPLASH_DURATION_FULL: f64 = 1.05;
+const SPLASH_DURATION_FALLOFF: f64 = 0.225;
 /// The shake data of an arrow that hits a block (PMMP `ArrowShakeAnimation`).
 const ARROW_SHAKE: i32 = 7;
 /// Bow draws (PMMP `Bow::onReleaseUsing`): the weakest force and the fewest ticks that shoot.
@@ -333,8 +337,9 @@ pub(super) fn release_trident_with(
     if !launch(state, id, still) {
         return false;
     }
-    let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
-    super::play(state, world, feet, crate::world::Sound::TridentThrow);
+    // BDS plays it at the middle of the thrower's body (P6 `itemuse`, m9-facts.md ITEMUSE).
+    let middle = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT - PLAYER_HEIGHT / 2.0, 0.0);
+    super::play(state, world, middle, crate::world::Sound::TridentThrow);
     true
 }
 
@@ -979,8 +984,9 @@ pub(super) fn new_cloud(effects: &[crate::effect::Instance]) -> Cloud {
 }
 
 /// A potion hits (PMMP `SplashPotion::onHit`): a splash gives its effects to the players and
-/// NPCs within 4 blocks of their eyes, weaker with the distance (full to what it hit); a
-/// lingering potion leaves a cloud; a water bottle puts out the fire it lands by.
+/// NPCs within 4 blocks of their eyes, weaker with the distance (full to what it hit: durations
+/// by [`duration_share`], instant effects by PMMP's distance from the eyes); a lingering potion
+/// leaves a cloud; a water bottle puts out the fire it lands by.
 #[expect(
     clippy::too_many_arguments,
     reason = "consistency: the hit's parts, as PMMP's `onHit` reads them from its event"
@@ -1023,11 +1029,16 @@ fn potion_hit(
             } else {
                 1.0 - d2.sqrt() / SPLASH_RANGE
             };
+            let share = if same(target, struck) {
+                1.0
+            } else {
+                duration_share(state, target, at)
+            };
             for &effect in effects {
                 if effect.effect().is_instant() {
                     instant(state, target, effect, potency, by, hooks);
                 } else {
-                    let ticks = (f64::from(effect.duration_ticks()) * 0.75 * potency).round();
+                    let ticks = (f64::from(effect.duration_ticks()) * share).round();
                     if ticks < SPLASH_MIN_TICKS {
                         continue;
                     }
@@ -1095,6 +1106,35 @@ fn eye_of(state: &State, target: Struck) -> Option<Vec3> {
         }
         Struck::Block(_) => None,
     }
+}
+
+/// The share of a splash potion's effect durations `target` gets from a splash at `at`, as BDS
+/// gives it (P6 `itemuse`, m9-facts.md ITEMUSE): full within 2/9 of a block of the target's
+/// upright middle line (feet to the top of its box), then 0.225 less per block. PMMP's
+/// `0.75 × (1 − distance from the eyes / 4)` gives a third less at the feet and differs with the
+/// height of the splash, which BDS ignores beside the body.
+fn duration_share(state: &State, target: Struck, at: Vec3) -> f64 {
+    let b = match target {
+        Struck::Player(s) => state.players.get(&s).map(player_box),
+        Struck::Entity(id) => state
+            .rules
+            .entities
+            .get(id)
+            .map(super::Entity::bounding_box),
+        Struck::Block(_) => None,
+    };
+    let Some(b) = b else {
+        return 0.0;
+    };
+    let line = Vec3::new(
+        f64::midpoint(b.min.x, b.max.x),
+        crate::math::clamp(at.y, b.min.y, b.max.y),
+        f64::midpoint(b.min.z, b.max.z),
+    );
+    crate::math::min(
+        1.0,
+        SPLASH_DURATION_FULL - SPLASH_DURATION_FALLOFF * line.distance_squared(at).sqrt(),
+    )
 }
 
 /// The feet position of a player or NPC.
@@ -1991,7 +2031,7 @@ mod tests {
     }
 
     #[test]
-    fn splash_potions_give_effects_weaker_with_the_distance_from_the_eyes() {
+    fn splash_potions_give_bds_durations_and_instant_effects_weaker_from_the_eyes() {
         let mut h = Harness::new(1);
         h.spawn(1, standing(0.0, 0.0));
         h.spawn(2, standing(2.0, 0.0));
@@ -2015,18 +2055,17 @@ mod tests {
             .find(|p| format!("{p:?}") == "Regeneration")
             .unwrap()
             .effects()[0];
-        let expected = |eye: Vec3| {
-            let potency = 1.0 - eye.distance_squared(hit).sqrt() / SPLASH_RANGE;
-            (f64::from(regeneration.duration_ticks()) * 0.75 * potency).round()
-        };
+        // BDS (P6 `itemuse`): the whole duration at the feet, 1.05 − 0.225 × 2 of it two blocks
+        // from the body's middle line.
+        let full = f64::from(regeneration.duration_ticks());
+        let expected = [full, (full * 0.6).round()];
         let eyes = [1, 2].map(|n| h.state.players[&session(n)].position);
         assert_eq!(effects.len(), 2, "player 3 is beyond 4 blocks: {effects:?}");
-        for ((who, e), (n, eye)) in effects.iter().zip([1u64, 2].into_iter().zip(eyes)) {
+        for ((who, e), (n, ticks)) in effects.iter().zip([1u64, 2].into_iter().zip(expected)) {
             assert_eq!(*who, n);
             assert_eq!(e.effect(), regeneration.effect());
-            assert_eq!(f64::from(e.duration_ticks()), expected(eye));
+            assert_eq!(f64::from(e.duration_ticks()), ticks);
         }
-        assert!(effects[0].1.duration_ticks() > effects[1].1.duration_ticks());
         // Harming: instant damage scaled the same way.
         calls(|c| c.damage.clear());
         assert!(throw_with(

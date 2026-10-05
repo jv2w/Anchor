@@ -128,8 +128,8 @@ const FACTS_ONLY: [&str; 27] = [
 /// The M9 verification scenarios that compare their checks only, not the fixed-field packets of
 /// their steps: what each checks is its item (potion colours and cloud, another player, chat
 /// limits, item use), and the other packets differ for reasons recorded in
-/// `xtask/data/p6/m9-facts.md` (a splash's effect durations follow PMMP, Anchor keeps no default
-/// death message).
+/// `xtask/data/p6/m9-facts.md` (Anchor keeps no default death message, its projectiles fly
+/// otherwise).
 const CHECKS_ONLY: &[&str] = &[
     "potions",
     "others",

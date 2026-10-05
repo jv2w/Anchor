@@ -80,7 +80,7 @@ M9 서브에이전트가 BDS에서 확인한 사실이다. 메인이 PLAN.md 10.
 - 그림: 블록 서쪽 면에 걸면 Direction 1, 위치는 그림 가운데(벽에서 1/32 앞, 예 `[13.96875, -58, 13]`), BDS는 맞는 가장 큰 무늬 중 하나(이번 `orb`). Anchor와 위치·방향 같음.
 - 폭죽(폭발 없음, Flight 1): 16 `{Fireworks:{Explosions:[], Flight:1}}`, 17 Vec3 `[0,1,0]`, 18 int64 −1, 5(owner) −1. 터질 때 폭발이 없어도 ActorEvent 25(데이터 0). → Anchor 고침(Flight는 비행 시간에서 계산, 소유자 −1, 폭발 없어도 25).
 - 엔드 크리스털(`summon ender_crystal`): 47 BlockTarget `[0,0,0]`, 플래그 FireImmune. Anchor와 47 같음.
-- 삼지창: 맞은 주민에게 ActorEvent 2 데이터 3(투사체), 삼지창은 수평 속도가 반대로(약 −0.01배) 튕기고 `item.trident.hit` 뒤 땅에 떨어짐. Anchor도 튕김(`trident bounced` SAME). Anchor는 던질 때 `item.trident.throw` 소리를 안 보냄(남은 차이, 소리 영역).
+- 삼지창: 맞은 주민에게 ActorEvent 2 데이터 3(투사체), 삼지창은 수평 속도가 반대로(약 −0.01배) 튕기고 `item.trident.hit` 뒤 땅에 떨어짐. Anchor도 튕김(`trident bounced` SAME). 던지기 소리 `item.trident.throw`는 Anchor도 보내지만 AddActor보다 먼저라, AddActor 뒤부터 세는 이 봇이 놓쳤다(ITEMUSE에서 다시 잼).
 
 ### 21 주민 직업 번호
 - BDS 데이터(`behavior_packs/vanilla` villager_v2): 0 무직, 1 농부, 2 어부, 3 양치기, 4 화살 제조인, 5 사서, 6 지도 제작자, 7 성직자, 8 갑옷 제조인, 9 무기 제조인, 10 도구 제조인, 11 도축업자, 12 가죽 세공인, 13 석공, 14 니트윗. 소환한 주민의 Variant와 거래 창 제목이 이 표와 맞는다(예 3 → `entity.villager.shepherd`, 7 → `entity.villager.cleric`). Anchor 표(`trade.rs`)와 같다.
@@ -108,3 +108,6 @@ M9 서브에이전트가 BDS에서 확인한 사실이다. 메인이 PLAN.md 10.
 - 공식 클라이언트 순서(bedrock-protocol-docs changelog 776 `StartUsingItem`, 고정 gophertunnel `InputFlagStartUsingItem`): 사용 동작이 있는 아이템은 InventoryTransaction UseItem ClickAir와 같은 틱 PlayerAuthInput의 `StartUsingItem` 플래그로 시작한다. 서버는 동의하면 SetActorData 플래그 UsingItem(4)을 켜고, 아니면 끈다. 클라이언트는 이 답으로 동작을 잇거나 멈춘다. 활·삼지창은 InventoryTransaction ReleaseItem으로 끝난다. 던지는 아이템은 ClickAir뿐이다.
 - BDS: 활·삼지창을 당기는 동안 자신에게 UsingItem을 켜고 놓으면 끈다(화살·삼지창 나감). 물약을 마시는 동안 켜고, 마시기는 BDS 자기 시계로 끝낸다(CompletedUsingItem). Anchor는 PMMP·dragonfly처럼 사용 시간이 지난 뒤의 두 번째 ClickAir로 끝낸다(효과·병 같음).
 - Anchor 결함(U5): UsingItem에 먹기·마시기만 넣고 활·삼지창은 넣지 않았다 → 클라이언트가 당기기를 바로 멈췄다. PMMP `ACTION` 플래그(`startAction`)처럼 활·삼지창·염소 뿔·망원경(PMMP `Releasable`) 사용도 넣었다.
+- 삼지창 던지기 소리(R4): BDS는 `item.trident.throw`(데이터 −1)를 던진 사람의 발 + 0.9(몸 가운데)에서 낸다. Anchor는 발 높이였다 → 몸 가운데로. BDS는 그 뒤 삼지창 엔티티에 `disappeared`·`reappeared` 소리도 보낸다(화살도 같음; 범위 밖 남은 차이).
+- 투척 물약 지속 시간(R4): 벽(발에서 1.5·2.5·3.5블록)에 깨진 야간 투시(3,600틱)는 2,565·1,755·945틱, 긴 것(9,600틱) 2.5블록은 4,680틱, 발밑은 3,600틱. 몸 높이 안(발 위 0.3~1.6)에서는 높이와 상관없이 같다. → 비율 = min(1, 1.05 − 0.225 × 몸 가운데 세로선(발~상자 위)까지 거리). PMMP는 0.75 × (1 − 눈까지 거리/4)라 발밑에서 약 0.45배였다(`potions` 1,607틱). 머리 위 1블록쯤에서는 이 식과 BDS가 몇 틱 다르다(1.5블록·머리 위 0.97: 식 2,334, BDS 2,339; 검증 필요). 즉시 효과(치유·피해)의 거리 식은 BDS로 재지 않아 PMMP 그대로다.
+- 남은 차이(범위 밖): Anchor의 투척 물약은 BDS보다 낮게 난다(같은 겨냥에서 BDS는 3.5블록 벽 높이 1.6에, Anchor는 땅에; 던지는 각도·힘 차이로 보임). 삼지창도 짧게 난다(1초 당겨 수평으로 BDS 약 24블록, Anchor 약 12블록).

@@ -11,7 +11,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The itemuse scenario uses items in the air the way the official client does (M9 follow-up U5). An item
+// The itemuse scenario uses items in the air the way the official client does (M9 follow-up U5, R4). An item
 // with a use animation (a bow, a trident, a potion to drink) starts with an InventoryTransaction UseItem
 // ClickAir and, in the PlayerAuthInput of the same tick, the StartUsingItem input flag; the server answers with
 // the UsingItem entity flag (bedrock-protocol-docs changelog 776: true if it agrees). A bow or trident ends with
@@ -19,9 +19,11 @@ import (
 // item is a ClickAir alone.
 //
 //	bow      drawn for one second and released: the UsingItem flag while drawing, the arrow
-//	trident  drawn for one second and released: the flag
+//	trident  drawn for one second and released: the flag and the throw sound
 //	drink    a night vision potion drunk: the flag, the effect and the bottle left
 //	snowball thrown: the snowball
+//	splash   night vision splash potions broken at the feet and on walls 1.5 to 3.5 blocks away (one a long
+//	         potion, one above the head): the effect durations
 func init() {
 	gameScenarios["itemuse"] = playItemUse
 	gameAreas["itemuse"] = protocol.BlockPos{-20, -60, -4}
@@ -29,6 +31,9 @@ func init() {
 
 // nightVision is the item metadata of the night vision potion (3 minutes) on both servers.
 const nightVision = 5
+
+// longNightVision is the long night vision potion (8 minutes).
+const longNightVision = 6
 
 // usingItem reports the bot's own UsingItem entity flag.
 func (g *game) usingItem() bool {
@@ -144,7 +149,7 @@ func playItemUse(g *game) error {
 	}
 	g.check("bow released", !g.usingItem())
 
-	// The trident.
+	// The trident and the sound of its throw.
 	if err := g.holdItem("trident"); err != nil {
 		return err
 	}
@@ -158,9 +163,28 @@ func playItemUse(g *game) error {
 	if err := g.releaseItem("release the trident"); err != nil {
 		return err
 	}
-	if err := g.settle(time.Second); err != nil {
+	feetY := g.pos[1] - 1.62
+	sounds, err := g.collect(time.Second, func(pk packet.Packet) any {
+		if s, ok := pk.(*packet.LevelSoundEvent); ok {
+			return s
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
+	var all []any
+	throw := map[string]any{}
+	for _, v := range sounds {
+		s := v.(*packet.LevelSoundEvent)
+		all = append(all, map[string]any{"sound": s.SoundType, "entity": s.EntityType, "position": s.Position})
+		if s.SoundType == "item.trident.throw" {
+			throw = map[string]any{"data": s.ExtraData, "height above the feet": fmt.Sprintf("%.2f", s.Position[1]-feetY)}
+		}
+	}
+	// The entity type of a sound without an entity ("" on BDS) is another difference (M9 report 13).
+	g.record("fact", map[string]any{"name": "trident sounds", "value": all})
+	g.check("trident throw sound", throw)
 	g.check("trident released", !g.usingItem())
 
 	// A potion drunk: the second ClickAir after the drinking time finishes it.
@@ -212,5 +236,70 @@ func playItemUse(g *game) error {
 	if err != nil && !errors.Is(err, errTimeout) {
 		return err
 	}
-	return g.settle(time.Second)
+	if err := g.settle(time.Second); err != nil {
+		return err
+	}
+
+	// Splash potions at the feet and on a wall 1.5, 2.5 and 3.5 blocks away (where they break does not depend
+	// on how each server moves them), one of them a long potion and one above the head: the effect durations.
+	feet := g.pos.Sub(mgl32.Vec3{0, 1.62, 0})
+	durations := map[string]any{}
+	for _, s := range []struct {
+		wall   int32
+		height float32
+		meta   int
+	}{{0, 0, nightVision}, {2, 1, nightVision}, {3, 1, nightVision}, {4, 1.6, nightVision}, {3, 1, longNightVision}, {2, 2.4, nightVision}} {
+		target := feet
+		x := g.area[0] + s.wall
+		if s.wall > 0 {
+			g.setup("build a wall")
+			g.command("fill %v %v %v %v %v %v stone", x, g.area[1], g.area[2]-1, x, g.area[1]+3, g.area[2]+1)
+			stone := state("minecraft:stone", nil)
+			top := protocol.BlockPos{x, g.area[1] + 3, g.area[2] + 1}
+			if err := g.waitState("the wall", gameWait, func() bool { return g.blocks[top] == stone }); err != nil {
+				return err
+			}
+			if err := g.settleSetup(); err != nil {
+				return err
+			}
+			target = mgl32.Vec3{float32(x), feet[1] + s.height, feet[2]}
+		}
+		if err := g.giveMeta("splash_potion", s.meta); err != nil {
+			return err
+		}
+		if err := g.holdItem("splash_potion"); err != nil {
+			return err
+		}
+		name := fmt.Sprintf("potion %v, %.1f away, %.1f up", s.meta, target[0]-feet[0], s.height)
+		if err := g.throwItem("splash "+name, target); err != nil {
+			return err
+		}
+		var at any
+		got, err := g.collect(3*time.Second, func(pk packet.Packet) any {
+			if e, ok := pk.(*packet.LevelEvent); ok && e.EventType == packet.LevelEventParticlesPotionSplash {
+				at = e.Position
+			}
+			return g.effectDuration(pk)
+		})
+		if err != nil {
+			return err
+		}
+		if s.height > 1.8 {
+			// Above the head the servers differ by a few ticks (m9-facts.md ITEMUSE): a fact.
+			g.record("fact", map[string]any{"name": "splash duration " + name, "value": got})
+		} else {
+			durations[name] = got
+		}
+		g.record("fact", map[string]any{"name": "splash " + name, "value": map[string]any{"splash": at, "feet": feet}})
+		g.setup("clear the effect and the wall")
+		g.command("effect %v night_vision 0", g.s.c.name)
+		if s.wall > 0 {
+			g.command("fill %v %v %v %v %v %v air", x, g.area[1], g.area[2]-1, x, g.area[1]+3, g.area[2]+1)
+		}
+		if err := g.settleSetup(); err != nil {
+			return err
+		}
+	}
+	g.check("splash durations", durations)
+	return nil
 }
