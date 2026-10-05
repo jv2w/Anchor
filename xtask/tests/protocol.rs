@@ -764,7 +764,11 @@ fn a_field_over_its_mojang_limit_is_a_size_error() {
     for (what, at, over, payload) in field_limit_cases() {
         let encoded = encode(&at).expect("the packet at the limit encodes");
         assert_eq!(decode(at.id(), &encoded).as_ref(), Ok(&at), "{what}");
-        assert_eq!(encode(&over), Err(Error::Size), "{what}: the encoder refuses it");
+        assert_eq!(
+            encode(&over),
+            Err(Error::Size),
+            "{what}: the encoder refuses it"
+        );
         assert_eq!(decode(at.id(), &payload).err(), Some(Error::Size), "{what}");
     }
 }

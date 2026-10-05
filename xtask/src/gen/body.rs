@@ -1364,9 +1364,8 @@ impl<'m, 'a> Lower<'m, 'a> {
                         let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
                         let len = self.usize_value(len)?;
                         self.fallible = true;
-                        let over = max.map_or_else(String::new, |max| {
-                            format!(" || {recv}.len() > {max}")
-                        });
+                        let over =
+                            max.map_or_else(String::new, |max| format!(" || {recv}.len() > {max}"));
                         let cond = len
                             .clone()
                             .with(&v.e)
