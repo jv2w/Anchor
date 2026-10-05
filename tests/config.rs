@@ -10,9 +10,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 
-use anchor::Config;
-use anchor::config::{Difficulty, Error, GameMode, LevelType, Threads};
+use anchor::config::{
+    Difficulty, Error, GameMode, LevelType, Lighting, LogLevel, Threads, WorldSettings,
+};
 use anchor::protocol::compression::Compression;
+use anchor::world::{Flat, Kind};
+use anchor::{Config, Server};
 
 const MIB: usize = 1024 * 1024;
 
@@ -146,20 +149,36 @@ difficulty = "hard"
 hardcore = true
 pvp = false
 hunger = false
+experience = false
+experience-bottles = false
+fall-damage = false
+drowning = false
+armor = false
+beds = false
+daylight-cycle = false
+recipe-book = false
+vanilla-recipes = false
+item-despawn-ticks = 1200
+sprint-critical-hits = true
+break-time-check = false
+movement-check = false
 level-name = "lobby"
 level-type = "void"
 level-seed = "-42"
 view-distance = 8
 save-player-data = false
+backups = false
 shutdown-message = "Bye"
 resource-packs = ["a.mcpack", "packs/b.zip"]
 force-resources = true
+log-level = "debug"
 
 [developer]
 compression = "zlib"
 compression-threshold = 512
 compression-level = 9
 max-batch-bytes = 1048576
+enable-encryption = false
 raknet = false
 max-mtu-size = 1200
 nethernet-tls-cert = "cert.pem"
@@ -171,9 +190,23 @@ spawn-radius = 6
 tick-radius = 5
 random-tick-speed = 0
 disable-block-ticking = ["minecraft:grass_block"]
-lighting = false
+slow-empty-worlds = true
+lighting = "on-load"
+fixed-light-level = 7
+item-pickup-interval = 4
+hook-movement-packets = false
+hook-player-input = false
 save-interval-minutes = 5
 console-input = false
+
+[worlds.lobby]
+view-distance = 6
+chunks-per-tick = 2
+spawn-radius = 3
+tick-radius = 2
+
+[worlds.arena]
+tick-radius = 1
 "#;
 
 /// The config [`CUSTOM_FILE`] describes.
@@ -196,19 +229,35 @@ fn custom() -> Config {
     g.hardcore = true;
     g.pvp = false;
     g.hunger = false;
+    g.experience = false;
+    g.experience_bottles = false;
+    g.fall_damage = false;
+    g.drowning = false;
+    g.armor = false;
+    g.beds = false;
+    g.daylight_cycle = false;
+    g.recipe_book = false;
+    g.vanilla_recipes = false;
+    g.item_despawn_ticks = 1200;
+    g.sprint_critical_hits = true;
+    g.break_time_check = false;
+    g.movement_check = false;
     g.level_name = "lobby".to_owned();
     g.level_type = LevelType::Void;
     g.level_seed = Some(-42);
     g.view_distance = 8;
     g.save_player_data = false;
+    g.backups = false;
     g.shutdown_message = "Bye".to_owned();
     g.resource_packs = vec!["a.mcpack".into(), "packs/b.zip".into()];
     g.force_resources = true;
+    g.log_level = LogLevel::Debug;
     let d = &mut config.developer;
     d.compression = Compression::Zlib;
     d.compression_threshold = 512;
     d.compression_level = 9;
     d.max_batch_bytes = MIB;
+    d.enable_encryption = false;
     d.raknet = false;
     d.max_mtu_size = 1200;
     d.nethernet_tls_cert = Some("cert.pem".into());
@@ -220,9 +269,26 @@ fn custom() -> Config {
     d.tick_radius = 5;
     d.random_tick_speed = 0;
     d.disable_block_ticking = vec!["minecraft:grass_block".to_owned()];
-    d.lighting = false;
+    d.slow_empty_worlds = true;
+    d.lighting = Lighting::OnLoad;
+    d.fixed_light_level = 7;
+    d.item_pickup_interval = 4;
+    d.hook_movement_packets = false;
+    d.hook_player_input = false;
     d.save_interval_minutes = 5;
     d.console_input = false;
+    let lobby = WorldSettings {
+        view_distance: Some(6),
+        chunks_per_tick: Some(2),
+        spawn_radius: Some(3),
+        tick_radius: Some(2),
+    };
+    let arena = WorldSettings {
+        tick_radius: Some(1),
+        ..WorldSettings::default()
+    };
+    config.worlds.insert("lobby".to_owned(), lobby);
+    config.worlds.insert("arena".to_owned(), arena);
     config
 }
 
@@ -303,6 +369,23 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ("general.hardcore", s(&["false"]), s(&["true"])),
         ("general.pvp", bools(), vec![]),
         ("general.hunger", bools(), vec![]),
+        ("general.experience", bools(), vec![]),
+        ("general.experience-bottles", bools(), vec![]),
+        ("general.fall-damage", bools(), vec![]),
+        ("general.drowning", bools(), vec![]),
+        ("general.armor", bools(), vec![]),
+        ("general.beds", bools(), vec![]),
+        ("general.daylight-cycle", bools(), vec![]),
+        ("general.recipe-book", bools(), vec![]),
+        ("general.vanilla-recipes", bools(), vec![]),
+        (
+            "general.item-despawn-ticks",
+            s(&["1", "72000"]),
+            s(&["0", "72001", "-1"]),
+        ),
+        ("general.sprint-critical-hits", bools(), vec![]),
+        ("general.break-time-check", bools(), vec![]),
+        ("general.movement-check", bools(), vec![]),
         (
             "general.level-name",
             vec![quoted("a"), quoted(&"w".repeat(64))],
@@ -335,6 +418,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         ("general.view-distance", s(&["2", "64"]), s(&["1", "65"])),
         ("general.save-player-data", bools(), vec![]),
+        ("general.backups", bools(), vec![]),
         (
             "general.shutdown-message",
             vec![quoted(""), quoted(&"x".repeat(1024)), quoted(r"two\nlines")],
@@ -346,6 +430,18 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&[r#"[""]"#, r#"["a.zip", ""]"#]),
         ),
         ("general.force-resources", bools(), vec![]),
+        (
+            "general.log-level",
+            s(&[
+                r#""off""#,
+                r#""error""#,
+                r#""warn""#,
+                r#""info""#,
+                r#""debug""#,
+                r#""trace""#,
+            ]),
+            s(&[r#""Info""#, r#""warning""#, r#""""#, "true"]),
+        ),
         (
             "developer.compression",
             s(&[r#""snappy""#, r#""zlib""#]),
@@ -366,6 +462,7 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&["1048576", "67108864"]),
             s(&["1048575", "67108865", "-1"]),
         ),
+        ("developer.enable-encryption", bools(), vec![]),
         ("developer.raknet", bools(), vec![]),
         (
             "developer.max-mtu-size",
@@ -421,7 +518,31 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
                 r#"["minecraft:grass block"]"#,
             ]),
         ),
-        ("developer.lighting", bools(), vec![]),
+        ("developer.slow-empty-worlds", bools(), vec![]),
+        // `true` and `false` are the values of older files; see `old_lighting_switch_still_loads`.
+        (
+            "developer.lighting",
+            s(&[
+                r#""dynamic""#,
+                r#""on-load""#,
+                r#""fixed""#,
+                "true",
+                "false",
+            ]),
+            s(&[r#""Dynamic""#, r#""onload""#, r#""""#, "1"]),
+        ),
+        (
+            "developer.fixed-light-level",
+            s(&["0", "15"]),
+            s(&["-1", "16"]),
+        ),
+        (
+            "developer.item-pickup-interval",
+            s(&["1", "20"]),
+            s(&["0", "21"]),
+        ),
+        ("developer.hook-movement-packets", bools(), vec![]),
+        ("developer.hook-player-input", bools(), vec![]),
         (
             "developer.save-interval-minutes",
             s(&["1", "1440"]),
@@ -446,7 +567,10 @@ fn missing_file_is_created_with_the_plan_default_text() {
 fn missing_file_reads_like_the_file_it_writes() {
     let file = File::new("missing_file_over_code");
     let first = custom().load(&file.path).expect("loads");
-    assert_eq!(first, Config::default());
+    // The default file sets every key; it has no `[worlds]` tables, so those set in code stay.
+    let mut expected = Config::default();
+    expected.worlds = custom().worlds;
+    assert_eq!(first, expected);
     let again = custom().load(&file.path).expect("loads again");
     assert_eq!(again, first);
 }
@@ -463,7 +587,7 @@ fn every_key_left_out_keeps_the_previous_value() {
     let file = File::new("every_key_left_out");
     let default = plan_default_file();
     let keys = key_lines(&default);
-    assert_eq!(keys.len(), 42, "PLAN.md 8.5 has 42 keys");
+    assert_eq!(keys.len(), 63, "PLAN.md 8.5 has 63 keys");
     for (_, key, value) in &keys {
         let line = format!("{key} = {value}\n");
         let text = default.replacen(&line, "", 1);
@@ -484,7 +608,10 @@ fn every_key_rejects_a_wrong_type_by_name() {
     let file = File::new("every_key_wrong_type");
     for (table, key, value) in key_lines(&plan_default_file()) {
         let path = format!("{table}.{key}");
-        let typed = if value.starts_with('"') {
+        // `lighting` also takes the `true` and `false` of older files.
+        let typed = if path == "developer.lighting" {
+            "1"
+        } else if value.starts_with('"') {
             "false"
         } else {
             "\"x\""
@@ -553,6 +680,185 @@ fn range_errors_name_the_key_and_the_range() {
         error.expect_err("x").to_string(),
         r#"`general.gamemode` must be one of "survival", "creative", "adventure", "spectator""#
     );
+}
+
+#[test]
+fn new_keys_default_to_the_behaviour_before_them() {
+    let config = Config::default();
+    let (g, d) = (&config.general, &config.developer);
+    for on in [
+        g.experience,
+        g.experience_bottles,
+        g.fall_damage,
+        g.drowning,
+        g.armor,
+        g.beds,
+        g.daylight_cycle,
+        g.recipe_book,
+        g.vanilla_recipes,
+        g.break_time_check,
+        g.movement_check,
+        g.backups,
+        d.enable_encryption,
+        d.hook_movement_packets,
+        d.hook_player_input,
+    ] {
+        assert!(on);
+    }
+    assert!(!g.sprint_critical_hits && !d.slow_empty_worlds);
+    assert_eq!(g.item_despawn_ticks, 6000);
+    assert_eq!(g.log_level, LogLevel::Info);
+    assert_eq!(g.shutdown_message, "The server has stopped");
+    assert_eq!(d.lighting, Lighting::Dynamic);
+    assert_eq!(d.fixed_light_level, 15);
+    assert_eq!(d.item_pickup_interval, 1);
+    assert!(config.worlds.is_empty());
+}
+
+#[test]
+fn old_lighting_switch_still_loads() {
+    let file = File::new("old_lighting");
+    let on = file
+        .load(one_key("developer.lighting", "true"))
+        .expect("true");
+    assert_eq!(on.developer.lighting, Lighting::Dynamic);
+    let off = file
+        .load(one_key("developer.lighting", "false"))
+        .expect("false");
+    assert_eq!(off.developer.lighting, Lighting::Fixed);
+    assert_eq!(
+        off.developer.fixed_light_level, 15,
+        "the old switch lit at 15"
+    );
+    let error = file.load(one_key("developer.lighting", "\"bright\""));
+    assert_eq!(
+        error.expect_err("bright").to_string(),
+        r#"`developer.lighting` must be one of "dynamic", "on-load", "fixed""#
+    );
+}
+
+#[test]
+fn world_tables_set_values_of_one_world() {
+    let file = File::new("world_tables");
+    let config = file
+        .load("[worlds.lobby]\nview-distance = 8\n[worlds.\"my world\"]\ntick-radius = 2\n")
+        .expect("loads");
+    assert_eq!(config.worlds.len(), 2);
+    assert_eq!(config.worlds["lobby"].view_distance, Some(8));
+    assert_eq!(config.worlds["lobby"].chunks_per_tick, None);
+    assert_eq!(config.worlds["my world"].tick_radius, Some(2));
+    // A key left out keeps the value set in code, as in the other tables.
+    let mut code = Config::default();
+    code.worlds.insert(
+        "lobby".to_owned(),
+        WorldSettings {
+            chunks_per_tick: Some(9),
+            ..WorldSettings::default()
+        },
+    );
+    let merged = file
+        .load_over(code, "[worlds.lobby]\nview-distance = 8\n")
+        .expect("loads");
+    assert_eq!(merged.worlds["lobby"].view_distance, Some(8));
+    assert_eq!(merged.worlds["lobby"].chunks_per_tick, Some(9));
+    file.load("[worlds]\n").expect("an empty worlds table");
+}
+
+#[test]
+fn world_tables_reject_bad_values_by_key() {
+    let file = File::new("world_tables_bad");
+    for (text, key) in [
+        (
+            "[worlds.lobby]\nview-distance = 1\n",
+            "worlds.lobby.view-distance",
+        ),
+        (
+            "[worlds.lobby]\nview-distance = 65\n",
+            "worlds.lobby.view-distance",
+        ),
+        (
+            "[worlds.lobby]\nchunks-per-tick = 0\n",
+            "worlds.lobby.chunks-per-tick",
+        ),
+        (
+            "[worlds.lobby]\nchunks-per-tick = 257\n",
+            "worlds.lobby.chunks-per-tick",
+        ),
+        (
+            "[worlds.lobby]\nspawn-radius = 0\n",
+            "worlds.lobby.spawn-radius",
+        ),
+        (
+            "[worlds.lobby]\ntick-radius = 65\n",
+            "worlds.lobby.tick-radius",
+        ),
+        (
+            "[worlds.lobby]\ntick-radius = \"4\"\n",
+            "worlds.lobby.tick-radius",
+        ),
+        (
+            "[worlds.lobby]\nview-distance = 1.5\n",
+            "worlds.lobby.view-distance",
+        ),
+        ("[worlds]\nlobby = 5\n", "worlds.lobby"),
+        ("worlds = 5\n", "worlds"),
+    ] {
+        let error = file.load(text).expect_err(key);
+        assert!(
+            matches!(&error, Error::Invalid { key: k, .. } | Error::Range { key: k, .. } if k == key),
+            "{text}: {error}"
+        );
+    }
+    let error = file
+        .load("[worlds.lobby]\nmotd = \"x\"\n")
+        .expect_err("unknown key");
+    assert_eq!(error.to_string(), "unknown key `worlds.lobby.motd`");
+    let mut code = Config::default();
+    code.worlds.insert(
+        "lobby".to_owned(),
+        WorldSettings {
+            spawn_radius: Some(65),
+            ..WorldSettings::default()
+        },
+    );
+    let error = Server::builder()
+        .config(code)
+        .build()
+        .expect_err("set in code");
+    assert!(chain_of(&error).contains("`worlds.lobby.spawn-radius` = 65 is outside 1..=64"));
+}
+
+#[test]
+fn world_tables_must_name_a_declared_world() {
+    let file = File::new("world_names");
+    let text = "[worlds.world]\ntick-radius = 2\n[worlds.lobby]\nview-distance = 8\n";
+    let config = file.load(text).expect("names are checked at build");
+    let error = Server::builder()
+        .config(config.clone())
+        .build()
+        .expect_err("lobby is not declared");
+    assert!(
+        chain_of(&error).contains("`[worlds.lobby]` names no declared world"),
+        "{}",
+        chain_of(&error)
+    );
+    Server::builder()
+        .config(config)
+        .world("lobby", Kind::Temporary, Flat)
+        .build()
+        .expect("the default world and lobby are declared");
+}
+
+/// Returns a build error and its sources, joined with ": ".
+fn chain_of(error: &anchor::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
 }
 
 #[test]

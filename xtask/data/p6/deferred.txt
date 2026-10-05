@@ -1,24 +1,19 @@
 # P6 deferral table (PLAN.md 10.2): packets BDS sends in the spawn window that Anchor does not
 # send yet, with the milestone (PLAN.md 10) that adds them, or `-` for packets Anchor never sends.
 # `cargo xtask p6 compare` removes them from both captures. Remove a line when its milestone sends
-# the packet.
+# the packet. Anchor sends every packet of the window the official client may need; a packet stays
+# here only when it is tied to something Anchor never has or does nothing the client needs.
 # <packet> <milestone|-> <reason>
 
-# The recipe book: BDS 1.26.52 unlocks entries right after the window (m7-facts.md 7); PMMP and
-# dragonfly send no unlocks and the client shows every recipe it is sent (PLAN.md 10.4).
-UnlockedRecipes - recipe book unlocks; Anchor sends the recipes without unlocks, as PMMP
-
-# Vanilla structures: out of scope (CLAUDE.md 1, no vanilla generation); PMMP and dragonfly do not
-# send these either (PLAN.md 10.6). While JigsawStructureData is listed, `p6 anchor` shows the
-# CloudburstMC check without failing.
-JigsawStructureData - vanilla jigsaw structure data; Anchor generates no vanilla structures
-CurrentStructureFeature - the vanilla structure at the player position; there are none
+# The recipe book: BDS 1.26.52 unlocks entries right after the window (UnlockedRecipes type 1, 20
+# recipes, m7-facts.md 7) and after each craft. Anchor marks every recipe of its CraftingData
+# always unlocked (PLAN.md 10.4), so the client shows them all without unlocks, as with PMMP.
+UnlockedRecipes - recipe book unlocks; every recipe Anchor sends is always unlocked, as PMMP
 
 # Vanilla mobs: BDS spawns and despawns animals in the flat world during the spawn window
 # (m7-facts.md 7); Anchor simulates no mobs (CLAUDE.md 1), so it never sends these there. The
 # SetActorData and UpdateAttributes BDS sends for those mobs are left out by `compare.rs`
 # (`ENTITY_DATA`: only the player's own are compared).
-SyncActorProperty - property definitions of vanilla mobs (zombie_nautilus, wolf, cow…); Anchor has none of those mobs
 AddActor - the flat world's natural mobs; Anchor spawns no mobs
 RemoveActor - the flat world's natural mobs despawning; Anchor spawns no mobs
 MoveActorDelta - natural mob movement; Anchor spawns no mobs
@@ -28,11 +23,8 @@ ActorEvent - natural mob events; Anchor spawns no mobs
 MobEquipment - mob equipment, sent only for mobs and villagers in view, never in the spawn window
 MobArmourEquipment - mob armour, sent only for mobs and villagers in view, never in the spawn window
 AddItemActor - items the flat world's mobs drop (chicken eggs); Anchor spawns no mobs, and no item lies near a new world's spawn
-LevelSoundEvent - the spawn sound BDS plays for each entity it adds (the joining player at the origin, mobs); PMMP and dragonfly send none
 
-# Camera: BDS sends its vanilla camera presets (first_person, fixed_boom, follow_orbit, free,
-# third_person, third_person_front), aim assist presets and an empty spline list in the spawn window
-# (m8-facts.md 1); PMMP and dragonfly send none and the client joins without them.
-CameraPresets - PMMP has no camera API
-CameraAimAssistPresets - PMMP has no camera API
-CameraSpline - PMMP has no camera API
+# Sounds: in the window BDS plays the entity "spawn" sound for the joining player (EntityType
+# minecraft:player at 0,0,0 with its first chunks) and for each mob it adds. A sound the client
+# needs neither to join nor to play; Anchor plays no entity spawn sounds (PMMP and dragonfly neither).
+LevelSoundEvent - entity spawn sounds (the joining player at the origin, mobs); no join or game effect

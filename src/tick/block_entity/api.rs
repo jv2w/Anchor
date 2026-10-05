@@ -147,7 +147,7 @@ impl<'a> Tile<'a> {
 
     /// Ticks the item in campfire slot `slot` (0 to 3) has cooked.
     #[doc(alias = "block\\Campfire::getCookingTime")]
-    pub fn cooking_time(&self, slot: usize) -> Option<u16> {
+    pub fn cooking_time_ticks(&self, slot: usize) -> Option<u16> {
         match self.kind()? {
             Kind::Campfire(c) => c.times.get(slot).copied(),
             _ => None,
@@ -500,7 +500,7 @@ impl Mut<'_> {
     /// Sets how long the item in campfire slot `slot` (0 to 3) has cooked, up to the campfire's
     /// cook time (the item cooks at its next update once the time is reached).
     #[doc(alias = "block\\Campfire::setCookingTime")]
-    pub fn set_cooking_time(&mut self, slot: usize, ticks: u16) -> Result<()> {
+    pub fn set_cooking_time_ticks(&mut self, slot: usize, ticks: u16) -> Result<()> {
         let soul = self.view().block().is(Class::SoulCampfire);
         let most = campfire_kind(soul).cook_ticks();
         self.edit(|e| match &mut e.kind {

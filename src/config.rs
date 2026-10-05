@@ -1,8 +1,8 @@
 //! Server settings: the `anchor.toml` file (PLAN.md 8.5), its defaults and its validation.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::io::{self, Read as _, Write as _};
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::num::NonZeroU16;
 use std::ops::RangeInclusive;
@@ -11,6 +11,7 @@ use std::str::FromStr;
 
 use toml::{Table, Value};
 
+use crate::fs::{self, Access};
 use crate::protocol::batch;
 use crate::protocol::compression::Compression;
 
@@ -48,7 +49,33 @@ force-gamemode = false
 difficulty = "normal"
 hardcore = false
 pvp = true
+# Each switch below turns a game system off completely when false: its rules stop running.
 hunger = true
+# Experience points, levels and experience orbs.
+experience = true
+# Throwing bottles o' enchanting.
+experience-bottles = true
+fall-damage = true
+# Air supply under water, drowning and suffocation damage.
+drowning = true
+# Armour protection and armour wear.
+armor = true
+# Sleeping in beds and bed spawn points.
+beds = true
+# The time of day moving on.
+daylight-cycle = true
+# The recipe book: false hides it and refuses its quick crafting; the crafting grid still works.
+recipe-book = true
+# The vanilla recipes; false keeps only recipes the server program registers.
+vanilla-recipes = true
+# Ticks a dropped item stays on the ground (1 to 72000).
+item-despawn-ticks = 6000
+# true: a hit while sprinting can be critical.
+sprint-critical-hits = false
+# The server checks that a block took long enough to break.
+break-time-check = true
+# The server checks that a move is not too far (more than 15 blocks in one input).
+movement-check = true
 # Main world. Created on first start with level-type: "flat" or "void".
 level-name = "world"
 level-type = "flat"
@@ -58,13 +85,17 @@ level-seed = ""
 view-distance = 16
 # false: player inventories and positions are not kept between joins.
 save-player-data = true
+# Copies of the world file in data/backups, at start and with the backup command.
+backups = true
 # Message players see when the server stops.
-shutdown-message = "Server closed"
+shutdown-message = "The server has stopped"
 # Resource pack files (.mcpack or .zip), relative to this file. Earlier entries override later ones.
 # An encrypted pack needs its key in "<file>.key" next to it.
 resource-packs = []
 # true: players must accept the resource packs to join.
 force-resources = false
+# Console log detail: "off", "error", "warn", "info", "debug" or "trace".
+log-level = "info"
 
 # Settings that tune performance and protocol behavior. Change them with care.
 [developer]
@@ -76,6 +107,10 @@ compression-threshold = 256
 compression-level = 6
 # Largest decompressed batch a client may send, in bytes (1 MiB to 64 MiB).
 max-batch-bytes = 16777216
+# false: RakNet game traffic is sent in plain form. Anyone between a player and the server
+# can then read it and change it, login included. Use false only on a trusted network.
+# NetherNet traffic is always encrypted by its own transport.
+enable-encryption = true
 # false: accept only NetherNet. The RakNet port still answers server list pings.
 raknet = true
 # Largest RakNet packet in bytes (576 to 1492). Lower it behind tunnels or VPNs.
@@ -97,12 +132,30 @@ tick-radius = 4
 random-tick-speed = 3
 # Blocks that never get random ticks, by name, for example "minecraft:grass_block".
 disable-block-ticking = []
-# false: no light is calculated; every check sees an open sky (see the docs for the effects).
-lighting = true
+# true: a world without players runs one tick in every 100.
+slow-empty-worlds = false
+# "dynamic": light is calculated and follows block changes.
+# "on-load": light is calculated when a chunk loads but not after block changes.
+# "fixed": no light is calculated; every block has fixed-light-level as sky light.
+lighting = "dynamic"
+# Sky light everywhere when lighting is "fixed" (0 to 15). Block light is then 0.
+fixed-light-level = 15
+# Ticks between checks for items a player can pick up (1 to 20).
+item-pickup-interval = 1
+# false: movement packets the server sends skip the send hooks.
+hook-movement-packets = true
+# false: PlayerAuthInput packets skip the receive hooks.
+hook-player-input = true
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
 # false: Anchor does not read commands from standard input.
 console-input = true
+
+# Per-world values, by world name. They override view-distance, chunks-per-tick,
+# spawn-radius and tick-radius for that world, for example:
+# [worlds.lobby]
+# view-distance = 8
+# chunks-per-tick = 8
 "#;
 
 /// The largest settings file read. A real file is about 4 KiB; the cap bounds the parser's memory.
@@ -131,6 +184,12 @@ const MAX_MOTD_BYTES: usize = 256;
 const MAX_LEVEL_NAME_BYTES: usize = 64;
 /// A disconnect message several lines long fits.
 const MAX_SHUTDOWN_MESSAGE_BYTES: usize = 1024;
+/// One tick to an hour (PLAN.md 8.5).
+pub(crate) const ITEM_DESPAWN_TICKS: RangeInclusive<u32> = 1..=72_000;
+/// The light levels (PLAN.md 8.5).
+const FIXED_LIGHT_LEVEL: RangeInclusive<u8> = 0..=15;
+/// Every tick to once a second (PLAN.md 8.5).
+const ITEM_PICKUP_INTERVAL: RangeInclusive<u8> = 1..=20;
 
 /// Every server setting. [`Config::default`] holds the values of the default `anchor.toml`.
 ///
@@ -142,6 +201,10 @@ pub struct Config {
     pub general: General,
     /// Settings that tune performance and protocol behavior (`[developer]`).
     pub developer: Developer,
+    /// Per-world values (`[worlds.<name>]`), by world name. A name must be a world the server
+    /// declares (`level-name` or [`ServerBuilder::world`](crate::ServerBuilder::world)), or the
+    /// build fails.
+    pub worlds: BTreeMap<String, WorldSettings>,
     /// Top-level tables of the loaded file that Anchor does not know; [`Config::validate`]
     /// rejects them (PLAN.md 8.5).
     unknown_tables: BTreeSet<String>,
@@ -153,6 +216,7 @@ impl PartialEq for Config {
     fn eq(&self, other: &Self) -> bool {
         self.general == other.general
             && self.developer == other.developer
+            && self.worlds == other.worlds
             && self.unknown_tables == other.unknown_tables
     }
 }
@@ -178,7 +242,8 @@ impl Config {
         if let Some(bytes) = read(path)? {
             return self.apply(&bytes);
         }
-        write_default(path).map_err(|source| Error::Write {
+        let written = fs::write_atomic(path, DEFAULT_FILE.as_bytes(), Access::Shared);
+        written.map_err(|source| Error::Write {
             path: path.to_owned(),
             source,
         })?;
@@ -200,12 +265,32 @@ impl Config {
     /// Returns `spawn-radius` limited to `view-distance`: the chunk radius actually sent before a
     /// player spawns.
     pub fn effective_spawn_radius(&self) -> u8 {
-        self.developer.spawn_radius.min(self.general.view_distance)
+        self.view_limits(None).spawn_radius
     }
 
     /// Returns `tick-radius` limited to `view-distance`: the chunk radius actually ticked.
     pub fn effective_tick_radius(&self) -> u8 {
-        self.developer.tick_radius.min(self.general.view_distance)
+        self.view_limits(None).tick_radius
+    }
+
+    /// The view values in effect in a world with the `[worlds.<name>]` values `world` (`None`:
+    /// a world without them): each value it sets replaces the global one, and the radii are at
+    /// most the view distance (PLAN.md 8.5).
+    pub(crate) fn view_limits(&self, world: Option<&WorldSettings>) -> ViewLimits {
+        self.global_view()
+            .apply(&world.copied().unwrap_or_default())
+    }
+
+    /// The global view values as the keys hold them, the radii not yet bounded by the view
+    /// distance: what a world's own values replace ([`ViewLimits::apply`]).
+    pub(crate) fn global_view(&self) -> ViewLimits {
+        let (g, d) = (&self.general, &self.developer);
+        ViewLimits {
+            view_distance: g.view_distance,
+            chunks_per_tick: d.chunks_per_tick,
+            spawn_radius: d.spawn_radius,
+            tick_radius: d.tick_radius,
+        }
     }
 
     /// Checks every value and rejects unknown tables; the server builder calls it.
@@ -214,6 +299,15 @@ impl Config {
             return Err(Error::UnknownTable(name.clone()));
         }
         self.check()
+    }
+
+    /// Rejects a `[worlds]` entry whose name `declared` does not hold; the server builder calls
+    /// it with the names of its worlds.
+    pub(crate) fn check_world_names(&self, declared: impl Fn(&str) -> bool) -> Result<()> {
+        match self.worlds.keys().find(|name| !declared(name)) {
+            Some(name) => Err(Error::UnknownWorld(name.clone())),
+            None => Ok(()),
+        }
     }
 
     /// Returns the batch compression settings, checked by [`batch::Settings::new`].
@@ -250,6 +344,16 @@ impl Config {
             match name.as_str() {
                 "general" => self.general.merge(table_of(value, Key::top(name))?)?,
                 "developer" => self.developer.merge(table_of(value, Key::top(name))?)?,
+                "worlds" => {
+                    for (world, values) in table_of(value, Key::top(name))? {
+                        let table = format!("worlds.{world}");
+                        let values = table_of(values, Key::top(&table))?;
+                        self.worlds
+                            .entry(world.clone())
+                            .or_default()
+                            .merge(&table, values)?;
+                    }
+                }
                 _ if value.is_table() => {
                     self.unknown_tables.insert(name.clone());
                 }
@@ -284,6 +388,11 @@ impl Config {
             Key::general("shutdown-message"),
             &g.shutdown_message,
             MAX_SHUTDOWN_MESSAGE_BYTES,
+        )?;
+        range(
+            Key::general("item-despawn-ticks"),
+            g.item_despawn_ticks,
+            ITEM_DESPAWN_TICKS,
         )?;
         if g.resource_packs.iter().any(|p| p.as_os_str().is_empty()) {
             return Err(Key::general("resource-packs").invalid("a list of non-empty paths"));
@@ -325,10 +434,24 @@ impl Config {
                 .invalid("a list of block names like \"minecraft:grass_block\""));
         }
         range(
+            Key::developer("fixed-light-level"),
+            d.fixed_light_level,
+            FIXED_LIGHT_LEVEL,
+        )?;
+        range(
+            Key::developer("item-pickup-interval"),
+            d.item_pickup_interval,
+            ITEM_PICKUP_INTERVAL,
+        )?;
+        range(
             Key::developer("save-interval-minutes"),
             d.save_interval_minutes,
             SAVE_INTERVAL_MINUTES,
-        )
+        )?;
+        for (name, world) in &self.worlds {
+            world.check(&format!("worlds.{name}"))?;
+        }
+        Ok(())
     }
 }
 
@@ -375,6 +498,32 @@ pub struct General {
     pub pvp: bool,
     /// `hunger`: whether players get hungry.
     pub hunger: bool,
+    /// `experience`: whether experience points, levels and experience orbs exist.
+    pub experience: bool,
+    /// `experience-bottles`: whether bottles o' enchanting can be thrown.
+    pub experience_bottles: bool,
+    /// `fall-damage`: whether falling hurts.
+    pub fall_damage: bool,
+    /// `drowning`: whether air runs out under water and drowning and suffocation hurt.
+    pub drowning: bool,
+    /// `armor`: whether armour protects and wears.
+    pub armor: bool,
+    /// `beds`: whether players can sleep in beds and set their spawn point with them.
+    pub beds: bool,
+    /// `daylight-cycle`: whether the time of day moves on.
+    pub daylight_cycle: bool,
+    /// `recipe-book`: whether the recipe book is shown and its quick crafting accepted.
+    pub recipe_book: bool,
+    /// `vanilla-recipes`: whether the vanilla recipes exist besides those the server registers.
+    pub vanilla_recipes: bool,
+    /// `item-despawn-ticks`: ticks a dropped item stays on the ground.
+    pub item_despawn_ticks: u32,
+    /// `sprint-critical-hits`: whether a hit while sprinting can be critical.
+    pub sprint_critical_hits: bool,
+    /// `break-time-check`: whether the server checks that a block took long enough to break.
+    pub break_time_check: bool,
+    /// `movement-check`: whether the server refuses a move of more than 15 blocks in one input.
+    pub movement_check: bool,
     /// `level-name`: the main world's name.
     pub level_name: String,
     /// `level-type`: the generator of the main world when it is created.
@@ -385,6 +534,9 @@ pub struct General {
     pub view_distance: u8,
     /// `save-player-data`: whether inventories and positions are kept between joins.
     pub save_player_data: bool,
+    /// `backups`: whether the world file is copied to `data/backups` at start and by the backup
+    /// command.
+    pub backups: bool,
     /// `shutdown-message`: the message players see when the server stops.
     pub shutdown_message: String,
     /// `resource-packs`: resource pack files, relative to the settings file.
@@ -394,6 +546,8 @@ pub struct General {
     #[doc(alias = "ResourcePackManager::resourcePacksRequired")]
     #[doc(alias = "ResourcePackManager::setResourcePacksRequired")]
     pub force_resources: bool,
+    /// `log-level`: the console log detail.
+    pub log_level: LogLevel,
 }
 
 impl General {
@@ -420,6 +574,21 @@ impl General {
                 "hardcore" => self.hardcore = boolean(value, key)?,
                 "pvp" => self.pvp = boolean(value, key)?,
                 "hunger" => self.hunger = boolean(value, key)?,
+                "experience" => self.experience = boolean(value, key)?,
+                "experience-bottles" => self.experience_bottles = boolean(value, key)?,
+                "fall-damage" => self.fall_damage = boolean(value, key)?,
+                "drowning" => self.drowning = boolean(value, key)?,
+                "armor" => self.armor = boolean(value, key)?,
+                "beds" => self.beds = boolean(value, key)?,
+                "daylight-cycle" => self.daylight_cycle = boolean(value, key)?,
+                "recipe-book" => self.recipe_book = boolean(value, key)?,
+                "vanilla-recipes" => self.vanilla_recipes = boolean(value, key)?,
+                "item-despawn-ticks" => {
+                    self.item_despawn_ticks = int(value, key, ITEM_DESPAWN_TICKS)?;
+                }
+                "sprint-critical-hits" => self.sprint_critical_hits = boolean(value, key)?,
+                "break-time-check" => self.break_time_check = boolean(value, key)?,
+                "movement-check" => self.movement_check = boolean(value, key)?,
                 "level-name" => text(value, key)?.clone_into(&mut self.level_name),
                 "level-type" => self.level_type = choice(value, key, &LevelType::NAMES)?,
                 "level-seed" => {
@@ -427,11 +596,13 @@ impl General {
                 }
                 "view-distance" => self.view_distance = int(value, key, VIEW_DISTANCE)?,
                 "save-player-data" => self.save_player_data = boolean(value, key)?,
+                "backups" => self.backups = boolean(value, key)?,
                 "shutdown-message" => text(value, key)?.clone_into(&mut self.shutdown_message),
                 "resource-packs" => {
                     self.resource_packs = strings(value, key)?.map(PathBuf::from).collect();
                 }
                 "force-resources" => self.force_resources = boolean(value, key)?,
+                "log-level" => self.log_level = choice(value, key, &LogLevel::NAMES)?,
                 _ => return Err(Error::UnknownKey(key.path())),
             }
         }
@@ -458,14 +629,29 @@ impl Default for General {
             hardcore: false,
             pvp: true,
             hunger: true,
+            experience: true,
+            experience_bottles: true,
+            fall_damage: true,
+            drowning: true,
+            armor: true,
+            beds: true,
+            daylight_cycle: true,
+            recipe_book: true,
+            vanilla_recipes: true,
+            item_despawn_ticks: 6000,
+            sprint_critical_hits: false,
+            break_time_check: true,
+            movement_check: true,
             level_name: "world".to_owned(),
             level_type: LevelType::Flat,
             level_seed: None,
             view_distance: 16,
             save_player_data: true,
-            shutdown_message: "Server closed".to_owned(),
+            backups: true,
+            shutdown_message: "The server has stopped".to_owned(),
             resource_packs: Vec::new(),
             force_resources: false,
+            log_level: LogLevel::Info,
         }
     }
 }
@@ -481,6 +667,9 @@ pub struct Developer {
     pub compression_level: u8,
     /// `max-batch-bytes`: the largest decompressed batch a client may send.
     pub max_batch_bytes: usize,
+    /// `enable-encryption`: whether RakNet game traffic is encrypted. NetherNet traffic always is,
+    /// by its own transport.
+    pub enable_encryption: bool,
     /// `raknet`: whether RakNet connections are accepted; pings are answered either way.
     pub raknet: bool,
     /// `max-mtu-size`: the largest RakNet packet in bytes.
@@ -503,8 +692,18 @@ pub struct Developer {
     pub random_tick_speed: u32,
     /// `disable-block-ticking`: blocks that never get random ticks, by name.
     pub disable_block_ticking: Vec<String>,
-    /// `lighting`: whether light is calculated.
-    pub lighting: bool,
+    /// `slow-empty-worlds`: whether a world without players runs one tick in every 100.
+    pub slow_empty_worlds: bool,
+    /// `lighting`: how light is calculated.
+    pub lighting: Lighting,
+    /// `fixed-light-level`: the sky light everywhere when `lighting` is [`Lighting::Fixed`].
+    pub fixed_light_level: u8,
+    /// `item-pickup-interval`: ticks between checks for items a player can pick up.
+    pub item_pickup_interval: u8,
+    /// `hook-movement-packets`: whether movement packets the server sends pass the send hooks.
+    pub hook_movement_packets: bool,
+    /// `hook-player-input`: whether `PlayerAuthInput` packets pass the receive hooks.
+    pub hook_player_input: bool,
     /// `save-interval-minutes`: minutes between whole-state saves.
     pub save_interval_minutes: u16,
     /// `console-input`: whether commands are read from standard input.
@@ -529,6 +728,7 @@ impl Developer {
                 "max-batch-bytes" => {
                     self.max_batch_bytes = int(value, key, usize::MIN..=usize::MAX)?;
                 }
+                "enable-encryption" => self.enable_encryption = boolean(value, key)?,
                 "raknet" => self.raknet = boolean(value, key)?,
                 "max-mtu-size" => self.max_mtu_size = int(value, key, MAX_MTU_SIZE)?,
                 "nethernet-tls-cert" => {
@@ -548,7 +748,16 @@ impl Developer {
                 "disable-block-ticking" => {
                     self.disable_block_ticking = strings(value, key)?.map(str::to_owned).collect();
                 }
-                "lighting" => self.lighting = boolean(value, key)?,
+                "slow-empty-worlds" => self.slow_empty_worlds = boolean(value, key)?,
+                "lighting" => self.lighting = lighting(value, key)?,
+                "fixed-light-level" => {
+                    self.fixed_light_level = int(value, key, FIXED_LIGHT_LEVEL)?;
+                }
+                "item-pickup-interval" => {
+                    self.item_pickup_interval = int(value, key, ITEM_PICKUP_INTERVAL)?;
+                }
+                "hook-movement-packets" => self.hook_movement_packets = boolean(value, key)?,
+                "hook-player-input" => self.hook_player_input = boolean(value, key)?,
                 "save-interval-minutes" => {
                     self.save_interval_minutes = int(value, key, SAVE_INTERVAL_MINUTES)?;
                 }
@@ -567,6 +776,7 @@ impl Default for Developer {
             compression_threshold: 256,
             compression_level: 6,
             max_batch_bytes: 16 * 1024 * 1024,
+            enable_encryption: true,
             raknet: true,
             max_mtu_size: 1492,
             nethernet_tls_cert: None,
@@ -578,11 +788,158 @@ impl Default for Developer {
             tick_radius: 4,
             random_tick_speed: 3,
             disable_block_ticking: Vec::new(),
-            lighting: true,
+            slow_empty_worlds: false,
+            lighting: Lighting::Dynamic,
+            fixed_light_level: 15,
+            item_pickup_interval: 1,
+            hook_movement_packets: true,
+            hook_player_input: true,
             save_interval_minutes: 10,
             console_input: true,
         }
     }
+}
+
+/// One world's `[worlds.<name>]` table: the values it sets replace the global ones in that world;
+/// `None` keeps the global value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WorldSettings {
+    /// `view-distance`: the largest view distance a player in the world may use, in chunks.
+    pub view_distance: Option<u8>,
+    /// `chunks-per-tick`: chunks of the world sent to each player per tick.
+    pub chunks_per_tick: Option<u32>,
+    /// `spawn-radius`: the chunk radius sent before a player spawns in the world.
+    pub spawn_radius: Option<u8>,
+    /// `tick-radius`: the chunk radius around players where the world's blocks and entities are
+    /// ticked.
+    pub tick_radius: Option<u8>,
+}
+
+impl WorldSettings {
+    /// Replaces the values of the keys present in `table`, the table `[<path>]`.
+    fn merge(&mut self, path: &str, table: &Table) -> Result<()> {
+        for (name, value) in table {
+            let key = Key::new(path, name);
+            match name.as_str() {
+                "view-distance" => self.view_distance = Some(int(value, key, VIEW_DISTANCE)?),
+                "chunks-per-tick" => self.chunks_per_tick = Some(int(value, key, CHUNKS_PER_TICK)?),
+                "spawn-radius" => self.spawn_radius = Some(int(value, key, RADIUS)?),
+                "tick-radius" => self.tick_radius = Some(int(value, key, RADIUS)?),
+                _ => return Err(Error::UnknownKey(key.path())),
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks the values set, of the table `[<path>]`, as the global keys are checked.
+    pub(crate) fn check(&self, path: &str) -> Result<()> {
+        if let Some(v) = self.view_distance {
+            range(Key::new(path, "view-distance"), v, VIEW_DISTANCE)?;
+        }
+        if let Some(v) = self.chunks_per_tick {
+            range(Key::new(path, "chunks-per-tick"), v, CHUNKS_PER_TICK)?;
+        }
+        if let Some(v) = self.spawn_radius {
+            range(Key::new(path, "spawn-radius"), v, RADIUS)?;
+        }
+        if let Some(v) = self.tick_radius {
+            range(Key::new(path, "tick-radius"), v, RADIUS)?;
+        }
+        Ok(())
+    }
+}
+
+/// The view values in effect in one world ([`Config::view_limits`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ViewLimits {
+    /// The largest chunk radius a player may use.
+    pub(crate) view_distance: u8,
+    /// Chunks sent to each player per tick.
+    pub(crate) chunks_per_tick: u32,
+    /// The chunk radius sent before a player spawns, at most `view_distance`.
+    pub(crate) spawn_radius: u8,
+    /// The chunk radius ticked around players, at most `view_distance`.
+    pub(crate) tick_radius: u8,
+}
+
+impl ViewLimits {
+    /// These values (the global ones, [`Config::global_view`]) with each value `world` sets in
+    /// their place, and the radii at most the view distance (PLAN.md 8.5).
+    pub(crate) fn apply(self, world: &WorldSettings) -> Self {
+        let view_distance = world.view_distance.unwrap_or(self.view_distance);
+        Self {
+            view_distance,
+            chunks_per_tick: world.chunks_per_tick.unwrap_or(self.chunks_per_tick),
+            spawn_radius: world
+                .spawn_radius
+                .unwrap_or(self.spawn_radius)
+                .min(view_distance),
+            tick_radius: world
+                .tick_radius
+                .unwrap_or(self.tick_radius)
+                .min(view_distance),
+        }
+    }
+}
+
+/// How light is calculated (`lighting`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Lighting {
+    /// `"dynamic"`: light is calculated and follows block changes.
+    Dynamic,
+    /// `"on-load"`: light is calculated when a chunk loads but not after block changes.
+    OnLoad,
+    /// `"fixed"`: no light is calculated; every block has `fixed-light-level` as sky light and no
+    /// block light. Random ticks see that light everywhere, underground too: at 15 crops and
+    /// saplings grow in caves (saplings by day, as sky light dims at night), below 9 crops never
+    /// grow and below 8 saplings never grow. Without block light, ice blocks and snow layers never
+    /// melt (frosted ice still melts in sky light).
+    Fixed,
+}
+
+impl Lighting {
+    /// The `lighting` values.
+    const NAMES: [(&str, Self); 3] = [
+        ("dynamic", Self::Dynamic),
+        ("on-load", Self::OnLoad),
+        ("fixed", Self::Fixed),
+    ];
+
+    /// Whether any light is calculated: not [`Lighting::Fixed`].
+    pub(crate) fn is_calculated(self) -> bool {
+        self != Self::Fixed
+    }
+}
+
+/// The console log detail (`log-level`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LogLevel {
+    /// `"off"`: Anchor writes no console log; its events go to the program's own `tracing`
+    /// subscriber, if any (as with
+    /// [`ServerBuilder::without_console_log`](crate::ServerBuilder::without_console_log)).
+    Off,
+    /// `"error"`: errors only.
+    Error,
+    /// `"warn"`: warnings and errors.
+    Warn,
+    /// `"info"`: starts, stops, joins and the levels above.
+    Info,
+    /// `"debug"`: connections and the levels above.
+    Debug,
+    /// `"trace"`: packets and the levels above.
+    Trace,
+}
+
+impl LogLevel {
+    /// The `log-level` values.
+    const NAMES: [(&str, Self); 6] = [
+        ("off", Self::Off),
+        ("error", Self::Error),
+        ("warn", Self::Warn),
+        ("info", Self::Info),
+        ("debug", Self::Debug),
+        ("trace", Self::Trace),
+    ];
 }
 
 /// The `compression` values.
@@ -722,6 +1079,9 @@ pub enum Error {
     UnknownKey(String),
     /// A top-level table Anchor does not know, such as `plugin` for `[plugin]`.
     UnknownTable(String),
+    /// A `[worlds.<name>]` table whose name is not a world the server declares, such as
+    /// `lobby` for `[worlds.lobby]`.
+    UnknownWorld(String),
     /// A value of the wrong type or form.
     Invalid {
         /// The key, such as `general.motd`.
@@ -773,6 +1133,7 @@ impl fmt::Display for Error {
             } => write!(f, "invalid toml: {message}"),
             Self::UnknownKey(key) => write!(f, "unknown key `{key}`"),
             Self::UnknownTable(name) => write!(f, "unknown table `[{name}]`"),
+            Self::UnknownWorld(name) => write!(f, "`[worlds.{name}]` names no declared world"),
             Self::Invalid { key, expected } => write!(f, "`{key}` must be {expected}"),
             Self::Range {
                 key,
@@ -801,12 +1162,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// A key's place in the file: its table and name. The full path is built only for an error.
 #[derive(Clone, Copy)]
 struct Key<'a> {
-    table: &'static str,
+    table: &'a str,
     name: &'a str,
 }
 
 impl<'a> Key<'a> {
-    fn new(table: &'static str, name: &'a str) -> Self {
+    fn new(table: &'a str, name: &'a str) -> Self {
         Self { table, name }
     }
 
@@ -925,6 +1286,16 @@ fn threads(value: &Value, key: Key<'_>) -> Result<Threads> {
         .ok_or_else(|| key.out_of_range(0, THREADS))
 }
 
+/// Reads a `lighting` value; the `true` and `false` of older files mean `"dynamic"` and `"fixed"`
+/// (PLAN.md 8.5).
+fn lighting(value: &Value, key: Key<'_>) -> Result<Lighting> {
+    match value.as_bool() {
+        Some(true) => Ok(Lighting::Dynamic),
+        Some(false) => Ok(Lighting::Fixed),
+        None => choice(value, key, &Lighting::NAMES),
+    }
+}
+
 /// Checks that `value` lies in `range`.
 fn range<T>(key: Key<'_>, value: T, range: RangeInclusive<T>) -> Result<()>
 where
@@ -950,10 +1321,22 @@ fn length(key: Key<'_>, value: &str, max: usize) -> Result<()> {
 /// bytes, and free of `;` and control characters.
 fn list_text(key: Key<'_>, value: &str, max: usize) -> Result<()> {
     length(key, value, max)?;
-    if value.is_empty() || value.chars().any(|c| c == ';' || c.is_control()) {
+    if !is_list_text(value) {
         return Err(key.invalid("a non-empty text without `;` or control characters"));
     }
     Ok(())
+}
+
+/// Whether `value` is not empty and free of `;` and control characters: a text the RakNet pong
+/// can list.
+fn is_list_text(value: &str) -> bool {
+    !value.is_empty() && !value.chars().any(|c| c == ';' || c.is_control())
+}
+
+/// Whether `motd` is one the `motd` setting takes: at most 256 bytes, not empty, without `;` or
+/// control characters.
+pub(crate) fn is_motd(motd: &str) -> bool {
+    motd.len() <= MAX_MOTD_BYTES && is_list_text(motd)
 }
 
 /// Returns whether `name` has the shape `namespace:path` of a block identifier.
@@ -984,53 +1367,18 @@ fn position(bytes: &[u8], offset: usize) -> Option<(usize, usize)> {
 }
 
 /// Reads the settings file, or returns `None` when it does not exist.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: read once before the server starts"
-)]
 fn read(path: &Path) -> Result<Option<Vec<u8>>> {
-    let file = match std::fs::File::open(path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(source) => {
-            return Err(Error::Read {
-                path: path.to_owned(),
-                source,
-            });
-        }
-    };
-    let mut bytes = Vec::new();
-    file.take(MAX_FILE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|source| Error::Read {
+    match crate::fs::read_bounded(path, MAX_FILE_BYTES) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) if e.kind() == io::ErrorKind::FileTooLarge => Err(Error::TooLarge {
+            path: path.to_owned(),
+        }),
+        Err(source) => Err(Error::Read {
             path: path.to_owned(),
             source,
-        })?;
-    if u64::try_from(bytes.len()).map_or(true, |len| len > MAX_FILE_BYTES) {
-        return Err(Error::TooLarge {
-            path: path.to_owned(),
-        });
+        }),
     }
-    Ok(Some(bytes))
-}
-
-/// Writes [`DEFAULT_FILE`] to `path` through `<path>.tmp` in the same folder, so a crash leaves
-/// either no settings file or a whole one.
-#[expect(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "off-tick: written once before the server starts"
-)]
-fn write_default(path: &Path) -> io::Result<()> {
-    let mut temp = path.as_os_str().to_owned();
-    temp.push(".tmp");
-    let temp = PathBuf::from(temp);
-    let mut file = std::fs::File::create(&temp)?;
-    file.write_all(DEFAULT_FILE.as_bytes())?;
-    file.sync_all()?;
-    // Windows cannot rename a file that is still open.
-    drop(file);
-    std::fs::rename(&temp, path)
 }
 
 #[cfg(test)]

@@ -4,19 +4,24 @@ use std::any::Any;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
+use crate::clock;
 use crate::config::{Config, LevelType};
+use crate::console;
 use crate::error::{Error, Result};
 use crate::event::{self, Priority};
 use crate::pack::Pack;
-use crate::runtime::{self, Runtime, ThreadCounts};
+use crate::protocol::packet::PROTOCOL_VERSION;
+use crate::runtime::{self, Runtime, ThreadCounts, ThreadTotals};
 use crate::save::{self, WorldSpec};
 use crate::session;
-use crate::tick::{self, Context, Setup, queue::InputSender};
+use crate::tick::queue::{self, InputKind, InputSender, Measure, SessionId, SessionInputs};
+use crate::tick::{self, Context, Setup};
 use crate::world::{Flat, Generator, Kind, Void};
 
 /// A Minecraft: Bedrock Edition server. Make one with [`Server::builder`], then call
@@ -33,6 +38,8 @@ pub struct Server {
     packs: Vec<Pack>,
     shutdown: ShutdownHandle,
     shutdown_requests: mpsc::Receiver<()>,
+    /// Whether Anchor's console log is on ([`ServerBuilder::without_console_log`]).
+    console_log: bool,
 }
 
 /// Collects what a [`Server`] needs; [`build`](Self::build) checks it.
@@ -40,6 +47,8 @@ pub struct Server {
 pub struct ServerBuilder {
     config: Config,
     data_dir: PathBuf,
+    /// Whether Anchor's console log is on ([`Self::without_console_log`]).
+    console_log: bool,
     /// What the user registers; modules add their builder methods in their own files.
     pub(crate) setup: Setup,
     /// Worlds besides the default one, in registration order.
@@ -58,6 +67,7 @@ impl Server {
         ServerBuilder {
             config: Config::default(),
             data_dir: PathBuf::from("data"),
+            console_log: true,
             setup: Setup::default(),
             worlds: Vec::new(),
             packs: Vec::new(),
@@ -69,8 +79,64 @@ impl Server {
         self.shutdown.clone()
     }
 
-    /// Runs the server until a [`ShutdownHandle`] or Ctrl+C stops it, blocking the calling
+    /// Starts Anchor's console log and makes it the calling thread's default until the guard
+    /// drops, which writes the lines still queued; `None` if it is off (`log-level = "off"` or
+    /// [`ServerBuilder::without_console_log`]). Fails if its thread cannot start.
+    fn console_log(&self) -> std::io::Result<Option<console::log::Installed>> {
+        if !self.console_log {
+            return Ok(None);
+        }
+        let log = console::log::start(self.config.general.log_level)?;
+        Ok(log.map(console::log::Log::install))
+    }
+
+    /// Imports the Bedrock world folder `dir` (a `level.dat` and its `db` database folder, as BDS
+    /// and the game write it) as the persistent world `world`, before [`run`](Self::run).
+    ///
+    /// The world must be declared ([`ServerBuilder::world`] with [`Kind::Persistent`], or
+    /// `level-name`) and not yet be in the world file: an import only creates a world, so a
+    /// second run is refused with [`import::Error::WorldExists`](crate::import::Error) and
+    /// changes nothing. Blocks and items of older versions are upgraded as PMMP upgrades them;
+    /// blocks Anchor does not know are kept as unknown blocks. The overworld's chunks, block
+    /// entities, entities and pending block updates are imported, with the seed, time and spawn;
+    /// the Nether, the End and the players are not (Bedrock files players by device, not by Xbox
+    /// user ID). The [`import::Report`](crate::import::Report) counts what was imported and left
+    /// out.
+    ///
+    /// It blocks the calling thread, opens the world file as [`run`](Self::run) does (backup as
+    /// `backups` says, integrity check), uses a CPU pool of `cpu-threads` that it joins before
+    /// returning, and writes the whole world in one transaction: on any failure, a chunk that
+    /// cannot be read included, the world file is left as it was. The source folder is only read,
+    /// and the import fails if it changes meanwhile.
+    #[doc(alias = "FormatConverter::execute")]
+    pub fn import_world(
+        &self,
+        dir: impl AsRef<Path>,
+        world: &str,
+    ) -> Result<crate::import::Report> {
+        let _log = self.console_log().map_err(Error::Start)?;
+        crate::import::run(
+            &self.data_dir,
+            crate::storage::StartBackup::from_backups(self.config.general.backups),
+            &self.worlds,
+            self.threads.cpu,
+            &self.setup.custom,
+            dir.as_ref(),
+            world,
+        )
+    }
+
+    /// Runs the server until a [`ShutdownHandle`] or a stop signal stops it, blocking the calling
     /// thread.
+    ///
+    /// The stop signals are Ctrl+C, SIGTERM and SIGHUP on Unix, and Ctrl+C, Ctrl+Break and the
+    /// console's close, logoff and shutdown events on Windows (after those three Windows ends the
+    /// process about 5 seconds later, whether the stop finished or not). A second stop signal
+    /// ends the process with status 130, as after a crash: the last commit stays. It first lets
+    /// the console log write its lines, for half a second at most.
+    ///
+    /// While it runs, Anchor's console log ([`ServerBuilder::without_console_log`]) is the calling
+    /// thread's default and that of every thread Anchor starts.
     ///
     /// It first opens the world file `data/world.redb` (PLAN.md 10.6): it backs up the closed
     /// file to `data/backups/`, checks it and refuses a damaged one, leaving it as it was. On
@@ -83,6 +149,14 @@ impl Server {
         reason = "consistency: one function starts every part of the server in its order"
     )]
     pub fn run(self) -> Result<()> {
+        let started = clock::now();
+        let log = self.console_log().map_err(Error::Start)?;
+        info!(
+            version = Context::ANCHOR_VERSION,
+            minecraft = Context::VERSION,
+            protocol = PROTOCOL_VERSION,
+            "server starting"
+        );
         let Self {
             config,
             data_dir,
@@ -92,6 +166,7 @@ impl Server {
             packs,
             shutdown,
             shutdown_requests,
+            console_log: _,
         } = self;
         // Built before any thread starts: encoding the shared spawn batches takes a while once.
         let shared = tick::Shared::new(
@@ -100,14 +175,18 @@ impl Server {
             &setup.custom_entities,
         )
         .map_err(|e| Error::Start(std::io::Error::other(e)))?;
-        let mut opened = save::open(&data_dir, worlds)?;
         let mut setup = setup;
+        setup.fingerprints = tick::Fingerprints::of(&tick::Settings::new(&config), &worlds, &setup);
+        let start = crate::storage::StartBackup::from_backups(config.general.backups);
+        let mut opened = save::open_with(&data_dir, worlds, start)?;
         setup.data.load(&mut opened.thread)?;
         setup.commands.start(
             std::mem::take(&mut opened.access),
             config.general.white_list,
         );
-        opened.thread.set_lighting(config.developer.lighting);
+        opened
+            .thread
+            .set_lighting(config.developer.lighting.is_calculated());
         let runtime = Runtime::new(threads)?;
         let pool = Arc::new(runtime::cpu_pool(threads.cpu)?);
         let (inputs, input_queue) = tick::queue::input_queue();
@@ -120,17 +199,27 @@ impl Server {
         let (crash, mut crash_log) = oneshot::channel();
         let (requests, request_queue) = mpsc::channel(save::REQUEST_CAPACITY);
         let (responder, responses) = mpsc::channel(save::RESPONSE_CAPACITY);
-        let save_pool = Arc::clone(&pool);
-        let save_thread = runtime::spawn_save(move || {
-            save::run(opened.thread, &save_pool, request_queue, &responder)
-        })?;
-        let state = tick::State::new(
+        let mut state = tick::State::new(
             tick::Settings::new(&config),
             shared,
             setup,
             opened.worlds,
             opened.tick,
         );
+        state.open_worlds(opened.catalog);
+        state.set_identity(opened.identity);
+        let (controls, control_queue) = tick::queue::control_queue();
+        state.connect_network(controls);
+        state.set_threads(ThreadTotals::new(
+            threads,
+            config.developer.console_input,
+            log.is_some(),
+        ));
+        opened.thread.set_custom(Arc::clone(state.custom()));
+        let save_pool = Arc::clone(&pool);
+        let save_thread = runtime::spawn_save(move || {
+            save::run(opened.thread, &save_pool, request_queue, &responder)
+        })?;
         let tick_pool = Arc::clone(&pool);
         let link = tick::SaveLink {
             requests,
@@ -139,26 +228,32 @@ impl Server {
         let tick_thread = runtime::spawn_tick(move || {
             tick::run(state, &tick_pool, input_queue, link, stop, crash, done)
         })?;
-        info!(
+        debug!(
             network_threads = threads.network,
             cpu_threads = threads.cpu,
-            "server starting"
+            "threads started"
         );
         let running = Running {
             shutdown,
             shutdown_requests,
             stop_tick,
             tick_done,
+            started,
+            log: log.as_ref().map(console::log::Installed::drained),
         };
-        let served = runtime.block_on(running.serve(config, packs, &data_dir, inputs));
+        let served =
+            runtime.block_on(running.serve(config, packs, &data_dir, inputs, control_queue));
         // `serve` returns only after the tick thread has ended, so this does not wait long.
         let joined = tick_thread.join();
-        // The tick dropped its request sender, so the save thread commits what it holds,
-        // compacts the file and ends.
+        // The tick has ended: after its `Finish` the save thread commits what it holds, compacts
+        // the file and ends; after a tick panic it ends without committing.
         let saved = save_thread.join();
         runtime.shutdown();
+        // `Pool::shutdown` warns about threads that did not end.
         if let Ok(pool) = Arc::try_unwrap(pool) {
             pool.shutdown();
+        } else {
+            warn!("the CPU pool is still shared; its threads are not joined");
         }
         let saved = match saved {
             Ok(result) => result.map_err(Error::from),
@@ -191,6 +286,36 @@ impl Server {
     }
 }
 
+impl Server {
+    /// Replays the crash log at `log` (a `data/crash/input-*.log` the server wrote when it
+    /// stopped on a panic or a failed save) with this server's settings, worlds and
+    /// registrations, and reports how it ended ([`crate::replay`]): it starts from the saved
+    /// state of the log's oldest segment that `data/world.redb` or a backup still holds, and
+    /// applies the logged ticks. A tick that panics again ends it with
+    /// [`End::Panicked`](crate::replay::End::Panicked).
+    ///
+    /// Build the server as the run that wrote the log was built: the same settings, worlds and
+    /// registrations, or the replay is refused. It opens the world files read-only, runs no
+    /// network, commits nothing and writes no file. State that listeners, tasks and behaviours
+    /// keep in their closures starts over, and their callbacks run again, so what they do outside
+    /// the server (files, network) happens again.
+    pub fn replay(self, log: impl AsRef<Path>) -> crate::replay::Result<crate::replay::Replay> {
+        let _log = self.console_log().map_err(crate::replay::Error::Io)?;
+        let Self {
+            config,
+            data_dir,
+            threads,
+            setup,
+            worlds,
+            packs: _,
+            shutdown: _,
+            shutdown_requests: _,
+            console_log: _,
+        } = self;
+        crate::replay::run(&config, &data_dir, threads, setup, &worlds, log.as_ref())
+    }
+}
+
 /// Writes the input log since the last commit to `data/crash/`.
 fn write_crash(data_dir: &Path, log: &tick::InputLog) {
     match tick::write_crash_log(data_dir, log) {
@@ -211,6 +336,10 @@ struct Running {
     stop_tick: mpsc::Sender<()>,
     /// Resolves when the tick thread ends, normally or by panic. Polled once at most.
     tick_done: oneshot::Receiver<()>,
+    /// When [`Server::run`] started: the uptime counts from here.
+    started: Instant,
+    /// Anchor's console log, if it runs: a second stop signal waits for its lines.
+    log: Option<console::log::Drained>,
 }
 
 impl Running {
@@ -222,24 +351,19 @@ impl Running {
         packs: Vec<Pack>,
         data_dir: &Path,
         inputs: InputSender,
+        controls: mpsc::Receiver<tick::queue::Control>,
     ) -> Result<()> {
         let Self {
             shutdown,
             mut shutdown_requests,
             stop_tick,
             mut tick_done,
+            started,
+            log,
         } = self;
-        let ctrl_c = shutdown.clone();
-        tokio::spawn(async move {
-            match tokio::signal::ctrl_c().await {
-                Ok(()) => {
-                    info!("Ctrl+C received; shutting down");
-                    ctrl_c.shutdown();
-                }
-                Err(e) => warn!(error = %e, "cannot listen for Ctrl+C"),
-            }
-        });
-        let network = match session::start(config, packs, data_dir, inputs).await {
+        tokio::spawn(signals(shutdown.clone(), log));
+        tokio::spawn(measure_process(inputs.session(SessionId::PROCESS), started));
+        let network = match session::start(config, packs, data_dir, inputs, controls).await {
             Ok(network) => network,
             Err(e) => {
                 stop(&stop_tick, tick_done).await;
@@ -262,6 +386,131 @@ impl Running {
     }
 }
 
+/// How often [`measure_process`] measures.
+const PROCESS_PERIOD: Duration = Duration::from_secs(1);
+
+/// Measures the process every [`PROCESS_PERIOD`] for `/status` ([`Measure::Process`]) until the
+/// tick stops. A measure the full queue refuses is dropped: the next one follows a second later.
+async fn measure_process(mut inputs: SessionInputs, started: Instant) {
+    let mut every = tokio::time::interval(PROCESS_PERIOD);
+    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        every.tick().await;
+        let memory = match tokio::task::spawn_blocking(resident_memory).await {
+            Ok(memory) => memory,
+            Err(e) => {
+                debug!(error = %e, "process measures stopped");
+                return;
+            }
+        };
+        let uptime = clock::now().saturating_duration_since(started).as_millis();
+        let measure = Measure::Process {
+            memory,
+            uptime_ms: u64::try_from(uptime).unwrap_or(u64::MAX),
+        };
+        match inputs.try_send(InputKind::Measure(measure)) {
+            Ok(()) => {}
+            Err(queue::Error::Full) => {
+                debug!("the tick's input queue is full; process measure dropped");
+            }
+            Err(queue::Error::Closed) => return,
+        }
+    }
+}
+
+/// The process's resident memory in bytes (the working set on Windows), or 0 if the OS does not
+/// tell. It reads `/proc/self/statm` on Linux, so it runs on a blocking thread.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: measure_process runs it on a blocking thread"
+)]
+fn resident_memory() -> u64 {
+    memory_stats::memory_stats().map_or(0, |m| u64::try_from(m.physical_mem).unwrap_or(u64::MAX))
+}
+
+/// The exit status after a second stop signal: 128 + SIGINT, what shells report for Ctrl+C.
+const INTERRUPTED_EXIT: i32 = 130;
+
+/// Turns the first stop signal into a shutdown request and ends the process at the second, as
+/// PMMP does (it drops its handlers after the first): an operator whose stop hangs can still end
+/// it, with the result of a crash (the last commit stays, CLAUDE.md 4.6).
+async fn signals(shutdown: ShutdownHandle, log: Option<console::log::Drained>) {
+    let (received, mut signals) = mpsc::channel(1);
+    listen(&received);
+    drop(received);
+    let Some(signal) = signals.recv().await else {
+        return;
+    };
+    info!(signal, "stop signal received; shutting down");
+    shutdown.shutdown();
+    if let Some(signal) = signals.recv().await {
+        exit_interrupted(signal, log.as_ref()).await;
+    }
+}
+
+/// How long the exit after a second stop signal waits for the console log to write its lines.
+const EXIT_LOG_WAIT: Duration = Duration::from_millis(500);
+
+/// Ends the process after the second stop signal `signal`, once `log` (Anchor's console log, if
+/// it runs) has written the lines queued until then, or after [`EXIT_LOG_WAIT`]: `exit` ends the
+/// log thread with the others, and a console that takes no writes must not hold up the exit.
+#[expect(
+    clippy::exit,
+    reason = "safety: a second stop signal ends the process, as the OS would without a handler"
+)]
+async fn exit_interrupted(signal: &str, log: Option<&console::log::Drained>) -> ! {
+    error!(signal, "second stop signal; exiting without the final save");
+    if let Some(log) = log {
+        match tokio::time::timeout(EXIT_LOG_WAIT, log.wait()).await {
+            // Past the wait the lines still queued are lost, as after a crash.
+            Ok(()) | Err(tokio::time::error::Elapsed { .. }) => {}
+        }
+    }
+    std::process::exit(INTERRUPTED_EXIT);
+}
+
+/// Starts a task per stop signal that forwards each one to `received` by name.
+macro_rules! forward {
+    ($received:expr, $name:literal, $listener:expr) => {
+        match $listener {
+            Ok(mut listener) => {
+                let received = $received.clone();
+                tokio::spawn(async move {
+                    while listener.recv().await.is_some() {
+                        if received.send($name).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+            Err(e) => warn!(signal = $name, error = %e, "cannot listen for the signal"),
+        }
+    };
+}
+
+/// The stop signals on Unix: Ctrl+C, SIGTERM (`kill`, service managers) and SIGHUP (the
+/// terminal closed), as PMMP handles them.
+#[cfg(unix)]
+fn listen(received: &mpsc::Sender<&'static str>) {
+    use tokio::signal::unix::{SignalKind, signal};
+    forward!(received, "SIGINT", signal(SignalKind::interrupt()));
+    forward!(received, "SIGTERM", signal(SignalKind::terminate()));
+    forward!(received, "SIGHUP", signal(SignalKind::hangup()));
+}
+
+/// The stop signals on Windows: Ctrl+C, Ctrl+Break, and the console's close, logoff and shutdown
+/// events. After those three Windows ends the process about 5 seconds later, whether the stop
+/// has finished or not.
+#[cfg(windows)]
+fn listen(received: &mpsc::Sender<&'static str>) {
+    use tokio::signal::windows;
+    forward!(received, "Ctrl+C", windows::ctrl_c());
+    forward!(received, "Ctrl+Break", windows::ctrl_break());
+    forward!(received, "close", windows::ctrl_close());
+    forward!(received, "logoff", windows::ctrl_logoff());
+    forward!(received, "shutdown", windows::ctrl_shutdown());
+}
+
 /// Asks the tick thread to stop and waits until it has ended.
 async fn stop(stop_tick: &mpsc::Sender<()>, tick_done: oneshot::Receiver<()>) {
     match stop_tick.try_send(()) {
@@ -275,7 +524,7 @@ async fn stop(stop_tick: &mpsc::Sender<()>, tick_done: oneshot::Receiver<()>) {
 }
 
 /// The text of a panic payload.
-fn panic_message(payload: &(dyn Any + Send)) -> String {
+pub(crate) fn panic_message(payload: &(dyn Any + Send)) -> String {
     payload
         .downcast_ref::<&str>()
         .map(|s| (*s).to_owned())
@@ -299,10 +548,29 @@ impl ServerBuilder {
         self
     }
 
+    /// Turns Anchor's console log off, whatever `log-level` says, so that the program's own
+    /// `tracing` subscriber gets Anchor's events.
+    ///
+    /// Anchor's console log is no global subscriber: while [`Server::run`],
+    /// [`Server::import_world`] or [`Server::replay`] runs, it is the default of the calling
+    /// thread and of every thread Anchor starts, and writes one line per event on standard error
+    /// (UTC time, level, message and fields; control characters escaped, Minecraft format codes
+    /// left out). A thread of its own writes the lines, so a console that stops taking them never
+    /// holds up the server: lines it cannot keep up with are left out and counted in the log.
+    /// Threads of the program keep their own default. Without it, Anchor's events go to the
+    /// program's global subscriber (`tracing::subscriber::set_global_default`), if any.
+    #[must_use]
+    pub fn without_console_log(mut self) -> Self {
+        self.console_log = false;
+        self
+    }
+
     /// Calls `listener` on every `E` event at `priority`, in the tick, after the listeners of
     /// lower priority and those added earlier at the same priority. The listener may change the
     /// event and, through the [`Context`], the game; its calls raise no events
-    /// ([`event`](crate::event) explains the order).
+    /// ([`event`] explains the order). A [replay](Server::replay) calls it again
+    /// as the replaying server built it: state it captures starts over, and what it does
+    /// outside the server happens again.
     #[doc(alias = "PluginManager::registerEvent")]
     #[must_use]
     pub fn on<E: event::Event>(
@@ -326,40 +594,69 @@ impl ServerBuilder {
         self
     }
 
-    /// Runs `task` in the tick every `period` ticks (on ticks that are multiples of `period`),
+    /// Runs `task` in the tick every `period_ticks` ticks (on ticks that are multiples of it),
     /// after the tick's inputs and in registration order, with a [`Context`] that reaches the
-    /// worlds. Like listeners, tasks run only in the tick, so a replay of the input log runs
-    /// them the same way. This is the build-time way, fixed for the server's life; the runtime
+    /// worlds. Like listeners, tasks run only in the tick, so a [replay](Server::replay) runs
+    /// them the same way, the state they capture starting over. This is the build-time way,
+    /// fixed for the server's life; the runtime
     /// one, counted from its call and cancellable, is
     /// [`Context::schedule_repeating`] (PMMP `TaskScheduler::scheduleRepeatingTask`).
     #[must_use]
     pub fn every(
         mut self,
-        period: NonZeroU32,
+        period_ticks: NonZeroU32,
         task: impl FnMut(&mut Context<'_>) + Send + 'static,
     ) -> Self {
-        self.setup.tasks.push(period, task);
+        self.setup.tasks.push(period_ticks, task);
         self
     }
 
-    /// Adds a world besides the default one (`level-name`). A [`Kind::Persistent`] world is
-    /// saved in the world file under its name; a [`Kind::Temporary`] one is generated fresh at
-    /// every start and never saved. A new world gets a random seed. Players join the default
-    /// world.
+    /// Adds a world besides the default one (`level-name`), loaded from the start. A
+    /// [`Kind::Persistent`] world is saved in the world file under its name; a
+    /// [`Kind::Temporary`] one is generated fresh at every start and never saved. A new world
+    /// gets a random seed. Players join the default world. Its generator is registered as
+    /// [`generator`](Self::generator) registers one.
     #[doc(alias = "WorldManager::generateWorld")]
     #[must_use]
     pub fn world(mut self, name: impl Into<String>, kind: Kind, generator: impl Generator) -> Self {
+        let generator = self.setup.generators.add_typed(generator);
         self.worlds.push(WorldSpec {
             name: name.into(),
             kind,
-            generator: Arc::new(generator),
+            generator,
             seed: None,
         });
         self
     }
 
-    /// Checks the settings, the thread budget and the world names, and puts the listeners in
-    /// calling order. Touches no file.
+    /// Sets the view values of the world `name` as a `[worlds.<name>]` table of the settings
+    /// does (each value set replaces the global one in that world), into the settings this
+    /// builder holds: a later [`config`](Self::config) replaces them. The build refuses a value
+    /// out of its key's range and a name that is not one of the server's worlds.
+    #[must_use]
+    pub fn world_settings(
+        mut self,
+        name: impl Into<String>,
+        settings: crate::config::WorldSettings,
+    ) -> Self {
+        self.config.worlds.insert(name.into(), settings);
+        self
+    }
+
+    /// Registers `generator` under its [`name`](Generator::name), for the worlds
+    /// [`Context::create_world`] makes and the stored worlds [`Context::load_world`] loads (PMMP
+    /// `GeneratorManager::addGenerator`). The built-in `flat` and `void` are always registered.
+    /// Two generators of one type with one name count as one; two types with one name fail the
+    /// build with [`Error::DuplicateGenerator`].
+    #[doc(alias = "GeneratorManager::addGenerator")]
+    #[must_use]
+    pub fn generator(mut self, generator: impl Generator) -> Self {
+        self.setup.generators.add_typed(generator);
+        self
+    }
+
+    /// Checks the settings, the thread budget and the world names (those of `[worlds.<name>]`
+    /// included), and puts the listeners in calling order. Touches no file.
     pub fn build(mut self) -> Result<Server> {
         self.config.validate()?;
         let developer = &self.config.developer;
@@ -370,6 +667,12 @@ impl ServerBuilder {
         )?;
         self.setup.listeners.sort();
         self.setup.commands.finish().map_err(Error::Command)?;
+        if !self.config.general.vanilla_recipes {
+            self.setup.custom.drop_vanilla_recipes();
+        }
+        if !self.config.general.recipe_book {
+            self.setup.custom.hide_recipe_book();
+        }
         self.setup.custom.finish().map_err(Error::Custom)?;
         self.setup
             .custom_entities
@@ -377,6 +680,11 @@ impl ServerBuilder {
             .map_err(Error::CustomEntity)?;
         self.setup.data.finish().map_err(Error::Data)?;
         let general = &self.config.general;
+        if let Some(name) = self.setup.generators.clash() {
+            return Err(Error::DuplicateGenerator {
+                name: name.to_owned(),
+            });
+        }
         let generator: Arc<dyn Generator> = match general.level_type {
             LevelType::Flat => Arc::new(Flat),
             LevelType::Void => Arc::new(Void),
@@ -394,6 +702,19 @@ impl ServerBuilder {
             }
             worlds.push(world);
         }
+        self.config
+            .check_world_names(|name| worlds.iter().any(|w| w.name == name))?;
+        let too_long = |name: &&str| name.len() > crate::storage::codec::MAX_NAME;
+        if let Some(name) = worlds
+            .iter()
+            .map(|w| w.name.as_str())
+            .find(too_long)
+            .or_else(|| self.setup.generators.names().find(too_long))
+        {
+            return Err(Error::NameTooLong {
+                name: name.to_owned(),
+            });
+        }
         let (requests, shutdown_requests) = mpsc::channel(1);
         Ok(Server {
             config: Arc::new(self.config),
@@ -404,6 +725,7 @@ impl ServerBuilder {
             packs: self.packs,
             shutdown: ShutdownHandle(requests),
             shutdown_requests,
+            console_log: self.console_log,
         })
     }
 }
@@ -424,6 +746,103 @@ impl ShutdownHandle {
 mod tests {
     use super::*;
 
+    /// Set for the child process of
+    /// `a_second_stop_signal_is_logged_before_the_process_ends`.
+    const SIGNAL_CHILD_ENV: &str = "ANCHOR_SECOND_SIGNAL_CHILD";
+
+    /// The process a second stop signal ends, under Anchor's console log on standard error.
+    /// Without the parent's environment it does nothing.
+    #[test]
+    #[ignore = "the child process of a_second_stop_signal_is_logged_before_the_process_ends"]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the child owns a small runtime"
+    )]
+    fn second_signal_child() {
+        if std::env::var_os(SIGNAL_CHILD_ENV).is_none() {
+            return;
+        }
+        let log = console::log::start(crate::config::LogLevel::Info)
+            .unwrap()
+            .unwrap()
+            .install();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        runtime.block_on(exit_interrupted("test", Some(&log.drained())));
+    }
+
+    /// The line about the skipped final save reaches standard error before the process ends.
+    #[test]
+    fn a_second_stop_signal_is_logged_before_the_process_ends() {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "server::tests::second_signal_child",
+                "--exact",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(SIGNAL_CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(INTERRUPTED_EXIT), "{stderr}");
+        assert!(
+            stderr.contains("ERROR second stop signal; exiting without the final save"),
+            "{stderr}"
+        );
+    }
+
+    /// [`ServerBuilder::world_settings`] sets a world's `[worlds.<name>]` values, checked by the
+    /// build as the file's are.
+    #[test]
+    fn world_settings_are_the_worlds_table_of_the_settings() {
+        let own = crate::config::WorldSettings {
+            view_distance: Some(6),
+            ..crate::config::WorldSettings::default()
+        };
+        let server = Server::builder()
+            .world("arena", Kind::Temporary, Flat)
+            .world_settings("arena", own)
+            .build()
+            .unwrap();
+        assert_eq!(server.config.worlds.get("arena"), Some(&own));
+        let bad = crate::config::WorldSettings {
+            view_distance: Some(1),
+            ..crate::config::WorldSettings::default()
+        };
+        let refused = Server::builder()
+            .world("arena", Kind::Temporary, Flat)
+            .world_settings("arena", bad)
+            .build();
+        assert!(matches!(refused, Err(Error::Config(_))));
+        let undeclared = Server::builder().world_settings("nowhere", own).build();
+        assert!(matches!(undeclared, Err(Error::Config(_))));
+    }
+
+    /// `vanilla-recipes = false` and `recipe-book = false` reach the recipes the server builds.
+    #[test]
+    fn the_recipe_switches_reach_the_built_recipes() {
+        let built = |vanilla: bool, book: bool| {
+            let mut config = Config::default();
+            config.general.vanilla_recipes = vanilla;
+            config.general.recipe_book = book;
+            Server::builder()
+                .config(config)
+                .build()
+                .unwrap()
+                .setup
+                .custom
+        };
+        let on = built(true, true);
+        assert!(on.first_special_id() > 1 && on.has_recipe_book());
+        let off = built(false, false);
+        assert_eq!(off.first_special_id(), 1);
+        assert!(!off.has_recipe_book());
+    }
+
     #[test]
     fn a_panicking_tick_thread_is_joined_with_its_message() {
         let thread = runtime::spawn_tick(|| panic!("tick {} failed", 7)).unwrap();
@@ -436,5 +855,30 @@ mod tests {
             "a payload that is not text"
         );
         assert_eq!(panic_message(&"static"), "static");
+    }
+
+    /// The process measure comes on its own session with the memory the OS reports and the
+    /// uptime since the start, and stops once the tick's queue is gone.
+    #[test]
+    fn the_process_is_measured_every_second_until_the_tick_stops() {
+        let runtime = Runtime::new(ThreadCounts { network: 1, cpu: 1 }).unwrap();
+        let (inputs, mut queue) = queue::input_queue();
+        let started = clock::now().checked_sub(Duration::from_secs(5)).unwrap();
+        runtime.block_on(async move {
+            let task = tokio::spawn(measure_process(inputs.session(SessionId::PROCESS), started));
+            for seq in 0..2 {
+                let input = queue.recv().await.unwrap();
+                assert_eq!((input.session, input.seq), (SessionId::PROCESS, seq));
+                let InputKind::Measure(Measure::Process { memory, uptime_ms }) = input.kind else {
+                    panic!("{:?}", input.kind);
+                };
+                // A test process holds more than a megabyte.
+                assert!(memory > 1 << 20, "{memory}");
+                assert!((5_000..60_000).contains(&uptime_ms), "{uptime_ms}");
+            }
+            drop(queue);
+            task.await.unwrap();
+        });
+        runtime.shutdown();
     }
 }

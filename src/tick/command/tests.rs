@@ -71,7 +71,7 @@ pub(super) fn server(commands: Vec<Command>) -> (State, Vec<mpsc::Receiver<Outbo
 }
 
 /// [`server`] with `listeners`.
-fn server_with(
+pub(super) fn server_with(
     commands: Vec<Command>,
     mut listeners: Listeners,
 ) -> (State, Vec<mpsc::Receiver<Outbound>>) {
@@ -191,11 +191,30 @@ fn every_parameter_kind_parses() {
 }
 
 #[test]
-fn bad_lines_get_pmmp_messages_and_run_nothing() {
+fn unmatched_players_and_selectors_show_the_clients_texts() {
+    let not_found = Error::PlayerNotFound {
+        name: "x".to_owned(),
+    };
+    assert_eq!(not_found.line().text, "commands.generic.player.notFound");
+    assert_eq!(
+        Error::NoTargets.line().text,
+        "commands.generic.noTargetMatch"
+    );
+}
+
+#[test]
+fn bad_lines_get_the_clients_or_anchors_messages_and_run_nothing() {
     let (mut state, _rx) = server(vec![
         echo("n", &[Param::int("a")]),
         echo("t", &[Param::target("who")]),
     ]);
+    // BDS's syntax error (P6 `syntax`, m9-facts.md): the word where the line stops fitting, empty
+    // where words are missing, with up to 10 characters of the line before and after it.
+    let syntax = |before: &str, word: &str, after: &str| Error::Syntax {
+        before: before.to_owned(),
+        word: word.to_owned(),
+        after: after.to_owned(),
+    };
     let usage = Error::Usage {
         usage: "/n <a: int>".to_owned(),
     };
@@ -212,11 +231,13 @@ fn bad_lines_get_pmmp_messages_and_run_nothing() {
                 name: "nope".to_owned(),
             },
         ),
-        ("n", usage.clone()),
-        ("n x", usage.clone()),
-        ("n 1 2", usage.clone()),
-        ("n 99999999999", usage.clone()),
-        ("n 1.5", usage.clone()),
+        ("n", syntax("/n", "", "")),
+        ("n x", syntax("/n ", "x", "")),
+        ("n 1 2", syntax("/n 1 ", "2", "")),
+        ("n 99999999999", syntax("/n ", "99999999999", "")),
+        ("n 1.5", syntax("/n ", "1.5", "")),
+        ("n abc 3 and more words", syntax("/n ", "abc", " 3 and mor")),
+        ("n    1  bad tail", syntax("/n    1  ", "bad", " tail")),
         (r#"n "1"#, Error::UnclosedQuote),
         (
             "t nobody",
@@ -224,18 +245,8 @@ fn bad_lines_get_pmmp_messages_and_run_nothing() {
                 name: "nobody".to_owned(),
             },
         ),
-        (
-            "t @e",
-            Error::Usage {
-                usage: "/t <who: target>".to_owned(),
-            },
-        ),
-        (
-            "t @a[r=3]",
-            Error::Usage {
-                usage: "/t <who: target>".to_owned(),
-            },
-        ),
+        ("t @e", syntax("/t ", "@e", "")),
+        ("t @a[r=3]", syntax("/t ", "@a[r=3]", "")),
         ("t @s", Error::NoTargets),
     ] {
         assert_eq!(
@@ -259,7 +270,13 @@ fn bad_lines_get_pmmp_messages_and_run_nothing() {
         },
         "BDS's translation"
     );
-    assert_eq!(usage.line().text, "Usage: /n <a: int>");
+    assert_eq!(
+        usage.line(),
+        Line {
+            text: "commands.generic.usage".to_owned(),
+            params: vec!["/n <a: int>".to_owned()],
+        }
+    );
     assert_eq!(
         Error::Permission {
             name: "fly".to_owned()
@@ -271,21 +288,56 @@ fn bad_lines_get_pmmp_messages_and_run_nothing() {
         },
         "BDS's translation"
     );
+}
+
+/// Syntax errors name the word where the line stops fitting the overload that fits furthest, as
+/// BDS does (P6 `syntax`, m9-facts.md).
+#[test]
+fn syntax_errors_name_the_word_where_the_line_stops_fitting() {
+    let syntax = |before: &str, word: &str, after: &str| Error::Syntax {
+        before: before.to_owned(),
+        word: word.to_owned(),
+        after: after.to_owned(),
+    };
     assert_eq!(
-        Error::PlayerNotFound {
-            name: "x".to_owned()
-        }
-        .line()
-        .text,
-        "Cannot find a player matching \"x\""
+        syntax("/give @s ", "no_such_item", " 3 and mor").line(),
+        Line {
+            text: "commands.generic.syntax".to_owned(),
+            params: vec![
+                "/give @s ".to_owned(),
+                "no_such_item".to_owned(),
+                " 3 and mor".to_owned()
+            ],
+        },
+        "BDS's translation"
     );
-    let (mut state, _rx) = server(vec![echo("p", &[Param::position("at")])]);
-    for line in ["p 1 2", "p 1 2 x", "p ^ ^ ^", "p ~inf 0 0", "p 1 2 3 4"] {
-        assert!(
-            matches!(
-                execute(&mut state, Sender::Console, line),
-                Err(Error::Usage { .. })
-            ),
+    let (mut state, _rx) = server(vec![
+        echo("p", &[Param::position("at")]),
+        echo("e", &[Param::target("who"), Param::effect("effect")]).overload(
+            &[
+                Param::target("who"),
+                Param::effect("effect"),
+                Param::int("seconds"),
+            ],
+            |_, _, _| Ok(Output::new()),
+        ),
+    ]);
+    for (line, expected) in [
+        ("p 1 2", syntax("/p 1 2", "", "")),
+        ("p 1 2 x", syntax("/p 1 2 ", "x", "")),
+        ("p ^ ^ ^", syntax("/p ", "^", " ^ ^")),
+        ("p ~inf 0 0", syntax("/p ", "~inf", " 0 0")),
+        ("p 1 2 3 4", syntax("/p 1 2 3 ", "4", "")),
+        // The overload that fits furthest names the word.
+        ("e @s speed abc", syntax(" @s speed ", "abc", "")),
+        (
+            "e @s no_such_effect",
+            syntax("/e @s ", "no_such_effect", ""),
+        ),
+    ] {
+        assert_eq!(
+            execute(&mut state, Sender::Console, line),
+            Err(expected),
             "{line}"
         );
     }
@@ -491,6 +543,78 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
         commands.finish(),
         Err(Error::ConflictingPermission { .. })
     ));
+}
+
+#[test]
+fn a_description_longer_than_a_client_decodes_refuses_the_build() {
+    let finish = |description: String| {
+        let mut commands = Commands::default();
+        let command = Command::new("a", description).overload(&[], |_, _, _| Ok(Output::new()));
+        commands.register(command, Origin::User);
+        commands.finish()
+    };
+    let max = crate::protocol::COMMAND_DESCRIPTION_MAX_LEN;
+    assert_eq!(finish("x".repeat(max)), Ok(()));
+    assert_eq!(
+        finish("x".repeat(max + 1)),
+        Err(Error::DescriptionTooLong {
+            command: "a".to_owned()
+        })
+    );
+}
+
+#[test]
+fn an_enum_type_name_reused_with_other_values_refuses_the_build() {
+    let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
+    let finish = |commands: Vec<Command>| {
+        let mut registered = Commands::default();
+        for c in commands {
+            registered.register(c, Origin::User);
+        }
+        registered.finish()
+    };
+    // Anchor's `/gamemode` names its enum `GameMode`.
+    let arena = Command::new("arena", "").overload(
+        &[Param::enumeration("mode", "GameMode", &["solo", "duo"])],
+        handler,
+    );
+    assert_eq!(
+        finish(vec![arena]),
+        Err(Error::ConflictingEnum {
+            name: "GameMode".to_owned()
+        })
+    );
+    let a =
+        Command::new("a", "").overload(&[Param::enumeration("m", "Mode", &["x", "y"])], handler);
+    let b =
+        Command::new("b", "").overload(&[Param::enumeration("m", "Mode", &["y", "x"])], handler);
+    assert_eq!(
+        finish(vec![a, b]),
+        Err(Error::ConflictingEnum {
+            name: "Mode".to_owned()
+        })
+    );
+}
+
+#[test]
+fn an_enum_type_name_reused_with_the_same_values_builds() {
+    let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
+    let mut commands = Commands::default();
+    commands.register(
+        Command::new("a", "").overload(
+            &[
+                Param::enumeration("on", "Boolean", &["true", "false"]),
+                Param::bool("off"),
+            ],
+            handler,
+        ),
+        Origin::User,
+    );
+    commands.register(
+        Command::new("b", "").overload(&[Param::literal("list")], handler),
+        Origin::User,
+    );
+    assert_eq!(commands.finish(), Ok(()));
 }
 
 /// Commands by name with their parameters: name, network type, optional.
@@ -1012,6 +1136,7 @@ fn console_lines_run_in_the_tick_and_replay_from_the_input_log() {
                         EntryKind::Leave => InputKind::Leave,
                         EntryKind::Console(line) => InputKind::Console(line.clone()),
                         EntryKind::Job(outcome) => InputKind::Job(outcome.clone()),
+                        EntryKind::Measure(measure) => InputKind::Measure(*measure),
                     };
                     Input {
                         session: e.session,
@@ -1117,7 +1242,7 @@ fn a_snapshot_holds_the_list_changes() {
 }
 
 #[test]
-fn joins_are_refused_in_pmmp_order_with_pmmp_messages() {
+fn joins_are_refused_in_pmmp_order_with_the_clients_or_anchors_messages() {
     let (mut state, _rx) = server(vec![]);
     let mut someone = state.players[&SessionId::new(1)].identity.clone();
     someone.name = "Someone".to_owned();
@@ -1150,17 +1275,20 @@ fn joins_are_refused_in_pmmp_order_with_pmmp_messages() {
     assert_eq!(admit(&state, &someone), Err(Refusal::Full));
     assert_eq!(
         Refusal::Banned(String::new()).message(),
-        "You are banned from this server"
+        "This server has banned you"
     );
     assert_eq!(
         Refusal::Banned("spam".to_owned()).message(),
-        "You are banned from this server. Reason: spam"
+        "This server has banned you: spam"
     );
     assert_eq!(
         Refusal::IpBanned(String::new()).message(),
-        "You are banned from this server. Reason: IP banned"
+        "This server has banned your address"
     );
-    assert_eq!(Refusal::NotWhitelisted.message(), "Server is whitelisted");
+    assert_eq!(
+        Refusal::NotWhitelisted.message(),
+        "disconnectionScreen.notAllowed"
+    );
     assert!(matches!(
         Refusal::Full.packet(),
         P::PlayStatus(PlayStatus { status: 7 })
@@ -1170,7 +1298,7 @@ fn joins_are_refused_in_pmmp_order_with_pmmp_messages() {
     };
     assert_eq!(
         (d.reason, d.message.as_str()),
-        (45, "Server is whitelisted")
+        (45, "disconnectionScreen.notAllowed")
     );
 }
 

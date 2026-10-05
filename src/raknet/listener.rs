@@ -51,6 +51,8 @@ pub(super) trait Sink {
     fn deliver(&mut self, id: u64, message: Vec<u8>) -> bool;
     /// An accepted connection is gone.
     fn close(&mut self, id: u64);
+    /// An accepted connection's client answered a connected ping after `rtt`.
+    fn ping(&mut self, id: u64, rtt: Duration);
 }
 
 /// Listener settings.
@@ -528,7 +530,16 @@ impl Conn {
                     .send(wire::ID_CONNECTED_PONG, reply, Reliability::Unreliable)?;
             }
             wire::ID_CONNECTED_PONG => {
-                Cursor::new(&message.body).take(16)?;
+                let mut cur = Cursor::new(&message.body);
+                let sent = cur.u64()?;
+                cur.u64()?;
+                // The pong echoes the time of the ping it answers (RakLib's ping measure); one
+                // from the future is the client's own invention and measures nothing.
+                if self.state == State::Open
+                    && let Some(rtt) = millis(now).checked_sub(sent)
+                {
+                    sink.ping(self.id, Duration::from_millis(rtt));
+                }
             }
             wire::ID_DETECT_LOST_CONNECTIONS => self.ping(now)?,
             wire::ID_CONNECTION_REQUEST if self.state == State::Handshake => {
@@ -628,6 +639,7 @@ pub(super) mod tests {
         accepted: Vec<u64>,
         delivered: Vec<(u64, Vec<u8>)>,
         closed: Vec<u64>,
+        pings: Vec<(u64, Duration)>,
         accept: bool,
         deliver: bool,
     }
@@ -639,6 +651,7 @@ pub(super) mod tests {
                 accepted: Vec::new(),
                 delivered: Vec::new(),
                 closed: Vec::new(),
+                pings: Vec::new(),
                 accept: true,
                 deliver: true,
             }
@@ -676,6 +689,10 @@ pub(super) mod tests {
 
         fn close(&mut self, id: u64) {
             self.closed.push(id);
+        }
+
+        fn ping(&mut self, id: u64, rtt: Duration) {
+            self.pings.push((id, rtt));
         }
     }
 
@@ -1183,6 +1200,25 @@ pub(super) mod tests {
         assert_eq!(pong.id, wire::ID_CONNECTED_PONG);
         assert_eq!(pong.body[..8], 77_u64.to_be_bytes());
         assert_eq!(pong.body[8..], millis(T).to_be_bytes());
+    }
+
+    /// A connected pong echoes the time of the server's ping: the difference is the ping the
+    /// session reports (`RakLib` `Session::handlePong`, PMMP `NetworkSession::getPing`).
+    #[test]
+    fn a_connected_pong_measures_the_ping() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let mut client = Client::new(addr(1, 1), 1492);
+        let id = connect(&mut listener, &mut sink, &mut client, T);
+        let pong = |time: u64| [time.to_be_bytes(), 0_u64.to_be_bytes()].concat();
+        let later = T + Duration::from_millis(40);
+        client.send(later, wire::ID_CONNECTED_PONG, pong(millis(T)));
+        pump(&mut listener, &mut sink, &mut client, later);
+        assert_eq!(sink.pings, [(id, Duration::from_millis(40))]);
+        // A pong from the future measures nothing.
+        client.send(later, wire::ID_CONNECTED_PONG, pong(millis(later) + 1));
+        pump(&mut listener, &mut sink, &mut client, later);
+        assert_eq!(sink.pings.len(), 1);
     }
 
     #[test]

@@ -20,6 +20,7 @@ use tracing::{debug, info};
 
 pub(crate) use self::access::Access;
 pub(crate) use self::available::{Listing, available_commands};
+use super::checkpoint::{self, Codec, Reader, Writer};
 use super::queue::{Identity, SessionId};
 use super::{Context, Phase, PlayerKey, State, chat, dispatch, spawn};
 use crate::ServerBuilder;
@@ -36,7 +37,7 @@ use crate::protocol::consts::{CommandOutputType, DisconnectReason};
 use crate::protocol::packet::{
     CommandOutput, CommandRequest, Disconnect, Packet, PlayStatus, SetDifficulty,
 };
-use crate::protocol::{CommandOrigin, CommandOutputMessage};
+use crate::protocol::{COMMAND_DESCRIPTION_MAX_LEN, CommandOrigin, CommandOutputMessage};
 use crate::random::{self, Random};
 use crate::save::{AccessData, AccessWrite};
 use crate::storage::AccessKey;
@@ -49,9 +50,12 @@ const PLAY_STATUS_SERVER_FULL: i32 = 7;
 /// The random stream of `@r`.
 const RANDOM_TARGET: u64 = random::tag("command-random-target");
 /// What the console is called in messages (PMMP `ConsoleCommandSender::getName`).
-const CONSOLE_NAME: &str = "CONSOLE";
-/// The prefix of a copy of a command result for operators (PMMP: gray, italic).
+const CONSOLE_NAME: &str = "Console";
+/// The prefix of a copy of a command result for operators: grey italics, as the client shows
+/// its own `chat.type.admin` lines.
 const ADMIN_PREFIX: &str = "§7§o";
+/// The client's `[sender: message]` text of a copy of a command result for operators.
+const ADMIN_KEY: &str = "chat.type.admin";
 /// The most lines of one command result a sender gets; the lines past it are replaced by one
 /// telling how many were left out (a client lists at most 1,024 in a `CommandOutput`).
 const MAX_OUTPUT_LINES: usize = 64;
@@ -190,8 +194,11 @@ impl Commands {
         for command in builtin::all() {
             self.register(command, Origin::Builtin);
         }
-        self.catalog = available::Catalog::new(&self.list, &self.names);
-        self.error.take().map_or(Ok(()), Err)
+        if let Some(e) = self.error.take() {
+            return Err(e);
+        }
+        self.catalog = available::Catalog::new(&self.list, &self.names)?;
+        Ok(())
     }
 
     /// What a player's `AvailableCommands` is built from, without the handlers, so that the
@@ -268,6 +275,73 @@ impl Commands {
     }
 }
 
+impl Commands {
+    /// Writes what changes while the server runs (as `Self::hash_into` hashes it, and the
+    /// start tick): the commands and permissions are code, fixed at build.
+    pub(super) fn checkpoint(&self, w: &mut Writer) {
+        let Self {
+            list: _,
+            by_name: _,
+            removed: _,
+            permissions: _,
+            error: _,
+            names: _,
+            catalog: _,
+            grants,
+            resend,
+            runs,
+            access,
+            auto_save,
+            stopping,
+            started,
+        } = self;
+        w.len(grants.len());
+        for (session, grants) in grants {
+            session.encode(w);
+            w.len(grants.len());
+            for (&name, value) in grants {
+                name.to_owned().encode(w);
+                value.encode(w);
+            }
+        }
+        resend.encode(w);
+        runs.encode(w);
+        access.encode(w);
+        auto_save.encode(w);
+        stopping.encode(w);
+        started.encode(w);
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote into the commands registered at build. A grant
+    /// names a registered permission.
+    pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
+        let players = r.len()?;
+        let mut grants = Grants::new();
+        for _ in 0..players {
+            let session = SessionId::decode(r)?;
+            let n = r.len()?;
+            let mut own = BTreeMap::new();
+            for _ in 0..n {
+                let name = String::decode(r)?;
+                let (&name, _) = self
+                    .permissions
+                    .get_key_value(name.as_str())
+                    .ok_or(checkpoint::Error::Format("granted permission"))?;
+                own.insert(name, bool::decode(r)?);
+            }
+            grants.insert(session, own);
+        }
+        self.grants = grants;
+        self.resend = Codec::decode(r)?;
+        self.runs = Codec::decode(r)?;
+        self.access = Codec::decode(r)?;
+        self.auto_save = Codec::decode(r)?;
+        self.stopping = Codec::decode(r)?;
+        self.started = Codec::decode(r)?;
+        Ok(())
+    }
+}
+
 /// Checks a command's names and overloads (the rules of [`Command::overload`]).
 fn check(command: &Command) -> command::Result<()> {
     for name in std::iter::once(&command.name).chain(&command.aliases) {
@@ -286,6 +360,11 @@ fn check(command: &Command) -> command::Result<()> {
             reason,
         })
     };
+    if command.description.len() > COMMAND_DESCRIPTION_MAX_LEN {
+        return Err(Error::DescriptionTooLong {
+            command: command.name.clone(),
+        });
+    }
     if command.overloads.is_empty() {
         return invalid("the command has no overload");
     }
@@ -415,14 +494,20 @@ fn execute(state: &mut State, sender: Sender, line: &str) -> command::Result<Out
         return Err(Error::Permission { name });
     }
     let commands = &state.commands;
-    let fitted =
-        command.overloads.iter().enumerate().find_map(|(i, o)| {
-            parse::fit(&o.params, line, rest, &commands.names).map(|raw| (i, raw))
-        });
+    // The first overload that fits, else where the overload that fits furthest stops.
+    let mut furthest = 0;
+    let mut fitted = None;
+    for (i, o) in command.overloads.iter().enumerate() {
+        match parse::fit(&o.params, line, rest, &commands.names) {
+            Ok(raw) => {
+                fitted = Some((i, raw));
+                break;
+            }
+            Err(at) => furthest = furthest.max(at),
+        }
+    }
     let Some((overload, raw)) = fitted else {
-        return Err(Error::Usage {
-            usage: command.usage_text(),
-        });
+        return Err(parse::syntax_error(line, furthest));
     };
     let names: Vec<String> = command
         .overloads
@@ -518,13 +603,16 @@ fn origin(state: &State, sender: Sender) -> Option<(usize, Vec3)> {
             .players
             .get(&id.session())
             .map(|p| (p.world().index(), p.position())),
-        Sender::Console => state.worlds.first().map(|w| {
-            let spawn = w.spawn();
-            (
-                0,
-                Vec3::new(f64::from(spawn.x), f64::from(spawn.y), f64::from(spawn.z)),
-            )
-        }),
+        Sender::Console => {
+            let default = state.catalog.default_world();
+            state.worlds.get(default).map(|w| {
+                let spawn = w.spawn();
+                (
+                    default,
+                    Vec3::new(f64::from(spawn.x), f64::from(spawn.y), f64::from(spawn.z)),
+                )
+            })
+        }
     }
 }
 
@@ -810,19 +898,17 @@ pub(crate) enum Refusal {
 }
 
 impl Refusal {
-    /// What the refused player sees (PMMP's English texts).
+    /// What the refused player sees: the client's text where it has one, Anchor's otherwise.
     pub(crate) fn message(&self) -> String {
         match self {
             Self::Full => "disconnectionScreen.serverFull".to_owned(),
-            Self::NotWhitelisted => "Server is whitelisted".to_owned(),
-            Self::Banned(reason) if reason.is_empty() => {
-                "You are banned from this server".to_owned()
-            }
+            Self::NotWhitelisted => "disconnectionScreen.notAllowed".to_owned(),
+            Self::Banned(reason) if reason.is_empty() => "This server has banned you".to_owned(),
             Self::IpBanned(reason) if reason.is_empty() => {
-                "You are banned from this server. Reason: IP banned".to_owned()
+                "This server has banned your address".to_owned()
             }
             Self::Banned(reason) | Self::IpBanned(reason) => {
-                format!("You are banned from this server. Reason: {reason}")
+                format!("This server has banned you: {reason}")
             }
         }
     }
@@ -889,7 +975,7 @@ impl Context<'_> {
         execute(self.state, sender, line)
     }
 
-    /// The name of `sender`: the player's name, or `CONSOLE`; `None` for a player who has left.
+    /// The name of `sender`: the player's name, or `Console`; `None` for a player who has left.
     #[doc(alias = "CommandSender::getName")]
     #[doc(alias = "ConsoleCommandSender::getName")]
     pub fn sender_name(&self, sender: Sender) -> Option<&str> {
@@ -915,13 +1001,16 @@ impl Context<'_> {
     }
 
     /// Shows what `sender`'s command did, `message`, to every other online player with
-    /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN), as `[sender: message]` in grey italics,
-    /// and logs it when a player sent the command (the console logs its own results). The
-    /// sender itself sees what its handler returns.
+    /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN), as the client's `[sender: message]`
+    /// (`chat.type.admin`) in grey italics, and logs it when a player sent the command (the
+    /// console logs its own results). The sender itself sees what its handler returns.
     #[doc(alias = "Command::broadcastCommandMessage")]
     pub fn broadcast_command_message(&mut self, sender: Sender, message: &str) {
         let source = self.sender_name(sender).unwrap_or_default().to_owned();
-        let copy = player::Message::Raw(format!("{ADMIN_PREFIX}[{source}: {message}]"));
+        let copy = player::Message::Translation {
+            key: format!("{ADMIN_PREFIX}%{ADMIN_KEY}"),
+            parameters: vec![source.clone(), message.to_owned()],
+        };
         self.tell_admins(sender, &copy);
         if let Sender::Player(_) = sender {
             info!(%source, message, "command result");
@@ -1309,19 +1398,27 @@ impl Context<'_> {
         self.state.commands.auto_save
     }
 
-    /// Sets the difficulty until the server stops and tells the players. On a `hardcore` server
+    /// Sets the difficulty until the server stops and tells the players. Every loaded world
+    /// follows it from now on, as PMMP's `/difficulty` sets each world's: a difficulty of its own
+    /// ([`set_world_difficulty`](Self::set_world_difficulty)) is dropped. On a `hardcore` server
     /// only [`Difficulty::Hard`] is allowed: false, changing nothing, for another.
     pub fn set_difficulty(&mut self, difficulty: Difficulty) -> bool {
         if self.state.settings.hardcore && difficulty != Difficulty::Hard {
             return false;
         }
         self.state.settings.difficulty = difficulty;
+        for (i, world) in self.state.worlds.iter_mut().enumerate() {
+            if self.state.catalog.is_loaded(i) {
+                world.set_difficulty(None);
+            }
+        }
         let packet = Packet::SetDifficulty(SetDifficulty {
             difficulty: spawn::difficulty_id(difficulty).cast_unsigned(),
         });
-        // Players before the spawn window get it in the window.
+        // Every player past its start-game packets, as `world_api::send_to_world` tells one
+        // world's.
         for p in self.state.players.values_mut() {
-            if matches!(p.phase, Phase::Spawning | Phase::Spawned) {
+            if p.phase != Phase::Loading {
                 p.send_packet(packet.clone());
             }
         }

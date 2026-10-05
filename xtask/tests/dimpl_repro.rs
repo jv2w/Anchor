@@ -1,7 +1,7 @@
 //! Reproduction tests for the fixed dimpl copy in `vendor/dimpl` (PLAN.md 9.1): each drives
 //! dimpl's public API in memory the way str0m does (a DTLS 1.2 client with the aws-lc-rs
-//! backend against a dimpl server or hand-made records) and fails on the published 0.7.4 with a
-//! panic or with memory growth.
+//! backend against a dimpl server or hand-made records) and fails on the published 0.7.5 with a
+//! panic.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
@@ -94,7 +94,6 @@ struct Drained {
     peer_cert: Option<Vec<u8>>,
     /// The size the last `BufferTooSmall` asked for.
     too_small: Option<usize>,
-    app_data: usize,
 }
 
 /// Polls `dtls` until it waits for a timer. On `BufferTooSmall` the buffer grows to the asked
@@ -113,10 +112,6 @@ fn drain(dtls: &mut Dtls, buffer: &mut Vec<u8>) -> Drained {
             }
             Output::PeerCert(der) => {
                 out.peer_cert = Some(der.to_vec());
-                continue;
-            }
-            Output::ApplicationData(_) => {
-                out.app_data += 1;
                 continue;
             }
             Output::BufferTooSmall { needed } => needed,
@@ -327,90 +322,5 @@ fn truncated_supported_versions_in_auto_mode_is_rejected() {
     assert!(
         matches!(result, Err(Error::UnexpectedMessage(_))),
         "{result:?}"
-    );
-}
-
-/// Memory the OS counts for this process: private bytes on Windows, resident bytes on Linux.
-#[cfg(windows)]
-fn process_memory() -> u64 {
-    let script = format!(
-        "(Get-Process -Id {}).PrivateMemorySize64",
-        std::process::id()
-    );
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .output()
-        .expect("run powershell");
-    assert!(output.status.success(), "powershell failed");
-    String::from_utf8(output.stdout)
-        .expect("utf-8")
-        .trim()
-        .parse()
-        .expect("a byte count")
-}
-
-/// Memory the OS counts for this process: private bytes on Windows, resident bytes on Linux.
-#[cfg(not(windows))]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test reads its own memory use from procfs"
-)]
-fn process_memory() -> u64 {
-    let status = std::fs::read_to_string("/proc/self/status").expect("read procfs");
-    let line = status
-        .lines()
-        .find(|l| l.starts_with("VmRSS:"))
-        .expect("a VmRSS line");
-    let kib: u64 = line
-        .split_whitespace()
-        .nth(1)
-        .expect("a value")
-        .parse()
-        .expect("a number");
-    kib * 1024
-}
-
-/// U7: every received record took a fresh buffer that went to the pool after use, so the pool
-/// of a receive-heavy connection grew by one record buffer per record, without bound
-/// (upstream #165, fixed in 98f893dc). dimpl does not expose its pool, so the test reads the
-/// process memory from the OS around 32,768 received 1 KiB records: the leak adds over 32 MiB,
-/// far above the bound, while parallel tests in this binary allocate a few MiB at most.
-#[test]
-fn receive_heavy_connection_keeps_memory_bounded() {
-    const RECORDS: usize = 32_768;
-    const BOUND: u64 = 12 * 1024 * 1024;
-
-    let mut now = start();
-    let mut client = endpoint(certificate(), true, now);
-    let mut server = endpoint(certificate(), false, now);
-    let session = handshake(&mut client, &mut server, &mut now, |datagrams| datagrams);
-    assert!(session.client_connected && session.server_connected);
-
-    let payload = [0xa5; 1024];
-    let mut client_buffer = vec![0; STR0M_BUFFER];
-    let mut server_buffer = vec![0; STR0M_BUFFER];
-    let mut pump = |count: usize| {
-        let mut received = 0;
-        for _ in 0..count {
-            server
-                .send_application_data(&payload)
-                .expect("server sends");
-            for datagram in drain(&mut server, &mut server_buffer).packets {
-                client
-                    .handle_packet(&datagram)
-                    .expect("client takes the record");
-            }
-            received += drain(&mut client, &mut client_buffer).app_data;
-        }
-        assert_eq!(received, count);
-    };
-    // Warm up so steady-state allocations are in the baseline.
-    pump(1024);
-    let before = process_memory();
-    no_panic("a receive-heavy connection", || pump(RECORDS));
-    let growth = process_memory().saturating_sub(before);
-    assert!(
-        growth < BOUND,
-        "memory grew by {growth} bytes over {RECORDS} records"
     );
 }

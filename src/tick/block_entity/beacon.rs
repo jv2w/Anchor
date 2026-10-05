@@ -166,7 +166,7 @@ mod tests {
         assert!(effects(1, 5, 0).is_empty(), "strength needs level 3");
         let four = effects(4, 1, 10);
         assert_eq!(four.len(), 2);
-        assert_eq!(four[0].duration(), 16 * 20);
+        assert_eq!(four[0].duration_ticks(), 16 * 20);
         let double = effects(4, 3, 3);
         assert_eq!(double.len(), 1);
         assert_eq!(double[0].amplifier(), 1);
@@ -176,7 +176,7 @@ mod tests {
             "no secondary below level 4"
         );
         assert!(effects(2, 1, 0)[0].is_ambient());
-        assert_eq!(effects(2, 1, 0)[0].duration(), 13 * 20);
+        assert_eq!(effects(2, 1, 0)[0].duration_ticks(), 13 * 20);
         assert!(!allowed(10, 3) && allowed(10, 4) && !allowed(2, 4));
     }
 }

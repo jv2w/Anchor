@@ -292,9 +292,9 @@ func (g *game) playerCommand(line string) error {
 		"level": round2(g.attrs["minecraft:player.level"] - attrs),
 		"xp":    round2(g.attrs["minecraft:player.experience"]),
 	}
-	// Servers sync their clocks now and then; only the step of a time command that may succeed compares
+	// Servers sync their clocks now and then; only the step of a time command that succeeded compares
 	// the time.
-	if strings.HasPrefix(line, "time ") && line != memberLine {
+	if strings.HasPrefix(line, "time ") && line != memberLine && output != nil && output.SuccessCount > 0 {
 		changed["clock"] = clock
 	}
 	g.lastOutput = output

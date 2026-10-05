@@ -58,16 +58,51 @@ impl Random {
     }
 }
 
-/// The key of a purpose, from its name (FNV-1a 64), computed at compile time:
+/// The key of a purpose, from its name ([`Fnv`]), computed at compile time:
 /// `const CROP_GROWTH: u64 = tag("crop-growth");`.
 pub(crate) const fn tag(name: &str) -> u64 {
-    let mut bytes = name.as_bytes();
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    while let [b, rest @ ..] = bytes {
-        h = (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3);
-        bytes = rest;
+    let mut h = Fnv(Fnv::OFFSET);
+    h.raw(name.as_bytes());
+    h.0
+}
+
+/// FNV-1a 64: a hash whose output is fixed by its definition, unlike `DefaultHasher` (the
+/// purpose keys of [`tag`], the state hash of the tests and the input log's commit identity).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Fnv(pub(crate) u64);
+
+impl Fnv {
+    /// The state of a hash of nothing.
+    pub(crate) const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0100_0000_01b3;
+
+    #[cfg(test)]
+    pub(crate) fn new() -> Self {
+        Self(Self::OFFSET)
     }
-    h
+
+    pub(crate) const fn raw(&mut self, mut bytes: &[u8]) {
+        while let [b, rest @ ..] = bytes {
+            self.0 = (self.0 ^ *b as u64).wrapping_mul(Self::PRIME);
+            bytes = rest;
+        }
+    }
+
+    pub(crate) const fn u64(&mut self, v: u64) {
+        self.raw(&v.to_le_bytes());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn usize(&mut self, v: usize) {
+        self.u64(u64::try_from(v).unwrap_or(u64::MAX));
+    }
+
+    /// Length-prefixed, so adjacent fields cannot run together.
+    #[cfg(test)]
+    pub(crate) fn bytes(&mut self, bytes: &[u8]) {
+        self.usize(bytes.len());
+        self.raw(bytes);
+    }
 }
 
 /// A key made of a purpose `tag` and the values it is for (positions, IDs, sessions).

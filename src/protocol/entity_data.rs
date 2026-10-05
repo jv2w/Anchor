@@ -66,7 +66,7 @@ impl Reader<'_> {
             let legacy_type = self.uint8()?;
             if data_type != u32::from(legacy_type) {
                 return Err(Error::InvalidValue {
-                    field: "entity metadata type",
+                    field: "MetadataValue type",
                     reason: "legacy type byte differs from the type",
                 });
             }
@@ -99,7 +99,7 @@ impl Writer {
             self.varuint32(data_type);
             // The legacy type byte repeats the type; every type is below 256.
             self.uint8(u8::try_from(data_type).map_err(|_| Error::InvalidValue {
-                field: "entity metadata type",
+                field: "MetadataValue type",
                 reason: "over 255",
             })?);
             match value {

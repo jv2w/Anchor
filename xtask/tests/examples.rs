@@ -5,20 +5,13 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
-use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::Value;
-
-/// RakNet's offline message magic.
-const MAGIC: [u8; 16] = [
-    0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
-];
-/// Tries at starting an example on fresh ports when another process took them first.
-const START_TRIES: usize = 5;
 
 /// The directory for this test binary's files.
 fn work_dir() -> PathBuf {
@@ -77,104 +70,72 @@ fn build_example(name: &str) -> PathBuf {
         .unwrap_or_else(|| panic!("cargo built no executable for the example {name}"))
 }
 
-/// A port no socket uses right now for UDP or TCP. Another process may still take it before the
-/// example binds it; [`Example::start`] retries then.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: test tooling outside the server"
-)]
-fn free_port() -> u16 {
-    loop {
-        let tcp = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind a port");
-        let port = tcp.local_addr().expect("local address").port();
-        if std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, port)).is_ok() {
-            return port;
-        }
-    }
-}
-
 /// An example binary running as a child process in its own folder. Dropping it kills that
 /// child, and only that child.
 struct Example {
     name: String,
     dir: PathBuf,
+    /// The RakNet port the example logged.
     port: u16,
     child: Child,
 }
 
 impl Example {
-    /// Builds and starts the example `name` in a fresh folder, and waits until it answers pings,
-    /// so the bot never races the start.
+    /// Builds and starts the example `name` in a fresh folder on ports the system picks when the
+    /// example binds them (port 0), so no other process can take them first, and waits until it
+    /// has logged its RakNet address, so the bot never races the start.
     fn start(name: &str) -> Self {
         let exe = build_example(name);
         let dir = work_dir().join(name);
         remove_dir(&dir);
         create_dir(&dir);
-        for _ in 0..START_TRIES {
-            let port = free_port();
-            let mut nethernet_port = free_port();
-            while nethernet_port == port {
-                nethernet_port = free_port();
-            }
-            write(&dir.join("anchor.toml"), &settings(port, nethernet_port));
-            let child = Command::new(&exe)
-                .current_dir(&dir)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(create_file(&dir.join("stderr.txt")))
-                .spawn()
-                .expect("the example starts");
-            let mut example = Self {
-                name: name.to_owned(),
-                dir: dir.clone(),
-                port,
-                child,
-            };
-            if example.answers_pings() {
-                return example;
-            }
-        }
-        panic!("the example {name} found no free ports after {START_TRIES} tries")
+        write(&dir.join("anchor.toml"), SETTINGS);
+        let child = Command::new(&exe)
+            .current_dir(&dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(create_file(&dir.join("stderr.txt")))
+            .spawn()
+            .expect("the example starts");
+        // Owned before the wait, so a failed wait still kills the child.
+        let mut example = Self {
+            name: name.to_owned(),
+            dir,
+            port: 0,
+            child,
+        };
+        example.port = example.raknet_port();
+        example
     }
 
-    /// Pings until the example answers (pings 300 ms apart stay under the rate limit of 5 per
-    /// second): true when it does, false when it exited first (its ports were taken). Fails
-    /// the test if it neither answers nor exits.
-    #[expect(
-        clippy::disallowed_types,
-        reason = "off-tick: test tooling outside the server"
-    )]
-    fn answers_pings(&mut self) -> bool {
-        let socket =
-            std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind the ping socket");
-        socket
-            .set_read_timeout(Some(Duration::from_millis(300)))
-            .expect("set a read timeout");
-        let mut ping = vec![0x01];
-        ping.extend_from_slice(&0_i64.to_be_bytes());
-        ping.extend_from_slice(&MAGIC);
-        ping.extend_from_slice(&1_i64.to_be_bytes());
-        let mut buf = [0; 1500];
-        for _ in 0..200 {
-            socket
-                .send_to(&ping, (Ipv4Addr::LOCALHOST, self.port))
-                .expect("send a ping");
-            if let Ok((n, _)) = socket.recv_from(&mut buf)
-                && n > 35
-                && buf[0] == 0x1c
-            {
-                return true;
+    /// The port of the example's start log line for RakNet (one line per opened address, RakNet
+    /// last). Fails the test if the example exits first; the limit only catches an example that
+    /// neither starts nor exits.
+    fn raknet_port(&mut self) -> u16 {
+        let stderr = self.dir.join("stderr.txt");
+        for _ in 0..300 {
+            let log = read(&stderr);
+            let addr = log
+                .lines()
+                .filter(|line| line.contains("listening for RakNet"))
+                .find_map(|line| line.split_once("addr=")?.1.split([' ', ')']).next());
+            if let Some(addr) = addr {
+                return addr
+                    .parse::<SocketAddr>()
+                    .unwrap_or_else(|e| panic!("the logged address {addr}: {e}"))
+                    .port();
             }
-            if !self.is_running() {
-                return false;
-            }
-            // An ICMP "port unreachable" makes `recv_from` fail at once on Windows.
+            assert!(
+                self.is_running(),
+                "the example {} stopped before opening its addresses: {log}",
+                self.name
+            );
             pause();
         }
         panic!(
-            "the example {} did not answer pings: {}",
+            "the example {} did not open its addresses: {}",
             self.name,
-            read(&self.dir.join("stderr.txt"))
+            read(&stderr)
         );
     }
 
@@ -229,21 +190,17 @@ impl Drop for Example {
     }
 }
 
-/// The example's settings: loopback ports, offline, a small view, no console.
-fn settings(port: u16, nethernet_port: u16) -> String {
-    format!(
-        "[general]\n\
-         server-ip = \"127.0.0.1\"\n\
-         enable-ipv6 = false\n\
-         server-port = {port}\n\
-         nethernet-port = {nethernet_port}\n\
-         xbox-auth = false\n\
-         view-distance = 4\n\
-         \n\
-         [developer]\n\
-         console-input = false\n"
-    )
-}
+/// The example's settings: loopback ports the system picks, offline, a small view, no console.
+const SETTINGS: &str = "[general]\n\
+    server-ip = \"127.0.0.1\"\n\
+    enable-ipv6 = false\n\
+    server-port = 0\n\
+    nethernet-port = 0\n\
+    xbox-auth = false\n\
+    view-distance = 4\n\
+    \n\
+    [developer]\n\
+    console-input = false\n";
 
 #[test]
 fn the_pvp_example_gives_the_kit_and_shows_the_scoreboard() {

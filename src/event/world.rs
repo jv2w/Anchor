@@ -1,14 +1,62 @@
-//! World events (PMMP `pocketmine\event\world`): chunks, saving and spawn.
+//! World events (PMMP `pocketmine\event\world`): worlds made, loaded and unloaded, chunks,
+//! saving, spawn, and the sounds and particles the game plays.
 //!
-//! Worlds are fixed when the server is built, so PMMP's `WorldInitEvent`, `WorldLoadEvent` and
-//! `WorldUnloadEvent` have nothing to announce. Only the direct API changes the difficulty, and
-//! direct calls raise no events, so there is no `WorldDifficultyChangeEvent`; sounds and
-//! particles reach players from many rules with no single place to raise `WorldSoundEvent` and
-//! `WorldParticleEvent`, so the packet send hook filters them (PLAN.md 10.8 E2).
+//! Only the direct API changes the difficulty, and direct calls raise no events, so there is no
+//! `WorldDifficultyChangeEvent`. For the same reason [`Context::add_sound`](crate::Context::add_sound)
+//! and [`add_particle`](crate::Context::add_particle) raise no [`WorldSound`] or
+//! [`WorldParticle`].
 
-use crate::world::{self, BlockPos, ChunkPos};
+use crate::math::Vec3;
+use crate::player;
+use crate::world::{self, BlockPos, ChunkPos, Particle, Sound};
 
-/// Raised when a chunk is loaded from disk or made by the generator, after it is in the world.
+/// Raised when [`Context::create_world`](crate::Context::create_world) made a world, before its
+/// [`WorldLoad`], in the view phase of the tick it was made in (or the next one, for a world made
+/// after that phase).
+#[doc(alias = "WorldInitEvent")]
+#[derive(Debug)]
+pub struct WorldInit {
+    pub(crate) world: world::Id,
+}
+
+getters!(WorldInit {
+    /// The world.
+    world: world::Id,
+});
+
+/// Raised when a world was made or loaded ([`Context::load_world`](crate::Context::load_world)),
+/// in the view phase of the tick it happened in (or the next one), while its chunks load.
+#[doc(alias = "WorldLoadEvent")]
+#[derive(Debug)]
+pub struct WorldLoad {
+    pub(crate) world: world::Id,
+}
+
+getters!(WorldLoad {
+    /// The world.
+    world: world::Id,
+});
+
+/// Raised before a world asked to unload ([`Context::unload_world`](crate::Context::unload_world))
+/// does, in the next view phase. Cancelling keeps it loaded, unless the unload was forced. The
+/// monitors see the world gone: its players moved to the default world's spawn, its chunks
+/// unloaded and its changes waiting for the next commit, which the unload asks for. It stands
+/// for PMMP's unload callbacks (`World::addOnUnloadCallback`) too.
+#[doc(alias = "WorldUnloadEvent")]
+#[doc(alias = "World::addOnUnloadCallback")]
+#[doc(alias = "World::removeOnUnloadCallback")]
+#[derive(Debug)]
+pub struct WorldUnload {
+    pub(crate) world: world::Id,
+    pub(crate) cancelled: bool,
+}
+
+getters!(WorldUnload {
+    /// The world.
+    world: world::Id,
+});
+
+/// Raised once a chunk is in the world, whether it was read from disk or made by the generator.
 #[doc(alias = "ChunkLoadEvent")]
 #[doc(alias = "ChunkPopulateEvent")]
 #[derive(Debug)]
@@ -81,11 +129,95 @@ getters!(WorldSave {
     world: world::Id,
 });
 
+/// Raised when the game plays a sound at a place (PMMP `World::addSound`: a block used, an
+/// explosion, a hit...), before the players hear it. Cancelling plays it to nobody.
+#[doc(alias = "WorldSoundEvent")]
+#[derive(Debug)]
+pub struct WorldSound {
+    pub(crate) world: world::Id,
+    pub(crate) position: Vec3,
+    pub(crate) sound: Sound,
+    pub(crate) recipients: Vec<player::Id>,
+    pub(crate) cancelled: bool,
+}
+
+getters!(WorldSound {
+    /// The world.
+    world: world::Id,
+    /// Where it plays.
+    #[doc(alias = "WorldSoundEvent::getPosition")]
+    position: Vec3,
+    /// The sound.
+    #[doc(alias = "WorldSoundEvent::getSound")]
+    sound: Sound,
+    /// Who hears it: the players who see the place. Only those of them who still see it when the
+    /// listeners are done hear it.
+    #[doc(alias = "WorldSoundEvent::getRecipients")]
+    recipients: &[player::Id],
+});
+
+setters!(WorldSound {
+    /// Plays another sound instead.
+    #[doc(alias = "WorldSoundEvent::setSound")]
+    set_sound => sound: Sound,
+    /// Replaces who hears it. Players who do not see the place are left out (PMMP).
+    #[doc(alias = "WorldSoundEvent::setRecipients")]
+    set_recipients => recipients: Vec<player::Id>,
+});
+
+/// Raised when the game shows a particle at a place (PMMP `World::addParticle`: a block broken,
+/// a potion splashing...), before the players see it. Cancelling shows it to nobody.
+#[doc(alias = "WorldParticleEvent")]
+#[derive(Debug)]
+pub struct WorldParticle {
+    pub(crate) world: world::Id,
+    pub(crate) position: Vec3,
+    pub(crate) particle: Particle,
+    pub(crate) recipients: Vec<player::Id>,
+    pub(crate) cancelled: bool,
+}
+
+getters!(WorldParticle {
+    /// The world.
+    world: world::Id,
+    /// Where it shows.
+    #[doc(alias = "WorldParticleEvent::getPosition")]
+    position: Vec3,
+    /// The particle.
+    #[doc(alias = "WorldParticleEvent::getParticle")]
+    particle: Particle,
+    /// Who sees it: the players who see the place. Only those of them who still see it when the
+    /// listeners are done see it.
+    #[doc(alias = "WorldParticleEvent::getRecipients")]
+    recipients: &[player::Id],
+});
+
+setters!(WorldParticle {
+    /// Shows another particle instead.
+    #[doc(alias = "WorldParticleEvent::setParticle")]
+    set_particle => particle: Particle,
+    /// Replaces who sees it. Players who do not see the place are left out (PMMP).
+    #[doc(alias = "WorldParticleEvent::setRecipients")]
+    set_recipients => recipients: Vec<player::Id>,
+});
+
 cancellable! {
     ChunkUnload
         #[doc(alias = "ChunkUnloadEvent::cancel")]
         #[doc(alias = "ChunkUnloadEvent::uncancel")]
         #[doc(alias = "ChunkUnloadEvent::isCancelled")];
+    WorldParticle
+        #[doc(alias = "WorldParticleEvent::cancel")]
+        #[doc(alias = "WorldParticleEvent::uncancel")]
+        #[doc(alias = "WorldParticleEvent::isCancelled")];
+    WorldSound
+        #[doc(alias = "WorldSoundEvent::cancel")]
+        #[doc(alias = "WorldSoundEvent::uncancel")]
+        #[doc(alias = "WorldSoundEvent::isCancelled")];
+    WorldUnload
+        #[doc(alias = "WorldUnloadEvent::cancel")]
+        #[doc(alias = "WorldUnloadEvent::uncancel")]
+        #[doc(alias = "WorldUnloadEvent::isCancelled")];
 }
 
 #[cfg(test)]
@@ -127,5 +259,42 @@ mod tests {
         };
         assert_eq!((spawn.world(), spawn.previous_spawn()), (WORLD, POS));
         assert_eq!(WorldSave { world: WORLD }.world(), WORLD);
+    }
+
+    // pmmp: WorldSoundEvent::setSound, WorldSoundEvent::setRecipients, WorldSoundEvent::uncancel, WorldSoundEvent::isCancelled, WorldParticleEvent::setParticle, WorldParticleEvent::setRecipients, WorldParticleEvent::uncancel, WorldParticleEvent::isCancelled
+    #[test]
+    fn sound_and_particle_events_change_what_plays_and_who_hears_it() {
+        let at = Vec3::new(1.0, 2.0, 3.0);
+        let mut sound = WorldSound {
+            world: WORLD,
+            position: at,
+            sound: Sound::Explode,
+            recipients: vec![crate::event::fixtures::player(1)],
+            cancelled: false,
+        };
+        assert_eq!((sound.world(), sound.position()), (WORLD, at));
+        sound.set_sound(Sound::Burp);
+        sound.set_recipients(Vec::new());
+        assert_eq!(
+            (sound.sound(), sound.recipients()),
+            (Sound::Burp, [].as_slice())
+        );
+        sound.cancel();
+        sound.uncancel();
+        assert!(!sound.is_cancelled());
+        let mut particle = WorldParticle {
+            world: WORLD,
+            position: at,
+            particle: Particle::Flame,
+            recipients: Vec::new(),
+            cancelled: true,
+        };
+        particle.set_particle(Particle::Portal);
+        particle.set_recipients(vec![crate::event::fixtures::player(2)]);
+        assert_eq!(particle.particle(), Particle::Portal);
+        assert_eq!(particle.recipients(), [crate::event::fixtures::player(2)]);
+        assert_eq!((particle.world(), particle.position()), (WORLD, at));
+        particle.uncancel();
+        assert!(!particle.is_cancelled());
     }
 }

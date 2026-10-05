@@ -16,6 +16,8 @@ pub(crate) const INPUT_CAPACITY: usize = 65_536;
 /// Messages a session's outbound queue holds (PLAN.md 10.2). The tick drops a session whose queue
 /// is full instead of waiting.
 const OUTBOUND_CAPACITY: usize = 1_024;
+/// [`Control`]s one tick may ask for; a call past it changes nothing.
+pub(crate) const MAX_CONTROLS_PER_TICK: usize = 256;
 
 /// A session: one connection, numbered by the session layer in connection order and never
 /// reused while the process runs.
@@ -32,6 +34,18 @@ impl SessionId {
     /// number is the job's id, so results applied in one tick are ordered by job, after every
     /// connection's inputs and before the console's.
     pub(crate) const JOBS: Self = Self(u64::MAX - 1);
+
+    /// The networking's reports ([`Measure::Connections`]): a session of its own, ordered after
+    /// every connection's inputs.
+    pub(crate) const NETWORK: Self = Self(u64::MAX - 2);
+
+    /// The tick loop's own reports ([`Measure::TickTime`]): a session of its own whose sequence
+    /// number is the tick that reports.
+    pub(crate) const ENGINE: Self = Self(u64::MAX - 3);
+
+    /// The process measures ([`Measure::Process`]): a session of its own, ordered after every
+    /// connection's inputs.
+    pub(crate) const PROCESS: Self = Self(u64::MAX - 4);
 
     /// The session numbered `id`.
     pub(crate) const fn new(id: u64) -> Self {
@@ -59,9 +73,116 @@ pub(crate) struct Identity {
     /// The client's device (`DeviceOS` of the login's client data, 1 to 15; -1 unknown), the
     /// player list's `BuildPlatform` (BDS sends it, P6 facts 7).
     pub(crate) device_os: i32,
-    /// The address the client connected from, which IP bans match; `None` when unknown (tests,
-    /// replays of logs before format 5).
+    /// The address the client connected from, which IP bans match; `None` when unknown
+    /// (tests).
     pub(crate) address: Option<IpAddr>,
+    /// What else the login and the connection tell about the client.
+    pub(crate) client: Client,
+}
+
+super::checkpoint::fields!(Identity {
+    name,
+    xuid,
+    uuid,
+    skin,
+    device_os,
+    address,
+    client,
+});
+
+/// What the login's client data and the connection tell about the client besides who it is
+/// (PMMP `PlayerInfo::getLocale`, `PlayerInfo::getExtraData`, `NetworkSession::getPort`). Every
+/// text is the client's own claim; the login checked the locale (a language tag of at most 64
+/// bytes), the game version (digits and dots) and the server address (a host and port). The
+/// default is what a replay of a log before format 9 has: empty texts and zeros.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Client {
+    /// The language code, such as `en_US` (`LanguageCode`).
+    pub(crate) locale: String,
+    /// The input mode the client started in (`CurrentInputMode`).
+    pub(crate) input_mode: crate::protocol::consts::InputMode,
+    /// The device model (`DeviceModel`).
+    pub(crate) device_model: String,
+    /// The device ID (`DeviceId`).
+    pub(crate) device_id: String,
+    /// The client's version, such as `1.26.50` (`GameVersion`).
+    pub(crate) game_version: String,
+    /// The address the client was told to join (`ServerAddress`).
+    pub(crate) server_address: String,
+    /// The port the client connected from.
+    pub(crate) port: u16,
+    /// When the session handed the player to the tick, in milliseconds since the Unix epoch by
+    /// the wall clock the session read.
+    pub(crate) join_time_ms: i64,
+}
+
+super::checkpoint::fields!(Client {
+    locale,
+    input_mode,
+    device_model,
+    device_id,
+    game_version,
+    server_address,
+    port,
+    join_time_ms,
+});
+
+impl Default for Client {
+    fn default() -> Self {
+        Self {
+            locale: String::new(),
+            input_mode: crate::protocol::consts::InputMode::Undefined,
+            device_model: String::new(),
+            device_id: String::new(),
+            game_version: String::new(),
+            server_address: String::new(),
+            port: 0,
+            join_time_ms: 0,
+        }
+    }
+}
+
+impl Client {
+    /// The bytes of its texts, which an input log entry of its join counts against the log's
+    /// bound.
+    pub(crate) fn size(&self) -> usize {
+        [
+            &self.locale,
+            &self.device_model,
+            &self.device_id,
+            &self.game_version,
+            &self.server_address,
+        ]
+        .iter()
+        .fold(0_usize, |sum, s| sum.saturating_add(s.len()))
+    }
+
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            locale,
+            input_mode,
+            device_model,
+            device_id,
+            game_version,
+            server_address,
+            port,
+            join_time_ms,
+        } = self;
+        for text in [
+            locale,
+            device_model,
+            device_id,
+            game_version,
+            server_address,
+        ] {
+            h.bytes(text.as_bytes());
+        }
+        h.u64(u64::from(u32::from(*input_mode)));
+        h.u64(u64::from(*port));
+        h.u64(join_time_ms.cast_unsigned());
+    }
 }
 
 impl Identity {
@@ -75,6 +196,7 @@ impl Identity {
             skin,
             device_os,
             address,
+            client,
         } = self;
         h.bytes(name.as_bytes());
         h.u64(xuid.map_or(0, |x| x.wrapping_add(1)));
@@ -86,6 +208,13 @@ impl Identity {
             Some(IpAddr::V4(a)) => h.bytes(&a.octets()),
             Some(IpAddr::V6(a)) => h.bytes(&a.octets()),
         }
+        client.hash_into(h);
+    }
+
+    /// The bytes of its skin and the client's texts: what an input log entry of its join counts
+    /// against the log's bound.
+    pub(crate) fn size(&self) -> usize {
+        self.skin.size().saturating_add(self.client.size())
     }
 }
 
@@ -187,6 +316,52 @@ pub(crate) enum InputKind {
     /// The result of the blocking job whose id is the input's sequence number, on
     /// [`SessionId::JOBS`] (PLAN.md 10.8).
     Job(JobOutcome),
+    /// A value measured off the tick by a clock or the network, which the tick reads only as
+    /// this logged input, so that a replay reads the same.
+    Measure(Measure),
+}
+
+/// A value measured off the tick (PLAN.md 10.9): what PMMP reads from the wall clock or the
+/// network when asked, Anchor reads from the input log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Measure {
+    /// How long the previous tick took, in microseconds (at most `u32::MAX`), on
+    /// [`SessionId::ENGINE`].
+    TickTime(u32),
+    /// The session's latest round trip time, in milliseconds: the RakNet ping or the NetherNet
+    /// ICE consent check.
+    Ping(u32),
+    /// The connections the networking holds, on [`SessionId::NETWORK`] (PMMP
+    /// `Network::getConnectionCount`, `Network::getValidConnectionCount`).
+    Connections {
+        /// Every connection with a session, logged in or not.
+        all: u32,
+        /// The connections whose login was verified.
+        logged_in: u32,
+    },
+    /// The process, every second, on [`SessionId::PROCESS`] (`/status`).
+    Process {
+        /// The resident memory in bytes (the working set on Windows); 0 if the OS did not tell.
+        memory: u64,
+        /// Wall-clock milliseconds since [`Server::run`](crate::Server::run) started.
+        uptime_ms: u64,
+    },
+}
+
+/// What the tick asks of the networking (PMMP `Network::setName`, `Network::blockAddress`,
+/// `Network::unblockAddress`). The networking applies it when it reads it; nothing comes back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Control {
+    /// The server list shows this name (a checked `motd`).
+    Motd(String),
+    /// Connections from `ip` are refused for `duration` from when the networking reads it;
+    /// one that would end past what the clock holds lasts until it is unblocked.
+    Block {
+        ip: IpAddr,
+        duration: std::time::Duration,
+    },
+    /// Connections from `ip` are accepted again.
+    Unblock(IpAddr),
 }
 
 /// A blocking job's result as it travels to the tick and into the input log: the JSON of the
@@ -253,6 +428,11 @@ pub(crate) fn input_queue() -> (InputSender, mpsc::Receiver<Input>) {
 /// A session's outbound queue; the sender goes to the tick in [`InputKind::Join`].
 pub(crate) fn outbound_queue() -> (mpsc::Sender<Outbound>, mpsc::Receiver<Outbound>) {
     mpsc::channel(OUTBOUND_CAPACITY)
+}
+
+/// The queue of [`Control`]s from the tick to the networking: four ticks at the tick's bound.
+pub(crate) fn control_queue() -> (mpsc::Sender<Control>, mpsc::Receiver<Control>) {
+    mpsc::channel(4 * MAX_CONTROLS_PER_TICK)
 }
 
 /// The sending side of the tick input queue, shared by every session.

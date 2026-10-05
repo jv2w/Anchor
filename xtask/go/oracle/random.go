@@ -42,9 +42,12 @@ type call struct {
 }
 
 // randomIO implements protocol.IO. Every call picks a random valid value, stores it in the pointer and
-// writes it through canonWriter, so the output follows gophertunnel's exact wire format.
+// writes it with gophertunnel's Writer, so the output follows gophertunnel's exact wire format. NBT roots
+// are written by nbtEncoder (compound keys in byte order); the NBT nested in other values (item user
+// data, entity metadata), which gophertunnel's Writer writes itself, has at most one key per compound,
+// so every sample has one encoding.
 type randomIO struct {
-	cw    *canonWriter
+	w     *protocol.Writer
 	out   *bytes.Buffer
 	rng   *rand.Rand
 	modes map[siteKey]uint8
@@ -74,7 +77,7 @@ func (r *randomIO) inSkinImage() bool {
 
 func newRandomIO(rng *rand.Rand) *randomIO {
 	out := new(bytes.Buffer)
-	return &randomIO{cw: newCanonWriter(out), out: out, rng: rng, modes: map[siteKey]uint8{}, names: map[uintptr]string{}}
+	return &randomIO{w: protocol.NewWriter(out, ShieldID), out: out, rng: rng, modes: map[siteKey]uint8{}, names: map[uintptr]string{}}
 }
 
 func (r *randomIO) reset(keepProb float64) {
@@ -282,22 +285,22 @@ func (r *randomIO) readBack(start int, read func(rd *protocol.Reader)) {
 
 func (r *randomIO) Uint8(x *uint8) {
 	*x = uint8(r.num(r.begin(), uint64(*x), 8, false))
-	r.cw.Uint8(x)
+	r.w.Uint8(x)
 }
 
 func (r *randomIO) Int8(x *int8) {
 	*x = int8(r.num(r.begin(), uint64(*x), 8, true))
-	r.cw.Int8(x)
+	r.w.Int8(x)
 }
 
 func (r *randomIO) Uint16(x *uint16) {
 	*x = uint16(r.num(r.begin(), uint64(*x), 16, false))
-	r.cw.Uint16(x)
+	r.w.Uint16(x)
 }
 
 func (r *randomIO) Int16(x *int16) {
 	*x = int16(r.num(r.begin(), uint64(*x), 16, true))
-	r.cw.Int16(x)
+	r.w.Int16(x)
 }
 
 func (r *randomIO) Uint32(x *uint32) {
@@ -308,47 +311,47 @@ func (r *randomIO) Uint32(x *uint32) {
 		r.dims[0], r.dims[1] = r.dims[1], *x
 		r.dimsCall = len(r.calls) - 1
 	}
-	r.cw.Uint32(x)
+	r.w.Uint32(x)
 }
 
 func (r *randomIO) Int32(x *int32) {
 	*x = int32(r.num(r.begin(), uint64(*x), 32, true))
-	r.cw.Int32(x)
+	r.w.Int32(x)
 }
 
 func (r *randomIO) BEInt32(x *int32) {
 	*x = int32(r.num(r.begin(), uint64(*x), 32, true))
-	r.cw.BEInt32(x)
+	r.w.BEInt32(x)
 }
 
 func (r *randomIO) Uint64(x *uint64) {
 	*x = r.num(r.begin(), *x, 64, false)
-	r.cw.Uint64(x)
+	r.w.Uint64(x)
 }
 
 func (r *randomIO) Int64(x *int64) {
 	*x = int64(r.num(r.begin(), uint64(*x), 64, true))
-	r.cw.Int64(x)
+	r.w.Int64(x)
 }
 
 func (r *randomIO) Varint32(x *int32) {
 	*x = int32(r.num(r.begin(), uint64(*x), 32, true))
-	r.cw.Varint32(x)
+	r.w.Varint32(x)
 }
 
 func (r *randomIO) Varuint32(x *uint32) {
 	*x = uint32(r.num(r.begin(), uint64(*x), 32, false))
-	r.cw.Varuint32(x)
+	r.w.Varuint32(x)
 }
 
 func (r *randomIO) Varint64(x *int64) {
 	*x = int64(r.num(r.begin(), uint64(*x), 64, true))
-	r.cw.Varint64(x)
+	r.w.Varint64(x)
 }
 
 func (r *randomIO) Varuint64(x *uint64) {
 	*x = r.num(r.begin(), *x, 64, false)
-	r.cw.Varuint64(x)
+	r.w.Varuint64(x)
 }
 
 func (r *randomIO) ActorRuntimeID(x *uint64)          { r.Varuint64(x) }
@@ -363,21 +366,21 @@ func (r *randomIO) Float32(x *float32) {
 	if !r.keep(r.begin()) {
 		*x = randFloat32(r.rng)
 	}
-	r.cw.Float32(x)
+	r.w.Float32(x)
 }
 
 func (r *randomIO) Float64(x *float64) {
 	if !r.keep(r.begin()) {
 		*x = randFloat64(r.rng)
 	}
-	r.cw.Float64(x)
+	r.w.Float64(x)
 }
 
 func (r *randomIO) Bool(x *bool) {
 	if !r.keep(r.begin()) {
 		*x = r.rng.IntN(2) == 0
 	}
-	r.cw.Bool(x)
+	r.w.Bool(x)
 }
 
 // str keeps only non-empty current strings: an empty string is rarely the value a check wants.
@@ -392,12 +395,12 @@ func (r *randomIO) str(x *string) {
 
 func (r *randomIO) String(x *string) {
 	r.str(x)
-	r.cw.String(x)
+	r.w.String(x)
 }
 
 func (r *randomIO) StringUTF(x *string) {
 	r.str(x)
-	r.cw.StringUTF(x)
+	r.w.StringUTF(x)
 }
 
 func (r *randomIO) ByteSlice(x *[]byte) {
@@ -411,14 +414,14 @@ func (r *randomIO) ByteSlice(x *[]byte) {
 			(*x)[i] = byte(r.rng.Uint32())
 		}
 	}
-	r.cw.ByteSlice(x)
+	r.w.ByteSlice(x)
 }
 
 func (r *randomIO) Bytes(x *[]byte) {
 	if !r.keep(r.begin()) {
 		*x = r.randBytes()
 	}
-	r.cw.Bytes(x)
+	r.w.Bytes(x)
 }
 
 // Composite methods built from primitives.
@@ -458,7 +461,7 @@ func (r *randomIO) SoundPos(x *mgl32.Vec3) {
 			x[i] = float32(r.rng.IntN(1<<21)-1<<20) / 8
 		}
 	}
-	r.cw.SoundPos(x)
+	r.w.SoundPos(x)
 }
 
 // ByteFloat: any byte v; v*(360/256) is exact in float32 and the Writer maps it back to v.
@@ -466,7 +469,7 @@ func (r *randomIO) ByteFloat(x *float32) {
 	if !r.keep(r.begin()) {
 		*x = float32(uint8(r.rng.Uint32())) * (360.0 / 256.0)
 	}
-	r.cw.ByteFloat(x)
+	r.w.ByteFloat(x)
 }
 
 // stableRGB holds the colour channel values that survive Writer.RGB (v/255) and Reader.RGB (uint8(f*255)).
@@ -487,7 +490,7 @@ func (r *randomIO) RGB(x *color.RGBA) {
 		*x = color.RGBA{R: pick(), G: pick(), B: pick()}
 	}
 	start := r.out.Len()
-	r.cw.RGB(x)
+	r.w.RGB(x)
 	r.readBack(start, func(rd *protocol.Reader) { rd.RGB(x) })
 }
 
@@ -496,7 +499,7 @@ func (r *randomIO) RGBA(x *color.RGBA) {
 		v := r.rng.Uint32()
 		*x = color.RGBA{R: byte(v), G: byte(v >> 8), B: byte(v >> 16), A: byte(v >> 24)}
 	}
-	r.cw.RGBA(x)
+	r.w.RGBA(x)
 }
 
 func (r *randomIO) BEARGB(x *color.RGBA) {
@@ -504,7 +507,7 @@ func (r *randomIO) BEARGB(x *color.RGBA) {
 		v := r.rng.Uint32()
 		*x = color.RGBA{R: byte(v), G: byte(v >> 8), B: byte(v >> 16), A: byte(v >> 24)}
 	}
-	r.cw.BEARGB(x)
+	r.w.BEARGB(x)
 }
 
 func (r *randomIO) UUID(x *uuid.UUID) {
@@ -513,24 +516,24 @@ func (r *randomIO) UUID(x *uuid.UUID) {
 			x[i] = byte(r.rng.Uint32())
 		}
 	}
-	r.cw.UUID(x)
+	r.w.UUID(x)
 }
 
 func (r *randomIO) NBT(m *map[string]any, encoding nbt.Encoding) {
 	if !r.keep(r.begin()) {
-		*m = nbtGen{r.rng}.compound(0)
+		*m = nbtGen{r.rng, rootKeys}.compound(0)
 	}
 	start := r.out.Len()
-	r.cw.NBT(m, encoding)
+	newNBTEncoder(r.out, encoding, nil).root(*m)
 	r.readBack(start, func(rd *protocol.Reader) { rd.NBT(m, encoding) })
 }
 
 func (r *randomIO) NBTList(m *[]any, encoding nbt.Encoding) {
 	if !r.keep(r.begin()) {
-		*m = nbtGen{r.rng}.rootList()
+		*m = nbtGen{r.rng, rootKeys}.rootList()
 	}
 	start := r.out.Len()
-	r.cw.NBTList(m, encoding)
+	newNBTEncoder(r.out, encoding, nil).rootList(*m)
 	r.readBack(start, func(rd *protocol.Reader) { rd.NBTList(m, encoding) })
 }
 
@@ -549,7 +552,7 @@ func (r *randomIO) EntityMetadata(x *protocol.EntityMetadata) {
 		*x = m
 	}
 	start := r.out.Len()
-	r.cw.EntityMetadata(x)
+	r.w.EntityMetadata(x)
 	r.readBack(start, func(rd *protocol.Reader) { rd.EntityMetadata(x) })
 }
 
@@ -566,7 +569,7 @@ func (r *randomIO) metadataValue() any {
 	case 4:
 		return randString(r.rng, 12)
 	case 5:
-		return nbtGen{r.rng}.compound(0)
+		return nbtGen{r.rng, 1}.compound(0)
 	case 6:
 		return protocol.BlockPos{int32(randBits(r.rng, 32)), int32(randBits(r.rng, 32)), int32(randBits(r.rng, 32))}
 	case 7:
@@ -599,7 +602,7 @@ func (r *randomIO) itemNetworkID(bits uint) int32 {
 func (r *randomIO) userData(data *map[string]any, placeOn, canBreak *[]string, tick *int64) {
 	*data = nil
 	if r.rng.IntN(2) == 0 {
-		*data = nbtGen{r.rng}.compound(0)
+		*data = nbtGen{r.rng, 1}.compound(0)
 	}
 	list := func() []string {
 		l := make([]string, r.rng.IntN(3))
@@ -621,7 +624,7 @@ func (r *randomIO) Item(x *protocol.ItemStack) {
 		r.userData(&x.NBTData, &x.CanBePlacedOn, &x.CanBreak, &x.BlockingTick)
 	}
 	start := r.out.Len()
-	r.cw.Item(x)
+	r.w.Item(x)
 	r.readBack(start, func(rd *protocol.Reader) { rd.Item(x) })
 }
 
@@ -639,7 +642,7 @@ func (r *randomIO) ItemInstance(i *protocol.ItemInstance) {
 		r.userData(&x.NBTData, &x.CanBePlacedOn, &x.CanBreak, &x.BlockingTick)
 	}
 	start := r.out.Len()
-	r.cw.ItemInstance(i)
+	r.w.ItemInstance(i)
 	r.readBack(start, func(rd *protocol.Reader) { rd.ItemInstance(i) })
 }
 
@@ -659,7 +662,7 @@ func (r *randomIO) StackRequestItem(x *protocol.StackRequestItem) {
 		r.userData(&x.NBTData, &x.CanBePlacedOn, &x.CanBreak, &x.BlockingTick)
 	}
 	start := r.out.Len()
-	r.cw.StackRequestItem(x)
+	r.w.StackRequestItem(x)
 	r.readBack(start, func(rd *protocol.Reader) { rd.StackRequestItem(x) })
 }
 
@@ -681,15 +684,15 @@ func (r *randomIO) ItemDescriptorCount(i *protocol.ItemDescriptorCount) {
 	aux := int32(32767)
 	if name == "" {
 		variant := uint32(protocol.ItemDescriptorInvalid)
-		r.cw.Varuint32(&variant)
-		r.cw.Varint32(&aux)
+		r.w.Varuint32(&variant)
+		r.w.Varint32(&aux)
 	} else {
 		variant := uint32(protocol.ItemDescriptorDefault)
-		r.cw.Varuint32(&variant)
-		r.cw.String(&name)
+		r.w.Varuint32(&variant)
+		r.w.String(&name)
 		i.Descriptor.Marshal(r)
 		if name == "item_tag" {
-			r.cw.Varint32(&aux)
+			r.w.Varint32(&aux)
 		}
 	}
 	r.Varint32(&i.Count)
@@ -700,8 +703,8 @@ func (r *randomIO) StackRequestAction(x *protocol.StackRequestAction) {
 	r.begin()
 	e := tables.actions[r.rng.IntN(len(tables.actions))]
 	*x = reflect.New(e.typ.Elem()).Interface().(protocol.StackRequestAction)
-	r.cw.Varuint32(&e.tag.variant)
-	r.cw.Uint8(&e.tag.id)
+	r.w.Varuint32(&e.tag.variant)
+	r.w.Uint8(&e.tag.id)
 	(*x).Marshal(r)
 }
 
@@ -709,7 +712,7 @@ func (r *randomIO) StackRequestAction(x *protocol.StackRequestAction) {
 func (r *randomIO) MaterialReducer(m *protocol.MaterialReducer) {
 	r.begin()
 	mix := int32(r.rng.IntN(0x8000))
-	r.cw.Varint32(&mix)
+	r.w.Varint32(&mix)
 	m.InputItem = protocol.ItemType{NetworkID: mix << 16, MetadataValue: uint32(mix & 0x7fff)}
 	protocol.Slice(r, &m.Outputs)
 }
@@ -719,24 +722,31 @@ func (r *randomIO) EventType(x *protocol.Event) {
 	r.begin()
 	e := tables.events[r.rng.IntN(len(tables.events))]
 	*x = reflect.New(e.typ.Elem()).Interface().(protocol.Event)
-	r.cw.Varint32(&e.tag)
+	r.w.Varint32(&e.tag)
 }
 
 // EventOrdinal is fully determined by the event type.
 func (r *randomIO) EventOrdinal(x *protocol.Event) {
 	r.begin()
-	r.cw.EventOrdinal(x)
+	r.w.EventOrdinal(x)
 }
 
 func (r *randomIO) TransactionDataType(x *protocol.InventoryTransactionData) {
 	r.begin()
 	e := tables.transactions[r.rng.IntN(len(tables.transactions))]
 	*x = reflect.New(e.typ.Elem()).Interface().(protocol.InventoryTransactionData)
-	r.cw.Varuint32(&e.tag)
+	r.w.Varuint32(&e.tag)
 }
 
+// PlayerInventoryAction: the legacy request, the actions, then the fields of the use item data's own
+// Marshal.
 func (r *randomIO) PlayerInventoryAction(x *protocol.UseItemTransactionData) {
-	playerInventoryAction(r, x)
+	r.Varint32(&x.LegacyRequestID)
+	protocol.OptionalFunc(r, &x.LegacySetItemSlots, func(slots *[]protocol.LegacySetItemSlot) {
+		protocol.Slice(r, slots)
+	})
+	protocol.Slice(r, &x.Actions)
+	x.Marshal(r)
 }
 
 // GameRule: random name, flag and value type (none, bool, uint32, float32).
@@ -755,7 +765,7 @@ func (r *randomIO) GameRule(x *protocol.GameRule) {
 			x.Value = randFloat32(r.rng)
 		}
 	}
-	r.cw.GameRule(x)
+	r.w.GameRule(x)
 }
 
 // AbilityValue: bool or float32; the unused half is written as the Writer's default.
@@ -766,7 +776,7 @@ func (r *randomIO) AbilityValue(x *any) {
 	} else {
 		*x = randFloat32(r.rng)
 	}
-	r.cw.AbilityValue(x)
+	r.w.AbilityValue(x)
 }
 
 // Bitset: random bits below size.
@@ -780,7 +790,7 @@ func (r *randomIO) Bitset(x *protocol.Bitset, size int) {
 		}
 	}
 	*x = b
-	r.cw.Bitset(x, size)
+	r.w.Bitset(x, size)
 }
 
 // PackSetting: random name and value (float32, bool, string, string list).
@@ -801,7 +811,7 @@ func (r *randomIO) PackSetting(x *protocol.PackSetting) {
 		}
 		x.Value = l
 	}
-	r.cw.PackSetting(x)
+	r.w.PackSetting(x)
 }
 
 // ShapeData: random shape type; body marshalled randomly.
@@ -809,7 +819,7 @@ func (r *randomIO) ShapeData(x *protocol.ShapeData) {
 	r.begin()
 	e := tables.shapes[r.rng.IntN(len(tables.shapes))]
 	*x = reflect.New(e.typ.Elem()).Interface().(protocol.ShapeData)
-	r.cw.Varuint32(&e.tag)
+	r.w.Varuint32(&e.tag)
 	(*x).Marshal(r)
 }
 

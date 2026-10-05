@@ -136,20 +136,32 @@ fn attribute(def: &Def, s: &Survival) -> Attribute {
     }
 }
 
-/// Every attribute of the player (spawn and respawn).
+/// Every attribute of the player (spawn and respawn) but those of a system the settings turn off
+/// (`hunger`, `experience`): the client shows their defaults, and the server never changes them.
 pub(in crate::tick) fn all_attributes(player: &Player) -> Packet {
-    attributes_packet(player, u16::MAX)
+    let on = player.survival.switches;
+    let hunger = if on.hunger {
+        0
+    } else {
+        HUNGER | SATURATION | EXHAUSTION
+    };
+    let experience = if on.experience { 0 } else { LEVEL | EXPERIENCE };
+    attributes_of(player, |d| d.bit & (hunger | experience) == 0)
 }
 
-/// The attributes whose bits are set in `bits`, in BDS order (the fixed ones only for
-/// [`all_attributes`]).
+/// The attributes whose bits are set in `bits`, in BDS order.
 fn attributes_packet(player: &Player, bits: u16) -> Packet {
+    attributes_of(player, |d| d.bit & bits != 0)
+}
+
+/// The attributes `keep` keeps, in BDS order.
+fn attributes_of(player: &Player, keep: impl Fn(&Def) -> bool) -> Packet {
     let s = &player.survival;
     Packet::UpdateAttributes(UpdateAttributes {
         entity_runtime_id: player.runtime_id,
         attributes: DEFS
             .iter()
-            .filter(|d| bits == u16::MAX || d.bit & bits != 0)
+            .filter(|d| keep(d))
             .map(|d| attribute(d, s))
             .collect(),
         tick: 0,
@@ -177,6 +189,18 @@ pub(super) struct Shown {
     /// The packed visible effects, key 131.
     effects: i64,
 }
+
+crate::tick::checkpoint::fields!(Shown {
+    flags,
+    air,
+    max_air,
+    player_flags,
+    bed,
+    died,
+    death,
+    size,
+    effects,
+});
 
 impl Shown {
     #[cfg(test)]
@@ -230,6 +254,7 @@ pub(super) fn shown(player: &Player) -> Shown {
         (s.custom.can_climb, EntityDataFlag::Climb),
         (s.custom.can_climb_walls, EntityDataFlag::WallClimbing),
         (s.fire_ticks > 0, EntityDataFlag::OnFire),
+        (s.breathing, EntityDataFlag::Breathing),
         (s.custom.silent, EntityDataFlag::Silent),
         (s.custom.no_client_predictions, EntityDataFlag::NoAi),
         (s.motion.sneaking, EntityDataFlag::Sneaking),
@@ -283,11 +308,14 @@ pub(super) fn size(s: &Survival) -> [f32; 2] {
 /// The values of the changing keys whose value differs from `old` (all of them when `old` is
 /// `None`).
 fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) {
-    if old.is_none_or(|o| o.flags != new.flags) {
+    // Each flag word only when it changed, as BDS (P6: `{0: ...}` alone when Breathing changes).
+    if old.is_none_or(|o| o.flags[0] != new.flags[0]) {
         out.insert(
             EntityDataKey::Flags.into(),
             MetadataValue::Int64(new.flags[0].cast_signed()),
         );
+    }
+    if old.is_none_or(|o| o.flags[1] != new.flags[1]) {
         out.insert(
             EntityDataKey::FlagsTwo.into(),
             MetadataValue::Int64(new.flags[1].cast_signed()),
@@ -318,15 +346,11 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
         );
     }
     if old.is_none_or(|o| o.died != new.died || o.death != new.death) {
-        let d = new.death;
-        // BDS sends the death position as three floats (P6 SetActorData size).
+        // BDS sends the death position as a block position (P6 `others` data types and its
+        // death, m9-facts.md).
         out.insert(
             EntityDataKey::PlayerLastDeathPosition.into(),
-            MetadataValue::Vec3([
-                f32_of(f64::from(d[0])),
-                f32_of(f64::from(d[1])),
-                f32_of(f64::from(d[2])),
-            ]),
+            MetadataValue::BlockPos(new.death),
         );
         out.insert(
             EntityDataKey::PlayerHasDied.into(),
@@ -411,12 +435,14 @@ pub(in crate::tick) fn full_metadata(_settings: &Settings, player: &Player) -> E
     put(K::HeartbeatSoundEvent, V::Int32(614));
     put(K::PlayerLastDeathDimension, V::Int32(0));
     put(K::FilteredName, V::String(String::new()));
-    put(K::EnterBedPosition, V::BlockPos([0, 0, 0]));
+    // BDS sends this key as three floats (P6 `others` data types, m9-facts.md).
+    put(K::EnterBedPosition, V::Vec3([0.0; 3]));
     put(K::SeatThirdPersonCameraRadius, V::Float32(0.0));
     put(K::SeatCameraRelaxDistanceSmoothing, V::Float32(0.0));
     put(K::AimAssistPriorityPresetId, V::Int32(-1));
     put(K::AimAssistPriorityCategoryId, V::Int32(-1));
-    put(K::AimAssistPriorityActorId, V::Int64(-1));
+    // BDS sends this key as an int32 (P6 `others` data types, m9-facts.md).
+    put(K::AimAssistPriorityActorId, V::Int32(-1));
     put(K::FireworkDirection, V::Float32(64.0));
     changed_metadata(&shown(player), None, &mut m);
     m
@@ -553,14 +579,14 @@ fn adventure_packet(auto_jump: bool) -> Packet {
 
 /// The 39 game rules BDS sends, in its order (P6 facts 7), with the values Anchor's rules have:
 /// what Anchor does not simulate (mob spawning, weather, insomnia, freezing, command blocks,
-/// respawn anchors exploding, projectiles breaking blocks) is off, `pvp` and `randomTickSpeed`
-/// come from the settings, players respawn on the spawn block (`spawnRadius` 0) and death
-/// messages are not broadcast.
+/// respawn anchors exploding, projectiles breaking blocks) is off, `pvp`, `randomTickSpeed`,
+/// the day cycle, drowning and fall damage come from the settings, players respawn on the spawn
+/// block (`spawnRadius` 0) and death messages are not broadcast.
 pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
     use GameRuleValue::{Bool, Uint32};
     let rules = [
         ("commandBlockOutput", Bool(true)),
-        ("doDayLightCycle", Bool(true)),
+        ("doDayLightCycle", Bool(settings.daylight_cycle)),
         ("doEntityDrops", Bool(true)),
         ("doFireTick", Bool(true)),
         ("recipesUnlock", Bool(true)),
@@ -569,8 +595,8 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
         ("doMobSpawning", Bool(false)),
         ("doTileDrops", Bool(true)),
         ("doWeatherCycle", Bool(false)),
-        ("drowningDamage", Bool(true)),
-        ("fallDamage", Bool(true)),
+        ("drowningDamage", Bool(settings.drowning)),
+        ("fallDamage", Bool(settings.fall_damage)),
         ("fireDamage", Bool(true)),
         ("keepInventory", Bool(false)),
         ("mobGriefing", Bool(true)),

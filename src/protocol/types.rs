@@ -17,6 +17,16 @@ impl Reader<'_> {
         self.list(count.into(), f)
     }
 
+    /// A list with a varuint32 count of a field that holds at most `max` elements.
+    pub(crate) fn list_varuint32_max<T>(
+        &mut self,
+        max: usize,
+        f: impl FnMut(&mut Self) -> Result<T>,
+    ) -> Result<Vec<T>> {
+        let count = self.varuint32()?;
+        self.list_max(count.into(), max, f)
+    }
+
     /// A list with a uint32 count, under the list limits.
     pub(crate) fn list_uint32<T>(
         &mut self,
@@ -24,6 +34,16 @@ impl Reader<'_> {
     ) -> Result<Vec<T>> {
         let count = self.uint32()?;
         self.list(count.into(), f)
+    }
+
+    /// A list with a uint32 count of a field that holds at most `max` elements.
+    pub(crate) fn list_uint32_max<T>(
+        &mut self,
+        max: usize,
+        f: impl FnMut(&mut Self) -> Result<T>,
+    ) -> Result<Vec<T>> {
+        let count = self.uint32()?;
+        self.list_max(count.into(), max, f)
     }
 }
 
@@ -82,16 +102,16 @@ pub(crate) fn go_usize_to_u32(x: usize) -> u32 {
     x as u32
 }
 
-/// `AbilityData` represents various data about the abilities of a player, such as ability layers or permissions.
+/// gophertunnel `protocol.AbilityData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AbilityData {
-    /// `EntityUniqueID` is a unique identifier of the player. It appears it is not required to fill this field out with a correct value. Simply writing 0 seems to work.
+    /// The entity unique ID. Wire form: `ActorUniqueIDInt64`.
     pub entity_unique_id: i64,
-    /// `PlayerPermissions` is the permission level of the player as it shows up in the player list built up using the `PlayerList` packet.
+    /// The player permissions. Wire form: `Uint8`.
     pub player_permissions: u8,
-    /// `CommandPermissions` is a set of permissions that specify what commands a player is allowed to execute.
+    /// The command permissions. Wire form: `Uint8`.
     pub command_permissions: u8,
-    /// Layers contains all ability layers and their potential values. This should at least have one entry, being the base layer.
+    /// The layers. Wire form: a list after a `varuint32` count.
     pub layers: Vec<AbilityLayer>,
 }
 
@@ -117,20 +137,20 @@ impl Codec for AbilityData {
     }
 }
 
-/// `AbilityLayer` represents the abilities of a specific layer, such as the base layer or the spectator layer.
+/// gophertunnel `protocol.AbilityLayer`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AbilityLayer {
-    /// Type represents the type of the layer. This is one of the `AbilityLayerType` constants defined above.
+    /// The type. Wire form: `Uint16`. Values: [`AbilityLayerType`](super::consts::AbilityLayerType).
     pub r#type: u16,
-    /// Abilities is a set of abilities that are enabled for the layer. This is one of the Ability constants defined above.
+    /// The abilities. Wire form: `Uint32`.
     pub abilities: u32,
-    /// Values is a set of values that are associated with the enabled abilities, representing the values of the abilities.
+    /// The values. Wire form: `Uint32`.
     pub values: u32,
-    /// `FlySpeed` is the default horizontal fly speed of the layer.
+    /// The fly speed. Wire form: `Float32`.
     pub fly_speed: f32,
-    /// `VerticalFlySpeed` is the default vertical fly speed of the layer.
+    /// The vertical fly speed. Wire form: `Float32`.
     pub vertical_fly_speed: f32,
-    /// `WalkSpeed` is the default walk speed of the layer.
+    /// The walk speed. Wire form: `Float32`.
     pub walk_speed: f32,
 }
 
@@ -157,10 +177,10 @@ impl Codec for AbilityLayer {
     }
 }
 
-/// `AchievementAwardedEvent` is the event data sent for achievements.
+/// gophertunnel `protocol.AchievementAwardedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AchievementAwardedEvent {
-    /// `AchievementID` is the ID for the achievement.
+    /// The achievement ID. Wire form: `Uint8`.
     pub achievement_id: u8,
 }
 
@@ -177,18 +197,18 @@ impl Codec for AchievementAwardedEvent {
     }
 }
 
-/// `AgentCommandEvent` is an event used in Education Edition.
+/// gophertunnel `protocol.AgentCommandEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AgentCommandEvent {
-    /// `AgentResult` ...
+    /// The agent result. Wire form: `Varint32`.
     pub agent_result: i32,
-    /// `DataValue` ...
+    /// The data value. Wire form: `Varint32`.
     pub data_value: i32,
-    /// Command ...
+    /// The command. Wire form: `String`.
     pub command: String,
-    /// `DataKey` ...
+    /// The data key. Wire form: `String`.
     pub data_key: String,
-    /// Output ...
+    /// The output. Wire form: `String`.
     pub output: String,
 }
 
@@ -213,7 +233,7 @@ impl Codec for AgentCommandEvent {
     }
 }
 
-/// `AgentCreatedEvent` is the event data sent when an agent is created.
+/// gophertunnel `protocol.AgentCreatedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AgentCreatedEvent {}
 
@@ -227,16 +247,16 @@ impl Codec for AgentCreatedEvent {
     }
 }
 
-/// `ArrowShape` represents an arrow debug shape.
+/// gophertunnel `protocol.ArrowShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ArrowShape {
-    /// `ArrowEndLocation` is the arrow end location of the shape.
+    /// The arrow end location. Wire form: a bool, then the value when it is set.
     pub arrow_end_location: Option<[f32; 3]>,
-    /// `ArrowHeadLength` is the arrow head length of the shape.
+    /// The arrow head length. Wire form: a bool, then the value when it is set.
     pub arrow_head_length: Option<f32>,
-    /// `ArrowHeadRadius` is the arrow head radius of the shape.
+    /// The arrow head radius. Wire form: a bool, then the value when it is set.
     pub arrow_head_radius: Option<f32>,
-    /// Segments is the segments that used for the debug arrow's head.
+    /// The segments. Wire form: a bool, then the value when it is set.
     pub segments: Option<u8>,
 }
 
@@ -271,7 +291,7 @@ impl Codec for ArrowShape {
     }
 }
 
-/// Attribute is an entity attribute, that holds specific data such as the health of the entity. Each attribute holds a default value, maximum and minimum value, name and its current value.
+/// gophertunnel `protocol.Attribute`.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[expect(
     clippy::struct_field_names,
@@ -280,13 +300,13 @@ impl Codec for ArrowShape {
 pub struct Attribute {
     /// The attribute value.
     pub attribute_value: AttributeValue,
-    /// `DefaultMin` is the default minimum value of the attribute. It's not clear why this field must be sent to the client, but it is required regardless.
+    /// The default min. Wire form: `Float32`.
     pub default_min: f32,
-    /// `DefaultMax` is the default maximum value of the attribute. It's not clear why this field must be sent to the client, but it is required regardless.
+    /// The default max. Wire form: `Float32`.
     pub default_max: f32,
-    /// Default is the default value of the attribute. It's not clear why this field must be sent to the client, but it is required regardless.
+    /// The default. Wire form: `Float32`.
     pub default: f32,
-    /// Modifiers is a slice of `AttributeModifiers` that are applied to the attribute.
+    /// The modifiers. Wire form: a list after a `varuint32` count.
     pub modifiers: Vec<AttributeModifier>,
 }
 
@@ -320,26 +340,26 @@ impl Codec for Attribute {
     }
 }
 
-/// `AttributeData` represents a polymorphic attribute value.
+/// gophertunnel `protocol.AttributeData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AttributeData {
-    /// Type is the attribute data type. It is one of the `AttributeDataType` constants.
+    /// The type. Wire form: `Varuint32`. Values: [`AttributeDataType`](super::consts::AttributeDataType).
     pub r#type: u32,
-    /// `BoolValue` is the boolean value if Type is `AttributeDataTypeBool`.
+    /// The bool value. Wire form: `Bool`.
     pub bool_value: bool,
-    /// `BoolOperation` is the optional operation for boolean attributes.
+    /// The bool operation. Wire form: a bool, then the value when it is set.
     pub bool_operation: Option<i32>,
-    /// `FloatValue` is the float value if Type is `AttributeDataTypeFloat`.
+    /// The float value. Wire form: `Float32`.
     pub float_value: f32,
-    /// `FloatOperation` is the optional operation for float attributes.
+    /// The float operation. Wire form: a bool, then the value when it is set.
     pub float_operation: Option<i32>,
-    /// `FloatConstraintMin` is the optional minimum constraint for float attributes.
+    /// The float constraint min. Wire form: a bool, then the value when it is set.
     pub float_constraint_min: Option<f32>,
-    /// `FloatConstraintMax` is the optional maximum constraint for float attributes.
+    /// The float constraint max. Wire form: a bool, then the value when it is set.
     pub float_constraint_max: Option<f32>,
-    /// `ColourValue` is the colour value if Type is `AttributeDataTypeColour`.
+    /// The colour value. Wire form: `Int32`.
     pub colour_value: i32,
-    /// `ColourOperation` is the optional operation for colour attributes.
+    /// The colour operation. Wire form: a bool, then the value when it is set.
     pub colour_operation: Option<i32>,
 }
 
@@ -417,29 +437,33 @@ impl Codec for AttributeData {
     }
 }
 
-/// `AttributeLayerData` represents a complete attribute layer.
+/// gophertunnel `protocol.AttributeLayerData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AttributeLayerData {
-    /// Name is the name of the attribute layer.
+    /// The name. Wire form: `String`. Mojang limit: 128 bytes.
     pub name: String,
-    /// `NoiseName` is the optional name of the noise used by the layer.
+    /// The noise name. Wire form: a bool, then the value when it is set. Mojang limit: 128 bytes.
     pub noise_name: Option<String>,
-    /// `DimensionID` is the dimension the layer applies to.
+    /// The dimension ID. Wire form: `Varint32`.
     pub dimension_id: i32,
-    /// Settings is the layer's settings.
+    /// The settings.
     pub settings: AttributeLayerSettings,
-    /// `EnvironmentAttributes` is the list of environment attributes in this layer.
+    /// The environment attributes. Wire form: a list after a `varuint32` count. Mojang limit: 1024 elements.
     pub environment_attributes: Vec<EnvironmentAttributeData>,
 }
 
 impl Codec for AttributeLayerData {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            name: r.string()?,
-            noise_name: if r.bool()? { Some(r.string()?) } else { None },
+            name: r.string_max(128)?,
+            noise_name: if r.bool()? {
+                Some(r.string_max(128)?)
+            } else {
+                None
+            },
             dimension_id: r.varint32()?,
             settings: AttributeLayerSettings::decode(r)?,
-            environment_attributes: r.list_varuint32(EnvironmentAttributeData::decode)?,
+            environment_attributes: r.list_varuint32_max(1024, EnvironmentAttributeData::decode)?,
         })
     }
 
@@ -459,16 +483,16 @@ impl Codec for AttributeLayerData {
     }
 }
 
-/// `AttributeLayerSettings` represents settings for an attribute layer.
+/// gophertunnel `protocol.AttributeLayerSettings`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AttributeLayerSettings {
-    /// Priority is the priority of the layer.
+    /// The priority. Wire form: `Int32`.
     pub priority: i32,
-    /// `FloatWeight` is the weight of the layer.
+    /// The float weight. Wire form: `Float32`.
     pub float_weight: f32,
-    /// Enabled indicates if the layer is enabled.
+    /// The enabled. Wire form: `Bool`.
     pub enabled: bool,
-    /// `TransitionsPaused` indicates if transitions are paused for this layer.
+    /// The transitions paused. Wire form: `Bool`.
     pub transitions_paused: bool,
 }
 
@@ -491,20 +515,20 @@ impl Codec for AttributeLayerSettings {
     }
 }
 
-/// `AttributeModifier` temporarily buffs/debuffs a given attribute until the modifier is used. In vanilla, these are mainly used for effects.
+/// gophertunnel `protocol.AttributeModifier`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AttributeModifier {
-    /// ID is the unique ID of the modifier. It is used to identify the modifier in the packet.
+    /// The ID. Wire form: `String`.
     pub id: String,
-    /// Name is the name of the attribute that is modified.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// Amount is the amount of difference between the current value of the attribute and the new value.
+    /// The amount. Wire form: `Float32`.
     pub amount: f32,
-    /// Operation is the operation that is performed on the attribute. It can be addition, multiply base, multiply total or cap.
+    /// The operation. Wire form: `Int32`. Values: [`AttributeModifierOperation`](super::consts::AttributeModifierOperation).
     pub operation: i32,
-    /// Operand ... TODO: Figure out what this field is used for.
+    /// The operand. Wire form: `Int32`. Values: [`AttributeModifierOperand`](super::consts::AttributeModifierOperand).
     pub operand: i32,
-    /// Serializable ... TODO: Figure out what this field is used for.
+    /// The serializable. Wire form: `Bool`.
     pub serializable: bool,
 }
 
@@ -531,16 +555,16 @@ impl Codec for AttributeModifier {
     }
 }
 
-/// `AttributeValue` holds the value of an attribute, including the min and max.
+/// gophertunnel `protocol.AttributeValue`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AttributeValue {
-    /// Name is the name of the attribute, for example 'minecraft:health'. These names must be identical to the ones defined client-side.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// Value is the current value of the attribute. This value will be applied to the entity when sent in a packet.
+    /// The value. Wire form: `Float32`.
     pub value: f32,
-    /// Max and Min specify the boundaries within the value of the attribute must be. The definition of these fields differ per attribute. The maximum health of an entity may be changed, whereas the maximum movement speed for example may not be.
+    /// The max. Wire form: `Float32`.
     pub max: f32,
-    /// Max and Min specify the boundaries within the value of the attribute must be. The definition of these fields differ per attribute. The maximum health of an entity may be changed, whereas the maximum movement speed for example may not be.
+    /// The min. Wire form: `Float32`.
     pub min: f32,
 }
 
@@ -563,14 +587,14 @@ impl Codec for AttributeValue {
     }
 }
 
-/// `AutoCraftRecipeStackRequestAction` is sent by the client similarly to the `CraftRecipeStackRequestAction`. The only difference is that the recipe is automatically created and crafted by shift clicking the recipe book.
+/// gophertunnel `protocol.AutoCraftRecipeStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AutoCraftRecipeStackRequestAction {
-    /// `RecipeNetworkID` is the network ID of the recipe that is about to be crafted. This network ID matches one of the recipes sent in the `CraftingData` packet, where each of the recipes have a `RecipeNetworkID` as of 1.16.
+    /// The recipe network ID. Wire form: `Varuint32`.
     pub recipe_network_id: u32,
-    /// `NumberOfCrafts` is how many times the recipe was crafted.
+    /// The number of crafts. Wire form: `Uint8`.
     pub number_of_crafts: u8,
-    /// Ingredients is a slice of `ItemDescriptorCount` that contains the ingredients that were used to craft the recipe. It is not exactly clear what this is used for, but it is sent by the vanilla client.
+    /// The ingredients. Wire form: a list after a `varuint32` count.
     pub ingredients: Vec<ItemDescriptorCount>,
 }
 
@@ -597,12 +621,12 @@ impl Codec for AutoCraftRecipeStackRequestAction {
     }
 }
 
-/// `BeaconPaymentStackRequestAction` is sent by the client when it submits an item to enable effects from a beacon. These items will have been moved into the beacon item slot in advance.
+/// gophertunnel `protocol.BeaconPaymentStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BeaconPaymentStackRequestAction {
-    /// `PrimaryEffect` and `SecondaryEffect` are the effects that were selected from the beacon.
+    /// The primary effect. Wire form: `Varint32`.
     pub primary_effect: i32,
-    /// `PrimaryEffect` and `SecondaryEffect` are the effects that were selected from the beacon.
+    /// The secondary effect. Wire form: `Varint32`.
     pub secondary_effect: i32,
 }
 
@@ -621,10 +645,10 @@ impl Codec for BeaconPaymentStackRequestAction {
     }
 }
 
-/// `BellUsedEvent` is the event data sent when a bell is used.
+/// gophertunnel `protocol.BellUsedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BellUsedEvent {
-    /// `ItemID` ...
+    /// The item ID. Wire form: `Int16`.
     pub item_id: i16,
 }
 
@@ -641,18 +665,18 @@ impl Codec for BellUsedEvent {
     }
 }
 
-/// `BiomeCappedSurface` specifies the materials to use for the capped surface of a biome, such as in the Nether.
+/// gophertunnel `protocol.BiomeCappedSurface`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeCappedSurface {
-    /// `FloorBlocks` is a list of runtime `IDs` to use for the floor blocks.
+    /// The floor blocks. Wire form: a list after a `varuint32` count.
     pub floor_blocks: Vec<i32>,
-    /// `CeilingBlocks` is a list of runtime `IDs` to use for the ceiling blocks.
+    /// The ceiling blocks. Wire form: a list after a `varuint32` count.
     pub ceiling_blocks: Vec<i32>,
-    /// `SeaBlock` is an optional runtime ID to use for the sea block.
+    /// The sea block. Wire form: a bool, then the value when it is set.
     pub sea_block: Option<u32>,
-    /// `FoundationBlock` is an optional runtime ID to use for the foundation block.
+    /// The foundation block. Wire form: a bool, then the value when it is set.
     pub foundation_block: Option<u32>,
-    /// `BeachBlock` is an optional runtime ID to use for the beach block.
+    /// The beach block. Wire form: a bool, then the value when it is set.
     pub beach_block: Option<u32>,
 }
 
@@ -692,44 +716,44 @@ impl Codec for BiomeCappedSurface {
     }
 }
 
-/// `BiomeChunkGeneration` represents the information required for the client to generate chunks itself to create the illusion of a larger render distance.
+/// gophertunnel `protocol.BiomeChunkGeneration`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeChunkGeneration {
-    /// Climate is optional information to specify the biome's climate.
+    /// The climate. Wire form: a bool, then the value when it is set.
     pub climate: Option<BiomeClimate>,
-    /// `ConsolidatedFeatures` is a list of features that are consolidated into a single feature.
+    /// The consolidated features. Wire form: a bool, then the value when it is set.
     pub consolidated_features: Option<Vec<BiomeConsolidatedFeature>>,
-    /// `MountainParameters` is optional information to specify the biome's mountain parameters.
+    /// The mountain parameters. Wire form: a bool, then the value when it is set.
     pub mountain_parameters: Option<BiomeMountainParameters>,
-    /// `SurfaceMaterialAdjustments` is a list of surface material adjustments.
+    /// The surface material adjustments. Wire form: a bool, then the value when it is set.
     pub surface_material_adjustments: Option<Vec<BiomeElementData>>,
-    /// `SurfaceMaterials` is a set of materials to use for the surface layers of the biome.
+    /// The surface materials.
     pub surface_materials: Option<BiomeSurfaceMaterial>,
-    /// `HasDefaultOverworldSurface` is true if the biome has a default overworld surface.
+    /// The has default overworld surface.
     pub has_default_overworld_surface: bool,
-    /// `HasSwampSurface` is true if the biome has a swamp surface.
+    /// The has swamp surface.
     pub has_swamp_surface: bool,
-    /// `HasFrozenOceanSurface` is true if the biome has a frozen ocean surface.
+    /// The has frozen ocean surface.
     pub has_frozen_ocean_surface: bool,
-    /// `HasEndSurface` is true if the biome has an end surface.
+    /// The has end surface.
     pub has_end_surface: bool,
-    /// `MesaSurface` is optional information to specify the biome's mesa surface.
+    /// The mesa surface.
     pub mesa_surface: Option<BiomeMesaSurface>,
-    /// `CappedSurface` is optional information to specify the biome's capped surface, i.e. in the Nether.
+    /// The capped surface.
     pub capped_surface: Option<BiomeCappedSurface>,
-    /// `OverworldRules` is optional information to specify the biome's overworld rules, such as rivers and hills.
+    /// The overworld rules. Wire form: a bool, then the value when it is set.
     pub overworld_rules: Option<BiomeOverworldRules>,
-    /// `MultiNoiseRules` is optional information to specify the biome's multi-noise rules.
+    /// The multi noise rules. Wire form: a bool, then the value when it is set.
     pub multi_noise_rules: Option<BiomeMultiNoiseRules>,
-    /// `LegacyRules` is a list of legacy rules for the biomes using an older format, which is just a list of weighted biomes.
+    /// The legacy rules. Wire form: a bool, then the value when it is set.
     pub legacy_rules: Option<Vec<BiomeConditionalTransformation>>,
-    /// `ReplacementsData` is a list of biome replacement data.
+    /// The replacements data. Wire form: a bool, then the value when it is set.
     pub replacements_data: Option<Vec<BiomeReplacementData>>,
-    /// `VillageType` is the optional village type for the biome's chunk generation.
+    /// The village type. Wire form: a bool, then the value when it is set.
     pub village_type: Option<u8>,
-    /// `SurfaceBuilder` is optional information for the biome's surface builder.
+    /// The surface builder. Wire form: a bool, then the value when it is set.
     pub surface_builder: Option<BiomeSurfaceBuilder>,
-    /// `SubsurfaceBuilder` is optional information for the biome's subsurface builder.
+    /// The subsurface builder. Wire form: a bool, then the value when it is set.
     pub subsurface_builder: Option<BiomeSurfaceBuilder>,
 }
 
@@ -852,16 +876,16 @@ impl Codec for BiomeChunkGeneration {
     }
 }
 
-/// `BiomeClimate` represents the climate of a biome, mainly for ambience but also defines certain behaviours.
+/// gophertunnel `protocol.BiomeClimate`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeClimate {
-    /// Temperature is the temperature of the biome, used for weather, biome behaviours and sky colour.
+    /// The temperature. Wire form: `Float32`.
     pub temperature: f32,
-    /// Downfall is the amount that precipitation affects colours and block changes.
+    /// The downfall. Wire form: `Float32`.
     pub downfall: f32,
-    /// `SnowAccumulationMin` is the minimum amount of snow that can accumulate in the biome, every 0.125 is another layer of snow.
+    /// The snow accumulation min. Wire form: `Float32`.
     pub snow_accumulation_min: f32,
-    /// `SnowAccumulationMax` is the maximum amount of snow that can accumulate in the biome, every 0.125 is another layer of snow.
+    /// The snow accumulation max. Wire form: `Float32`.
     pub snow_accumulation_max: f32,
 }
 
@@ -884,14 +908,14 @@ impl Codec for BiomeClimate {
     }
 }
 
-/// `BiomeConditionalTransformation` is the legacy method of transforming biomes.
+/// gophertunnel `protocol.BiomeConditionalTransformation`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeConditionalTransformation {
-    /// `WeightedBiomes` is a list of biomes and their weights.
+    /// The weighted biomes. Wire form: a list after a `varuint32` count.
     pub weighted_biomes: Vec<BiomeWeight>,
-    /// `ConditionJSON` is an index of the condition JSON data in the string list.
+    /// The condition JSON. Wire form: `Int16`.
     pub condition_json: i16,
-    /// `MinPassingNeighbours` is the minimum number of neighbours that must pass the condition for the transformation to be applied.
+    /// The min passing neighbours. Wire form: `Uint32`.
     pub min_passing_neighbours: u32,
 }
 
@@ -915,18 +939,18 @@ impl Codec for BiomeConditionalTransformation {
     }
 }
 
-/// `BiomeConsolidatedFeature` represents a feature that is consolidated into a single feature for the biome.
+/// gophertunnel `protocol.BiomeConsolidatedFeature`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeConsolidatedFeature {
-    /// Scatter defines how the feature is scattered in the biome.
+    /// The scatter.
     pub scatter: BiomeScatterParameter,
-    /// Feature is the index of the feature's name in the string list.
+    /// The feature. Wire form: `Int16`.
     pub feature: i16,
-    /// Identifier is the index of the feature's identifier in the string list.
+    /// The identifier. Wire form: `Int16`.
     pub identifier: i16,
-    /// Pass is the index of the feature's pass in the string list.
+    /// The pass. Wire form: `Int16`.
     pub pass: i16,
-    /// `CanUseInternal` is true if the feature can use internal features.
+    /// The can use internal. Wire form: `Bool`.
     pub can_use_internal: bool,
 }
 
@@ -951,22 +975,22 @@ impl Codec for BiomeConsolidatedFeature {
     }
 }
 
-/// `BiomeCoordinate` specifies coordinate rules for where features can be scattered in the biome.
+/// gophertunnel `protocol.BiomeCoordinate`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeCoordinate {
-    /// `MinValueType` is the type of expression operation to use for the minimum value, and is one of the `BiomeExpressionOp` constants above.
+    /// The min value type. Wire form: `Varint32`.
     pub min_value_type: i32,
-    /// `MinValue` is the index of the minimum value expression in the string list.
+    /// The min value. Wire form: `Int16`.
     pub min_value: i16,
-    /// `MaxValueType` is the type of expression operation to use for the maximum value, and is one of the
+    /// The max value type. Wire form: `Varint32`.
     pub max_value_type: i32,
-    /// `MaxValue` is the index of the maximum value expression in the string list.
+    /// The max value. Wire form: `Int16`.
     pub max_value: i16,
-    /// `GridOffset` is the offset of the grid, used for fixed grid and jittered grid distributions.
+    /// The grid offset. Wire form: `Uint32`.
     pub grid_offset: u32,
-    /// `GridStepSize` is the step size of the grid, used for fixed grid and jittered grid distributions.
+    /// The grid step size. Wire form: `Uint32`.
     pub grid_step_size: u32,
-    /// Distribution is the type of distribution to use for the coordinate, and is one of the `BiomeRandomDistributionType` constants above.
+    /// The distribution. Wire form: `Varint32`.
     pub distribution: i32,
 }
 
@@ -995,30 +1019,30 @@ impl Codec for BiomeCoordinate {
     }
 }
 
-/// `BiomeDefinition` represents a biome definition in the game. This can be a vanilla biome or a completely custom biome.
+/// gophertunnel `protocol.BiomeDefinition`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeDefinition {
-    /// `NameIndex` represents the index of the biome name in the string list.
+    /// The name index. Wire form: `Int16`.
     pub name_index: i16,
-    /// `BiomeID` is the biome ID.
+    /// The biome ID. Wire form: `Int16`.
     pub biome_id: i16,
-    /// Temperature is the temperature of the biome, used for weather, biome behaviours and sky colour.
+    /// The temperature. Wire form: `Float32`.
     pub temperature: f32,
-    /// Downfall is the amount that precipitation affects colours and block changes.
+    /// The downfall. Wire form: `Float32`.
     pub downfall: f32,
-    /// `FoliageSnow` is the progression factor for foliage turning white due to snow.
+    /// The foliage snow. Wire form: `Float32`.
     pub foliage_snow: f32,
-    /// Depth is the depth of the biome.
+    /// The depth. Wire form: `Float32`.
     pub depth: f32,
-    /// Scale is the scale of the biome.
+    /// The scale. Wire form: `Float32`.
     pub scale: f32,
-    /// `MapWaterColour` is an ARGB value for the water colour on maps in the biome.
+    /// The map water colour. Wire form: `Int32`.
     pub map_water_colour: i32,
-    /// Rain is true if the biome has rain, false if it is a dry biome.
+    /// The rain. Wire form: `Bool`.
     pub rain: bool,
-    /// Tags are a list of indices of tags in the string list. These are used to group biomes together for biome generation and other purposes.
+    /// The tags. Wire form: a bool, then the value when it is set.
     pub tags: Option<Vec<u16>>,
-    /// `ChunkGeneration` is optional information to assist in client-side chunk generation. Almost all servers can and should leave this empty to greatly reduce the size of this packet. Only BDS and servers which \*exactly\* match the vanilla chunk generation can benefit from this.
+    /// The chunk generation. Wire form: a bool, then the value when it is set.
     pub chunk_generation: Option<BiomeChunkGeneration>,
 }
 
@@ -1072,24 +1096,24 @@ impl Codec for BiomeDefinition {
     }
 }
 
-/// `BiomeElementData` are set rules to adjust the surface materials of the biome.
+/// gophertunnel `protocol.BiomeElementData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeElementData {
-    /// `NoiseFrequencyScale` is the frequency scale of the noise used to adjust the surface materials.
+    /// The noise frequency scale. Wire form: `Float32`.
     pub noise_frequency_scale: f32,
-    /// `NoiseLowerBound` is the minimum noise value required to be selected.
+    /// The noise lower bound. Wire form: `Float32`.
     pub noise_lower_bound: f32,
-    /// `NoiseUpperBound` is the maximum noise value required to be selected.
+    /// The noise upper bound. Wire form: `Float32`.
     pub noise_upper_bound: f32,
-    /// `HeightMinType` is the type of expression operation to use for the minimum height, and is one of the `BiomeExpressionOp` constants above.
+    /// The height min type. Wire form: `Varint32`.
     pub height_min_type: i32,
-    /// `HeightMin` is the index of the minimum height expression in the string list.
+    /// The height min. Wire form: `Int16`.
     pub height_min: i16,
-    /// `HeightMaxType` is the type of expression operation to use for the maximum height, and is one of the `BiomeExpressionOp` constants above.
+    /// The height max type. Wire form: `Varint32`.
     pub height_max_type: i32,
-    /// `HeightMax` is the index of the maximum height expression in the string list.
+    /// The height max. Wire form: `Int16`.
     pub height_max: i16,
-    /// `AdjustedMaterials` is the materials to use for the surface layers of the biome if selected.
+    /// The adjusted materials.
     pub adjusted_materials: BiomeSurfaceMaterial,
 }
 
@@ -1120,16 +1144,16 @@ impl Codec for BiomeElementData {
     }
 }
 
-/// `BiomeMesaSurface` specifies the materials to use for the mesa biome.
+/// gophertunnel `protocol.BiomeMesaSurface`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeMesaSurface {
-    /// `ClayMaterial` is the runtime ID of the block to use for clay layers.
+    /// The clay material. Wire form: `Uint32`.
     pub clay_material: u32,
-    /// `HardClayMaterial` is the runtime ID of the block to use for hard clay layers.
+    /// The hard clay material. Wire form: `Uint32`.
     pub hard_clay_material: u32,
-    /// `BrycePillars` is true if the biome has bryce pillars, which are tall spire-like structures.
+    /// The bryce pillars. Wire form: `Bool`.
     pub bryce_pillars: bool,
-    /// `HasForest` is true if the biome has a forest.
+    /// The has forest. Wire form: `Bool`.
     pub has_forest: bool,
 }
 
@@ -1152,20 +1176,20 @@ impl Codec for BiomeMesaSurface {
     }
 }
 
-/// `BiomeMountainParameters` specifies the parameters for a mountain biome.
+/// gophertunnel `protocol.BiomeMountainParameters`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeMountainParameters {
-    /// `SteepBlock` is the runtime ID of the block to use for steep slopes.
+    /// The steep block. Wire form: `Int32`.
     pub steep_block: i32,
-    /// `NorthSlopes` is true if the biome has north slopes.
+    /// The north slopes. Wire form: `Bool`.
     pub north_slopes: bool,
-    /// `SouthSlopes` is true if the biome has south slopes.
+    /// The south slopes. Wire form: `Bool`.
     pub south_slopes: bool,
-    /// `WestSlopes` is true if the biome has west slopes.
+    /// The west slopes. Wire form: `Bool`.
     pub west_slopes: bool,
-    /// `EastSlopes` is true if the biome has east slopes.
+    /// The east slopes. Wire form: `Bool`.
     pub east_slopes: bool,
-    /// `TopSlideEnabled` is true if the biome has top slide enabled.
+    /// The top slide enabled. Wire form: `Bool`.
     pub top_slide_enabled: bool,
 }
 
@@ -1192,18 +1216,18 @@ impl Codec for BiomeMountainParameters {
     }
 }
 
-/// `BiomeMultiNoiseRules` specifies the rules for multi-noise biomes, which are biomes that are defined by multiple noise parameters instead of just temperature and humidity.
+/// gophertunnel `protocol.BiomeMultiNoiseRules`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeMultiNoiseRules {
-    /// Temperature is the temperature level of the biome.
+    /// The temperature. Wire form: `Float32`.
     pub temperature: f32,
-    /// Humidity is the humidity level of the biome.
+    /// The humidity. Wire form: `Float32`.
     pub humidity: f32,
-    /// Altitude is the altitude level of the biome.
+    /// The altitude. Wire form: `Float32`.
     pub altitude: f32,
-    /// Weirdness is the weirdness level of the biome.
+    /// The weirdness. Wire form: `Float32`.
     pub weirdness: f32,
-    /// Weight is the weight of the biome, with a higher weight being more likely to be selected.
+    /// The weight. Wire form: `Float32`.
     pub weight: f32,
 }
 
@@ -1228,14 +1252,14 @@ impl Codec for BiomeMultiNoiseRules {
     }
 }
 
-/// `BiomeNoiseGradientSurface` specifies noise-gradient surface block data for a biome.
+/// gophertunnel `protocol.BiomeNoiseGradientSurface`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeNoiseGradientSurface {
-    /// `NonReplaceableBlocks` is a list of block runtime `IDs` that may not be replaced.
+    /// The non replaceable blocks. Wire form: a list after a `varuint32` count.
     pub non_replaceable_blocks: Vec<u32>,
-    /// `GradientBlocks` is a list of noise block specifiers used by the gradient.
+    /// The gradient blocks. Wire form: a list after a `varuint32` count.
     pub gradient_blocks: Vec<NoiseBlockSpecifier>,
-    /// Noise is the noise descriptor used by the gradient.
+    /// The noise.
     pub noise: NoiseDescriptor,
 }
 
@@ -1262,26 +1286,26 @@ impl Codec for BiomeNoiseGradientSurface {
     }
 }
 
-/// `BiomeOverworldRules` specifies a list of transformation rules to apply to different parts of the overworld.
+/// gophertunnel `protocol.BiomeOverworldRules`.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[expect(
     clippy::struct_field_names,
     reason = "consistency: field names mirror gophertunnel"
 )]
 pub struct BiomeOverworldRules {
-    /// `HillsTransformations` is a list of weighted biome transformations to apply to hills.
+    /// The hills transformations. Wire form: a list after a `varuint32` count.
     pub hills_transformations: Vec<BiomeWeight>,
-    /// `MutateTransformations` is a list of weighted biome transformations to apply to mutated biomes.
+    /// The mutate transformations. Wire form: a list after a `varuint32` count.
     pub mutate_transformations: Vec<BiomeWeight>,
-    /// `RiverTransformations` is a list of weighted biome transformations to apply to rivers.
+    /// The river transformations. Wire form: a list after a `varuint32` count.
     pub river_transformations: Vec<BiomeWeight>,
-    /// `ShoreTransformations` is a list of weighted biome transformations to apply to shores.
+    /// The shore transformations. Wire form: a list after a `varuint32` count.
     pub shore_transformations: Vec<BiomeWeight>,
-    /// `PreHillsEdgeTransformations` is a list of conditional transformations to apply to the edges of hills.
+    /// The pre hills edge transformations. Wire form: a list after a `varuint32` count.
     pub pre_hills_edge_transformations: Vec<BiomeConditionalTransformation>,
-    /// `PostShoreEdgeTransformations` is a list of conditional transformations to apply to the edges of shores.
+    /// The post shore edge transformations. Wire form: a list after a `varuint32` count.
     pub post_shore_edge_transformations: Vec<BiomeConditionalTransformation>,
-    /// `ClimateTransformations` is a list of weighted temperature transformations to apply to the biome's climate.
+    /// The climate transformations. Wire form: a list after a `varuint32` count.
     pub climate_transformations: Vec<BiomeTemperatureWeight>,
 }
 
@@ -1333,20 +1357,20 @@ impl Codec for BiomeOverworldRules {
     }
 }
 
-/// `BiomeReplacementData` represents data for biome replacements.
+/// gophertunnel `protocol.BiomeReplacementData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeReplacementData {
-    /// Biome is the biome ID to replace.
+    /// The biome. Wire form: `Int16`.
     pub biome: i16,
-    /// Dimension is the dimension ID where the replacement applies.
+    /// The dimension. Wire form: `Int16`. Values: [`Dimension`](super::consts::Dimension).
     pub dimension: i16,
-    /// `TargetBiomes` is a list of target biome `IDs` for the replacement.
+    /// The target biomes. Wire form: a list after a `varuint32` count.
     pub target_biomes: Vec<i16>,
-    /// Amount is the amount of replacement to apply.
+    /// The amount. Wire form: `Float32`.
     pub amount: f32,
-    /// `NoiseFrequencyScale` ...
+    /// The noise frequency scale. Wire form: `Float32`.
     pub noise_frequency_scale: f32,
-    /// `ReplacementIndex` is the index of the replacement.
+    /// The replacement index. Wire form: `Uint32`.
     pub replacement_index: u32,
 }
 
@@ -1379,21 +1403,21 @@ impl Codec for BiomeReplacementData {
 /// gophertunnel `protocol.BiomeScatterParameter`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeScatterParameter {
-    /// Coordinates is a list of coordinate rules to scatter the feature within.
+    /// The coordinates. Wire form: a list after a `varuint32` count.
     pub coordinates: Vec<BiomeCoordinate>,
-    /// `EvaluationOrder` is the order in which the coordinates are evaluated, and is one of the `CoordinateEvaluationOrder` constants above.
+    /// The evaluation order. Wire form: `Varint32`.
     pub evaluation_order: i32,
-    /// `ChancePercentType` is the type of expression operation to use for the chance percent, and is one of the `BiomeExpressionOp` constants above.
+    /// The chance percent type. Wire form: `Varint32`.
     pub chance_percent_type: i32,
-    /// `ChangePercent` is the index of the chance expression in the string list.
+    /// The chance percent. Wire form: `Int16`.
     pub chance_percent: i16,
-    /// `ChanceNumerator` is the numerator of the chance expression.
+    /// The chance numerator. Wire form: `Int32`.
     pub chance_numerator: i32,
-    /// `ChanceDenominator` is the denominator of the chance expression.
+    /// The chance denominator. Wire form: `Int32`.
     pub chance_denominator: i32,
-    /// `IterationsType` is the type of expression operation to use for the iterations, and is one of the `BiomeExpressionOp` constants above.
+    /// The iterations type. Wire form: `Varint32`.
     pub iterations_type: i32,
-    /// Iterations is the index of the iterations expression in the string list.
+    /// The iterations. Wire form: `Int16`.
     pub iterations: i16,
 }
 
@@ -1427,24 +1451,24 @@ impl Codec for BiomeScatterParameter {
     }
 }
 
-/// `BiomeSurfaceBuilder` specifies the materials and special surface rules to use for a biome surface.
+/// gophertunnel `protocol.BiomeSurfaceBuilder`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeSurfaceBuilder {
-    /// `SurfaceMaterials` is a set of materials to use for the surface layers of the biome.
+    /// The surface materials. Wire form: a bool, then the value when it is set.
     pub surface_materials: Option<BiomeSurfaceMaterial>,
-    /// `HasDefaultOverworldSurface` is true if the biome has a default overworld surface.
+    /// The has default overworld surface. Wire form: `Bool`.
     pub has_default_overworld_surface: bool,
-    /// `HasSwampSurface` is true if the biome has a swamp surface.
+    /// The has swamp surface. Wire form: `Bool`.
     pub has_swamp_surface: bool,
-    /// `HasFrozenOceanSurface` is true if the biome has a frozen ocean surface.
+    /// The has frozen ocean surface. Wire form: `Bool`.
     pub has_frozen_ocean_surface: bool,
-    /// `HasEndSurface` is true if the biome has an end surface.
+    /// The has end surface. Wire form: `Bool`.
     pub has_end_surface: bool,
-    /// `MesaSurface` is optional information to specify the biome's mesa surface.
+    /// The mesa surface. Wire form: a bool, then the value when it is set.
     pub mesa_surface: Option<BiomeMesaSurface>,
-    /// `CappedSurface` is optional information to specify the biome's capped surface, i.e. in the Nether.
+    /// The capped surface. Wire form: a bool, then the value when it is set.
     pub capped_surface: Option<BiomeCappedSurface>,
-    /// `NoiseGradientSurface` is optional information to specify noise-gradient surface data.
+    /// The noise gradient surface. Wire form: a bool, then the value when it is set.
     pub noise_gradient_surface: Option<BiomeNoiseGradientSurface>,
 }
 
@@ -1503,20 +1527,20 @@ impl Codec for BiomeSurfaceBuilder {
     }
 }
 
-/// `BiomeSurfaceMaterial` specifies the materials to use for the surface layers of the biome.
+/// gophertunnel `protocol.BiomeSurfaceMaterial`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeSurfaceMaterial {
-    /// `TopBlock` is the runtime ID of the block to use for the top layer.
+    /// The top block. Wire form: `Int32`.
     pub top_block: i32,
-    /// `MidBlock` is the runtime ID to use for the middle layers.
+    /// The mid block. Wire form: `Int32`.
     pub mid_block: i32,
-    /// `SeaFloorBlock` is the runtime ID to use for the sea floor.
+    /// The sea floor block. Wire form: `Int32`.
     pub sea_floor_block: i32,
-    /// `FoundationBlock` is the runtime ID to use for the foundation layers.
+    /// The foundation block. Wire form: `Int32`.
     pub foundation_block: i32,
-    /// `SeaBlock` is the runtime ID to use for the sea layers.
+    /// The sea block. Wire form: `Int32`.
     pub sea_block: i32,
-    /// `SeaFloorDepth` is the depth of the sea floor, in blocks.
+    /// The sea floor depth. Wire form: `Int32`.
     pub sea_floor_depth: i32,
 }
 
@@ -1543,12 +1567,12 @@ impl Codec for BiomeSurfaceMaterial {
     }
 }
 
-/// `BiomeTemperatureWeight` defines the weight for a temperature, used for weighted randomness.
+/// gophertunnel `protocol.BiomeTemperatureWeight`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeTemperatureWeight {
-    /// Temperature is the temperature that can be selected.
+    /// The temperature. Wire form: `Varint32`.
     pub temperature: i32,
-    /// Weight is the weight of the temperature, with a higher weight being more likely to be selected.
+    /// The weight. Wire form: `Uint32`.
     pub weight: u32,
 }
 
@@ -1567,12 +1591,12 @@ impl Codec for BiomeTemperatureWeight {
     }
 }
 
-/// `BiomeWeight` defines the weight for a biome, used for weighted randomness.
+/// gophertunnel `protocol.BiomeWeight`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BiomeWeight {
-    /// Biome is the index of the biome name in the string list.
+    /// The biome. Wire form: `Int16`.
     pub biome: i16,
-    /// Weight is the weight of the biome, with a higher weight being more likely to be selected.
+    /// The weight. Wire form: `Uint32`.
     pub weight: u32,
 }
 
@@ -1591,18 +1615,18 @@ impl Codec for BiomeWeight {
     }
 }
 
-/// `BlockChangeEntry` is used by the `UpdateSubChunkBlocks` packet.
+/// gophertunnel `protocol.BlockChangeEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BlockChangeEntry {
-    /// The block pos.
+    /// The block pos. Wire form: `BlockPos`.
     pub block_pos: BlockPos,
-    /// `BlockRuntimeID` is the runtime ID of the block.
+    /// The block runtime ID. Wire form: `Varuint32`.
     pub block_runtime_id: u32,
-    /// Flags is a combination of flags that specify the way the block is updated client-side.
+    /// The flags. Wire form: `Varuint32`.
     pub flags: u32,
-    /// `SyncedUpdateEntityUniqueID` is the unique ID of the falling block entity that the block transitions to or that the entity transitions from if the block change entry is synced.
+    /// The synced update entity unique ID. Wire form: `ActorUniqueIDVaruint64`.
     pub synced_update_entity_unique_id: u64,
-    /// `SyncedUpdateType` is the type of the transition that happened. It is either `BlockToEntityTransition`, when a block placed becomes a falling entity, or `EntityToBlockTransition`, when a falling entity hits the ground and becomes a solid block again.
+    /// The synced update type. Wire form: `Varuint32`.
     pub synced_update_type: u32,
 }
 
@@ -1627,12 +1651,12 @@ impl Codec for BlockChangeEntry {
     }
 }
 
-/// `BlockEntry` is an entry for a custom block found in the `StartGame` packet. The runtime ID of these custom block entries is based on the index they have in the block palette when the palette is ordered alphabetically.
+/// gophertunnel `protocol.BlockEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BlockEntry {
-    /// Name is the name of the custom block.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// Properties is a list of properties which, in combination with the name, specify a unique block.
+    /// The properties. Wire form: `NBT`.
     pub properties: nbt::Compound,
 }
 
@@ -1651,14 +1675,14 @@ impl Codec for BlockEntry {
     }
 }
 
-/// `BossKilledEvent` is the event data sent when a boss dies.
+/// gophertunnel `protocol.BossKilledEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BossKilledEvent {
-    /// `BossEntityUniqueID` ...
+    /// The boss entity unique ID. Wire form: `ActorUniqueID`.
     pub boss_entity_unique_id: i64,
-    /// `PlayerPartySize` ...
+    /// The player party size. Wire form: `Varint32`.
     pub player_party_size: i32,
-    /// `InteractionEntityType` ...
+    /// The interaction entity type. Wire form: `Varint32`.
     pub interaction_entity_type: i32,
 }
 
@@ -1679,10 +1703,10 @@ impl Codec for BossKilledEvent {
     }
 }
 
-/// `BoxShape` represents a box debug shape.
+/// gophertunnel `protocol.BoxShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BoxShape {
-    /// `BoxBound` is the box bound of the shape.
+    /// The box bound. Wire form: `Vec3`.
     pub box_bound: [f32; 3],
 }
 
@@ -1699,12 +1723,12 @@ impl Codec for BoxShape {
     }
 }
 
-/// `CacheBlob` represents a blob as used in the client side blob cache protocol. It holds a hash of its data and the full data of it.
+/// gophertunnel `protocol.CacheBlob`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CacheBlob {
-    /// Hash is the hash of the blob. The hash is computed using xxHash, and must be deterministic for the same chunk data.
+    /// The hash. Wire form: `Uint64`.
     pub hash: u64,
-    /// Payload is the data of the blob. When sent, the client will associate the Hash of the blob with the Payload in it.
+    /// The payload. Wire form: `ByteSlice`.
     pub payload: Vec<u8>,
 }
 
@@ -1723,16 +1747,16 @@ impl Codec for CacheBlob {
     }
 }
 
-/// `CameraAimAssistActorPriorityData` represents priority data for aim assist actor targeting.
+/// gophertunnel `protocol.CameraAimAssistActorPriorityData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraAimAssistActorPriorityData {
-    /// `PresetIndex` is the index of the aim assist preset.
+    /// The preset index. Wire form: `Int32`.
     pub preset_index: i32,
-    /// `CategoryIndex` is the index of the aim assist category.
+    /// The category index. Wire form: `Int32`.
     pub category_index: i32,
-    /// `ActorIndex` is the index of the actor.
+    /// The actor index. Wire form: `Int32`.
     pub actor_index: i32,
-    /// Priority is the priority value for this actor.
+    /// The priority. Wire form: `Int32`.
     pub priority: i32,
 }
 
@@ -1755,12 +1779,12 @@ impl Codec for CameraAimAssistActorPriorityData {
     }
 }
 
-/// `CameraAimAssistCategory` is an aim assist category that defines priorities for specific blocks and entities.
+/// gophertunnel `protocol.CameraAimAssistCategory`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraAimAssistCategory {
-    /// Name is the name of the category which can be used by a `CameraAimAssistPreset`.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// Priorities represents the block and entity specific priorities as well as the default priorities for this category.
+    /// The priorities.
     pub priorities: CameraAimAssistPriorities,
 }
 
@@ -1779,12 +1803,12 @@ impl Codec for CameraAimAssistCategory {
     }
 }
 
-/// `CameraAimAssistItemSettings` defines settings for how specific items should behave when using aim assist.
+/// gophertunnel `protocol.CameraAimAssistItemSettings`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraAimAssistItemSettings {
-    /// Item is the identifier of the item to apply the settings to.
+    /// The item. Wire form: `String`.
     pub item: String,
-    /// Category is the identifier of a category to use which has been defined by a `CameraAimAssistCategory`. Only categories defined in the Categories slice used by the `CameraAimAssistPreset` can be used here.
+    /// The category. Wire form: `String`.
     pub category: String,
 }
 
@@ -1803,26 +1827,26 @@ impl Codec for CameraAimAssistItemSettings {
     }
 }
 
-/// `CameraAimAssistPreset` defines a base preset that can be extended upon when sending an aim assist.
+/// gophertunnel `protocol.CameraAimAssistPreset`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraAimAssistPreset {
-    /// Identifier represents the identifier of this preset.
+    /// The identifier. Wire form: `String`.
     pub identifier: String,
-    /// `BlockExclusions` is a list of block identifiers that should be ignored by the aim assist.
+    /// The block exclusions. Wire form: a list after a `varuint32` count.
     pub block_exclusions: Vec<String>,
-    /// `EntityExclusions` is a list of entity identifiers that should be ignored by the aim assist.
+    /// The entity exclusions. Wire form: a list after a `varuint32` count.
     pub entity_exclusions: Vec<String>,
-    /// `BlockTagExclusions` is a list of block tags that should be ignored by the aim assist.
+    /// The block tag exclusions. Wire form: a list after a `varuint32` count.
     pub block_tag_exclusions: Vec<String>,
-    /// `EntityTypeFamilyExclusions` is a list of entity type families that should be ignored by the aim assist.
+    /// The entity type family exclusions. Wire form: a list after a `varuint32` count.
     pub entity_type_family_exclusions: Vec<String>,
-    /// `LiquidTargets` is a list of entity identifiers that should be targetted when inside of a liquid.
+    /// The liquid targets. Wire form: a list after a `varuint32` count.
     pub liquid_targets: Vec<String>,
-    /// `ItemSettings` is a list of settings for specific item identifiers. If an item is not listed here, it will fallback to `DefaultItemSettings` or `HandSettings` if no item is held.
+    /// The item settings. Wire form: a list after a `varuint32` count.
     pub item_settings: Vec<CameraAimAssistItemSettings>,
-    /// `DefaultItemSettings` is the identifier of a category to use when the player is not holding an item listed in `ItemSettings`. This must be the identifier of a category within the Categories slice.
+    /// The default item settings. Wire form: a bool, then the value when it is set.
     pub default_item_settings: Option<String>,
-    /// `HandSettings` is the identifier of a category to use when the player is not holding an item. This must be the identifier of a category within Categories slice.
+    /// The hand settings. Wire form: a bool, then the value when it is set.
     pub hand_settings: Option<String>,
 }
 
@@ -1879,20 +1903,20 @@ impl Codec for CameraAimAssistPreset {
     }
 }
 
-/// `CameraAimAssistPriorities` represents the block and entity specific priorities for targetting. The aim assist will select the block or entity with the highest priority within the specified thresholds.
+/// gophertunnel `protocol.CameraAimAssistPriorities`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraAimAssistPriorities {
-    /// Entities is a list of priorities for specific entity identifiers.
+    /// The entities. Wire form: a list after a `varuint32` count.
     pub entities: Vec<CameraAimAssistPriority>,
-    /// Blocks is a list of priorities for specific block identifiers.
+    /// The blocks. Wire form: a list after a `varuint32` count.
     pub blocks: Vec<CameraAimAssistPriority>,
-    /// `BlockTags` is a list of priorities for specific block tags.
+    /// The block tags. Wire form: a list after a `varuint32` count.
     pub block_tags: Vec<CameraAimAssistPriority>,
-    /// `EntityTypeFamilies` is a list of priorities for specific entity type families.
+    /// The entity type families. Wire form: a list after a `varuint32` count.
     pub entity_type_families: Vec<CameraAimAssistPriority>,
-    /// `EntityDefault` is the default priority for entities.
+    /// The entity default. Wire form: a bool, then the value when it is set.
     pub entity_default: Option<i32>,
-    /// `BlockDefault` is the default priority for blocks.
+    /// The block default. Wire form: a bool, then the value when it is set.
     pub block_default: Option<i32>,
 }
 
@@ -1937,12 +1961,12 @@ impl Codec for CameraAimAssistPriorities {
     }
 }
 
-/// `CameraAimAssistPriority` represents a non-default priority for a specific target.
+/// gophertunnel `protocol.CameraAimAssistPriority`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraAimAssistPriority {
-    /// Identifier is the identifier of a target to define the priority for.
+    /// The identifier. Wire form: `String`.
     pub identifier: String,
-    /// Priority is the priority for this specific target.
+    /// The priority. Wire form: `Int32`.
     pub priority: i32,
 }
 
@@ -1961,12 +1985,12 @@ impl Codec for CameraAimAssistPriority {
     }
 }
 
-/// `CameraEase` represents an easing function that can be used by a `CameraInstructionSet`.
+/// gophertunnel `protocol.CameraEase`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraEase {
-    /// Type is the type of easing function used. This is one of the constants above.
+    /// The type. Wire form: `Uint8`.
     pub r#type: u8,
-    /// Duration is the time in seconds that the easing function should take.
+    /// The duration. Wire form: `Float32`.
     pub duration: f32,
 }
 
@@ -1985,18 +2009,18 @@ impl Codec for CameraEase {
     }
 }
 
-/// `CameraFadeTimeData` represents the time data for a `CameraInstructionFade`.
+/// gophertunnel `protocol.CameraFadeTimeData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[expect(
     clippy::struct_field_names,
     reason = "consistency: field names mirror gophertunnel"
 )]
 pub struct CameraFadeTimeData {
-    /// `FadeInDuration` is the time in seconds for the screen to fully fade in.
+    /// The fade in duration. Wire form: `Float32`.
     pub fade_in_duration: f32,
-    /// `WaitDuration` is time in seconds to wait before fading out.
+    /// The wait duration. Wire form: `Float32`.
     pub wait_duration: f32,
-    /// `FadeOutDuration` is the time in seconds for the screen to fully fade out.
+    /// The fade out duration. Wire form: `Float32`.
     pub fade_out_duration: f32,
 }
 
@@ -2017,12 +2041,12 @@ impl Codec for CameraFadeTimeData {
     }
 }
 
-/// `CameraInstructionFade` represents a camera instruction that fades the screen to a specified colour.
+/// gophertunnel `protocol.CameraInstructionFade`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraInstructionFade {
-    /// `TimeData` is the time data for the fade, which includes the fade in duration, wait duration and fade out duration.
+    /// The time data. Wire form: a bool, then the value when it is set.
     pub time_data: Option<CameraFadeTimeData>,
-    /// Colour is the colour of the screen to fade to. This only uses the red, green and blue components.
+    /// The colour. Wire form: a bool, then the value when it is set.
     pub colour: Option<Rgba>,
 }
 
@@ -2051,16 +2075,16 @@ impl Codec for CameraInstructionFade {
     }
 }
 
-/// `CameraInstructionFieldOfView` represents a camera instruction that updates the field of view.
+/// gophertunnel `protocol.CameraInstructionFieldOfView`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraInstructionFieldOfView {
-    /// `FieldOfView` is the field of view of the camera.
+    /// The field of view. Wire form: `Float32`.
     pub field_of_view: f32,
-    /// `EaseTime` is the time in seconds that the easing function should take.
+    /// The ease time. Wire form: `Float32`.
     pub ease_time: f32,
-    /// `EaseType` is the type of easing function used. This is one of the constants above.
+    /// The ease type.
     pub ease_type: i32,
-    /// Clear can be set to true to clear the current instruction.
+    /// The clear. Wire form: `Bool`.
     pub clear: bool,
 }
 
@@ -2088,26 +2112,26 @@ impl Codec for CameraInstructionFieldOfView {
     }
 }
 
-/// `CameraInstructionSet` represents a camera instruction that sets the camera to a specified preset and can be extended with easing functions and translations to the camera's position and rotation.
+/// gophertunnel `protocol.CameraInstructionSet`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraInstructionSet {
-    /// Preset is the index of the preset in the `CameraPresets` packet sent to the player.
+    /// The preset. Wire form: `Uint32`.
     pub preset: u32,
-    /// Ease represents the easing function that is used by the instruction.
+    /// The ease. Wire form: a bool, then the value when it is set.
     pub ease: Option<CameraEase>,
-    /// Position represents the position of the camera.
+    /// The position. Wire form: a bool, then the value when it is set.
     pub position: Option<[f32; 3]>,
-    /// Rotation represents the rotation of the camera.
+    /// The rotation. Wire form: a bool, then the value when it is set.
     pub rotation: Option<[f32; 2]>,
-    /// Facing is a vector that the camera will always face towards during the duration of the instruction.
+    /// The facing. Wire form: a bool, then the value when it is set.
     pub facing: Option<[f32; 3]>,
-    /// `ViewOffset` is an offset based on a pivot point to the player, causing the camera to be shifted in a certain direction.
+    /// The view offset. Wire form: a bool, then the value when it is set.
     pub view_offset: Option<[f32; 2]>,
-    /// `EntityOffset` is an offset from the entity that the camera should be rendered at.
+    /// The entity offset. Wire form: a bool, then the value when it is set.
     pub entity_offset: Option<[f32; 3]>,
-    /// Default determines whether the camera is a default camera or not.
+    /// The default. Wire form: a bool, then the value when it is set.
     pub default: Option<bool>,
-    /// `IgnoreStartingValuesComponent` behavior is currently unknown.
+    /// The ignore starting values component. Wire form: `Bool`.
     pub ignore_starting_values_component: bool,
 }
 
@@ -2165,12 +2189,12 @@ impl Codec for CameraInstructionSet {
     }
 }
 
-/// `CameraInstructionTarget` represents a camera instruction that targets a specific entity.
+/// gophertunnel `protocol.CameraInstructionTarget`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraInstructionTarget {
-    /// `CenterOffset` is the offset from the center of the entity that the camera should target.
+    /// The center offset. Wire form: a bool, then the value when it is set.
     pub center_offset: Option<[f32; 3]>,
-    /// `EntityUniqueID` is the unique ID of the entity that the camera should target.
+    /// The entity unique ID. Wire form: `ActorUniqueIDInt64`.
     pub entity_unique_id: i64,
 }
 
@@ -2192,56 +2216,56 @@ impl Codec for CameraInstructionTarget {
     }
 }
 
-/// `CameraPreset` represents a basic preset that can be extended upon by more complex instructions.
+/// gophertunnel `protocol.CameraPreset`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraPreset {
-    /// Name is the name of the preset. Each preset must have their own unique name.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// Parent is the name of the preset that this preset extends upon. This can be left empty.
+    /// The parent. Wire form: `String`.
     pub parent: String,
-    /// `PosX` is the default X position of the camera.
+    /// The pos x. Wire form: a bool, then the value when it is set.
     pub pos_x: Option<f32>,
-    /// `PosY` is the default Y position of the camera.
+    /// The pos y. Wire form: a bool, then the value when it is set.
     pub pos_y: Option<f32>,
-    /// `PosZ` is the default Z position of the camera.
+    /// The pos z. Wire form: a bool, then the value when it is set.
     pub pos_z: Option<f32>,
-    /// `RotX` is the default pitch of the camera.
+    /// The rot x. Wire form: a bool, then the value when it is set.
     pub rot_x: Option<f32>,
-    /// `RotY` is the default yaw of the camera.
+    /// The rot y. Wire form: a bool, then the value when it is set.
     pub rot_y: Option<f32>,
-    /// `RotationSpeed` is the speed at which the camera should rotate.
+    /// The rotation speed. Wire form: a bool, then the value when it is set.
     pub rotation_speed: Option<f32>,
-    /// `SnapToTarget` determines whether the camera should snap to the target entity or not.
+    /// The snap to target. Wire form: a bool, then the value when it is set.
     pub snap_to_target: Option<bool>,
-    /// `HorizontalRotationLimit` is the horizontal rotation limit of the camera.
+    /// The horizontal rotation limit. Wire form: a bool, then the value when it is set.
     pub horizontal_rotation_limit: Option<[f32; 2]>,
-    /// `VerticalRotationLimit` is the vertical rotation limit of the camera.
+    /// The vertical rotation limit. Wire form: a bool, then the value when it is set.
     pub vertical_rotation_limit: Option<[f32; 2]>,
-    /// `ContinueTargeting` determines whether the camera should continue targeting when using aim assist.
+    /// The continue targeting. Wire form: a bool, then the value when it is set.
     pub continue_targeting: Option<bool>,
-    /// `TrackingRadius` is the radius around the camera that the aim assist should track targets.
+    /// The tracking radius. Wire form: a bool, then the value when it is set.
     pub tracking_radius: Option<f32>,
-    /// `ViewOffset` is only used in a `follow_orbit` camera and controls an offset based on a pivot point to the player, causing it to be shifted in a certain direction.
+    /// The view offset. Wire form: a bool, then the value when it is set.
     pub view_offset: Option<[f32; 2]>,
-    /// `EntityOffset` controls the offset from the entity that the camera should be rendered at.
+    /// The entity offset. Wire form: a bool, then the value when it is set.
     pub entity_offset: Option<[f32; 3]>,
-    /// Radius is only used in a `follow_orbit` camera and controls how far away from the player the camera should be rendered.
+    /// The radius. Wire form: a bool, then the value when it is set.
     pub radius: Option<f32>,
-    /// `MinYawLimit` is the minimum yaw limit of the camera.
+    /// The min yaw limit. Wire form: a bool, then the value when it is set.
     pub min_yaw_limit: Option<f32>,
-    /// `MaxYawLimit` is the maximum yaw limit of the camera.
+    /// The max yaw limit. Wire form: a bool, then the value when it is set.
     pub max_yaw_limit: Option<f32>,
-    /// `AudioListener` defines where the audio should be played from when using this preset. This is one of the constants above.
+    /// The audio listener. Wire form: a bool, then the value when it is set.
     pub audio_listener: Option<u8>,
-    /// `PlayerEffects` is currently unknown.
+    /// The player effects. Wire form: a bool, then the value when it is set.
     pub player_effects: Option<bool>,
-    /// `AimAssist` defines the aim assist to use when using this preset.
+    /// The aim assist. Wire form: a bool, then the value when it is set.
     pub aim_assist: Option<CameraPresetAimAssist>,
-    /// `ControlScheme` is the control scheme that the client should use in this camera. It is one of the following: - `ControlSchemeLockedPlayerRelativeStrafe` is the default behaviour, this cannot be set when the client is in a custom camera. - `ControlSchemeCameraRelative` makes movement relative to the camera's transform, with the client's rotation being relative to the client's movement. - `ControlSchemeCameraRelativeStrafe` makes movement relative to the camera's transform, with the client's rotation being locked. - `ControlSchemePlayerRelative` makes movement relative to the player's transform, meaning holding left/right will make the player turn in a circle. - `ControlSchemePlayerRelativeStrafe` makes movement the same as the default behaviour, but can be used in a custom camera.
+    /// The control scheme. Wire form: a bool, then the value when it is set.
     pub control_scheme: Option<u8>,
-    /// `ApplyInheritedStartingRotation` specifies if the camera should start at the rotation of the preset it inherits from, rather than at `StartingRotation`.
+    /// The apply inherited starting rotation. Wire form: `Bool`.
     pub apply_inherited_starting_rotation: bool,
-    /// `StartingRotation` is the rotation that the camera starts at when the preset is applied.
+    /// The starting rotation. Wire form: a bool, then the value when it is set.
     pub starting_rotation: Option<[f32; 2]>,
 }
 
@@ -2371,16 +2395,16 @@ impl Codec for CameraPreset {
     }
 }
 
-/// `CameraPresetAimAssist` represents a preset for aim assist settings.
+/// gophertunnel `protocol.CameraPresetAimAssist`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraPresetAimAssist {
-    /// Preset is the ID of the preset that has previously been defined in the `CameraAimAssistPresets` packet.
+    /// The preset. Wire form: a bool, then the value when it is set.
     pub preset: Option<String>,
-    /// `TargetMode` is the mode that the camera should use for detecting targets. This is one of the constants above.
+    /// The target mode. Wire form: a bool, then the value when it is set.
     pub target_mode: Option<i32>,
-    /// Angle is the maximum angle around the playes's cursor that the aim assist should check for a target, if `TargetMode` is set to `protocol.AimAssistTargetModeAngle`.
+    /// The angle. Wire form: a bool, then the value when it is set.
     pub angle: Option<[f32; 2]>,
-    /// Distance is the maximum distance from the player's cursor should check for a target, if `TargetMode` is set to `protocol.AimAssistTargetModeDistance`.
+    /// The distance. Wire form: a bool, then the value when it is set.
     pub distance: Option<f32>,
 }
 
@@ -2415,14 +2439,14 @@ impl Codec for CameraPresetAimAssist {
     }
 }
 
-/// `CameraProgressOption` represents a progress keyframe option for camera spline instructions.
+/// gophertunnel `protocol.CameraProgressOption`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraProgressOption {
-    /// Value is the progress value.
+    /// The value. Wire form: `Float32`.
     pub value: f32,
-    /// Time is the time for this progress option.
+    /// The time. Wire form: `Float32`.
     pub time: f32,
-    /// `EaseType` is the optional easing function name used to interpolate towards this progress key frame.
+    /// The ease type.
     pub ease_type: i32,
 }
 
@@ -2448,14 +2472,14 @@ impl Codec for CameraProgressOption {
     }
 }
 
-/// `CameraRotationOption` represents a rotation option for camera spline instructions.
+/// gophertunnel `protocol.CameraRotationOption`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraRotationOption {
-    /// Value is the rotation value.
+    /// The value. Wire form: `Vec3`.
     pub value: [f32; 3],
-    /// Time is the time for this rotation option.
+    /// The time. Wire form: `Float32`.
     pub time: f32,
-    /// `EaseType` is the optional easing function name used to interpolate towards this rotation key frame.
+    /// The ease type.
     pub ease_type: i32,
 }
 
@@ -2481,20 +2505,20 @@ impl Codec for CameraRotationOption {
     }
 }
 
-/// `CameraSplineDefinition` represents a named camera spline definition.
+/// gophertunnel `protocol.CameraSplineDefinition`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraSplineDefinition {
-    /// Name is the name of the spline definition.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// `TotalTime` is the total time for the spline animation.
+    /// The total time. Wire form: `Float32`.
     pub total_time: f32,
-    /// `SplineType` is the optional spline interpolation type.
+    /// The spline type. Wire form: a bool, then the value when it is set.
     pub spline_type: Option<String>,
-    /// `ControlPoints` is a list of points that define the spline curve.
+    /// The control points. Wire form: a list after a `varuint32` count.
     pub control_points: Vec<[f32; 3]>,
-    /// `ProgressKeyFrames` is a list of progress key frames for the spline.
+    /// The progress key frames. Wire form: a list after a `varuint32` count.
     pub progress_key_frames: Vec<CameraProgressOption>,
-    /// `RotationKeyFrames` is a list of rotation key frames for the spline.
+    /// The rotation key frames. Wire form: a list after a `varuint32` count.
     pub rotation_key_frames: Vec<CameraRotationOption>,
 }
 
@@ -2533,22 +2557,22 @@ impl Codec for CameraSplineDefinition {
     }
 }
 
-/// `CameraSplineInstruction` represents a camera instruction that creates a spline path for the camera to follow.
+/// gophertunnel `protocol.CameraSplineInstruction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraSplineInstruction {
-    /// `TotalTime` is the total time for the spline animation.
+    /// The total time. Wire form: `Float32`.
     pub total_time: f32,
-    /// `SplineType` is the optional spline interpolation type.
+    /// The spline type. Wire form: a bool, then the value when it is set.
     pub spline_type: Option<u8>,
-    /// Curve is a list of points that define the spline curve.
+    /// The curve. Wire form: a list after a `varuint32` count.
     pub curve: Vec<[f32; 3]>,
-    /// `ProgressKeyFrames` is a list of progress key frames for the spline.
+    /// The progress key frames. Wire form: a list after a `varuint32` count.
     pub progress_key_frames: Vec<CameraProgressOption>,
-    /// `RotationOptions` is a list of rotation options for the spline.
+    /// The rotation options. Wire form: a list after a `varuint32` count.
     pub rotation_options: Vec<CameraRotationOption>,
-    /// `SplineIdentifier` is an optional identifier for referencing the spline by name.
+    /// The spline identifier. Wire form: a bool, then the value when it is set. Mojang limit: 1024 bytes.
     pub spline_identifier: Option<String>,
-    /// `LoadFromJson` optionally determines whether the spline should be loaded from a JSON definition.
+    /// The load from json. Wire form: a bool, then the value when it is set.
     pub load_from_json: Option<bool>,
 }
 
@@ -2560,7 +2584,11 @@ impl Codec for CameraSplineInstruction {
             curve: r.list_varuint32(Reader::vec3)?,
             progress_key_frames: r.list_varuint32(CameraProgressOption::decode)?,
             rotation_options: r.list_varuint32(CameraRotationOption::decode)?,
-            spline_identifier: if r.bool()? { Some(r.string()?) } else { None },
+            spline_identifier: if r.bool()? {
+                Some(r.string_max(1024)?)
+            } else {
+                None
+            },
             load_from_json: if r.bool()? { Some(r.bool()?) } else { None },
         })
     }
@@ -2595,7 +2623,7 @@ impl Codec for CameraSplineInstruction {
     }
 }
 
-/// `CarefulRestorationEvent` is an event sent by the server when a player performs a careful restoration.
+/// gophertunnel `protocol.CarefulRestorationEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CarefulRestorationEvent {}
 
@@ -2609,12 +2637,12 @@ impl Codec for CarefulRestorationEvent {
     }
 }
 
-/// `CauldronInteractEvent` is the event data sent when a cauldron is interacted with.
+/// gophertunnel `protocol.CauldronInteractEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CauldronInteractEvent {
-    /// `BlockInteractionType` ...
+    /// The block interaction type. Wire form: `Uint8`.
     pub block_interaction_type: u8,
-    /// `ItemID` ...
+    /// The item ID. Wire form: `Int16`.
     pub item_id: i16,
 }
 
@@ -2633,14 +2661,14 @@ impl Codec for CauldronInteractEvent {
     }
 }
 
-/// `CauldronUsedEvent` is the event data sent when a cauldron is used.
+/// gophertunnel `protocol.CauldronUsedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CauldronUsedEvent {
-    /// Colour ...
+    /// The colour. Wire form: `Varuint32`.
     pub colour: u32,
-    /// `PotionID` ...
+    /// The potion ID. Wire form: `Int16`.
     pub potion_id: i16,
-    /// `FillLevel` ...
+    /// The fill level. Wire form: `Int16`.
     pub fill_level: i16,
 }
 
@@ -2661,20 +2689,20 @@ impl Codec for CauldronUsedEvent {
     }
 }
 
-/// `ChainedSubcommand` represents a subcommand that can have chained commands, such as /execute which allows you to run another command as another entity or at a different position etc.
+/// gophertunnel `protocol.ChainedSubcommand`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ChainedSubcommand {
-    /// Name is the name of the chained subcommand and shows up in the list as a regular subcommand enum.
+    /// The name. Wire form: `String`. Mojang limit: 1000 bytes.
     pub name: String,
-    /// Values contains the index and parameter type of the chained subcommand.
+    /// The values. Wire form: a list after a `varuint32` count. Mojang limit: 32 elements.
     pub values: Vec<ChainedSubcommandValue>,
 }
 
 impl Codec for ChainedSubcommand {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            name: r.string()?,
-            values: r.list_varuint32(ChainedSubcommandValue::decode)?,
+            name: r.string_max(1000)?,
+            values: r.list_varuint32_max(32, ChainedSubcommandValue::decode)?,
         })
     }
 
@@ -2688,12 +2716,12 @@ impl Codec for ChainedSubcommand {
     }
 }
 
-/// `ChainedSubcommandValue` represents the value for a chained subcommand argument.
+/// gophertunnel `protocol.ChainedSubcommandValue`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ChainedSubcommandValue {
-    /// Index is the index of the argument in the `ChainedSubcommandValues` slice from the `AvailableCommands` packet. This is then used to set the type specified by the Value field below.
+    /// The index. Wire form: `Varuint32`.
     pub index: u32,
-    /// Value is a combination of the flags above and specified the type of argument. Unlike regular parameter types, this should NOT contain any of the special flags (valid, enum, suffixed or soft enum) but only the basic types.
+    /// The value. Wire form: `Varuint32`.
     pub value: u32,
 }
 
@@ -2712,17 +2740,17 @@ impl Codec for ChainedSubcommandValue {
     }
 }
 
-/// `CodeBuilderRuntimeActionEvent` is an event sent by the server when a code builder runtime action is performed.
+/// gophertunnel `protocol.CodeBuilderRuntimeActionEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CodeBuilderRuntimeActionEvent {
-    /// Action ...
+    /// The action. Wire form: `String`. Mojang limit: 16 bytes.
     pub action: String,
 }
 
 impl Codec for CodeBuilderRuntimeActionEvent {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            action: r.string()?,
+            action: r.string_max(16)?,
         })
     }
 
@@ -2732,19 +2760,19 @@ impl Codec for CodeBuilderRuntimeActionEvent {
     }
 }
 
-/// `CodeBuilderScoreboardEvent` is an event sent by the server when a code builder scoreboard is updated.
+/// gophertunnel `protocol.CodeBuilderScoreboardEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CodeBuilderScoreboardEvent {
-    /// `ObjectiveName` ...
+    /// The objective name. Wire form: `String`. Mojang limit: 256 bytes.
     pub objective_name: String,
-    /// Score ...
+    /// The score. Wire form: `Varint32`.
     pub score: i32,
 }
 
 impl Codec for CodeBuilderScoreboardEvent {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            objective_name: r.string()?,
+            objective_name: r.string_max(256)?,
             score: r.varint32()?,
         })
     }
@@ -2756,38 +2784,38 @@ impl Codec for CodeBuilderScoreboardEvent {
     }
 }
 
-/// Command holds the data that a command requires to be shown to a player client-side. The command is shown in the /help command and auto-completed using this data.
+/// gophertunnel `protocol.Command`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Command {
-    /// Name is the name of the command. The command may be executed using this name, and will be shown in the /help list with it. It currently seems that the client crashes if the Name contains uppercase letters.
+    /// The name. Wire form: `String`. Mojang limit: 1000 bytes.
     pub name: String,
-    /// Description is the description of the command. It is shown in the /help list and when starting to write a command.
+    /// The description. Wire form: `String`. Mojang limit: 1000 bytes.
     pub description: String,
-    /// Flags is a combination of flags not currently known. Leaving the Flags field empty appears to work.
+    /// The flags. Wire form: `Uint16`.
     pub flags: u16,
-    /// `PermissionLevel` is the command permission level that the player required to execute this command. The field no longer seems to serve a purpose, as the client does not handle the execution of commands anymore: The permissions should be checked server-side.
+    /// The permission level. Values: [`CommandPermissionLevel`](super::consts::CommandPermissionLevel).
     pub permission_level: u8,
-    /// `AliasesOffset` is the offset to a `CommandEnum` that holds the values that should be used as aliases for this command.
+    /// The aliases offset. Wire form: `Uint32`.
     pub aliases_offset: u32,
-    /// `ChainedSubcommandOffsets` is a slice of offsets that all point to a different `ChainedSubcommand` from the `ChainedSubcommands` slice in the `AvailableCommands` packet.
+    /// The chained subcommand offsets. Wire form: a list after a `varuint32` count. Mojang limit: 250 elements.
     pub chained_subcommand_offsets: Vec<u32>,
-    /// Overloads is a list of command overloads that specify the ways in which a command may be executed. The overloads may be completely different.
+    /// The overloads. Wire form: a list after a `varuint32` count. Mojang limit: 250 elements.
     pub overloads: Vec<CommandOverload>,
 }
 
 impl Codec for Command {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let mut c = Self {
-            name: r.string()?,
-            description: r.string()?,
+            name: r.string_max(1000)?,
+            description: r.string_max(1000)?,
             flags: r.uint16()?,
             ..Self::default()
         };
         let permission_str: String = r.string()?;
         c.permission_level = command_permission_from_string(&permission_str)?;
         c.aliases_offset = r.uint32()?;
-        c.chained_subcommand_offsets = r.list_varuint32(Reader::uint32)?;
-        c.overloads = r.list_varuint32(CommandOverload::decode)?;
+        c.chained_subcommand_offsets = r.list_varuint32_max(250, Reader::uint32)?;
+        c.overloads = r.list_varuint32_max(250, CommandOverload::decode)?;
         Ok(c)
     }
 
@@ -2811,23 +2839,23 @@ impl Codec for Command {
     }
 }
 
-/// `CommandEnum` represents an enum in a command usage. The enum typically has a type and a set of options that are valid. A value that is not one of the options results in a failure during execution.
+/// gophertunnel `protocol.CommandEnum`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommandEnum {
-    /// Type is the type of the command enum. The type will show up in the command usage as the type of the argument if it has a certain amount of arguments, or when Options is set to true in the command holding the enum.
+    /// The type.
     pub r#type: String,
-    /// `ValueIndices` holds a list of indices that point to the `EnumValues` slice in the `AvailableCommandsPacket`. These represent the options of the enum.
+    /// The value indices.
     pub value_indices: Vec<u32>,
 }
 
-/// `CommandEnumConstraint` is sent in the `AvailableCommands` packet to limit what values of an enum may be used taking in account things such as whether cheats are enabled.
+/// gophertunnel `protocol.CommandEnumConstraint`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommandEnumConstraint {
-    /// `EnumValueIndex` points to an enum value in the `AvailableCommands` packet that this constraint should apply to.
+    /// The enum value index. Wire form: `Uint32`.
     pub enum_value_index: u32,
-    /// `EnumIndex` points to an enum in the `AvailableCommands` packet to which this constraint should apply to.
+    /// The enum index. Wire form: `Uint32`.
     pub enum_index: u32,
-    /// Constraints holds a slice of constraints as present in the constants above.
+    /// The constraints. Wire form: `ByteSlice`. Mojang limit: 250 bytes.
     pub constraints: Vec<u8>,
 }
 
@@ -2836,7 +2864,7 @@ impl Codec for CommandEnumConstraint {
         Ok(Self {
             enum_value_index: r.uint32()?,
             enum_index: r.uint32()?,
-            constraints: r.byte_slice()?,
+            constraints: r.byte_slice_max(250)?,
         })
     }
 
@@ -2848,34 +2876,34 @@ impl Codec for CommandEnumConstraint {
     }
 }
 
-/// `CommandEnumContext` holds context required for encoding command enums.
+/// gophertunnel `protocol.CommandEnumContext`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommandEnumContext {
     /// The enum values.
     pub enum_values: Vec<String>,
 }
 
-/// `CommandOrigin` holds data that identifies the origin of the requesting of a command. It holds several fields that may be used to get specific information. When sent in a `CommandRequest` packet, the same `CommandOrigin` should be sent in a `CommandOutput` packet.
+/// gophertunnel `protocol.CommandOrigin`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommandOrigin {
-    /// Origin is one of the values above that specifies the origin of the command. The origin may change, depending on what part of the client actually called the command. The command may be issued by a websocket server, for example.
+    /// The origin.
     pub origin: u32,
-    /// UUID is a unique identifier for every instantiation of a command.
+    /// The UUID.
     pub uuid: Uuid,
-    /// `RequestID` is an ID that identifies the request of the client. The server should send a `CommandOrigin` with the same request ID to ensure it can be matched with the request by the caller of the command. This is especially important for websocket servers and it seems that this field is only non-empty for these websocket servers.
+    /// The request ID. Mojang limit: 39 bytes.
     pub request_id: String,
-    /// `PlayerUniqueID` is an ID that identifies the player, the same as the one found in the `AdventureSettings` packet. Filling it out with 0 seems to work. `PlayerUniqueID` is only written if Origin is `CommandOriginDevConsole` or `CommandOriginTest`.
+    /// The player unique ID.
     pub player_unique_id: i64,
 }
 
-/// `CommandOutputMessage` represents a message sent by a command that holds the output of one of the commands executed.
+/// gophertunnel `protocol.CommandOutputMessage`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommandOutputMessage {
-    /// Success indicates if the output message was one of a successful command execution. If set to true, the output message is by default coloured white, whereas if set to false, the message is by default coloured red.
+    /// The success. Wire form: `Bool`.
     pub success: bool,
-    /// Message is the message that is sent to the client in the chat window. It may either be simply a message or a translated built-in string like 'commands.tp.success.coordinates', combined with specific parameters below.
+    /// The message. Wire form: `String`.
     pub message: String,
-    /// Parameters is a list of parameters that serve to supply the message sent with additional information, such as the position that a player was teleported to or the effect that was applied to an entity. These parameters only apply for the Minecraft built-in command output.
+    /// The parameters. Wire form: a list after a `varuint32` count.
     pub parameters: Vec<String>,
 }
 
@@ -2899,12 +2927,12 @@ impl Codec for CommandOutputMessage {
     }
 }
 
-/// `CommandOverload` represents an overload of a command. This overload can be compared to function overloading in languages such as java. It represents a single usage of the command. A command may have multiple different overloads, which are handled differently.
+/// gophertunnel `protocol.CommandOverload`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommandOverload {
-    /// Chaining determines if the parameters use chained subcommands or not.
+    /// The chaining. Wire form: `Bool`.
     pub chaining: bool,
-    /// Parameters is a list of command parameters that are part of the overload. These parameters specify the usage of the command when this overload is applied.
+    /// The parameters. Wire form: a list after a `varuint32` count.
     pub parameters: Vec<CommandParameter>,
 }
 
@@ -2926,16 +2954,16 @@ impl Codec for CommandOverload {
     }
 }
 
-/// `CommandParameter` represents a single parameter of a command overload, which accepts a certain type of input values. It has a name and a type which show up client-side when a player is entering the command.
+/// gophertunnel `protocol.CommandParameter`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommandParameter {
-    /// Name is the name of the command parameter. It shows up in the usage like \<$Name: $Type\>, with the exception of enum types, which show up simply as a list of options if the list is short enough and Options is set to false.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// Type is a rather odd combination of `type(flag)s` that result in a certain parameter type to show up client-side. It is a combination of the flags above. The basic types must be combined with the `ArgumentTypeFlagBasic` flag (and integers with a suffix `ArgumentTypeFlagSuffixed)`, whereas enums are combined with the `ArgumentTypeFlagEnum` flag.
+    /// The type. Wire form: `Uint32`.
     pub r#type: u32,
-    /// Optional specifies if the command parameter is optional to enter. Note that no non-optional parameter should ever be present in a command overload after an optional parameter. When optional, the parameter shows up like so: \[$Name: $Type\], whereas when mandatory, it shows up like so: \<$Name: $Type\>.
+    /// The optional. Wire form: `Bool`.
     pub optional: bool,
-    /// Options holds a combinations of options that additionally apply to the command parameter. The list of options can be found above.
+    /// The options. Wire form: `Uint8`.
     pub options: u8,
 }
 
@@ -2958,12 +2986,12 @@ impl Codec for CommandParameter {
     }
 }
 
-/// `ComposterInteractEvent` is the event data sent when a composter is interacted with.
+/// gophertunnel `protocol.ComposterInteractEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComposterInteractEvent {
-    /// `BlockInteractionType` ...
+    /// The block interaction type. Wire form: `Uint8`.
     pub block_interaction_type: u8,
-    /// `ItemID` ...
+    /// The item ID. Wire form: `Int16`.
     pub item_id: i16,
 }
 
@@ -2982,14 +3010,14 @@ impl Codec for ComposterInteractEvent {
     }
 }
 
-/// `ConeShape` represents a cone debug shape.
+/// gophertunnel `protocol.ConeShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConeShape {
-    /// Radii are the radii along the X/Z axes of the cone base.
+    /// The radii. Wire form: `Vec2`.
     pub radii: [f32; 2],
-    /// Height is the height of the cone.
+    /// The height. Wire form: `Float32`.
     pub height: f32,
-    /// `NumSegments` is the number of segments used for the cone.
+    /// The num segments. Wire form: `Uint8`.
     pub num_segments: u8,
 }
 
@@ -3010,7 +3038,7 @@ impl Codec for ConeShape {
     }
 }
 
-/// `ConsumeStackRequestAction` is sent by the client when it uses an item to craft another item. The original item is 'consumed'.
+/// gophertunnel `protocol.ConsumeStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConsumeStackRequestAction {
     /// The destroy stack request action.
@@ -3030,12 +3058,12 @@ impl Codec for ConsumeStackRequestAction {
     }
 }
 
-/// `CraftCreativeStackRequestAction` is sent by the client when it takes an item out fo the creative inventory. The item is thus not really crafted, but instantly created.
+/// gophertunnel `protocol.CraftCreativeStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CraftCreativeStackRequestAction {
-    /// `CreativeItemNetworkID` is the network ID of the creative item that is being created. This is one of the creative item network `IDs` sent in the `CreativeContent` packet.
+    /// The creative item network ID. Wire form: `Varuint32`.
     pub creative_item_network_id: u32,
-    /// `NumberOfCrafts` is how many times the recipe was crafted. This field appears to be boilerplate and has no effect.
+    /// The number of crafts. Wire form: `Uint8`.
     pub number_of_crafts: u8,
 }
 
@@ -3054,14 +3082,14 @@ impl Codec for CraftCreativeStackRequestAction {
     }
 }
 
-/// `CraftGrindstoneRecipeStackRequestAction` is sent when a grindstone recipe is crafted. It contains the `RecipeNetworkID` to identify the recipe crafted, and the cost for crafting the recipe.
+/// gophertunnel `protocol.CraftGrindstoneRecipeStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CraftGrindstoneRecipeStackRequestAction {
-    /// `RecipeNetworkID` is the network ID of the recipe that is about to be crafted. This network ID matches one of the recipes sent in the `CraftingData` packet, where each of the recipes have a `RecipeNetworkID` as of 1.16.
+    /// The recipe network ID. Wire form: `Int32`.
     pub recipe_network_id: u32,
-    /// `NumberOfCrafts` is how many times the recipe was crafted. This field appears to be boilerplate and has no effect.
+    /// The number of crafts. Wire form: `Uint8`.
     pub number_of_crafts: u8,
-    /// Cost is the cost of the recipe that was crafted.
+    /// The cost. Wire form: `Varint32`.
     pub cost: i32,
 }
 
@@ -3082,12 +3110,12 @@ impl Codec for CraftGrindstoneRecipeStackRequestAction {
     }
 }
 
-/// `CraftLoomRecipeStackRequestAction` is sent when a loom recipe is crafted. It simply contains the pattern identifier to figure out what pattern is meant to be applied to the item.
+/// gophertunnel `protocol.CraftLoomRecipeStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CraftLoomRecipeStackRequestAction {
-    /// Pattern is the pattern identifier for the loom recipe.
+    /// The pattern. Wire form: `String`.
     pub pattern: String,
-    /// `TimesCrafted` is how many times the recipe was crafted.
+    /// The times crafted. Wire form: `Uint8`.
     pub times_crafted: u8,
 }
 
@@ -3106,7 +3134,7 @@ impl Codec for CraftLoomRecipeStackRequestAction {
     }
 }
 
-/// `CraftNonImplementedStackRequestAction` is an action sent for inventory actions that aren't yet implemented in the new system. These include, for example, anvils.
+/// gophertunnel `protocol.CraftNonImplementedStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CraftNonImplementedStackRequestAction {}
 
@@ -3120,12 +3148,12 @@ impl Codec for CraftNonImplementedStackRequestAction {
     }
 }
 
-/// `CraftRecipeOptionalStackRequestAction` is sent when using an anvil. When this action is sent, the `FilterStrings` field in the respective stack request is non-empty and contains the name of the item created using the anvil or cartography table.
+/// gophertunnel `protocol.CraftRecipeOptionalStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CraftRecipeOptionalStackRequestAction {
-    /// `RecipeNetworkID` is the network ID of the multi-recipe that is about to be crafted. This network ID matches one of the multi-recipes sent in the `CraftingData` packet, where each of the recipes have a `RecipeNetworkID` as of 1.16.
+    /// The recipe network ID. Wire form: `Varuint32`.
     pub recipe_network_id: u32,
-    /// `FilterStringIndex` is the index of a filter string sent in a `ItemStackRequest`.
+    /// The filter string index. Wire form: `Int32`.
     pub filter_string_index: i32,
 }
 
@@ -3144,12 +3172,12 @@ impl Codec for CraftRecipeOptionalStackRequestAction {
     }
 }
 
-/// `CraftRecipeStackRequestAction` is sent by the client the moment it begins crafting an item. This is the first action sent, before the Consume and Create item stack request actions. This action is also sent when an item is enchanted. Enchanting should be treated mostly the same way as crafting, where the old item is consumed.
+/// gophertunnel `protocol.CraftRecipeStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CraftRecipeStackRequestAction {
-    /// `RecipeNetworkID` is the network ID of the recipe that is about to be crafted. This network ID matches one of the recipes sent in the `CraftingData` packet, where each of the recipes have a `RecipeNetworkID` as of 1.16.
+    /// The recipe network ID. Wire form: `Varuint32`.
     pub recipe_network_id: u32,
-    /// `NumberOfCrafts` is how many times the recipe was crafted. This field appears to be boilerplate and has no effect.
+    /// The number of crafts. Wire form: `Uint8`.
     pub number_of_crafts: u8,
 }
 
@@ -3168,12 +3196,12 @@ impl Codec for CraftRecipeStackRequestAction {
     }
 }
 
-/// `CraftResultsDeprecatedStackRequestAction` is an additional, deprecated packet sent by the client after crafting. It holds the final results and the amount of times the recipe was crafted. It shouldn't be used. This action is also sent when an item is enchanted. Enchanting should be treated mostly the same way as crafting, where the old item is consumed.
+/// gophertunnel `protocol.CraftResultsDeprecatedStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CraftResultsDeprecatedStackRequestAction {
-    /// The result items.
+    /// The result items. Wire form: a list after a `varuint32` count.
     pub result_items: Vec<StackRequestItem>,
-    /// The times crafted.
+    /// The times crafted. Wire form: `Uint8`.
     pub times_crafted: u8,
 }
 
@@ -3195,10 +3223,10 @@ impl Codec for CraftResultsDeprecatedStackRequestAction {
     }
 }
 
-/// `CreateStackRequestAction` is sent by the client when an item is created through being used as part of a recipe. For example, when milk is used to craft a cake, the buckets are leftover. The buckets are moved to the slot sent by the client here. Note that before this is sent, an action for consuming all items in the crafting table/grid is sent. Items that are not fully consumed when used for a recipe should not be destroyed there, but instead, should be turned into their respective resulting items.
+/// gophertunnel `protocol.CreateStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CreateStackRequestAction {
-    /// `ResultsSlot` is the slot in the inventory in which the results of the crafting ingredients are to be placed.
+    /// The results slot. Wire form: `Uint8`.
     pub results_slot: u8,
 }
 
@@ -3215,14 +3243,14 @@ impl Codec for CreateStackRequestAction {
     }
 }
 
-/// `CreativeGroup` represents a group of items in the creative inventory. Each group has a category, name and an icon that represents the group.
+/// gophertunnel `protocol.CreativeGroup`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CreativeGroup {
-    /// Category is the category the group falls under. It is one of the constants above.
+    /// The category. Wire form: `Uint8`.
     pub category: u8,
-    /// Name is the locale name of the group, i.e. "`itemGroup.name.planks`".
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// Icon is the item that represents the group in the creative inventory.
+    /// The icon. Wire form: `Item`.
     pub icon: ItemStack,
 }
 
@@ -3243,18 +3271,18 @@ impl Codec for CreativeGroup {
     }
 }
 
-/// `CreativeItem` represents a creative item present in the creative inventory.
+/// gophertunnel `protocol.CreativeItem`.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[expect(
     clippy::struct_field_names,
     reason = "consistency: field names mirror gophertunnel"
 )]
 pub struct CreativeItem {
-    /// `CreativeItemNetworkID` is a unique ID for the creative item. It has to be unique for each creative item sent to the client. An incrementing ID per creative item does the job.
+    /// The creative item network ID. Wire form: `Varuint32`.
     pub creative_item_network_id: u32,
-    /// Item is the item that should be added to the creative inventory.
+    /// The item. Wire form: `Item`.
     pub item: ItemStack,
-    /// `GroupIndex` is the index of the group that the item should be placed in. It is the index of the group in the `CreativeContent` packet previously sent to the client.
+    /// The group index. Wire form: `Varuint32`.
     pub group_index: u32,
 }
 
@@ -3275,16 +3303,16 @@ impl Codec for CreativeItem {
     }
 }
 
-/// `CylinderShape` represents a cylinder debug shape.
+/// gophertunnel `protocol.CylinderShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CylinderShape {
-    /// `RadiusX` is the radius of the cylinder along the X axis.
+    /// The radius x. Wire form: `Vec2`.
     pub radius_x: [f32; 2],
-    /// `RadiusZ` is the radius of the cylinder along the Z axis.
+    /// The radius z. Wire form: `Vec2`.
     pub radius_z: [f32; 2],
-    /// Height is the height of the cylinder.
+    /// The height. Wire form: `Float32`.
     pub height: f32,
-    /// `NumSegments` is the number of segments used for the cylinder.
+    /// The num segments. Wire form: `Uint8`.
     pub num_segments: u8,
 }
 
@@ -3307,29 +3335,29 @@ impl Codec for CylinderShape {
     }
 }
 
-/// `DataStoreChange` represents a change to a data store property value.
+/// gophertunnel `protocol.DataStoreChange`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DataStoreChange {
-    /// `DataStoreName` is the name of the data store.
+    /// The data store name. Mojang limit: 1000 bytes.
     pub data_store_name: String,
-    /// Property is the property that changed.
+    /// The property. Mojang limit: 1000 bytes.
     pub property: String,
-    /// `UpdateCount` is the update count.
+    /// The update count.
     pub update_count: u32,
-    /// `NewValue` is the new property value.
+    /// The new value.
     pub new_value: DataStorePropertyValue,
 }
 
-/// `DataStoreChangeEntry` represents a single entry in the data store changes array.
+/// gophertunnel `protocol.DataStoreChangeEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DataStoreChangeEntry {
-    /// `ChangeType` is the type of change. It is one of the `DataStoreChangeType` constants.
+    /// The change type. Wire form: `Varuint32`.
     pub change_type: u32,
-    /// Update is set if `ChangeType` is `DataStoreChangeTypeUpdate`.
+    /// The update.
     pub update: DataStoreUpdate,
-    /// Change is set if `ChangeType` is `DataStoreChangeTypeChange`.
+    /// The change.
     pub change: DataStoreChange,
-    /// Removal is set if `ChangeType` is `DataStoreChangeTypeRemoval`.
+    /// The removal.
     pub removal: DataStoreRemoval,
 }
 
@@ -3344,13 +3372,13 @@ impl Codec for DataStoreChangeEntry {
                 x.update = DataStoreUpdate::decode(r)?;
             }
             1 => {
-                x.change.data_store_name = r.string()?;
-                x.change.property = r.string()?;
+                x.change.data_store_name = r.string_max(1000)?;
+                x.change.property = r.string_max(1000)?;
                 x.change.update_count = r.uint32()?;
                 decode_marshal_data_store_property_value(r, &mut x.change.new_value)?;
             }
             2 => {
-                x.removal.data_store_name = r.string()?;
+                x.removal.data_store_name = r.string_max(1000)?;
             }
             _ => {
                 return Err(Error::UnknownEnum {
@@ -3388,70 +3416,70 @@ impl Codec for DataStoreChangeEntry {
     }
 }
 
-/// `DataStoreMapEntry` represents a key-value pair in a data store map property.
+/// gophertunnel `protocol.DataStoreMapEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DataStoreMapEntry {
-    /// Key is the map key.
+    /// The key.
     pub key: String,
-    /// Value is the map value.
+    /// The value.
     pub value: DataStorePropertyValue,
 }
 
-/// `DataStorePropertyValue` represents a typed property value in a data store.
+/// gophertunnel `protocol.DataStorePropertyValue`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DataStorePropertyValue {
-    /// Type is the property value type. It is one of the `DataStorePropertyType` constants.
+    /// The type.
     pub r#type: i32,
-    /// `BoolValue` is the value if Type is `DataStorePropertyTypeBool`.
+    /// The bool value.
     pub bool_value: bool,
-    /// `Int64Value` is the value if Type is `DataStorePropertyTypeInt64`.
+    /// The int64 value.
     pub int64_value: i64,
-    /// `DoubleValue` is the value if Type is `DataStorePropertyTypeDouble`.
+    /// The double value.
     pub double_value: f64,
-    /// `StringValue` is the value if Type is `DataStorePropertyTypeString`.
+    /// The string value.
     pub string_value: String,
-    /// `ListValue` is the value if Type is `DataStorePropertyTypeList`.
+    /// The list value.
     pub list_value: Vec<DataStorePropertyValue>,
-    /// `MapValue` is the value if Type is `DataStorePropertyTypeMap`.
+    /// The map value.
     pub map_value: Vec<DataStoreMapEntry>,
 }
 
-/// `DataStoreRemoval` represents a removal from a data store.
+/// gophertunnel `protocol.DataStoreRemoval`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DataStoreRemoval {
-    /// `DataStoreName` is the name of the data store being removed.
+    /// The data store name. Mojang limit: 1000 bytes.
     pub data_store_name: String,
 }
 
-/// `DataStoreUpdate` represents an update to a data store property.
+/// gophertunnel `protocol.DataStoreUpdate`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DataStoreUpdate {
-    /// `DataStoreName` is the name of the data store.
+    /// The data store name. Wire form: `String`. Mojang limit: 1000 bytes.
     pub data_store_name: String,
-    /// Property is the property being updated.
+    /// The property. Wire form: `String`. Mojang limit: 1000 bytes.
     pub property: String,
-    /// Path is the path within the property.
+    /// The path. Wire form: `String`. Mojang limit: 1000 bytes.
     pub path: String,
-    /// `ControlType` is the type of the data value. It is one of the `DataStoreControl` constants.
+    /// The control type. Wire form: `Varuint32`.
     pub control_type: u32,
-    /// `DoubleValue` is the value if `ControlType` is `DataStoreControlDouble`.
+    /// The double value. Wire form: `Float64`.
     pub double_value: f64,
-    /// `BoolValue` is the value if `ControlType` is `DataStoreControlBoolean`.
+    /// The bool value. Wire form: `Bool`.
     pub bool_value: bool,
-    /// `StringValue` is the value if `ControlType` is `DataStoreControlString`.
+    /// The string value. Wire form: `String`. Mojang limit: 5000 bytes.
     pub string_value: String,
-    /// `PropertyUpdateCount` is the update count for the property.
+    /// The property update count. Wire form: `Uint32`.
     pub property_update_count: u32,
-    /// `PathUpdateCount` is the update count for the path.
+    /// The path update count. Wire form: `Uint32`.
     pub path_update_count: u32,
 }
 
 impl Codec for DataStoreUpdate {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let mut x = Self {
-            data_store_name: r.string()?,
-            property: r.string()?,
-            path: r.string()?,
+            data_store_name: r.string_max(1000)?,
+            property: r.string_max(1000)?,
+            path: r.string_max(1000)?,
             control_type: r.varuint32()?,
             ..Self::default()
         };
@@ -3463,7 +3491,7 @@ impl Codec for DataStoreUpdate {
                 x.bool_value = r.bool()?;
             }
             2 => {
-                x.string_value = r.string()?;
+                x.string_value = r.string_max(5000)?;
             }
             _ => {
                 return Err(Error::UnknownEnum {
@@ -3505,12 +3533,12 @@ impl Codec for DataStoreUpdate {
     }
 }
 
-/// `DefaultItemDescriptor` represents an item descriptor for regular items. This is used for the significant majority of items.
+/// gophertunnel `protocol.DefaultItemDescriptor`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DefaultItemDescriptor {
-    /// Name is the identifier of the item, such as minecraft:stone.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// `MetadataValue` is the metadata value of the item. For some items, this is the damage value, whereas for other items it is simply an identifier of a variant of the item.
+    /// The metadata value. Wire form: `Varint32`.
     pub metadata_value: i32,
 }
 
@@ -3529,12 +3557,12 @@ impl Codec for DefaultItemDescriptor {
     }
 }
 
-/// `DestroyStackRequestAction` is sent by the client when it destroys an item in creative mode by moving it back into the creative inventory.
+/// gophertunnel `protocol.DestroyStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DestroyStackRequestAction {
-    /// Count is the count of the item in the source slot that was destroyed.
+    /// The count. Wire form: `Uint8`.
     pub count: u8,
-    /// Source is the source slot from which items came that were destroyed by moving them into the creative inventory.
+    /// The source.
     pub source: StackRequestSlotInfo,
 }
 
@@ -3555,35 +3583,35 @@ impl Codec for DestroyStackRequestAction {
     }
 }
 
-/// `DimensionDefinition` contains information specifying dimension-specific properties, used for data-driven dimensions. These include the range (the height min/max), generator variant, and more.
+/// gophertunnel `protocol.DimensionDefinition`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DimensionDefinition {
-    /// Name specifies the name of the dimension.
+    /// The name. Wire form: `String`. Mojang limit: 256 bytes.
     pub name: String,
-    /// `MinimumY` is the lowest Y coordinate that exists in the dimension.
+    /// The minimum y. Wire form: `Varint32`.
     pub minimum_y: i32,
-    /// `HeightRange` is the number of blocks above `MinimumY` that exist in the dimension, so that the highest Y coordinate in the dimension is `MinimumY` + `HeightRange`.
+    /// The height range. Wire form: `Varint32`.
     pub height_range: i32,
-    /// Generator is the variant of generator that exists in the provided dimension. These can be one of the constants defined above. If this is set to `GeneratorLegacy`, the legacy horizontal world limits will be enforced.
+    /// The generator. Wire form: `Varint32`. Values: [`Generator`](super::consts::Generator).
     pub generator: i32,
-    /// `DimensionType` is the numeric identifier of the dimension. This cannot override a vanilla dimension (0-2), but custom dimensions should start from 1000 like vanilla.
+    /// The dimension type. Wire form: `Varint32`.
     pub dimension_type: i32,
-    /// `PackID` is the UUID of the behaviour pack which has added the dimension.
+    /// The pack ID. Wire form: `UUID`.
     pub pack_id: Uuid,
-    /// `DefaultBiome` is the identifier of the biome that the dimension defaults to.
+    /// The default biome. Wire form: `String`. Mojang limit: 256 bytes.
     pub default_biome: String,
 }
 
 impl Codec for DimensionDefinition {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            name: r.string()?,
+            name: r.string_max(256)?,
             minimum_y: r.varint32()?,
             height_range: r.varint32()?,
             generator: r.varint32()?,
             dimension_type: r.varint32()?,
             pack_id: r.uuid()?,
-            default_biome: r.string()?,
+            default_biome: r.string_max(256)?,
         })
     }
 
@@ -3599,14 +3627,14 @@ impl Codec for DimensionDefinition {
     }
 }
 
-/// `DropStackRequestAction` is sent by the client when it drops an item out of the inventory when it has its inventory opened. This action is not sent when a player drops an item out of the hotbar using the Q button (or the equivalent on mobile). The `InventoryTransaction` packet is still used for that action, regardless of whether the item stack network `IDs` are used or not.
+/// gophertunnel `protocol.DropStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DropStackRequestAction {
-    /// Count is the count of the item in the source slot that was taken towards the destination slot.
+    /// The count. Wire form: `Uint8`.
     pub count: u8,
-    /// Source is the source slot from which items were dropped to the ground.
+    /// The source.
     pub source: StackRequestSlotInfo,
-    /// Randomly seems to be set to false in most cases. I'm not entirely sure what this does, but this is what vanilla calls this field.
+    /// The randomly. Wire form: `Bool`.
     pub randomly: bool,
 }
 
@@ -3629,19 +3657,19 @@ impl Codec for DropStackRequestAction {
     }
 }
 
-/// `DynamicEnum` is an enum variant that can have its options changed during runtime, without sending a new `AvailableCommands` packet.
+/// gophertunnel `protocol.DynamicEnum`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DynamicEnum {
-    /// Type is the type of the command enum. The type will show up in the command usage as the type of the argument if it has a certain amount of arguments, or when Options is set to true in the command holding the enum.
+    /// The type. Wire form: `String`. Mojang limit: 1000 bytes.
     pub r#type: String,
-    /// Values is a slice of possible options for the enum.
+    /// The values. Wire form: a list after a `varuint32` count.
     pub values: Vec<String>,
 }
 
 impl Codec for DynamicEnum {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            r#type: r.string()?,
+            r#type: r.string_max(1000)?,
             values: r.list_varuint32(Reader::string)?,
         })
     }
@@ -3656,12 +3684,12 @@ impl Codec for DynamicEnum {
     }
 }
 
-/// `EducationExternalLinkSettings` ...
+/// gophertunnel `protocol.EducationExternalLinkSettings`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EducationExternalLinkSettings {
-    /// URL is the external link URL.
+    /// The URL. Wire form: `String`.
     pub url: String,
-    /// `DisplayName` is the display name in game.
+    /// The display name. Wire form: `String`.
     pub display_name: String,
 }
 
@@ -3680,12 +3708,12 @@ impl Codec for EducationExternalLinkSettings {
     }
 }
 
-/// `EducationSharedResourceURI` is an education edition feature that is used for transmitting education resource settings to clients. It contains a button name and a link URL.
+/// gophertunnel `protocol.EducationSharedResourceURI`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EducationSharedResourceUri {
-    /// `ButtonName` is the button name of the resource URI.
+    /// The button name. Wire form: `String`.
     pub button_name: String,
-    /// `LinkURI` is the link URI for the resource URI.
+    /// The link URI. Wire form: `String`.
     pub link_uri: String,
 }
 
@@ -3704,12 +3732,12 @@ impl Codec for EducationSharedResourceUri {
     }
 }
 
-/// `EllipsoidShape` represents an ellipsoid debug shape.
+/// gophertunnel `protocol.EllipsoidShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EllipsoidShape {
-    /// Radii are the radii of the ellipsoid along the X, Y and Z axes.
+    /// The radii. Wire form: `Vec3`.
     pub radii: [f32; 3],
-    /// `SegmentsPerAxis` is the number of segments used per axis for the ellipsoid.
+    /// The segments per axis. Wire form: `Uint8`.
     pub segments_per_axis: u8,
 }
 
@@ -3728,12 +3756,12 @@ impl Codec for EllipsoidShape {
     }
 }
 
-/// `EnchantmentInstance` represents a single enchantment instance with the type of the enchantment and its level.
+/// gophertunnel `protocol.EnchantmentInstance`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnchantmentInstance {
-    /// The type.
+    /// The type. Wire form: `Uint8`.
     pub r#type: u8,
-    /// The level.
+    /// The level. Wire form: `Uint8`.
     pub level: u8,
 }
 
@@ -3752,16 +3780,16 @@ impl Codec for EnchantmentInstance {
     }
 }
 
-/// `EnchantmentOption` represents a single option in the enchantment table for a single item.
+/// gophertunnel `protocol.EnchantmentOption`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnchantmentOption {
-    /// Cost is the cost of the option. This is the amount of XP levels required to select this enchantment option.
+    /// The cost. Wire form: `Uint8`.
     pub cost: u8,
-    /// Enchantments holds the enchantments that will be applied to the item when this option is clicked.
+    /// The enchantments.
     pub enchantments: ItemEnchantments,
-    /// Name is a name that will be translated to the 'Standard Galactic Alphabet' (<https://minecraft.wiki/w/Enchanting_Table#Standard_Galactic_Alphabet)> client-side. The names generally have no meaning, such as: 'animal imbue range galvanize ' 'bless inside creature shrink ' 'elder free of inside '
+    /// The name. Wire form: `String`. Mojang limit: 256 bytes.
     pub name: String,
-    /// `RecipeNetworkID` is a unique network ID for this enchantment option. When enchanting, the client will submit this network ID in a `ItemStackRequest` packet with the `CraftRecipe` action, so that the server knows which enchantment was selected. Note that this ID should still be unique with other actual recipes. It's recommended to start counting for enchantment network `IDs` from the counter used for producing network `IDs` for the normal recipes.
+    /// The recipe network ID. Wire form: `Varuint32`.
     pub recipe_network_id: u32,
 }
 
@@ -3770,7 +3798,7 @@ impl Codec for EnchantmentOption {
         Ok(Self {
             cost: r.uint8()?,
             enchantments: ItemEnchantments::decode(r)?,
-            name: r.string()?,
+            name: r.string_max(256)?,
             recipe_network_id: r.varuint32()?,
         })
     }
@@ -3784,17 +3812,17 @@ impl Codec for EnchantmentOption {
     }
 }
 
-/// `EntityDefinitionTriggerEvent` is an event used for an unknown purpose.
+/// gophertunnel `protocol.EntityDefinitionTriggerEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EntityDefinitionTriggerEvent {
-    /// `EventName` ...
+    /// The event name. Wire form: `String`. Mojang limit: 256 bytes.
     pub event_name: String,
 }
 
 impl Codec for EntityDefinitionTriggerEvent {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            event_name: r.string()?,
+            event_name: r.string_max(256)?,
         })
     }
 
@@ -3804,20 +3832,20 @@ impl Codec for EntityDefinitionTriggerEvent {
     }
 }
 
-/// `EntityDiagnosticTimingInfo` represents diagnostics for a specific entity type.
+/// gophertunnel `protocol.EntityDiagnosticTimingInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EntityDiagnosticTimingInfo {
-    /// `DisplayName` is the name to display for this timing entry.
+    /// The display name. Wire form: `String`.
     pub display_name: String,
-    /// Entity is the identifier of the entity that is being timed.
+    /// The entity. Wire form: `String`.
     pub entity: String,
-    /// `DurationNanos` is whole long the timing entry has lasted, in nanoseconds.
+    /// The duration nanos. Wire form: `Uint64`.
     pub duration_nanos: u64,
-    /// `PercentOfTotal` is the percentage of time that this timing entry has used compared to others.
+    /// The percent of total. Wire form: `Uint8`.
     pub percent_of_total: u8,
-    /// Position is the position of the entity that is being timed.
+    /// The position. Wire form: `Vec3`.
     pub position: [f32; 3],
-    /// Dimension is the name of the dimension that the entity being timed is in.
+    /// The dimension. Wire form: `String`. Values: [`Dimension`](super::consts::Dimension).
     pub dimension: String,
 }
 
@@ -3844,18 +3872,18 @@ impl Codec for EntityDiagnosticTimingInfo {
     }
 }
 
-/// `EntityInteractEvent` is the event data sent for entity interactions.
+/// gophertunnel `protocol.EntityInteractEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EntityInteractEvent {
-    /// `InteractedEntityID` ...
+    /// The interacted entity ID. Wire form: `ActorUniqueID`.
     pub interacted_entity_id: i64,
-    /// `InteractionType` ...
+    /// The interaction type. Wire form: `Uint8`.
     pub interaction_type: u8,
-    /// `InteractionEntityType` ...
+    /// The interaction entity type. Wire form: `Varint32`.
     pub interaction_entity_type: i32,
-    /// `EntityVariant` ...
+    /// The entity variant. Wire form: `Varint32`.
     pub entity_variant: i32,
-    /// `EntityColour` ...
+    /// The entity colour. Wire form: `Uint8`.
     pub entity_colour: u8,
 }
 
@@ -3880,20 +3908,20 @@ impl Codec for EntityInteractEvent {
     }
 }
 
-/// `EntityLink` is a link between two entities, typically being one entity riding another.
+/// gophertunnel `protocol.EntityLink`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EntityLink {
-    /// `RiddenEntityUniqueID` is the entity unique ID of the entity that is being ridden. For a player sitting in a boat, this is the unique ID of the boat.
+    /// The ridden entity unique ID. Wire form: `ActorUniqueID`.
     pub ridden_entity_unique_id: i64,
-    /// `RiderEntityUniqueID` is the entity unique ID of the entity that is riding. For a player sitting in a boat, this is the unique ID of the player.
+    /// The rider entity unique ID. Wire form: `ActorUniqueID`.
     pub rider_entity_unique_id: i64,
-    /// Type is one of the types above. It specifies the way the entity is linked to another entity.
+    /// The type. Wire form: `Uint8`.
     pub r#type: u8,
-    /// Immediate is set to immediately dismount an entity from another. This should be set when the mount of an entity is killed.
+    /// The immediate. Wire form: `Bool`.
     pub immediate: bool,
-    /// `RiderInitiated` specifies if the link was created by the rider, for example the player starting to ride a horse by itself. This is generally true in vanilla environment for players.
+    /// The rider initiated. Wire form: `Bool`.
     pub rider_initiated: bool,
-    /// `VehicleAngularVelocity` is the angular velocity of the vehicle that the rider is riding.
+    /// The vehicle angular velocity. Wire form: `Float32`.
     pub vehicle_angular_velocity: f32,
 }
 
@@ -3920,12 +3948,12 @@ impl Codec for EntityLink {
     }
 }
 
-/// `EntityProperties` holds lists of entity properties that define specific attributes of an entity. As of v1.19.40, the vanilla server does not use these properties, however they are still supported by the protocol.
+/// gophertunnel `protocol.EntityProperties`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EntityProperties {
-    /// `IntegerProperties` is a list of entity properties that contain integer values.
+    /// The integer properties. Wire form: a list after a `varuint32` count.
     pub integer_properties: Vec<IntegerEntityProperty>,
-    /// `FloatProperties` is a list of entity properties that contain float values.
+    /// The float properties. Wire form: a list after a `varuint32` count.
     pub float_properties: Vec<FloatEntityProperty>,
 }
 
@@ -3950,35 +3978,35 @@ impl Codec for EntityProperties {
     }
 }
 
-/// `EnvironmentAttributeData` represents an environment attribute with optional transition data.
+/// gophertunnel `protocol.EnvironmentAttributeData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnvironmentAttributeData {
-    /// `AttributeName` is the name of the attribute.
+    /// The attribute name. Wire form: `String`. Mojang limit: 128 bytes.
     pub attribute_name: String,
-    /// `FromAttribute` is the optional starting attribute for transitions.
+    /// The from attribute. Wire form: a bool, then the value when it is set.
     pub from_attribute: Option<AttributeData>,
-    /// Attribute is the current attribute value.
+    /// The attribute.
     pub attribute: AttributeData,
-    /// `ToAttribute` is the optional target attribute for transitions.
+    /// The to attribute. Wire form: a bool, then the value when it is set.
     pub to_attribute: Option<AttributeData>,
-    /// `CurrentTransitionTicks` is the number of ticks elapsed in the current transition.
+    /// The current transition ticks. Wire form: `Uint32`.
     pub current_transition_ticks: u32,
-    /// `TotalTransitionTicks` is the total number of ticks for the transition.
+    /// The total transition ticks. Wire form: `Uint32`.
     pub total_transition_ticks: u32,
-    /// `EaseType` is the easing function used for the transition. It is one of the `EasingType` constants.
+    /// The ease type.
     pub ease_type: i32,
-    /// `LocalTransitionTicks` is the number of ticks elapsed in the local transition.
+    /// The local transition ticks. Wire form: `Uint32`.
     pub local_transition_ticks: u32,
-    /// `NoiseTransition` indicates whether the transition uses noise.
+    /// The noise transition. Wire form: `Bool`.
     pub noise_transition: bool,
-    /// `NoiseAlignment` is the alignment of the noise used by the transition.
+    /// The noise alignment.
     pub noise_alignment: NoiseAlignment,
 }
 
 impl Codec for EnvironmentAttributeData {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let mut x = Self {
-            attribute_name: r.string()?,
+            attribute_name: r.string_max(128)?,
             from_attribute: if r.bool()? {
                 Some(AttributeData::decode(r)?)
             } else {
@@ -4025,7 +4053,7 @@ impl Codec for EnvironmentAttributeData {
     }
 }
 
-/// Event represents an object that holds data specific to an event. The data it holds depends on the type.
+/// gophertunnel `protocol.Event`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     /// The [`AchievementAwardedEvent`] variant.
@@ -4317,12 +4345,12 @@ impl Event {
     }
 }
 
-/// `ExperimentData` holds data on an experiment that is either enabled or disabled.
+/// gophertunnel `protocol.ExperimentData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExperimentData {
-    /// Name is the name of the experiment.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// Enabled specifies if the experiment is enabled. Vanilla typically always sets this to true for any experiments sent.
+    /// The enabled. Wire form: `Bool`.
     pub enabled: bool,
 }
 
@@ -4341,7 +4369,7 @@ impl Codec for ExperimentData {
     }
 }
 
-/// `ExtractHoneyEvent` is an event used to extract honey from a hive.
+/// gophertunnel `protocol.ExtractHoneyEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExtractHoneyEvent {}
 
@@ -4355,7 +4383,7 @@ impl Codec for ExtractHoneyEvent {
     }
 }
 
-/// `FishBucketedEvent` is the event data sent when a fish is bucketed.
+/// gophertunnel `protocol.FishBucketedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FishBucketedEvent {}
 
@@ -4369,12 +4397,12 @@ impl Codec for FishBucketedEvent {
     }
 }
 
-/// `FloatEntityProperty` is an entity property that contains a float value.
+/// gophertunnel `protocol.FloatEntityProperty`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FloatEntityProperty {
-    /// Index represents the index of the property. It is unclear what the exact purpose of this is.
+    /// The index. Wire form: `Varuint32`.
     pub index: u32,
-    /// Value is the value of the property.
+    /// The value. Wire form: `Float32`.
     pub value: f32,
 }
 
@@ -4393,12 +4421,12 @@ impl Codec for FloatEntityProperty {
     }
 }
 
-/// `FloatRange` is an inclusive minimum/maximum pair of float32 values.
+/// gophertunnel `protocol.FloatRange`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FloatRange {
-    /// Min is the minimum value of the range.
+    /// The min. Wire form: `Float32`.
     pub min: f32,
-    /// Max is the maximum value of the range.
+    /// The max. Wire form: `Float32`.
     pub max: f32,
 }
 
@@ -4417,12 +4445,12 @@ impl Codec for FloatRange {
     }
 }
 
-/// `FullContainerName` contains information required to identify a container in a `StackRequestSlotInfo`.
+/// gophertunnel `protocol.FullContainerName`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FullContainerName {
-    /// `ContainerID` is the ID of the container that the slot was in.
+    /// The container ID. Wire form: `Uint8`.
     pub container_id: u8,
-    /// `DynamicContainerID` is the ID of the container if it is dynamic. If the container is not dynamic, this field should be left empty. A non-optional value of 0 is assumed to be non-empty.
+    /// The dynamic container ID. Wire form: a bool, then the value when it is set.
     pub dynamic_container_id: Option<u32>,
 }
 
@@ -4444,14 +4472,14 @@ impl Codec for FullContainerName {
     }
 }
 
-/// `FurnaceOptions` holds the options that a player has selected in a furnace-like container's UI.
+/// gophertunnel `protocol.FurnaceOptions`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FurnaceOptions {
-    /// `LeftFurnaceTab` is the tab that is selected on the left side of the furnace UI. It is one of the `FurnaceLeftTab` constants above.
+    /// The left furnace tab. Wire form: `Varint32`.
     pub left_furnace_tab: i32,
-    /// Filtering is whether the player has enabled the filtering between recipes they have unlocked or not.
+    /// The filtering. Wire form: `Bool`.
     pub filtering: bool,
-    /// Layout is the layout of the furnace UI. It is one of the `FurnaceLayout` constants above.
+    /// The layout. Wire form: `Varint32`.
     pub layout: i32,
 }
 
@@ -4472,24 +4500,24 @@ impl Codec for FurnaceOptions {
     }
 }
 
-/// `GatheringJoinInfo` contains information about the gathering (experience) the player is joining.
+/// gophertunnel `protocol.GatheringJoinInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GatheringJoinInfo {
-    /// `ExperienceID` is the UUID of the experience.
+    /// The experience ID. Wire form: `UUID`.
     pub experience_id: Uuid,
-    /// `ExperienceName` is the name of the experience.
+    /// The experience name. Wire form: `String`. Mojang limit: 29 bytes.
     pub experience_name: String,
-    /// `ExperienceWorldID` is the UUID of the experience world.
+    /// The experience world ID. Wire form: a bool, then the value when it is set.
     pub experience_world_id: Option<Uuid>,
-    /// `ExperienceWorldName` is the world name of the experience.
+    /// The experience world name. Wire form: a bool, then the value when it is set. Mojang limit: 29 bytes.
     pub experience_world_name: Option<String>,
-    /// `CreatorID` is the ID of the creator.
+    /// The creator ID. Wire form: `String`. Mojang limit: 60 bytes.
     pub creator_id: String,
-    /// `TargetID` is the session ID of the experience.
+    /// The target ID. Wire form: a bool, then the value when it is set.
     pub target_id: Option<Uuid>,
-    /// `ScenarioID` is the scenario ID of experience.
+    /// The scenario ID. Wire form: a bool, then the value when it is set. Mojang limit: 100 bytes.
     pub scenario_id: Option<String>,
-    /// `ServerID` is the server identifier.
+    /// The server ID. Wire form: a bool, then the value when it is set. Mojang limit: 100 bytes.
     pub server_id: Option<String>,
 }
 
@@ -4497,13 +4525,25 @@ impl Codec for GatheringJoinInfo {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             experience_id: r.uuid()?,
-            experience_name: r.string()?,
+            experience_name: r.string_max(29)?,
             experience_world_id: if r.bool()? { Some(r.uuid()?) } else { None },
-            experience_world_name: if r.bool()? { Some(r.string()?) } else { None },
-            creator_id: r.string()?,
+            experience_world_name: if r.bool()? {
+                Some(r.string_max(29)?)
+            } else {
+                None
+            },
+            creator_id: r.string_max(60)?,
             target_id: if r.bool()? { Some(r.uuid()?) } else { None },
-            scenario_id: if r.bool()? { Some(r.string()?) } else { None },
-            server_id: if r.bool()? { Some(r.string()?) } else { None },
+            scenario_id: if r.bool()? {
+                Some(r.string_max(100)?)
+            } else {
+                None
+            },
+            server_id: if r.bool()? {
+                Some(r.string_max(100)?)
+            } else {
+                None
+            },
         })
     }
 
@@ -4535,12 +4575,12 @@ impl Codec for GatheringJoinInfo {
     }
 }
 
-/// `GenerationFeature` represents a world generation feature, used when encoding the `FeatureRegistry` to the client.
+/// gophertunnel `protocol.GenerationFeature`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GenerationFeature {
-    /// Name is the name of the feature.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// JSON is the encoded JSON data instructing the client on how to generate the feature.
+    /// The JSON. Wire form: `ByteSlice`.
     pub json: Vec<u8>,
 }
 
@@ -4559,7 +4599,7 @@ impl Codec for GenerationFeature {
     }
 }
 
-/// `HeightMap` holds the height of every column of a sub-chunk, indexed as \[z\]\[x\].
+/// gophertunnel `protocol.HeightMap`.
 pub type HeightMap = [[i8; 16]; 16];
 
 impl Codec for [[i8; 16]; 16] {
@@ -4598,9 +4638,7 @@ impl Codec for [[i8; 16]; 16] {
     }
 }
 
-/// `InputFlags` is the set of input flags in a `PlayerAuthInput` packet. It is sent as a list of the `IDs` of the flags that are set, and is stored the same way, with the `IDs` kept unique.
-///
-/// The zero value has no size, so use `NewInputFlags` before setting a flag on it. Decoded values are always sized.
+/// gophertunnel `protocol.InputFlags`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct InputFlags {
     /// The set.
@@ -4611,12 +4649,12 @@ pub struct InputFlags {
     pub ids: Vec<i32>,
 }
 
-/// `IntegerEntityProperty` is an entity property that contains an integer value.
+/// gophertunnel `protocol.IntegerEntityProperty`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct IntegerEntityProperty {
-    /// Index represents the index of the property. It is unclear what the exact purpose of this is.
+    /// The index. Wire form: `Varuint32`.
     pub index: u32,
-    /// Value is the value of the property.
+    /// The value. Wire form: `Varint32`.
     pub value: i32,
 }
 
@@ -4635,7 +4673,7 @@ impl Codec for IntegerEntityProperty {
     }
 }
 
-/// `InvalidItemDescriptor` represents an invalid item descriptor. This is usually sent by the vanilla server for empty slots or ingredients.
+/// gophertunnel `protocol.InvalidItemDescriptor`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct InvalidItemDescriptor {}
 
@@ -4649,20 +4687,20 @@ impl Codec for InvalidItemDescriptor {
     }
 }
 
-/// `InventoryAction` represents a single action that took place during an inventory transaction. On itself, this inventory action is always unbalanced: It must be combined with other actions in an inventory transaction to form a balanced transaction.
+/// gophertunnel `protocol.InventoryAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct InventoryAction {
-    /// `SourceType` is the source type of the inventory action. It is one of the constants above.
+    /// The source type. Wire form: `Varuint32`.
     pub source_type: u32,
-    /// `WindowID` is the ID of the window that the client has opened. The window ID is not set if the `SourceType` is `InventoryActionSourceWorld`.
+    /// The window ID. Wire form: a bool, then the value when it is set.
     pub window_id: Option<i8>,
-    /// `SourceFlags` is a combination of flags that is only set if the `SourceType` is `InventoryActionSourceWorld`.
+    /// The source flags. Wire form: a bool, then the value when it is set.
     pub source_flags: Option<u32>,
-    /// `InventorySlot` is the slot in which the action took place. Each action only describes the change of item in a single slot.
+    /// The inventory slot. Wire form: `Varuint32`.
     pub inventory_slot: u32,
-    /// `OldItem` is the item that was present in the slot before the inventory action. It should be checked by the server to ensure the inventories were not out of sync.
+    /// The old item. Wire form: `ItemInstance`.
     pub old_item: ItemInstance,
-    /// `NewItem` is the new item that was put in the `InventorySlot` that the `OldItem` was in. It must be checked in combination with other inventory actions to ensure that the transaction is balanced.
+    /// The new item. Wire form: `ItemInstance`.
     pub new_item: ItemInstance,
 }
 
@@ -4699,7 +4737,7 @@ impl Codec for InventoryAction {
     }
 }
 
-/// `InventoryTransactionData` represents an object that holds data specific to an inventory transaction type. The data it holds depends on the type.
+/// gophertunnel `protocol.InventoryTransactionData`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum InventoryTransactionData {
     /// The [`NormalTransactionData`] variant.
@@ -4771,7 +4809,7 @@ impl InventoryTransactionData {
     }
 }
 
-/// `ItemDescriptor` represents a type of item descriptor. This is one of the concrete types below. It is an alias of Marshaler.
+/// gophertunnel `protocol.ItemDescriptor`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ItemDescriptor {
     /// The [`InvalidItemDescriptor`] variant.
@@ -4843,21 +4881,21 @@ impl ItemDescriptor {
     }
 }
 
-/// `ItemDescriptorCount` represents an item descriptor that has a count attached with it, such as a recipe ingredient.
+/// gophertunnel `protocol.ItemDescriptorCount`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemDescriptorCount {
-    /// Descriptor represents how the item is described over the network. It is one of the descriptors above.
+    /// The descriptor.
     pub descriptor: ItemDescriptor,
-    /// Count is the count of items that the item descriptor is required to have.
+    /// The count.
     pub count: i32,
 }
 
-/// `ItemEnchantments` holds information on the enchantments that are applied to an item when a specific button is clicked in the enchantment table.
+/// gophertunnel `protocol.ItemEnchantments`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemEnchantments {
-    /// Slot is either 0, 1 or 2. Its exact usage is not clear.
+    /// The slot. Wire form: `Int32`.
     pub slot: i32,
-    /// Enchantments is an array of 3 slices of enchantment instances. Each array represents enchantments that will be added to the item with a different activation type. The arrays in which enchantments are sent by the vanilla server are as follows: slice 1 { protection, fire protection, feather falling, blast protection, projectile protection, thorns, respiration, depth strider, aqua affinity, frost walker, soul speed } slice 2 { sharpness, smite, bane of arthropods, fire aspect, looting, silk touch, unbreaking, fortune, flame, luck of the sea, impaling } slice 3 { knockback, efficiency, power, punch, infinity, lure, mending, curse of binding, curse of vanishing, riptide, loyalty, channeling, multishot, piercing, quick charge } The first slice holds armour enchantments, the differences between the slice 2 and slice 3 are more vaguely defined.
+    /// The enchantments.
     pub enchantments: [Vec<EnchantmentInstance>; 3],
 }
 
@@ -4885,18 +4923,18 @@ impl Codec for ItemEnchantments {
     }
 }
 
-/// `ItemEntry` is an item sent in the `StartGame` item table. It holds a name and a legacy ID, which is used to point back to that name.
+/// gophertunnel `protocol.ItemEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemEntry {
-    /// Name if the name of the item, which is a name like 'minecraft:stick'.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// `RuntimeID` is the ID that is used to identify the item over network. After sending all items in the `StartGame` packet, items will then be identified using these numerical `IDs`.
+    /// The runtime ID. Wire form: `Int16`.
     pub runtime_id: i16,
-    /// `ComponentBased` specifies if the item was created using components, meaning the item is a custom item.
+    /// The component based. Wire form: `Bool`.
     pub component_based: bool,
-    /// Version is the version of the item entry which is used by the client to determine how to handle the item entry. It is one of the constants above.
+    /// The version. Wire form: `Varint32`. Values: [`ItemEntryVersion`](super::consts::ItemEntryVersion).
     pub version: i32,
-    /// Data is a map containing the components and properties of the item, if the item is component based.
+    /// The data. Wire form: `NBT`.
     pub data: nbt::Compound,
 }
 
@@ -4921,16 +4959,16 @@ impl Codec for ItemEntry {
     }
 }
 
-/// `ItemStackRequest` represents a single request present in an `ItemStackRequest` packet sent by the client to change an item in an inventory. Item stack requests are either approved or rejected by the server using the `ItemStackResponse` packet.
+/// gophertunnel `protocol.ItemStackRequest`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemStackRequest {
-    /// `RequestID` is a unique ID for the request. This ID is used by the server to send a response for this specific request in the `ItemStackResponse` packet.
+    /// The request ID. Wire form: `Varint32`.
     pub request_id: i32,
-    /// Actions is a list of actions performed by the client. The actual type of the actions depends on which ID was present, and is one of the concrete types below.
+    /// The actions. Wire form: a list after a `varuint32` count. Mojang limit: 100 elements.
     pub actions: Vec<StackRequestAction>,
-    /// `FilterStrings` is a list of filter strings involved in the request. This is typically filled with one string when an anvil or cartography is used.
+    /// The filter strings. Wire form: a list after a `varuint32` count. Mojang limit per element: 1000 bytes.
     pub filter_strings: Vec<String>,
-    /// `FilterCause` represents the cause of any potential filtering. This is one of the constants above.
+    /// The filter cause. Wire form: `Int32`. Values: [`FilterCause`](super::consts::FilterCause).
     pub filter_cause: i32,
 }
 
@@ -4938,8 +4976,8 @@ impl Codec for ItemStackRequest {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             request_id: r.varint32()?,
-            actions: r.list_varuint32(Reader::stack_request_action)?,
-            filter_strings: r.list_varuint32(Reader::string)?,
+            actions: r.list_varuint32_max(100, Reader::stack_request_action)?,
+            filter_strings: r.list_varuint32(|r| r.string_max(1000))?,
             filter_cause: r.int32()?,
         })
     }
@@ -4959,14 +4997,14 @@ impl Codec for ItemStackRequest {
     }
 }
 
-/// `ItemStackResponse` is a response to an individual `ItemStackRequest`.
+/// gophertunnel `protocol.ItemStackResponse`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemStackResponse {
-    /// Status specifies if the request with the `RequestID` below was successful. If this is the case, the `ContainerInfo` below will have information on what slots ended up changing. If not, the container info will be empty. A non-0 status means an error occurred and will result in the action being reverted.
+    /// The status. Wire form: `Uint8`. Values: [`ItemStackResponseStatus`](super::consts::ItemStackResponseStatus).
     pub status: u8,
-    /// `RequestID` is the unique ID of the request that this response is in reaction to. If rejected, the client will undo the actions from the request with this ID.
+    /// The request ID. Wire form: `Varint32`.
     pub request_id: i32,
-    /// `ContainerInfo` holds information on the containers that had their contents changed as a result of the request.
+    /// The container info.
     pub container_info: Vec<StackResponseContainerInfo>,
 }
 
@@ -5006,10 +5044,10 @@ impl Codec for ItemStackResponse {
     }
 }
 
-/// `ItemTagItemDescriptor` represents an item descriptor that uses item tagging. This should be used to reduce duplicative entries for items that can be grouped under a single tag.
+/// gophertunnel `protocol.ItemTagItemDescriptor`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemTagItemDescriptor {
-    /// Tag represents the tag that the item is part of.
+    /// The tag. Wire form: `String`.
     pub tag: String,
 }
 
@@ -5024,16 +5062,16 @@ impl Codec for ItemTagItemDescriptor {
     }
 }
 
-/// `ItemUsedEvent` is when a player right clicks a item.
+/// gophertunnel `protocol.ItemUsedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemUsedEvent {
-    /// The item ID.
+    /// The item ID. Wire form: `Int16`.
     pub item_id: i16,
-    /// The item aux.
+    /// The item aux. Wire form: `Int32`.
     pub item_aux: i32,
-    /// The use method.
+    /// The use method. Wire form: `Int32`.
     pub use_method: i32,
-    /// The use count.
+    /// The use count. Wire form: `Int32`.
     pub use_count: i32,
 }
 
@@ -5056,7 +5094,7 @@ impl Codec for ItemUsedEvent {
     }
 }
 
-/// `LabTableCombineStackRequestAction` is sent by the client when it uses a lab table to combine item stacks.
+/// gophertunnel `protocol.LabTableCombineStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LabTableCombineStackRequestAction {}
 
@@ -5070,7 +5108,7 @@ impl Codec for LabTableCombineStackRequestAction {
     }
 }
 
-/// `LastShape` points to using the last shape settings. If no shape has ever been set, then use the default one.
+/// gophertunnel `protocol.LastShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LastShape {}
 
@@ -5084,12 +5122,12 @@ impl Codec for LastShape {
     }
 }
 
-/// `LegacySetItemSlot` represents a slot that was changed during an `InventoryTransaction`. These slots have to have their values set accordingly for actions such as when dropping an item out of the hotbar, where the inventory container and the slot that had its item dropped is passed.
+/// gophertunnel `protocol.LegacySetItemSlot`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LegacySetItemSlot {
-    /// The container ID.
+    /// The container ID. Wire form: `Uint8`.
     pub container_id: u8,
-    /// The slots.
+    /// The slots. Wire form: `ByteSlice`.
     pub slots: Vec<u8>,
 }
 
@@ -5108,10 +5146,10 @@ impl Codec for LegacySetItemSlot {
     }
 }
 
-/// `LineShape` represents a line debug shape.
+/// gophertunnel `protocol.LineShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LineShape {
-    /// `LineEndLocation` is the line end location of the shape.
+    /// The line end location. Wire form: `Vec3`.
     pub line_end_location: [f32; 3],
 }
 
@@ -5128,14 +5166,14 @@ impl Codec for LineShape {
     }
 }
 
-/// `LocatorBarWaypoint` represents a waypoint entry in the locator bar packet.
+/// gophertunnel `protocol.LocatorBarWaypoint`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LocatorBarWaypoint {
-    /// `GroupHandle` is the UUID handle for the waypoint group.
+    /// The group handle. Wire form: `UUID`.
     pub group_handle: Uuid,
-    /// Waypoint contains the waypoint data.
+    /// The waypoint.
     pub waypoint: Waypoint,
-    /// Action determines the action for this waypoint. It is one of the `WaypointAction` constants.
+    /// The action. Wire form: `Uint8`.
     pub action: u8,
 }
 
@@ -5156,20 +5194,20 @@ impl Codec for LocatorBarWaypoint {
     }
 }
 
-/// `MapDecoration` is a fixed decoration on a map: Its position or other properties do not change automatically client-side.
+/// gophertunnel `protocol.MapDecoration`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MapDecoration {
-    /// Type is the type of the map decoration. The type specifies the shape (and sometimes the colour) that the map decoration gets. It is one of the `MapDecorationType` constants above.
+    /// The type. Wire form: `Uint8`. Values: [`MapDecorationType`](super::consts::MapDecorationType).
     pub r#type: u8,
-    /// Rotation is the rotation of the map decoration. It is byte due to the 16 fixed directions that the map decoration may face.
+    /// The rotation. Wire form: `Uint8`.
     pub rotation: u8,
-    /// X is the offset on the X axis in pixels of the decoration.
+    /// The x. Wire form: `Uint8`.
     pub x: u8,
-    /// Y is the offset on the Y axis in pixels of the decoration.
+    /// The y. Wire form: `Uint8`.
     pub y: u8,
-    /// Label is the name of the map decoration. This name may be of any value.
+    /// The label. Wire form: `String`.
     pub label: String,
-    /// Colour is the colour of the map decoration. Some map decoration types have a specific colour set automatically, whereas others may be changed.
+    /// The colour. Wire form: `BEARGB`.
     pub colour: Rgba,
 }
 
@@ -5196,14 +5234,14 @@ impl Codec for MapDecoration {
     }
 }
 
-/// `MapTrackedObject` is an object on a map that is 'tracked' by the client, such as an entity or a block. This object may move, which is handled client-side.
+/// gophertunnel `protocol.MapTrackedObject`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MapTrackedObject {
-    /// Type is the type of the tracked object. It is either `MapObjectTypeEntity` or `MapObjectTypeBlock`.
+    /// The type. Wire form: `Int32`.
     pub r#type: i32,
-    /// `EntityUniqueID` is the optional unique ID of the tracked entity.
+    /// The entity unique ID. Wire form: a bool, then the value when it is set.
     pub entity_unique_id: Option<i64>,
-    /// `BlockPosition` is the optional position of the tracked block.
+    /// The block position. Wire form: a bool, then the value when it is set.
     pub block_position: Option<BlockPos>,
 }
 
@@ -5251,12 +5289,12 @@ impl Codec for MapTrackedObject {
     }
 }
 
-/// `MemoryCategoryCounter` represents a memory usage counter for a specific category.
+/// gophertunnel `protocol.MemoryCategoryCounter`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MemoryCategoryCounter {
-    /// Category is the memory category. It is one of the `MemoryCategory` constants above.
+    /// The category. Wire form: `Uint8`.
     pub category: u8,
-    /// Bytes is the number of bytes used by this category.
+    /// The bytes. Wire form: `Uint64`.
     pub bytes: u64,
 }
 
@@ -5275,14 +5313,14 @@ impl Codec for MemoryCategoryCounter {
     }
 }
 
-/// `MineBlockStackRequestAction` is sent by the client when it breaks a block.
+/// gophertunnel `protocol.MineBlockStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MineBlockStackRequestAction {
-    /// `HotbarSlot` is the slot held by the player while mining a block.
+    /// The hotbar slot. Wire form: `Varint32`.
     pub hotbar_slot: i32,
-    /// `PredictedDurability` is the durability of the item that the client assumes to be present at the time.
+    /// The predicted durability. Wire form: `Varint32`.
     pub predicted_durability: i32,
-    /// `StackNetworkID` is the unique stack ID that the client assumes to be present at the time. The server must check if these `IDs` match. If they do not match, servers should reject the stack request that the action holding this info was in.
+    /// The stack network ID. Wire form: `Int32`.
     pub stack_network_id: i32,
 }
 
@@ -5303,7 +5341,7 @@ impl Codec for MineBlockStackRequestAction {
     }
 }
 
-/// `MismatchTransactionData` represents a mismatched inventory transaction's data object.
+/// gophertunnel `protocol.MismatchTransactionData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MismatchTransactionData {}
 
@@ -5317,12 +5355,12 @@ impl Codec for MismatchTransactionData {
     }
 }
 
-/// `MoLangItemDescriptor` represents an item descriptor for items that use `MoLang` (e.g. behaviour packs).
+/// gophertunnel `protocol.MoLangItemDescriptor`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MolangItemDescriptor {
-    /// Expression represents the `MoLang` expression used to identify the item/it's associated tag.
+    /// The expression. Wire form: `String`.
     pub expression: String,
-    /// Version represents the version of `MoLang` to use.
+    /// The version. Wire form: `Int16`.
     pub version: i16,
 }
 
@@ -5341,14 +5379,14 @@ impl Codec for MolangItemDescriptor {
     }
 }
 
-/// `MobBornEvent` is the event data sent when a mob is born.
+/// gophertunnel `protocol.MobBornEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MobBornEvent {
-    /// `EntityType` ...
+    /// The entity type. Wire form: `Varint32`.
     pub entity_type: i32,
-    /// Variant ...
+    /// The variant. Wire form: `Varint32`.
     pub variant: i32,
-    /// Colour ...
+    /// The colour. Wire form: `Uint8`.
     pub colour: u8,
 }
 
@@ -5369,20 +5407,20 @@ impl Codec for MobBornEvent {
     }
 }
 
-/// `MobKilledEvent` is the event data sent when a mob is killed.
+/// gophertunnel `protocol.MobKilledEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MobKilledEvent {
-    /// `KillerEntityUniqueID` ...
+    /// The killer entity unique ID. Wire form: `ActorUniqueID`.
     pub killer_entity_unique_id: i64,
-    /// `VictimEntityUniqueID` ...
+    /// The victim entity unique ID. Wire form: `ActorUniqueID`.
     pub victim_entity_unique_id: i64,
-    /// `KillerEntityType` ...
+    /// The killer entity type. Wire form: `Varint32`.
     pub killer_entity_type: i32,
-    /// `EntityDamageCause` ...
+    /// The entity damage cause. Wire form: `Varint32`.
     pub entity_damage_cause: i32,
-    /// `VillagerTradeTier` -1 if not a trading actor.
+    /// The villager trade tier. Wire form: `Varint32`.
     pub villager_trade_tier: i32,
-    /// `VillagerDisplayName` Empty if not a trading actor.
+    /// The villager display name. Wire form: `String`. Mojang limit: 128 bytes.
     pub villager_display_name: String,
 }
 
@@ -5394,7 +5432,7 @@ impl Codec for MobKilledEvent {
             killer_entity_type: r.varint32()?,
             entity_damage_cause: r.varint32()?,
             villager_trade_tier: r.varint32()?,
-            villager_display_name: r.string()?,
+            villager_display_name: r.string_max(128)?,
         })
     }
 
@@ -5409,7 +5447,7 @@ impl Codec for MobKilledEvent {
     }
 }
 
-/// `MovementAnomalyEvent` is an event used to detect movement anomalies.
+/// gophertunnel `protocol.MovementAnomalyEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MovementAnomalyEvent {}
 
@@ -5423,7 +5461,7 @@ impl Codec for MovementAnomalyEvent {
     }
 }
 
-/// `MovementCorrectedEvent` is an event used to correct movement anomalies.
+/// gophertunnel `protocol.MovementCorrectedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MovementCorrectedEvent {}
 
@@ -5437,12 +5475,12 @@ impl Codec for MovementCorrectedEvent {
     }
 }
 
-/// `MultiRecipe` serves as an 'enable' switch for multi-shape recipes.
+/// gophertunnel `protocol.MultiRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MultiRecipe {
-    /// UUID is a UUID identifying the recipe. Since the `CraftingEvent` packet no longer exists, this can always be empty.
+    /// The UUID. Wire form: `UUID`.
     pub uuid: Uuid,
-    /// `RecipeNetworkID` is a unique ID used to identify the recipe over network. Each recipe must have a unique network ID. Recommended is to just increment a variable for each unique recipe registered. This field must never be 0.
+    /// The recipe network ID. Wire form: `Varuint32`.
     pub recipe_network_id: u32,
 }
 
@@ -5461,12 +5499,12 @@ impl Codec for MultiRecipe {
     }
 }
 
-/// `NoiseAlignment` represents the way the noise of an environment attribute transition is aligned.
+/// gophertunnel `protocol.NoiseAlignment`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NoiseAlignment {
-    /// Type is the type of the alignment. It is one of the `NoiseAlignmentType` constants above.
+    /// The type. Wire form: `Uint8`. Values: [`NoiseAlignmentType`](super::consts::NoiseAlignmentType).
     pub r#type: u8,
-    /// Value is the value that the noise is aligned against, the meaning of which depends on Type.
+    /// The value. Wire form: `Varuint32`.
     pub value: u32,
 }
 
@@ -5485,16 +5523,16 @@ impl Codec for NoiseAlignment {
     }
 }
 
-/// `NoiseBlockSpecifier` specifies a block placed by the gradient noise based on a threshold and range.
+/// gophertunnel `protocol.NoiseBlockSpecifier`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NoiseBlockSpecifier {
-    /// Noise is the noise name.
+    /// The noise. Wire form: `String`.
     pub noise: String,
-    /// Threshold is the noise threshold above which the block is placed.
+    /// The threshold. Wire form: `Float32`.
     pub threshold: f32,
-    /// Range is the noise range within which the block is placed.
+    /// The range.
     pub range: FloatRange,
-    /// Block is the block runtime ID placed by this specifier.
+    /// The block. Wire form: `Uint32`.
     pub block: u32,
 }
 
@@ -5517,14 +5555,14 @@ impl Codec for NoiseBlockSpecifier {
     }
 }
 
-/// `NoiseDescriptor` describes the gradient noise used by a `BiomeNoiseGradientSurface`.
+/// gophertunnel `protocol.NoiseDescriptor`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NoiseDescriptor {
-    /// Name is the string used to initialise the noise.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// `FirstOctave` is the first octave used by the noise.
+    /// The first octave. Wire form: `Int32`.
     pub first_octave: i32,
-    /// Amplitudes is a list of amplitude values used by the noise. It must contain between 1 and 100 entries.
+    /// The amplitudes. Wire form: a list after a `varuint32` count. Mojang limit: 100 elements.
     pub amplitudes: Vec<f32>,
 }
 
@@ -5533,7 +5571,7 @@ impl Codec for NoiseDescriptor {
         Ok(Self {
             name: r.string()?,
             first_octave: r.int32()?,
-            amplitudes: r.list_varuint32(Reader::float32)?,
+            amplitudes: r.list_varuint32_max(100, Reader::float32)?,
         })
     }
 
@@ -5548,7 +5586,7 @@ impl Codec for NoiseDescriptor {
     }
 }
 
-/// `NormalTransactionData` represents an inventory transaction data object for normal transactions, such as crafting. It has no content.
+/// gophertunnel `protocol.NormalTransactionData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NormalTransactionData {}
 
@@ -5562,12 +5600,12 @@ impl Codec for NormalTransactionData {
     }
 }
 
-/// `ParameterKeyframeValue` represents a keyframe value for graphics parameters.
+/// gophertunnel `protocol.ParameterKeyframeValue`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ParameterKeyframeValue {
-    /// Time is the time for this keyframe.
+    /// The time. Wire form: `Float32`.
     pub time: f32,
-    /// Value is the value at this keyframe.
+    /// The value. Wire form: `Vec3`.
     pub value: [f32; 3],
 }
 
@@ -5586,7 +5624,7 @@ impl Codec for ParameterKeyframeValue {
     }
 }
 
-/// `PatternRemovedEvent` is the event data sent when a pattern is removed.
+/// gophertunnel `protocol.PatternRemovedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PatternRemovedEvent {}
 
@@ -5600,18 +5638,18 @@ impl Codec for PatternRemovedEvent {
     }
 }
 
-/// `PersonaPiece` represents a piece of a persona skin. All pieces are sent separately.
+/// gophertunnel `protocol.PersonaPiece`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PersonaPiece {
-    /// `PieceId` is a UUID that identifies the piece itself, which is unique for each separate piece.
+    /// The piece ID. Wire form: `String`.
     pub piece_id: String,
-    /// `PieceType` holds the type of the piece. This is one of the `PieceType` constants above.
+    /// The piece type. Wire form: `Uint32`. Values: [`PieceType`](super::consts::PieceType).
     pub piece_type: u32,
-    /// `PackID` is a UUID that identifies the pack that the persona piece belongs to.
+    /// The pack ID. Wire form: `UUID`.
     pub pack_id: Uuid,
-    /// Default specifies if the piece is one of the default pieces. This is true when the piece is one of those that a Steve or Alex skin have.
+    /// The default. Wire form: `Bool`.
     pub default: bool,
-    /// `ProductID` is a UUID that identifies the piece when it comes to purchases. It is empty for pieces that have the 'Default' field set to true.
+    /// The product ID. Wire form: `String`.
     pub product_id: String,
 }
 
@@ -5636,12 +5674,12 @@ impl Codec for PersonaPiece {
     }
 }
 
-/// `PersonaPieceTintColour` describes the tint colours of a specific piece of a persona skin.
+/// gophertunnel `protocol.PersonaPieceTintColour`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PersonaPieceTintColour {
-    /// `PieceType` is the type of the persona skin piece that this tint colour concerns. The piece type must always be present in the persona pieces list, but not each piece type has a tint colour sent.
+    /// The piece type. Values: [`PieceType`](super::consts::PieceType).
     pub piece_type: String,
-    /// Colours contains the four ARGB tint colours for the piece.
+    /// The colours.
     pub colours: [Rgba; 4],
 }
 
@@ -5668,7 +5706,7 @@ impl Codec for PersonaPieceTintColour {
     }
 }
 
-/// `PetDiedEvent` is the event data sent when a pet dies.
+/// gophertunnel `protocol.PetDiedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PetDiedEvent {}
 
@@ -5682,12 +5720,12 @@ impl Codec for PetDiedEvent {
     }
 }
 
-/// `PiglinBarterEvent` is called when a player drops gold ingots to a piglin to initiate a trade for an item.
+/// gophertunnel `protocol.PiglinBarterEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PiglinBarterEvent {
-    /// `ItemID` ...
+    /// The item ID. Wire form: `Varint32`.
     pub item_id: i32,
-    /// `WasTargetingBarteringPlayer` ...
+    /// The was targeting bartering player. Wire form: `Bool`.
     pub was_targeting_bartering_player: bool,
 }
 
@@ -5706,12 +5744,12 @@ impl Codec for PiglinBarterEvent {
     }
 }
 
-/// `PixelRequest` is the request for the colour of a pixel in a `MapInfoRequest` packet.
+/// gophertunnel `protocol.PixelRequest`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PixelRequest {
-    /// The colour.
+    /// The colour. Wire form: `RGBA`.
     pub colour: Rgba,
-    /// The index.
+    /// The index. Wire form: `Uint16`.
     pub index: u16,
 }
 
@@ -5730,7 +5768,7 @@ impl Codec for PixelRequest {
     }
 }
 
-/// `PlaceStackRequestAction` is sent by the client to the server to place x amount of items from one slot into another slot, such as when shift clicking an item in the inventory to move it around or when moving an item in the cursor into a slot.
+/// gophertunnel `protocol.PlaceStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlaceStackRequestAction {
     /// The transfer stack request action.
@@ -5750,12 +5788,12 @@ impl Codec for PlaceStackRequestAction {
     }
 }
 
-/// `PlayerArmourDamageEntry` represents an entry for a single piece of armour that should be damaged.
+/// gophertunnel `protocol.PlayerArmourDamageEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayerArmourDamageEntry {
-    /// `ArmourSlot` is the index of the armour slot to damage.
+    /// The armour slot. Wire form: `Varint32`.
     pub armour_slot: i32,
-    /// Damage is the amount of damage to apply to the armour in the specified slot.
+    /// The damage. Wire form: `Int16`.
     pub damage: i16,
 }
 
@@ -5774,14 +5812,14 @@ impl Codec for PlayerArmourDamageEntry {
     }
 }
 
-/// `PlayerBlockAction` ...
+/// gophertunnel `protocol.PlayerBlockAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayerBlockAction {
-    /// Action is the action to be performed, and is one of the constants listed above.
+    /// The action. Wire form: `Varint32`.
     pub action: i32,
-    /// `BlockPos` is the position of the block that was interacted with.
+    /// The block pos. Wire form: `BlockPos`.
     pub block_pos: BlockPos,
-    /// Face is the face of the block that was interacted with.
+    /// The face. Wire form: `Varint32`.
     pub face: i32,
 }
 
@@ -5802,16 +5840,16 @@ impl Codec for PlayerBlockAction {
     }
 }
 
-/// `PlayerDiedEvent` is the event data sent when a player dies.
+/// gophertunnel `protocol.PlayerDiedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayerDiedEvent {
-    /// `AttackerEntityID` ...
+    /// The attacker entity ID. Wire form: `Varint32`.
     pub attacker_entity_id: i32,
-    /// `AttackerVariant` ...
+    /// The attacker variant. Wire form: `Varint32`.
     pub attacker_variant: i32,
-    /// `EntityDamageCause` ...
+    /// The entity damage cause. Wire form: `Varint32`.
     pub entity_damage_cause: i32,
-    /// `InRaid` ...
+    /// The in raid. Wire form: `Bool`.
     pub in_raid: bool,
 }
 
@@ -5834,32 +5872,32 @@ impl Codec for PlayerDiedEvent {
     }
 }
 
-/// `PlayerListEntry` is an entry found in the `PlayerList` packet. It represents a single player using the UUID found in the entry, and contains several properties such as the skin.
+/// gophertunnel `protocol.PlayerListEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayerListEntry {
-    /// `ActionType` is the action to execute upon the player list.
+    /// The action type.
     pub action_type: u8,
-    /// UUID is the UUID of the player as sent in the Login packet when the client joined the server. It must match this UUID exactly for the correct XBOX Live icon to show up in the list.
+    /// The UUID. Wire form: `UUID`.
     pub uuid: Uuid,
-    /// `EntityUniqueID` is the unique entity ID of the player. This ID typically stays consistent during the lifetime of a world, but servers often send the runtime ID for this.
+    /// The entity unique ID. Wire form: `ActorUniqueID`.
     pub entity_unique_id: i64,
-    /// Username is the username that is shown in the player list of the player that obtains a `PlayerList` packet with this entry. It does not have to be the same as the actual username of the player.
+    /// The username. Wire form: `String`.
     pub username: String,
-    /// XUID is the XBOX Live user ID of the player, which will remain consistent as long as the player is logged in with the XBOX Live account.
+    /// The XUID. Wire form: `String`.
     pub xuid: String,
-    /// `PlatformChatID` is an identifier only set for particular platforms when chatting (presumably only for Nintendo Switch). It is otherwise an empty string, and is used to decide which players are able to chat with each other.
+    /// The platform chat ID. Wire form: `String`.
     pub platform_chat_id: String,
-    /// `BuildPlatform` is the platform of the player as sent by that player in the Login packet.
+    /// The build platform. Wire form: `Int32`.
     pub build_platform: i32,
-    /// Skin is the skin of the player that should be added to the player list. Once sent here, it will not have to be sent again.
+    /// The skin.
     pub skin: Skin,
-    /// Teacher is a Minecraft: Education Edition field. It specifies if the player to be added to the player list is a teacher.
+    /// The teacher. Wire form: `Bool`.
     pub teacher: bool,
-    /// Host specifies if the player that is added to the player list is the host of the game.
+    /// The host. Wire form: `Bool`.
     pub host: bool,
-    /// `SubClient` specifies if the player that is added to the player list is a sub-client of another player.
+    /// The sub client. Wire form: `Bool`.
     pub sub_client: bool,
-    /// `PlayerColour` is the colour of the player that is shown in UI elements, currently only used for the player locator bar.
+    /// The player colour. Wire form: `BEARGB`.
     pub player_colour: Rgba,
 }
 
@@ -5905,19 +5943,19 @@ impl Codec for PlayerListEntry {
     }
 }
 
-/// `PlayerMovementSettings` represents the different server authoritative movement settings. These control how the client will provide input to the server.
+/// gophertunnel `protocol.PlayerMovementSettings`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayerMovementSettings {
-    /// `RewindHistorySize` is the amount of history to keep at maximum.
+    /// The rewind history size.
     pub rewind_history_size: i32,
-    /// `ServerAuthoritativeBlockBreaking` specifies if block breaking should be sent through `packet.PlayerAuthInput` or not.
+    /// The server authoritative block breaking.
     pub server_authoritative_block_breaking: bool,
 }
 
-/// `PortalBuiltEvent` is the event data sent when a portal is built.
+/// gophertunnel `protocol.PortalBuiltEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PortalBuiltEvent {
-    /// `DimensionID` ...
+    /// The dimension ID. Wire form: `Varint32`.
     pub dimension_id: i32,
 }
 
@@ -5934,12 +5972,12 @@ impl Codec for PortalBuiltEvent {
     }
 }
 
-/// `PortalUsedEvent` is the event data sent when a portal is used.
+/// gophertunnel `protocol.PortalUsedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PortalUsedEvent {
-    /// `FromDimensionID` ...
+    /// The from dimension ID. Wire form: `Varint32`.
     pub from_dimension_id: i32,
-    /// `ToDimensionID` ...
+    /// The to dimension ID. Wire form: `Varint32`.
     pub to_dimension_id: i32,
 }
 
@@ -5958,18 +5996,18 @@ impl Codec for PortalUsedEvent {
     }
 }
 
-/// `PotionContainerChangeRecipe` represents a recipe to turn a potion from one type to another. This means from a drinkable potion + gunpowder -\> splash potion, and from a splash potion + dragon breath -\> lingering potion.
+/// gophertunnel `protocol.PotionContainerChangeRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[expect(
     clippy::struct_field_names,
     reason = "consistency: field names mirror gophertunnel"
 )]
 pub struct PotionContainerChangeRecipe {
-    /// `InputItemID` is the item ID of the item to be put in. This is typically either the ID of a normal potion or a splash potion.
+    /// The input item ID. Wire form: `Varint32`.
     pub input_item_id: i32,
-    /// `ReagentItemID` is the item ID of the item that needs to be added to the container in order to create the output item.
+    /// The reagent item ID. Wire form: `Varint32`.
     pub reagent_item_id: i32,
-    /// `OutputItemID` is the item that is created using a combination of the `InputItem` and `ReagentItem`, which is typically either the ID of a splash potion or a lingering potion.
+    /// The output item ID. Wire form: `Varint32`.
     pub output_item_id: i32,
 }
 
@@ -5990,20 +6028,20 @@ impl Codec for PotionContainerChangeRecipe {
     }
 }
 
-/// `PotionRecipe` represents a potion mixing recipe which may be used in a brewing stand.
+/// gophertunnel `protocol.PotionRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PotionRecipe {
-    /// `InputPotionID` is the item ID of the potion to be put in.
+    /// The input potion ID. Wire form: `Varint32`.
     pub input_potion_id: i32,
-    /// `InputPotionMetadata` is the type of the potion to be put in. This is typically the meta of the awkward potion (or water bottle to create an awkward potion).
+    /// The input potion metadata. Wire form: `Varint32`.
     pub input_potion_metadata: i32,
-    /// `ReagentItemID` is the item ID of the item that needs to be added to the brewing stand in order to brew the output potion.
+    /// The reagent item ID. Wire form: `Varint32`.
     pub reagent_item_id: i32,
-    /// `ReagentItemMetadata` is the metadata value of the item that needs to be added to the brewing stand in order to brew the output potion.
+    /// The reagent item metadata. Wire form: `Varint32`.
     pub reagent_item_metadata: i32,
-    /// `OutputPotionID` is the item ID of the potion obtained as a result of the brewing recipe.
+    /// The output potion ID. Wire form: `Varint32`.
     pub output_potion_id: i32,
-    /// `OutputPotionMetadata` is the type of the potion that is obtained as a result of brewing the input potion with the reagent item.
+    /// The output potion metadata. Wire form: `Varint32`.
     pub output_potion_metadata: i32,
 }
 
@@ -6030,17 +6068,21 @@ impl Codec for PotionRecipe {
     }
 }
 
-/// `PresenceInfo` contains presence information about the experience.
+/// gophertunnel `protocol.PresenceInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PresenceInfo {
-    /// `RichPresenceID` is the rich presence ID overriding the client-driven rich presence.
+    /// The rich presence ID. Wire form: a bool, then the value when it is set. Mojang limit: 50 bytes.
     pub rich_presence_id: Option<String>,
 }
 
 impl Codec for PresenceInfo {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            rich_presence_id: if r.bool()? { Some(r.string()?) } else { None },
+            rich_presence_id: if r.bool()? {
+                Some(r.string_max(50)?)
+            } else {
+                None
+            },
         })
     }
 
@@ -6053,30 +6095,30 @@ impl Codec for PresenceInfo {
     }
 }
 
-/// `PrimitiveShape` defines a single shape to be rendered on the client. Each shape has a unique `NetworkID` and a set of optional parameters depending on its type.
+/// gophertunnel `protocol.PrimitiveShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PrimitiveShape {
-    /// `NetworkID` is the network ID of the shape.
+    /// The network ID. Wire form: `Varuint64`.
     pub network_id: u64,
-    /// `DimensionID` is the optional dimension ID where the shape is rendered.
+    /// The dimension ID. Wire form: a bool, then the value when it is set.
     pub dimension_id: Option<i32>,
-    /// `AttachedToEntityID` is the optional unique ID of the entity the shape is attached to. Mojang's documentation describes it as a runtime ID, but the field is an `ActorUniqueID` and the client resolves it as one.
+    /// The attached to entity ID. Wire form: a bool, then the value when it is set.
     pub attached_to_entity_id: Option<i64>,
-    /// Type is the type of the shape. If not set, the set shape will be cleared.
+    /// The type. Wire form: a bool, then the value when it is set.
     pub r#type: Option<u8>,
-    /// Location is the location of the shape.
+    /// The location. Wire form: a bool, then the value when it is set.
     pub location: Option<[f32; 3]>,
-    /// Scale is the scale of the shape.
+    /// The scale. Wire form: a bool, then the value when it is set.
     pub scale: Option<f32>,
-    /// Rotation is the rotation of the shape.
+    /// The rotation. Wire form: a bool, then the value when it is set.
     pub rotation: Option<[f32; 3]>,
-    /// `TotalTimeLeft` is the total time left of the shape.
+    /// The total time left. Wire form: a bool, then the value when it is set.
     pub total_time_left: Option<f32>,
-    /// `MaxRenderDistance` is the maximum distance the shape should render from the camera.
+    /// The max render distance. Wire form: a bool, then the value when it is set.
     pub max_render_distance: Option<f32>,
-    /// Colour is the ARGB colour of the shape.
+    /// The colour. Wire form: a bool, then the value when it is set.
     pub colour: Option<Rgba>,
-    /// `ExtraShapeData` holding data specific to the type of shape (such as text string for the text shape).
+    /// The extra shape data. Wire form: `ShapeData`.
     pub extra_shape_data: ShapeData,
 }
 
@@ -6144,14 +6186,14 @@ impl Codec for PrimitiveShape {
     }
 }
 
-/// `PyramidShape` represents a pyramid debug shape.
+/// gophertunnel `protocol.PyramidShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PyramidShape {
-    /// Width is the width along the X axis of the pyramid base.
+    /// The width. Wire form: `Float32`.
     pub width: f32,
-    /// Depth is the optional depth along the Z axis of the pyramid base. It defaults to Width if unset.
+    /// The depth. Wire form: a bool, then the value when it is set.
     pub depth: Option<f32>,
-    /// Height is the height of the pyramid.
+    /// The height. Wire form: `Float32`.
     pub height: f32,
 }
 
@@ -6175,14 +6217,14 @@ impl Codec for PyramidShape {
     }
 }
 
-/// `RaidUpdateEvent` is an event used to update a raids progress client side.
+/// gophertunnel `protocol.RaidUpdateEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RaidUpdateEvent {
-    /// `CurrentRaidWave` ...
+    /// The current raid wave. Wire form: `Varint32`.
     pub current_raid_wave: i32,
-    /// `TotalRaidWaves` ...
+    /// The total raid waves. Wire form: `Varint32`.
     pub total_raid_waves: i32,
-    /// `WonRaid` ...
+    /// The won raid. Wire form: `Bool`.
     pub won_raid: bool,
 }
 
@@ -6203,12 +6245,12 @@ impl Codec for RaidUpdateEvent {
     }
 }
 
-/// `RecipeUnlockRequirement` represents a requirement that must be met in order to unlock a recipe. This is used for both shaped and shapeless recipes.
+/// gophertunnel `protocol.RecipeUnlockRequirement`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RecipeUnlockRequirement {
-    /// Context is the context in which the recipe is unlocked. This is one of the constants above.
+    /// The context. Wire form: `Varint32`.
     pub context: i32,
-    /// Ingredients are the ingredients required to unlock the recipe and only used if Context is set to none.
+    /// The ingredients. Wire form: a list after a `varuint32` count. Mojang limit: 128 elements.
     pub ingredients: Vec<ItemDescriptorCount>,
 }
 
@@ -6220,7 +6262,7 @@ impl Codec for RecipeUnlockRequirement {
         };
         let present: bool = r.bool()?;
         if present {
-            x.ingredients = r.list_varuint32(Reader::item_descriptor_count)?;
+            x.ingredients = r.list_varuint32_max(128, Reader::item_descriptor_count)?;
         }
         Ok(x)
     }
@@ -6239,16 +6281,16 @@ impl Codec for RecipeUnlockRequirement {
     }
 }
 
-/// `ReleaseItemTransactionData` represents an inventory transaction data object sent when the client releases the item it was using, for example when stopping while eating or stopping the charging of a bow.
+/// gophertunnel `protocol.ReleaseItemTransactionData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ReleaseItemTransactionData {
-    /// `ActionType` is the type of the `ReleaseItem` inventory transaction. It is one of the action types found in the constants above, and specifies the way the item was released. As of 1.13, the `ActionType` is always 0. This field can be ignored, because releasing food (by consuming it) or releasing a bow (to shoot an arrow) is essentially the same.
+    /// The action type. Wire form: `Varint32`.
     pub action_type: i32,
-    /// `HotBarSlot` is the hot bar slot that the player was holding while releasing the item. It should be used to ensure that the hot bar slot and held item are correctly synchronised with the server.
+    /// The hot bar slot. Wire form: `Varint32`.
     pub hot_bar_slot: i32,
-    /// `HeldItem` is the item that was released. The server should check if this item is actually present in the `HotBarSlot`.
+    /// The held item. Wire form: `ItemInstance`.
     pub held_item: ItemInstance,
-    /// `HeadPosition` is the position of the player's head at the time of releasing the item. This is used mainly for purposes such as spawning eating particles at that position.
+    /// The head position. Wire form: `Vec3`.
     pub head_position: [f32; 3],
 }
 
@@ -6271,20 +6313,20 @@ impl Codec for ReleaseItemTransactionData {
     }
 }
 
-/// `ScoreboardEntry` represents a single entry that may be found on a scoreboard. These entries represent a line on the scoreboard each.
+/// gophertunnel `protocol.ScoreboardEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScoreboardEntry {
-    /// `EntryID` is a unique identifier of this entry. Each entry that represents a different value should get its own entry ID. When modifying a scoreboard, entries that represent the same line should have the same entry ID.
+    /// The entry ID. Wire form: `Varint64`.
     pub entry_id: i64,
-    /// `ObjectiveName` is the name of the objective that this scoreboard entry is for. It must be identical to the one set in the `SetDisplayObjective` packet previously sent.
+    /// The objective name. Wire form: `String`.
     pub objective_name: String,
-    /// Score is the score that the entry represents. Scoreboard entries are ordered using this score, so in order to get the scoreboard to be ordered as expected when trying to write non-score related text on a scoreboard, this score should be incremented for each entry.
+    /// The score. Wire form: `Int32`.
     pub score: i32,
-    /// `IdentityType` is the identity type of the scoreboard entry. The entry may represent an entity, player or a fake player, as the constants above indicate. In order to write plain text to the scoreboard, `ScoreboardIdentityFakePlayer` should always be used, in combination with the `DisplayName` field. A different identity type will use the name of the entity.
+    /// The identity type.
     pub identity_type: u8,
-    /// `EntityUniqueID` is the unique ID of either the player or the entity represented by the scoreboard entry. This field is only used if `IdentityType` is either `ScoreboardIdentityEntity` or `ScoreboardIdentityPlayer`.
+    /// The entity unique ID. Wire form: `ActorUniqueID`.
     pub entity_unique_id: i64,
-    /// `DisplayName` is the custom name of the scoreboard entry. This field is only used if `IdentityType` is `ScoreboardIdentityFakePlayer`. If this identity type is not used, the name of the entity/player will be shown instead.
+    /// The display name. Wire form: `String`.
     pub display_name: String,
 }
 
@@ -6365,12 +6407,12 @@ impl Codec for ScoreboardEntry {
     }
 }
 
-/// `ScoreboardIdentityEntry` holds an entry to either associate an identity with one of the entries in a scoreboard, or to remove associations.
+/// gophertunnel `protocol.ScoreboardIdentityEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScoreboardIdentityEntry {
-    /// `EntryID` is the unique identifier of the entry that the identity should be associated with, or that associations should be cleared from.
+    /// The entry ID. Wire form: `Varint64`.
     pub entry_id: i64,
-    /// `EntityUniqueID` is the optional unique ID that the entry should be associated with.
+    /// The entity unique ID. Wire form: a bool, then the value when it is set.
     pub entity_unique_id: Option<i64>,
 }
 
@@ -6396,18 +6438,18 @@ impl Codec for ScoreboardIdentityEntry {
     }
 }
 
-/// `ServerJoinInformation` contains optional information about the server the player is joining.
+/// gophertunnel `protocol.ServerJoinInformation`.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[expect(
     clippy::struct_field_names,
     reason = "consistency: field names mirror gophertunnel"
 )]
 pub struct ServerJoinInformation {
-    /// `GatheringJoinInfo` is optional information about the gathering being joined.
+    /// The gathering join info. Wire form: a bool, then the value when it is set.
     pub gathering_join_info: Option<GatheringJoinInfo>,
-    /// `StoreEntryPointInfo` is optional information about the store entry point.
+    /// The store entry point info. Wire form: a bool, then the value when it is set.
     pub store_entry_point_info: Option<StoreEntryPointInfo>,
-    /// `PresenceInfo` is optional presence information.
+    /// The presence info. Wire form: a bool, then the value when it is set.
     pub presence_info: Option<PresenceInfo>,
 }
 
@@ -6449,7 +6491,7 @@ impl Codec for ServerJoinInformation {
     }
 }
 
-/// `ShapeData` represents an object that holds data specific to a debug shape. The data it holds depends on the type.
+/// gophertunnel `protocol.ShapeData`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShapeData {
     /// The [`LastShape`] variant.
@@ -6547,7 +6589,7 @@ impl ShapeData {
     }
 }
 
-/// `ShapedChemistryRecipe` is a recipe specifically made for chemistry related features, which exist only in the Education Edition. It functions the same as a normal `ShapedRecipe`.
+/// gophertunnel `protocol.ShapedChemistryRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ShapedChemistryRecipe {
     /// The shaped recipe.
@@ -6567,30 +6609,30 @@ impl Codec for ShapedChemistryRecipe {
     }
 }
 
-/// `ShapedRecipe` is a recipe that has a specific shape that must be used to craft the output of the recipe. Trying to craft the item in any other shape will not work. The `ShapedRecipe` is of the same structure as the `ShapedChemistryRecipe`.
+/// gophertunnel `protocol.ShapedRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ShapedRecipe {
-    /// `RecipeID` is a unique ID of the recipe. This ID must be unique amongst all other types of recipes too, but its functionality is not exactly known.
+    /// The recipe ID.
     pub recipe_id: String,
-    /// Width is the width of the recipe's shape.
+    /// The width.
     pub width: i32,
-    /// Height is the height of the recipe's shape.
+    /// The height.
     pub height: i32,
-    /// Input is a list of items that serve as the input of the shapeless recipe. These items are the items required to craft the output. The amount of input items must be exactly equal to Width \* Height.
+    /// The input. Mojang limit: 128 elements.
     pub input: Vec<ItemDescriptorCount>,
-    /// Output is a list of items that are created as a result of crafting the recipe.
+    /// The output.
     pub output: Vec<ItemStack>,
-    /// UUID is a UUID identifying the recipe. Since the `CraftingEvent` packet no longer exists, this can always be empty.
+    /// The UUID.
     pub uuid: Uuid,
-    /// Block is the block name that is required to craft the output of the recipe. The block is not prefixed with 'minecraft:', so it will look like '`crafting_table`' as an example.
+    /// The block.
     pub block: String,
-    /// Priority ...
+    /// The priority.
     pub priority: i32,
-    /// `AssumeSymmetry` specifies if the recipe is symmetrical. If this is set to true, the recipe will be mirrored along the diagonal axis. This means that the recipe will be the same if rotated 180 degrees.
+    /// The assume symmetry.
     pub assume_symmetry: bool,
     /// The unlock requirement.
     pub unlock_requirement: Option<RecipeUnlockRequirement>,
-    /// `RecipeNetworkID` is a unique ID used to identify the recipe over network. Each recipe must have a unique network ID. Recommended is to just increment a variable for each unique recipe registered. This field must never be 0.
+    /// The recipe network ID.
     pub recipe_network_id: u32,
 }
 
@@ -6607,7 +6649,7 @@ impl Codec for ShapedRecipe {
     }
 }
 
-/// `ShapelessChemistryRecipe` is a recipe specifically made for chemistry related features, which exist only in the Education Edition. They function the same as shapeless recipes do.
+/// gophertunnel `protocol.ShapelessChemistryRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ShapelessChemistryRecipe {
     /// The shapeless recipe.
@@ -6627,24 +6669,24 @@ impl Codec for ShapelessChemistryRecipe {
     }
 }
 
-/// `ShapelessRecipe` is a recipe that has no particular shape. Its functionality is shared with the `UserDataShapelessRecipe` and `ShapelessChemistryRecipe` types.
+/// gophertunnel `protocol.ShapelessRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ShapelessRecipe {
-    /// `RecipeID` is a unique ID of the recipe. This ID must be unique amongst all other types of recipes too, but its functionality is not exactly known.
+    /// The recipe ID.
     pub recipe_id: String,
-    /// Input is a list of items that serve as the input of the shapeless recipe. These items are the items required to craft the output.
+    /// The input. Mojang limit: 128 elements.
     pub input: Vec<ItemDescriptorCount>,
-    /// Output is a list of items that are created as a result of crafting the recipe.
+    /// The output.
     pub output: Vec<ItemStack>,
-    /// UUID is a UUID identifying the recipe. Since the `CraftingEvent` packet no longer exists, this can always be empty.
+    /// The UUID.
     pub uuid: Uuid,
-    /// Block is the block name that is required to craft the output of the recipe. The block is not prefixed with 'minecraft:', so it will look like '`crafting_table`' as an example. The available blocks are: - `crafting_table` - `cartography_table` - stonecutter - furnace - `blast_furnace` - smoker - campfire
+    /// The block.
     pub block: String,
-    /// Priority ...
+    /// The priority.
     pub priority: i32,
     /// The unlock requirement.
     pub unlock_requirement: Option<RecipeUnlockRequirement>,
-    /// `RecipeNetworkID` is a unique ID used to identify the recipe over network. Each recipe must have a unique network ID. Recommended is to just increment a variable for each unique recipe registered. This field must never be 0.
+    /// The recipe network ID.
     pub recipe_network_id: u32,
 }
 
@@ -6661,64 +6703,64 @@ impl Codec for ShapelessRecipe {
     }
 }
 
-/// Skin represents the skin of a player as sent over network. The skin holds a texture and a model, and optional animations which may be present when the skin is created using persona or bought from the marketplace.
+/// gophertunnel `protocol.Skin`.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[expect(
     clippy::struct_field_names,
     reason = "consistency: field names mirror gophertunnel"
 )]
 pub struct Skin {
-    /// `SkinID` is a unique ID produced for the skin, for example '`c18e65aa-7b21-4637-9b63-8ad63622ef01_Alex`' for the default Alex skin.
+    /// The skin ID. Wire form: `String`.
     pub skin_id: String,
-    /// `PlayFabID` is the `PlayFab` ID produced for the skin. `PlayFab` is the company that hosts the Marketplace, skins and other related features from the game. This ID is the ID of the skin used to store the skin inside of `PlayFab`.
+    /// The `PlayFab` ID. Wire form: `String`.
     pub playfab_id: String,
-    /// `SkinResourcePatch` is a JSON encoded object holding some fields that point to the geometry that the skin has. The JSON object that this holds specifies the way that the geometry of animations and the default skin of the player are combined.
+    /// The skin resource patch. Wire form: `ByteSlice`.
     pub skin_resource_patch: Vec<u8>,
-    /// `SkinImageWidth` and `SkinImageHeight` hold the dimensions of the skin image. Note that these are not the dimensions in bytes, but in pixels.
+    /// The skin image width. Wire form: `Uint32`.
     pub skin_image_width: u32,
-    /// `SkinImageWidth` and `SkinImageHeight` hold the dimensions of the skin image. Note that these are not the dimensions in bytes, but in pixels.
+    /// The skin image height. Wire form: `Uint32`.
     pub skin_image_height: u32,
-    /// `SkinData` is a byte slice of `SkinImageWidth` \* `SkinImageHeight` bytes. It is an RGBA ordered byte representation of the skin pixels.
+    /// The skin data. Wire form: `ByteSlice`. Mojang limit: 67108864 bytes.
     pub skin_data: Vec<u8>,
-    /// Animations is a list of all animations that the skin has.
+    /// The animations. Wire form: a list after a `varuint32` count.
     pub animations: Vec<SkinAnimation>,
-    /// `CapeImageWidth` and `CapeImageHeight` hold the dimensions of the cape image. Note that these are not the dimensions in bytes, but in pixels.
+    /// The cape image width. Wire form: `Uint32`.
     pub cape_image_width: u32,
-    /// `CapeImageWidth` and `CapeImageHeight` hold the dimensions of the cape image. Note that these are not the dimensions in bytes, but in pixels.
+    /// The cape image height. Wire form: `Uint32`.
     pub cape_image_height: u32,
-    /// `CapeData` is a byte slice of 64\*32\*4 bytes. It is a RGBA ordered byte representation of the cape colours, much like the `SkinData`.
+    /// The cape data. Wire form: `ByteSlice`. Mojang limit: 67108864 bytes.
     pub cape_data: Vec<u8>,
-    /// `SkinGeometry` is a JSON encoded structure of the geometry data of a skin, containing properties such as bones, uv, pivot etc.
+    /// The skin geometry. Wire form: `ByteSlice`.
     pub skin_geometry: Vec<u8>,
-    /// TODO: Find out what value `AnimationData` holds and when it does hold something.
+    /// The animation data. Wire form: `ByteSlice`.
     pub animation_data: Vec<u8>,
-    /// `GeometryDataEngineVersion` ...
+    /// The geometry data engine version. Wire form: `ByteSlice`.
     pub geometry_data_engine_version: Vec<u8>,
-    /// `PremiumSkin` specifies if this is a skin that was purchased from the marketplace.
+    /// The premium skin. Wire form: `Bool`.
     pub premium_skin: bool,
-    /// `PersonaSkin` specifies if this is a skin that was created using the in-game skin creator.
+    /// The persona skin. Wire form: `Bool`.
     pub persona_skin: bool,
-    /// `PersonaCapeOnClassicSkin` specifies if the skin had a Persona cape (in-game skin creator cape) equipped on a classic skin.
+    /// The persona cape on classic skin. Wire form: `Bool`.
     pub persona_cape_on_classic_skin: bool,
-    /// `PrimaryUser` ...
+    /// The primary user. Wire form: `Bool`.
     pub primary_user: bool,
-    /// `CapeID` is a unique identifier that identifies the cape. It usually holds a UUID in it.
+    /// The cape ID. Wire form: `String`.
     pub cape_id: String,
-    /// `FullID` is an ID that represents the skin in full. The actual functionality is unknown: The client does not seem to send a value for this.
+    /// The full ID. Wire form: `String`.
     pub full_id: String,
-    /// The skin colour.
+    /// The skin colour. Wire form: `BEARGB`.
     pub skin_colour: Rgba,
-    /// `ArmSize` is the size of the arms of the player's model. This is one of the `ArmSize` constants above.
+    /// The arm size. Wire form: `Uint8`. Values: [`ArmSize`](super::consts::ArmSize).
     pub arm_size: u8,
-    /// `PersonaPieces` is a list of all persona pieces that the skin is composed of.
+    /// The persona pieces. Wire form: a list after a `varuint32` count.
     pub persona_pieces: Vec<PersonaPiece>,
-    /// `PieceTintColours` is a list of specific tint colours for (some of) the persona pieces found in the list above.
+    /// The piece tint colours. Wire form: a list after a `varuint32` count.
     pub piece_tint_colours: Vec<PersonaPieceTintColour>,
-    /// Trusted specifies if the skin is 'trusted'. No code should rely on this field, as any proxy or client can easily change it.
+    /// The trusted.
     pub trusted: bool,
-    /// `OverrideAppearance` specifies if the skin should override the player's skin that is equipped client-side. When false, the client will reject the skin and continue to use the skin that the player has equipped.
+    /// The override appearance. Wire form: `Bool`.
     pub override_appearance: bool,
-    /// The profile hash.
+    /// The profile hash. Wire form: `String`.
     pub profile_hash: String,
 }
 
@@ -6730,11 +6772,11 @@ impl Codec for Skin {
             skin_resource_patch: r.byte_slice()?,
             skin_image_width: r.uint32()?,
             skin_image_height: r.uint32()?,
-            skin_data: r.byte_slice()?,
+            skin_data: r.byte_slice_max(67_108_864)?,
             animations: r.list_varuint32(SkinAnimation::decode)?,
             cape_image_width: r.uint32()?,
             cape_image_height: r.uint32()?,
-            cape_data: r.byte_slice()?,
+            cape_data: r.byte_slice_max(67_108_864)?,
             skin_geometry: r.byte_slice()?,
             geometry_data_engine_version: r.byte_slice()?,
             animation_data: r.byte_slice()?,
@@ -6813,20 +6855,20 @@ impl Codec for Skin {
     }
 }
 
-/// `SkinAnimation` represents an animation that may be added to a skin. The client plays the animation itself, without the server having to do so. The rate at which these animations play appears to be decided by the client.
+/// gophertunnel `protocol.SkinAnimation`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SkinAnimation {
-    /// `ImageWidth` and `ImageHeight` hold the dimensions of the animation image. Note that these are not the dimensions in bytes, but in pixels.
+    /// The image width. Wire form: `Uint32`.
     pub image_width: u32,
-    /// `ImageWidth` and `ImageHeight` hold the dimensions of the animation image. Note that these are not the dimensions in bytes, but in pixels.
+    /// The image height. Wire form: `Uint32`.
     pub image_height: u32,
-    /// `ImageData` is a byte slice of `ImageWidth` \* `ImageHeight` bytes. It is an RGBA ordered byte representation of the animation image pixels. The `ImageData` contains `FrameCount` images in it, which each represent one stage of the animation. The actual part of the skin that this field holds depends on the `AnimationType`, where `SkinAnimationHead` holds only the head and its hat, whereas the other animations hold the entire body of the skin.
+    /// The image data. Wire form: `ByteSlice`. Mojang limit: 67108864 bytes.
     pub image_data: Vec<u8>,
-    /// `AnimationType` is the type of the animation, which is one of the types found above. The data that `ImageData` contains depends on this type.
+    /// The animation type. Wire form: `Varuint32`.
     pub animation_type: u32,
-    /// `FrameCount` is the amount of frames that the skin animation holds. The number of frames here is the amount of images that may be found in the `ImageData` field.
+    /// The frame count. Wire form: `Float32`.
     pub frame_count: f32,
-    /// `ExpressionType` is the type of expression made by the skin, which is one the types found above.
+    /// The expression type. Wire form: `Varuint32`. Values: [`ExpressionType`](super::consts::ExpressionType).
     pub expression_type: u32,
 }
 
@@ -6835,7 +6877,7 @@ impl Codec for SkinAnimation {
         Ok(Self {
             image_width: r.uint32()?,
             image_height: r.uint32()?,
-            image_data: r.byte_slice()?,
+            image_data: r.byte_slice_max(67_108_864)?,
             animation_type: r.varuint32()?,
             frame_count: r.float32()?,
             expression_type: r.varuint32()?,
@@ -6853,16 +6895,16 @@ impl Codec for SkinAnimation {
     }
 }
 
-/// `SlashCommandExecutedEvent` is the event data sent when a slash command is executed.
+/// gophertunnel `protocol.SlashCommandExecutedEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SlashCommandExecutedEvent {
-    /// `SuccessCount` ...
+    /// The success count. Wire form: `Varint32`.
     pub success_count: i32,
-    /// `MessageCount` indicates the amount of `OutputMessages` present.
+    /// The message count. Wire form: `Varint32`.
     pub message_count: i32,
-    /// `CommandName` ...
+    /// The command name. Wire form: `String`. Mojang limit: 1000 bytes.
     pub command_name: String,
-    /// `OutputMessages` is a list of messages joint with ;.
+    /// The output messages. Wire form: `String`. Mojang limit: 2048 bytes.
     pub output_messages: String,
 }
 
@@ -6871,8 +6913,8 @@ impl Codec for SlashCommandExecutedEvent {
         Ok(Self {
             success_count: r.varint32()?,
             message_count: r.varint32()?,
-            command_name: r.string()?,
-            output_messages: r.string()?,
+            command_name: r.string_max(1000)?,
+            output_messages: r.string_max(2048)?,
         })
     }
 
@@ -6885,22 +6927,22 @@ impl Codec for SlashCommandExecutedEvent {
     }
 }
 
-/// `SmithingTransformRecipe` is a recipe specifically used for smithing tables. It has three input items and adds them together, resulting in a new item.
+/// gophertunnel `protocol.SmithingTransformRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SmithingTransformRecipe {
-    /// `RecipeNetworkID` is a unique ID used to identify the recipe over network. Each recipe must have a unique network ID. Recommended is to just increment a variable for each unique recipe registered. This field must never be 0.
+    /// The recipe network ID. Wire form: `Varuint32`.
     pub recipe_network_id: u32,
-    /// `RecipeID` is a unique ID of the recipe. This ID must be unique amongst all other types of recipes too, but its functionality is not exactly known.
+    /// The recipe ID. Wire form: `String`.
     pub recipe_id: String,
-    /// Template is the item that is used to shape the Base item based on the Addition being applied.
+    /// The template. Wire form: `ItemDescriptorCount`.
     pub template: ItemDescriptorCount,
-    /// Base is the item that the Addition is being applied to in the smithing table.
+    /// The base. Wire form: `ItemDescriptorCount`.
     pub base: ItemDescriptorCount,
-    /// Addition is the item that is being added to the Base item to result in a modified item.
+    /// The addition. Wire form: `ItemDescriptorCount`.
     pub addition: ItemDescriptorCount,
-    /// Result is the resulting item from the two items being added together.
+    /// The result. Wire form: `Item`.
     pub result: ItemStack,
-    /// Block is the block name that is required to create the output of the recipe. The block is not prefixed with 'minecraft:', so it will look like '`smithing_table`' as an example.
+    /// The block. Wire form: `String`.
     pub block: String,
 }
 
@@ -6929,20 +6971,20 @@ impl Codec for SmithingTransformRecipe {
     }
 }
 
-/// `SmithingTrimRecipe` is a recipe specifically used for applying armour trims to an armour piece inside a smithing table.
+/// gophertunnel `protocol.SmithingTrimRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SmithingTrimRecipe {
-    /// `RecipeNetworkID` is a unique ID used to identify the recipe over network. Each recipe must have a unique network ID. Recommended is to just increment a variable for each unique recipe registered. This field must never be 0.
+    /// The recipe network ID. Wire form: `Varuint32`.
     pub recipe_network_id: u32,
-    /// `RecipeID` is a unique ID of the recipe. This ID must be unique amongst all other types of recipes too, but its functionality is not exactly known.
+    /// The recipe ID. Wire form: `String`.
     pub recipe_id: String,
-    /// Template is the item that is used to shape the Base item based on the Addition being applied.
+    /// The template. Wire form: `ItemDescriptorCount`.
     pub template: ItemDescriptorCount,
-    /// Base is the item that the Addition is being applied to in the smithing table.
+    /// The base. Wire form: `ItemDescriptorCount`.
     pub base: ItemDescriptorCount,
-    /// Addition is the item that is being added to the Base item to result in a modified item.
+    /// The addition. Wire form: `ItemDescriptorCount`.
     pub addition: ItemDescriptorCount,
-    /// Block is the block name that is required to create the output of the recipe. The block is not prefixed with 'minecraft:', so it will look like '`smithing_table`' as an example.
+    /// The block. Wire form: `String`.
     pub block: String,
 }
 
@@ -6969,7 +7011,7 @@ impl Codec for SmithingTrimRecipe {
     }
 }
 
-/// `SneakCloseToSculkSensorEvent` is an event sent by the server when a player sneaks close to a sculk sensor.
+/// gophertunnel `protocol.SneakCloseToSculkSensorEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SneakCloseToSculkSensorEvent {}
 
@@ -6983,20 +7025,20 @@ impl Codec for SneakCloseToSculkSensorEvent {
     }
 }
 
-/// `SoundDataUpdate` is a single change to a sound that is currently playing.
+/// gophertunnel `protocol.SoundDataUpdate`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SoundDataUpdate {
-    /// Type is the type of the update. It is one of the `SoundDataUpdate` constants above.
+    /// The type. Wire form: `Varuint32`.
     pub r#type: u32,
-    /// Volume is used if Type is `SoundDataUpdateSetVolume`.
+    /// The volume. Wire form: `Float32`.
     pub volume: f32,
-    /// Pitch is used if Type is `SoundDataUpdateSetPitch`.
+    /// The pitch. Wire form: `Float32`.
     pub pitch: f32,
-    /// Duration is the fade duration in seconds. It is used if Type is `SoundDataUpdateFade`.
+    /// The duration. Wire form: `Float32`.
     pub duration: f32,
-    /// `TargetVolume` is the fade target volume. It is used if Type is `SoundDataUpdateFade`.
+    /// The target volume. Wire form: `Float32`.
     pub target_volume: f32,
-    /// Seconds is the position to seek to. It is used if Type is `SoundDataUpdateSeekTo`.
+    /// The seconds. Wire form: `Float32`.
     pub seconds: f32,
 }
 
@@ -7059,10 +7101,10 @@ impl Codec for SoundDataUpdate {
     }
 }
 
-/// `SphereShape` represents a circle or sphere debug shape.
+/// gophertunnel `protocol.SphereShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SphereShape {
-    /// Segments is the segments that used for the debug circle or sphere.
+    /// The segments. Wire form: `Uint8`.
     pub segments: u8,
 }
 
@@ -7079,7 +7121,7 @@ impl Codec for SphereShape {
     }
 }
 
-/// `StackRequestAction` represents a single action related to the inventory present in an `ItemStackRequest`. The action is one of the concrete types below, each of which are indicative of a different action by the client, such as moving an item around the inventory or placing a block. It is an alias of Marshaler.
+/// gophertunnel `protocol.StackRequestAction`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackRequestAction {
     /// The [`TakeStackRequestAction`] variant.
@@ -7243,25 +7285,25 @@ impl StackRequestAction {
     }
 }
 
-/// `StackRequestSlotInfo` holds information on a specific slot client-side.
+/// gophertunnel `protocol.StackRequestSlotInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StackRequestSlotInfo {
-    /// Container is the `FullContainerName` that describes the container that the slot is in.
+    /// The container.
     pub container: FullContainerName,
-    /// Slot is the index of the slot within the container with the `ContainerID` above.
+    /// The slot.
     pub slot: u8,
-    /// `StackNetworkID` is the unique stack ID that the client assumes to be present in this slot. The server must check if these `IDs` match. If they do not match, servers should reject the stack request that the action holding this info was in.
+    /// The stack network ID.
     pub stack_network_id: i32,
 }
 
-/// `StackResourcePack` represents a resource pack sent on the stack of the client. When sent, the client will apply them in the order of the stack sent.
+/// gophertunnel `protocol.StackResourcePack`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StackResourcePack {
-    /// UUID is the UUID of the resource pack. Each resource pack downloaded must have a different UUID in order for the client to be able to handle them properly.
+    /// The UUID. Wire form: `String`.
     pub uuid: String,
-    /// Version is the version of the resource pack. The client will cache resource packs sent by the server as long as they carry the same version. Sending a resource pack with a different version than previously will force the client to re-download it.
+    /// The version. Wire form: `String`.
     pub version: String,
-    /// `SubPackName` ...
+    /// The sub pack name. Wire form: `String`.
     pub sub_pack_name: String,
 }
 
@@ -7282,12 +7324,12 @@ impl Codec for StackResourcePack {
     }
 }
 
-/// `StackResponseContainerInfo` holds information on what slots in a container have what item stack in them.
+/// gophertunnel `protocol.StackResponseContainerInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StackResponseContainerInfo {
-    /// Container is the `FullContainerName` that describes the container that the slots that follow are in. For the main inventory, the `ContainerID` seems to be 0x1b. Fur the cursor, this value seems to be 0x3a. For the crafting grid, this value seems to be 0x0d.
+    /// The container.
     pub container: FullContainerName,
-    /// `SlotInfo` holds information on what item stack should be present in specific slots in the container.
+    /// The slot info. Wire form: a list after a `varuint32` count.
     pub slot_info: Vec<StackResponseSlotInfo>,
 }
 
@@ -7309,22 +7351,22 @@ impl Codec for StackResponseContainerInfo {
     }
 }
 
-/// `StackResponseSlotInfo` holds information on what item stack should be present in a specific slot.
+/// gophertunnel `protocol.StackResponseSlotInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StackResponseSlotInfo {
-    /// Slot and `HotbarSlot` seem to be the same value every time: The slot that was actually changed. I'm not sure if these slots ever differ.
+    /// The slot. Wire form: `Uint8`.
     pub slot: u8,
-    /// Slot and `HotbarSlot` seem to be the same value every time: The slot that was actually changed. I'm not sure if these slots ever differ.
+    /// The hotbar slot. Wire form: `Uint8`.
     pub hotbar_slot: u8,
-    /// Count is the total count of the item stack. This count will be shown client-side after the response is sent to the client.
+    /// The count. Wire form: `Uint8`.
     pub count: u8,
-    /// `StackNetworkID` is the network ID of the new stack at a specific slot.
+    /// The stack network ID.
     pub stack_network_id: i32,
-    /// `CustomName` is the custom name of the item stack. It is used in relation to text filtering.
+    /// The custom name. Wire form: `String`.
     pub custom_name: String,
-    /// `FilteredCustomName` is a filtered version of `CustomName` with all the profanity removed. The client will use this over `CustomName` if present and they have the "Filter Profanity" setting enabled.
+    /// The filtered custom name. Wire form: a bool, then the value when it is set.
     pub filtered_custom_name: Option<String>,
-    /// `DurabilityCorrection` is the current durability of the item stack. This durability will be shown client-side after the response is sent to the client.
+    /// The durability correction. Wire form: `Varint32`.
     pub durability_correction: i32,
 }
 
@@ -7380,12 +7422,12 @@ impl Codec for StackResponseSlotInfo {
     }
 }
 
-/// `StoreEntryPointInfo` contains information about the store entry point.
+/// gophertunnel `protocol.StoreEntryPointInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StoreEntryPointInfo {
-    /// `StoreID` is the store identifier.
+    /// The store ID. Wire form: `String`.
     pub store_id: String,
-    /// `StoreName` is the store name.
+    /// The store name. Wire form: `String`.
     pub store_name: String,
 }
 
@@ -7404,7 +7446,7 @@ impl Codec for StoreEntryPointInfo {
     }
 }
 
-/// `StriderRiddenInLavaInOverworldEvent` is an event sent by the server when a strider is ridden in lava in the overworld.
+/// gophertunnel `protocol.StriderRiddenInLavaInOverworldEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StriderRiddenInLavaInOverworldEvent {}
 
@@ -7418,43 +7460,43 @@ impl Codec for StriderRiddenInLavaInOverworldEvent {
     }
 }
 
-/// `StructureSettings` is a struct holding settings of a structure block. Its fields may be changed using the in-game UI on the client-side.
+/// gophertunnel `protocol.StructureSettings`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StructureSettings {
-    /// `PaletteName` is the name of the palette used in the structure. Currently, it seems that this field is always 'default'.
+    /// The palette name. Wire form: `String`. Mojang limit: 256 bytes.
     pub palette_name: String,
-    /// `IgnoreEntities` specifies if the structure should ignore entities or include them. If set to false, entities will also show up in the exported structure.
+    /// The ignore entities. Wire form: `Bool`.
     pub ignore_entities: bool,
-    /// `IgnoreBlocks` specifies if the structure should ignore blocks or include them. If set to false, blocks will show up in the exported structure.
+    /// The ignore blocks. Wire form: `Bool`.
     pub ignore_blocks: bool,
-    /// `AllowNonTickingChunks` specifies if the structure should allow non-ticking chunks. If set to false, the structure will export non-ticking chunks.
+    /// The allow non ticking chunks. Wire form: `Bool`.
     pub allow_non_ticking_chunks: bool,
-    /// Size is the size of the area that is about to be exported. The area exported will start at the Position + Offset, and will extend as far as Size specifies.
+    /// The size. Wire form: `BlockPos`.
     pub size: BlockPos,
-    /// Offset is the offset position that was set in the structure block. The area exported is offset by this position.
+    /// The offset. Wire form: `BlockPos`.
     pub offset: BlockPos,
-    /// `LastEditingPlayerUniqueID` is the unique ID of the player that last edited the structure block that these settings concern.
+    /// The last editing player unique ID. Wire form: `ActorUniqueID`.
     pub last_editing_player_unique_id: i64,
-    /// Rotation is the rotation that the structure block should obtain. See the constants above for available options.
+    /// The rotation. Wire form: `Uint8`.
     pub rotation: u8,
-    /// Mirror specifies the way the structure should be mirrored. It is either no mirror at all, mirror on the x/z axis or both.
+    /// The mirror. Wire form: `Uint8`.
     pub mirror: u8,
-    /// `AnimationMode` ...
+    /// The animation mode. Wire form: `Uint8`. Values: [`AnimationMode`](super::consts::AnimationMode).
     pub animation_mode: u8,
-    /// `AnimationDuration` ...
+    /// The animation duration. Wire form: `Float32`.
     pub animation_duration: f32,
-    /// Integrity is usually 1, but may be set to a number between 0 and 1 to omit blocks randomly, using the Seed that follows.
+    /// The integrity. Wire form: `Float32`.
     pub integrity: f32,
-    /// Seed is the seed used to omit blocks if Integrity is not equal to one. If the Seed is 0, a random seed is selected to omit blocks.
+    /// The seed. Wire form: `Uint32`.
     pub seed: u32,
-    /// Pivot is the pivot around which the structure may be rotated.
+    /// The pivot. Wire form: `Vec3`.
     pub pivot: [f32; 3],
 }
 
 impl Codec for StructureSettings {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            palette_name: r.string()?,
+            palette_name: r.string_max(256)?,
             ignore_entities: r.bool()?,
             ignore_blocks: r.bool()?,
             allow_non_ticking_chunks: r.bool()?,
@@ -7490,24 +7532,24 @@ impl Codec for StructureSettings {
     }
 }
 
-/// `SubChunkEntry` contains the data of a sub-chunk entry relative to a center sub chunk position, used for the sub-chunk requesting system introduced in v1.18.10.
+/// gophertunnel `protocol.SubChunkEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SubChunkEntry {
-    /// Offset contains the offset between the sub-chunk position and the center position.
+    /// The offset.
     pub offset: SubChunkOffset,
-    /// Result is always one of the constants defined in the `SubChunkResult` constants.
+    /// The result. Wire form: `Uint8`.
     pub result: u8,
-    /// `RawPayload` contains the serialized sub-chunk data, if present.
+    /// The raw payload. Wire form: a bool, then the value when it is set.
     pub raw_payload: Option<Vec<u8>>,
-    /// `HeightMapType` is always one of the constants defined in the `HeightMapData` constants.
+    /// The height map type. Wire form: `Uint8`.
     pub height_map_type: u8,
-    /// `HeightMapData` is the data for the height map, if present.
+    /// The height map data. Wire form: a bool, then the value when it is set.
     pub height_map_data: Option<HeightMap>,
-    /// `RenderHeightMapType` is always one of the constants defined in the `HeightMapData` constants.
+    /// The render height map type. Wire form: `Uint8`.
     pub render_height_map_type: u8,
-    /// `RenderHeightMapData` is the data for the render height map, if present.
+    /// The render height map data. Wire form: a bool, then the value when it is set.
     pub render_height_map_data: Option<HeightMap>,
-    /// `BlobHash` is the hash of the blob, if present.
+    /// The blob hash. Wire form: a bool, then the value when it is set.
     pub blob_hash: Option<u64>,
 }
 
@@ -7562,7 +7604,7 @@ impl Codec for SubChunkEntry {
     }
 }
 
-/// `SubChunkOffset` represents an offset from the base position of another sub chunk.
+/// gophertunnel `protocol.SubChunkOffset`.
 pub type SubChunkOffset = [i8; 3];
 
 impl Codec for [i8; 3] {
@@ -7582,12 +7624,12 @@ impl Codec for [i8; 3] {
     }
 }
 
-/// `SwapStackRequestAction` is sent by the client to swap the item in its cursor with an item present in another container. The two item stacks swap places.
+/// gophertunnel `protocol.SwapStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SwapStackRequestAction {
-    /// Source and Destination point to the source slot from which Count of the item stack were taken and the destination slot to which this item was moved.
+    /// The source.
     pub source: StackRequestSlotInfo,
-    /// Source and Destination point to the source slot from which Count of the item stack were taken and the destination slot to which this item was moved.
+    /// The destination.
     pub destination: StackRequestSlotInfo,
 }
 
@@ -7606,14 +7648,14 @@ impl Codec for SwapStackRequestAction {
     }
 }
 
-/// `SyncWorldClockStateData` represents the state data for synchronising a world clock.
+/// gophertunnel `protocol.SyncWorldClockStateData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SyncWorldClockStateData {
-    /// `ClockID` is the unique identifier for the clock.
+    /// The clock ID. Wire form: `Varuint64`.
     pub clock_id: u64,
-    /// Time is the current time of the clock.
+    /// The time. Wire form: `Varint32`.
     pub time: i32,
-    /// Paused indicates if the clock is paused.
+    /// The paused. Wire form: `Bool`.
     pub paused: bool,
 }
 
@@ -7634,12 +7676,12 @@ impl Codec for SyncWorldClockStateData {
     }
 }
 
-/// `SystemCategory` maps a diagnostics category name to a system index.
+/// gophertunnel `protocol.SystemCategory`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SystemCategory {
-    /// The category name.
+    /// The category name. Wire form: `String`.
     pub category_name: String,
-    /// The system index.
+    /// The system index. Wire form: `Uint64`.
     pub system_index: u64,
 }
 
@@ -7658,16 +7700,16 @@ impl Codec for SystemCategory {
     }
 }
 
-/// `SystemDiagnosticTimingInfo` represents diagnostics for a specific system index.
+/// gophertunnel `protocol.SystemDiagnosticTimingInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SystemDiagnosticTimingInfo {
-    /// `DisplayName` is the name to display for this timing entry.
+    /// The display name. Wire form: `String`.
     pub display_name: String,
-    /// `SystemIndex` is the index of the system that is being timed.
+    /// The system index. Wire form: `Uint64`.
     pub system_index: u64,
-    /// `DurationNanos` is whole long the timing entry has lasted, in nanoseconds.
+    /// The duration nanos. Wire form: `Uint64`.
     pub duration_nanos: u64,
-    /// `PercentOfTotal` is the percentage of time that this timing entry has used compared to others.
+    /// The percent of total. Wire form: `Uint8`.
     pub percent_of_total: u8,
 }
 
@@ -7690,7 +7732,7 @@ impl Codec for SystemDiagnosticTimingInfo {
     }
 }
 
-/// `TakeStackRequestAction` is sent by the client to the server to take x amount of items from one slot in a container to the cursor.
+/// gophertunnel `protocol.TakeStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TakeStackRequestAction {
     /// The transfer stack request action.
@@ -7710,10 +7752,10 @@ impl Codec for TakeStackRequestAction {
     }
 }
 
-/// `TargetBlockHitEvent` is an event used when a target block is hit by a arrow.
+/// gophertunnel `protocol.TargetBlockHitEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TargetBlockHitEvent {
-    /// `RedstoneLevel` ...
+    /// The redstone level. Wire form: `Varint32`.
     pub redstone_level: i32,
 }
 
@@ -7730,12 +7772,12 @@ impl Codec for TargetBlockHitEvent {
     }
 }
 
-/// `TeleportData` holds the additional information accompanying a `MovePlayer` teleport.
+/// gophertunnel `protocol.TeleportData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TeleportData {
-    /// `TeleportCause` specifies why the teleport occurred. See the `TeleportCause` constants in the packet package.
+    /// The teleport cause. Wire form: `Int32`. Values: [`TeleportCause`](super::consts::TeleportCause).
     pub teleport_cause: i32,
-    /// `TeleportSourceEntityType` is the entity type that caused the teleportation, for example an ender pearl.
+    /// The teleport source entity type. Wire form: `Int32`.
     pub teleport_source_entity_type: i32,
 }
 
@@ -7754,22 +7796,22 @@ impl Codec for TeleportData {
     }
 }
 
-/// `TextShape` represents a text debug shape.
+/// gophertunnel `protocol.TextShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TextShape {
-    /// Text is the text of the debug text shape.
+    /// The text. Wire form: `String`.
     pub text: String,
-    /// `UseRotation` is if the text should use the provided rotation, meaning it will be static and does not follow the camera. Use false for default behaviour.
+    /// The use rotation. Wire form: `Bool`.
     pub use_rotation: bool,
-    /// `BackgroundColour` is the RGBA colour to use for the text background. This is a translucent black colour by default.
+    /// The background colour. Wire form: a bool, then the value when it is set.
     pub background_colour: Option<Rgba>,
-    /// `LineGapHeight` is the gap to leave between each line of multiline text. If not set, the client uses its default gap.
+    /// The line gap height. Wire form: `Float32`.
     pub line_gap_height: f32,
-    /// `DepthTest` is whether the text should show through walls. Use true for default behaviour.
+    /// The depth test. Wire form: `Bool`.
     pub depth_test: bool,
-    /// `ShowBackface` is if the background should render on the back side of the shape. This only has a visible effect when `UseRotation` is true since you cannot see the back side of the text otherwise. Use true for default behaviour.
+    /// The show backface. Wire form: `Bool`.
     pub show_backface: bool,
-    /// `ShowBackfaceText` is if the text should render on the back side of the shape. This only has a visible effect when `UseRotation` is true since you cannot see the back side of the text otherwise. Use true for default behaviour.
+    /// The show backface text. Wire form: `Bool`.
     pub show_backface_text: bool,
 }
 
@@ -7801,28 +7843,28 @@ impl Codec for TextShape {
     }
 }
 
-/// `TexturePackInfo` represents a texture pack's info sent over network. It holds information about the texture pack such as its name, description and version.
+/// gophertunnel `protocol.TexturePackInfo`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TexturePackInfo {
-    /// UUID is the UUID of the texture pack. Each texture pack downloaded must have a different UUID in order for the client to be able to handle them properly.
+    /// The UUID. Wire form: `UUID`.
     pub uuid: Uuid,
-    /// Version is the version of the texture pack. The client will cache texture packs sent by the server as long as they carry the same version. Sending a texture pack with a different version than previously will force the client to re-download it.
+    /// The version. Wire form: `String`.
     pub version: String,
-    /// Size is the total size in bytes that the texture pack occupies. This is the size of the compressed archive (zip) of the texture pack.
+    /// The size. Wire form: `Uint64`.
     pub size: u64,
-    /// `ContentKey` is the key used to decrypt the behaviour pack if it is encrypted. This is generally the case for marketplace texture packs.
+    /// The content key. Wire form: `String`.
     pub content_key: String,
-    /// `SubPackName` ...
+    /// The sub pack name. Wire form: `String`.
     pub sub_pack_name: String,
-    /// `ContentIdentity` is another UUID for the resource pack, and is generally set for marketplace texture packs. It is also required for client-side validations when the resource pack is encrypted.
+    /// The content identity. Wire form: `String`.
     pub content_identity: String,
-    /// `HasScripts` specifies if the texture packs has any scripts in it. A client will only download the behaviour pack if it supports scripts, which, up to 1.11, only includes Windows 10.
+    /// The has scripts. Wire form: `Bool`.
     pub has_scripts: bool,
-    /// `AddonPack` specifies if the texture pack is from an addon.
+    /// The addon pack. Wire form: `Bool`.
     pub addon_pack: bool,
-    /// `RTXEnabled` specifies if the texture pack uses the raytracing technology introduced in 1.16.200.
+    /// The RTX enabled. Wire form: `Bool`.
     pub rtx_enabled: bool,
-    /// `DownloadURL` is a URL that the client can use to download the pack instead of the server sending it in chunks, which it will continue to do if this field is left empty.
+    /// The download URL. Wire form: `String`.
     pub download_url: String,
 }
 
@@ -7857,16 +7899,16 @@ impl Codec for TexturePackInfo {
     }
 }
 
-/// `TimeMarkerData` represents a time marker within a world clock.
+/// gophertunnel `protocol.TimeMarkerData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TimeMarkerData {
-    /// ID is the unique identifier for the time marker.
+    /// The ID. Wire form: `Varuint64`.
     pub id: u64,
-    /// Name is the name of the time marker.
+    /// The name. Wire form: `String`. Mojang limit: 128 bytes.
     pub name: String,
-    /// Time is the time at which the marker is set.
+    /// The time. Wire form: `Varint32`.
     pub time: i32,
-    /// Period is the optional period for the time marker.
+    /// The period. Wire form: a bool, then the value when it is set.
     pub period: Option<i32>,
 }
 
@@ -7874,7 +7916,7 @@ impl Codec for TimeMarkerData {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             id: r.varuint64()?,
-            name: r.string()?,
+            name: r.string_max(128)?,
             time: r.varint32()?,
             period: if r.bool()? { Some(r.int32()?) } else { None },
         })
@@ -7892,14 +7934,14 @@ impl Codec for TimeMarkerData {
     }
 }
 
-/// `TrimMaterial` represents a material that can be used when applying an armour trim.
+/// gophertunnel `protocol.TrimMaterial`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TrimMaterial {
-    /// `MaterialID` is the identifier of the material, for example 'netherite'.
+    /// The material ID. Wire form: `String`.
     pub material_id: String,
-    /// Colour is the colour code used for text formatting, for example '§j'.
+    /// The colour. Wire form: `String`.
     pub colour: String,
-    /// `ItemName` is the identifier of the item that represents the material, for example, '`minecraft:netherite_ingot`'.
+    /// The item name. Wire form: `String`.
     pub item_name: String,
 }
 
@@ -7920,12 +7962,12 @@ impl Codec for TrimMaterial {
     }
 }
 
-/// `TrimPattern` represents a pattern that can be applied to an armour piece in combination with a `TrimMaterial`.
+/// gophertunnel `protocol.TrimPattern`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TrimPattern {
-    /// `ItemName` is the identifier of the item that represents the pattern, for example '`minecraft:wayfinder_armor_trim_smithing_template`'.
+    /// The item name. Wire form: `String`.
     pub item_name: String,
-    /// `PatternID` is the identifier of the pattern, for example, 'wayfinder'.
+    /// The pattern ID. Wire form: `String`.
     pub pattern_id: String,
 }
 
@@ -7944,20 +7986,20 @@ impl Codec for TrimPattern {
     }
 }
 
-/// `UseItemOnEntityTransactionData` represents an inventory transaction data object sent when the client uses an item on an entity.
+/// gophertunnel `protocol.UseItemOnEntityTransactionData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UseItemOnEntityTransactionData {
-    /// `TargetEntityRuntimeID` is the entity runtime ID of the target that was clicked. It is the runtime ID that was assigned to it in the `AddEntity` packet.
+    /// The target entity runtime ID. Wire form: `ActorRuntimeID`.
     pub target_entity_runtime_id: u64,
-    /// `ActionType` is the type of the `UseItemOnEntity` inventory transaction. It is one of the action types found in the constants above, and specifies the way the player interacted with the entity.
+    /// The action type. Wire form: `Varint32`.
     pub action_type: i32,
-    /// `HotBarSlot` is the hot bar slot that the player was holding while clicking the entity. It should be used to ensure that the hot bar slot and held item are correctly synchronised with the server.
+    /// The hot bar slot. Wire form: `Varint32`.
     pub hot_bar_slot: i32,
-    /// `HeldItem` is the item that was held to interact with the entity. The server should check if this item is actually present in the `HotBarSlot`.
+    /// The held item. Wire form: `ItemInstance`.
     pub held_item: ItemInstance,
-    /// Position is the position of the player at the time of clicking the entity.
+    /// The position. Wire form: `Vec3`.
     pub position: [f32; 3],
-    /// `ClickedPosition` is the position that was clicked relative to the entity's base coordinate. It can be used to find out exactly where a player clicked the entity.
+    /// The clicked position. Wire form: `Vec3`.
     pub clicked_position: [f32; 3],
 }
 
@@ -7984,38 +8026,38 @@ impl Codec for UseItemOnEntityTransactionData {
     }
 }
 
-/// `UseItemTransactionData` represents an inventory transaction data object sent when the client uses an item on a block.
+/// gophertunnel `protocol.UseItemTransactionData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UseItemTransactionData {
-    /// `LegacyRequestID` is an ID that is only non-zero at times when sent by the client. The server should always send 0 for this. When this field is not 0, the `LegacySetItemSlots` slice below will have values in it. `LegacyRequestID` ties in with the `ItemStackResponse` packet. If this field is non-0, the server should respond with an `ItemStackResponse` packet. Some inventory actions such as dropping an item out of the hotbar are still one using this packet, and the `ItemStackResponse` packet needs to tie in with it.
+    /// The legacy request ID.
     pub legacy_request_id: i32,
-    /// `LegacySetItemSlots` are only present if the `LegacyRequestID` is non-zero. These item slots inform the server of the slots that were changed during the inventory transaction, and the server should send back an `ItemStackResponse` packet with these slots present in it. (Or false with no slots, if rejected.)
+    /// The legacy set item slots.
     pub legacy_set_item_slots: Option<Vec<LegacySetItemSlot>>,
-    /// Actions is a list of actions that took place, that form the inventory transaction together. Each of these actions hold one slot in which one item was changed to another. In general, the combination of all of these actions results in a balanced inventory transaction. This should be checked to ensure that no items are cheated into the inventory.
+    /// The actions.
     pub actions: Vec<InventoryAction>,
-    /// `ActionType` is the type of the `UseItem` inventory transaction. It is one of the action types found above, and specifies the way the player interacted with the block.
+    /// The action type. Wire form: `Varint32`.
     pub action_type: u32,
-    /// `TriggerType` is the type of the trigger that caused the inventory transaction. It is one of the trigger types found in the constants above. If `TriggerType` is `TriggerTypePlayerInput`, the transaction is from the initial input of the player. If it is `TriggerTypeSimulationTick`, the transaction is from a simulation tick when the player is holding down the input.
+    /// The trigger type. Wire form: `Uint8`. Values: [`TriggerType`](super::consts::TriggerType).
     pub trigger_type: u32,
-    /// `BlockPosition` is the position of the block that was interacted with. This is only really a correct block position if `ActionType` is not `UseItemActionClickAir`.
+    /// The block position. Wire form: `BlockPos`.
     pub block_position: BlockPos,
-    /// `BlockFace` is the face of the block that was interacted with. When clicking the block, it is the face clicked. When breaking the block, it is the face that was last being hit until the block broke.
+    /// The block face. Wire form: `Uint8`.
     pub block_face: i32,
-    /// `HotBarSlot` is the hot bar slot that the player was holding while clicking the block. It should be used to ensure that the hot bar slot and held item are correctly synchronised with the server.
+    /// The hot bar slot. Wire form: `Varint32`.
     pub hot_bar_slot: i32,
-    /// Hand is the hand that the player used to interact with the block. It is one of the `HandSlot` constants above.
+    /// The hand. Wire form: `Uint8`.
     pub hand: u8,
-    /// `HeldItem` is the item that was held to interact with the block. The server should check if this item is actually present in the `HotBarSlot`.
+    /// The held item. Wire form: `ItemInstance`.
     pub held_item: ItemInstance,
-    /// Position is the position of the player at the time of interaction. For clicking a block, this is the position at that time, whereas for breaking the block it is the position at the time of breaking.
+    /// The position. Wire form: `Vec3`.
     pub position: [f32; 3],
-    /// `ClickedPosition` is the position that was clicked relative to the block's base coordinate. It can be used to find out exactly where a player clicked the block.
+    /// The clicked position. Wire form: `Vec3`.
     pub clicked_position: [f32; 3],
-    /// `BlockRuntimeID` is the runtime ID of the block that was clicked. It may be used by the server to verify that the player's world client-side is synchronised with the server's.
+    /// The block runtime ID. Wire form: `Varuint32`.
     pub block_runtime_id: u32,
-    /// `ClientPrediction` is the client's prediction on the output of the transaction. It is one of the client prediction found in the constants above.
+    /// The client prediction. Wire form: `Uint8`. Values: [`ClientPrediction`](super::consts::ClientPrediction).
     pub client_prediction: u8,
-    /// `ClientCooldownState` is the client's cooldown state for the item used. It is one of the `ClientCooldownState` constants above.
+    /// The client cooldown state. Wire form: `Uint8`. Values: [`ClientCooldownState`](super::consts::ClientCooldownState).
     pub client_cooldown_state: u8,
 }
 
@@ -8065,7 +8107,7 @@ impl Codec for UseItemTransactionData {
     }
 }
 
-/// `UserDataShapelessRecipe` is a shapeless recipe for crafting items that must retain their user data, such as their contents or colour, when crafted. Vanilla uses these recipes for dyeing shulker boxes, bundles and harnesses.
+/// gophertunnel `protocol.UserDataShapelessRecipe`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UserDataShapelessRecipe {
     /// The shapeless recipe.
@@ -8085,16 +8127,16 @@ impl Codec for UserDataShapelessRecipe {
     }
 }
 
-/// `VoxelCells` represents a 3D grid of voxel cell data.
+/// gophertunnel `protocol.VoxelCells`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VoxelCells {
-    /// `XSize` is the size of the grid along the X axis.
+    /// The x size. Wire form: `Uint8`.
     pub x_size: u8,
-    /// `YSize` is the size of the grid along the Y axis.
+    /// The y size. Wire form: `Uint8`.
     pub y_size: u8,
-    /// `ZSize` is the size of the grid along the Z axis.
+    /// The z size. Wire form: `Uint8`.
     pub z_size: u8,
-    /// Storage is the raw cell data stored in the grid.
+    /// The storage. Wire form: a list after a `varuint32` count. Mojang limit: 256048 bytes.
     pub storage: Vec<u8>,
 }
 
@@ -8104,7 +8146,7 @@ impl Codec for VoxelCells {
             x_size: r.uint8()?,
             y_size: r.uint8()?,
             z_size: r.uint8()?,
-            storage: r.list_varuint32(Reader::uint8)?,
+            storage: r.list_varuint32_max(256_048, Reader::uint8)?,
         })
     }
 
@@ -8120,16 +8162,16 @@ impl Codec for VoxelCells {
     }
 }
 
-/// `VoxelShape` represents a voxel shape with cells and coordinate axes.
+/// gophertunnel `protocol.VoxelShape`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VoxelShape {
-    /// Cells is the grid of cells representing solid and empty regions.
+    /// The cells.
     pub cells: VoxelCells,
-    /// `XCoordinates` is a list of X axis coordinates for the shape.
+    /// The x coordinates. Wire form: a list after a `varuint32` count. Mojang limit: 128 elements.
     pub x_coordinates: Vec<f32>,
-    /// `YCoordinates` is a list of Y axis coordinates for the shape.
+    /// The y coordinates. Wire form: a list after a `varuint32` count. Mojang limit: 128 elements.
     pub y_coordinates: Vec<f32>,
-    /// `ZCoordinates` is a list of Z axis coordinates for the shape.
+    /// The z coordinates. Wire form: a list after a `varuint32` count. Mojang limit: 128 elements.
     pub z_coordinates: Vec<f32>,
 }
 
@@ -8137,9 +8179,9 @@ impl Codec for VoxelShape {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             cells: VoxelCells::decode(r)?,
-            x_coordinates: r.list_varuint32(Reader::float32)?,
-            y_coordinates: r.list_varuint32(Reader::float32)?,
-            z_coordinates: r.list_varuint32(Reader::float32)?,
+            x_coordinates: r.list_varuint32_max(128, Reader::float32)?,
+            y_coordinates: r.list_varuint32_max(128, Reader::float32)?,
+            z_coordinates: r.list_varuint32_max(128, Reader::float32)?,
         })
     }
 
@@ -8161,12 +8203,12 @@ impl Codec for VoxelShape {
     }
 }
 
-/// `VoxelShapeNameEntry` represents a name-to-ID mapping entry for voxel shapes.
+/// gophertunnel `protocol.VoxelShapeNameEntry`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VoxelShapeNameEntry {
-    /// Name is the name of the voxel shape.
+    /// The name. Wire form: `String`.
     pub name: String,
-    /// ID is the numeric ID of the voxel shape.
+    /// The ID. Wire form: `Uint16`.
     pub id: u16,
 }
 
@@ -8185,10 +8227,10 @@ impl Codec for VoxelShapeNameEntry {
     }
 }
 
-/// `WaxedOrUnwaxedCopperEvent` is an event sent by the server when a copper block is waxed or unwaxed.
+/// gophertunnel `protocol.WaxedOrUnwaxedCopperEvent`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct WaxedOrUnwaxedCopperEvent {
-    /// The copper block ID.
+    /// The copper block ID. Wire form: `Varint32`. Values: [`CopperBlockId`](super::consts::CopperBlockId).
     pub copper_block_id: i32,
 }
 
@@ -8205,24 +8247,24 @@ impl Codec for WaxedOrUnwaxedCopperEvent {
     }
 }
 
-/// Waypoint holds optional data for a locator bar waypoint.
+/// gophertunnel `protocol.Waypoint`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Waypoint {
-    /// `UpdateFlag` is a bitmask indicating which optional fields are set.
+    /// The update flag. Wire form: `Uint32`. Values: [`WaypointUpdateFlag`](super::consts::WaypointUpdateFlag).
     pub update_flag: u32,
-    /// Visible determines whether the waypoint is shown.
+    /// The visible. Wire form: a bool, then the value when it is set.
     pub visible: Option<bool>,
-    /// `WorldPosition` is the position and dimension of the waypoint.
+    /// The world position. Wire form: a bool, then the value when it is set.
     pub world_position: Option<WaypointWorldPosition>,
-    /// `TexturePath` is the resource path for the waypoint icon texture.
+    /// The texture path. Wire form: a bool, then the value when it is set.
     pub texture_path: Option<String>,
-    /// `IconSize` is the size of the waypoint icon.
+    /// The icon size. Wire form: a bool, then the value when it is set.
     pub icon_size: Option<[f32; 2]>,
-    /// Colour is the RGB colour used to tint the waypoint icon.
+    /// The colour. Wire form: a bool, then the value when it is set.
     pub colour: Option<i32>,
-    /// `ClientPositionAuthority` determines whether the client has authority over the waypoint position.
+    /// The client position authority. Wire form: a bool, then the value when it is set.
     pub client_position_authority: Option<bool>,
-    /// `ActorUniqueID` is the unique ID of the entity the waypoint tracks.
+    /// The actor unique ID. Wire form: a bool, then the value when it is set.
     pub actor_unique_id: Option<i64>,
 }
 
@@ -8282,12 +8324,12 @@ impl Codec for Waypoint {
     }
 }
 
-/// `WaypointWorldPosition` holds a position and dimension for a waypoint.
+/// gophertunnel `protocol.WaypointWorldPosition`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct WaypointWorldPosition {
-    /// Position is the world position of the waypoint.
+    /// The position. Wire form: `Vec3`.
     pub position: [f32; 3],
-    /// `DimensionID` is the dimension the waypoint is in.
+    /// The dimension ID. Wire form: `Varint32`.
     pub dimension_id: i32,
 }
 
@@ -8306,18 +8348,18 @@ impl Codec for WaypointWorldPosition {
     }
 }
 
-/// `WhiskerScopeDataSummary` represents a whisker profiler scope diagnostic summary.
+/// gophertunnel `protocol.WhiskerScopeDataSummary`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct WhiskerScopeDataSummary {
-    /// Label is the label of the whisker scope.
+    /// The label. Wire form: `String`.
     pub label: String,
-    /// Indentation is the indentation string of the whisker scope within the profiler hierarchy.
+    /// The indentation. Wire form: `String`.
     pub indentation: String,
-    /// `TotalHighCostNS` is the total time, in nanoseconds, spent in the high-cost portion of the scope.
+    /// The total high cost NS. Wire form: `Uint64`.
     pub total_high_cost_ns: u64,
-    /// `TotalMidCostNS` is the total time, in nanoseconds, spent in the mid-cost portion of the scope.
+    /// The total mid cost NS. Wire form: `Uint64`.
     pub total_mid_cost_ns: u64,
-    /// `TotalLowCostNS` is the total time, in nanoseconds, spent in the low-cost portion of the scope.
+    /// The total low cost NS. Wire form: `Uint64`.
     pub total_low_cost_ns: u64,
 }
 
@@ -8342,18 +8384,18 @@ impl Codec for WhiskerScopeDataSummary {
     }
 }
 
-/// `WorldClockData` represents a complete world clock with its time markers.
+/// gophertunnel `protocol.WorldClockData`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct WorldClockData {
-    /// ID is the unique identifier for the clock.
+    /// The ID. Wire form: `Varuint64`.
     pub id: u64,
-    /// Name is the name of the clock.
+    /// The name. Wire form: `String`. Mojang limit: 128 bytes.
     pub name: String,
-    /// Time is the current time of the clock.
+    /// The time. Wire form: `Varint32`.
     pub time: i32,
-    /// Paused indicates if the clock is paused.
+    /// The paused. Wire form: `Bool`.
     pub paused: bool,
-    /// `TimeMarkers` is a list of time markers for this clock.
+    /// The time markers. Wire form: a list after a `varuint32` count. Mojang limit: 256 elements.
     pub time_markers: Vec<TimeMarkerData>,
 }
 
@@ -8361,10 +8403,10 @@ impl Codec for WorldClockData {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             id: r.varuint64()?,
-            name: r.string()?,
+            name: r.string_max(128)?,
             time: r.varint32()?,
             paused: r.bool()?,
-            time_markers: r.list_varuint32(TimeMarkerData::decode)?,
+            time_markers: r.list_varuint32_max(256, TimeMarkerData::decode)?,
         })
     }
 
@@ -8381,14 +8423,14 @@ impl Codec for WorldClockData {
     }
 }
 
-/// transferStackRequestAction is the structure shared by `StackRequestActions` that transfer items from one slot into another.
+/// gophertunnel `protocol.transferStackRequestAction`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TransferStackRequestAction {
-    /// Count is the count of the item in the source slot that was taken towards the destination slot.
+    /// The count. Wire form: `Uint8`.
     pub count: u8,
-    /// Source and Destination point to the source slot from which Count of the item stack were taken and the destination slot to which this item was moved.
+    /// The source.
     pub source: StackRequestSlotInfo,
-    /// Source and Destination point to the source slot from which Count of the item stack were taken and the destination slot to which this item was moved.
+    /// The destination.
     pub destination: StackRequestSlotInfo,
 }
 
@@ -8411,7 +8453,7 @@ impl Codec for TransferStackRequestAction {
     }
 }
 
-/// Reads like gophertunnel `Marshal`: Marshal encodes/decodes a `CommandEnum`.
+/// Reads like gophertunnel `Marshal`.
 pub(crate) fn decode_command_enum_context_marshal(
     r: &mut Reader<'_>,
     x: &mut CommandEnum,
@@ -8421,7 +8463,7 @@ pub(crate) fn decode_command_enum_context_marshal(
     Ok(())
 }
 
-/// Writes like gophertunnel `Marshal`: Marshal encodes/decodes a `CommandEnum`.
+/// Writes like gophertunnel `Marshal`.
 pub(crate) fn encode_command_enum_context_marshal(w: &mut Writer, x: &CommandEnum) -> Result<()> {
     w.string(&x.r#type)?;
     w.varuint32(length(x.value_indices.len())?);
@@ -8431,17 +8473,17 @@ pub(crate) fn encode_command_enum_context_marshal(w: &mut Writer, x: &CommandEnu
     Ok(())
 }
 
-/// Reads like gophertunnel `CommandOriginData`: `CommandOriginData` reads/writes a `CommandOrigin` x using IO r.
+/// Reads like gophertunnel `CommandOriginData`.
 pub(crate) fn decode_command_origin_data(r: &mut Reader<'_>, x: &mut CommandOrigin) -> Result<()> {
     let origin_str: String = r.string()?;
     x.uuid = r.uuid()?;
-    x.request_id = r.string()?;
+    x.request_id = r.string_max(39)?;
     x.player_unique_id = r.actor_unique_id_int64()?;
     x.origin = command_origin_from_string(&origin_str)?;
     Ok(())
 }
 
-/// Writes like gophertunnel `CommandOriginData`: `CommandOriginData` reads/writes a `CommandOrigin` x using IO r.
+/// Writes like gophertunnel `CommandOriginData`.
 pub(crate) fn encode_command_origin_data(w: &mut Writer, x: &CommandOrigin) -> Result<()> {
     let origin_str: &str = command_origin_to_string(x.origin);
     w.string(origin_str)?;
@@ -8452,7 +8494,7 @@ pub(crate) fn encode_command_origin_data(w: &mut Writer, x: &CommandOrigin) -> R
     Ok(())
 }
 
-/// Reads like gophertunnel `InputFlagList`: `InputFlagList` reads/writes an `InputFlags` holding flags in the range \[0, size) as a list of the `IDs` of the flags that are set. Flag `IDs` must be unique and within range.
+/// Reads like gophertunnel `InputFlagList`.
 pub(crate) fn decode_input_flag_list(
     r: &mut Reader<'_>,
     x: &mut InputFlags,
@@ -8487,7 +8529,7 @@ pub(crate) fn decode_input_flag_list(
     Ok(())
 }
 
-/// Writes like gophertunnel `InputFlagList`: `InputFlagList` reads/writes an `InputFlags` holding flags in the range \[0, size) as a list of the `IDs` of the flags that are set. Flag `IDs` must be unique and within range.
+/// Writes like gophertunnel `InputFlagList`.
 pub(crate) fn encode_input_flag_list(w: &mut Writer, x: &InputFlags, size: i64) -> Result<()> {
     let count: u32 = go_usize_to_u32(x.ids.len());
     w.varuint32(count);
@@ -8520,7 +8562,7 @@ pub(crate) fn encode_input_flag_list(w: &mut Writer, x: &InputFlags, size: i64) 
     Ok(())
 }
 
-/// Reads like gophertunnel `MarshalDataStorePropertyValue`: `MarshalDataStorePropertyValue` encodes/decodes a `DataStorePropertyValue`.
+/// Reads like gophertunnel `MarshalDataStorePropertyValue`.
 pub(crate) fn decode_marshal_data_store_property_value(
     r: &mut Reader<'_>,
     x: &mut DataStorePropertyValue,
@@ -8567,7 +8609,7 @@ pub(crate) fn decode_marshal_data_store_property_value(
     Ok(())
 }
 
-/// Writes like gophertunnel `MarshalDataStorePropertyValue`: `MarshalDataStorePropertyValue` encodes/decodes a `DataStorePropertyValue`.
+/// Writes like gophertunnel `MarshalDataStorePropertyValue`.
 pub(crate) fn encode_marshal_data_store_property_value(
     w: &mut Writer,
     x: &DataStorePropertyValue,
@@ -8610,7 +8652,7 @@ pub(crate) fn encode_marshal_data_store_property_value(
     Ok(())
 }
 
-/// Reads like gophertunnel `PlayerMoveSettings`: `PlayerMoveSettings` reads/writes `PlayerMovementSettings` x to/from IO r.
+/// Reads like gophertunnel `PlayerMoveSettings`.
 pub(crate) fn decode_player_move_settings(
     r: &mut Reader<'_>,
     x: &mut PlayerMovementSettings,
@@ -8620,13 +8662,13 @@ pub(crate) fn decode_player_move_settings(
     Ok(())
 }
 
-/// Writes like gophertunnel `PlayerMoveSettings`: `PlayerMoveSettings` reads/writes `PlayerMovementSettings` x to/from IO r.
+/// Writes like gophertunnel `PlayerMoveSettings`.
 pub(crate) fn encode_player_move_settings(w: &mut Writer, x: &PlayerMovementSettings) {
     w.varint32(x.rewind_history_size);
     w.bool(x.server_authoritative_block_breaking);
 }
 
-/// Computes like gophertunnel `validate`: validate checks the skin and makes sure every one of its values are correct. It checks the image dimensions and makes sure they match the image size of the skin, cape and the skin's animations.
+/// Computes like gophertunnel `validate`.
 pub(crate) fn skin_validate(x: &Skin) -> Option<&'static str> {
     if x.skin_image_height
         .wrapping_mul(x.skin_image_width)
@@ -8655,7 +8697,7 @@ pub(crate) fn skin_validate(x: &Skin) -> Option<&'static str> {
     None
 }
 
-/// Reads like gophertunnel `StackReqSlotInfo`: `StackReqSlotInfo` reads/writes a `StackRequestSlotInfo` x using IO r.
+/// Reads like gophertunnel `StackReqSlotInfo`.
 pub(crate) fn decode_stack_req_slot_info(
     r: &mut Reader<'_>,
     x: &mut StackRequestSlotInfo,
@@ -8666,7 +8708,7 @@ pub(crate) fn decode_stack_req_slot_info(
     Ok(())
 }
 
-/// Writes like gophertunnel `StackReqSlotInfo`: `StackReqSlotInfo` reads/writes a `StackRequestSlotInfo` x using IO r.
+/// Writes like gophertunnel `StackReqSlotInfo`.
 pub(crate) fn encode_stack_req_slot_info(w: &mut Writer, x: &StackRequestSlotInfo) -> Result<()> {
     x.container.encode(w)?;
     w.uint8(x.slot);
@@ -8679,7 +8721,7 @@ pub(crate) fn decode_marshal_shaped(r: &mut Reader<'_>, recipe: &mut ShapedRecip
     recipe.recipe_id = r.string()?;
     recipe.width = r.varint32()?;
     recipe.height = r.varint32()?;
-    recipe.input = r.list_varuint32(Reader::item_descriptor_count)?;
+    recipe.input = r.list_varuint32_max(128, Reader::item_descriptor_count)?;
     if go_usize_to_i64(recipe.input.len())
         != i64::from(recipe.width).wrapping_mul(i64::from(recipe.height))
     {
@@ -8741,7 +8783,7 @@ pub(crate) fn decode_marshal_shapeless(
     recipe: &mut ShapelessRecipe,
 ) -> Result<()> {
     recipe.recipe_id = r.string()?;
-    recipe.input = r.list_varuint32(Reader::item_descriptor_count)?;
+    recipe.input = r.list_varuint32_max(128, Reader::item_descriptor_count)?;
     recipe.output = r.list_varuint32(Reader::item)?;
     recipe.uuid = r.uuid()?;
     recipe.block = r.string()?;
@@ -8777,7 +8819,7 @@ pub(crate) fn encode_marshal_shapeless(w: &mut Writer, recipe: &ShapelessRecipe)
     Ok(())
 }
 
-/// Computes like gophertunnel `personaPieceTintLoginType`: personaPieceTintLoginType converts v2168 wire names back to the persona\_\* names used in login data.
+/// Computes like gophertunnel `personaPieceTintLoginType`.
 pub(crate) fn persona_piece_tint_login_type(piece_type: &str) -> String {
     if piece_type == "hands" {
         return "persona_hand".to_owned();
@@ -8788,7 +8830,7 @@ pub(crate) fn persona_piece_tint_login_type(piece_type: &str) -> String {
     ["persona_", piece_type].concat()
 }
 
-/// Computes like gophertunnel `personaPieceTintWireType`: personaPieceTintWireType converts the persona\_\* names used in login data to the shorter names used by the v2168 skin codec. The hands type is singular in login data but plural on the wire.
+/// Computes like gophertunnel `personaPieceTintWireType`.
 pub(crate) fn persona_piece_tint_wire_type(piece_type: &str) -> &str {
     if piece_type == "persona_hand" {
         return "hands";
@@ -8833,7 +8875,7 @@ pub(crate) fn encode_player_list_action(w: &mut Writer, mut action: u8) -> Resul
     Ok(action)
 }
 
-/// Computes like gophertunnel `stackRequestActionVariant`: stackRequestActionVariant maps an action type to its index in the variant list the action is sent under. The list leaves out the two container actions that are never sent, so the two run out of step above them.
+/// Computes like gophertunnel `stackRequestActionVariant`.
 pub(crate) fn stack_request_action_variant(id: u8) -> u32 {
     if id > 8 {
         return u32::from(id).wrapping_sub(2);
@@ -9007,3 +9049,24 @@ pub(crate) fn easing_type_to_string(x: i32) -> &'static str {
         _ => "unknown",
     }
 }
+
+/// The most bytes or elements of gophertunnel `packet.BossEvent.BossBarTitle` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
+pub(crate) const BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN: usize = 256;
+
+/// The most bytes or elements of gophertunnel `packet.PlayerList.Entries` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
+pub(crate) const PLAYER_LIST_ENTRIES_MAX_LEN: usize = 1000;
+
+/// The most bytes or elements of gophertunnel `packet.Text.Message` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
+pub(crate) const TEXT_MESSAGE_MAX_LEN: usize = 65_536;
+
+/// The most bytes or elements of gophertunnel `packet.Text.Parameters` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
+pub(crate) const TEXT_PARAMETERS_MAX_LEN: usize = 4;
+
+/// The most bytes or elements of gophertunnel `packet.Text.SourceName` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
+pub(crate) const TEXT_SOURCE_NAME_MAX_LEN: usize = 256;
+
+/// The most bytes or elements of gophertunnel `protocol.Command.Description` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
+pub(crate) const COMMAND_DESCRIPTION_MAX_LEN: usize = 1000;
+
+/// The most bytes or elements of gophertunnel `protocol.PackSetting.Name` (Mojang `maxLength`, `maxItems`), for its hand codec.
+pub(crate) const PACK_SETTING_NAME_MAX_LEN: usize = 128;

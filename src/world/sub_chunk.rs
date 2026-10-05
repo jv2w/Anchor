@@ -32,11 +32,18 @@ impl Entry {
     }
 }
 
+crate::tick::checkpoint::variants!(Entry {
+    0 => Known(state),
+    1 => Unknown(index),
+});
+
 /// The two block layers of a 16×16×16 cube.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SubChunk {
     layers: [Paletted<Entry>; 2],
 }
+
+crate::tick::checkpoint::fields!(SubChunk { layers });
 
 impl SubChunk {
     /// A sub-chunk of air.
@@ -63,18 +70,17 @@ impl SubChunk {
         blocks.get(offset)
     }
 
+    /// The light values of the layer 0 block of a slot, kept by its palette.
+    #[inline]
+    pub(crate) fn light_values(&self, offset: u16) -> super::light::Values {
+        let [blocks, _] = &self.layers;
+        blocks.derived(offset)
+    }
+
     /// Sets the layer 0 entry of a slot and returns the old one.
     pub(crate) fn set(&mut self, offset: u16, entry: Entry) -> Entry {
         let [blocks, _] = &mut self.layers;
         blocks.set(offset, entry)
-    }
-
-    /// The sub-chunk with every palette entry of both layers passed through `f`.
-    pub(crate) fn map(&self, f: impl Fn(Entry) -> Entry) -> Self {
-        let [blocks, water] = &self.layers;
-        Self {
-            layers: [blocks.map(&f), water.map(&f)],
-        }
     }
 
     /// Compacts both layers ([`Paletted::compact`]).

@@ -1,20 +1,23 @@
-//! Non-player characters (PLAN.md 8.6, 10.7): villager NPCs that trade and human NPCs, both
-//! PMMP `Living` without AI, and players' melee hits and interactions with entities (PMMP
-//! `Player::attackEntity`, `Player::interactEntity`).
+//! Non-player characters (PLAN.md 8.6, 10.7): villager NPCs that trade, human NPCs and PMMP's
+//! zombie, all PMMP `Living` without AI, and players' melee hits and interactions with entities
+//! (PMMP `Player::attackEntity`, `Player::interactEntity`).
 //!
-//! NPCs that [`spawn_npc`] makes are invulnerable: lobby and shop NPCs are the use, and a
-//! trader killed by a stray hit would take its offers with it. An NPC whose `Invulnerable` flag
-//! is off (saved data now, the M8 API later) follows PMMP `Living`: a 10-tick cooldown in which
-//! only stronger hits count the difference, knockback and the hurt animation on a cold hit, fall
-//! damage, suffocation and burning, and at 0 health the death animation and removal 25 ticks
-//! later, dropping nothing. NPCs have no lasting effects (no AI they could change); instant
-//! health and damage apply. Drowning is not counted (no air supply).
+//! NPCs that [`spawn_npc`] makes are invulnerable, except zombies: lobby and shop NPCs are the
+//! use, and a trader killed by a stray hit would take its offers with it. An NPC whose
+//! `Invulnerable` flag is off follows PMMP `Living`: a 10-tick cooldown in which only stronger
+//! hits count the difference, knockback and the hurt animation on a cold hit, fall damage,
+//! suffocation and burning, and at 0 health the death animation and removal 25 ticks later; its
+//! drops (a zombie's; other NPCs drop nothing) come at its first tick after the death. NPCs have
+//! no lasting effects (no AI they could change); instant health and damage apply. Drowning is
+//! not counted (no air supply).
 //!
 //! Melee hits on items, orbs, projectiles and clouds do nothing (PMMP kicks the player for items
 //! and arrows; a hit packet is not worth a kick). A hit on an NPC, a painting or an end crystal
 //! counts what the survival rules count for a hit on a player: the attacker's Strength and
 //! Weakness, Sharpness and a critical hit (a painting breaks, an end crystal explodes; the hit
 //! animations, knockback and Fire Aspect are for NPCs, PMMP `Living`).
+//!
+//! [`spawn_npc`]: super::spawn_npc
 
 use super::super::{Phase, SessionId, survival, update};
 use std::sync::Arc;
@@ -26,11 +29,11 @@ use super::{
 };
 use crate::config::GameMode;
 use crate::entity::Id;
-use crate::event::{CombustSource, DamageSource};
+use crate::event::{CombustSource, DamageSource, ExhaustCause};
 use crate::item::{Class, Enchantment};
 use crate::math::Vec3;
 use crate::protocol::Uuid;
-use crate::protocol::consts::{AnimateAction, SoundEvent};
+use crate::protocol::consts::AnimateAction;
 use crate::protocol::packet::{Animate, Packet};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
@@ -42,7 +45,8 @@ pub(super) const ATTACK_COOLDOWN: u8 = 10;
 const REACH: f64 = 8.0;
 /// How far behind the look direction a target may be (PMMP `canInteract`: √3 / 2).
 const REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
-/// The eye heights of a villager (PMMP `EntitySizeInfo`: half the height plus 0.1) and a human.
+/// The eye heights of a villager and a zombie (PMMP `EntitySizeInfo`: half the height plus 0.1)
+/// and a human.
 const VILLAGER_EYE: f64 = 1.05;
 const HUMAN_EYE: f64 = 1.62;
 /// Fall distance that does not hurt (PMMP `Living::calculateFallDamage`).
@@ -51,12 +55,19 @@ const SAFE_FALL: f64 = 3.0;
 const WEAR_RANDOM: u64 = random::tag("npc-attack-wear");
 
 /// Spawns `npc` at `pos`; `None` at the entity limit, in an unloaded chunk, or for a name longer
-/// than [`MAX_NAME_TAG_BYTES`]. The NPC is invulnerable (see the module documentation).
+/// than [`MAX_NAME_TAG_BYTES`]. The NPC is invulnerable (see the module documentation), except a
+/// zombie.
 pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -> Option<Id> {
     let (form, name) = match npc {
         Npc::Villager { profession, offers } => {
-            (Form::Villager { profession, offers }, String::new())
+            let villager = Form::Villager {
+                profession,
+                offers,
+                baby: false,
+            };
+            (villager, String::new())
         }
+        Npc::Zombie => (Form::Zombie { baby: false }, String::new()),
         Npc::Human { name, skin } => {
             if name.len() > MAX_NAME_TAG_BYTES {
                 return None;
@@ -69,8 +80,9 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
         }
     };
     let kind = Kind::Npc(Character {
+        // PMMP's zombie is a mob, not a lobby figure: it takes damage.
+        invulnerable: !matches!(form, Form::Zombie { .. }),
         form,
-        invulnerable: true,
         attack_time: 0,
         last_damage: 0.0,
         dead_ticks: None,
@@ -84,7 +96,7 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
 pub(super) fn eye_height(kind: &Kind) -> f64 {
     match kind {
         Kind::Npc(Character {
-            form: Form::Villager { .. },
+            form: Form::Villager { .. } | Form::Zombie { .. },
             ..
         }) => VILLAGER_EYE,
         Kind::Npc(Character {
@@ -193,9 +205,9 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
     survival::swing(state, session);
     let landed = result != Hurt::Ignored;
     let sound = if landed {
-        SoundEvent::AttackStrong
+        crate::world::Sound::EntityAttack
     } else {
-        SoundEvent::AttackNoDamage
+        crate::world::Sound::EntityAttackNoDamage
     };
     survival::hit_sound(state, session, middle, sound);
     let Some((eye, at)) = reached.filter(|_| landed) else {
@@ -248,12 +260,14 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
         .and_then(|p| state.worlds.get(p.world))
         .map_or(0, crate::world::World::seed);
     let mut r = Random::new(seed, state.tick, random::key(WEAR_RANDOM, &[session.get()]));
-    if let Some(player) = state.players.get_mut(&session) {
-        if finite && wear > 0 && player.inventory.held() == &held {
-            super::super::inventory::set_held(player, worn(&held, wear, &mut r));
-        }
-        survival::exhaust(player, 0.1);
+    if let Some(player) = state.players.get_mut(&session)
+        && finite
+        && wear > 0
+        && player.inventory.held() == &held
+    {
+        super::super::inventory::set_held(player, worn(&held, wear, &mut r));
     }
+    survival::exhaust_by(state, session, 0.1, ExhaustCause::Attack);
 }
 
 /// The Knockback and Fire Aspect of the weapon `held` on a hit that landed along `(dx, dz)`.
@@ -363,8 +377,8 @@ mod tests {
     use super::*;
     use crate::nbt::{Compound, Value};
     use crate::protocol::MetadataValue::Int32;
-    use crate::protocol::consts::ActorEvent;
     use crate::protocol::consts::EntityDataKey as K;
+    use crate::protocol::consts::{ActorEvent, SoundEvent};
     use crate::protocol::packet::Packet;
     use crate::tick::entity::physics::tests::named;
     use crate::tick::entity::saved::tests::{bytes, stack};
@@ -548,8 +562,12 @@ mod tests {
         );
         h.entities();
         let runtime_id = e_runtime(&h, guide);
-        let hurt = h.take(1).iter().any(|p| matches!(p,
-            Packet::ActorEvent(a) if a.entity_runtime_id == runtime_id && a.event_type == ActorEvent::Hurt as u8));
+        // The hurt event carries BDS's cause number, 2 for an attack (m9-facts.md).
+        let hurt = h.take(1).iter().any(|p| {
+            matches!(p,
+            Packet::ActorEvent(a) if a.entity_runtime_id == runtime_id
+                && a.event_type == ActorEvent::Hurt as u8 && a.event_data == 2)
+        });
         assert!(hurt, "the hit shows");
         // Hits after the cooldown until it dies; it shows its death and goes 25 ticks later.
         for _ in 0..10 {
@@ -609,7 +627,9 @@ mod tests {
             enchantments: vec![(Enchantment::Sharpness, 1)],
             ..crate::item::Extra::default()
         };
-        let sword = stack("minecraft:diamond_sword", 1).with_extra(Some(extra));
+        let sword = stack("minecraft:diamond_sword", 1)
+            .with_extra(Some(extra))
+            .unwrap();
         let points = f64::from(sword.item().unwrap().attack_points());
         crate::tick::inventory::set_held(h.state.players.get_mut(&s).unwrap(), sword);
         h.state
@@ -658,6 +678,233 @@ mod tests {
         assert!(sound(&seen, SoundEvent::AttackNoDamage), "out of reach");
     }
 
+    fn zombie(h: &mut Harness, pos: Vec3) -> Id {
+        crate::tick::Context {
+            state: &mut h.state,
+        }
+        .spawn_zombie(crate::world::Id::DEFAULT, pos)
+        .unwrap()
+    }
+
+    // pmmp: Zombie, Zombie::getName, Zombie::getNetworkTypeId
+    #[test]
+    fn a_zombie_is_an_ai_less_living_mob_that_takes_damage() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.take(1);
+        let z = zombie(&mut h, at(2.5, -57.0, 0.5));
+        let e = h.state.rules.entities.get(z).unwrap();
+        assert_eq!(e.entity_type(), crate::entity::Type::Zombie);
+        assert_eq!(e.name(), Some("Zombie"));
+        assert_eq!(e.network_type(), "minecraft:zombie");
+        assert_eq!(e.size(), (0.6, 1.9));
+        assert!(!e.is_invulnerable(), "PMMP's zombie is a mob");
+        assert_eq!(e.max_health(), 20.0);
+        for _ in 0..40 {
+            h.entities();
+        }
+        let e = h.state.rules.entities.get(z).unwrap();
+        assert_eq!(
+            e.body.position,
+            at(2.5, -60.0, 0.5),
+            "it falls 3 blocks unhurt and stands: no AI"
+        );
+        let packets = h.take(1);
+        let added = packets
+            .iter()
+            .any(|p| matches!(p, Packet::AddActor(a) if a.entity_type == "minecraft:zombie"));
+        assert!(added);
+        crate::tick::Context {
+            state: &mut h.state,
+        }
+        .entity_mut(z)
+        .unwrap()
+        .attack(5.0);
+        assert_eq!(health(&h, z), 15.0);
+    }
+
+    /// The rotten flesh, rare items and experience on the ground.
+    fn loot(h: &Harness) -> (u32, u32, u32) {
+        let (mut flesh, mut rare, mut xp) = (0, 0, 0);
+        for e in h.live() {
+            match &e.kind {
+                Kind::Item(i) => {
+                    let count = u32::from(i.stack.count());
+                    match i.stack.item().and_then(crate::item::Type::kind) {
+                        Some(crate::item::Kind::RottenFlesh) => flesh += count,
+                        Some(
+                            crate::item::Kind::IronIngot
+                            | crate::item::Kind::Carrot
+                            | crate::item::Kind::Potato,
+                        ) => rare += count,
+                        other => panic!("{other:?}"),
+                    }
+                }
+                Kind::ExperienceOrb(o) => xp += u32::from(o.value),
+                _ => {}
+            }
+        }
+        (flesh, rare, xp)
+    }
+
+    #[test]
+    fn dead_zombies_drop_rotten_flesh_sometimes_a_rare_item_and_five_experience() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let count = 400;
+        let mut zombies = Vec::new();
+        for i in 0..count {
+            let (x, z) = (f64::from(i % 20) - 10.0, f64::from(i / 20) - 10.0);
+            zombies.push(zombie(&mut h, at(x + 0.5, -60.0, z + 0.5)));
+        }
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        for &z in &zombies {
+            cx.entity_mut(z).unwrap().kill();
+        }
+        assert_eq!(
+            loot(&h),
+            (0, 0, 0),
+            "the drops come at the zombie's next tick"
+        );
+        h.entities();
+        let (flesh, rare, xp) = loot(&h);
+        // PMMP: 0 to 2 flesh each (1 on average), a rare item with a 5 in 200 chance.
+        assert!((300..=500).contains(&flesh), "{flesh}");
+        assert!((2..=25).contains(&rare), "{rare}");
+        assert_eq!(xp, 5 * count);
+        h.entities();
+        assert_eq!(loot(&h).2, 5 * count, "once");
+    }
+
+    // pmmp: EntityDeathEvent::getDrops, EntityDeathEvent::setDrops, EntityDeathEvent::getXpDropAmount
+    #[test]
+    fn a_death_listener_sees_and_changes_a_zombies_drops() {
+        let mut l = crate::event::Listeners::default();
+        l.push(
+            crate::event::Priority::Normal,
+            |e: &mut crate::event::EntityDeath, _: &mut crate::tick::Context<'_>| {
+                assert_eq!(e.xp_drop_amount(), 5);
+                assert!(e.drops().iter().all(|s| s.count() <= 2));
+                e.set_drops(Vec::new());
+                e.set_xp_drop_amount(0);
+            },
+        );
+        let mut h = Harness::with_listeners(1, l);
+        h.spawn(1, standing(0.0, 0.0));
+        let z = zombie(&mut h, at(2.5, -60.0, 0.5));
+        crate::tick::Context {
+            state: &mut h.state,
+        }
+        .entity_mut(z)
+        .unwrap()
+        .kill();
+        h.entities();
+        assert_eq!(loot(&h), (0, 0, 0));
+    }
+
+    /// `experience = false`: a zombie's death names no experience and drops none.
+    #[test]
+    fn without_experience_a_zombie_death_names_and_drops_no_experience() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let mut l = crate::event::Listeners::default();
+        l.push(
+            crate::event::Priority::Normal,
+            move |e: &mut crate::event::EntityDeath, _: &mut crate::tick::Context<'_>| {
+                tx.try_send(e.xp_drop_amount()).unwrap();
+            },
+        );
+        let mut h = Harness::with_listeners(1, l);
+        h.state.settings.experience = false;
+        h.spawn(1, standing(0.0, 0.0));
+        let z = zombie(&mut h, at(2.5, -60.0, 0.5));
+        crate::tick::Context {
+            state: &mut h.state,
+        }
+        .entity_mut(z)
+        .unwrap()
+        .kill();
+        h.entities();
+        assert_eq!(rx.try_recv(), Ok(0));
+        assert_eq!(loot(&h).2, 0);
+    }
+
+    /// The `Baby` flag in the flags the viewers of `id` last got.
+    fn shown_baby(h: &Harness, id: Id) -> bool {
+        let flags = h.state.rules.entities.get(id).unwrap().sent.flags;
+        flags & (1 << crate::protocol::consts::EntityDataFlag::Baby as u32) != 0
+    }
+
+    // pmmp: entity\Ageable, entity\Ageable::isBaby, Villager::isBaby
+    #[test]
+    fn villagers_and_zombies_can_be_babies_and_viewers_see_it() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let trader = villager(&mut h, at(2.5, -60.0, 0.5));
+        let walker = zombie(&mut h, at(3.5, -60.0, 0.5));
+        let guide = human(&mut h, at(4.5, -60.0, 0.5), "Guide");
+        h.entities();
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        for id in [trader, walker] {
+            assert!(!cx.entity(id).unwrap().is_baby());
+            assert!(cx.entity_mut(id).unwrap().set_baby(true));
+            assert!(cx.entity(id).unwrap().is_baby());
+        }
+        assert!(
+            !cx.entity_mut(guide).unwrap().set_baby(true),
+            "humans grow up"
+        );
+        assert!(!cx.entity(guide).unwrap().is_baby());
+        h.take(1);
+        h.entities();
+        assert!(shown_baby(&h, trader) && shown_baby(&h, walker) && !shown_baby(&h, guide));
+        let baby = 1i64 << crate::protocol::consts::EntityDataFlag::Baby as u32;
+        let sent = h
+            .take(1)
+            .iter()
+            .filter(|p| {
+                matches!(p, Packet::SetActorData(d)
+                if matches!(d.entity_metadata.get(&(K::Flags as u32)),
+                    Some(crate::protocol::MetadataValue::Int64(f)) if f & baby != 0))
+            })
+            .count();
+        assert_eq!(sent, 2);
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        assert!(cx.entity_mut(walker).unwrap().set_baby(false));
+        assert!(!cx.entity(walker).unwrap().is_baby());
+    }
+
+    #[test]
+    fn baby_zombies_and_villagers_survive_a_checkpoint() {
+        let mut h = Harness::new(1);
+        let v = villager(&mut h, at(2.5, -60.0, 0.5));
+        let z = zombie(&mut h, at(3.5, -60.0, 0.5));
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        for id in [v, z] {
+            assert!(cx.entity_mut(id).unwrap().set_baby(true));
+        }
+        h.entities();
+        let mut fresh = crate::tick::tests::new_state(
+            crate::tick::tests::settings(|_| {}),
+            crate::event::Listeners::default(),
+        );
+        let loaded: Vec<ChunkPos> = fresh.worlds[0].loaded().collect();
+        for pos in loaded {
+            if let Some(extras) = fresh.chunks.extras.get((0, pos)).cloned() {
+                fresh.rules.load((0, pos), &extras, &fresh.worlds[0]);
+            }
+        }
+        assert!(crate::tick::checkpoint::tests::assert_round_trip(
+            &h.state, fresh, &h.pool
+        ));
+    }
     fn e_runtime(h: &Harness, id: Id) -> u64 {
         h.state.rules.entities.get(id).unwrap().runtime_id
     }

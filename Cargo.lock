@@ -35,6 +35,7 @@ version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
  "libdeflater",
+ "memory-stats",
  "miniz_oxide",
  "rayon",
  "redb",
@@ -343,7 +344,7 @@ checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
 name = "dimpl"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "aes",
  "arrayvec",
@@ -515,8 +516,6 @@ dependencies = [
 [[package]]
 name = "is"
 version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6edbbdc611843e8c65878ee735f68c495cede11ae5a9582b17fe0369c456ef5"
 dependencies = [
  "crc",
  "serde",
@@ -582,6 +581,16 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "memory-stats"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c73f5c649995a115e1a0220b35e4df0a1294500477f97a91d0660fb5abeb574a"
+dependencies = [
+ "libc",
+ "windows-sys 0.52.0",
+]
 
 [[package]]
 name = "minimal-lexical"
@@ -1020,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "str0m"
-version = "0.24.0"
+version = "0.24.1"
 dependencies = [
  "arrayvec",
  "base64ct",
@@ -1040,8 +1049,6 @@ dependencies = [
 [[package]]
 name = "str0m-aws-lc-rs"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73269314334fc6bfa8024f09dd652b9f5068360bf623c871e3d8d18e26d8035a"
 dependencies = [
  "aws-lc-rs",
  "dimpl",
@@ -1052,8 +1059,6 @@ dependencies = [
 [[package]]
 name = "str0m-proto"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8f3d99f2cf6c76a502e45feb896ea71e54787ede8744bcdb215acfbfcb905dd"
 dependencies = [
  "base64ct",
  "dimpl",
@@ -1486,6 +1491,7 @@ dependencies = [
  "sctp-proto",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]

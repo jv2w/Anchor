@@ -40,22 +40,6 @@ struct Line {
     attached: bool,
 }
 
-/// `state` with property `name` set to the byte `value`, if the table has that state.
-fn with_byte(state: State, name: &str, value: u8) -> Option<State> {
-    let mut buffer = [("", PropertyValue::Byte(0)); 8];
-    let mut n = 0;
-    for p in state.properties() {
-        let slot = buffer.get_mut(n)?;
-        *slot = if p.name() == name {
-            (p.name(), PropertyValue::Byte(value))
-        } else {
-            (p.name(), p.value())
-        };
-        n += 1;
-    }
-    State::find(state.name(), buffer.get(..n)?)
-}
-
 impl World {
     /// Works out the states around `pos` after it was set over `old`. When the old and the new
     /// block look the same to their neighbours (stone over dirt), only the block itself is
@@ -193,7 +177,7 @@ impl World {
     /// Sets `attached_bit` of the tripwire or hook at `pos`, if it has one.
     fn set_attached(&mut self, pos: BlockPos, attached: bool) {
         if let Some(state) = self.known(Some(pos))
-            && let Some(new) = with_byte(state, "attached_bit", u8::from(attached))
+            && let Some(new) = state.with("attached_bit", PropertyValue::Byte(u8::from(attached)))
             && new != state
         {
             self.write(pos, new);
@@ -249,7 +233,7 @@ impl World {
                     Connection::TripwireHook => s.facing() == Some(f.opposite()),
                     _ => false,
                 }))?;
-                with_byte(connected, "suspended_bit", 1)
+                connected.with("suspended_bit", PropertyValue::Byte(1))
             }
             Connection::Wall => {
                 let short = sides(&|f, s| {

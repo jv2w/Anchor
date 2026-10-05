@@ -56,6 +56,7 @@ impl Entity {
 
     /// The Bedrock actor type clients draw, such as `minecraft:item`.
     #[doc(alias = "Entity::getNetworkTypeId")]
+    #[doc(alias = "Zombie::getNetworkTypeId")]
     pub fn network_type(&self) -> &str {
         self.kind.identifier()
     }
@@ -244,7 +245,7 @@ impl Entity {
 
     /// A dropped item's ticks until a player may pick it up; -1 never.
     #[doc(alias = "ItemEntity::getPickupDelay")]
-    pub fn pickup_delay(&self) -> Option<i16> {
+    pub fn pickup_delay_ticks(&self) -> Option<i16> {
         match &self.kind {
             Kind::Item(item) => Some(item.pickup_delay),
             _ => None,
@@ -254,7 +255,7 @@ impl Entity {
     /// A dropped item's or orb's ticks until it disappears; -1 never.
     #[doc(alias = "ItemEntity::getDespawnDelay")]
     #[doc(alias = "ExperienceOrb::getDespawnDelay")]
-    pub fn despawn_delay(&self) -> Option<i32> {
+    pub fn despawn_delay_ticks(&self) -> Option<i32> {
         match &self.kind {
             Kind::Item(item) => Some(item.despawn_delay),
             Kind::ExperienceOrb(orb) => Some(orb.despawn_delay),
@@ -299,6 +300,20 @@ impl Entity {
         }
     }
 
+    /// The item a player who picks it (middle click) gets: an end crystal, the block of a falling
+    /// block or primed TNT, a painting, or the spawn egg of a villager or a zombie; `None` for
+    /// the other kinds.
+    #[doc(alias = "Entity::getPickedItem")]
+    #[doc(alias = "entity\\object\\EndCrystal::getPickedItem")]
+    #[doc(alias = "FallingBlock::getPickedItem")]
+    #[doc(alias = "Painting::getPickedItem")]
+    #[doc(alias = "PrimedTNT::getPickedItem")]
+    #[doc(alias = "Villager::getPickedItem")]
+    #[doc(alias = "Zombie::getPickedItem")]
+    pub fn picked_item(&self) -> Option<Stack> {
+        super::pick::picked_item(&self.kind)
+    }
+
     /// The block a falling block is.
     #[doc(alias = "FallingBlock::getBlock")]
     pub fn falling_block(&self) -> Option<block::State> {
@@ -310,7 +325,7 @@ impl Entity {
 
     /// Primed TNT's ticks until it explodes.
     #[doc(alias = "PrimedTNT::getFuse")]
-    pub fn fuse(&self) -> Option<u16> {
+    pub fn fuse_ticks(&self) -> Option<u16> {
         match &self.kind {
             Kind::Tnt(t) => Some(t.fuse),
             _ => None,
@@ -419,17 +434,29 @@ impl Entity {
     }
 
     /// The name of an NPC (PMMP `Living::getName`): a human NPC's name tag, `Villager` for a
-    /// villager, a custom entity's type. `None` for kinds that do not live.
+    /// villager, `Zombie` for a zombie, a custom entity's type. `None` for kinds that do not
+    /// live.
     #[doc(alias = "Villager::getName")]
+    #[doc(alias = "Zombie::getName")]
     pub fn name(&self) -> Option<&str> {
         match &self.kind {
             Kind::Npc(Character { form, .. }) => Some(match form {
                 Form::Human { .. } => &self.name_tag,
                 Form::Villager { .. } => "Villager",
+                Form::Zombie { .. } => "Zombie",
                 Form::Custom(c) => &c.spec.identifier,
             }),
             _ => None,
         }
+    }
+
+    /// Whether it is a baby: a villager or a zombie made one with [`Mut::set_baby`]; false for
+    /// every other kind.
+    #[doc(alias = "entity\\Ageable")]
+    #[doc(alias = "entity\\Ageable::isBaby")]
+    #[doc(alias = "Villager::isBaby")]
+    pub fn is_baby(&self) -> bool {
+        self.kind.is_baby()
     }
 
     /// The downward acceleration its kind falls with, in blocks per tick² (PMMP's per kind:
@@ -522,25 +549,25 @@ impl Entity {
 
     /// A cloud's ticks since it appeared.
     #[doc(alias = "AreaEffectCloud::getAge")]
-    pub fn cloud_age(&self) -> Option<u32> {
+    pub fn cloud_age_ticks(&self) -> Option<u32> {
         self.cloud().map(|c| c.age)
     }
 
     /// The age at which a cloud goes.
     #[doc(alias = "AreaEffectCloud::getMaxAge")]
-    pub fn cloud_max_age(&self) -> Option<i32> {
+    pub fn cloud_max_age_ticks(&self) -> Option<i32> {
         self.cloud().map(|c| c.max_age)
     }
 
     /// The change of a cloud's maximum age for each entity it affects.
     #[doc(alias = "AreaEffectCloud::getMaxAgeChangeOnUse")]
-    pub fn cloud_max_age_change_on_use(&self) -> Option<i32> {
+    pub fn cloud_max_age_change_on_use_ticks(&self) -> Option<i32> {
         self.cloud().map(|c| c.max_age_on_use)
     }
 
     /// The ticks before a cloud affects the same entity again.
     #[doc(alias = "AreaEffectCloud::getReapplicationDelay")]
-    pub fn cloud_reapplication_delay(&self) -> Option<i32> {
+    pub fn cloud_reapplication_delay_ticks(&self) -> Option<i32> {
         self.cloud().map(|c| c.reapplication_delay)
     }
 
@@ -760,11 +787,11 @@ impl Mut<'_> {
     }
 
     /// Sets the size multiplier of its box and model (kept to float precision, as saved). False
-    /// unless it is above 0 and at most 64.
+    /// unless it is above 0 and the scaled box is at most 16 blocks wide and high.
     #[doc(alias = "Entity::setScale")]
     pub fn set_scale(&mut self, scale: f64) -> bool {
         let scale = f64::from(to_f32(scale));
-        if !is_valid_scale(scale) {
+        if !is_valid_scale(scale, &self.kind) {
             return false;
         }
         let e = self.shown();
@@ -842,7 +869,8 @@ impl Mut<'_> {
     /// Hurts it by `amount` (PMMP `attack` with `CAUSE_CUSTOM`, without the event): an NPC
     /// follows its hit cooldown and shows the hit, and dies at 0 health; anything else that
     /// reaches 0 is removed. Falling blocks, primed TNT, projectiles and invulnerable NPCs take
-    /// no damage but the void's. False if nothing was taken.
+    /// no damage but the void's. False if nothing was taken, as for an amount that is not
+    /// finite or below 0.
     #[doc(alias = "Entity::attack")]
     #[doc(alias = "Living::attack")]
     pub fn attack(&mut self, amount: f64) -> bool {
@@ -919,7 +947,7 @@ impl Mut<'_> {
 
     /// Sets a dropped item's ticks until a player may pick it up; -1 never.
     #[doc(alias = "ItemEntity::setPickupDelay")]
-    pub fn set_pickup_delay(&mut self, ticks: i16) -> bool {
+    pub fn set_pickup_delay_ticks(&mut self, ticks: i16) -> bool {
         match &mut self.entity().kind {
             Kind::Item(item) => {
                 item.pickup_delay = ticks.max(NEVER);
@@ -933,7 +961,7 @@ impl Mut<'_> {
     /// (what the saved `Age` holds).
     #[doc(alias = "ItemEntity::setDespawnDelay")]
     #[doc(alias = "ExperienceOrb::setDespawnDelay")]
-    pub fn set_despawn_delay(&mut self, ticks: i32) -> bool {
+    pub fn set_despawn_delay_ticks(&mut self, ticks: i32) -> bool {
         if ticks != i32::from(NEVER) && !(0..=MAX_DESPAWN_DELAY).contains(&ticks) {
             return false;
         }
@@ -994,7 +1022,7 @@ impl Mut<'_> {
 
     /// Sets primed TNT's ticks until it explodes, at most 32,767.
     #[doc(alias = "PrimedTNT::setFuse")]
-    pub fn set_fuse(&mut self, ticks: u16) -> bool {
+    pub fn set_fuse_ticks(&mut self, ticks: u16) -> bool {
         if ticks > MAX_FUSE {
             return false;
         }
@@ -1075,6 +1103,21 @@ impl Mut<'_> {
                 ..
             }) => {
                 *l = linger;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Makes a villager or a zombie a baby or a grown-up; viewers see the change (the `Baby`
+    /// flag). False for another kind (PMMP has no setter: its villagers are never babies).
+    pub fn set_baby(&mut self, baby: bool) -> bool {
+        match &mut self.shown().kind {
+            Kind::Npc(Character {
+                form: Form::Villager { baby: b, .. } | Form::Zombie { baby: b },
+                ..
+            }) => {
+                *b = baby;
                 true
             }
             _ => false,
@@ -1274,20 +1317,20 @@ impl Mut<'_> {
 
     /// Sets the age at which a cloud goes, 0 to 24,000 ticks (as the saved form reads it).
     #[doc(alias = "AreaEffectCloud::setMaxAge")]
-    pub fn set_cloud_max_age(&mut self, ticks: i32) -> bool {
+    pub fn set_cloud_max_age_ticks(&mut self, ticks: i32) -> bool {
         (0..=MAX_CLOUD_AGE).contains(&ticks) && self.with_cloud(|c| c.max_age = ticks)
     }
 
     /// Sets the change of a cloud's maximum age for each entity it affects, -24,000 to 24,000.
     #[doc(alias = "AreaEffectCloud::setMaxAgeChangeOnUse")]
-    pub fn set_cloud_max_age_change_on_use(&mut self, ticks: i32) -> bool {
+    pub fn set_cloud_max_age_change_on_use_ticks(&mut self, ticks: i32) -> bool {
         (-MAX_CLOUD_AGE..=MAX_CLOUD_AGE).contains(&ticks)
             && self.with_cloud(|c| c.max_age_on_use = ticks)
     }
 
     /// Sets the ticks before a cloud affects the same entity again, 0 to 24,000.
     #[doc(alias = "AreaEffectCloud::setReapplicationDelay")]
-    pub fn set_cloud_reapplication_delay(&mut self, ticks: i32) -> bool {
+    pub fn set_cloud_reapplication_delay_ticks(&mut self, ticks: i32) -> bool {
         (0..=MAX_CLOUD_AGE).contains(&ticks) && self.with_cloud(|c| c.reapplication_delay = ticks)
     }
 
@@ -1485,7 +1528,7 @@ impl Context<'_> {
     /// Drops `amount` experience points as orbs at `pos` in `world` (PMMP
     /// `World::dropExperience`: split into the orb sizes, each with a random motion) and returns
     /// the points dropped: fewer at the world's entity limit, none for a world the server does
-    /// not have or a `pos` that is not loaded.
+    /// not have, a `pos` that is not loaded, or with `experience = false`.
     #[doc(alias = "World::dropExperience")]
     pub fn drop_experience(&mut self, world: world::Id, pos: Vec3, amount: u32) -> u32 {
         match index(self.state, world) {
@@ -1495,10 +1538,10 @@ impl Context<'_> {
     }
 
     /// Spawns one experience orb of `value` points (1 to 32,767) at `pos` in `world`, at rest.
-    /// `None` for another value, or where [`Self::drop_item`] fails.
+    /// `None` for another value, where [`Self::drop_item`] fails, or with `experience = false`.
     #[doc(alias = "ExperienceOrb::__construct")]
     pub fn spawn_experience_orb(&mut self, world: world::Id, pos: Vec3, value: u16) -> Option<Id> {
-        if value == 0 || value > i16::MAX.cast_unsigned() {
+        if !self.state.settings.experience || value == 0 || value > i16::MAX.cast_unsigned() {
             return None;
         }
         let orb = Orb {
@@ -1524,14 +1567,14 @@ impl Context<'_> {
         self.spawn(world, pos, kind, Vec3::ZERO)
     }
 
-    /// Spawns primed TNT at `pos` in `world` that explodes after `fuse` ticks (at most 32,767).
-    /// `None` for a longer fuse, or where [`Self::drop_item`] fails.
-    pub fn spawn_tnt(&mut self, world: world::Id, pos: Vec3, fuse: u16) -> Option<Id> {
-        if fuse > MAX_FUSE {
+    /// Spawns primed TNT at `pos` in `world` that explodes after `fuse_ticks` ticks (at most
+    /// 32,767). `None` for a longer fuse, or where [`Self::drop_item`] fails.
+    pub fn spawn_tnt(&mut self, world: world::Id, pos: Vec3, fuse_ticks: u16) -> Option<Id> {
+        if fuse_ticks > MAX_FUSE {
             return None;
         }
         let kind = Kind::Tnt(Tnt {
-            fuse,
+            fuse: fuse_ticks,
             underwater: false,
         });
         self.spawn(world, pos, kind, Vec3::ZERO)
@@ -1604,12 +1647,21 @@ impl Context<'_> {
         name: &str,
         skin: Option<Skin>,
     ) -> Option<Id> {
-        let w = index(self.state, world).filter(|_| is_placeable(pos))?;
+        let w = index(self.state, world)?;
         let npc = Npc::Human {
             name: name.to_owned(),
             skin,
         };
         super::spawn_npc(self.state, w, pos, npc)
+    }
+
+    /// Spawns a zombie at `pos` (its feet) in `world` (PMMP `Zombie`, which has no AI either): it
+    /// stands where it is put, falls, burns, takes damage and at its death drops rotten flesh
+    /// and sometimes an iron ingot, a carrot or a potato, and 5 experience. `None` where
+    /// [`Self::drop_item`] fails.
+    pub fn spawn_zombie(&mut self, world: world::Id, pos: Vec3) -> Option<Id> {
+        let w = index(self.state, world)?;
+        super::spawn_npc(self.state, w, pos, Npc::Zombie)
     }
 
     /// Spawns a cloud at `pos` in `world` that gives `effects` (at most 32) with PMMP's defaults
@@ -1688,7 +1740,8 @@ impl Context<'_> {
         if !motion.is_finite() {
             return None;
         }
-        let kind = object::firework(max_flight_ticks, explosions, None);
+        let flight = object::flight_multiplier(max_flight_ticks);
+        let kind = object::firework(max_flight_ticks, flight, explosions, None);
         self.spawn(world, pos, kind, motion)
     }
 

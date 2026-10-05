@@ -238,6 +238,9 @@ pub(crate) struct Model<'a> {
     pub(crate) ability_fields: BTreeSet<(String, String)>,
     /// Packet type names.
     pub(crate) packets: BTreeSet<&'a str>,
+    /// Decode limits by field (`<Go type>.<field>`, `[]` for its list elements): the most bytes
+    /// of a string or elements of a list (`xtask/data/reference/protocol_limits.json`).
+    pub(crate) limits: BTreeMap<String, usize>,
 }
 
 /// The package of a qualified Go name.
@@ -260,7 +263,7 @@ pub(crate) fn local(name: &str) -> &str {
 }
 
 impl<'a> Model<'a> {
-    pub(crate) fn new(ir: &'a Ir) -> Result<Self, String> {
+    pub(crate) fn new(ir: &'a Ir, limits: BTreeMap<String, usize>) -> Result<Self, String> {
         let names: Vec<&str> = ir.io_methods.iter().map(|m| m.name.as_str()).collect();
         for name in &names {
             if !IO_NON_STATEMENTS.contains(name)
@@ -288,6 +291,7 @@ impl<'a> Model<'a> {
             rust_names: BTreeMap::new(),
             ability_fields: BTreeSet::new(),
             packets: ir.packets.iter().map(|p| p.ty.as_str()).collect(),
+            limits,
         };
         model.collect_unions()?;
         model.collect_names()?;

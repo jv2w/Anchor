@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.85.0"
 name = "dimpl"
-version = "0.7.4"
+version = "0.7.5"
 authors = ["Martin Algesten <martin@algesten.se>"]
 build = false
 autolib = false

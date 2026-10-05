@@ -80,7 +80,6 @@ impl Error {
     }
 
     /// The error a logged byte names.
-    #[cfg(test)]
     pub(crate) const fn from_code(code: u8) -> Option<Self> {
         Some(match code {
             1 => Self::TooManyTasks,

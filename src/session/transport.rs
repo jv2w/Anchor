@@ -64,6 +64,15 @@ impl Transport {
         }
     }
 
+    /// The latest round trip time the transport measured: the RakNet connected ping, or the
+    /// NetherNet ICE consent check; `None` until one was.
+    pub(super) fn ping(&self) -> Option<std::time::Duration> {
+        match self {
+            Self::Raknet(c) => c.ping(),
+            Self::Nethernet(c) => c.ping(),
+        }
+    }
+
     /// The player logged in: the connection leaves the pre-login limits.
     pub(super) fn logged_in(&self) {
         match self {

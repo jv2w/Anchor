@@ -26,7 +26,7 @@ use super::physics::{BlockHit, Flight, intercept};
 use super::{
     Blow, Cause, Hooks, Hurt, Knock, PLAYER_EYE_HEIGHT, Raise, State, combust, create, direction,
     discard, heal, hurt, is_live, level_event, level_of, npc, pickup_event, player_actor,
-    player_box, push_entity, send_to, sound, targetable, with, worn,
+    player_box, push_entity, send_to, targetable, with, worn,
 };
 use crate::block::{self, Face, TypeTag};
 use crate::config::GameMode;
@@ -38,11 +38,12 @@ use crate::event::{
 };
 use crate::item::{self, Class, Enchantment, Stack};
 use crate::math::{Aabb, Vec3};
-use crate::protocol::consts::{ActorEvent, LevelEvent, SoundEvent};
+use crate::protocol::consts::{ActorEvent, LevelEvent};
 use crate::protocol::packet::{Packet, TakeItemActor};
 use crate::random::{self, Random};
 use crate::tick::dispatch;
 use crate::tick::{Phase, inventory, survival};
+use crate::world::particle_id;
 
 /// An arrow's base damage (PMMP `Arrow::$damage`).
 pub(super) const ARROW_DAMAGE: f64 = 2.0;
@@ -81,10 +82,6 @@ const PEARL_DAMAGE: f64 = 5.0;
 /// The particles a snowball or an egg leaves where it hits (PMMP `Snowball::onHit`,
 /// `Egg::onHit`; BDS sends as many, m8-facts.md 6).
 const HIT_PARTICLES: usize = 6;
-/// The numbered particles BDS sends in `LevelEvent` 2009 (m8-facts.md 6: PMMP's numbers):
-/// a snowball's poof, and an item breaking (with the item's runtime ID in the high 16 bits).
-const PARTICLE_SNOWBALL_POOF: i32 = 15;
-const PARTICLE_ITEM_BREAK: i32 = 14;
 /// The experience a bottle drops (PMMP `ExperienceBottle::onHit`: `mt_rand(3, 11)`).
 const BOTTLE_EXPERIENCE: (i32, i32) = (3, 11);
 /// The lingering potion item (PMMP's lingering potion is a splash potion that lingers).
@@ -124,6 +121,10 @@ pub(super) fn throw_with(
     } else if t.is(Class::EnderPearl) {
         Shot::EnderPearl
     } else if t.is(Class::ExperienceBottle) {
+        // `experience-bottles = false` refuses the throw.
+        if !state.settings.experience_bottles {
+            return false;
+        }
         Shot::ExperienceBottle
     } else if t.is(Class::IceBomb) {
         Shot::IceBomb
@@ -166,7 +167,7 @@ pub(super) fn throw_with(
         return false;
     }
     let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
-    sound(state, world, feet, SoundEvent::Throw);
+    super::play(state, world, feet, crate::world::Sound::Throw);
     true
 }
 
@@ -259,7 +260,7 @@ pub(super) fn release_bow_with(
         return false;
     }
     let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
-    sound(state, world, feet, SoundEvent::Bow);
+    super::play(state, world, feet, crate::world::Sound::BowShoot);
     if finite {
         let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
         let mut r = Random::new(seed, state.tick, random::key(BOW_RANDOM, &[session.get()]));
@@ -637,12 +638,12 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
                     a.critical = false;
                 }
             });
-            sound(state, world, at, SoundEvent::BowHit);
+            super::play(state, world, at, crate::world::Sound::ArrowHit);
         }
-        Shot::Snowball => hit_particles(state, world, at, PARTICLE_SNOWBALL_POOF),
+        Shot::Snowball => hit_particles(state, world, at, particle_id::SNOWBALL_POOF),
         Shot::Egg => {
             let egg = i32::from(item::Kind::Egg.default_type().runtime_id());
-            hit_particles(state, world, at, (egg << 16) | PARTICLE_ITEM_BREAK);
+            hit_particles(state, world, at, (egg << 16) | particle_id::ITEM_BREAK);
         }
         Shot::EnderPearl => pearl(state, world, at, p.owner, hooks),
         Shot::ExperienceBottle => {
@@ -659,14 +660,16 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
         Shot::IceBomb => {
             super::play(state, world, at, crate::world::Sound::IceBombHit);
             let bomb = i32::from(item::Kind::IceBomb.default_type().runtime_id());
-            hit_particles(state, world, at, (bomb << 16) | PARTICLE_ITEM_BREAK);
+            hit_particles(state, world, at, (bomb << 16) | particle_id::ITEM_BREAK);
         }
     }
     match struck {
         Struck::Block(b) => hit_block(state, id, &p.shot, at, b, burning),
         Struck::Player(session) => {
             if let Some(d) = damage {
-                hit_player(state, session, d, motion, &p, burning, hooks);
+                let blow = Blow::of(Cause::Projectile, d).by(child_source(state, id));
+                let fire = burning.then_some(CombustSource::Entity(Actor::Entity(id)));
+                hit_player(state, session, blow, fire, motion, &p, hooks);
             }
             ended(state, id, world, at, motion);
         }
@@ -711,7 +714,7 @@ fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit, burn
             .and_then(|w| w.block(b.pos))
             .is_some_and(|s| s.is(block::Class::Tnt))
     {
-        super::explosion::light(state, world, b.pos, PROJECTILE_FUSE);
+        super::explosion::light(state, world, b.pos, PROJECTILE_FUSE, Raise::Events);
     }
     match shot {
         Shot::Arrow(_) => {
@@ -829,30 +832,33 @@ fn punch(p: &Projectile, motion: Vec3) -> Option<Vec3> {
     Some(Vec3::new(motion.x * m, 0.1, motion.z * m))
 }
 
-/// A projectile hits a player (PMMP `Projectile::onHitEntity`): the damage; the knockback along
-/// the flight only on a hit outside the player's hit cooldown (PMMP `Living::attack` with the
-/// child entity's motion); a burning projectile sets the player on fire for 5 seconds; a Punch
+/// A projectile hits a player (PMMP `Projectile::onHitEntity`): the damage of `blow` from its
+/// source (PMMP `EntityDamageByChildEntityEvent`); the knockback along the flight only on a hit
+/// outside the player's hit cooldown (PMMP `Living::attack` with the child entity's motion); a
+/// burning projectile (`fire`, its source) sets the player on fire for 5 seconds; a Punch
 /// arrow's push. The pushes are sent as the player's motion. A hit that does not land (creative,
 /// spectator, a weaker hit within the cooldown) does nothing else, as for NPCs (PMMP still burns
 /// and pushes then).
 fn hit_player(
     state: &mut State,
     session: SessionId,
-    damage: f64,
+    blow: Blow,
+    fire: Option<CombustSource>,
     motion: Vec3,
     p: &Projectile,
-    burning: bool,
     hooks: Hooks,
 ) {
     let cold = state
         .players
         .get(&session)
         .is_some_and(|player| !(hooks.has_attack_cooldown)(player));
-    if !(hooks.damage)(state, session, damage, survival::Damage::Entity) {
+    let damage = survival::Damage::Entity;
+    if !(hooks.damage)(state, session, blow.amount, damage, blow.source) {
         return;
     }
-    if burning {
-        (hooks.set_on_fire)(state, session, u32::from(HIT_FIRE_SECONDS.unsigned_abs()));
+    if let Some(source) = fire {
+        let seconds = u32::from(HIT_FIRE_SECONDS.unsigned_abs());
+        (hooks.set_on_fire)(state, session, seconds, source);
     }
     if !state.players.get(&session).is_some_and(hooks.is_alive) {
         return;
@@ -913,16 +919,23 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
     let Some(from) = origin(state) else {
         return;
     };
-    level_event(state, world, from, LevelEvent::ParticlesTeleport, 0);
-    level_event(state, world, from, LevelEvent::SoundEndermanTeleport, 0);
+    let teleported = crate::world::Particle::EndermanTeleport;
+    super::super::interact::particle(state, world, from, teleported);
+    super::play(state, world, from, crate::world::Sound::EndermanTeleport);
     (hooks.teleport)(
         state,
         owner,
         to_world,
         to + Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0),
     );
-    level_event(state, to_world, to, LevelEvent::SoundEndermanTeleport, 0);
-    (hooks.damage)(state, owner, PEARL_DAMAGE, survival::Damage::Fall);
+    super::play(state, to_world, to, crate::world::Sound::EndermanTeleport);
+    (hooks.damage)(
+        state,
+        owner,
+        PEARL_DAMAGE,
+        survival::Damage::Fall,
+        DamageSource::None,
+    );
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
@@ -940,9 +953,10 @@ fn hit_particles(state: &mut State, world: usize, at: Vec3, data: i32) {
 /// The splash particle in a colour and the glass sound (PMMP `PotionSplashParticle`,
 /// `PotionSplashSound`).
 fn splash_effect(state: &mut State, world: usize, at: Vec3, colour: [u8; 4]) {
-    let data = super::track::argb(colour);
-    level_event(state, world, at, LevelEvent::ParticlesPotionSplash, data);
-    sound(state, world, at, SoundEvent::Glass);
+    let [r, g, b, a] = colour;
+    let splash = crate::world::Particle::PotionSplash(crate::protocol::Rgba { r, g, b, a });
+    super::super::interact::particle(state, world, at, splash);
+    super::play(state, world, at, crate::world::Sound::PotionSplash);
 }
 
 /// A new cloud giving `effects` (at most [`MAX_CLOUD_EFFECTS`] of them) with PMMP's defaults
@@ -1013,7 +1027,7 @@ fn potion_hit(
                 if effect.effect().is_instant() {
                     instant(state, target, effect, potency, by, hooks);
                 } else {
-                    let ticks = (f64::from(effect.duration()) * 0.75 * potency).round();
+                    let ticks = (f64::from(effect.duration_ticks()) * 0.75 * potency).round();
                     if ticks < SPLASH_MIN_TICKS {
                         continue;
                     }
@@ -1152,7 +1166,8 @@ fn instant(
             let amount = f64::from(6_u32 << level) * potency;
             match target {
                 Struck::Player(s) => {
-                    (hooks.damage)(state, s, amount, survival::Damage::Magic);
+                    let none = DamageSource::None;
+                    (hooks.damage)(state, s, amount, survival::Damage::Magic, none);
                 }
                 Struck::Entity(id) => {
                     hurt(state, id, Blow::of(Cause::Magic, amount).by(source), None);
@@ -1493,7 +1508,7 @@ pub(super) fn cloud_tick(state: &mut State, id: Id, hooks: Hooks) {
             if effect.effect().is_instant() {
                 instant(state, target, effect, 0.5, by, hooks);
             } else {
-                let ticks = (f64::from(effect.duration()) / 4.0).round();
+                let ticks = (f64::from(effect.duration_ticks()) / 4.0).round();
                 give(state, target, with_duration(effect, ticks), hooks);
             }
         }
@@ -1535,6 +1550,7 @@ mod tests {
     use super::*;
     use crate::block::Class as BlockClass;
     use crate::nbt::Compound;
+    use crate::tick::entity::physics::MOTION_THRESHOLD;
     use crate::tick::entity::physics::tests::named;
     use crate::tick::entity::saved::tests::stack;
     use crate::world::BlockPos;
@@ -1589,7 +1605,7 @@ mod tests {
         let mut motion = direction(90.0, -30.0) * 1.5;
         for tick in 0..6 {
             h.entities();
-            let small = |v: f64| if v.abs() <= 0.000_01 { 0.0 } else { v };
+            let small = |v: f64| if v.abs() <= MOTION_THRESHOLD { 0.0 } else { v };
             motion = Vec3::new(
                 small(motion.x * 0.99),
                 small(motion.y * 0.99 - 0.03),
@@ -1755,7 +1771,7 @@ mod tests {
             enchantments: vec![(Enchantment::Flame, 1)],
             ..item::Extra::default()
         };
-        let bow = stack("minecraft:bow", 1).with_extra(Some(extra));
+        let bow = stack("minecraft:bow", 1).with_extra(Some(extra)).unwrap();
         inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), bow);
         assert!(release_bow_with(&mut h.state, session(1), 20, TEST_HOOKS));
         h.take(2);
@@ -1770,6 +1786,68 @@ mod tests {
             Packet::SetActorMotion(m) if m.entity_runtime_id == target)
         });
         assert!(!pushed, "no knockback within the hit cooldown");
+    }
+
+    /// A bow worn to its durability shoots without breaking further (PMMP
+    /// `Durable::applyDamage` leaves a broken item as it is).
+    #[test]
+    fn an_already_broken_bow_is_not_destroyed_by_wear() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        calls(|c| {
+            c.look = (0.0, 0.0);
+            c.arrows = 1;
+        });
+        let bow = stack("minecraft:bow", 1);
+        let max = bow.item().and_then(item::Type::max_durability).unwrap();
+        let broken = bow.with_damage(max);
+        inventory::set_held(
+            h.state.players.get_mut(&session(1)).unwrap(),
+            broken.clone(),
+        );
+        assert!(release_bow_with(&mut h.state, session(1), 20, TEST_HOOKS));
+        assert_eq!(h.state.players[&session(1)].inventory.held(), &broken);
+    }
+
+    thread_local! {
+        /// The sources of the damage events a test heard.
+        static SOURCES: std::cell::Cell<Vec<crate::event::DamageSource>> =
+            const { std::cell::Cell::new(Vec::new()) };
+    }
+
+    /// An arrow that hits a player names the arrow and its shooter in `EntityDamage` (PMMP
+    /// `EntityDamageByChildEntityEvent`).
+    #[test]
+    fn an_arrow_hit_names_its_shooter_in_entity_damage() {
+        let mut l = crate::event::Listeners::default();
+        l.push(
+            crate::event::Priority::Normal,
+            |e: &mut crate::event::EntityDamage, _: &mut crate::tick::Context<'_>| {
+                SOURCES.with(|s| {
+                    let mut list = s.take();
+                    list.push(e.source());
+                    s.set(list);
+                });
+            },
+        );
+        let mut h = Harness::with_listeners(1, l);
+        h.spawn(1, standing(0.0, 0.0));
+        h.spawn(2, standing(0.0, 8.0));
+        h.look(1, 0.0, 0.0);
+        let player = h.state.players.get_mut(&session(1)).unwrap();
+        inventory::set_held(player, stack("minecraft:bow", 1));
+        assert!(inventory::give(player, stack("minecraft:arrow", 1)).is_empty());
+        SOURCES.with(std::cell::Cell::take);
+        assert!(super::super::release_bow(&mut h.state, session(1), 20));
+        for _ in 0..5 {
+            h.step(Vec::new());
+        }
+        let shooter = Some(Actor::Player(crate::player::Id::new(session(1))));
+        let sources = SOURCES.with(std::cell::Cell::take);
+        assert!(
+            matches!(sources.as_slice(), [DamageSource::Child { owner, .. }] if *owner == shooter),
+            "{sources:?}"
+        );
     }
 
     /// The running server's hooks: throws fly along the look the survival rules keep, and a bow
@@ -1808,7 +1886,7 @@ mod tests {
             enchantments: vec![(Enchantment::Infinity, 1)],
             ..item::Extra::default()
         };
-        let infinity = stack("minecraft:bow", 1).with_extra(Some(extra));
+        let infinity = stack("minecraft:bow", 1).with_extra(Some(extra)).unwrap();
         inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), infinity);
         assert!(super::super::release_bow(&mut h.state, session(1), 20));
         assert_eq!(arrows(&h), (1, 5), "Infinity keeps the arrow");
@@ -1939,16 +2017,16 @@ mod tests {
             .effects()[0];
         let expected = |eye: Vec3| {
             let potency = 1.0 - eye.distance_squared(hit).sqrt() / SPLASH_RANGE;
-            (f64::from(regeneration.duration()) * 0.75 * potency).round()
+            (f64::from(regeneration.duration_ticks()) * 0.75 * potency).round()
         };
         let eyes = [1, 2].map(|n| h.state.players[&session(n)].position);
         assert_eq!(effects.len(), 2, "player 3 is beyond 4 blocks: {effects:?}");
         for ((who, e), (n, eye)) in effects.iter().zip([1u64, 2].into_iter().zip(eyes)) {
             assert_eq!(*who, n);
             assert_eq!(e.effect(), regeneration.effect());
-            assert_eq!(f64::from(e.duration()), expected(eye));
+            assert_eq!(f64::from(e.duration_ticks()), expected(eye));
         }
-        assert!(effects[0].1.duration() > effects[1].1.duration());
+        assert!(effects[0].1.duration_ticks() > effects[1].1.duration_ticks());
         // Harming: instant damage scaled the same way.
         calls(|c| c.damage.clear());
         assert!(throw_with(
@@ -2001,8 +2079,8 @@ mod tests {
             .find(|p| format!("{p:?}") == "Regeneration")
             .unwrap()
             .effects()[0];
-        let quarter = (f64::from(regeneration.duration()) / 4.0).round();
-        assert_eq!(f64::from(effects[0].1.duration()), quarter);
+        let quarter = (f64::from(regeneration.duration_ticks()) / 4.0).round();
+        assert_eq!(f64::from(effects[0].1.duration_ticks()), quarter);
         let shrunk = h.live().into_iter().find_map(|e| match &e.kind {
             Kind::Cloud(c) => Some(c.radius),
             _ => None,
@@ -2016,6 +2094,21 @@ mod tests {
             h.live().iter().all(|e| !matches!(e.kind, Kind::Cloud(_))),
             "gone"
         );
+    }
+
+    /// `experience-bottles = false`: a bottle o' enchanting is not thrown (the caller keeps it);
+    /// other projectiles still are.
+    #[test]
+    fn experience_bottles_off_refuses_the_throw() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.state.settings.experience_bottles = false;
+        let bottle = stack("minecraft:experience_bottle", 1);
+        assert!(!throw_with(&mut h.state, session(1), &bottle, TEST_HOOKS));
+        assert!(h.live().is_empty());
+        let snowball = stack("minecraft:snowball", 1);
+        assert!(throw_with(&mut h.state, session(1), &snowball, TEST_HOOKS));
+        assert_eq!(h.live().len(), 1);
     }
 
     #[test]
@@ -2067,10 +2160,12 @@ mod tests {
             c.look = (0.0, 0.0);
             c.arrows = 1;
         });
-        let flame = stack("minecraft:bow", 1).with_extra(Some(item::Extra {
-            enchantments: vec![(Enchantment::Flame, 1)],
-            ..item::Extra::default()
-        }));
+        let flame = stack("minecraft:bow", 1)
+            .with_extra(Some(item::Extra {
+                enchantments: vec![(Enchantment::Flame, 1)],
+                ..item::Extra::default()
+            }))
+            .unwrap();
         inventory::set_held(h.state.players.get_mut(&session(1)).unwrap(), flame);
         assert!(release_bow_with(&mut h.state, session(1), 20, TEST_HOOKS));
         for _ in 0..4 {

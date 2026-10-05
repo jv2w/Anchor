@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"math"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -13,6 +17,35 @@ func testGame() *game {
 	g := newGame(&session{}, nil)
 	g.names = map[int32]string{5: "minecraft:oak_planks", 17: "minecraft:oak_log", 501: "minecraft:emerald", 502: "minecraft:bread"}
 	return g
+}
+
+func TestEveryGameScenarioFailsWhenItsScriptFails(t *testing.T) {
+	for name := range gameScenarios {
+		s := &session{c: config{scenario: name}, res: &result{ended: true}, reader: &batchReader{}}
+		s.gameErr = errors.New("the script failed")
+		// runGame marks the session stayed whatever the script returned.
+		s.stayed.Store(true)
+		s.judge(context.Background(), nil)
+		if s.res.pass {
+			t.Errorf("%v passes although its script failed", name)
+		}
+	}
+}
+
+func TestScenarioListNamesEveryScenario(t *testing.T) {
+	listed := strings.Split(scenarioList(), ", ")
+	names := slices.Clone(connectionScenarios)
+	for name := range gameScenarios {
+		names = append(names, name)
+	}
+	for _, name := range names {
+		if !knownScenario(name) {
+			t.Errorf("%v is not a known scenario", name)
+		}
+		if !slices.Contains(listed, name) {
+			t.Errorf("%v is missing from the scenario list", name)
+		}
+	}
 }
 
 func TestPredictMovesItemsLikeTheClient(t *testing.T) {

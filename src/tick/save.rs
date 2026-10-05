@@ -20,7 +20,7 @@ use super::view::Key;
 use super::{Phase, Player, PlayerKey, State, dispatch};
 use crate::event::{PlayerDataSave, WorldSave};
 use crate::player;
-use crate::save::{PlayerData, Request, Snapshot};
+use crate::save::{PlayerData, Request, Snapshot, WorldValues};
 use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::{Chunk, Kind, World};
 
@@ -61,6 +61,36 @@ impl Unsaved {
     }
 }
 
+impl Unsaved {
+    /// Writes the snapshot that holds it and its extras ([`Held::checkpoint`]); the checkpoint
+    /// keeps the terrain apart, shared until a crash log is written.
+    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
+        use super::checkpoint::Codec;
+        let Self {
+            chunk: _,
+            extras,
+            snapshot,
+        } = self;
+        snapshot.encode(w);
+        extras.checkpoint(w);
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote, with the terrain the checkpoint kept and the lists
+    /// the world file or the generator has for the chunk.
+    pub(super) fn restore(
+        r: &mut super::checkpoint::Reader<'_>,
+        chunk: Chunk,
+        lists: Option<crate::save::ChunkExtras>,
+    ) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::Codec;
+        Ok(Self {
+            snapshot: Codec::decode(r)?,
+            extras: Held::restore(r, lists)?,
+            chunk,
+        })
+    }
+}
+
 /// The data of a player who left before a commit held its last changes.
 #[derive(Debug)]
 pub(super) struct Offline {
@@ -78,6 +108,8 @@ pub(super) struct Saving {
     next_due: u64,
     /// A task or command asked for a save at the next tick boundary.
     pub(super) requested: bool,
+    /// A task or command asked for an online backup after the next save (PLAN.md 10.9 백업).
+    pub(super) backup: bool,
     /// The snapshot sent to the save thread and not answered yet.
     in_flight: Option<InFlight>,
     /// Players who left, by storage key.
@@ -101,6 +133,7 @@ impl Saving {
             interval: interval.max(1),
             next_due: start.saturating_add(interval.max(1)),
             requested: false,
+            backup: false,
             in_flight: None,
             offline: BTreeMap::new(),
             players,
@@ -112,14 +145,6 @@ impl Saving {
         self.in_flight
             .as_ref()
             .filter(|f| f.chunks.contains(key))
-            .map(|f| f.start)
-    }
-
-    /// The snapshot in flight that holds a player's data.
-    fn holds_player(&self, key: &StoredPlayer) -> Option<u64> {
-        self.in_flight
-            .as_ref()
-            .filter(|f| f.players.contains(key))
             .map(|f| f.start)
     }
 
@@ -136,12 +161,14 @@ impl Saving {
             interval: _,
             next_due,
             requested,
+            backup,
             in_flight,
             offline,
             players: _,
         } = self;
         h.u64(*next_due);
         h.u64(u64::from(*requested));
+        h.u64(u64::from(*backup));
         match in_flight {
             None => h.u64(0),
             Some(InFlight {
@@ -180,6 +207,22 @@ impl Saving {
     }
 }
 
+super::checkpoint::fields!(Saving {
+    interval,
+    next_due,
+    requested,
+    backup,
+    in_flight,
+    offline,
+    players,
+});
+super::checkpoint::fields!(InFlight {
+    start,
+    chunks,
+    players
+});
+super::checkpoint::fields!(Offline { data, snapshot });
+
 /// The storage key of a player (PLAN.md 6): the XUID in decimal, or `offline:` and the name in
 /// ASCII lowercase.
 pub(super) fn storage_key(key: &PlayerKey) -> StoredPlayer {
@@ -203,27 +246,30 @@ pub(super) fn data_of(state: &State, player: &Player) -> PlayerData {
             let mut extra = extra::player_saved(&player.extra);
             super::inventory::save(&player.inventory, &mut extra);
             super::survival::save(&player.survival, &mut extra);
+            let join_ms = player.identity.client.join_time_ms;
+            super::survival::save_played(player.presence.saved(join_ms, state.tick), &mut extra);
             super::task::save_player(&state.data, &player.extra, &mut extra);
             extra
         },
     }
 }
 
-/// Keeps the data of a leaving player in memory while no commit holds it.
+/// Keeps the data of a leaving player in memory until a commit holds it. Leaving dates the
+/// play history (`lastPlayed`), so the data is newer than any snapshot taken before (PMMP saves
+/// every player that quits).
 pub(super) fn left(state: &mut State, player: &Player) {
     if !state.saving.players || player.phase == Phase::Loading {
         return;
     }
     let key = storage_key(&player.key);
-    let snapshot = if player.data_dirty {
-        None
-    } else if let Some(start) = state.saving.holds_player(&key) {
-        Some(start)
-    } else {
-        return;
-    };
     let data = data_of(state, player);
-    state.saving.offline.insert(key, Offline { data, snapshot });
+    state.saving.offline.insert(
+        key,
+        Offline {
+            data,
+            snapshot: None,
+        },
+    );
 }
 
 /// The memory a chunk a view releases keeps until a commit holds it: its terrain and extras when
@@ -247,14 +293,17 @@ pub(super) fn keep_unloaded(
     })
 }
 
-/// Takes a snapshot at this tick boundary if one is due (periodic, asked for, or too many unloaded
-/// chunks or departed players waiting) and none is in flight, and starts a new log segment there. `last` takes the
-/// final snapshot of a shutdown whatever is in flight: the save thread commits in order.
+/// Takes a snapshot at this tick boundary if one is due (periodic, asked for, too many unloaded
+/// chunks or departed players waiting, or a quarter of the input log's bound recorded since the
+/// last commit) and none is in flight, and starts a new log segment there. The last three are
+/// due with periodic saves off too: they bound memory. `last` takes the final snapshot of a
+/// shutdown whatever is in flight: the save thread commits in order.
 pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Option<Request> {
     let due = (state.tick >= state.saving.next_due && state.commands.auto_save())
         || state.saving.requested
         || state.chunks.unsaved.len() > MAX_UNSAVED_CHUNKS
-        || state.saving.offline.len() > MAX_OFFLINE_PLAYERS;
+        || state.saving.offline.len() > MAX_OFFLINE_PLAYERS
+        || log.wants_commit(state.tick);
     if !last && (!due || state.saving.in_flight.is_some()) {
         return None;
     }
@@ -264,6 +313,9 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
     let start = state.tick;
     let mut snapshot = Snapshot {
         start,
+        identity: log.identity(),
+        new_worlds: super::world_api::take_new_worlds(state),
+        backup: std::mem::take(&mut state.saving.backup),
         ..Snapshot::default()
     };
     let mut held = InFlight {
@@ -275,7 +327,8 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         if world.kind() != Kind::Persistent {
             continue;
         }
-        snapshot.spawns.push((index, world.spawn(), world.time()));
+        // Unloaded worlds too: a world unloaded since the last snapshot is saved by this one.
+        snapshot.worlds.push((index, WorldValues::of(world)));
         for (pos, chunk) in world.take_dirty() {
             held.chunks.insert((index, pos));
             snapshot.chunks.push((index, pos, chunk));
@@ -290,8 +343,9 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
             unsaved.snapshot = Some(start);
             held.chunks.insert((index, pos));
             if unsaved.chunk.is_dirty() {
-                unsaved.chunk.set_dirty(false);
-                snapshot.chunks.push((index, pos, unsaved.chunk.clone()));
+                snapshot
+                    .chunks
+                    .push((index, pos, unsaved.chunk.take_save()));
             }
             for (kind, list) in unsaved.extras.take_dirty() {
                 snapshot.extras.push((index, pos, kind, list));
@@ -406,7 +460,9 @@ pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
     debug!(start, "save committed");
     if dispatch::heard::<WorldSave>(state) {
         for index in 0..state.worlds.len() {
-            if state.worlds.get(index).map(World::kind) != Some(Kind::Persistent) {
+            if state.worlds.get(index).map(World::kind) != Some(Kind::Persistent)
+                || !state.catalog.is_loaded(index)
+            {
                 continue;
             }
             let mut e = WorldSave {
@@ -425,6 +481,11 @@ pub(super) fn failed(start: u64) {
         start,
         "the world could not be saved; stopping without saving (the last save is kept)"
     );
+}
+
+/// A batch of chunks could not be read: the tick stops without saving, as for a failed commit.
+pub(super) fn load_failed() {
+    error!("the world file could not be read; stopping without saving (the last save is kept)");
 }
 
 #[cfg(test)]
@@ -542,6 +603,109 @@ mod tests {
         // One commit holds the whole state of a tick boundary: the world and its players.
         assert_eq!(after, before);
         assert!(!cancelled.players[&SessionId::new(1)].data_dirty);
+    }
+
+    /// Runs 200 ticks of 1 MiB of input each with saves every 1440 minutes, auto-save on or off,
+    /// the stand-in save thread committing every snapshot: the commits it took and the log.
+    fn heavy_inputs(auto_save: bool) -> (usize, InputLog) {
+        let mut state = new_state(
+            settings(|c| c.developer.save_interval_minutes = 1440),
+            Listeners::default(),
+        );
+        state.commands.finish().unwrap();
+        if !auto_save {
+            super::super::command::console(&mut state, "save-off");
+            assert!(!state.commands.auto_save());
+        }
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let mut log = InputLog::default();
+        let mut answers = Vec::new();
+        let mut commits = 0;
+        for seq in 0..200 {
+            let packet = crate::protocol::packet::Packet::ClientCacheStatus(
+                crate::protocol::packet::ClientCacheStatus { enabled: true },
+            );
+            let mut inputs = vec![crate::tick::queue::Input {
+                session: SessionId::new(1),
+                seq,
+                kind: crate::tick::queue::InputKind::Packet {
+                    packet,
+                    size: 1 << 20,
+                },
+            }];
+            let mut output = Output::default();
+            super::super::step(
+                &mut state,
+                &mut inputs,
+                &mut answers,
+                &pool,
+                &mut output,
+                &mut log,
+            );
+            super::super::deliver(&mut state, &mut output, &mut log);
+            super::super::boundary(&mut state, &mut output, &mut log);
+            let requests = std::mem::take(&mut output.requests);
+            commits += requests
+                .iter()
+                .filter(|r| matches!(r, Request::Commit(_)))
+                .count();
+            answers = crate::tick::tests::answer(&state, requests);
+        }
+        assert!(pool.shutdown());
+        (commits, log)
+    }
+
+    #[test]
+    fn heavy_input_asks_for_commits_before_the_log_fills_with_auto_save_on_or_off() {
+        for auto_save in [true, false] {
+            let (commits, log) = heavy_inputs(auto_save);
+            assert!(
+                !log.is_truncated(),
+                "auto-save {auto_save}: the log was truncated"
+            );
+            // 200 MiB of input: a commit at least every 16 MiB.
+            assert!(
+                commits >= 200 / 16,
+                "auto-save {auto_save}: {commits} commits"
+            );
+        }
+    }
+
+    #[test]
+    fn a_backup_rides_the_next_snapshot_once_even_with_one_in_flight() {
+        let mut state = state(Listeners::default());
+        let mut log = InputLog::default();
+        let backup = |request: Option<Request>| match request {
+            Some(Request::Commit(snapshot)) => Some(snapshot.backup),
+            _ => None,
+        };
+        state.saving.requested = true;
+        assert_eq!(backup(snapshot(&mut state, &mut log, false)), Some(false));
+        // Asked twice while that snapshot is in flight: it waits for the next one.
+        Context { state: &mut state }.backup();
+        Context { state: &mut state }.backup();
+        assert_eq!(backup(snapshot(&mut state, &mut log, false)), None);
+        let start = state.saving.in_flight.as_ref().unwrap().start;
+        committed(&mut state, &mut log, start);
+        assert_eq!(backup(snapshot(&mut state, &mut log, false)), Some(true));
+        let start = state.saving.in_flight.as_ref().unwrap().start;
+        committed(&mut state, &mut log, start);
+        state.saving.requested = true;
+        assert_eq!(backup(snapshot(&mut state, &mut log, false)), Some(false));
+    }
+
+    /// `backups = false`: [`Context::backup`] refuses and asks nothing of the next snapshot.
+    #[test]
+    fn without_backups_the_api_refuses_a_backup() {
+        let mut state = new_state(
+            settings(|c| c.general.backups = false),
+            Listeners::default(),
+        );
+        assert!(!Context { state: &mut state }.backup());
+        assert!(!state.saving.backup && !state.saving.requested);
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        assert!(Context { state: &mut state }.backup());
+        assert!(state.saving.backup && state.saving.requested);
     }
 
     // pmmp: WorldSaveEvent, WorldEvent::getWorld

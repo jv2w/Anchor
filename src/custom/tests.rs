@@ -365,35 +365,259 @@ fn start_game_blocks_carry_dragonflys_components() {
     );
 }
 
-// pmmp: CreativeCategory
+/// The group index PMMP's rule gives the next entry of `category` without a group after
+/// `content`: the category's anonymous group if no named group of that category came after its
+/// last anonymous entry, else a new group.
+fn next_anonymous(content: &crate::protocol::packet::CreativeContent, category: u8) -> u32 {
+    let last = content
+        .items
+        .iter()
+        .rev()
+        .map(|i| &content.groups[usize::try_from(i.group_index).unwrap()])
+        .zip(content.items.iter().rev())
+        .find(|(g, _)| g.category == category);
+    match last {
+        Some((g, i)) if g.name.is_empty() => i.group_index,
+        _ => u32::try_from(content.groups.len()).unwrap(),
+    }
+}
+
+// pmmp: CreativeCategory, CreativeInventoryCache::buildPacket
 #[test]
 fn the_creative_inventory_lists_custom_entries_after_pmmps() {
     let r = registry();
     let vanilla = item::creative_content();
     let content = r.creative_content();
-    // PMMP groups runs: the ruby, the ore (an anonymous nature group), the apple (the ruby's
-    // group name again, in a new run).
-    assert_eq!(content.items.len(), vanilla.items.len() + 3);
-    assert_eq!(content.groups.len(), vanilla.groups.len() + 3);
-    let ruby = &content.items[vanilla.items.len()];
-    assert_eq!(ruby.creative_item_network_id, item::creative_count() + 1);
-    let ore = &content.items[vanilla.items.len() + 1];
-    let apple = &content.items[vanilla.items.len() + 2];
-    assert_ne!(
-        ruby.group_index, ore.group_index,
-        "another category starts a group"
+    let n = vanilla.items.len();
+    // The ruby and the apple share their group (same name and icon, PMMP: the same group
+    // object) though the ore comes between them; the ore joins the anonymous nature group
+    // PMMP's rule leaves open.
+    assert_eq!(content.items.len(), n + 3);
+    assert_eq!(content.items[..n], vanilla.items[..]);
+    assert_eq!(content.groups[..vanilla.groups.len()], vanilla.groups[..]);
+    let (ruby, ore, apple) = (
+        &content.items[n],
+        &content.items[n + 1],
+        &content.items[n + 2],
     );
-    assert_ne!(apple.group_index, ore.group_index);
+    assert_eq!(ruby.creative_item_network_id, u32::try_from(n).unwrap() + 1);
+    assert_eq!(ruby.group_index, apple.group_index);
+    assert_eq!(ore.group_index, next_anonymous(&vanilla, 2));
+    let named = &content.groups[usize::try_from(ruby.group_index).unwrap()];
+    assert_eq!(
+        (named.category, named.name.as_str()),
+        (4, "itemGroup.name.test")
+    );
+    let mut icon = ruby.item.clone();
+    icon.nbt_data.insert(
+        item::GROUP_WORKAROUND.to_owned(),
+        Value::Int(i32::try_from(ruby.group_index).unwrap()),
+    );
+    assert_eq!(named.icon, icon, "the first item, with PMMP's group index");
     let anonymous = &content.groups[usize::try_from(ore.group_index).unwrap()];
     assert_eq!((anonymous.category, anonymous.name.as_str()), (2, ""));
     // The stacks the client takes come back as the custom items.
     let id = ruby.creative_item_network_id;
     assert_eq!(
-        r.creative_stack(id),
+        r.creative_stack(0, id),
         Some(Stack::new(r.item_type(&RUBY).unwrap(), 1))
     );
-    assert_eq!(r.creative_stack(1), item::creative_stack(1));
-    assert_eq!(r.creative_stack(id + 3), None);
+    assert_eq!(r.creative_stack(0, 1), item::creative_stack(1));
+    assert_eq!(r.creative_stack(0, id + 3), None);
+    assert_eq!(r.creative_stack(1, 1), None, "no alternative inventory");
+}
+
+/// The finished registry of `builder`.
+fn finished(builder: crate::ServerBuilder) -> Result<Registry, Error> {
+    let mut r = builder.setup.custom;
+    r.finish().map(|()| r)
+}
+
+/// The item types of a creative packet's entries, in order.
+fn listed(content: &crate::protocol::packet::CreativeContent) -> Vec<i32> {
+    content
+        .items
+        .iter()
+        .map(|i| i.item.item_type.network_id)
+        .collect()
+}
+
+// pmmp: CreativeInventory, CreativeInventory::add, CreativeInventory::remove, CreativeInventory::clear, CreativeInventoryEntry::matchesItem, CreativeGroup, CreativeGroup::__construct, CreativeGroup::getName, CreativeGroup::getIcon
+#[test]
+fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
+    let planks = Registry::default()
+        .resolve(ItemRef::Block(block::Kind::OakPlanks))
+        .unwrap();
+    let sword = vanilla(item::Kind::DiamondSword);
+    let iron = vanilla(item::Kind::IronSword);
+    let apple = vanilla(item::Kind::Apple);
+    let book = Stack::new(item::Kind::EnchantedBook.default_type(), 3)
+        .with_extra(Some(item::Extra {
+            enchantments: vec![(item::Enchantment::Sharpness, 2)],
+            ..item::Extra::default()
+        }))
+        .unwrap();
+    let swords = CreativeGroup::new("Swords", sword);
+    assert_eq!(swords.name(), "Swords");
+    assert!(matches!(
+        swords.icon(),
+        CreativeItem::Item(ItemRef::Item(t)) if *t == item::Kind::DiamondSword.default_type()
+    ));
+    let damaged = Stack::new(item::Kind::DiamondSword.default_type(), 1).with_damage(5);
+    let r = finished(
+        crate::Server::builder()
+            .custom_item(&RUBY)
+            .creative_inventory(
+                CreativeInventory::vanilla()
+                    .remove(ItemRef::Item(planks))
+                    // No entry has this damage (PMMP compares it, not the NBT).
+                    .remove(damaged),
+            )
+            .alternative_creative_inventory(
+                "kits",
+                CreativeInventory::vanilla()
+                    .clear()
+                    .add(sword, Category::Equipment, Some(swords.clone()))
+                    .add(apple, Category::Items, None)
+                    .add(iron, Category::Equipment, Some(swords.clone()))
+                    .add(book.clone(), Category::Items, None)
+                    .add(ItemRef::Custom(&RUBY), Category::Items, None)
+                    .remove(apple),
+            ),
+    )
+    .unwrap();
+    let pmmp = item::creative_content();
+    // The default: PMMP's without its first oak planks, then the ruby's place.
+    let default = r.creative_content();
+    let planks_id = i32::from(planks.runtime_id());
+    let mut want = listed(&pmmp);
+    let at = want.iter().position(|id| *id == planks_id).unwrap();
+    want.remove(at);
+    want.push(i32::from(r.item_type(&RUBY).unwrap().runtime_id()));
+    assert_eq!(listed(&default), want);
+    assert_eq!(
+        default
+            .items
+            .iter()
+            .map(|i| i.creative_item_network_id)
+            .collect::<Vec<_>>(),
+        (1..=u32::try_from(want.len()).unwrap()).collect::<Vec<_>>(),
+        "IDs count from 1 without holes"
+    );
+    assert_eq!(r.creative_stack(0, 1), item::creative_stack(2));
+    // The alternative: the swords in one group though the apple was between them, the book and
+    // the ruby in the anonymous group that the swords' group did not end (another category).
+    let kits = r.creatives()[1].content();
+    let ruby = r.item_type(&RUBY).unwrap();
+    assert_eq!(
+        listed(kits),
+        [
+            sword,
+            iron,
+            ItemRef::Item(book.item().unwrap()),
+            ItemRef::Custom(&RUBY)
+        ]
+        .map(|s| i32::from(r.resolve(s).unwrap().runtime_id()))
+    );
+    let groups: Vec<u32> = kits.items.iter().map(|i| i.group_index).collect();
+    assert_eq!(groups, [0, 0, 1, 1]);
+    assert_eq!(kits.groups.len(), 2);
+    assert_eq!(
+        (kits.groups[0].category, kits.groups[0].name.as_str()),
+        (3, "Swords")
+    );
+    assert_eq!(
+        kits.groups[0].icon.nbt_data.get(item::GROUP_WORKAROUND),
+        Some(&Value::Int(0))
+    );
+    assert_eq!(
+        (kits.groups[1].category, kits.groups[1].name.as_str()),
+        (4, "")
+    );
+    assert_eq!(
+        kits.items[2].item,
+        book.with_count(1).to_network(),
+        "the stack's NBT"
+    );
+    assert_eq!(r.creative_stack(1, 3), Some(book.with_count(1)));
+    assert_eq!(r.creative_stack(1, 4), Some(Stack::new(ruby, 1)));
+    assert_eq!(r.creative_stack(1, 5), None);
+    assert_eq!(r.creative_index(Some("kits")), Some(1));
+    assert_eq!(r.creative_index(None), Some(0));
+    assert_eq!(r.creative_index(Some("other")), None);
+    assert_eq!(r.creative_name(1), Some("kits"));
+    assert_eq!(r.creative_name(0), None);
+}
+
+#[test]
+fn cleared_creative_inventories_are_empty_and_bad_ones_are_refused() {
+    let empty =
+        finished(crate::Server::builder().creative_inventory(CreativeInventory::vanilla().clear()))
+            .unwrap();
+    assert!(empty.creative_content().items.is_empty());
+    assert!(empty.creative_content().groups.is_empty());
+    let apple = vanilla(item::Kind::Apple);
+    let refused = |builder: crate::ServerBuilder| finished(builder).unwrap_err();
+    assert!(matches!(
+        refused(
+            crate::Server::builder().creative_inventory(CreativeInventory::empty().add(
+                ItemRef::Custom(&RUBY),
+                Category::Items,
+                None
+            ))
+        ),
+        Error::Creative { .. }
+    ));
+    assert!(matches!(
+        refused(
+            crate::Server::builder().creative_inventory(CreativeInventory::empty().add(
+                apple,
+                Category::Items,
+                Some(CreativeGroup::new("", apple))
+            ))
+        ),
+        Error::Creative { .. }
+    ));
+    assert!(matches!(
+        refused(
+            crate::Server::builder().creative_inventory(CreativeInventory::empty().add(
+                Stack::EMPTY,
+                Category::Items,
+                None
+            ))
+        ),
+        Error::Creative { .. }
+    ));
+    assert_eq!(
+        refused(
+            crate::Server::builder()
+                .alternative_creative_inventory("a", CreativeInventory::empty())
+                .alternative_creative_inventory("a", CreativeInventory::vanilla())
+        ),
+        Error::Duplicate { identifier: "a" }
+    );
+    assert!(matches!(
+        refused(
+            crate::Server::builder().alternative_creative_inventory("", CreativeInventory::empty())
+        ),
+        Error::Creative { .. }
+    ));
+    let mut many = crate::Server::builder();
+    let names: Vec<&'static str> = (0..=creative::MAX_ALTERNATIVES)
+        .map(|i| &*Box::leak(i.to_string().into_boxed_str()))
+        .collect();
+    for name in names {
+        many = many.alternative_creative_inventory(name, CreativeInventory::empty());
+    }
+    assert!(matches!(refused(many), Error::TooMany { .. }));
+    let mut big = CreativeInventory::empty();
+    for _ in 0..=creative::MAX_ENTRIES {
+        big = big.add(apple, Category::Items, None);
+    }
+    assert!(matches!(
+        refused(crate::Server::builder().creative_inventory(big)),
+        Error::TooMany { .. }
+    ));
 }
 
 #[test]
@@ -538,6 +762,7 @@ fn invalid_definitions_refuse_the_build() {
 #[test]
 fn invalid_recipes_refuse_the_build() {
     let diamond = Ingredient::Item(vanilla(item::Kind::Diamond));
+    let logs = Ingredient::Tag(item::Tag::find("minecraft:logs").unwrap());
     let out = [(vanilla(item::Kind::DiamondHoe), 1)];
     let bad = [
         Recipe::shaped(&[], &[], &out),
@@ -560,6 +785,17 @@ fn invalid_recipes_refuse_the_build() {
             diamond,
             (vanilla(item::Kind::Stick), 0),
         ),
+        Recipe::stonecutter(diamond, (vanilla(item::Kind::Stick), 65)),
+        Recipe::smithing_transform(diamond, diamond, logs, ItemRef::Custom(&SWORD)),
+        Recipe::brewing(logs, diamond, vanilla(item::Kind::Potion)),
+        Recipe::brewing(diamond, logs, vanilla(item::Kind::Potion)),
+        Recipe::brewing(diamond, diamond, ItemRef::Custom(&RUBY)),
+        Recipe::brewing_container(
+            vanilla(item::Kind::Potion),
+            logs,
+            vanilla(item::Kind::Potion),
+        ),
+        Recipe::brewing_container(ItemRef::Custom(&RUBY), diamond, vanilla(item::Kind::Potion)),
     ];
     for (i, recipe) in bad.into_iter().enumerate() {
         let e = finish(|r| r.add_recipe(recipe)).unwrap_err();
@@ -655,6 +891,163 @@ fn custom_recipes_are_numbered_after_pmmps_and_judged_by_shape() {
         matches!(r.recipe(1), Some(Judged::Shaped(_))),
         "PMMP's come first"
     );
+}
+
+/// The item type `name` with `meta`.
+fn typed(name: &str, meta: u16) -> item::Type {
+    item::Type::from_name(name, meta, None, &Compound::new()).unwrap()
+}
+
+/// A server with a stonecutter, a potion type, a smithing and two container change recipes of
+/// its own, registered in that order.
+fn station_and_brewing() -> Registry {
+    let ruby = ItemRef::Custom(&RUBY);
+    let wart = ItemRef::Item(typed("minecraft:nether_wart", 0));
+    let lingering = ItemRef::Item(typed("minecraft:lingering_potion", 0));
+    let potion = vanilla(item::Kind::Potion);
+    finished(
+        crate::Server::builder()
+            .custom_item(&RUBY)
+            .custom_item(&SWORD)
+            .recipe(Recipe::stonecutter(
+                Ingredient::Item(ruby),
+                (vanilla(item::Kind::Diamond), 2),
+            ))
+            .recipe(Recipe::brewing(
+                Ingredient::Item(ItemRef::Item(typed("minecraft:splash_potion", 0))),
+                Ingredient::Item(ruby),
+                ItemRef::Item(typed("minecraft:splash_potion", 7)),
+            ))
+            .recipe(Recipe::smithing_transform(
+                Ingredient::Item(ItemRef::Item(typed(
+                    "minecraft:netherite_upgrade_smithing_template",
+                    0,
+                ))),
+                Ingredient::Item(vanilla(item::Kind::DiamondSword)),
+                Ingredient::AnyMeta(ruby),
+                ItemRef::Custom(&SWORD),
+            ))
+            .recipe(Recipe::brewing_container(
+                potion,
+                Ingredient::Item(ruby),
+                lingering,
+            ))
+            // Before PMMP's water + nether wart (a potion type change).
+            .recipe(Recipe::brewing_container(
+                potion,
+                Ingredient::Item(wart),
+                lingering,
+            )),
+    )
+    .unwrap()
+}
+
+// pmmp: ShapelessRecipe::getType, ShapelessRecipeType
+#[test]
+fn stonecutter_and_smithing_recipes_are_numbered_and_sent_after_pmmps() {
+    let ruby = ItemRef::Custom(&RUBY);
+    let cut = Recipe::stonecutter(Ingredient::Item(ruby), (ruby, 1));
+    assert_eq!(cut.shapeless_type(), Some(ShapelessType::Stonecutter));
+    assert_eq!(
+        Recipe::shapeless(&[Ingredient::Item(ruby)], &[(ruby, 1)]).shapeless_type(),
+        Some(ShapelessType::Crafting)
+    );
+    let smith = Ingredient::Item(ruby);
+    assert_eq!(
+        Recipe::smithing_transform(smith, smith, smith, ruby).shapeless_type(),
+        None
+    );
+    let r = station_and_brewing();
+    let first = crate::crafting::first_special_id();
+    // The stonecutter and smithing recipes have network IDs, the brewing ones none.
+    assert_eq!(r.first_special_id(), first + 2);
+    let Some(Judged::Shapeless(s)) = r.recipe(first) else {
+        panic!("a stonecutter recipe is shapeless");
+    };
+    assert_eq!(s.kind, ShapelessType::Stonecutter);
+    let Some(Judged::SmithingTransform(t)) = r.recipe(first + 1) else {
+        panic!("the smithing recipe");
+    };
+    assert_eq!(t.result.item, r.item_type(&SWORD).unwrap());
+    let data = r.crafting_data();
+    let pmmp = crate::crafting::crafting_data();
+    let cut = data.shapeless_recipes.last().unwrap();
+    assert_eq!(
+        (cut.recipe_network_id, cut.block.as_str()),
+        (first, "stonecutter")
+    );
+    let smith = data.smithing_transform_recipes.last().unwrap();
+    assert_eq!(smith.recipe_network_id, first + 1);
+    assert_eq!(
+        data.smithing_transform_recipes.len(),
+        pmmp.smithing_transform_recipes.len() + 1
+    );
+}
+
+// pmmp: CraftingManager::registerPotionTypeRecipe, CraftingManager::registerPotionContainerChangeRecipe, PotionTypeRecipe::__construct, PotionContainerChangeRecipe::__construct, CraftingManager::matchBrewingRecipe
+#[test]
+fn brewing_recipes_are_sent_and_brew_after_pmmps_of_their_kind() {
+    let r = station_and_brewing();
+    let data = r.crafting_data();
+    let pmmp = crate::crafting::crafting_data();
+    let ruby_id = i32::from(r.item_type(&RUBY).unwrap().runtime_id());
+    let splash_id = i32::from(typed("minecraft:splash_potion", 0).runtime_id());
+    assert_eq!(data.potion_recipes.len(), pmmp.potion_recipes.len() + 1);
+    assert_eq!(
+        data.potion_recipes.last(),
+        Some(&crate::protocol::PotionRecipe {
+            input_potion_id: splash_id,
+            input_potion_metadata: 0,
+            reagent_item_id: ruby_id,
+            reagent_item_metadata: 0,
+            output_potion_id: splash_id,
+            output_potion_metadata: 7,
+        })
+    );
+    let potion_id = i32::from(item::Kind::Potion.default_type().runtime_id());
+    let lingering_id = i32::from(typed("minecraft:lingering_potion", 0).runtime_id());
+    assert_eq!(
+        data.potion_container_change_recipes[pmmp.potion_container_change_recipes.len()..],
+        [
+            crate::protocol::PotionContainerChangeRecipe {
+                input_item_id: potion_id,
+                reagent_item_id: ruby_id,
+                output_item_id: lingering_id,
+            },
+            crate::protocol::PotionContainerChangeRecipe {
+                input_item_id: potion_id,
+                reagent_item_id: i32::from(typed("minecraft:nether_wart", 0).runtime_id()),
+                output_item_id: lingering_id,
+            },
+        ]
+    );
+    // Brewing: PMMP's container changes, the server's, PMMP's potion types, the server's.
+    let one = |name: &str, meta: u16| Stack::new(typed(name, meta), 1);
+    let ruby_one = Stack::new(r.item_type(&RUBY).unwrap(), 1);
+    assert_eq!(
+        r.brew(&one("minecraft:splash_potion", 0), &ruby_one),
+        Some(one("minecraft:splash_potion", 7))
+    );
+    assert_eq!(
+        r.brew(&one("minecraft:potion", 4), &ruby_one),
+        Some(one("minecraft:lingering_potion", 4)),
+        "the meta (potion type) stays"
+    );
+    assert_eq!(
+        r.brew(
+            &one("minecraft:potion", 0),
+            &one("minecraft:nether_wart", 0)
+        ),
+        Some(one("minecraft:lingering_potion", 0)),
+        "a container change comes before PMMP's potion types"
+    );
+    assert_eq!(
+        r.brew(&one("minecraft:potion", 0), &one("minecraft:gunpowder", 0)),
+        Some(one("minecraft:splash_potion", 0)),
+        "PMMP's own still brew"
+    );
+    assert_eq!(r.brew(&one("minecraft:splash_potion", 7), &ruby_one), None);
+    assert_eq!(r.brew(&ruby_one, &ruby_one), None);
 }
 
 #[test]
@@ -764,6 +1157,84 @@ fn custom_furnace_recipes_count_after_pmmps_and_are_sent() {
     );
 }
 
+/// `vanilla-recipes = false`: only the server's own recipes exist, numbered from 1, in the
+/// lookups and in `CraftingData`.
+#[test]
+fn without_vanilla_recipes_only_the_servers_own_exist() {
+    let builder = crate::Server::builder()
+        .custom_item(&RUBY)
+        .recipe(Recipe::stonecutter(
+            Ingredient::Item(ItemRef::Custom(&RUBY)),
+            (vanilla(item::Kind::Diamond), 2),
+        ));
+    let mut r = builder.setup.custom;
+    r.drop_vanilla_recipes();
+    r.finish().unwrap();
+    assert_eq!(r.first_special_id(), 2);
+    assert!(matches!(r.recipe(1), Some(Judged::Shapeless(_))));
+    assert!(r.recipe(2).is_none());
+    let data = r.crafting_data();
+    let counts = (
+        data.shaped_recipes.len(),
+        data.shapeless_recipes.len(),
+        data.smithing_transform_recipes.len(),
+        data.smithing_trim_recipes.len(),
+        data.potion_recipes.len(),
+        data.potion_container_change_recipes.len(),
+    );
+    assert_eq!(counts, (0, 1, 0, 0, 0, 0));
+    assert_eq!(data.shapeless_recipes[0].recipe_network_id, 1);
+    assert!(data.clear_recipes);
+    assert_eq!(
+        r.crafting_candidates("minecraft:oak_log")
+            .collect::<Vec<_>>(),
+        [1]
+    );
+    let iron = Stack::new(typed("minecraft:raw_iron", 0), 1);
+    assert_eq!(r.furnace_recipe(FurnaceType::Furnace, &iron), None);
+    let water = Stack::new(typed("minecraft:potion", 0), 1);
+    let wart = Stack::new(typed("minecraft:nether_wart", 0), 1);
+    assert_eq!(r.brew(&water, &wart), None);
+    let mut with = Registry::default();
+    with.finish().unwrap();
+    assert!(with.furnace_recipe(FurnaceType::Furnace, &iron).is_some());
+    assert!(with.brew(&water, &wart).is_some());
+}
+
+/// `recipe-book = false`: every recipe goes out locked with nothing that unlocks it (the
+/// context BDS gives recipes only the server unlocks), so the client's book stays empty.
+#[test]
+fn a_hidden_recipe_book_sends_every_recipe_locked() {
+    let mut r = Registry::default();
+    r.hide_recipe_book();
+    r.finish().unwrap();
+    assert!(!r.has_recipe_book());
+    let data = r.crafting_data();
+    let locked = Some(crate::protocol::RecipeUnlockRequirement {
+        context: 0,
+        ingredients: Vec::new(),
+    });
+    assert!(
+        data.shaped_recipes
+            .iter()
+            .all(|s| s.unlock_requirement == locked)
+    );
+    assert!(
+        data.shapeless_recipes
+            .iter()
+            .all(|s| s.unlock_requirement == locked)
+    );
+    let vanilla = crate::crafting::crafting_data();
+    assert_eq!(data.shaped_recipes.len(), vanilla.shaped_recipes.len());
+    assert_eq!(
+        data.shapeless_recipes.len(),
+        vanilla.shapeless_recipes.len()
+    );
+    let mut shown = Registry::default();
+    shown.finish().unwrap();
+    assert!(shown.has_recipe_book());
+}
+
 #[test]
 fn nothing_registered_sends_exactly_the_vanilla_content() {
     let mut r = Registry::default();
@@ -791,8 +1262,8 @@ fn nothing_registered_sends_exactly_the_vanilla_content() {
 /// `minecraft:info_update`) and is saved back exactly as it was (PLAN.md 7).
 #[test]
 fn saved_custom_blocks_load_back_or_stay_as_they_were_saved() {
-    use crate::world::{BlockPos, Chunk, ChunkPos, Entry, Kind, World};
-    let r = std::sync::Arc::new(registry());
+    use crate::world::{Chunk, Entry};
+    let r = registry();
     let blue = r
         .block_state(&LAMP)
         .and_then(|s| s.with("color", PropertyValue::String("blue")))
@@ -800,31 +1271,15 @@ fn saved_custom_blocks_load_back_or_stay_as_they_were_saved() {
     let mut chunk = Chunk::new();
     chunk.put(1, -60, 2, Entry::Known(blue)).unwrap();
     let record = crate::save::to_record(&chunk);
-    let saved = crate::save::to_chunk(record.clone()).unwrap();
-    assert!(
-        matches!(saved.entry(1, -60, 2), Some(Entry::Unknown(_))),
-        "the save thread knows no custom block"
-    );
-    let pos = BlockPos::new(1, -60, 2);
-    let mut world = World::new("w", Kind::Temporary, 0, BlockPos::new(0, 0, 0));
-    world.set_custom(std::sync::Arc::clone(&r));
-    assert!(world.custom().is_some());
-    world.insert_chunk(ChunkPos::new(0, 0), saved);
-    assert_eq!(world.block(pos), Some(blue));
-    assert_eq!(
-        world.chunk(ChunkPos::new(0, 0)).map(crate::save::to_record),
-        Some(record.clone())
-    );
+    let saved = crate::save::to_chunk(record.clone(), &r).unwrap();
+    assert_eq!(saved.block(1, -60, 2), Some(blue));
+    assert_eq!(crate::save::to_record(&saved), record);
     // Without the registration.
-    let mut bare = World::new("w", Kind::Temporary, 0, BlockPos::new(0, 0, 0));
-    bare.insert_chunk(
-        ChunkPos::new(0, 0),
-        crate::save::to_chunk(record.clone()).unwrap(),
+    let bare = crate::save::to_chunk(record.clone(), &Registry::default()).unwrap();
+    assert!(
+        matches!(bare.entry(1, -60, 2), Some(Entry::Unknown(_))),
+        "an unregistered custom block stays unknown"
     );
-    assert_eq!(bare.block(pos), None);
-    assert!(bare.custom().is_none());
-    assert_eq!(
-        bare.chunk(ChunkPos::new(0, 0)).map(crate::save::to_record),
-        Some(record)
-    );
+    assert_eq!(bare.block(1, -60, 2), None);
+    assert_eq!(crate::save::to_record(&bare), record);
 }

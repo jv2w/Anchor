@@ -16,7 +16,7 @@ use super::access::Access;
 use super::{Grants, allowed, has_permission_of};
 use crate::block;
 use crate::command::parse::Names;
-use crate::command::{Command, Kind, Param};
+use crate::command::{self, Command, Error, Kind, Param};
 use crate::permission::Permission;
 use crate::protocol::consts::{CommandArg, CommandArgType};
 use crate::protocol::packet::{AvailableCommands, Packet};
@@ -36,7 +36,7 @@ const UNSET: u32 = u32::MAX;
 pub(crate) struct Catalog {
     /// Every enum value once, in first-use order over all commands.
     values: Vec<String>,
-    /// Every enum once: the first enum of a type name is the one clients get.
+    /// Every enum once, each type name once.
     enums: Vec<Enum>,
     /// The commands in registration order.
     commands: Vec<Entry>,
@@ -82,8 +82,9 @@ enum Type {
 }
 
 impl Catalog {
-    /// The network form of `commands`, with the client's name enums from `names`.
-    pub(crate) fn new(commands: &[Command], names: &Names) -> Self {
+    /// The network form of `commands`, with the client's name enums from `names`. Fails if two
+    /// enums share a type name but not their values: the client would get only the first.
+    pub(crate) fn new(commands: &[Command], names: &Names) -> command::Result<Self> {
         let mut b = Builder::default();
         for command in commands {
             let mut used = Vec::new();
@@ -129,7 +130,7 @@ impl Catalog {
                 enums: used,
             });
         }
-        b.catalog
+        b.error.map_or(Ok(b.catalog), Err)
     }
 }
 
@@ -264,17 +265,30 @@ fn capitalised(name: &str) -> String {
 struct Builder {
     catalog: Catalog,
     value_index: BTreeMap<String, u32>,
-    /// Enums by type name: the first enum of a name is the one the client gets.
+    /// Enums by type name.
     enum_index: BTreeMap<String, u32>,
+    /// The first enum whose type name an enum of other values has.
+    error: Option<Error>,
 }
 
 impl Builder {
-    /// The index of the enum `name` with `values`, added on first use.
+    /// The index of the enum `name` with `values`, added on first use. An enum of the name with
+    /// other values is an error.
     fn enumeration<'v>(&mut self, name: &str, values: impl IntoIterator<Item = &'v str>) -> u32 {
+        let values: Vec<u32> = values.into_iter().map(|v| self.value(v)).collect();
         if let Some(&index) = self.enum_index.get(name) {
+            if self
+                .catalog
+                .enums
+                .get(position(index))
+                .is_some_and(|e| e.values != values)
+            {
+                self.error.get_or_insert(Error::ConflictingEnum {
+                    name: name.to_owned(),
+                });
+            }
             return index;
         }
-        let values = values.into_iter().map(|v| self.value(v)).collect();
         let index = index_of(self.catalog.enums.len());
         self.catalog.enums.push(Enum {
             name: name.to_owned(),

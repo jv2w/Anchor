@@ -97,3 +97,14 @@ func TestFlagsRejectTransportsAScenarioCannotUse(t *testing.T) {
 		}
 	}
 }
+
+func TestSignalingAddrIsAddrUnlessGiven(t *testing.T) {
+	base := []string{"-addr", "127.0.0.1:1", "-out", "x"}
+	if c, err := parseFlags(base); err != nil || c.signalingAddr != "127.0.0.1:1" {
+		t.Errorf("default: %q, %v", c.signalingAddr, err)
+	}
+	c, err := parseFlags(append(slices.Clone(base), "-signaling-addr", "127.0.0.1:2"))
+	if err != nil || c.signalingAddr != "127.0.0.1:2" || c.addr != "127.0.0.1:1" {
+		t.Errorf("given: %q, %q, %v", c.addr, c.signalingAddr, err)
+	}
+}

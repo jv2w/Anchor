@@ -214,6 +214,17 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
             };
             adjacent(cx, pos, face)?.has_center_support()
         }
+        // A grindstone breaks when the block it stands on, hangs from or leans on goes (BDS P6,
+        // m9-facts STATIONS); a block without collision does not hold it (dragonfly
+        // `Grindstone.NeighbourUpdateTick`).
+        Class::Grindstone => {
+            let face = match props::text(block, "attachment")? {
+                "standing" => Face::Down,
+                "hanging" => Face::Up,
+                _ => props::direction_swne(block)?.opposite(),
+            };
+            !side(cx, pos, face)?.collision_boxes().is_empty()
+        }
         Class::Bell => {
             let facing = props::direction_swne(block)?;
             let faces: &[Face] = match props::text(block, "attachment")? {

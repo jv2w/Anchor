@@ -14,7 +14,8 @@
 //! Decode limits (PLAN.md 10.1) all go through [`Reader::limit`] and all fail with
 //! [`Error::Size`]: a declared byte length is at most the remaining input, a list count is at
 //! most [`MAX_LIST_LEN`] and the remaining input, and every allocation first takes
-//! `count × size_of` from the reader's allocation budget.
+//! `count × size_of` from the reader's allocation budget. The `_max` readers also take a field's
+//! own limit (Mojang `maxLength`, `maxItems`), which the generated decoders pass.
 
 use std::fmt;
 use std::mem::size_of;
@@ -137,9 +138,19 @@ impl<'a> Reader<'a> {
     pub(crate) fn list<T>(
         &mut self,
         count: u64,
+        f: impl FnMut(&mut Self) -> Result<T>,
+    ) -> Result<Vec<T>> {
+        self.list_max(count, MAX_LIST_LEN, f)
+    }
+
+    /// [`Reader::list`] of a field that holds at most `max` elements.
+    pub(crate) fn list_max<T>(
+        &mut self,
+        count: u64,
+        max: usize,
         mut f: impl FnMut(&mut Self) -> Result<T>,
     ) -> Result<Vec<T>> {
-        let count = self.limit(count, MAX_LIST_LEN, size_of::<T>())?;
+        let count = self.limit(count, max.min(MAX_LIST_LEN), size_of::<T>())?;
         let mut items = Vec::with_capacity(count);
         for _ in 0..count {
             items.push(f(self)?);
@@ -187,13 +198,23 @@ impl<'a> Reader<'a> {
 
     /// Takes `len` bytes after the limit check as an owned buffer.
     pub(crate) fn byte_vec(&mut self, len: u64) -> Result<Vec<u8>> {
-        let len = self.limit(len, usize::MAX, 1)?;
+        self.byte_vec_max(len, usize::MAX)
+    }
+
+    /// [`Reader::byte_vec`] of at most `max` bytes.
+    fn byte_vec_max(&mut self, len: u64, max: usize) -> Result<Vec<u8>> {
+        let len = self.limit(len, max, 1)?;
         Ok(self.take(len)?.to_vec())
     }
 
     /// Takes `len` bytes after the limit check as an owned string.
     pub(crate) fn utf8(&mut self, len: u64) -> Result<String> {
-        let len = self.limit(len, usize::MAX, 1)?;
+        self.utf8_max(len, usize::MAX)
+    }
+
+    /// [`Reader::utf8`] of a string of at most `max` bytes.
+    fn utf8_max(&mut self, len: u64, max: usize) -> Result<String> {
+        let len = self.limit(len, max, 1)?;
         let bytes = self.take(len)?;
         str::from_utf8(bytes)
             .map(str::to_owned)
@@ -342,8 +363,13 @@ impl<'a> Reader<'a> {
 
     /// `String`: a varuint32 byte length and UTF-8 bytes.
     pub(crate) fn string(&mut self) -> Result<String> {
+        self.string_max(usize::MAX)
+    }
+
+    /// `String` of a field that holds at most `max` bytes.
+    pub(crate) fn string_max(&mut self, max: usize) -> Result<String> {
         let len = self.varuint32()?;
-        self.utf8(len.into())
+        self.utf8_max(len.into(), max)
     }
 
     /// `StringUTF`: an int16 byte length and UTF-8 bytes. A negative length is a size error.
@@ -354,8 +380,13 @@ impl<'a> Reader<'a> {
 
     /// `ByteSlice`: a varuint32 byte length and the bytes.
     pub(crate) fn byte_slice(&mut self) -> Result<Vec<u8>> {
+        self.byte_slice_max(usize::MAX)
+    }
+
+    /// `ByteSlice` of a field that holds at most `max` bytes.
+    pub(crate) fn byte_slice_max(&mut self, max: usize) -> Result<Vec<u8>> {
         let len = self.varuint32()?;
-        self.byte_vec(len.into())
+        self.byte_vec_max(len.into(), max)
     }
 
     /// `Bytes`: the rest of the input.

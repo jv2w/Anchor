@@ -1,6 +1,7 @@
-//! The game scenarios of `cargo xtask p6` (PLAN.md 10.7 P6): `craft`, `furnace`, `enchant`,
-//! `crops` and `trade`. The bot plays each one like the official client (`xtask/go/bot/game.go`)
-//! and writes the console commands it needs into its capture as `command` records; the harness runs
+//! The game scenarios of `cargo xtask p6` (PLAN.md 10.7 P6, 10.9): `craft`, `furnace`, `enchant`,
+//! `crops`, `trade` and `grindstone`. The bot plays each one like the official client
+//! (`xtask/go/bot/game.go`) and writes the console commands it needs into its capture as `command`
+//! records; the harness runs
 //! each new command on the server's console while the bot runs (`run_scenario`). `p6 game bds` runs
 //! them against a fresh BDS world into `target/p6/bds-game/`: first the `spawn` scenario with
 //! untouched game rules (the spawn window of this world), then `SESSION_SETUP`, then each game
@@ -22,7 +23,14 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 /// The game scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 5] = ["craft", "furnace", "enchant", "crops", "trade"];
+pub(crate) const SCENARIOS: [&str; 6] = [
+    "craft",
+    "furnace",
+    "enchant",
+    "crops",
+    "trade",
+    "grindstone",
+];
 /// Console commands run once before the game scenarios: no mob spawning, weather, day cycle or
 /// random ticks (grass under a block turning to dirt), so no unrelated entity, time or block traffic
 /// lands between the steps; then every mob is removed.
@@ -100,7 +108,7 @@ pub(crate) fn anchor_session(
     let dir = root.join(super::OUT_DIR).join("anchor-game");
     let (mut console, task) = console::console();
     let with_console = |b: anchor::ServerBuilder| b.every(console::EVERY_TICK, task);
-    let played = super::anchor_session(&dir, "zlib", None, with_console, out, |addr, out| {
+    let played = super::anchor_session(&dir, "zlib", None, with_console, out, |addr, _, out| {
         let mut passed = run_spawn(bot, addr, &dir, out)?;
         for line in SESSION_SETUP {
             console.send(line)?;
@@ -196,8 +204,8 @@ fn read_trace(
         .map_err(|e| format!("{}: {e}", capture.display()))
 }
 
-/// `p6 game compare A B`: compares the traces of the game scenario captures that both folders
-/// hold and prints the differences; true when there are none.
+/// `p6 game compare A B`: compares the traces of every game scenario's captures in the two folders
+/// and prints the differences; true when there are none and no capture is missing.
 pub(crate) fn compare(
     root: &Path,
     a: &Path,
@@ -207,7 +215,8 @@ pub(crate) fn compare(
     compare_scenarios(root, a, b, &SCENARIOS, out)
 }
 
-/// [`compare`] for the captures of `scenarios` only.
+/// [`compare`] for the captures of `scenarios` only. A scenario without a capture in either
+/// folder is a difference.
 fn compare_scenarios(
     root: &Path,
     a: &Path,
@@ -217,13 +226,19 @@ fn compare_scenarios(
 ) -> Result<bool, String> {
     let blocks = super::block_states(&super::read_text(&root.join(super::REFERENCE_BLOCKS))?)?;
     let mut same = true;
-    let mut compared = 0;
     for scenario in scenarios {
         let capture = |dir: &Path| dir.join(format!("{scenario}.jsonl"));
-        if !super::is_file(&capture(a)) || !super::is_file(&capture(b)) {
+        if let Some(dir) = [a, b].into_iter().find(|d| !super::is_file(&capture(d))) {
+            super::say(
+                out,
+                &format!(
+                    "DIFFERENT {scenario}: no capture in {}; run `p6 game bds {scenario}`",
+                    dir.display()
+                ),
+            )?;
+            same = false;
             continue;
         }
-        compared += 1;
         let differences = trace::compare(
             &read_trace(a, scenario, &blocks)?,
             &read_trace(b, scenario, &blocks)?,
@@ -243,9 +258,6 @@ fn compare_scenarios(
             ),
         )?;
         same &= differences.is_empty();
-    }
-    if compared == 0 {
-        return Err("the folders hold no game scenario captures in common".to_owned());
     }
     super::say(out, if same { "SAME" } else { "DIFFERENT" })?;
     Ok(same)
@@ -275,43 +287,143 @@ pub(crate) fn run_scenario(
     dir: &Path,
     scenario: &str,
     script: Option<&Path>,
+    console: impl FnMut(&str) -> Result<(), String>,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    run_scenarios(bot, addr, dir, scenario, script, None, console, out)
+}
+
+/// One bot of [`run_scenarios`]: its scenario, capture, process and the commands relayed.
+struct Running {
+    scenario: String,
+    capture: std::path::PathBuf,
+    child: std::process::Child,
+    relayed: usize,
+}
+
+impl Running {
+    /// Starts the bot of `scenario` into `<dir>/<scenario>.jsonl`.
+    fn start(
+        bot: &Path,
+        addr: &str,
+        dir: &Path,
+        scenario: &str,
+        script: Option<&Path>,
+    ) -> Result<Self, String> {
+        let capture = dir.join(format!("{scenario}.jsonl"));
+        super::remove_file(&capture)?;
+        let name = player(scenario);
+        let mut command = Command::new(bot);
+        if let Some(script) = script {
+            command.arg("-script").arg(script);
+        }
+        let child = command
+            .args(["-addr", addr, "-transport", "raknet", "-scenario", scenario])
+            .args(["-name", &name, "-timeout", BOT_TIMEOUT, "-out"])
+            .arg(&capture)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("cannot run the bot: {e}"))?;
+        Ok(Self {
+            scenario: scenario.to_owned(),
+            capture,
+            child,
+            relayed: 0,
+        })
+    }
+
+    /// Passes the bot's new command records to `console`; true once the bot has exited.
+    fn relay(
+        &mut self,
+        console: &mut impl FnMut(&str) -> Result<(), String>,
+    ) -> Result<bool, String> {
+        let exited = self
+            .child
+            .try_wait()
+            .map_err(|e| format!("bot: {e}"))?
+            .is_some();
+        // The capture may not exist yet; a missing file has no commands.
+        let text = super::read_text(&self.capture).unwrap_or_default();
+        for line in commands(&text).iter().skip(self.relayed) {
+            console(line)?;
+            self.relayed += 1;
+        }
+        Ok(exited)
+    }
+
+    /// Whether the bot has started its first step (it has joined and teleported).
+    fn stepped(&self) -> bool {
+        super::read_text(&self.capture).is_ok_and(|t| t.contains(r#""type":"step""#))
+    }
+
+    /// Waits for the bot, killing it first when `kill`, and reports its result.
+    fn finish(mut self, kill: bool, out: &mut impl Write) -> Result<bool, String> {
+        if kill {
+            self.child
+                .kill()
+                .map_err(|e| format!("kill the bot: {e}"))?;
+        }
+        let output = self
+            .child
+            .wait_with_output()
+            .map_err(|e| format!("wait for the bot: {e}"))?;
+        let passed = output.status.success();
+        let failure = if passed {
+            String::new()
+        } else {
+            format!(": {}", String::from_utf8_lossy(&output.stderr).trim())
+        };
+        super::say(
+            out,
+            &format!(
+                "{} game {} ({} commands){failure}",
+                if passed { "ok  " } else { "FAIL" },
+                self.scenario,
+                self.relayed
+            ),
+        )?;
+        Ok(passed)
+    }
+}
+
+/// [`run_scenario`], with the bot of `companion` started into `<dir>/<companion>.jsonl` once the
+/// scenario's bot has begun its first step (a second player the scenario watches); the commands
+/// of both are relayed, and both must pass.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "consistency: run_scenario's arguments and the companion"
+)]
+pub(crate) fn run_scenarios(
+    bot: &Path,
+    addr: &str,
+    dir: &Path,
+    scenario: &str,
+    script: Option<&Path>,
+    companion: Option<&str>,
     mut console: impl FnMut(&str) -> Result<(), String>,
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    let capture = dir.join(format!("{scenario}.jsonl"));
-    super::remove_file(&capture)?;
-    let name = player(scenario);
-    let mut command = Command::new(bot);
-    if let Some(script) = script {
-        command.arg("-script").arg(script);
-    }
-    let mut child = command
-        .args(["-addr", addr, "-transport", "raknet", "-scenario", scenario])
-        .args(["-name", &name, "-timeout", BOT_TIMEOUT, "-out"])
-        .arg(&capture)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("cannot run the bot: {e}"))?;
+    let mut main = Running::start(bot, addr, dir, scenario, script)?;
+    let mut second: Option<Running> = None;
     let deadline = super::now() + BOT_GRACE;
-    let mut relayed = 0;
     let relay = loop {
-        let exited = child.try_wait().map_err(|e| format!("bot: {e}"))?.is_some();
-        // The capture may not exist yet; a missing file has no commands.
-        let text = super::read_text(&capture).unwrap_or_default();
-        let commands = commands(&text);
-        let mut failed = None;
-        for line in commands.iter().skip(relayed) {
-            if let Err(e) = console(line) {
-                failed = Some(e);
-                break;
-            }
-            relayed += 1;
+        if let (Some(c), None) = (companion, &second)
+            && main.stepped()
+        {
+            second = Some(Running::start(bot, addr, dir, c, None)?);
         }
-        if let Some(e) = failed {
-            break Err(e);
-        }
-        if exited {
+        let exited = match main.relay(&mut console) {
+            Ok(e) => e,
+            Err(e) => break Err(e),
+        };
+        let companion_exited = match second.as_mut().map(|c| c.relay(&mut console)) {
+            Some(Ok(e)) => e,
+            Some(Err(e)) => break Err(e),
+            // A scenario bot that ended before it stepped never starts its companion.
+            None => companion.is_none() || exited,
+        };
+        if exited && companion_exited {
             break Ok(());
         }
         if super::now() > deadline {
@@ -319,26 +431,12 @@ pub(crate) fn run_scenario(
         }
         super::pause();
     };
-    if relay.is_err() {
-        child.kill().map_err(|e| format!("kill the bot: {e}"))?;
+    let kill = relay.is_err();
+    let mut passed = main.finish(kill, out)?;
+    if let Some(c) = second {
+        passed &= c.finish(kill, out)?;
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("wait for the bot: {e}"))?;
     relay?;
-    let passed = output.status.success();
-    let failure = if passed {
-        String::new()
-    } else {
-        format!(": {}", String::from_utf8_lossy(&output.stderr).trim())
-    };
-    super::say(
-        out,
-        &format!(
-            "{} game {scenario} ({relayed} commands){failure}",
-            if passed { "ok  " } else { "FAIL" }
-        ),
-    )?;
     Ok(passed)
 }
 
@@ -388,5 +486,26 @@ mod tests {
         assert_eq!(scenarios(&[]).expect("all"), SCENARIOS.to_vec());
         assert_eq!(scenarios(&["trade"]).expect("one"), ["trade"]);
         assert!(scenarios(&["fishing"]).is_err());
+    }
+
+    #[test]
+    fn a_missing_capture_of_a_requested_scenario_fails() {
+        let dir = std::env::temp_dir().join(format!("anchor-p6-game-{}", std::process::id()));
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        let items = br#"{"type":"packet","name":"ItemRegistry","fields":{"Items":[]}}"#;
+        for (d, scenario) in [(&a, "craft"), (&b, "craft"), (&a, "furnace")] {
+            super::super::create_dir(d).expect("dir");
+            super::super::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
+            super::super::write(&d.join(format!("{scenario}.items.jsonl")), items).expect("items");
+        }
+        let mut out = Vec::new();
+        let same = compare_scenarios(&crate::root(), &a, &b, &["craft", "furnace"], &mut out);
+        super::super::remove_dir(&dir).expect("cleanup");
+        assert_eq!(same, Ok(false));
+        let report = String::from_utf8_lossy(&out);
+        assert!(
+            report.contains("DIFFERENT furnace: no capture in"),
+            "{report}"
+        );
     }
 }

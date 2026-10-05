@@ -16,12 +16,17 @@ use std::fmt::Write as _;
 use std::panic;
 use std::sync::OnceLock;
 
-use anchor::nbt::{List, Value};
+use anchor::nbt::{Compound, List, Value};
 use anchor::protocol::batch::{self, Header, Settings};
 use anchor::protocol::packet::{
-    BlockActorData, ClientCacheBlobStatus, Packet, RemoveObjective, SetTime,
+    BlockActorData, BookEdit, ClientCacheBlobStatus, CommandRequest,
+    ItemStackRequest as ItemStackRequestPacket, MobEquipment, Packet, PlayerEnchantOptions,
+    RemoveObjective, ServerBoundPackSettingChange, SetActorData, SetTime, Text,
 };
-use anchor::protocol::{ConnectionRequest, Error};
+use anchor::protocol::{
+    ConnectionRequest, EnchantmentOption, Error, ItemInstance, ItemStack, ItemStackRequest,
+    ItemType, MetadataValue, PackSetting,
+};
 use oracle::Record;
 use rng::Rng;
 
@@ -35,6 +40,11 @@ const PACKET_COUNT: usize = 236;
 const SAMPLES: usize = 64;
 /// Corpus seed.
 const CORPUS_SEED: u64 = 1;
+/// The per-field decode limits, which corpus samples keep within (Anchor rejects the rest).
+const LIMITS: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/data/reference/protocol_limits.json"
+);
 /// Mutated inputs per packet.
 const MUTATIONS: usize = 1000;
 /// Mutation seed; each packet mixes in its ID.
@@ -49,7 +59,9 @@ fn corpus() -> &'static BTreeMap<u32, Vec<Vec<u8>>> {
         let mut by_id: BTreeMap<u32, Vec<Vec<u8>>> = BTreeMap::new();
         for (id, data) in oracle::run(
             "corpus",
-            &["corpus", "-seed", &seed, "-samples", &samples],
+            &[
+                "corpus", "-seed", &seed, "-samples", &samples, "-limits", LIMITS,
+            ],
             None,
         ) {
             by_id.entry(id).or_default().push(data);
@@ -469,6 +481,78 @@ fn gophertunnel_accepts_rust_encodings_and_returns_the_same_packets() {
     assert_no_failures("P3(b)", &failures);
 }
 
+/// A compound with several keys at two levels.
+fn multi_key_compound() -> Compound {
+    let inner: Compound = [
+        ("x".to_owned(), Value::Int(1)),
+        ("y".to_owned(), Value::String("b".to_owned())),
+        ("z".to_owned(), Value::Byte(3)),
+    ]
+    .into_iter()
+    .collect();
+    [
+        ("alpha".to_owned(), Value::Short(7)),
+        ("beta".to_owned(), Value::Compound(inner)),
+        ("delta".to_owned(), Value::Float(0.5)),
+        ("gamma".to_owned(), Value::Long(-9)),
+    ]
+    .into_iter()
+    .collect()
+}
+
+/// P3(a) for NBT nested in item user data and entity metadata. The corpus gives those compounds
+/// one key each, because gophertunnel's Writer writes the keys of a Go map in random order and a
+/// sample needs fixed bytes; here gophertunnel decodes Rust's encoding R of compounds with several
+/// keys, and its re-encoding G (keys in any order) decodes in Rust to the same packet, which
+/// re-encodes to R.
+#[test]
+fn nested_compounds_with_several_keys_agree_with_gophertunnel() {
+    let item = ItemInstance {
+        stack_network_id: 5,
+        stack: ItemStack {
+            item_type: ItemType {
+                network_id: 12,
+                metadata_value: 0,
+            },
+            count: 1,
+            nbt_data: multi_key_compound(),
+            ..ItemStack::default()
+        },
+    };
+    let packets = [
+        Packet::MobEquipment(Box::new(MobEquipment {
+            entity_runtime_id: 1,
+            new_item: item,
+            ..MobEquipment::default()
+        })),
+        Packet::SetActorData(SetActorData {
+            entity_runtime_id: 1,
+            entity_metadata: [(7, MetadataValue::CompoundTag(multi_key_compound()))]
+                .into_iter()
+                .collect(),
+            ..SetActorData::default()
+        }),
+    ];
+    let records: Vec<Record> = packets
+        .iter()
+        .map(|p| (p.id(), encode(p).expect("encodes")))
+        .collect();
+    let results = oracle::run("nested-nbt", &["check"], Some(records.as_slice()));
+    assert_eq!(results.len(), records.len());
+    for ((id, r), (status, g)) in records.iter().zip(&results) {
+        assert_eq!(
+            *status,
+            0,
+            "{}: gophertunnel rejects R: {}",
+            name(*id),
+            String::from_utf8_lossy(g)
+        );
+        let returned = decode(*id, g).expect("Rust decodes G");
+        assert_eq!(returned, decode(*id, r).expect("Rust decodes R"));
+        assert_eq!(encode(&returned).expect("re-encodes"), *r);
+    }
+}
+
 fn assert_size_error(id: u32, payload: &[u8], budget: usize) {
     let mut left = budget;
     let result = Packet::decode(id, payload, &mut left, SHIELD_ID);
@@ -520,6 +604,124 @@ fn allocations_over_the_budget_are_size_errors() {
     assert!(Packet::decode(id, &payload, &mut budget, SHIELD_ID).is_ok());
     assert_eq!(budget, 0, "the decode takes 10 × 8 bytes");
     assert_size_error(id, &payload, 0);
+}
+
+/// A translation `Text` payload with `params` parameters `"p"` and a filtered message of
+/// `filtered` bytes, written by hand: the encoder refuses what gophertunnel refuses.
+fn text_payload(params: usize, filtered: usize) -> Vec<u8> {
+    let mut payload = vec![0, 2, 2, 1, b'm']; // not translated, category, type, message "m"
+    put_varuint(&mut payload, u64::try_from(params).expect("fits u64"));
+    payload.extend_from_slice(&[1, b'p'].repeat(params));
+    payload.extend_from_slice(&[0, 0, 1]); // XUID, platform chat ID, filtered message present
+    put_varuint(&mut payload, u64::try_from(filtered).expect("fits u64"));
+    payload.resize(payload.len() + filtered, b'f');
+    payload
+}
+
+/// Cases of one packet at a field's Mojang `maxLength` or `maxItems` and the payload of the
+/// same packet just over it.
+fn field_limit_cases() -> Vec<(&'static str, Packet, Vec<u8>)> {
+    let bytes = |packet: &Packet| encode(packet).expect("encoding has no field limits");
+    let request = |filter: usize, requests: usize| {
+        Packet::ItemStackRequest(ItemStackRequestPacket {
+            requests: vec![
+                ItemStackRequest {
+                    filter_strings: vec!["f".repeat(filter)],
+                    ..ItemStackRequest::default()
+                };
+                requests
+            ],
+        })
+    };
+    let text = |params: usize, filtered: usize| {
+        Packet::Text(Box::new(Text {
+            text_type: 2, // translation
+            message: "m".to_owned(),
+            parameters: vec!["p".to_owned(); params],
+            filtered_message: Some("f".repeat(filtered)),
+            ..Text::default()
+        }))
+    };
+    let pack_setting = |name: usize| {
+        Packet::ServerBoundPackSettingChange(ServerBoundPackSettingChange {
+            pack_setting: PackSetting {
+                name: "n".repeat(name),
+                ..PackSetting::default()
+            },
+            ..ServerBoundPackSettingChange::default()
+        })
+    };
+    let command = |len: usize| {
+        Packet::CommandRequest(CommandRequest {
+            command_line: "c".repeat(len),
+            ..CommandRequest::default()
+        })
+    };
+    let book = |len: usize| {
+        Packet::BookEdit(Box::new(BookEdit {
+            action_type: 1, // add page
+            text: "t".repeat(len),
+            ..BookEdit::default()
+        }))
+    };
+    let enchant = |count: usize| {
+        Packet::PlayerEnchantOptions(PlayerEnchantOptions {
+            options: vec![EnchantmentOption::default(); count],
+        })
+    };
+    let at_text = text(4, 1);
+    assert_eq!(
+        bytes(&at_text),
+        text_payload(4, 1),
+        "the hand-written Text payload"
+    );
+    vec![
+        (
+            "CommandRequest.CommandLine (string)",
+            command(1000),
+            bytes(&command(1001)),
+        ),
+        (
+            "BookEdit.Text (string in a switch case)",
+            book(768),
+            bytes(&book(769)),
+        ),
+        (
+            "PlayerEnchantOptions.Options (list)",
+            enchant(3),
+            bytes(&enchant(4)),
+        ),
+        (
+            "ItemStackRequest.Requests (list)",
+            request(0, 100),
+            bytes(&request(0, 101)),
+        ),
+        (
+            "ItemStackRequest.FilterStrings[] (list element)",
+            request(1000, 1),
+            bytes(&request(1001, 1)),
+        ),
+        ("Text.Parameters (list)", at_text, text_payload(5, 1)),
+        (
+            "Text.FilteredMessage (optional string)",
+            text(0, 65536),
+            text_payload(0, 65537),
+        ),
+        (
+            "PackSetting.Name (hand codec)",
+            pack_setting(128),
+            bytes(&pack_setting(129)),
+        ),
+    ]
+}
+
+#[test]
+fn a_field_over_its_mojang_limit_is_a_size_error() {
+    for (what, at, over) in field_limit_cases() {
+        let payload = encode(&at).expect("the packet at the limit encodes");
+        assert_eq!(decode(at.id(), &payload).as_ref(), Ok(&at), "{what}");
+        assert_eq!(decode(at.id(), &over).err(), Some(Error::Size), "{what}");
+    }
 }
 
 /// `BlockActorData` at the origin holding a network NBT root `nbt`.

@@ -17,12 +17,21 @@
 //! Anchor writes, stays in [`Extra::nbt`] untouched, so a stack Anchor wrote reads back equal and
 //! writes back byte for byte. NBT that is part of the item type (an ominous banner's `Type`) is
 //! not kept in the stack: the type adds it when the tag is written.
+//!
+//! Limits (PLAN.md 10.9): a stack is refused where its extra data is set ([`Stack::with_extra`],
+//! and the conversions from outside forms) if its saved form is over [`MAX_NBT_BYTES`] or its
+//! custom name over [`MAX_NAME_BYTES`]. PMMP has no such limit. The limits are sized so that
+//! everything the game stores whole fits its record (PLAN.md 6): a player's 146 stacks and user
+//! data in its record, a container's 27 stacks in one NBT root, and a shulker box's 27 stacks of
+//! at most [`MAX_STORED_BYTES`] with its name in one stack.
 
+use std::fmt;
 use std::sync::Arc;
 
 use super::{Enchantment, Type};
-use crate::nbt::{self, Compound, List, Value};
-use crate::protocol::{self, ItemType};
+use crate::nbt::{self, Compound, Cost, Encoding, List, Value};
+use crate::protocol::{self, ItemType, Writer};
+use crate::tile::MAX_NAME_BYTES;
 
 /// The tag key of a custom name and lore.
 const TAG_DISPLAY: &str = "display";
@@ -38,6 +47,50 @@ const TAG_DAMAGE: &str = "Damage";
 const TAG_BLOCK_ENTITY: &str = "BlockEntityTag";
 /// The items a container block item holds (a shulker box).
 const TAG_ITEMS: &str = "Items";
+
+/// The most bytes a stack's saved form may take: its Bedrock item compound with the `Slot` byte
+/// an item list adds, at the largest damage, as little-endian NBT. With 146 such stacks and its user
+/// data (16 values of 64 KiB) a player's record stays under 15 MiB, and a container's 27 under
+/// 2.6 MiB (one NBT root takes at most 4 MiB).
+pub const MAX_NBT_BYTES: usize = 96 << 10;
+/// The most a stack's saved form may take from a reader's allocation budget to read back: four
+/// times its bytes, so 146 of them read within the 64 MiB a record's reader may allocate. Only
+/// NBT of many tiny elements comes near it (enchantments take about five times their bytes, but
+/// few of them).
+const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;
+/// The most bytes a stack a shulker box holds may take, saved as [`MAX_NBT_BYTES`] counts: 3 KiB,
+/// so 27 of them, a 1,024-byte name and the box's own keys (82.4 KiB) make one stack. The largest
+/// vanilla items (a firework rocket of seven stars, about 0.9 KB; a custom block item of the
+/// longest state, about 2.5 KB) fit.
+pub(crate) const MAX_STORED_BYTES: usize = MAX_NBT_BYTES / 32;
+/// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts.
+const MAX_STORED_ALLOC: usize = MAX_NBT_ALLOC / 32;
+
+/// Why a stack was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Error {
+    /// Its saved form is over [`MAX_NBT_BYTES`], or of so many tiny elements that reading it back
+    /// takes more than four times that, or it cannot be saved at all (a string over 32,767
+    /// bytes, nesting deeper than 512).
+    TooLarge,
+    /// Its custom name is over [`MAX_NAME_BYTES`] bytes, the most a placed block keeps.
+    NameTooLong,
+}
+
+/// A result with the stack [`enum@Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooLarge => write!(f, "the stack's saved form is over {MAX_NBT_BYTES} bytes"),
+            Self::NameTooLong => write!(f, "the custom name is over {MAX_NAME_BYTES} bytes"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 /// A stack of items, or nothing (an empty slot).
 #[doc(alias = "Item")]
@@ -155,16 +208,67 @@ impl Stack {
         }
     }
 
-    /// The same stack with `extra` (`None` removes it).
-    #[must_use]
-    pub fn with_extra(&self, extra: Option<Extra>) -> Self {
+    /// The same stack with `extra` (`None` removes it). Fails if the stack would be over a limit
+    /// ([`MAX_NBT_BYTES`], [`MAX_NAME_BYTES`]); `self` stays as it is.
+    pub fn with_extra(&self, extra: Option<Extra>) -> Result<Self> {
         if self.is_empty() {
-            return Self::EMPTY;
+            return Ok(Self::EMPTY);
         }
         Self {
             extra: extra.filter(|e| *e != Extra::default()).map(Arc::new),
             ..self.clone()
         }
+        .checked()
+    }
+
+    /// The stack if it is within the limits. One without extra data is its type's form (at most
+    /// a custom block state's 2,293 bytes of NBT), within them.
+    fn checked(self) -> Result<Self> {
+        if self.extra.is_none() {
+            return Ok(self);
+        }
+        if self.custom_name().len() > MAX_NAME_BYTES {
+            return Err(Error::NameTooLong);
+        }
+        if self.stored_cost(MAX_NBT_BYTES, MAX_NBT_ALLOC).is_none() {
+            return Err(Error::TooLarge);
+        }
+        Ok(self)
+    }
+
+    /// What the stack takes in an item list (its saved form with a `Slot` byte) at the largest
+    /// damage it can take (an item that wears writes its damage, an int, only when above 0);
+    /// `None` if that is over `bytes`, reads back with more than `alloc` of a reader's budget, or
+    /// cannot be written. Writing stops at `bytes`, so a huge stack costs no more than that.
+    fn stored_cost(&self, bytes: usize, alloc: usize) -> Option<Cost> {
+        let worn = self.item.is_some_and(|i| i.max_durability().is_some()) && self.damage == 0;
+        let mut nbt = if worn {
+            self.with_damage(1).to_nbt()
+        } else {
+            self.to_nbt()
+        };
+        nbt.insert("Slot".to_owned(), Value::Byte(0));
+        let mut w = Writer::new(Vec::new(), 0);
+        w.nbt_within(&nbt, Encoding::LittleEndian, bytes)
+            .ok()
+            .filter(|c| c.alloc <= alloc)
+    }
+
+    /// Whether a shulker box's slots take the stack: not a shulker box (PMMP
+    /// `ShulkerBoxInventory::canAddItem`, and its slot validator for players), and at most
+    /// [`MAX_STORED_BYTES`], so that the box with everything it holds is one stack within
+    /// [`MAX_NBT_BYTES`] (PMMP has no such limit). An empty stack fits.
+    pub(crate) fn fits_shulker_box(&self) -> bool {
+        let Some(item) = self.item else {
+            return true;
+        };
+        let shulker = item
+            .block()
+            .is_some_and(|b| b.is(crate::block::Class::ShulkerBox));
+        !shulker
+            && self
+                .stored_cost(MAX_STORED_BYTES, MAX_STORED_ALLOC)
+                .is_some()
     }
 
     /// Whether `other` can join this stack: the same type, damage and extra data (PMMP
@@ -200,11 +304,17 @@ impl Stack {
     /// `count` items of `item` from the parts of an outside form: its meta and item NBT tag.
     /// The meta is the stack state where it is not the type's (an item that wears reads an old
     /// meta as damage, as PMMP does); the tag's known keys are read into the fields. Empty when
-    /// `count` is 0; the count is limited to the maximum stack size.
-    pub(crate) fn from_parts(item: Type, count: u8, meta: u16, tag: Option<Compound>) -> Self {
+    /// `count` is 0; the count is limited to the maximum stack size. Fails as
+    /// [`Stack::with_extra`] does.
+    pub(crate) fn from_parts(
+        item: Type,
+        count: u8,
+        meta: u16,
+        tag: Option<Compound>,
+    ) -> Result<Self> {
         let stack = Self::new(item, count);
         if stack.is_empty() {
-            return stack;
+            return Ok(stack);
         }
         let durability = item.max_durability();
         let (damage, extra) = split_tag(item, durability, tag.unwrap_or_default());
@@ -218,13 +328,16 @@ impl Stack {
     }
 
     /// The item NBT `tag`: the extra NBT with the custom name, lore, enchantments, durability and
-    /// the type's own NBT put back in; `None` when it would be empty.
+    /// the type's own NBT put back in; `None` when it would be empty. A key the extra NBT holds
+    /// keeps the stack's value: reading a tag drops a type key only where its value is the
+    /// type's ([`split_tag`]), so the extra holds one only where the stack differs (a firework
+    /// rocket with explosions).
     pub(crate) fn tag(&self) -> Option<Compound> {
         let item = self.item?;
         let mut tag = self.extra().map(|e| e.nbt.clone()).unwrap_or_default();
         if let Some(static_nbt) = item.nbt() {
             for (key, value) in nbt::compound(static_nbt) {
-                tag.insert(key, value);
+                tag.entry(key).or_insert(value);
             }
         }
         if item.max_durability().is_some() && self.damage > 0 {
@@ -305,15 +418,7 @@ impl Stack {
     /// the count is above the item's stack size. The block a block item is sent with only tells
     /// apart types of the same runtime ID and meta; a client's different block runtime ID for an
     /// item without a block form is not a reason to refuse it (P6 facts 2).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consistency: the M8 packet hooks decode client items (PMMP \
-                      `TypeConverter::netItemStackToCore`); the tests check the network form \
-                      round-trips"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) fn from_network(stack: &protocol::ItemStack) -> Option<Self> {
         let ItemType {
             network_id,
@@ -330,7 +435,7 @@ impl Stack {
             .filter(|c| *c <= item.max_stack_size())?;
         let meta = u16::try_from(metadata_value).unwrap_or(item.meta());
         let tag = (!nbt.is_empty()).then(|| nbt.clone());
-        Some(Self::from_parts(item, count, meta, tag))
+        Self::from_parts(item, count, meta, tag).ok()
     }
 
     /// The disk form (Bedrock item compound): `{Name, Count, Damage, Block?, tag?}`; the air
@@ -369,14 +474,15 @@ impl Stack {
     }
 
     /// The stack a disk item compound holds: empty for air or a count of 0, `None` if Anchor does
-    /// not know the item or the compound is not an item. Counts above the stack size are cut to
-    /// it. Vanilla items only, so tests only: saved data is read with [`Stack::from_nbt_with`].
+    /// not know the item, the compound is not an item or the stack is over a limit (only an
+    /// Anchor before the limits saved one). Counts above the stack size are cut to it. Vanilla
+    /// items only, so tests only: saved data is read with [`Stack::from_nbt_with`].
     #[cfg(test)]
     pub(crate) fn from_nbt(nbt: &Compound) -> Option<Self> {
         Self::read_nbt(nbt, None)
     }
 
-    /// [`Stack::from_nbt`] knowing the server's custom items and blocks too: a custom item, a
+    /// `Stack::from_nbt` knowing the server's custom items and blocks too: a custom item, a
     /// custom block's item (its `Block` a custom state) and a vanilla block item read back.
     pub(crate) fn from_nbt_with(nbt: &Compound, custom: &crate::custom::Registry) -> Option<Self> {
         Self::read_nbt(nbt, Some(custom))
@@ -416,7 +522,9 @@ impl Stack {
             Some(c) => c.item_by_name(name, meta, block, tag_or_empty)?,
             None => Type::from_name(name, meta, block, tag_or_empty)?,
         };
-        Some(Self::from_parts(item, count, meta, tag))
+        // performance: saved data is outside input (PLAN.md 6), so a stack read back is checked as
+        // a new one is: one more write of its NBT, only for a stack with extra data.
+        Self::from_parts(item, count, meta, tag).ok()
     }
 }
 
@@ -517,10 +625,12 @@ mod tests {
     }
 
     fn named(stack: &Stack, name: &str) -> Stack {
-        stack.with_extra(Some(Extra {
-            custom_name: Some(name.to_owned()),
-            ..Extra::default()
-        }))
+        stack
+            .with_extra(Some(Extra {
+                custom_name: Some(name.to_owned()),
+                ..Extra::default()
+            }))
+            .unwrap()
     }
 
     #[test]
@@ -545,7 +655,10 @@ mod tests {
             enchantments: vec![(Enchantment::from_id(15).unwrap(), 5)],
             nbt: Compound::from([("custom".to_owned(), Value::Int(7))]),
         };
-        let stack = Stack::new(pick, 1).with_damage(42).with_extra(Some(extra));
+        let stack = Stack::new(pick, 1)
+            .with_damage(42)
+            .with_extra(Some(extra))
+            .unwrap();
         let disk = stack.to_nbt();
         let Some(Value::Compound(tag)) = disk.get("tag") else {
             panic!("the tag is written");
@@ -597,17 +710,20 @@ mod tests {
             enchantments: vec![(Enchantment::Sharpness, 3)],
             nbt: Compound::from([("custom".to_owned(), Value::Byte(1))]),
         };
-        let named = worn.with_extra(Some(extra.clone()));
+        let named = worn.with_extra(Some(extra.clone())).unwrap();
         let got = named.extra().expect("the extra data is kept");
         assert_eq!(got.custom_name.as_deref(), Some("Edge"));
         assert_eq!(got.lore, ["sharp"]);
         assert_eq!(got.enchantments, [(Enchantment::Sharpness, 3)]);
         assert_eq!(got.nbt.get("custom"), Some(&Value::Byte(1)));
         assert_eq!(named.damage(), 100);
-        assert_eq!(named.with_extra(None).extra(), None);
-        assert_eq!(worn.with_extra(Some(Extra::default())).extra(), None);
+        assert_eq!(named.with_extra(None).unwrap().extra(), None);
+        assert_eq!(
+            worn.with_extra(Some(Extra::default())).unwrap().extra(),
+            None
+        );
         // The tag holds the extra data with the damage and reads back the same fields.
-        let back = Stack::from_parts(kind(Kind::DiamondSword), 1, 0, named.tag());
+        let back = Stack::from_parts(kind(Kind::DiamondSword), 1, 0, named.tag()).unwrap();
         assert_eq!(back, named);
     }
 
@@ -630,9 +746,34 @@ mod tests {
                 )])])),
             ),
         ]);
-        let kept = Stack::from_parts(stick, 1, 0, Some(tag.clone()));
+        let kept = Stack::from_parts(stick, 1, 0, Some(tag.clone())).unwrap();
         assert_eq!(kept.extra().unwrap().nbt, tag);
         assert_eq!(kept.tag(), Some(tag));
+    }
+
+    /// A firework rocket's type NBT is `Fireworks` with no explosions; a rocket from the creative
+    /// inventory carries its own `Fireworks` with explosions, which the stack keeps.
+    #[test]
+    fn a_stack_keeps_its_own_value_of_a_key_its_type_fixes() {
+        let rocket = Type::from_name("minecraft:firework_rocket", 0, None, &Compound::new())
+            .expect("the rocket is an item");
+        let fixed = nbt::compound(rocket.nbt().expect("the rocket's type has NBT"));
+        let explosion = Compound::from([("FireworkType".to_owned(), Value::Byte(1))]);
+        let fireworks = Compound::from([
+            (
+                "Explosions".to_owned(),
+                Value::List(List::Compound(vec![explosion])),
+            ),
+            ("Flight".to_owned(), Value::Byte(2)),
+        ]);
+        let tag = Compound::from([("Fireworks".to_owned(), Value::Compound(fireworks))]);
+        assert_ne!(fixed, tag, "the stack's fireworks differ from the type's");
+        let stack = Stack::from_parts(rocket, 1, 0, Some(tag.clone())).unwrap();
+        assert_eq!(stack.tag(), Some(tag.clone()));
+        assert_eq!(stack.to_network().nbt_data, tag);
+        assert_eq!(Stack::from_nbt(&stack.to_nbt()), Some(stack));
+        // A plain rocket still gets the type's NBT.
+        assert_eq!(Stack::new(rocket, 1).tag(), Some(fixed));
     }
 
     #[test]
@@ -708,7 +849,9 @@ mod tests {
             ]),
             ..Extra::default()
         };
-        let stack = Stack::new(kind(Kind::Stick), 1).with_extra(Some(extra));
+        let stack = Stack::new(kind(Kind::Stick), 1)
+            .with_extra(Some(extra))
+            .unwrap();
         let net = stack.to_network().nbt_data;
         assert!(!net.contains_key("BlockEntityTag"));
         let Some(Value::List(List::Compound(items))) = net.get("Items") else {
@@ -719,5 +862,126 @@ mod tests {
         };
         assert!(!tag.contains_key("secret"));
         assert_eq!(items[0].get("Slot"), Some(&Value::Byte(3)));
+    }
+
+    /// `item` with a byte array of `len` bytes as its extra NBT.
+    fn padded(item: Type, len: usize) -> Result<Stack> {
+        Stack::new(item, 1).with_extra(Some(Extra {
+            nbt: Compound::from([("pad".to_owned(), Value::ByteArray(vec![1; len]))]),
+            ..Extra::default()
+        }))
+    }
+
+    /// The longest pad that keeps `item` within the stack limit.
+    fn longest_pad(item: Type) -> usize {
+        let (mut lo, mut hi) = (0, MAX_NBT_BYTES);
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if padded(item, mid).is_ok() {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        lo
+    }
+
+    /// A stack's saved form, with a `Slot`, at the largest damage, is what the limit counts: one
+    /// byte over it, a name over 1,024 bytes, a string NBT cannot hold or many tiny elements
+    /// are refused; a stack read from disk over the limit reads as unknown.
+    #[test]
+    fn the_limits_count_the_saved_form_at_the_largest_damage() {
+        let stick = kind(Kind::Stick);
+        let pad = longest_pad(stick);
+        let largest = padded(stick, pad).unwrap();
+        let mut nbt = largest.to_nbt();
+        nbt.insert("Slot".to_owned(), Value::Byte(0));
+        let mut w = Writer::new(Vec::new(), 0);
+        w.nbt(&nbt, Encoding::LittleEndian).unwrap();
+        assert_eq!(w.as_bytes().len(), MAX_NBT_BYTES);
+        assert_eq!(padded(stick, pad + 1), Err(Error::TooLarge));
+        assert_eq!(Stack::from_nbt(&largest.to_nbt()), Some(largest));
+        let mut over = padded(stick, pad).unwrap().to_nbt();
+        if let Some(Value::Compound(tag)) = over.get_mut("tag") {
+            tag.insert("pad".to_owned(), Value::ByteArray(vec![1; pad + 1]));
+        }
+        assert_eq!(Stack::from_nbt(&over), None);
+        // An item that wears keeps room for its damage, so wearing never passes the limit.
+        let sword = kind(Kind::DiamondSword);
+        let sword_pad = longest_pad(sword);
+        let new = padded(sword, sword_pad).unwrap();
+        let mut worn = new.with_damage(1).to_nbt();
+        worn.insert("Slot".to_owned(), Value::Byte(0));
+        let mut w = Writer::new(Vec::new(), 0);
+        w.nbt(&worn, Encoding::LittleEndian).unwrap();
+        assert_eq!(w.as_bytes().len(), MAX_NBT_BYTES);
+        let name = |len: usize| {
+            Stack::new(stick, 1).with_extra(Some(Extra {
+                custom_name: Some("n".repeat(len)),
+                ..Extra::default()
+            }))
+        };
+        assert!(name(MAX_NAME_BYTES).is_ok());
+        assert_eq!(name(MAX_NAME_BYTES + 1), Err(Error::NameTooLong));
+        let long_string = Extra {
+            lore: vec!["l".repeat(40_000)],
+            ..Extra::default()
+        };
+        assert_eq!(
+            Stack::new(stick, 1).with_extra(Some(long_string)),
+            Err(Error::TooLarge)
+        );
+        // 20,000 empty compounds take 20 KB but about 480 KB to read back.
+        let tiny = Extra {
+            nbt: Compound::from([(
+                "l".to_owned(),
+                Value::List(List::Compound(vec![Compound::new(); 20_000])),
+            )]),
+            ..Extra::default()
+        };
+        assert_eq!(
+            Stack::new(stick, 1).with_extra(Some(tiny)),
+            Err(Error::TooLarge)
+        );
+        assert_eq!(Stack::EMPTY.with_extra(None), Ok(Stack::EMPTY));
+    }
+
+    /// A shulker box takes no shulker box and nothing over a 32nd of the stack limit; 27 of the
+    /// largest it takes and the longest name make a box item within the limit.
+    #[test]
+    fn a_shulker_box_takes_a_32nd_of_the_limit_and_a_full_box_fits_one_stack() {
+        let stick = kind(Kind::Stick);
+        let (mut lo, mut hi) = (0, MAX_STORED_BYTES);
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if padded(stick, mid).unwrap().fits_shulker_box() {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        let most = padded(stick, lo).unwrap();
+        assert!(!padded(stick, lo + 1).unwrap().fits_shulker_box());
+        assert!(Stack::EMPTY.fits_shulker_box());
+        let shulker = crate::block::State::all()
+            .find(|b| b.is(crate::block::Class::ShulkerBox))
+            .unwrap();
+        let crate::block::ItemForm::Item(box_type) = shulker.item() else {
+            panic!("a shulker box item");
+        };
+        assert!(!Stack::new(box_type, 1).fits_shulker_box());
+        let items = (0u8..27)
+            .map(|slot| {
+                let mut nbt = most.to_nbt();
+                nbt.insert("Slot".to_owned(), Value::Byte(slot));
+                nbt
+            })
+            .collect();
+        let full = Stack::new(box_type, 1).with_extra(Some(Extra {
+            custom_name: Some("n".repeat(MAX_NAME_BYTES)),
+            nbt: Compound::from([(TAG_ITEMS.to_owned(), Value::List(List::Compound(items)))]),
+            ..Extra::default()
+        }));
+        assert!(full.is_ok());
     }
 }

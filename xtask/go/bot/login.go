@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +14,11 @@ import (
 	"fmt"
 	mathrand "math/rand/v2"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime/debug"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -25,14 +29,45 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The default skin geometry and resource patch, copied from gophertunnel's minecraft package (MIT), which
-// embeds them for its Dialer's default ClientData.
-var (
-	//go:embed skin_geometry.json
-	skinGeometry []byte
-	//go:embed skin_resource_patch.json
-	skinResourcePatch []byte
-)
+// gophertunnelModule is the module path of gophertunnel.
+const gophertunnelModule = "github.com/sandertv/gophertunnel"
+
+// defaultSkin is the skin geometry and resource patch gophertunnel's Dialer puts in its default
+// ClientData (minecraft/skin_geometry.json and skin_resource_patch.json).
+type defaultSkin struct {
+	geometry, patch []byte
+}
+
+// loadSkin reads the default skin from the Go module cache at the gophertunnel version this binary was
+// built with, so the repository holds no copy of the files.
+var loadSkin = sync.OnceValues(func() (defaultSkin, error) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return defaultSkin{}, errors.New("default skin: no build info")
+	}
+	var version string
+	for _, m := range info.Deps {
+		if m.Path == gophertunnelModule {
+			version = m.Version
+		}
+	}
+	if version == "" {
+		return defaultSkin{}, errors.New("default skin: gophertunnel is not a dependency")
+	}
+	cache, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		return defaultSkin{}, fmt.Errorf("default skin: go env GOMODCACHE: %w", err)
+	}
+	dir := filepath.Join(strings.TrimSpace(string(cache)), filepath.FromSlash(gophertunnelModule)+"@"+version, "minecraft")
+	var skin defaultSkin
+	if skin.geometry, err = os.ReadFile(filepath.Join(dir, "skin_geometry.json")); err != nil {
+		return defaultSkin{}, fmt.Errorf("default skin: %w", err)
+	}
+	if skin.patch, err = os.ReadFile(filepath.Join(dir, "skin_resource_patch.json")); err != nil {
+		return defaultSkin{}, fmt.Errorf("default skin: %w", err)
+	}
+	return skin, nil
+})
 
 // multiplayerAudience is the audience of the multiplayer token.
 const multiplayerAudience = "api://auth-minecraft-services/multiplayer"
@@ -43,7 +78,11 @@ const onlineXUID = "2535400000000001"
 // buildRequest builds the Login connection request for the scenario; the online scenario's request
 // carries token (mintToken).
 func buildRequest(c config, key *ecdsa.PrivateKey, token string) ([]byte, error) {
-	data := clientData(c.addr, c.name)
+	skin, err := loadSkin()
+	if err != nil {
+		return nil, err
+	}
+	data := clientData(c.addr, c.name, skin)
 	switch c.scenario {
 	case "online":
 		chain, err := selfSignedChain(key)
@@ -52,7 +91,7 @@ func buildRequest(c config, key *ecdsa.PrivateKey, token string) ([]byte, error)
 		}
 		return login.Encode(chain, data, key, token, false), nil
 	case "big-skin":
-		return bigSkinRequest(c, data, key)
+		return bigSkinRequest(c, data, skin.geometry, key)
 	}
 	return offlineRequest(c, data, key), nil
 }
@@ -63,7 +102,7 @@ func offlineRequest(c config, data login.ClientData, key *ecdsa.PrivateKey) []by
 }
 
 // clientData mirrors gophertunnel's defaultClientData (minecraft/dial.go).
-func clientData(addr, name string) login.ClientData {
+func clientData(addr, name string, skin defaultSkin) login.ClientData {
 	d := login.ClientData{
 		ServerAddress:       addr,
 		ThirdPartyName:      name,
@@ -81,8 +120,8 @@ func clientData(addr, name string) login.ClientData {
 		SkinData:            base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0, 0, 0, 255}, 32*64)),
 		SkinImageHeight:     32,
 		SkinImageWidth:      64,
-		SkinResourcePatch:   base64.StdEncoding.EncodeToString(skinResourcePatch),
-		SkinGeometry:        base64.StdEncoding.EncodeToString(skinGeometry),
+		SkinResourcePatch:   base64.StdEncoding.EncodeToString(skin.patch),
+		SkinGeometry:        base64.StdEncoding.EncodeToString(skin.geometry),
 		SkinGeometryVersion: base64.StdEncoding.EncodeToString([]byte("0.0.0")),
 	}
 	d.DeviceID = d.ExpectedDeviceIDFormat().Generate()
@@ -93,10 +132,11 @@ func clientData(addr, name string) login.ClientData {
 }
 
 // bigSkinRequest builds an offline request of about c.loginSize bytes by adding a valid but unused geometry
-// with many cubes to the skin geometry JSON. The cube count is calibrated from the size of two requests.
-func bigSkinRequest(c config, data login.ClientData, key *ecdsa.PrivateKey) ([]byte, error) {
+// with many cubes to the default skin geometry JSON. The cube count is calibrated from the size of two
+// requests.
+func bigSkinRequest(c config, data login.ClientData, defaultGeometry []byte, key *ecdsa.PrivateKey) ([]byte, error) {
 	build := func(cubes int) ([]byte, error) {
-		geometry, err := paddedGeometry(cubes)
+		geometry, err := paddedGeometry(defaultGeometry, cubes)
 		if err != nil {
 			return nil, err
 		}
@@ -123,11 +163,11 @@ func bigSkinRequest(c config, data login.ClientData, key *ecdsa.PrivateKey) ([]b
 	return build(cubes)
 }
 
-// paddedGeometry returns gophertunnel's default geometry plus a geometry "geometry.anchor.padding" with
-// the given number of cubes.
-func paddedGeometry(cubes int) ([]byte, error) {
+// paddedGeometry returns the default geometry plus a geometry "geometry.anchor.padding" with the given
+// number of cubes.
+func paddedGeometry(defaultGeometry []byte, cubes int) ([]byte, error) {
 	var doc map[string]any
-	if err := json.Unmarshal(skinGeometry, &doc); err != nil {
+	if err := json.Unmarshal(defaultGeometry, &doc); err != nil {
 		return nil, err
 	}
 	list, ok := doc["minecraft:geometry"].([]any)

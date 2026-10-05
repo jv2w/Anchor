@@ -378,7 +378,7 @@ impl Scenario {
     /// works out for its held tool, then the predicted destroy.
     fn break_block(&mut self, pos: BlockPos) {
         let tool = self.player().inventory.held().clone();
-        let seconds = self.block(pos).break_time(&tool).unwrap();
+        let seconds = self.block(pos).break_time_secs(&tool).unwrap();
         let mut ticks = 0u32;
         while f64::from(ticks) < seconds * 20.0 {
             ticks += 1;

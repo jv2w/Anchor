@@ -1,12 +1,12 @@
 //! Rust items from the IR: structs, union enums, `Codec` impls, functions, the `Packet` enum
 //! and the helpers they use. The text is unformatted; `gen` runs rustfmt on it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::body::{self, Dir, Summaries, Summary};
-use super::ir::{Enum, Function, TypeDef, Union};
+use super::ir::{Enum, Field, Function, Stmt, TypeDef, Union};
 use super::model::{self, BOX_OVER, Model, Module};
-use super::names;
+use super::{consts, names};
 
 type R<T> = Result<T, String>;
 
@@ -25,6 +25,7 @@ pub(crate) struct Output {
 /// Generates both files.
 pub(crate) fn generate(m: &Model<'_>) -> R<Output> {
     let sums = summaries(m)?;
+    let enums = consts::enum_names()?;
     let mut helpers = BTreeSet::new();
     let mut types = String::new();
     let mut packet = String::new();
@@ -37,7 +38,7 @@ pub(crate) fn generate(m: &Model<'_>) -> R<Output> {
             Module::Types => &mut types,
             Module::Packet => &mut packet,
         };
-        type_items(m, &sums, t, module, out, &mut helpers)
+        type_items(m, &sums, &enums, t, module, out, &mut helpers)
             .map_err(|e| format!("{}: {e}", t.name))?;
     }
     for f in &m.ir.functions {
@@ -58,6 +59,7 @@ pub(crate) fn generate(m: &Model<'_>) -> R<Output> {
         enum_fn(m, e, out).map_err(|err| format!("{}: {err}", e.name))?;
     }
     packet_enum(m, &mut packet)?;
+    types.push_str(&hand_limits(m, &helpers)?);
     let source = &m.ir.source;
     let origin = format!(
         "gophertunnel {} (commit {}), protocol {}, game version {}",
@@ -279,13 +281,8 @@ fn assigns(m: &Model<'_>, sums: &Summaries, stmts: &[super::ir::Stmt], name: &st
 
 // ----- docs -----
 
-/// `///` lines from a Go doc comment, or `fallback` when there is none.
-pub(crate) fn doc(text: &str, fallback: &str, indent: &str) -> String {
-    let text = if text.trim().is_empty() {
-        fallback
-    } else {
-        text
-    };
+/// `///` lines of a text the generator wrote; blank lines separate paragraphs.
+pub(crate) fn doc(text: &str, indent: &str) -> String {
     let mut out = String::new();
     let paragraphs: Vec<String> = text
         .split("\n\n")
@@ -377,21 +374,141 @@ fn name_doc(go: &str) -> String {
     format!("The {}.", words.join(" "))
 }
 
+/// The doc of a named type: the packet's ID and sender for a packet, else the Go name.
+fn type_doc(m: &Model<'_>, t: &TypeDef) -> R<String> {
+    let Some(p) = m.ir.packets.iter().find(|p| p.ty == t.name) else {
+        return Ok(format!("gophertunnel `{}`.", t.name));
+    };
+    let sender = match p.direction.as_str() {
+        "client" => "the client",
+        "server" => "the server",
+        "both" => "the client and the server",
+        other => return Err(format!("unknown packet direction {other}")),
+    };
+    Ok(format!(
+        "Packet `{}` (ID {}), sent by {sender}.",
+        t.name, p.id
+    ))
+}
+
+/// The doc of a struct field from the IR alone: its name, the wire form the type's `Marshal`
+/// first writes it with, the constants enum of its values and its Mojang limits.
+fn field_doc(
+    m: &Model<'_>,
+    enums: &BTreeMap<&str, Option<String>>,
+    t: &TypeDef,
+    f: &Field,
+) -> String {
+    let mut text = name_doc(&f.name);
+    if let Some(wire) = t
+        .marshal
+        .as_ref()
+        .and_then(|b| wire_form(&b.stmts, &b.receiver, &f.name))
+    {
+        put!(text, " Wire form: {wire}.");
+    }
+    if let Some(e) = field_enum(enums, t, f) {
+        put!(text, " Values: [`{e}`](super::consts::{e}).");
+    }
+    let value = if f.ty.kind == "optional" {
+        f.ty.elem.as_deref().unwrap_or(&f.ty)
+    } else {
+        &f.ty
+    };
+    let bytes = value.kind == "basic"
+        || value
+            .elem
+            .as_deref()
+            .is_some_and(|e| e.kind == "basic" && e.name == "uint8");
+    let unit = if bytes { "bytes" } else { "elements" };
+    if let Some(max) = m.limits.get(&format!("{}.{}", t.name, f.name)) {
+        put!(text, " Mojang limit: {max} {unit}.");
+    }
+    if let Some(max) = m.limits.get(&format!("{}.{}[]", t.name, f.name)) {
+        put!(text, " Mojang limit per element: {max} bytes.");
+    }
+    doc(&text, "    ")
+}
+
+/// How the first statement of a `Marshal` body that names `recv.field` writes it.
+fn wire_form(stmts: &[Stmt], recv: &str, field: &str) -> Option<String> {
+    for s in stmts {
+        let here = s.place.as_ref().is_some_and(|p| {
+            p.kind == "field"
+                && p.name == field
+                && p.x
+                    .as_deref()
+                    .is_some_and(|x| x.kind == "var" && x.name == recv)
+        });
+        if here {
+            return match s.kind.as_str() {
+                "io" => Some(format!("`{}`", s.method)),
+                "integer_func" => s
+                    .body
+                    .iter()
+                    .find(|b| b.kind == "io")
+                    .map(|b| format!("`{}`", b.method)),
+                // An empty prefix: the count is a statement of its own before the slice.
+                "slice" if s.prefix.is_empty() => None,
+                "slice" => Some(format!("a list after a `{}` count", s.prefix)),
+                "optional" => Some("a bool, then the value when it is set".to_owned()),
+                _ => None,
+            };
+        }
+        let nested = [&s.body, &s.then, &s.els]
+            .into_iter()
+            .chain(s.cases.iter().map(|c| &c.body))
+            .find_map(|b| wire_form(b, recv, field));
+        if nested.is_some() {
+            return nested;
+        }
+    }
+    None
+}
+
+/// The constants enum of an integer or string field: the first group named like the field,
+/// alone or after the type's name, in the type's package first. A group that is no enum (bit
+/// positions, open values) stops the search.
+fn field_enum<'a>(
+    enums: &'a BTreeMap<&str, Option<String>>,
+    t: &TypeDef,
+    f: &Field,
+) -> Option<&'a String> {
+    if f.ty.kind != "basic" {
+        return None;
+    }
+    let (package, local) = t.name.split_once('.')?;
+    let other = if package == "packet" {
+        "protocol"
+    } else {
+        "packet"
+    };
+    [package, other]
+        .into_iter()
+        .find_map(|p| {
+            enums
+                .get(format!("{p}.{}", f.name).as_str())
+                .or_else(|| enums.get(format!("{p}.{local}{}", f.name).as_str()))
+        })?
+        .as_ref()
+}
+
 // ----- types -----
 
 fn type_items(
     m: &Model<'_>,
     sums: &Summaries,
+    enums: &BTreeMap<&str, Option<String>>,
     t: &TypeDef,
     module: Module,
     out: &mut String,
     helpers: &mut BTreeSet<String>,
 ) -> R<()> {
     let rust = m.named(&t.name, module)?;
-    let fallback = format!("gophertunnel `{}`.", t.name);
+    let type_doc = doc(&type_doc(m, t)?, "");
     match t.kind.as_str() {
         "struct" => {
-            out.push_str(&doc(&t.doc, &fallback, ""));
+            out.push_str(&type_doc);
             out.push_str("#[derive(Debug, Clone, PartialEq, Default)]\n");
             let field_names = t
                 .fields
@@ -421,7 +538,7 @@ fn type_items(
                     } else {
                         m.rust_type(&f.ty, module)?
                     };
-                    out.push_str(&doc(&f.doc, &name_doc(&f.name), "    "));
+                    out.push_str(&field_doc(m, enums, t, f));
                     put!(out, "    pub {name}: {ty},\n");
                 }
                 out.push_str("}\n\n");
@@ -432,7 +549,7 @@ fn type_items(
                 .underlying
                 .as_ref()
                 .ok_or("array without underlying type")?;
-            out.push_str(&doc(&t.doc, &fallback, ""));
+            out.push_str(&type_doc);
             put!(
                 out,
                 "pub type {rust} = {};\n\n",
@@ -588,7 +705,7 @@ fn union_items(m: &Model<'_>, t: &TypeDef, out: &mut String) -> R<()> {
                 .get(go)
                 .is_some_and(|d| d.fields.iter().map(|f| m.size(&f.ty)).sum::<u64>() > BOX_OVER)
     };
-    out.push_str(&doc(&t.doc, &format!("gophertunnel `{}`.", t.name), ""));
+    out.push_str(&doc(&format!("gophertunnel `{}`.", t.name), ""));
     out.push_str("#[derive(Debug, Clone, PartialEq)]\n");
     put!(out, "pub enum {rust} {{\n");
     for (go, variant) in &info.variants {
@@ -842,17 +959,10 @@ fn function_items(
             Dir::Encode if f.io => "Writes",
             _ => "Computes",
         };
-        let fallback = format!("{what} like gophertunnel `{}`.", model::local(&f.name));
-        let summary = if f.doc.trim().is_empty() {
-            fallback
-        } else {
-            format!(
-                "{what} like gophertunnel `{}`: {}",
-                model::local(&f.name),
-                f.doc
-            )
-        };
-        out.push_str(&doc(&summary, "", ""));
+        out.push_str(&doc(
+            &format!("{what} like gophertunnel `{}`.", model::local(&f.name)),
+            "",
+        ));
         let vis = vis(&f.name);
         put!(
             out,
@@ -1074,6 +1184,54 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> R<()> {
 
 // ----- helpers -----
 
+/// Limits the client also applies to what it receives, for which Anchor builds a list or string
+/// from game state or user input (PLAN.md 10.9 item 38): the code that builds it uses the
+/// constant.
+const SEND_LIMITS: &[&str] = &[
+    "packet.BossEvent.BossBarTitle",
+    "packet.PlayerList.Entries",
+    "packet.Text.Message",
+    "packet.Text.Parameters",
+    "packet.Text.SourceName",
+    "protocol.Command.Description",
+];
+
+/// Checks that the decoders apply every limit in `Model::limits`, and returns the constants of
+/// the limits of hand-written types, which their hand codecs use, and of [`SEND_LIMITS`].
+fn hand_limits(m: &Model<'_>, helpers: &BTreeSet<String>) -> R<String> {
+    if let Some(key) = SEND_LIMITS.iter().find(|k| !m.limits.contains_key(**k)) {
+        return Err(format!("send limit {key} is not a protocol limit"));
+    }
+    let mut out = String::new();
+    for (key, max) in &m.limits {
+        let (ty, field) = key
+            .rsplit_once('.')
+            .ok_or_else(|| format!("limit {key} names no field"))?;
+        let hand = model::hand_type(ty).is_some();
+        if !hand && !helpers.contains(&format!("{}{key}", body::LIMIT_USED)) {
+            return Err(format!(
+                "limit {key} applies to no string or list read of the decoders"
+            ));
+        }
+        let user = if hand {
+            "for its hand codec"
+        } else if SEND_LIMITS.contains(&key.as_str()) {
+            "for what Anchor sends"
+        } else {
+            continue;
+        };
+        let local = ty.rsplit_once('.').map_or(ty, |(_, l)| l);
+        let name = names::screaming(&format!("{local}{field}MaxLen"), key)?;
+        put!(
+            out,
+            "/// The most bytes or elements of gophertunnel `{key}` (Mojang `maxLength`, \
+             `maxItems`), {user}.\npub(crate) const {name}: usize = {};\n\n",
+            body::int_lit(&max.to_string())
+        );
+    }
+    Ok(out)
+}
+
 /// The helper items the generated code uses, in `types.rs`.
 fn helper_items(used: &BTreeSet<String>, types: &str, packet: &str) -> String {
     let mut out = String::new();
@@ -1092,6 +1250,17 @@ fn helper_items(used: &BTreeSet<String>, types: &str, packet: &str) -> String {
                 "/// A list with a {method} count, under the list limits.\n\
                  pub(crate) fn list_{prefix}<T>(&mut self, f: impl FnMut(&mut Self) -> Result<T>) -> Result<Vec<T>> {{\n\
                  let count = self.{method}()?;\nself.list(count.into(), f)\n}}\n\n"
+            );
+        }
+        if all.contains(&format!("list_{prefix}_max(")) {
+            if out.is_empty() {
+                out.push_str("impl Reader<'_> {\n");
+            }
+            put!(
+                out,
+                "/// A list with a {method} count of a field that holds at most `max` elements.\n\
+                 pub(crate) fn list_{prefix}_max<T>(&mut self, max: usize, f: impl FnMut(&mut Self) -> Result<T>) -> Result<Vec<T>> {{\n\
+                 let count = self.{method}()?;\nself.list_max(count.into(), max, f)\n}}\n\n"
             );
         }
     }
@@ -1172,4 +1341,26 @@ fn conversion(from: &str, to: &str) -> String {
         )
     };
     format!("{doc}{expect}pub(crate) fn go_{from}_to_{to}(x: {from}) -> {to} {{\nx as {to}\n}}\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A slice statement that fills field `Chunks` of `pk`, after `prefix` (empty: no count of
+    /// its own).
+    fn slice(prefix: &str) -> Stmt {
+        let place = r#"{"kind": "field", "name": "Chunks", "x": {"kind": "var", "name": "pk"}}"#;
+        let json = format!(r#"{{"kind": "slice", "prefix": "{prefix}", "place": {place}}}"#);
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn a_slice_whose_count_is_a_separate_statement_names_no_wire_form() {
+        assert_eq!(wire_form(&[slice("")], "pk", "Chunks"), None);
+        assert_eq!(
+            wire_form(&[slice("Varuint32")], "pk", "Chunks").as_deref(),
+            Some("a list after a `Varuint32` count")
+        );
+    }
 }

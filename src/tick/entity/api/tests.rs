@@ -89,19 +89,19 @@ fn every_kind_reads_as_what_it_is() {
         match kind {
             Kind::Item(item) => {
                 assert_eq!(e.item(), Some(&item.stack));
-                assert_eq!(e.pickup_delay(), Some(item.pickup_delay));
-                assert_eq!(e.despawn_delay(), Some(item.despawn_delay));
+                assert_eq!(e.pickup_delay_ticks(), Some(item.pickup_delay));
+                assert_eq!(e.despawn_delay_ticks(), Some(item.despawn_delay));
                 assert_eq!(e.owner(), Some(item.owner.as_str()));
                 assert_eq!(e.thrower(), Some(item.thrower.as_str()));
                 assert_eq!(e.entity_type(), Type::Item);
             }
             Kind::ExperienceOrb(orb) => {
                 assert_eq!(e.xp_value(), Some(orb.value));
-                assert_eq!(e.despawn_delay(), Some(orb.despawn_delay));
+                assert_eq!(e.despawn_delay_ticks(), Some(orb.despawn_delay));
             }
             Kind::FallingBlock(f) => assert_eq!(e.falling_block(), Some(f.block)),
             Kind::Tnt(t) => {
-                assert_eq!(e.fuse(), Some(t.fuse));
+                assert_eq!(e.fuse_ticks(), Some(t.fuse));
                 assert_eq!(e.works_underwater(), t.underwater);
                 assert_eq!(e.entity_type(), Type::PrimedTnt);
             }
@@ -126,7 +126,8 @@ fn every_kind_reads_as_what_it_is() {
             }
             Kind::Cloud(c) => assert_eq!(e.cloud_radius(), Some(c.radius)),
             Kind::Npc(_) => {
-                assert!(e.is_invulnerable() || e.entity_type() == Type::Human);
+                let mob = matches!(e.entity_type(), Type::Human | Type::Zombie);
+                assert!(e.is_invulnerable() || mob);
                 assert_eq!(e.profession().is_some(), e.entity_type() == Type::Villager);
             }
             Kind::Painting(_) | Kind::EndCrystal(_) | Kind::Firework(_) => object_reads(e, kind),
@@ -154,7 +155,7 @@ fn every_kind_reads_as_what_it_is() {
     // A thing that is not that kind answers `None`.
     let (item, _) = made[0];
     let e = ctx.entity(item).unwrap();
-    assert!(e.fuse().is_none() && e.xp_value().is_none() && e.skin().is_none());
+    assert!(e.fuse_ticks().is_none() && e.xp_value().is_none() && e.skin().is_none());
     assert!(e.owning_player().is_none() && e.target_player().is_none());
     assert!(e.painting_motive().is_none() && e.painting_facing().is_none());
     assert!(!e.shows_base() && e.beam_target().is_none());
@@ -408,15 +409,15 @@ fn kind_setters_change_their_kind_only() {
         );
         let (potion, villager) = (is(Type::SplashPotion), is(Type::Villager));
         let projectile = matches!(kind, Kind::Projectile(_));
-        assert_eq!(e.set_pickup_delay(-5), item);
-        assert_eq!(e.set_despawn_delay(100), item || orb);
-        assert!(!e.set_despawn_delay(-2) && !e.set_despawn_delay(40_000));
+        assert_eq!(e.set_pickup_delay_ticks(-5), item);
+        assert_eq!(e.set_despawn_delay_ticks(100), item || orb);
+        assert!(!e.set_despawn_delay_ticks(-2) && !e.set_despawn_delay_ticks(40_000));
         assert_eq!(e.set_owner("me"), item);
         assert_eq!(e.set_thrower("you"), item);
         assert_eq!(e.set_xp_value(9), orb);
         assert!(!e.set_xp_value(0) && !e.set_xp_value(40_000));
-        assert_eq!(e.set_fuse(12), tnt);
-        assert!(!e.set_fuse(40_000));
+        assert_eq!(e.set_fuse_ticks(12), tnt);
+        assert!(!e.set_fuse_ticks(40_000));
         assert_eq!(e.set_works_underwater(true), tnt);
         assert_eq!(e.set_base_damage(6.0), projectile);
         assert!(!e.set_base_damage(-1.0) && !e.set_base_damage(f64::NAN));
@@ -426,15 +427,15 @@ fn kind_setters_change_their_kind_only() {
         assert_eq!(e.set_linger(true), potion);
         assert_eq!(e.set_profession(4), villager);
         if item {
-            assert_eq!(e.pickup_delay(), Some(-1));
-            assert_eq!(e.despawn_delay(), Some(100));
+            assert_eq!(e.pickup_delay_ticks(), Some(-1));
+            assert_eq!(e.despawn_delay_ticks(), Some(100));
             assert_eq!((e.owner(), e.thrower()), (Some("me"), Some("you")));
         }
         if orb {
             assert_eq!(e.xp_value(), Some(9));
         }
         if tnt {
-            assert!(e.fuse() == Some(12) && e.works_underwater());
+            assert!(e.fuse_ticks() == Some(12) && e.works_underwater());
         }
         if arrow {
             assert!(e.is_critical());
@@ -834,6 +835,34 @@ fn hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone() {
     assert!(!adds(&h.take(2)).contains(&one));
 }
 
+/// The pairs of a player who leaves go as it leaves, both ways, before any entity tick.
+#[test]
+fn hidden_pairs_go_when_a_player_leaves() {
+    let mut h = harness();
+    h.spawn(2, standing(3.0, 3.0));
+    h.spawn(3, standing(5.0, 3.0));
+    let mut ctx = context(&mut h);
+    let (p1, p2, p3) = (player_of(1), player_of(2), player_of(3));
+    assert!(ctx.hide_player(p1, p2) && ctx.hide_player(p2, p1) && ctx.hide_player(p1, p3));
+    assert!(h.state.remove(crate::tick::SessionId::new(2)).is_some());
+    let left: Vec<_> = h.state.rules.entities.hidden.iter().copied().collect();
+    assert_eq!(left, vec![(p1.session(), p3.session())]);
+}
+
+/// A hit that is not a finite number is refused, so no health becomes infinite.
+#[test]
+fn infinite_damage_is_refused() {
+    let mut h = harness();
+    let mut ctx = context(&mut h);
+    let stick = stack("minecraft:stick", 1);
+    let item = ctx
+        .drop_item(WORLD, at(2.5, -60.0, 2.5), stick, None)
+        .unwrap();
+    let mut e = ctx.entity_mut(item).unwrap();
+    assert!(!e.attack(f64::INFINITY));
+    assert!(e.health().is_finite());
+}
+
 #[test]
 fn a_player_hides_at_most_its_bound() {
     let mut h = harness();
@@ -871,28 +900,30 @@ fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
     let e = ctx.entity(id).unwrap();
     assert_eq!(e.entity_type(), Type::AreaEffectCloud);
     assert_eq!(e.cloud_effects(), Some(effects));
-    assert_eq!(e.cloud_age(), Some(0));
-    assert_eq!(e.cloud_max_age(), Some(600));
-    assert_eq!(e.cloud_max_age_change_on_use(), Some(0));
-    assert_eq!(e.cloud_reapplication_delay(), Some(40));
+    assert_eq!(e.cloud_age_ticks(), Some(0));
+    assert_eq!(e.cloud_max_age_ticks(), Some(600));
+    assert_eq!(e.cloud_max_age_change_on_use_ticks(), Some(0));
+    assert_eq!(e.cloud_reapplication_delay_ticks(), Some(40));
     assert_eq!(e.cloud_initial_radius(), Some(3.0));
     assert_eq!(e.cloud_radius(), Some(3.0));
     assert_eq!(e.cloud_radius_change_on_pickup(), Some(-0.5));
     assert_eq!(e.cloud_radius_change_on_use(), Some(-0.5));
     assert_eq!(e.cloud_radius_change_per_tick(), Some(-0.005));
     let mut e = ctx.entity_mut(id).unwrap();
-    assert!(e.set_cloud_max_age(1200));
-    assert!(!e.set_cloud_max_age(-1) && !e.set_cloud_max_age(24_001));
-    assert!(e.set_cloud_max_age_change_on_use(-20));
-    assert!(!e.set_cloud_max_age_change_on_use(30_000));
-    assert!(e.set_cloud_reapplication_delay(80) && !e.set_cloud_reapplication_delay(-1));
+    assert!(e.set_cloud_max_age_ticks(1200));
+    assert!(!e.set_cloud_max_age_ticks(-1) && !e.set_cloud_max_age_ticks(24_001));
+    assert!(e.set_cloud_max_age_change_on_use_ticks(-20));
+    assert!(!e.set_cloud_max_age_change_on_use_ticks(30_000));
+    assert!(
+        e.set_cloud_reapplication_delay_ticks(80) && !e.set_cloud_reapplication_delay_ticks(-1)
+    );
     assert!(e.set_cloud_radius_change_on_pickup(-1.0));
     assert!(e.set_cloud_radius_change_on_use(0.25) && !e.set_cloud_radius_change_on_use(65.0));
     assert!(e.set_cloud_radius_change_per_tick(0.0));
     assert!(!e.set_cloud_radius_change_per_tick(f64::NAN));
-    assert_eq!(e.cloud_max_age(), Some(1200));
-    assert_eq!(e.cloud_max_age_change_on_use(), Some(-20));
-    assert_eq!(e.cloud_reapplication_delay(), Some(80));
+    assert_eq!(e.cloud_max_age_ticks(), Some(1200));
+    assert_eq!(e.cloud_max_age_change_on_use_ticks(), Some(-20));
+    assert_eq!(e.cloud_reapplication_delay_ticks(), Some(80));
     assert_eq!(e.cloud_radius_change_on_pickup(), Some(-1.0));
     assert_eq!(e.cloud_radius_change_on_use(), Some(0.25));
     assert_eq!(e.cloud_radius_change_per_tick(), Some(0.0));
@@ -902,7 +933,7 @@ fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
     }
     let e = context(&mut h)
         .entity(id)
-        .map(|e| (e.cloud_age(), e.cloud_radius()));
+        .map(|e| (e.cloud_age_ticks(), e.cloud_radius()));
     assert_eq!(e, Some((Some(5), Some(3.0))));
     // Other kinds take none of it.
     let tnt = context(&mut h)
@@ -910,8 +941,8 @@ fn clouds_spawn_with_pmmp_defaults_and_take_bounded_values() {
         .unwrap();
     let mut ctx = context(&mut h);
     let mut e = ctx.entity_mut(tnt).unwrap();
-    assert!(e.cloud_effects().is_none() && e.cloud_max_age().is_none());
-    assert!(!e.set_cloud_max_age(10) && !e.set_cloud_radius_change_on_use(0.0));
+    assert!(e.cloud_effects().is_none() && e.cloud_max_age_ticks().is_none());
+    assert!(!e.set_cloud_max_age_ticks(10) && !e.set_cloud_radius_change_on_use(0.0));
 }
 
 // pmmp: Entity::setOwningEntity, ExperienceOrb::setTargetPlayer, ItemEntity::setStackSize,
@@ -950,6 +981,7 @@ fn owners_targets_counts_potions_and_names_change_their_kind_only() {
         assert_eq!(e.set_stack_size(1), t == Type::Item);
         let name = match t {
             Type::Villager => Some("Villager".to_owned()),
+            Type::Zombie => Some("Zombie".to_owned()),
             Type::Human => Some(e.name_tag().to_owned()),
             _ => None,
         };

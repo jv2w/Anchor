@@ -2,13 +2,19 @@
 //! brew takes 400 ticks and turns every bottle the ingredient has a recipe for, then uses up one
 //! ingredient.
 
+use crate::block::BrewingStandSlot;
+use crate::custom::Registry;
 use crate::item::Stack;
 use crate::nbt::{Compound, Value};
 
 /// The ingredient slot.
 pub(in crate::tick) const INGREDIENT: usize = 0;
-/// The three bottle slots.
-pub(in crate::tick) const BOTTLES: [usize; 3] = [1, 2, 3];
+/// The three bottle slots, left to right.
+pub(in crate::tick) const BOTTLES: [usize; 3] = [
+    BrewingStandSlot::East.slot(),
+    BrewingStandSlot::Northwest.slot(),
+    BrewingStandSlot::Southwest.slot(),
+];
 /// The fuel slot.
 pub(in crate::tick) const FUEL: usize = 4;
 /// The slots of a brewing stand.
@@ -59,7 +65,7 @@ pub(in crate::tick) struct Step {
     /// A brew finished with something brewed (PMMP `PotionFinishBrewingSound`).
     pub(in crate::tick) brewed: bool,
     /// The `ContainerSetData` values that changed.
-    pub(in crate::tick) data: Vec<(i32, i32)>,
+    pub(in crate::tick) data: super::DataChanges,
     /// Whether the stand needs another tick.
     pub(in crate::tick) active: bool,
 }
@@ -107,7 +113,7 @@ impl Brewing {
 
     /// The result of each bottle (PMMP `getBrewableRecipes`), looked up again only when the
     /// ingredient or a bottle changed.
-    fn results(&mut self, items: &[Stack]) -> [Option<Stack>; 3] {
+    fn results(&mut self, items: &[Stack], custom: &Registry) -> [Option<Stack>; 3] {
         let key: [Stack; 4] = std::array::from_fn(|i| {
             items
                 .get(if i == 0 { INGREDIENT } else { i })
@@ -124,7 +130,7 @@ impl Brewing {
             if ingredient.is_empty() || bottle.is_empty() {
                 None
             } else {
-                crate::crafting::brew(bottle, ingredient)
+                custom.brew(bottle, ingredient)
             }
         });
         self.recipes = Some((key, results.clone()));
@@ -136,12 +142,12 @@ impl Brewing {
     /// [`finish`](Self::finish). The tick raises its events between these steps
     /// (`tick_brewing`).
     #[cfg(test)]
-    pub(in crate::tick) fn step(&mut self, items: &mut [Stack]) -> Step {
+    pub(in crate::tick) fn step(&mut self, items: &mut [Stack], custom: &Registry) -> Step {
         let mut t = self.begin();
-        if self.fuel_due(items) {
+        if self.fuel_due(items, custom) {
             self.refuel(items, FUEL_BREWS, &mut t);
         }
-        if let Some(results) = self.brew_tick(items, &mut t) {
+        if let Some(results) = self.brew_tick(items, custom, &mut t) {
             for (slot, result) in BOTTLES.into_iter().zip(results) {
                 if let Some(result) = result {
                     bottle(items, slot, result, &mut t);
@@ -161,17 +167,21 @@ impl Brewing {
     }
 
     /// The result of each bottle slot for the ingredient now.
-    pub(in crate::tick) fn bottle_results(&mut self, items: &[Stack]) -> [Option<Stack>; 3] {
-        self.results(items)
+    pub(in crate::tick) fn bottle_results(
+        &mut self,
+        items: &[Stack],
+        custom: &Registry,
+    ) -> [Option<Stack>; 3] {
+        self.results(items, custom)
     }
 
     /// Whether a blaze powder is to be used now (PMMP `checkFuel`'s condition: no fuel left,
     /// something can brew, the fuel slot holds blaze powder; PMMP raises its event cancelled
     /// for another item, Anchor raises none).
-    pub(in crate::tick) fn fuel_due(&mut self, items: &[Stack]) -> bool {
+    pub(in crate::tick) fn fuel_due(&mut self, items: &[Stack], custom: &Registry) -> bool {
         let powder = items.get(FUEL).cloned().unwrap_or_default();
         self.fuel == 0
-            && self.results(items).iter().any(Option::is_some)
+            && self.results(items, custom).iter().any(Option::is_some)
             && powder.item().and_then(crate::item::Type::kind)
                 == Some(crate::item::Kind::BlazePowder)
     }
@@ -193,9 +203,10 @@ impl Brewing {
     pub(in crate::tick) fn brew_tick(
         &mut self,
         items: &[Stack],
+        custom: &Registry,
         t: &mut Tick,
     ) -> Option<[Option<Stack>; 3]> {
-        let results = self.results(items);
+        let results = self.results(items, custom);
         let can_brew = results.iter().any(Option::is_some);
         if self.fuel > 0 {
             if can_brew {
@@ -229,7 +240,7 @@ impl Brewing {
             (DATA_FUEL_TOTAL, prev_total, self.fuel_total),
         ] {
             if before != now {
-                out.data.push((key, i32::from(now)));
+                out.data.push(key, i32::from(now));
             }
         }
         // A finished brew changed the slots: the next tick looks again (PMMP schedules an update
@@ -298,12 +309,12 @@ mod tests {
             Stack::EMPTY,
             Stack::new(Kind::BlazePowder.default_type(), 1),
         ];
-        let first = b.step(&mut items);
+        let first = b.step(&mut items, &Registry::default());
         assert!(items[FUEL].is_empty());
         assert_eq!((b.fuel, b.fuel_total, b.brew), (19, 20, 399));
         assert!(first.active);
         for _ in 1..BREW_TICKS {
-            b.step(&mut items);
+            b.step(&mut items, &Registry::default());
         }
         assert_eq!(items[INGREDIENT].count(), 1);
         let awkward = items[1].clone();
@@ -324,11 +335,11 @@ mod tests {
             Stack::EMPTY,
             Stack::new(Kind::BlazePowder.default_type(), 1),
         ];
-        assert!(!b.step(&mut items).active);
+        assert!(!b.step(&mut items, &Registry::default()).active);
         assert_eq!(items[FUEL].count(), 1, "no recipe, no fuel used");
         items[INGREDIENT] = Stack::new(named("minecraft:nether_wart"), 1);
         items[FUEL] = Stack::new(Kind::Coal.default_type(), 1);
-        assert!(!b.step(&mut items).active);
+        assert!(!b.step(&mut items, &Registry::default()).active);
         assert_eq!(b.fuel, 0);
     }
 }

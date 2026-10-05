@@ -491,7 +491,7 @@ impl EntityEffectRemove {
     /// Keeps the effect. An effect that ran out cannot stay, so then nothing happens.
     #[doc(alias = "EntityEffectRemoveEvent::cancel")]
     pub fn cancel(&mut self) {
-        if self.effect.duration() > 0 {
+        if self.effect.duration_ticks() > 0 {
             self.cancelled = true;
         }
     }
@@ -559,6 +559,63 @@ impl EntityExplode {
         }
     }
 }
+
+/// The largest radius [`EntityFrostWalker::set_radius`] takes: a square of 33 × 33 blocks (PMMP
+/// has no limit; Frost Walker II freezes a radius of 4).
+pub const MAX_FROST_WALKER_RADIUS: u32 = 16;
+
+/// Raised when a player wearing Frost Walker boots moves, before the water around its feet
+/// freezes. Cancelling freezes nothing.
+#[doc(alias = "EntityFrostWalkerEvent")]
+#[derive(Debug)]
+pub struct EntityFrostWalker {
+    pub(crate) entity: Actor,
+    pub(crate) world: world::Id,
+    pub(crate) radius: u32,
+    pub(crate) liquid: State,
+    pub(crate) target_block: State,
+    pub(crate) cancelled: bool,
+}
+
+getters!(EntityFrostWalker {
+    /// Who walks.
+    entity: Actor,
+    /// The world it walks in.
+    world: world::Id,
+    /// How far from the block under its feet the water freezes, in blocks along each axis.
+    #[doc(alias = "EntityFrostWalkerEvent::getRadius")]
+    radius: u32,
+    /// The liquid that freezes: a water source.
+    #[doc(alias = "EntityFrostWalkerEvent::getLiquid")]
+    liquid: State,
+    /// What the liquid becomes: frosted ice.
+    #[doc(alias = "EntityFrostWalkerEvent::getTargetBlock")]
+    target_block: State,
+});
+
+impl EntityFrostWalker {
+    /// Sets the radius. One above [`MAX_FROST_WALKER_RADIUS`] is ignored.
+    #[doc(alias = "EntityFrostWalkerEvent::setRadius")]
+    pub fn set_radius(&mut self, radius: u32) {
+        if radius <= MAX_FROST_WALKER_RADIUS {
+            self.radius = radius;
+        }
+    }
+
+    /// Sets the liquid that freezes: any state of water or lava. Another block is ignored.
+    #[doc(alias = "EntityFrostWalkerEvent::setLiquid")]
+    pub fn set_liquid(&mut self, liquid: State) {
+        if liquid.is(crate::block::Class::Liquid) {
+            self.liquid = liquid;
+        }
+    }
+}
+
+setters!(EntityFrostWalker {
+    /// Sets what the liquid becomes.
+    #[doc(alias = "EntityFrostWalkerEvent::setTargetBlock")]
+    set_target_block => target_block: State,
+});
 
 /// Why a fire went out (PMMP `EntityExtinguishEvent::CAUSE_*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -663,8 +720,9 @@ pub struct EntityPreExplode {
     pub(crate) cancelled: bool,
 }
 
-/// PMMP `Explosion::DEFAULT_FIRE_CHANCE`: what [`EntityPreExplode::set_incendiary`] sets.
-const DEFAULT_FIRE_CHANCE: f64 = 1.0 / 3.0;
+/// PMMP `Explosion::DEFAULT_FIRE_CHANCE`: what [`EntityPreExplode::set_incendiary`] and
+/// [`BlockPreExplode::set_incendiary`](super::BlockPreExplode::set_incendiary) set.
+pub(super) const DEFAULT_FIRE_CHANCE: f64 = 1.0 / 3.0;
 
 getters!(EntityPreExplode {
     /// The entity that explodes.
@@ -825,8 +883,8 @@ getters!(EntitySpawn {
     entity: entity::Id,
 });
 
-/// Raised when a player or an entity teleports: an ender pearl, a command. Cancelling keeps it
-/// where it is.
+/// Raised when a player teleports by an ender pearl, `/tp` or
+/// [`action::Teleport`](crate::action::Teleport). Cancelling keeps it where it is.
 #[doc(alias = "EntityTeleportEvent")]
 #[derive(Debug)]
 pub struct EntityTeleport {
@@ -1019,6 +1077,10 @@ cancellable! {
         #[doc(alias = "EntityExplodeEvent::cancel")]
         #[doc(alias = "EntityExplodeEvent::uncancel")]
         #[doc(alias = "EntityExplodeEvent::isCancelled")];
+    EntityFrostWalker
+        #[doc(alias = "EntityFrostWalkerEvent::cancel")]
+        #[doc(alias = "EntityFrostWalkerEvent::uncancel")]
+        #[doc(alias = "EntityFrostWalkerEvent::isCancelled")];
     EntityItemPickup
         #[doc(alias = "EntityItemPickupEvent::cancel")]
         #[doc(alias = "EntityItemPickupEvent::uncancel")]

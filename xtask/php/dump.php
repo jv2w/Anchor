@@ -4,7 +4,7 @@
  * PMMP data dump (PLAN.md 7, 10.4). Run by `cargo xtask dump` with the PMMP PHP binary, from the
  * pinned PocketMine-MP checkout (`.cache/pmmp`) as the working directory:
  *
- *     php dump.php <output directory>
+ *     php dump.php <output directory> <reference blocks.json>
  *
  * It loads PMMP's own registries and writes what they hold as JSON, so the data is what PMMP runs
  * with, not a reading of its source. Every list is sorted, so the same checkout writes the same
@@ -18,6 +18,11 @@
  *   walls, fence gates, stairs, tripwire and its hooks), what that needs: the kind, the facing
  *   and, for fences, panes and stairs, the support and collision boxes of every variant the
  *   neighbours choose, keyed by the client properties that name the variant.
+ * - deserialized.json: how PMMP's BlockStateDeserializer reads each state of the reference list
+ *   (the second argument, written by `xtask/go/reference`), in its order: the Bedrock form of the
+ *   PMMP state it becomes, or null where PMMP rejects it (and loads an unknown block). A state
+ *   PMMP reads as itself is left out, so the file lists what differs: PMMP ignores some vanilla
+ *   properties (a pumpkin's facing, a hanging sign's unused facing) and writes one value for them.
  * - items.json: every PMMP item type with its Bedrock serialization, PMMP names and data (class,
  *   stack size, durability, tool, armour, food, fuel, enchanting, cooldown and so on).
  * - creative.json: the creative inventory in order, with its groups.
@@ -70,6 +75,7 @@ use pocketmine\crafting\TagWildcardRecipeIngredient;
 use pocketmine\data\bedrock\BannerPatternTypeIdMap;
 use pocketmine\data\bedrock\BedrockDataFiles;
 use pocketmine\data\bedrock\block\BlockStateData;
+use pocketmine\data\bedrock\block\BlockStateDeserializeException;
 use pocketmine\data\bedrock\EffectIdMap;
 use pocketmine\data\bedrock\EnchantmentIdMap;
 use pocketmine\data\bedrock\item\SavedItemData;
@@ -509,7 +515,8 @@ function blockDrops(Block $block, array $tools) : array{
 	return $out;
 }
 
-$out = $argv[1] ?? fail("usage: php dump.php <output directory>");
+$out = $argv[1] ?? fail("usage: php dump.php <output directory> <reference blocks.json>");
+$referencePath = $argv[2] ?? fail("usage: php dump.php <output directory> <reference blocks.json>");
 if(!is_dir($out)){
 	fail("$out is not a directory");
 }
@@ -576,6 +583,35 @@ foreach(RuntimeBlockStateRegistry::getInstance()->getAllKnownStates() as $stateI
 	$blocks[] = $entry;
 }
 write($out, "blocks.json", lines(sortByJson($blocks)));
+
+// The reference list as PMMP reads it when it loads a world (LevelDB::deserializeBlockPalette,
+// after the upgrade, which the reference states no longer need).
+$deserializer = GlobalBlockStateHandlers::getDeserializer();
+$deserialized = [];
+$reference = json_decode(file_get_contents($referencePath) ?: fail("cannot read $referencePath"), true, 512, JSON_THROW_ON_ERROR);
+foreach($reference as $entry){
+	$states = [];
+	foreach($entry["states"] as $key => $typed){
+		$value = reset($typed);
+		$states[$key] = match(key($typed)){
+			"byte" => new ByteTag($value),
+			"int" => new IntTag($value),
+			"string" => new StringTag($value),
+			default => fail("reference state {$entry["name"]} has a property of type " . key($typed)),
+		};
+	}
+	$input = BlockStateData::current($entry["name"], $states);
+	try{
+		$read = blockState($serializer->serialize($deserializer->deserialize($input)));
+	}catch(BlockStateDeserializeException){
+		$read = null;
+	}
+	$self = blockState($input);
+	if(oneLine($read) !== oneLine($self)){
+		$deserialized[] = ["name" => $entry["name"], "states" => $self["states"], "pmmp" => $read];
+	}
+}
+write($out, "deserialized.json", lines($deserialized));
 
 // Items: the VanillaItems registry, the item form of every block state, and every name
 // StringToItemParser knows, merged by Bedrock form. Items merged into one form must agree on

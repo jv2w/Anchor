@@ -16,7 +16,7 @@ mod zip;
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::{self, Read as _};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::ServerBuilder;
@@ -214,24 +214,11 @@ impl ServerBuilder {
 }
 
 /// Reads at most `limit` bytes of the file at `path`; a longer file is [`Error::TooLarge`].
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: packs are read before the server starts, on the blocking pool"
-)]
 fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
-    let file = std::fs::File::open(path).map_err(Error::Read)?;
-    let len = file.metadata().map_err(Error::Read)?.len();
-    if len > limit {
-        return Err(Error::TooLarge { limit });
-    }
-    let mut bytes = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
-    file.take(limit.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(Error::Read)?;
-    if u64::try_from(bytes.len()).map_or(true, |read| read > limit) {
-        return Err(Error::TooLarge { limit });
-    }
-    Ok(bytes)
+    crate::fs::read_bounded(path, limit).map_err(|e| match e.kind() {
+        io::ErrorKind::FileTooLarge => Error::TooLarge { limit },
+        _ => Error::Read(e),
+    })
 }
 
 /// The packs offered to joining players and what the session sends of them, built once at
@@ -454,12 +441,12 @@ impl fmt::Display for Error {
             Self::Extension => f.write_str("the file name does not end in .mcpack or .zip"),
             Self::TooLarge { limit } => write!(f, "larger than {limit} bytes"),
             Self::Archive(what) => write!(f, "invalid zip archive: {what}"),
-            Self::ManifestMissing => f.write_str("manifest.json not found in the archive"),
-            Self::OldFormat => f.write_str("unsupported old pack format (pack_manifest.json)"),
+            Self::ManifestMissing => f.write_str("the archive has no manifest.json"),
+            Self::OldFormat => f.write_str("the pack uses the old pack_manifest.json format"),
             Self::ManifestTooLarge { limit } => {
                 write!(f, "manifest.json is larger than {limit} bytes")
             }
-            Self::Manifest(_) => f.write_str("invalid manifest.json"),
+            Self::Manifest(_) => f.write_str("manifest.json is malformed"),
             Self::Uuid => f.write_str("invalid header uuid in manifest.json"),
             Self::Version => f.write_str("invalid header version in manifest.json"),
             Self::Key => f.write_str("the content key is not 32 bytes of text"),

@@ -43,6 +43,12 @@ pub const DEFAULT_REMOTE_MAX_MESSAGE_SIZE: u32 = 64 * 1024;
 /// that run before the first RTT sample.
 pub(crate) const RTO_INITIAL_MS: u64 = 1000;
 
+/// Inbound streams the client association announces (MIS). sctp-proto's default is 65,535, so
+/// the remote's outbound count picked the bound and each stream it wrote on cost a stream and
+/// a channel entry scanned on every poll. A data channel peer acting as the DTLS server opens
+/// odd stream ids from 1 (RFC 8832), and a NetherNet client needs two channels (ids 1 and 3).
+pub(crate) const MAX_INBOUND_STREAMS: u16 = 16;
+
 pub(crate) struct RtcSctp {
     state: RtcSctpState,
     endpoint: Endpoint,
@@ -404,6 +410,7 @@ impl RtcSctp {
                     .with_max_init_retransmits(None)
                     .with_max_data_retransmits(None)
                     .with_rto_initial_ms(RTO_INITIAL_MS)
+                    .with_max_num_inbound_streams(MAX_INBOUND_STREAMS)
                     .with_max_receive_message_size(LOCAL_MAX_MESSAGE_SIZE)
                     .with_max_send_message_size(self.remote_max_message_size),
             );
@@ -1489,6 +1496,56 @@ mod tests {
         assert_eq!(server.state, RtcSctpState::Established);
 
         (client, server)
+    }
+
+    /// Anchor copy fix (Anchor PLAN.md 9.1): the client association announced 65,535 inbound
+    /// streams, so a remote writing on many stream ids made a stream and an entry per id, each
+    /// scanned on every poll. Fails on the published 0.24.1.
+    #[test]
+    fn many_remote_streams_stay_bounded() {
+        let (mut client, mut server) = connect_client_server();
+        let now = Instant::now();
+        let assoc = server.assoc.as_mut().unwrap();
+        for id in 0..1000 {
+            let mut stream = assoc
+                .open_stream(id, PayloadProtocolIdentifier::Binary)
+                .unwrap();
+            stream
+                .write_with_ppi(&[1], PayloadProtocolIdentifier::Binary)
+                .unwrap();
+        }
+        for _ in 0..500 {
+            while let Some(t) = server.poll_transmit() {
+                for buf in transmit_to_vec(t).into_iter().flatten() {
+                    client.handle_input(now, &buf);
+                }
+            }
+            while let Some(e) = server.do_poll() {
+                if let SctpEvent::Transmit { packets } = e {
+                    for buf in packets {
+                        client.handle_input(now, &buf);
+                    }
+                }
+            }
+            while let Some(e) = client.do_poll() {
+                if let SctpEvent::Transmit { packets } = e {
+                    for buf in packets {
+                        server.handle_input(now, &buf);
+                    }
+                }
+            }
+            while let Some(t) = client.poll_transmit() {
+                for buf in transmit_to_vec(t).into_iter().flatten() {
+                    server.handle_input(now, &buf);
+                }
+            }
+        }
+        let max = usize::from(MAX_INBOUND_STREAMS);
+        assert!(client.entries.len() <= max, "{} entries", client.entries.len());
+        let assoc = client.assoc.as_mut().unwrap();
+        for id in MAX_INBOUND_STREAMS..1000 {
+            assert!(assoc.stream(id).is_err(), "stream {id} exists");
+        }
     }
 
     /// A stream the remote opened can be gone from the association by the time the

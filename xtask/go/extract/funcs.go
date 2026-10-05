@@ -59,7 +59,7 @@ func (ex *extractor) emitFunc(f *types.Func) {
 	}
 	fi := ex.funcs[f]
 	c := ex.newCtx(fi)
-	fn := Function{Name: ex.funcName(f), Doc: docText(fi.decl.Doc)}
+	fn := Function{Name: ex.funcName(f)}
 	if fi.decl.Recv != nil {
 		v := f.Type().(*types.Signature).Recv()
 		p := c.param(v, fi.decl.Recv.List[0].Pos())

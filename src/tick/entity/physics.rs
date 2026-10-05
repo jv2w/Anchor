@@ -12,18 +12,17 @@
 //! `VoxelRayTrace`, `AxisAlignedBB::calculateIntercept`); the entities on the ray are found in the
 //! serial phase, where the other entities' places are final.
 
+use super::EPSILON;
 use super::kind::Physics;
 use crate::block::{self, Class, Face};
 use crate::math::{self, Aabb, Vec3, max};
 use crate::random::Random;
 use crate::world::{BlockPos, MAX_Y, MIN_Y, World};
 
-/// A speed component at or below this is zero (PMMP `Entity::MOTION_THRESHOLD`).
-const MOTION_THRESHOLD: f64 = 0.000_01;
+/// A motion component at or below this counts as zero (PMMP `Entity::MOTION_THRESHOLD`).
+pub(in crate::tick) const MOTION_THRESHOLD: f64 = 0.000_01;
 /// What `y_size` keeps of itself per move (PMMP `STEP_CLIP_MULTIPLIER`).
 const STEP_CLIP_MULTIPLIER: f64 = 0.4;
-/// The overlap two boxes need to collide (PMMP `intersectsWith`'s default epsilon).
-const EPSILON: f64 = 0.000_01;
 /// The inset of the block cells an entity is inside (PMMP `getBlocksAroundWithEntityInsideActions`).
 const INSIDE_INSET: f64 = 0.001;
 /// The push of flowing liquid per tick (PMMP `checkBlockIntersections`).
@@ -54,6 +53,14 @@ pub(super) struct Body {
     /// PMMP `ySize`: the box's lift after stepping up, shrinking each move.
     pub(super) y_size: f64,
 }
+
+crate::tick::checkpoint::fields!(Body {
+    position,
+    motion,
+    on_ground,
+    fall_distance,
+    y_size,
+});
 
 impl Body {
     /// The bounding box (PMMP `recalculateBoundingBox`).

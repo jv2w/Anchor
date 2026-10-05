@@ -15,15 +15,31 @@ pub(crate) fn now() -> Instant {
 
 /// Whole seconds since the Unix epoch by the wall clock, for checks of signed times off the tick
 /// (JWT `exp`, `nbf`, `iat`). `None` if the system clock is set before 1970.
+pub(crate) fn unix_now() -> Option<u64> {
+    since_epoch().map(|since| since.as_secs())
+}
+
+/// Milliseconds since the Unix epoch by the wall clock, for times a session hands to the tick as
+/// logged inputs (a player's join, PLAN.md 10.9); 0 if the system clock is set before 1970.
+pub(crate) fn unix_millis() -> i64 {
+    since_epoch().map_or(0, |since| {
+        i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+    })
+}
+
+/// The time since the Unix epoch by the wall clock; `None` before 1970.
 #[expect(
     clippy::disallowed_methods,
     reason = "consistency: the engine clock is the one reader of the wall clock"
 )]
-pub(crate) fn unix_now() -> Option<u64> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|since| since.as_secs())
+fn since_epoch() -> Option<Duration> {
+    SystemTime::now().duration_since(UNIX_EPOCH).ok()
+}
+
+/// Wall-clock Unix seconds for signed-token checks (JWT and offer identity times); before 1970
+/// reads as 0, which fails every check.
+pub(crate) fn token_now() -> i64 {
+    unix_now().and_then(|s| i64::try_from(s).ok()).unwrap_or(0)
 }
 
 /// Blocks the calling thread until `deadline`; returns at once if it has passed. Only the tick

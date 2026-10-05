@@ -283,6 +283,33 @@ fn a_survival_break_waits_for_the_break_time() {
             && e.event_data == glass.network_id().cast_signed())));
 }
 
+/// `break-time-check = false`: the client's break is taken at once, no progress is counted, and
+/// reach still counts.
+#[test]
+fn without_the_break_time_check_a_break_is_taken_at_once_and_reach_still_counts() {
+    let obsidian = Kind::Obsidian.default_state();
+    let mut h = Harness::new(|c| c.general.break_time_check = false);
+    h.set(TARGET, obsidian);
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    h.act(Vec::new());
+    let target = h.player().breaking.target.clone().expect("breaking");
+    assert_eq!((target.inputs, target.progress), (0, 0.0), "no progress");
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), block::AIR);
+    let far = BlockPos::new(20, -60, 0);
+    h.set(far, obsidian);
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        far,
+        Face::West,
+    )]);
+    assert_eq!(h.block(far), obsidian, "out of reach");
+}
+
 #[test]
 fn creative_breaks_at_once_without_drops() {
     let mut h = Harness::new(creative);
@@ -663,7 +690,7 @@ fn destroying_for_each_cause_follows_pmmp() {
     let up = BlockPos::new(2, -59, 0);
     h.set(TARGET, door);
     h.set(up, top);
-    assert!(destroy(&mut h.state, 0, TARGET, Destroy::NoDrops));
+    assert!(destroy(&mut h.state, 0, TARGET, Destroy::Rules));
     assert_eq!(h.block(TARGET), block::AIR);
     assert_eq!(h.block(up), block::AIR);
     // Ice the world removes melts; an explosion leaves air.
@@ -679,9 +706,11 @@ fn destroying_for_each_cause_follows_pmmp() {
     ));
     assert_eq!(h.block(TARGET), block::AIR);
     // Air is not destroyed again.
-    assert!(!destroy(&mut h.state, 0, TARGET, Destroy::NoDrops));
+    assert!(!destroy(&mut h.state, 0, TARGET, Destroy::Rules));
     // A player's break whose drop finds no room changes nothing: the world is at its entity cap.
-    for i in 0..u32::try_from(entity::MAX_ENTITIES_PER_WORLD).unwrap() {
+    // (The door's drop is one of the entities already.)
+    let mut i = 0u32;
+    while entity::has_room(&h.state, 0, 1) {
         let at = Vec3::new(
             f64::from(i % 64) - 32.0,
             -59.0,
@@ -693,6 +722,7 @@ fn destroying_for_each_cause_follows_pmmp() {
             at,
             stack(crate::item::Kind::Stick)
         ));
+        i += 1;
     }
     let tool = Stack::new(crate::item::Kind::WoodenPickaxe.default_type(), 1);
     h.set(TARGET, Kind::Stone.default_state());
@@ -858,6 +888,28 @@ fn the_break_time_has_one_tick_of_tolerance() {
     // Glass by hand: 0.45 s, 9 ticks. The predicting packet counts, plus one tick of tolerance.
     assert!(!break_glass_after(6));
     assert!(break_glass_after(7));
+}
+
+/// Progress made on one block does not break another put in its place: glass broken long
+/// enough, then obsidian there, stays and is sent back.
+#[test]
+fn break_progress_does_not_carry_over_to_a_new_block() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::Glass.default_state());
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    for _ in 0..10 {
+        h.act(Vec::new());
+    }
+    let obsidian = Kind::Obsidian.default_state();
+    h.set(TARGET, obsidian);
+    h.packets();
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), obsidian);
+    assert!(updates(&h.packets()).contains(&TARGET), "resynced");
 }
 
 fn named(name: &str) -> Stack {
@@ -1148,6 +1200,50 @@ fn breaking_a_bed_or_banner_drops_its_block_entity_item() {
     );
 }
 
+/// `experience = false`: a broken ore gives no experience (the break event names none).
+#[test]
+fn without_experience_breaking_an_ore_gives_none() {
+    let xp = |experience: bool| {
+        let mut h = Harness::new(|c| c.general.experience = experience);
+        h.set(TARGET, Kind::DiamondOre.default_state());
+        let cause = Destroy::Player {
+            session: SessionId::new(1),
+            tool: stack(crate::item::Kind::IronPickaxe),
+        };
+        plan_destruction(&h.state, 0, TARGET, &cause).unwrap().xp
+    };
+    assert!((3..=7).contains(&xp(true)));
+    assert_eq!(xp(false), 0);
+}
+
+/// `beds = false`: a bed is a block like any other: a click at night neither lays the player
+/// down nor sets its spawn point, and the held block goes on top of it.
+#[test]
+fn with_beds_off_a_bed_is_a_plain_block() {
+    let click_bed_at_night = |beds: bool| {
+        let mut h = Harness::new(|c| c.general.beds = beds);
+        let bed =
+            crate::item::Type::from_name("minecraft:bed", 0, None, &crate::nbt::Compound::new())
+                .unwrap();
+        h.hold(Stack::new(bed, 1));
+        let at = place_on_grass(&mut h, &Stack::new(bed, 1));
+        assert!(h.block(at).is(Class::Bed));
+        h.state.worlds[0].set_time(13_000);
+        let planks = block_item(Kind::OakPlanks, 1);
+        h.hold(planks.clone());
+        let input = h.auth(Vec::new(), Some(click(at, Face::Up, &planks)));
+        h.run(vec![input]);
+        let above = h.block(at.step(Face::Up).unwrap()).kind();
+        (
+            h.player().is_sleeping(),
+            h.player().spawn().is_some(),
+            above,
+        )
+    };
+    assert_eq!(click_bed_at_night(true), (true, true, Kind::Air));
+    assert_eq!(click_bed_at_night(false), (false, false, Kind::OakPlanks));
+}
+
 /// Breaking reads the survival rules' effects (PMMP `calculateBreakProgressPerTick`): with
 /// Haste II glass breaks after 3 client ticks instead of 7; and the block's own break time
 /// counts (PMMP: shears break leaves at once).
@@ -1305,5 +1401,316 @@ fn explosions_break_both_door_halves_once_without_break_particles() {
     assert_eq!(drops, 1, "one door");
 }
 
+/// Selecting another hotbar slot stops drawing (PMMP `Player::selectHotbarSlot`): a bow or
+/// trident drawn, then put away and taken back, is not still drawn.
+#[test]
+fn switching_the_held_slot_cancels_a_drawn_bow() {
+    for weapon in [crate::item::Kind::Bow, crate::item::Kind::Trident] {
+        let mut h = Harness::new(|_| {});
+        let held = stack(weapon);
+        h.hold(held.clone());
+        assert!(inventory::give(h.player_mut(), stack(crate::item::Kind::Arrow)).is_empty());
+        let draw = h.auth(Vec::new(), Some(air(&held)));
+        h.run(vec![draw]);
+        assert!(
+            h.player().breaking.using_since.is_some(),
+            "{weapon:?} drawn"
+        );
+        let equip = |slot: u8| {
+            Packet::MobEquipment(Box::new(crate::protocol::packet::MobEquipment {
+                entity_runtime_id: 1,
+                new_item: crate::protocol::ItemInstance::default(),
+                inventory_slot: slot,
+                hot_bar_slot: slot,
+                window_id: 0,
+            }))
+        };
+        let away = h.input(equip(1));
+        h.run(vec![away]);
+        let back = h.input(equip(0));
+        h.run(vec![back]);
+        assert_eq!(h.player().inventory.held_slot(), 0);
+        assert!(h.player().breaking.using_since.is_none(), "{weapon:?}");
+    }
+}
+
+/// An explosion at the world's entity limit breaks an item frame: the frame and its item wait as
+/// a spill in the chunk instead of being lost (PLAN.md 10.7).
+#[test]
+fn explosion_at_the_entity_cap_keeps_framed_items_as_spill() {
+    let mut h = Harness::new(|_| {});
+    h.set(BlockPos::new(3, -60, 0), Kind::Stone.default_state());
+    let frame = block::State::all()
+        .find(|b| b.name() == "minecraft:frame")
+        .and_then(|f| props::with_facing(f, Face::West))
+        .unwrap();
+    set_with_entity(&mut h, frame, &Stack::EMPTY);
+    let sword = stack(crate::item::Kind::DiamondSword);
+    match h
+        .state
+        .rules
+        .block_entities
+        .get_mut(0, TARGET)
+        .map(|e| &mut e.kind)
+    {
+        Some(super::super::block_entity::Kind::ItemFrame(f)) => f.item = sword.clone(),
+        other => panic!("{other:?}"),
+    }
+    for i in 0..u32::try_from(entity::MAX_ENTITIES_PER_WORLD).unwrap() {
+        let at = Vec3::new(
+            f64::from(i % 64) - 32.0,
+            -59.0,
+            f64::from(i / 64 % 64) - 32.0,
+        );
+        assert!(entity::drop_item(
+            &mut h.state,
+            0,
+            at,
+            stack(crate::item::Kind::Stick)
+        ));
+    }
+    assert!(destroy(
+        &mut h.state,
+        0,
+        TARGET,
+        Destroy::Explosion { size: 1.0 }
+    ));
+    assert_eq!(h.block(TARGET), block::AIR);
+    let kept: Vec<Stack> = h.state.rules.block_entities.all_items().cloned().collect();
+    assert!(kept.contains(&sword), "{kept:?}");
+}
+
+/// A dead player standing where a block goes does not keep it from being placed (PMMP
+/// `canBeCollidedWith`: alive and not a spectator); a living one does.
+#[test]
+fn dead_players_do_not_block_placing() {
+    use super::super::tests::initialised;
+    let mut h = Harness::new(|_| {});
+    let (j, _rx) = join(2, 1);
+    h.run(vec![j, radius(2, 2, 4)]);
+    for _ in 0..8 {
+        h.run(Vec::new());
+    }
+    let two = SessionId::new(2);
+    let runtime_id = h.state.players[&two].runtime_id;
+    h.run(vec![initialised(2, 3, runtime_id)]);
+    assert_eq!(h.state.players[&two].phase, Phase::Spawned);
+    let planks = block_item(Kind::OakPlanks, 5);
+    h.hold(planks.clone());
+    let stand = |h: &mut Harness| {
+        h.state.players.get_mut(&two).unwrap().position = Vec3::new(2.5, -60.0 + EYE_HEIGHT, 0.5);
+    };
+    stand(&mut h);
+    let at = place_on_grass(&mut h, &planks);
+    assert_eq!(h.block(at), block::AIR, "a living player is in the way");
+    for _ in 0..3 {
+        h.run(Vec::new());
+    }
+    stand(&mut h);
+    assert!(h.state.players.get_mut(&two).unwrap().kill());
+    let at = place_on_grass(&mut h, &planks);
+    assert_eq!(h.block(at).kind(), Kind::OakPlanks);
+}
+
+#[test]
+fn spawn_eggs_hatch_a_zombie_or_a_villager_and_are_used_up() {
+    let mut h = Harness::new(|_| {});
+    let named = |kind: crate::item::Kind, name: &str| {
+        let extra = crate::item::Extra {
+            custom_name: (!name.is_empty()).then(|| name.to_owned()),
+            ..crate::item::Extra::default()
+        };
+        Stack::new(kind.default_type(), 2)
+            .with_extra(Some(extra))
+            .unwrap()
+    };
+    let ground = BlockPos::new(2, -61, 0);
+    let mut hatched = Vec::new();
+    for (egg, name) in [
+        (crate::item::Kind::ZombieSpawnEgg, "Bob"),
+        (crate::item::Kind::VillagerSpawnEgg, ""),
+        (crate::item::Kind::SquidSpawnEgg, ""),
+    ] {
+        h.hold(named(egg, name));
+        let held = h.held();
+        let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &held)));
+        h.run(vec![input]);
+        for _ in 0..3 {
+            h.run(Vec::new());
+        }
+        hatched.push(h.held().count());
+    }
+    assert_eq!(hatched, [1, 1, 2], "a squid's egg does nothing");
+    let cx = super::super::Context {
+        state: &mut h.state,
+    };
+    let mut found: Vec<_> = cx
+        .entities(crate::world::Id::DEFAULT)
+        .map(|(_, e)| {
+            (
+                e.entity_type(),
+                e.position(),
+                e.name_tag().to_owned(),
+                e.is_invulnerable(),
+                e.profession(),
+            )
+        })
+        .collect();
+    found.sort_by_key(|f| f.2.clone());
+    let middle = Vec3::new(2.5, -60.0, 0.5);
+    assert_eq!(
+        found,
+        [
+            (
+                crate::entity::Type::Villager,
+                middle,
+                String::new(),
+                false,
+                Some(0)
+            ),
+            (
+                crate::entity::Type::Zombie,
+                middle,
+                "Bob".to_owned(),
+                false,
+                None
+            ),
+        ]
+    );
+}
+
+/// User decision (PLAN.md 8.4, 2026-10-04): a villager from a spawn egg or from the API without
+/// offers has an empty trade list (no vanilla trade templates) and opens no trade window; offers
+/// set through the trade API then trade as usual.
+#[test]
+fn villagers_hatched_or_spawned_without_offers_have_an_empty_trade_list() {
+    let mut h = Harness::new(|_| {});
+    let egg = Stack::new(crate::item::Kind::VillagerSpawnEgg.default_type(), 1);
+    h.hold(egg.clone());
+    let input = h.auth(
+        Vec::new(),
+        Some(click(BlockPos::new(2, -61, 0), Face::Up, &egg)),
+    );
+    h.run(vec![input]);
+    h.run(Vec::new());
+    let mut cx = super::super::Context {
+        state: &mut h.state,
+    };
+    let spawned = cx
+        .spawn_villager(
+            crate::world::Id::DEFAULT,
+            Vec3::new(4.5, -60.0, 4.5),
+            0,
+            &[],
+        )
+        .unwrap();
+    let villagers: Vec<_> = cx
+        .entities(crate::world::Id::DEFAULT)
+        .filter(|(_, e)| e.entity_type() == crate::entity::Type::Villager)
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(villagers.len(), 2, "the hatched one and the spawned one");
+    assert!(villagers.contains(&spawned));
+    for v in &villagers {
+        assert_eq!(cx.trade_offers(*v), Some(Vec::new()));
+    }
+    let session = SessionId::new(1);
+    for v in &villagers {
+        assert!(!super::super::trade::open(&mut h.state, session, *v));
+    }
+    let offer = crate::custom::Offer::new(
+        Stack::new(crate::item::Kind::Emerald.default_type(), 1),
+        Stack::new(crate::item::Kind::Apple.default_type(), 1),
+        4,
+    );
+    let mut cx = super::super::Context {
+        state: &mut h.state,
+    };
+    assert!(cx.set_trade_offers(spawned, &[offer]).is_ok());
+    assert_eq!(cx.trade_offers(spawned).map(|o| o.len()), Some(1));
+}
+
+/// A grindstone state's attachment and direction.
+fn grindstone_of(s: block::State) -> (&'static str, i32) {
+    assert_eq!(s.kind(), Kind::Grindstone, "{s:?}");
+    (
+        props::string(s, "attachment").unwrap(),
+        props::int(s, "direction").unwrap(),
+    )
+}
+
+/// The grindstone items lying in the world.
+fn grindstones_dropped(h: &mut Harness) -> usize {
+    let cx = super::super::Context {
+        state: &mut h.state,
+    };
+    cx.entities(crate::world::Id::DEFAULT)
+        .filter(|(_, e)| {
+            e.item()
+                .is_some_and(|i| i.item() == block_item(Kind::Grindstone, 1).item())
+        })
+        .count()
+}
+
+/// BDS P6 (m9-facts STATIONS): a player looking east puts a grindstone on the floor or under a
+/// ceiling facing west (towards it), and on the west face of a block facing west; each breaks
+/// and drops itself when that block goes.
+#[test]
+fn grindstones_face_the_placer_or_away_from_their_wall_and_drop_without_it() {
+    let mut h = Harness::new(|_| {});
+    let item = block_item(Kind::Grindstone, 3);
+    h.hold(item.clone());
+    let floor = place_on_grass(&mut h, &item);
+    assert_eq!(grindstone_of(h.block(floor)), ("standing", 1));
+    let stone = Kind::Stone.default_state();
+    let wall = BlockPos::new(3, -60, 2);
+    let ceiling = BlockPos::new(2, -58, -2);
+    h.set(wall, stone);
+    h.set(ceiling, stone);
+    h.run(Vec::new());
+    let input = h.auth(Vec::new(), Some(click(wall, Face::West, &h.held())));
+    h.run(vec![input]);
+    let side = BlockPos::new(2, -60, 2);
+    assert_eq!(grindstone_of(h.block(side)), ("side", 1));
+    let input = h.auth(Vec::new(), Some(click(ceiling, Face::Down, &h.held())));
+    h.run(vec![input]);
+    let hanging = BlockPos::new(2, -59, -2);
+    assert_eq!(grindstone_of(h.block(hanging)), ("hanging", 1));
+    assert!(h.held().is_empty(), "three placed");
+    for (support, grindstone) in [
+        (wall, side),
+        (ceiling, hanging),
+        (BlockPos::new(2, -61, 0), floor),
+    ] {
+        let before = grindstones_dropped(&mut h);
+        h.set(support, block::AIR);
+        h.run(Vec::new());
+        h.run(Vec::new());
+        assert_eq!(h.block(grindstone), block::AIR, "{grindstone:?}");
+        assert_eq!(grindstones_dropped(&mut h), before + 1, "{grindstone:?}");
+    }
+}
+
+/// BDS P6 (m9-facts STATIONS): a click on a grindstone opens its window, container type 26.
+#[test]
+fn clicking_a_grindstone_opens_its_window() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::Grindstone.default_state());
+    h.hold(Stack::EMPTY);
+    h.packets();
+    use_on_target(&mut h);
+    h.run(Vec::new());
+    let opened: Vec<u8> = h
+        .packets()
+        .iter()
+        .filter_map(|p| match p {
+            Packet::ContainerOpen(o) => Some(o.container_type),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(opened, [26]);
+}
+
+mod book;
 mod custom;
 mod events;

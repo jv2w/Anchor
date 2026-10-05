@@ -121,6 +121,67 @@ impl Context<'_> {
         })
     }
 
+    /// The players with a window open on the block at `pos` in `world` (a container, both halves
+    /// of a double chest from either half, or a station such as an anvil), in the order they
+    /// opened it; how many there are is the iterator's length.
+    #[doc(alias = "Inventory::getViewers")]
+    #[doc(alias = "BaseInventory::getViewers")]
+    pub fn block_inventory_viewers(
+        &self,
+        world: world::Id,
+        pos: BlockPos,
+    ) -> impl ExactSizeIterator<Item = crate::player::Id> + '_ {
+        self.state
+            .rules
+            .block_entities
+            .viewers(world.index(), pos)
+            .iter()
+            .map(|s| crate::player::Id::new(*s))
+    }
+
+    /// Switches the creative inventory `player` sees (PMMP `Player::setCreativeInventory`): the
+    /// alternative registered as `inventory`
+    /// ([`ServerBuilder::alternative_creative_inventory`](crate::ServerBuilder::alternative_creative_inventory)),
+    /// or the default one for `None`. A spawned player's client gets the new list. False,
+    /// changing nothing, if the player has left or no alternative has that name.
+    #[doc(alias = "Player::setCreativeInventory")]
+    pub fn set_creative_inventory(
+        &mut self,
+        player: crate::player::Id,
+        inventory: Option<&str>,
+    ) -> bool {
+        let Some(index) = self.state.custom.creative_index(inventory) else {
+            return false;
+        };
+        let Some(p) = self.state.players.get_mut(&player.session()) else {
+            return false;
+        };
+        if p.inventory.creative != index {
+            p.inventory.creative = index;
+            // Before its chunk radius request the client gets the inventory in its spawn window.
+            p.pending.creative |= p.chunk_radius.is_some();
+        }
+        true
+    }
+
+    /// The name of the alternative creative inventory `player` sees; `None` for the default one
+    /// or a player who has left.
+    #[doc(alias = "Player::getCreativeInventory")]
+    pub fn creative_inventory(&self, player: crate::player::Id) -> Option<&'static str> {
+        let p = self.state.players.get(&player.session())?;
+        self.state.custom.creative_name(p.inventory.creative)
+    }
+
+    /// The items of a creative inventory, one of each entry in order (a player's request names
+    /// the entry at index `i` as creative item `i + 1`): the alternative registered as
+    /// `inventory`, or the default one for `None`; `None` for a name not registered.
+    #[doc(alias = "CreativeInventory::getAll")]
+    pub fn creative_items(&self, inventory: Option<&str>) -> Option<&[Stack]> {
+        let custom = &self.state.custom;
+        let index = custom.creative_index(inventory)?;
+        Some(custom.creatives().get(usize::from(index))?.stacks())
+    }
+
     /// Closes the player's window, a menu too: the cursor, the crafting grid and the window's own
     /// slots go back to its inventory (what does not fit drops), and a menu's blocks show again.
     /// False if the player has left or has no window open. Raises no event.

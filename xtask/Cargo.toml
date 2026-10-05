@@ -12,10 +12,13 @@ workspace = true
 anchor = { path = ".." }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+# `cargo xtask p6` and tests/spawn.rs read the addresses an in-process server logs (Anchor's own
+# version).
+tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 # Reproduction tests of the fixed copies in vendor/ (PLAN.md 9.1), with the features Anchor and
-# str0m enable.
-dimpl = { version = "=0.7.4", default-features = false, features = ["aws-lc-rs", "rcgen"] }
-sctp-proto = "=0.10.5"
-redb = "=4.3.0"
+# str0m enable. Without `path`, a test runs against the published crate and fails.
+dimpl = { path = "../vendor/dimpl", version = "=0.7.5", default-features = false, features = ["aws-lc-rs", "rcgen"] }
+sctp-proto = { path = "../vendor/sctp-proto", version = "=0.10.5" }
+redb = { path = "../vendor/redb", version = "=4.3.0" }

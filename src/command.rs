@@ -56,6 +56,14 @@ pub(crate) const MAX_PERMISSIONS: usize = 16;
 const UNKNOWN: &str = "commands.generic.unknown";
 /// The client's "no permission" text, filled with the command's name (BDS).
 const NO_PERMISSION: &str = "commands.generic.error.permissions";
+/// The client's "usage" text, filled with the usage.
+const USAGE: &str = "commands.generic.usage";
+/// The client's text for a line that does not fit a command: before, the word, after (BDS).
+const SYNTAX: &str = "commands.generic.syntax";
+/// The client's "player not found" text.
+const PLAYER_NOT_FOUND: &str = "commands.generic.player.notFound";
+/// The client's "no targets matched" text.
+const NO_TARGETS: &str = "commands.generic.noTargetMatch";
 
 /// What runs a command: it gets the game, who sent the command and the parsed arguments, and
 /// returns what the sender sees.
@@ -84,7 +92,8 @@ pub(crate) struct Overload {
 impl Command {
     /// A command named `name` (ASCII case does not matter; Bedrock shows it in lowercase) with
     /// `description` shown in the client's command list. Without a [`permission`](Self::permission)
-    /// everyone may use it; without an [`overload`](Self::overload) the server refuses to build.
+    /// everyone may use it; without an [`overload`](Self::overload), or with a description longer
+    /// than 1,000 bytes, the server refuses to build.
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
             name: name.into().to_ascii_lowercase(),
@@ -307,8 +316,13 @@ impl Param {
     }
 
     /// One of `values` ([`Args::string`] gives the value as listed, whatever ASCII case was
-    /// typed). `type_name` is the enum type the client shows and must be the same for the same
-    /// values.
+    /// typed). `type_name` is the enum type the client shows: every enum of a type name must have
+    /// the same values in the same order, or [`build`](crate::ServerBuilder::build) fails with
+    /// [`Error::ConflictingEnum`]. Anchor's own commands use `Boolean`, `Item`, `Block`,
+    /// `Effect`, `Enchant`, `GameMode`, `Difficulty`, `BanListType`, `WhitelistAction`,
+    /// `WhitelistEdit`, `TitleKind`, `TimeSpec`, `TimeQuery`, `ParticleName`, `<Name>Aliases` for a command
+    /// with aliases, and each [`literal`](Self::literal)'s word, unless the user replaces or
+    /// drops the command.
     pub fn enumeration(
         name: impl Into<String>,
         type_name: impl Into<String>,
@@ -596,9 +610,9 @@ impl From<String> for Output {
 /// Why a command did not run or failed, or why the commands registered on a
 /// [`ServerBuilder`](crate::ServerBuilder) cannot be built.
 ///
-/// The first kinds are what a sender sees (in red), with PMMP's English texts (an unknown command
-/// and a missing permission with the client's translation, as BDS sends them); a handler fails
-/// with [`Error::failed`] or [`Error::translated`].
+/// The first kinds are what a sender sees (in red): the client's translation where it has a text
+/// for the case, as BDS sends it, and Anchor's text otherwise; a handler fails with
+/// [`Error::failed`] or [`Error::translated`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// No command has this name or alias.
@@ -611,7 +625,19 @@ pub enum Error {
         /// The command's name.
         name: String,
     },
-    /// The line fits none of the command's overloads.
+    /// The line fits none of the command's overloads: the word where it stops fitting the
+    /// overload that fits furthest, with up to 10 characters of the line (from its `/`) before
+    /// and after it, as BDS reports it (`commands.generic.syntax`).
+    Syntax {
+        /// Up to 10 characters before the word.
+        before: String,
+        /// The word; empty where the line ends before a required word.
+        word: String,
+        /// Up to 10 characters after the word.
+        after: String,
+    },
+    /// A command's handler found the arguments wrong after they fitted its overload: the
+    /// command's usage.
     Usage {
         /// The command's usage text ([`Command::usage_text`]).
         usage: String,
@@ -654,10 +680,20 @@ pub enum Error {
         /// What is wrong.
         reason: &'static str,
     },
+    /// A command's description is longer than a client takes (1,000 bytes).
+    DescriptionTooLong {
+        /// The command's name.
+        command: String,
+    },
     /// Two permissions with the same name have different defaults.
     ConflictingPermission {
         /// The permission's name.
         name: &'static str,
+    },
+    /// Two enum parameters with the same type name have different values.
+    ConflictingEnum {
+        /// The enum's type name.
+        name: String,
     },
 }
 
@@ -681,11 +717,10 @@ impl Error {
         }
     }
 
-    /// What the sender sees: PMMP's English text, BDS's translation of an unknown command or a
-    /// missing permission, or the handler's message and parameters.
+    /// What the sender sees: the client's translation where it has a text for the case (filled
+    /// as BDS fills it), Anchor's text otherwise, or the handler's message and parameters.
     pub(crate) fn line(&self) -> Line {
         let text = match self {
-            // BDS's translations, not PMMP's English texts: the client shows them in its language.
             Self::Unknown { name } => {
                 return Line {
                     text: UNKNOWN.to_owned(),
@@ -698,11 +733,26 @@ impl Error {
                     params: vec![name.clone()],
                 };
             }
-            Self::Usage { usage } => format!("Usage: {usage}"),
+            Self::Syntax {
+                before,
+                word,
+                after,
+            } => {
+                return Line {
+                    text: SYNTAX.to_owned(),
+                    params: vec![before.clone(), word.clone(), after.clone()],
+                };
+            }
+            Self::Usage { usage } => {
+                return Line {
+                    text: USAGE.to_owned(),
+                    params: vec![usage.clone()],
+                };
+            }
             Self::TooLong => "The command is too long".to_owned(),
             Self::UnclosedQuote => "Syntax error: a quote is not closed".to_owned(),
-            Self::PlayerNotFound { name } => format!("Cannot find a player matching \"{name}\""),
-            Self::NoTargets => "No targets matched selector".to_owned(),
+            Self::PlayerNotFound { .. } => PLAYER_NOT_FOUND.to_owned(),
+            Self::NoTargets => NO_TARGETS.to_owned(),
             Self::Failed { message, params } => {
                 return Line {
                     text: message.clone(),
@@ -712,7 +762,9 @@ impl Error {
             Self::InvalidName { .. }
             | Self::Duplicate { .. }
             | Self::InvalidOverload { .. }
-            | Self::ConflictingPermission { .. } => self.to_string(),
+            | Self::DescriptionTooLong { .. }
+            | Self::ConflictingPermission { .. }
+            | Self::ConflictingEnum { .. } => self.to_string(),
         };
         Line {
             text,
@@ -726,7 +778,8 @@ impl fmt::Display for Error {
         match self {
             Self::Unknown { name } => write!(f, "unknown command {name:?}"),
             Self::Permission { name } => write!(f, "no permission for command {name:?}"),
-            Self::Usage { usage } => write!(f, "the arguments fit no overload; usage: {usage}"),
+            Self::Syntax { word, .. } => write!(f, "the line does not fit at {word:?}"),
+            Self::Usage { usage } => write!(f, "the arguments do not fit; usage: {usage}"),
             Self::TooLong => f.write_str("the command line is too long"),
             Self::UnclosedQuote => f.write_str("a quote is not closed"),
             Self::PlayerNotFound { name } => write!(f, "no player named {name:?} is online"),
@@ -742,8 +795,17 @@ impl fmt::Display for Error {
             Self::InvalidOverload { command, reason } => {
                 write!(f, "invalid overload of command {command:?}: {reason}")
             }
+            Self::DescriptionTooLong { command } => {
+                write!(
+                    f,
+                    "the description of command {command:?} is longer than a client takes"
+                )
+            }
             Self::ConflictingPermission { name } => {
                 write!(f, "permission {name:?} is registered with two defaults")
+            }
+            Self::ConflictingEnum { name } => {
+                write!(f, "enum type {name:?} is registered with two value lists")
             }
         }
     }

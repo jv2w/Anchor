@@ -293,6 +293,8 @@ builtin! {
     /// administrative broadcast channel).
     #[doc(alias = "DefaultPermissionNames")]
     BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
+    /// Back up the world while the server runs (`/backup`; Anchor's own, PMMP has none).
+    COMMAND_BACKUP = "anchor.command.backup", Op;
     /// Ban IP addresses (`/ban-ip`).
     COMMAND_BAN_IP = "anchor.command.ban.ip", Op;
     /// List the bans (`/banlist`).

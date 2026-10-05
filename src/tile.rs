@@ -188,6 +188,7 @@ impl SignText {
 }
 
 /// A dye colour, in PMMP `DyeColorIdMap` order (the Bedrock ID of a bed's or carpet's colour).
+#[doc(alias = "DyeColor")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum DyeColour {
@@ -245,6 +246,12 @@ impl DyeColour {
         Self::Red,
         Self::Black,
     ];
+
+    /// The colour's RGB value, opaque (PMMP's: white is `#f0f0f0`, black `#1d1d21`).
+    #[doc(alias = "DyeColor::getRgbValue")]
+    pub fn rgb(self) -> Rgba {
+        from_argb(crate::item::dye_argb(self as u8).map_or(0, u32::cast_signed))
+    }
 
     /// The colour of a `DyeColorIdMap` ID, or `None`.
     pub(crate) fn from_id(id: u8) -> Option<Self> {
@@ -363,5 +370,19 @@ e",
         assert_eq!(DyeColour::Black.banner_id(), 0);
         assert_eq!(DyeColour::from_banner_id(16), None);
         assert_eq!(DyeColour::from_banner_id(-1), None);
+    }
+
+    // pmmp: DyeColor, DyeColor::getRgbValue
+    #[test]
+    fn dye_colours_have_pmmps_rgb_values() {
+        // PMMP `DyeColor::getMetadata`, white to black.
+        let pmmp: [u32; 16] = [
+            0xf0_f0f0, 0xf9_801d, 0xc7_4ebd, 0x3a_b3da, 0xfe_d83d, 0x80_c71f, 0xf3_8baa, 0x47_4f52,
+            0x9d_9d97, 0x16_9c9c, 0x89_32b8, 0x3c_44aa, 0x83_5432, 0x5e_7c16, 0xb0_2e26, 0x1d_1d21,
+        ];
+        for (c, rgb) in DyeColour::ALL.into_iter().zip(pmmp) {
+            let [_, r, g, b] = rgb.to_be_bytes();
+            assert_eq!(c.rgb(), Rgba { r, g, b, a: 0xff }, "{c:?}");
+        }
     }
 }

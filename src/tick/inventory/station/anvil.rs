@@ -34,6 +34,8 @@ pub(in crate::tick) enum Refused {
     Nothing,
     /// The cost reached [`TOO_EXPENSIVE`] outside creative mode.
     TooExpensive,
+    /// The result would be over a stack limit (its saved size, a name over 1,024 bytes).
+    TooLarge(item::Error),
 }
 
 /// An item's prior work (`RepairCost`, dragonfly `AnvilCost`).
@@ -45,13 +47,13 @@ pub(in crate::tick) fn repair_cost(stack: &Stack) -> u32 {
 }
 
 /// The stack with prior work `cost`.
-fn with_repair_cost(stack: &Stack, cost: u32) -> Stack {
+fn with_repair_cost(stack: &Stack, cost: u32) -> Result<Stack, Refused> {
     let mut extra = stack.extra().cloned().unwrap_or_default();
     extra.nbt.insert(
         REPAIR_COST.to_owned(),
         Value::Int(i32::try_from(cost).unwrap_or(i32::MAX)),
     );
-    stack.with_extra(Some(extra))
+    stack.with_extra(Some(extra)).map_err(Refused::TooLarge)
 }
 
 /// The durability left (dragonfly `Durability`), 0 for items that do not wear.
@@ -196,7 +198,7 @@ pub(in crate::tick) fn craft(
             }
             let (compatible, incompatible);
             (result, compatible, incompatible, action) =
-                merge(input, material, result, action, book);
+                merge(input, material, result, action, book)?;
             // dragonfly refuses this only for items that do not wear, and so charges a level for
             // nothing on others; vanilla (Java `AnvilMenu`) refuses it for every item.
             if incompatible && !compatible {
@@ -209,7 +211,7 @@ pub(in crate::tick) fn craft(
         action += rename_cost;
         let mut extra = result.extra().cloned().unwrap_or_default();
         extra.custom_name = Some(name.to_owned()).filter(|n| !n.is_empty());
-        result = result.with_extra(Some(extra));
+        result = result.with_extra(Some(extra)).map_err(Refused::TooLarge)?;
     }
     let mut cost = action + anvil_cost;
     if cost == 0 {
@@ -228,7 +230,7 @@ pub(in crate::tick) fn craft(
     if rename_cost != action || rename_cost == 0 {
         updated = updated.saturating_mul(2).saturating_add(1);
     }
-    let result = with_repair_cost(&result, updated);
+    let result = with_repair_cost(&result, updated)?;
     let material_used = if repaired > 0 {
         repaired
     } else {
@@ -251,10 +253,10 @@ fn merge(
     mut result: Stack,
     mut cost: u32,
     book: bool,
-) -> (Stack, bool, bool, u32) {
+) -> Result<(Stack, bool, bool, u32), Refused> {
     let (mut compatible_any, mut incompatible_any) = (false, false);
     let Some(input_type) = input.item() else {
-        return (result, false, false, cost);
+        return Ok((result, false, false, cost));
     };
     let input_enchantments = input
         .extra()
@@ -297,13 +299,13 @@ fn merge(
             Some(slot) => slot.1 = level_now,
             None => extra.enchantments.push((e, level_now)),
         }
-        result = result.with_extra(Some(extra));
+        result = result.with_extra(Some(extra)).map_err(Refused::TooLarge)?;
         cost += rarity * level_cost;
         if input.count() > 1 {
             cost = TOO_EXPENSIVE;
         }
     }
-    (result, compatible_any, incompatible_any, cost)
+    Ok((result, compatible_any, incompatible_any, cost))
 }
 
 #[cfg(test)]
@@ -312,10 +314,12 @@ mod tests {
     use crate::item::Extra;
 
     fn enchanted(kind: Kind, list: &[(Enchantment, u8)]) -> Stack {
-        Stack::new(kind.default_type(), 1).with_extra(Some(Extra {
-            enchantments: list.to_vec(),
-            ..Extra::default()
-        }))
+        Stack::new(kind.default_type(), 1)
+            .with_extra(Some(Extra {
+                enchantments: list.to_vec(),
+                ..Extra::default()
+            }))
+            .unwrap()
     }
 
     #[test]
@@ -383,7 +387,7 @@ mod tests {
         assert_eq!(durability(&both.result), 200 + max * 12 / 100);
         assert_eq!(both.cost, 2 + 2);
         // Too expensive outside creative.
-        let costly = with_repair_cost(&worn, 39);
+        let costly = with_repair_cost(&worn, 39).unwrap();
         assert_eq!(
             craft(&costly, &Stack::EMPTY, Some("x"), false)
                 .unwrap()

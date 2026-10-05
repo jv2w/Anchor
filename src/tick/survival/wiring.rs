@@ -765,7 +765,7 @@ fn effect_listeners_refuse_or_keep_effects_but_not_expired_ones() {
     listeners.push(
         Priority::Normal,
         move |e: &mut EntityEffectRemove, _: &mut Context<'_>| {
-            tx.try_send(e.effect().duration()).unwrap();
+            tx.try_send(e.effect().duration_ticks()).unwrap();
             e.cancel();
         },
     );
@@ -915,7 +915,7 @@ fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
 #[test]
 fn transfer_listeners_keep_the_player_or_send_it_elsewhere() {
     let listeners = on(|e: &mut PlayerTransfer, _: &mut Context<'_>| {
-        assert_eq!(e.message(), "Transferred to another server");
+        assert_eq!(e.message(), "Moved to another server");
         if e.port() == 1 {
             e.cancel();
         } else {
@@ -1095,4 +1095,458 @@ fn rules_without_listeners_build_no_events_and_change_nothing() {
     watching.push_monitor(|_: &PlayerExhaust, _: &Context<'_>| {});
     watching.push_monitor(|_: &PlayerRespawn, _: &Context<'_>| {});
     assert_eq!(script(Listeners::default()), script(watching));
+}
+
+// The settings that switch survival systems off (PLAN.md 8.5, 10.9): with the switch off the
+// system's state stays as it was, its events are not raised and its packets are not sent.
+
+/// The names of the attributes `packets` carry.
+fn attribute_names(packets: &[Packet]) -> Vec<String> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::UpdateAttributes(a) => Some(a),
+            _ => None,
+        })
+        .flat_map(|a| a.attributes.iter().map(|x| x.attribute_value.name.clone()))
+        .collect()
+}
+
+/// The spawn window of the first player of a server with `edit`.
+fn spawn_window(edit: impl FnOnce(&mut Config)) -> Vec<Packet> {
+    let mut state = new_state(settings(edit), Listeners::default());
+    let (joined, mut rx) = join(1, 0);
+    crate::tick::tests::tick(
+        &mut state,
+        &mut vec![joined, radius(1, 1, 8)],
+        &mut Output::default(),
+    );
+    received(&mut rx).0
+}
+
+/// The value of the game rule `name` in `packets`.
+fn game_rule(packets: &[Packet], name: &str) -> Option<crate::protocol::GameRuleValue> {
+    packets.iter().find_map(|p| match p {
+        Packet::GameRulesChanged(g) => g
+            .game_rules
+            .iter()
+            .find(|r| r.name == name)
+            .map(|r| r.value),
+        _ => None,
+    })
+}
+
+/// Listeners that record a name for each event of a switchable system.
+fn named_events(tx: &mpsc::Sender<&'static str>) -> Listeners {
+    let mut l = Listeners::default();
+    let t = tx.clone();
+    l.push(
+        Priority::Normal,
+        move |_: &mut PlayerExhaust, _: &mut Context<'_>| {
+            t.try_send("exhaust").unwrap();
+        },
+    );
+    let t = tx.clone();
+    l.push(
+        Priority::Normal,
+        move |e: &mut EntityRegainHealth, _: &mut Context<'_>| {
+            if e.regain_reason() == RegainReason::Saturation {
+                t.try_send("saturation").unwrap();
+            }
+        },
+    );
+    let t = tx.clone();
+    l.push(
+        Priority::Normal,
+        move |_: &mut PlayerExperienceChange, _: &mut Context<'_>| {
+            t.try_send("experience").unwrap();
+        },
+    );
+    let t = tx.clone();
+    l.push(
+        Priority::Normal,
+        move |e: &mut PlayerDeath, _: &mut Context<'_>| {
+            if e.xp_drop_amount() > 0 {
+                t.try_send("experience drop").unwrap();
+            }
+        },
+    );
+    let t = tx.clone();
+    l.push(
+        Priority::Normal,
+        move |e: &mut EntityDamage, _: &mut Context<'_>| {
+            t.try_send(match e.cause() {
+                DamageCause::Fall => "fall",
+                DamageCause::Drowning => "drowning",
+                DamageCause::Suffocation => "suffocation",
+                _ => "damage",
+            })
+            .unwrap();
+        },
+    );
+    let t = tx.clone();
+    l.push(
+        Priority::Normal,
+        move |_: &mut PlayerBedEnter, _: &mut Context<'_>| {
+            t.try_send("bed").unwrap();
+        },
+    );
+    l
+}
+
+const HUNGER_ATTRIBUTES: [&str; 3] = [
+    "minecraft:player.hunger",
+    "minecraft:player.saturation",
+    "minecraft:player.exhaustion",
+];
+const EXPERIENCE_ATTRIBUTES: [&str; 2] = ["minecraft:player.level", "minecraft:player.experience"];
+
+#[test]
+fn hunger_off_spends_and_gains_no_food_raises_no_event_and_sends_no_hunger_attribute() {
+    let window = attribute_names(&spawn_window(|c| c.general.hunger = false));
+    assert!(window.iter().any(|n| n == "minecraft:health"));
+    assert!(
+        window
+            .iter()
+            .all(|n| !HUNGER_ATTRIBUTES.contains(&n.as_str())),
+        "{window:?}"
+    );
+    let (tx, mut seen) = record();
+    let mut game = Game::with(1, named_events(&tx), |c| c.general.hunger = false);
+    let p = game.player_mut(1);
+    let off = Err(crate::player::Error::Disabled);
+    assert_eq!(p.set_food(5.0), off);
+    assert_eq!(p.add_food(1.0), off);
+    assert_eq!(p.set_saturation(1.0), off);
+    assert_eq!(p.add_saturation(1.0), off);
+    assert_eq!(p.set_exhaustion(3.0), off);
+    assert_eq!(p.exhaust(30.0), off);
+    // A golden apple (eaten with a full bar), a sprint jump, a hit, the saturation effect.
+    inventory::set_held(game.player_mut(1), stack(ItemKind::GoldenApple, 1));
+    assert!(use_consumable(&mut game.state, sid(1)));
+    game.idle(32);
+    assert!(use_consumable(&mut game.state, sid(1)));
+    let input = game.flags(1, &[InputFlag::StartSprinting, InputFlag::StartJumping]);
+    game.run(vec![input]);
+    assert!(damage(&mut game.state, sid(1), 1.0, Damage::Contact));
+    effects::add(
+        &mut game.state,
+        sid(1),
+        effect::Type::Saturation,
+        effects::Active::new(10, 0),
+    );
+    game.idle(200);
+    let s = game.survival(1);
+    assert_eq!(
+        (s.food, s.saturation, s.exhaustion, s.food_timer),
+        (20.0, 5.0, 0.0, 0)
+    );
+    assert_eq!(drain(&mut seen), ["damage"]);
+    let sent = attribute_names(&game.take(1));
+    assert!(
+        sent.iter()
+            .all(|n| !HUNGER_ATTRIBUTES.contains(&n.as_str())),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn experience_off_makes_no_points_levels_or_orbs_and_its_api_refuses() {
+    let window = attribute_names(&spawn_window(|c| c.general.experience = false));
+    assert!(window.iter().any(|n| n == "minecraft:health"));
+    assert!(
+        window
+            .iter()
+            .all(|n| !EXPERIENCE_ATTRIBUTES.contains(&n.as_str())),
+        "{window:?}"
+    );
+    let (tx, mut seen) = record();
+    let mut game = Game::with(1, named_events(&tx), |c| c.general.experience = false);
+    // A level saved while experience was on stays as it is.
+    game.survival(1).xp_level = 10;
+    let p = game.player_mut(1);
+    let off = Err(crate::player::Error::Disabled);
+    assert_eq!(p.set_xp_level(5), off);
+    assert_eq!(p.add_xp_levels(1), off);
+    assert_eq!(p.set_xp_progress(0.5), off);
+    assert_eq!(p.set_current_total_xp(9), off);
+    assert_eq!(p.set_lifetime_total_xp(9), off);
+    p.add_xp(100);
+    p.subtract_xp(5);
+    p.subtract_xp_levels(3);
+    // What an enchanting table or an anvil takes.
+    subtract_levels(game.player_mut(1), 2);
+    // A death drops no experience and keeps the level.
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    game.idle(2);
+    let s = game.survival(1);
+    assert_eq!(
+        (s.xp_level, s.xp_progress, s.xp_lifetime, s.xp_cooldown),
+        (10, 0.0, 0, 0)
+    );
+    assert_eq!(drain(&mut seen), ["damage"]);
+    let sent = game.take(1);
+    let names = attribute_names(&sent);
+    assert!(
+        names
+            .iter()
+            .all(|n| !EXPERIENCE_ATTRIBUTES.contains(&n.as_str())),
+        "{names:?}"
+    );
+    assert!(
+        !sent.iter().any(|p| matches!(p, Packet::AddActor(_))),
+        "no orb"
+    );
+}
+
+/// An auth input of session `s` that moves it by `by`.
+fn move_by(game: &mut Game, s: u64, by: Vec3) -> Input {
+    let auth = p::PlayerAuthInput {
+        position: (game.player(s).position + by).to_f32(),
+        ..Default::default()
+    };
+    game.send(s, Packet::PlayerAuthInput(Box::new(auth)))
+}
+
+/// The sounds among `packets`.
+fn sounds(packets: &[Packet]) -> Vec<String> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::LevelSoundEvent(e) => Some(e.sound_type.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn fall_damage_off_lands_softly_and_spares_ender_pearl_falls() {
+    let window = spawn_window(|c| c.general.fall_damage = false);
+    assert_eq!(
+        game_rule(&window, "fallDamage"),
+        Some(crate::protocol::GameRuleValue::Bool(false))
+    );
+    let (tx, mut seen) = record();
+    let mut game = Game::with(1, named_events(&tx), |c| c.general.fall_damage = false);
+    game.survival(1).fall_distance = 10.0;
+    let input = move_by(&mut game, 1, Vec3::new(0.5, 0.0, 0.0));
+    game.run(vec![input]);
+    assert_eq!(game.survival(1).health, 20.0);
+    assert_eq!(game.survival(1).fall_distance, 0.0, "landed");
+    assert_eq!(
+        sounds(&game.take(1)),
+        [crate::protocol::consts::SoundEvent::Land.as_str()]
+    );
+    // An ender pearl's landing (PMMP: fall damage).
+    assert!(!damage(&mut game.state, sid(1), 5.0, Damage::Fall));
+    assert_eq!(drain(&mut seen), ["exhaust"], "only the walk");
+}
+
+/// Whether the player's own entity data in `packets` shows it breathing (flag 35).
+fn shows_breathing(packets: &[Packet]) -> bool {
+    packets.iter().any(|p| {
+        matches!(p, Packet::SetActorData(d)
+        if d.entity_runtime_id == 1
+            && matches!(
+                d.entity_metadata.get(&0),
+                Some(crate::protocol::MetadataValue::Int64(f)) if f & 1 << 35 != 0
+            ))
+    })
+}
+
+#[test]
+fn drowning_off_keeps_the_air_full_the_player_breathing_and_unhurt() {
+    let window = spawn_window(|c| c.general.drowning = false);
+    assert_eq!(
+        game_rule(&window, "drowningDamage"),
+        Some(crate::protocol::GameRuleValue::Bool(false))
+    );
+    assert!(
+        shows_breathing(&window),
+        "breathing from the spawn window on"
+    );
+    let (tx, mut seen) = record();
+    let mut game = Game::with(1, named_events(&tx), |c| c.general.drowning = false);
+    let p = game.player_mut(1);
+    let off = Err(crate::player::Error::Disabled);
+    assert_eq!(p.set_air_supply_ticks(10), off);
+    assert_eq!(p.set_max_air_supply_ticks(10), off);
+    p.set_breathing(false);
+    assert!(game.player(1).is_breathing());
+    let eye = BlockPos::containing(game.player(1).position);
+    game.state.worlds[0]
+        .set_block(eye, block::Kind::Water.default_state())
+        .unwrap();
+    game.idle(400);
+    game.state.worlds[0]
+        .set_block(eye, block::Kind::Stone.default_state())
+        .unwrap();
+    game.idle(40);
+    let s = game.survival(1);
+    assert_eq!((s.air, s.breathing, s.health), (300, true, 20.0));
+    assert!(drain(&mut seen).is_empty());
+    let data = game
+        .take(1)
+        .into_iter()
+        .filter(|p| matches!(p, Packet::SetActorData(d) if d.entity_runtime_id == 1))
+        .count();
+    assert_eq!(data, 0, "no air or breathing change is sent");
+}
+
+#[test]
+fn armour_off_neither_protects_nor_wears_nor_answers_with_thorns() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
+        let used = [
+            DamageModifier::Armor,
+            DamageModifier::ArmorEnchantments,
+            DamageModifier::ArmorHelmet,
+        ]
+        .map(|m| e.is_applicable(m));
+        tx.try_send(used).unwrap();
+    });
+    let mut game = Game::with(2, listeners, |c| c.general.armor = false);
+    for (kind, slot) in [
+        (ItemKind::DiamondHelmet, 0),
+        (ItemKind::DiamondChestplate, 1),
+    ] {
+        let piece = stack(kind, 1)
+            .with_extra(Some(crate::item::Extra {
+                enchantments: vec![
+                    (crate::item::Enchantment::Protection, 4),
+                    (crate::item::Enchantment::Thorns, 10),
+                ],
+                ..crate::item::Extra::default()
+            }))
+            .unwrap();
+        inventory::set_armor(game.player_mut(1), slot, piece);
+    }
+    let worn = game.player(1).inventory.armor().to_vec();
+    assert!(damage(
+        &mut game.state,
+        sid(1),
+        10.0,
+        Damage::Attack(sid(2))
+    ));
+    game.idle(10);
+    assert!(damage(&mut game.state, sid(1), 4.0, Damage::FallingBlock));
+    assert_eq!(game.survival(1).health, 6.0, "every hit landed whole");
+    assert_eq!(game.player(1).inventory.armor(), worn.as_slice(), "no wear");
+    assert_eq!(game.survival(2).health, 20.0, "no thorns");
+    assert_eq!(drain(&mut seen), [[false; 3]; 2]);
+}
+
+#[test]
+fn beds_off_let_no_one_sleep_or_set_a_spawn_point() {
+    let (tx, mut seen) = record();
+    let mut game = Game::with(1, named_events(&tx), |c| c.general.beds = false);
+    let spawn = game.state.worlds[0].spawn();
+    let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
+    let head = BlockPos::new(spawn.x, spawn.y, spawn.z + 2);
+    game.state.worlds[0].set_block(foot, bed(false)).unwrap();
+    game.state.worlds[0].set_block(head, bed(true)).unwrap();
+    game.state.worlds[0].set_time(13_000);
+    let mut cx = Context {
+        state: &mut game.state,
+    };
+    assert!(!cx.sleep_on(pid(1), foot));
+    game.idle(100);
+    let s = game.survival(1);
+    assert_eq!((s.sleeping, s.spawn.clone()), (None, None));
+    assert_eq!(game.state.worlds[0].block(head), Some(bed(true)));
+    assert!(drain(&mut seen).is_empty());
+}
+
+/// `daylight-cycle = false` holds the time; the client is told as BDS tells it with
+/// `doDayLightCycle` false (P6 `rules`/`rulesjoin`, m9-facts.md): the rule, the time of day in
+/// `StartGame`'s day cycle lock, the clock not paused and still corrected now and then, at the
+/// held time.
+#[test]
+fn daylight_cycle_off_stops_the_time_and_tells_the_client_as_bds() {
+    let window = spawn_window(|c| c.general.daylight_cycle = false);
+    assert_eq!(
+        game_rule(&window, "doDayLightCycle"),
+        Some(crate::protocol::GameRuleValue::Bool(false))
+    );
+    let lock = window.iter().find_map(|p| match p {
+        Packet::StartGame(g) => Some((g.time, g.day_cycle_lock_time)),
+        _ => None,
+    });
+    let Some((time, lock)) = lock else {
+        panic!("no StartGame");
+    };
+    assert_eq!(i64::from(lock), time.rem_euclid(24_000));
+    let paused: Vec<bool> = window
+        .iter()
+        .filter_map(|p| match p {
+            Packet::SyncWorldClocks(c) => Some(
+                c.sync_states
+                    .iter()
+                    .map(|s| s.paused)
+                    .chain(c.clocks.iter().map(|c| c.paused))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(
+        !paused.is_empty() && paused.iter().all(|&p| !p),
+        "{paused:?}"
+    );
+    let mut game = Game::with(1, Listeners::default(), |c| {
+        c.general.daylight_cycle = false;
+    });
+    let start = game.state.worlds[0].time_ticks();
+    game.idle(600);
+    assert_eq!(game.state.worlds[0].time_ticks(), start);
+    let times: Vec<i32> = game
+        .take(1)
+        .iter()
+        .filter_map(|p| match p {
+            Packet::SyncWorldClocks(c) => c.sync_states.first().map(|s| s.time),
+            _ => None,
+        })
+        .collect();
+    assert!(!times.is_empty(), "the clock is still corrected");
+    assert!(times.iter().all(|&t| i64::from(t) == start), "{times:?}");
+}
+
+#[test]
+fn sprinting_hits_are_critical_only_with_sprint_critical_hits() {
+    let taken = |on: bool| {
+        let mut game = Game::with(2, Listeners::default(), |c| {
+            c.general.sprint_critical_hits = on;
+        });
+        let base = game.player(1).position;
+        game.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
+        game.survival(1).motion.yaw = 0.0;
+        game.idle(1);
+        let s = game.survival(1);
+        s.motion.sprinting = true;
+        s.fall_distance = 1.0;
+        attack_player(&mut game.state, sid(1), sid(2));
+        20.0 - game.survival(2).health
+    };
+    assert_eq!(taken(false), 1.0, "PMMP: no critical hit while sprinting");
+    assert_eq!(taken(true), 1.5);
+}
+
+#[test]
+fn movement_check_off_takes_moves_of_more_than_fifteen_blocks() {
+    let moved = |on: bool| {
+        let mut game = Game::with(1, Listeners::default(), |c| {
+            c.general.movement_check = on;
+        });
+        let start = game.player(1).position;
+        let input = move_by(&mut game, 1, Vec3::new(20.0, 0.0, 0.0));
+        game.run(vec![input]);
+        let reset = game.take(1).iter().any(|p| {
+            matches!(p, Packet::MovePlayer(m)
+                if m.mode == u8::from(crate::protocol::consts::MoveMode::Reset))
+        });
+        (game.player(1).position.x - start.x, reset)
+    };
+    assert_eq!(moved(true), (0.0, true));
+    assert_eq!(moved(false), (20.0, false));
 }

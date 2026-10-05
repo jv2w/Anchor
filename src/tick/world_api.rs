@@ -1,6 +1,7 @@
 //! The public world API on [`Context`] (PLAN.md 10.8, PMMP `WorldManager`, `World` and
 //! `Explosion`): the worlds by [`world::Id`], the players in a world or who see a chunk, the
-//! world clock, sounds, particles and packets for those who see a place, explosions, and the
+//! world clock, the weather and lightning (PLAN.md 10.9, [`weather`]), sounds,
+//! particles and packets for those who see a place, explosions, and the
 //! [`World`] queries that are rule code (the respawn rule's safe spawn, the entity rules'
 //! collision boxes). The recipe lookups are in `recipes` (PMMP `CraftingManager`).
 //!
@@ -10,33 +11,47 @@
 //! disconnected: effects are cosmetic, and the outbox keeps [`EFFECT_RESERVE`] packets for the
 //! rules.
 
+mod lifecycle;
 mod recipes;
 
+pub(crate) use lifecycle::WorldSlot;
+pub(super) use lifecycle::{Catalog, difficulty, difficulty_of, step, take_new_worlds};
+
 use super::view::chunk_of;
-use super::{Context, MAX_OUTBOX, Phase, State, entity, survival};
+use super::{Context, MAX_OUTBOX, Phase, State, entity, survival, weather};
 use crate::math::{Aabb, Vec3};
 use crate::player;
 use crate::protocol::packet::Packet;
-use crate::world::{self, BlockPos, ChunkPos, Particle, Sound, World};
+use crate::world::{self, BlockPos, ChunkPos, Lightning, Particle, Sound, Weather, World};
 
 /// Outbox room that sounds, particles and API packets leave to the rules: a player is not sent
 /// one when its outbox holds more than `MAX_OUTBOX - EFFECT_RESERVE` packets.
-const EFFECT_RESERVE: usize = 1024;
+pub(super) const EFFECT_RESERVE: usize = 1024;
 
 /// The most blocks a box of [`World::collision_boxes`] spans on each axis: at most 34 × 33 × 33
 /// cells are looked at, with the cells under and over it.
 const MAX_COLLISION_SPAN: f64 = 32.0;
 
-/// The world index of `world` if the server has it.
+/// Queues `packet` for every player of `world` past its start-game packets. A change made while
+/// a player waits for its spawn chunks reaches it too, after its `StartGame` (the outbox follows
+/// the start-game packets); a spawn window that then repeats the same state is harmless.
+pub(super) fn send_to_world(state: &mut State, world: usize, packet: &Packet) {
+    for p in state.players.values_mut() {
+        if p.world == world && p.phase != Phase::Loading {
+            p.send_packet(packet.clone());
+        }
+    }
+}
+
+/// The world index of `world` if the server has it loaded.
 pub(super) fn index(state: &State, world: world::Id) -> Option<usize> {
     let i = world.index();
-    (i < state.worlds.len()).then_some(i)
+    state.catalog.is_loaded(i).then_some(i)
 }
 
 impl Context<'_> {
-    /// The world `id`, if the server has it ([`world::Id::DEFAULT`] always).
+    /// The world `id`, if it is loaded (the default world always is).
     #[doc(alias = "WorldManager::getWorld")]
-    #[doc(alias = "WorldManager::isWorldLoaded")]
     #[doc(alias = "Position::isValid")]
     pub fn world(&self, id: world::Id) -> Option<&World> {
         self.state.worlds.get(index(self.state, id)?)
@@ -48,11 +63,16 @@ impl Context<'_> {
         self.state.worlds.get_mut(i)
     }
 
-    /// Every world of the server, the default world first (`Id` order). Worlds are fixed when the
-    /// server is built.
+    /// Every loaded world, in `Id` order (the settings' world first).
     #[doc(alias = "WorldManager::getWorlds")]
-    pub fn worlds(&self) -> impl ExactSizeIterator<Item = &World> + '_ {
-        self.state.worlds.iter()
+    pub fn worlds(&self) -> impl Iterator<Item = &World> + '_ {
+        let catalog = &self.state.catalog;
+        self.state
+            .worlds
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| catalog.is_loaded(i))
+            .map(|(_, w)| w)
     }
 
     /// The players in `world` who have their saved data (joining or spawned), in `Id` order.
@@ -84,23 +104,49 @@ impl Context<'_> {
             .map(|(&s, _)| player::Id::new(s))
     }
 
-    /// Sets the time of `world` (ticks since it was created; the day cycle follows it) and sends
-    /// its spawned players the clock at once. False for a world the server does not have.
+    /// Sets the time of `world` to `time_ticks` (its clock; the day cycle follows it) and sends
+    /// its players the clock at once. False for a world the server does not have.
     #[doc(alias = "World::setTime")]
-    pub fn set_time(&mut self, world: world::Id, time: i64) -> bool {
+    pub fn set_time(&mut self, world: world::Id, time_ticks: i64) -> bool {
         let Some(w) = index(self.state, world) else {
             return false;
         };
         if let Some(world) = self.state.worlds.get_mut(w) {
-            world.set_time(time);
+            world.set_time(time_ticks);
         }
         let packet = survival::clock_state(self.state, w);
-        for p in self.state.players.values_mut() {
-            if p.world == w && matches!(p.phase, Phase::Spawning | Phase::Spawned) {
-                p.send_packet(packet.clone());
-            }
+        send_to_world(self.state, w, &packet);
+        true
+    }
+
+    /// Sets the weather of `world` and tells its players at once (the level events BDS sends
+    /// for the change; none for the weather it has). It stays until changed: Anchor has no
+    /// natural weather. Players who join or arrive later are told when they get there. False for
+    /// a world that is not loaded.
+    pub fn set_weather(&mut self, world: world::Id, weather: Weather) -> bool {
+        let Some(w) = index(self.state, world) else {
+            return false;
+        };
+        let Some(world) = self.state.worlds.get_mut(w) else {
+            return false;
+        };
+        let from = world.weather();
+        world.set_weather(weather);
+        for packet in weather::changes(from, weather) {
+            send_to_world(self.state, w, &packet);
         }
         true
+    }
+
+    /// Strikes a lightning bolt at `pos` in `world`, as BDS's `summon lightning_bolt`: the
+    /// players who see its chunk see the bolt and hear its thunder, and it goes after a second.
+    /// `lightning` says whether it also hurts and sets fire ([`Lightning`]); like every direct
+    /// call it raises no events. It strikes where it is told, even under a roof. False, with
+    /// nothing done, for a world that is not loaded, a `pos` that is not finite or outside the
+    /// world border, or 1,024 bolts still showing.
+    pub fn strike_lightning(&mut self, world: world::Id, pos: Vec3, lightning: Lightning) -> bool {
+        index(self.state, world)
+            .is_some_and(|w| entity::strike_lightning(self.state, w, pos, lightning))
     }
 
     /// Plays `sound` at `pos` in `world` to the players who see its chunk (PMMP

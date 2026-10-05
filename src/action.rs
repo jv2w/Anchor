@@ -15,7 +15,7 @@ mod survival;
 
 pub use entity::{Attack, Explode};
 pub use interact::{AttackBlock, BreakBlock, InteractEntity, UseItem, UseItemOn};
-pub use survival::{Chat, Damage, Kick, SetGameMode, Transfer};
+pub use survival::{Chat, Damage, Kick, SetGameMode, Teleport, Transfer};
 
 /// An action [`Context::perform`](crate::Context::perform) can do. Only Anchor's actions
 /// implement it.

@@ -1456,6 +1456,19 @@ mod tests {
     }
 
     #[test]
+    fn the_committed_tables_parse_and_defer_no_cloudburst_packet() {
+        let (deferred, _) = tables(
+            include_str!("../../data/p6/deferred.txt"),
+            include_str!("../../data/p6/fields.txt"),
+        );
+        // `bot cloudburst` compares these on both servers' captures and fails on any
+        // difference; nothing may hide them from the window either.
+        for name in ["BiomeDefinitionList", "JigsawStructureData"] {
+            assert!(!deferred.contains(name), "{name} is deferred");
+        }
+    }
+
+    #[test]
     fn answer_structures_compare_without_candidate_counts() {
         let capture = r#"{"type":"sdp","role":"offer","structure":["v"]}
 {"type":"sdp","role":"answer","structure":["v","a=identity","m=application","a=candidate","a=candidate","a=setup"]}

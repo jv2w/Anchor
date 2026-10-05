@@ -30,7 +30,8 @@ use tracing::warn;
 
 use crate::custom::Registry;
 use crate::item::Stack;
-use crate::nbt::{Compound, List, Value};
+use crate::nbt::{Compound, Encoding, List, Value};
+use crate::protocol::Writer;
 
 /// Tiers 0 to 4 (BDS novice to master).
 pub(in crate::tick) const TIERS: usize = 5;
@@ -39,6 +40,11 @@ pub(in crate::tick) const MAX_TIER: u8 = 4;
 /// The most offers one villager holds: well above the largest vanilla list (about 20), and one
 /// `UpdateTrade` stays far below the 4 MiB NBT limit.
 pub(in crate::tick) const MAX_OFFERS: usize = 128;
+/// The most bytes a villager's saved offers take ([`Offers::to_nbt`]), and four times that of a
+/// reader's budget to read back: 128 offers of three stacks could take 36 MiB
+/// (`item::MAX_NBT_BYTES` each), but the villager's entity must fit one NBT root (4 MiB) and its
+/// `UpdateTrade` one packet NBT root. PMMP has no such limit.
+const MAX_SAVED_BYTES: usize = 2 << 20;
 /// The experience each tier needs, as BDS sends it (m7-facts.md 6).
 const DEFAULT_TIER_EXPERIENCE: [u32; TIERS] = [0, 10, 70, 150, 250];
 /// The price multiplier BDS gives most offers (m7-facts.md 6).
@@ -120,6 +126,8 @@ pub(in crate::tick) enum Error {
     TierExperience,
     /// The list would hold more than [`MAX_OFFERS`].
     Full,
+    /// The saved offers would take more than [`MAX_SAVED_BYTES`].
+    TooLarge,
     /// No offer at that index.
     NoOffer,
     /// The entity is not a villager NPC.
@@ -139,6 +147,7 @@ impl fmt::Display for Error {
             Self::Multiplier => "a price multiplier that is not finite",
             Self::TierExperience => "tier experience requirements that go down or are too large",
             Self::Full => "too many offers",
+            Self::TooLarge => "the offers' saved form is over 2 MiB",
             Self::NoOffer => "no offer at that index",
             Self::NotVillager => "not a villager",
         })
@@ -373,8 +382,6 @@ pub(in crate::tick) struct Applied {
     pub(in crate::tick) times: u32,
     /// Whether the offer drops experience orbs per trade.
     pub(in crate::tick) reward_exp: bool,
-    /// Whether the villager reached a new tier (the trade screen needs the new tier).
-    pub(in crate::tick) tier_changed: bool,
 }
 
 /// The NBT form an offer list is written in.
@@ -420,6 +427,36 @@ impl Default for Offers {
         }
     }
 }
+
+crate::tick::checkpoint::fields!(Offers {
+    recipes,
+    tier,
+    experience,
+    tier_experience,
+    unknown,
+    skipped,
+    first_net_id,
+});
+crate::tick::checkpoint::fields!(Recipe {
+    buy_a,
+    buy_b,
+    damage_a,
+    damage_b,
+    sell,
+    max_uses,
+    uses,
+    tier,
+    trader_exp,
+    reward_exp,
+    price_multiplier_a,
+    price_multiplier_b,
+    demand,
+    unknown,
+});
+crate::tick::checkpoint::variants!(Damage {
+    0 => Exact,
+    1 => Any,
+});
 
 impl Offers {
     /// The offers of a saved entity (its `Offers` compound). Recipes Anchor cannot use are
@@ -534,16 +571,15 @@ impl Offers {
         self.experience
     }
 
-    /// Replaces the whole list. Every offer must pass [`Recipe::check`]; nothing changes
-    /// otherwise.
+    /// Replaces the whole list. Every offer must pass [`Recipe::check`] and the saved list fit
+    /// [`MAX_SAVED_BYTES`]; nothing changes otherwise.
     pub(in crate::tick) fn set(&mut self, recipes: Vec<Recipe>) -> Result<()> {
         if recipes.len() > MAX_OFFERS {
             return Err(Error::Full);
         }
         recipes.iter().try_for_each(Recipe::check)?;
-        self.recipes = recipes;
-        self.first_net_id = None;
-        Ok(())
+        let old = std::mem::replace(&mut self.recipes, recipes);
+        self.kept_if_saved(|r| *r = old)
     }
 
     /// Adds an offer at the end.
@@ -553,6 +589,22 @@ impl Offers {
             return Err(Error::Full);
         }
         self.recipes.push(recipe);
+        self.kept_if_saved(|r| {
+            r.pop();
+        })
+    }
+
+    /// Keeps a change of the offers if their saved form still fits [`MAX_SAVED_BYTES`] (and
+    /// reads back within four times that); otherwise `undo` puts the old offers back.
+    fn kept_if_saved(&mut self, undo: impl FnOnce(&mut Vec<Recipe>)) -> Result<()> {
+        let mut w = Writer::new(Vec::new(), 0);
+        let fits = w
+            .nbt_within(&self.to_nbt(), Encoding::LittleEndian, MAX_SAVED_BYTES)
+            .is_ok_and(|c| c.alloc <= 4 * MAX_SAVED_BYTES);
+        if !fits {
+            undo(&mut self.recipes);
+            return Err(Error::TooLarge);
+        }
         self.first_net_id = None;
         Ok(())
     }
@@ -570,9 +622,12 @@ impl Offers {
     pub(in crate::tick) fn replace(&mut self, index: usize, recipe: Recipe) -> Result<()> {
         recipe.check()?;
         let slot = self.recipes.get_mut(index).ok_or(Error::NoOffer)?;
-        *slot = recipe;
-        self.first_net_id = None;
-        Ok(())
+        let old = std::mem::replace(slot, recipe);
+        self.kept_if_saved(|r| {
+            if let Some(slot) = r.get_mut(index) {
+                *slot = old;
+            }
+        })
     }
 
     /// Sets the villager's tier; its experience rises to the tier's requirement so progress
@@ -648,7 +703,6 @@ impl Offers {
         let gained = recipe.trader_exp.saturating_mul(times);
         let reward_exp = recipe.reward_exp;
         self.experience = self.experience.saturating_add(gained).min(MAX_INT);
-        let before = self.tier;
         while self.tier < MAX_TIER
             && self
                 .tier_experience
@@ -657,11 +711,7 @@ impl Offers {
         {
             self.tier += 1;
         }
-        Some(Applied {
-            times,
-            reward_exp,
-            tier_changed: self.tier != before,
-        })
+        Some(Applied { times, reward_exp })
     }
 
     #[cfg(test)]
@@ -799,8 +849,7 @@ fn tier_experience(value: &Value) -> Option<[u32; TIERS]> {
 pub(in crate::tick) mod tests {
     use super::*;
     use crate::item::{Extra, Kind};
-    use crate::nbt::Encoding;
-    use crate::protocol::{Reader, Writer};
+    use crate::protocol::Reader;
 
     pub(in crate::tick) fn stack(kind: Kind, count: u8) -> Stack {
         Stack::new(kind.default_type(), count)
@@ -832,10 +881,12 @@ pub(in crate::tick) mod tests {
         let mut book = Recipe::new(
             stack(Kind::Emerald, 9),
             stack(Kind::Book, 1),
-            stack(Kind::EnchantedBook, 1).with_extra(Some(Extra {
-                enchantments: vec![(crate::item::Enchantment::Efficiency, 2)],
-                ..Extra::default()
-            })),
+            stack(Kind::EnchantedBook, 1)
+                .with_extra(Some(Extra {
+                    enchantments: vec![(crate::item::Enchantment::Efficiency, 2)],
+                    ..Extra::default()
+                }))
+                .unwrap(),
             12,
         );
         book.tier = 1;
@@ -1238,13 +1289,11 @@ pub(in crate::tick) mod tests {
             Applied {
                 times: 4,
                 reward_exp: true,
-                tier_changed: false
             }
         );
         assert_eq!((offers.experience, offers.tier), (8, 0));
-        let applied = offers.apply(0, 1).unwrap();
-        assert!(applied.tier_changed, "10 experience reaches tier 1");
-        assert_eq!(offers.tier, 1);
+        offers.apply(0, 1).unwrap();
+        assert_eq!(offers.tier, 1, "10 experience reaches tier 1");
         assert!(offers.tradable(1).is_some());
         // Uses run out; more than the uses left are never counted.
         let applied = offers.apply(0, 100).unwrap();
@@ -1257,5 +1306,34 @@ pub(in crate::tick) mod tests {
         offers.apply(1, 2).unwrap();
         assert_eq!((offers.tier, offers.experience), (4, MAX_INT));
         assert_eq!(offers.apply(9, 1), None);
+    }
+
+    /// Offers whose saved form would pass 2 MiB are refused and change nothing: 128 offers each
+    /// selling a stack of 60 KB would make the villager too large for one NBT root, so its chunk
+    /// could not be committed. What is accepted saves.
+    #[test]
+    fn offers_too_large_to_save_are_refused_and_change_nothing() {
+        let big = stack(Kind::Stick, 1)
+            .with_extra(Some(Extra {
+                nbt: Compound::from([("pad".to_owned(), Value::ByteArray(vec![3; 60_000]))]),
+                ..Extra::default()
+            }))
+            .unwrap();
+        let recipe = Recipe::new(stack(Kind::Emerald, 1), Stack::EMPTY, big, 1);
+        let mut offers = sample();
+        let before = offers.to_nbt();
+        assert_eq!(offers.set(vec![recipe.clone(); 128]), Err(Error::TooLarge));
+        assert_eq!(offers.to_nbt(), before);
+        let mut added = 0;
+        while offers.add(recipe.clone()).is_ok() {
+            added += 1;
+        }
+        assert!((1..MAX_OFFERS).contains(&added), "{added}");
+        let full = offers.to_nbt();
+        assert_eq!(offers.add(recipe.clone()), Err(Error::TooLarge));
+        assert_eq!(offers.replace(0, recipe), Err(Error::TooLarge));
+        assert_eq!(offers.to_nbt(), full);
+        let mut w = Writer::new(Vec::new(), 0);
+        assert!(w.nbt(&full, Encoding::LittleEndian).is_ok());
     }
 }

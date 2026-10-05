@@ -19,9 +19,10 @@
 //!   the block updates BDS sent for each step are reported with their states (`blocks.txt`). The
 //!   biome definitions and jigsaw data of each spawn capture are checked against `CloudburstMC`'s
 //!   data (`cloudburst`). Last, it runs the game session once (`game`: craft, furnace, enchant,
-//!   crops, trade into `target/p6/bds-game/`) and the API session once (`api`: commands,
+//!   crops, trade, grindstone into `target/p6/bds-game/`) and the API session once (`api`: commands,
 //!   particles, kick, forms into `target/p6/bds-api/`).
 //! - `p6 api bds|anchor [scenario]...`, `p6 api compare A B`: the API session alone (see `api`).
+//! - `p6 import`: a world BDS made, imported into Anchor, sends the same blocks (see `import`).
 //! - `p6 game bds [scenario]...`: the game session alone; `p6 game anchor [scenario]...`: the
 //!   same session against Anchor into `target/p6/anchor-game/`, compared with `bds-game/`;
 //!   `p6 game compare A B` compares the game traces of two capture folders (see `game`).
@@ -42,6 +43,7 @@
 mod api;
 mod compare;
 mod game;
+mod import;
 
 use std::io::Write;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
@@ -172,8 +174,6 @@ const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
 const END_MARKER: &str = "diamond_block";
 /// The `CloudburstMC` Data checkout (PLAN.md 10.4), relative to the repository root.
 const CLOUDBURST_DATA: &str = ".cache/cloudburst-data";
-/// The packets `bot cloudburst` checks against `CloudburstMC`'s data.
-const CLOUDBURST_PACKETS: [&str; 2] = ["BiomeDefinitionList", "JigsawStructureData"];
 /// The packets `compare::compare_chunks` checks; while any is deferred, its differences are shown
 /// without failing the comparison.
 const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
@@ -208,12 +208,14 @@ pub(crate) const USAGE: &str = "cargo xtask p6 bds [zlib|snappy]... | cargo xtas
                                 | cargo xtask p6 game compare DIR_A DIR_B \
                                 | cargo xtask p6 api bds [commands|particles|kick|forms|script]... \
                                 | cargo xtask p6 api anchor [commands|particles|kick|forms|script]... \
-                                | cargo xtask p6 api compare DIR_A DIR_B";
+                                | cargo xtask p6 api compare DIR_A DIR_B \
+                                | cargo xtask p6 import";
 
 /// Runs `cargo xtask p6 <args>`.
 pub(crate) fn command(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     match args {
         ["bds", rest @ ..] => bds(root, rest, out),
+        ["import"] => import::command(root, out),
         ["anchor", rest @ ..] => anchor(root, rest, out),
         ["run", rest @ ..] => run(root, rest, out),
         ["compare", a, b] => compare_files(root, Path::new(a), Path::new(b), out),
@@ -256,14 +258,14 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
             compression,
             out,
             |addr, server, out| {
-                let mut ok = run_scenarios(&bot, addr, &raknet, "raknet", None, out)?;
+                let mut ok = run_scenarios(&bot, addr, addr, &raknet, "raknet", None, out)?;
                 report_window(&raknet.join("spawn.jsonl"), &deferred, out)?;
-                ok &= cloudburst(root, &bot, &raknet, None, out)?;
+                ok &= cloudburst(root, &bot, &raknet, out)?;
                 // The fallback capture is compared with Anchor's, so it runs before the blocks
                 // scenario changes the world.
                 if once {
                     wait_until_empty(addr)?;
-                    ok &= fallback(&bot, addr, &dir("bds-fallback"), out)?;
+                    ok &= fallback(&bot, addr, addr, &dir("bds-fallback"), out)?;
                 }
                 ok &= blocks(&bot, addr, Placer::Bds(server), &raknet, &states, out)?;
                 Ok(ok)
@@ -277,9 +279,9 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
             compression,
             out,
             |addr, _, out| {
-                let mut ok = run_scenarios(&bot, addr, &nethernet, "nethernet", None, out)?;
+                let mut ok = run_scenarios(&bot, addr, addr, &nethernet, "nethernet", None, out)?;
                 report_window(&nethernet.join("spawn.jsonl"), &deferred, out)?;
-                ok &= cloudburst(root, &bot, &nethernet, None, out)?;
+                ok &= cloudburst(root, &bot, &nethernet, out)?;
                 report_nethernet(&nethernet.join("spawn.jsonl"), out)?;
                 record_segment_size(&bot, addr, &nethernet, SMALL_SEGMENT, out)?;
                 if once {
@@ -297,15 +299,9 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
 }
 
 /// Checks the biome definitions and jigsaw structure data of `<dir>/spawn.world.jsonl` against
-/// `CloudburstMC`'s data with the bot (`bot cloudburst`, PLAN.md 10.6) and prints the result. With a
-/// deferral table that holds either packet, a failure is only shown.
-fn cloudburst(
-    root: &Path,
-    bot: &Path,
-    dir: &Path,
-    deferred: Option<&compare::Deferred>,
-    out: &mut impl Write,
-) -> Result<bool, String> {
+/// `CloudburstMC`'s data with the bot (`bot cloudburst`, PLAN.md 10.6) and prints the result. Any
+/// difference, or either packet missing, fails, on BDS's captures and on Anchor's alike.
+fn cloudburst(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
     let output = Command::new(bot)
         .arg("cloudburst")
         .arg("-world")
@@ -325,13 +321,10 @@ fn cloudburst(
             ));
         }
     };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let shown = deferred.is_some_and(|d| CLOUDBURST_PACKETS.iter().any(|p| d.contains(p)));
-    let prefix = if shown { "deferred: " } else { "" };
-    for line in text.lines() {
-        say(out, &format!("{prefix}CloudburstMC check: {line}"))?;
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        say(out, &format!("CloudburstMC check: {line}"))?;
     }
-    Ok(same || shown)
+    Ok(same)
 }
 
 /// Starts BDS with the test settings, the transport and the compression, calls `run` with its
@@ -428,17 +421,25 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
             let (bases, base) = channel();
             let steps = anchor_steps(base)?;
             let with_steps = |b: anchor::ServerBuilder| b.every(STEP_TICKS, steps);
-            passed &= anchor_session(&out_dir, compression, None, with_steps, out, |addr, out| {
-                let mut ok = run_scenarios(&bot, addr, &out_dir, transport, None, out)?;
-                report_window(&out_dir.join("spawn.jsonl"), &deferred, out)?;
-                ok &= cloudburst(root, &bot, &out_dir, Some(&deferred), out)?;
-                if transport == "raknet" {
-                    wait_until_empty(addr)?;
-                    ok &= blocks(&bot, addr, Placer::Anchor(bases), &out_dir, &states, out)?;
-                }
-                let same = compare_with_bds(root, &format!("bds-{name}"), &out_dir, out)?;
-                Ok(ok && same)
-            })?;
+            passed &= anchor_session(
+                &out_dir,
+                compression,
+                None,
+                with_steps,
+                out,
+                |addr, signaling, out| {
+                    let mut ok =
+                        run_scenarios(&bot, addr, signaling, &out_dir, transport, None, out)?;
+                    report_window(&out_dir.join("spawn.jsonl"), &deferred, out)?;
+                    ok &= cloudburst(root, &bot, &out_dir, out)?;
+                    if transport == "raknet" {
+                        wait_until_empty(addr)?;
+                        ok &= blocks(&bot, addr, Placer::Anchor(bases), &out_dir, &states, out)?;
+                    }
+                    let same = compare_with_bds(root, &format!("bds-{name}"), &out_dir, out)?;
+                    Ok(ok && same)
+                },
+            )?;
         }
     }
     let first = compressions.first().copied().unwrap_or("snappy");
@@ -449,8 +450,8 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
         Some(UNREACHABLE),
         |b| b,
         out,
-        |addr, out| {
-            let ok = fallback(&bot, addr, &out_dir, out)?;
+        |addr, signaling, out| {
+            let ok = fallback(&bot, addr, signaling, &out_dir, out)?;
             let same = compare_with_bds(root, "bds-fallback", &out_dir, out)?;
             Ok(ok && same)
         },
@@ -462,25 +463,20 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
 }
 
 /// Starts Anchor on a thread of this process with the P6 settings and what `setup` adds to the
-/// builder, calls `run` with its address and shuts it down. `public_ip` is the NetherNet address
-/// Anchor advertises.
+/// builder, calls `run` with its RakNet and NetherNet signaling addresses and shuts it down.
+/// `public_ip` is the NetherNet address Anchor advertises.
 fn anchor_session<W: Write>(
     out_dir: &Path,
     compression: &str,
     public_ip: Option<IpAddr>,
     setup: impl FnOnce(anchor::ServerBuilder) -> anchor::ServerBuilder,
     out: &mut W,
-    run: impl FnOnce(&str, &mut W) -> Result<bool, String>,
+    run: impl FnOnce(&str, &str, &mut W) -> Result<bool, String>,
 ) -> Result<bool, String> {
     let data_dir = out_dir.join("data");
     remove_dir(&data_dir)?;
     create_dir(&data_dir)?;
-    let (port, nethernet_port) = free_ports()?;
-    let mut config = anchor::Config::default();
-    config.general.xbox_auth = false;
-    config.general.enable_ipv6 = false;
-    config.general.server_port = port;
-    config.general.nethernet_port = nethernet_port;
+    let mut config = anchor_config();
     config.general.public_ip = public_ip;
     "p6".clone_into(&mut config.general.level_name);
     config.general.level_seed = Some(1);
@@ -490,25 +486,206 @@ fn anchor_session<W: Write>(
     };
     say(
         out,
-        &format!(
-            "{}: starting Anchor ({compression}) on port {port}, NetherNet UDP {nethernet_port}",
-            name(out_dir)
-        ),
+        &format!("{}: starting Anchor ({compression})", name(out_dir)),
     )?;
     let server = setup(anchor::Server::builder().config(config).data_dir(&data_dir))
+        .without_console_log()
         .build()
         .map_err(|e| format!("build Anchor: {e}"))?;
+    run_anchor(server, |ports| {
+        say(
+            out,
+            &format!(
+                "{}: Anchor on port {}, NetherNet signaling TCP {}",
+                name(out_dir),
+                ports.raknet,
+                ports.signaling
+            ),
+        )?;
+        let (addr, signaling) = (
+            format!("127.0.0.1:{}", ports.raknet),
+            format!("127.0.0.1:{}", ports.signaling),
+        );
+        run(&addr, &signaling, out)
+    })
+}
+
+/// The settings every Anchor of the harness starts with: offline, IPv4 only, and every port
+/// picked by the system when the server binds it (port 0), so no other process can take one
+/// first; [`run_anchor`] reads the ports the server opened from its log.
+fn anchor_config() -> anchor::Config {
+    let mut config = anchor::Config::default();
+    config.general.xbox_auth = false;
+    config.general.enable_ipv6 = false;
+    config.general.server_port = 0;
+    config.general.nethernet_port = 0;
+    config
+}
+
+/// The ports an Anchor server of this process opened.
+#[derive(Debug, Clone, Copy)]
+struct Ports {
+    /// The RakNet and server list ping port (UDP).
+    raknet: u16,
+    /// The NetherNet signaling port (TCP).
+    signaling: u16,
+}
+
+/// Runs `server` (built from [`anchor_config`] with `without_console_log`) on a thread of this
+/// process, calls `run` with the ports it opened once it answers pings, and shuts it down.
+fn run_anchor<T>(
+    server: anchor::Server,
+    run: impl FnOnce(Ports) -> Result<T, String>,
+) -> Result<T, String> {
+    install_log()?;
     let shutdown = server.shutdown_handle();
+    // The harness starts one server at a time: the lines logged from here on are this one's.
+    lock(&LISTENED).clear();
     let thread = spawn(move || server.run());
-    let result = wait_for_pong(port).and_then(|()| run(&format!("127.0.0.1:{port}"), out));
+    let result = opened_ports(&thread).and_then(|ports| {
+        wait_for_pong(ports.raknet)?;
+        run(ports)
+    });
     shutdown.shutdown();
     let stopped = thread
         .join()
         .map_err(|_| "the Anchor thread panicked".to_owned())
         .and_then(|run| run.map_err(|e| format!("Anchor stopped with an error: {e}")));
-    let passed = result?;
+    let value = result?;
     stopped?;
-    Ok(passed)
+    Ok(value)
+}
+
+/// Makes [`AnchorLog`] the global log of this process, once.
+fn install_log() -> Result<(), String> {
+    static LOG: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+    LOG.get_or_init(|| {
+        tracing::subscriber::set_global_default(AnchorLog)
+            .map_err(|e| format!("install the log of Anchor: {e}"))
+    })
+    .clone()
+}
+
+/// Waits until the starting server has logged its RakNet and signaling addresses (one line per
+/// opened address, [`AnchorLog`]).
+fn opened_ports(thread: &std::thread::JoinHandle<anchor::Result<()>>) -> Result<Ports, String> {
+    let deadline = now() + START_TIMEOUT;
+    while now() < deadline {
+        let listened = lock(&LISTENED);
+        let find = |what: &str| {
+            listened
+                .iter()
+                .find(|(message, _)| message.contains(what))
+                .map(|(_, addr)| addr.port())
+        };
+        if let (Some(raknet), Some(signaling)) = (find("pings"), find("signaling")) {
+            return Ok(Ports { raknet, signaling });
+        }
+        drop(listened);
+        if thread.is_finished() {
+            return Err("Anchor stopped before opening its addresses".to_owned());
+        }
+        pause();
+    }
+    Err(format!(
+        "Anchor did not open its addresses within {START_TIMEOUT:?}"
+    ))
+}
+
+/// The addresses the Anchor server of this process logged while starting (`listening … addr=…`),
+/// kept by [`AnchorLog`].
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the log of the server's threads hands the harness its addresses"
+)]
+static LISTENED: std::sync::Mutex<Vec<(String, SocketAddr)>> = std::sync::Mutex::new(Vec::new());
+
+/// Locks `mutex`; a thread that panicked while holding it left nothing half done.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: xtask is a development tool"
+)]
+fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The global log of this process: Anchor runs here without its console log, so its events come
+/// here. Each event of level info and above is written on standard error, as the console log
+/// would, and the addresses of the `listening` lines go to [`LISTENED`].
+struct AnchorLog;
+
+impl tracing::Subscriber for AnchorLog {
+    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+        metadata.is_event() && *metadata.level() <= tracing::Level::INFO
+    }
+
+    fn max_level_hint(&self) -> Option<tracing::level_filters::LevelFilter> {
+        Some(tracing::level_filters::LevelFilter::INFO)
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: xtask is a development tool"
+    )]
+    fn event(&self, event: &tracing::Event<'_>) {
+        let mut line = LogLine::default();
+        event.record(&mut line);
+        let metadata = event.metadata();
+        let text = format!(
+            "{} {}: {}{}\n",
+            metadata.level(),
+            metadata.target(),
+            line.message,
+            line.fields
+        );
+        // Standard error is the log's only way out: a failed write has nowhere to be reported.
+        match std::io::stderr().write_all(text.as_bytes()) {
+            Ok(()) | Err(_) => {}
+        }
+        if let Some(addr) = line.addr
+            && line.message.starts_with("listening")
+        {
+            lock(&LISTENED).push((line.message, addr));
+        }
+    }
+
+    fn enter(&self, _: &tracing::span::Id) {}
+
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
+/// The message, the `addr` field and every field as ` name=value` of one event.
+#[derive(Default)]
+struct LogLine {
+    message: String,
+    addr: Option<SocketAddr>,
+    fields: String,
+}
+
+impl tracing::field::Visit for LogLine {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.message = format!("{value:?}");
+            return;
+        }
+        let value = format!("{value:?}");
+        if field.name() == "addr" {
+            self.addr = value.parse().ok();
+        }
+        for part in [" ", field.name(), "=", &value] {
+            self.fields.push_str(part);
+        }
+    }
 }
 
 /// What changes the blocks of the blocks scenario on a server.
@@ -932,14 +1109,26 @@ fn compressions<'a>(args: &[&'a str]) -> Result<Vec<&'a str>, String> {
 }
 
 /// Runs the `auto` bot into `<dir>/spawn.jsonl`; it passes if the bot spawned over RakNet.
-fn fallback(bot: &Path, addr: &str, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
+fn fallback(
+    bot: &Path,
+    addr: &str,
+    signaling: &str,
+    dir: &Path,
+    out: &mut impl Write,
+) -> Result<bool, String> {
     create_dir(dir)?;
     let capture = dir.join("spawn.jsonl");
-    let outcome = run_bot(
-        bot,
-        &["-addr", addr, "-transport", "auto", "-scenario", "spawn"],
-        &capture,
-    )?;
+    let args = [
+        "-addr",
+        addr,
+        "-signaling-addr",
+        signaling,
+        "-transport",
+        "auto",
+        "-scenario",
+        "spawn",
+    ];
+    let outcome = run_bot(bot, &args, &capture)?;
     let result = compare::result(&read_text(&capture)?)?;
     let transport = field(&result, "transport").as_str().unwrap_or_default();
     let ok = outcome.passed && transport == "raknet";
@@ -1219,7 +1408,7 @@ fn run(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
     let out_dir = PathBuf::from(out_dir);
     create_dir(&out_dir)?;
     let bot = build_bot(root)?;
-    let passed = run_scenarios(&bot, addr, &out_dir, transport, online, out)?;
+    let passed = run_scenarios(&bot, addr, addr, &out_dir, transport, online, out)?;
     report_window(&out_dir.join("spawn.jsonl"), &load_deferred(root)?, out)?;
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
@@ -1382,11 +1571,12 @@ fn run_bot(bot: &Path, args: &[&str], capture: &Path) -> Result<Outcome, String>
     }
 }
 
-/// Runs each scenario over the transport into `<out_dir>/<scenario>.jsonl`; returns whether all
-/// passed.
+/// Runs each scenario over the transport into `<out_dir>/<scenario>.jsonl` against the RakNet
+/// address `addr` and the NetherNet signaling address `signaling`; returns whether all passed.
 fn run_scenarios(
     bot: &Path,
     addr: &str,
+    signaling: &str,
     out_dir: &Path,
     transport: &str,
     online: Option<[&str; 3]>,
@@ -1399,6 +1589,8 @@ fn run_scenarios(
         let mut args = vec![
             "-addr",
             addr,
+            "-signaling-addr",
+            signaling,
             "-transport",
             transport,
             "-scenario",
@@ -1593,7 +1785,11 @@ fn set_properties(path: &Path, settings: &[(&str, &str)]) -> Result<(), String> 
     write(path, out.as_bytes())
 }
 
-/// Two distinct UDP ports that are free on all IPv4 interfaces right now.
+/// Two distinct UDP ports that are free on all IPv4 interfaces right now, for BDS, which takes
+/// its ports from `server.properties` (Anchor binds port 0 instead, [`anchor_config`]). Another
+/// process may take one before BDS binds it; BDS then cannot bind it, says so in its log and never
+/// logs "Server started.", so [`Bds::wait_started`] fails the run instead of a bot meeting another
+/// server.
 #[expect(
     clippy::disallowed_types,
     reason = "off-tick: xtask is a development tool"
@@ -1692,4 +1888,31 @@ fn remove_file(path: &Path) -> Result<(), String> {
 )]
 fn create_file(path: &Path) -> Result<std::fs::File, String> {
     std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_anchor_session_runs_on_the_ports_the_server_logged() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(OUT_DIR)
+            .join("test-session");
+        let mut out = Vec::new();
+        let passed = anchor_session(
+            &dir,
+            "zlib",
+            None,
+            |b| b,
+            &mut out,
+            |addr, _, _| {
+                wait_until_empty(addr)?;
+                Ok(true)
+            },
+        )
+        .expect("the session runs");
+        assert!(passed);
+    }
 }

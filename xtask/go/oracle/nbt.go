@@ -200,16 +200,23 @@ func (e nbtEncoder) payload(v any) {
 	}
 }
 
+// rootKeys is the most keys of a compound in an NBT root, which nbtEncoder writes.
+const rootKeys = 4
+
 // nbtGen generates small random NBT trees that gophertunnel decodes and re-encodes without loss:
 //   - no empty list typed other than TAG_End, TAG_Int or TAG_Long (gophertunnel decodes them to []any{} and
 //     re-encodes them as TAG_End lists),
-//   - no NaN floats, no duplicate keys, root name always empty, depth <= 3, <= 4 keys/elements.
+//   - no NaN floats, no duplicate keys, root name always empty, depth <= 3, <= 4 elements per list,
+//     <= keys keys per compound.
 type nbtGen struct {
 	rng *rand.Rand
+	// keys is the most keys of a compound: 1 for NBT that gophertunnel's encoder writes, which writes
+	// the keys of a Go map in random order.
+	keys int
 }
 
 func (g nbtGen) compound(depth int) map[string]any {
-	n := g.rng.IntN(5)
+	n := g.rng.IntN(g.keys + 1)
 	m := make(map[string]any, n)
 	for len(m) < n {
 		m[randString(g.rng, 8)] = g.value(depth)

@@ -3,7 +3,8 @@
 //!
 //! Chunks go out in the sub-chunk request system, as BDS sends them (P6): a `LevelChunk` with the
 //! biomes, then the client asks for the sub-chunks it wants. A chunk stays loaded while a player
-//! sees it or it is a spawn chunk; one nobody holds unloads in the next view phase (PMMP unloads
+//! sees it, it is a spawn chunk or a ticket holds it ([`Context::hold_chunks`]); one nobody holds
+//! unloads in the next view phase (PMMP unloads
 //! at its world tick too), with or without [`ChunkUnload`] listeners, so that listening changes
 //! nothing; an unloaded chunk with unsaved changes waits in memory for the next commit (`save`).
 //!
@@ -22,7 +23,7 @@ use super::extra::Extras;
 use super::queue::SessionId;
 use super::rules::Rules;
 use super::save::{Saving, Unsaved, keep_unloaded};
-use super::{Context, Phase, Player, State, dispatch};
+use super::{Context, Phase, Player, State, dispatch, world_api};
 use crate::block;
 use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend, SpawnChange};
 use crate::math::Vec3;
@@ -303,6 +304,23 @@ impl View {
     }
 }
 
+super::checkpoint::fields!(View {
+    center,
+    radius,
+    order,
+    cursor,
+    sent,
+    requests,
+    fakes,
+    menu;
+    out
+});
+super::checkpoint::fields!(SubChunkRequest {
+    dimension,
+    position,
+    offsets
+});
+
 /// The squared horizontal distance between two chunks.
 fn distance(a: ChunkPos, b: ChunkPos) -> i32 {
     let (dx, dz) = (a.x.saturating_sub(b.x), a.z.saturating_sub(b.z));
@@ -359,7 +377,64 @@ pub(super) struct Chunks {
     /// The chunks picked to send this tick, for [`PlayerPostChunkSend`] in the view phase. Empty
     /// unless it is heard, and between ticks.
     sent: Vec<(SessionId, ChunkPos)>,
+    /// The chunk tickets ([`Context::hold_chunks`]) by number; each holds one interest in every
+    /// chunk of its area. At most [`MAX_TICKETS`], holding at most [`MAX_TICKET_CHUNKS`].
+    tickets: BTreeMap<u64, Ticket>,
+    /// The number of the next ticket.
+    next_ticket: u64,
+    /// Each chunk the tickets hold with the number of each ticket that holds it, one pair per
+    /// ticket and chunk (at most [`MAX_TICKET_CHUNKS`]): derived from `tickets`, so neither
+    /// saved nor hashed.
+    by_chunk: BTreeSet<(Key, u64)>,
+    /// Chunks the tickets hold that are not loaded yet: asked for in the view phase until they
+    /// load (or nobody holds them).
+    waiting: BTreeSet<Key>,
+    /// Loads in flight for a world that unloaded since they were asked for, by how many: their
+    /// answers come first (the save thread answers in order) and are dropped, so a world made
+    /// again never gets a chunk of the world before it.
+    pub(super) stale: BTreeMap<Key, u32>,
 }
+
+/// The chunks a ticket holds: the square of `radius` chunks around `center` in `world`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Ticket {
+    world: WorldIndex,
+    center: ChunkPos,
+    radius: u8,
+}
+
+super::checkpoint::fields!(Ticket {
+    world,
+    center,
+    radius
+});
+
+impl Ticket {
+    /// The chunks of its area, row by row.
+    fn area(self) -> impl Iterator<Item = ChunkPos> {
+        let r = i32::from(self.radius);
+        let center = self.center;
+        (-r..=r).flat_map(move |x| {
+            (-r..=r)
+                .map(move |z| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
+        })
+    }
+
+    /// How many chunks its area holds.
+    fn size(radius: u8) -> usize {
+        let side = 2 * usize::from(radius) + 1;
+        side * side
+    }
+}
+
+/// The most chunk tickets at once.
+const MAX_TICKETS: usize = 1024;
+/// The most chunks the tickets hold together (counted per ticket): the loads in flight times 4.
+const MAX_TICKET_CHUNKS: usize = 4096;
+/// The largest ticket radius: 17 × 17 chunks.
+const MAX_TICKET_RADIUS: u8 = 8;
+/// The largest chunk coordinate a ticket may center on: the world border (30,000,000 blocks).
+const MAX_CHUNK_COORDINATE: i32 = 30_000_000 >> 4;
 
 /// Which chunk events someone listens to or monitors.
 #[derive(Debug, Default, Clone, Copy)]
@@ -371,6 +446,92 @@ struct Heard {
 }
 
 impl Chunks {
+    /// Writes what lasts between ticks; the batch, the loads and the sent chunks are empty then,
+    /// and the events heard are fixed at build.
+    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
+        use super::checkpoint::Codec;
+        let Self {
+            interest,
+            requested,
+            unsaved,
+            batch: _,
+            extras,
+            spawns,
+            heard: _,
+            loads: _,
+            unloading,
+            kept,
+            sent: _,
+            tickets,
+            next_ticket,
+            by_chunk: _,
+            waiting,
+            stale,
+        } = self;
+        interest.encode(w);
+        requested.encode(w);
+        w.len(unsaved.len());
+        for (key, u) in unsaved {
+            key.encode(w);
+            u.checkpoint(w);
+        }
+        extras.checkpoint(w);
+        spawns.encode(w);
+        unloading.encode(w);
+        kept.encode(w);
+        tickets.encode(w);
+        next_ticket.encode(w);
+        waiting.encode(w);
+        stale.encode(w);
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote into the chunks of a new state (which keeps the
+    /// events it heard); `ground` gives what the world file or the generator has.
+    pub(super) fn restore(
+        &mut self,
+        r: &mut super::checkpoint::Reader<'_>,
+        ground: &mut super::checkpoint::Ground,
+    ) -> super::checkpoint::Result<()> {
+        use super::checkpoint::{Codec, Error};
+        let interest = Codec::decode(r)?;
+        let requested = Codec::decode(r)?;
+        let n = r.len()?;
+        let mut unsaved = BTreeMap::new();
+        for _ in 0..n {
+            let key = Key::decode(r)?;
+            let chunk = ground.chunks.remove(&key).ok_or(Error::Format(
+                "unsaved terrain the checkpoint does not keep",
+            ))?;
+            let restored = Unsaved::restore(r, chunk, ground.extras.remove(&key))?;
+            if unsaved.insert(key, restored).is_some() {
+                return Err(Error::Format("repeated unsaved chunk"));
+            }
+        }
+        *self = Self {
+            interest,
+            requested,
+            unsaved,
+            batch: Vec::new(),
+            extras: Extras::restore(r, &mut ground.extras)?,
+            spawns: Codec::decode(r)?,
+            heard: self.heard,
+            loads: BTreeMap::new(),
+            unloading: Codec::decode(r)?,
+            kept: Codec::decode(r)?,
+            sent: Vec::new(),
+            tickets: Codec::decode(r)?,
+            next_ticket: Codec::decode(r)?,
+            by_chunk: BTreeSet::new(),
+            waiting: Codec::decode(r)?,
+            stale: Codec::decode(r)?,
+        };
+        for (&n, ticket) in &self.tickets {
+            self.by_chunk
+                .extend(ticket.area().map(|pos| ((ticket.world, pos), n)));
+        }
+        Ok(())
+    }
+
     /// Whether no chunk is held, wanted, in flight or unsaved (for leak tests).
     #[cfg(test)]
     pub(super) fn is_idle(&self) -> bool {
@@ -381,6 +542,18 @@ impl Chunks {
             && self.unloading.is_empty()
             && self.kept.is_empty()
             && self.sent.is_empty()
+            && self.tickets.is_empty()
+            && self.by_chunk.is_empty()
+            && self.waiting.is_empty()
+            && self.stale.is_empty()
+    }
+
+    /// The chunks with loads in flight: those asked for and those of unloaded worlds (a chunk of
+    /// an unloaded world counts once, however many of its loads are in flight: only unloading the
+    /// same world again before an answer repeats one, and the save thread's bounded queues bound
+    /// those).
+    fn in_flight(&self) -> usize {
+        self.requested.len().saturating_add(self.stale.len())
     }
 
     /// The chunks held, wanted or in flight, for tests.
@@ -411,6 +584,11 @@ impl Chunks {
             unloading,
             kept,
             sent: _,
+            tickets,
+            next_ticket,
+            by_chunk: _,
+            waiting,
+            stale,
         } = self;
         let key = |h: &mut super::Fnv, &(w, p): &Key| {
             h.usize(w);
@@ -444,6 +622,22 @@ impl Chunks {
         for (due, k) in kept {
             h.u64(*due);
             key(h, k);
+        }
+        h.usize(tickets.len());
+        for (n, t) in tickets {
+            h.u64(*n);
+            key(h, &(t.world, t.center));
+            h.u64(u64::from(t.radius));
+        }
+        h.u64(*next_ticket);
+        h.usize(waiting.len());
+        for k in waiting {
+            key(h, k);
+        }
+        h.usize(stale.len());
+        for (k, n) in stale {
+            key(h, k);
+            h.u64(u64::from(*n));
         }
     }
 }
@@ -758,6 +952,13 @@ pub(super) fn queue_request(player: &mut Player, request: SubChunkRequest) {
 /// a damaged one is quarantined, extras included (PLAN.md 10.6, 10.7).
 pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded: Loaded) {
     let key = (world, pos);
+    if let Some(n) = state.chunks.stale.get_mut(&key) {
+        *n = n.saturating_sub(1);
+        if *n == 0 {
+            state.chunks.stale.remove(&key);
+        }
+        return;
+    }
     let generated = matches!(loaded, Loaded::Generated(..));
     state.chunks.requested.remove(&key);
     if !state.chunks.interest.contains_key(&key) {
@@ -788,15 +989,19 @@ pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded
     }
 }
 
-/// The view phase (serial, after the inputs and tasks): opens the menus that waited for their
-/// blocks and closes those their player left behind ([`super::inventory::tick_menus`]), moves
-/// each view to its player, picks the chunks to send and the sub-chunk requests to answer this
-/// tick, and asks for the chunk loads they need. Returns the load request, if any.
-pub(super) fn update(state: &mut State) -> Option<Request> {
+/// The view phase (serial, after the inputs and tasks): the worlds made, loaded and unloaded
+/// ([`world_api::step`]), then opens the menus that waited for their blocks and closes those
+/// their player left behind ([`super::inventory::tick_menus`]), moves each view to its player,
+/// picks the chunks to send and the sub-chunk requests to answer this tick, and asks for the
+/// chunk loads they, the spawns and the tickets need. Returns the requests for the save thread:
+/// the worlds it does not know yet (taken after the last listener that can make one before the
+/// loads, so every load names a world the save thread knows), then the loads. A world the
+/// chunk events make waits for the next view phase or snapshot.
+pub(super) fn update(state: &mut State) -> Vec<Request> {
+    world_api::step(state);
     super::inventory::tick_menus(state);
-    let per_tick = usize::try_from(state.settings.chunks_per_tick).unwrap_or(usize::MAX);
-    let spawn_radius = state.settings.spawn_radius;
     let State {
+        settings,
         players,
         worlds,
         chunks,
@@ -805,6 +1010,7 @@ pub(super) fn update(state: &mut State) -> Option<Request> {
     } = state;
     for player in players.values_mut() {
         if player.view.is_open() {
+            let limits = settings.view(player.world);
             let center = chunk_of(player.position);
             if center != player.view.center {
                 let radius = player.view.radius;
@@ -818,8 +1024,9 @@ pub(super) fn update(state: &mut State) -> Option<Request> {
                     radius,
                 );
             }
+            let per_tick = usize::try_from(limits.chunks_per_tick).unwrap_or(usize::MAX);
             pick(worlds, chunks, player, per_tick);
-            let spawn_radius = spawn_radius.min(player.view.radius);
+            let spawn_radius = limits.spawn_radius.min(player.view.radius);
             if player.phase == Phase::Joined && player.view.has_sent_within(spawn_radius) {
                 player.pending.spawn_status = true;
                 player.phase = Phase::Spawning;
@@ -832,9 +1039,18 @@ pub(super) fn update(state: &mut State) -> Option<Request> {
     }
     let moved = move_spawns(worlds, chunks, rules);
     request_spawn_loads(worlds, chunks);
+    request_ticket_loads(worlds, chunks);
     let batch = std::mem::take(&mut chunks.batch);
+    let new = world_api::take_new_worlds(state);
     announce(state, &moved);
-    (!batch.is_empty()).then_some(Request::Chunks(batch))
+    let mut requests = Vec::with_capacity(2);
+    if !new.is_empty() {
+        requests.push(Request::Worlds(new));
+    }
+    if !batch.is_empty() {
+        requests.push(Request::Chunks(batch));
+    }
+    requests
 }
 
 /// The end of the view phase: the chunk events of the tick, each built only when someone listens.
@@ -1007,7 +1223,7 @@ fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: us
 fn want(chunks: &mut Chunks, key: Key) {
     if chunks.requested.contains(&key)
         || chunks.batch.len() >= MAX_LOADS_PER_TICK
-        || chunks.requested.len() >= MAX_LOADS_IN_FLIGHT
+        || chunks.in_flight() >= MAX_LOADS_IN_FLIGHT
     {
         return;
     }
@@ -1027,6 +1243,194 @@ fn request_spawn_loads(worlds: &[World], chunks: &mut Chunks) {
                 want(chunks, key);
             }
         }
+    }
+}
+
+/// Asks for the chunks the tickets hold that are not loaded; one that loaded (or that nobody
+/// holds any more) stops waiting.
+fn request_ticket_loads(worlds: &[World], chunks: &mut Chunks) {
+    if chunks.waiting.is_empty() {
+        return;
+    }
+    for key in std::mem::take(&mut chunks.waiting) {
+        let Some(w) = worlds.get(key.0) else {
+            continue;
+        };
+        if chunks.interest.contains_key(&key)
+            && !w.is_chunk_loaded(key.1)
+            && !w.is_quarantined(key.1)
+        {
+            want(chunks, key);
+            chunks.waiting.insert(key);
+        }
+    }
+}
+
+/// Holds the chunks a world needs once it is made or loaded: its 3 × 3 spawn chunks.
+pub(super) fn hold_world(state: &mut State, world: WorldIndex) {
+    let Some(spawn) = state.worlds.get(world).map(World::spawn) else {
+        return;
+    };
+    for pos in spawn_area(spawn.chunk()) {
+        hold(
+            &mut state.worlds,
+            &mut state.chunks,
+            &mut state.rules,
+            (world, pos),
+        );
+    }
+    match state.chunks.spawns.get_mut(world) {
+        Some(held) => *held = spawn,
+        // Worlds are numbered in order, so a new one is the next.
+        None => state.chunks.spawns.push(spawn),
+    }
+}
+
+/// Lets go of everything a world that unloads holds (its players are gone already): its spawn
+/// chunks, its tickets, the chunks listeners kept; its loads in flight become stale. Then every
+/// chunk unloads as any chunk does, its unsaved changes waiting in memory for a commit.
+pub(super) fn unload_world(state: &mut State, world: WorldIndex) {
+    let chunks = &mut state.chunks;
+    let tickets: Vec<u64> = chunks
+        .tickets
+        .iter()
+        .filter(|(_, t)| t.world == world)
+        .map(|(&n, _)| n)
+        .collect();
+    for n in tickets {
+        release_ticket(chunks, n);
+    }
+    if let Some(&spawn) = chunks.spawns.get(world) {
+        for pos in spawn_area(spawn.chunk()) {
+            release(chunks, (world, pos));
+        }
+    }
+    let all =
+        (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
+    let held: Vec<Key> = chunks
+        .interest
+        .range(all.clone())
+        .map(|(&k, _)| k)
+        .collect();
+    for key in held {
+        chunks.interest.remove(&key);
+    }
+    chunks.kept.retain(|(_, k)| k.0 != world);
+    chunks.unloading.retain(|k| k.0 != world);
+    chunks.waiting.retain(|k| k.0 != world);
+    let asked: Vec<Key> = chunks.requested.range(all).copied().collect();
+    for key in asked {
+        chunks.requested.remove(&key);
+        let n = chunks.stale.entry(key).or_insert(0);
+        *n = n.saturating_add(1);
+    }
+    let loaded: Vec<ChunkPos> = state
+        .worlds
+        .get(world)
+        .map(|w| w.loaded_chunks().collect())
+        .unwrap_or_default();
+    for pos in loaded {
+        unload_now(state, (world, pos));
+    }
+}
+
+/// Lets go of the chunks of ticket `n`; false if there is no such ticket.
+fn release_ticket(chunks: &mut Chunks, n: u64) -> bool {
+    let Some(ticket) = chunks.tickets.remove(&n) else {
+        return false;
+    };
+    for pos in ticket.area() {
+        release(chunks, (ticket.world, pos));
+        chunks.by_chunk.remove(&((ticket.world, pos), n));
+    }
+    true
+}
+
+impl Context<'_> {
+    /// Keeps the chunks of `world` within `radius` of `center` (a square of 2 × `radius` + 1
+    /// chunks a side) loaded, whether a player is near or not, until
+    /// [`release_chunks`](Self::release_chunks) lets the ticket go (PMMP
+    /// `World::registerChunkLoader`, for a square at once). The chunks that are not loaded load
+    /// from the next view phase on, as players' chunks do: [`ChunkLoad`] says when each has.
+    /// A world that unloads drops its tickets.
+    ///
+    /// Fails, holding nothing, with [`world::Error::WorldNotLoaded`](crate::world::Error) for a
+    /// world that is not loaded, [`OutOfRange`](crate::world::Error::OutOfRange) for a center
+    /// outside the world border, and [`Full`](crate::world::Error::Full) for a radius over 8,
+    /// past 1,024 tickets, or past 4,096 chunks the tickets hold together.
+    #[doc(alias = "World::registerChunkLoader")]
+    #[doc(alias = "World::loadChunk")]
+    #[doc(alias = "World::requestChunkPopulation")]
+    #[doc(alias = "World::orderChunkPopulation")]
+    pub fn hold_chunks(
+        &mut self,
+        world: crate::world::Id,
+        center: ChunkPos,
+        radius: u8,
+    ) -> crate::world::Result<crate::world::Ticket> {
+        use crate::world::Error;
+        let w = world_api::index(self.state, world).ok_or(Error::WorldNotLoaded)?;
+        let limit = MAX_CHUNK_COORDINATE.unsigned_abs();
+        if center.x.unsigned_abs() > limit || center.z.unsigned_abs() > limit {
+            return Err(Error::OutOfRange);
+        }
+        let held = self.state.chunks.by_chunk.len();
+        if radius > MAX_TICKET_RADIUS
+            || self.state.chunks.tickets.len() >= MAX_TICKETS
+            || held.saturating_add(Ticket::size(radius)) > MAX_TICKET_CHUNKS
+        {
+            return Err(Error::Full);
+        }
+        let ticket = Ticket {
+            world: w,
+            center,
+            radius,
+        };
+        let State {
+            worlds,
+            chunks,
+            rules,
+            ..
+        } = &mut *self.state;
+        let n = chunks.next_ticket;
+        chunks.next_ticket = n.saturating_add(1);
+        for pos in ticket.area() {
+            hold(worlds, chunks, rules, (w, pos));
+            chunks.by_chunk.insert(((w, pos), n));
+            if worlds
+                .get(w)
+                .is_some_and(|world| !world.is_chunk_loaded(pos))
+            {
+                chunks.waiting.insert((w, pos));
+            }
+        }
+        chunks.tickets.insert(n, ticket);
+        Ok(crate::world::Ticket::new(n))
+    }
+
+    /// Lets the chunks of `ticket` go (PMMP `World::unregisterChunkLoader`): those nobody else
+    /// holds unload in the view phase, as players' chunks do. False if the ticket was let go
+    /// already or its world unloaded.
+    #[doc(alias = "World::unregisterChunkLoader")]
+    pub fn release_chunks(&mut self, ticket: crate::world::Ticket) -> bool {
+        release_ticket(&mut self.state.chunks, ticket.get())
+    }
+
+    /// The tickets that hold chunk `chunk` of `world`, in the order they were given (PMMP
+    /// `World::getChunkLoaders`).
+    #[doc(alias = "World::getChunkLoaders")]
+    #[doc(alias = "World::isChunkInUse")]
+    pub fn chunk_tickets(
+        &self,
+        world: crate::world::Id,
+        chunk: ChunkPos,
+    ) -> impl Iterator<Item = crate::world::Ticket> + '_ {
+        let key = (world.index(), chunk);
+        self.state
+            .chunks
+            .by_chunk
+            .range((key, 0)..=(key, u64::MAX))
+            .map(|&(_, n)| crate::world::Ticket::new(n))
     }
 }
 
@@ -1347,6 +1751,7 @@ mod tests {
     use super::*;
     use crate::event::{Event, Listeners, Priority};
     use crate::player::Message;
+    use crate::protocol::packet::Packet;
     use crate::tick::Output;
     use crate::tick::tests::{join, leave, new_state, radius, received, settings, tick};
     use crate::world::Flat;
@@ -1638,5 +2043,66 @@ mod tests {
         tick(&mut state, &mut Vec::new(), &mut output);
         assert!(logged().is_empty());
         assert!(state.chunks.holds((0, far.chunk())));
+    }
+
+    /// The packets one tick sends to a player who joins and asks for a radius of 1,000 in the
+    /// test world `world`, with `edit` applied to the settings.
+    fn first_tick(edit: impl FnOnce(&mut crate::Config)) -> (State, Vec<Packet>) {
+        let mut state = new_state(settings(edit), Listeners::default());
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 1_000)], &mut output);
+        (state, received(&mut rx).0)
+    }
+
+    #[test]
+    fn a_world_table_sets_the_view_values_of_its_world() {
+        let granted = |packets: &[Packet]| {
+            packets.iter().find_map(|p| match p {
+                Packet::ChunkRadiusUpdated(c) => Some(c.chunk_radius),
+                _ => None,
+            })
+        };
+        let tick_radius = |packets: &[Packet]| {
+            packets.iter().find_map(|p| match p {
+                Packet::StartGame(s) => Some(s.server_chunk_tick_radius),
+                _ => None,
+            })
+        };
+        let chunks = |packets: &[Packet]| {
+            packets
+                .iter()
+                .filter(|p| matches!(p, Packet::LevelChunk(_)))
+                .count()
+        };
+        let (global, sent) = first_tick(|_| {});
+        assert_eq!(granted(&sent), Some(16));
+        assert_eq!(tick_radius(&sent), Some(4));
+        assert!(chunks(&sent) > 7, "the global 256 chunks per tick");
+        let (own, sent) = first_tick(|c| {
+            c.worlds.insert(
+                "world".to_owned(),
+                crate::config::WorldSettings {
+                    view_distance: Some(6),
+                    chunks_per_tick: Some(7),
+                    spawn_radius: Some(2),
+                    tick_radius: Some(9),
+                },
+            );
+        });
+        assert_eq!(granted(&sent), Some(6), "its view distance caps the radius");
+        assert_eq!(
+            tick_radius(&sent),
+            Some(6),
+            "its tick radius, at most its view"
+        );
+        assert_eq!(chunks(&sent), 7, "its chunks per tick");
+        let limits = own.settings.view(0);
+        assert_eq!((limits.spawn_radius, limits.tick_radius), (2, 6));
+        assert_eq!(
+            global.settings.view(0),
+            own.settings.view(1),
+            "other worlds: global"
+        );
     }
 }

@@ -1,24 +1,41 @@
 //! Repository tasks. `cargo xtask gen [--check]` regenerates the protocol code (or checks it is
 //! current); `cargo xtask verify` runs every check and ends with PASS or FAIL, or with the I/O
 //! error that stopped it; `cargo xtask dump [--check]` rebuilds the committed block and item data
-//! from the pinned PMMP, dragonfly and `CloudburstMC` checkouts; `cargo xtask p6 ...` runs the
-//! reference server comparison. Neither of the last two is part of `verify`: they need `.cache/`
-//! checkouts or BDS. `cargo xtask table [--check]` writes (or checks) the PMMP mapping table;
+//! and the protocol field limits from the pinned PMMP, dragonfly, `CloudburstMC` and Mojang
+//! protocol docs checkouts; `cargo xtask p6 ...` runs the reference server comparison. Neither
+//! of the last two is part of `verify`: they need `.cache/` checkouts or BDS. `cargo xtask table [--check]` writes (or checks) the PMMP mapping table;
 //! `verify` runs its check.
 
 mod dump;
 mod r#gen;
 mod p6;
+mod reasons;
 mod table;
+mod vendor;
 
 use std::env;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+/// The dimpl copy, whose tests build OpenSSL from source (its `openssl` dev-dependency is
+/// vendored).
+const DIMPL: &str = "vendor/dimpl/Cargo.toml";
+
+/// The Perl that configures that OpenSSL build on Windows: an MSVC build needs a Windows Perl, and
+/// Strawberry Perl portable is a development tool kept in the git-ignored `.cache/tools`.
+const PERL: &str = ".cache/tools/strawberry-perl-5.42.3.1/perl/bin/perl.exe";
+
+/// The str0m copy, and the patches that point its registry dev-dependencies' dimpl and
+/// str0m-proto at the copies, as in Anchor.
+const STR0M: &str = "vendor/str0m/Cargo.toml";
+const STR0M_DIMPL: &str = "patch.crates-io.dimpl.path=\"vendor/dimpl\"";
+const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto\"";
+
 /// Checks in run order. Each passes only if it exits successfully and prints no warning.
 const CHECKS: &[&[&str]] = &[
-    &["fmt", "--all", "--check"],
+    // No `--all`: it also formats path dependencies, the vendor copies.
+    &["fmt", "--check"],
     &[
         "clippy",
         "--workspace",
@@ -28,8 +45,8 @@ const CHECKS: &[&[&str]] = &[
         "warnings",
     ],
     &["test", "--workspace", "--quiet"],
-    // The fixed sctp-proto and redb copies are not workspace members; their own tests, the
-    // reproduction tests of their fixes among them, run here (PLAN.md 9.1).
+    // The fixed copies are not workspace members; their own tests, the reproduction tests of
+    // their fixes among them, run here (PLAN.md 9.1).
     &[
         "test",
         "--manifest-path",
@@ -41,10 +58,46 @@ const CHECKS: &[&[&str]] = &[
         "test",
         "--manifest-path",
         "vendor/redb/Cargo.toml",
+        "--tests",
+        "--quiet",
+    ],
+    // With Anchor's features, the library tests only: the integration tests need capture files
+    // the published crate leaves out (`vendor-test str0m`, PLAN.md 9.1).
+    &[
+        "test",
+        "--manifest-path",
+        STR0M,
         "--lib",
+        "--no-default-features",
+        "--features",
+        "aws-lc-rs",
+        "--config",
+        STR0M_DIMPL,
+        "--config",
+        STR0M_PROTO,
+        "--quiet",
+    ],
+    // MSVC's linker: rust-lld warns about the debug info OpenSSL's build leaves out of its static
+    // library (LNK4099), and a warning fails the check.
+    &[
+        "test",
+        "--manifest-path",
+        DIMPL,
+        "--tests",
+        "--config",
+        "target.x86_64-pc-windows-msvc.linker=\"link.exe\"",
         "--quiet",
     ],
     &["doc", "--workspace", "--no-deps", "--quiet"],
+    // The public docs above check links from public to private items; this one checks the links
+    // in private docs.
+    &[
+        "doc",
+        "--workspace",
+        "--no-deps",
+        "--document-private-items",
+        "--quiet",
+    ],
 ];
 
 fn main() -> io::Result<ExitCode> {
@@ -62,6 +115,10 @@ fn root() -> PathBuf {
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
 fn run() -> io::Result<bool> {
     let mut out = io::stdout().lock();
     let args: Vec<String> = env::args().skip(1).collect();
@@ -78,6 +135,13 @@ fn run() -> io::Result<bool> {
         ["dump", "--check"] => dump_command(&mut out, true),
         ["table"] => table_command(&mut out, false),
         ["table", "--check"] => table_command(&mut out, true),
+        ["vendor-test", "str0m"] => match vendor::str0m(&root()) {
+            Ok(passed) => Ok(passed),
+            Err(e) => {
+                writeln!(out, "error: {e}")?;
+                Ok(false)
+            }
+        },
         ["p6", rest @ ..] => match p6::command(&root(), rest, &mut out) {
             Ok(passed) => Ok(passed),
             Err(e) => {
@@ -89,7 +153,7 @@ fn run() -> io::Result<bool> {
             writeln!(
                 out,
                 "usage: cargo xtask gen [--check] | cargo xtask verify | cargo xtask dump [--check] \
-                 | cargo xtask table [--check] | {}",
+                 | cargo xtask table [--check] | cargo xtask vendor-test str0m | {}",
                 p6::USAGE
             )?;
             Ok(false)
@@ -176,8 +240,26 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
         if ok { "ok  " } else { "FAIL" }
     )?;
     passed &= ok;
+    let ok = match reasons::check(&root()) {
+        Ok(errors) => {
+            for error in &errors {
+                writeln!(out, "error: {error}")?;
+            }
+            errors.is_empty()
+        }
+        Err(e) => {
+            writeln!(out, "error: {e}")?;
+            false
+        }
+    };
+    writeln!(out, "{} lint reason tags", if ok { "ok  " } else { "FAIL" })?;
+    passed &= ok;
     for args in CHECKS {
-        let output = Command::new(&cargo)
+        let mut command = Command::new(&cargo);
+        if cfg!(windows) && args.contains(&DIMPL) {
+            command.env("OPENSSL_SRC_PERL", root().join(PERL));
+        }
+        let output = command
             .args(*args)
             .current_dir(root())
             // `cargo test --workspace` unifies features differently from `cargo xtask`, so in the

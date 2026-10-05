@@ -97,7 +97,7 @@ impl Instance {
     /// throws above it; `decreaseDuration` is this with the shorter duration).
     #[doc(alias = "EffectInstance::setDuration")]
     #[must_use]
-    pub const fn with_duration(self, ticks: u32) -> Self {
+    pub const fn with_duration_ticks(self, ticks: u32) -> Self {
         let duration = if ticks > MAX_DURATION {
             MAX_DURATION
         } else {
@@ -142,7 +142,7 @@ impl Instance {
 
     /// The duration in ticks.
     #[doc(alias = "EffectInstance::getDuration")]
-    pub fn duration(self) -> u32 {
+    pub fn duration_ticks(self) -> u32 {
         self.duration
     }
 
@@ -287,7 +287,7 @@ impl Type {
 
     /// The duration in ticks an instance has when none is given.
     #[doc(alias = "Effect::getDefaultDuration")]
-    pub fn default_duration(self) -> u32 {
+    pub fn default_duration_ticks(self) -> u32 {
         self.data().default_duration
     }
 
@@ -298,11 +298,11 @@ impl Type {
     }
 
     /// An instance of the effect with PMMP's defaults: the [default
-    /// duration](Self::default_duration), level I, particles shown, not ambient, not infinite.
+    /// duration](Self::default_duration_ticks), level I, particles shown, not ambient, not infinite.
     /// The [`Instance`] `with_*` methods change the rest.
     #[doc(alias = "EffectInstance::__construct")]
     pub fn instance(self) -> Instance {
-        Instance::new(self, self.default_duration(), 0, true, false)
+        Instance::new(self, self.default_duration_ticks(), 0, true, false)
     }
 }
 
@@ -357,6 +357,57 @@ impl Potion {
 mod tests {
     use super::*;
 
+    /// The effects whose colour is BDS's, not PMMP's (`xtask/src/gen/effects.rs`).
+    const BDS_COLOURED: [Type; 12] = [
+        Type::FireResistance,
+        Type::InstantDamage,
+        Type::Invisibility,
+        Type::JumpBoost,
+        Type::NightVision,
+        Type::Poison,
+        Type::Resistance,
+        Type::Slowness,
+        Type::Speed,
+        Type::Strength,
+        Type::WaterBreathing,
+        Type::Wither,
+    ];
+
+    /// BDS's colours of the effects its splash potions show (P6 `potions`, m9-facts.md); the
+    /// turtle master's mix gives resistance's.
+    #[test]
+    fn effect_colours_are_the_ones_bds_shows() {
+        for (t, [r, g, b]) in [
+            (Type::NightVision, [0xc2, 0xff, 0x66]),
+            (Type::Invisibility, [0xf6, 0xf6, 0xf6]),
+            (Type::JumpBoost, [0xfd, 0xff, 0x84]),
+            (Type::FireResistance, [0xff, 0x99, 0x00]),
+            (Type::Speed, [0x33, 0xeb, 0xff]),
+            (Type::Slowness, [0x8b, 0xaf, 0xe0]),
+            (Type::WaterBreathing, [0x98, 0xda, 0xc0]),
+            (Type::InstantDamage, [0xa9, 0x65, 0x6a]),
+            (Type::Poison, [0x87, 0xa3, 0x63]),
+            (Type::Strength, [0xff, 0xc7, 0x00]),
+            (Type::Wither, [0x73, 0x61, 0x56]),
+            (Type::Resistance, [0x91, 0x46, 0xf0]),
+            (Type::InstantHealth, [0xf8, 0x24, 0x23]),
+            (Type::Regeneration, [0xcd, 0x5c, 0xab]),
+            (Type::Weakness, [0x48, 0x4d, 0x48]),
+        ] {
+            assert_eq!(t.colour(), [r, g, b, 255], "{t:?}");
+        }
+        // Turtle master: slowness IV and resistance III, and its strong form.
+        let turtle = |slowness, resistance| {
+            let effects = [
+                Instance::new(Type::Slowness, 20, slowness, true, false),
+                Instance::new(Type::Resistance, 20, resistance, true, false),
+            ];
+            mix(effects.iter())
+        };
+        assert_eq!(turtle(3, 2), Some([0x8d, 0x82, 0xe6, 255]));
+        assert_eq!(turtle(5, 3), Some([0x8d, 0x85, 0xe6, 255]));
+    }
+
     // pmmp: EffectIdMap::fromId, EffectIdMap::toId, PotionTypeIdMap::fromId, PotionTypeIdMap::toId
     #[test]
     fn ids_round_trip() {
@@ -384,9 +435,9 @@ mod tests {
         assert_eq!(poison.id(), 19);
         assert!(poison.is_bad() && !poison.is_instant());
         assert_eq!(poison.text(), "potion.poison");
-        assert_eq!(poison.default_duration(), 600);
+        assert_eq!(poison.default_duration_ticks(), 600);
         assert!(Type::InstantHealth.is_instant());
-        assert_eq!(Type::InstantHealth.default_duration(), 1);
+        assert_eq!(Type::InstantHealth.default_duration_ticks(), 1);
         assert_eq!(Type::Absorption.colour(), [37, 82, 165, 255]);
         assert!(!Type::Darkness.has_bubbles());
         // Night vision is 3:00 (3,600 ticks), the long form 8:00.
@@ -394,9 +445,9 @@ mod tests {
             panic!("one effect");
         };
         assert_eq!(nv.effect(), Type::NightVision);
-        assert_eq!((nv.duration(), nv.amplifier()), (3600, 0));
+        assert_eq!((nv.duration_ticks(), nv.amplifier()), (3600, 0));
         assert!(nv.is_visible() && !nv.is_ambient());
-        assert_eq!(Potion::LongNightVision.effects()[0].duration(), 9600);
+        assert_eq!(Potion::LongNightVision.effects()[0].duration_ticks(), 9600);
         assert_eq!(Potion::StrongHealing.effects()[0].amplifier(), 1);
         assert!(Potion::Water.effects().is_empty());
         assert_eq!(Potion::Water.id(), 0);
@@ -418,23 +469,23 @@ mod tests {
     fn instances_start_with_pmmp_defaults_and_change_by_copy() {
         let speed = Type::Speed.instance();
         assert_eq!(speed.effect(), Type::Speed);
-        assert_eq!(speed.duration(), Type::Speed.default_duration());
+        assert_eq!(speed.duration_ticks(), Type::Speed.default_duration_ticks());
         assert_eq!((speed.amplifier(), speed.level()), (0, 1));
         assert!(speed.is_visible() && !speed.is_ambient() && !speed.is_infinite());
         assert_eq!(speed.colour(), Type::Speed.colour());
         let changed = speed
-            .with_duration(u32::MAX)
+            .with_duration_ticks(u32::MAX)
             .with_amplifier(255)
             .with_visible(false)
             .with_ambient(true)
             .with_infinite(true);
-        assert_eq!(changed.duration(), MAX_DURATION);
+        assert_eq!(changed.duration_ticks(), MAX_DURATION);
         assert_eq!((changed.amplifier(), changed.level()), (255, 256));
         assert!(!changed.is_visible() && changed.is_ambient() && changed.is_infinite());
-        assert!(!speed.is_expired() && speed.with_duration(0).is_expired());
+        assert!(!speed.is_expired() && speed.with_duration_ticks(0).is_expired());
         assert_eq!(
-            speed.duration(),
-            Type::Speed.default_duration(),
+            speed.duration_ticks(),
+            Type::Speed.default_duration_ticks(),
             "a copy changed"
         );
     }
@@ -443,12 +494,12 @@ mod tests {
     // pmmp: EffectCollection::hasOnlyAmbientEffects
     #[test]
     fn collections_replace_and_colour_as_pmmp() {
-        let weak = Type::Speed.instance().with_duration(100);
+        let weak = Type::Speed.instance().with_duration_ticks(100);
         assert!(weak.with_amplifier(1).can_replace(weak));
-        assert!(weak.with_duration(200).can_replace(weak));
+        assert!(weak.with_duration_ticks(200).can_replace(weak));
         assert!(weak.can_replace(weak));
-        assert!(!weak.with_duration(50).can_replace(weak));
-        assert!(!weak.can_replace(weak.with_amplifier(1).with_duration(1)));
+        assert!(!weak.with_duration_ticks(50).can_replace(weak));
+        assert!(!weak.can_replace(weak.with_amplifier(1).with_duration_ticks(1)));
         assert_eq!(bubble_colour(&[]), None);
         assert!(!only_ambient(&[]));
         // Level II counts twice: (2 × speed + poison) / 3 per channel.
@@ -485,15 +536,19 @@ mod tests {
             let byte = |v: &serde_json::Value| u8::try_from(v.as_u64().unwrap()).unwrap();
             assert_eq!(u64::from(t.id()), want["id"].as_u64().unwrap(), "{t:?}");
             assert_eq!(t.text(), want["text"].as_str().unwrap(), "{t:?}");
+            // BDS's colours replace PMMP's for the effects BDS's potions show
+            // (`effect_colours_are_the_ones_bds_shows`).
             let c = &want["colour"];
-            assert_eq!(
-                t.colour(),
-                [byte(&c["r"]), byte(&c["g"]), byte(&c["b"]), byte(&c["a"])]
-            );
+            if !BDS_COLOURED.contains(t) {
+                assert_eq!(
+                    t.colour(),
+                    [byte(&c["r"]), byte(&c["g"]), byte(&c["b"]), byte(&c["a"])]
+                );
+            }
             assert_eq!(Some(t.is_bad()), want["bad"].as_bool(), "{t:?}");
             assert_eq!(Some(t.is_instant()), want["instant"].as_bool(), "{t:?}");
             assert_eq!(
-                u64::from(t.default_duration()),
+                u64::from(t.default_duration_ticks()),
                 want["default_duration"].as_u64().unwrap()
             );
             assert_eq!(Some(t.has_bubbles()), want["bubbles"].as_bool(), "{t:?}");
@@ -507,7 +562,10 @@ mod tests {
             assert_eq!(p.effects().len(), wanted.len(), "{p:?}");
             for (e, w) in p.effects().iter().zip(wanted) {
                 assert_eq!(e.effect(), by_name(w["effect"].as_str().unwrap()));
-                assert_eq!(u64::from(e.duration()), w["duration"].as_u64().unwrap());
+                assert_eq!(
+                    u64::from(e.duration_ticks()),
+                    w["duration"].as_u64().unwrap()
+                );
                 assert_eq!(u64::from(e.amplifier()), w["amplifier"].as_u64().unwrap());
                 assert_eq!(Some(e.is_visible()), w["visible"].as_bool());
                 assert_eq!(Some(e.is_ambient()), w["ambient"].as_bool());

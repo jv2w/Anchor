@@ -13,7 +13,7 @@ C5 서브에이전트가 BDS에서 확인한 사실이다. 메인이 PLAN.md 10.
 - SetCommandsEnabled: BDS는 `allow-cheats=false`면 Enabled false, true면 true. Anchor는 언제나 true(PMMP와 같음, 치트 개념 없음). 고정 필드에 넣지 않았다.
 - AvailableCommands(구성원): BDS는 권한과 상관없이 82개 명령을 모두 보낸다(PermissionLevel 0: 4개, 1: 60개, 2: 7개, 3: 1개, 4: 10개). 클라이언트가 자기 권한 단계로 숨긴다. Anchor는 권한 있는 명령만 보낸다(PMMP). 순서(SetDifficulty 뒤 SetCommandsEnabled, CraftingData 뒤 AvailableCommands)는 BDS와 같고, 스폰 창 비교가 zlib·Snappy·NetherNet 모두 SAME이다.
 - UpdateAbilities(구성원): CommandPermissions 0, PlayerPermissions 1. BDS와 Anchor가 같다(고정 필드에 넣음).
-- CameraPresets(프리셋 6개: first_person, fixed_boom, follow_orbit, free, third_person, third_person_front), CameraAimAssistPresets(범주 bucket·empty_hand·default, 프리셋 하나), CameraSpline(빈 목록): BDS만 보낸다. PMMP·dragonfly는 보내지 않고 클라이언트는 없이 들어온다. → 유예표에서 `-`(PMMP has no camera API).
+- CameraPresets(프리셋 6개: first_person, fixed_boom, follow_orbit, free, third_person, third_person_front), CameraAimAssistPresets(범주 bucket·empty_hand·default, 프리셋 하나), CameraSpline(빈 목록): BDS만 보낸다. PMMP·dragonfly는 보내지 않는다. → 2026-10-04부터 BDS 내용(`xtask/data/reference/bds_camera.json`)으로 같은 자리에 보낸다(세계와 무관한 스폰 창 패킷은 보냄, PLAN.md 10.6).
 
 ## 2. op
 - 콘솔 `op <이름>` 뒤 BDS는 AvailableCommands를 다시 보내지 않는다(목록이 이미 전부라서). 보내는 것: Text(종류 10, rawtext `commands.op.message`), UpdateAbilities(CommandPermissions 1, PlayerPermissions 2, 층 하나 Abilities 1048575, Values 255, FlySpeed 0.05, WalkSpeed 0.1, VerticalFlySpeed 1).

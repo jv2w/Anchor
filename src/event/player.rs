@@ -268,7 +268,7 @@ impl PlayerChat {
     }
 }
 
-/// Raised when a player's data is about to be saved with the server's state. Cancelling is
+/// Raised before a player's data goes into the next save of the server's state. Cancelling is
 /// ignored: the data is saved anyway, so the commit stays atomic (CLAUDE.md 4.7); what listeners
 /// change before the snapshot is saved.
 #[doc(alias = "PlayerDataSaveEvent")]
@@ -287,6 +287,29 @@ getters!(PlayerDataSave {
     #[doc(alias = "PlayerDataSaveEvent::getPlayerName")]
     player_name: &str,
 });
+
+impl PlayerDataSave {
+    /// Marks the event cancelled, which Anchor ignores: the data is saved anyway, because a
+    /// snapshot holds the whole state of one tick boundary (CLAUDE.md 4.7), and a player's data
+    /// left out of it would come back after a crash beside a newer world. `save-player-data`
+    /// turns player data saving off.
+    #[doc(alias = "PlayerDataSaveEvent::cancel")]
+    pub fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+
+    /// Undoes [`cancel`](Self::cancel).
+    #[doc(alias = "PlayerDataSaveEvent::uncancel")]
+    pub fn uncancel(&mut self) {
+        self.cancelled = false;
+    }
+
+    /// Whether a listener called [`cancel`](Self::cancel); the data is saved either way.
+    #[doc(alias = "PlayerDataSaveEvent::isCancelled")]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
+    }
+}
 
 /// Raised when a player dies, before the drops fall and the death message shows.
 #[doc(alias = "PlayerDeathEvent")]
@@ -378,8 +401,8 @@ pub struct PlayerDuplicateLogin {
 }
 
 impl PlayerDuplicateLogin {
-    /// The reason the event starts with: PMMP's English `disconnectionScreen.loggedinOtherLocation`.
-    pub(crate) const DEFAULT_REASON: &str = "Logged in from other location";
+    /// The reason the event starts with: the client's "logged in from another location" text.
+    pub(crate) const DEFAULT_REASON: &str = "disconnectionScreen.loggedinOtherLocation";
 
     /// The event for `connecting` meeting `existing`, with the default reason, not cancelled.
     pub(crate) fn new(connecting: Identity, existing: Identity) -> Self {
@@ -413,7 +436,8 @@ impl PlayerDuplicateLogin {
         &self.existing
     }
 
-    /// The reason given to the disconnected player. Starts as `"Logged in from other location"`.
+    /// The reason given to the disconnected player. Starts as the client's key
+    /// `"disconnectionScreen.loggedinOtherLocation"`, which the client shows in its language.
     #[doc(alias = "PlayerDuplicateLoginEvent::getDisconnectReason")]
     pub fn disconnect_reason(&self) -> &str {
         &self.reason
@@ -475,6 +499,76 @@ impl DuplicateOutcome {
         Self {
             cancelled: false,
             message: PlayerDuplicateLogin::DEFAULT_REASON.to_owned(),
+        }
+    }
+}
+
+/// What a player did to a book (PMMP `PlayerEditBookEvent::ACTION_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BookAction {
+    /// Rewrote a page.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_REPLACE_PAGE")]
+    ReplacePage,
+    /// Inserted a page before another.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_ADD_PAGE")]
+    AddPage,
+    /// Removed a page.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_DELETE_PAGE")]
+    DeletePage,
+    /// Swapped two pages.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_SWAP_PAGES")]
+    SwapPages,
+    /// Signed the book: it becomes a written book.
+    #[doc(alias = "PlayerEditBookEvent::ACTION_SIGN_BOOK")]
+    SignBook,
+}
+
+/// Raised when a player edits a book and quill in its inventory, before the book changes.
+/// Cancelling keeps the old book.
+#[doc(alias = "PlayerEditBookEvent")]
+#[derive(Debug)]
+pub struct PlayerEditBook {
+    pub(crate) player: player::Id,
+    pub(crate) old_book: Stack,
+    pub(crate) new_book: Stack,
+    pub(crate) action: BookAction,
+    pub(crate) modified_pages: Vec<u32>,
+    pub(crate) cancelled: bool,
+}
+
+getters!(PlayerEditBook {
+    /// The player.
+    player: player::Id,
+    /// What the player did.
+    #[doc(alias = "PlayerEditBookEvent::getAction")]
+    action: BookAction,
+    /// The book before the edit.
+    #[doc(alias = "PlayerEditBookEvent::getOldBook")]
+    old_book: &Stack,
+    /// The book after the edit, which replaces the old one.
+    #[doc(alias = "PlayerEditBookEvent::getNewBook")]
+    new_book: &Stack,
+    /// The pages the edit changed, counted from 0 (none for signing).
+    #[doc(alias = "PlayerEditBookEvent::getModifiedPages")]
+    modified_pages: &[u32],
+});
+
+impl PlayerEditBook {
+    /// Replaces the book the player gets. A stack that is not a book and quill or a written book
+    /// is ignored.
+    #[doc(alias = "PlayerEditBookEvent::setNewBook")]
+    pub fn set_new_book(&mut self, book: Stack) {
+        if book
+            .item()
+            .and_then(crate::item::Type::kind)
+            .is_some_and(|k| {
+                matches!(
+                    k,
+                    crate::item::Kind::WritableBook | crate::item::Kind::WrittenBook
+                )
+            })
+        {
+            self.new_book = book;
         }
     }
 }
@@ -592,6 +686,28 @@ getters!(PlayerEntityInteract {
     /// Where the player clicked, relative to the entity's position.
     #[doc(alias = "PlayerEntityInteractEvent::getClickPosition")]
     click_position: Vec3,
+});
+
+/// Raised when a player picks an entity (middle click), before the entity's item goes to the
+/// hotbar. Cancelling gives nothing.
+#[doc(alias = "PlayerEntityPickEvent")]
+#[derive(Debug)]
+pub struct PlayerEntityPick {
+    pub(crate) player: player::Id,
+    pub(crate) entity: entity::Id,
+    pub(crate) result_item: Stack,
+    pub(crate) cancelled: bool,
+}
+
+getters!(PlayerEntityPick {
+    /// The player.
+    player: player::Id,
+    /// The entity picked.
+    #[doc(alias = "PlayerEntityPickEvent::getEntity")]
+    entity: entity::Id,
+    /// The item the player gets.
+    #[doc(alias = "PlayerEntityPickEvent::getResultItem")]
+    result_item: &Stack,
 });
 
 /// Why a player gets hungrier (PMMP `PlayerExhaustEvent::CAUSE_*`).
@@ -784,13 +900,14 @@ getters!(PlayerInteract {
 });
 
 impl PlayerInteract {
-    /// Whether the held item may react (a right click). Starts true.
+    /// Whether a right click runs the held item's use action. Starts true.
     #[doc(alias = "PlayerInteractEvent::useItem")]
     pub fn uses_item(&self) -> bool {
         self.use_item
     }
 
-    /// Whether the block may react (a right click). Starts true.
+    /// Whether a right click runs the clicked block's own response (a door opens, a container
+    /// shows). Starts true.
     #[doc(alias = "PlayerInteractEvent::useBlock")]
     pub fn uses_block(&self) -> bool {
         self.use_block
@@ -798,10 +915,10 @@ impl PlayerInteract {
 }
 
 setters!(PlayerInteract {
-    /// Sets whether the held item may react.
+    /// Turns the held item's use action on or off.
     #[doc(alias = "PlayerInteractEvent::setUseItem")]
     set_use_item => use_item: bool,
-    /// Sets whether the block may react.
+    /// Turns the clicked block's response on or off.
     #[doc(alias = "PlayerInteractEvent::setUseBlock")]
     set_use_block => use_block: bool,
 });
@@ -925,7 +1042,8 @@ getters!(PlayerJoin {
     /// The player.
     #[doc(alias = "PlayerEvent::getPlayer")]
     player: player::Id,
-    /// The message every player sees.
+    /// The message every player sees. Starts as `"§e%multiplayer.player.joined"`: left so, the
+    /// client shows its own "joined the game" line with the player's name.
     #[doc(alias = "PlayerJoinEvent::getJoinMessage")]
     join_message: &str,
 });
@@ -1275,6 +1393,52 @@ impl PlayerRespawn {
     }
 }
 
+/// What using a charged respawn anchor does (PMMP `PlayerRespawnAnchorUseEvent::ACTION_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RespawnAnchorAction {
+    /// The anchor explodes: what a player's use does.
+    #[doc(alias = "PlayerRespawnAnchorUseEvent::ACTION_EXPLODE")]
+    Explode,
+    /// The anchor becomes the player's respawn point.
+    #[doc(alias = "PlayerRespawnAnchorUseEvent::ACTION_SET_SPAWN")]
+    SetSpawn,
+}
+
+/// Raised when a player uses a charged respawn anchor with anything but glowstone it can take,
+/// before the anchor acts. Cancelling does nothing (the held item may then be placed, as for any
+/// block that does not react).
+#[doc(alias = "PlayerRespawnAnchorUseEvent")]
+#[derive(Debug)]
+pub struct PlayerRespawnAnchorUse {
+    pub(crate) player: player::Id,
+    pub(crate) world: world::Id,
+    pub(crate) pos: BlockPos,
+    pub(crate) block: State,
+    pub(crate) action: RespawnAnchorAction,
+    pub(crate) cancelled: bool,
+}
+
+getters!(PlayerRespawnAnchorUse {
+    /// The player.
+    player: player::Id,
+    /// The world of the anchor.
+    world: world::Id,
+    /// Where the anchor is.
+    pos: BlockPos,
+    /// The anchor.
+    #[doc(alias = "PlayerRespawnAnchorUseEvent::getBlock")]
+    block: State,
+    /// What the anchor does. Starts as [`RespawnAnchorAction::Explode`].
+    #[doc(alias = "PlayerRespawnAnchorUseEvent::getAction")]
+    action: RespawnAnchorAction,
+});
+
+setters!(PlayerRespawnAnchorUse {
+    /// Changes what the anchor does.
+    #[doc(alias = "PlayerRespawnAnchorUseEvent::setAction")]
+    set_action => action: RespawnAnchorAction,
+});
+
 /// Raised when a player who may fly starts or stops flying. Cancelling keeps the old state.
 #[doc(alias = "PlayerToggleFlightEvent")]
 #[derive(Debug)]
@@ -1472,14 +1636,14 @@ cancellable! {
         #[doc(alias = "PlayerChatEvent::cancel")]
         #[doc(alias = "PlayerChatEvent::uncancel")]
         #[doc(alias = "PlayerChatEvent::isCancelled")];
-    PlayerDataSave
-        #[doc(alias = "PlayerDataSaveEvent::cancel")]
-        #[doc(alias = "PlayerDataSaveEvent::uncancel")]
-        #[doc(alias = "PlayerDataSaveEvent::isCancelled")];
     PlayerDropItem
         #[doc(alias = "PlayerDropItemEvent::cancel")]
         #[doc(alias = "PlayerDropItemEvent::uncancel")]
         #[doc(alias = "PlayerDropItemEvent::isCancelled")];
+    PlayerEditBook
+        #[doc(alias = "PlayerEditBookEvent::cancel")]
+        #[doc(alias = "PlayerEditBookEvent::uncancel")]
+        #[doc(alias = "PlayerEditBookEvent::isCancelled")];
     PlayerEmote
         #[doc(alias = "PlayerEmoteEvent::cancel")]
         #[doc(alias = "PlayerEmoteEvent::uncancel")]
@@ -1492,6 +1656,10 @@ cancellable! {
         #[doc(alias = "PlayerEntityInteractEvent::cancel")]
         #[doc(alias = "PlayerEntityInteractEvent::uncancel")]
         #[doc(alias = "PlayerEntityInteractEvent::isCancelled")];
+    PlayerEntityPick
+        #[doc(alias = "PlayerEntityPickEvent::cancel")]
+        #[doc(alias = "PlayerEntityPickEvent::uncancel")]
+        #[doc(alias = "PlayerEntityPickEvent::isCancelled")];
     PlayerExhaust
         #[doc(alias = "PlayerExhaustEvent::cancel")]
         #[doc(alias = "PlayerExhaustEvent::uncancel")]
@@ -1536,6 +1704,10 @@ cancellable! {
         #[doc(alias = "PlayerMoveEvent::cancel")]
         #[doc(alias = "PlayerMoveEvent::uncancel")]
         #[doc(alias = "PlayerMoveEvent::isCancelled")];
+    PlayerRespawnAnchorUse
+        #[doc(alias = "PlayerRespawnAnchorUseEvent::cancel")]
+        #[doc(alias = "PlayerRespawnAnchorUseEvent::uncancel")]
+        #[doc(alias = "PlayerRespawnAnchorUseEvent::isCancelled")];
     PlayerToggleFlight
         #[doc(alias = "PlayerToggleFlightEvent::cancel")]
         #[doc(alias = "PlayerToggleFlightEvent::uncancel")]
@@ -1579,6 +1751,7 @@ mod tests {
             skin: Skin::default(),
             device_os: -1,
             address: None,
+            client: crate::tick::queue::Client::default(),
         }
     }
 
@@ -2359,6 +2532,81 @@ mod tests {
         assert_eq!(
             (e.address(), e.port(), e.message()),
             ("b.example", 19133, "")
+        );
+        e.cancel();
+        assert!(e.is_cancelled());
+        e.uncancel();
+        assert!(!e.is_cancelled());
+    }
+
+    // pmmp: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock, PlayerRespawnAnchorUseEvent::getAction, PlayerRespawnAnchorUseEvent::setAction, PlayerRespawnAnchorUseEvent::cancel, PlayerRespawnAnchorUseEvent::uncancel, PlayerRespawnAnchorUseEvent::isCancelled
+    #[test]
+    fn respawn_anchor_use_names_the_anchor_and_its_action() {
+        let mut e = PlayerRespawnAnchorUse {
+            player: player(1),
+            world: WORLD,
+            pos: POS,
+            block: DIRT,
+            action: RespawnAnchorAction::Explode,
+            cancelled: false,
+        };
+        assert_eq!(
+            (e.player(), e.world(), e.pos(), e.block()),
+            (player(1), WORLD, POS, DIRT)
+        );
+        assert_eq!(e.action(), RespawnAnchorAction::Explode);
+        e.set_action(RespawnAnchorAction::SetSpawn);
+        assert_eq!(e.action(), RespawnAnchorAction::SetSpawn);
+        e.cancel();
+        assert!(e.is_cancelled());
+        e.uncancel();
+        assert!(!e.is_cancelled());
+    }
+
+    // pmmp: PlayerEditBookEvent, PlayerEditBookEvent::getAction, PlayerEditBookEvent::getOldBook, PlayerEditBookEvent::getNewBook, PlayerEditBookEvent::setNewBook, PlayerEditBookEvent::getModifiedPages, PlayerEditBookEvent::cancel, PlayerEditBookEvent::uncancel, PlayerEditBookEvent::isCancelled
+    #[test]
+    fn edit_book_takes_only_books() {
+        let book = |kind: crate::item::Kind| Stack::new(kind.default_type(), 1);
+        let quill = book(crate::item::Kind::WritableBook);
+        let mut e = PlayerEditBook {
+            player: player(1),
+            old_book: quill.clone(),
+            new_book: quill.clone(),
+            action: BookAction::DeletePage,
+            modified_pages: vec![3],
+            cancelled: false,
+        };
+        assert_eq!(
+            (e.player(), e.action()),
+            (player(1), BookAction::DeletePage)
+        );
+        assert_eq!(
+            (e.old_book(), e.modified_pages()),
+            (&quill, [3u32].as_slice())
+        );
+        e.set_new_book(sticks(1));
+        assert_eq!(e.new_book(), &quill, "not a book: ignored");
+        let written = book(crate::item::Kind::WrittenBook);
+        e.set_new_book(written.clone());
+        assert_eq!(e.new_book(), &written);
+        e.cancel();
+        assert!(e.is_cancelled());
+        e.uncancel();
+        assert!(!e.is_cancelled());
+    }
+
+    // pmmp: PlayerEntityPickEvent, PlayerEntityPickEvent::getEntity, PlayerEntityPickEvent::getResultItem, PlayerEntityPickEvent::cancel, PlayerEntityPickEvent::uncancel, PlayerEntityPickEvent::isCancelled
+    #[test]
+    fn entity_pick_names_the_entity_and_its_item() {
+        let mut e = PlayerEntityPick {
+            player: player(1),
+            entity: entity(2),
+            result_item: sticks(1),
+            cancelled: false,
+        };
+        assert_eq!(
+            (e.player(), e.entity(), e.result_item()),
+            (player(1), entity(2), &sticks(1))
         );
         e.cancel();
         assert!(e.is_cancelled());

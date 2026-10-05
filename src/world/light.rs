@@ -18,11 +18,12 @@ mod population;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
-use crate::block::{self, Facing, State};
+use crate::block::{self, Facing};
+use crate::tick::checkpoint::{self, Codec, Reader, Writer};
 
 use super::chunk::{COLUMNS, SUB_CHUNKS, column, split_y};
 use super::index::ChunkIndex;
-use super::paletted::offset;
+use super::paletted::{Derive, offset};
 use super::sub_chunk::Entry;
 use super::{BlockPos, Chunk, ChunkPos, MAX_Y, MIN_Y};
 
@@ -77,6 +78,36 @@ pub(crate) fn sky_light_reduction(time: i64) -> u8 {
         .map_or(0, |&(_, reduction)| reduction)
 }
 
+/// How a world's light is worked out (setting `lighting`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// Light is worked out and follows block changes (`"dynamic"`).
+    Dynamic,
+    /// Light is worked out for each chunk that loads; block changes leave it as it is
+    /// (`"on-load"`).
+    OnLoad,
+    /// Nothing is worked out: every block has this sky light, at most 15, and no block light
+    /// (`"fixed"`, `fixed-light-level`).
+    Fixed(u8),
+}
+
+impl Mode {
+    /// The mode of the settings `lighting` and `fixed-light-level`.
+    pub(crate) fn of(lighting: crate::config::Lighting, fixed_level: u8) -> Self {
+        match lighting {
+            crate::config::Lighting::Dynamic => Self::Dynamic,
+            crate::config::Lighting::OnLoad => Self::OnLoad,
+            crate::config::Lighting::Fixed => Self::Fixed(fixed_level.min(FULL)),
+        }
+    }
+}
+
+checkpoint::variants!(Mode {
+    0 => Dynamic,
+    1 => OnLoad,
+    2 => Fixed(level),
+});
+
 /// The two kinds of light.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Channel {
@@ -86,53 +117,63 @@ pub(crate) enum Channel {
     Sky = 1,
 }
 
-/// The state whose light values an entry has: an unknown state counts as
+/// The light values of a block, which a sub-chunk's palette keeps beside each entry
+/// ([`Derive`]), so the light work reads them by the slot's palette index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Values {
+    /// The light the block gives off.
+    emission: u8,
+    /// How much light drops when it enters the block: its filter plus 1, at most 15 (PMMP
+    /// `RuntimeBlockStateRegistry::$lightFilter`).
+    filter: u8,
+    /// Whether the block stops direct sky light.
+    blocks_sky: bool,
+}
+
+/// An entry's light values are its state's; an unknown state counts as
 /// `minecraft:info_update`, the block clients see in its place.
-fn state_of(entry: Entry) -> State {
-    match entry {
-        Entry::Known(state) => state,
-        Entry::Unknown(_) => block::INFO_UPDATE,
+impl Derive for Entry {
+    type Derived = Values;
+
+    fn derive(self) -> Values {
+        let state = match self {
+            Entry::Known(state) => state,
+            Entry::Unknown(_) => block::INFO_UPDATE,
+        };
+        Values {
+            emission: state.light_emission().min(FULL),
+            filter: state.light_filter().saturating_add(1).min(FULL),
+            blocks_sky: state.blocks_direct_sky_light(),
+        }
     }
 }
 
-/// The light a block gives off.
-fn emission(entry: Entry) -> u8 {
-    state_of(entry).light_emission().min(FULL)
-}
-
-/// How much light drops when it enters the block: its filter plus 1, at most 15 (PMMP
-/// `RuntimeBlockStateRegistry::$lightFilter`).
-fn filter(entry: Entry) -> u8 {
-    state_of(entry).light_filter().saturating_add(1).min(FULL)
-}
-
-/// Whether the block stops direct sky light.
-fn blocks_sky(entry: Entry) -> bool {
-    state_of(entry).blocks_direct_sky_light()
-}
-
-/// The sky height of local column (x, z): one above its highest block that stops direct sky
-/// light, or the world bottom (PMMP `SkyLightUpdate::recalculateHeightMapColumn`).
-fn sky_height(chunk: &Chunk, x: u8, z: u8) -> i16 {
+/// The sky height of local column (x, z) from its blocks at and below `top`: one above the
+/// highest that stops direct sky light, or the world bottom (PMMP
+/// `SkyLightUpdate::recalculateHeightMapColumn`), and the number of blocks looked at.
+fn sky_height(chunk: &Chunk, x: u8, z: u8, top: i32) -> (i16, u32) {
     let bottom = i16::try_from(MIN_Y).unwrap_or(i16::MIN);
-    let Some(top) = chunk.highest_block(x, z) else {
-        return bottom;
+    let Some(top) = chunk.highest_block(x, z).map(|h| h.min(top)) else {
+        return (bottom, 0);
     };
-    (MIN_Y..=top)
-        .rev()
-        .find(|&y| chunk.entry(x, y, z).is_some_and(blocks_sky))
-        .and_then(|y| i16::try_from(y + 1).ok())
-        .unwrap_or(bottom)
+    let mut looked = 0;
+    for y in (MIN_Y..=top).rev() {
+        looked += 1;
+        if chunk.light_values(x, y, z).is_some_and(|v| v.blocks_sky) {
+            return (i16::try_from(y + 1).unwrap_or(bottom), looked);
+        }
+    }
+    (bottom, looked)
 }
 
 /// The light a block has of itself: block light from its emission; sky light 15 at and above
 /// its column's sky height, and for the top block of a column blocked at the top, 15 less its
 /// filter (the sky above the world, PMMP `SkyLightUpdate::getEffectiveLight`).
-fn source(channel: Channel, entry: Entry, y: i32, height: i32) -> u8 {
+fn source(channel: Channel, values: Values, y: i32, height: i32) -> u8 {
     match channel {
-        Channel::Block => emission(entry),
+        Channel::Block => values.emission,
         Channel::Sky if y >= height => FULL,
-        Channel::Sky if y == MAX_Y => FULL.saturating_sub(filter(entry)),
+        Channel::Sky if y == MAX_Y => FULL.saturating_sub(values.filter),
         Channel::Sky => 0,
     }
 }
@@ -143,7 +184,7 @@ fn source(channel: Channel, entry: Entry, y: i32, height: i32) -> u8 {
 pub(crate) struct ChunkLight {
     /// Block light, then sky light, by sub-chunk from the bottom.
     arrays: [[Nibbles; SUB_CHUNKS]; 2],
-    /// One above the highest block that stops direct sky light, by [`column`].
+    /// One above the highest block that stops direct sky light, by [`column()`].
     heights: [i16; COLUMNS],
 }
 
@@ -438,7 +479,7 @@ enum Kind {
 }
 
 /// Work on a whole chunk, done in order after the node queues are empty.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Task {
     /// Retire the chunk's light and light it again alone (after a queue overflow).
     Reset(ChunkPos),
@@ -450,7 +491,7 @@ enum Task {
 
 /// The light of a chunk that left (unloaded or reset), kept until what it lit in its neighbours
 /// is taken out. `cursor` walks the 4 faces' pairs.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Retired {
     chunk: ChunkPos,
     light: Box<ChunkLight>,
@@ -477,8 +518,9 @@ struct Retired {
 ///    longer take out: here it is taken out.
 /// 7. PMMP's queues are unbounded and its time correction uses platform `cos`: here queues are
 ///    bounded (an overflow lights the chunk again) and the correction is a table.
+#[derive(Clone)]
 pub(crate) struct Engine {
-    enabled: bool,
+    mode: Mode,
     limits: Limits,
     changes: VecDeque<BlockPos>,
     recalc: VecDeque<Node>,
@@ -494,10 +536,10 @@ pub(crate) struct Engine {
 }
 
 impl Engine {
-    /// An engine with light on and the default bounds.
+    /// An engine with dynamic light and the default bounds.
     pub(crate) fn new() -> Self {
         Self {
-            enabled: true,
+            mode: Mode::Dynamic,
             limits: Limits::DEFAULT,
             changes: VecDeque::new(),
             recalc: VecDeque::new(),
@@ -511,10 +553,14 @@ impl Engine {
         }
     }
 
-    /// Whether light is worked out (setting `lighting`).
-    #[cfg(test)]
-    pub(crate) fn is_enabled(&self) -> bool {
-        self.enabled
+    /// How light is worked out (setting `lighting`).
+    pub(crate) fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    /// Whether light is worked out at all: not [`Mode::Fixed`].
+    pub(crate) fn calculates(&self) -> bool {
+        !matches!(self.mode, Mode::Fixed(_))
     }
 
     /// Replaces the queue bounds (tests force overflows with small ones).
@@ -527,7 +573,7 @@ impl Engine {
     #[cfg(test)]
     pub(crate) fn hash_into(&self, h: &mut LightHash) {
         let Self {
-            enabled,
+            mode,
             // A setting (tests force overflows with small bounds).
             limits: _,
             changes,
@@ -541,7 +587,11 @@ impl Engine {
             index: _,
             next_task,
         } = self;
-        h.word(u64::from(*enabled));
+        h.word(match mode {
+            Mode::Dynamic => 0,
+            Mode::OnLoad => 1,
+            Mode::Fixed(level) => 2 + u64::from(*level),
+        });
         h.len(changes.len());
         for &pos in changes {
             h.pos(pos);
@@ -598,18 +648,21 @@ impl Engine {
             && self.index.is_empty()
     }
 
-    /// Turns light work on or off for the chunks loaded at `loaded` (in order). Off drops all
-    /// light and work; on lights every loaded chunk again.
-    pub(crate) fn set_enabled(
+    /// Sets how light is worked out for the chunks loaded at `loaded` (in order). Turning the
+    /// work off ([`Mode::Fixed`]) drops all light and work; turning it on lights every loaded
+    /// chunk again. Between [`Mode::Dynamic`] and [`Mode::OnLoad`] the light stays.
+    pub(crate) fn set_mode(
         &mut self,
         chunks: &mut ChunkIndex,
         loaded: impl Iterator<Item = ChunkPos>,
-        enabled: bool,
+        mode: Mode,
     ) {
-        if enabled == self.enabled {
+        let was = self.calculates();
+        self.mode = mode;
+        let enabled = self.calculates();
+        if enabled == was {
             return;
         }
-        self.enabled = enabled;
         self.changes.clear();
         self.recalc.clear();
         self.removal.clear();
@@ -629,24 +682,25 @@ impl Engine {
     }
 
     /// The light of `channel` at `pos`, or `None` if its chunk is not loaded or not lit yet, or
-    /// `pos` is outside the world height. With light off, block light is 0 and sky light 15.
+    /// `pos` is outside the world height. With [`Mode::Fixed`], block light is 0 and sky light
+    /// the fixed level.
     pub(crate) fn light(&self, chunks: &ChunkIndex, pos: BlockPos, channel: Channel) -> Option<u8> {
         let spot = Spot::of(pos)?;
         let chunk = chunks.get(spot.chunk)?;
-        if !self.enabled {
+        if let Mode::Fixed(level) = self.mode {
             return Some(match channel {
                 Channel::Block => 0,
-                Channel::Sky => FULL,
+                Channel::Sky => level,
             });
         }
         Some(chunk.light()?.get(channel, spot.sub, spot.at))
     }
 
-    /// Whether the chunk is loaded and lit (always, with light off).
+    /// Whether the chunk is loaded and lit (always, with [`Mode::Fixed`]).
     pub(crate) fn is_lit(&self, chunks: &ChunkIndex, pos: ChunkPos) -> bool {
         chunks
             .get(pos)
-            .is_some_and(|c| !self.enabled || c.light().is_some())
+            .is_some_and(|c| !self.calculates() || c.light().is_some())
     }
 
     /// A chunk was just put at `pos`: connect its light to its lit neighbours, or light it on the
@@ -655,7 +709,7 @@ impl Engine {
         let Some(chunk) = chunks.get_mut(pos) else {
             return;
         };
-        if !self.enabled {
+        if !self.calculates() {
             chunk.take_light();
             return;
         }
@@ -680,7 +734,7 @@ impl Engine {
         pos: ChunkPos,
         light: Option<Box<ChunkLight>>,
     ) {
-        if !self.enabled {
+        if !self.calculates() {
             return;
         }
         self.forget(pos);
@@ -689,12 +743,10 @@ impl Engine {
         }
     }
 
-    /// The block at `pos` changed from `old` to `new` in a loaded chunk.
+    /// The block at `pos` changed from `old` to `new` in a loaded chunk. Only [`Mode::Dynamic`]
+    /// follows block changes.
     pub(crate) fn changed(&mut self, chunks: &ChunkIndex, pos: BlockPos, old: Entry, new: Entry) {
-        if !self.enabled
-            || (emission(old), filter(old), blocks_sky(old))
-                == (emission(new), filter(new), blocks_sky(new))
-        {
+        if self.mode != Mode::Dynamic || old.derive() == new.derive() {
             return;
         }
         let at = pos.chunk();
@@ -718,7 +770,8 @@ impl Engine {
     }
 
     /// Does queued work until it is done or `budget` units are spent; returns the units spent.
-    /// Order: removal, recalculation, spread, changed blocks, retired chunks, chunk tasks, so
+    /// A column scan is not split, so the last item may look at up to one column (384 blocks)
+    /// more than was left, counted as the rest of the budget. Order: removal, recalculation, spread, changed blocks, retired chunks, chunk tasks, so
     /// light that lost its source goes before light spreads again.
     pub(crate) fn step(&mut self, chunks: &mut ChunkIndex, budget: u32) -> u32 {
         let mut left = budget;
@@ -735,8 +788,7 @@ impl Engine {
                 left -= 1;
                 self.spread_from(chunks, node);
             } else if let Some(pos) = self.changes.pop_front() {
-                left -= 1;
-                self.apply_change(chunks, pos);
+                left = left.saturating_sub(self.apply_change(chunks, pos));
             } else if let Some(mut retired) = self.retired.pop_front() {
                 if !self.take_out(chunks, &mut retired, &mut left) {
                     self.retired.push_front(retired);
@@ -798,7 +850,7 @@ impl Engine {
     /// `LightUpdate::computeRemoveLight`, fixed: the own light stays and every darkened block is
     /// looked past).
     fn remove_at(&mut self, chunk: &mut Chunk, q: BlockPos, at: Spot, channel: Channel, old: u8) {
-        let entry = chunk.entry_at(at.sub, at.at);
+        let values = chunk.light_values_at(at.sub, at.at);
         let Some(light) = chunk.light_mut() else {
             return;
         };
@@ -806,7 +858,7 @@ impl Engine {
         if current == 0 {
             return;
         }
-        let own = source(channel, entry, q.y, light.height(at.column));
+        let own = source(channel, values, q.y, light.height(at.column));
         if current < old && current > own {
             light.set(channel, at.sub, at.at, own);
             self.push_removal(q, channel, current);
@@ -858,7 +910,7 @@ impl Engine {
     /// Raises `q` (in `chunk`) to `level` less its filter if that is brighter, and queues it to
     /// spread (PMMP `LightUpdate::computeSpreadLight`).
     fn relax_at(&mut self, chunk: &mut Chunk, q: BlockPos, at: Spot, channel: Channel, level: u8) {
-        let potential = level.saturating_sub(filter(chunk.entry_at(at.sub, at.at)));
+        let potential = level.saturating_sub(chunk.light_values_at(at.sub, at.at).filter);
         let Some(light) = chunk.light_mut() else {
             return;
         };
@@ -879,17 +931,17 @@ impl Engine {
         let Some(chunk) = chunks.get(spot.chunk) else {
             return;
         };
-        let entry = chunk.entry_at(spot.sub, spot.at);
+        let values = chunk.light_values_at(spot.sub, spot.at);
         let Some(light) = chunk.light() else {
             return;
         };
-        let own = source(channel, entry, pos.y, light.height(spot.column));
+        let own = source(channel, values, pos.y, light.height(spot.column));
         let old = light.get(channel, spot.sub, spot.at);
         let brightest = neighbours(pos)
             .filter_map(|q| Self::level(chunks, q, channel))
             .max()
             .unwrap_or(0);
-        let new = own.max(brightest.saturating_sub(filter(entry)));
+        let new = own.max(brightest.saturating_sub(values.filter));
         if new == old {
             return;
         }
@@ -904,30 +956,50 @@ impl Engine {
         }
     }
 
-    /// A changed block: its column's sky height is worked out again, and the block and the part
-    /// of the column whose direct sky light changed are queued for recalculation.
-    fn apply_change(&mut self, chunks: &mut ChunkIndex, pos: BlockPos) {
+    /// A changed block: its column's sky height follows it, and the block and the part of the
+    /// column whose direct sky light changed are queued for recalculation. Returns the units it
+    /// spent: one, and one per block a column scan looked at.
+    ///
+    /// The height changes only when the block now stops sky light above the old height (it rises
+    /// to the block) or the block just under the old height no longer does (it drops to the next
+    /// one below, the one case that scans). Every block changed since the heights were right has
+    /// its change queued, and each is applied against the chunk as it is now, so after the last
+    /// one the height is the column's (PMMP `SkyLightUpdate::updateHeightMapColumn`-style).
+    fn apply_change(&mut self, chunks: &mut ChunkIndex, pos: BlockPos) -> u32 {
         let Some(spot) = Spot::of(pos) else {
-            return;
+            return 1;
         };
         let (x, z) = pos.local();
         let Some(chunk) = chunks.get_mut(spot.chunk) else {
-            return;
+            return 1;
         };
-        let height = sky_height(chunk, x, z);
-        let Some(light) = chunk.light_mut() else {
-            return;
+        let Some(old) = chunk.light().map(|l| l.height(spot.column)) else {
+            return 1;
         };
-        let old = light.height(spot.column);
-        if let Some(h) = light.heights.get_mut(spot.column) {
-            *h = height;
+        let blocks = chunk
+            .light_values(x, pos.y, z)
+            .is_some_and(|v| v.blocks_sky);
+        let (new, looked) = if blocks && pos.y >= old {
+            (pos.y + 1, 0)
+        } else if !blocks && pos.y + 1 == old {
+            let (height, looked) = sky_height(chunk, x, z, pos.y - 1);
+            (i32::from(height), looked)
+        } else {
+            (old, 0)
+        };
+        if new != old
+            && let Some(h) = chunk
+                .light_mut()
+                .and_then(|light| light.heights.get_mut(spot.column))
+        {
+            *h = i16::try_from(new).unwrap_or(i16::MAX);
         }
-        let new = i32::from(height);
+        let spent = 1 + looked;
         let column = old.min(new)..old.max(new).min(MAX_Y + 1);
         let count = 2 + column.len();
         if self.recalc.len().saturating_add(count) > self.limits.recalc {
             self.reset(chunks, spot.chunk);
-            return;
+            return spent;
         }
         for channel in [Channel::Block, Channel::Sky] {
             self.recalc.push_back(Node {
@@ -943,6 +1015,7 @@ impl Engine {
                 level: 0,
             });
         }
+        spent
     }
 
     /// Queues a block whose light `level` is gone; if the queue is full its chunk is lit again.
@@ -1099,12 +1172,12 @@ impl Engine {
         let Some(chunk) = chunks.get(spot.chunk) else {
             return;
         };
-        let entry = chunk.entry_at(spot.sub, spot.at);
+        let values = chunk.light_values_at(spot.sub, spot.at);
         let Some(light) = chunk.light() else {
             return;
         };
         let current = light.get(channel, spot.sub, spot.at);
-        let own = source(channel, entry, q.y, light.height(spot.column));
+        let own = source(channel, values, q.y, light.height(spot.column));
         if current < had && current > own {
             self.remove(chunks, q, channel, had);
         }
@@ -1246,10 +1319,123 @@ impl Engine {
     }
 }
 
+// Checkpoint forms (PLAN.md 10.9 재생 도구): light depends on what was loaded when, so a replay
+// takes it from the checkpoint. Every field is kept; the index is `tasks` again.
+
+crate::tick::checkpoint::fields!(ChunkLight { arrays, heights });
+crate::tick::checkpoint::fields!(Node {
+    pos,
+    channel,
+    level
+});
+crate::tick::checkpoint::fields!(Retired {
+    chunk,
+    light,
+    cursor
+});
+crate::tick::checkpoint::fields!(Limits {
+    changes,
+    recalc,
+    nodes,
+    retired,
+    population_changes,
+});
+crate::tick::checkpoint::variants!(Channel {
+    0 => Block,
+    1 => Sky,
+});
+crate::tick::checkpoint::variants!(Task {
+    0 => Reset(pos),
+    1 => Populate(pos, population),
+    2 => Border(pos, side, at),
+});
+
+impl Engine {
+    /// The bytes its queued work holds, about: 16 per queued block, the light of each retired
+    /// chunk and the working memory of each chunk being lit (about 300 KB).
+    pub(crate) fn heap_bytes(&self) -> usize {
+        let nodes = self.changes.len() + self.recalc.len() + self.removal.len() + self.spread.len();
+        let retired: usize = self.retired.iter().map(|r| r.light.heap_bytes()).sum();
+        let populations = self
+            .tasks
+            .values()
+            .filter(|t| matches!(t, Task::Populate(..)))
+            .count();
+        nodes
+            .saturating_mul(16)
+            .saturating_add(retired)
+            .saturating_add(populations.saturating_mul(300 << 10))
+    }
+}
+
+impl Codec for Engine {
+    fn encode(&self, w: &mut Writer) {
+        let Self {
+            mode,
+            limits,
+            changes,
+            recalc,
+            removal,
+            spread,
+            retired,
+            overflowed,
+            tasks,
+            index: _,
+            next_task,
+        } = self;
+        mode.encode(w);
+        limits.encode(w);
+        changes.encode(w);
+        recalc.encode(w);
+        removal.encode(w);
+        spread.encode(w);
+        retired.encode(w);
+        overflowed.encode(w);
+        tasks.encode(w);
+        next_task.encode(w);
+    }
+
+    fn decode(r: &mut Reader<'_>) -> checkpoint::Result<Self> {
+        let mode = Codec::decode(r)?;
+        let limits = Codec::decode(r)?;
+        let changes = Codec::decode(r)?;
+        let recalc = Codec::decode(r)?;
+        let removal = Codec::decode(r)?;
+        let spread = Codec::decode(r)?;
+        let retired = Codec::decode(r)?;
+        let overflowed = Codec::decode(r)?;
+        let tasks: BTreeMap<u64, Task> = Codec::decode(r)?;
+        let mut index = BTreeMap::new();
+        for (&seq, task) in &tasks {
+            let key = match task {
+                Task::Reset(pos) => (*pos, Kind::Reset),
+                Task::Populate(pos, _) => (*pos, Kind::Populate),
+                Task::Border(pos, side, _) => (*pos, Kind::Border(side.bit())),
+            };
+            if index.insert(key, seq).is_some() {
+                return Err(checkpoint::Error::Format("repeated light task"));
+            }
+        }
+        Ok(Self {
+            mode,
+            limits,
+            changes,
+            recalc,
+            removal,
+            spread,
+            retired,
+            overflowed,
+            tasks,
+            index,
+            next_task: Codec::decode(r)?,
+        })
+    }
+}
+
 impl fmt::Debug for Engine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Engine")
-            .field("enabled", &self.enabled)
+            .field("mode", &self.mode)
             .field("changes", &self.changes.len())
             .field("recalc", &self.recalc.len())
             .field("removal", &self.removal.len())
@@ -1263,6 +1449,7 @@ impl fmt::Debug for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block::State;
     use crate::protocol::Rng;
     use crate::world::chunk::tests::plain_states;
     use crate::world::{Flat, Generator, Void, World};
@@ -1357,17 +1544,17 @@ mod tests {
                 for z in 0..16 {
                     let top = (MIN_Y..=MAX_Y)
                         .rev()
-                        .find(|&y| blocks_sky(chunk.entry(x, y, z).unwrap()))
+                        .find(|&y| chunk.entry(x, y, z).unwrap().derive().blocks_sky)
                         .map_or(MIN_Y, |y| y + 1);
                     heights[column(x, z)] = top;
                     for y in MIN_Y..=MAX_Y {
                         let e = chunk.entry(x, y, z).unwrap();
                         let i = cell(x, y, z);
-                        arrays[0][i] = emission(e);
+                        arrays[0][i] = e.derive().emission;
                         arrays[1][i] = if y >= top {
                             15
                         } else if y == MAX_Y {
-                            15 - filter(e)
+                            15 - e.derive().filter
                         } else {
                             0
                         };
@@ -1394,7 +1581,7 @@ mod tests {
                     continue;
                 };
                 let (qx, qz) = q.local();
-                let potential = v.saturating_sub(filter(chunk.entry(qx, q.y, qz).unwrap()));
+                let potential = v.saturating_sub(chunk.entry(qx, q.y, qz).unwrap().derive().filter);
                 let slot = &mut out.get_mut(&q.chunk()).unwrap().0[c][cell(qx, q.y, qz)];
                 if potential > *slot {
                     *slot = potential;
@@ -1745,8 +1932,8 @@ mod tests {
     fn lighting_off_sees_an_open_sky_everywhere() {
         let torch = find("minecraft:torch");
         let mut w = world(&Flat, 1);
-        w.set_lighting(false);
-        assert!(!w.light.is_enabled());
+        w.set_lighting(Mode::Fixed(15));
+        assert!(!w.light.calculates());
         assert!(w.is_light_idle());
         let under = BlockPos::new(3, MIN_Y, 3);
         w.set_block(BlockPos::new(3, -60, 3), torch).unwrap();
@@ -1765,13 +1952,55 @@ mod tests {
             "pool light is dropped"
         );
         // On again: every chunk is lit on the tick.
-        w.set_lighting(true);
+        w.set_lighting(Mode::Dynamic);
         assert!(!w.is_chunk_lit(ChunkPos::new(0, 0)));
         settle(&mut w, 4_096);
         assert_eq!(w.block_light(BlockPos::new(3, -60, 3)), Some(14));
         assert_eq!(w.sky_light(under), Some(0));
         assert_eq!(w.full_light(BlockPos::new(3, -60, 4), 18_000), Some(13));
         assert_matches_reference(&w);
+    }
+
+    /// `lighting = "on-load"`: chunks are lit as they load, and block changes queue no work.
+    #[test]
+    fn on_load_lighting_lights_chunks_but_not_block_changes() {
+        let torch = find("minecraft:torch");
+        let mut w = world(&Flat, 1);
+        w.set_lighting(Mode::OnLoad);
+        settle(&mut w, 4_096);
+        let under = BlockPos::new(3, MIN_Y, 3);
+        assert_eq!(w.sky_light(under), Some(0), "calculated");
+        let lit = w.light_hash();
+        w.set_block(BlockPos::new(3, -60, 3), torch).unwrap();
+        assert!(w.is_light_idle(), "changes make no work");
+        assert_eq!(w.light_hash(), lit);
+        assert_eq!(w.block_light(BlockPos::new(3, -60, 3)), Some(0));
+        let pos = ChunkPos::new(2, 0);
+        load(&mut w, pos, Chunk::generate(&Flat, 3, pos), false);
+        settle(&mut w, 4_096);
+        assert!(w.is_chunk_lit(pos), "a loaded chunk is lit");
+        assert_eq!(w.sky_light(BlockPos::new(35, MIN_Y, 3)), Some(0));
+    }
+
+    /// `lighting = "fixed"`: no work, the fixed level as sky light and no block light.
+    #[test]
+    fn fixed_lighting_gives_its_sky_light_everywhere() {
+        let torch = find("minecraft:torch");
+        let mut w = world(&Flat, 1);
+        w.set_lighting(Mode::Fixed(7));
+        assert!(w.is_light_idle());
+        let under = BlockPos::new(3, MIN_Y, 3);
+        w.set_block(BlockPos::new(3, -60, 3), torch).unwrap();
+        assert!(w.is_light_idle(), "changes make no work");
+        assert_eq!(w.block_light(BlockPos::new(3, -60, 3)), Some(0));
+        assert_eq!(w.sky_light(under), Some(7));
+        assert_eq!(w.real_sky_light(under, 18_000), Some(0), "midnight");
+        assert!(w.is_chunk_lit(ChunkPos::new(0, 0)));
+        assert_eq!(
+            Mode::of(crate::config::Lighting::Fixed, 7),
+            Mode::Fixed(7),
+            "the setting's level"
+        );
     }
 
     #[test]
@@ -1837,6 +2066,39 @@ mod tests {
         }
         assert!(steps > 10);
         assert_eq!(tick.finish().0, pool);
+    }
+
+    /// A chunk lit on the tick under a roof that lets the sky through (glass at the top of every
+    /// column): each column's sky height looks at the whole column, 384 blocks, and each block
+    /// looked at is a unit of the tick's light budget.
+    #[test]
+    fn a_tick_of_light_work_charges_every_block_its_column_scans_look_at() {
+        let clear = plain_states()
+            .into_iter()
+            .find(|s| *s != block::AIR && s.light_filter() == 0 && !s.blocks_direct_sky_light())
+            .unwrap();
+        let mut chunk = Chunk::new();
+        for x in 0..16 {
+            for z in 0..16 {
+                chunk.set_block(x, MAX_Y, z, clear).unwrap();
+            }
+        }
+        let mut w = World::new(
+            "w",
+            crate::world::Kind::Temporary,
+            0,
+            BlockPos::new(0, 0, 0),
+        );
+        load(&mut w, ChunkPos::new(0, 0), chunk, false);
+        let mut units = 0u64;
+        while !w.is_light_idle() {
+            units += u64::from(w.step_light(u32::MAX));
+        }
+        let scans = 256 * 384;
+        assert!(
+            units >= scans,
+            "{units} units for {scans} blocks of column scans"
+        );
     }
 
     /// Measures light costs (PLAN.md 10.7 "성능"):

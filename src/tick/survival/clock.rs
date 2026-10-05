@@ -1,7 +1,7 @@
 //! World clocks and sleeping (PMMP `World::$time`, `World::actuallyDoTick`, `World::checkSleep`,
 //! `Bed::onInteract`, `Player::sleepOn`, `Player::stopSleep`).
 //!
-//! Each world's time ([`World::time`](crate::world::World::time)) counts ticks from its creation
+//! A world's time ([`time_ticks`](crate::world::World::time_ticks)) counts ticks from its creation
 //! (BDS starts a new world at 0) and is saved with the world record at every commit, so a restart
 //! continues the day cycle at the tick it was saved. Clients run the day cycle themselves; BDS
 //! 1.26.52 corrects them with `SyncWorldClocks` every 256 ticks or so and never sends `SetTime`
@@ -59,6 +59,12 @@ struct WorldClock {
     sync_in: u32,
 }
 
+crate::tick::checkpoint::fields!(Clock { worlds });
+crate::tick::checkpoint::fields!(WorldClock {
+    sleep_ticks,
+    sync_in
+});
+
 impl Clock {
     #[cfg(test)]
     pub(in crate::tick) fn hash_into(&self, h: &mut crate::tick::Fnv) {
@@ -83,7 +89,32 @@ impl Clock {
 
 /// The time of `world` (0 for a world that does not exist).
 pub(in crate::tick) fn time(state: &State, world: WorldIndex) -> i64 {
-    state.worlds.get(world).map_or(0, crate::world::World::time)
+    state
+        .worlds
+        .get(world)
+        .map_or(0, crate::world::World::time_ticks)
+}
+
+/// Whether the time of `world` was stopped there (PMMP `World::stopTime`): clients then pause
+/// their clock too. With `daylight-cycle = false` the time stands still as BDS's does with
+/// `doDayLightCycle` false: the rule holds the client's clock, which is not paused (P6 `rules`,
+/// m9-facts.md).
+fn is_stopped(state: &State, world: WorldIndex) -> bool {
+    state
+        .worlds
+        .get(world)
+        .is_some_and(crate::world::World::is_time_stopped)
+}
+
+/// The day cycle lock time of `StartGame`: the time of day the time stands still at with
+/// `daylight-cycle = false`, as BDS sends it with `doDayLightCycle` false (P6 `rulesjoin`), 0
+/// otherwise.
+pub(in crate::tick) fn day_cycle_lock_time(settings: &crate::tick::Settings, time: i64) -> i32 {
+    if settings.daylight_cycle {
+        0
+    } else {
+        packet_time(time_of_day(time))
+    }
 }
 
 /// The time of day: 0 to 23,999 (PMMP `World::getTimeOfDay`).
@@ -101,20 +132,31 @@ fn packet_time(time: i64) -> i32 {
     i32::try_from(time.rem_euclid(1 << 31)).unwrap_or(0)
 }
 
-/// One tick of every world clock (PMMP `World::actuallyDoTick`): time advances, clients are
-/// corrected now and then, and a pending sleep check runs.
+/// One tick of every loaded world's clock (PMMP `World::actuallyDoTick`): time advances unless it
+/// is stopped, clients are corrected now and then, and a pending sleep check runs. With
+/// `daylight-cycle = false` no time passes anywhere; clients are still corrected, as BDS does.
 pub(super) fn tick(state: &mut State) {
     let count = state.worlds.len();
+    let daylight = state.settings.daylight_cycle;
     state.clock.worlds.resize(count, WorldClock::default());
     for world in 0..count {
-        if let Some(w) = state.worlds.get_mut(world) {
-            w.set_time(w.time().wrapping_add(1));
+        if !state.catalog.is_loaded(world) || !state.is_awake(world) {
+            continue;
+        }
+        if daylight
+            && let Some(w) = state.worlds.get_mut(world)
+            && !w.is_time_stopped()
+        {
+            w.set_time(w.time_ticks().wrapping_add(1));
         }
         let Some(c) = state.clock.worlds.get_mut(world) else {
             continue;
         };
-        let sync = c.sync_in == 0;
-        c.sync_in = if sync { SYNC_TICKS - 1 } else { c.sync_in - 1 };
+        let sync = {
+            let sync = c.sync_in == 0;
+            c.sync_in = if sync { SYNC_TICKS - 1 } else { c.sync_in - 1 };
+            sync
+        };
         let check = c.sleep_ticks > 0 && {
             c.sleep_ticks -= 1;
             c.sleep_ticks == 0
@@ -136,7 +178,7 @@ pub(in crate::tick) fn clock_state(state: &State, world: WorldIndex) -> Packet {
         sync_states: vec![SyncWorldClockStateData {
             clock_id: OVERWORLD_CLOCK,
             time: packet_time(time(state, world)),
-            paused: false,
+            paused: is_stopped(state, world),
         }],
         ..SyncWorldClocks::default()
     })
@@ -151,7 +193,7 @@ pub(in crate::tick) fn clock_definition(state: &State, world: WorldIndex) -> Pac
             id: OVERWORLD_CLOCK,
             name: "minecraft:overworld".to_owned(),
             time: packet_time(time(state, world)),
-            paused: false,
+            paused: is_stopped(state, world),
             time_markers: MARKERS
                 .iter()
                 .map(|&(id, name, time)| TimeMarkerData {
@@ -309,8 +351,12 @@ pub(super) fn sleep(
 
 /// The player of `session` lies down in the bed at `pos` in its world, night or day and however
 /// far (PMMP `Player::sleepOn`, without its event: a direct API call raises none). False unless
-/// it is spawned, alive and awake, and `pos` is a half of a whole bed nobody sleeps in.
+/// it is spawned, alive and awake, and `pos` is a half of a whole bed nobody sleeps in; always
+/// false with `beds = false`.
 pub(super) fn sleep_on(state: &mut State, session: SessionId, pos: BlockPos) -> bool {
+    if !state.settings.beds {
+        return false;
+    }
     let Some(world) = state.players.get(&session).map(|p| p.world) else {
         return false;
     };

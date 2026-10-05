@@ -379,21 +379,14 @@ const BUSY_REACHED: [&str; 1] = ["form"];
 #[test]
 fn busy_listeners_tasks_and_jobs_give_the_same_ticks_on_one_and_many_threads_and_replay() {
     let many = crate::runtime::logical_cpus().max(4);
-    let one_pool = crate::runtime::cpu_pool(1).unwrap();
-    let many_pool = crate::runtime::cpu_pool(many).unwrap();
-    let mut reached = client::Seen::new();
-    let mut jobs = 0;
-    for seed in BUSY_SEEDS {
+    let runs = side_by_side(&BUSY_SEEDS, |&seed| {
         let (one, log_one, seen) = live(1, Script::busy(seed, 64), busy());
         let (more, log_more, seen_more) = live(many, Script::busy(seed, 64), busy());
         assert_eq!(one, more, "seed {seed:#x}: 1 and {many} threads");
         assert_eq!(seen, seen_more, "seed {seed:#x}");
-        for (what, n) in seen {
-            *reached.entry(what).or_default() += n;
-        }
         let bytes = log_one.encode().unwrap();
         assert_eq!(bytes, log_more.encode().unwrap(), "seed {seed:#x}");
-        jobs += log_one
+        let jobs = log_one
             .ticks()
             .iter()
             .flat_map(|t| &t.inputs)
@@ -402,15 +395,26 @@ fn busy_listeners_tasks_and_jobs_give_the_same_ticks_on_one_and_many_threads_and
         let live_hashes: Vec<u64> = one.iter().map(|(h, _)| *h).collect();
         let read = InputLog::decode(&bytes).unwrap();
         assert!(!read.is_truncated());
-        for pool in [&one_pool, &many_pool] {
-            let (hashes, again) = replay(&read.ticks(), busy(), pool);
+        for threads in [1, many] {
+            let pool = crate::runtime::cpu_pool(threads).unwrap();
+            let (hashes, again) = replay(&read.ticks(), busy(), &pool);
             assert_eq!(hashes, live_hashes, "seed {seed:#x}: replay");
             assert_eq!(
                 again.encode().unwrap(),
                 bytes,
                 "seed {seed:#x}: re-recorded"
             );
+            assert!(pool.shutdown());
         }
+        (seen, jobs)
+    });
+    let mut reached = client::Seen::new();
+    let mut jobs = 0;
+    for (seen, n) in runs {
+        for (what, n) in seen {
+            *reached.entry(what).or_default() += n;
+        }
+        jobs += n;
     }
     assert!(jobs > 0, "no job result was logged");
     for what in REACHED.iter().chain(&BUSY_REACHED) {
@@ -419,8 +423,6 @@ fn busy_listeners_tasks_and_jobs_give_the_same_ticks_on_one_and_many_threads_and
             "the scripts never reached {what}: {reached:?}"
         );
     }
-    assert!(one_pool.shutdown());
-    assert!(many_pool.shutdown());
 }
 
 #[test]

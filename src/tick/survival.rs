@@ -26,7 +26,7 @@ mod wiring;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 
-use super::{Context, Phase, Player, SessionId, Settings, State, dispatch, inventory};
+use super::{Context, Phase, Player, SessionId, Settings, State, checkpoint, dispatch, inventory};
 use crate::config::{Difficulty, GameMode};
 use crate::effect;
 use crate::event::{
@@ -37,22 +37,24 @@ use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::Compound;
 use crate::player::Id;
-use crate::protocol::consts::{MoveMode, SoundEvent};
+use crate::protocol::consts::MoveMode;
 use crate::protocol::packet::{
     Animate, Emote, Packet, PlayerAction, PlayerAuthInput, PlayerSkin, Respawn,
 };
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::world::BlockPos;
+use crate::world::{BlockPos, Weather, World};
 
 pub(super) use api::{marked, sync};
 pub(super) use appearance::SKIN_BYTES_PER_TICK;
 pub(super) use attributes::{
     adventure_settings, all_attributes, full_metadata, game_rules, update_abilities,
 };
-pub(super) use clock::{Clock, clock_definition, clock_state, sleeping_players};
+pub(super) use clock::{
+    Clock, clock_definition, clock_state, day_cycle_lock_time, sleeping_players,
+};
 pub(super) use damage::Damage;
-pub(super) use saved::game_mode_id;
+pub(super) use saved::{game_mode_id, load_played, save_played};
 
 /// Eye height above the feet (PMMP `Human` size 1.62).
 pub(super) const EYE_HEIGHT: f64 = 1.62;
@@ -66,8 +68,13 @@ const MAX_SATURATION: f64 = 20.0;
 const DEFAULT_SATURATION: f64 = 5.0;
 /// Air supply in ticks (PMMP `Living::DEFAULT_BREATH_TICKS`).
 const MAX_AIR: i16 = 300;
-/// The most held-back death drops: one inventory (36 slots, 4 armour pieces, the off hand).
-const MAX_HELD_BACK: usize = 41;
+/// The most drops a [`PlayerDeath`](crate::event::PlayerDeath) listener sets that are kept: one
+/// inventory.
+const MAX_LISTENER_DROPS: usize = inventory::CARRIED;
+/// The most held-back death drops: what death takes (the slots and the stacks waiting for room,
+/// [`inventory::MAX_SAVED_PENDING`]) and drops a listener set in its place, all refused by the
+/// world.
+const MAX_HELD_BACK: usize = inventory::CARRIED + inventory::MAX_SAVED_PENDING + MAX_LISTENER_DROPS;
 
 /// A player's survival state.
 #[derive(Debug)]
@@ -78,6 +85,8 @@ pub(super) struct Survival {
     default_mode: GameMode,
     /// Whether a join ignores the saved game mode (`force-gamemode`), fixed at start.
     forced_mode: bool,
+    /// The systems the settings turn on, fixed at start.
+    switches: Switches,
     /// Health in half hearts, 0 to [`Self::max_health`]; 0 is dead.
     health: f64,
     /// Extra health absorbed first (PMMP `Living::getAbsorption`), 0 or more.
@@ -106,7 +115,8 @@ pub(super) struct Survival {
     fire_ticks: u16,
     /// Air supply in ticks, -20 to 300.
     air: i16,
-    /// Whether the player breathes (not under water, or refilled since).
+    /// Whether the player could breathe at its last tick (the Breathing entity flag): false until
+    /// its first tick, as BDS shows a new player (P6).
     breathing: bool,
     /// Blocks fallen since the player last stood on something.
     fall_distance: f64,
@@ -132,7 +142,7 @@ pub(super) struct Survival {
     /// Item cooldowns: the cooldown key and the tick it ends (PMMP `usedItemsCooldown`).
     cooldowns: BTreeMap<food::CooldownKey, u64>,
     /// Death drops that could not be dropped (entity limit) nor put back; dropped as soon as the
-    /// world takes them: at most one inventory ([`MAX_HELD_BACK`]). Saved with the player.
+    /// world takes them: at most [`MAX_HELD_BACK`]. Saved with the player.
     held_back: Vec<Stack>,
     /// Random draws made for this player, so no tick opens the same stream twice.
     draws: u64,
@@ -144,6 +154,27 @@ pub(super) struct Survival {
     custom: api::Custom,
     /// When the player last emoted and changed its skin.
     appearance: appearance::Appearance,
+}
+
+/// The survival systems the server settings turn on (PLAN.md 8.5), fixed at start and kept with
+/// each player: the public API, which has only the player, refuses to change a system that is off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Switches {
+    /// `hunger`: food, saturation and exhaustion.
+    hunger: bool,
+    /// `experience`: points, levels and orbs.
+    experience: bool,
+    /// `drowning`: air, drowning and suffocation.
+    drowning: bool,
+}
+
+impl Switches {
+    /// Every system on, as the default settings have them.
+    const ALL: Self = Self {
+        hunger: true,
+        experience: true,
+        drowning: true,
+    };
 }
 
 /// A position in a world by name (worlds are saved by name).
@@ -163,7 +194,16 @@ impl Default for Survival {
 impl Survival {
     /// The survival state of a player who just joined, before its saved data.
     pub(super) fn new(settings: &Settings) -> Self {
-        Self::with_mode(settings.game_mode, settings.force_game_mode)
+        Self {
+            switches: Switches {
+                hunger: settings.hunger,
+                experience: settings.experience,
+                drowning: settings.drowning,
+            },
+            // Without air the player always breathes.
+            breathing: !settings.drowning,
+            ..Self::with_mode(settings.game_mode, settings.force_game_mode)
+        }
     }
 
     /// A new player's state on a server whose game mode is `default_mode`.
@@ -172,6 +212,7 @@ impl Survival {
             game_mode: None,
             default_mode,
             forced_mode,
+            switches: Switches::ALL,
             health: MAX_HEALTH,
             absorption: 0.0,
             food: MAX_FOOD,
@@ -186,7 +227,7 @@ impl Survival {
             effects: BTreeMap::new(),
             fire_ticks: 0,
             air: MAX_AIR,
-            breathing: true,
+            breathing: false,
             fall_distance: 0.0,
             spawn: None,
             death: None,
@@ -247,6 +288,7 @@ impl Survival {
             game_mode,
             default_mode,
             forced_mode,
+            switches,
             health,
             absorption,
             food,
@@ -285,6 +327,12 @@ impl Survival {
             saved::game_mode_id(*default_mode).cast_unsigned(),
         ));
         h.u64(u64::from(*forced_mode));
+        let Switches {
+            hunger,
+            experience,
+            drowning,
+        } = switches;
+        h.u64(u64::from(*hunger) | u64::from(*experience) << 1 | u64::from(*drowning) << 2);
         for v in [
             health,
             absorption,
@@ -347,6 +395,51 @@ impl Survival {
         appearance.hash_into(h);
     }
 }
+
+checkpoint::fields!(Survival {
+    game_mode,
+    default_mode,
+    forced_mode,
+    switches,
+    health,
+    absorption,
+    food,
+    saturation,
+    exhaustion,
+    food_timer,
+    xp_level,
+    xp_progress,
+    xp_lifetime,
+    xp_cooldown,
+    xp_seed,
+    effects,
+    fire_ticks,
+    air,
+    breathing,
+    fall_distance,
+    spawn,
+    death,
+    sleeping,
+    motion,
+    no_damage_ticks,
+    attack_time,
+    last_damage,
+    last_cause,
+    using,
+    cooldowns,
+    held_back,
+    draws,
+    dirty,
+    shown,
+    custom,
+    appearance,
+});
+checkpoint::fields!(Point { world, pos });
+checkpoint::fields!(Switches {
+    hunger,
+    experience,
+    drowning
+});
 
 #[cfg(test)]
 fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
@@ -575,7 +668,9 @@ fn player_tick(state: &mut State, session: SessionId) {
     movement::block_intersections(state, session);
     damage::base_tick(state, session);
     effects::tick(state, session);
-    if let Some(player) = state.players.get_mut(&session) {
+    if let Some(player) = state.players.get_mut(&session)
+        && player.survival.switches.experience
+    {
         food::xp_tick(&mut player.survival);
     }
     damage::living_tick(state, session);
@@ -667,14 +762,15 @@ fn is_survival(mode: GameMode) -> bool {
     matches!(mode, GameMode::Survival | GameMode::Adventure)
 }
 
-/// Deals `amount` damage (half hearts) for `cause` after armour, effects and invulnerability,
-/// raising [`EntityDamage`](crate::event::EntityDamage); false if no damage was taken.
+/// [`damage_by`] with the source of `cause` (a melee hit's player, otherwise none); the rules
+/// call [`damage_by`].
+#[cfg(test)]
 pub(super) fn damage(state: &mut State, session: SessionId, amount: f64, cause: Damage) -> bool {
     damage::damage(state, session, amount, cause)
 }
 
-/// [`damage`] without events, for the direct API: a death and a wake follow at the player's
-/// survival sync.
+/// [`damage_by`] without a source and without events, for the direct API: a death and a wake
+/// follow at the player's survival sync.
 pub(super) fn damage_quiet(
     state: &mut State,
     session: SessionId,
@@ -684,15 +780,10 @@ pub(super) fn damage_quiet(
     damage::damage_quiet(state, session, amount, cause)
 }
 
-/// [`damage`] from `source` (an entity, a projectile and its owner, a block), which the event
-/// names; a player in `source` is the attacker (its Strength, knockback, thorns).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consistency: B3 contract for the entity module's damage with a source"
-    )
-)]
+/// Deals `amount` damage (half hearts) for `cause` from `source` (an entity, a projectile and its
+/// owner, a block, or none) after armour, effects and invulnerability, raising
+/// [`EntityDamage`](crate::event::EntityDamage), which names the source; a player in `source` is
+/// the attacker (its Strength, knockback, thorns). False if no damage was taken.
 pub(super) fn damage_by(
     state: &mut State,
     session: SessionId,
@@ -706,19 +797,13 @@ pub(super) fn damage_by(
 /// Adds food exhaustion (PMMP `HungerManager::exhaust`) without an event; nothing while hunger is
 /// off for the player (`hunger = false`, creative, spectator). Rules raise
 /// [`PlayerExhaust`](crate::event::PlayerExhaust) with [`exhaust_by`] instead.
+#[cfg(test)]
 pub(super) fn exhaust(player: &mut Player, amount: f64) {
     food::exhaust(&mut player.survival, amount);
 }
 
 /// Adds food exhaustion for `cause`, raising [`PlayerExhaust`](crate::event::PlayerExhaust)
 /// (PMMP `HungerManager::exhaust`).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consistency: B3 contract for the mining and NPC attack exhaustion"
-    )
-)]
 pub(super) fn exhaust_by(state: &mut State, session: SessionId, amount: f64, cause: ExhaustCause) {
     food::exhaust_as(state, session, amount, cause);
 }
@@ -753,8 +838,9 @@ pub(super) fn lifetime_experience(player: &Player) -> u32 {
 }
 
 /// Takes `levels` experience levels, keeping the progress (PMMP `subtractXpLevels`); not below 0.
+/// Nothing with `experience = false`.
 pub(super) fn subtract_levels(player: &mut Player, levels: u32) {
-    if levels == 0 {
+    if levels == 0 || !player.survival.switches.experience {
         return;
     }
     let s = &mut player.survival;
@@ -792,9 +878,13 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
     player.survival.using = None;
 }
 
-/// The player's feet position (the tick keeps the eye position).
+/// The player's feet position (the tick keeps the eye position), rounded to 4 decimals as PMMP
+/// keeps it (`InGamePacketHandler`: `round(4)` of the eye - 1.62). Unrounded, the `f32` eye of a
+/// player on a block is a hair below it and its feet floor to the block under that.
 fn feet(player: &Player) -> Vec3 {
-    player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0)
+    let round = |v: f64| (v * 10_000.0).round() / 10_000.0;
+    let f = player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    Vec3::new(round(f.x), round(f.y), round(f.z))
 }
 
 /// `v` as the `f32` a packet carries.
@@ -826,9 +916,9 @@ fn broadcast_to_viewers(state: &mut State, session: SessionId, packet: &Packet) 
     state.broadcast(world, chunk, packet, Some(session));
 }
 
-/// The difficulty the rules use.
-fn difficulty(state: &State) -> Difficulty {
-    state.settings.difficulty
+/// The difficulty the rules of the world at `world` use: its own, or the server's.
+fn difficulty(state: &State, world: WorldIndex) -> Difficulty {
+    super::world_api::difficulty(state, world)
 }
 
 /// Whether the player is alive (PMMP `Entity::isAlive`): not dead and waiting to respawn.
@@ -851,7 +941,7 @@ pub(super) fn add_effect(state: &mut State, session: SessionId, effect: effect::
 /// `MovePlayer` in teleport mode and the players that see it the same packet. Another world
 /// closes the view of the old one, opens it around `pos` in the new one (its chunks are sent
 /// again from the next view phase) and the client gets the new world's clock. Nothing happens for
-/// a position that is not finite or lies outside the world border, a world that does not exist,
+/// a position that is not finite or lies outside the world border, a world that is not loaded,
 /// or a player whose data is still loading.
 pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex, pos: Vec3) {
     let border = f64::from(super::MAX_COORDINATE);
@@ -859,7 +949,7 @@ pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex,
     let Some(player) = state.players.get(&session) else {
         return;
     };
-    if !inside || state.worlds.get(world).is_none() || player.phase == Phase::Loading {
+    if !inside || !state.catalog.is_loaded(world) || player.phase == Phase::Loading {
         return;
     }
     let other_world = player.world != world;
@@ -880,8 +970,10 @@ pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex,
 }
 
 /// Moves the player into another world: the old world's chunks are let go, the view opens at
-/// `pos` in the new world with the same radius, and the client learns the new world's clock and
-/// sleeping counts (PMMP `Player::setPosition`, `NetworkSession::onEnterWorld`). The other
+/// `pos` in the new world with the radius the player asked for, up to the new world's
+/// `view-distance`, and the client learns the new world's clock and
+/// sleeping counts (PMMP `Player::setPosition`, `NetworkSession::onEnterWorld`) and its weather.
+/// The other
 /// players see it leave and arrive through entity tracking, which follows the world.
 fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: Vec3) {
     let Some(mut player) = state.players.remove(&session) else {
@@ -889,10 +981,33 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
     };
     let radius = player.view.radius();
     super::view::close(state, &mut player);
+    let difficulty = super::world_api::difficulty(state, world);
+    if super::world_api::difficulty(state, player.world) != difficulty {
+        // PMMP `NetworkSession::onEnterWorld` syncs the world's difficulty; the player has had
+        // its `StartGame` (see the weather below).
+        player.send_packet(Packet::SetDifficulty(
+            crate::protocol::packet::SetDifficulty {
+                difficulty: super::spawn::difficulty_id(difficulty).cast_unsigned(),
+            },
+        ));
+    }
+    // The player has had its `StartGame` (a teleport skips one still loading), so its client
+    // has the old world's weather, whether its spawn window went out yet or not.
+    let weather = |w| state.worlds.get(w).map_or(Weather::Clear, World::weather);
+    for packet in super::weather::changes(weather(player.world), weather(world)) {
+        player.send_packet(packet);
+    }
     player.world = world;
     player.position = pos;
     player.data_dirty = true;
-    if radius > 0 {
+    // Each world grants the radius the player asked for up to its `view-distance`; the client
+    // hears of a change.
+    let allowed = player
+        .asked_radius
+        .map(|asked| asked.min(state.settings.view(world).view_distance));
+    if let Some(allowed) = allowed.filter(|a| Some(*a) != player.chunk_radius) {
+        super::spawn::grant_radius(state, &mut player, allowed);
+    } else if radius > 0 {
         super::view::set_radius(state, &mut player, radius);
     }
     if player.phase == Phase::Spawned {
@@ -989,21 +1104,15 @@ pub(super) fn heal(state: &mut State, session: SessionId, amount: f64) {
     damage::heal(state, session, amount, RegainReason::Magic);
 }
 
-/// Sets the player on fire for `seconds` (PMMP `Living::setOnFire`: burning arrows, Fire
-/// Aspect), raising [`EntityCombust`](crate::event::EntityCombust) without a source; a longer
-/// burn already running stays.
+/// [`set_on_fire_by`] without a source; the rules call [`set_on_fire_by`].
+#[cfg(test)]
 pub(super) fn set_on_fire(state: &mut State, session: SessionId, seconds: u32) {
     damage::combust(state, session, seconds, CombustSource::None);
 }
 
-/// [`set_on_fire`] by `source`, which the event names (a burning arrow).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consistency: B3 contract for the entity module's burning arrows"
-    )
-)]
+/// Sets the player on fire for `seconds` by `source` (PMMP `Living::setOnFire`: a burning
+/// arrow), raising [`EntityCombust`](crate::event::EntityCombust), which names the source; a
+/// longer burn already running stays.
 pub(super) fn set_on_fire_by(
     state: &mut State,
     session: SessionId,
@@ -1026,7 +1135,8 @@ pub(super) struct Melee {
     /// The damage: the held item's attack points with Strength, Weakness, Sharpness and a
     /// critical hit.
     pub(super) damage: f64,
-    /// A critical hit (falling, not sprinting or flying, not blind, not under water).
+    /// A critical hit (falling, not flying, not blind, not under water, and not sprinting unless
+    /// `sprint-critical-hits`).
     pub(super) critical: bool,
     /// A weapon enchantment added damage (PMMP `MagicHitAnimation`).
     pub(super) magic: bool,
@@ -1043,9 +1153,14 @@ pub(super) fn swing(state: &mut State, session: SessionId) {
     damage::swing(state, session);
 }
 
-/// A melee hit's sound at `at` for the players that see `session` (PMMP `EntityAttackSound`,
+/// A melee hit's sound at `at` in the world of `session` (PMMP `EntityAttackSound`,
 /// `EntityAttackNoDamageSound`).
-pub(super) fn hit_sound(state: &mut State, session: SessionId, at: Vec3, sound: SoundEvent) {
+pub(super) fn hit_sound(
+    state: &mut State,
+    session: SessionId,
+    at: Vec3,
+    sound: crate::world::Sound,
+) {
     sound::hit(state, session, at, sound);
 }
 
@@ -1149,10 +1264,12 @@ mod tests {
     }
 
     fn enchanted(kind: ItemKind, enchantments: &[(Enchantment, u8)]) -> Stack {
-        stack(kind, 1).with_extra(Some(Extra {
-            enchantments: enchantments.to_vec(),
-            ..Extra::default()
-        }))
+        stack(kind, 1)
+            .with_extra(Some(Extra {
+                enchantments: enchantments.to_vec(),
+                ..Extra::default()
+            }))
+            .unwrap()
     }
 
     /// The encoded payload size of a packet (without the packet header).
@@ -1184,15 +1301,20 @@ mod tests {
             .into_iter()
             .filter(|i| !chunks.contains(i))
             .collect();
-        // m7-facts.md 7 without the deferred packets (SyncActorProperty, JigsawStructureData,
-        // SetCommandsEnabled, the camera packets, AvailableCommands, LevelSoundEvent,
-        // CurrentStructureFeature).
-        let want = [
+        // m7-facts.md 7 without the spawn sound Anchor never sends (deferred.txt).
+        let property = id(&Packet::SyncActorProperty(p::SyncActorProperty::default()));
+        let mut want = vec![
             id(&Packet::LevelEventGeneric(p::LevelEventGeneric::default())),
             id(&Packet::PlayerList(p::PlayerList::default())),
             id(&Packet::SyncWorldClocks(p::SyncWorldClocks::default())),
+            id(&Packet::JigsawStructureData(
+                p::JigsawStructureData::default(),
+            )),
             id(&Packet::VoxelShapes(p::VoxelShapes::default())),
             id(&Packet::StartGame(Box::default())),
+        ];
+        want.extend([property; 13]);
+        want.extend([
             id(&Packet::ItemRegistry(p::ItemRegistry::default())),
             id(&Packet::SetSpawnPosition(p::SetSpawnPosition::default())),
             id(&Packet::SyncWorldClocks(p::SyncWorldClocks::default())),
@@ -1212,6 +1334,11 @@ mod tests {
                 p::AvailableActorIdentifiers::default(),
             )),
             id(&Packet::PlayerFog(p::PlayerFog::default())),
+            id(&Packet::CameraPresets(p::CameraPresets::default())),
+            id(&Packet::CameraAimAssistPresets(
+                p::CameraAimAssistPresets::default(),
+            )),
+            id(&Packet::CameraSpline(p::CameraSpline::default())),
             id(&Packet::UpdateAttributes(p::UpdateAttributes::default())),
             id(&Packet::CreativeContent(p::CreativeContent::default())),
             id(&Packet::TrimData(p::TrimData::default())),
@@ -1226,11 +1353,14 @@ mod tests {
             id(&Packet::Respawn(p::Respawn::default())),
             id(&Packet::Respawn(p::Respawn::default())),
             id(&Packet::SetActorData(p::SetActorData::default())),
+            id(&Packet::CurrentStructureFeature(
+                p::CurrentStructureFeature::default(),
+            )),
             id(&Packet::UpdateAttributes(p::UpdateAttributes::default())),
             id(&Packet::ChunkRadiusUpdated(p::ChunkRadiusUpdated::default())),
             id(&Packet::SetHealth(p::SetHealth::default())),
             id(&Packet::PlayStatus(p::PlayStatus::default())),
-        ];
+        ]);
         assert_eq!(sent, want);
     }
 
@@ -1361,9 +1491,91 @@ mod tests {
         assert_eq!(metadata[&7], MetadataValue::Int16(300));
         assert_eq!(metadata[&130], MetadataValue::Vec3([0.6, 1.8, 0.0]));
         assert_eq!(metadata[&4], MetadataValue::String("player1".to_owned()));
+        // BDS's types of keys 136 to 140 (P6 `others` data types, m9-facts.md); 139 is not sent.
+        assert_eq!(metadata[&136], MetadataValue::Int32(-1));
+        assert_eq!(metadata[&137], MetadataValue::Int32(-1));
+        assert_eq!(metadata[&138], MetadataValue::Int32(-1));
+        assert_eq!(metadata[&140], MetadataValue::Float32(64.0));
+        // BDS: the last death position in block coordinates, the bed entry as floats.
+        assert_eq!(metadata[&127], MetadataValue::BlockPos([0, 0, 0]));
+        assert_eq!(metadata[&133], MetadataValue::Vec3([0.0, 0.0, 0.0]));
         // BDS's SetActorData for "AnchorBot" is 395 payload bytes (P6); this name is 2 shorter.
         assert_eq!(size(&Packet::SetActorData(data[0].clone())), 395 - 2);
         assert!(packets.contains(&Packet::SetHealth(p::SetHealth { health: 20 })));
+    }
+
+    /// The entity data session 1's own player (runtime ID 1) gets in `packets`.
+    fn own_data(packets: &[Packet]) -> Vec<&crate::protocol::EntityMetadata> {
+        packets
+            .iter()
+            .filter_map(|p| match p {
+                Packet::SetActorData(d) if d.entity_runtime_id == 1 => Some(&d.entity_metadata),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// BDS's player flags (P6 bds-game craft): the spawn window's, and with Breathing (bit 35).
+    const FLAGS: i64 = 844_424_930_656_256;
+    const FLAGS_BREATHING: i64 = FLAGS | 1 << 35;
+
+    #[test]
+    fn the_breathing_flag_comes_with_the_first_tick_after_the_spawn_window_as_bds() {
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (joined, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![joined, radius(1, 1, 8)], &mut output);
+        let window = received(&mut rx).0;
+        assert_eq!(own_data(&window)[0][&0], MetadataValue::Int64(FLAGS));
+        tick(&mut state, &mut vec![initialised(1, 2, 1)], &mut output);
+        let after = received(&mut rx).0;
+        let want =
+            crate::protocol::EntityMetadata::from([(0, MetadataValue::Int64(FLAGS_BREATHING))]);
+        assert_eq!(own_data(&after), [&want]);
+    }
+
+    #[test]
+    fn under_water_the_air_drops_and_out_of_it_refills_as_bds() {
+        let mut server = Server::new(1, |_| {});
+        let eye = BlockPos::containing(server.player(1).position);
+        server.state.worlds[0]
+            .set_block(eye, block::Kind::Water.default_state())
+            .unwrap();
+        server.take(1);
+        server.idle(1);
+        let got = server.take(1);
+        let want = crate::protocol::EntityMetadata::from([
+            (0, MetadataValue::Int64(FLAGS)),
+            (7, MetadataValue::Int16(299)),
+        ]);
+        assert_eq!(
+            own_data(&got),
+            [&want],
+            "out of breath with the first air lost"
+        );
+        server.idle(318);
+        assert_eq!(server.survival(1).air, -19);
+        assert_eq!(server.survival(1).health, 20.0);
+        server.idle(1);
+        let s = server.survival(1);
+        assert_eq!((s.air, s.health), (0, 18.0), "drowning at -20 deals 2");
+        server.state.worlds[0]
+            .set_block(eye, block::Kind::Air.default_state())
+            .unwrap();
+        server.take(1);
+        server.idle(1);
+        let got = server.take(1);
+        let want = crate::protocol::EntityMetadata::from([
+            (0, MetadataValue::Int64(FLAGS_BREATHING)),
+            (7, MetadataValue::Int16(4)),
+        ]);
+        assert_eq!(
+            own_data(&got),
+            [&want],
+            "breathing at once, 4 air back a tick"
+        );
+        server.idle(80);
+        assert_eq!(server.survival(1).air, 300);
     }
 
     #[test]
@@ -1447,6 +1659,23 @@ mod tests {
     }
 
     #[test]
+    fn blast_protection_counts_against_block_and_entity_explosions() {
+        let taken = |cause: Damage, level: u8| {
+            let mut server = Server::new(1, |_| {});
+            let boots = enchanted(
+                ItemKind::DiamondBoots,
+                &[(Enchantment::BlastProtection, level)],
+            );
+            inventory::set_armor(server.player_mut(1), 3, boots);
+            assert!(server.hurt(1, 10.0, cause));
+            20.0 - server.survival(1).health
+        };
+        let entity = taken(Damage::Explosion, 4);
+        assert!(entity < taken(Damage::Explosion, 1), "{entity}");
+        assert_eq!(taken(Damage::BlockExplosion, 4), entity);
+    }
+
+    #[test]
     fn protection_factors_follow_pmmp() {
         assert_eq!(damage::epf(4, 0.75), 5);
         assert_eq!(damage::epf(1, 0.75), 1);
@@ -1512,6 +1741,49 @@ mod tests {
         server.take(1);
         server.take(2);
         server
+    }
+
+    /// The hurt event's data is BDS's damage cause number (P6: drowning 9 in `craft`, an attack 2
+    /// in `others`, lightning 24 in `weather`; m9-facts.md).
+    #[test]
+    fn hurt_events_carry_the_bds_damage_cause() {
+        let mut server = duel(|_| {});
+        let hurt = |packets: &[Packet]| {
+            packets.iter().find_map(|p| match p {
+                Packet::ActorEvent(e) if e.event_type == u8::from(ActorEvent::Hurt) => {
+                    Some(e.event_data)
+                }
+                _ => None,
+            })
+        };
+        attack_player(&mut server.state, sid(1), sid(2));
+        server.idle(1);
+        assert_eq!(hurt(&server.take(2)), Some(2), "an attack");
+        for (cause, number) in [
+            (Damage::Contact, 1),
+            (Damage::Entity, 3),
+            (Damage::Suffocation, 4),
+            (Damage::Fall, 5),
+            (Damage::Fire, 6),
+            (Damage::FireTick, 7),
+            (Damage::Lava, 8),
+            (Damage::Drowning, 9),
+            (Damage::BlockExplosion, 10),
+            (Damage::Explosion, 11),
+            (Damage::Void, 12),
+            (Damage::Magic, 14),
+            (Damage::Starvation, 16),
+            (Damage::FallingBlock, 19),
+            (Damage::Lightning, 24),
+            (Damage::Custom, 0),
+        ] {
+            server.idle(20);
+            server.survival(2).health = 20.0;
+            server.take(2);
+            assert!(damage(&mut server.state, sid(2), 1.0, cause), "{cause:?}");
+            server.idle(1);
+            assert_eq!(hurt(&server.take(2)), Some(number), "{cause:?}");
+        }
     }
 
     #[test]
@@ -1681,6 +1953,68 @@ mod tests {
         server.run(vec![input]);
         assert_eq!(server.survival(1).health, 18.0);
         assert_eq!(server.survival(1).fall_distance, 0.0);
+    }
+
+    /// Clearing the effects removes them in effect ID order, each removal carrying the effect's
+    /// amplifier and the time it had left, as BDS sends them (P6 `syntax` `effect @s clear`,
+    /// m9-facts.md).
+    #[test]
+    fn cleared_effects_go_in_id_order_with_what_they_had() {
+        let mut server = Server::new(1, |_| {});
+        for (effect, amplifier) in [
+            (effect::Type::Regeneration, 0),
+            (effect::Type::JumpBoost, 1),
+            (effect::Type::NightVision, 0),
+        ] {
+            effects::add(
+                &mut server.state,
+                sid(1),
+                effect,
+                Active::new(100, amplifier),
+            );
+        }
+        server.idle(1);
+        server.take(1);
+        effects::clear(&mut server.state, sid(1));
+        server.idle(1);
+        let removed: Vec<(i32, i32, i32)> = server
+            .take(1)
+            .iter()
+            .filter_map(|p| match p {
+                Packet::MobEffect(m) if m.operation == u8::from(MobEffectOperation::Remove) => {
+                    Some((m.effect_type, m.amplifier, m.duration))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(removed, [(8, 1, 99), (10, 0, 99), (16, 0, 99)]);
+        // The API's clear (`/effect <player> clear`) removes in the same order.
+        for (effect, amplifier) in [
+            (effect::Type::Regeneration, 0),
+            (effect::Type::JumpBoost, 1),
+            (effect::Type::NightVision, 0),
+        ] {
+            effects::add(
+                &mut server.state,
+                sid(1),
+                effect,
+                Active::new(100, amplifier),
+            );
+        }
+        server.take(1);
+        server.player_mut(1).clear_effects();
+        let order: Vec<i32> = server
+            .player_mut(1)
+            .outbox
+            .iter()
+            .filter_map(|p| match p {
+                Packet::MobEffect(m) if m.operation == u8::from(MobEffectOperation::Remove) => {
+                    Some(m.effect_type)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(order, [8, 10, 16]);
     }
 
     #[test]
@@ -1898,6 +2232,38 @@ mod tests {
         )));
     }
 
+    /// A player that dies leaves the others' locator bar until it respawns, as BDS shows it (P6
+    /// `others`, m9-facts.md): a hidden location and an invisible waypoint, then a visible one.
+    #[test]
+    fn the_dead_leave_the_locator_bar_until_they_respawn() {
+        let mut server = duel(|_| {});
+        let waypoints = |packets: &[Packet]| -> Vec<(u8, u32, Option<bool>)> {
+            packets
+                .iter()
+                .filter_map(|p| match p {
+                    Packet::LocatorBar(b) => Some(
+                        b.waypoints
+                            .iter()
+                            .map(|w| (w.action, w.waypoint.update_flag, w.waypoint.visible)),
+                    ),
+                    _ => None,
+                })
+                .flatten()
+                .collect()
+        };
+        server.hurt(2, 100.0, Damage::Magic);
+        server.idle(1);
+        let seen = server.take(1);
+        assert!(
+            seen.iter()
+                .any(|p| matches!(p, Packet::PlayerLocation(l) if l.r#type == 1))
+        );
+        assert_eq!(waypoints(&seen), [(3, 2, Some(false))]);
+        damage::respawn(&mut server.state, sid(2));
+        server.idle(1);
+        assert_eq!(waypoints(&server.take(1)), [(3, 2, Some(true))]);
+    }
+
     #[test]
     fn hardcore_players_come_back_as_spectators() {
         let mut server = Server::new(1, |c| {
@@ -1992,7 +2358,7 @@ mod tests {
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, true)));
         assert_eq!(server.state.worlds[0].block(foot), Some(bed(false, true)));
         server.idle(60);
-        let time = server.state.worlds[0].time();
+        let time = server.state.worlds[0].time_ticks();
         assert_eq!(time % 24_000, 0, "{time}");
         assert_eq!(server.survival(1).sleeping, None);
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
@@ -2074,7 +2440,7 @@ mod tests {
         assert!(!sleep(&mut server.state, sid(2), 0, foot), "occupied");
         server.idle(60);
         assert_eq!(
-            server.state.worlds[0].time() % 24_000,
+            server.state.worlds[0].time_ticks() % 24_000,
             14_060,
             "player 2 is awake"
         );
@@ -2115,9 +2481,9 @@ mod tests {
     #[test]
     fn the_world_clock_advances_and_corrects_clients() {
         let mut server = Server::new(1, |_| {});
-        let before = server.state.worlds[0].time();
+        let before = server.state.worlds[0].time_ticks();
         server.idle(300);
-        assert_eq!(server.state.worlds[0].time(), before + 300);
+        assert_eq!(server.state.worlds[0].time_ticks(), before + 300);
         let syncs = server
             .take(1)
             .into_iter()
@@ -2142,7 +2508,7 @@ mod tests {
     #[test]
     fn join_and_leave_cycles_leave_nothing_behind() {
         let mut server = Server::new(1, |_| {});
-        let clocks = server.state.worlds[0].time();
+        let clocks = server.state.worlds[0].time_ticks();
         for i in 0..100 {
             let s = 2 + i;
             let (j, _rx) = join(s, 0);
@@ -2152,7 +2518,7 @@ mod tests {
         }
         assert_eq!(server.state.players.len(), 1);
         assert_eq!(server.state.clock.worlds_len(), 1);
-        assert!(server.state.worlds[0].time() > clocks);
+        assert!(server.state.worlds[0].time_ticks() > clocks);
         assert!(server.player(1).outbox.is_empty());
         let s = server.survival(1);
         assert!(s.held_back.is_empty() && s.cooldowns.is_empty() && s.effects.is_empty());
@@ -2238,8 +2604,17 @@ mod tests {
         };
         assert_eq!(snapshot.start, state.tick);
         assert_eq!(
-            snapshot.spawns,
-            [(0, state.worlds[0].spawn(), 23_995)],
+            snapshot.worlds,
+            [(
+                0,
+                save::WorldValues {
+                    spawn: state.worlds[0].spawn(),
+                    time: 23_995,
+                    time_stopped: false,
+                    difficulty: None,
+                    weather: Weather::Clear,
+                }
+            )],
             "the snapshot carries the time"
         );
         let dir = TempDir::new("time");
@@ -2255,6 +2630,7 @@ mod tests {
         })
         .unwrap();
         requests.blocking_send(Request::Commit(snapshot)).unwrap();
+        requests.blocking_send(Request::Finish).unwrap();
         drop(requests);
         handle.join().unwrap().unwrap();
         assert!(matches!(
@@ -2266,7 +2642,7 @@ mod tests {
         // through the night's end into the next day.
         let reopened = save::open(&dir.0, specs()).unwrap();
         assert_eq!(reopened.tick, state.tick);
-        assert_eq!(reopened.worlds[0].time(), 23_995);
+        assert_eq!(reopened.worlds[0].time_ticks(), 23_995);
         let mut restarted = State::new(
             settings(|_| {}),
             crate::tick::Shared::new(
@@ -2285,9 +2661,12 @@ mod tests {
             tick(&mut state, &mut Vec::new(), &mut output);
             tick(&mut restarted, &mut Vec::new(), &mut restarted_output);
             assert_eq!(restarted.tick, state.tick);
-            assert_eq!(restarted.worlds[0].time(), state.worlds[0].time());
+            assert_eq!(
+                restarted.worlds[0].time_ticks(),
+                state.worlds[0].time_ticks()
+            );
         }
-        assert_eq!(restarted.worlds[0].time(), 24_035);
+        assert_eq!(restarted.worlds[0].time_ticks(), 24_035);
         assert_eq!(restarted.worlds[0].time_of_day(), 35, "a new day");
     }
 
@@ -2709,6 +3088,7 @@ mod tests {
             skin: crate::tick::queue::Skin::new(skin.clone()),
             device_os: 7,
             address: None,
+            client: crate::tick::queue::Client::default(),
         };
         let (j, mut rx) = join_with(2, identity.clone());
         server.run(vec![j, radius(2, 1, 8)]);
@@ -2785,7 +3165,7 @@ mod tests {
         // Another world: its chunks and clock, the old world's chunks let go.
         let spawn = BlockPos::new(0, -60, 0);
         let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
-        server.state.worlds.push(other);
+        server.state.add_world(other);
         server.state.worlds[1].set_time(5_000);
         server.take(1);
         let there = Vec3::new(0.5, -58.38, 0.5);
@@ -2814,12 +3194,75 @@ mod tests {
         assert_eq!(server.state.chunks.held(), held);
     }
 
+    // pmmp: Player::teleport
+    #[test]
+    fn a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty() {
+        let mut state = new_state(
+            settings(|c| c.developer.chunks_per_tick = 1),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 2)], &mut output);
+        received(&mut rx);
+        assert_eq!(state.players[&sid(1)].phase, Phase::Joined);
+        let spawn = BlockPos::new(0, -60, 0);
+        let mut other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
+        other.set_difficulty(Some(Difficulty::Peaceful));
+        state.add_world(other);
+        teleport(&mut state, sid(1), 1, Vec3::new(0.5, -58.38, 0.5));
+        tick(&mut state, &mut Vec::new(), &mut output);
+        let set: Vec<u32> = received(&mut rx)
+            .0
+            .iter()
+            .filter_map(|p| match p {
+                Packet::SetDifficulty(d) => Some(d.difficulty),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(set, [0]);
+    }
+
+    #[test]
+    fn a_world_with_a_smaller_view_distance_shrinks_the_radius_and_tells_the_client() {
+        let mut server = Server::new(1, |c| {
+            c.general.view_distance = 4;
+            let world = crate::config::WorldSettings {
+                view_distance: Some(10),
+                ..crate::config::WorldSettings::default()
+            };
+            c.worlds.insert("world".to_owned(), world);
+        });
+        assert_eq!(
+            server.player(1).view.radius(),
+            8,
+            "the default world allows 10"
+        );
+        let spawn = BlockPos::new(0, -60, 0);
+        let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
+        server.state.add_world(other);
+        teleport(&mut server.state, sid(1), 1, Vec3::new(0.5, -58.38, 0.5));
+        assert_eq!(
+            server.player(1).view.radius(),
+            4,
+            "the other world allows 4"
+        );
+        assert_eq!(server.player(1).chunk_radius, Some(4));
+        server.idle(1);
+        assert!(
+            server
+                .take(1)
+                .iter()
+                .any(|p| matches!(p, Packet::ChunkRadiusUpdated(c) if c.chunk_radius == 4))
+        );
+    }
+
     #[test]
     fn players_respawn_at_a_spawn_point_in_another_world() {
         let mut server = Server::new(1, |_| {});
         let spawn = BlockPos::new(0, -60, 0);
         let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
-        server.state.worlds.push(other);
+        server.state.add_world(other);
         server.survival(1).spawn = Some(Point {
             world: "other".to_owned(),
             pos: BlockPos::new(2, -60, 2),
@@ -2845,11 +3288,13 @@ mod tests {
 
     #[test]
     fn held_back_death_drops_survive_a_restart_and_drop_without_loss() {
-        let named = stack(ItemKind::DiamondSword, 1).with_extra(Some(Extra {
-            custom_name: Some("Edge".to_owned()),
-            enchantments: vec![(Enchantment::Sharpness, 3)],
-            ..Extra::default()
-        }));
+        let named = stack(ItemKind::DiamondSword, 1)
+            .with_extra(Some(Extra {
+                custom_name: Some("Edge".to_owned()),
+                enchantments: vec![(Enchantment::Sharpness, 3)],
+                ..Extra::default()
+            }))
+            .unwrap();
         let held: Vec<Stack> = vec![
             stack(ItemKind::Bread, 64),
             named,

@@ -457,6 +457,38 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
     assert_eq!(store.list(KEY), [big]);
 }
 
+/// A scale is refused, by the API and on disk, when it would make the box larger than 16 blocks
+/// on a side; a small kind may scale further.
+#[test]
+fn scale_is_refused_when_the_box_would_exceed_16_blocks() {
+    let big = || vec![Definition::new("test:big").with_size(16.0, 16.0)];
+    let mut h = harness(1, big());
+    let id = spawn(&mut h, "test:big", at(2.5, -60.0, 2.5));
+    let mut cx = context(&mut h);
+    let mut m = cx.entity_mut(id).unwrap();
+    assert!(!m.set_scale(64.0));
+    assert!(m.set_scale(1.0));
+    let stick = crate::item::Stack::new(crate::item::Kind::Stick.default_type(), 1);
+    let item = cx
+        .drop_item(WORLD, at(3.5, -60.0, 3.5), stick, None)
+        .unwrap();
+    assert!(
+        cx.entity_mut(item).unwrap().set_scale(64.0),
+        "0.25 × 64 = 16"
+    );
+    // A saved big entity with scale 64 is not loaded.
+    let mut c = saved::save(context(&mut h).entity(id).unwrap());
+    c.insert("Scale".to_owned(), Value::Float(64.0));
+    let mut store = Entities::default();
+    store.set_customs(registry(big()));
+    store.load(
+        KEY,
+        std::slice::from_ref(&c),
+        &crate::custom::Registry::default(),
+    );
+    assert_eq!(store.count(0), 0);
+}
+
 #[test]
 fn the_entity_cap_and_the_spawn_checks_apply_to_custom_entities() {
     let mut h = harness(1, vec![ghost()]);

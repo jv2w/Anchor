@@ -1,7 +1,10 @@
 //! A sub-chunk's 4-bit light values (PLAN.md 10.7): one value per block, two to a byte, or one
-//! value for the whole cube, which costs no allocation (PMMP `LightArray::fill`).
+//! value for the whole cube, which costs no allocation (PMMP `LightArray::fill`). A full array is
+//! shared until it changes (copy on write), so a checkpoint keeps the light of every loaded chunk
+//! without copying it on the tick (PLAN.md 10.9 재생 도구).
 
 use std::fmt;
+use std::sync::Arc;
 
 /// Bytes of a full array: 4096 values of 4 bits.
 const BYTES: usize = 2048;
@@ -11,8 +14,9 @@ const BYTES: usize = 2048;
 pub(crate) enum Nibbles {
     /// Every block has this value.
     Uniform(u8),
-    /// One value per block: the low nibble is the even offset.
-    Full(Box<[u8; BYTES]>),
+    /// One value per block: the low nibble is the even offset. Copies share the bytes until one
+    /// of them changes.
+    Full(Arc<[u8; BYTES]>),
 }
 
 impl Nibbles {
@@ -39,10 +43,10 @@ impl Nibbles {
             if v == value {
                 return;
             }
-            *self = Self::Full(Box::new([v | (v << 4); BYTES]));
+            *self = Self::Full(Arc::new([v | (v << 4); BYTES]));
         }
         if let Self::Full(bytes) = self
-            && let Some(byte) = bytes.get_mut(usize::from(offset >> 1))
+            && let Some(byte) = Arc::make_mut(bytes).get_mut(usize::from(offset >> 1))
         {
             *byte = if offset & 1 == 0 {
                 (*byte & 0xf0) | value
@@ -66,8 +70,9 @@ impl Nibbles {
         if values.iter().all(|&v| v == first) {
             return Self::Uniform(first & 15);
         }
-        let mut bytes = Box::new([0; BYTES]);
-        for (byte, [low, high]) in bytes.iter_mut().zip(values.as_chunks::<2>().0) {
+        let mut bytes = Arc::new([0; BYTES]);
+        let packed = Arc::make_mut(&mut bytes);
+        for (byte, [low, high]) in packed.iter_mut().zip(values.as_chunks::<2>().0) {
             *byte = (low & 15) | (high << 4);
         }
         Self::Full(bytes)
@@ -78,6 +83,39 @@ impl Nibbles {
         match self {
             Self::Uniform(_) => 0,
             Self::Full(_) => BYTES,
+        }
+    }
+}
+
+/// A uniform cube by its value, a full one by its 2048 bytes.
+impl crate::tick::checkpoint::Codec for Nibbles {
+    fn encode(&self, w: &mut crate::tick::checkpoint::Writer) {
+        match self {
+            Self::Uniform(v) => {
+                w.u8(0);
+                w.u8(*v);
+            }
+            Self::Full(bytes) => {
+                w.u8(1);
+                w.raw(&bytes[..]);
+            }
+        }
+    }
+
+    fn decode(
+        r: &mut crate::tick::checkpoint::Reader<'_>,
+    ) -> crate::tick::checkpoint::Result<Self> {
+        use crate::tick::checkpoint::Error;
+        match r.u8()? {
+            0 => Ok(Self::Uniform(r.u8()? & 15)),
+            1 => {
+                let bytes: [u8; BYTES] = r
+                    .take(BYTES)?
+                    .try_into()
+                    .map_err(|_| Error::Format("light array"))?;
+                Ok(Self::Full(Arc::new(bytes)))
+            }
+            _ => Err(Error::Format("light array kind")),
         }
     }
 }

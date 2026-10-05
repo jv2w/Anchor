@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::protocol::consts::{TextType, TitleAction};
 use crate::protocol::packet::{Packet, SetTitle, Text, ToastRequest};
+use crate::protocol::{TEXT_MESSAGE_MAX_LEN, TEXT_PARAMETERS_MAX_LEN, TEXT_SOURCE_NAME_MAX_LEN};
 pub use crate::tick::Player;
 use crate::tick::queue::SessionId;
 
@@ -46,6 +47,8 @@ pub enum Error {
     Leaving,
     /// A transfer address is empty or longer than 253 bytes (the longest host name).
     InvalidAddress,
+    /// A server setting turns the system off (`hunger`, `experience` or `drowning` false).
+    Disabled,
 }
 
 impl fmt::Display for Error {
@@ -58,6 +61,7 @@ impl fmt::Display for Error {
             Self::UnknownWorld => "the server has no such world",
             Self::Leaving => "the player is leaving",
             Self::InvalidAddress => "the transfer address is invalid",
+            Self::Disabled => "a server setting turns this off",
         })
     }
 }
@@ -133,11 +137,11 @@ pub fn level_from_xp(xp: u64) -> (u32, f64) {
 }
 
 /// The longest text a client decodes in a message (gophertunnel `Text` bound).
-pub(crate) const MAX_TEXT: usize = 65_536;
+pub(crate) const MAX_TEXT: usize = TEXT_MESSAGE_MAX_LEN;
 /// The longest chat source name a client decodes.
-const MAX_SOURCE: usize = 256;
+const MAX_SOURCE: usize = TEXT_SOURCE_NAME_MAX_LEN;
 /// The most parameters of a translated message a client decodes.
-const MAX_PARAMETERS: usize = 4;
+const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
 
 /// Something to show a player with [`Player::send`] or everyone with
 /// [`Context::broadcast`](crate::Context::broadcast): PMMP's message methods merged into one

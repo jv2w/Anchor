@@ -1,0 +1,481 @@
+//! `cargo xtask p6 import`: the world import against BDS (PLAN.md 10.9). It starts the BDS copy on
+//! a new world with BDS's own terrain (seed [`SEED`]) and spawn radius 0, lets the spawn bot record
+//! the sub-chunks BDS sends (`target/p6/import-bds/spawn.world.jsonl`), stops BDS, which saves the
+//! world, and copies the world folder to `target/p6/import-world/` (BDS never runs from it). It
+//! then imports that folder into Anchor's default world (a Void world of the same name) with
+//! `Server::import_world`, starts Anchor, lets the bot record the sub-chunks Anchor sends
+//! (`import-anchor/spawn.world.jsonl`), and compares them block by block: every block of every
+//! sub-chunk both servers sent, in every layer (a layer one side does not send is air), must have
+//! the same network ID.
+//!
+//! Anchor keeps a block PMMP does not have as an unknown block and sends it as `info_update`: a
+//! block BDS sends where Anchor sends `info_update` is an intended difference when its name is
+//! listed in `xtask/data/p6/intended.txt` as `import | block <name> | <reason>`. A block BDS sends
+//! that Anchor sends as the state PMMP reads it as is intended too: PMMP ignores some vanilla
+//! properties, such as a pumpkin's facing (`xtask/data/pmmp/deserialized.json`). Every other
+//! difference fails, printed as the pair of states with how many blocks and where.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
+use std::path::Path;
+
+use serde_json::Value;
+
+use crate::r#gen::data::Data;
+
+use super::{
+    BDS_DIR, BdsSession, OUT_DIR, REFERENCE_BLOCKS, anchor_config, bds_session_with, block_states,
+    build_bot, create_dir, field, install_log, is_file, now, pause, read_text, remove_dir,
+    run_anchor, run_bot, say,
+};
+
+/// The scenario's name in `intended.txt`.
+pub(super) const SCENARIO: &str = "import";
+/// The seed of BDS's world.
+const SEED: &str = "20261004";
+/// The world's name, in BDS and in Anchor.
+const WORLD: &str = "p6-import";
+/// The intended differences, relative to the repository root.
+const INTENDED: &str = "xtask/data/p6/intended.txt";
+/// How long to wait for BDS to confirm the game rule.
+const RULE_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+/// Game rules set before the bot joins: the player spawns on the world spawn, as Anchor puts
+/// it, and nothing changes blocks between BDS sending them and saving them but what the
+/// world's own pending updates do (fire burned vines next to lava in an earlier run).
+const RULES: [(&str, &str); 4] = [
+    ("spawnradius", "0"),
+    ("dofiretick", "false"),
+    ("randomtickspeed", "0"),
+    ("domobspawning", "false"),
+];
+
+/// Runs the scenario; returns whether it passed.
+pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
+    let exe = root.join(BDS_DIR).join("bedrock_server.exe");
+    if !is_file(&exe) {
+        return Err(format!(
+            "{} is missing: copy BDS 1.26.52.3 into {BDS_DIR} (never run the original)",
+            exe.display()
+        ));
+    }
+    let bot = build_bot(root)?;
+    let states = block_states(&read_text(&root.join(REFERENCE_BLOCKS))?)?;
+    let intended = intended(&read_text(&root.join(INTENDED))?)?;
+    let aliases = aliases(root)?;
+    let dir = |name: &str| root.join(OUT_DIR).join(name);
+    let (bds_dir, world_dir, anchor_dir) =
+        (dir("import-bds"), dir("import-world"), dir("import-anchor"));
+
+    let session = BdsSession {
+        transport: "raknet",
+        compression: "snappy",
+        settings: &[
+            ("level-type", "DEFAULT"),
+            ("level-seed", SEED),
+            ("level-name", WORLD),
+        ],
+    };
+    let mut passed = bds_session_with(
+        &exe,
+        &bds_dir,
+        &session,
+        |_| Ok(()),
+        out,
+        |addr, bds, out| {
+            let log = bds_dir.join("bds.log");
+            for (rule, value) in RULES {
+                bds.command(&format!("gamerule {rule} {value}"))?;
+                let deadline = now() + RULE_WAIT;
+                while !read_text(&log)?.contains(rule) {
+                    if now() > deadline {
+                        return Err(format!("BDS did not confirm `gamerule {rule} {value}`"));
+                    }
+                    pause();
+                }
+            }
+            spawn_bot(&bot, addr, &bds_dir, "BDS", out)
+        },
+    )?;
+    let saved = exe
+        .parent()
+        .ok_or("the BDS copy has no folder")?
+        .join("worlds")
+        .join(WORLD);
+    remove_dir(&world_dir)?;
+    copy_dir(&saved, &world_dir)?;
+
+    passed &= anchor_session(&bot, &world_dir, &anchor_dir, out)?;
+    let read = |d: &Path| {
+        let path = d.join("spawn.world.jsonl");
+        sub_chunks(&read_text(&path)?).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    passed &= compare(
+        &read(&bds_dir)?,
+        &read(&anchor_dir)?,
+        &states,
+        &intended,
+        &aliases,
+        out,
+    )?;
+    say(out, if passed { "PASS" } else { "FAIL" })?;
+    Ok(passed)
+}
+
+/// The network ID of each reference state that is not an Anchor state but that PMMP reads as
+/// one, with that Anchor state's network ID (the generator's aliases).
+fn aliases(root: &Path) -> Result<BTreeMap<u32, u32>, String> {
+    let data = Data::load(root)?;
+    data.aliases
+        .iter()
+        .map(|a| {
+            let state = data
+                .states
+                .get(usize::from(a.state))
+                .ok_or("an alias names no state")?;
+            Ok((a.network_id, state.network_id))
+        })
+        .collect()
+}
+
+/// Runs the spawn bot against `addr` into `<dir>/spawn.jsonl`.
+fn spawn_bot(
+    bot: &Path,
+    addr: &str,
+    dir: &Path,
+    server: &str,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let capture = dir.join("spawn.jsonl");
+    let args = ["-addr", addr, "-transport", "raknet", "-scenario", "spawn"];
+    let outcome = run_bot(bot, &args, &capture)?;
+    let status = if outcome.passed { "ok  " } else { "FAIL" };
+    say(
+        out,
+        &format!("{status} {server} spawn{}", outcome.failure()),
+    )?;
+    Ok(outcome.passed)
+}
+
+/// Imports `world` into a fresh Anchor data folder under `out_dir`, starts Anchor on it and runs
+/// the spawn bot.
+fn anchor_session(
+    bot: &Path,
+    world: &Path,
+    out_dir: &Path,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let data_dir = out_dir.join("data");
+    remove_dir(&data_dir)?;
+    create_dir(&data_dir)?;
+    let mut config = anchor_config();
+    WORLD.clone_into(&mut config.general.level_name);
+    config.general.level_type = anchor::config::LevelType::Void;
+    let server = anchor::Server::builder()
+        .config(config)
+        .data_dir(&data_dir)
+        .without_console_log()
+        .build()
+        .map_err(|e| format!("build Anchor: {e}"))?;
+    install_log()?;
+    let report = server
+        .import_world(world, WORLD)
+        .map_err(|e| format!("import: {e} ({:?})", std::error::Error::source(&e)))?;
+    say(out, &format!("import: {report:?}"))?;
+    let passed = run_anchor(server, |ports| {
+        let addr = format!("127.0.0.1:{}", ports.raknet);
+        spawn_bot(bot, &addr, out_dir, "Anchor", out)
+    })?;
+    Ok(passed && report.chunks() > 0)
+}
+
+/// Blocks in a sub-chunk layer.
+const BLOCKS: usize = 4096;
+/// How many blocks of a pair of states differ, and where the first [`EXAMPLES`] are: x, y, z and
+/// layer.
+type Differing = (usize, Vec<[i64; 4]>);
+/// Differing blocks shown per pair of states.
+const EXAMPLES: usize = 3;
+
+/// The layers of one sent sub-chunk, each its 4,096 block network IDs in storage order (x, z,
+/// y).
+type Layers = Vec<Vec<u32>>;
+
+/// The sub-chunks of a capture's `<capture>.world.jsonl`, by absolute sub-chunk position, decoded
+/// from their payloads (the last answer wins).
+fn sub_chunks(world: &str) -> Result<BTreeMap<[i64; 3], Layers>, String> {
+    let mut out = BTreeMap::new();
+    for (i, line) in world.lines().enumerate() {
+        let at = |e: &str| format!("line {}: {e}", i + 1);
+        let value: Value = serde_json::from_str(line).map_err(|e| at(&e.to_string()))?;
+        if field(&value, "name").as_str() != Some("SubChunk") {
+            continue;
+        }
+        let fields = field(&value, "fields");
+        let centre = field(fields, "Position");
+        for entry in field(fields, "SubChunkEntries")
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let Some(payload) = field(entry, "RawPayload").as_str() else {
+                continue;
+            };
+            let offset = field(entry, "Offset");
+            let mut position = [0i64; 3];
+            for (k, slot) in position.iter_mut().enumerate() {
+                let (Some(c), Some(o)) = (
+                    centre.get(k).and_then(Value::as_i64),
+                    offset.get(k).and_then(Value::as_i64),
+                ) else {
+                    return Err(at("a position is not numbers"));
+                };
+                *slot = c + o;
+            }
+            let layers = layers(&base64(payload).map_err(|e| at(&e))?).map_err(|e| at(&e))?;
+            out.insert(position, layers);
+        }
+    }
+    Ok(out)
+}
+
+/// Standard base64 with padding, as Go's JSON writes byte slices.
+fn base64(text: &str) -> Result<Vec<u8>, String> {
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in text.bytes().filter(|&c| c != b'=') {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return Err(format!("not base64: {c}")),
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(u8::try_from((acc >> bits) & 0xff).unwrap_or_default());
+        }
+    }
+    Ok(out)
+}
+
+/// The block layers of a network sub-chunk payload (version 8 or 9, runtime palettes): each
+/// layer's network ID of every block.
+fn layers(payload: &[u8]) -> Result<Layers, String> {
+    let mut r = payload.iter().copied();
+    let mut byte = || r.next().ok_or("the payload ends early");
+    let version = byte()?;
+    let count = byte()?;
+    if version == 9 {
+        byte()?;
+    } else if version != 8 {
+        return Err(format!("sub-chunk version {version}"));
+    }
+    let mut layers = Vec::with_capacity(usize::from(count));
+    for _ in 0..count {
+        let bits = usize::from(byte()? >> 1);
+        if !matches!(bits, 0..=6 | 8 | 16) {
+            return Err(format!("width {bits}"));
+        }
+        let mut words = Vec::new();
+        // Indices per word; none at width 0.
+        let per = 32usize.checked_div(bits);
+        if let Some(per) = per {
+            for _ in 0..BLOCKS.div_ceil(per) {
+                words.push(u32::from_le_bytes([byte()?, byte()?, byte()?, byte()?]));
+            }
+        }
+        let mut varint = || -> Result<i32, String> {
+            let mut value = 0u32;
+            for shift in (0..35).step_by(7) {
+                let b = byte()?;
+                value |= u32::from(b & 0x7f) << shift;
+                if b & 0x80 == 0 {
+                    // Zigzag, as gophertunnel's Varint32.
+                    return Ok((value >> 1).cast_signed() ^ -(value & 1).cast_signed());
+                }
+            }
+            Err("a varint is too long".to_owned())
+        };
+        let len = if per.is_some() { varint()? } else { 1 };
+        let palette = (0..len)
+            .map(|_| varint().map(i32::cast_unsigned))
+            .collect::<Result<Vec<u32>, String>>()?;
+        let blocks = (0..BLOCKS)
+            .map(|i| {
+                let index = per.map_or(0, |per| {
+                    let word = words.get(i / per).copied().unwrap_or_default();
+                    (word >> ((i % per) * bits)) & ((1 << bits) - 1)
+                });
+                palette
+                    .get(usize::try_from(index).unwrap_or(usize::MAX))
+                    .copied()
+                    .ok_or_else(|| format!("block {i} indexes past the palette"))
+            })
+            .collect::<Result<Vec<u32>, String>>()?;
+        layers.push(blocks);
+    }
+    Ok(layers)
+}
+
+/// The intended blocks of the scenario: `import | block <name> | <reason>` lines of
+/// `intended.txt`, by block name.
+fn intended(text: &str) -> Result<BTreeSet<String>, String> {
+    let mut names = BTreeSet::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix(&format!("{SCENARIO} | ")) else {
+            continue;
+        };
+        let name = rest
+            .strip_prefix("block ")
+            .and_then(|r| r.split_once(" | "))
+            .map(|(name, _)| name)
+            .ok_or_else(|| {
+                format!("{INTENDED}: want `{SCENARIO} | block <name> | <reason>`: {line}")
+            })?;
+        names.insert(name.to_owned());
+    }
+    Ok(names)
+}
+
+/// A network ID's state as `name[properties]`.
+fn state_name(states: &BTreeMap<u32, String>, id: u32) -> String {
+    states
+        .get(&id)
+        .cloned()
+        .unwrap_or_else(|| format!("network id {id}"))
+}
+
+/// Compares, block by block, the sub-chunks both captures hold and prints the result: each pair
+/// of differing states with how many blocks and the first positions. Where Anchor sends
+/// `info_update` (an unknown block), BDS's block is excused when its name is listed as intended
+/// and the second layers agree, or when BDS sends Anchor's second-layer liquid in its place (a
+/// waterlogged block BDS sends as its water, such as a bubble column). Where Anchor sends the
+/// state PMMP reads BDS's as (`aliases`), the block is excused too.
+fn compare(
+    bds: &BTreeMap<[i64; 3], Layers>,
+    anchor: &BTreeMap<[i64; 3], Layers>,
+    states: &BTreeMap<u32, String>,
+    intended: &BTreeSet<String>,
+    aliases: &BTreeMap<u32, u32>,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let id_of = |name: &str| {
+        states
+            .iter()
+            .find(|(_, s)| s.as_str() == name)
+            .map(|(id, _)| *id)
+            .ok_or_else(|| format!("the reference list has no {name}"))
+    };
+    let (air, unknown) = (id_of("minecraft:air[]")?, id_of("minecraft:info_update[]")?);
+    let name = |id: u32| {
+        let state = state_name(states, id);
+        state.split('[').next().unwrap_or_default().to_owned()
+    };
+    // (BDS state, Anchor state) → count and the first positions.
+    let mut pairs: BTreeMap<(u32, u32), Differing> = BTreeMap::new();
+    let mut excused: BTreeMap<String, usize> = BTreeMap::new();
+    let mut compared = 0usize;
+    for (at, a) in bds {
+        let Some(b) = anchor.get(at) else {
+            continue;
+        };
+        compared += 1;
+        let block = |l: &Layers, layer: usize, i: usize| {
+            l.get(layer).and_then(|l| l.get(i)).copied().unwrap_or(air)
+        };
+        for i in 0..BLOCKS {
+            let (a0, a1, b0, b1) = (
+                block(a, 0, i),
+                block(a, 1, i),
+                block(b, 0, i),
+                block(b, 1, i),
+            );
+            if b0 == unknown && a0 != unknown {
+                if intended.contains(&name(a0)) && a1 == b1 {
+                    *excused.entry(name(a0)).or_default() += 1;
+                    continue;
+                }
+                if a1 == air && a0 == b1 && name(b1).contains("water") {
+                    *excused
+                        .entry("a waterlogged unknown block sent as its water".to_owned())
+                        .or_default() += 1;
+                    continue;
+                }
+            }
+            for layer in 0..a.len().max(b.len()).max(2) {
+                let (x, y) = (block(a, layer, i), block(b, layer, i));
+                if x == y {
+                    continue;
+                }
+                if aliases.get(&x) == Some(&y) {
+                    *excused
+                        .entry(format!("{} as PMMP reads it", name(x)))
+                        .or_default() += 1;
+                    continue;
+                }
+                let n = i64::try_from(i).unwrap_or_default();
+                let pos = [
+                    at[0] * 16 + (n >> 8),
+                    at[1] * 16 + (n & 15),
+                    at[2] * 16 + ((n >> 4) & 15),
+                    i64::try_from(layer).unwrap_or_default(),
+                ];
+                let entry = pairs.entry((x, y)).or_default();
+                entry.0 += 1;
+                if entry.1.len() < EXAMPLES {
+                    entry.1.push(pos);
+                }
+            }
+        }
+    }
+    for ((x, y), (count, examples)) in &pairs {
+        say(
+            out,
+            &format!(
+                "DIFFERENT {SCENARIO}: {count} blocks BDS {} Anchor {}, at (x, y, z, layer) \
+                 {examples:?}",
+                state_name(states, *x),
+                state_name(states, *y)
+            ),
+        )?;
+    }
+    say(
+        out,
+        &format!(
+            "{SCENARIO}: {compared} sub-chunks both servers sent ({} only BDS sent, {} only Anchor \
+             sent); intended blocks (unknown blocks Anchor sends as info_update, and blocks Anchor \
+             sends as PMMP reads them): {excused:?}",
+            bds.keys().filter(|k| !anchor.contains_key(*k)).count(),
+            anchor.keys().filter(|k| !bds.contains_key(*k)).count(),
+        ),
+    )?;
+    for name in intended.iter().filter(|n| !excused.contains_key(*n)) {
+        say(
+            out,
+            &format!("note {SCENARIO}: `block {name}` in {INTENDED} was not seen"),
+        )?;
+    }
+    Ok(compared > 0 && pairs.is_empty())
+}
+
+/// Copies the folder `from` with everything in it to `to`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
+    create_dir(to)?;
+    for entry in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
+        let entry = entry.map_err(|e| format!("{}: {e}", from.display()))?;
+        let (source, target) = (entry.path(), to.join(entry.file_name()));
+        if source.is_dir() {
+            copy_dir(&source, &target)?;
+        } else {
+            std::fs::copy(&source, &target).map_err(|e| format!("{}: {e}", source.display()))?;
+        }
+    }
+    Ok(())
+}

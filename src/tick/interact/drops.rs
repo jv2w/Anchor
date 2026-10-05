@@ -56,7 +56,7 @@ impl Drops {
 }
 
 /// The level of an enchantment on a stack, 0 if it has none.
-pub(super) fn level(stack: &Stack, enchantment: Enchantment) -> u8 {
+pub(in crate::tick) fn level(stack: &Stack, enchantment: Enchantment) -> u8 {
     stack
         .extra()
         .and_then(|e| e.enchantments.iter().find(|(x, _)| *x == enchantment))
@@ -682,7 +682,7 @@ mod tests {
             enchantments: vec![(Enchantment::SilkTouch, 1)],
             ..Extra::default()
         };
-        Stack::new(tool, 1).with_extra(Some(extra))
+        Stack::new(tool, 1).with_extra(Some(extra)).unwrap()
     }
 
     /// `tool` with Fortune of `level`.
@@ -691,7 +691,7 @@ mod tests {
             enchantments: vec![(Enchantment::Fortune, level)],
             ..Extra::default()
         };
-        Stack::new(tool, 1).with_extra(Some(extra))
+        Stack::new(tool, 1).with_extra(Some(extra)).unwrap()
     }
 
     /// The drops as (item, count) sorted, for comparing with the golden stacks.

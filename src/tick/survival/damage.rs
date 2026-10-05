@@ -24,14 +24,14 @@ use crate::item::{Class, Enchantment, Stack, Type};
 use crate::math::{self, Vec3};
 use crate::player;
 use crate::protocol::EntityProperties;
-use crate::protocol::consts::{ActorEvent, AnimateAction, LevelEvent, RespawnState, SoundEvent};
+use crate::protocol::consts::{ActorEvent, AnimateAction, RespawnState};
 use crate::protocol::packet::{
     self, Animate, DeathInfo, Packet, Respawn, SetActorData, SetActorMotion,
 };
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::tick::{Phase, Player, SessionId, State, dispatch, entity, inventory};
-use crate::world::{self, BlockPos};
+use crate::tick::{Phase, Player, SessionId, State, dispatch, entity, interact, inventory};
+use crate::world::{self, BlockPos, Sound};
 
 /// Why a player takes damage (PMMP `EntityDamageEvent::CAUSE_*`).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,6 +70,8 @@ pub(in crate::tick) enum Damage {
     FallingBlock,
     /// The player killed itself (`/kill`): no modifier, invulnerability or game mode spares it.
     Suicide,
+    /// A lightning bolt (no PMMP cause: an [`EntityDamage`] names it custom).
+    Lightning,
     /// Damage without a game cause.
     Custom,
 }
@@ -109,7 +111,7 @@ impl Damage {
             Self::Contact => DamageCause::Contact,
             Self::FallingBlock => DamageCause::FallingBlock,
             Self::Suicide => DamageCause::Suicide,
-            Self::Custom => DamageCause::Custom,
+            Self::Lightning | Self::Custom => DamageCause::Custom,
         }
     }
 
@@ -140,6 +142,32 @@ impl Damage {
         }
     }
 
+    /// BDS's damage cause number, which the hurt event carries (P6, m9-facts.md: an attack 2, a
+    /// projectile 3, drowning 9, lightning 24; the others in the same numbering, PMMP's
+    /// `EntityDamageEvent::CAUSE_*` plus one, 0 for none).
+    pub(in crate::tick) fn bds_cause(self) -> i32 {
+        match self {
+            Self::Custom => 0,
+            Self::Contact => 1,
+            Self::Attack(_) | Self::Melee => 2,
+            Self::Entity => 3,
+            Self::Suffocation => 4,
+            Self::Fall => 5,
+            Self::Fire => 6,
+            Self::FireTick => 7,
+            Self::Lava => 8,
+            Self::Drowning => 9,
+            Self::BlockExplosion => 10,
+            Self::Explosion => 11,
+            Self::Void => 12,
+            Self::Suicide => 13,
+            Self::Magic => 14,
+            Self::Starvation => 16,
+            Self::FallingBlock => 19,
+            Self::Lightning => 24,
+        }
+    }
+
     /// Whether it is fire damage (fire resistance cancels it).
     fn is_fire(self) -> bool {
         matches!(self, Self::Fire | Self::FireTick | Self::Lava)
@@ -162,7 +190,7 @@ impl Damage {
             Self::Starvation => "death.attack.starve",
             Self::Contact => "death.attack.cactus",
             Self::FallingBlock => "death.attack.fallingBlock",
-            Self::Melee | Self::Suicide | Self::Custom => GENERIC_DEATH,
+            Self::Melee | Self::Suicide | Self::Lightning | Self::Custom => GENERIC_DEATH,
         }
     }
 }
@@ -447,10 +475,22 @@ fn lands(player: &Player, hit: &Hit) -> bool {
 
 /// Whether a hit lands and how much it deals (PMMP `Player::attack`, `Living::attack`,
 /// `Living::applyDamageModifiers`, `Human::applyDamageModifiers`); `None` if it is cancelled.
-/// Each modifier is kept for the event as well as added up, in PMMP's order.
+/// Each modifier is kept for the event as well as added up, in PMMP's order. A system the
+/// settings turn off hurts no one, whatever deals the hit (`fall-damage`: an ender pearl's fall
+/// too; `drowning`), and with `armor = false` worn armour reduces nothing.
 fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let tick = state.tick;
     let seed = world_seed(state, session);
+    let settings = &state.settings;
+    let spared = match hit.cause {
+        Damage::Fall => !settings.fall_damage,
+        Damage::Drowning | Damage::Suffocation => !settings.drowning,
+        _ => false,
+    };
+    if spared {
+        return None;
+    }
+    let armor = settings.armor;
     let player = state.players.get_mut(&session)?;
     if !lands(player, &hit) {
         return None;
@@ -477,7 +517,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
                 -last,
             );
         }
-        if hit.cause.reducible() {
+        if armor && hit.cause.reducible() {
             let d = total(sum) * f64::from(armor_points(player)) * 0.04;
             sum -= d;
             set(&mut modifiers, DamageModifier::Armor, -d);
@@ -488,7 +528,11 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
             sum -= d;
             set(&mut modifiers, DamageModifier::Resistance, -d);
         }
-        let epf = protection_factor(player, hit.cause).min(MAX_EPF);
+        let epf = if armor {
+            protection_factor(player, hit.cause).min(MAX_EPF)
+        } else {
+            0
+        };
         if epf > 0 {
             let mut r = player_random(seed, tick, player, PROTECTION);
             let roll = f64::from(r.range(50, 100)) / 100.0;
@@ -501,12 +545,14 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
         absorption = -math::min(s.absorption, total(sum));
         sum += absorption;
         set(&mut modifiers, DamageModifier::Absorption, absorption);
-        let helmet = player
-            .inventory
-            .armor()
-            .first()
-            .is_some_and(|h| h.item().and_then(Type::armor).is_some());
-        if hit.cause == Damage::FallingBlock && helmet {
+        let helmet = || {
+            player
+                .inventory
+                .armor()
+                .first()
+                .is_some_and(|h| h.item().and_then(Type::armor).is_some())
+        };
+        if armor && hit.cause == Damage::FallingBlock && helmet() {
             let d = total(sum) / 4.0;
             sum -= d;
             set(&mut modifiers, DamageModifier::ArmorHelmet, -d);
@@ -535,7 +581,8 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
 /// Applies a hit that landed (PMMP `Entity::attack` → `setHealth`, then `Living::attack`'s
 /// cooldown, knockback, hurt animation and `applyPostDamageEffects`). A quiet hit raises no
 /// events: its death and wake wait for the player's survival sync, its exhaustion and totem
-/// effects go in directly.
+/// effects go in directly. With `armor = false` worn armour neither wears nor answers with
+/// thorns.
 fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::Raise) {
     let Landed {
         hit,
@@ -577,7 +624,11 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
         if let Some(attacker) = hit.attacker {
             knock_back_from(state, session, attacker, knockback, vertical_limit);
         }
-        let packet = actor_event(player_runtime_id(state, session), ActorEvent::Hurt, 0);
+        let packet = actor_event(
+            player_runtime_id(state, session),
+            ActorEvent::Hurt,
+            hit.cause.bds_cause(),
+        );
         broadcast_from(state, session, &packet);
     }
     let Some(player) = state.players.get_mut(&session) else {
@@ -587,10 +638,12 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
     let left = s.absorption + absorption;
     s.absorption = if left > 0.0 { left } else { 0.0 };
     s.mark(ABSORPTION);
-    if hit.cause.reducible() {
+    let armor = state.settings.armor;
+    if armor && hit.cause.reducible() {
         damage_armor(state, session, hit.base);
     }
-    if hit.thorns
+    if armor
+        && hit.thorns
         && let Some(attacker) = hit.attacker
     {
         thorns(state, session, attacker);
@@ -722,7 +775,9 @@ fn protection_factor(player: &Player, cause: Damage) -> u32 {
         Enchantment::Protection => Some(0.75),
         Enchantment::FireProtection => cause.is_fire().then_some(1.25),
         Enchantment::FeatherFalling => (cause == Damage::Fall).then_some(2.5),
-        Enchantment::BlastProtection => (cause == Damage::Explosion).then_some(1.5),
+        Enchantment::BlastProtection => {
+            matches!(cause, Damage::Explosion | Damage::BlockExplosion).then_some(1.5)
+        }
         Enchantment::ProjectileProtection => (cause == Damage::Entity).then_some(1.5),
         _ => None,
     };
@@ -798,7 +853,7 @@ fn use_totem(state: &mut State, session: SessionId, raise: entity::Raise) {
         0,
     );
     broadcast_from(state, session, &packet);
-    sound::level_event(state, session, LevelEvent::SoundTotemUsed);
+    sound::at_feet(state, session, Sound::TotemUse);
     if let Some(player) = state.players.get_mut(&session) {
         let held = player.inventory.held().clone();
         let off = player.inventory.offhand().clone();
@@ -810,44 +865,11 @@ fn use_totem(state: &mut State, session: SessionId, raise: entity::Raise) {
     }
 }
 
-/// Wears a durable stack by `amount` (PMMP `Durable::applyDamage`): unbreaking negates each
-/// point with chance 1 - 1/(level + 1), for armour only 40 % of the time; a stack worn out
-/// breaks (loses one item). `None` if the stack does not change.
-pub(super) fn wear(stack: &Stack, amount: u32, armor: bool, r: &mut Random) -> Option<Stack> {
-    let max = stack.item()?.max_durability()?;
-    if stack.damage() >= max
-        || stack
-            .extra()
-            .is_some_and(|e| matches!(e.nbt.get("Unbreakable"), Some(crate::nbt::Value::Byte(1))))
-    {
-        return None;
-    }
-    let amount = amount.min(u32::from(max));
-    let unbreaking = level_of(stack, Enchantment::Unbreaking);
-    let mut negated = 0;
-    if unbreaking > 0 {
-        let chance = 1.0 / f64::from(unbreaking + 1);
-        for _ in 0..amount {
-            let applies = !armor || r.range(1, 100) > 60;
-            if applies && r.unit() > chance {
-                negated += 1;
-            }
-        }
-    }
-    let amount = amount - negated;
-    if amount == 0 {
-        return None;
-    }
-    let damage = u32::from(stack.damage()) + amount;
-    if damage >= u32::from(max) {
-        Some(
-            stack
-                .with_count(stack.count().saturating_sub(1))
-                .with_damage(0),
-        )
-    } else {
-        Some(stack.with_damage(u16::try_from(damage).unwrap_or(max)))
-    }
+/// Wears a durable stack by `amount` (PMMP `Durable::applyDamage`, the one rule of
+/// [`interact::breaking::damage`]); `None` if the stack does not change.
+pub(super) fn wear(stack: &Stack, amount: u32, r: &mut Random) -> Option<Stack> {
+    let worn = interact::breaking::damage(stack, amount, r);
+    (worn != *stack).then_some(worn)
 }
 
 /// Wears the armour after a hit (PMMP `Living::damageArmor`): ⌊damage / 4⌋ points, at least 1.
@@ -873,13 +895,13 @@ fn damage_armor(state: &mut State, session: SessionId, base: f64) {
         if stack.item().and_then(Type::armor).is_none() {
             continue;
         }
-        if let Some(worn) = wear(stack, points, true, &mut r) {
+        if let Some(worn) = wear(stack, points, &mut r) {
             broke |= worn.count() < stack.count();
             inventory::set_armor(player, slot, worn);
         }
     }
     if broke {
-        sound::plain(state, session, SoundEvent::Break, -1);
+        sound::at_feet(state, session, Sound::ItemBreak);
     }
 }
 
@@ -918,13 +940,13 @@ fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
             (1, 0.0)
         };
         dealt += damage;
-        if let Some(worn) = wear(stack, wear_by, true, &mut r) {
+        if let Some(worn) = wear(stack, wear_by, &mut r) {
             broke |= worn.count() < stack.count();
             inventory::set_armor(player, slot, worn);
         }
     }
     if broke {
-        sound::plain(state, victim, SoundEvent::Break, -1);
+        sound::at_feet(state, victim, Sound::ItemBreak);
     }
     if dealt > 0.0 {
         hurt(
@@ -1055,8 +1077,9 @@ pub(super) fn extinguished(state: &mut State, session: SessionId, cause: Extingu
 }
 
 /// `attacker` hits `target` (PMMP `Player::attackEntity`): the held item's attack points, the
-/// attacker's effects, sharpness, a critical hit (falling, not sprinting, flying, blind or under
-/// water) for half again; cancelled out of reach, in spectator mode or with `pvp = false`.
+/// attacker's effects, sharpness, a critical hit (falling, not flying, blind or under water, and
+/// not sprinting unless `sprint-critical-hits`) for half again; cancelled out of reach, in
+/// spectator mode or with `pvp = false`.
 pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: SessionId) {
     if attacker == target {
         return;
@@ -1064,7 +1087,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
     let Some(hit) = melee_hit(state, attacker, target) else {
         if state.players.contains_key(&attacker) {
             swing(state, attacker);
-            hit_sound(state, target, SoundEvent::AttackNoDamage);
+            hit_sound(state, target, Sound::EntityAttackNoDamage);
         }
         return;
     };
@@ -1073,10 +1096,10 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
     let landed = hurt(state, target, hit.0);
     swing(state, attacker);
     if !landed {
-        hit_sound(state, target, SoundEvent::AttackNoDamage);
+        hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
     }
-    hit_sound(state, target, SoundEvent::AttackStrong);
+    hit_sound(state, target, Sound::EntityAttack);
     let target_runtime = player_runtime_id(state, target);
     for (on, action) in [
         (critical, AnimateAction::CriticalHit),
@@ -1123,7 +1146,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
 
 /// A hit sound at the middle of the player `target` (PMMP `attackEntity`: `EntityAttackSound`,
 /// or `EntityAttackNoDamageSound` for a hit that did nothing).
-fn hit_sound(state: &mut State, target: SessionId, sound: SoundEvent) {
+fn hit_sound(state: &mut State, target: SessionId, sound: Sound) {
     let Some(at) = state.players.get(&target).map(feet) else {
         return;
     };
@@ -1164,8 +1187,9 @@ fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<(H
 
 /// The attacker's side of a melee hit by `a` (PMMP `Player::attackEntity`): the held item's
 /// attack points, the extra of Strength, Weakness and Sharpness (added up and one by one), a
-/// critical hit (falling, not sprinting or flying, not blind, not under water) for half again;
-/// whether it is critical and whether a weapon enchantment added damage.
+/// critical hit (falling, not flying, not blind, not under water, and not sprinting unless
+/// `sprint-critical-hits`) for half again; whether it is critical and whether a weapon
+/// enchantment added damage.
 fn melee_parts(
     state: &State,
     attacker: SessionId,
@@ -1186,7 +1210,7 @@ fn melee_parts(
         set(&mut parts, DamageModifier::WeaponEnchantments, weapon);
     }
     let s = &a.survival;
-    let critical = !s.motion.sprinting
+    let critical = (state.settings.sprint_critical_hits || !s.motion.sprinting)
         && !s.motion.flying
         && s.fall_distance > 0.0
         && !s.effects.contains_key(&Effect::Blindness)
@@ -1261,11 +1285,11 @@ fn wear_weapon(state: &mut State, session: SessionId) {
         return;
     };
     let mut r = player_random(seed, tick, player, TOOL_WEAR);
-    if let Some(worn) = wear(&held, amount, false, &mut r) {
+    if let Some(worn) = wear(&held, amount, &mut r) {
         let broke = worn.count() < held.count();
         inventory::set_held(player, worn);
         if broke {
-            sound::plain(state, session, SoundEvent::Break, -1);
+            sound::at_feet(state, session, Sound::ItemBreak);
         }
     }
 }
@@ -1276,10 +1300,11 @@ fn wear_weapon(state: &mut State, session: SessionId) {
 /// key) naming the player and its `attacker`.
 ///
 /// While earlier drops still wait for room, the player keeps what it carries and nothing more
-/// drops: the waiting list then never holds more than one inventory. Drops a listener replaced
-/// are checked like external input: at most one inventory of stacks
-/// ([`MAX_HELD_BACK`](super::MAX_HELD_BACK)), each within its item's stack size; the player's own
-/// stacks they replace are gone, but those kept on death.
+/// drops: the waiting list then never holds more than one death's drops
+/// ([`MAX_HELD_BACK`](super::MAX_HELD_BACK)). Drops a listener replaced are checked like external
+/// input: at most one inventory of stacks
+/// ([`MAX_LISTENER_DROPS`](super::MAX_LISTENER_DROPS)), each within its item's stack size; the
+/// player's own stacks they replace are gone, but those kept on death.
 pub(super) fn die(
     state: &mut State,
     session: SessionId,
@@ -1350,6 +1375,9 @@ pub(super) fn die(
         session,
         &actor_event(runtime_id, ActorEvent::Death, 0),
     );
+    for packet in crate::tick::entity::locator_life(runtime_id, false) {
+        broadcast_to_viewers(state, session, &packet);
+    }
     let screen = event
         .as_ref()
         .map(|e| e.death_screen_message.clone())
@@ -1440,7 +1468,7 @@ fn valid_drops(drops: &[Stack]) -> Vec<Stack> {
             let max = s.item()?.max_stack_size();
             (!s.is_empty()).then(|| s.with_count(s.count().min(max)))
         })
-        .take(super::MAX_HELD_BACK)
+        .take(super::MAX_LISTENER_DROPS)
         .collect()
 }
 
@@ -1565,16 +1593,19 @@ fn respawn_packet(position: Vec3, state: RespawnState, runtime_id: u64) -> Packe
 /// The world and eye position the player respawns at (PMMP `Player::getSpawn`): its spawn point
 /// (a bed) in whichever world holds it, else the default world's spawn; the block's centre,
 /// moved up to the first two free blocks of the loaded chunks ([`world::World::safe_spawn`]). A
-/// spawn point in a world the server no longer runs counts as none.
+/// spawn point in a world that is not loaded counts as none.
 fn respawn_point(state: &State, session: SessionId) -> (WorldIndex, Vec3) {
     let Some(player) = state.players.get(&session) else {
         return (0, Vec3::ZERO);
     };
     let own = player.survival.spawn.as_ref().and_then(|p| {
-        let index = state.worlds.iter().position(|w| w.name() == p.world)?;
-        Some((index, p.pos))
+        let index = state.catalog.named(&p.world)?;
+        state.catalog.is_loaded(index).then_some((index, p.pos))
     });
-    let Some((index, spawn)) = own.or_else(|| state.worlds.first().map(|w| (0, w.spawn()))) else {
+    let default = state.catalog.default_world();
+    let Some((index, spawn)) =
+        own.or_else(|| state.worlds.get(default).map(|w| (default, w.spawn())))
+    else {
         return (player.world, player.position);
     };
     let Some(world) = state.worlds.get(index) else {
@@ -1701,6 +1732,11 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     player.survival.shown = now;
     broadcast_from(state, session, &data);
     broadcast_from(state, session, &alive);
+    if let Some(runtime_id) = state.players.get(&session).map(|p| p.runtime_id) {
+        for packet in crate::tick::entity::locator_life(runtime_id, true) {
+            broadcast_to_viewers(state, session, &packet);
+        }
+    }
     if burning {
         extinguished(state, session, ExtinguishCause::Respawn);
     }
@@ -1779,16 +1815,34 @@ pub(super) fn base_tick(state: &mut State, session: SessionId) {
 }
 
 /// Suffocation, air and the hit cooldown, each tick (PMMP `Living::entityBaseTick`,
-/// `Living::doAirSupplyTick`).
+/// `Living::doAirSupplyTick`); with `drowning = false` only the hit cooldown.
 pub(super) fn living_tick(state: &mut State, session: SessionId) {
+    if state
+        .players
+        .get(&session)
+        .is_none_or(|p| p.survival.is_dead())
+    {
+        return;
+    }
+    let drown = state.settings.drowning && air_tick(state, session);
+    if let Some(player) = state.players.get_mut(&session)
+        && player.survival.attack_time > 0
+    {
+        player.survival.attack_time -= 1;
+    }
+    if drown {
+        damage(state, session, 2.0, Damage::Drowning);
+    }
+}
+
+/// Suffocation inside a solid block, then the air supply of a living player; true when it runs
+/// out of air now.
+fn air_tick(state: &mut State, session: SessionId) -> bool {
     let tick = state.tick;
     let seed = world_seed(state, session);
     let Some(player) = state.players.get(&session) else {
-        return;
+        return false;
     };
-    if player.survival.is_dead() {
-        return;
-    }
     let creative = player.survival.mode() == GameMode::Creative;
     let inside = movement::is_inside_solid(state, player);
     let breathes = creative
@@ -1802,7 +1856,7 @@ pub(super) fn living_tick(state: &mut State, session: SessionId) {
         damage(state, session, 1.0, Damage::Suffocation);
     }
     let Some(player) = state.players.get_mut(&session) else {
-        return;
+        return false;
     };
     let respiration = player
         .inventory
@@ -1810,7 +1864,17 @@ pub(super) fn living_tick(state: &mut State, session: SessionId) {
         .first()
         .map_or(0, |helmet| level_of(helmet, Enchantment::Respiration));
     let mut drown = false;
-    if !breathes {
+    if breathes {
+        // BDS (P6 craft dive): breathing again at once, 4 ticks of air back each tick up to the
+        // full supply (PMMP adds 5 and stays out of breath until full).
+        let s = &mut player.survival;
+        s.breathing = true;
+        let max = s.custom.max_air;
+        if s.air < max {
+            s.air = s.air.saturating_add(4).min(max);
+            player.data_dirty = true;
+        }
+    } else {
         let loses = respiration == 0 || {
             let mut r = player_random(seed, tick, player, random::tag("respiration"));
             r.unit() <= 1.0 / f64::from(respiration + 1)
@@ -1825,24 +1889,8 @@ pub(super) fn living_tick(state: &mut State, session: SessionId) {
             }
             player.data_dirty = true;
         }
-    } else if !player.survival.breathing {
-        let s = &mut player.survival;
-        let max = s.custom.max_air;
-        if s.air < max {
-            s.air = s.air.saturating_add(5);
-        }
-        if s.air >= max {
-            s.air = max;
-            s.breathing = true;
-        }
-        player.data_dirty = true;
     }
-    if player.survival.attack_time > 0 {
-        player.survival.attack_time -= 1;
-    }
-    if drown {
-        damage(state, session, 2.0, Damage::Drowning);
-    }
+    drown
 }
 
 /// The fall damage of a landing (PMMP `Living::calculateFallDamage`): the blocks fallen beyond 3,

@@ -36,16 +36,6 @@ impl Placer {
     }
 }
 
-/// The position one block toward `face`, if it is a valid `i32` position.
-pub(super) fn step(pos: BlockPos, face: Face) -> Option<BlockPos> {
-    let (dx, dy, dz) = face.offset();
-    Some(BlockPos::new(
-        pos.x.checked_add(dx)?,
-        pos.y.checked_add(dy)?,
-        pos.z.checked_add(dz)?,
-    ))
-}
-
 /// The block at `pos`, air where nothing is known (an unloaded chunk, outside the world): the
 /// neighbour rules of PLAN.md 10.6.
 pub(super) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
@@ -54,7 +44,7 @@ pub(super) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
 
 /// PMMP `Block::getAdjacentSupportType`: the support the block toward `face` gives back.
 fn adjacent_support(world: &World, pos: BlockPos, face: Face) -> SupportType {
-    block_at(world, step(pos, face)).support(face.opposite())
+    block_at(world, pos.step(face)).support(face.opposite())
 }
 
 /// PMMP `Block::isFullCube`: one collision box filling the cell.
@@ -100,7 +90,7 @@ pub(super) fn placement(
     if let Some(blocks) = transaction(&ctx(clicked, Face::Up), rng) {
         return Some(blocks);
     }
-    let replace = step(clicked, face)?;
+    let replace = clicked.step(face)?;
     world.block(replace)?;
     transaction(&ctx(replace, face), rng)
 }
@@ -123,7 +113,7 @@ struct Context<'a> {
 impl Context<'_> {
     /// The block next to the replaced position toward `face`.
     fn side(&self, face: Face) -> State {
-        block_at(self.world, step(self.replace, face))
+        block_at(self.world, self.replace.step(face))
     }
 
     /// The support the block toward `face` of the replaced position gives back.
@@ -403,14 +393,14 @@ fn chorus_plant_supported(ctx: &Context<'_>, state: State, below: State) -> bool
     let by = |s: State| s.kind() == state.kind() || s.kind() == Kind::EndStone;
     let vertical_air = below == block::AIR || ctx.side(Face::Up) == block::AIR;
     for f in Face::HORIZONTAL {
-        let side_pos = step(ctx.replace, f);
+        let side_pos = ctx.replace.step(f);
         if block_at(ctx.world, side_pos).kind() == Kind::ChorusPlant {
             if !vertical_air {
                 return false;
             }
             if by(block_at(
                 ctx.world,
-                side_pos.and_then(|p| step(p, Face::Down)),
+                side_pos.and_then(|p| p.step(Face::Down)),
             )) {
                 return true;
             }
@@ -548,7 +538,7 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 }
             }
             Class::BaseBigDripleaf => {
-                let below_pos = step(ctx.replace, Face::Down)?;
+                let below_pos = ctx.replace.step(Face::Down)?;
                 let below = block_at(ctx.world, Some(below_pos));
                 let head = below.is(Class::BaseBigDripleaf)
                     && props::flag(below, "big_dripleaf_head") == Some(true);
@@ -575,6 +565,25 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 }
             }
             Class::Bed => return bed(ctx, s),
+            // A grindstone (user exception, PLAN.md 8.4; BDS P6 m9-facts STATIONS): on a floor or
+            // a ceiling it faces the placer, on a side it faces away from the clicked block.
+            Class::Grindstone => {
+                let attachment = match face {
+                    Face::Up => {
+                        s = opposite_player(s);
+                        "standing"
+                    }
+                    Face::Down => {
+                        s = opposite_player(s);
+                        "hanging"
+                    }
+                    _ => {
+                        s = set_facing(s, face);
+                        "side"
+                    }
+                };
+                s = props::with_string(s, "attachment", attachment)?;
+            }
             Class::Bell => {
                 if ctx.support(face.opposite()) == SupportType::None {
                     return None;
@@ -670,7 +679,7 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
             }
             Class::Door => return door(ctx, s),
             Class::DoublePlant => {
-                let up = step(ctx.replace, Face::Up)?;
+                let up = ctx.replace.step(Face::Up)?;
                 if !ctx.side(Face::Down).has_type_tag(TypeTag::Dirt)
                     || !block_at(ctx.world, Some(up)).can_be_replaced()
                 {
@@ -791,7 +800,7 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
             }
             Class::Slab => s = slab(ctx, s)?,
             Class::SmallDripleaf => {
-                let up = step(ctx.replace, Face::Up)?;
+                let up = ctx.replace.step(Face::Up)?;
                 if block_at(ctx.world, Some(up)) != block::AIR
                     || ctx.side(Face::Down).kind() != Kind::Clay
                 {
@@ -822,12 +831,12 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 s = props::with_flag(s, "upside_down_bit", upside_down)?;
             }
             Class::Sugarcane => {
-                let below_pos = step(ctx.replace, Face::Down)?;
+                let below_pos = ctx.replace.step(Face::Down)?;
                 let below = block_at(ctx.world, Some(below_pos));
                 if below.kind() != s.kind() {
                     let water = Face::HORIZONTAL
                         .into_iter()
-                        .map(|f| block_at(ctx.world, step(below_pos, f)))
+                        .map(|f| block_at(ctx.world, below_pos.step(f)))
                         .any(|b| b.is(Class::Water) || b.is(Class::FrostedIce));
                     if !water {
                         return None;
@@ -842,7 +851,7 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 }
             }
             Class::Vine => {
-                let behind = block_at(ctx.world, step(ctx.replace, face.opposite()));
+                let behind = block_at(ctx.world, ctx.replace.step(face.opposite()));
                 if !is_full_cube(behind) || Axis::of(face) == Axis::Y {
                     return None;
                 }
@@ -1023,7 +1032,7 @@ fn bed(ctx: &Context<'_>, state: State) -> Option<Blocks> {
     }
     let facing = ctx.facing().unwrap_or(Face::North);
     let foot = props::with_facing(state, facing)?;
-    let next = step(ctx.replace, facing)?;
+    let next = ctx.replace.step(facing)?;
     if !block_at(ctx.world, Some(next)).can_be_replaced() || !supported(next) {
         return None;
     }
@@ -1037,7 +1046,7 @@ fn door(ctx: &Context<'_>, state: State) -> Option<Blocks> {
     if ctx.face != Face::Up {
         return None;
     }
-    let up = step(ctx.replace, Face::Up)?;
+    let up = ctx.replace.step(Face::Up)?;
     if !block_at(ctx.world, Some(up)).can_be_replaced()
         || !ctx.support(Face::Down).has_edge_support()
     {
@@ -1145,7 +1154,7 @@ mod tests {
     /// as PMMP's fake world).
     fn world() -> World {
         let mut world = World::new("place", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
-        world.set_lighting(false);
+        world.set_lighting(crate::world::LightMode::Fixed(15));
         for x in -1..=1 {
             for z in -1..=1 {
                 world.insert_chunk(ChunkPos::new(x, z), Chunk::new());

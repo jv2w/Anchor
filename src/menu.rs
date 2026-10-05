@@ -135,7 +135,6 @@ impl Id {
         Self(n)
     }
 
-    #[cfg(test)]
     pub(crate) const fn get(self) -> u32 {
         self.0
     }

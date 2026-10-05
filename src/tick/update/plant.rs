@@ -10,7 +10,9 @@ use super::tree::{self, Tx};
 use crate::block::{self, Class, Face, ItemForm, Kind, TypeTag};
 use crate::item::Stack;
 use crate::random::Random;
+use crate::tick::interact;
 use crate::world::BlockPos;
+use crate::world::TreeType;
 
 /// The crop age property of the classes that have one.
 const GROWTH: &str = "growth";
@@ -164,7 +166,7 @@ pub(super) fn fertilize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> 
         Class::Sapling => tree::grow_sapling(cx, pos, block),
         Class::Azalea => {
             if cx.rng().range(1, 100) <= 45 {
-                tree::grow(cx, pos, tree::Type::Azalea);
+                tree::grow(cx, pos, TreeType::Azalea);
             }
             true
         }
@@ -200,9 +202,9 @@ fn sweet_berries(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
 /// meal is used either way.
 fn fungus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
     let (nylium, kind) = if block.kind() == Kind::CrimsonFungus {
-        (Kind::CrimsonNylium, tree::Type::Crimson)
+        (Kind::CrimsonNylium, TreeType::Crimson)
     } else {
-        (Kind::WarpedNylium, tree::Type::Warped)
+        (Kind::WarpedNylium, TreeType::Warped)
     };
     if side(cx, pos, Face::Down).is_some_and(|d| d.kind() == nylium) && cx.rng().range(1, 100) <= 40
     {
@@ -793,7 +795,11 @@ fn cave_vine_state(
         (true, true) => "minecraft:cave_vines_head_with_berries",
         (true, false) => "minecraft:cave_vines_body_with_berries",
     };
-    props::with_int(props::renamed(block, name)?, "growing_plant_age", age)
+    props::with_int(
+        interact::props::renamed(block, name)?,
+        "growing_plant_age",
+        age,
+    )
 }
 
 /// Picks the berries of cave vines (PMMP `CaveVines::onInteract`).

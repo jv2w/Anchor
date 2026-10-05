@@ -2053,8 +2053,6 @@ impl From<CommandArgType> for u32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum ParamOption {
-    /// `ParamOptionCollapseEnum` specifies if the enum (only if the Type is actually an enum type. If not, setting this to true has no effect) should be collapsed. This means that the options of the enum are never shown in the actual usage of the command, but only as auto-completion, like it automatically does with enums that have a big amount of options. To illustrate, it can make \<false\|true\|yes\|no\> \<$Name: bool\>.
-    ///
     /// gophertunnel `ParamOptionCollapseEnum`.
     CollapseEnum = 1,
     /// gophertunnel `ParamOptionHasSemanticConstraint`.
@@ -2936,16 +2934,10 @@ impl From<DataStorePropertyType> for i32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum EntityLink {
-    /// `EntityLinkRemove` is set to remove the link between two entities.
-    ///
     /// gophertunnel `EntityLinkRemove`.
     Remove = 0,
-    /// `EntityLinkRider` is set for entities that have control over the entity they're riding, such as in a minecart.
-    ///
     /// gophertunnel `EntityLinkRider`.
     Rider = 1,
-    /// `EntityLinkPassenger` is set for entities being a passenger of a vehicle they enter, such as the back sit of a boat.
-    ///
     /// gophertunnel `EntityLinkPassenger`.
     Passenger = 2,
 }
@@ -6322,8 +6314,6 @@ impl From<MemoryCategory> for u8 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(i32)]
 pub enum DeviceOs {
-    /// `DeviceUnknown` is the fallback device/build platform, used when the platform is not any of the known values below.
-    ///
     /// gophertunnel `DeviceUnknown`.
     Unknown = -1,
     /// gophertunnel `DeviceAndroid`.
@@ -6334,8 +6324,6 @@ pub enum DeviceOs {
     Osx = 3,
     /// gophertunnel `DeviceFireOS`.
     FireOs = 4,
-    /// Deprecated: `DeviceGearVR` is deprecated as of 1.21.50.
-    ///
     /// gophertunnel `DeviceGearVR`.
     GearVr = 5,
     /// gophertunnel `DeviceHololens`.
@@ -6346,20 +6334,14 @@ pub enum DeviceOs {
     Win32 = 8,
     /// gophertunnel `DeviceDedicated`.
     Dedicated = 9,
-    /// Deprecated: `DeviceTVOS` is deprecated as of 1.20.10.
-    ///
     /// gophertunnel `DeviceTVOS`.
     Tvos = 10,
-    /// `PlayStation`
-    ///
     /// gophertunnel `DeviceOrbis`.
     Orbis = 11,
     /// gophertunnel `DeviceNX`.
     Nx = 12,
     /// gophertunnel `DeviceXBOX`.
     Xbox = 13,
-    /// Deprecated: `DeviceWP` is deprecated as of 1.20.10.
-    ///
     /// gophertunnel `DeviceWP`.
     Wp = 14,
     /// gophertunnel `DeviceLinux`.

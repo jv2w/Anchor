@@ -7,7 +7,7 @@
 use crate::block::{Class, Face, State};
 use crate::world::{BlockPos, World};
 
-use super::place::{block_at, step};
+use super::place::block_at;
 use super::props;
 
 /// A connection of a rail: toward a face, and whether it goes up a block that way.
@@ -85,19 +85,19 @@ fn with_shape(state: State, links: [Link; 2]) -> Option<State> {
 }
 
 /// The rail a link of the rail at `pos` reaches, and the link it needs back: one up for an
-/// ascending link, one down for a rail sloping up to meet this one.
+/// ascending link, one down when the neighbour is a lower rail whose slope rises to this one.
 fn neighbour(world: &World, pos: BlockPos, link: Link) -> Option<(BlockPos, State, Link)> {
-    let side = step(pos, link.face)?;
+    let side = pos.step(link.face)?;
     let back = link.face.opposite();
     if link.ascend {
-        let p = step(side, Face::Up)?;
+        let p = side.step(Face::Up)?;
         return Some((p, block_at(world, Some(p)), flat(back)));
     }
     let s = block_at(world, Some(side));
     if s.is(Class::BaseRail) {
         return Some((side, s, flat(back)));
     }
-    let p = step(side, Face::Down)?;
+    let p = side.step(Face::Down)?;
     Some((p, block_at(world, Some(p)), up(back)))
 }
 

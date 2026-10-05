@@ -7,8 +7,9 @@ use std::fmt::Debug;
 
 use super::*;
 use crate::event::{
-    BlockBreak, BlockPlace, BlockTeleport, InteractAction, Listeners, PlayerBucketEmpty,
-    PlayerBucketFill, PlayerEntityInteract, PlayerInteract, PlayerItemUse, Priority, SignChange,
+    BlockBreak, BlockExplode, BlockPlace, BlockPreExplode, BlockTeleport, InteractAction,
+    Listeners, PlayerBucketEmpty, PlayerBucketFill, PlayerEntityInteract, PlayerInteract,
+    PlayerItemUse, PlayerRespawnAnchorUse, Priority, RespawnAnchorAction, SignChange,
 };
 use crate::item::Kind as ItemKind;
 use crate::nbt::{Compound, Value};
@@ -663,7 +664,7 @@ fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
                 e.pos(),
                 e.old_text().clone(),
                 e.new_text().clone(),
-                e.is_front_face(),
+                e.side(),
             ),
         );
         e.set_new_text(["a", "b", "§cc", "d"].map(String::from));
@@ -677,7 +678,13 @@ fn a_sign_change_listener_sees_the_edit_and_may_rewrite_or_cancel_it() {
     let hello = ["hello", "world", "", ""].map(String::from);
     assert_eq!(
         notes(SEEN),
-        [dbg((me(), TARGET, empty.clone(), hello, true))]
+        [dbg((
+            me(),
+            TARGET,
+            empty.clone(),
+            hello,
+            crate::tile::Side::Front
+        ))]
     );
     assert_eq!(front_lines(&h), ["a", "b", "§cc", "d"]);
     assert_eq!(h.player().breaking.sign_editor, None);
@@ -1077,7 +1084,7 @@ fn listeners_that_meddle_at_random_neither_make_nor_lose_items() {
         meddlers.push(
             Priority::Normal,
             |e: &mut PlayerInteract, cx: &mut Context<'_>| {
-                if meddle(cx, place::step(e.pos(), e.face())) {
+                if meddle(cx, e.pos().step(e.face())) {
                     e.cancel();
                 }
             },
@@ -1242,4 +1249,497 @@ fn a_direct_explosion_kills_without_events_and_the_death_follows_in_the_tick() {
     let heard = HEARD.with(Cell::take);
     assert!(heard.iter().any(|w| w == "player_death"), "{heard:?}");
     assert!(!heard.iter().any(|w| w == "entity_damage"), "{heard:?}");
+}
+
+/// The diamonds in `stack`, those in a shulker box's items included.
+fn diamonds(stack: &Stack) -> u32 {
+    let own = if stack.item() == Some(ItemKind::Diamond.default_type()) {
+        u32::from(stack.count())
+    } else {
+        0
+    };
+    let inside: u32 = match stack.tag().as_ref().and_then(|t| t.get("Items")) {
+        Some(Value::List(crate::nbt::List::Compound(items))) => items
+            .iter()
+            .filter_map(Stack::from_nbt)
+            .map(|s| diamonds(&s))
+            .sum(),
+        _ => 0,
+    };
+    own + inside
+}
+
+/// Every diamond of the game: the player's, on the ground (taken off it) and in the block
+/// entity at [`TARGET`].
+fn every_diamond(h: &mut Harness) -> u32 {
+    let held: u32 = (0..36)
+        .filter_map(|i| h.player().inventory.main_stack(i))
+        .map(diamonds)
+        .sum();
+    let mut ground = 0;
+    for x in -2..=2 {
+        for z in -2..=2 {
+            let key = (0, crate::world::ChunkPos::new(x, z));
+            for c in h.state.rules.entities.unload(key).unwrap_or_default() {
+                if let Some(Value::Compound(s)) = c.get("Item")
+                    && let Some(stack) = Stack::from_nbt(s)
+                {
+                    ground += diamonds(&stack);
+                }
+            }
+        }
+    }
+    let kept: u32 = h
+        .state
+        .rules
+        .block_entities
+        .get(0, TARGET)
+        .map_or(0, |e| e.items.iter().map(diamonds).sum());
+    held + ground + kept
+}
+
+// pmmp: InventoryCloseEvent
+#[test]
+fn breaking_an_open_shulker_with_a_close_listener_keeps_the_item_total() {
+    for cause in [
+        Destroy::Player {
+            session: SessionId::new(1),
+            tool: Stack::EMPTY,
+        },
+        Destroy::Explosion { size: 1.0 },
+    ] {
+        // The listener moves the box's items to the player when its window closes.
+        let l = listen(
+            |_: &mut crate::event::InventoryClose, cx: &mut Context<'_>| {
+                let Some(mut inv) = cx.block_inventory_mut(crate::world::Id::DEFAULT, TARGET)
+                else {
+                    return;
+                };
+                inv.clear_all();
+                let diamonds = Stack::new(ItemKind::Diamond.default_type(), 64);
+                let player = cx.state.players.get_mut(&SessionId::new(1)).unwrap();
+                let left = player
+                    .inventory_mut(crate::inventory::Kind::Main)
+                    .add(&diamonds);
+                assert!(left.is_empty());
+            },
+        );
+        let mut h = Harness::with(|_| {}, l);
+        set_with_entity(&mut h, Kind::ShulkerBox.default_state(), &Stack::EMPTY);
+        h.state
+            .rules
+            .block_entities
+            .get_mut(0, TARGET)
+            .unwrap()
+            .items[0] = Stack::new(ItemKind::Diamond.default_type(), 64);
+        h.run(Vec::new());
+        use_on(&mut h, TARGET, Face::West);
+        assert!(h.player().window().is_some(), "the box is open");
+        let _destroyed = destroy(&mut h.state, 0, TARGET, cause.clone());
+        h.run(Vec::new());
+        assert_eq!(every_diamond(&mut h), 64, "{cause:?}");
+    }
+}
+
+// pmmp: PlayerExhaustEvent, Player::breakBlock
+#[test]
+fn mining_raises_player_exhaust_with_the_mining_cause() {
+    let l = listen(|e: &mut crate::event::PlayerExhaust, _: &mut Context<'_>| {
+        note(SEEN, (e.player(), e.cause()));
+    });
+    let mut h = Harness::with(|_| {}, l);
+    h.set(TARGET, dandelion());
+    notes(SEEN);
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), block::AIR);
+    let seen = notes(SEEN);
+    let mining = dbg((me(), crate::event::ExhaustCause::Mining));
+    assert!(seen.contains(&mining), "{seen:?}");
+}
+
+/// A respawn anchor with `charges`.
+fn anchor(charges: i32) -> block::State {
+    props::with_int(
+        Kind::RespawnAnchor.default_state(),
+        "respawn_anchor_charge",
+        charges,
+    )
+    .unwrap()
+}
+
+/// Runs ticks until a click like the last one is not taken for the client repeating itself.
+fn past_repeat(h: &mut Harness) {
+    for _ in 0..3 {
+        h.run(Vec::new());
+    }
+}
+
+/// A charged anchor east of the player and a stick in its hand; the anchor is used.
+fn use_charged_anchor(h: &mut Harness) {
+    h.set(TARGET, anchor(1));
+    h.hold(stack(ItemKind::Stick));
+    use_on(h, TARGET, Face::West);
+}
+
+// pmmp: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent, BlockExplodeEvent
+#[test]
+fn glowstone_charges_a_respawn_anchor_and_a_charged_one_explodes_in_any_world() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, anchor(0));
+    h.hold(block_item(Kind::Glowstone, 2));
+    use_on(&mut h, TARGET, Face::West);
+    assert_eq!(h.block(TARGET), anchor(1));
+    assert_eq!(h.held().count(), 1, "one glowstone used");
+    // Anything but glowstone: it explodes (PMMP: in every world, not only the nether).
+    past_repeat(&mut h);
+    h.hold(stack(ItemKind::Stick));
+    use_on(&mut h, TARGET, Face::West);
+    assert_eq!(h.block(TARGET), block::AIR, "the anchor is gone");
+    assert_ne!(
+        h.block(GROUND),
+        block::GRASS_BLOCK,
+        "a radius 5 explosion breaks the ground under it"
+    );
+    assert!(!h.player().is_alive(), "two blocks from a size 5 explosion");
+}
+
+// pmmp: PlayerRespawnAnchorUseEvent, BlockPreExplodeEvent, BlockExplodeEvent
+#[test]
+fn an_anchor_explosion_is_the_same_on_every_run() {
+    let run = || {
+        let mut h = Harness::new(|_| {});
+        use_charged_anchor(&mut h);
+        h.run(Vec::new());
+        h.state.hash()
+    };
+    assert_eq!(run(), run());
+}
+
+// pmmp: PlayerRespawnAnchorUseEvent, PlayerRespawnAnchorUseEvent::getBlock, PlayerRespawnAnchorUseEvent::getAction, BlockPreExplodeEvent, BlockPreExplodeEvent::getRadius, BlockPreExplodeEvent::getFireChance, BlockPreExplodeEvent::getPlayer, BlockPreExplodeEvent::isBlockBreaking, BlockExplodeEvent, BlockExplodeEvent::getPosition, BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::getYield
+#[test]
+fn anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome() {
+    let mut l = Listeners::default();
+    l.push(
+        Priority::Normal,
+        |e: &mut PlayerRespawnAnchorUse, _: &mut Context<'_>| {
+            note(SEEN, ("use", e.player(), e.pos(), e.block(), e.action()));
+        },
+    );
+    l.push(
+        Priority::Normal,
+        |e: &mut BlockPreExplode, _: &mut Context<'_>| {
+            note(
+                SEEN,
+                (
+                    "pre",
+                    e.pos(),
+                    e.block(),
+                    e.player(),
+                    e.radius(),
+                    e.fire_chance(),
+                    e.is_block_breaking(),
+                ),
+            );
+        },
+    );
+    l.push(
+        Priority::Normal,
+        |e: &mut BlockExplode, _: &mut Context<'_>| {
+            note(
+                SEEN,
+                (
+                    "explode",
+                    e.pos(),
+                    e.position(),
+                    e.blocks().contains(&GROUND),
+                    e.yield_percent(),
+                ),
+            );
+        },
+    );
+    l.push_monitor(|_: &PlayerRespawnAnchorUse, cx: &Context<'_>| {
+        note(WATCHED, ("use", cx.state.worlds[0].block(TARGET)));
+    });
+    l.push_monitor(|_: &BlockPreExplode, cx: &Context<'_>| {
+        note(WATCHED, ("pre", cx.state.worlds[0].block(TARGET)));
+    });
+    l.push_monitor(|e: &BlockExplode, cx: &Context<'_>| {
+        let ground = cx.state.worlds[0].block(GROUND);
+        note(WATCHED, ("explode", e.blocks().contains(&GROUND), ground));
+    });
+    let mut h = Harness::with(|_| {}, l);
+    use_charged_anchor(&mut h);
+    let center = Vec3::new(2.5, -59.5, 0.5);
+    assert_eq!(
+        notes(SEEN),
+        [
+            dbg(("use", me(), TARGET, anchor(1), RespawnAnchorAction::Explode)),
+            dbg(("pre", TARGET, anchor(1), Some(me()), 5.0, 1.0 / 3.0, true)),
+            dbg(("explode", TARGET, center, true, 20.0)),
+        ]
+    );
+    let ground = h.block(GROUND);
+    assert_ne!(ground, block::GRASS_BLOCK);
+    assert_eq!(
+        notes(WATCHED),
+        [
+            dbg(("explode", true, Some(ground))),
+            dbg(("pre", Some(block::AIR))),
+            dbg(("use", Some(block::AIR))),
+        ]
+    );
+}
+
+// pmmp: PlayerRespawnAnchorUseEvent::cancel, BlockPreExplodeEvent::cancel, BlockExplodeEvent::cancel
+#[test]
+fn cancelling_an_anchor_event_stops_what_it_announces() {
+    let grass = block::GRASS_BLOCK;
+    // The use: the anchor stays charged; a stick is not placeable, so nothing happens.
+    let mut h = Harness::with(|_| {}, cancel(PlayerRespawnAnchorUse::cancel));
+    use_charged_anchor(&mut h);
+    assert_eq!(h.block(TARGET), anchor(1));
+    assert!(h.player().is_alive());
+    // The coming explosion: the anchor stays.
+    let mut h = Harness::with(|_| {}, cancel(BlockPreExplode::cancel));
+    use_charged_anchor(&mut h);
+    assert_eq!(h.block(TARGET), anchor(1));
+    assert!(h.player().is_alive());
+    // The explosion: the anchor is gone, but nothing breaks and nobody is hurt.
+    let mut h = Harness::with(|_| {}, cancel(BlockExplode::cancel));
+    use_charged_anchor(&mut h);
+    assert_eq!((h.block(TARGET), h.block(GROUND)), (block::AIR, grass));
+    assert_eq!(h.player().health(), 20.0);
+    assert_eq!(cancels(), 3);
+}
+
+// pmmp: PlayerRespawnAnchorUseEvent::setAction, Player::setSpawn
+#[test]
+fn a_listener_may_make_the_anchor_set_the_spawn_once() {
+    let set = listen(|e: &mut PlayerRespawnAnchorUse, _: &mut Context<'_>| {
+        e.set_action(RespawnAnchorAction::SetSpawn);
+    });
+    let mut h = Harness::with(|_| {}, set);
+    use_charged_anchor(&mut h);
+    let name = h.state.worlds[0].name().to_owned();
+    assert_eq!(h.player().spawn(), Some((name.as_str(), TARGET)));
+    assert_eq!(h.block(TARGET), anchor(1), "nothing explodes");
+    assert!(h.player().is_alive());
+    let told = |packets: &[Packet]| {
+        packets
+            .iter()
+            .filter(|p| {
+                matches!(p, Packet::Text(t) if t.message == "§7%tile.respawn_anchor.respawnSet")
+            })
+            .count()
+    };
+    assert_eq!(told(&h.packets()), 1);
+    past_repeat(&mut h);
+    use_on(&mut h, TARGET, Face::West);
+    assert_eq!(h.player().spawn(), Some((name.as_str(), TARGET)));
+    assert_eq!(
+        told(&h.packets()),
+        0,
+        "already its spawn: no second message"
+    );
+}
+
+// pmmp: BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::setRadius, BlockPreExplodeEvent::setIncendiary
+#[test]
+fn a_pre_explode_listener_may_keep_the_blocks_and_shrink_the_blast() {
+    let calm = listen(|e: &mut BlockPreExplode, _: &mut Context<'_>| {
+        e.set_block_breaking(false);
+        e.set_radius(0.5);
+        e.set_incendiary(false);
+    });
+    let mut h = Harness::with(|_| {}, calm);
+    use_charged_anchor(&mut h);
+    assert_eq!(h.block(TARGET), block::AIR, "the anchor itself goes");
+    assert_eq!(h.block(GROUND), block::GRASS_BLOCK);
+    assert!(h.player().is_alive(), "a radius 0.5 blast does not reach");
+}
+
+// pmmp: BlockExplodeEvent::setAffectedBlocks, BlockExplodeEvent::setIgnitions, BlockExplodeEvent::setYield
+#[test]
+fn an_explode_listener_chooses_the_blocks() {
+    let only_ground = listen(|e: &mut BlockExplode, _: &mut Context<'_>| {
+        e.set_blocks(vec![GROUND]);
+        e.set_ignitions(Vec::new());
+        e.set_yield_percent(0.0);
+    });
+    let mut h = Harness::with(|_| {}, only_ground);
+    use_charged_anchor(&mut h);
+    assert_eq!(h.block(GROUND), block::AIR);
+    let below = BlockPos::new(2, -62, 0);
+    assert_eq!(h.block(below), Kind::Dirt.default_state(), "not listed");
+    let dirt = block_item(Kind::Dirt, 1).item().unwrap();
+    assert_eq!(ground(&mut h, dirt), (0, 0), "yield 0: no drops");
+}
+
+#[test]
+fn a_listener_that_changes_the_anchor_cancels_its_use_and_its_explosion() {
+    fn take(cx: &mut Context<'_>) {
+        cx.state.worlds[0].set_block(TARGET, anchor(2)).unwrap();
+    }
+    let on_use = listen(|_: &mut PlayerRespawnAnchorUse, cx: &mut Context<'_>| take(cx));
+    let on_pre = listen(|_: &mut BlockPreExplode, cx: &mut Context<'_>| take(cx));
+    for listeners in [on_use, on_pre] {
+        let mut h = Harness::with(|_| {}, listeners);
+        use_charged_anchor(&mut h);
+        assert_eq!(h.block(TARGET), anchor(2));
+        assert!(h.player().is_alive());
+    }
+}
+
+/// The trapdoor east of the player.
+fn trapdoor(h: &mut Harness) {
+    h.set(TARGET, Kind::OakTrapdoor.default_state());
+}
+
+/// Whether `packets` hold a door sound (PMMP `DoorSound`, level event `SoundOpenDoor`).
+fn door_sounds(packets: &[Packet]) -> usize {
+    packets
+        .iter()
+        .filter(|p| {
+            matches!(p, Packet::LevelEvent(e) if e.event_type == i32::from(Event::SoundOpenDoor))
+        })
+        .count()
+}
+
+// pmmp: WorldSoundEvent, WorldSoundEvent::getSound, WorldSoundEvent::getPosition, WorldSoundEvent::getRecipients, World::addSound
+#[test]
+fn a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played() {
+    let mut l = listen(|e: &mut crate::event::WorldSound, _: &mut Context<'_>| {
+        note(
+            SEEN,
+            (e.world(), e.position(), e.sound(), e.recipients().to_vec()),
+        );
+    });
+    l.push_monitor(|e: &crate::event::WorldSound, cx: &Context<'_>| {
+        let queued = door_sounds(&cx.state.players[&SessionId::new(1)].outbox);
+        note(WATCHED, (e.sound(), queued));
+    });
+    let mut h = Harness::with(|_| {}, l);
+    trapdoor(&mut h);
+    h.hold(Stack::EMPTY);
+    use_on(&mut h, TARGET, Face::West);
+    let door = crate::world::Sound::Door { pitch: 0.0 };
+    let at = block_vec(TARGET);
+    assert_eq!(
+        notes(SEEN),
+        [dbg((crate::world::Id::DEFAULT, at, door, vec![me()]))]
+    );
+    assert_eq!(notes(WATCHED), [dbg((door, 1))]);
+    assert_eq!(door_sounds(&h.packets()), 1);
+}
+
+// pmmp: WorldSoundEvent::cancel, WorldSoundEvent::setSound, WorldSoundEvent::setRecipients
+#[test]
+fn a_world_sound_listener_may_silence_replace_or_keep_the_sound_from_players() {
+    // Cancelled: the trapdoor opens without a sound.
+    let mut h = Harness::with(|_| {}, cancel(crate::event::WorldSound::cancel));
+    trapdoor(&mut h);
+    use_on(&mut h, TARGET, Face::West);
+    let opened = h.block(TARGET);
+    assert_ne!(
+        opened,
+        Kind::OakTrapdoor.default_state(),
+        "the trapdoor still opens"
+    );
+    assert_eq!(door_sounds(&h.packets()), 0);
+    assert_eq!(cancels(), 1);
+    // Another sound; then nobody hears it.
+    let swap = listen(|e: &mut crate::event::WorldSound, _: &mut Context<'_>| {
+        e.set_sound(crate::world::Sound::Burp);
+    });
+    let mut h = Harness::with(|_| {}, swap);
+    trapdoor(&mut h);
+    use_on(&mut h, TARGET, Face::West);
+    let packets = h.packets();
+    assert_eq!(door_sounds(&packets), 0);
+    let burps = packets
+        .iter()
+        .filter(|p| matches!(p, Packet::LevelSoundEvent(e) if e.sound_type == "burp"))
+        .count();
+    assert_eq!(burps, 1);
+    let nobody = listen(|e: &mut crate::event::WorldSound, _: &mut Context<'_>| {
+        e.set_recipients(Vec::new());
+    });
+    let mut h = Harness::with(|_| {}, nobody);
+    trapdoor(&mut h);
+    use_on(&mut h, TARGET, Face::West);
+    assert_eq!(door_sounds(&h.packets()), 0);
+    // A recipient who is not online (or does not see the place) is left out.
+    let stranger = listen(|e: &mut crate::event::WorldSound, _: &mut Context<'_>| {
+        let mut all = e.recipients().to_vec();
+        all.extend([crate::player::Id::new(SessionId::new(9)), me()]);
+        e.set_recipients(all);
+    });
+    let mut h = Harness::with(|_| {}, stranger);
+    trapdoor(&mut h);
+    use_on(&mut h, TARGET, Face::West);
+    assert_eq!(door_sounds(&h.packets()), 1, "once, though named twice");
+}
+
+// pmmp: WorldParticleEvent, WorldParticleEvent::getParticle, WorldParticleEvent::getPosition, WorldParticleEvent::getRecipients, WorldParticleEvent::cancel, World::addParticle
+#[test]
+fn a_world_particle_listener_sees_a_broken_block_and_may_hide_it() {
+    let pieces = |packets: &[Packet]| {
+        packets
+            .iter()
+            .filter(|p| {
+                matches!(p, Packet::LevelEvent(e)
+                    if e.event_type == i32::from(Event::ParticlesDestroyBlock))
+            })
+            .count()
+    };
+    let l = listen(|e: &mut crate::event::WorldParticle, _: &mut Context<'_>| {
+        note(SEEN, (e.position(), e.particle(), e.recipients().to_vec()));
+    });
+    let mut h = Harness::with(creative, l);
+    h.set(TARGET, dandelion());
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), block::AIR);
+    let broken = crate::world::Particle::BlockBreak(dandelion());
+    assert_eq!(notes(SEEN), [dbg((center(TARGET), broken, vec![me()]))]);
+    assert_eq!(pieces(&h.packets()), 1);
+    let mut h = Harness::with(creative, cancel(crate::event::WorldParticle::cancel));
+    h.set(TARGET, dandelion());
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), block::AIR, "the block still breaks");
+    assert_eq!(pieces(&h.packets()), 0);
+    assert_eq!(cancels(), 1);
+}
+
+#[test]
+fn direct_sounds_particles_and_explosions_raise_no_world_sound_or_particle() {
+    let mut l = Listeners::default();
+    l.listen_to_every_event(hear);
+    let mut h = Harness::with(|_| {}, l);
+    HEARD.with(Cell::take);
+    let mut cx = Context {
+        state: &mut h.state,
+    };
+    let at = Vec3::new(20.5, -60.0, 20.5);
+    assert!(cx.add_sound(crate::world::Id::DEFAULT, at, crate::world::Sound::Explode));
+    assert!(cx.add_particle(crate::world::Id::DEFAULT, at, crate::world::Particle::Flame));
+    assert!(cx.explode(crate::world::Id::DEFAULT, at, 1.0));
+    let heard = HEARD.with(Cell::take);
+    assert!(
+        !heard
+            .iter()
+            .any(|w| w == "world_sound" || w == "world_particle"),
+        "{heard:?}"
+    );
 }

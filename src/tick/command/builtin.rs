@@ -1,11 +1,11 @@
 //! Anchor's own commands (PLAN.md 10.8): PMMP's default commands that are in scope, one per PMMP
 //! class in `command\defaults`, registered through the same [`Command`] API as the user's.
 //!
-//! Each copies its PMMP class: names, aliases, permissions (PMMP's names under `anchor`),
-//! arguments and messages. A message the client knows (`commands.*`, `chat.*`, `gameMode.*`) goes
-//! as its translation key and parameters, as PMMP sends it; PMMP's own (`pocketmine.*`) is
-//! written here in PMMP's English, as PMMP translates it on the server. Where Anchor differs, the
-//! command's function says why. Game mode names and coordinates are written as BDS writes them,
+//! Each follows its PMMP class: names, aliases, permissions (PMMP's names under `anchor`),
+//! arguments and behaviour. A message the client knows (`commands.*`, `chat.*`, `gameMode.*`,
+//! descriptions as BDS sends them) goes as its translation key and parameters; a message the
+//! client has no key for is Anchor's own text (PLAN.md 8.4: no other server's sentences). Where
+//! Anchor differs, the command's function says why. Game mode names and coordinates are written as BDS writes them,
 //! and the player a command acted on is told as BDS tells it ([`tell_object`]). Results that PMMP
 //! broadcasts to operators
 //! (`Command::broadcastCommandMessage`) go to the players with
@@ -27,6 +27,7 @@ use serde_json::{Value as Json, json};
 use tracing::{debug, info};
 
 use super::{ADMIN_PREFIX, CONSOLE_NAME, Context};
+use crate::action::{self, Action};
 use crate::command::{Args, Command, Error, Output, Result, Sender};
 use crate::config::GameMode;
 use crate::math::{self, Vec3};
@@ -55,33 +56,38 @@ fn infallible(
 /// The largest coordinate a command takes (PMMP `VanillaCommand::MAX_COORD`).
 const MAX_COORD: i32 = 30_000_000;
 
-/// A PMMP message: a key the client translates, or one of PMMP's own with its English text.
+/// A command message: a key the client translates, or Anchor's own text.
 #[derive(Debug, Clone, Copy)]
 struct Msg {
+    /// The client's translation key, or Anchor's text with `{%0}`, `{%1}`... for the
+    /// parameters.
     key: &'static str,
-    /// The English text with `{%0}`, `{%1}`... for the parameters; `None` for a client key.
-    english: Option<&'static str>,
+    /// Whether `key` is Anchor's text, which is sent as it is.
+    own: bool,
 }
 
 impl Msg {
     /// A message the client translates (Bedrock's language files have the key).
     const fn client(key: &'static str) -> Self {
-        Self { key, english: None }
+        Self { key, own: false }
     }
 
-    /// One of PMMP's own messages, which the client does not know: sent as its English text.
-    const fn pmmp(key: &'static str, english: &'static str) -> Self {
+    /// Anchor's own message, for which the client has no key: sent as its text.
+    const fn own(text: &'static str) -> Self {
         Self {
-            key,
-            english: Some(english),
+            key: text,
+            own: true,
         }
     }
 
-    /// The English text with `params` filled in, in one pass so that a parameter's own text is
-    /// kept as it is; `None` for a client key.
+    /// The own text with `params` filled in, in one pass so that a parameter's own text is kept
+    /// as it is; `None` for a client key.
     fn render(self, params: &[&str]) -> Option<String> {
+        if !self.own {
+            return None;
+        }
         let mut out = String::new();
-        let mut rest = self.english?;
+        let mut rest = self.key;
         while let Some((before, after)) = rest.split_once("{%") {
             out.push_str(before);
             let param = after.split_once('}').and_then(|(digits, tail)| {
@@ -136,19 +142,8 @@ impl Msg {
 const NUM_TOO_BIG: Msg = Msg::client("commands.generic.num.tooBig");
 /// `commands.generic.num.tooSmall`: a number below its bound.
 const NUM_TOO_SMALL: Msg = Msg::client("commands.generic.num.tooSmall");
-/// A syntax only a player may use.
-const PLAYER_USER_ONLY: Msg = Msg::pmmp(
-    "pocketmine.command.error.playerUserOnly",
-    "This command syntax can only be used as a player",
-);
-/// The text a kicked player sees.
-const DISCONNECT_KICK: Msg = Msg::pmmp(
-    "pocketmine.disconnect.kick",
-    "Kicked by admin. Reason: {%0}",
-);
-/// The text a player kicked without a reason sees.
-const DISCONNECT_KICK_NO_REASON: Msg =
-    Msg::pmmp("pocketmine.disconnect.kick.noReason", "Kicked by admin");
+/// A syntax only a player may use, run by the console: the client's "invalid origin" text.
+const PLAYER_USER_ONLY: Msg = Msg::client("commands.generic.invalidOrigin");
 
 /// Shows `player` `message`. A message from a command line fits what a client decodes, so a
 /// failure only means the player is leaving.
@@ -182,13 +177,17 @@ fn tell_object(cx: &mut Context<'_>, player: player::Id, msg: Msg, params: &[&st
     }
 }
 
-/// Kicks `player` with `reason`; a player already leaving stays as it is.
-fn kick(cx: &mut Context<'_>, player: player::Id, reason: &str) {
-    if let Some(p) = cx.player_mut(player)
-        && let Err(e) = p.kick(reason)
-    {
-        debug!(%e, "player not kicked");
-    }
+/// Queues `action` ([`Context::perform`]), so that its events are raised once the command has
+/// returned (a command may run inside a listener: the events must not re-enter it). A full
+/// queue fails the command.
+fn perform(cx: &mut Context<'_>, action: impl Action) -> Result<()> {
+    cx.perform(action).map_err(|e| Error::failed(e.to_string()))
+}
+
+/// Kicks `player` with `reason` (PMMP `Player::kick`): the [`PlayerKick`](crate::event::PlayerKick)
+/// listeners decide after the command has returned; a player already leaving stays as it is.
+fn kick(cx: &mut Context<'_>, player: player::Id, reason: &str) -> Result<()> {
+    perform(cx, action::Kick::new(player, reason))
 }
 
 /// The result `msg` for `sender`, and a copy for the operators ([`notify`]; PMMP
@@ -205,7 +204,8 @@ fn announce(cx: &mut Context<'_>, sender: Sender, msg: Msg, params: &[&str]) -> 
 fn notify(cx: &mut Context<'_>, sender: Sender, msg: Msg, params: &[&str]) {
     let Some(text) = msg.render(params) else {
         let source = name_of(cx, sender);
-        // The client translates the key inside the text, as in PMMP's prefixed messages.
+        // The client translates the key inside the text with its parameters. The brackets are
+        // `chat.type.admin`'s shape, which cannot carry a translation with parameters itself.
         let copy = Message::Translation {
             key: format!("{ADMIN_PREFIX}[{source}: %{}]", msg.key),
             parameters: params.iter().map(|p| (*p).to_owned()).collect(),

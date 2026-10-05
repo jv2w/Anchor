@@ -330,6 +330,20 @@ const SPECS: &[Spec] = &[
     s("packet.SoftEnumAction", Enum).repr("u8"),
 ];
 
+/// Every group key (`packet.TextType`) with the Rust name of its enum, or `None` for a group
+/// that is no enum or flag enum, for the field docs of the generated types.
+pub(crate) fn enum_names() -> Result<BTreeMap<&'static str, Option<String>>, String> {
+    SPECS
+        .iter()
+        .map(|s| {
+            let name = matches!(s.kind, Enum | Mask | Index)
+                .then(|| names::type_name(s.key))
+                .transpose()?;
+            Ok((s.key, name))
+        })
+        .collect()
+}
+
 /// A Rust integer type.
 #[derive(Debug, Clone, Copy)]
 struct IntType {
@@ -764,20 +778,14 @@ fn group_doc(g: &Group<'_>) -> String {
         .map(|p| format!("`{package}.{p}*`"))
         .collect();
     doc(
-        "",
         &format!("The gophertunnel {} constants.", names.join(", ")),
         "",
     )
 }
 
-/// The doc of a member: its Go doc and its Go name.
+/// The doc of a member: its Go name.
 fn member_doc(m: &Member<'_>, extra: &str, indent: &str) -> String {
-    let name = format!("gophertunnel `{}`{extra}.", m.go);
-    if m.c.doc.trim().is_empty() {
-        doc("", &name, indent)
-    } else {
-        doc(&format!("{}\n\n{name}", m.c.doc), "", indent)
-    }
+    doc(&format!("gophertunnel `{}`{extra}.", m.go), indent)
 }
 
 /// Resolves the members of an integer group: variants, aliases and sentinels, with checks.

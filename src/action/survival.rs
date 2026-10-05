@@ -1,10 +1,13 @@
-//! The actions of a player's survival and connection: damage, game mode, chat, kick, transfer.
+//! The actions of a player's survival, place and connection: damage, game mode, chat, teleport,
+//! kick, transfer.
 
 use super::{Action, Sealed};
 use crate::config::GameMode;
 use crate::event::{DamageCause, DamageSource};
+use crate::math::Vec3;
 use crate::player::Id;
 use crate::tick::Context;
+use crate::world;
 
 /// Hurts a player as the game would (PMMP `Entity::attack` with an `EntityDamageEvent`): its
 /// armour, effects, enchantments, invulnerability and game mode count, the
@@ -103,6 +106,38 @@ impl Sealed for Chat {
 
 impl Action for Chat {}
 
+/// Teleports a player as the game would (PMMP `Entity::teleport`): the
+/// [`EntityTeleport`](crate::event::EntityTeleport) listeners may keep it where it is or send it
+/// elsewhere. [`Player::teleport`](crate::player::Player::teleport) moves it without asking.
+#[doc(alias = "Entity::teleport")]
+#[doc(alias = "Player::teleport")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Teleport {
+    player: Id,
+    world: world::Id,
+    feet: Vec3,
+}
+
+impl Teleport {
+    /// Moves `player`'s feet to `feet` in `world`; nothing for a position that is not finite or
+    /// lies outside the world border.
+    pub fn new(player: Id, world: world::Id, feet: Vec3) -> Self {
+        Self {
+            player,
+            world,
+            feet,
+        }
+    }
+}
+
+impl Sealed for Teleport {
+    fn perform(self, cx: &mut Context<'_>) {
+        cx.teleport_player(self.player, self.world, self.feet);
+    }
+}
+
+impl Action for Teleport {}
+
 /// Kicks a player as the game would (PMMP `Player::kick`): the
 /// [`PlayerKick`](crate::event::PlayerKick) listeners may keep it or change the messages; it
 /// leaves at the end of the tick, raising [`PlayerQuit`](crate::event::PlayerQuit).
@@ -118,7 +153,7 @@ pub struct Kick {
 
 impl Kick {
     /// Kicks `player` with `reason` for the log and its screen (the client's "disconnected" text
-    /// when empty), showing the other players nothing.
+    /// when empty); the other players see that it left the game.
     pub fn new(player: Id, reason: impl Into<String>) -> Self {
         Self {
             player,
@@ -185,7 +220,7 @@ impl Transfer {
         }
     }
 
-    /// The same transfer with `message` for the log instead of "Transferred to another server".
+    /// The same transfer with `message` for the log instead of "Moved to another server".
     #[must_use]
     pub fn with_message(self, message: impl Into<String>) -> Self {
         Self {

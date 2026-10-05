@@ -27,7 +27,32 @@ commands | command give @s stone 3: Text#0.Message: A "{\"rawtext\":[{\"translat
 # same values, harmless to the client).
 commands | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
 
-# Syntax errors: BDS answers `commands.generic.syntax` [before, bad word, after]; Anchor answers
-# PMMP's `Usage: ...`: the parser does not yet give the bad word's position, and BDS's form for
-# missing arguments is unseen (verification pending, M9).
-commands | command give @s no_such_item: CommandOutput#0.OutputMessages: A [{"Message":"commands.generic.syntax","Parameters":["/give @s ","no_such_item",""],"Success":false}] != B [{"Message":"Usage: /give <player: target> <itemName: Item> [amount: int]","Parameters":[],"Success":false}] | PMMP's usage text for a syntax error until the parser gives the bad word's position (M9)
+# `cargo xtask p6 import` (PLAN.md 10.9): `import | block <name> | <reason>`. Where Anchor sends
+# `info_update` for an imported block it keeps as an unknown block (with its NBT, so nothing is
+# lost), BDS's block of a listed name is an intended difference. PMMP does not have these blocks
+# (xtask/data/pmmp/blocks.json). A block Anchor sends as the state PMMP reads it as (a pumpkin
+# facing south for any facing: xtask/data/pmmp/deserialized.json) needs no line.
+import | block minecraft:bubble_column | PMMP has no bubble column; kept as an unknown block
+import | block minecraft:bush | PMMP has no bush; kept as an unknown block
+import | block minecraft:cinnabar | PMMP has no cinnabar; kept as an unknown block
+import | block minecraft:decorated_pot | PMMP has no decorated pot; kept as an unknown block
+import | block minecraft:dispenser | PMMP has no dispenser (redstone); kept as an unknown block
+import | block minecraft:firefly_bush | PMMP has no firefly bush; kept as an unknown block
+import | block minecraft:seagrass | PMMP has no seagrass; kept as an unknown block
+import | block minecraft:sulfur | PMMP has no sulfur; kept as an unknown block
+import | block minecraft:trial_spawner | PMMP has no trial spawner; kept as an unknown block
+import | block minecraft:vault | PMMP has no vault; kept as an unknown block
+import | block minecraft:wildflowers | PMMP has no wildflowers; kept as an unknown block
+
+# M9 verification scenarios (P6V, m9-facts.md): differences Anchor keeps on purpose.
+enchants | trident into the table: check options trident: A {"options":3,"slot":32768} != B {"options":0,"slot":null} | PMMP has no trident enchantments (impaling, loyalty, riptide, channeling): its enchanting table gives a trident no options
+potions | throw splash potion 42: check splash colours: A {"0":4281884102,"1":4281884102,"10":4294836100,"11":4294836100,"12":4294940928,"13":4294940928,"14":4281592831,"15":4281592831,"16":4281592831,"17":4287344608,"18":4287344608,"19":4288207552,"2":4281884102,"20":4288207552,"21":4294452259,"22":4294452259,"23":4289291626,"24":4289291626,"25":4287079267,"26":4287079267,"27":4287079267,"28":4291648683,"29":4291648683,"3":4281884102,"30":4291648683,"31":4294952704,"32":4294952704,"33":4294952704,"34":4282928456,"35":4282928456,"36":4285751638,"37":4287464166,"38":4287464166,"39":4287464934,"4":4281884102,"40":4294168505,"41":4294168505,"42":4287344608,"5":4290969446,"6":4290969446,"7":4294375158,"8":4294375158,"9":4294836100} != B {"0":4281884102,"1":4281884102,"10":4294836100,"11":4294836100,"12":4294940928,"13":4294940928,"14":4281592831,"15":4281592831,"16":4281592831,"17":4287344608,"18":4287344608,"19":4288207552,"2":4281884102,"20":4288207552,"21":4294452259,"22":4294452259,"23":4289291626,"24":4289291626,"25":4287079267,"26":4287079267,"27":4287079267,"28":4291648683,"29":4291648683,"3":4281884102,"30":4291648683,"31":4294952704,"32":4294952704,"33":4294952704,"34":4282928456,"35":4282928456,"36":4285751638,"37":4287464166,"38":4287464166,"39":4287464934,"4":4281884102,"40":4281884102,"41":4281884102,"42":4287344608,"5":4290969446,"6":4290969446,"7":4294375158,"8":4294375158,"9":4294836100} | PMMP has no slow falling effect: Anchor's slow falling potions (40, 41) have no effect and show the water colour
+syntax | command xp abc @s: CommandOutput#0.OutputMessages: A [{"Message":"commands.generic.syntax","Parameters":["/xp ","abc"," @s"],"Success":false}] != B [{"Message":"commands.generic.usage","Parameters":["/xp <amount: string> [player: target]"],"Success":false}] | /xp keeps PMMP's single amount parameter (`10` or `10L`): a bad amount fits the overload and the handler answers with the usage
+syntax | command xp abc: CommandOutput#0.OutputMessages: A [{"Message":"commands.generic.syntax","Parameters":["/xp ","abc",""],"Success":false}] != B [{"Message":"commands.generic.usage","Parameters":["/xp <amount: string> [player: target]"],"Success":false}] | /xp keeps PMMP's single amount parameter (`10` or `10L`): a bad amount fits the overload and the handler answers with the usage
+syntax | command gamemode survival: CommandOutput#0.SuccessCount: A 1 != B 0 | /gamemode to the mode a player has keeps PMMP's failure (BDS succeeds)
+syntax | command gamemode survival: CommandOutput#0.OutputMessages: A [{"Message":"commands.gamemode.success.self","Parameters":["%createWorldScreen.gameMode.survival"],"Success":true}] != B [{"Message":"The game mode of P6Syntax stays as it is","Parameters":[],"Success":false}] | /gamemode to the mode a player has keeps PMMP's failure (BDS succeeds)
+syntax | command gamemode survival: Text: A 1 != B 0 | /gamemode to the mode a player has keeps PMMP's failure (BDS tells the player of the change)
+syntax | command gamemode adventure: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
+syntax | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
+syntax | command gamemode spectator: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
+syntax | command gamemode survival: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it

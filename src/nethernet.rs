@@ -21,9 +21,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use socket2::{Domain, Protocol, Socket, Type};
 use tokio::net::UdpSocket;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::MissedTickBehavior;
 use tracing::{debug, trace, warn};
@@ -32,7 +31,7 @@ use crate::auth::Auth;
 use crate::clock;
 use crate::crypto::{self, PublicKey};
 use crate::login::{self, Mode};
-use crate::raknet::ip_key;
+use crate::raknet::{Flags, Inbound, Inbox, bind, ip_key, readable};
 
 use identity::ServerIdentity;
 use peer::{Certificate, Peer};
@@ -45,9 +44,6 @@ const OFFER_QUEUE: usize = 64;
 /// Messages from sessions and offer tasks to the driver. Sends wait when it is full, which slows
 /// sessions to the driver's pace instead of buffering without bound.
 const COMMAND_QUEUE: usize = 4096;
-/// Messages received on one connection that its session has not taken yet; bytes are bounded
-/// separately. A full queue disconnects (PLAN.md 10.3).
-const INBOUND_QUEUE: usize = 1024;
 /// Peers before login, in all and per IPv4 address or IPv6 /64 (PLAN.md 10.3).
 const MAX_PRE_LOGIN: usize = 64;
 const MAX_PRE_LOGIN_PER_IP: usize = 4;
@@ -61,8 +57,6 @@ const MAX_PEER_ADDRS: usize = 8;
 const RECV_BATCH: usize = 256;
 /// Commands handled before the task serves its other inputs.
 const COMMAND_BATCH: usize = 256;
-/// Kernel socket buffers, as for RakNet.
-const SOCKET_BUFFER: usize = 4 * 1024 * 1024;
 /// How often timers run: str0m timeouts, deadlines and session flags.
 const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 /// How long a closed connection may take to deliver what it has sent, as RakNet allows.
@@ -201,22 +195,14 @@ pub(crate) async fn start(
     .map_err(StartError::Bind)?;
     let (commands_tx, commands_rx) = mpsc::channel(COMMAND_QUEUE);
     let (stop, stopped) = oneshot::channel();
-    let driver = Driver {
+    let driver = Driver::new(
         v4,
         v6,
         certificate,
-        max_message: settings.max_message,
-        peers: BTreeMap::new(),
-        by_ufrag: BTreeMap::new(),
-        by_addr: BTreeMap::new(),
-        pre_login: BTreeMap::new(),
-        pre_login_total: 0,
-        next_id: 0,
+        settings.max_message,
         accepted,
-        commands: commands_tx.clone(),
-        buf: vec![0; RECV_BUFFER],
-        doomed: Vec::new(),
-    };
+        commands_tx.clone(),
+    );
     let driver = tokio::spawn(driver.run(commands_rx, stopped));
     let offers = Offers {
         identity: Arc::new(identity),
@@ -233,19 +219,6 @@ pub(crate) async fn start(
         driver,
         offers,
     })
-}
-
-fn bind(addr: SocketAddr) -> io::Result<UdpSocket> {
-    let socket = Socket::new(Domain::for_address(addr), Type::DGRAM, Some(Protocol::UDP))?;
-    if addr.is_ipv6() {
-        // Lets the IPv4 socket bind the same port on every OS.
-        socket.set_only_v6(true)?;
-    }
-    socket.set_recv_buffer_size(SOCKET_BUFFER)?;
-    socket.set_send_buffer_size(SOCKET_BUFFER)?;
-    socket.set_nonblocking(true)?;
-    socket.bind(&addr.into())?;
-    UdpSocket::from_std(socket.into())
 }
 
 /// Controls the NetherNet tasks.
@@ -269,7 +242,8 @@ impl Handle {
         &self.udp_addrs
     }
 
-    /// Stops signaling, closes every peer and waits for the tasks to end.
+    /// Stops signaling, closes every peer (each connection gets up to 5 s to deliver what it
+    /// queued, as on RakNet) and waits for the tasks to end.
     pub(crate) async fn shutdown(self) {
         self.signaling.shutdown().await;
         self.offers.abort();
@@ -280,13 +254,6 @@ impl Handle {
             warn!(%error, "nethernet driver failed");
         }
     }
-}
-
-/// What a connection tells the driver through its watch channel.
-#[derive(Clone, Copy, Debug, Default)]
-struct Flags {
-    logged_in: bool,
-    closed: bool,
 }
 
 /// A request to the driver.
@@ -306,13 +273,6 @@ enum Command {
     Send { id: u64, message: Vec<u8> },
 }
 
-/// A received game message and its share of the connection's inbound byte budget.
-#[derive(Debug)]
-struct Inbound {
-    message: Vec<u8>,
-    _budget: OwnedSemaphorePermit,
-}
-
 /// One NetherNet connection, held by its session. Dropping it closes the connection.
 #[derive(Debug)]
 pub(crate) struct Connection {
@@ -322,12 +282,19 @@ pub(crate) struct Connection {
     inbound: mpsc::Receiver<Inbound>,
     commands: mpsc::Sender<Command>,
     signal: watch::Sender<Flags>,
+    ping: watch::Receiver<Option<Duration>>,
 }
 
 impl Connection {
     /// The client address the data channels run on.
     pub(crate) fn addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    /// The round trip time of the latest ICE consent check on the connection's address pair;
+    /// `None` until one was answered.
+    pub(crate) fn ping(&self) -> Option<Duration> {
+        *self.ping.borrow()
     }
 
     /// The client key the offer's identity proved; `None` for an offline offer without one.
@@ -451,7 +418,7 @@ impl Offers {
         let fingerprint = sdp::fingerprint_text(&local.fingerprint);
         let assertion = self
             .identity
-            .assertion(&fingerprint, unix_now())
+            .assertion(&fingerprint, clock::token_now())
             .map_err(|_| Reply::Code(CODE_INTERNAL))?;
         let mut session_id = [0; 8];
         crypto::fill_random(&mut session_id).map_err(|_| Reply::Code(CODE_INTERNAL))?;
@@ -474,11 +441,21 @@ impl Offers {
     ) -> std::result::Result<PublicKey, Reply> {
         let refused = |_| Reply::Code(CODE_IDENTITY);
         let Some(auth) = &self.auth else {
-            return identity::verify_offer(assertion, fingerprint, Mode::Offline, unix_now())
-                .map_err(refused);
+            return identity::verify_offer(
+                assertion,
+                fingerprint,
+                Mode::Offline,
+                clock::token_now(),
+            )
+            .map_err(refused);
         };
         let keys = auth.keys();
-        match identity::verify_offer(assertion, fingerprint, Mode::Online(&keys), unix_now()) {
+        match identity::verify_offer(
+            assertion,
+            fingerprint,
+            Mode::Online(&keys),
+            clock::token_now(),
+        ) {
             Err(identity::Error::Token(login::Error::UnknownKeyId)) => {}
             result => return result.map_err(refused),
         }
@@ -486,8 +463,13 @@ impl Offers {
             .refresh_keys()
             .await
             .ok_or(Reply::Code(CODE_IDENTITY))?;
-        identity::verify_offer(assertion, fingerprint, Mode::Online(&keys), unix_now())
-            .map_err(refused)
+        identity::verify_offer(
+            assertion,
+            fingerprint,
+            Mode::Online(&keys),
+            clock::token_now(),
+        )
+        .map_err(refused)
     }
 
     /// The host candidate to advertise: `public-ip`, or the address the client reached the
@@ -502,19 +484,12 @@ impl Offers {
     }
 }
 
-/// Wall-clock Unix seconds for token checks; before 1970 reads as 0 and fails every check.
-fn unix_now() -> i64 {
-    clock::unix_now()
-        .and_then(|s| i64::try_from(s).ok())
-        .unwrap_or(0)
-}
-
 /// The driver's side of an accepted connection.
 #[derive(Debug)]
 struct Link {
-    inbound: mpsc::Sender<Inbound>,
-    budget: Arc<Semaphore>,
+    inbox: Inbox,
     signal: watch::Receiver<Flags>,
+    ping: watch::Sender<Option<Duration>>,
 }
 
 /// One peer in the driver.
@@ -553,9 +528,39 @@ struct Driver {
     commands: mpsc::Sender<Command>,
     buf: Vec<u8>,
     doomed: Vec<u64>,
+    /// Set once the driver is stopping: new offers are refused, and it ends when the last
+    /// peer is gone.
+    stopping: bool,
 }
 
 impl Driver {
+    fn new(
+        v4: Option<UdpSocket>,
+        v6: Option<UdpSocket>,
+        certificate: Certificate,
+        max_message: usize,
+        accepted: mpsc::Sender<Connection>,
+        commands: mpsc::Sender<Command>,
+    ) -> Self {
+        Self {
+            v4,
+            v6,
+            certificate,
+            max_message,
+            peers: BTreeMap::new(),
+            by_ufrag: BTreeMap::new(),
+            by_addr: BTreeMap::new(),
+            pre_login: BTreeMap::new(),
+            pre_login_total: 0,
+            next_id: 0,
+            accepted,
+            commands,
+            buf: vec![0; RECV_BUFFER],
+            doomed: Vec::new(),
+            stopping: false,
+        }
+    }
+
     async fn run(
         mut self,
         mut commands: mpsc::Receiver<Command>,
@@ -575,22 +580,47 @@ impl Driver {
                     }
                 }
                 _ = interval.tick() => {
-                    // Commands queued before a close flag (the last packets) are applied first,
-                    // so a closing peer is not judged drained before it has them.
-                    for _ in 0..COMMAND_QUEUE {
-                        let Ok(command) = commands.try_recv() else { break };
-                        self.command(command);
-                    }
+                    self.drain(&mut commands);
                     self.update();
                 }
-                _ = &mut stopped => break,
+                _ = &mut stopped, if !self.stopping => {
+                    self.drain(&mut commands);
+                    self.stop();
+                }
+            }
+            if self.stopping && self.peers.is_empty() {
+                debug!("nethernet driver stopped");
+                return;
             }
         }
-        let ids: Vec<u64> = self.peers.keys().copied().collect();
-        for id in ids {
-            self.remove(id, "server stopping");
+    }
+
+    /// Applies what sessions queued, at most a full queue. A session queues its last packets
+    /// before it sets its close flag, so the timer and stop handlers call this first: a closing
+    /// peer is not judged drained before it has them.
+    fn drain(&mut self, commands: &mut mpsc::Receiver<Command>) {
+        for _ in 0..COMMAND_QUEUE {
+            let Ok(command) = commands.try_recv() else {
+                break;
+            };
+            self.command(command);
         }
-        debug!("nethernet driver stopped");
+    }
+
+    /// Starts stopping: peers without a connection go at once, the others close as a session
+    /// close does, with the same linger.
+    fn stop(&mut self) {
+        self.stopping = true;
+        let now = clock::now();
+        let until = now.checked_add(CLOSE_LINGER).unwrap_or(now);
+        for (&id, entry) in &mut self.peers {
+            if entry.link.is_none() {
+                self.doomed.push(id);
+            } else if entry.closing.is_none() {
+                entry.closing = Some(until);
+            }
+        }
+        self.reap();
     }
 
     fn receive(&mut self, v6: bool) {
@@ -624,15 +654,9 @@ impl Driver {
             let Some(entry) = self.peers.get_mut(&id) else {
                 continue;
             };
-            if !entry.addrs.contains(&from) {
-                // Only a STUN request with the peer's ufrag reaches here from a new address;
-                // str0m checks its integrity before the address is used for anything else.
-                if entry.addrs.len() >= MAX_PEER_ADDRS {
-                    trace!(%from, "nethernet peer address limit reached");
-                    continue;
-                }
-                entry.addrs.push(from);
-                self.by_addr.insert(from, id);
+            if !admit(&mut self.by_addr, &mut entry.addrs, id, from) {
+                trace!(%from, "nethernet datagram from a refused address dropped");
+                continue;
             }
             // The peer must be polled before the next datagram reaches it (peer.rs).
             entry.peer.receive(now, from, data);
@@ -682,7 +706,8 @@ impl Driver {
     ) -> std::result::Result<peer::Local, Reply> {
         let key = ip_key(ip);
         let per_ip = self.pre_login.get(&key).copied().unwrap_or(0);
-        if self.pre_login_total >= MAX_PRE_LOGIN || per_ip >= MAX_PRE_LOGIN_PER_IP {
+        if self.stopping || self.pre_login_total >= MAX_PRE_LOGIN || per_ip >= MAX_PRE_LOGIN_PER_IP
+        {
             return Err(Reply::Busy);
         }
         let mut made = None;
@@ -747,7 +772,7 @@ impl Driver {
                     return;
                 }
                 peer::Output::Open => {
-                    let Some(addr) = entry.addrs.last().copied() else {
+                    let Some(addr) = entry.peer.remote_addr() else {
                         self.doomed.push(id);
                         return;
                     };
@@ -766,10 +791,20 @@ impl Driver {
                     entry.link = link;
                 }
                 peer::Output::Message(message) => {
-                    if !deliver(entry.link.as_ref(), message) {
+                    // Data before both channels opened is not game data yet.
+                    if !entry
+                        .link
+                        .as_ref()
+                        .is_some_and(|link| link.inbox.deliver(message))
+                    {
                         debug!(peer = id, "nethernet session not keeping up; closing");
                         self.doomed.push(id);
                         return;
+                    }
+                }
+                peer::Output::Rtt(rtt) => {
+                    if let Some(link) = &entry.link {
+                        link.ping.send_replace(Some(rtt));
                     }
                 }
                 peer::Output::Closed(reason) => {
@@ -785,25 +820,16 @@ impl Driver {
         let now = clock::now();
         let mut due = Vec::new();
         for (&id, entry) in &mut self.peers {
-            if let Some(link) = &mut entry.link {
-                let flags = match link.signal.has_changed() {
-                    Ok(false) => None,
-                    Ok(true) => Some(*link.signal.borrow_and_update()),
-                    // The connection was dropped.
-                    Err(_) => Some(Flags {
-                        logged_in: false,
-                        closed: true,
-                    }),
-                };
-                if let Some(flags) = flags {
-                    if flags.logged_in
-                        && let Some(key) = entry.pre_login.take()
-                    {
-                        release(&mut self.pre_login, &mut self.pre_login_total, key);
-                    }
-                    if flags.closed && entry.closing.is_none() {
-                        entry.closing = Some(now.checked_add(CLOSE_LINGER).unwrap_or(now));
-                    }
+            if let Some(link) = &mut entry.link
+                && let Some(flags) = Flags::changed(&mut link.signal)
+            {
+                if flags.logged_in
+                    && let Some(key) = entry.pre_login.take()
+                {
+                    release(&mut self.pre_login, &mut self.pre_login_total, key);
+                }
+                if flags.closed && entry.closing.is_none() {
+                    entry.closing = Some(now.checked_add(CLOSE_LINGER).unwrap_or(now));
                 }
             }
             // A closing peer stays until what was sent is acknowledged, or the linger ends.
@@ -826,15 +852,15 @@ impl Driver {
     /// Removes the peers marked for closing.
     fn reap(&mut self) {
         while let Some(id) = self.doomed.pop() {
-            self.remove(id, "closed");
+            self.remove(id);
         }
     }
 
-    fn remove(&mut self, id: u64, why: &'static str) {
+    fn remove(&mut self, id: u64) {
         let Some(mut entry) = self.peers.remove(&id) else {
             return;
         };
-        debug!(peer = id, why, "nethernet peer removed");
+        debug!(peer = id, "nethernet peer removed");
         entry.peer.close();
         let now = clock::now();
         // Flush what closing produced (SCTP abort, DTLS close notify) without keeping the peer.
@@ -847,14 +873,40 @@ impl Driver {
             }
         }
         self.by_ufrag.remove(&entry.ufrag);
-        for addr in &entry.addrs {
-            if self.by_addr.get(addr) == Some(&id) {
-                self.by_addr.remove(addr);
-            }
-        }
+        forget(&mut self.by_addr, &entry.addrs);
         if let Some(key) = entry.pre_login {
             release(&mut self.pre_login, &mut self.pre_login_total, key);
         }
+    }
+}
+
+/// Records `from` as a source address of peer `id`, whose addresses are `addrs`; `false` drops
+/// the datagram. Only a STUN request with the peer's ufrag reaches here from a new address. An
+/// address another live peer already has stays that peer's: a client knows its own ufrag and
+/// password, so its valid STUN request can carry any spoofed source, and taking the address
+/// would cut the other peer off from its own datagrams.
+fn admit(
+    by_addr: &mut BTreeMap<SocketAddr, u64>,
+    addrs: &mut Vec<SocketAddr>,
+    id: u64,
+    from: SocketAddr,
+) -> bool {
+    if addrs.contains(&from) {
+        return true;
+    }
+    if addrs.len() >= MAX_PEER_ADDRS || by_addr.contains_key(&from) {
+        return false;
+    }
+    addrs.push(from);
+    by_addr.insert(from, id);
+    true
+}
+
+/// Takes a removed peer's addresses out of the address index; `admit` gave each one to it
+/// alone.
+fn forget(by_addr: &mut BTreeMap<SocketAddr, u64>, addrs: &[SocketAddr]) {
+    for addr in addrs {
+        by_addr.remove(addr);
     }
 }
 
@@ -878,8 +930,11 @@ fn accept(
     entry: &mut Entry,
     max_message: usize,
 ) -> Option<Link> {
-    let (inbound, receiver) = mpsc::channel(INBOUND_QUEUE);
+    // Two largest messages may wait for the session, as on RakNet.
+    let bytes = max_message.saturating_mul(2).min(Semaphore::MAX_PERMITS);
+    let (inbox, receiver) = Inbox::new(bytes);
     let (signal, watcher) = watch::channel(Flags::default());
+    let (ping, pings) = watch::channel(None);
     let connection = Connection {
         id,
         addr,
@@ -887,43 +942,191 @@ fn accept(
         inbound: receiver,
         commands: commands.clone(),
         signal,
+        ping: pings,
     };
     if let Err(error) = accepted.try_send(connection) {
         debug!(%addr, %error, "nethernet connection not accepted");
         return None;
     }
-    // Two largest messages may wait for the session, as on RakNet.
-    let bytes = max_message.saturating_mul(2).min(Semaphore::MAX_PERMITS);
     Some(Link {
-        inbound,
-        budget: Arc::new(Semaphore::new(bytes)),
+        inbox,
         signal: watcher,
+        ping,
     })
 }
 
-/// Passes a message to the session; `false` when its queue or byte budget is full.
-fn deliver(link: Option<&Link>, message: Vec<u8>) -> bool {
-    let Some(link) = link else {
-        // Data before both channels opened is not game data yet.
-        return false;
-    };
-    let Ok(len) = u32::try_from(message.len()) else {
-        return false;
-    };
-    let Ok(budget) = Arc::clone(&link.budget).try_acquire_many_owned(len) else {
-        return false;
-    };
-    link.inbound
-        .try_send(Inbound {
-            message,
-            _budget: budget,
-        })
-        .is_ok()
-}
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
 
-async fn readable(socket: Option<&UdpSocket>) -> io::Result<()> {
-    match socket {
-        Some(socket) => socket.readable().await,
-        None => std::future::pending().await,
+    use str0m::net::{Protocol, Receive};
+    use str0m::{DATAGRAM_MTU_TARGET, Input};
+
+    use super::*;
+    use crate::raknet::tests::run;
+    use peer::tests::{Client, MAX_MESSAGE, certificates, reliable, unreliable};
+
+    const WAIT: Duration = Duration::from_secs(20);
+
+    /// Sends the client's output until it waits for time or input; `false` once the client
+    /// failed (after the peer went).
+    async fn flush(client: &mut Client, socket: &UdpSocket) -> bool {
+        loop {
+            match client.rtc.poll_output() {
+                Ok(str0m::Output::Transmit(t)) => {
+                    socket.send_to(&t.contents, t.destination).await.unwrap();
+                }
+                Ok(str0m::Output::Event(event)) => client.event(event),
+                Ok(str0m::Output::Timeout(at)) => {
+                    client.timeout = at;
+                    return true;
+                }
+                Err(_) => return false,
+            }
+        }
+    }
+
+    /// Hands the client a datagram from `from`; `false` once the client failed.
+    fn feed(client: &mut Client, socket: &UdpSocket, from: SocketAddr, datagram: &[u8]) -> bool {
+        let to = socket.local_addr().unwrap();
+        let receive = Receive::new(Protocol::Udp, from, to, datagram).unwrap();
+        client
+            .rtc
+            .handle_input(Input::Receive(clock::now(), receive))
+            .is_ok()
+    }
+
+    /// Sends the client's output, then takes one datagram or its timeout; `false` once the
+    /// client failed (after the peer went).
+    async fn step(client: &mut Client, socket: &UdpSocket) -> bool {
+        if !flush(client, socket).await {
+            return false;
+        }
+        let wait = client
+            .timeout
+            .saturating_duration_since(clock::now())
+            .clamp(Duration::from_millis(1), UPDATE_INTERVAL);
+        let mut buf = [0; RECV_BUFFER];
+        match tokio::time::timeout(wait, socket.recv_from(&mut buf)).await {
+            Ok(Ok((len, from))) => feed(client, socket, from, &buf[..len]),
+            // A timeout, or Windows reporting an earlier datagram's port unreachable.
+            Ok(Err(_)) | Err(_) => client
+                .rtc
+                .handle_input(Input::Timeout(clock::now()))
+                .is_ok(),
+        }
+    }
+
+    /// Hands the client every datagram already waiting on `socket`, without waiting for more.
+    async fn take_waiting(client: &mut Client, socket: &UdpSocket) {
+        let mut buf = [0; RECV_BUFFER];
+        while flush(client, socket).await {
+            match socket.try_recv_from(&mut buf) {
+                Ok((len, from)) => {
+                    if !feed(client, socket, from, &buf[..len]) {
+                        return;
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                // Windows reporting an earlier datagram's port unreachable.
+                Err(_) => {}
+            }
+        }
+    }
+
+    #[test]
+    fn shutdown_delivers_the_last_message_of_every_peer() {
+        run(shutdown_delivers_the_last_message());
+    }
+
+    async fn shutdown_delivers_the_last_message() {
+        let (server_cert, client_cert) = certificates();
+        let udp = bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+        let server = udp.local_addr().unwrap();
+        let (accepted, mut connections) = mpsc::channel(1);
+        let (commands, receiver) = mpsc::channel(COMMAND_QUEUE);
+        let (stop, stopped) = oneshot::channel();
+        let driver = Driver::new(
+            Some(udp),
+            None,
+            server_cert,
+            MAX_MESSAGE,
+            accepted,
+            commands.clone(),
+        );
+        let task = tokio::spawn(driver.run(receiver, stopped));
+
+        let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let start = clock::now();
+        let fingerprint = *client_cert.fingerprint();
+        let (mut client, remote) =
+            Client::new(&client_cert, addr, DATAGRAM_MTU_TARGET, fingerprint, start);
+        let (reply, answer) = oneshot::channel();
+        let open = Command::Open {
+            remote,
+            local: server,
+            client_key: None,
+            ip: addr.ip(),
+            reply,
+        };
+        commands.send(open).await.unwrap();
+        let local = answer.await.unwrap().unwrap();
+        client.answer(&local, addr, server, &[reliable(), unreliable()]);
+        let connection = loop {
+            if let Ok(connection) = connections.try_recv() {
+                break connection;
+            }
+            assert!(clock::now() < start + WAIT, "no connection");
+            assert!(step(&mut client, &socket).await, "client failed");
+        };
+
+        // The session's last packets, then the server stops at once.
+        let big = vec![7; 1 << 20];
+        connection.send(big.clone()).await.unwrap();
+        connection.send(b"bye".to_vec()).await.unwrap();
+        stop.send(()).unwrap();
+        while client.received.len() < 2 {
+            assert!(clock::now() < start + WAIT, "timed out");
+            // The stopped driver sends nothing more: what it sent is already on the loopback
+            // socket. (A driver that ended because the client acknowledged everything leaves
+            // nothing to take: the client had emitted each message by the time it acknowledged
+            // it.)
+            if task.is_finished() {
+                take_waiting(&mut client, &socket).await;
+                break;
+            }
+            if !step(&mut client, &socket).await {
+                break;
+            }
+        }
+        let got = client.received.len();
+        assert_eq!(got, 2, "the client got {got} of the last 2 messages");
+        assert_eq!(client.received[0], big);
+        assert_eq!(client.received[1], b"bye");
+        while !task.is_finished() {
+            assert!(clock::now() < start + WAIT, "the driver did not stop");
+            step(&mut client, &socket).await;
+        }
+        task.await.unwrap();
+    }
+
+    #[test]
+    fn stun_from_another_peers_address_does_not_steal_it() {
+        const A: u64 = 1;
+        const B: u64 = 2;
+        let victim = SocketAddr::from((Ipv4Addr::new(10, 0, 0, 1), 50_000));
+        let mut by_addr = BTreeMap::new();
+        let mut a_addrs = Vec::new();
+        let mut b_addrs = Vec::new();
+        assert!(admit(&mut by_addr, &mut a_addrs, A, victim));
+        // B's own ufrag in a STUN request with the victim's address as its source.
+        assert!(!admit(&mut by_addr, &mut b_addrs, B, victim));
+        assert_eq!(by_addr.get(&victim), Some(&A));
+        assert!(b_addrs.is_empty());
+        forget(&mut by_addr, &b_addrs);
+        assert_eq!(by_addr.get(&victim), Some(&A));
+        // A's address stays usable by A.
+        assert!(admit(&mut by_addr, &mut a_addrs, A, victim));
     }
 }

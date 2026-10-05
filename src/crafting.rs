@@ -24,6 +24,8 @@ const PRIORITY: i32 = 50;
 
 /// gophertunnel `RecipeUnlockContextAlwaysUnlocked`.
 const UNLOCK_ALWAYS: i32 = 1;
+/// gophertunnel `RecipeUnlockContextNone`: unlocked by the listed ingredients or by the server.
+const UNLOCK_NONE: i32 = 0;
 
 /// The block name of smithing recipes, as BDS and dragonfly send it.
 const SMITHING_TABLE: &str = "smithing_table";
@@ -71,10 +73,16 @@ pub(crate) enum Ingredient {
     Tag(item::Tag),
 }
 
-/// The block a shapeless recipe is made in (PMMP `ShapelessRecipeType`).
+/// The block a shapeless recipe is made in (PMMP `ShapelessRecipeType`). PMMP's `SMITHING` and
+/// `CARTOGRAPHY` types name no recipe: Anchor's smithing recipes are their own kind
+/// ([`Recipe::smithing_transform`](crate::custom::Recipe::smithing_transform)) and it has no
+/// cartography table.
+#[doc(alias = "ShapelessRecipeType")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ShapelessType {
+pub enum ShapelessType {
+    /// A crafting grid: the inventory's 2x2 or a crafting table's 3x3.
     Crafting,
+    /// A stonecutter: one input, one result.
     Stonecutter,
 }
 
@@ -162,8 +170,8 @@ pub(crate) enum Recipe<'a> {
     Shapeless(Shapeless<'a>),
     /// A furnace recipe: furnaces cook by themselves, so no request crafts with it.
     Furnace,
-    SmithingTransform(&'static SmithingTransform),
-    SmithingTrim(&'static SmithingTrim),
+    SmithingTransform(&'a SmithingTransform),
+    SmithingTrim(&'a SmithingTrim),
 }
 
 /// The recipe with this network ID, as [`crafting_data`] numbers them: from 1, shaped, then
@@ -343,7 +351,7 @@ impl Shaped<'_> {
 
 impl SmithingTransform {
     /// The network form, as dragonfly writes it.
-    fn network(&self, id: u32) -> SmithingTransformRecipe {
+    pub(crate) fn network(&self, id: u32) -> SmithingTransformRecipe {
         SmithingTransformRecipe {
             recipe_network_id: id,
             recipe_id: recipe_id(id),
@@ -371,27 +379,57 @@ impl SmithingTrim {
 }
 
 impl PotionType {
-    /// The network form: runtime IDs and the metas PMMP sends.
+    /// The network form ([`potion_recipe`]).
     fn network(&self) -> PotionRecipe {
-        PotionRecipe {
-            input_potion_id: i32::from(self.input.item.runtime_id()),
-            input_potion_metadata: self.input.network_meta,
-            reagent_item_id: i32::from(self.reagent.item.runtime_id()),
-            reagent_item_metadata: self.reagent.network_meta,
-            output_potion_id: i32::from(self.output.item.runtime_id()),
-            output_potion_metadata: i32::from(self.output.meta),
-        }
+        potion_recipe(
+            &Ingredient::Exact(self.input),
+            &Ingredient::Exact(self.reagent),
+            &self.output,
+        )
     }
 }
 
 impl PotionContainerChange {
-    /// The network form: runtime IDs only.
+    /// The network form ([`potion_container_change_recipe`]).
     fn network(&self) -> PotionContainerChangeRecipe {
-        PotionContainerChangeRecipe {
-            input_item_id: i32::from(self.input.runtime_id),
-            reagent_item_id: i32::from(self.reagent.item.runtime_id()),
-            output_item_id: i32::from(self.output.runtime_id),
-        }
+        potion_container_change_recipe(
+            self.input.runtime_id,
+            &Ingredient::Exact(self.reagent),
+            self.output.runtime_id,
+        )
+    }
+}
+
+/// A potion type recipe as PMMP's `CraftingDataCache` writes it: the runtime IDs and metas of
+/// the input and the reagent ([`Ingredient::id_meta`]) and of the output. Brewing ingredients
+/// are never tags (a server's own are checked when it is built).
+pub(crate) fn potion_recipe(
+    input: &Ingredient,
+    reagent: &Ingredient,
+    output: &Stack,
+) -> PotionRecipe {
+    let (input_potion_id, input_potion_metadata) = input.id_meta().unwrap_or_default();
+    let (reagent_item_id, reagent_item_metadata) = reagent.id_meta().unwrap_or_default();
+    PotionRecipe {
+        input_potion_id,
+        input_potion_metadata,
+        reagent_item_id,
+        reagent_item_metadata,
+        output_potion_id: i32::from(output.item.runtime_id()),
+        output_potion_metadata: i32::from(output.meta),
+    }
+}
+
+/// A potion container change recipe as PMMP writes it: runtime IDs only.
+pub(crate) fn potion_container_change_recipe(
+    input: i16,
+    reagent: &Ingredient,
+    output: i16,
+) -> PotionContainerChangeRecipe {
+    PotionContainerChangeRecipe {
+        input_item_id: i32::from(input),
+        reagent_item_id: reagent.id_meta().unwrap_or_default().0,
+        output_item_id: i32::from(output),
     }
 }
 
@@ -425,6 +463,16 @@ fn recipe_id(id: u32) -> String {
 fn always_unlocked() -> RecipeUnlockRequirement {
     RecipeUnlockRequirement {
         context: UNLOCK_ALWAYS,
+        ingredients: Vec::new(),
+    }
+}
+
+/// The requirement of a recipe the recipe book never shows (`recipe-book = false`): the context
+/// without unlocking ingredients, which BDS gives the recipes only the server unlocks (P6,
+/// `xtask/data/p6/m9-facts.md`); Anchor never sends `UnlockedRecipes`.
+pub(crate) fn locked() -> RecipeUnlockRequirement {
+    RecipeUnlockRequirement {
+        context: UNLOCK_NONE,
         ingredients: Vec::new(),
     }
 }
@@ -465,6 +513,25 @@ pub(crate) const GRID_CELLS: usize = 9;
 pub(crate) const MAX_PROVIDED: usize = 64;
 
 impl Ingredient {
+    /// The runtime ID and meta PMMP's `TypeConverter::coreRecipeIngredientToNet` gives the
+    /// ingredient (the wildcard meta for any meta); `None` for a tag.
+    pub(crate) fn id_meta(&self) -> Option<(i32, i32)> {
+        match self {
+            Self::Exact(e) => Some((i32::from(e.item.runtime_id()), e.network_meta)),
+            Self::AnyMeta(n) => Some((i32::from(n.runtime_id), WILDCARD_META)),
+            Self::Tag(_) => None,
+        }
+    }
+
+    /// The item name of an ingredient that names one (not a tag).
+    pub(crate) fn name(&self) -> Option<&'static str> {
+        match self {
+            Self::Exact(e) => Some(e.item.name()),
+            Self::AnyMeta(n) => Some(n.name),
+            Self::Tag(_) => None,
+        }
+    }
+
     /// Whether `stack` is an item this ingredient takes, whatever its count (PMMP
     /// `RecipeIngredient::accepts`).
     pub(crate) fn accepts(&self, stack: &item::Stack) -> bool {
@@ -492,7 +559,7 @@ impl Stack {
             .ok()
             .filter(|c| *c > 0 && *c <= self.item.max_stack_size())?;
         let tag = self.nbt.map(crate::nbt::compound);
-        Some(item::Stack::from_parts(self.item, count, self.meta, tag))
+        item::Stack::from_parts(self.item, count, self.meta, tag).ok()
     }
 }
 
@@ -725,29 +792,28 @@ pub(crate) fn furnace_at(index: u16) -> Option<&'static Furnace> {
     table::FURNACE.get(usize::from(index))
 }
 
-/// What brewing `reagent` into the potion `input` makes (PMMP
-/// `CraftingManager::matchBrewingRecipe` and `BrewingRecipe::getResultFor`: container changes
-/// first, then potion types); `None` if no recipe takes them. Potion types are looked up by the
-/// reagent's name (a generated index), in table order.
-pub(crate) fn brew(input: &item::Stack, reagent: &item::Stack) -> Option<item::Stack> {
-    let item = input.item()?;
-    let by = reagent.item()?;
-    for r in &table::POTION_CONTAINER_CHANGE {
-        if !Ingredient::Exact(r.reagent).accepts(reagent) || item.name() != r.input.name {
-            continue;
-        }
-        // PMMP swaps the item name and keeps the meta, block and tag.
-        let tag = input.tag();
-        let empty = crate::nbt::Compound::new();
-        let output = Type::from_name(
-            r.output.name,
-            input.meta(),
-            None,
-            tag.as_ref().unwrap_or(&empty),
-        )?;
-        return Some(item::Stack::from_parts(output, 1, input.meta(), tag));
-    }
-    by_name(&table::POTION_TYPE_BY_REAGENT, by.name())
+/// What PMMP's potion container change recipes make of `reagent` brewed into `input` (the
+/// first part of PMMP `CraftingManager::matchBrewingRecipe`); `None` if none takes them.
+pub(crate) fn brew_container_change(
+    input: &item::Stack,
+    reagent: &item::Stack,
+) -> Option<item::Stack> {
+    let name = input.item()?.name();
+    table::POTION_CONTAINER_CHANGE
+        .iter()
+        .filter(|r| r.input.name == name && Ingredient::Exact(r.reagent).accepts(reagent))
+        .find_map(|r| {
+            change_container(input, |meta, tag| {
+                Type::from_name(r.output.name, meta, None, tag)
+            })
+        })
+}
+
+/// What PMMP's potion type recipes make of `reagent` brewed into `input` (the second part of
+/// PMMP `CraftingManager::matchBrewingRecipe`, then `PotionTypeRecipe::getResultFor`); `None`
+/// if none takes them. Looked up by the reagent's name (a generated index), in table order.
+pub(crate) fn brew_potion_type(input: &item::Stack, reagent: &item::Stack) -> Option<item::Stack> {
+    by_name(&table::POTION_TYPE_BY_REAGENT, reagent.item()?.name())
         .iter()
         .filter_map(|(_, i)| table::POTION_TYPE.get(usize::from(*i)))
         .find(|r| {
@@ -755,6 +821,19 @@ pub(crate) fn brew(input: &item::Stack, reagent: &item::Stack) -> Option<item::S
                 && Ingredient::Exact(r.input).accepts(input)
         })
         .and_then(|r| r.output.to_item())
+}
+
+/// The potion `input` in another container (PMMP `PotionContainerChangeRecipe::getResultFor`
+/// swaps the item name and keeps the meta and tag): the item type `output` finds for that meta
+/// and tag; `None` if it finds none.
+pub(crate) fn change_container(
+    input: &item::Stack,
+    output: impl FnOnce(u16, &crate::nbt::Compound) -> Option<Type>,
+) -> Option<item::Stack> {
+    let tag = input.tag();
+    let empty = crate::nbt::Compound::new();
+    let output = output(input.meta(), tag.as_ref().unwrap_or(&empty))?;
+    item::Stack::from_parts(output, 1, input.meta(), tag).ok()
 }
 
 /// The experience one smelted item of `result` gives (dragonfly `SmeltInfo.Experience`; PMMP has
@@ -906,10 +985,16 @@ mod tests {
     use super::*;
     use crate::protocol::packet::Packet;
 
-    /// The PMMP recipe dump the tables come from.
+    /// The PMMP recipe dump the tables come from, with the user exceptions' shaped recipes after
+    /// PMMP's (PLAN.md 8.4).
     fn dump() -> Json {
         let text = include_str!("../xtask/data/pmmp/recipes.json");
-        serde_json::from_str(text).unwrap()
+        let mut dump: Json = serde_json::from_str(text).unwrap();
+        let exceptions: Json =
+            serde_json::from_str(include_str!("../xtask/data/exceptions.json")).unwrap();
+        let shaped = exceptions["shaped"].as_array().unwrap().clone();
+        dump["shaped"].as_array_mut().unwrap().extend(shaped);
+        dump
     }
 
     /// The reference item list: runtime ID by name.
@@ -1315,12 +1400,10 @@ mod tests {
     /// A stack an ingredient takes, for the ingredients that name one item (not tags).
     fn stack_for(ingredient: &Ingredient) -> Option<item::Stack> {
         match ingredient {
-            Ingredient::Exact(e) => Some(item::Stack::from_parts(
-                e.item,
-                1,
-                e.meta,
-                e.nbt.map(crate::nbt::compound),
-            )),
+            Ingredient::Exact(e) => Some(
+                item::Stack::from_parts(e.item, 1, e.meta, e.nbt.map(crate::nbt::compound))
+                    .unwrap(),
+            ),
             Ingredient::AnyMeta(n) => {
                 Type::from_name(n.name, 0, None, &crate::nbt::Compound::new())
                     .map(|t| item::Stack::new(t, 1))
@@ -1409,8 +1492,11 @@ mod tests {
 
     #[test]
     fn every_brewing_recipe_brews_its_output() {
-        let exact =
-            |e: &Exact| item::Stack::from_parts(e.item, 1, e.meta, e.nbt.map(crate::nbt::compound));
+        let custom = crate::custom::Registry::default();
+        let brew = |input: &item::Stack, reagent: &item::Stack| custom.brew(input, reagent);
+        let exact = |e: &Exact| {
+            item::Stack::from_parts(e.item, 1, e.meta, e.nbt.map(crate::nbt::compound)).unwrap()
+        };
         for r in &table::POTION_TYPE {
             let got = brew(&exact(&r.input), &exact(&r.reagent));
             assert_eq!(got, r.output.to_item(), "{r:?}");
@@ -1422,7 +1508,7 @@ mod tests {
                 let Some(input) = Type::from_name(r.input.name, meta, None, &empty) else {
                     continue;
                 };
-                let given = item::Stack::from_parts(input, 1, meta, None);
+                let given = item::Stack::from_parts(input, 1, meta, None).unwrap();
                 let got = brew(&given, &exact(&r.reagent)).unwrap();
                 assert_eq!(got.item().map(Type::name), Some(r.output.name));
                 assert_eq!(got.meta(), given.meta());

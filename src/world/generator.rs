@@ -1,5 +1,10 @@
-//! World generators (PLAN.md 6, 10.6): the [`Generator`] extension point and the built-in flat
-//! and void worlds.
+//! World generators (PLAN.md 6, 10.6): the [`Generator`] extension point, the built-in flat
+//! and void worlds, and the generators a server makes worlds with by name.
+
+use std::any::TypeId;
+use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::Arc;
 
 use crate::block;
 
@@ -28,10 +33,81 @@ pub trait Generator: Send + Sync + 'static {
         BlockPos::new(0, 64, 0)
     }
 
-    /// The name saved with the world. A world saved with another generator's name is still
-    /// filled by this one, with a warning. The default is the type's name.
+    /// The name saved with the world, at most 256 bytes ([`Server`](crate::Server) refuses to
+    /// build with a longer one). A world saved with another generator's name is still filled by
+    /// this one, with a warning. The default is the type's name.
     fn name(&self) -> &'static str {
         std::any::type_name::<Self>()
+    }
+}
+
+/// The generators a server makes worlds with, by [`Generator::name`] (PMMP `GeneratorManager`):
+/// the built-in ones, those of the worlds it was built with and those registered with
+/// [`ServerBuilder::generator`](crate::ServerBuilder::generator). Fixed when it is built.
+#[derive(Clone)]
+pub(crate) struct Generators {
+    by_name: BTreeMap<&'static str, (TypeId, Arc<dyn Generator>)>,
+    /// A name two generator types share: the build fails with it.
+    clash: Option<&'static str>,
+}
+
+/// The built-in generators.
+impl Default for Generators {
+    fn default() -> Self {
+        let mut generators = Self {
+            by_name: BTreeMap::new(),
+            clash: None,
+        };
+        generators.add_typed(Flat);
+        generators.add_typed(Void);
+        generators
+    }
+}
+
+impl Generators {
+    /// Adds `generator` of type `type_id`. A name already taken by a generator of the same type
+    /// keeps the first (two values of one type with one name must generate alike); one taken
+    /// by another type is a clash.
+    pub(crate) fn add(&mut self, type_id: TypeId, generator: Arc<dyn Generator>) {
+        let name = generator.name();
+        match self.by_name.get(name) {
+            None => {
+                self.by_name.insert(name, (type_id, generator));
+            }
+            Some((known, _)) if *known == type_id => {}
+            Some(_) => {
+                self.clash.get_or_insert(name);
+            }
+        }
+    }
+
+    /// Adds a generator of type `G`.
+    pub(crate) fn add_typed<G: Generator>(&mut self, generator: G) -> Arc<dyn Generator> {
+        let generator: Arc<dyn Generator> = Arc::new(generator);
+        self.add(TypeId::of::<G>(), Arc::clone(&generator));
+        generator
+    }
+
+    /// The name two generator types share, if any.
+    pub(crate) fn clash(&self) -> Option<&'static str> {
+        self.clash
+    }
+
+    /// The generator named `name`.
+    pub(crate) fn get(&self, name: &str) -> Option<&Arc<dyn Generator>> {
+        self.by_name.get(name).map(|(_, g)| g)
+    }
+
+    /// The names, in order.
+    pub(crate) fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.by_name.keys().copied()
+    }
+}
+
+/// Lists the names: the registration fingerprint of a replay compares them (PLAN.md 10.9).
+impl fmt::Debug for Generators {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set().entries(self.names()).finish()
     }
 }
 

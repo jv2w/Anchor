@@ -1,4 +1,5 @@
-//! Runtime and threads: the one module that creates threads.
+//! Runtime and threads: the one module that creates threads. Each thread it starts takes on the
+//! console log of the thread that starts it ([`log`]).
 
 use std::future::Future;
 use std::num::NonZeroUsize;
@@ -8,6 +9,7 @@ use std::time::Duration;
 use tracing::warn;
 
 use crate::config::Threads;
+use crate::console::log;
 use crate::error::{Error, Result};
 use crate::pool::Pool;
 
@@ -23,8 +25,10 @@ pub(crate) const USER_BLOCKING_THREADS: usize = 4;
 /// would let blocking work grow without bound (PLAN.md 5). Blocking threads wait on I/O and are
 /// not counted in the compute thread budget.
 const MAX_BLOCKING_THREADS: usize = 4 + USER_BLOCKING_THREADS;
-/// How long stopping the runtime waits for blocking work: the authorization fetch's 10 s request
-/// limit (PLAN.md 10.2), so a fetch in progress finishes and its thread is joined.
+/// How long stopping the runtime waits for blocking work: the authorization fetch's 10 s limit
+/// (PLAN.md 10.2), so a fetch in progress finishes and its thread is joined. Its DNS lookups are
+/// outside that limit, bounded only by the OS resolver; user jobs still running are abandoned
+/// ([`Context::spawn_blocking`](crate::Context::spawn_blocking)).
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 /// The tick thread and the save thread, outside both pools.
 const FIXED_THREADS: usize = 2;
@@ -67,6 +71,38 @@ impl ThreadCounts {
     }
 }
 
+/// The threads a running server has, as `/status` shows them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ThreadTotals {
+    /// Tokio worker threads.
+    pub(crate) network: usize,
+    /// Threads of the CPU pool.
+    pub(crate) cpu: usize,
+    /// Whether the console thread reads standard input (`console-input`).
+    pub(crate) console: bool,
+    /// Whether the console log's thread writes standard error. Like the console thread, it waits
+    /// on I/O and is not counted in the compute thread budget.
+    pub(crate) log: bool,
+}
+
+impl ThreadTotals {
+    /// The tick thread and the save thread.
+    pub(crate) const FIXED: usize = FIXED_THREADS;
+    /// The most blocking threads tokio starts.
+    pub(crate) const BLOCKING: usize = MAX_BLOCKING_THREADS;
+
+    /// The threads of `counts`, with the console thread if `console` and the log thread if
+    /// `log`.
+    pub(crate) fn new(counts: ThreadCounts, console: bool, log: bool) -> Self {
+        Self {
+            network: counts.network,
+            cpu: counts.cpu,
+            console,
+            log,
+        }
+    }
+}
+
 /// The logical CPU count, or 1 (a budget of 4 threads) if the OS does not tell.
 pub(crate) fn logical_cpus() -> usize {
     std::thread::available_parallelism().map_or_else(
@@ -89,7 +125,13 @@ impl Runtime {
         reason = "off-tick: the runtime module creates the runtime"
     )]
     pub(crate) fn new(threads: ThreadCounts) -> Result<Self> {
+        let log = log::inherited();
         tokio::runtime::Builder::new_multi_thread()
+            .on_thread_start(move || {
+                if let Some(log) = &log {
+                    log::attach(log);
+                }
+            })
             .worker_threads(threads.network)
             .max_blocking_threads(MAX_BLOCKING_THREADS)
             .thread_stack_size(STACK_BYTES)
@@ -128,7 +170,13 @@ impl Runtime {
 )]
 pub(crate) fn cpu_pool(threads: usize) -> Result<Pool> {
     let (exited, exits) = std::sync::mpsc::sync_channel(threads);
+    let log = log::inherited();
     let pool = rayon::ThreadPoolBuilder::new()
+        .start_handler(move |_| {
+            if let Some(log) = &log {
+                log::attach(log);
+            }
+        })
         .num_threads(threads)
         .stack_size(STACK_BYTES)
         .thread_name(|i| format!("anchor-cpu-{i}"))
@@ -155,7 +203,7 @@ pub(crate) fn spawn_tick<T: Send + 'static>(
     std::thread::Builder::new()
         .name("anchor-tick".to_owned())
         .stack_size(STACK_BYTES)
-        .spawn(run)
+        .spawn(log::logged(run))
         .map_err(Error::Start)
 }
 
@@ -171,7 +219,7 @@ pub(crate) fn spawn_save<T: Send + 'static>(
     std::thread::Builder::new()
         .name("anchor-save".to_owned())
         .stack_size(STACK_BYTES)
-        .spawn(run)
+        .spawn(log::logged(run))
         .map_err(Error::Start)
 }
 
@@ -232,6 +280,38 @@ mod tests {
         })
         .unwrap();
         handle.join().unwrap();
+    }
+
+    /// The console log reaches the tick, save, network and blocking threads started under it,
+    /// and none started without it.
+    #[test]
+    fn threads_started_under_the_console_log_take_it_on() {
+        let has_log = || log::inherited().is_some();
+        let start = || {
+            let runtime = Runtime::new(ThreadCounts { network: 1, cpu: 1 }).unwrap();
+            let tick = spawn_tick(has_log).unwrap();
+            let save = spawn_save(has_log).unwrap();
+            (runtime, tick, save)
+        };
+        let under = || {
+            let _log = log::start(crate::config::LogLevel::Info)
+                .unwrap()
+                .unwrap()
+                .install();
+            start()
+        };
+        for (under_log, (runtime, tick, save)) in [(true, under()), (false, start())] {
+            assert_eq!(tick.join().unwrap(), under_log);
+            assert_eq!(save.join().unwrap(), under_log);
+            let (worker, blocking) = runtime.block_on(async move {
+                let worker = tokio::spawn(async move { has_log() }).await.unwrap();
+                let blocking = tokio::task::spawn_blocking(has_log).await.unwrap();
+                (worker, blocking)
+            });
+            assert_eq!((worker, blocking), (under_log, under_log));
+            assert!(!has_log(), "the test thread itself has no log");
+            runtime.shutdown();
+        }
     }
 
     #[test]

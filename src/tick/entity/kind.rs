@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::super::SessionId;
+use super::super::checkpoint::{self, Codec, Reader, Writer, fields, variants};
 use super::super::trade::Offers;
 use super::custom::Spec;
 use crate::block::{self, Face};
@@ -77,6 +78,9 @@ pub(super) struct Firework {
     pub(super) owner: Option<SessionId>,
     /// The runtime ID of the owner, shown to clients (0: none).
     pub(super) owner_runtime_id: u64,
+    /// The flight multiplier its shown item carries (`Flight`, as BDS shows a launched rocket's
+    /// item). Shown only: not in checkpoints or the state hash (a restored rocket shows 0).
+    pub(super) flight: u8,
 }
 
 /// The most explosions a firework rocket holds. Crafting gives at most 7 (one gunpowder and up
@@ -91,7 +95,8 @@ pub(super) struct Item {
     pub(super) stack: Stack,
     /// Ticks until a player may pick it up; [`NEVER`] never.
     pub(super) pickup_delay: i16,
-    /// Ticks until it disappears; [`NEVER`] never, otherwise 0 to [`MAX_DESPAWN_DELAY`].
+    /// Ticks until it disappears; [`NEVER`] never, otherwise 0 to the larger of
+    /// [`MAX_DESPAWN_DELAY`] and `item-despawn-ticks`.
     pub(super) despawn_delay: i32,
     /// PMMP's `Owner` and `Thrower` (player names), kept for the saved form.
     pub(super) owner: String,
@@ -275,6 +280,13 @@ pub(super) enum Form {
         profession: u8,
         /// Its trades.
         offers: Offers,
+        /// It is a baby (PMMP `Villager::isBaby`; shown by the `Baby` flag).
+        baby: bool,
+    },
+    /// A zombie without AI (PMMP `Zombie`).
+    Zombie {
+        /// It is a baby (shown by the `Baby` flag; PMMP's zombie has none).
+        baby: bool,
     },
     /// A player-shaped NPC (PMMP `Human`), shown with `AddPlayer`; its name tag is its player
     /// list name.
@@ -297,12 +309,143 @@ pub(super) struct Custom {
     pub(super) data: Compound,
 }
 
+variants!(Kind {
+    0 => Item(item),
+    1 => ExperienceOrb(orb),
+    2 => FallingBlock(falling),
+    3 => Tnt(tnt),
+    4 => Projectile(projectile),
+    5 => Cloud(cloud),
+    6 => Npc(character),
+    7 => Painting(painting),
+    8 => EndCrystal(crystal),
+    9 => Firework(firework),
+});
+fields!(Painting {
+    motive,
+    facing,
+    drops
+});
+fields!(Crystal {
+    show_base,
+    beam_target,
+    primed
+});
+fields!(Firework {
+    max_flight,
+    explosions,
+    owner,
+    owner_runtime_id;
+    flight
+});
+fields!(Item {
+    stack,
+    pickup_delay,
+    despawn_delay,
+    owner,
+    thrower,
+});
+fields!(Orb {
+    value,
+    despawn_delay,
+    look_for_target,
+    target,
+});
+fields!(Falling { block });
+fields!(Tnt { fuse, underwater });
+fields!(Projectile {
+    shot,
+    damage,
+    stuck,
+    owner,
+    owner_runtime_id,
+});
+variants!(Shot {
+    0 => Arrow(arrow),
+    1 => Snowball,
+    2 => Egg,
+    3 => EnderPearl,
+    4 => Potion { potion, linger },
+    5 => ExperienceBottle,
+    6 => Trident(trident),
+    7 => IceBomb,
+});
+fields!(Trident {
+    item,
+    creative,
+    can_collide
+});
+fields!(Arrow {
+    critical,
+    pickup,
+    punch,
+    life
+});
+fields!(Cloud {
+    effects,
+    age,
+    max_age,
+    max_age_on_use,
+    reapplication_delay,
+    pickup_count,
+    initial_radius,
+    radius,
+    radius_on_pickup,
+    radius_on_use,
+    radius_per_tick,
+    victims,
+});
+variants!(Victim {
+    0 => Player(session),
+    1 => Entity(id),
+});
+fields!(Character {
+    form,
+    invulnerable,
+    attack_time,
+    last_damage,
+    dead_ticks,
+});
+variants!(Form {
+    0 => Villager {
+        profession,
+        offers,
+        baby
+    },
+    1 => Human { uuid, skin },
+    2 => Custom(custom),
+    3 => Zombie { baby },
+});
+
+/// A custom entity's type by its identifier, found again among the server's custom types.
+impl Codec for Custom {
+    fn encode(&self, w: &mut Writer) {
+        let Self { spec, data } = self;
+        spec.identifier.encode(w);
+        data.encode(w);
+    }
+
+    fn decode(r: &mut Reader<'_>) -> checkpoint::Result<Self> {
+        let identifier = String::decode(r)?;
+        let spec = r
+            .entities
+            .find(&identifier)
+            .cloned()
+            .ok_or(checkpoint::Error::Format("custom entity type"))?;
+        Ok(Self {
+            spec,
+            data: Codec::decode(r)?,
+        })
+    }
+}
+
 /// The longest name tag, in bytes (a player name is at most 16 characters).
 pub(super) const MAX_NAME_TAG_BYTES: usize = 1024;
 
 /// "Never" for a pickup or despawn delay (PMMP `NEVER_DESPAWN`).
 pub(super) const NEVER: i16 = -1;
-/// Ticks a new dropped item or orb lives: 5 minutes (PMMP `DEFAULT_DESPAWN_DELAY`).
+/// Ticks a new orb lives, and what the saved `Age` counts from: 5 minutes (PMMP
+/// `DEFAULT_DESPAWN_DELAY`). A dropped item lives `item-despawn-ticks`.
 pub(super) const DEFAULT_DESPAWN_DELAY: i32 = 6000;
 /// The longest despawn delay the saved `Age` short can express (PMMP `MAX_DESPAWN_DELAY`).
 pub(super) const MAX_DESPAWN_DELAY: i32 = i16::MAX as i32 + DEFAULT_DESPAWN_DELAY;
@@ -481,6 +624,9 @@ const VILLAGER: Physics = Physics {
     water: false,
 };
 
+/// PMMP `Zombie`: as a villager, 0.6 × 1.9.
+const ZOMBIE: Physics = VILLAGER;
+
 /// PMMP `Human`: 0.6 × 1.8.
 const HUMAN: Physics = Physics {
     height: 1.8,
@@ -519,6 +665,28 @@ pub(super) enum Cause {
     Custom,
 }
 
+impl Cause {
+    /// BDS's damage cause number, which the hurt event carries (the players' numbers,
+    /// `survival::Damage::bds_cause`; P6: a trident's hit on a villager 3, m9-facts.md).
+    pub(super) fn bds_cause(self) -> i32 {
+        match self {
+            Self::Custom => 0,
+            Self::Contact => 1,
+            Self::Attack => 2,
+            Self::Projectile => 3,
+            Self::Suffocation => 4,
+            Self::Fall => 5,
+            Self::Fire => 6,
+            Self::FireTick => 7,
+            Self::Lava => 8,
+            Self::Explosion => 11,
+            Self::Void => 12,
+            Self::Magic => 14,
+            Self::FallingBlock => 19,
+        }
+    }
+}
+
 impl Kind {
     /// What it is, as the API names it.
     pub(super) fn entity_type(&self) -> Type {
@@ -540,6 +708,7 @@ impl Kind {
             Self::Cloud(_) => Type::AreaEffectCloud,
             Self::Npc(n) => match n.form {
                 Form::Villager { .. } => Type::Villager,
+                Form::Zombie { .. } => Type::Zombie,
                 Form::Human { .. } => Type::Human,
                 Form::Custom(_) => Type::Custom,
             },
@@ -579,6 +748,7 @@ impl Kind {
             Self::Cloud(_) => &CLOUD,
             Self::Npc(n) => match &n.form {
                 Form::Villager { .. } => &VILLAGER,
+                Form::Zombie { .. } => &ZOMBIE,
                 Form::Human { .. } => &HUMAN,
                 Form::Custom(c) => &c.spec.physics,
             },
@@ -619,6 +789,7 @@ impl Kind {
             Self::Cloud(_) => "minecraft:area_effect_cloud",
             Self::Npc(n) => match &n.form {
                 Form::Villager { .. } => "minecraft:villager_v2",
+                Form::Zombie { .. } => "minecraft:zombie",
                 Form::Human { .. } => "minecraft:player",
                 Form::Custom(c) => &c.spec.identifier,
             },
@@ -736,6 +907,17 @@ impl Kind {
             | Self::Painting(_)
             | Self::Firework(_) => false,
         }
+    }
+
+    /// Whether it is a baby (PMMP `Ageable::isBaby`): a villager or a zombie made one.
+    pub(super) fn is_baby(&self) -> bool {
+        matches!(
+            self,
+            Self::Npc(Character {
+                form: Form::Villager { baby: true, .. } | Form::Zombie { baby: true },
+                ..
+            })
+        )
     }
 
     /// Whether it is a living NPC that projectiles, potions and clouds can hit (PMMP `Living`).

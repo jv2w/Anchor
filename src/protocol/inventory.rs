@@ -10,9 +10,9 @@ const SHIELD_IDENTIFIER: &str = "minecraft:shield";
 /// An item's network ID and metadata value (gophertunnel `ItemType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ItemType {
-    /// The numerical network ID of the item; 0 is air.
+    /// The item's network ID (0 for air).
     pub network_id: i32,
-    /// The damage or variant value of the item.
+    /// The item's metadata: its damage, or which variant it is.
     pub metadata_value: u32,
 }
 
@@ -21,17 +21,17 @@ pub struct ItemType {
 pub struct ItemStack {
     /// The item's network ID and metadata value.
     pub item_type: ItemType,
-    /// The runtime ID of the block the item places, or 0.
+    /// The block state the item places, as a runtime ID, or 0.
     pub block_runtime_id: i32,
-    /// The number of items in the stack.
+    /// How many items the stack holds.
     pub count: u16,
     /// The item's NBT; empty when it has none.
     pub nbt_data: Compound,
-    /// Block names the item may be placed on in adventure mode.
+    /// In adventure mode, the blocks (by name) the item can be placed against.
     pub can_be_placed_on: Vec<String>,
-    /// Block names the item may break in adventure mode.
+    /// In adventure mode, the blocks (by name) the item can break.
     pub can_break: Vec<String>,
-    /// The tick the shield started blocking; only on the wire for shields.
+    /// When the shield began to block, in ticks; on the wire for shields only.
     pub blocking_tick: i64,
 }
 
@@ -48,21 +48,21 @@ pub struct ItemInstance {
 /// `StackRequestItem`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StackRequestItem {
-    /// The item's identifier, such as `minecraft:stick`; empty for no item.
+    /// Which item this is by name (`minecraft:stick`), or empty for none.
     pub identifier: String,
-    /// The damage or variant value of the item.
+    /// The item's metadata: its damage, or which variant it is.
     pub metadata_value: u32,
-    /// The runtime ID of the block the item places, or 0.
+    /// The block state the item places, as a runtime ID, or 0.
     pub block_runtime_id: i32,
-    /// The number of items in the stack.
+    /// How many items the stack holds.
     pub count: u16,
     /// The item's NBT; empty when it has none.
     pub nbt_data: Compound,
-    /// Block names the item may be placed on in adventure mode.
+    /// In adventure mode, the blocks (by name) the item can be placed against.
     pub can_be_placed_on: Vec<String>,
-    /// Block names the item may break in adventure mode.
+    /// In adventure mode, the blocks (by name) the item can break.
     pub can_break: Vec<String>,
-    /// The tick the shield started blocking; only on the wire for shields.
+    /// When the shield began to block, in ticks; on the wire for shields only.
     pub blocking_tick: i64,
 }
 
@@ -114,7 +114,7 @@ impl Reader<'_> {
                     let version = r.uint8()?;
                     if version != 1 {
                         return Err(Error::UnknownEnum {
-                            name: "item user data version",
+                            name: "ItemStack user data version",
                             value: version.into(),
                         });
                     }
@@ -189,7 +189,7 @@ impl Reader<'_> {
             1 => (self.string()?, self.varint32()?.cast_unsigned()),
             v => {
                 return Err(Error::UnknownEnum {
-                    name: "stack request item descriptor",
+                    name: "StackRequestItem descriptor",
                     value: v.into(),
                 });
             }

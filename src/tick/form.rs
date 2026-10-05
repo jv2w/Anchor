@@ -6,7 +6,7 @@
 //! answer to the same ID finds nothing; one that fits runs the handler in the tick's serial step,
 //! with the handler already out of the state.
 //!
-//! The form API is on [`Context`] rather than [`Player`](crate::player::Player): the handler
+//! The form API is on [`Context`] rather than [`Player`]: the handler
 //! needs a `Context`, and the forms are kept in the state beside the players.
 
 mod display;
@@ -55,6 +55,32 @@ impl fmt::Debug for Pending {
         f.debug_struct("Pending")
             .field("shape", &self.shape)
             .finish_non_exhaustive()
+    }
+}
+
+super::checkpoint::fields!(Forms { players });
+
+/// A waiting form's handler is a closure: it has no checkpoint form, so a waiting form makes the
+/// checkpoint opaque, and reads back as none.
+impl super::checkpoint::Codec for Open {
+    fn encode(&self, w: &mut super::checkpoint::Writer) {
+        let Self {
+            next,
+            pending,
+            display,
+        } = self;
+        next.encode(w);
+        w.opaque("forms waiting for an answer", pending.len());
+        display.encode(w);
+    }
+
+    fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::Codec;
+        Ok(Self {
+            next: Codec::decode(r)?,
+            pending: BTreeMap::new(),
+            display: Codec::decode(r)?,
+        })
     }
 }
 

@@ -7,21 +7,23 @@
 //! inputs, tasks and rules and before the views move: it disconnects the players that were kicked
 //! or transferred, moves the teleported ones and sends what the survival setters changed. No call
 //! raises an event; what follows from it at the end of the tick does (a kicked player's
-//! [`PlayerQuit`]). [`Context::kick_player`] and [`Context::transfer_player`] are the kick and
-//! the transfer with their events ([`crate::action::Kick`], [`crate::action::Transfer`]).
+//! [`PlayerQuit`]). [`Context::kick_player`], [`Context::transfer_player`] and
+//! [`Context::teleport_player`] are the kick, the transfer and the teleport with their events
+//! ([`crate::action::Kick`], [`crate::action::Transfer`], [`crate::action::Teleport`]).
 
 use std::net::IpAddr;
 use std::ops::Bound;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tracing::{debug, info};
 
 use super::queue::SessionId;
 use super::{Context, MAX_COORDINATE, Output, Phase, Player, State, dispatch, survival};
-use crate::event::{PlayerKick, PlayerQuit, PlayerTransfer};
+use crate::event::{Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer};
 use crate::math::Vec3;
 use crate::player::{Error, Id, MAX_TEXT, Message, Packets, Result};
 use crate::protocol::Uuid;
-use crate::protocol::consts::{DeviceOs, DisconnectReason};
+use crate::protocol::consts::{DeviceOs, DisconnectReason, InputMode};
 use crate::protocol::packet::{Disconnect, Packet, Transfer};
 use crate::save::WorldIndex;
 use crate::world;
@@ -31,9 +33,8 @@ const MAX_ADDRESS: usize = 253;
 /// The client's "disconnected" text, for a kick without a reason (PMMP
 /// `disconnectionScreen_noReason`).
 const NO_REASON: &str = "disconnectionScreen.noReason";
-/// The log message of a transfer unless one is given (PMMP's English
-/// `pocketmine.disconnect.transfer`).
-const TRANSFERRED: &str = "Transferred to another server";
+/// The log message of a transfer unless one is given.
+const TRANSFERRED: &str = "Moved to another server";
 /// The default quit message: BDS's yellow "left the game" line, which the client translates with
 /// the player's name (PMMP `Player::getLeaveMessage`). A [`PlayerQuit`] message left at it is sent
 /// so; any other is sent as it is.
@@ -118,6 +119,103 @@ impl Leave {
             }
         }
     }
+}
+
+super::checkpoint::fields!(Marks {
+    display_name,
+    leave,
+    teleport,
+    chat,
+    line_height,
+});
+super::checkpoint::variants!(Leave {
+    0 => Kick {
+        reason,
+        screen_message,
+        quit_message
+    },
+    1 => Transfer {
+        address,
+        port,
+        message
+    },
+});
+
+/// What the player's connection and saved data tell besides its login: its latest ping and its
+/// play history, in milliseconds since the Unix epoch.
+#[derive(Debug, Default)]
+pub(super) struct Presence {
+    /// The latest round trip time in milliseconds ([`Measure::Ping`](super::queue::Measure));
+    /// `None` until one arrived.
+    ping_ms: Option<u32>,
+    /// When the player first joined (`firstPlayed`).
+    first_played: i64,
+    /// When the player's data was saved before this join (`lastPlayed`).
+    last_played: i64,
+    /// The engine tick the saved data was placed at, which with the join time dates a save.
+    placed_tick: u64,
+}
+
+super::checkpoint::fields!(Presence {
+    ping_ms,
+    first_played,
+    last_played,
+    placed_tick,
+});
+
+impl Presence {
+    pub(super) fn set_ping(&mut self, millis: u32) {
+        self.ping_ms = Some(millis);
+    }
+
+    /// Takes the play history of the saved data placed at engine tick `tick` (each `None` for a
+    /// new player, which gets `join_ms`, as PMMP gives it the time of its first spawn).
+    pub(super) fn place(
+        &mut self,
+        (first, last): (Option<i64>, Option<i64>),
+        join_ms: i64,
+        tick: u64,
+    ) {
+        self.first_played = first.unwrap_or(join_ms);
+        self.last_played = last.unwrap_or(join_ms);
+        self.placed_tick = tick;
+    }
+
+    /// What a save at engine tick `tick` keeps: the first join, and the time of the save (PMMP
+    /// writes the wall clock; the tick dates it from the join time and the ticks since, one
+    /// [`super::TICK`] each).
+    pub(super) fn saved(&self, join_ms: i64, tick: u64) -> (i64, i64) {
+        let ticks = u128::from(tick.saturating_sub(self.placed_tick));
+        let since =
+            i64::try_from(ticks.saturating_mul(super::TICK.as_millis())).unwrap_or(i64::MAX);
+        (self.first_played, join_ms.saturating_add(since))
+    }
+
+    /// Hashes every field (state hash).
+    #[cfg(test)]
+    pub(super) fn hash_into(&self, h: &mut super::Fnv) {
+        let Self {
+            ping_ms,
+            first_played,
+            last_played,
+            placed_tick,
+        } = self;
+        h.u64(ping_ms.map_or(0, |p| u64::from(p) + 1));
+        h.u64(first_played.cast_unsigned());
+        h.u64(last_played.cast_unsigned());
+        h.u64(*placed_tick);
+    }
+}
+
+/// The wall-clock time `millis` after the Unix epoch.
+fn unix_time(millis: i64) -> SystemTime {
+    let offset = Duration::from_millis(millis.unsigned_abs());
+    let time = if millis >= 0 {
+        UNIX_EPOCH.checked_add(offset)
+    } else {
+        UNIX_EPOCH.checked_sub(offset)
+    };
+    time.unwrap_or(UNIX_EPOCH)
 }
 
 impl Marks {
@@ -348,16 +446,103 @@ impl Player {
         self.identity.skin.get()
     }
 
-    /// The device the client runs on, as its login tells.
+    /// The device the client runs on, as its login tells (`getExtraData()["DeviceOS"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
     pub fn device_os(&self) -> DeviceOs {
         DeviceOs::try_from(self.identity.device_os).unwrap_or(DeviceOs::Unknown)
     }
 
-    /// The IP address the client connected from, which IP bans match; `None` when unknown (a
-    /// replay of an input log older than format 5).
+    /// The IP address the client connected from, which IP bans match; `None` only for a player
+    /// made without a connection (tests).
     #[doc(alias = "NetworkSession::getIp")]
     pub fn ip(&self) -> Option<IpAddr> {
         self.identity.address
+    }
+
+    /// The port the client connected from; 0 when unknown (a replay of an input log older than
+    /// format 9).
+    #[doc(alias = "NetworkSession::getPort")]
+    pub fn port(&self) -> u16 {
+        self.identity.client.port
+    }
+
+    /// The latest round trip time to the client: the RakNet ping, or on NetherNet the ICE
+    /// consent check's; `None` until one was measured. The session reports it every 5 seconds
+    /// when it changed.
+    #[doc(alias = "NetworkSession::getPing")]
+    pub fn ping(&self) -> Option<Duration> {
+        self.presence
+            .ping_ms
+            .map(|ms| Duration::from_millis(u64::from(ms)))
+    }
+
+    /// The language the client runs in, such as `en_US`, as its login tells.
+    #[doc(alias = "Player::getLocale")]
+    #[doc(alias = "PlayerInfo::getLocale")]
+    pub fn locale(&self) -> &str {
+        &self.identity.client.locale
+    }
+
+    /// The input mode the client started in, as its login tells (PMMP's
+    /// `getExtraData()["CurrentInputMode"]`); [`InputMode::Undefined`] for a value the protocol
+    /// does not name.
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn input_mode(&self) -> InputMode {
+        self.identity.client.input_mode
+    }
+
+    /// The device model, as its login tells (`getExtraData()["DeviceModel"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn device_model(&self) -> &str {
+        &self.identity.client.device_model
+    }
+
+    /// The device ID, as its login tells (`getExtraData()["DeviceId"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn device_id(&self) -> &str {
+        &self.identity.client.device_id
+    }
+
+    /// The client's version, such as `1.26.50`, as its login tells
+    /// (`getExtraData()["GameVersion"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn game_version(&self) -> &str {
+        &self.identity.client.game_version
+    }
+
+    /// The address the client was told to join, such as `play.example.com:19132`, as its login
+    /// tells (`getExtraData()["ServerAddress"]`).
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn server_address(&self) -> &str {
+        &self.identity.client.server_address
+    }
+
+    /// When the player first joined this server, by the wall clock (its saved `firstPlayed`, or
+    /// this join for a new player).
+    #[doc(alias = "Player::getFirstPlayed")]
+    #[doc(alias = "IPlayer::getFirstPlayed")]
+    pub fn first_played(&self) -> SystemTime {
+        unix_time(self.presence.first_played)
+    }
+
+    /// When the player's data was last saved before this join, by the wall clock (its saved
+    /// `lastPlayed`, or this join for a new player). It does not move while the player plays,
+    /// as in PMMP.
+    #[doc(alias = "Player::getLastPlayed")]
+    #[doc(alias = "IPlayer::getLastPlayed")]
+    pub fn last_played(&self) -> SystemTime {
+        unix_time(self.presence.last_played)
+    }
+
+    /// Whether the player played here before this join: its data was saved more than a
+    /// millisecond after its first join (PMMP's test).
+    #[doc(alias = "Player::hasPlayedBefore")]
+    #[doc(alias = "IPlayer::hasPlayedBefore")]
+    pub fn has_played_before(&self) -> bool {
+        self.presence
+            .last_played
+            .saturating_sub(self.presence.first_played)
+            > 1
     }
 
     /// The chunk radius the player sees: what its client asked for, at most `view-distance`, or
@@ -483,7 +668,7 @@ impl Player {
             return Err(Error::Leaving);
         }
         let address = address.into();
-        if address.is_empty() || address.len() > MAX_ADDRESS {
+        if !is_valid_address(&address) {
             return Err(Error::InvalidAddress);
         }
         self.marks.leave = Some(Leave::Transfer {
@@ -552,7 +737,7 @@ impl Context<'_> {
 
     /// Sends `player` to the server at `address` and `port` as [`Player::transfer`] does, after
     /// asking the [`PlayerTransfer`] listeners, which may keep it or change the address, the port
-    /// and the log `message` (`None`: "Transferred to another server"). False if it was not sent:
+    /// and the log `message` (`None`: "Moved to another server"). False if it was not sent:
     /// it is gone or leaving, a listener cancelled it, the address is empty or longer than 253
     /// bytes, or the message is longer than 65,536 bytes.
     pub(crate) fn transfer_player(
@@ -590,7 +775,7 @@ impl Context<'_> {
             leave = (e.address.clone(), e.port, e.message.clone());
         }
         let (address, port, message) = leave;
-        if address.is_empty() || address.len() > MAX_ADDRESS || message.len() > MAX_TEXT {
+        if !is_valid_address(&address) || message.len() > MAX_TEXT {
             return false;
         }
         if let Some(p) = self.state.players.get_mut(&session) {
@@ -605,6 +790,46 @@ impl Context<'_> {
         }
         true
     }
+
+    /// Moves `player`'s feet to `feet` in `world` as [`Player::teleport`] does, after asking the
+    /// [`EntityTeleport`] listeners, which may keep it where it is or send it elsewhere. False if
+    /// it was not moved: it is gone, a listener cancelled it, or the place is not finite or lies
+    /// outside the world border.
+    pub(crate) fn teleport_player(&mut self, player: Id, world: world::Id, feet: Vec3) -> bool {
+        let Some(origin) = self.player(player).map(|p| (p.world(), p.position())) else {
+            return false;
+        };
+        let (mut world, mut feet) = (world, feet);
+        let mut event = None;
+        if dispatch::heard::<EntityTeleport>(self.state) {
+            let e = event.insert(EntityTeleport {
+                entity: Actor::Player(player),
+                origin_world: origin.0,
+                origin: origin.1,
+                target_world: world,
+                target: feet,
+                cancelled: false,
+            });
+            dispatch::call(self.state, e);
+            if e.cancelled {
+                return false;
+            }
+            (world, feet) = (e.target_world, e.target);
+        }
+        let moved = self
+            .player_mut(player)
+            .is_some_and(|p| p.teleport(world, feet).is_ok());
+        if moved && let Some(e) = &event {
+            dispatch::watch(self.state, e);
+        }
+        moved
+    }
+}
+
+/// Whether `address` can be a transfer address: a host name or IP address, not empty and at most
+/// 253 bytes.
+pub(super) fn is_valid_address(address: &str) -> bool {
+    !address.is_empty() && address.len() <= MAX_ADDRESS
 }
 
 #[cfg(test)]
@@ -613,9 +838,11 @@ pub(super) mod tests {
 
     use super::*;
     use crate::event::Listeners;
+    use crate::nbt::Value;
     use crate::player::TitleTimes;
     use crate::tick::Context;
-    use crate::tick::queue::{Input, Outbound, SessionId};
+    use crate::tick::log::{EntryKind, InputLog};
+    use crate::tick::queue::{Client, Identity, Input, InputKind, Measure, Outbound, SessionId};
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
 
     /// Players 1 and 2 spawned next to each other, their queues emptied.
@@ -953,6 +1180,209 @@ pub(super) mod tests {
         assert_eq!(p.screen_line_height(), 20);
         p.set_screen_line_height(None).unwrap();
         assert_eq!(p.screen_line_height(), DEFAULT_LINE_HEIGHT);
+    }
+
+    /// A login with every client value set, joining at `join_ms`.
+    fn alex(join_ms: i64) -> Identity {
+        Identity {
+            name: "Alex".to_owned(),
+            xuid: None,
+            uuid: Uuid::from_bytes([9; 16]),
+            skin: crate::tick::queue::Skin::default(),
+            device_os: 2,
+            address: Some(IpAddr::from([192, 0, 2, 9])),
+            client: Client {
+                locale: "ko_KR".to_owned(),
+                input_mode: InputMode::Touch,
+                device_model: "SM-S918N".to_owned(),
+                device_id: "0123456789abcdef".to_owned(),
+                game_version: "1.26.52".to_owned(),
+                server_address: "play.example.com:19132".to_owned(),
+                port: 50_123,
+                join_time_ms: join_ms,
+            },
+        }
+    }
+
+    fn join_input(session: u64, identity: Identity) -> (Input, mpsc::Receiver<Outbound>) {
+        let (outbound, rx) = crate::tick::queue::outbound_queue();
+        let input = Input {
+            session: SessionId::new(session),
+            seq: 0,
+            kind: InputKind::Join { identity, outbound },
+        };
+        (input, rx)
+    }
+
+    fn ping(session: u64, seq: u64, millis: u32) -> Input {
+        Input {
+            session: SessionId::new(session),
+            seq,
+            kind: InputKind::Measure(Measure::Ping(millis)),
+        }
+    }
+
+    // pmmp: Player::getLocale, PlayerInfo::getLocale, PlayerInfo::getExtraData
+    // pmmp: NetworkSession::getPort, NetworkSession::getPing
+    /// What the login and the connection tell reaches the player's getters, and the logged join
+    /// and pings replay to the same state at every tick.
+    #[test]
+    fn the_login_values_and_the_ping_reach_the_player_and_replay_the_same() {
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let apply = |state: &mut State, mut inputs: Vec<Input>, log: &mut InputLog| {
+            let mut output = Output::default();
+            crate::tick::step(state, &mut inputs, &mut Vec::new(), &pool, &mut output, log);
+            crate::tick::deliver(state, &mut output, log);
+            state.hash()
+        };
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut log = InputLog::default();
+        let (j, _rx) = join_input(1, alex(1_700_000_000_000));
+        let mut live = vec![apply(&mut state, vec![j], &mut log)];
+        let p = player_mut(&mut state, 1);
+        assert_eq!(p.locale(), "ko_KR");
+        assert_eq!(p.input_mode(), InputMode::Touch);
+        assert_eq!(p.device_os(), DeviceOs::Ios);
+        assert_eq!(p.device_model(), "SM-S918N");
+        assert_eq!(p.device_id(), "0123456789abcdef");
+        assert_eq!(p.game_version(), "1.26.52");
+        assert_eq!(p.server_address(), "play.example.com:19132");
+        assert_eq!(p.port(), 50_123);
+        assert_eq!(p.ping(), None, "no ping measured yet");
+        live.push(apply(&mut state, vec![ping(1, 1, 42)], &mut log));
+        assert_eq!(
+            player_mut(&mut state, 1).ping(),
+            Some(Duration::from_millis(42))
+        );
+        live.push(apply(&mut state, vec![ping(1, 2, 35)], &mut log));
+        assert_eq!(
+            player_mut(&mut state, 1).ping(),
+            Some(Duration::from_millis(35))
+        );
+        // The written log replays to the same states.
+        let read = InputLog::decode(&log.encode().unwrap()).unwrap();
+        let mut replay = new_state(settings(|_| {}), Listeners::default());
+        let mut again = InputLog::default();
+        let mut keep = Vec::new();
+        let mut replayed = Vec::new();
+        for t in read.ticks() {
+            let inputs = t
+                .inputs
+                .iter()
+                .map(|e| match &e.kind {
+                    EntryKind::Join(identity) => {
+                        let (input, rx) = join_input(e.session.get(), identity.clone());
+                        keep.push(rx);
+                        input
+                    }
+                    EntryKind::Measure(m) => Input {
+                        session: e.session,
+                        seq: e.seq,
+                        kind: InputKind::Measure(*m),
+                    },
+                    other => panic!("{other:?}"),
+                })
+                .collect();
+            replayed.push(apply(&mut replay, inputs, &mut again));
+        }
+        assert_eq!(replayed, live);
+        assert_eq!(again.encode().unwrap(), log.encode().unwrap());
+        assert_eq!(player_mut(&mut replay, 1).port(), 50_123);
+        assert!(pool.shutdown());
+    }
+
+    // pmmp: Player::hasPlayedBefore, Player::getFirstPlayed, Player::getLastPlayed
+    // pmmp: IPlayer::hasPlayedBefore, IPlayer::getFirstPlayed, IPlayer::getLastPlayed
+    /// A new player's first and last play are its join; the saved data keeps the first join and
+    /// the time of the save under PMMP's keys, and the next run's join reads them back: the
+    /// player has played before.
+    #[test]
+    fn the_play_history_is_saved_and_read_back_by_the_next_run() {
+        let first_join = 1_700_000_000_000;
+        let mut state = new_state(
+            settings(|c| c.general.save_player_data = true),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (j, _rx) = join_input(1, alex(first_join));
+        // The join asks for the saved data; the stand-in save thread has none.
+        tick(&mut state, &mut vec![j], &mut output);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        let p = player_mut(&mut state, 1);
+        assert_eq!(p.phase, Phase::Joined);
+        let at = |ms: u64| UNIX_EPOCH + Duration::from_millis(ms);
+        assert_eq!(p.first_played(), at(1_700_000_000_000));
+        assert_eq!(p.last_played(), at(1_700_000_000_000));
+        assert!(!p.has_played_before());
+        // 100 ticks after the tick that placed the data, a save is dated 5 seconds after the
+        // join.
+        for _ in 0..99 {
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        let data = crate::tick::save::data_of(&state, &state.players[&SessionId::new(1)]);
+        let saved = |key: &str| data.extra.get(key).cloned();
+        assert_eq!(saved("firstPlayed"), Some(Value::Long(first_join)));
+        assert_eq!(saved("lastPlayed"), Some(Value::Long(first_join + 5_000)));
+        assert!(
+            !player_mut(&mut state, 1).has_played_before(),
+            "the last play does not move while the player plays, as in PMMP"
+        );
+
+        // The next run: an hour later, the saved data comes back.
+        let mut next = new_state(
+            settings(|c| c.general.save_player_data = true),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (j, _rx) = join_input(1, alex(first_join + 3_600_000));
+        tick(&mut next, &mut vec![j], &mut output);
+        for answer in &mut output.answers {
+            if let crate::save::Response::Player { data: load, .. } = answer {
+                *load = crate::save::PlayerLoad::Found(data.clone());
+            }
+        }
+        tick(&mut next, &mut Vec::new(), &mut output);
+        let p = player_mut(&mut next, 1);
+        assert_eq!(p.phase, Phase::Joined);
+        assert_eq!(p.first_played(), at(1_700_000_000_000));
+        assert_eq!(p.last_played(), at(1_700_000_005_000));
+        assert!(p.has_played_before());
+    }
+
+    // pmmp: Player::getLastPlayed
+    /// Leaving dates the play history, so a player who changed nothing else is still saved
+    /// when it leaves (PMMP saves every player that quits): its next join has played before.
+    #[test]
+    fn a_player_who_changed_nothing_else_is_saved_when_it_leaves() {
+        let first_join = 1_700_000_000_000;
+        let mut state = new_state(
+            settings(|c| c.general.save_player_data = true),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (j, _rx) = join_input(1, alex(first_join));
+        tick(&mut state, &mut vec![j], &mut output);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert!(!state.players[&SessionId::new(1)].data_dirty);
+        for _ in 0..19 {
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        let leave = Input {
+            session: SessionId::new(1),
+            seq: 1,
+            kind: InputKind::Leave,
+        };
+        tick(&mut state, &mut vec![leave], &mut output);
+        let offline = state
+            .saving
+            .offline
+            .values()
+            .next()
+            .expect("the data is kept");
+        assert_eq!(offline.snapshot, None, "no commit holds it yet");
+        let saved = |key: &str| offline.data.extra.get(key).cloned();
+        assert_eq!(saved("firstPlayed"), Some(Value::Long(first_join)));
+        assert_eq!(saved("lastPlayed"), Some(Value::Long(first_join + 1_000)));
     }
 
     // pmmp: Player::transfer

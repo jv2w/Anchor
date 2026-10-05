@@ -62,6 +62,10 @@ pub enum Error {
     Full,
     /// The contents are longer than the inventory.
     TooLong,
+    /// The slot does not take the stack: a shulker box, or a stack over 3 KiB saved, in a
+    /// shulker box (so that the box with its items is one stack within
+    /// [`MAX_NBT_BYTES`](crate::item::MAX_NBT_BYTES)).
+    NotAccepted,
 }
 
 impl fmt::Display for Error {
@@ -71,6 +75,7 @@ impl fmt::Display for Error {
             Self::TooMany => "more items than the slot takes",
             Self::Full => "too many stacks held outside the slots",
             Self::TooLong => "more stacks than slots",
+            Self::NotAccepted => "the slot does not take the stack",
         })
     }
 }
@@ -88,7 +93,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Inventory<'a> {
     halves: [&'a [Stack]; 2],
     max: u8,
-    /// A shulker box's slots: they take no shulker box.
+    /// A shulker box's slots: they take only what [`Stack::fits_shulker_box`].
     shulker_box: bool,
 }
 
@@ -115,8 +120,8 @@ impl<'a> Inventory<'a> {
         }
     }
 
-    /// The same slots as a shulker box's, which take no shulker box (PMMP
-    /// `ShulkerBoxInventory::canAddItem`).
+    /// The same slots as a shulker box's, which take only what [`Stack::fits_shulker_box`]
+    /// (PMMP `ShulkerBoxInventory::canAddItem`).
     pub(crate) fn of_shulker_box(self) -> Self {
         Self {
             shulker_box: true,
@@ -124,9 +129,10 @@ impl<'a> Inventory<'a> {
         }
     }
 
-    /// Whether the slots refuse `stack` whatever room they have: a shulker box in a shulker box.
+    /// Whether the slots refuse `stack` whatever room they have: a shulker box or a large stack
+    /// in a shulker box.
     fn refuses(&self, stack: &Stack) -> bool {
-        self.shulker_box && is_shulker_box(stack)
+        self.shulker_box && !stack.fits_shulker_box()
     }
 
     /// How many slots the inventory has.
@@ -308,15 +314,6 @@ impl<'a> Inventory<'a> {
     }
 }
 
-/// Whether `stack` is a shulker box, which a shulker box does not take (PMMP
-/// `ShulkerBoxInventory::canAddItem`, and its slot validator for players).
-pub(crate) fn is_shulker_box(stack: &Stack) -> bool {
-    stack
-        .item()
-        .and_then(crate::item::Type::block)
-        .is_some_and(|b| b.is(crate::block::Class::ShulkerBox))
-}
-
 /// Whether `have` is `want`'s item for finding and taking: the same type and damage, and the
 /// same extra data when `want` has some (PMMP `Item::equals` with `checkTags` for a named tag).
 pub(crate) fn matches(have: &Stack, want: &Stack) -> bool {
@@ -392,10 +389,12 @@ mod tests {
     // pmmp: Inventory::contains, BaseInventory::contains, Inventory::first, BaseInventory::first, Inventory::firstEmpty, BaseInventory::firstEmpty, Inventory::all, BaseInventory::all, Inventory::getAddableItemQuantity, BaseInventory::getAddableItemQuantity, Inventory::canAddItem, BaseInventory::canAddItem
     #[test]
     fn finding_and_room_follow_pmmp() {
-        let named = stack(ItemKind::Stick, 1).with_extra(Some(Extra {
-            custom_name: Some("a".to_owned()),
-            ..Extra::default()
-        }));
+        let named = stack(ItemKind::Stick, 1)
+            .with_extra(Some(Extra {
+                custom_name: Some("a".to_owned()),
+                ..Extra::default()
+            }))
+            .unwrap();
         let slots = [
             stack(ItemKind::Coal, 60),
             Stack::EMPTY,

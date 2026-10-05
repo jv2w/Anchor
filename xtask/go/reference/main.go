@@ -14,6 +14,8 @@
 //   - item_blocks.json: the block state the vanilla creative inventory (CloudburstMC creative_items.json,
 //     checked against dragonfly's creative_items.nbt and the block list) gives each block item, for the
 //     items with a single such state. BDS sends block items with these states.
+//   - jigsaw_structure_data.dat, entity_properties.dat: CloudburstMC's jigsaw structure data and entity
+//     property definitions as the network NBT Anchor sends (network.go).
 //
 // NBT is read by a reader of its own so that list element types survive (gophertunnel's decoder drops the
 // type of an empty list), and written in the same typed JSON as xtask/php/dump.php: {"byte": 1},
@@ -64,6 +66,9 @@ func main() {
 		fail(err)
 	}
 	if err := writeLines(filepath.Join(*out, "item_blocks.json"), itemBlocks); err != nil {
+		fail(err)
+	}
+	if err := writeNetworkCopies(*cloudburst, *out); err != nil {
 		fail(err)
 	}
 	fmt.Printf("reference: %d block states, %d items, %d item block states\n", len(blocks), len(items), len(itemBlocks))

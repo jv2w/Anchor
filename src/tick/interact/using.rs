@@ -11,21 +11,22 @@
 use crate::block::{self, Class, Face, Kind, State as BlockState};
 use crate::config::GameMode;
 use crate::event::{
-    BlockPlace, BlockTeleport, InteractAction, PlayerBucketEmpty, PlayerBucketFill,
-    PlayerEntityInteract, PlayerInteract, PlayerItemUse, SignChange,
+    BlockPlace, BlockPreExplode, BlockTeleport, InteractAction, PlayerBucketEmpty,
+    PlayerBucketFill, PlayerEntityInteract, PlayerInteract, PlayerItemUse, PlayerRespawnAnchorUse,
+    RespawnAnchorAction, SignChange,
 };
 use crate::item::{self, Enchantment, Stack};
-use crate::math::{Aabb, Vec3};
+use crate::math::Vec3;
 use crate::player;
-use crate::protocol::consts::{LevelEvent as Event, SoundEvent, UseItemOnEntityAction};
+use crate::protocol::consts::{LevelEvent as Event, UseItemOnEntityAction};
 use crate::random::Random;
 use crate::save::WorldIndex;
-use crate::world::{BlockPos, MAX_Y, MIN_Y};
+use crate::world::{BlockPos, MAX_Y, MIN_Y, Particle, Sound};
 
 use super::super::{SessionId, State, block_entity, dispatch, entity, inventory, survival, update};
 use super::{
-    Actor, EYE_HEIGHT, USE, adventure_allows, block_vec, breaking, center, drops, level_event,
-    place, props, return_items, sound, stream,
+    Actor, USE, adventure_allows, block_vec, breaking, center, drops, level_event, particle, place,
+    props, return_items, sound, stream,
 };
 
 /// Water's and lava's scheduled update delays (PMMP `Water::tickRate`, `Lava::tickRate` outside
@@ -35,6 +36,11 @@ const LAVA_TICK_RATE: u32 = 30;
 /// Ticks a pressed button stays pressed (PMMP `StoneButton`, `WoodenButton`).
 const STONE_BUTTON_TICKS: u32 = 20;
 const WOODEN_BUTTON_TICKS: u32 = 30;
+/// The radius of a respawn anchor's explosion (PMMP `RespawnAnchor::explode`).
+const ANCHOR_RADIUS: f64 = 5.0;
+/// The grey chat line of a respawn anchor that becomes the respawn point (PMMP
+/// `KnownTranslationFactory::tile_respawn_anchor_respawnSet()->prefix(TextFormat::GRAY)`).
+const ANCHOR_SPAWN_SET: &str = "§7%tile.respawn_anchor.respawnSet";
 /// PMMP `FillableCauldron::MAX_FILL_LEVEL` and the levels a bottle holds.
 const CAULDRON_FULL: i32 = 6;
 const BOTTLE_LEVELS: i32 = 2;
@@ -135,7 +141,7 @@ impl Use {
 
     /// The block next to the clicked face.
     fn replace(&self) -> Option<BlockPos> {
-        place::step(self.pos, self.face)
+        self.pos.step(self.face)
     }
 }
 
@@ -261,7 +267,7 @@ fn right_click(
 ) -> Option<(BlockState, Stack)> {
     let w = state.worlds.get(actor.world)?;
     let clicked = w.block(pos)?;
-    let replace = place::step(pos, face).filter(|p| (MIN_Y..=MAX_Y).contains(&p.y))?;
+    let replace = pos.step(face).filter(|p| (MIN_Y..=MAX_Y).contains(&p.y))?;
     if w.block(replace).is_none() || clicked == block::AIR || actor.mode == GameMode::Spectator {
         return None;
     }
@@ -354,13 +360,7 @@ fn place_held(
         }
     }
     if let Some((first, s)) = blocks.first() {
-        sound(
-            state,
-            world,
-            center(*first),
-            SoundEvent::Place,
-            s.network_id().cast_signed(),
-        );
+        sound(state, world, center(*first), Sound::BlockPlace(*s));
     }
     let used = held.with_count(held.count().saturating_sub(1));
     return_items(state, actor, held, used, Vec::new());
@@ -399,26 +399,14 @@ fn placement(
         .then_some(blocks)
 }
 
-/// Whether an entity is in the way of `block` at `pos` (PMMP `World::getCollidingEntities` for
-/// each collision box): players, except spectators, and the entities the entity rules say block
-/// placing.
+/// Whether an entity or player is in the way of `block` at `pos` (PMMP
+/// `World::getCollidingEntities` for each collision box, [`entity::occupied`]).
 fn obstructed(state: &State, world: WorldIndex, pos: BlockPos, block: BlockState) -> bool {
     let at = block_vec(pos);
-    block.collision_boxes().iter().any(|b| {
-        let placed = b.offset(at);
-        entity::occupied(state, world, placed)
-            || state.players.values().any(|p| {
-                if p.world != world || survival::game_mode(state, p) == GameMode::Spectator {
-                    return false;
-                }
-                let feet = p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
-                let bb = Aabb::new(
-                    Vec3::new(feet.x - 0.3, feet.y, feet.z - 0.3),
-                    Vec3::new(feet.x + 0.3, feet.y + 1.8, feet.z + 0.3),
-                );
-                bb.intersects(placed)
-            })
-    })
+    block
+        .collision_boxes()
+        .iter()
+        .any(|b| entity::occupied(state, world, b.offset(at)))
 }
 
 /// PMMP `Block::onInteract` of the clicked block's class (the first class in its chain that has
@@ -465,6 +453,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
             | Class::EnchantingTable
             | Class::EnderChest
             | Class::Furnace
+            | Class::Grindstone
             | Class::Hopper
             | Class::Loom
             | Class::ShulkerBox
@@ -475,13 +464,14 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
             }
             Class::Chest => {
                 // A chest under a solid block stays shut (its pair's check is the window's).
-                let above = get(state, u.actor.world, place::step(u.pos, Face::Up));
+                let above = get(state, u.actor.world, u.pos.step(Face::Up));
                 if above.is_transparent() {
                     let _ = inventory::open_block(state, u.actor.session, u.actor.world, u.pos);
                 }
                 return true;
             }
-            Class::Bed => return bed(state, u),
+            // With `beds = false` a bed is a plain block.
+            Class::Bed if state.settings.beds => return bed(state, u),
             Class::Button => return button(state, u),
             Class::CakeWithCandle => {
                 if props::flag(block, "lit") == Some(true) && u.face != Face::Up {
@@ -555,12 +545,12 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 if let Some(next) = props::with_flag(block, "open_bit", on) {
                     set(state, u.actor.world, u.pos, next);
                 }
-                let sound_event = if on {
-                    SoundEvent::PowerOn
+                let switched = if on {
+                    Sound::RedstonePowerOn
                 } else {
-                    SoundEvent::PowerOff
+                    Sound::RedstonePowerOff
                 };
-                sound(state, u.actor.world, center(u.pos), sound_event, 0);
+                sound(state, u.actor.world, center(u.pos), switched);
                 return true;
             }
             Class::Light => {
@@ -639,15 +629,12 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                         state,
                         u.actor.world,
                         center(u.pos),
-                        SoundEvent::RespawnAnchorCharge,
-                        0,
+                        Sound::RespawnAnchorCharge,
                     );
                     u.pop();
                     return true;
                 }
-                // A charged anchor explodes outside the nether: the explosion is an entity rule
-                // (wave C).
-                return false;
+                return charges > 0 && respawn_anchor(state, u);
             }
             Class::BaseSign => return super::decor::sign(state, u),
             Class::SweetBerryBush => {
@@ -665,13 +652,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                         let count = u8::try_from(amount).unwrap_or(1);
                         drop_or_return(state, u, berries.with_count(count));
                     }
-                    sound(
-                        state,
-                        u.actor.world,
-                        center(u.pos),
-                        SoundEvent::SweetBerryBushPick,
-                        0,
-                    );
+                    sound(state, u.actor.world, center(u.pos), Sound::SweetBerriesPick);
                 }
                 return true;
             }
@@ -694,13 +675,8 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 if let Some(s) = props::with_flag(block, "open_bit", open) {
                     set(state, u.actor.world, u.pos, s);
                 }
-                level_event(
-                    state,
-                    u.actor.world,
-                    block_vec(u.pos),
-                    Event::SoundOpenDoor,
-                    0,
-                );
+                let door = Sound::Door { pitch: 0.0 };
+                sound(state, u.actor.world, block_vec(u.pos), door);
                 return true;
             }
             Class::Wood => {
@@ -714,13 +690,8 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                     if let Some(stripped) = stripped {
                         u.wear(1);
                         set(state, u.actor.world, u.pos, stripped);
-                        sound(
-                            state,
-                            u.actor.world,
-                            center(u.pos),
-                            SoundEvent::ItemUseOn,
-                            stripped.network_id().cast_signed(),
-                        );
+                        let used = Sound::ItemUseOnBlock(stripped);
+                        sound(state, u.actor.world, center(u.pos), used);
                         return true;
                     }
                 }
@@ -839,7 +810,7 @@ fn bed(state: &mut State, u: &Use) -> bool {
     let head_pos = if head {
         Some(u.pos)
     } else {
-        props::facing(block).and_then(|f| place::step(u.pos, f))
+        props::facing(block).and_then(|f| u.pos.step(f))
     };
     let Some(head_pos) = head_pos else {
         return true;
@@ -855,6 +826,118 @@ fn bed(state: &mut State, u: &Use) -> bool {
     true
 }
 
+/// PMMP `RespawnAnchor::onInteract` for a charged anchor: [`PlayerRespawnAnchorUse`], then the
+/// anchor explodes (in any world, as in PMMP) or, if a listener chose so, becomes the player's
+/// respawn point. False if cancelled, or if a listener took the item, moved the player away or
+/// changed the anchor.
+fn respawn_anchor(state: &mut State, u: &Use) -> bool {
+    let mut action = RespawnAnchorAction::Explode;
+    let mut event = None;
+    if dispatch::heard::<PlayerRespawnAnchorUse>(state) {
+        let Some(world) = crate::world::Id::new(u.actor.world) else {
+            return false;
+        };
+        let mut e = PlayerRespawnAnchorUse {
+            player: player::Id::new(u.actor.session),
+            world,
+            pos: u.pos,
+            block: u.block,
+            action,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        if e.cancelled
+            || (dispatch::listened::<PlayerRespawnAnchorUse>(state)
+                && !(still_holds(state, &u.actor, &u.item)
+                    && get(state, u.actor.world, Some(u.pos)) == u.block))
+        {
+            return false;
+        }
+        action = e.action;
+        event = Some(e);
+    }
+    match action {
+        RespawnAnchorAction::Explode => explode_anchor(state, u),
+        RespawnAnchorAction::SetSpawn => anchor_spawn(state, u),
+    }
+    if let Some(e) = event {
+        dispatch::watch(state, &e);
+    }
+    true
+}
+
+/// PMMP `RespawnAnchor::explode`: [`BlockPreExplode`] (radius 5, fire), then the anchor goes and
+/// explodes from the centre of its block. A cancelled event, or a listener that changed the
+/// anchor, keeps it.
+fn explode_anchor(state: &mut State, u: &Use) {
+    let mut blast = entity::Blast::new(ANCHOR_RADIUS, true);
+    let mut event = None;
+    if dispatch::heard::<BlockPreExplode>(state) {
+        let Some(world) = crate::world::Id::new(u.actor.world) else {
+            return;
+        };
+        let mut e = BlockPreExplode {
+            world,
+            pos: u.pos,
+            block: u.block,
+            player: Some(player::Id::new(u.actor.session)),
+            radius: blast.size,
+            fire_chance: blast.fire_chance,
+            block_breaking: blast.breaks,
+            cancelled: false,
+        };
+        dispatch::call(state, &mut e);
+        if e.cancelled
+            || (dispatch::listened::<BlockPreExplode>(state)
+                && get(state, u.actor.world, Some(u.pos)) != u.block)
+        {
+            return;
+        }
+        blast = entity::Blast {
+            size: e.radius,
+            fire_chance: e.fire_chance,
+            breaks: e.block_breaking,
+        };
+        event = Some(e);
+    }
+    set(state, u.actor.world, u.pos, block::AIR);
+    entity::explode_block(state, u.actor.world, u.pos, u.block, blast);
+    if let Some(e) = event {
+        dispatch::watch(state, &e);
+    }
+}
+
+/// The `SetSpawn` action of PMMP `RespawnAnchor::onInteract`: the anchor becomes the player's
+/// respawn point with a sound and a message, unless it already is.
+fn anchor_spawn(state: &mut State, u: &Use) {
+    let Some(name) = state.worlds.get(u.actor.world).map(|w| w.name().to_owned()) else {
+        return;
+    };
+    let Some(player) = state.players.get_mut(&u.actor.session) else {
+        return;
+    };
+    if player.spawn() == Some((name.as_str(), u.pos)) {
+        return;
+    }
+    if let Err(e) = player.set_spawn(Some((&name, u.pos))) {
+        tracing::debug!(%e, "respawn anchor spawn not set");
+        return;
+    }
+    let message = player::Message::Translation {
+        key: ANCHOR_SPAWN_SET.to_owned(),
+        parameters: Vec::new(),
+    };
+    if let Err(e) = player.send(message) {
+        tracing::debug!(%e, "respawn anchor message not sent");
+    }
+    sound(
+        state,
+        u.actor.world,
+        center(u.pos),
+        Sound::RespawnAnchorSetSpawn,
+    );
+}
+
 /// PMMP `Button::onInteract`: pressed until a scheduled update releases it.
 fn button(state: &mut State, u: &Use) -> bool {
     if props::flag(u.block, "button_pressed_bit") == Some(true) {
@@ -868,7 +951,7 @@ fn button(state: &mut State, u: &Use) -> bool {
             STONE_BUTTON_TICKS
         };
         update::schedule(state, u.actor.world, u.pos, ticks);
-        sound(state, u.actor.world, center(u.pos), SoundEvent::PowerOn, 0);
+        sound(state, u.actor.world, center(u.pos), Sound::RedstonePowerOn);
     }
     true
 }
@@ -930,7 +1013,7 @@ fn campfire(state: &mut State, u: &mut Use) -> bool {
             if let Some(s) = props::with_flag(u.block, "extinguished", false) {
                 set(state, world, u.pos, s);
             }
-            level_event(state, world, block_vec(u.pos), Event::SoundBlazeFireball, 0);
+            sound(state, world, block_vec(u.pos), Sound::BlazeShoot);
             update::schedule(state, world, u.pos, 40);
             return true;
         }
@@ -939,7 +1022,7 @@ fn campfire(state: &mut State, u: &mut Use) -> bool {
             if let Some(s) = props::with_flag(u.block, "extinguished", false) {
                 set(state, world, u.pos, s);
             }
-            sound(state, world, center(u.pos), SoundEvent::Ignite, 0);
+            sound(state, world, center(u.pos), Sound::FlintSteel);
             update::schedule(state, world, u.pos, 40);
             return true;
         }
@@ -948,7 +1031,7 @@ fn campfire(state: &mut State, u: &mut Use) -> bool {
         if let Some(s) = props::with_flag(u.block, "extinguished", true) {
             set(state, world, u.pos, s);
         }
-        sound(state, world, center(u.pos), SoundEvent::ExtinguishFire, 0);
+        sound(state, world, center(u.pos), Sound::FireExtinguish);
         return true;
     }
     false
@@ -966,9 +1049,9 @@ fn candle(state: &mut State, u: &mut Use) -> bool {
             u.wear(1);
         } else if u.item_kind(item::Kind::FireCharge) {
             u.pop();
-            level_event(state, world, block_vec(u.pos), Event::SoundBlazeFireball, 0);
+            sound(state, world, block_vec(u.pos), Sound::BlazeShoot);
         }
-        sound(state, world, center(u.pos), SoundEvent::Ignite, 0);
+        sound(state, world, center(u.pos), Sound::FlintSteel);
         if let Some(s) = props::with_flag(u.block, "lit", true) {
             set(state, world, u.pos, s);
         }
@@ -978,7 +1061,7 @@ fn candle(state: &mut State, u: &mut Use) -> bool {
         if !lit {
             return true;
         }
-        sound(state, world, center(u.pos), SoundEvent::ExtinguishFire, 0);
+        sound(state, world, center(u.pos), Sound::FireExtinguish);
         if let Some(s) = props::with_flag(u.block, "lit", false) {
             set(state, world, u.pos, s);
         }
@@ -1006,24 +1089,23 @@ fn cauldron(state: &mut State, u: &mut Use) -> bool {
     };
     let bucket = Stack::new(item::Kind::Bucket.default_type(), 1);
     let bottle = Stack::new(item::Kind::GlassBottle.default_type(), 1);
-    let (result, returned, fill_sound) = if level == 0 {
+    // PMMP `FillableCauldron::addFillLevels`, `removeFillLevels`: the liquid's fill or empty
+    // sound; `mix` has none in PMMP (a fizz here).
+    let mixed = Sound::Fizz { pitch: 0.0 };
+    let (result, returned, played) = if level == 0 {
         if u.item_kind(item::Kind::WaterBucket) {
             (
                 with("water", CAULDRON_FULL),
                 bucket,
-                SoundEvent::BucketEmptyWater,
+                Sound::CauldronFillWater,
             )
         } else if u.item_kind(item::Kind::LavaBucket) {
-            (
-                with("lava", CAULDRON_FULL),
-                bucket,
-                SoundEvent::BucketEmptyLava,
-            )
+            (with("lava", CAULDRON_FULL), bucket, Sound::CauldronFillLava)
         } else if water_potion {
             (
                 with("water", BOTTLE_LEVELS),
                 bottle,
-                SoundEvent::BucketEmptyWater,
+                Sound::CauldronFillWater,
             )
         } else {
             return true;
@@ -1031,11 +1113,11 @@ fn cauldron(state: &mut State, u: &mut Use) -> bool {
     } else if lava {
         if u.item_kind(item::Kind::Bucket) && level >= CAULDRON_FULL {
             let lava_bucket = Stack::new(item::Kind::LavaBucket.default_type(), 1);
-            (with("water", 0), lava_bucket, SoundEvent::BucketFillLava)
+            (with("water", 0), lava_bucket, Sound::CauldronEmptyLava)
         } else if u.item_kind(item::Kind::WaterBucket) || any_potion {
             // Mixing empties the cauldron.
             let back = if any_potion { bottle } else { bucket };
-            (with("water", 0), back, SoundEvent::Fizz)
+            (with("water", 0), back, mixed)
         } else {
             return true;
         }
@@ -1043,106 +1125,69 @@ fn cauldron(state: &mut State, u: &mut Use) -> bool {
         (
             with("water", CAULDRON_FULL),
             bucket,
-            SoundEvent::BucketEmptyWater,
+            Sound::CauldronFillWater,
         )
     } else if u.item_kind(item::Kind::Bucket) && level >= CAULDRON_FULL {
         let water_bucket = Stack::new(item::Kind::WaterBucket.default_type(), 1);
-        (with("water", 0), water_bucket, SoundEvent::BucketFillWater)
+        (with("water", 0), water_bucket, Sound::CauldronEmptyWater)
     } else if u.item_kind(item::Kind::GlassBottle) && level >= BOTTLE_LEVELS {
         let potion = Stack::new(item::Kind::Potion.default_type(), 1);
         (
             with("water", level - BOTTLE_LEVELS),
             potion,
-            SoundEvent::BucketFillWater,
+            Sound::CauldronEmptyWater,
         )
     } else if water_potion && level < CAULDRON_FULL {
         let next = (level + BOTTLE_LEVELS).min(CAULDRON_FULL);
-        (with("water", next), bottle, SoundEvent::BucketEmptyWater)
+        (with("water", next), bottle, Sound::CauldronFillWater)
     } else if u.item_kind(item::Kind::LavaBucket) {
-        (with("water", 0), bucket, SoundEvent::Fizz)
+        (with("water", 0), bucket, mixed)
     } else if any_potion && !water_potion {
         // Another potion mixes with the water (PMMP `WaterCauldron::onInteract`).
-        (with("water", 0), bottle, SoundEvent::Fizz)
+        (with("water", 0), bottle, mixed)
     } else {
         return true;
     };
     if let Some(result) = result {
         set(state, world, u.pos, result);
-        sound(state, world, center(u.pos), fill_sound, 0);
+        sound(state, world, center(u.pos), played);
         u.pop();
         u.returned.push(returned);
     }
     true
 }
 
-/// The copper names of a state: waxed, the oxidation prefix and the rest (PMMP `CopperTrait`).
-fn copper_name(name: &str) -> Option<(bool, &'static str, &str)> {
-    let rest = name.strip_prefix("minecraft:")?;
-    let (waxed, rest) = match rest.strip_prefix("waxed_") {
-        Some(r) => (true, r),
-        None => (false, rest),
-    };
-    for ox in ["exposed_", "weathered_", "oxidized_"] {
-        if let Some(r) = rest.strip_prefix(ox) {
-            return Some((waxed, ox, r));
-        }
-    }
-    // The plain full block is `copper_block`, its other forms `<prefix>copper`.
-    let base = if rest == "copper_block" {
-        "copper"
-    } else {
-        rest
-    };
-    Some((waxed, "", base))
-}
-
-/// The copper state with the same properties for `waxed` and `oxidation`.
-fn copper_state(block: BlockState, waxed: bool, oxidation: &str, base: &str) -> Option<BlockState> {
-    let mut name = String::with_capacity(48);
-    name.push_str("minecraft:");
-    if waxed {
-        name.push_str("waxed_");
-    }
-    name.push_str(oxidation);
-    if !waxed && oxidation.is_empty() && base == "copper" {
-        name.push_str("copper_block");
-    } else {
-        name.push_str(base);
-    }
-    props::renamed(block, &name)
-}
-
 /// PMMP `CopperTrait::onInteract`: honeycomb waxes, an axe takes the wax off or scrapes one
 /// stage of oxidation.
 fn copper(state: &mut State, u: &mut Use) -> bool {
-    let Some((waxed, oxidation, base)) = copper_name(u.block.name()) else {
+    let block = u.block;
+    let Some((oxidation, waxed, base)) = block::copper_parts(block) else {
         return false;
     };
+    let renamed =
+        |oxidation, waxed| props::renamed(block, &block::copper_name(oxidation, waxed, base));
     let world = u.actor.world;
     if !waxed && u.item_kind(item::Kind::Honeycomb) {
-        if let Some(s) = copper_state(u.block, true, oxidation, base) {
+        if let Some(s) = renamed(oxidation, true) {
             set(state, world, u.pos, s);
-            level_event(state, world, block_vec(u.pos), Event::WaxOn, 0);
+            sound(state, world, block_vec(u.pos), Sound::CopperWaxApply);
             u.pop();
             return true;
         }
         return false;
     }
     if u.item_is(item::Class::Axe) {
-        let (next, event) = if waxed {
-            (copper_state(u.block, false, oxidation, base), Event::WaxOff)
+        let (next, played) = if waxed {
+            (renamed(oxidation, false), Sound::CopperWaxRemove)
         } else {
-            let previous = match oxidation {
-                "oxidized_" => "weathered_",
-                "weathered_" => "exposed_",
-                "exposed_" => "",
-                _ => return false,
+            let Some(previous) = oxidation.previous() else {
+                return false;
             };
-            (copper_state(u.block, false, previous, base), Event::Scrape)
+            (renamed(previous, false), Sound::Scrape)
         };
         if let Some(next) = next {
             set(state, world, u.pos, next);
-            level_event(state, world, block_vec(u.pos), event, 0);
+            sound(state, world, block_vec(u.pos), played);
             u.wear(1);
             return true;
         }
@@ -1157,7 +1202,7 @@ fn copy_copper_to_other_half(state: &mut State, u: &Use) {
         return;
     };
     let top = props::flag(now, "upper_block_bit") == Some(true);
-    let other_pos = place::step(u.pos, if top { Face::Down } else { Face::Up });
+    let other_pos = u.pos.step(if top { Face::Down } else { Face::Up });
     let other = get(state, world, other_pos);
     if let (Some(p), true) = (other_pos, other.is(Class::CopperDoor)) {
         let copied = props::renamed(other, now.name()).unwrap_or(other);
@@ -1171,7 +1216,7 @@ fn dirt(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let name = u.block.name();
     if u.face != Face::Down && u.item_is(item::Class::Hoe) {
-        let above = get(state, world, place::step(u.pos, Face::Up));
+        let above = get(state, world, u.pos.step(Face::Up));
         if above != block::AIR {
             return true;
         }
@@ -1182,13 +1227,7 @@ fn dirt(state: &mut State, u: &mut Use) -> bool {
         } else {
             Kind::Dirt.default_state()
         };
-        sound(
-            state,
-            world,
-            center(u.pos),
-            SoundEvent::ItemUseOn,
-            next.network_id().cast_signed(),
-        );
+        sound(state, world, center(u.pos), Sound::ItemUseOnBlock(next));
         set(state, world, u.pos, next);
         if name == "minecraft:dirt_with_roots"
             && let Some(roots) = drops_item(Kind::HangingRoots.default_state())
@@ -1204,7 +1243,12 @@ fn dirt(state: &mut State, u: &mut Use) -> bool {
     if water {
         u.pop();
         set(state, world, u.pos, Kind::Mud.default_state());
-        sound(state, world, center(u.pos), SoundEvent::Splash, 0);
+        sound(
+            state,
+            world,
+            center(u.pos),
+            Sound::WaterSplash { volume: 0.5 },
+        );
         return true;
     }
     false
@@ -1215,7 +1259,7 @@ fn door(state: &mut State, u: &Use) -> bool {
     let world = u.actor.world;
     let open = props::flag(u.block, "open_bit") != Some(true);
     let top = props::flag(u.block, "upper_block_bit") == Some(true);
-    let other_pos = place::step(u.pos, if top { Face::Down } else { Face::Up });
+    let other_pos = u.pos.step(if top { Face::Down } else { Face::Up });
     let other = get(state, world, other_pos);
     if let Some(p) = other_pos
         && other.kind() == u.block.kind()
@@ -1226,7 +1270,7 @@ fn door(state: &mut State, u: &Use) -> bool {
     if let Some(s) = props::with_flag(u.block, "open_bit", open) {
         set(state, world, u.pos, s);
     }
-    level_event(state, world, block_vec(u.pos), Event::SoundOpenDoor, 0);
+    sound(state, world, block_vec(u.pos), Sound::Door { pitch: 0.0 });
     true
 }
 
@@ -1242,14 +1286,14 @@ fn fence_gate(state: &mut State, u: &Use) -> bool {
         }
     }
     set(state, world, u.pos, next);
-    level_event(state, world, block_vec(u.pos), Event::SoundOpenDoor, 0);
+    sound(state, world, block_vec(u.pos), Sound::Door { pitch: 0.0 });
     true
 }
 
 /// PMMP `Grass::onInteract`: a hoe makes farmland, a shovel a path, with air above.
 fn grass(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
-    if get(state, world, place::step(u.pos, Face::Up)) != block::AIR || u.face == Face::Down {
+    if get(state, world, u.pos.step(Face::Up)) != block::AIR || u.face == Face::Down {
         return false;
     }
     let next = if u.item_is(item::Class::Hoe) {
@@ -1260,13 +1304,7 @@ fn grass(state: &mut State, u: &mut Use) -> bool {
         return false;
     };
     u.wear(1);
-    sound(
-        state,
-        world,
-        center(u.pos),
-        SoundEvent::ItemUseOn,
-        next.network_id().cast_signed(),
-    );
+    sound(state, world, center(u.pos), Sound::ItemUseOnBlock(next));
     set(state, world, u.pos, next);
     true
 }
@@ -1298,9 +1336,9 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
     let replace = get(state, world, replace_pos);
     if item.is(item::Class::LiquidBucket) {
         let (liquid, rate, empty_sound) = if u.item_kind(item::Kind::LavaBucket) {
-            (Kind::Lava, LAVA_TICK_RATE, SoundEvent::BucketEmptyLava)
+            (Kind::Lava, LAVA_TICK_RATE, Sound::BucketEmptyLava)
         } else if u.item_kind(item::Kind::WaterBucket) {
-            (Kind::Water, WATER_TICK_RATE, SoundEvent::BucketEmptyWater)
+            (Kind::Water, WATER_TICK_RATE, Sound::BucketEmptyWater)
         } else {
             // Fish and powder snow buckets are not PMMP liquids.
             return Outcome::None;
@@ -1320,7 +1358,7 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
         };
         set(state, world, pos, flowing);
         update::schedule(state, world, pos, rate);
-        sound(state, world, center(pos), empty_sound, 0);
+        sound(state, world, center(pos), empty_sound);
         u.pop();
         if !returned.is_empty() {
             u.returned.push(returned);
@@ -1334,15 +1372,15 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
             return Outcome::None;
         }
         let (filled, fill_sound) = match block.kind() {
-            Kind::Water => (item::Kind::WaterBucket, SoundEvent::BucketFillWater),
-            Kind::Lava => (item::Kind::LavaBucket, SoundEvent::BucketFillLava),
+            Kind::Water => (item::Kind::WaterBucket, Sound::BucketFillWater),
+            Kind::Lava => (item::Kind::LavaBucket, Sound::BucketFillLava),
             _ => return Outcome::Fail,
         };
         let Some(returned) = bucket_fill(state, u, Stack::new(filled.default_type(), 1)) else {
             return Outcome::Fail;
         };
         set(state, world, u.pos, block::AIR);
-        sound(state, world, center(u.pos), fill_sound, 0);
+        sound(state, world, center(u.pos), fill_sound);
         u.pop();
         if !returned.is_empty() {
             u.returned.push(returned);
@@ -1367,10 +1405,10 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
         }
         set(state, world, pos, Kind::Fire.default_state());
         if u.item_kind(item::Kind::FireCharge) {
-            level_event(state, world, center(pos), Event::SoundBlazeFireball, 0);
+            sound(state, world, center(pos), Sound::BlazeShoot);
             u.pop();
         } else {
-            sound(state, world, center(pos), SoundEvent::Ignite, 0);
+            sound(state, world, center(pos), Sound::FlintSteel);
             u.wear(1);
         }
         return Outcome::Success;
@@ -1378,15 +1416,21 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
     entity_use(state, u, item)
 }
 
-/// PMMP `PaintingItem`, `item\EndCrystal` and `item\FireworkRocket::onInteractBlock`: they make
-/// entities (the entity rules), and one is used up. Spawn eggs make mobs, which are out of scope
-/// (CLAUDE.md 1).
+/// PMMP `PaintingItem`, `item\EndCrystal`, `item\FireworkRocket` and `SpawnEgg::onInteractBlock`:
+/// they make entities (the entity rules), and one is used up. A spawn egg's entity stands in the
+/// middle of the block next to the clicked face, turned at random.
 fn entity_use(state: &mut State, u: &mut Use, item: item::Type) -> Outcome {
     let world = u.actor.world;
     let placed = if item.is(item::Class::PaintingItem) {
         entity::place_painting(state, world, u.pos, u.face, &mut u.rng)
     } else if item.is(item::Class::EndCrystal) {
         entity::place_end_crystal(state, world, u.pos)
+    } else if item.is(item::Class::SpawnEgg) {
+        let Some(at) = u.replace().map(|p| block_vec(p) + Vec3::new(0.5, 0.0, 0.5)) else {
+            return Outcome::None;
+        };
+        let yaw = u.rng.unit() * 360.0;
+        entity::hatch(state, world, at, yaw, &u.item)
     } else if item.is(item::Class::FireworkRocket) {
         // PMMP: the clicked point, 0.15 out of the clicked face.
         let (dx, dy, dz) = u.face.offset();
@@ -1567,7 +1611,7 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
             inventory::set_armor(player, slot, one);
             inventory::set_held(player, worn);
         }
-        sound(state, actor.world, actor.eye, SoundEvent::EquipGeneric, 0);
+        sound(state, actor.world, actor.eye, Sound::ArmorEquipGeneric);
         if !rest.is_empty() {
             return_items(state, actor, held, held.clone(), vec![rest]);
         }
@@ -1575,9 +1619,7 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
     }
     if item.kind() == Some(item::Kind::GoatHorn) {
         // PMMP `GoatHorn::onClickAir`: the call of the horn's type.
-        let packet = crate::world::Sound::GoatHorn(item).packet(actor.eye);
-        let chunk = BlockPos::containing(actor.eye).chunk();
-        state.broadcast(actor.world, chunk, &packet, None);
+        sound(state, actor.world, actor.eye, Sound::GoatHorn(item));
         return true;
     }
     // PMMP `ProjectileItem::onClickAir`: the entity rules throw it; one is used up.
@@ -1747,25 +1789,17 @@ pub(super) fn teleport_dragon_egg(
             to = e.to;
             event = Some(e);
         }
-        let (dx, dy, dz) = (
-            pos.x.saturating_sub(to.x),
-            pos.y.saturating_sub(to.y),
-            pos.z.saturating_sub(to.z),
-        );
-        // PMMP `DragonEggTeleportParticle`: signs in bits 24-26, distances in bytes.
-        let data = (i32::from(dz < 0) << 24)
-            | (i32::from(dy < 0) << 25)
-            | (i32::from(dx < 0) << 26)
-            | ((dx.unsigned_abs().min(255).cast_signed()) << 16)
-            | ((dy.unsigned_abs().min(255).cast_signed()) << 8)
-            | dz.unsigned_abs().min(255).cast_signed();
-        level_event(
-            state,
-            world,
-            block_vec(pos),
-            Event::ParticlesDragonEgg,
-            data,
-        );
+        // PMMP `DragonEggTeleportParticle` of the distance from the new place to the old.
+        let axis = |from: i32, to: i32| {
+            let d = from.saturating_sub(to).clamp(-255, 255);
+            i16::try_from(d).unwrap_or(0)
+        };
+        let trail = Particle::DragonEggTeleport {
+            x: axis(pos.x, to.x),
+            y: axis(pos.y, to.y),
+            z: axis(pos.z, to.z),
+        };
+        particle(state, world, block_vec(pos), trail);
         set(state, world, pos, block::AIR);
         set(state, world, to, egg);
         if let Some(e) = event {
@@ -1791,14 +1825,11 @@ mod tests {
     #[test]
     fn copper_names_split_and_join_back() {
         for state in BlockState::all().filter(|s| s.has_trait(block::Trait::Copper)) {
-            let (waxed, ox, base) = copper_name(state.name()).unwrap();
-            assert_eq!(
-                copper_state(state, waxed, ox, base),
-                Some(state),
-                "{state:?}"
-            );
+            let (oxidation, waxed, base) = block::copper_parts(state).unwrap();
+            let copper = |waxed| props::renamed(state, &block::copper_name(oxidation, waxed, base));
+            assert_eq!(copper(waxed), Some(state), "{state:?}");
             if !waxed {
-                assert!(copper_state(state, true, ox, base).is_some(), "{state:?}");
+                assert!(copper(true).is_some(), "{state:?}");
             }
         }
     }

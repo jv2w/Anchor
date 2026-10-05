@@ -5,8 +5,8 @@
 
 use crate::command::Sender;
 
-/// Raised when a player or the console runs a command, before it is parsed. Cancelling skips the
-/// command.
+/// Raised for each command line a player or the console sends, ahead of parsing. Cancelling skips
+/// the command.
 #[doc(alias = "CommandEvent")]
 #[derive(Debug)]
 pub struct Command {

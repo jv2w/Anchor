@@ -48,18 +48,6 @@ pub(super) fn with_text(s: State, name: &str, v: &str) -> Option<State> {
     s.with(name, PropertyValue::String(v))
 }
 
-/// The state named `name` with the properties of `s` (copper oxidation, dead coral…).
-pub(super) fn renamed(s: State, name: &str) -> Option<State> {
-    let mut buffer = [("", PropertyValue::Byte(0)); 16];
-    let mut n = 0;
-    for p in s.properties() {
-        let slot = buffer.get_mut(n)?;
-        *slot = (p.name(), p.value());
-        n += 1;
-    }
-    State::find(name, buffer.get(..n)?)
-}
-
 /// The default state of the block named `name`, if it has no properties or they are all zero.
 pub(super) fn plain(name: &str) -> Option<State> {
     State::find(name, &[])
@@ -230,10 +218,6 @@ mod tests {
         let leaves = find("minecraft:oak_leaves");
         let checked = with_flag(leaves, "update_bit", true).unwrap();
         assert_eq!(flag(checked, "update_bit"), Some(true));
-        let water = find("minecraft:water");
-        let flowing = renamed(water, "minecraft:flowing_water").unwrap();
-        assert_eq!(flowing.name(), "minecraft:flowing_water");
-        assert_eq!(int(flowing, "liquid_depth"), int(water, "liquid_depth"));
     }
 
     #[test]

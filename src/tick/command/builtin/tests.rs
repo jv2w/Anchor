@@ -5,25 +5,31 @@ use std::net::IpAddr;
 
 use tokio::sync::mpsc;
 
-use super::super::tests::{id, lines, server};
+use super::super::tests::{id, lines, server, server_with};
 use super::super::{Error, Output, Sender, available_commands, execute};
 use crate::command::{self, Command};
 use crate::config::{Difficulty, GameMode};
 use crate::effect;
+use crate::event::{
+    EntityTeleport, Listeners, PlayerGameModeChange, PlayerKick, PlayerTransfer, Priority,
+};
 use crate::item::{self, Stack};
 use crate::math::Vec3;
 use crate::permission;
 use crate::protocol::consts::CommandArg;
 use crate::protocol::packet::Packet;
+use crate::runtime::ThreadTotals;
 use crate::tick::log::InputLog;
-use crate::tick::queue::{Outbound, SessionId};
+use crate::tick::queue::{Measure, Outbound, SessionId};
 use crate::tick::tests::{received, tick};
 use crate::tick::{Context, Output as TickOutput, State, save};
 use crate::world::BlockPos;
 
-/// Runs `line` as `sender`.
+/// Runs `line` as `sender`, then the actions it queued, as the tick does.
 fn run(state: &mut State, sender: Sender, line: &str) -> command::Result<Output> {
-    execute(state, sender, line)
+    let result = execute(state, sender, line);
+    crate::tick::dispatch::run_deferred(state, &mut 0);
+    result
 }
 
 /// The output lines (texts or keys) of a success.
@@ -39,9 +45,10 @@ fn fails(state: &mut State, sender: Sender, line: &str) -> String {
     }
 }
 
-/// Whether a failure is the command's usage.
+/// Whether a failure is a line that does not fit the command: a syntax error, or the command's
+/// usage from its handler.
 fn is_usage(result: &command::Result<Output>) -> bool {
-    matches!(result, Err(Error::Usage { .. }))
+    matches!(result, Err(Error::Syntax { .. } | Error::Usage { .. }))
 }
 
 /// Whether a failure is a missing permission.
@@ -89,7 +96,7 @@ fn kicked_with(last: Option<Packet>) -> String {
 
 #[test]
 fn pmmp_texts_fill_each_parameter_once() {
-    let msg = super::Msg::pmmp("k", "a {%0} b {%1} {%2}");
+    let msg = super::Msg::own("a {%0} b {%1} {%2}");
     assert_eq!(msg.render(&["{%1}", "x"]).unwrap(), "a {%1} b x {%2}");
     assert_eq!(super::Msg::client("k").render(&[]), None);
     assert_eq!(
@@ -102,10 +109,10 @@ fn pmmp_texts_fill_each_parameter_once() {
 fn every_builtin_registers_and_users_replace_or_drop_them() {
     let (state, _rx) = server(vec![]);
     let mut names: Vec<&str> = state.commands.list.iter().map(Command::name).collect();
-    assert_eq!(names.len(), 37, "PMMP's 41 commands but 4");
+    assert_eq!(names.len(), 38, "PMMP's 41 commands but 4, and backup");
     names.sort_unstable();
     names.dedup();
-    assert_eq!(names.len(), 37);
+    assert_eq!(names.len(), 38);
     for skipped in ["dumpmemory", "gc", "plugins", "timings"] {
         assert!(!names.contains(&skipped));
     }
@@ -148,7 +155,7 @@ fn available_commands_list_the_builtins_a_player_may_use_with_typed_overloads() 
     let Packet::AvailableCommands(p) = &packet else {
         panic!("{packet:?}");
     };
-    assert_eq!(p.commands.len(), 37);
+    assert_eq!(p.commands.len(), 38);
     let tp = p.commands.iter().find(|c| c.name == "tp").unwrap();
     assert_eq!(tp.overloads.len(), 4);
     let shapes: Vec<Vec<&str>> = tp
@@ -203,20 +210,20 @@ fn op_and_deop_change_the_list_tell_the_player_and_copy_operators() {
     assert_eq!(ok(&mut state, id(1), "op Player2"), ["commands.op.success"]);
     assert!(Context { state: &mut state }.is_op("player2"));
     let (to2, _) = chat(&mut state, &mut rx[1]);
-    assert_eq!(to2[0], ("§7%commands.op.message".to_owned(), vec![]));
+    assert_eq!(to2[0], ("§b%commands.op.message".to_owned(), vec![]));
     assert_eq!(
         ok(&mut state, Sender::Console, "deop player2"),
         ["commands.deop.success"]
     );
     assert!(!Context { state: &mut state }.is_op("player2"));
     let (to2, _) = chat(&mut state, &mut rx[1]);
-    assert_eq!(to2, [("§7%commands.deop.message".to_owned(), vec![])]);
+    assert_eq!(to2, [("§b%commands.deop.message".to_owned(), vec![])]);
     // Player 1, an operator, got a copy of the console's result, not of its own.
     let (to1, _) = chat(&mut state, &mut rx[0]);
     assert_eq!(
         to1,
         [(
-            "§7§o[CONSOLE: %commands.deop.success]".to_owned(),
+            "§7§o[Console: %commands.deop.success]".to_owned(),
             vec!["player2".to_owned()]
         )]
     );
@@ -228,7 +235,7 @@ fn senders_have_names_get_messages_and_operators_get_copies() {
     let (mut state, mut rx) = with_op();
     let mut cx = Context { state: &mut state };
     assert_eq!(cx.sender_name(id(1)), Some("player1"));
-    assert_eq!(cx.sender_name(Sender::Console), Some("CONSOLE"));
+    assert_eq!(cx.sender_name(Sender::Console), Some("Console"));
     assert_eq!(cx.sender_name(id(9)), None);
     let raw = |text: &str| crate::player::Message::Raw(text.to_owned());
     cx.send_to(id(2), raw("hi")).unwrap();
@@ -238,7 +245,13 @@ fn senders_have_names_get_messages_and_operators_get_copies() {
     let (to2, _) = chat(&mut state, &mut rx[1]);
     assert_eq!(to2, [("hi".to_owned(), vec![])], "no copy for the sender");
     let (to1, _) = chat(&mut state, &mut rx[0]);
-    assert_eq!(to1, [("§7§o[player2: did it]".to_owned(), vec![])]);
+    assert_eq!(
+        to1,
+        [(
+            "§7§o%chat.type.admin".to_owned(),
+            vec!["player2".to_owned(), "did it".to_owned()]
+        )]
+    );
 }
 
 #[test]
@@ -256,7 +269,7 @@ fn ban_and_pardon_keep_the_list_and_kick_the_online_player() {
     let (_, last) = chat(&mut state, &mut rx[1]);
     assert_eq!(
         kicked_with(last),
-        "You are banned from this server. Reason: too much spam"
+        "This server has banned you: too much spam"
     );
     assert_eq!(
         ok(&mut state, Sender::Console, "banlist"),
@@ -290,10 +303,7 @@ fn ban_ip_takes_an_address_or_an_online_players_and_pardon_ip_lifts_it() {
     );
     assert!(Context { state: &mut state }.is_ip_banned(ip));
     let (_, last) = chat(&mut state, &mut rx[1]);
-    assert_eq!(
-        kicked_with(last),
-        "You are banned from this server. Reason: bye"
-    );
+    assert_eq!(kicked_with(last), "This server has banned you: bye");
     assert_eq!(
         ok(&mut state, Sender::Console, "ban-ip ::1"),
         ["commands.banip.success"]
@@ -322,40 +332,37 @@ fn whitelist_actions_each_need_their_permission_and_kick_who_is_left_out() {
     Context { state: &mut state }.set_permission(player2, permission::COMMAND_WHITELIST_LIST, true);
     assert_eq!(
         ok(&mut state, id(2), "whitelist list"),
-        ["commands.whitelist.list", ""]
+        ["commands.allowlist.list", ""]
     );
     assert!(is_refused(&run(&mut state, id(2), "whitelist on")));
     assert!(is_usage(&run(&mut state, id(1), "whitelist add")));
     assert!(is_usage(&run(&mut state, id(1), "whitelist add bad/name")));
     assert_eq!(
         ok(&mut state, id(1), "whitelist add Alex"),
-        ["commands.whitelist.add.success"]
+        ["commands.allowlist.add.success"]
     );
     assert_eq!(
         ok(&mut state, id(1), "whitelist on"),
-        ["commands.whitelist.enabled"]
+        ["commands.allowlist.enabled"]
     );
     assert!(Context { state: &mut state }.whitelist_enabled());
     // Player 1 is an operator and stays; player 2 is not listed.
     let (_, last) = chat(&mut state, &mut rx[1]);
-    assert_eq!(
-        kicked_with(last),
-        "Kicked by admin. Reason: Server is whitelisted"
-    );
+    assert_eq!(kicked_with(last), "disconnectionScreen.notAllowed");
     assert!(state.players.contains_key(&SessionId::new(1)));
     assert_eq!(
         ok(&mut state, Sender::Console, "whitelist remove alex"),
-        ["commands.whitelist.remove.success"]
+        ["commands.allowlist.remove.success"]
     );
     assert_eq!(
         ok(&mut state, Sender::Console, "whitelist off"),
-        ["commands.whitelist.disabled"]
+        ["commands.allowlist.disabled"]
     );
     assert!(!Context { state: &mut state }.whitelist_enabled());
 }
 
 #[test]
-fn kick_disconnects_with_pmmp_texts() {
+fn kick_disconnects_with_the_reason_or_the_clients_kicked_text() {
     let (mut state, mut rx) = with_op();
     assert!(is_refused(&run(&mut state, id(2), "kick player1")));
     assert!(matches!(
@@ -367,13 +374,64 @@ fn kick_disconnects_with_pmmp_texts() {
         ["commands.kick.success.reason"]
     );
     let (_, last) = chat(&mut state, &mut rx[1]);
-    assert_eq!(kicked_with(last), "Kicked by admin. Reason: be nice");
+    assert_eq!(kicked_with(last), "be nice");
     assert_eq!(
         ok(&mut state, Sender::Console, "kick player1"),
         ["commands.kick.success"]
     );
     let (_, last) = chat(&mut state, &mut rx[0]);
-    assert_eq!(kicked_with(last), "Kicked by admin");
+    assert_eq!(kicked_with(last), "disconnect.kicked");
+}
+
+// pmmp: Player::kick, Player::setGamemode, Entity::teleport, Player::transfer
+#[test]
+fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        |e: &mut PlayerKick, _: &mut Context<'_>| {
+            e.cancel();
+        },
+    );
+    listeners.push(
+        Priority::Normal,
+        |e: &mut PlayerGameModeChange, _: &mut Context<'_>| e.cancel(),
+    );
+    // Coordinates are refused; a teleport to a player is sent elsewhere.
+    listeners.push(
+        Priority::Normal,
+        |e: &mut EntityTeleport, _: &mut Context<'_>| {
+            if e.target().x == 10.0 {
+                e.cancel();
+            } else {
+                e.set_target(e.target_world(), Vec3::new(1.0, 80.0, 1.0));
+            }
+        },
+    );
+    listeners.push(
+        Priority::Normal,
+        |e: &mut PlayerTransfer, _: &mut Context<'_>| {
+            e.cancel();
+        },
+    );
+    let (mut state, _rx) = server_with(vec![], listeners);
+    Context { state: &mut state }.op("player2").unwrap();
+    let start = player(&state, 2).position();
+    // PMMP's success lines come before the listeners decide.
+    assert_eq!(
+        ok(&mut state, Sender::Console, "kick player2"),
+        ["commands.kick.success"]
+    );
+    ok(&mut state, Sender::Console, "ban player2");
+    assert!(player(&state, 2).is_online(), "the kicks were cancelled");
+    ok(&mut state, Sender::Console, "gamemode creative player2");
+    assert_eq!(player(&state, 2).game_mode(), GameMode::Survival);
+    ok(&mut state, Sender::Console, "tp player2 10 70 10");
+    assert_eq!(player(&state, 2).position(), start);
+    ok(&mut state, Sender::Console, "tp player2 player1");
+    assert_eq!(player(&state, 2).position(), Vec3::new(1.0, 80.0, 1.0));
+    ok(&mut state, id(2), "transferserver example.com");
+    assert!(player(&state, 2).is_online(), "the transfer was cancelled");
 }
 
 #[test]
@@ -389,7 +447,7 @@ fn gamemode_changes_players_and_needs_the_permission_for_others() {
     assert!(is_refused(&run(&mut state, id(1), "gamemode 1 player2")));
     assert_eq!(
         fails(&mut state, id(1), "gamemode creative"),
-        "Game mode change for player1 failed!"
+        "The game mode of player1 stays as it is"
     );
     assert!(is_usage(&run(
         &mut state,
@@ -491,7 +549,7 @@ fn give_fills_the_inventory_in_stacks_and_reports_what_fit() {
     assert_eq!(packet, Err(super::NUM_TOO_BIG.error(&["99999", "32767"])));
     assert!(matches!(
         run(&mut state, Sender::Console, "give player2 no_such_item"),
-        Err(Error::Usage { .. })
+        Err(Error::Syntax { .. })
     ));
     // The console gives others; a full inventory takes what fits.
     let out = Context { state: &mut state }
@@ -564,7 +622,7 @@ fn effect_gives_takes_and_clears_with_pmmp_bounds() {
         ["commands.effect.success"]
     );
     let speed = player(&state, 1).effect(effect::Type::Speed).unwrap();
-    assert_eq!((speed.duration(), speed.amplifier()), (200, 2));
+    assert_eq!((speed.duration_ticks(), speed.amplifier()), (200, 2));
     assert_eq!(
         fails(&mut state, id(1), "effect @s speed 1 256"),
         "commands.generic.num.tooBig"
@@ -590,8 +648,8 @@ fn effect_gives_takes_and_clears_with_pmmp_bounds() {
         .effect(effect::Type::Regeneration)
         .unwrap();
     assert_eq!(
-        regeneration.duration(),
-        effect::Type::Regeneration.default_duration()
+        regeneration.duration_ticks(),
+        effect::Type::Regeneration.default_duration_ticks()
     );
     assert_eq!(
         ok(&mut state, Sender::Console, "effect player2 clear"),
@@ -687,6 +745,18 @@ fn xp_adds_points_and_levels_and_takes_levels() {
     assert!(is_usage(&run(&mut state, Sender::Console, "xp 1")));
 }
 
+/// `experience = false`: `/xp` fails and changes nothing.
+#[test]
+fn xp_fails_without_experience() {
+    let (mut state, _rx) = with_op();
+    state.settings.experience = false;
+    let off = crate::player::Error::Disabled.to_string();
+    assert_eq!(fails(&mut state, id(1), "xp 5L"), off);
+    assert_eq!(fails(&mut state, Sender::Console, "xp 7 player2"), off);
+    assert_eq!(player(&state, 1).xp_level(), 0);
+    assert_eq!(player(&state, 2).current_total_xp(), 0);
+}
+
 #[test]
 fn tp_moves_players_to_players_and_positions() {
     let (mut state, _rx) = with_op();
@@ -724,9 +794,13 @@ fn tp_moves_players_to_players_and_positions() {
 fn spawnpoint_and_setworldspawn_take_the_senders_block_or_a_position() {
     let (mut state, _rx) = with_op();
     ok(&mut state, id(1), "tp 5.7 70.5 -0.5");
+    let out = run(&mut state, id(1), "spawnpoint").unwrap();
     assert_eq!(
-        ok(&mut state, id(1), "spawnpoint"),
-        ["Set player1's spawn point to (5, 70, -1)"]
+        (out.lines[0].text.as_str(), out.lines[0].params.as_slice()),
+        (
+            "commands.spawnpoint.success.single",
+            ["player1", "5", "70", "-1"].map(str::to_owned).as_slice()
+        )
     );
     assert_eq!(
         player(&state, 1).spawn(),
@@ -752,7 +826,7 @@ fn spawnpoint_and_setworldspawn_take_the_senders_block_or_a_position() {
     assert_eq!(state.worlds[0].spawn(), BlockPos::new(8, 64, 8));
     assert_eq!(
         fails(&mut state, Sender::Console, "setworldspawn"),
-        "This command syntax can only be used as a player"
+        "commands.generic.invalidOrigin"
     );
 }
 
@@ -763,20 +837,89 @@ fn time_sets_adds_and_queries_with_a_permission_each() {
         ok(&mut state, Sender::Console, "time set noon"),
         ["commands.time.set"]
     );
-    assert_eq!(state.worlds[0].time(), 6000);
+    assert_eq!(state.worlds[0].time_ticks(), 6000);
     ok(&mut state, Sender::Console, "time add 100");
-    assert_eq!(state.worlds[0].time(), 6100);
+    assert_eq!(state.worlds[0].time_ticks(), 6100);
     ok(&mut state, Sender::Console, "time set -5");
-    assert_eq!(state.worlds[0].time(), 0, "PMMP takes 0 at least");
-    assert_eq!(
-        ok(&mut state, Sender::Console, "time query"),
-        ["commands.time.query"]
-    );
+    assert_eq!(state.worlds[0].time_ticks(), 0, "PMMP takes 0 at least");
+    // The query reads as BDS's: the time of day, the clock and the days passed.
+    ok(&mut state, Sender::Console, "time set 30000");
+    for (what, key, value) in [
+        ("daytime", "commands.time.query.daytime", "6000"),
+        ("gametime", "commands.time.query.gametime", "30000"),
+        ("day", "commands.time.query.day", "1"),
+    ] {
+        let out = run(&mut state, Sender::Console, &format!("time query {what}")).unwrap();
+        assert_eq!(
+            (out.lines[0].text.as_str(), out.lines[0].params.as_slice()),
+            (key, [value.to_owned()].as_slice())
+        );
+    }
+    assert!(is_usage(&run(&mut state, Sender::Console, "time query")));
     let player2 = crate::player::Id::new(SessionId::new(2));
     Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_QUERY, true);
-    assert_eq!(ok(&mut state, id(2), "time query"), ["commands.time.query"]);
+    assert_eq!(
+        ok(&mut state, id(2), "time query day"),
+        ["commands.time.query.day"]
+    );
     assert!(is_refused(&run(&mut state, id(2), "time set day")));
-    assert!(is_usage(&run(&mut state, Sender::Console, "time start")));
+}
+
+// `/time start` and `/time stop` act on every world, each with its own permission (as PMMP TimeCommand).
+#[test]
+fn time_stop_and_start_stop_and_start_every_worlds_time() {
+    let (mut state, _rx) = with_op();
+    state.add_world(crate::world::World::new(
+        "arena",
+        crate::world::Kind::Temporary,
+        0,
+        BlockPos::new(0, 0, 0),
+    ));
+    let stopped = |state: &mut State| {
+        Context { state }
+            .worlds()
+            .map(crate::world::World::is_time_stopped)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ok(&mut state, Sender::Console, "time stop"),
+        ["The time stands still in every world"]
+    );
+    assert_eq!(stopped(&mut state), [true, true]);
+    assert_eq!(
+        ok(&mut state, id(1), "time start"),
+        ["The time runs again in every world"]
+    );
+    assert_eq!(stopped(&mut state), [false, false]);
+    assert!(is_refused(&run(&mut state, id(2), "time stop")));
+    let player2 = crate::player::Id::new(SessionId::new(2));
+    Context { state: &mut state }.set_permission(player2, permission::COMMAND_TIME_STOP, true);
+    ok(&mut state, id(2), "time stop");
+    assert_eq!(stopped(&mut state), [true, true]);
+    assert!(is_refused(&run(&mut state, id(2), "time start")));
+}
+
+/// The console's world is the default world, also after `set_default_world` named another
+/// (PMMP's `/seed` and `/setworldspawn` use `getDefaultWorld` for a sender that is no player).
+#[test]
+fn the_consoles_world_is_the_default_world_set_at_run_time() {
+    let (mut state, _rx) = with_op();
+    state.add_world(crate::world::World::new(
+        "arena",
+        crate::world::Kind::Temporary,
+        77,
+        BlockPos::new(0, 0, 0),
+    ));
+    let arena = state.worlds[1].id();
+    Context { state: &mut state }
+        .set_default_world(arena)
+        .unwrap();
+    let before = state.worlds[0].spawn();
+    ok(&mut state, Sender::Console, "setworldspawn 1 2 3");
+    assert_eq!(state.worlds[1].spawn(), BlockPos::new(1, 2, 3));
+    assert_eq!(state.worlds[0].spawn(), before);
+    let out = run(&mut state, Sender::Console, "seed").unwrap();
+    assert_eq!(out.lines[0].params, ["77"]);
 }
 
 #[test]
@@ -829,7 +972,7 @@ fn tell_whispers_to_others_and_not_to_oneself() {
         to1,
         [
             (
-                "§7§o%commands.message.display.incoming".to_owned(),
+                "§b§o%commands.message.display.incoming".to_owned(),
                 vec!["player2".to_owned(), "hello you".to_owned()]
             ),
             (
@@ -877,15 +1020,94 @@ fn list_seed_status_and_version_report_the_server() {
         ["commands.players.list", "player1, player2"]
     );
     assert_eq!(ok(&mut state, id(1), "seed"), ["commands.seed.success"]);
-    let status = ok(&mut state, Sender::Console, "status");
-    assert_eq!(status.len(), 4);
-    assert!(status[1].starts_with("§6Uptime: §c") && status[1].ends_with(" ticks"));
-    assert_eq!(status[2], "§6Players: §c2/20");
-    assert!(status[3].starts_with("§6World \"world\": §c"));
     let version = ok(&mut state, id(2), "ver");
-    assert_eq!(version[0], "This server is running §aAnchor§r");
-    assert!(version[2].contains(Context::VERSION));
-    assert_eq!(version.len(), 4);
+    assert_eq!(version.len(), 1);
+    assert!(version[0].starts_with(&format!(
+        "Anchor {} for Minecraft ",
+        Context::ANCHOR_VERSION
+    )));
+    assert!(version[0].contains(Context::VERSION));
+}
+
+/// `/status` shows, in Anchor's own lines, the measured uptime, tick load and memory, the
+/// threads, the players and each world's chunks, entities and block entities.
+#[test]
+fn status_reports_uptime_load_memory_threads_players_and_worlds() {
+    let (mut state, _rx) = with_op();
+    let status = ok(&mut state, Sender::Console, "status");
+    // Nothing measured yet: 20 TPS in no time, memory unknown, no threads (no running server).
+    assert_eq!(status[2], "TPS: 20.00 now, 20.00 average");
+    assert_eq!(status[3], "Tick time: 0.00 ms now, 0.00 ms average");
+    assert_eq!(status[4], "Memory: unknown");
+    state.set_threads(ThreadTotals {
+        network: 3,
+        cpu: 9,
+        console: true,
+        log: true,
+    });
+    crate::tick::network::apply(&mut state, SessionId::ENGINE, Measure::TickTime(100_000));
+    let process = Measure::Process {
+        memory: 3 << 19,
+        uptime_ms: 3_723_999,
+    };
+    crate::tick::network::apply(&mut state, SessionId::PROCESS, process);
+    let mut cx = Context { state: &mut state };
+    let at = cx
+        .player(crate::player::Id::new(SessionId::new(1)))
+        .unwrap()
+        .position();
+    let apple = Stack::new(item::Kind::Apple.default_type(), 1);
+    cx.drop_item(crate::world::Id::DEFAULT, at, apple, None)
+        .unwrap();
+    state.add_world(crate::world::World::new(
+        "arena",
+        crate::world::Kind::Temporary,
+        0,
+        BlockPos::new(0, 0, 0),
+    ));
+    let ticks = state.tick - state.commands.started.unwrap();
+    let chunks = state.worlds[0].loaded_chunks().len();
+    assert!(chunks > 0, "the players hold the spawn chunks");
+    assert_eq!(
+        ok(&mut state, Sender::Console, "status"),
+        [
+            "Server status".to_owned(),
+            format!("Uptime: 1:02:03 ({ticks} ticks)"),
+            // 100 ms allow 10 ticks a second; the mean of 19 × 20 and 10 is 19.5.
+            "TPS: 10.00 now, 19.50 average".to_owned(),
+            "Tick time: 100.00 ms now, 5.00 ms average".to_owned(),
+            "Memory: 1.5 MiB resident".to_owned(),
+            "Threads: tick and save 2, network 3, CPU pool 9, blocking up to 8, console 1, log 1"
+                .to_owned(),
+            "Players: 2 of 20".to_owned(),
+            format!("World \"world\": {chunks} chunks, 1 entities, 0 block entities"),
+            "World \"arena\": 0 chunks, 0 entities, 0 block entities".to_owned(),
+        ]
+    );
+    // Players see the same lines.
+    assert_eq!(ok(&mut state, id(1), "status")[6], "Players: 2 of 20");
+    // A player whose data is still loading is not online yet, as for `/list`.
+    state.players.get_mut(&SessionId::new(2)).unwrap().phase = crate::tick::Phase::Loading;
+    assert_eq!(ok(&mut state, id(1), "status")[6], "Players: 1 of 20");
+    assert_eq!(
+        ok(&mut state, id(1), "list")[0..2],
+        ["commands.players.list", "player1"]
+    );
+}
+
+/// The memory line rounds to a tenth of a MiB.
+#[test]
+fn status_memory_rounds_to_a_tenth_of_a_mib() {
+    assert_eq!(super::server::memory_line(0), "Memory: unknown");
+    assert_eq!(super::server::memory_line(1), "Memory: 0.0 MiB resident");
+    assert_eq!(
+        super::server::memory_line(104_858),
+        "Memory: 0.1 MiB resident"
+    );
+    assert_eq!(
+        super::server::memory_line(u64::MAX),
+        "Memory: 1759218604441.5 MiB resident"
+    );
 }
 
 #[test]
@@ -893,40 +1115,52 @@ fn help_pages_the_usable_commands_and_describes_one() {
     let (mut state, _rx) = with_op();
     let page = ok(&mut state, id(2), "help");
     assert_eq!(page[0], "commands.help.header");
+    let names: Vec<&str> = page[1..]
+        .iter()
+        .map(|l| l.split(' ').next().unwrap_or_default())
+        .collect();
     assert_eq!(
-        page[1..],
+        names,
         [
-            "§2/clear: §rClears items from player inventory",
-            "§2/help: §rShows the help menu",
-            "§2/kill: §rCommit suicide or kill other players",
-            "§2/me: §rPerforms the specified action in chat",
-            "§2/tell: §rSends a private message to the given player",
-            "§2/version: §rGets the version of this server including any plugins in use",
-        ]
+            "§2/clear",
+            "§2/help",
+            "§2/kill",
+            "§2/me",
+            "§2/tell",
+            "§2/version"
+        ],
+        "each command's first usage line"
     );
+    assert_eq!(page[5], "§2/tell <target: target> <message: message>");
     assert_eq!(ok(&mut state, id(1), "? 2").len(), 8, "7 a page");
     assert_eq!(
         ok(&mut state, id(1), "help 99").len(),
-        3,
-        "the last page: 37 = 5 * 7 + 2"
+        4,
+        "the last page: 38 = 5 * 7 + 3"
     );
     assert_eq!(
         ok(&mut state, Sender::Console, "help").len(),
-        38,
+        39,
         "one page"
     );
     assert_eq!(
         ok(&mut state, id(2), "help tell"),
         [
-            "§e--------- §rHelp: /tell§e ---------",
-            "§6Description: §rSends a private message to the given player",
-            "§6Usage: §r/tell <target: target> <message: message>",
-            "§6Aliases: §rmsg, w",
+            "§e/tell",
+            "commands.tell.description",
+            "/tell <target: target> <message: message>",
+            "§7Also: msg, w",
         ]
     );
     assert_eq!(
+        ok(&mut state, id(2), "help kill").len(),
+        4,
+        "kill has suicide"
+    );
+    assert_eq!(ok(&mut state, id(2), "help me").len(), 3, "no other names");
+    assert_eq!(
         fails(&mut state, id(2), "help stop"),
-        "Unknown command: stop. Use /help for a list of available commands."
+        "commands.generic.unknown"
     );
 }
 
@@ -983,7 +1217,7 @@ fn long_ban_and_white_lists_show_the_first_hundred_names_and_count_the_rest() {
             .unwrap();
     }
     for (line, header) in [
-        ("whitelist list", "commands.whitelist.list"),
+        ("whitelist list", "commands.allowlist.list"),
         ("banlist", "commands.banlist.players"),
     ] {
         let out = ok(&mut state, id(1), line);
@@ -1051,7 +1285,7 @@ fn save_off_skips_the_periodic_save_but_not_save_all() {
     state.tick += 1_000_000;
     let mut log = InputLog::default();
     assert!(save::snapshot(&mut state, &mut log, false).is_none());
-    assert_eq!(ok(&mut state, id(1), "save-all"), ["Saving server data..."]);
+    assert_eq!(ok(&mut state, id(1), "save-all"), ["commands.save.start"]);
     assert!(save::snapshot(&mut state, &mut log, false).is_some());
     let mut state = with_op().0;
     let mut output = TickOutput::default();
@@ -1069,12 +1303,55 @@ fn save_off_skips_the_periodic_save_but_not_save_all() {
 }
 
 #[test]
+fn backup_is_for_operators_and_backs_up_after_the_next_save() {
+    let (mut state, _rx) = with_op();
+    // The commit `op` asked for is taken and answered.
+    let mut output = TickOutput::default();
+    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut vec![], &mut output);
+    assert_eq!(
+        permission::COMMAND_BACKUP.default(),
+        permission::Default::Op
+    );
+    assert!(is_refused(&run(&mut state, id(2), "backup")));
+    assert!(!state.saving.backup && !state.saving.requested);
+    assert_eq!(
+        ok(&mut state, id(1), "backup"),
+        ["Saving and backing up the world; the server log tells when the backup is made"]
+    );
+    let mut log = InputLog::default();
+    let Some(crate::save::Request::Commit(snapshot)) = save::snapshot(&mut state, &mut log, false)
+    else {
+        panic!("the backup saves first");
+    };
+    assert!(snapshot.backup);
+    ok(&mut state, Sender::Console, "backup");
+    assert!(state.saving.backup);
+}
+
+/// `backups = false`: `/backup` refuses and asks for no save.
+#[test]
+fn backup_is_refused_without_backups() {
+    let (mut state, _rx) = with_op();
+    // The commit `op` asked for is taken and answered.
+    let mut output = TickOutput::default();
+    tick(&mut state, &mut vec![], &mut output);
+    tick(&mut state, &mut vec![], &mut output);
+    state.settings.backups = false;
+    assert_eq!(
+        fails(&mut state, Sender::Console, "backup"),
+        "Backups are turned off on this server"
+    );
+    assert!(!state.saving.backup && !state.saving.requested);
+}
+
+#[test]
 fn transferserver_sends_the_sending_player_only() {
     let (mut state, mut rx) = with_op();
     Context { state: &mut state }.op("player2").unwrap();
     assert_eq!(
         fails(&mut state, Sender::Console, "transferserver example.com"),
-        "This command syntax can only be used as a player"
+        "commands.generic.invalidOrigin"
     );
     assert_eq!(
         fails(&mut state, id(2), "transferserver example.com 70000"),

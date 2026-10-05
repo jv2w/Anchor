@@ -1,4 +1,25 @@
 //! Anchor: a Minecraft: Bedrock Edition server library.
+//!
+//! A server is a binary of its own that depends on Anchor by path or git, with nothing else to
+//! set up: the fixed copies of dependencies in Anchor's `vendor/` come with it as path
+//! dependencies.
+//!
+//! ```toml
+//! [dependencies]
+//! anchor = { git = "<repository>" }
+//! ```
+//!
+//! ```no_run
+//! fn main() -> anchor::Result<()> {
+//!     anchor::Server::builder()
+//!         .config(anchor::Config::default().load("anchor.toml")?)
+//!         .build()?
+//!         .run()
+//! }
+//! ```
+//!
+//! The binary's profiles must keep `panic = "unwind"`, the default: a panicking connection task
+//! closes only that connection.
 
 // Per-connection panic isolation needs unwinding, and the binary's profile decides the strategy.
 #[cfg(not(panic = "unwind"))]
@@ -21,6 +42,8 @@ pub mod entity;
 mod error;
 pub mod event;
 pub mod form;
+mod fs;
+pub mod import;
 pub mod inventory;
 pub mod item;
 mod login;
@@ -35,6 +58,7 @@ mod pool;
 pub mod protocol;
 mod raknet;
 mod random;
+pub mod replay;
 mod runtime;
 mod save;
 mod server;

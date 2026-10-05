@@ -4,7 +4,7 @@
 //! the entity is gone and is never reused for another entity. A
 //! [`Context`](crate::Context) lends an [`Entity`] to read (`entity`) and a [`Mut`] to
 //! change (`entity_mut`), finds entities near a place through the chunk index (`entities_in`,
-//! `nearest_entity`) and spawns them (`drop_item`, `spawn_tnt`, `spawn_human`,
+//! `nearest_entity`) and spawns them (`drop_item`, `spawn_tnt`, `spawn_human`, `spawn_zombie`,
 //! `spawn_custom_entity`, `spawn_painting`, ...) and plays [`Animation`]s on them and on
 //! players (`play_animation`). The server adds entity types of its own as [`Custom`]s.
 
@@ -45,7 +45,7 @@ impl Id {
     }
 }
 
-/// What an entity is: a closed set (PLAN.md 10.7; mobs are out of scope, CLAUDE.md 1).
+/// What an entity is: a closed set (PLAN.md 10.7; mob AI is out of scope, CLAUDE.md 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Type {
     /// A dropped item stack.
@@ -87,6 +87,10 @@ pub enum Type {
     /// A player-shaped NPC (no AI).
     // pmmp-class: Human
     Human,
+    /// A zombie without AI (PMMP's has none either): it stands, falls, burns, takes hits and
+    /// drops rotten flesh.
+    // pmmp-class: Zombie
+    Zombie,
     /// An entity of a [`Custom`] type ([`Entity::custom_type`] names it).
     Custom,
     /// A painting on a wall.

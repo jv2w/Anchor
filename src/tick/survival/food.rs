@@ -18,11 +18,11 @@ use crate::event::{
 use crate::item::{Class, Consumable, Enchantment, Food, Stack, Type};
 use crate::math;
 use crate::player::{Id, MAX_LEVEL, level_from_xp, xp_to_complete_level, xp_to_reach_level};
-use crate::protocol::consts::{ActorEvent, LevelEvent, SoundEvent};
+use crate::protocol::consts::ActorEvent;
 use crate::protocol::packet::{self, Packet};
 use crate::random;
 use crate::tick::{Phase, Player, SessionId, State, entity, inventory};
-use crate::world::BlockPos;
+use crate::world::{BlockPos, Sound};
 
 /// Exhaustion that costs one saturation or food point (PMMP `HungerManager::exhaust`).
 const EXHAUSTION_PER_POINT: f64 = 4.0;
@@ -82,6 +82,49 @@ pub(super) enum CooldownKey {
     Item(i16),
 }
 
+crate::tick::checkpoint::fields!(Using { since, item });
+
+/// A tag by its text, found again among the vanilla items' cooldown tags; a tag no vanilla item
+/// has (a custom item's) makes the checkpoint opaque.
+impl crate::tick::checkpoint::Codec for CooldownKey {
+    fn encode(&self, w: &mut crate::tick::checkpoint::Writer) {
+        match self {
+            Self::Tag(tag) => {
+                w.u8(0);
+                if vanilla_tag(tag).is_none() {
+                    w.opaque("custom item cooldown tag", 1);
+                }
+                (*tag).to_owned().encode(w);
+            }
+            Self::Item(id) => {
+                w.u8(1);
+                id.encode(w);
+            }
+        }
+    }
+
+    fn decode(
+        r: &mut crate::tick::checkpoint::Reader<'_>,
+    ) -> crate::tick::checkpoint::Result<Self> {
+        use crate::tick::checkpoint::{Codec, Error};
+        match r.u8()? {
+            0 => vanilla_tag(&String::decode(r)?)
+                .map(Self::Tag)
+                .ok_or(Error::Format("cooldown tag")),
+            1 => Ok(Self::Item(Codec::decode(r)?)),
+            _ => Err(Error::Format("cooldown key")),
+        }
+    }
+}
+
+/// The cooldown tag `tag` of a vanilla item, as the item table holds it.
+fn vanilla_tag(tag: &str) -> Option<&'static str> {
+    crate::item::Kind::all()
+        .iter()
+        .filter_map(|k| k.default_type().cooldown()?.tag())
+        .find(|t| *t == tag)
+}
+
 impl CooldownKey {
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
@@ -93,14 +136,20 @@ impl CooldownKey {
 }
 
 /// Adds exhaustion and spends saturation, then food, for every 4 points (PMMP
-/// `HungerManager::exhaust`); nothing while hunger is off for the player.
+/// `HungerManager::exhaust`); nothing while hunger is off for the player. PMMP takes one point
+/// per loop round, which never ends for a huge amount: the rounds stop once saturation and food
+/// are spent, and the rest of the exhaustion is kept below 4 at once (exact, as the subtractions
+/// were).
 pub(super) fn exhaust(s: &mut Survival, amount: f64) {
     if !s.motion.hunger || amount.is_nan() || amount <= 0.0 {
         return;
     }
     s.exhaustion += amount;
-    while s.exhaustion >= EXHAUSTION_PER_POINT {
-        s.exhaustion -= EXHAUSTION_PER_POINT;
+    let points = (s.exhaustion / EXHAUSTION_PER_POINT).floor();
+    let mut rounds = math::min(points, s.saturation.ceil() + s.food.ceil());
+    s.exhaustion %= EXHAUSTION_PER_POINT;
+    while rounds >= 1.0 {
+        rounds -= 1.0;
         if s.saturation > 0.0 {
             s.saturation = if s.saturation > 1.0 {
                 s.saturation - 1.0
@@ -160,8 +209,12 @@ pub(super) fn set_food(s: &mut Survival, food: f64) {
     s.mark(HUNGER);
 }
 
-/// Adds food and saturation within their limits (PMMP `addFood`, `addSaturation`).
+/// Adds food and saturation within their limits (PMMP `addFood`, `addSaturation`); nothing with
+/// `hunger = false` (eating, cake and the saturation effect then fill nothing).
 pub(super) fn add_food(s: &mut Survival, food: f64, saturation: f64) {
+    if !s.switches.hunger {
+        return;
+    }
     let f = s.food + food;
     set_food(s, if f > MAX_FOOD { MAX_FOOD } else { f });
     s.saturation = math::clamp(s.saturation + saturation, 0.0, MAX_SATURATION);
@@ -172,7 +225,8 @@ pub(super) fn add_food(s: &mut Survival, food: f64, saturation: f64) {
 /// heals every 80 ticks for 6 exhaustion; an empty bar starves (easy down to 10 health, normal
 /// to 1, hard to death); food at 6 or below stops sprinting.
 pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
-    let peaceful = difficulty(state) == Difficulty::Peaceful;
+    let world = state.players.get(&session).map_or(0, |p| p.world);
+    let peaceful = difficulty(state, world) == Difficulty::Peaceful;
     let (heal, regen, starve) = {
         let Some(player) = state.players.get_mut(&session) else {
             return;
@@ -226,7 +280,7 @@ pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
             .players
             .get(&session)
             .map_or(0.0, |p| p.survival.health);
-        let hurts = match difficulty(state) {
+        let hurts = match difficulty(state, world) {
             Difficulty::Easy => health > 10.0,
             Difficulty::Normal => health > 1.0,
             Difficulty::Hard => true,
@@ -344,14 +398,9 @@ pub(super) fn pickup_experience(state: &mut State, session: SessionId, amount: u
     let s = &player.survival;
     let (level, total) = (s.xp_level, current_xp(s));
     if level / 5 > old_level / 5 {
-        sound::plain(
-            state,
-            session,
-            SoundEvent::LevelUp,
-            sound::level_up_data(level),
-        );
+        sound::at_feet(state, session, Sound::XpLevelUp { level });
     } else if total > old_total {
-        sound::level_event(state, session, LevelEvent::SoundExperienceOrbPickup);
+        sound::at_feet(state, session, Sound::XpCollect);
     }
     true
 }
@@ -443,9 +492,9 @@ fn mend(player: &mut Player, slot: Worn, amount: u32) -> u32 {
 }
 
 /// The experience points a dead player drops: 7 per level, at most 100 (PMMP
-/// `Human::getXpDropAmount`), none in creative.
+/// `Human::getXpDropAmount`), none in creative or with `experience = false`.
 pub(super) fn death_xp(s: &Survival, finite: bool) -> u32 {
-    if finite {
+    if finite && s.switches.experience {
         s.xp_level.saturating_mul(7).min(100)
     } else {
         0
@@ -453,8 +502,11 @@ pub(super) fn death_xp(s: &Survival, finite: bool) -> u32 {
 }
 
 /// Empties the player's experience after death (PMMP `Player::onDeath`); returns the points to
-/// drop ([`death_xp`]).
+/// drop ([`death_xp`]). With `experience = false` the level a save kept stays.
 pub(super) fn take_death_xp(s: &mut Survival, finite: bool) -> u32 {
+    if !s.switches.experience {
+        return 0;
+    }
     let drop = death_xp(s, finite);
     s.xp_level = 0;
     s.xp_progress = 0.0;
@@ -463,8 +515,11 @@ pub(super) fn take_death_xp(s: &mut Survival, finite: bool) -> u32 {
 }
 
 /// Whether the player can eat food that needs hunger (PMMP `Human::canEat`, `Player::canEat`).
-fn can_eat(state: &State, s: &Survival, mode: GameMode) -> bool {
-    s.food < MAX_FOOD || difficulty(state) == Difficulty::Peaceful || mode == GameMode::Creative
+fn can_eat(state: &State, player: &Player, mode: GameMode) -> bool {
+    let s = &player.survival;
+    s.food < MAX_FOOD
+        || difficulty(state, player.world) == Difficulty::Peaceful
+        || mode == GameMode::Creative
 }
 
 /// Ticks eating `item` takes.
@@ -552,14 +607,18 @@ pub(super) fn use_consumable(state: &mut State, session: SessionId) -> bool {
                 consume(state, session, item);
             }
             if let Some(player) = state.players.get_mut(&session) {
-                player.survival.using = None;
-                player.survival.mark(HUNGER);
+                let s = &mut player.survival;
+                s.using = None;
+                if s.switches.hunger {
+                    s.mark(HUNGER);
+                }
             }
         }
         _ => {
             let s = &player.survival;
             let start = !has_cooldown(state.tick, s, item)
-                && (!item.food().is_some_and(Food::requires_hunger) || can_eat(state, s, mode))
+                && (!item.food().is_some_and(Food::requires_hunger)
+                    || can_eat(state, player, mode))
                 && medicine_cure(item).is_none_or(|cured| s.effects.contains_key(&cured));
             let tick = state.tick;
             if let Some(player) = state.players.get_mut(&session) {
@@ -658,7 +717,7 @@ fn consumable_now(state: &State, session: SessionId, item: Type) -> Option<Stack
     let ok = held.item() == Some(item)
         && (!item.food().is_some_and(Food::requires_hunger)
             || s.food < MAX_FOOD
-            || state.settings.difficulty == Difficulty::Peaceful
+            || difficulty(state, player.world) == Difficulty::Peaceful
             || mode == GameMode::Creative)
         && !has_cooldown(state.tick, s, item);
     ok.then(|| held.clone())
@@ -706,7 +765,7 @@ pub(super) fn eat_cake(state: &mut State, session: SessionId) -> bool {
     if player.phase != Phase::Spawned
         || player.survival.is_dead()
         || mode == GameMode::Spectator
-        || !can_eat(state, &player.survival, mode)
+        || !can_eat(state, player, mode)
     {
         return false;
     }
@@ -715,7 +774,7 @@ pub(super) fn eat_cake(state: &mut State, session: SessionId) -> bool {
     };
     add_food(&mut player.survival, CAKE_FOOD, CAKE_SATURATION);
     player.data_dirty = true;
-    sound::plain(state, session, SoundEvent::Burp, -1);
+    sound::at_feet(state, session, Sound::Burp);
     true
 }
 
@@ -766,7 +825,7 @@ fn apply(state: &mut State, session: SessionId, item: Type) {
         effects::add(state, session, effect, active);
     }
     if item.food().is_some() {
-        sound::plain(state, session, SoundEvent::Burp, -1);
+        sound::at_feet(state, session, Sound::Burp);
     }
     if let Some(cured) = medicine_cure(item) {
         effects::remove(state, session, cured);
@@ -870,5 +929,14 @@ mod tests {
         s.motion.hunger = false;
         exhaust(&mut s, 100.0);
         assert_eq!((s.food, s.exhaustion), (18.0, 1.0));
+    }
+
+    #[test]
+    fn a_huge_exhaustion_spends_food_once_and_returns() {
+        let mut s = Survival::default();
+        s.motion.hunger = true;
+        exhaust(&mut s, 1e300);
+        assert_eq!((s.saturation, s.food), (0.0, 0.0));
+        assert!((0.0..EXHAUSTION_PER_POINT).contains(&s.exhaustion));
     }
 }

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sort"
 
+	"github.com/sandertv/gophertunnel/minecraft/nbt"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -32,11 +33,9 @@ var tables = probeTables()
 
 type unionTables struct {
 	actions      []unionEntry[actionTag]
-	actionTag    map[reflect.Type]actionTag
 	events       []unionEntry[int32]
 	transactions []unionEntry[uint32]
 	shapes       []unionEntry[uint32]
-	shapeTag     map[reflect.Type]uint32
 	warnings     []string
 }
 
@@ -63,7 +62,7 @@ func reader(b []byte) *protocol.Reader {
 }
 
 func probeTables() unionTables {
-	t := unionTables{actionTag: map[reflect.Type]actionTag{}, shapeTag: map[reflect.Type]uint32{}}
+	var t unionTables
 	for v := uint32(0); v < 256; v++ {
 		var x protocol.StackRequestAction
 		_ = try(func() { reader(append(binary.AppendUvarint(nil, uint64(v)), 0)).StackRequestAction(&x) })
@@ -83,7 +82,6 @@ func probeTables() unionTables {
 		}
 		tag := actionTag{variant: v, id: buf.Bytes()[n]}
 		t.actions = append(t.actions, unionEntry[actionTag]{tag, reflect.TypeOf(x)})
-		t.actionTag[reflect.TypeOf(x)] = tag
 	}
 	for v := int32(-64); v < 1024; v++ {
 		var x protocol.Event
@@ -112,7 +110,6 @@ func probeTables() unionTables {
 		_ = try(func() { reader(binary.AppendUvarint(nil, uint64(v))).ShapeData(&x) })
 		if x != nil {
 			t.shapes = append(t.shapes, unionEntry[uint32]{v, reflect.TypeOf(x)})
-			t.shapeTag[reflect.TypeOf(x)] = v
 		}
 	}
 	return t
@@ -153,12 +150,29 @@ func decode(newPk func() packet.Packet, b []byte) (packet.Packet, int, error) {
 	return pk, 0, nil
 }
 
-// canonEncode encodes pk with canonWriter and returns the bytes and the number of multi-key compounds.
-func canonEncode(pk packet.Packet) ([]byte, int, error) {
+// sortedWriter is gophertunnel's Writer with NBT roots written by nbtEncoder, so a packet whose nested
+// NBT has at most one key per compound (as randomIO makes it) has one encoding.
+type sortedWriter struct {
+	*protocol.Writer
+	out *bytes.Buffer
+	// multiKey counts written compounds with more than one key.
+	multiKey int
+}
+
+func (w *sortedWriter) NBT(m *map[string]any, encoding nbt.Encoding) {
+	newNBTEncoder(w.out, encoding, &w.multiKey).root(*m)
+}
+
+func (w *sortedWriter) NBTList(m *[]any, encoding nbt.Encoding) {
+	newNBTEncoder(w.out, encoding, &w.multiKey).rootList(*m)
+}
+
+// sortedEncode encodes pk with sortedWriter and returns the bytes and the number of multi-key compounds.
+func sortedEncode(pk packet.Packet) ([]byte, int, error) {
 	buf := new(bytes.Buffer)
-	cw := newCanonWriter(buf)
-	err := try(func() { pk.Marshal(cw) })
-	return buf.Bytes(), cw.multiKey, err
+	w := &sortedWriter{Writer: protocol.NewWriter(buf, ShieldID), out: buf}
+	err := try(func() { pk.Marshal(w) })
+	return buf.Bytes(), w.multiKey, err
 }
 
 // keepProb is the chance that any call keeps the default value at the given attempt.
@@ -169,9 +183,9 @@ func keepProb(attempt int) float64 {
 	return min(0.95, float64(attempt-50)/2000)
 }
 
-// genSample produces one sample that gophertunnel decodes fully and that canonWriter re-encodes to the
-// same bytes. ok is false if every attempt failed.
-func genSample(r *randomIO, newPk func() packet.Packet) ([]byte, int, bool) {
+// genSample produces one sample that gophertunnel decodes fully, that sortedWriter re-encodes to the
+// same bytes and that keeps within lim. ok is false if every attempt failed.
+func genSample(r *randomIO, newPk func() packet.Packet, lim limits) ([]byte, int, bool) {
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		r.reset(keepProb(attempt))
 		if try(func() { newPk().Marshal(r) }) != nil {
@@ -183,13 +197,16 @@ func genSample(r *randomIO, newPk func() packet.Packet) ([]byte, int, bool) {
 			r.learnAt(max(off-1, 0))
 			continue
 		}
-		again, _, err := canonEncode(pk)
+		again, _, err := sortedEncode(pk)
 		if err != nil {
 			r.learnAt(len(sample))
 			continue
 		}
 		if !bytes.Equal(again, sample) {
 			r.learnAt(firstDiff(again, sample))
+			continue
+		}
+		if lim.violation(reflect.ValueOf(pk)) != "" {
 			continue
 		}
 		return sample, attempt + 1, true
@@ -207,9 +224,9 @@ func firstDiff(a, b []byte) int {
 	return n
 }
 
-// corpus generates samples for every packet ID in ascending order. Each packet has its own PCG seeded
-// from (seed, packet ID), so packets are independent of each other.
-func corpus(seed uint64, samples int, verbose bool) []record {
+// corpus generates samples within lim for every packet ID in ascending order. Each packet has its own
+// PCG seeded from (seed, packet ID), so packets are independent of each other.
+func corpus(seed uint64, samples int, verbose bool, lim limits) []record {
 	for _, w := range tables.warnings {
 		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
@@ -220,7 +237,7 @@ func corpus(seed uint64, samples int, verbose bool) []record {
 		total := 0
 		got := 0
 		for s := 0; s < samples; s++ {
-			b, attempts, ok := genSample(r, pool[id])
+			b, attempts, ok := genSample(r, pool[id], lim)
 			total += attempts
 			if !ok {
 				break

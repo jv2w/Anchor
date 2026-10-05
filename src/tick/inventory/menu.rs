@@ -67,8 +67,7 @@ impl fmt::Debug for Handlers {
 }
 
 impl Handlers {
-    /// How many handlers wait (tests).
-    #[cfg(test)]
+    /// How many handlers wait.
     pub(in crate::tick) fn len(&self) -> usize {
         self.0.len()
     }
@@ -102,6 +101,8 @@ impl Open {
         h.u64(*ready);
     }
 }
+
+crate::tick::checkpoint::fields!(Open { id, stacks, ready });
 
 /// The player of `id` if it is in the game (its saved data has loaded) and its client has a view.
 fn in_game(state: &mut State, id: player::Id) -> Option<&mut Player> {

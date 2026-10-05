@@ -122,7 +122,7 @@ impl fmt::Display for Error {
             Self::Envelope(_) => f.write_str("malformed connection request"),
             Self::TooLarge(part) => write!(f, "{part} too large"),
             Self::Json(part, _) => write!(f, "malformed {part} json"),
-            Self::Guest => f.write_str("guest authentication is not supported"),
+            Self::Guest => f.write_str("guest logins are refused"),
             Self::MissingToken => f.write_str("missing multiplayer token"),
             Self::Crypto(part, _) => write!(f, "malformed {part}"),
             Self::Algorithm(part) => write!(f, "{part} signature algorithm not accepted"),

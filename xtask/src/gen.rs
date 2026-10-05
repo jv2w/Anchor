@@ -1,9 +1,11 @@
 //! `cargo xtask gen`: runs the Go extractor (`xtask/go/extract`) into the protocol IR
 //! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs` and
 //! `src/protocol/packet.rs` from it, and the block, item and recipe tables (PLAN.md 10.4, see
-//! `data`) and the biome table (PLAN.md 10.6) from the committed data in `xtask/data/`. With
+//! `data`), the biome table (PLAN.md 10.6) and the import's upgrade tables (PLAN.md 10.9, see
+//! `upgrade`) from the committed data in `xtask/data/`. With
 //! `--check` it does the same in `target/` and fails if the committed IR or a generated file
-//! differs.
+//! differs. The protocol decoders also apply the per-field limits in
+//! `xtask/data/reference/protocol_limits.json` (PLAN.md 10.1).
 
 /// Appends formatted text to a `String`, which cannot fail (unlike `write!`).
 macro_rules! put {
@@ -17,7 +19,7 @@ mod blocks;
 mod body;
 mod consts;
 mod creative;
-mod data;
+pub(crate) mod data;
 mod drops;
 mod effects;
 mod emit;
@@ -28,6 +30,7 @@ mod model;
 mod names;
 mod recipes;
 mod registry;
+mod upgrade;
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -35,6 +38,8 @@ use std::process::{Command, Stdio};
 
 /// The IR, relative to the repository root.
 const IR_PATH: &str = "xtask/data/protocol.json";
+/// The per-field decode limits `dump` writes (PLAN.md 10.1), relative to the repository root.
+const LIMITS_PATH: &str = "xtask/data/reference/protocol_limits.json";
 /// The generated files, relative to the repository root.
 const TYPES_PATH: &str = "src/protocol/types.rs";
 const PACKET_PATH: &str = "src/protocol/packet.rs";
@@ -56,7 +61,9 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     let ir_bytes = read(&extracted)?;
     let ir: ir::Ir =
         serde_json::from_slice(&ir_bytes).map_err(|e| format!("{}: {e}", extracted.display()))?;
-    let model = model::Model::new(&ir)?;
+    let limits = serde_json::from_slice(&read(&root.join(LIMITS_PATH))?)
+        .map_err(|e| format!("{LIMITS_PATH}: {e}"))?;
+    let model = model::Model::new(&ir, limits)?;
     let output = emit::generate(&model)?;
     let data = data::Data::load(root)?;
     let files = [
@@ -77,6 +84,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         (biomes::PATH, finish(root, &biomes::generate(root)?)?),
         (effects::PATH, finish(root, &effects::generate(&data)?)?),
         (drops::PATH, finish(root, &drops::generate(&data)?)?),
+        (upgrade::PATH, finish(root, &upgrade::generate(root)?)?),
     ];
     let mut differ = Vec::new();
     if check {

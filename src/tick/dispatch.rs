@@ -70,7 +70,6 @@ pub(crate) struct Deferred(VecDeque<Callback>);
 
 impl Deferred {
     /// How many callbacks wait.
-    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.0.len()
     }
@@ -143,6 +142,7 @@ mod tests {
             skin: Skin::default(),
             device_os: -1,
             address: None,
+            client: crate::tick::queue::Client::default(),
         }
     }
 

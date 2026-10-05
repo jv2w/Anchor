@@ -1,11 +1,12 @@
 //! Station windows' request actions: enchanting, anvil, smithing, stonecutter, loom, beacon
-//! payment and trades (PLAN.md 10.7 "작업대 계열", 8.6).
+//! payment, grindstone and trades (PLAN.md 10.7 "작업대 계열", 8.4, 8.6).
 //!
 //! The executor hands a station everything it does not do itself: [`takes_craft_recipe`] says
 //! whether a `CraftRecipe` belongs to the open station (an enchanting option, a stonecutter or
 //! smithing recipe, a trade offer), [`action`] runs such actions and the station-only ones
-//! (`CraftRecipeOptional`, `CraftLoomRecipe`, `BeaconPayment`) with the executor's slot
-//! operations, [`crafting`] lets consume actions through, and [`finish`] checks at the end of the
+//! (`CraftRecipeOptional`, `CraftLoomRecipe`, `BeaconPayment`, `CraftGrindstoneRecipe`) with the
+//! executor's slot
+//! operations, [`crafting()`] lets consume actions through, and [`finish`] checks at the end of the
 //! request that exactly the craft's inputs were consumed, from the station's own slots.
 //!
 //! A station craft computes its result from the window's slots as the request has left them and
@@ -17,11 +18,12 @@
 
 mod anvil;
 mod enchant;
+mod grindstone;
 #[cfg(test)]
 mod tests;
 
 pub(super) use self::enchant::Choice;
-use super::super::{SessionId, State, block_entity, dispatch, interact, survival, trade};
+use super::super::{SessionId, State, block_entity, dispatch, entity, interact, survival, trade};
 use super::request::{Created, Error, Exec, Made, Result};
 use super::{SlotRef, Station, WindowKind};
 use crate::block;
@@ -44,13 +46,19 @@ const MAX_LOOM_PATTERNS: usize = 6;
 const ANVIL_DAMAGE_PERCENT: u32 = 12;
 /// The random stream purpose of anvil damage.
 const ANVIL: u64 = random::tag("anvil-damage");
+/// The random stream purpose of a grindstone's experience.
+const GRINDSTONE: u64 = random::tag("grindstone-experience");
 
 /// What a station window shows besides its slots: the enchanting options for its input now.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Shown {
+    /// The input the options were made for, one of it.
+    input: Stack,
     /// The options with their recipe network IDs, at most three.
     options: Vec<(u32, enchant::Choice)>,
 }
+
+crate::tick::checkpoint::fields!(Shown { input, options });
 
 impl Shown {
     /// The options shown, with their recipe network IDs (tests).
@@ -61,7 +69,8 @@ impl Shown {
 
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::super::Fnv) {
-        let Self { options } = self;
+        let Self { input, options } = self;
+        super::hash_stack(h, input);
         h.usize(options.len());
         for (id, c) in options {
             h.u64(u64::from(*id));
@@ -77,7 +86,8 @@ impl Shown {
 /// What a request's station actions need from outside the inventory.
 #[derive(Debug, Default)]
 pub(super) struct Context {
-    /// The player's experience level.
+    /// The player's experience level: 0 with `experience = false`, so a survival player takes no
+    /// enchanting option or anvil work, which all cost levels.
     level: u32,
     /// The request's filter strings (an anvil's new name).
     filter: Vec<String>,
@@ -87,6 +97,8 @@ pub(super) struct Context {
     offers: Vec<(u32, trade::Offer)>,
     /// The server's custom content: its recipes and creative items.
     pub(super) custom: std::sync::Arc<crate::custom::Registry>,
+    /// The player's creative inventory, by its index in the custom content.
+    pub(super) creative: u16,
 }
 
 /// Reads what the stations need for `request` of `session` (PLAN.md 10.7: the executor sees only
@@ -119,11 +131,16 @@ pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequ
         Vec::new()
     };
     Context {
-        level: survival::xp_level(player),
+        level: if state.settings.experience {
+            survival::xp_level(player)
+        } else {
+            0
+        },
         filter: request.filter_strings.iter().take(1).cloned().collect(),
         beacon_level,
         offers,
         custom: std::sync::Arc::clone(&state.custom),
+        creative: player.inventory.creative,
     }
 }
 
@@ -160,6 +177,12 @@ pub(super) enum Craft {
     },
     /// A beacon payment of one item.
     Beacon { primary: i32, secondary: i32 },
+    /// A grindstone: what each slot holds (one or none), and the enchanting power taken off.
+    Grindstone {
+        input: Stack,
+        additional: Stack,
+        power: u32,
+    },
     /// A trade `times` times.
     Trade {
         net_id: u32,
@@ -177,6 +200,8 @@ pub(super) enum Effect {
     Anvil { cost: u32, finite: bool },
     /// Beacon effects chosen.
     Beacon { primary: i32, secondary: i32 },
+    /// A grindstone used: experience for enchanting power `power`.
+    Ground { power: u32 },
     /// `times` trades of offer `net_id`.
     Traded { net_id: u32, times: u32 },
 }
@@ -243,6 +268,11 @@ pub(super) fn action(exec: &mut Exec<'_>, action: &StackRequestAction) -> Result
         (StackRequestAction::BeaconPayment(a), Some(Station::Beacon)) => {
             begin_beacon(exec, a.primary_effect, a.secondary_effect)?
         }
+        // The recipe network ID and cost the client sends name nothing the server needs: the
+        // result and the experience follow from the slots (dragonfly ignores them too).
+        (StackRequestAction::CraftGrindstoneRecipe(_), Some(Station::Grindstone)) => {
+            begin_grindstone(exec)?
+        }
         _ => return Err(Error::Unsupported),
     };
     exec.station = Some(craft);
@@ -256,8 +286,9 @@ fn ui(exec: &Exec<'_>, i: u8) -> Result<Stack> {
 
 /// `CraftRecipe` on an enchanting table: the option with that recipe network ID enchants the
 /// input (PMMP `ItemStackRequestExecutor`, `EnchantingTransaction`): the option must be shown
-/// for the input there now; with finite resources the player needs the option's level, and the
-/// lapis spent is the option's index plus one (P6 facts 4).
+/// for the input there now (PMMP shows new options as the input changes, so old IDs fail); with
+/// finite resources the player needs the option's level, and the lapis spent is the option's
+/// index plus one (P6 facts 4).
 fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     let window = exec.window.ok_or(Error::NoSlot)?;
     let (index, choice) = window
@@ -267,26 +298,26 @@ fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
         .enumerate()
         .find_map(|(i, (option_id, c))| (*option_id == id).then_some((i, c.clone())))
         .ok_or(Error::Recipe)?;
-    let input = ui(exec, 0)?;
-    if input.is_empty() {
+    let input = ui(exec, 0)?.with_count(1);
+    if input.is_empty() || input != window.station.input {
         return Err(Error::Recipe);
     }
     if !exec.creative && exec.ctx.level < u32::from(choice.level) {
         return Err(Error::Recipe);
     }
     let cost = u8::try_from(index + 1).map_err(|_| Error::Recipe)?;
-    let result = enchant::enchant(&input.with_count(1), &choice.enchantments);
+    let result = enchant::enchant(&input, &choice.enchantments).map_err(|_| Error::Recipe)?;
     exec.set_created(Some(Created::of(&result, 1)))?;
     if exec.describe {
         exec.made = Some(Made::Enchant {
             choice,
-            input: input.with_count(1),
+            input: input.clone(),
             output: result,
             cost,
         });
     }
     Ok(Craft::Enchant {
-        input: input.with_count(1),
+        input,
         lapis: cost,
         cost: u32::from(cost),
     })
@@ -328,6 +359,7 @@ fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
                 && r.template.accepts(&template) =>
         {
             Stack::from_parts(r.result.item, 1, r.result.meta, one.tag())
+                .map_err(|_| Error::Recipe)?
         }
         Some(Recipe::SmithingTrim(r))
             if r.input.accepts(&input)
@@ -353,7 +385,7 @@ fn begin_smithing(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
                     ("Pattern".to_owned(), Value::String(pattern.to_owned())),
                 ])),
             );
-            one.with_extra(Some(extra))
+            one.with_extra(Some(extra)).map_err(|_| Error::Recipe)?
         }
         _ => return Err(Error::Recipe),
     };
@@ -423,7 +455,8 @@ fn begin_loom(exec: &mut Exec<'_>, pattern: &str, times: u8) -> Result<Craft> {
         ("Color".to_owned(), Value::Int(15 - i32::from(colour))),
     ]));
     tag.insert("Patterns".to_owned(), Value::List(List::Compound(list)));
-    let result = Stack::from_parts(banner_type, 1, banner.meta(), Some(tag));
+    let result =
+        Stack::from_parts(banner_type, 1, banner.meta(), Some(tag)).map_err(|_| Error::Recipe)?;
     exec.set_created(Some(Created::of(&result, u32::from(times))))?;
     made(exec, result, times);
     Ok(Craft::Loom {
@@ -457,6 +490,19 @@ fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Cra
         return Err(Error::Recipe);
     }
     Ok(Craft::Beacon { primary, secondary })
+}
+
+/// `CraftGrindstoneRecipe` ([`grindstone::craft`]): the result of the two slots.
+fn begin_grindstone(exec: &mut Exec<'_>) -> Result<Craft> {
+    let (input, additional) = (ui(exec, 0)?, ui(exec, 1)?);
+    let out = grindstone::craft(&input, &additional).map_err(|_| Error::Recipe)?;
+    exec.set_created(Some(Created::of(&out.result, 1)))?;
+    made(exec, out.result, 1);
+    Ok(Craft::Grindstone {
+        input,
+        additional,
+        power: out.power,
+    })
 }
 
 /// `CraftRecipe` in a trade window (PLAN.md 8.6, BDS facts 6): the offer with that network ID,
@@ -598,6 +644,16 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
             });
             only_from(exec, &[0]) && exact(exec, 0, 1, &|_| true)
         }
+        Craft::Grindstone {
+            input,
+            additional,
+            power,
+        } => {
+            exec.effects.push(Effect::Ground { power: *power });
+            only_from(exec, &[0, 1])
+                && exact(exec, 0, u32::from(input.count()), &same(input))
+                && exact(exec, 1, u32::from(additional.count()), &same(additional))
+        }
         Craft::Trade {
             net_id,
             offer,
@@ -677,6 +733,16 @@ pub(super) fn apply(
                 }) = window
                 {
                     block_entity::set_beacon(state, world, pos, primary, secondary);
+                }
+            }
+            Effect::Ground { power } => {
+                if let Some(WindowKind::Station {
+                    world,
+                    kind: Station::Grindstone,
+                    ..
+                }) = window
+                {
+                    use_grindstone(state, session, world, power);
                 }
             }
             Effect::Traded { net_id, times } => trade::traded(state, session, net_id, times),
@@ -795,21 +861,25 @@ fn choice_of(o: &EnchantOption) -> Choice {
 }
 
 /// Shows `choices` for `input` in `session`'s enchanting window, each with a new recipe network
-/// ID.
+/// ID after every recipe, the server's own too (P6 facts 4: BDS never reuses one).
 fn show_options(state: &mut State, session: SessionId, input: &Stack, choices: Vec<Choice>) {
+    let first = state.custom.first_special_id();
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     let inv = &mut player.inventory;
     let mut options = Vec::with_capacity(choices.len());
     for c in choices {
-        let id = inv.next_option_id;
-        inv.next_option_id = id.checked_add(1).unwrap_or_else(crafting::first_special_id);
+        let id = inv.next_option_id.max(first);
+        inv.next_option_id = id.checked_add(1).unwrap_or(first);
         options.push((id, c));
     }
     let packet = options_packet(enchant::slot(input.item()), &options);
     if let Some(w) = inv.window.as_mut() {
-        w.station.options = options;
+        w.station = Shown {
+            input: input.with_count(1),
+            options,
+        };
     }
     player.send_packet(packet);
 }
@@ -881,12 +951,12 @@ fn use_anvil(
     } else {
         None
     };
-    let event = if next == Some(block::AIR) {
-        crate::protocol::consts::LevelEvent::SoundAnvilBroken
+    let used = if next == Some(block::AIR) {
+        crate::world::Sound::AnvilBreak
     } else {
-        crate::protocol::consts::LevelEvent::SoundAnvilUsed
+        crate::world::Sound::AnvilUse
     };
-    interact::level_event(state, world, block_vec(pos), event, 0);
+    interact::sound(state, world, block_vec(pos), used);
     if let Some(next) = next {
         if let Some(w) = state.worlds.get_mut(world)
             && w.set_block(pos, next).is_err()
@@ -902,6 +972,19 @@ fn use_anvil(
             super::close_viewers(state, world, pos);
         }
     }
+}
+
+/// A grindstone was used: it gives the experience of the enchantments taken off as orbs at the
+/// player's eyes (dragonfly; [`grindstone::experience`]; none with `experience = false`, as
+/// `entity::drop_experience` decides).
+fn use_grindstone(state: &mut State, session: SessionId, world: WorldIndex, power: u32) {
+    let Some(eye) = state.players.get(&session).map(|p| p.position) else {
+        return;
+    };
+    let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
+    let mut rng = Random::new(seed, state.tick, random::key(GRINDSTONE, &[session.get()]));
+    let amount = grindstone::experience(power, &mut rng);
+    entity::drop_experience(state, world, eye, amount);
 }
 
 /// A block position as a packet vector (the corner).

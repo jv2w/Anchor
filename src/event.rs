@@ -97,17 +97,18 @@ mod server;
 mod world;
 
 pub use block::{
-    BlockBreak, BlockBurn, BlockDeath, BlockForm, BlockGrow, BlockMelt, BlockPlace, BlockSpread,
-    BlockTeleport, BlockUpdate, BrewItem, BrewingFuelUse, CampfireCook, ChestPair,
-    FarmlandHydrationChange, LeavesDecay, SignChange, StructureGrow,
+    BlockBreak, BlockBurn, BlockDeath, BlockExplode, BlockForm, BlockGrow, BlockMelt, BlockPlace,
+    BlockPreExplode, BlockSpread, BlockTeleport, BlockUpdate, BrewItem, BrewingFuelUse,
+    CampfireCook, ChestPair, FarmlandHydrationChange, LeavesDecay, SignChange, StructureGrow,
 };
 pub use entity::{
     AreaEffectCloudApply, CombustSource, DamageCause, DamageModifier, DamageSource,
     EntityBlockChange, EntityCombust, EntityDamage, EntityDeath, EntityDespawn, EntityEffectAdd,
-    EntityEffectRemove, EntityExplode, EntityExtinguish, EntityItemPickup, EntityMotion,
-    EntityPreExplode, EntityRegainHealth, EntityShootBow, EntitySpawn, EntityTeleport,
-    EntityTrampleFarmland, ExtinguishCause, ItemDespawn, ItemMerge, ItemSpawn, ProjectileHitBlock,
-    ProjectileHitEntity, ProjectileLaunch, RegainReason,
+    EntityEffectRemove, EntityExplode, EntityExtinguish, EntityFrostWalker, EntityItemPickup,
+    EntityMotion, EntityPreExplode, EntityRegainHealth, EntityShootBow, EntitySpawn,
+    EntityTeleport, EntityTrampleFarmland, ExtinguishCause, ItemDespawn, ItemMerge, ItemSpawn,
+    MAX_FROST_WALKER_RADIUS, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch,
+    RegainReason,
 };
 pub use inventory::{
     CraftItem, FurnaceBurn, FurnaceSmelt, Inventory, InventoryClose, InventoryOpen,
@@ -115,19 +116,23 @@ pub use inventory::{
 };
 pub(crate) use player::DuplicateOutcome;
 pub use player::{
-    EnchantOption, ExhaustCause, InteractAction, KickFlag, PlayerBedEnter, PlayerBedLeave,
-    PlayerBlockPick, PlayerBucketEmpty, PlayerBucketFill, PlayerChangeSkin, PlayerChat,
-    PlayerDataSave, PlayerDeath, PlayerDropItem, PlayerDuplicateLogin, PlayerEmote,
-    PlayerEnchantingOptionsRequest, PlayerEntityInteract, PlayerExhaust, PlayerExperienceChange,
-    PlayerGameModeChange, PlayerInfo, PlayerInteract, PlayerItemConsume, PlayerItemEnchant,
-    PlayerItemHeld, PlayerItemUse, PlayerJoin, PlayerJump, PlayerKick, PlayerLogin,
-    PlayerMissSwing, PlayerMove, PlayerPostChunkSend, PlayerQuit, PlayerRespawn,
-    PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim,
-    PlayerTransfer, PlayerViewDistanceChange,
+    BookAction, EnchantOption, ExhaustCause, InteractAction, KickFlag, PlayerBedEnter,
+    PlayerBedLeave, PlayerBlockPick, PlayerBucketEmpty, PlayerBucketFill, PlayerChangeSkin,
+    PlayerChat, PlayerDataSave, PlayerDeath, PlayerDropItem, PlayerDuplicateLogin, PlayerEditBook,
+    PlayerEmote, PlayerEnchantingOptionsRequest, PlayerEntityInteract, PlayerEntityPick,
+    PlayerExhaust, PlayerExperienceChange, PlayerGameModeChange, PlayerInfo, PlayerInteract,
+    PlayerItemConsume, PlayerItemEnchant, PlayerItemHeld, PlayerItemUse, PlayerJoin, PlayerJump,
+    PlayerKick, PlayerLogin, PlayerMissSwing, PlayerMove, PlayerPostChunkSend, PlayerQuit,
+    PlayerRespawn, PlayerRespawnAnchorUse, PlayerToggleFlight, PlayerToggleGlide,
+    PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer,
+    PlayerViewDistanceChange, RespawnAnchorAction,
 };
 pub(crate) use sealed::Listeners;
 pub use server::Command;
-pub use world::{ChunkLoad, ChunkUnload, SpawnChange, WorldSave};
+pub use world::{
+    ChunkLoad, ChunkUnload, SpawnChange, WorldInit, WorldLoad, WorldParticle, WorldSave,
+    WorldSound, WorldUnload,
+};
 
 /// A player or another entity: what PMMP calls an entity, which includes players.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -176,6 +181,8 @@ type Monitor<E> = Box<dyn FnMut(&E, &Context<'_>) + Send>;
 
 /// Declares the listener table: one [`List`] per event, the sealed impls that find it, and the
 /// sort that puts every list in calling order. Every event appears here exactly once.
+///
+/// [`List`]: sealed::List
 macro_rules! listeners {
     ($($field:ident: $event:ty),* $(,)?) => {
         /// Every event's listeners and monitors. Moves into the tick state when the server runs.
@@ -260,10 +267,12 @@ mod sealed {
         block_break: super::BlockBreak,
         block_burn: super::BlockBurn,
         block_death: super::BlockDeath,
+        block_explode: super::BlockExplode,
         block_form: super::BlockForm,
         block_grow: super::BlockGrow,
         block_melt: super::BlockMelt,
         block_place: super::BlockPlace,
+        block_pre_explode: super::BlockPreExplode,
         block_spread: super::BlockSpread,
         block_teleport: super::BlockTeleport,
         block_update: super::BlockUpdate,
@@ -285,6 +294,7 @@ mod sealed {
         entity_effect_remove: super::EntityEffectRemove,
         entity_explode: super::EntityExplode,
         entity_extinguish: super::EntityExtinguish,
+        entity_frost_walker: super::EntityFrostWalker,
         entity_item_pickup: super::EntityItemPickup,
         entity_motion: super::EntityMotion,
         entity_pre_explode: super::EntityPreExplode,
@@ -318,9 +328,11 @@ mod sealed {
         player_death: super::PlayerDeath,
         player_drop_item: super::PlayerDropItem,
         duplicate_login: super::PlayerDuplicateLogin,
+        player_edit_book: super::PlayerEditBook,
         player_emote: super::PlayerEmote,
         player_enchanting_options_request: super::PlayerEnchantingOptionsRequest,
         player_entity_interact: super::PlayerEntityInteract,
+        player_entity_pick: super::PlayerEntityPick,
         player_exhaust: super::PlayerExhaust,
         player_experience_change: super::PlayerExperienceChange,
         player_game_mode_change: super::PlayerGameModeChange,
@@ -338,6 +350,7 @@ mod sealed {
         player_post_chunk_send: super::PlayerPostChunkSend,
         player_quit: super::PlayerQuit,
         player_respawn: super::PlayerRespawn,
+        player_respawn_anchor_use: super::PlayerRespawnAnchorUse,
         player_toggle_flight: super::PlayerToggleFlight,
         player_toggle_glide: super::PlayerToggleGlide,
         player_toggle_sneak: super::PlayerToggleSneak,
@@ -350,6 +363,11 @@ mod sealed {
         chunk_unload: super::ChunkUnload,
         spawn_change: super::SpawnChange,
         world_save: super::WorldSave,
+        world_init: super::WorldInit,
+        world_load: super::WorldLoad,
+        world_unload: super::WorldUnload,
+        world_sound: super::WorldSound,
+        world_particle: super::WorldParticle,
     }
 
     /// The listeners and monitors of one event, in calling order after [`Listeners::sort`].
@@ -493,12 +511,7 @@ mod tests {
         l.listen_to_every_event(|_| {});
         let table = format!("{l:?}");
         assert!(table.contains("world_save") && table.contains("player_join"));
-        for never in [
-            "world_difficulty_change",
-            "world_sound",
-            "world_particle",
-            "player_resource_pack_offer",
-        ] {
+        for never in ["world_difficulty_change", "player_resource_pack_offer"] {
             assert!(!table.contains(never), "{never} is never raised");
         }
     }

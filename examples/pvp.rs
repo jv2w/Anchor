@@ -233,10 +233,13 @@ fn on_death(event: &mut PlayerDeath, cx: &mut Context<'_>) {
         } else {
             String::new()
         };
-        event.set_death_message(format!(
-            "{victim_name} was slain by {}{streak}",
-            killer.name()
-        ));
+        // The client's own "slain by" text with both names, then the streak.
+        let message = Message::Translation {
+            key: format!("%death.attack.player{streak}"),
+            parameters: vec![victim_name, killer.name().to_owned()],
+        };
+        event.set_death_message(String::new());
+        or_log(cx.broadcast(message));
     }
     refresh_boards(cx, None);
 }

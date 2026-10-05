@@ -131,8 +131,9 @@ pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
 }
 
-/// PMMP `Liquid::onScheduledUpdate`: decay or form a source, fall, then spread to the sides
-/// with the cheapest way down.
+/// PMMP `Liquid::onScheduledUpdate`: a liquid that is no source settles ([`settle`]), then the
+/// liquid flows down and, when it is a source or cannot go down, to the sides with the cheapest
+/// way down.
 pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     let Some(mut this) = Liquid::of(block) else {
         return;
@@ -143,78 +144,72 @@ pub(super) fn on_scheduled(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) 
     }
     let per_block = this.decay_per_block();
     if !this.is_source() {
-        let mut smallest = -100;
-        let mut sources = 0;
-        for (dx, dz) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
-            let (_, s) = at(cx, pos, dx, 0, dz);
-            if let Some(other) = Liquid::of(s).filter(|o| o.state.kind() == this.state.kind()) {
-                let mut decay = other.decay;
-                if other.is_source() {
-                    sources += 1;
-                } else if other.falling {
-                    decay = 0;
-                }
-                if !(smallest >= 0 && decay >= smallest) {
-                    smallest = decay;
-                }
-            }
-        }
-        let mut new_decay = smallest + per_block;
-        let mut falling = false;
-        if new_decay > MAX_DECAY || smallest < 0 {
-            new_decay = -1;
-        }
-        if this.effective(at(cx, pos, 0, 1, 0).1) >= 0 {
-            falling = true;
-        }
-        if this.is_water() && sources >= 2 {
-            let (_, bottom) = at(cx, pos, 0, -1, 0);
-            if bottom.is_solid()
-                || Liquid::of(bottom)
-                    .is_some_and(|b| b.state.kind() == this.state.kind() && b.is_source())
-            {
-                new_decay = 0;
-                falling = false;
-            }
-        }
-        if falling != this.falling || (!falling && new_decay != this.decay) {
-            if !falling && new_decay < 0 {
-                cx.set(pos, block::AIR);
-                return;
-            }
-            let decay = if falling { 0 } else { new_decay };
-            let Some(s) = this.with(decay, falling) else {
+        let Some((decay, falling)) = settle(cx, pos, this, per_block) else {
+            cx.set(pos, block::AIR);
+            return;
+        };
+        let changed = falling != this.falling || (!falling && decay != this.decay);
+        if changed {
+            let Some(state) = this.with(decay, falling) else {
                 return;
             };
             this = Liquid {
-                state: s,
+                state,
                 decay,
                 falling,
             };
-            cx.set(pos, s);
+            cx.set(pos, state);
         }
     }
-    let (bottom_pos, bottom) = at(cx, pos, 0, -1, 0);
-    if let Some(b) = bottom_pos {
+    let (below, bottom) = at(cx, pos, 0, -1, 0);
+    if let Some(b) = below {
         flow_into(cx, (pos, this), b, bottom, 0, true);
     }
     if this.is_source() || !bottom.can_be_flowed_into() {
-        let adjacent = if this.falling {
+        // Falling liquid spreads to the sides like a source does.
+        let side_decay = if this.falling {
             1
         } else {
             this.decay + per_block
         };
-        if adjacent <= MAX_DECAY {
+        if side_decay <= MAX_DECAY {
             for face in optimal_directions(cx, pos, per_block) {
                 let (dx, dy, dz) = face.offset();
-                let (p, s) = at(cx, pos, dx, dy, dz);
-                if let Some(p) = p {
-                    flow_into(cx, (pos, this), p, s, adjacent, false);
+                if let (Some(p), s) = at(cx, pos, dx, dy, dz) {
+                    flow_into(cx, (pos, this), p, s, side_decay, false);
                 }
             }
         }
     }
     harden(cx, pos, this);
+}
+
+/// What a liquid that is no source becomes from the blocks around it: its decay (0 when falling)
+/// and whether it falls, or `None` when it dries up. Water between two water sources beside it,
+/// standing on a solid block or a water source, becomes a source. Otherwise it falls under the
+/// same liquid, or else takes one flow step past the lowest decay of the same liquid beside it
+/// (falling liquid counts as 0) and dries up past [`MAX_DECAY`] or with none beside it.
+fn settle(cx: &Cx<'_>, pos: BlockPos, this: Liquid, per_block: i32) -> Option<(i32, bool)> {
+    let beside = [(0, -1), (0, 1), (-1, 0), (1, 0)].map(|(dx, dz)| at(cx, pos, dx, 0, dz).1);
+    let same_source = |s: block::State| {
+        Liquid::of(s).is_some_and(|o| o.state.kind() == this.state.kind() && o.is_source())
+    };
+    if this.is_water() && beside.into_iter().filter(|&s| same_source(s)).count() >= 2 {
+        let (_, bottom) = at(cx, pos, 0, -1, 0);
+        if bottom.is_solid() || same_source(bottom) {
+            return Some((0, false));
+        }
+    }
+    if this.effective(at(cx, pos, 0, 1, 0).1) >= 0 {
+        return Some((0, true));
+    }
+    let lowest = beside
+        .into_iter()
+        .map(|s| this.effective(s))
+        .filter(|&d| d >= 0)
+        .min()?;
+    let decay = lowest + per_block;
+    (decay <= MAX_DECAY).then_some((decay, false))
 }
 
 /// PMMP `flowIntoBlock`: the liquid at `from` spreads into `pos` ([`BlockSpread`]), breaking

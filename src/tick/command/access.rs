@@ -28,6 +28,15 @@ pub(crate) struct Access {
     changes: BTreeMap<AccessKey, AccessWrite>,
 }
 
+crate::tick::checkpoint::fields!(Access {
+    ops,
+    bans,
+    ip_bans,
+    whitelist,
+    whitelist_enabled,
+    changes,
+});
+
 impl Access {
     /// The lists the world file held, with the whitelist on or off as the settings say.
     pub(crate) fn new(data: AccessData, whitelist_enabled: bool) -> Self {

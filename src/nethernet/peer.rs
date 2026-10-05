@@ -50,6 +50,9 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// rounds. str0m alone never gives up: its SCTP retransmits forever and ICE only reports
 /// `Disconnected`.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How often str0m reports the round trip time of its latest ICE consent check (RFC 7675), the
+/// connection's ping.
+const RTT_INTERVAL: Duration = Duration::from_secs(2);
 /// ICE `ice-char` (RFC 8445 15.4): letters, digits, `+` and `/`. 64 characters, so one random
 /// byte masked to 6 bits picks one uniformly.
 const ICE_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -188,6 +191,8 @@ pub(crate) enum Output {
     Open,
     /// A whole message from the reliable channel.
     Message(Vec<u8>),
+    /// The round trip time of the latest ICE consent check on the selected pair.
+    Rtt(Duration),
     /// Nothing to do before this time: call `poll` again then, or after the next `receive` or
     /// `send`.
     Timeout(Instant),
@@ -252,6 +257,8 @@ pub(crate) struct Peer {
     open_deadline: Option<Instant>,
     /// When the last datagram str0m accepted arrived.
     last_receive: Instant,
+    /// Where the last DTLS datagram str0m accepted came from.
+    remote_addr: Option<SocketAddr>,
     /// Messages read and dropped from the unreliable channel.
     unreliable_dropped: u64,
 }
@@ -281,10 +288,10 @@ impl Peer {
         let candidate = Candidate::host(local_addr, "udp").map_err(Error::Address)?;
         let config = RtcConfig::new()
             .set_crypto_provider(Arc::clone(&cert.provider))
-            // The default, kept explicit: dimpl's `Auto` mode indexes out of bounds on a
-            // malformed ServerHello (auto.rs:436).
+            // The default, kept explicit: DTLS 1.2 fixed (PLAN.md 9.1).
             .set_dtls_version(DtlsVersion::Dtls12)
             .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER)
+            .set_stats_interval(Some(RTT_INTERVAL))
             .set_dtls_cert(cert.dtls.clone())
             .set_local_ice_credentials(IceCreds {
                 ufrag: local.ice_ufrag.clone(),
@@ -331,6 +338,7 @@ impl Peer {
             due: None,
             open_deadline: now.checked_add(OPEN_TIMEOUT),
             last_receive: now,
+            remote_addr: None,
             unreliable_dropped: 0,
         })
     }
@@ -367,11 +375,25 @@ impl Peer {
             rtc.handle_input(input).map(|()| true)
         });
         match result {
-            Ok(Ok(true)) => self.last_receive = now,
+            Ok(Ok(true)) => {
+                self.last_receive = now;
+                // STUN (first byte 0 or 1) is accepted from any source that knows the ICE
+                // credentials, DTLS only from a checked one.
+                if !matches!(datagram.first(), Some(0..=1)) {
+                    self.remote_addr = Some(from);
+                }
+            }
             Ok(Ok(false)) => trace!(%from, "nethernet datagram not accepted"),
             Ok(Err(e)) => self.fail(Error::Webrtc(e)),
             Err(e) => self.fail(e),
         }
+    }
+
+    /// The client address the channels run on: where the last DTLS datagram str0m accepted
+    /// came from. str0m takes those only from an address whose ICE check succeeded, which a
+    /// spoofed source cannot pass.
+    pub(crate) fn remote_addr(&self) -> Option<SocketAddr> {
+        self.remote_addr
     }
 
     /// Sends `message` on the reliable channel as segments. Segments str0m cannot buffer yet are
@@ -592,6 +614,10 @@ impl Peer {
                 debug!(?state, "nethernet ice state");
                 None
             }
+            Event::PeerStats(stats) => stats
+                .selected_candidate_pair
+                .and_then(|pair| pair.current_round_trip_time)
+                .map(Output::Rtt),
             _ => None,
         }
     }
@@ -819,7 +845,7 @@ fn ice_string<const N: usize>() -> Result<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::nethernet) mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
     use str0m::config::Fingerprint;
@@ -830,12 +856,12 @@ mod tests {
 
     const SERVER: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 19133);
     const CLIENT: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 50000);
-    const MAX_MESSAGE: usize = 2 * 1024 * 1024;
+    pub(in crate::nethernet) const MAX_MESSAGE: usize = 2 * 1024 * 1024;
     /// The test client drives str0m's direct API, which sends at most 64 KiB messages: so the
     /// peer also receives 65,535-byte segments, which BDS accepts too (P6).
     const CLIENT_PAYLOAD: usize = 64 * 1024 - 1;
 
-    fn reliable() -> ChannelConfig {
+    pub(in crate::nethernet) fn reliable() -> ChannelConfig {
         ChannelConfig {
             label: RELIABLE_LABEL.to_owned(),
             ordered: true,
@@ -845,7 +871,7 @@ mod tests {
         }
     }
 
-    fn unreliable() -> ChannelConfig {
+    pub(in crate::nethernet) fn unreliable() -> ChannelConfig {
         ChannelConfig {
             label: UNRELIABLE_LABEL.to_owned(),
             ordered: false,
@@ -875,17 +901,85 @@ mod tests {
 
     /// A NetherNet client on str0m: ICE controlling, DTLS server, SCTP server. It opens its
     /// channels in the order given; the first one carries its messages.
-    struct Client {
-        rtc: Rtc,
+    pub(in crate::nethernet) struct Client {
+        pub(in crate::nethernet) rtc: Rtc,
         channels: Vec<ChannelId>,
         open: Vec<ChannelId>,
         reassembler: Reassembler,
-        received: Vec<Vec<u8>>,
+        pub(in crate::nethernet) received: Vec<Vec<u8>>,
         outbound: VecDeque<Vec<u8>>,
-        timeout: Instant,
+        pub(in crate::nethernet) timeout: Instant,
     }
 
     impl Client {
+        /// A client at `addr` that packs its datagrams to at most `mtu` bytes, and its offer,
+        /// which claims `fingerprint`.
+        pub(in crate::nethernet) fn new(
+            cert: &Certificate,
+            addr: SocketAddr,
+            mtu: usize,
+            fingerprint: [u8; 32],
+            now: Instant,
+        ) -> (Self, Remote) {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "invariant: tests pass str0m's default MTU or its minimum"
+            )]
+            let mut rtc = RtcConfig::new()
+                .set_crypto_provider(Arc::clone(&cert.provider))
+                .set_dtls_cert(cert.dtls.clone())
+                .set_mtu(mtu..=DATAGRAM_MTU_WARN)
+                .build(now);
+            let creds = rtc.direct_api().local_ice_credentials();
+            let remote = Remote {
+                ice_ufrag: creds.ufrag,
+                ice_pwd: creds.pass,
+                fingerprint,
+                candidates: vec![addr],
+                max_message_size: 262_144,
+            };
+            let client = Self {
+                rtc,
+                channels: Vec::new(),
+                open: Vec::new(),
+                reassembler: Reassembler::new(MAX_MESSAGE),
+                received: Vec::new(),
+                outbound: VecDeque::new(),
+                timeout: now,
+            };
+            (client, remote)
+        }
+
+        /// Takes the peer's answer, `local` at `server`, and asks for `channels`.
+        pub(in crate::nethernet) fn answer(
+            &mut self,
+            local: &Local,
+            addr: SocketAddr,
+            server: SocketAddr,
+            channels: &[ChannelConfig],
+        ) {
+            let mut api = self.rtc.direct_api();
+            api.set_ice_controlling(true);
+            api.set_remote_ice_credentials(IceCreds {
+                ufrag: local.ice_ufrag.clone(),
+                pass: local.ice_pwd.clone(),
+            });
+            api.set_remote_fingerprint(Fingerprint {
+                hash_func: "sha-256".to_owned(),
+                bytes: local.fingerprint.to_vec(),
+            });
+            api.start_dtls(false).unwrap();
+            api.start_sctp(false);
+            self.channels = channels
+                .iter()
+                .map(|config| api.create_data_channel(config.clone()))
+                .collect();
+            self.rtc
+                .add_local_candidate(Candidate::host(addr, "udp").unwrap());
+            self.rtc
+                .add_remote_candidate(Candidate::host(server, "udp").unwrap());
+        }
+
         fn send(&mut self, message: &[u8]) {
             for (header, payload) in segments(message, CLIENT_PAYLOAD).unwrap() {
                 let mut segment = vec![header];
@@ -912,7 +1006,7 @@ mod tests {
             }
         }
 
-        fn event(&mut self, event: Event) {
+        pub(in crate::nethernet) fn event(&mut self, event: Event) {
             match event {
                 Event::ChannelOpen(id, _) => self.open.push(id),
                 Event::ChannelData(data) if self.channels.first() == Some(&data.id) => {
@@ -943,6 +1037,9 @@ mod tests {
         /// The records inside each DTLS datagram arrive in reverse order. No network does this;
         /// only a sender could (dimpl #168).
         ReverseRecords,
+        /// As `ReverseRecords` for the first copy of each DTLS datagram of several records; the
+        /// retransmissions arrive intact.
+        ReverseFirst,
     }
 
     /// Each DTLS record of `datagram` as a datagram of its own, as a sender may send them;
@@ -1008,6 +1105,8 @@ mod tests {
         peer_timeout: Instant,
         opened: bool,
         received: Vec<Vec<u8>>,
+        /// The round trip times the peer reported.
+        rtts: Vec<Duration>,
         closed: Option<Error>,
         /// Every datagram the client sent, when recording.
         record: Option<Vec<Vec<u8>>>,
@@ -1043,55 +1142,13 @@ mod tests {
             client_mtu: usize,
         ) -> Self {
             let now = crate::clock::now();
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "invariant: tests pass str0m's default MTU or its minimum"
-            )]
-            let mut rtc = RtcConfig::new()
-                .set_crypto_provider(Arc::clone(&client.provider))
-                .set_dtls_cert(client.dtls.clone())
-                .set_mtu(client_mtu..=DATAGRAM_MTU_WARN)
-                .build(now);
-            let creds = rtc.direct_api().local_ice_credentials();
-            let remote = Remote {
-                ice_ufrag: creds.ufrag,
-                ice_pwd: creds.pass,
-                fingerprint,
-                candidates: vec![CLIENT],
-                max_message_size: 262_144,
-            };
+            let (mut client, remote) = Client::new(client, CLIENT, client_mtu, fingerprint, now);
             let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE, now).unwrap();
-            let local = peer.local();
-            let mut api = rtc.direct_api();
-            api.set_ice_controlling(true);
-            api.set_remote_ice_credentials(IceCreds {
-                ufrag: local.ice_ufrag.clone(),
-                pass: local.ice_pwd.clone(),
-            });
-            api.set_remote_fingerprint(Fingerprint {
-                hash_func: "sha-256".to_owned(),
-                bytes: local.fingerprint.to_vec(),
-            });
-            api.start_dtls(false).unwrap();
-            api.start_sctp(false);
-            let channels = channels
-                .iter()
-                .map(|config| api.create_data_channel(config.clone()))
-                .collect();
-            rtc.add_local_candidate(Candidate::host(CLIENT, "udp").unwrap());
-            rtc.add_remote_candidate(Candidate::host(SERVER, "udp").unwrap());
+            client.answer(peer.local(), CLIENT, SERVER, channels);
             Self {
                 now,
                 peer,
-                client: Client {
-                    rtc,
-                    channels,
-                    open: Vec::new(),
-                    reassembler: Reassembler::new(MAX_MESSAGE),
-                    received: Vec::new(),
-                    outbound: VecDeque::new(),
-                    timeout: now,
-                },
+                client,
                 to_client: VecDeque::new(),
                 to_peer: VecDeque::new(),
                 network: None,
@@ -1099,6 +1156,7 @@ mod tests {
                 peer_timeout: now,
                 opened: false,
                 received: Vec::new(),
+                rtts: Vec::new(),
                 closed: None,
                 record: None,
             }
@@ -1217,6 +1275,18 @@ mod tests {
                     records.reverse();
                     records.concat()
                 }
+                Fault::ReverseFirst => {
+                    let datagram = queue.pop_front()?;
+                    let mut records = dtls_records(datagram.clone());
+                    let key = (to_peer, datagram[0], datagram.get(13).copied().unwrap_or(0));
+                    if records.len() < 2 || network.lost.contains(&key) {
+                        datagram
+                    } else {
+                        network.lost.push(key);
+                        records.reverse();
+                        records.concat()
+                    }
+                }
             };
             let delivered = &mut network.delivered[usize::from(!to_peer)];
             *delivered += 1;
@@ -1260,6 +1330,7 @@ mod tests {
                         self.opened = true;
                     }
                     Output::Message(message) => self.received.push(message),
+                    Output::Rtt(rtt) => self.rtts.push(rtt),
                     Output::Timeout(at) => {
                         self.peer_timeout = at;
                         break;
@@ -1318,7 +1389,7 @@ mod tests {
         }
     }
 
-    fn certificates() -> (Certificate, Certificate) {
+    pub(in crate::nethernet) fn certificates() -> (Certificate, Certificate) {
         (
             Certificate::generate().unwrap(),
             Certificate::generate().unwrap(),
@@ -1395,6 +1466,22 @@ mod tests {
         assert_eq!(&local.fingerprint, server.fingerprint());
     }
 
+    /// An open peer reports the round trip time of its ICE consent checks, the connection's
+    /// ping (PMMP `NetworkSession::getPing`), every [`RTT_INTERVAL`].
+    #[test]
+    fn an_open_peer_reports_its_round_trip_time() {
+        let (server, client) = certificates();
+        let mut h = Harness::honest(&server, &client);
+        h.open();
+        let before = h.rtts.len();
+        assert!(
+            h.run(RTT_INTERVAL * 5, |h| h.rtts.len() >= before + 2),
+            "no round trip time reported"
+        );
+        // The simulated link delivers at once.
+        assert!(h.rtts.iter().all(|rtt| *rtt < Duration::from_millis(100)));
+    }
+
     #[test]
     fn certificate_fingerprint_matches_str0m() {
         let (server, client) = certificates();
@@ -1430,8 +1517,7 @@ mod tests {
         assert_eq!(h.peer.queued, 0);
     }
 
-    /// Reproduces the str0m 0.24.0 defects fixed in `vendor/str0m` (upstream 18ffec80, PLAN.md
-    /// 9.1): the send buffer was fixed at 128 KiB, so a 262,144-byte message never left, and
+    /// Reproduces the str0m 0.24.0 defects fixed in 0.24.1 (#1062, PLAN.md 9.1): the send buffer was fixed at 128 KiB, so a 262,144-byte message never left, and
     /// polling recursed once per queued SCTP packet, which overflowed the stack on large sends
     /// (see also `channels_open_and_messages_round_trip_both_ways`).
     #[test]
@@ -1673,6 +1759,35 @@ mod tests {
         assert_eq!(stun_server_ufrag(&[0x16; 64]), None);
     }
 
+    #[test]
+    fn the_remote_address_is_where_accepted_dtls_came_from() {
+        let (server, client) = certificates();
+        let mut h = Harness::honest(&server, &client);
+        h.record = Some(Vec::new());
+        h.open();
+        assert_eq!(h.peer.remote_addr(), Some(CLIENT));
+        // The client's own valid STUN request, with a spoofed source.
+        let record = h.record.take().unwrap();
+        let request = record
+            .iter()
+            .find(|datagram| stun_server_ufrag(datagram).is_some())
+            .unwrap();
+        let spoofed = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 9)), 40000);
+        let before = h.peer.last_receive;
+        h.now += Duration::from_millis(1);
+        h.peer.receive(h.now, spoofed, request);
+        // The STUN response goes to the spoofed source, past the harness.
+        loop {
+            match h.peer.poll(h.now) {
+                Output::Timeout(_) => break,
+                Output::Closed(reason) => panic!("peer closed: {reason:?}"),
+                _ => {}
+            }
+        }
+        assert!(h.peer.last_receive > before, "str0m accepted the request");
+        assert_eq!(h.peer.remote_addr(), Some(CLIENT));
+    }
+
     /// Certificates whose DTLS flights span datagrams: the server's grows past one datagram,
     /// and `faulty_handshake` packs the client's to the smallest MTU str0m allows.
     fn split_certificates() -> (Certificate, Certificate) {
@@ -1774,9 +1889,9 @@ mod tests {
         assert!(resent < Duration::from_secs(2), "{resent:?}");
     }
 
-    /// Records out of order inside one datagram stall dimpl 0.7.4 for good (#168; upstream's
-    /// #169 discards such datagrams). Only a sender can cause it, and the deadline closes just
-    /// that peer.
+    /// A datagram with its records out of order is discarded (dimpl 0.7.5, #169; 0.7.4 stalled
+    /// for good, #168). Only a sender can cause it; if every copy is out of order, the deadline
+    /// closes just that peer.
     #[test]
     fn records_reversed_inside_a_datagram_time_out_the_peer() {
         let (server, client) = split_certificates();
@@ -1784,6 +1899,19 @@ mod tests {
         assert!(result.opened.is_none() && result.dtls.is_none());
         assert!(
             matches!(result.closed, Some(Error::Timeout("channels not open"))),
+            "{:?}",
+            result.closed
+        );
+    }
+
+    /// A datagram whose records arrive out of order once is discarded and its retransmission
+    /// completes the handshake (dimpl 0.7.5, #169; 0.7.4 stalled until the deadline).
+    #[test]
+    fn records_reversed_inside_one_copy_of_a_datagram_are_recovered_by_retransmission() {
+        let (server, client) = split_certificates();
+        let result = faulty_handshake(&server, &client, Fault::ReverseFirst, 1);
+        assert!(
+            result.opened.is_some_and(|after| after < OPEN_TIMEOUT),
             "{:?}",
             result.closed
         );

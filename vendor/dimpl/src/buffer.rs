@@ -30,12 +30,12 @@ impl BufferPool {
 
     /// Return a buffer to the pool.
     ///
-    /// A buffer that was not acquired from a pool is dropped instead, so the
-    /// pool never holds more buffers than were taken from it.
+    /// Panics if the buffer was not acquired from a pool.
     pub fn push(&mut self, mut buffer: Buf) {
-        if !buffer.from_pool {
-            return;
-        }
+        assert!(
+            buffer.from_pool,
+            "only buffers acquired from a pool may be returned"
+        );
         buffer.clear();
         self.free.push_front(buffer);
     }
@@ -64,8 +64,8 @@ pub struct Buf {
 impl Buf {
     /// Create an empty buffer for temporary or independently owned data.
     ///
-    /// Returning it to a pool drops it. Recyclable buffers must be acquired
-    /// from their pool.
+    /// This buffer must not be returned to a pool. Recyclable buffers must be
+    /// acquired from their pool.
     pub fn new() -> Self {
         Self::default()
     }
@@ -233,5 +233,53 @@ impl aes_gcm::aead::Buffer for Buf {
 
     fn truncate(&mut self, len: usize) {
         self.data.truncate(len);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pooled_buffers_keep_capacity_and_are_cleared() {
+        let mut pool = BufferPool::default();
+        let mut buffer = pool.pop();
+        buffer.extend_from_slice(&[0xAA; 256]);
+        let allocation = buffer.as_ptr();
+        pool.push(buffer);
+
+        let reused = pool.pop();
+        assert!(reused.is_empty());
+        assert_eq!(reused.as_ptr(), allocation);
+        assert!(reused.into_vec().capacity() >= 256);
+    }
+
+    #[test]
+    #[should_panic(expected = "only buffers acquired from a pool may be returned")]
+    fn rejects_unpooled_buffer() {
+        BufferPool::default().push(Buf::new());
+    }
+
+    #[test]
+    #[should_panic(expected = "only buffers acquired from a pool may be returned")]
+    fn rejects_converted_buffer() {
+        BufferPool::default().push(vec![0xAA; 256].to_buf());
+    }
+
+    #[test]
+    #[should_panic(expected = "only buffers acquired from a pool may be returned")]
+    fn converting_to_vec_does_not_keep_pool_provenance() {
+        let mut pool = BufferPool::default();
+        let buffer = pool.pop();
+        pool.push(buffer.into_vec().to_buf());
+    }
+
+    #[test]
+    #[should_panic(expected = "only buffers acquired from a pool may be returned")]
+    fn taking_buffer_does_not_make_replacement_pooled() {
+        let mut pool = BufferPool::default();
+        let mut buffer = pool.pop();
+        pool.push(std::mem::take(&mut buffer));
+        pool.push(buffer);
     }
 }

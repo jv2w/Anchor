@@ -6,45 +6,48 @@
 //!
 //! Breaking is server-authoritative: a break the client predicts is accepted only when the
 //! server's own progress for that block (PMMP `SurvivalBlockBreakHandler`, counted per client
-//! input tick and limited by server time) has reached it. A refused break or placement leaves
-//! the world unchanged and sends the client the real blocks around it (PMMP
+//! input tick and limited by server time) has reached it; with `break-time-check = false` the
+//! progress is not counted and the client's break is taken at once. A refused break or
+//! placement leaves the world unchanged and sends the client the real blocks around it (PMMP
 //! `syncBlocksNearby`). Every rule is split into a check that only reads and an apply step;
 //! its event goes between them (PLAN.md 10.8), and the actions in [`crate::action`] run the same
 //! rules.
 
-mod breaking;
+mod book;
+pub(super) mod breaking;
 mod custom;
 mod decor;
-mod drops;
+pub(super) mod drops;
 mod place;
 pub(super) mod props;
 mod rail;
 mod sign;
 mod using;
 
+pub(super) use book::on_book_edit;
 pub(super) use custom::random_tick;
 
-use tracing::{debug, warn};
+use tracing::debug;
 
+use super::view::chunk_of;
 use super::{Context, Phase, Player, SessionId, State, dispatch, entity, inventory, survival};
 use crate::action;
 use crate::block::{self, Class, Face, Kind, TypeTag};
 use crate::config::GameMode;
-use crate::event::{BlockBreak, InteractAction, PlayerInteract};
+use crate::event::{BlockBreak, ExhaustCause, InteractAction, PlayerInteract};
 use crate::item::{self, Enchantment, Stack};
 use crate::math::{self, Vec3};
 use crate::protocol::consts::{
-    LevelEvent as Event, PlayerAction, ReleaseItemAction, SoundEvent, UseItemAction,
-    UseItemOnEntityAction,
+    LevelEvent as Event, PlayerAction, ReleaseItemAction, UseItemAction, UseItemOnEntityAction,
 };
 use crate::protocol::packet::{
-    BlockActorData, InventoryTransaction, LevelEvent, LevelSoundEvent, OpenSign, Packet,
-    PlayerAuthInput, UpdateBlock,
+    BlockActorData, InventoryTransaction, LevelEvent, OpenSign, Packet, PlayerAuthInput,
+    UpdateBlock,
 };
 use crate::protocol::{InventoryTransactionData, PlayerBlockAction, UseItemTransactionData};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::world::BlockPos;
+use crate::world::{BlockPos, Particle, Sound};
 
 /// Server ticks a client may be ahead while breaking: client input ticks counted toward a
 /// break never exceed the server ticks since it started plus this (one second of lag).
@@ -120,6 +123,12 @@ struct Click {
 }
 
 impl Breaking {
+    /// Stops drawing a bow or trident (PMMP `Player::setUsingItem(false)`): the held slot or
+    /// item changed, or the player did something else with it.
+    pub(super) fn stop_using(&mut self) {
+        self.using_since = None;
+    }
+
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -188,6 +197,31 @@ fn hash_pos(h: &mut super::Fnv, p: BlockPos) {
     }
 }
 
+super::checkpoint::fields!(Breaking {
+    target,
+    last_attacked,
+    last_click,
+    sign_editor,
+    using_since,
+});
+super::checkpoint::fields!(Target {
+    world,
+    pos,
+    face,
+    block,
+    start,
+    inputs,
+    progress,
+    speed,
+    fx,
+});
+super::checkpoint::fields!(Click {
+    pos,
+    face,
+    at,
+    player
+});
+
 /// Why a block is destroyed: decides drops, experience and effects.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Destroy {
@@ -205,15 +239,6 @@ pub(super) enum Destroy {
         /// The explosion size.
         size: f64,
     },
-    /// Removed without drops (a decoration's contents are lost; containers still spill).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consistency: the M8 API removes blocks without drops; the tests use it"
-        )
-    )]
-    NoDrops,
 }
 
 /// The player as the interaction rules see it.
@@ -479,7 +504,11 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
             block,
             old_text,
             new_text: lines,
-            front_face: front,
+            side: if front {
+                crate::tile::Side::Front
+            } else {
+                crate::tile::Side::Back
+            },
             cancelled: false,
         };
         dispatch::call(state, &mut e);
@@ -570,17 +599,9 @@ pub(super) fn tick(state: &mut State) {
             continue;
         }
         let speed = speed(state, player, target.block);
-        let mut packets: [Option<(Event, i32)>; 2] = [None, None];
-        if (speed - target.speed).abs() > 0.0001 {
-            packets[0] = Some((Event::UpdateBlockCracking, crack_data(speed)));
-        }
-        if target.fx % FX_INTERVAL == 0 && target.progress < 1.0 {
-            // PMMP `BlockPunchParticle` (and dragonfly): the runtime ID with the face in bits
-            // 24 and up.
-            let data =
-                target.block.network_id().cast_signed() | (i32::from(target.face.index()) << 24);
-            packets[1] = Some((Event::ParticlesCrackBlock, data));
-        }
+        let changed = (speed - target.speed).abs() > 0.0001;
+        // PMMP `BlockPunchParticle`.
+        let punch = target.fx % FX_INTERVAL == 0 && target.progress < 1.0;
         if let Some(p) = state.players.get_mut(&session)
             && let Some(t) = &mut p.breaking.target
         {
@@ -588,8 +609,13 @@ pub(super) fn tick(state: &mut State) {
             t.fx = t.fx.wrapping_add(1);
         }
         let at = block_vec(target.pos);
-        for (event, data) in packets.into_iter().flatten() {
-            level_event(state, target.world, at, event, data);
+        if changed {
+            let data = crack_data(speed);
+            level_event(state, target.world, at, Event::UpdateBlockCracking, data);
+        }
+        if punch {
+            let punched = Particle::BlockPunch(target.block, target.face);
+            particle(state, target.world, at, punched);
         }
     }
 }
@@ -600,47 +626,31 @@ fn crack_data(speed: f64) -> i32 {
     props::float_to_i32((65_535.0 * math::min(speed, 1.0)).floor())
 }
 
-/// A block position as a packet vector (cracking events are at the block's corner).
-fn block_vec(pos: BlockPos) -> Vec3 {
+/// A block position as a vector: the block's corner (cracking events are there, a painting
+/// hanging in the block stands there).
+pub(super) fn block_vec(pos: BlockPos) -> Vec3 {
     Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z))
 }
 
-/// Shows a level event to the players who see the chunk of `at`.
+/// Shows a level event to the players who see the chunk of `at`: what BDS sends that no PMMP
+/// sound or particle makes (block cracking, bone meal's sparkles, a sign's wax).
 pub(super) fn level_event(state: &mut State, world: WorldIndex, at: Vec3, event: Event, data: i32) {
     let packet = Packet::LevelEvent(LevelEvent {
         event_type: event.into(),
         position: at.to_f32(),
         event_data: data,
     });
-    let chunk = BlockPos::new(
-        props::float_to_i32(at.x.floor()),
-        0,
-        props::float_to_i32(at.z.floor()),
-    )
-    .chunk();
-    state.broadcast(world, chunk, &packet, None);
+    state.broadcast(world, chunk_of(at), &packet, None);
 }
 
-/// Plays a sound to the players who see the chunk of `at` (PMMP `LevelSoundEventPacket::
-/// nonActorSound`).
-pub(super) fn sound(state: &mut State, world: WorldIndex, at: Vec3, sound: SoundEvent, extra: i32) {
-    let packet = Packet::LevelSoundEvent(LevelSoundEvent {
-        sound_type: sound.as_str().to_owned(),
-        position: at.to_f32(),
-        extra_data: extra,
-        entity_type: ":".to_owned(),
-        baby_mob: false,
-        disable_relative_volume: false,
-        entity_unique_id: -1,
-        fire_at_position: None,
-    });
-    let chunk = BlockPos::new(
-        props::float_to_i32(at.x.floor()),
-        0,
-        props::float_to_i32(at.z.floor()),
-    )
-    .chunk();
-    state.broadcast(world, chunk, &packet, None);
+/// Plays a sound for the game at `at` (PMMP `World::addSound`): see [`super::emit`].
+pub(super) fn sound(state: &mut State, world: WorldIndex, at: Vec3, sound: Sound) {
+    super::emit::sound(state, world, at, sound);
+}
+
+/// Shows a particle for the game at `at` (PMMP `World::addParticle`): see [`super::emit`].
+pub(super) fn particle(state: &mut State, world: WorldIndex, at: Vec3, particle: Particle) {
+    super::emit::particle(state, world, at, particle);
 }
 
 /// Sends `session` again the blocks at `positions` as it is shown them (a refused change): the
@@ -691,12 +701,9 @@ fn sync_nearby(state: &mut State, session: SessionId, pos: BlockPos, face: Optio
     if center(pos).distance_squared(actor.feet) >= MAX_ACTION_DISTANCE_SQUARED {
         return;
     }
-    let mut positions: Vec<BlockPos> = Face::ALL
-        .into_iter()
-        .filter_map(|f| place::step(pos, f))
-        .collect();
-    match face.and_then(|f| place::step(pos, f)) {
-        Some(side) => positions.extend(Face::ALL.into_iter().filter_map(|f| place::step(side, f))),
+    let mut positions: Vec<BlockPos> = Face::ALL.into_iter().filter_map(|f| pos.step(f)).collect();
+    match face.and_then(|f| pos.step(f)) {
+        Some(side) => positions.extend(Face::ALL.into_iter().filter_map(|f| side.step(f))),
         None => positions.push(pos),
     }
     resync(state, session, &positions);
@@ -724,8 +731,13 @@ fn speed(state: &State, player: &Player, block: block::State) -> f64 {
 }
 
 /// One client tick of breaking in progress: the target's progress grows by its speed, unless
-/// the client is more than [`LAG_TICKS`] ahead of the server since breaking started.
+/// the client is more than [`LAG_TICKS`] ahead of the server since breaking started. Progress
+/// exists only for the break time check: without it (`break-time-check = false`) nothing is
+/// counted.
 fn advance(state: &mut State, session: SessionId) {
+    if !state.settings.break_time_check {
+        return;
+    }
     let Some(player) = state.players.get(&session) else {
         return;
     };
@@ -968,7 +980,7 @@ fn attack(
         using::teleport_dragon_egg(state, actor.world, pos, target);
         return true;
     }
-    if let Some(side) = place::step(pos, face) {
+    if let Some(side) = pos.step(face) {
         let fire = state
             .worlds
             .get(actor.world)
@@ -980,13 +992,7 @@ fn attack(
             {
                 return false;
             }
-            sound(
-                state,
-                actor.world,
-                center(side),
-                SoundEvent::ExtinguishFire,
-                0,
-            );
+            sound(state, actor.world, center(side), Sound::FireExtinguish);
             return true;
         }
     }
@@ -1025,7 +1031,8 @@ fn attack(
 }
 
 /// Whether the player's breaking of `pos` is done: the block breaks at once, or the counted
-/// progress (with one tick of tolerance, as PMMP's old break-time check) reaches the whole.
+/// progress (with one tick of tolerance, as PMMP's old break-time check) on a block of the same
+/// kind reaches the whole (a state change of the block, as leaves' decay bit, keeps it).
 fn break_done(state: &State, session: SessionId, actor: &Actor, pos: BlockPos) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;
@@ -1037,7 +1044,10 @@ fn break_done(state: &State, session: SessionId, actor: &Actor, pos: BlockPos) -
         return true;
     }
     player.breaking.target.as_ref().is_some_and(|t| {
-        t.world == actor.world && t.pos == pos && t.progress + t.speed >= 1.0 - 1e-9
+        t.world == actor.world
+            && t.pos == pos
+            && t.block.kind() == block.kind()
+            && t.progress + t.speed >= 1.0 - 1e-9
     })
 }
 
@@ -1051,8 +1061,9 @@ enum Timing {
 }
 
 /// PMMP `Player::breakBlock`: the client says it broke the block at `pos`. False (the caller
-/// resyncs) when the player cannot reach it, has not broken it long enough, or the world
-/// refuses (PMMP `World::useBreakOn`, with [`BlockBreak`]).
+/// resyncs) when the player cannot reach it, has not broken it long enough (unless
+/// `break-time-check = false`), or the world refuses (PMMP `World::useBreakOn`, with
+/// [`BlockBreak`]).
 fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Timing) -> bool {
     inventory::close_window(state, session);
     let Some(mut actor) = actor(state, session) else {
@@ -1062,7 +1073,7 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
         debug!(session = session.get(), "break out of reach");
         return false;
     }
-    let counted = timing == Timing::Counted && actor.finite();
+    let counted = timing == Timing::Counted && actor.finite() && state.settings.break_time_check;
     if !dispatch::heard::<BlockBreak>(state) {
         if counted && !break_done(state, session, &actor, pos) {
             debug!(session = session.get(), "break before its time");
@@ -1156,9 +1167,7 @@ fn finish_break(
         }
         return false;
     }
-    if let Some(player) = state.players.get_mut(&session) {
-        survival::exhaust(player, BREAK_EXHAUSTION);
-    }
+    survival::exhaust_by(state, session, BREAK_EXHAUSTION, ExhaustCause::Mining);
     true
 }
 
@@ -1258,7 +1267,8 @@ fn adventure_allows(stack: &Stack, key: &str, block: block::State) -> bool {
 /// PMMP `Player::returnItemsFromAction`: the held stack becomes `new` if the action changed it
 /// (in creative only a change of item, not of count or damage) and the hand still holds `old`
 /// (a listener during the action may have changed it); `returned` items go to the inventory,
-/// the first into the hand if it emptied, and what does not fit is thrown.
+/// the first into the hand if it emptied, and what does not fit is thrown (at the world's entity
+/// limit it waits as a spill at the feet, as a broken container's items do).
 fn return_items(state: &mut State, actor: &Actor, old: &Stack, new: Stack, returned: Vec<Stack>) {
     let session = actor.session;
     let mut changed = false;
@@ -1272,7 +1282,7 @@ fn return_items(state: &mut State, actor: &Actor, old: &Stack, new: Stack, retur
         if !deducted || actor.finite() {
             // A tool worn out (PMMP `ItemBreakSound`).
             if new.is_empty() && old.item().and_then(item::Type::max_durability).is_some() {
-                sound(state, actor.world, actor.eye, SoundEvent::Break, 0);
+                sound(state, actor.world, actor.eye, Sound::ItemBreak);
             }
             if let Some(player) = state.players.get_mut(&session) {
                 inventory::set_held(player, new);
@@ -1293,11 +1303,12 @@ fn return_items(state: &mut State, actor: &Actor, old: &Stack, new: Stack, retur
             Some(player) => inventory::give(player, stack),
             None => stack,
         };
-        if !left.is_empty() && !inventory::throw_stack(state, session, left) {
-            warn!(
-                session = session.get(),
-                "a returned item did not fit and could not drop"
-            );
+        if !left.is_empty() && !inventory::throw_stack(state, session, left.clone()) {
+            let at = BlockPos::containing(actor.feet);
+            state
+                .rules
+                .block_entities
+                .spill(actor.world, at, vec![left]);
         }
     }
 }
@@ -1311,12 +1322,12 @@ fn affected_blocks(
 ) -> [Option<(BlockPos, block::State)>; 2] {
     let other = |pos: Option<BlockPos>| pos.and_then(|p| world.block(p).map(|s| (p, s)));
     let upper = props::flag(block, "upper_block_bit") == Some(true);
-    let vertical = place::step(pos, if upper { Face::Down } else { Face::Up });
+    let vertical = pos.step(if upper { Face::Down } else { Face::Up });
     let second = if block.is(Class::Bed) {
         let head = props::flag(block, "head_piece_bit") == Some(true);
         let facing = props::facing(block);
         let side = facing.map(|f| if head { f.opposite() } else { f });
-        other(side.and_then(|f| place::step(pos, f))).filter(|(_, s)| {
+        other(side.and_then(|f| pos.step(f))).filter(|(_, s)| {
             s.is(Class::Bed)
                 && props::flag(*s, "head_piece_bit") != Some(head)
                 && props::facing(*s) == facing
@@ -1336,8 +1347,8 @@ fn affected_blocks(
 /// Destroys the block at `pos` for `cause` (PMMP `World::useBreakOn` after its checks,
 /// `destroyBlockInternal`, `Block::onBreak`, `Explosion::explodeB` per block): drops worked out
 /// first, then every affected block removed with its block entity, then drops and experience.
-/// A player's break whose first drop finds no room for an entity changes nothing (the world's
-/// entity limit, PLAN.md 10.7).
+/// A player's break whose drops find no room for entities changes nothing (the world's entity
+/// limit, PLAN.md 10.7).
 fn destroy_with(
     state: &mut State,
     world: WorldIndex,
@@ -1410,41 +1421,57 @@ fn plan_destruction(
 }
 
 /// Applies a destruction (PMMP `World::useBreakOn` after its checks, `destroyBlockInternal`,
-/// `Block::onBreak`): every affected block removed with its block entity, then the drops and
-/// experience. A player's break whose first drop finds no room for an entity changes nothing
-/// (the world's entity limit, PLAN.md 10.7).
+/// `Block::onBreak`): the windows on the affected blocks close, every affected block is removed
+/// with its block entity, then the drops and experience. A close listener may change what the
+/// drops copy (PLAN.md 10.8): a player's break then changes nothing, another cause drops what
+/// is there now. A player's break whose drops find no room for entities changes nothing (the
+/// world's entity limit, PLAN.md 10.7); drops of other causes that find none wait as a spill.
 fn apply_destruction(
     state: &mut State,
     world: WorldIndex,
     pos: BlockPos,
     cause: &Destroy,
-    plan: Destruction,
+    mut plan: Destruction,
     particles: bool,
 ) -> bool {
+    let mut viewers = Vec::new();
+    for (p, _) in plan.affected.iter().flatten() {
+        for s in super::block_entity::window_viewers(state, world, *p) {
+            if !viewers.contains(&s) {
+                viewers.push(s);
+            }
+        }
+    }
+    if !viewers.is_empty() {
+        // A player's plan may carry a listener's drops: only a change of the world refuses it.
+        let before = matches!(cause, Destroy::Player { .. })
+            .then(|| plan_destruction(state, world, pos, cause));
+        for session in viewers {
+            inventory::close_window(state, session);
+        }
+        let after = plan_destruction(state, world, pos, cause);
+        match (before, after) {
+            (Some(before), after) if before != after => {
+                debug!("break refused: a window close changed the block");
+                return false;
+            }
+            (Some(_), _) => {}
+            (None, Some(after)) => plan = after,
+            (None, None) => return false,
+        }
+    }
     let Destruction {
         affected,
         items,
         xp,
     } = plan;
-    let at = center(pos);
-    let mut items = items.into_iter();
-    let first = items.next();
-    if let Some(first) = &first
-        && matches!(cause, Destroy::Player { .. })
-        && !entity::drop_item(state, world, at, first.clone())
-    {
-        debug!("break refused: no room for the drop");
+    if matches!(cause, Destroy::Player { .. }) && !entity::has_room(state, world, items.len()) {
+        debug!("break refused: no room for the drops");
         return false;
     }
     for (p, s) in affected.into_iter().flatten() {
         if particles {
-            level_event(
-                state,
-                world,
-                center(p),
-                Event::ParticlesDestroyBlock,
-                s.network_id().cast_signed(),
-            );
+            particle(state, world, center(p), Particle::BlockBreak(s));
         }
         super::block_entity::removed(state, world, p);
         on_break(state, world, p, s, cause);
@@ -1456,25 +1483,15 @@ fn apply_destruction(
             custom::broken(state, session, world, p, s);
         }
     }
-    let rest = if matches!(cause, Destroy::Player { .. }) {
-        items.collect::<Vec<_>>()
-    } else {
-        first.into_iter().chain(items).collect()
-    };
-    for stack in rest {
-        if entity::drop_item(state, world, at, stack.clone()) {
-            continue;
+    let at = center(pos);
+    let mut left = Vec::new();
+    for stack in items {
+        if !entity::drop_item(state, world, at, stack.clone()) {
+            left.push(stack);
         }
-        let left = match cause {
-            Destroy::Player { session, .. } => match state.players.get_mut(session) {
-                Some(player) => inventory::give(player, stack),
-                None => stack,
-            },
-            _ => stack,
-        };
-        if !left.is_empty() {
-            warn!(?left, "a drop found no room at the entity limit");
-        }
+    }
+    if !left.is_empty() {
+        state.rules.block_entities.spill(world, pos, left);
     }
     if xp > 0 {
         entity::drop_experience(state, world, at, xp);
@@ -1483,8 +1500,8 @@ fn apply_destruction(
 }
 
 /// The drops and experience of a destruction (PMMP: only players with finite resources get
-/// drops and experience; a block lost by the rules drops as by hand; an explosion drops with
-/// chance `1 / size`).
+/// drops and experience, the experience only with `experience`; a block lost by the rules drops
+/// as by hand; an explosion drops with chance `1 / size`).
 fn drops_of(
     state: &State,
     world: WorldIndex,
@@ -1511,15 +1528,20 @@ fn drops_of(
                 )
             });
             if finite {
+                let experience = state.settings.experience;
                 for (p, s) in affected.iter().flatten() {
                     if s.custom_block().is_some() {
                         let (items, x) = custom::drops_of(state, *s, tool, rng);
                         add(custom_drops(items), *p, rng);
-                        xp = xp.saturating_add(x);
+                        if experience {
+                            xp = xp.saturating_add(x);
+                        }
                         continue;
                     }
                     add(drops::drops(*s, tool, rng), *p, rng);
-                    xp = xp.saturating_add(drops::experience(*s, tool, rng));
+                    if experience {
+                        xp = xp.saturating_add(drops::experience(*s, tool, rng));
+                    }
                 }
             }
         }
@@ -1528,6 +1550,16 @@ fn drops_of(
                 if s.custom_block().is_some() {
                     let (items, _) = custom::drops_of(state, *s, &Stack::EMPTY, rng);
                     add(custom_drops(items), *p, rng);
+                    continue;
+                }
+                // A grindstone that loses its support drops itself, though a hand does not
+                // harvest it (BDS P6, m9-facts STATIONS).
+                if let (true, block::ItemForm::Item(own)) = (s.is(Class::Grindstone), s.item()) {
+                    let own = drops::Drops {
+                        items: vec![Stack::new(own, 1)],
+                        from_block_entity: 0,
+                    };
+                    add(own, *p, rng);
                     continue;
                 }
                 add(drops::drops(*s, &Stack::EMPTY, rng), *p, rng);
@@ -1553,7 +1585,6 @@ fn drops_of(
                 }
             }
         }
-        Destroy::NoDrops => {}
     }
     (out, xp)
 }
@@ -1582,7 +1613,7 @@ fn on_break(
             let _ignited = using::ignite_tnt(state, world, pos);
             return;
         }
-        Destroy::Explosion { .. } | Destroy::NoDrops => block::AIR,
+        Destroy::Explosion { .. } => block::AIR,
         Destroy::Player { session, tool } => {
             let survival = state.players.get(session).is_some_and(|p| {
                 matches!(
@@ -1590,9 +1621,9 @@ fn on_break(
                     GameMode::Survival | GameMode::Adventure
                 )
             });
-            on_break_result(state, world, pos, block, survival, tool)
+            on_break_result(block, survival, tool)
         }
-        Destroy::Rules => on_break_result(state, world, pos, block, true, &Stack::EMPTY),
+        Destroy::Rules => on_break_result(block, true, &Stack::EMPTY),
     };
     // PMMP `TNT::onBreak`: unstable TNT ignites (it becomes air with the primed entity).
     if result == block::AIR
@@ -1610,15 +1641,7 @@ fn on_break(
 }
 
 /// What a block leaves when broken (PMMP `Ice::onBreak`: water in survival without Silk Touch).
-fn on_break_result(
-    state: &State,
-    world: WorldIndex,
-    pos: BlockPos,
-    block: block::State,
-    survival: bool,
-    tool: &Stack,
-) -> block::State {
-    let _ = (state, world, pos);
+fn on_break_result(block: block::State, survival: bool, tool: &Stack) -> block::State {
     if block.is(Class::Ice)
         && !block.is(Class::FrostedIce)
         && survival
@@ -1647,12 +1670,14 @@ fn use_item(state: &mut State, session: SessionId, data: &UseItemTransactionData
     }
 }
 
-/// A click in the air (PMMP `handleUseItemTransaction` `ACTION_CLICK_AIR`): eating or drinking
-/// is the survival rules', anything else [`using::use_held_item`].
+/// A click in the air (PMMP `handleUseItemTransaction` `ACTION_CLICK_AIR`): drawing stops (a bow
+/// or trident starts again), eating or drinking is the survival rules', anything else
+/// [`using::use_held_item`].
 fn use_in_air(state: &mut State, session: SessionId) {
     let Some(actor) = actor(state, session) else {
         return;
     };
+    stop_using(state, session);
     if !survival::use_consumable(state, session) {
         using::use_held_item(state, &actor);
     }
@@ -1731,7 +1756,7 @@ fn click_block(state: &mut State, session: SessionId, data: &UseItemTransactionD
     }
 }
 
-/// PMMP `Player::interactBlock`: within reach, use the held item on the block.
+/// PMMP `Player::interactBlock`: drawing stops; within reach, use the held item on the block.
 fn interact_block(
     state: &mut State,
     session: SessionId,
@@ -1742,11 +1767,19 @@ fn interact_block(
     let Some(actor) = actor(state, session) else {
         return false;
     };
+    stop_using(state, session);
     if !actor.can_interact(center(pos), actor.reach()) {
         debug!(session = session.get(), "click out of reach");
         return false;
     }
     using::use_item_on(state, &actor, pos, face, click)
+}
+
+/// Stops the drawing of `session` ([`Breaking::stop_using`]).
+fn stop_using(state: &mut State, session: SessionId) {
+    if let Some(player) = state.players.get_mut(&session) {
+        player.breaking.stop_using();
+    }
 }
 
 /// Opens the sign editor of the sign at `pos` for the player (PMMP `Player::openSignEditor`).

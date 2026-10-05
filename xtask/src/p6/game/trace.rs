@@ -59,13 +59,17 @@ const START_LEVEL: &str = "0";
 const FIXED_WINDOWS: [i64; 4] = [0, 119, 120, 124];
 
 /// Checks whose values are fixed between servers.
-const FIXED_CHECKS: [&str; 6] = [
+const FIXED_CHECKS: [&str; 10] = [
     "auto craft variant",
     "deprecated result form",
     "place a crafting table",
     "place a crafting table held with a wrong block runtime ID",
     "legacy villager",
     "legacy trading",
+    "breathing before diving",
+    "breathing under water",
+    "drowned",
+    "breathing after surfacing",
 ];
 
 /// Entities whose appearance is random: experience orbs (their number and values).

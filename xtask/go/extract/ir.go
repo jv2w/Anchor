@@ -112,8 +112,6 @@ type Packet struct {
 type TypeDef struct {
 	// Name is the qualified type name ("protocol.BlockPos").
 	Name string `json:"name"`
-	// Doc is the doc comment of the type, trimmed, or empty.
-	Doc string `json:"doc,omitempty"`
 	// Kind is "struct" (Fields is set), "interface" (a union interface; see IR.Unions) or "basic", "array",
 	// "slice", "map" for named non-struct types (Underlying is set).
 	Kind string `json:"kind"`
@@ -140,8 +138,6 @@ type Field struct {
 	Name string `json:"name"`
 	// Type is the field type.
 	Type Type `json:"type"`
-	// Doc is the field doc comment, trimmed, or empty.
-	Doc string `json:"doc,omitempty"`
 	// Embedded marks an embedded field (Name is then the type name). Bodies never use promoted fields: they
 	// select through the embedded field explicitly (x.AttributeValue.Min).
 	Embedded bool `json:"embedded,omitempty"`
@@ -189,8 +185,6 @@ type Function struct {
 	// Name is the qualified name: "protocol.CommandOriginData", or "protocol.CommandEnumContext.Marshal" for
 	// a method.
 	Name string `json:"name"`
-	// Doc is the doc comment, trimmed, or empty.
-	Doc string `json:"doc,omitempty"`
 	// Receiver is the method receiver, absent for free functions. It is passed as Stmt.Recv / Expr.Recv.
 	Receiver *Param `json:"receiver,omitempty"`
 	// IO is true when the function takes the protocol.IO (left out of Params and call arguments).
@@ -301,10 +295,6 @@ type DeclConst struct {
 	Value string `json:"value"`
 	// Alias is the qualified name of the constant this one is defined as ("X = Y"), if any.
 	Alias string `json:"alias,omitempty"`
-	// Doc is the doc comment of the constant (or its line comment, or the doc of a declaration without
-	// parentheses), trimmed, or empty. Docs of parenthesized declarations are left out: they describe
-	// the group loosely or are editor directives.
-	Doc string `json:"doc,omitempty"`
 }
 
 // Stmt is one statement. Kind selects the meaning of the other fields:

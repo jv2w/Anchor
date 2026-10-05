@@ -14,23 +14,25 @@ use std::mem;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tokio::sync::{OwnedSemaphorePermit, mpsc};
+use tracing::{debug, warn};
 
 use super::packs::{self, CHUNK_INTERVAL, Reply, Transfer};
 use super::transport::{self, Transport};
-use super::{Event, Shared, unix_now};
+use super::{Event, Shared};
 use crate::auth::Keys;
 use crate::clock;
 use crate::crypto::encryption::{Decryptor, Encryptor, Handshake};
 use crate::login::{self, Login, Mode};
 use crate::protocol::batch::{self, Header};
+use crate::protocol::consts;
+use crate::protocol::consts::InputMode;
 use crate::protocol::packet::{
     self, Disconnect, NetworkSettings, PROTOCOL_VERSION, Packet, PlayStatus,
     RequestNetworkSettings, ResourcePackClientResponse, ServerToClientHandshake,
 };
 use crate::tick::queue::{
-    self, Identity, InputKind, Message, Outbound, SessionId, SessionInputs, Skin,
+    self, Client, Identity, InputKind, Measure, Message, Outbound, SessionId, SessionInputs, Skin,
 };
 
 /// From connection to verified login (PLAN.md 10.2).
@@ -38,6 +40,9 @@ const LOGIN_DEADLINE: Duration = Duration::from_secs(10);
 /// From connection to `SetLocalPlayerAsInitialised` (PLAN.md 10.2), plus the allowance of a
 /// resource pack download (PLAN.md 10.8, [`packs`]).
 const SPAWN_DEADLINE: Duration = Duration::from_secs(60);
+/// How often a joined session reports its ping to the tick when it changed (PLAN.md 10.9): each
+/// report is a logged input.
+const PING_REPORT: Duration = Duration::from_secs(5);
 /// The largest message before `NetworkSettings` (PLAN.md 3).
 const FIRST_MESSAGE_BYTES: usize = 1024;
 /// Packets outside the login sequence held until the join. The official client's order is not
@@ -57,8 +62,8 @@ const LOGIN_FAILED_SERVER: i32 = 2;
 const REASON_NOT_AUTHENTICATED: i32 = 46;
 /// `Disconnect` reason for refused packs (gophertunnel `DisconnectReasonResourcePackProblem`).
 const REASON_RESOURCE_PACK_PROBLEM: i32 = 58;
-/// What a player who refuses required packs sees (PMMP's text).
-const PACKS_REFUSED_MESSAGE: &str = "You must accept resource packs to join this server.";
+/// What a player who refuses required packs sees.
+const PACKS_REFUSED_MESSAGE: &str = "This server needs its resource packs: accept them to join";
 
 /// Runs one connection until it closes, then tells the tick and the accept task.
 pub(super) async fn run(id: SessionId, conn: Transport, shared: Arc<Shared>) {
@@ -107,8 +112,12 @@ struct Session {
     deferred: VecDeque<(Packet, usize)>,
     inputs: Option<SessionInputs>,
     outbound: Option<mpsc::Receiver<Outbound>>,
+    /// The place among the sessions waiting to join, held from login to the join.
+    waiting: Option<OwnedSemaphorePermit>,
     spawned: bool,
     logged_in: bool,
+    /// The ping last reported to the tick, in milliseconds.
+    reported_ping: Option<u32>,
 }
 
 /// Why a session ended.
@@ -203,8 +212,10 @@ impl Session {
             deferred: VecDeque::new(),
             inputs: None,
             outbound: None,
+            waiting: None,
             spawned: false,
             logged_in: false,
+            reported_ping: None,
             shared,
         }
     }
@@ -215,6 +226,8 @@ impl Session {
         let spawn_deadline = deadline(spawn_at);
         // Already passed: the first pack chunk goes out as soon as it is asked for.
         let pace = deadline(self.started);
+        let mut ping_report = tokio::time::interval(PING_REPORT);
+        ping_report.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         tokio::pin!(login_deadline, spawn_deadline, pace);
         let mut shutdown = self.shared.shutdown.clone();
         if *shutdown.borrow_and_update() {
@@ -256,6 +269,7 @@ impl Session {
                     return End::Timeout("login");
                 }
                 () = &mut spawn_deadline, if !self.spawned => return End::Timeout("spawn"),
+                _ = ping_report.tick(), if self.inputs.is_some() => self.report_ping(),
                 // Joined sessions end when the stopping tick drops their outbound queue.
                 _ = shutdown.changed(), if self.inputs.is_none() => return End::Shutdown,
             }
@@ -273,19 +287,23 @@ impl Session {
         if let Some(identity) = &self.identity
             && self.inputs.is_some()
         {
-            info!(session = self.id.get(), name = %identity.name, "player left");
+            debug!(session = self.id.get(), name = %identity.name, "session of a player ended");
         }
         if let Some(inputs) = self.inputs.take() {
             inputs.leave().await;
         }
-        if self.logged_in
-            && self
-                .shared
-                .events
-                .send(Event::Ended { logged_in: true })
-                .await
-                .is_err()
-        {
+        // The tick tells the players it holds; these the server stopped before the tick did.
+        if matches!(end, End::Shutdown | End::TickStopped) && self.encoder.is_some() {
+            let disconnect = Packet::Disconnect(Disconnect {
+                reason: i32::from(consts::DisconnectReason::Shutdown),
+                message: self.shared.shutdown_message.clone(),
+                ..Disconnect::default()
+            });
+            if let Err(e) = self.send(&[disconnect]).await {
+                debug!(session = self.id.get(), error = %e, "shutdown message not sent");
+            }
+        }
+        if self.logged_in && self.shared.events.send(Event::Ended).await.is_err() {
             debug!("accept task gone before the session ended");
         }
         self.conn.close();
@@ -378,16 +396,7 @@ impl Session {
         match (self.stage, packet) {
             (Stage::Login, Packet::Login(login)) => self.on_login(login).await,
             (Stage::Login, _) => Err(Error::Order("first packet is not Login")),
-            (Stage::Handshake, Packet::ClientToServerHandshake(_)) => {
-                self.stage = Stage::Packs;
-                self.send(&[
-                    Packet::PlayStatus(PlayStatus {
-                        status: LOGIN_SUCCESS,
-                    }),
-                    Packet::ResourcePacksInfo(self.shared.packs.info().clone()),
-                ])
-                .await
-            }
+            (Stage::Handshake, Packet::ClientToServerHandshake(_)) => self.login_success().await,
             (Stage::Packs, Packet::ResourcePackClientResponse(response)) => {
                 self.on_pack_response(&response).await
             }
@@ -455,24 +464,54 @@ impl Session {
                 return Err(e);
             }
         };
+        let Ok(waiting) = Arc::clone(&self.shared.waiting).try_acquire_owned() else {
+            // PMMP also turns players away as the server is full at login.
+            self.send(&[Packet::PlayStatus(PlayStatus {
+                status: i32::from(consts::PlayStatus::LoginFailedServerFull),
+            })])
+            .await?;
+            return Err(Error::Limit("sessions waiting to join"));
+        };
+        self.waiting = Some(waiting);
         let Login {
             identity,
             client_key,
             client_data,
             skin,
         } = verified;
+        let addr = self.conn.addr();
+        let input_mode = u32::try_from(client_data.current_input_mode)
+            .ok()
+            .and_then(|mode| InputMode::try_from(mode).ok())
+            .unwrap_or(InputMode::Undefined);
         self.identity = Some(Identity {
             name: identity.name,
             xuid: identity.xuid,
             uuid: identity.uuid,
             skin: Skin::new(skin),
             device_os: client_data.device_os,
-            address: Some(self.conn.addr().ip()),
+            address: Some(addr.ip()),
+            client: Client {
+                locale: client_data.language_code,
+                input_mode,
+                device_model: client_data.device_model,
+                device_id: client_data.device_id,
+                game_version: client_data.game_version,
+                server_address: client_data.server_address,
+                port: addr.port(),
+                // Stamped when the player is handed to the tick.
+                join_time_ms: 0,
+            },
         });
         self.logged_in = true;
         self.conn.logged_in();
         if self.shared.events.send(Event::LoggedIn).await.is_err() {
             debug!("accept task gone during login");
+        }
+        if self.conn.encrypts() && !self.shared.encryption {
+            // `enable-encryption = false`: no handshake, plain RakNet traffic (PMMP
+            // `NetworkSession::onServerLoginSuccess` without encryption).
+            return self.login_success().await;
         }
         let handshake =
             Handshake::new(&self.shared.server_key, &client_key).map_err(Error::Crypto)?;
@@ -490,14 +529,27 @@ impl Session {
         Ok(())
     }
 
+    /// The login succeeded (after the handshake, or at once without encryption): the client
+    /// hears so and gets the resource packs on offer.
+    async fn login_success(&mut self) -> Result<()> {
+        self.stage = Stage::Packs;
+        self.send(&[
+            Packet::PlayStatus(PlayStatus {
+                status: LOGIN_SUCCESS,
+            }),
+            Packet::ResourcePacksInfo(self.shared.packs.info().clone()),
+        ])
+        .await
+    }
+
     /// Verifies the connection request: online against the authorization keys (one JWKS
     /// refresh for an unknown key ID, within the login deadline), offline without them.
     async fn verify(&self, request: &[u8]) -> Result<Login> {
         let Some(auth) = &self.shared.auth else {
-            return login::verify(request, Mode::Offline, unix_now()).map_err(Error::Login);
+            return login::verify(request, Mode::Offline, clock::token_now()).map_err(Error::Login);
         };
         let keys = auth.keys();
-        match login::verify(request, Mode::Online(&keys), unix_now()) {
+        match login::verify(request, Mode::Online(&keys), clock::token_now()) {
             Err(login::Error::UnknownKeyId) => {}
             result => return result.map_err(Error::Login),
         }
@@ -510,7 +562,7 @@ impl Session {
             Ok(Some(keys)) => keys,
             Ok(None) | Err(_) => return Err(Error::Login(login::Error::UnknownKeyId)),
         };
-        login::verify(request, Mode::Online(&keys), unix_now()).map_err(Error::Login)
+        login::verify(request, Mode::Online(&keys), clock::token_now()).map_err(Error::Login)
     }
 
     async fn on_pack_response(&mut self, response: &ResourcePackClientResponse) -> Result<()> {
@@ -549,16 +601,19 @@ impl Session {
 
     /// Hands the player to the tick, then the packets that arrived before the join.
     fn join(&mut self) -> Result<()> {
-        let identity = self
+        let mut identity = self
             .identity
             .clone()
             .ok_or(Error::Order("join before login"))?;
+        identity.client.join_time_ms = clock::unix_millis();
         let (outbound, receiver) = queue::outbound_queue();
         let mut inputs = self.shared.inputs.session(self.id);
         inputs
             .try_send(InputKind::Join { identity, outbound })
             .map_err(Error::Queue)?;
-        info!(session = self.id.get(), addr = %self.conn.addr(), "player joining");
+        debug!(session = self.id.get(), addr = %self.conn.addr(), "player joining");
+        // The tick counts the player from here.
+        self.waiting = None;
         self.inputs = Some(inputs);
         self.outbound = Some(receiver);
         self.stage = Stage::Joined;
@@ -569,6 +624,25 @@ impl Session {
             self.forward(packet, size)?;
         }
         Ok(())
+    }
+
+    /// Reports the connection's ping to the tick if it changed since the last report. A full tick
+    /// queue skips this report: the next packet finds it full and ends the session.
+    fn report_ping(&mut self) {
+        let Some(ping) = self.conn.ping() else {
+            return;
+        };
+        let millis = u32::try_from(ping.as_millis()).unwrap_or(u32::MAX);
+        if self.reported_ping == Some(millis) {
+            return;
+        }
+        let Some(inputs) = self.inputs.as_mut() else {
+            return;
+        };
+        match inputs.try_send(InputKind::Measure(Measure::Ping(millis))) {
+            Ok(()) => self.reported_ping = Some(millis),
+            Err(e) => debug!(session = self.id.get(), error = %e, "ping not reported"),
+        }
     }
 
     /// Queues a packet for the tick. A full tick queue ends the session (the tick never waits).

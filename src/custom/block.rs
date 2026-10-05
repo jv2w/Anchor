@@ -891,7 +891,7 @@ impl Block {
         );
         let breaking = self.info.breaking();
         if breaking.is_breakable()
-            && let Some(seconds) = breaking.break_time(&crate::item::Stack::EMPTY)
+            && let Some(seconds) = breaking.break_time_secs(&crate::item::Stack::EMPTY)
         {
             // The seconds by hand: the client has no per-tool component (dragonfly).
             #[expect(

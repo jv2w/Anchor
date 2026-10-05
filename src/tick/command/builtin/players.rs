@@ -5,10 +5,12 @@
 use std::time::Duration;
 
 use super::super::super::inventory;
+use super::super::super::player::is_valid_address;
 use super::{
     Msg, PLAYER_USER_ONLY, Results, announce, bounded, display_name_of, game_mode_name, in_world,
-    notify, permitted_targets, player_name, tell, tell_object, two_decimals, usage,
+    notify, perform, permitted_targets, player_name, tell, tell_object, two_decimals, usage,
 };
+use crate::action;
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
 use crate::config::GameMode;
 use crate::item::Stack;
@@ -24,7 +26,7 @@ use crate::world::BlockPos;
 )]
 pub(super) fn add(commands: &mut Vec<Command>) {
     commands.extend([
-        Command::new("clear", "Clears items from player inventory")
+        Command::new("clear", "commands.clear.description")
             .permission(permission::COMMAND_CLEAR_SELF)
             .permission(permission::COMMAND_CLEAR_OTHER)
             .overload(
@@ -35,7 +37,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 ],
                 clear,
             ),
-        Command::new("effect", "Adds/Removes effects on players")
+        Command::new("effect", "commands.effect.description")
             .permission(permission::COMMAND_EFFECT_SELF)
             .permission(permission::COMMAND_EFFECT_OTHER)
             .overload(&[Param::target("player"), Param::literal("clear")], effect)
@@ -48,7 +50,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 ],
                 effect,
             ),
-        Command::new("enchant", "Adds enchantments on items")
+        Command::new("enchant", "commands.enchant.description")
             .permission(permission::COMMAND_ENCHANT_SELF)
             .permission(permission::COMMAND_ENCHANT_OTHER)
             .overload(
@@ -59,7 +61,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 ],
                 enchant,
             ),
-        Command::new("gamemode", "Changes the player to a specific game mode")
+        Command::new("gamemode", "commands.gamemode.description")
             .permission(permission::COMMAND_GAMEMODE_SELF)
             .permission(permission::COMMAND_GAMEMODE_OTHER)
             .overload(
@@ -69,26 +71,23 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 ],
                 gamemode,
             ),
-        Command::new(
-            "give",
-            "Gives the specified player a certain amount of items",
-        )
-        .permission(permission::COMMAND_GIVE_SELF)
-        .permission(permission::COMMAND_GIVE_OTHER)
-        .overload(
-            &[
-                Param::target("player"),
-                Param::item("itemName"),
-                Param::int("amount").optional(),
-            ],
-            give,
-        ),
-        Command::new("kill", "Commit suicide or kill other players")
+        Command::new("give", "commands.give.description")
+            .permission(permission::COMMAND_GIVE_SELF)
+            .permission(permission::COMMAND_GIVE_OTHER)
+            .overload(
+                &[
+                    Param::target("player"),
+                    Param::item("itemName"),
+                    Param::int("amount").optional(),
+                ],
+                give,
+            ),
+        Command::new("kill", "commands.kill.description")
             .alias("suicide")
             .permission(permission::COMMAND_KILL_SELF)
             .permission(permission::COMMAND_KILL_OTHER)
             .overload(&[Param::target("player").optional()], kill),
-        Command::new("spawnpoint", "Sets a player's spawn point")
+        Command::new("spawnpoint", "commands.spawnpoint.description")
             .permission(permission::COMMAND_SPAWNPOINT_SELF)
             .permission(permission::COMMAND_SPAWNPOINT_OTHER)
             .overload(&[Param::target("player").optional()], spawnpoint)
@@ -96,31 +95,28 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 &[Param::target("player"), Param::position("spawnPos")],
                 spawnpoint,
             ),
-        Command::new(
-            "tp",
-            "Teleports the given player (or yourself) to another player or coordinates",
-        )
-        .alias("teleport")
-        .permission(permission::COMMAND_TELEPORT_SELF)
-        .permission(permission::COMMAND_TELEPORT_OTHER)
-        .overload(&[Param::target("destination")], teleport)
-        .overload(&[Param::position("position")], teleport)
-        .overload(
-            &[Param::target("victim"), Param::target("destination")],
-            teleport,
-        )
-        .overload(
-            &[Param::target("victim"), Param::position("position")],
-            teleport,
-        ),
-        Command::new("xp", "Adds or removes player experience")
+        Command::new("tp", "commands.tp.description")
+            .alias("teleport")
+            .permission(permission::COMMAND_TELEPORT_SELF)
+            .permission(permission::COMMAND_TELEPORT_OTHER)
+            .overload(&[Param::target("destination")], teleport)
+            .overload(&[Param::position("position")], teleport)
+            .overload(
+                &[Param::target("victim"), Param::target("destination")],
+                teleport,
+            )
+            .overload(
+                &[Param::target("victim"), Param::position("position")],
+                teleport,
+            ),
+        Command::new("xp", "commands.xp.description")
             .permission(permission::COMMAND_XP_SELF)
             .permission(permission::COMMAND_XP_OTHER)
             .overload(
                 &[Param::string("amount"), Param::target("player").optional()],
                 xp,
             ),
-        Command::new("title", "Controls screen titles")
+        Command::new("title", "commands.title.description")
             .permission(permission::COMMAND_TITLE_SELF)
             .permission(permission::COMMAND_TITLE_OTHER)
             .overload(&[Param::target("player"), Param::literal("clear")], title)
@@ -143,7 +139,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 ],
                 title,
             ),
-        Command::new("tell", "Sends a private message to the given player")
+        Command::new("tell", "commands.tell.description")
             .alias("w")
             .alias("msg")
             .permission(permission::COMMAND_TELL)
@@ -151,7 +147,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 &[Param::target("target"), Param::message("message")],
                 tell_command,
             ),
-        Command::new("transferserver", "Transfer yourself to another server")
+        Command::new("transferserver", "commands.transferserver.description")
             .permission(permission::COMMAND_TRANSFERSERVER)
             .overload(
                 &[Param::string("server"), Param::int("port").optional()],
@@ -170,20 +166,15 @@ const EFFECT_REMOVED_ALL: Msg = Msg::client("commands.effect.success.removed.all
 const EFFECT_SUCCESS: Msg = Msg::client("commands.effect.success");
 const ENCHANT_NO_ITEM: Msg = Msg::client("commands.enchant.noItem");
 const ENCHANT_SUCCESS: Msg = Msg::client("commands.enchant.success");
-const GAMEMODE_FAILURE: Msg = Msg::pmmp(
-    "pocketmine.command.gamemode.failure",
-    "Game mode change for {%0} failed!",
-);
+const ENCHANT_CANT: Msg = Msg::client("commands.enchant.cantEnchant");
+const GAMEMODE_FAILURE: Msg = Msg::own("The game mode of {%0} stays as it is");
 const GAMEMODE_SUCCESS_SELF: Msg = Msg::client("commands.gamemode.success.self");
 const GAMEMODE_SUCCESS_OTHER: Msg = Msg::client("commands.gamemode.success.other");
 const GAME_MODE_CHANGED: Msg = Msg::client("gameMode.changed");
 const GIVE_SUCCESS: Msg = Msg::client("commands.give.success");
 const GIVE_SUCCESS_RECIPIENT: Msg = Msg::client("commands.give.successRecipient");
 const KILL_SUCCESSFUL: Msg = Msg::client("commands.kill.successful");
-const SPAWNPOINT_SUCCESS: Msg = Msg::pmmp(
-    "pocketmine.command.spawnpoint.success",
-    "Set {%0}'s spawn point to ({%1}, {%2}, {%3})",
-);
+const SPAWNPOINT_SUCCESS: Msg = Msg::client("commands.spawnpoint.success.single");
 const TP_SUCCESS: Msg = Msg::client("commands.tp.success");
 const TP_SUCCESS_COORDINATES: Msg = Msg::client("commands.tp.success.coordinates");
 const TP_SUCCESS_VICTIM: Msg = Msg::client("commands.tp.successVictim");
@@ -196,7 +187,7 @@ const MESSAGE_SAME_TARGET: Msg = Msg::client("commands.message.sameTarget");
 const MESSAGE_INCOMING: Msg = Msg::client("commands.message.display.incoming");
 const MESSAGE_OUTGOING: Msg = Msg::client("commands.message.display.outgoing");
 /// How whispers look (PMMP: gray, italic).
-const WHISPER_PREFIX: &str = "§7§o";
+const WHISPER_PREFIX: &str = "§b§o";
 /// The longest `/give` amount (PMMP `GiveCommand`).
 const MAX_GIVE: i32 = 32_767;
 /// The highest experience level (PMMP's attribute maximum).
@@ -325,7 +316,7 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
         .transpose()?;
     let amplifier = bounded(args.int("amplifier").unwrap_or(0), 0, 255)?;
     let amplifier = u8::try_from(amplifier).unwrap_or(u8::MAX);
-    let duration = seconds.map_or(kind.default_duration(), |s| s.unsigned_abs() * 20);
+    let duration = seconds.map_or(kind.default_duration_ticks(), |s| s.unsigned_abs() * 20);
     let effect_name = format!("%{}", kind.text());
     for id in targets {
         let shown = display_name_of(cx, Sender::Player(id));
@@ -384,7 +375,12 @@ fn enchant(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output>
             results.add(Err(ENCHANT_NO_ITEM.error(&[])));
             continue;
         }
-        let enchanted = inventory::enchant_item(held, &[(kind, level)]);
+        // A held item at the stack size limit takes no more (BDS's message for an item that
+        // cannot take the enchantment).
+        let Ok(enchanted) = inventory::enchant_item(held, &[(kind, level)]) else {
+            results.add(Err(ENCHANT_CANT.error(&[&name])));
+            continue;
+        };
         inventory::set_held(p, enchanted);
         results.add(Ok(announce(cx, *sender, ENCHANT_SUCCESS, &[&name])));
     }
@@ -393,7 +389,9 @@ fn enchant(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output>
 
 /// `/gamemode <mode> [player]` (PMMP `GamemodeCommand`): a player already in the mode is a
 /// failure; the player is told its new mode, the sender too as BDS does (PMMP tells only another
-/// player).
+/// player). The [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listeners decide
+/// once the command has returned, so the result and the message come before them (PMMP asks
+/// first and reports a cancel as a failure).
 fn gamemode(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_GAMEMODE_SELF,
@@ -407,11 +405,11 @@ fn gamemode(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
-        let changed = cx.player_mut(id).is_some_and(|p| p.set_game_mode(mode));
-        if !changed {
+        if cx.player(id).is_none_or(|p| p.game_mode() == mode) {
             results.add(Err(GAMEMODE_FAILURE.error(&[&name])));
             continue;
         }
+        perform(cx, action::SetGameMode::new(id, mode))?;
         tell_object(cx, id, GAME_MODE_CHANGED, &[mode_name]);
         if Sender::Player(id) == *sender {
             let line = announce(cx, *sender, GAMEMODE_SUCCESS_SELF, &[mode_name]);
@@ -540,8 +538,9 @@ fn spawnpoint(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outp
 /// `/tp <destination>`, `/tp <x> <y> <z>`, `/tp <victim> <destination>` and
 /// `/tp <victim> <x> <y> <z>` (PMMP `TeleportCommand`). Relative coordinates count from the
 /// sender, as Bedrock's do (PMMP: from the player moved). The destination is one player. Each
-/// player moved is told where to, as BDS does. Left out until the player API turns players:
-/// PMMP's yaw and pitch forms.
+/// player moved is told where to, as BDS does. The [`EntityTeleport`](crate::event::EntityTeleport)
+/// listeners decide once the command has returned, after the result, as in PMMP. Left out until
+/// the player API turns players: PMMP's yaw and pitch forms.
 fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_TELEPORT_SELF,
@@ -559,10 +558,7 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
         let to_name = player_name(cx, to);
         for id in victims {
             let name = player_name(cx, id);
-            if let Some(p) = cx.player_mut(id) {
-                p.teleport(world, feet)
-                    .map_err(|e| Error::failed(e.to_string()))?;
-            }
+            perform(cx, action::Teleport::new(id, world, feet))?;
             tell_object(cx, id, TP_SUCCESS_VICTIM, &[&to_name]);
             results.add(Ok(announce(cx, *sender, TP_SUCCESS, &[&name, &to_name])));
         }
@@ -573,10 +569,8 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     };
     for id in victims {
         let name = player_name(cx, id);
-        if let Some(p) = cx.player_mut(id) {
-            let world = p.world();
-            p.teleport(world, pos)
-                .map_err(|e| Error::failed(e.to_string()))?;
+        if let Some(world) = cx.player(id).map(Player::world) {
+            perform(cx, action::Teleport::new(id, world, pos))?;
         }
         let [x, y, z] = [pos.x, pos.y, pos.z].map(two_decimals);
         tell_object(cx, id, TP_SUCCESS_VICTIM, &[&format!("{x}, {y}, {z}")]);
@@ -587,8 +581,11 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
 }
 
 /// `/xp <amount>[L] [player]` (PMMP `XpCommand`): points, or levels with `L`; negative levels
-/// take levels away, negative points are refused.
+/// take levels away, negative points are refused. Fails with `experience = false`.
 fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
+    if !cx.state.settings.experience {
+        return Err(Error::failed(player::Error::Disabled.to_string()));
+    }
     let own = (permission::COMMAND_XP_SELF, permission::COMMAND_XP_OTHER);
     let targets = permitted_targets(cx, *sender, args, "player", own, "xp")?;
     let text = args.string("amount").unwrap_or_default();
@@ -707,7 +704,8 @@ fn tell_command(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Ou
 }
 
 /// `/transferserver <server> [port]` (PMMP `TransferServerCommand`): sends the sending player to
-/// another server (port 19132 by default).
+/// another server (port 19132 by default), once the
+/// [`PlayerTransfer`](crate::event::PlayerTransfer) listeners have let it.
 fn transferserver(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let Sender::Player(me) = *sender else {
         return Err(PLAYER_USER_ONLY.error(&[]));
@@ -719,9 +717,9 @@ fn transferserver(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<
     )?;
     let port = u16::try_from(port).unwrap_or_default();
     let address = args.string("server").unwrap_or_default();
-    if let Some(p) = cx.player_mut(me) {
-        p.transfer(address, port)
-            .map_err(|e| Error::failed(e.to_string()))?;
+    if !is_valid_address(address) {
+        return Err(Error::failed(player::Error::InvalidAddress.to_string()));
     }
+    perform(cx, action::Transfer::new(me, address, port))?;
     Ok(Output::new())
 }

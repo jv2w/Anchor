@@ -451,10 +451,9 @@ fn trades_reward_orbs_and_raise_the_tier() {
         "each trade tells the villager's viewers of its tier and experience"
     );
     for s in [1, 2] {
-        let screens = server.screens(s);
-        assert_eq!(screens.len(), 1, "a new tier reaches every trader");
-        assert_eq!(screens[0].trade_tier, 1);
-        assert_eq!(net_ids(&screens[0]), ids);
+        // BDS sends no UpdateTrade at a new tier (P6 `tradeup`, m9-facts.md): the traders learn
+        // it from the villager's entity data (`traded` above).
+        assert!(server.screens(s).is_empty(), "no new screen at a new tier");
     }
     assert!(server.offer(1, ids[1]).is_some(), "tier 1 unlocked");
     // Glass (tier 2) gives no reward.
@@ -556,7 +555,7 @@ fn a_player_who_left_is_forgotten() {
     let mut server = Server::new(1);
     let v = server.villager(1, sample());
     assert!(server.open(1, v));
-    server.state.leave(SessionId::new(1));
+    server.state.leave(SessionId::new(1), "client disconnect");
     server.tick();
     assert!(server.state.trades.sessions.is_empty());
     assert!(server.state.trades.by_villager.is_empty());
@@ -668,10 +667,12 @@ fn payments_match_type_damage_and_named_extra_data() {
     assert!(!pays(&emerald, &stack(Kind::Wheat, 5)));
     assert!(!pays(&emerald, &Stack::EMPTY));
     assert!(!pays(&Stack::EMPTY, &Stack::EMPTY));
-    let named = emerald.with_extra(Some(Extra {
-        custom_name: Some("Coin".to_owned()),
-        ..Extra::default()
-    }));
+    let named = emerald
+        .with_extra(Some(Extra {
+            custom_name: Some("Coin".to_owned()),
+            ..Extra::default()
+        }))
+        .unwrap();
     assert!(pays(&emerald, &named), "the offer names no extra data");
     assert!(!pays(&named, &emerald));
     assert!(pays(&named, &named));
@@ -688,10 +689,12 @@ fn a_payment_of_any_damage_takes_every_damage_of_the_item_only() {
     assert!(!any(&sword, &stack(Kind::IronSword, 1)));
     assert!(!any(&sword, &Stack::EMPTY));
     assert!(!any(&Stack::EMPTY, &Stack::EMPTY));
-    let named = sword.with_extra(Some(Extra {
-        custom_name: Some("Old".to_owned()),
-        ..Extra::default()
-    }));
+    let named = sword
+        .with_extra(Some(Extra {
+            custom_name: Some("Old".to_owned()),
+            ..Extra::default()
+        }))
+        .unwrap();
     assert!(!any(&named, &sword), "extra data of the offer still counts");
 }
 

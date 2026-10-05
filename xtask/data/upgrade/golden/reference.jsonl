@@ -1,0 +1,2 @@
+{"in":{"name":"minecraft:red_mushroom_block","states":{"huge_mushroom_bits":{"int":10}},"version":18168865},"out":{"name":"minecraft:mushroom_stem","states":{"huge_mushroom_bits":{"int":10}},"version":18168865}}
+{"in":{"name":"minecraft:red_mushroom_block","states":{"huge_mushroom_bits":{"int":15}},"version":18168865},"out":{"name":"minecraft:mushroom_stem","states":{"huge_mushroom_bits":{"int":15}},"version":18168865}}

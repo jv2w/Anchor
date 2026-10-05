@@ -6,22 +6,20 @@
 //! runs without listeners, then with an idle listener and monitor on every event (PLAN.md 10.8
 //! 판정식 "결정성·성능"), so every event is built and every rule checks again.
 //!
-//! Each tick is timed per phase by [`phased_step`], which is [`step`] with a clock between its
-//! parts; [`the_phased_step_is_the_step`] keeps the two the same.
+//! Each tick is timed per [`Part`] of the step by the mark [`step_marked`] calls as each ends.
 
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
-use super::super::queue::{Input, InputKind, Outbound};
+use super::super::queue::{Input, Outbound};
 use super::super::{
-    EntryKind, InputLog, Output, Phase, Settings, State, Tasks, block_entity, boundary, command,
-    deliver, dispatch, drop_overflowed, entity, hook, interact, player, respond, spawn, step,
-    survival, trade, update, view,
+    InputLog, Output, Part, Phase, Settings, State, boundary, deliver, entity, step_marked,
+    survival,
 };
-use super::{initialised, input, join, new_state, packet, radius, received, settings};
+use super::{initialised, input, join, new_state, packet, radius, settings};
 use crate::block::{self, PropertyValue};
-use crate::config::Config;
+use crate::config::{Config, Lighting};
 use crate::event::Listeners;
 use crate::item::{Stack, Type};
 use crate::math::Vec3;
@@ -31,7 +29,7 @@ use crate::protocol::packet::{Packet, PlayerAuthInput};
 use crate::save::{Loaded, PlayerLoad, Request, Response};
 use crate::world::{BlockPos, Chunk, Flat};
 
-/// The phases of [`phased_step`], in order; "output" also holds the delivery and the boundary.
+/// The names of the [`Part`]s, in order; "output" also holds the delivery and the boundary.
 const PHASES: [&str; 10] = [
     "input", "survival", "interact", "update", "entity", "trade", "blockent", "light", "view",
     "output",
@@ -43,113 +41,10 @@ const WALK: f64 = 0.215;
 /// The feet height on the flat world.
 const FEET: f64 = -60.0;
 
-/// [`step`] with a clock between its parts: adds each part's time to `phases` (in [`PHASES`]
-/// order).
-#[expect(
-    clippy::disallowed_methods,
-    reason = "consistency: a measurement reads the wall clock"
-)]
-fn phased_step(
-    state: &mut State,
-    inputs: &mut Vec<Input>,
-    responses: &mut Vec<Response>,
-    pool: &Pool,
-    output: &mut Output,
-    log: &mut InputLog,
-    phases: &mut [Duration; PHASES.len()],
-) {
-    let mut lap = Instant::now();
-    let mut mark = |phase: usize| {
-        let now = Instant::now();
-        if let Some(p) = phases.get_mut(phase) {
-            *p += now - lap;
-        }
-        lap = now;
-    };
-    log.begin(state.tick);
-    for response in responses.drain(..) {
-        respond(state, response, output, log);
-    }
-    let mut deferred_runs = 0;
-    inputs.sort_unstable_by_key(|i| (i.session, i.seq));
-    for input in inputs.drain(..) {
-        let (session, seq) = (input.session, input.seq);
-        match input.kind {
-            InputKind::Join { identity, outbound } => {
-                log.record(
-                    session,
-                    seq,
-                    EntryKind::Join(identity.clone()),
-                    identity.skin.size(),
-                );
-                if let Some(request) = spawn::join(state, session, identity, outbound, output) {
-                    output.requests.push(request);
-                }
-            }
-            InputKind::Packet { packet, size } => {
-                if let Some(packet) = hook::receive(state, session, &packet) {
-                    super::super::apply_packet(state, session, &packet);
-                }
-                dispatch::run_deferred(state, &mut deferred_runs);
-                log.record(session, seq, EntryKind::Packet(packet), size);
-            }
-            InputKind::Leave => {
-                log.record(session, seq, EntryKind::Leave, 0);
-                player::quit(state, session, "client disconnect", String::new());
-                state.leave(session);
-            }
-            InputKind::Console(line) => {
-                command::console(state, &line);
-                dispatch::run_deferred(state, &mut deferred_runs);
-                let size = line.len();
-                log.record(session, seq, EntryKind::Console(line), size);
-            }
-            InputKind::Job(outcome) => {
-                super::super::task::finish(state, seq, &outcome);
-                dispatch::run_deferred(state, &mut deferred_runs);
-                let size = outcome.as_ref().map_or(0, Vec::len);
-                log.record(session, seq, EntryKind::Job(outcome), size);
-            }
-        }
-    }
-    Tasks::run(state);
-    dispatch::run_deferred(state, &mut deferred_runs);
-    mark(0);
-    survival::tick(state);
-    mark(1);
-    interact::tick(state);
-    mark(2);
-    update::tick(state, pool);
-    mark(3);
-    entity::tick(state, pool);
-    mark(4);
-    trade::tick(state);
-    mark(5);
-    block_entity::tick(state);
-    mark(6);
-    for world in &mut state.worlds {
-        world.step_light(super::super::LIGHT_BUDGET);
-    }
-    mark(7);
-    dispatch::run_deferred(state, &mut deferred_runs);
-    command::sync(state);
-    player::sync(state, output);
-    drop_overflowed(state, output);
-    if let Some(request) = view::update(state) {
-        output.requests.push(request);
-    }
-    dispatch::run_deferred(state, &mut deferred_runs);
-    let changes = view::take_changes(&mut state.worlds);
-    mark(8);
-    output.packets = spawn::output(state, pool, &changes);
-    state.tick = state.tick.saturating_add(1);
-    mark(9);
-}
-
 /// The stand-in save thread of the measurements: chunks are generated and lit on the CPU pool
 /// (as `save::load_chunks` does), players are new, commits succeed.
 fn answer(state: &State, pool: &Pool, requests: Vec<Request>) -> Vec<Response> {
-    let lighting = state.settings.lighting;
+    let lighting = state.settings.lighting.is_calculated();
     let mut out = Vec::new();
     let mut chunks = Vec::new();
     for request in requests {
@@ -162,6 +57,7 @@ fn answer(state: &State, pool: &Pool, requests: Vec<Request>) -> Vec<Response> {
             Request::Commit(snapshot) => out.push(Response::Committed {
                 start: snapshot.start,
             }),
+            Request::Worlds(_) | Request::Finish => {}
         }
     }
     let seeds: Vec<i64> = state.worlds.iter().map(crate::world::World::seed).collect();
@@ -227,14 +123,22 @@ impl Bench {
         let mut answers = std::mem::take(&mut self.output.answers);
         let mut log = InputLog::default();
         let start = Instant::now();
-        phased_step(
+        let mut lap = start;
+        let phases = &mut self.phases;
+        step_marked(
             &mut self.state,
             &mut inputs,
             &mut answers,
             &self.pool,
             &mut self.output,
             &mut log,
-            &mut self.phases,
+            |part: Part| {
+                let now = Instant::now();
+                if let Some(p) = phases.get_mut(part as usize) {
+                    *p += now - lap;
+                }
+                lap = now;
+            },
         );
         let delivered = Instant::now();
         deliver(&mut self.state, &mut self.output, &mut log);
@@ -472,7 +376,13 @@ fn crops(run: Run) {
 /// a light source that also shades the sky light below), and the ticks after it until the light
 /// work is done (at least 100).
 fn burst(lighting: bool, run: Run) {
-    let mut b = Bench::new((run.listeners)(), |c| c.developer.lighting = lighting);
+    let mut b = Bench::new((run.listeners)(), |c| {
+        c.developer.lighting = if lighting {
+            Lighting::Dynamic
+        } else {
+            Lighting::Fixed
+        };
+    });
     b.join(1);
     b.settle(20);
     b.reset();
@@ -560,72 +470,4 @@ fn tick_costs() {
             burst(lighting, run);
         }
     }
-}
-
-/// The measured step does what the tick's step does: the same state and packets every tick,
-/// without and with listeners.
-#[test]
-fn the_phased_step_is_the_step() {
-    phased_like_step(Listeners::default);
-    phased_like_step(super::busy::idle);
-}
-
-/// [`the_phased_step_is_the_step`] with `listeners`.
-fn phased_like_step(listeners: fn() -> Listeners) {
-    let pool = crate::runtime::cpu_pool(2).expect("CPU pool");
-    let new = || new_state(settings(|_| {}), listeners());
-    let (mut a, mut b) = (new(), new());
-    let (mut out_a, mut out_b) = (Output::default(), Output::default());
-    let mut phases = [Duration::ZERO; PHASES.len()];
-    let (j1, mut rx_a) = join(1, 0);
-    let (j2, mut rx_b) = join(1, 0);
-    let script = |t: u64| -> Vec<Input> {
-        match t {
-            1 => vec![radius(1, 1, 4)],
-            2 => vec![initialised(1, 2, 1)],
-            3..=8 => vec![walked(
-                1,
-                t,
-                Vec3::new(
-                    0.5 + 0.2 * f64::from(u32::try_from(t).expect("small")),
-                    FEET + survival::EYE_HEIGHT,
-                    0.5,
-                ),
-            )],
-            _ => Vec::new(),
-        }
-    };
-    for t in 0..12u64 {
-        let (mut ia, mut ib) = (script(t), script(t));
-        if t == 0 {
-            ia.push(j1.clone());
-            ib.push(j2.clone());
-        }
-        let (mut log_a, mut log_b) = (InputLog::default(), InputLog::default());
-        let mut answers = std::mem::take(&mut out_a.answers);
-        step(&mut a, &mut ia, &mut answers, &pool, &mut out_a, &mut log_a);
-        deliver(&mut a, &mut out_a, &mut log_a);
-        let mut answers = std::mem::take(&mut out_b.answers);
-        phased_step(
-            &mut b,
-            &mut ib,
-            &mut answers,
-            &pool,
-            &mut out_b,
-            &mut log_b,
-            &mut phases,
-        );
-        deliver(&mut b, &mut out_b, &mut log_b);
-        assert_eq!(a.hash(), b.hash(), "tick {t}");
-        let requests = std::mem::take(&mut out_a.requests);
-        out_a.answers = answer(&a, &pool, requests);
-        let requests = std::mem::take(&mut out_b.requests);
-        out_b.answers = answer(&b, &pool, requests);
-        assert_eq!(received(&mut rx_a), received(&mut rx_b), "tick {t}");
-    }
-    assert_eq!(
-        a.players.values().map(|p| p.phase).collect::<Vec<_>>(),
-        [Phase::Spawned]
-    );
-    pool.shutdown();
 }

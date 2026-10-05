@@ -10,6 +10,32 @@ use super::items::effect_instance;
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/effect/table.rs";
 
+/// BDS's colours (RGB) of the effects whose splash potions it shows, where they differ from
+/// PMMP's older ones (P6 `potions`, `xtask/data/p6/m9-facts.md`: the splash `LevelEvent` colours;
+/// resistance from the turtle master's mixes). The client draws potions and particles in them.
+const BDS_COLOURS: [(&str, [u8; 3]); 12] = [
+    ("fire_resistance", [0xff, 0x99, 0x00]),
+    ("instant_damage", [0xa9, 0x65, 0x6a]),
+    ("invisibility", [0xf6, 0xf6, 0xf6]),
+    ("jump_boost", [0xfd, 0xff, 0x84]),
+    ("night_vision", [0xc2, 0xff, 0x66]),
+    ("poison", [0x87, 0xa3, 0x63]),
+    ("resistance", [0x91, 0x46, 0xf0]),
+    ("slowness", [0x8b, 0xaf, 0xe0]),
+    ("speed", [0x33, 0xeb, 0xff]),
+    ("strength", [0xff, 0xc7, 0x00]),
+    ("water_breathing", [0x98, 0xda, 0xc0]),
+    ("wither", [0x73, 0x61, 0x56]),
+];
+
+/// An effect's colour (RGBA): BDS's where [`BDS_COLOURS`] has it, PMMP's otherwise.
+fn colour(name: &str, pmmp: [u8; 4]) -> [u8; 4] {
+    BDS_COLOURS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map_or(pmmp, |(_, [r, g, b])| [*r, *g, *b, pmmp[3]])
+}
+
 /// Generates the file text (unformatted).
 pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let effects = &data.tables.effects;
@@ -46,16 +72,23 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
          duration, bubbles).\npub(super) static DATA: [Data; {}] = [",
         effects.len()
     );
+    if let Some((name, _)) = BDS_COLOURS
+        .iter()
+        .find(|(n, _)| !effects.iter().any(|e| e.name == *n))
+    {
+        return Err(format!("BDS_COLOURS names {name}, which is not an effect"));
+    }
     for e in effects {
+        let [r, g, b, a] = colour(&e.name, [e.colour.r, e.colour.g, e.colour.b, e.colour.a]);
         put!(
             out,
             "Data::new({}, {}, [{}, {}, {}, {}], {}, {}, {}, {}),",
             e.id,
             str_lit(&e.text),
-            e.colour.r,
-            e.colour.g,
-            e.colour.b,
-            e.colour.a,
+            r,
+            g,
+            b,
+            a,
             e.bad,
             e.instant,
             int_lit(i64::from(e.default_duration)),
@@ -145,4 +178,21 @@ fn potion_types(out: &mut String, data: &Data) -> Result<(), String> {
          POTION_EFFECTS: [Instance; {count}] = [{instances}];\n"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bds_colours_replace_pmmps() {
+        assert_eq!(
+            colour("night_vision", [31, 31, 161, 255]),
+            [0xc2, 0xff, 0x66, 255]
+        );
+        assert_eq!(
+            colour("regeneration", [205, 92, 171, 255]),
+            [205, 92, 171, 255]
+        );
+    }
 }

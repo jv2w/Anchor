@@ -10,7 +10,7 @@
 //! back, which [`Console::settle`] prints after each scenario.
 //!
 //! Where Anchor has no counterpart, the command is accepted with a note: villager NPCs have no AI
-//! (`effect` on them changes nothing), Anchor spawns no mobs and has no weather
+//! (`effect` on them changes nothing), Anchor spawns no mobs and its weather has no cycle
 //! (`domobspawning`, `doweathercycle`), and its clock has no stop (`dodaylightcycle`).
 
 use std::collections::VecDeque;
@@ -72,6 +72,10 @@ pub(super) enum Command {
     },
     /// `kill @e[type=!player]`: the villagers this console summoned.
     KillNonPlayers,
+    /// `kill <player>`: [`anchor::player::Player::kill`].
+    Kill(String),
+    /// `summon ender_crystal <x> <y> <z>`: [`Context::spawn_end_crystal`].
+    EndCrystal { pos: Vec3 },
     /// `gamerule randomtickspeed <n>`.
     RandomTickSpeed(u32),
     /// `op <player>`: [`Context::op`].
@@ -86,6 +90,11 @@ pub(super) enum Command {
         projectile: anchor::entity::Projectile,
         pos: Vec3,
     },
+    /// `weather clear|rain|thunder`: [`Context::set_weather`] in the default world.
+    Weather(world::Weather),
+    /// `summon lightning_bolt <x> <y> <z>` (whole coordinates, the bolt at the middle of the
+    /// block's floor as BDS puts it): [`Context::strike_lightning`] with BDS's damage and fire.
+    Lightning { pos: Vec3 },
     /// A command Anchor has no counterpart for; the text says why it is fine.
     Accepted(&'static str),
 }
@@ -242,21 +251,10 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             player: (*player).to_owned(),
             feet: Vec3::new(number(x)?, number(y)?, number(z)?),
         }),
-        ["give", player, item, rest @ ..] => {
-            let count = match rest {
-                [] => 1,
-                [count] => count
-                    .parse::<u32>()
-                    .ok()
-                    .filter(|c| (1..=MAX_GIVE).contains(c))
-                    .ok_or_else(|| format!("bad count {count:?}"))?,
-                _ => return Err("give takes a player, an item and a count".to_owned()),
-            };
-            Ok(Command::Give {
-                player: (*player).to_owned(),
-                stacks: stacks(item_type(item)?, count),
-            })
-        }
+        ["give", _, "wind_charge", ..] => Ok(Command::Accepted(
+            "PMMP has no wind charge: the numbers scenario records BDS's only",
+        )),
+        ["give", player, item, rest @ ..] => give(player, item, rest),
         ["xp", amount, player] => Ok(Command::Experience {
             player: (*player).to_owned(),
             points: experience(amount)?,
@@ -319,14 +317,42 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
                 .map(Command::RandomTickSpeed)
                 .map_err(|_| format!("bad random tick speed {speed:?}")),
             ("domobspawning", "false") => Ok(Command::Accepted("Anchor spawns no mobs")),
-            ("doweathercycle", "false") => Ok(Command::Accepted("Anchor has no weather")),
+            ("doweathercycle", "false") => Ok(Command::Accepted("Anchor's weather has no cycle")),
             ("dodaylightcycle", "false") => Ok(Command::Accepted(
                 "Anchor's clock has no stop (no API until M8); it keeps running",
+            )),
+            ("falldamage" | "drowningdamage", "false" | "true") => Ok(Command::Accepted(
+                "Anchor takes these rules from its settings (fall-damage, drowning), not a command",
             )),
             _ => Err(format!("game rule {rule} {value} is not supported")),
         },
         _ => parse_api(&words),
     }
+}
+
+/// `give <player> <item> [count] [data value]`.
+fn give(player: &str, item: &str, rest: &[&str]) -> Result<Command, String> {
+    let parse_count = |count: &str| {
+        count
+            .parse::<u32>()
+            .ok()
+            .filter(|c| (1..=MAX_GIVE).contains(c))
+            .ok_or_else(|| format!("bad count {count:?}"))
+    };
+    let (count, meta) = match rest {
+        [] => (1, 0),
+        [count] => (parse_count(count)?, 0),
+        [count, meta] => (
+            parse_count(count)?,
+            meta.parse::<u16>()
+                .map_err(|_| format!("bad data value {meta:?}"))?,
+        ),
+        _ => return Err("give takes a player, an item, a count and a data value".to_owned()),
+    };
+    Ok(Command::Give {
+        player: player.to_owned(),
+        stacks: stacks(item_type_with(item, meta)?, count),
+    })
 }
 
 /// Parses a console command of the API scenarios (`p6 api`).
@@ -342,6 +368,16 @@ fn parse_api(words: &[&str]) -> Result<Command, String> {
             .and_then(|kind| FORM_KINDS.iter().find(|k| **k == kind))
             .map(|kind| Command::Form(kind))
             .ok_or_else(|| format!("no P6 form {id}")),
+        ["kill", player] if !player.starts_with('@') => Ok(Command::Kill((*player).to_owned())),
+        [
+            "summon",
+            "ender_crystal" | "minecraft:ender_crystal",
+            x,
+            y,
+            z,
+        ] => Ok(Command::EndCrystal {
+            pos: Vec3::new(number(x)?, number(y)?, number(z)?),
+        }),
         ["summon", entity @ ("snowball" | "egg"), x, y, z] => Ok(Command::Projectile {
             projectile: if *entity == "egg" {
                 anchor::entity::Projectile::Egg
@@ -350,6 +386,28 @@ fn parse_api(words: &[&str]) -> Result<Command, String> {
             },
             pos: Vec3::new(number(x)?, number(y)?, number(z)?),
         }),
+        ["weather", weather] => match *weather {
+            "clear" => Ok(Command::Weather(world::Weather::Clear)),
+            "rain" => Ok(Command::Weather(world::Weather::Rain)),
+            "thunder" => Ok(Command::Weather(world::Weather::Thunder)),
+            _ => Err(format!("no weather {weather}")),
+        },
+        [
+            "summon",
+            "lightning_bolt" | "minecraft:lightning_bolt",
+            x,
+            y,
+            z,
+        ] => {
+            let at = block_pos(x, y, z)?;
+            Ok(Command::Lightning {
+                pos: Vec3::new(
+                    f64::from(at.x) + 0.5,
+                    f64::from(at.y),
+                    f64::from(at.z) + 0.5,
+                ),
+            })
+        }
         _ => Err("not a command the P6 console knows".to_owned()),
     }
 }
@@ -385,8 +443,13 @@ fn block_spec(words: &[&str]) -> Result<State, String> {
 
 /// The item type of a `give` name: an item, else the item of the block's default state.
 fn item_type(name: &str) -> Result<Type, String> {
+    item_type_with(name, 0)
+}
+
+/// [`item_type`] with a data value (the item's meta: a potion's type).
+fn item_type_with(name: &str, meta: u16) -> Result<Type, String> {
     let full = format!("minecraft:{name}");
-    Type::from_name(&full, 0, None, &Compound::new())
+    Type::from_name(&full, meta, None, &Compound::new())
         .or_else(|| {
             let state = super::super::step_state(name).ok()?;
             match state.item() {
@@ -555,9 +618,14 @@ fn execute(
             }
         }
         Command::Accepted(note) => Outcome::Done(Some((*note).to_owned())),
-        Command::Op(_) | Command::Kick { .. } | Command::Form(_) | Command::Projectile { .. } => {
-            execute_api(ctx, command, answers)
-        }
+        Command::Op(_)
+        | Command::Kick { .. }
+        | Command::Form(_)
+        | Command::Projectile { .. }
+        | Command::Kill(_)
+        | Command::EndCrystal { .. }
+        | Command::Weather(_)
+        | Command::Lightning { .. } => execute_api(ctx, command, answers),
     }
 }
 
@@ -592,11 +660,41 @@ fn execute_api(ctx: &mut Context<'_>, command: &Command, answers: &SyncSender<St
             }
             Outcome::Done(None)
         }
+        Command::Kill(player) => {
+            let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
+                return Outcome::Wait(format!("{player} has not joined"));
+            };
+            if p.kill() {
+                Outcome::Done(None)
+            } else {
+                Outcome::Failed(format!("{player} is already dead"))
+            }
+        }
+        Command::EndCrystal { pos } => match ctx.spawn_end_crystal(world::Id::DEFAULT, *pos) {
+            Some(_) => Outcome::Done(None),
+            None => Outcome::Failed("no end crystal was spawned".to_owned()),
+        },
         Command::Projectile { projectile, pos } => {
             match ctx.spawn_projectile(world::Id::DEFAULT, *pos, *projectile, Vec3::ZERO) {
                 Some(_) => Outcome::Done(None),
                 None => Outcome::Failed("no projectile was spawned".to_owned()),
             }
+        }
+        Command::Weather(weather) => done(
+            ctx.set_weather(world::Id::DEFAULT, *weather)
+                .then_some(())
+                .ok_or_else(|| "the default world is not loaded".to_owned()),
+        ),
+        Command::Lightning { pos } => {
+            let bds = world::Lightning {
+                damage: true,
+                fire: true,
+            };
+            done(
+                ctx.strike_lightning(world::Id::DEFAULT, *pos, bds)
+                    .then_some(())
+                    .ok_or_else(|| "no bolt was struck".to_owned()),
+            )
         }
         _ => Outcome::Failed("not a command of the API scenarios".to_owned()),
     }
@@ -662,6 +760,9 @@ mod tests {
     const SCENARIO_COMMANDS: &[&str] = &[
         "tp P6Craft -11.5 -60 -11.5",
         "give P6Craft oak_log 4",
+        "fill -14 -60 -18 -10 -57 -14 glass",
+        "fill -13 -60 -17 -11 -58 -15 water",
+        "tp P6Craft -11.5 -60 -15.5",
         "tp P6Furnace -11.5 -60 -3.5",
         r#"setblock -10 -60 -4 furnace ["minecraft:cardinal_direction"="west"]"#,
         "give P6Furnace coal 1",
@@ -746,6 +847,16 @@ mod tests {
             parse("summon villager -9.5 -60 20.5 0 0 minecraft:spawn_farmer P6Farmer"),
             Ok(Command::Villager { .. })
         ));
+        assert_eq!(
+            parse("weather thunder"),
+            Ok(Command::Weather(world::Weather::Thunder))
+        );
+        assert_eq!(
+            parse("summon lightning_bolt 4 -60 -20"),
+            Ok(Command::Lightning {
+                pos: Vec3::new(4.5, -60.0, -19.5)
+            })
+        );
     }
 
     #[test]
@@ -767,6 +878,8 @@ mod tests {
             "gamerule pvp false",
             "gamerule randomtickspeed fast",
             "effect P6Craft no_such_effect",
+            "weather snow",
+            "summon lightning_bolt 4.5 -60 -20",
         ] {
             assert!(parse(line).is_err(), "{line}");
         }

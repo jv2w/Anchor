@@ -3,7 +3,7 @@
 //! assertion in a client offer.
 
 use std::fmt;
-use std::io::{self, Read as _, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,7 @@ use crate::crypto::{
     self, Algorithm, PublicKey, STD, ServerKey, parse_jws, sign_detached, sign_jwt_bytes,
     verify_detached,
 };
+use crate::fs::{self, Access};
 use crate::login::{self, MAX_TOKEN_PAYLOAD, Mode, NumericDate, check_times, verify_online_token};
 
 /// Largest key file read. A P-384 PKCS#8 document is under 200 bytes.
@@ -127,7 +128,11 @@ impl ServerIdentity {
         } else {
             let key = ServerKey::generate().map_err(|e| Error::Sign("server key", e))?;
             let der = key.to_pkcs8().map_err(|e| Error::Sign("server key", e))?;
-            write_key_file(path, &der)?;
+            // On Unix only the owner may read it.
+            fs::write_atomic(path, &der, Access::OwnerOnly).map_err(|source| Error::Io {
+                path: path.to_owned(),
+                source,
+            })?;
             key
         };
         Self::new(key)
@@ -288,60 +293,18 @@ fn fingerprint_payload(algorithm: &str, digest: &str) -> Result<String> {
 }
 
 /// Reads at most [`MAX_KEY_FILE`] bytes of the key file; `None` when it does not exist.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: read once on the blocking pool before the server starts"
-)]
 fn read_key_file(path: &Path) -> Result<Option<Vec<u8>>> {
-    let io_error = |source| Error::Io {
-        path: path.to_owned(),
-        source,
-    };
-    let file = match std::fs::File::open(path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(io_error(e)),
-    };
-    let mut bytes = Vec::new();
-    file.take(MAX_KEY_FILE + 1)
-        .read_to_end(&mut bytes)
-        .map_err(io_error)?;
-    if !u64::try_from(bytes.len()).is_ok_and(|len| len <= MAX_KEY_FILE) {
-        return Err(Error::KeyFileTooLarge {
+    match fs::read_bounded(path, MAX_KEY_FILE) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) if e.kind() == io::ErrorKind::FileTooLarge => Err(Error::KeyFileTooLarge {
             path: path.to_owned(),
-        });
+        }),
+        Err(source) => Err(Error::Io {
+            path: path.to_owned(),
+            source,
+        }),
     }
-    Ok(Some(bytes))
-}
-
-/// Writes a new key through `<path>.tmp` in the same folder (synced, then renamed over `path`),
-/// so a crash leaves no key file or a whole one. On Unix only the owner may read it.
-#[expect(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "off-tick: written once on the blocking pool before the server starts"
-)]
-fn write_key_file(path: &Path, der: &[u8]) -> Result<()> {
-    let io_error = |source| Error::Io {
-        path: path.to_owned(),
-        source,
-    };
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(io_error)?;
-    }
-    let mut temp = path.as_os_str().to_owned();
-    temp.push(".tmp");
-    let temp = PathBuf::from(temp);
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&temp).map_err(io_error)?;
-    file.write_all(der).map_err(io_error)?;
-    file.sync_all().map_err(io_error)?;
-    // Windows cannot rename a file that is still open.
-    drop(file);
-    std::fs::rename(&temp, path).map_err(io_error)
 }
 
 #[cfg(test)]
@@ -372,11 +335,12 @@ mod tests {
             let dir =
                 std::env::temp_dir().join(format!("anchor-identity-{name}-{}", std::process::id()));
             std::fs::remove_dir_all(&dir).unwrap_or(());
+            // The server makes the data folder before it loads the key.
+            std::fs::create_dir_all(dir.join("data")).unwrap();
             Self(dir)
         }
 
         fn write(&self, bytes: &[u8]) {
-            std::fs::create_dir_all(self.key().parent().unwrap()).unwrap();
             std::fs::write(self.key(), bytes).unwrap();
         }
 

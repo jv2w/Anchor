@@ -39,14 +39,14 @@ impl Conditions {
     };
 }
 
-/// The seconds `state` takes to break with `tool` ([`State::break_time`]: PMMP
+/// The seconds `state` takes to break with `tool` ([`State::break_time_secs`]: PMMP
 /// `BlockBreakInfo::getBreakTime` with the leaf, bamboo and wool exceptions); `None` for a block
 /// that cannot be broken.
 fn break_time(state: State, tool: &Stack) -> Option<f64> {
     if !state.break_info().is_breakable() {
         return None;
     }
-    state.break_time(tool)
+    state.break_time_secs(tool)
 }
 
 /// `base` to the power `n` by repeated multiplication (std's `powi` is not deterministic).
@@ -85,7 +85,7 @@ pub(super) fn progress_per_tick(state: State, tool: &Stack, conditions: Conditio
 /// `1 / (level + 1)` chance it counts; armour only 40% of the time at best); a tool worn to its
 /// durability breaks (the stack loses one item). The stack unchanged for items without
 /// durability, unbreakable items and broken ones.
-pub(super) fn damage(tool: &Stack, amount: u32, rng: &mut Random) -> Stack {
+pub(in crate::tick) fn damage(tool: &Stack, amount: u32, rng: &mut Random) -> Stack {
     let Some(item) = tool.item() else {
         return tool.clone();
     };
@@ -100,6 +100,8 @@ pub(super) fn damage(tool: &Stack, amount: u32, rng: &mut Random) -> Stack {
     }
     let unbreaking = level(tool, Enchantment::Unbreaking);
     let armor = item.is(item::Class::Armor);
+    // More than the whole durability breaks it all the same: no more draws.
+    let amount = amount.min(u32::from(max));
     let mut taken = amount;
     if unbreaking > 0 {
         let chance = 1.0 / f64::from(unbreaking + 1);
@@ -136,7 +138,7 @@ mod tests {
             enchantments: vec![(e, level)],
             ..Extra::default()
         };
-        tool(kind).with_extra(Some(extra))
+        tool(kind).with_extra(Some(extra)).unwrap()
     }
 
     fn seconds(block: Kind, with: &Stack) -> f64 {

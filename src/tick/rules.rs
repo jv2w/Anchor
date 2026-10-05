@@ -43,8 +43,15 @@ impl Rules {
             entities,
             updates,
         } = self;
-        let vanilla = Registry::default();
-        let custom = world.custom().unwrap_or(&vanilla);
+        // Built only for such a world: a registry builds the vanilla creative inventory, which
+        // on every chunk load made a walking player's chunk loads cost milliseconds.
+        let vanilla;
+        let custom = if let Some(custom) = world.custom() {
+            custom
+        } else {
+            vanilla = Registry::default();
+            &vanilla
+        };
         block_entities.load(key, extras.get(ChunkKind::BlockEntities), world, custom);
         entities.load(key, extras.get(ChunkKind::Entities), custom);
         updates.load(key, extras.get(ChunkKind::ScheduledUpdates));
@@ -90,6 +97,31 @@ impl Rules {
                 }
             }
         }
+    }
+
+    /// Writes every module's typed state.
+    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
+        use super::checkpoint::Codec;
+        let Self {
+            block_entities,
+            entities,
+            updates,
+        } = self;
+        block_entities.encode(w);
+        entities.checkpoint(w);
+        updates.encode(w);
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote; the custom entity types stay.
+    pub(super) fn restore(
+        &mut self,
+        r: &mut super::checkpoint::Reader<'_>,
+    ) -> super::checkpoint::Result<()> {
+        use super::checkpoint::Codec;
+        self.block_entities = Codec::decode(r)?;
+        self.entities.restore(r)?;
+        self.updates = Codec::decode(r)?;
+        Ok(())
     }
 
     #[cfg(test)]

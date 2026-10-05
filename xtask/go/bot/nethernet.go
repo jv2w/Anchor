@@ -42,12 +42,12 @@ func signalingClient() *http.Client {
 	}
 }
 
-// dialNetherNet pings /v1/join over https, then http, on -addr and dials the first that answers with
+// dialNetherNet pings /v1/join over https, then http, on -signaling-addr and dials the first that answers with
 // go-nethernet's Dialer, recording each ping ("join"), the offer and answer ("sdp") and the server
 // identity ("identity").
 func dialNetherNet(ctx context.Context, c config, key *ecdsa.PrivateKey, token string, out *output, res *result) (*nethernet.Conn, error) {
 	client := signalingClient()
-	base, err := pingJoin(ctx, client, c.addr, out, res)
+	base, err := pingJoin(ctx, client, c.signalingAddr, out, res)
 	if err != nil {
 		return nil, err
 	}

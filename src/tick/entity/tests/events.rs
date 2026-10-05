@@ -267,7 +267,7 @@ fn a_cancelled_item_despawn_gives_the_whole_time_again() {
             0 => e.cancel(),
             1 => {
                 let mut item = cx.entity_mut(e.entity()).unwrap();
-                assert!(item.set_despawn_delay(100));
+                assert!(item.set_despawn_delay_ticks(100));
             }
             _ => {}
         },
@@ -297,7 +297,7 @@ fn a_cancelled_item_despawn_gives_the_whole_time_again() {
             .rules
             .entities
             .get(id)
-            .and_then(Entity::despawn_delay)
+            .and_then(Entity::despawn_delay_ticks)
     };
     delay(&mut h, 1);
     h.entities();
@@ -333,7 +333,11 @@ fn item_merges_ask_their_listeners_and_a_changed_target_stops_them() {
             match mode(sw) {
                 0 => e.cancel(),
                 1 => {
-                    assert!(cx.entity_mut(e.target()).unwrap().set_pickup_delay(-1));
+                    assert!(
+                        cx.entity_mut(e.target())
+                            .unwrap()
+                            .set_pickup_delay_ticks(-1)
+                    );
                 }
                 _ => {}
             }
@@ -498,7 +502,7 @@ fn listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items(
             match roll {
                 0 => e.cancel(),
                 1 => {
-                    cx.entity_mut(e.target()).unwrap().set_pickup_delay(5);
+                    cx.entity_mut(e.target()).unwrap().set_pickup_delay_ticks(5);
                 }
                 _ => {}
             }
@@ -624,6 +628,8 @@ fn a_dying_npc_drops_what_its_death_listeners_give_it() {
     with(&mut h.state, npc, |e| e.health = 0.5);
     hit(&mut h, npc);
     assert!(npc::is_dying(&h.state, npc));
+    assert_eq!(h.ground(), 0, "the drops come at its next tick");
+    h.entities();
     assert_eq!(h.ground(), 5);
     let xp: u16 = h
         .live()

@@ -1776,7 +1776,9 @@ impl Rtc {
                 }
                 SctpEvent::Data { id, binary, data } => {
                     let Some(id) = self.chan.channel_id_by_stream_id(id) else {
-                        warn!("Drop ChannelData event for id: {:?}", id);
+                        // Anchor copy: the remote paces these, so a warn would let it flood
+                        // the log.
+                        debug!("Drop ChannelData event for id: {:?}", id);
                         continue;
                     };
                     let cd = ChannelData { id, binary, data };

@@ -51,7 +51,6 @@ use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, Value};
 use crate::player;
-use crate::pool::Pool;
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos, ChunkPos, Entry, MAX_Y, MIN_Y, SUB_CHUNKS, World};
@@ -128,9 +127,10 @@ pub(super) enum Effect {
 }
 
 impl Updates {
-    /// A chunk's saved list arrived ([`super::rules`]): its scheduled updates are pending again,
-    /// in their saved order. Entries outside the chunk or the world height, or that repeat a
-    /// position, are left out; the list counts as unchanged until an update of the chunk changes.
+    /// A chunk's saved list arrived ([`mod@super::rules`]): its scheduled updates are pending
+    /// again, in their saved order. Entries outside the chunk or the world height, or that repeat
+    /// a position, are left out; the list counts as unchanged until an update of the chunk
+    /// changes.
     pub(super) fn load(&mut self, key: Key, list: &[Compound]) {
         self.loaded.insert(key);
         let (world, chunk) = key;
@@ -327,6 +327,47 @@ fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
     }
 }
 
+super::checkpoint::fields!(Neighbours { fifo, queued });
+
+/// Every field but the test-only record of what the rules asked other modules for.
+impl super::checkpoint::Codec for Updates {
+    fn encode(&self, w: &mut super::checkpoint::Writer) {
+        let Self {
+            queue,
+            pending,
+            loaded,
+            changed,
+            next_seq,
+            neighbours,
+            draws,
+            #[cfg(test)]
+                effects: _,
+        } = self;
+        queue.encode(w);
+        pending.encode(w);
+        loaded.encode(w);
+        changed.encode(w);
+        next_seq.encode(w);
+        neighbours.encode(w);
+        draws.encode(w);
+    }
+
+    fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::Codec;
+        Ok(Self {
+            queue: Codec::decode(r)?,
+            pending: Codec::decode(r)?,
+            loaded: Codec::decode(r)?,
+            changed: Codec::decode(r)?,
+            next_seq: Codec::decode(r)?,
+            neighbours: Codec::decode(r)?,
+            draws: Codec::decode(r)?,
+            #[cfg(test)]
+            effects: Vec::new(),
+        })
+    }
+}
+
 /// A saved entry: its position and due tick, if well formed.
 fn parse(entry: &Compound) -> Option<(BlockPos, u64)> {
     let int = |key: &str| match entry.get(key)? {
@@ -454,9 +495,11 @@ pub(super) fn trample(
 /// they change blocks: random ticks of 20 players at `tick-radius` 4 (318 chunks of a flat world)
 /// cost about 76 µs a tick (release), less than handing the candidate positions to the CPU pool
 /// would save, and rules change the blocks later candidates read.
-pub(super) fn tick(state: &mut State, pool: &Pool) {
-    let _ = pool;
+pub(super) fn tick(state: &mut State) {
     for world in 0..state.worlds.len() {
+        if !state.is_awake(world) {
+            continue;
+        }
         run_scheduled(state, world);
         run_neighbours(state, world);
         run_random(state, world);
@@ -555,7 +598,7 @@ fn refill(state: &mut State, world: WorldIndex) {
 /// Random ticks of `world` (PLAN.md 6, PMMP `World::tickChunks`).
 fn run_random(state: &mut State, world: WorldIndex) {
     let speed = state.settings.random_tick_speed;
-    let radius = state.settings.tick_radius;
+    let radius = state.settings.view(world).tick_radius;
     if speed == 0 || radius == 0 {
         return;
     }
@@ -784,9 +827,7 @@ impl<'a> Cx<'a> {
     pub(super) fn fall(&mut self, pos: BlockPos, s: block::State) {
         #[cfg(test)]
         self.state.rules.updates.effects.push(Effect::Fell(pos, s));
-        if entity::fall(self.state, self.world, pos, s) {
-            self.set(pos, block::AIR);
-        }
+        let _fell = entity::fall(self.state, self.world, pos, s);
     }
 
     /// Drops an item at the block's corner plus `offset` (PMMP `dropItem`).
@@ -846,7 +887,7 @@ impl<'a> Cx<'a> {
     /// where not lit yet).
     pub(super) fn full_light(&self, pos: BlockPos) -> u8 {
         self.w()
-            .and_then(|w| w.full_light(pos, w.time()))
+            .and_then(|w| w.full_light(pos, w.time_ticks()))
             .unwrap_or(0)
     }
 
@@ -861,7 +902,7 @@ impl<'a> Cx<'a> {
 
     /// The difficulty as PMMP numbers it (peaceful 0 to hard 3).
     pub(super) fn difficulty(&self) -> u8 {
-        match self.state.settings.difficulty {
+        match super::world_api::difficulty(self.state, self.world) {
             Difficulty::Peaceful => 0,
             Difficulty::Easy => 1,
             Difficulty::Normal => 2,
@@ -893,6 +934,7 @@ mod tests {
     use super::*;
     use crate::block::PropertyValue;
     use crate::event::{BlockGrow, BlockSpread, FarmlandHydrationChange, Listeners, Priority};
+    use crate::pool::Pool;
     use crate::tick::Context;
     use crate::tick::InputLog;
     use crate::tick::queue::Input;
@@ -901,7 +943,7 @@ mod tests {
     /// the spawn area loaded, its chunks held by this module.
     fn server() -> State {
         new_state(
-            settings(|c| c.developer.lighting = false),
+            settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
             Listeners::default(),
         )
     }
@@ -911,8 +953,8 @@ mod tests {
     }
 
     /// One tick of block updates and nothing else.
-    fn advance(state: &mut State, pool: &Pool) {
-        tick(state, pool);
+    fn advance(state: &mut State) {
+        tick(state);
         state.tick += 1;
     }
 
@@ -1001,7 +1043,6 @@ mod tests {
 
     /// Runs a scene: `actions` set blocks at the start of their tick.
     fn run_scene(actions: &Actions, ticks: u64, mut hook: impl FnMut(&mut State, u64)) -> State {
-        let pool = pool();
         let mut state = server();
         for t in 0..ticks {
             for &(at, pos, s) in actions {
@@ -1010,7 +1051,7 @@ mod tests {
                 }
             }
             hook(&mut state, t);
-            advance(&mut state, &pool);
+            advance(&mut state);
         }
         state
     }
@@ -1076,7 +1117,6 @@ mod tests {
     // pmmp: World::scheduleDelayedBlockUpdate
     #[test]
     fn the_api_schedules_one_update_per_position_and_it_runs_when_due() {
-        let pool = pool();
         let mut state = server();
         let pos = BlockPos::new(2, -60, 2);
         let pressed = find(
@@ -1107,10 +1147,10 @@ mod tests {
         let (queue, pending, _) = state.rules.updates.len();
         assert_eq!((queue, pending), (1, 1));
         for _ in 0..3 {
-            advance(&mut state, &pool);
+            advance(&mut state);
         }
         assert_eq!(get(&state, pos), pressed, "not due yet");
-        advance(&mut state, &pool);
+        advance(&mut state);
         let released = props::with_flag(pressed, "button_pressed_bit", false).unwrap();
         assert_eq!(get(&state, pos), released);
         assert_eq!(state.rules.updates.len().0, 0);
@@ -1266,7 +1306,6 @@ mod tests {
 
     #[test]
     fn unloading_every_chunk_returns_the_tables_to_their_start() {
-        let pool = pool();
         let mut state = server();
         let start = state.rules.updates.loaded.len();
         for round in 0..3 {
@@ -1274,7 +1313,7 @@ mod tests {
                 set(&mut state, BlockPos::new(i * 3, -60, round * 5), water());
             }
             for _ in 0..12 {
-                advance(&mut state, &pool);
+                advance(&mut state);
             }
             assert!(!state.rules.updates.queue.is_empty());
             let keys: Vec<Key> = state.rules.updates.loaded.iter().copied().collect();
@@ -1290,7 +1329,7 @@ mod tests {
             assert_eq!(state.rules.updates.loaded.len(), start);
         }
         // A world feed left over by unloaded chunks drains in a tick.
-        advance(&mut state, &pool);
+        advance(&mut state);
         assert_eq!(state.worlds[0].changed_len(), 0);
         assert_eq!(state.rules.updates.len().2, 0);
     }
@@ -1299,7 +1338,6 @@ mod tests {
     /// neighbours (PMMP `RedstoneOre::onNearbyBlockChange`), over more than one tick's limit.
     #[test]
     fn neighbour_cascades_are_bounded_per_tick_and_complete() {
-        let pool = pool();
         let mut state = server();
         let ore = named("minecraft:redstone_ore");
         let lit = named("minecraft:lit_redstone_ore");
@@ -1321,7 +1359,7 @@ mod tests {
         let mut ticks = 0;
         let mut seen = Vec::new();
         while count(&state) < cube.len() {
-            advance(&mut state, &pool);
+            advance(&mut state);
             ticks += 1;
             seen.push(count(&state));
             assert!(ticks < 50, "the cascade never completes: {seen:?}");
@@ -1330,7 +1368,7 @@ mod tests {
         assert!(ticks > 1, "{seen:?}");
         assert!(seen.windows(2).all(|w| w[0] <= w[1]));
         for _ in 0..5 {
-            advance(&mut state, &pool);
+            advance(&mut state);
         }
         assert_eq!(state.rules.updates.len().2, 0);
         assert_eq!(state.worlds[0].changed_len(), 0);
@@ -1369,7 +1407,10 @@ mod tests {
     fn random_ticks_are_deterministic_and_grow_crops() {
         let run = |threads: usize, listeners: Listeners| {
             let pool = crate::runtime::cpu_pool(threads).unwrap();
-            let mut state = new_state(settings(|c| c.developer.lighting = false), listeners);
+            let mut state = new_state(
+                settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
+                listeners,
+            );
             let farmland = find(
                 "minecraft:farmland",
                 &[("moisturized_amount", PropertyValue::Int(7))],
@@ -1634,13 +1675,13 @@ mod tests {
         assert_eq!(b.len(), 2, "a blocked sapling does not grow: {b:?}");
         // Every kind PMMP grows fits in an open field.
         for kind in [
-            tree::Type::Spruce,
-            tree::Type::Birch,
-            tree::Type::Jungle,
-            tree::Type::Acacia,
-            tree::Type::Azalea,
-            tree::Type::Crimson,
-            tree::Type::Warped,
+            crate::world::TreeType::Spruce,
+            crate::world::TreeType::Birch,
+            crate::world::TreeType::Jungle,
+            crate::world::TreeType::Acacia,
+            crate::world::TreeType::Azalea,
+            crate::world::TreeType::Crimson,
+            crate::world::TreeType::Warped,
         ] {
             let mut state = server();
             let at = BlockPos::new(-20, -60, -20);
@@ -1653,7 +1694,6 @@ mod tests {
     /// out, never past the loaded chunks, and each change is in the box fire looks at.
     #[test]
     fn fire_spreads_within_bounds_and_burns_out() {
-        let pool = pool();
         let mut state = server();
         let planks = Kind::OakPlanks.default_state();
         // Loaded: chunks -4..=4, blocks -64..=79.
@@ -1679,7 +1719,7 @@ mod tests {
         let mut most = 0;
         let mut ticks = 0;
         while ticks < 20_000 {
-            advance(&mut state, &pool);
+            advance(&mut state);
             ticks += 1;
             for pos in state.worlds[0].take_changes().keys() {
                 assert!((39..=79).contains(&pos.x), "{pos:?}");
@@ -1700,7 +1740,6 @@ mod tests {
     /// takes its place, instead of the TNT burning away.
     #[test]
     fn fire_primes_the_tnt_it_burns() {
-        let pool = pool();
         let mut state = server();
         let stone = Kind::Stone.default_state();
         let tnt = Kind::Tnt.default_state();
@@ -1719,7 +1758,7 @@ mod tests {
         set(&mut state, fire, Kind::Fire.default_state());
         let mut primed = None;
         for _ in 0..20_000 {
-            advance(&mut state, &pool);
+            advance(&mut state);
             if let Some(&p) = around.iter().find(|p| get(&state, **p) != tnt) {
                 primed = Some(p);
                 break;
@@ -1745,7 +1784,6 @@ mod tests {
     /// sand falls, and nothing breaks next to a chunk that is not loaded.
     #[test]
     fn support_loss_breaks_and_falling_blocks_fall() {
-        let pool = pool();
         let mut state = server();
         let stone = Kind::Stone.default_state();
         // Bedrock "west" is PMMP's east facing: the torch hangs on the block to its west.
@@ -1765,7 +1803,7 @@ mod tests {
             BlockPos::new(5, -55, 5),
             named("minecraft:sand"),
         );
-        advance(&mut state, &pool);
+        advance(&mut state);
         let effects = std::mem::take(&mut state.rules.updates.effects);
         assert_eq!(
             effects,
@@ -1776,7 +1814,7 @@ mod tests {
         );
         set(&mut state, BlockPos::new(9, -59, 5), block::AIR);
         set(&mut state, BlockPos::new(3, -61, 3), stone);
-        advance(&mut state, &pool);
+        advance(&mut state);
         let effects = std::mem::take(&mut state.rules.updates.effects);
         assert!(
             effects.contains(&Effect::Destroyed(BlockPos::new(10, -59, 5))),
@@ -1793,7 +1831,7 @@ mod tests {
             &[("torch_facing_direction", PropertyValue::String("east"))],
         );
         set(&mut state, BlockPos::new(79, -59, 0), east);
-        advance(&mut state, &pool);
+        advance(&mut state);
         assert!(state.rules.updates.effects.is_empty());
     }
 
@@ -1865,7 +1903,10 @@ mod tests {
             } else {
                 Listeners::default()
             };
-            let mut state = new_state(settings(|c| c.developer.lighting = false), listeners);
+            let mut state = new_state(
+                settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
+                listeners,
+            );
             random_tick_cost(&mut state, &pool, wheat, listening);
             drop(growths);
         }
@@ -1882,7 +1923,7 @@ mod tests {
         let mut total = 0.0;
         for _ in 0..200 {
             let start = std::time::Instant::now();
-            advance(&mut state, &pool);
+            advance(&mut state);
             let took = start.elapsed().as_secs_f64() * 1e3;
             if took > worst {
                 worst = took;

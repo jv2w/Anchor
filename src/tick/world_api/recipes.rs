@@ -8,7 +8,7 @@
 //! recipes (at most 4,096) are looked at after PMMP's, one by one.
 
 use crate::Context;
-use crate::crafting::{self, FurnaceType, Recipe, ShapelessType};
+use crate::crafting::{FurnaceType, Recipe, ShapelessType};
 use crate::item;
 
 impl Context<'_> {
@@ -27,9 +27,8 @@ impl Context<'_> {
         };
         let first = grid.iter().find(|s| !s.is_empty())?.item()?;
         let custom = &self.state.custom;
-        let own = crafting::first_special_id()..custom.first_special_id();
-        crafting::crafting_candidates(first.name())
-            .chain(own)
+        custom
+            .crafting_candidates(first.name())
             .find_map(|id| {
                 let results = match custom.recipe(id)? {
                     Recipe::Shaped(r) if r.matches(grid, side) => r.results,
@@ -62,19 +61,15 @@ impl Context<'_> {
 
     /// What brewing `reagent` into the potion `input` makes, or `None` if no recipe takes them
     /// (PMMP `CraftingManager::matchBrewingRecipe`, then `BrewingRecipe::getResultFor`): a
-    /// container change (a potion into a splash potion) first, then a potion type change.
+    /// container change (a potion into a splash potion) first, then a potion type change; of
+    /// each, PMMP's recipes first, then the server's own.
     #[doc(alias = "CraftingManager::matchBrewingRecipe")]
-    #[expect(
-        clippy::unused_self,
-        reason = "consistency: the recipe lookups are the server's, beside the crafting and \
-                  furnace ones that read its own recipes"
-    )]
     pub fn brewing_result(
         &self,
         input: &item::Stack,
         reagent: &item::Stack,
     ) -> Option<item::Stack> {
-        crafting::brew(input, reagent)
+        self.state.custom.brew(input, reagent)
     }
 }
 

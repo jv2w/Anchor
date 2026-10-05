@@ -43,7 +43,7 @@ impl Reader<'_> {
             value: value.into(),
         };
         if variant > stack_request_action_variant(ACTION_LAST) {
-            return Err(unknown(variant, "stack request action variant"));
+            return Err(unknown(variant, "StackRequestAction variant"));
         }
         let skip = if variant >= ACTION_PLACE_IN_CONTAINER {
             2
@@ -51,9 +51,9 @@ impl Reader<'_> {
             0
         };
         let id = u8::try_from(variant + skip)
-            .map_err(|_| unknown(variant, "stack request action variant"))?;
+            .map_err(|_| unknown(variant, "StackRequestAction variant"))?;
         StackRequestAction::from_id(id)
-            .ok_or_else(|| unknown(id.into(), "stack request action type"))?
+            .ok_or_else(|| unknown(id.into(), "StackRequestAction ID"))?
             .decode_variant(self)
     }
 
@@ -62,7 +62,7 @@ impl Reader<'_> {
     pub(crate) fn event_type(&mut self) -> Result<Event> {
         let t = self.varint32()?;
         Event::from_id(t).ok_or(Error::UnknownEnum {
-            name: "event packet event type",
+            name: "Event type",
             value: t.into(),
         })
     }
@@ -72,7 +72,7 @@ impl Reader<'_> {
     pub(crate) fn event_ordinal(&mut self, x: &Event) -> Result<()> {
         if x.ordinal().is_none() {
             return Err(Error::UnknownEnum {
-                name: "event packet event ordinal",
+                name: "Event ordinal",
                 value: x.id().into(),
             });
         }
@@ -85,7 +85,7 @@ impl Reader<'_> {
     pub(crate) fn transaction_data_type(&mut self) -> Result<InventoryTransactionData> {
         let t = self.varuint32()?;
         InventoryTransactionData::from_id(t).ok_or(Error::UnknownEnum {
-            name: "inventory transaction data type",
+            name: "InventoryTransactionData type",
             value: t.into(),
         })
     }
@@ -95,7 +95,7 @@ impl Reader<'_> {
         let t = self.varuint32()?;
         ShapeData::from_id(t)
             .ok_or(Error::UnknownEnum {
-                name: "debug shape data type",
+                name: "ShapeData type",
                 value: t.into(),
             })?
             .decode_variant(self)
@@ -111,7 +111,7 @@ impl Reader<'_> {
         } else {
             if variant != u32::from(DESCRIPTOR_DEFAULT) {
                 return Err(Error::UnknownEnum {
-                    name: "item descriptor variant",
+                    name: "ItemDescriptor variant",
                     value: variant.into(),
                 });
             }
@@ -121,7 +121,7 @@ impl Reader<'_> {
                 .filter_map(ItemDescriptor::from_id)
                 .find(|d| d.type_name() == name)
                 .ok_or(Error::InvalidValue {
-                    field: "item descriptor type",
+                    field: "ItemDescriptor name",
                     reason: "unknown name",
                 })?
                 .decode_variant(self)?;
@@ -145,7 +145,7 @@ impl Reader<'_> {
             .ok()
             .and_then(ItemDescriptor::from_id)
             .ok_or(Error::UnknownEnum {
-                name: "stack request item descriptor type",
+                name: "ItemDescriptor ID",
                 value: variant.into(),
             })?
             .decode_variant(self)?;
@@ -201,7 +201,7 @@ impl Writer {
     /// `EventOrdinal`: fails for an event without an ordinal.
     pub(crate) fn event_ordinal(&mut self, x: &Event) -> Result<()> {
         let ordinal = x.ordinal().ok_or(Error::UnknownEnum {
-            name: "event packet event ordinal",
+            name: "Event ordinal",
             value: x.id().into(),
         })?;
         self.varuint32(ordinal);

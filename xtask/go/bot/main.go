@@ -4,12 +4,13 @@
 // carry a token from a test issuer.
 //
 //	bot -addr HOST:PORT -scenario SCENARIO -out FILE.jsonl [-transport raknet|nethernet|auto]
-//	    [-token-key key.pem -kid K -iss ISS] [-name N] [-timeout 30s] [-stay 2s] [-login-size BYTES]
+//	    [-signaling-addr HOST:PORT] [-token-key key.pem -kid K -iss ISS] [-name N] [-timeout 30s] [-stay 2s] [-login-size BYTES]
 //	    [-segment-size BYTES] [-first-send-delay D] [-script FILE]
 //	bot issuer -dir DIR -kid K -iss ISS
 //	bot cloudburst -world CAPTURE.world.jsonl -data DIR   (cloudburst.go)
 //
-// Transports (-addr is the RakNet port and the NetherNet signaling port):
+// Transports (-addr is the RakNet address; -signaling-addr is the NetherNet signaling address, -addr when not
+// given: a server started on port 0 binds its signaling TCP port apart from its RakNet UDP port):
 //
 //	raknet     go-raknet: 0xfe batch header, encryption after ServerToClientHandshake (the default)
 //	nethernet  GET /v1/join over https, then http; dial the first that answered with go-nethernet, whose
@@ -30,6 +31,8 @@
 //	kicked         spawn, then wait up to -stay for a Disconnect; pass only if its reason is
 //	               DisconnectReasonLoggedInOtherLocation
 //	rejected       pass if a Disconnect arrives before spawning
+//	stall          log in and never answer ResourcePacksInfo (the output is flushed when it arrives); pass if
+//	               the server ends the session with a Disconnect or a failed PlayStatus ("play_status")
 //	blocks         spawn, then stay until a block update sets minecraft:diamond_block anywhere (the end
 //	               marker; at most -stay); the caller changes blocks meanwhile (cargo xtask p6)
 //	bind-mismatch  nethernet only: the offer identity proves a second key, the Login the bot key; pass if
@@ -41,6 +44,13 @@
 //	               commands, a console kick and forms, on the game scenarios' machinery
 //	script         the actions of the -script file (api.go: chat, commands, expected texts, items, positions,
 //	               forms, scores, boss bar, titles, menu clicks), for the example tests
+//	weather, joinrain, joinstorm  weather changes and lightning, and joining in rain and thunder (weather.go)
+//	grindstone     a grindstone placed, its supports removed, its window used (grindstone.go)
+//	enchants, stations, potions, entities, villagers, numbers, syntax, limits, limitchat, others, mover, rules,
+//	rulesjoin, tradeup, line<bytes>, linekorean<bytes>  the M9 verification scenarios (verify.go); the line
+//	               scenarios are the byte counts of lineScenarios
+//
+// -scenario's usage text lists every scenario name (scenarioList).
 //
 // The output holds one JSON object per line, each with a "type": "join" (one /v1/join attempt), "sdp" (the
 // offer or answer SDP and its line keys), "identity" (the answer's decoded a=identity), "segment" (one NetherNet
@@ -73,7 +83,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +94,7 @@ import (
 // config holds the command line flags.
 type config struct {
 	addr, scenario, out string
+	signalingAddr       string
 	transport           string
 	tokenKey, kid, iss  string
 	name                string
@@ -96,7 +109,8 @@ func parseFlags(args []string) (config, error) {
 	var c config
 	fs := flag.NewFlagSet("bot", flag.ContinueOnError)
 	fs.StringVar(&c.addr, "addr", "", "server address HOST:PORT")
-	fs.StringVar(&c.scenario, "scenario", "spawn", scenarioList)
+	fs.StringVar(&c.signalingAddr, "signaling-addr", "", "NetherNet signaling address HOST:PORT (default -addr)")
+	fs.StringVar(&c.scenario, "scenario", "spawn", scenarioList())
 	fs.StringVar(&c.out, "out", "", "output JSON lines file")
 	fs.StringVar(&c.transport, "transport", "raknet", "raknet, nethernet or auto")
 	fs.StringVar(&c.tokenKey, "token-key", "", "online: PEM RSA private key of the test issuer")
@@ -112,13 +126,16 @@ func parseFlags(args []string) (config, error) {
 	if err := fs.Parse(args); err != nil {
 		return c, err
 	}
+	if c.signalingAddr == "" {
+		c.signalingAddr = c.addr
+	}
 	switch {
 	case fs.NArg() != 0:
 		return c, fmt.Errorf("unexpected arguments %v", fs.Args())
 	case c.addr == "" || c.out == "":
 		return c, errors.New("-addr and -out are required")
 	case !knownScenario(c.scenario):
-		return c, fmt.Errorf("unknown -scenario %q (want %v)", c.scenario, scenarioList)
+		return c, fmt.Errorf("unknown -scenario %q (want one of %v)", c.scenario, scenarioList())
 	case c.transport != "raknet" && c.transport != "nethernet" && c.transport != "auto":
 		return c, fmt.Errorf("unknown -transport %q (want raknet, nethernet or auto)", c.transport)
 	case c.scenario == "bind-mismatch" && c.transport != "nethernet":
@@ -139,16 +156,20 @@ func parseFlags(args []string) (config, error) {
 	return c, nil
 }
 
-const scenarioList = "spawn, big-skin, online, kicked, rejected, blocks, bind-mismatch, idle, prelogin-limit, " +
-	"craft, furnace, enchant, crops, trade, commands, particles, kick, forms or script"
+// connectionScenarios are the scenarios that are not game scenarios (gameScenarios).
+var connectionScenarios = []string{
+	"spawn", "big-skin", "online", "kicked", "rejected", "stall", "blocks", "bind-mismatch", "idle", "prelogin-limit",
+}
+
+// scenarioList names every scenario the bot runs: connectionScenarios, then the game scenarios in name order.
+func scenarioList() string {
+	names := append(slices.Clone(connectionScenarios), slices.Sorted(maps.Keys(gameScenarios))...)
+	return strings.Join(names, ", ")
+}
 
 // knownScenario reports whether name is a scenario the bot runs.
 func knownScenario(name string) bool {
-	switch name {
-	case "spawn", "big-skin", "online", "kicked", "rejected", "blocks", "bind-mismatch", "idle", "prelogin-limit":
-		return true
-	}
-	return isGame(name)
+	return slices.Contains(connectionScenarios, name) || isGame(name)
 }
 
 // output writes JSON lines; a game scenario's script writes from its own goroutine.

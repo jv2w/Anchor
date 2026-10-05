@@ -38,6 +38,8 @@ const DEATH_WORLD: &str = "DeathLevel";
 const DEATH: [&str; 3] = ["DeathPositionX", "DeathPositionY", "DeathPositionZ"];
 const SLEEPING: &str = "SleepingPos";
 const HELD_BACK: &str = "PendingDeathDrops";
+const FIRST_PLAYED: &str = "firstPlayed";
+const LAST_PLAYED: &str = "lastPlayed";
 
 const EFFECT_ID: &str = "Id";
 const EFFECT_AMPLIFIER: &str = "Amplifier";
@@ -174,9 +176,11 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
     if let Some(fire) = short(extra, FIRE).and_then(|fire| u16::try_from(fire).ok()) {
         s.fire_ticks = fire;
     }
-    if let Some(air) = short(extra, AIR) {
+    // With `drowning = false` there is no air: the player keeps the full supply.
+    if s.switches.drowning
+        && let Some(air) = short(extra, AIR)
+    {
         s.air = air.clamp(-20, MAX_AIR);
-        s.breathing = s.air >= MAX_AIR;
     }
     if let Some(fall) = float(extra, FALL, 0.0, MAX_FALL) {
         s.fall_distance = fall;
@@ -231,6 +235,23 @@ fn load_effect(e: &Compound) -> Option<(Effect, Active)> {
             infinite,
         },
     ))
+}
+
+/// The saved play history (PMMP `Player::TAG_FIRST_PLAYED`, `Player::TAG_LAST_PLAYED`: longs of
+/// milliseconds since the Unix epoch): the first join and the last save, each `None` when
+/// missing or not a long.
+pub(in crate::tick) fn load_played(extra: &Compound) -> (Option<i64>, Option<i64>) {
+    let long = |key| match extra.get(key) {
+        Some(Value::Long(v)) => Some(*v),
+        _ => None,
+    };
+    (long(FIRST_PLAYED), long(LAST_PLAYED))
+}
+
+/// Writes the play history: the first join and the time of this save.
+pub(in crate::tick) fn save_played((first, last): (i64, i64), extra: &mut Compound) {
+    extra.insert(FIRST_PLAYED.to_owned(), Value::Long(first));
+    extra.insert(LAST_PLAYED.to_owned(), Value::Long(last));
 }
 
 /// Narrows a tick value to the `f32` the file keeps.
@@ -470,6 +491,18 @@ mod tests {
         assert_eq!(s.game_mode, None);
         assert_eq!(s.spawn, None);
         assert!(s.effects.is_empty());
+    }
+
+    /// `drowning = false`: the air a save kept is not read, so the player joins with full air
+    /// that never changes.
+    #[test]
+    fn without_drowning_the_saved_air_is_not_read() {
+        let mut extra = Compound::new();
+        extra.insert(AIR.to_owned(), Value::Short(100));
+        let mut s = Survival::default();
+        s.switches.drowning = false;
+        load(&mut s, &extra, &crate::custom::Registry::default());
+        assert_eq!(s.air, MAX_AIR);
     }
 
     #[test]

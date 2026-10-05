@@ -1,7 +1,7 @@
 //! Batch compression: zlib (raw DEFLATE) and Snappy (block format).
 
 mod snappy;
-mod zlib;
+pub(crate) mod zlib;
 
 use std::fmt;
 

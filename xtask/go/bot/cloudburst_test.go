@@ -85,3 +85,14 @@ func TestCloudburstCheckMatchesEqualContent(t *testing.T) {
 		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
 	}
 }
+
+func TestCloudburstCheckFailsWithoutJigsawStructureData(t *testing.T) {
+	data := writeCloudburst(t, map[string]any{"jigsaws": []any{}})
+	var out bytes.Buffer
+	// A capture with the biome definitions but no jigsaw data, as Anchor sent before it sent one.
+	world := writeWorld(t, plains(2, 0))
+	same, err := cloudburstCommand([]string{"-world", world, "-data", data}, &out)
+	if err != nil || same || !strings.Contains(out.String(), "no JigsawStructureData") {
+		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
+	}
+}

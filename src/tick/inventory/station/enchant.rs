@@ -25,6 +25,12 @@ pub(in crate::tick) struct Choice {
     pub(in crate::tick) enchantments: Vec<(Enchantment, u8)>,
 }
 
+crate::tick::checkpoint::fields!(Choice {
+    level,
+    name,
+    enchantments
+});
+
 /// The bookshelves that power a table at `pos` (PMMP `countBookshelves`): the two-high ring two
 /// blocks out, each column only with air between it and the table, at most 15.
 pub(in crate::tick) fn bookshelves(world: &World, pos: BlockPos) -> u8 {
@@ -171,8 +177,11 @@ fn name(rng: &mut Random) -> String {
 }
 
 /// The item an option makes of `input` (PMMP `enchantItem`): a book becomes an enchanted book;
-/// each enchantment replaces one of its type.
-pub(in crate::tick) fn enchant(input: &Stack, enchantments: &[(Enchantment, u8)]) -> Stack {
+/// each enchantment replaces one of its type. Fails if the result would be over a stack limit.
+pub(in crate::tick) fn enchant(
+    input: &Stack,
+    enchantments: &[(Enchantment, u8)],
+) -> crate::item::Result<Stack> {
     let base = if input.item().and_then(crate::item::Type::kind) == Some(Kind::Book) {
         Stack::new(Kind::EnchantedBook.default_type(), input.count())
     } else {
@@ -188,10 +197,9 @@ pub(in crate::tick) fn enchant(input: &Stack, enchantments: &[(Enchantment, u8)]
     base.with_extra(Some(extra))
 }
 
-/// The `Slot` of the `PlayerEnchantOptions` for `input`: the item's enchantment slot flag (PMMP
-/// `ItemFlags`, which BDS sends: a pickaxe is 1024, P6 `enchant`); 0 for other items.
-///
-/// Verify (M9): the armour flags and a book's value were not seen from BDS.
+/// The `Slot` of the `PlayerEnchantOptions` for `input`: the item's enchantment slot flag, as BDS
+/// sends it (P6 `enchants`, m9-facts.md): PMMP's `ItemFlags` values except that BDS gives leggings
+/// 8 and boots 4 (PMMP 4 and 8), and a book -1; 0 for other items.
 pub(in crate::tick) fn slot(input: Option<Type>) -> i32 {
     let Some(item) = input else {
         return 0;
@@ -200,9 +208,12 @@ pub(in crate::tick) fn slot(input: Option<Type>) -> i32 {
         return match armor.slot() {
             ArmorSlot::Head => 0x1,
             ArmorSlot::Chest => 0x2,
-            ArmorSlot::Legs => 0x4,
-            ArmorSlot::Feet => 0x8,
+            ArmorSlot::Legs => 0x8,
+            ArmorSlot::Feet => 0x4,
         };
+    }
+    if item.kind() == Some(Kind::Book) {
+        return -1;
     }
     [
         (Class::Sword, 0x10),
@@ -258,6 +269,26 @@ pub(in crate::tick) fn activation(e: Enchantment) -> usize {
 mod tests {
     use super::*;
 
+    /// BDS's option `Slot` per item (P6 `enchants`, m9-facts.md): leggings 8 and boots 4, a book
+    /// -1.
+    #[test]
+    fn option_slots_are_the_ones_bds_sends() {
+        let slot_of = |k: Kind| slot(Some(k.default_type()));
+        assert_eq!(slot_of(Kind::IronHelmet), 1);
+        assert_eq!(slot_of(Kind::IronChestplate), 2);
+        assert_eq!(slot_of(Kind::IronLeggings), 8);
+        assert_eq!(slot_of(Kind::IronBoots), 4);
+        assert_eq!(slot_of(Kind::Book), -1);
+        assert_eq!(slot_of(Kind::IronSword), 16);
+        assert_eq!(slot_of(Kind::Bow), 32);
+        assert_eq!(slot_of(Kind::IronHoe), 64);
+        assert_eq!(slot_of(Kind::IronAxe), 512);
+        assert_eq!(slot_of(Kind::IronPickaxe), 1024);
+        assert_eq!(slot_of(Kind::IronShovel), 2048);
+        assert_eq!(slot_of(Kind::FishingRod), 4096);
+        assert_eq!(slot_of(Kind::Trident), 32768);
+    }
+
     #[test]
     fn options_are_deterministic_from_the_seed_and_within_pmmp_power_ranges() {
         let pickaxe = Stack::new(Kind::IronPickaxe.default_type(), 1);
@@ -293,14 +324,14 @@ mod tests {
             }
         }
         assert!(options(&Stack::new(Kind::Stick.default_type(), 1), 15, 1).is_empty());
-        let enchanted = enchant(&pickaxe, &[(Enchantment::Efficiency, 1)]);
+        let enchanted = enchant(&pickaxe, &[(Enchantment::Efficiency, 1)]).unwrap();
         assert!(options(&enchanted, 15, 1).is_empty());
     }
 
     #[test]
     fn a_book_becomes_an_enchanted_book() {
         let book = Stack::new(Kind::Book.default_type(), 1);
-        let out = enchant(&book, &[(Enchantment::Unbreaking, 2)]);
+        let out = enchant(&book, &[(Enchantment::Unbreaking, 2)]).unwrap();
         assert_eq!(out.item(), Some(Kind::EnchantedBook.default_type()));
         assert_eq!(
             out.extra().unwrap().enchantments,

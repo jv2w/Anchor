@@ -94,6 +94,16 @@ fn writes_are_refused_after_a_failed_check_integrity() {
         "could not locate the value on disk to corrupt"
     );
 
+    // Anchor: a debug build of this copy verifies the data pages before its debug-only walk of
+    // them at open (copy fix 2, Anchor PLAN.md 9.1), so it refuses this damage there, before
+    // check_integrity() can run. Release builds open the file as upstream does and go on below.
+    if cfg!(debug_assertions) {
+        assert!(matches!(
+            Database::builder().create_with_backend(backend.clone()),
+            Err(DatabaseError::Storage(StorageError::Corrupted(_)))
+        ));
+        return;
+    }
     let mut db = Database::builder()
         .create_with_backend(backend.clone())
         .unwrap();

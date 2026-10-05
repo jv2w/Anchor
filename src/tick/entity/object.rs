@@ -28,7 +28,7 @@ use crate::math::{Aabb, Vec3};
 use crate::nbt::{Compound, List, Value};
 use crate::random::Random;
 use crate::save::WorldIndex;
-use crate::tick::Phase;
+use crate::tick::interact::block_vec;
 use crate::world::{BlockPos, Particle, Sound, World};
 
 /// How much of its block a painting leaves free in front: it is 1/16 thick (PMMP
@@ -54,7 +54,7 @@ const MAX_SHAPE: u8 = 4;
 const COLOURS: u8 = 16;
 /// The item NBT keys (PMMP `FireworkRocket`, `FireworkRocketExplosion`).
 pub(super) const TAG_FIREWORKS: &str = "Fireworks";
-const TAG_FLIGHT: &str = "Flight";
+pub(super) const TAG_FLIGHT: &str = "Flight";
 pub(super) const TAG_EXPLOSIONS: &str = "Explosions";
 const TAG_TYPE: &str = "FireworkType";
 const TAG_COLOURS: &str = "FireworkColor";
@@ -229,11 +229,6 @@ pub(super) fn painting(facing: Face, motive: PaintingMotive) -> Kind {
     })
 }
 
-/// The corner of a block, where a painting hanging in it stands.
-fn corner(pos: BlockPos) -> Vec3 {
-    Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z))
-}
-
 /// Hangs a painting on the `face` side of the block `clicked` (PMMP
 /// `PaintingItem::onInteractBlock`): on a side, one of the largest motives that fit (picked with
 /// `random`), with the place sound. The caller uses up the item when it is made.
@@ -269,13 +264,13 @@ pub(super) fn place_painting(
     else {
         return Placed::Nothing;
     };
-    let made = create(state, world, corner(pos), painting(face, motive), |_| {
+    let made = create(state, world, block_vec(pos), painting(face, motive), |_| {
         (Vec3::ZERO, 0.0, 0.0)
     });
     if made.is_none() {
         return Placed::Full;
     }
-    let centre = corner(pos) + Vec3::new(0.5, 0.5, 0.5);
+    let centre = block_vec(pos) + Vec3::new(0.5, 0.5, 0.5);
     super::play(state, world, centre, Sound::PaintingPlace);
     Placed::Made
 }
@@ -337,15 +332,9 @@ pub(super) fn place_end_crystal(state: &mut State, world: WorldIndex, clicked: B
     if !matches!(base, Some(block::Kind::Obsidian | block::Kind::Bedrock)) || !air(1) || !air(2) {
         return Placed::Nothing;
     }
-    let low = corner(clicked);
+    let low = block_vec(clicked);
     let area = Aabb::new(low, low + Vec3::new(1.0, 2.0, 1.0));
-    let taken = !state.rules.entities.nearby(world, area).is_empty()
-        || state.players.values().any(|p| {
-            p.world == world
-                && p.phase == Phase::Spawned
-                && player_box(p).overlaps(area, super::EPSILON)
-        });
-    if taken {
+    if super::anything_in(state, world, area) {
         return Placed::Nothing;
     }
     let at = low + Vec3::new(0.5, CRYSTAL_LIFT, 0.5);
@@ -400,9 +389,18 @@ fn firework_item(stack: &Stack) -> (u8, Vec<Compound>) {
     (flight, explosions)
 }
 
-/// A new firework rocket's kind.
+/// The flight multiplier a rocket without an item shows (an API rocket): the one whose flight
+/// time, (multiplier + 1) × 10 ticks, comes nearest below its own (at least 1; the client only
+/// draws it, the server decides the burst).
+pub(super) fn flight_multiplier(max_flight: u32) -> u8 {
+    let tens = (max_flight / 10).saturating_sub(1);
+    u8::try_from(tens).map_or(MAX_FLIGHT_MULTIPLIER, |t| t.clamp(1, MAX_FLIGHT_MULTIPLIER))
+}
+
+/// A new firework rocket's kind; `flight` is the multiplier its item shows.
 pub(super) fn firework(
     max_flight: u32,
+    flight: u8,
     explosions: Vec<Compound>,
     owner: Option<(SessionId, u64)>,
 ) -> Kind {
@@ -411,6 +409,7 @@ pub(super) fn firework(
         explosions,
         owner: owner.map(|(s, _)| s),
         owner_runtime_id: owner.map_or(0, |(_, r)| r),
+        flight,
     })
 }
 
@@ -433,7 +432,7 @@ pub(super) fn launch_firework(
     let mut drift = || (random.unit() - random.unit()) * 0.0023;
     let motion = Vec3::new(drift(), 0.05, drift());
     let owner = state.players.get(&session).map(|p| (session, p.runtime_id));
-    let kind = firework(flight, explosions, owner);
+    let kind = firework(flight, multiplier, explosions, owner);
     create(state, world, at, kind, |_| (motion, yaw, 90.0)).is_some()
 }
 
@@ -464,11 +463,11 @@ pub(super) fn firework_tick(state: &mut State, id: Id, hooks: Hooks) {
     }
 }
 
-/// A firework rocket bursts (PMMP `FireworkRocket::explode`): with explosions, the viewers see
-/// them and hear each one (a large ball louder, a twinkle crackling), and the players and NPCs
-/// within 5 blocks of it that a ray to their feet or their middle reaches without a block take
-/// (explosions × 2 + 5) × √((5 − distance) / 5) damage from it. Without explosions nothing
-/// shows.
+/// A firework rocket bursts (PMMP `FireworkRocket::explode`): the viewers see the burst event (as
+/// BDS sends it, explosions or not: P6 `entities`, m9-facts.md); with explosions they hear each
+/// one (a large ball louder, a twinkle crackling), and the players and NPCs within 5 blocks of it
+/// that a ray to their feet or their middle reaches without a block take
+/// (explosions × 2 + 5) × √((5 − distance) / 5) damage from it.
 fn burst(state: &mut State, id: Id, hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
@@ -476,12 +475,10 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
     let Kind::Firework(f) = &e.kind else {
         return;
     };
-    if f.explosions.is_empty() {
-        return;
-    }
     let (world, at, bounds, runtime_id) =
         (e.world, e.body.position, e.bounding_box(), e.runtime_id);
     let viewers = e.viewers.clone();
+    let quiet = f.explosions.is_empty();
     let sounds: Vec<(Sound, bool)> = f
         .explosions
         .iter()
@@ -502,6 +499,9 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
         &viewers,
         &Animation::FireworkParticles.packet(runtime_id),
     );
+    if quiet {
+        return;
+    }
     for (sound, twinkle) in sounds {
         super::play(state, world, at, sound);
         if twinkle {
@@ -553,7 +553,7 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
         );
     }
     for (session, feet, damage) in players {
-        if (hooks.damage)(state, session, damage, survival::Damage::Explosion)
+        if (hooks.damage)(state, session, damage, survival::Damage::Explosion, by)
             && let Some(push) = Knock::new(feet.x - at.x, feet.z - at.z).applied_to(Vec3::ZERO)
         {
             push_player(state, session, push, Raise::Events);

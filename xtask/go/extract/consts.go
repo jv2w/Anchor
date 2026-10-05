@@ -44,11 +44,7 @@ func (ex *extractor) constDecls() []ConstDecl {
 						if i < len(values) {
 							value = values[i]
 						}
-						dc := ex.declConst(p.TypesInfo, c, value, vs)
-						if dc.Doc == "" && !g.Lparen.IsValid() {
-							dc.Doc = docText(g.Doc)
-						}
-						decl.Consts = append(decl.Consts, dc)
+						decl.Consts = append(decl.Consts, ex.declConst(p.TypesInfo, c, value))
 					}
 				}
 				if len(decl.Consts) > 0 {
@@ -75,12 +71,9 @@ func (ex *extractor) constDecls() []ConstDecl {
 }
 
 // declConst describes one exported constant; value is its (possibly repeated) value expression.
-func (ex *extractor) declConst(info *types.Info, c *types.Const, value ast.Expr, vs *ast.ValueSpec) DeclConst {
+func (ex *extractor) declConst(info *types.Info, c *types.Const, value ast.Expr) DeclConst {
 	pos := c.Pos()
-	dc := DeclConst{Name: qualName(c), Doc: docText(vs.Doc)}
-	if dc.Doc == "" {
-		dc.Doc = docText(vs.Comment)
-	}
+	dc := DeclConst{Name: qualName(c)}
 	var basic *types.Basic
 	switch t := c.Type().(type) {
 	case *types.Basic:

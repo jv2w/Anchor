@@ -41,6 +41,12 @@ pub(super) struct Appearance {
     skin_id: Option<String>,
 }
 
+crate::tick::checkpoint::fields!(Appearance {
+    emote,
+    skin,
+    skin_id
+});
+
 impl Appearance {
     /// Hashes every field (state hash).
     #[cfg(test)]

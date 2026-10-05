@@ -10,13 +10,14 @@ use super::super::block_entity::{self, BlockEntity, Kind};
 use super::super::{SessionId, State, dispatch, entity};
 use super::using::{self, Use};
 use super::{Actor, center, level_event, open_sign_editor, props, sound};
-use crate::block::{self, Class, Face, TypeTag};
+use crate::block::{self, ChiseledBookshelfSlot, Class, Face, TypeTag};
 use crate::item::{self, Stack};
 use crate::math::Vec3;
-use crate::protocol::consts::{LevelEvent as Event, SoundEvent};
+use crate::protocol::consts::LevelEvent as Event;
 use crate::protocol::packet::LecternUpdate;
 use crate::save::WorldIndex;
 use crate::world::BlockPos;
+use crate::world::Sound;
 
 /// The block entity at `pos` to change.
 fn entity_mut(state: &mut State, world: WorldIndex, pos: BlockPos) -> Option<&mut BlockEntity> {
@@ -115,7 +116,11 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
             block: u.block,
             old_text: old_text.clone(),
             new_text: old_text,
-            front_face: front,
+            side: if front {
+                crate::tile::Side::Front
+            } else {
+                crate::tile::Side::Back
+            },
             cancelled: false,
         };
         dispatch::call(state, &mut e);
@@ -146,25 +151,30 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
     else {
         return true;
     };
-    let event = match change {
+    // PMMP `DyeUseSound`, `InkSacUseSound`; waxing has no PMMP sound, Anchor shows BDS's.
+    let played = match change {
         SignUse::Colour(colour) => {
             sign.side_mut(front).colour = colour;
-            Event::SoundDyeUsed
+            Some(Sound::DyeUse)
         }
         SignUse::Glow(glow) => {
             sign.side_mut(front).glowing = glow;
-            Event::SoundInkSacUsed
+            Some(Sound::InkSacUse)
         }
         SignUse::Wax => {
             sign.waxed = true;
-            Event::WaxOn
+            None
         }
     };
     if let Some(lines) = lines {
         sign.side_mut(front).lines = lines;
     }
     u.pop();
-    level_event(state, world, super::block_vec(u.pos), event, 0);
+    let at = super::block_vec(u.pos);
+    match played {
+        Some(played) => sound(state, world, at, played),
+        None => level_event(state, world, at, Event::WaxOn, 0),
+    }
     block_entity::broadcast_spawn(state, world, u.pos);
     true
 }
@@ -278,17 +288,17 @@ pub(super) fn item_frame(state: &mut State, u: &mut Use) -> bool {
     else {
         return true;
     };
-    let event = if !frame.item.is_empty() {
+    let played = if !frame.item.is_empty() {
         frame.rotation = (frame.rotation + 1) % block_entity::FRAME_ROTATIONS;
-        Event::SoundItemFrameRotateItem
+        Sound::ItemFrameRotateItem
     } else if !u.item.is_empty() {
         frame.item = u.item.with_count(1);
         u.pop();
-        Event::SoundAddItem
+        Sound::ItemFrameAddItem
     } else {
         return true;
     };
-    level_event(state, world, super::block_vec(u.pos), event, 0);
+    sound(state, world, super::block_vec(u.pos), played);
     block_entity::broadcast_spawn(state, world, u.pos);
     true
 }
@@ -336,12 +346,11 @@ pub(super) fn attack(
         _ => {}
     }
     if frame {
-        level_event(
+        sound(
             state,
             world,
             super::block_vec(pos),
-            Event::SoundItemFrameRemoveItem,
-            0,
+            Sound::ItemFrameRemoveItem,
         );
     }
     block_entity::broadcast_spawn(state, world, pos);
@@ -376,7 +385,7 @@ pub(super) fn jukebox(state: &mut State, u: &mut Use) -> bool {
         {
             *record = Stack::EMPTY;
         }
-        sound(state, world, center(u.pos), SoundEvent::RecordNull, 0);
+        sound(state, world, center(u.pos), Sound::RecordStop);
     } else if u.item.item().is_some_and(|t| t.is(item::Class::Record)) {
         let disc = u.item.with_count(1);
         u.pop();
@@ -417,7 +426,7 @@ pub(super) fn lectern(state: &mut State, u: &mut Use) -> bool {
     *book = u.item.with_count(1);
     *page = 0;
     u.pop();
-    sound(state, world, center(u.pos), SoundEvent::LecternBookPlace, 0);
+    sound(state, world, center(u.pos), Sound::LecternPlaceBook);
     block_entity::broadcast_spawn(state, world, u.pos);
     true
 }
@@ -463,14 +472,10 @@ pub(super) fn bookshelf(state: &mut State, u: &mut Use) -> bool {
     // PMMP: the column counts from the left seen from the front.
     let positive = matches!(props::rotate_y(u.face, true), Face::South | Face::East);
     let x = if positive { 1.0 - x } else { x };
-    let column = if x < 6.0 / 16.0 {
-        0
-    } else if x < 11.0 / 16.0 {
-        1
-    } else {
-        2
+    let Some(slot) = ChiseledBookshelfSlot::from_face_coordinates(x, u.click.y) else {
+        return false;
     };
-    let slot = if u.click.y < 0.5 { 3 } else { 0 } + column;
+    let slot = slot.slot();
     let Some(BlockEntity {
         kind: Kind::ChiseledBookshelf { last },
         items,
@@ -529,12 +534,11 @@ pub(super) fn campfire_cook(state: &mut State, u: &mut Use) -> bool {
     *free = u.item.with_count(1);
     u.pop();
     state.rules.block_entities.wake(world, u.pos);
-    level_event(
+    sound(
         state,
         world,
         super::block_vec(u.pos),
-        Event::SoundAddItem,
-        0,
+        Sound::ItemFrameAddItem,
     );
     block_entity::broadcast_spawn(state, world, u.pos);
     true
@@ -575,13 +579,7 @@ pub(super) fn cauldron_dye(state: &mut State, u: &mut Use) -> bool {
     }
     cauldron.colour = Some(mixed.cast_signed());
     u.pop();
-    level_event(
-        state,
-        world,
-        super::block_vec(u.pos),
-        Event::CauldronAddDye,
-        0,
-    );
+    sound(state, world, super::block_vec(u.pos), Sound::CauldronAddDye);
     block_entity::broadcast_spawn(state, world, u.pos);
     true
 }

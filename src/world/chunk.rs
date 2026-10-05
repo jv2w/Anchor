@@ -12,7 +12,7 @@ use crate::nbt;
 use crate::protocol::Writer;
 
 use super::light::{self, ChunkLight};
-use super::paletted::{Paletted, offset};
+use super::paletted::{Derive, Paletted, offset};
 use super::sub_chunk::{Entry, SubChunk};
 use super::{ChunkPos, Error, Generator, MAX_Y, MIN_Y, Result};
 
@@ -55,12 +55,16 @@ pub(super) fn column(x: u8, z: u8) -> usize {
 pub struct Chunk {
     sub_chunks: [Option<Arc<SubChunk>>; SUB_CHUNKS],
     biomes: [Arc<Paletted<u32>>; SUB_CHUNKS],
-    /// The highest non-air layer 0 block of each column ([`column`]), or [`NO_HEIGHT`].
+    /// The highest non-air layer 0 block of each column ([`column()`]), or [`NO_HEIGHT`].
     heights: Box<[i16; COLUMNS]>,
     /// The original NBT of each unknown state, by [`Entry::Unknown`] index.
     unknown: Arc<[nbt::Compound]>,
-    /// Changed since the world's last save snapshot.
-    dirty: bool,
+    /// The sub-chunks changed since the world's last save snapshot, one bit per index.
+    dirty: u32,
+    /// Whether the world file holds this chunk one value per sub-chunk (format 4), so a save
+    /// writes only the changed ones. Otherwise (generated, or saved whole by formats 1 to 3) the
+    /// next save writes all 24 and removes a whole value.
+    split: bool,
     /// The chunk's light once it is worked out, kept apart from the shared sub-chunks so a light
     /// change never copies one.
     light: Option<Box<ChunkLight>>,
@@ -76,7 +80,8 @@ impl Chunk {
             biomes: std::array::from_fn(|_| Arc::clone(&plains)),
             heights: Box::new([NO_HEIGHT; COLUMNS]),
             unknown: Arc::from(Vec::new()),
-            dirty: false,
+            dirty: 0,
+            split: false,
             light: None,
         }
     }
@@ -125,7 +130,8 @@ impl Chunk {
             biomes: biomes.map(Arc::new),
             heights: Box::new([NO_HEIGHT; COLUMNS]),
             unknown: Arc::from(unknown),
-            dirty: false,
+            dirty: 0,
+            split: false,
             light: None,
         };
         for x in 0..16 {
@@ -177,8 +183,8 @@ impl Chunk {
         Ok(())
     }
 
-    /// The y of the highest non-air block of the local column (x, z), or `None` if it is all air
-    /// or outside the chunk.
+    /// The top y in the local column (x, z) that holds a block other than air, or `None` if the
+    /// column is all air or outside the chunk.
     #[doc(alias = "Chunk::getHighestBlockAt")]
     pub fn highest_block(&self, x: u8, z: u8) -> Option<i32> {
         if x >= 16 || z >= 16 {
@@ -266,35 +272,6 @@ impl Chunk {
         self.biomes.get(index).map(AsRef::as_ref)
     }
 
-    /// Turns the unknown states `known` names into the states it gives (the server's custom
-    /// blocks, PLAN.md 10.8): their entries become known; the others stay unknown with their
-    /// original NBT. The light is dropped if anything changed, so the world lights the chunk
-    /// again. Returns whether anything changed.
-    pub(crate) fn resolve_unknown(
-        &mut self,
-        known: impl Fn(&nbt::Compound) -> Option<State>,
-    ) -> bool {
-        if self.unknown.is_empty() {
-            return false;
-        }
-        let found: Vec<Option<State>> = self.unknown.iter().map(&known).collect();
-        if found.iter().all(Option::is_none) {
-            return false;
-        }
-        let map = |e: Entry| match e {
-            Entry::Unknown(i) => usize::try_from(i)
-                .ok()
-                .and_then(|i| found.get(i).copied().flatten())
-                .map_or(e, Entry::Known),
-            Entry::Known(_) => e,
-        };
-        for slot in self.sub_chunks.iter_mut().flatten() {
-            *slot = Arc::new(slot.map(map));
-        }
-        self.light = None;
-        true
-    }
-
     /// The original NBT of the unknown states, by [`Entry::Unknown`] index.
     pub(crate) fn unknown(&self) -> &[nbt::Compound] {
         &self.unknown
@@ -308,11 +285,43 @@ impl Chunk {
 
     /// Whether the chunk changed since the world's last save snapshot.
     pub(crate) fn is_dirty(&self) -> bool {
-        self.dirty
+        self.dirty != 0
     }
 
-    pub(crate) fn set_dirty(&mut self, dirty: bool) {
-        self.dirty = dirty;
+    /// Marks the sub-chunk holding height `y` changed (nothing outside the world height).
+    pub(super) fn mark_dirty(&mut self, y: i32) {
+        if let Some((index, _)) = split_y(y) {
+            self.dirty |= 1 << index;
+        }
+    }
+
+    /// The copy a save snapshot takes (its sub-chunks shared) with the changes it must write,
+    /// after which this chunk is clean and held by sub-chunk.
+    pub(crate) fn take_save(&mut self) -> Self {
+        let save = self.clone();
+        self.dirty = 0;
+        self.split = true;
+        save
+    }
+
+    /// The sub-chunks a save of this snapshot writes, one bit per index: the changed ones, or
+    /// all of them when the file does not hold the chunk by sub-chunk yet.
+    pub(crate) fn saved_sub_chunks(&self) -> u32 {
+        if self.split {
+            self.dirty
+        } else {
+            (1 << SUB_CHUNKS) - 1
+        }
+    }
+
+    /// Whether the world file holds the chunk one value per sub-chunk.
+    pub(crate) fn is_split(&self) -> bool {
+        self.split
+    }
+
+    /// Notes that the chunk was read from one value per sub-chunk.
+    pub(crate) fn set_split(&mut self) {
+        self.split = true;
     }
 
     /// Works out the chunk's light alone, as if its neighbours were dark (PMMP
@@ -339,13 +348,21 @@ impl Chunk {
         self.light.take()
     }
 
-    /// The layer 0 entry at an offset of sub-chunk `index` (air in an empty sub-chunk).
+    /// The light values of the layer 0 block at an offset of sub-chunk `index` (air's in an
+    /// empty sub-chunk).
     #[inline]
-    pub(super) fn entry_at(&self, index: usize, offset: u16) -> Entry {
+    pub(super) fn light_values_at(&self, index: usize, offset: u16) -> light::Values {
         match self.sub_chunks.get(index) {
-            Some(Some(sub)) => sub.get(offset),
-            _ => Entry::AIR,
+            Some(Some(sub)) => sub.light_values(offset),
+            _ => Entry::AIR.derive(),
         }
+    }
+
+    /// The light values of the layer 0 block at local (x, y, z), or `None` outside the chunk.
+    #[inline]
+    pub(super) fn light_values(&self, x: u8, y: i32, z: u8) -> Option<light::Values> {
+        let (index, y) = split_y(y).filter(|_| x < 16 && z < 16)?;
+        Some(self.light_values_at(index, offset(x, y, z)))
     }
 
     /// The sub-chunks from the bottom up to the highest one that is not air (`SubChunkLimit`).
@@ -391,6 +408,7 @@ impl Clone for Chunk {
             heights: self.heights.clone(),
             unknown: Arc::clone(&self.unknown),
             dirty: self.dirty,
+            split: self.split,
             light: None,
         }
     }
@@ -399,6 +417,68 @@ impl Clone for Chunk {
 impl Default for Chunk {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// A chunk's checkpoint form (PLAN.md 10.9 재생 도구): its exact sub-chunks and biomes (palette
+/// order and unused entries included, which a load from the world file compacts), its unknown
+/// states, save marks and light; the heights are worked out again as it reads.
+impl crate::tick::checkpoint::Codec for Chunk {
+    fn encode(&self, w: &mut crate::tick::checkpoint::Writer) {
+        let Self {
+            sub_chunks,
+            biomes,
+            heights: _,
+            unknown,
+            dirty,
+            split,
+            light,
+        } = self;
+        sub_chunks.encode(w);
+        biomes.encode(w);
+        w.slice(unknown);
+        dirty.encode(w);
+        split.encode(w);
+        light.encode(w);
+    }
+
+    fn decode(
+        r: &mut crate::tick::checkpoint::Reader<'_>,
+    ) -> crate::tick::checkpoint::Result<Self> {
+        use crate::tick::checkpoint::{Codec, Error};
+        let sub_chunks: [Option<Arc<SubChunk>>; SUB_CHUNKS] = Codec::decode(r)?;
+        let biomes = Codec::decode(r)?;
+        let unknown: Vec<nbt::Compound> = Codec::decode(r)?;
+        let known = |e: &Entry| match e {
+            Entry::Known(_) => true,
+            Entry::Unknown(i) => usize::try_from(*i).is_ok_and(|i| i < unknown.len()),
+        };
+        if unknown.len() > MAX_UNKNOWN
+            || !sub_chunks
+                .iter()
+                .flatten()
+                .all(|s| s.layers().iter().all(|l| l.palette().iter().all(known)))
+        {
+            return Err(Error::Format("chunk unknown states"));
+        }
+        let mut chunk = Self {
+            sub_chunks,
+            biomes,
+            heights: Box::new([NO_HEIGHT; COLUMNS]),
+            unknown: Arc::from(unknown),
+            dirty: Codec::decode(r)?,
+            split: Codec::decode(r)?,
+            light: Codec::decode(r)?,
+        };
+        for x in 0..16 {
+            for z in 0..16 {
+                let top = chunk.scan_down(x, z, MAX_Y);
+                if let Some(h) = chunk.heights.get_mut(column(x, z)) {
+                    *h = top;
+                }
+            }
+        }
+        Ok(chunk)
     }
 }
 

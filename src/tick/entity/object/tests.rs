@@ -526,14 +526,24 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
             && sounds.contains(&"twinkle"),
         "{sounds:?}"
     );
-    // Without explosions a rocket bursts quietly.
+    // Without explosions a rocket bursts quietly and harmlessly, its burst event shown as BDS
+    // shows it (P6 `entities`, m9-facts.md).
     let quiet = context(&mut h)
-        .spawn_firework_rocket(WORLD, at_burst, 1, Vec::new(), Vec3::ZERO)
+        .spawn_firework_rocket(WORLD, at_burst, 2, Vec::new(), Vec3::ZERO)
         .unwrap();
     let before = entity(&h, npc).health;
+    let quiet_runtime_id = entity(&h, quiet).runtime_id;
+    // Shown first; it bursts at its second tick.
+    h.step(Vec::new());
+    h.take(1);
     h.step(Vec::new());
     assert!(h.state.rules.entities.get(quiet).is_none());
     assert_eq!(entity(&h, npc).health, before);
+    let sent = h.take(1);
+    assert!(sent.iter().any(|p| matches!(p,
+        Packet::ActorEvent(a) if a.entity_runtime_id == quiet_runtime_id && a.event_type == 25)));
+    assert!(!sent.iter().any(|p| matches!(p, Packet::LevelSoundEvent(s)
+        if s.sound_type == "blast" || s.sound_type == "large.blast")));
 }
 
 #[test]
@@ -549,10 +559,12 @@ fn a_firework_used_on_a_block_flies_for_its_items_flight_and_climbs() {
             ])])),
         ),
     ]);
-    let rocket = stack("minecraft:firework_rocket", 3).with_extra(Some(item::Extra {
-        nbt: Compound::from([(TAG_FIREWORKS.to_owned(), Value::Compound(fireworks))]),
-        ..item::Extra::default()
-    }));
+    let rocket = stack("minecraft:firework_rocket", 3)
+        .with_extra(Some(item::Extra {
+            nbt: Compound::from([(TAG_FIREWORKS.to_owned(), Value::Compound(fireworks))]),
+            ..item::Extra::default()
+        }))
+        .unwrap();
     hold(&mut h, rocket);
     h.take(1);
     use_on(
@@ -586,11 +598,22 @@ fn a_firework_used_on_a_block_flies_for_its_items_flight_and_climbs() {
     else {
         panic!("firework item");
     };
+    // BDS (P6 `entities`, m9-facts.md): the item's explosions and flight, the direction
+    // (0, 1, 0), no attached entity, no owner.
     assert!(matches!(item_nbt.get(TAG_FIREWORKS),
-        Some(Value::Compound(fireworks)) if fireworks.contains_key(TAG_EXPLOSIONS)));
+        Some(Value::Compound(fireworks)) if fireworks.contains_key(TAG_EXPLOSIONS)
+            && fireworks.get(TAG_FLIGHT) == Some(&Value::Byte(2))));
+    assert_eq!(
+        meta.get(&(EntityDataKey::DisplayOffset as u32)),
+        Some(&MetadataValue::Vec3([0.0, 1.0, 0.0]))
+    );
+    assert_eq!(
+        meta.get(&(EntityDataKey::CustomDisplay as u32)),
+        Some(&MetadataValue::Int64(-1))
+    );
     assert_eq!(
         meta.get(&(EntityDataKey::Owner as u32)),
-        Some(&MetadataValue::Int64(h.runtime_id(1).cast_signed()))
+        Some(&MetadataValue::Int64(-1))
     );
     let y0 = entity(&h, id).body.position.y;
     for _ in 0..10 {
@@ -722,10 +745,12 @@ fn tridents_save_their_item_and_show_its_glint() {
         Err(Stack::EMPTY)
     );
     let plain = stack("minecraft:trident", 1);
-    let enchanted = plain.with_extra(Some(item::Extra {
-        enchantments: vec![(item::Enchantment::all()[0], 1)],
-        ..item::Extra::default()
-    }));
+    let enchanted = plain
+        .with_extra(Some(item::Extra {
+            enchantments: vec![(item::Enchantment::all()[0], 1)],
+            ..item::Extra::default()
+        }))
+        .unwrap();
     let id = cx
         .spawn_trident(WORLD, at(0.5, -59.0, 3.5), enchanted.clone(), Vec3::ZERO)
         .unwrap();

@@ -2,7 +2,7 @@
 //! provider and the webpki roots). Run only on the blocking pool.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use ureq::config::Config;
@@ -13,12 +13,15 @@ use ureq::unversioned::transport::{DefaultConnector, NextTimeout, time};
 
 use super::document::{Discovery, Environment, Jwks, OpenId};
 use super::{Error, MAX_DOCUMENT, Result};
+use crate::clock;
 use crate::protocol::packet::GAME_VERSION;
 
 /// An HTTP client for one refresh.
 #[derive(Debug)]
 pub(super) struct Client {
     agent: ureq::Agent,
+    /// The limit on one refresh: the requests it makes share it.
+    timeout: Duration,
 }
 
 /// ureq's default resolver, always called without a timeout: with one it starts a detached
@@ -54,20 +57,22 @@ impl Client {
         let config = Config::builder()
             .tls_config(tls)
             .https_only(https_only)
-            .timeout_global(Some(timeout))
             .build();
         Self {
             agent: ureq::Agent::with_parts(config, DefaultConnector::default(), InlineResolver),
+            timeout,
         }
     }
 
-    /// Fetches discovery, then the OpenID configuration of its issuer, then that JWKS.
+    /// Fetches discovery, then the OpenID configuration of its issuer, then that JWKS, all within
+    /// one timeout.
     pub(super) fn documents(&self, discovery_base: &str) -> Result<(Environment, OpenId, Jwks)> {
+        let deadline = clock::now() + self.timeout;
         let url = format!(
             "{}/api/v1.0/discovery/MinecraftPE/builds/{GAME_VERSION}",
             discovery_base.trim_end_matches('/')
         );
-        let auth = self.get::<Discovery>(&url)?.into_auth();
+        let auth = self.get::<Discovery>(&url, deadline)?.into_auth();
         if auth.issuer.is_empty() {
             return Err(Error::Document {
                 url,
@@ -78,21 +83,22 @@ impl Client {
             "{}/.well-known/openid-configuration",
             auth.issuer.trim_end_matches('/')
         );
-        let openid: OpenId = self.get(&url)?;
-        let jwks = self.jwks(&openid.jwks_uri)?;
+        let openid: OpenId = self.get(&url, deadline)?;
+        let jwks = self.get(&openid.jwks_uri, deadline)?;
         Ok((auth, openid, jwks))
     }
 
     pub(super) fn jwks(&self, url: &str) -> Result<Jwks> {
-        self.get(url)
+        self.get(url, clock::now() + self.timeout)
     }
 
-    /// GETs `url` and parses the body (at most [`MAX_DOCUMENT`] bytes) as JSON.
+    /// GETs `url` and parses the body (at most [`MAX_DOCUMENT`] bytes) as JSON, failing at
+    /// `deadline` (the DNS lookup excepted, which the OS bounds).
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: blocking HTTP, called only inside spawn_blocking"
     )]
-    fn get<T: DeserializeOwned>(&self, url: &str) -> Result<T> {
+    fn get<T: DeserializeOwned>(&self, url: &str, deadline: Instant) -> Result<T> {
         let http = |source| Error::Http {
             url: url.to_owned(),
             source,
@@ -101,6 +107,9 @@ impl Client {
             .agent
             .get(url)
             .header("Accept", "application/json")
+            .config()
+            .timeout_global(Some(deadline.saturating_duration_since(clock::now())))
+            .build()
             .call()
             .map_err(http)?;
         let body = response

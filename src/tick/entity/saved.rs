@@ -12,7 +12,8 @@
 //! (bytes). An entity that is not saved with its chunk (the API's choice) writes nothing. Then per
 //! kind:
 //! - items: `Item` (the stack, [`Stack::to_nbt`]), `Health`, `Age` and `PickupDelay` (shorts),
-//!   `Owner` and `Thrower` (strings);
+//!   `Owner` and `Thrower` (strings); Anchor's `DespawnDelay` (int) for a despawn delay past what
+//!   `Age` holds (`item-despawn-ticks` goes up to 72,000), which a load takes over `Age`;
 //! - orbs: `Age`, `Value` (short) and `experience value` (int);
 //! - falling blocks: `FallingBlock` (the block state as Bedrock's disk palette writes it);
 //! - primed TNT: `Fuse` (short), `AllowUnderwater` (byte, only when set);
@@ -56,6 +57,7 @@ use super::kind::{
 };
 use super::object::{data_facing, facing_data};
 use super::physics::{self, Body};
+use crate::config::ITEM_DESPAWN_TICKS;
 use crate::custom::Registry;
 use crate::effect::{self, Potion};
 use crate::entity::{PaintingMotive, Skin};
@@ -162,6 +164,9 @@ pub(super) fn save(entity: &Entity) -> Compound {
             put("Item", Value::Compound(item.stack.to_nbt()));
             put("Health", Value::Short(health_short(entity.health)));
             put("Age", Value::Short(age(item.despawn_delay)));
+            if item.despawn_delay > MAX_DESPAWN_DELAY {
+                put("DespawnDelay", Value::Int(item.despawn_delay));
+            }
             put("PickupDelay", Value::Short(item.pickup_delay));
             put("Owner", Value::String(item.owner.clone()));
             put("Thrower", Value::String(item.thrower.clone()));
@@ -205,10 +210,16 @@ fn save_npc(npc: &Character, health: f64, put: &mut impl FnMut(&str, Value)) {
     put("Health", Value::Float(to_f32(health)));
     put("Invulnerable", Value::Byte(u8::from(npc.invulnerable)));
     match &npc.form {
-        Form::Villager { profession, offers } => {
+        Form::Villager {
+            profession,
+            offers,
+            baby,
+        } => {
             put("Profession", Value::Int(i32::from(*profession)));
             put("Offers", Value::Compound(offers.to_nbt()));
+            put(BABY, Value::Byte(u8::from(*baby)));
         }
+        Form::Zombie { baby } => put(BABY, Value::Byte(u8::from(*baby))),
         Form::Human { uuid: _, skin } => {
             if let Some(skin) = skin {
                 put("Skin", Value::Compound(save_skin(skin)));
@@ -302,7 +313,7 @@ fn save_cloud(cloud: &Cloud, put: &mut impl FnMut(&str, Value)) {
                     ("Amplifier".to_owned(), Value::Byte(e.amplifier())),
                     (
                         "Duration".to_owned(),
-                        Value::Int(i32::try_from(e.duration()).unwrap_or(i32::MAX)),
+                        Value::Int(i32::try_from(e.duration_ticks()).unwrap_or(i32::MAX)),
                     ),
                     ("Ambient".to_owned(), Value::Byte(u8::from(e.is_ambient()))),
                     (
@@ -360,13 +371,13 @@ pub(super) fn load(
         _ => 0,
     };
     let on_ground = matches!(c.get("OnGround"), Some(Value::Byte(b)) if *b != 0);
-    let kind = load_kind(c, identifier, customs, content)?;
+    let mut kind = load_kind(c, identifier, customs, content)?;
     if let Kind::Painting(p) = kind
         && !hangs_at(c, p, position)
     {
         return None;
     }
-    let looks = load_looks(c)?;
+    let looks = load_looks(c, &kind)?;
     let health = match (&kind, c.get("Health")) {
         (Kind::Item(_), Some(Value::Short(h))) => f64::from(*h),
         (Kind::Npc(_), Some(Value::Float(h))) if h.is_finite() => {
@@ -374,6 +385,13 @@ pub(super) fn load(
         }
         _ => kind.max_health(),
     };
+    // PMMP `Entity::setHealth` of 0 while `justCreated`: an NPC saved while it died loads dead,
+    // past the tick of its drops, and finishes dying.
+    if let Kind::Npc(n) = &mut kind
+        && health <= 0.0
+    {
+        n.dead_ticks = Some(1);
+    }
     Some(Loaded {
         body: Body {
             position,
@@ -391,9 +409,9 @@ pub(super) fn load(
     })
 }
 
-/// The name tag and looks (PMMP `Entity::initEntity` and Anchor's keys); `None` for a name tag
-/// over [`MAX_NAME_TAG_BYTES`] or a scale that is not finite and in `(0, MAX_SCALE]`.
-fn load_looks(c: &Compound) -> Option<Looks> {
+/// The name tag and looks of an entity of `kind` (PMMP `Entity::initEntity` and Anchor's keys);
+/// `None` for a name tag over [`MAX_NAME_TAG_BYTES`] or a scale `is_valid_scale` refuses.
+fn load_looks(c: &Compound, kind: &Kind) -> Option<Looks> {
     let flag = |k: &str| match c.get(k) {
         Some(Value::Byte(b)) => Some(*b != 0),
         _ => None,
@@ -409,7 +427,7 @@ fn load_looks(c: &Compound) -> Option<Looks> {
         _ => flag("CustomNameVisible").unwrap_or(true),
     };
     let scale = match c.get("Scale") {
-        Some(Value::Float(s)) => Some(f64::from(*s)).filter(|s| super::is_valid_scale(*s))?,
+        Some(Value::Float(s)) => Some(f64::from(*s)).filter(|s| super::is_valid_scale(*s, kind))?,
         _ => 1.0,
     };
     Some(Looks {
@@ -474,8 +492,10 @@ fn load_kind(
                     None => Offers::default(),
                     Some(_) => return None,
                 },
+                baby: is_baby(c),
             },
         )),
+        "minecraft:zombie" | "Zombie" => Kind::Npc(load_npc(c, Form::Zombie { baby: is_baby(c) })),
         "Human" => Kind::Npc(load_npc(
             c,
             Form::Human {
@@ -544,10 +564,16 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
         Some(Value::String(s)) => s.clone(),
         _ => String::new(),
     };
+    // Anchor's key for a delay `Age` cannot hold; a value outside that range is not Anchor's.
+    let longest = i32::try_from(*ITEM_DESPAWN_TICKS.end()).unwrap_or(i32::MAX);
+    let despawn_delay = match c.get("DespawnDelay") {
+        Some(Value::Int(d)) if (MAX_DESPAWN_DELAY + 1..=longest).contains(d) => *d,
+        _ => despawn_delay(c),
+    };
     Some(Item {
         stack,
         pickup_delay,
-        despawn_delay: despawn_delay(c),
+        despawn_delay,
         owner: text("Owner"),
         thrower: text("Thrower"),
     })
@@ -767,6 +793,14 @@ fn load_custom(c: &Compound, identifier: &str, customs: &Customs) -> Option<Kind
     Some(Kind::Npc(load_npc(c, Form::Custom(Custom { spec, data }))))
 }
 
+/// Bedrock's baby flag of a mob (`IsBaby`).
+const BABY: &str = "IsBaby";
+
+/// Whether a saved mob is a baby.
+fn is_baby(c: &Compound) -> bool {
+    matches!(c.get(BABY), Some(Value::Byte(b)) if *b != 0)
+}
+
 /// An NPC's keys.
 fn load_npc(c: &Compound, form: Form) -> Character {
     Character {
@@ -901,7 +935,8 @@ pub(super) mod tests {
                 lore: vec!["one".to_owned(), "two".to_owned()],
                 enchantments: vec![(Enchantment::all()[0], 3)],
                 nbt: Compound::from([("RepairCost".to_owned(), Value::Int(4))]),
-            }));
+            }))
+            .unwrap();
         let anvil = block::State::all()
             .filter(|s| s.name() == "minecraft:chipped_anvil")
             .nth(2)
@@ -1026,6 +1061,7 @@ pub(super) mod tests {
                         )]),
                         &crate::custom::Registry::default(),
                     ),
+                    baby: true,
                 },
                 invulnerable: true,
                 attack_time: 0,
@@ -1038,6 +1074,20 @@ pub(super) mod tests {
                     uuid: Uuid::from_bytes([0; 16]),
                 },
                 invulnerable: false,
+                attack_time: 0,
+                last_damage: 0.0,
+                dead_ticks: None,
+            }),
+            Kind::Npc(Character {
+                form: Form::Zombie { baby: true },
+                invulnerable: false,
+                attack_time: 0,
+                last_damage: 0.0,
+                dead_ticks: None,
+            }),
+            Kind::Npc(Character {
+                form: Form::Zombie { baby: false },
+                invulnerable: true,
                 attack_time: 0,
                 last_damage: 0.0,
                 dead_ticks: None,
@@ -1090,6 +1140,15 @@ pub(super) mod tests {
                 ])],
                 owner: None,
                 owner_runtime_id: 0,
+                flight: 1,
+            }),
+            // The longest `item-despawn-ticks`, past what the saved `Age` holds.
+            Kind::Item(Item {
+                stack: stack("minecraft:oak_planks", 1),
+                pickup_delay: 0,
+                despawn_delay: 72_000,
+                owner: String::new(),
+                thrower: String::new(),
             }),
         ]
     }
@@ -1128,6 +1187,91 @@ pub(super) mod tests {
             assert_eq!(resaved, saved, "the saved form is stable");
             assert_eq!(bytes(&resaved), bytes(&saved), "byte for byte");
         }
+    }
+
+    // pmmp: Entity::setHealth
+    #[test]
+    fn an_npc_saved_without_health_loads_dying() {
+        let mut dying = entity(
+            Kind::Npc(Character {
+                form: Form::Zombie { baby: false },
+                invulnerable: false,
+                attack_time: 0,
+                last_damage: 0.0,
+                dead_ticks: Some(0),
+            }),
+            Vec3::new(5.25, -59.5, -3.75),
+        );
+        dying.health = 0.0;
+        let loaded = vanilla_load(&save(&dying), ChunkPos::new(0, -1)).expect("loads");
+        assert_eq!(loaded.health, 0.0);
+        assert!(!loaded.kind.is_living());
+        let Kind::Npc(c) = loaded.kind else {
+            panic!("{:?}", loaded.kind)
+        };
+        assert_eq!(c.dead_ticks, Some(1), "past the tick that drops");
+    }
+
+    /// The items by count and the experience on the ground.
+    fn drops(h: &super::super::tests::Harness) -> (u32, u32) {
+        let (mut items, mut xp) = (0, 0);
+        for e in h.live() {
+            match &e.kind {
+                Kind::Item(i) => items += u32::from(i.stack.count()),
+                Kind::ExperienceOrb(o) => xp += u32::from(o.value),
+                _ => {}
+            }
+        }
+        (items, xp)
+    }
+
+    #[test]
+    fn a_zombie_killed_then_unloaded_and_loaded_drops_once() {
+        use super::super::tests::{Harness, standing};
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        // Out of the player's pickup reach, in its view.
+        let z = crate::tick::Context {
+            state: &mut h.state,
+        }
+        .spawn_zombie(crate::world::Id::DEFAULT, Vec3::new(40.5, -60.0, 0.5))
+        .expect("spawns");
+        crate::tick::Context {
+            state: &mut h.state,
+        }
+        .entity_mut(z)
+        .expect("lives")
+        .kill();
+        h.entities();
+        let first = drops(&h);
+        assert_eq!(first.1, 5, "the death dropped");
+        let key = (0, ChunkPos::new(2, 0));
+        let list = h.state.rules.entities.unload(key).expect("changed");
+        h.state
+            .rules
+            .entities
+            .load(key, &list, &Registry::default());
+        h.step(Vec::new());
+        let npc = |h: &Harness| {
+            let entities = &h.state.rules.entities;
+            entities.ids().find(|&id| {
+                entities
+                    .get(id)
+                    .is_some_and(|e| matches!(e.kind, Kind::Npc(_)))
+            })
+        };
+        let back = npc(&h).expect("the zombie came back");
+        crate::tick::Context {
+            state: &mut h.state,
+        }
+        .entity_mut(back)
+        .expect("not flagged")
+        .attack(1.0);
+        for _ in 0..super::super::kind::MAX_DEAD_TICKS {
+            h.step(Vec::new());
+        }
+        assert_eq!(drops(&h), first, "no second drop");
+        assert_eq!(npc(&h), None, "it finished dying");
     }
 
     #[test]

@@ -17,15 +17,17 @@ mod job;
 mod schedule;
 
 use std::fmt;
+use std::net::IpAddr;
 use std::num::NonZeroU32;
+use std::time::Duration;
 
 pub(crate) use self::data::UserData;
 #[cfg(test)]
 use self::data::registered;
 pub(super) use self::data::{PlayerUser, placed, player_saved, save_player};
 pub(super) use self::job::finish;
-use super::queue::InputSender;
-use super::{MAX_COORDINATE, Phase, PlayerKey, State, entity, player, trade};
+use super::queue::{Control, InputSender, SessionId};
+use super::{Phase, State, entity, player, trade};
 use crate::config::{Difficulty, GameMode, RANDOM_TICK_SPEED};
 use crate::math::Vec3;
 use crate::player::{Id as PlayerId, Message, Player, Result as PlayerResult};
@@ -64,11 +66,88 @@ impl Context<'_> {
     #[doc(alias = "Server::getPocketMineVersion")]
     pub const ANCHOR_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    /// The server name the settings give (`motd`). The server list shows the value the server
-    /// started with.
+    /// The server name the server list shows: `motd`, or what
+    /// [`set_motd`](Self::set_motd) set since.
     #[doc(alias = "Server::getMotd")]
+    #[doc(alias = "Network::getName")]
     pub fn motd(&self) -> &str {
         &self.state.settings.motd
+    }
+
+    /// Changes the server name the server list shows (the RakNet pong and NetherNet's
+    /// `GET /v1/join`) until the server stops; the networking shows it once this tick ends.
+    /// False, changing nothing, for a name the `motd` setting refuses (empty, over 256 bytes, or
+    /// with `;` or control characters), or past 256 network changes in one tick.
+    #[doc(alias = "Network::setName")]
+    #[doc(alias = "Network::updateName")]
+    pub fn set_motd(&mut self, motd: impl Into<String>) -> bool {
+        let motd = motd.into();
+        if !crate::config::is_motd(&motd)
+            || !self.state.network.control(Control::Motd(motd.clone()))
+        {
+            return false;
+        }
+        self.state.settings.motd = motd;
+        true
+    }
+
+    /// Refuses new connections from `ip` for `duration` from when the networking reads it, at
+    /// the end of this tick; [`Duration::MAX`] lasts until
+    /// [`unblock_address`](Self::unblock_address). A block of an address already blocked
+    /// replaces its end, as PMMP `Network::blockAddress` does. Players already connected from it
+    /// stay ([`Player::kick`](crate::player::Player::kick) them). False, changing nothing, past
+    /// 256 network changes in one tick; at most 4,096 addresses are blocked at once, and the
+    /// networking refuses a block past that with a warning.
+    #[doc(alias = "Network::blockAddress")]
+    pub fn block_address(&mut self, ip: IpAddr, duration: Duration) -> bool {
+        self.state.network.control(Control::Block { ip, duration })
+    }
+
+    /// Accepts connections from `ip` again, at the end of this tick. False, changing nothing,
+    /// past 256 network changes in one tick.
+    #[doc(alias = "Network::unblockAddress")]
+    pub fn unblock_address(&mut self, ip: IpAddr) -> bool {
+        self.state.network.control(Control::Unblock(ip))
+    }
+
+    /// The connections the networking holds, logged in or not, as it last reported (every
+    /// second when the count changed).
+    #[doc(alias = "Network::getConnectionCount")]
+    pub fn connection_count(&self) -> usize {
+        usize::try_from(self.state.network.connections().0).unwrap_or(usize::MAX)
+    }
+
+    /// The connections whose login was verified, as the networking last reported.
+    #[doc(alias = "Network::getValidConnectionCount")]
+    pub fn valid_connection_count(&self) -> usize {
+        usize::try_from(self.state.network.connections().1).unwrap_or(usize::MAX)
+    }
+
+    /// The ticks a second the latest measured tick allows: 20 unless it took longer than 50 ms
+    /// (PMMP's formula). Every tick's time is measured off the game logic and read as a logged
+    /// input by the next tick, so a replay reads the same.
+    #[doc(alias = "Server::getTicksPerSecond")]
+    pub fn tps(&self) -> f64 {
+        self.state.network.tps()
+    }
+
+    /// The mean of [`tps`](Self::tps) over the last 20 measured ticks.
+    #[doc(alias = "Server::getTicksPerSecondAverage")]
+    pub fn average_tps(&self) -> f64 {
+        self.state.network.average_tps()
+    }
+
+    /// How long the latest measured tick took (PMMP gives it as a percentage of 50 ms).
+    #[doc(alias = "Server::getTickUsage")]
+    #[doc(alias = "World::getTickRateTime")]
+    pub fn mspt(&self) -> Duration {
+        self.state.network.mspt()
+    }
+
+    /// The mean of [`mspt`](Self::mspt) over the last 20 measured ticks.
+    #[doc(alias = "Server::getTickUsageAverage")]
+    pub fn average_mspt(&self) -> Duration {
+        self.state.network.average_mspt()
     }
 
     /// The most players online at once (`max-players`).
@@ -109,10 +188,11 @@ impl Context<'_> {
         self.state.settings.hardcore
     }
 
-    /// The largest chunk radius a player gets (`view-distance`).
+    /// The largest chunk radius a player gets (`view-distance`), in a world without its own
+    /// (`[worlds.<name>]`).
     #[doc(alias = "Server::getViewDistance")]
     pub fn view_distance(&self) -> u8 {
-        self.state.settings.view_distance
+        self.state.settings.view.view_distance
     }
 
     /// Whether player data is loaded and saved (`save-player-data`).
@@ -147,36 +227,22 @@ impl Context<'_> {
     }
 
     /// The online player whose name is `name`, ignoring ASCII case (PMMP compares with
-    /// `strtolower`). A player without Xbox sign-in is keyed by its lowercase name, so it is
-    /// found by an index search; only the players signed in with Xbox (keyed by XUID, at most
-    /// `max-players`) are compared one by one. The lookups return an [`Id`](PlayerId), so the
-    /// context stays free for [`player_mut`](Self::player_mut).
+    /// `strtolower`), the first in [`Id`](PlayerId) order if players signed in with Xbox share
+    /// it. An index search. The lookups return an [`Id`](PlayerId), so the context stays free for
+    /// [`player_mut`](Self::player_mut).
     #[doc(alias = "Server::getPlayerExact")]
     pub fn player_exact(&self, name: &str) -> Option<PlayerId> {
-        let index = &self.state.index;
-        let key = PlayerKey::Name(name.to_ascii_lowercase());
-        let found = index.get(&key).or_else(|| {
-            // XUID keys sort before every name key.
-            index
-                .range(..PlayerKey::Name(String::new()))
-                .map(|(_, session)| session)
-                .find(|s| {
-                    self.state
-                        .players
-                        .get(s)
-                        .is_some_and(|p| p.identity.name.eq_ignore_ascii_case(name))
-                })
-        })?;
         self.state
-            .players
-            .get(found)
-            .filter(|p| online(p))
+            .names
+            .range((name.to_ascii_lowercase(), SessionId::new(0))..)
+            .take_while(|(n, _)| n.eq_ignore_ascii_case(name))
+            .find_map(|&(_, session)| self.player(PlayerId::new(session)))
             .map(Player::id)
     }
 
     /// The online player whose name starts with `prefix` (ignoring ASCII case) and is the
     /// shortest of those, the first in [`Id`](PlayerId) order on a tie (PMMP
-    /// `getPlayerByPrefix`). The players (at most `max-players`) are compared one by one.
+    /// `getPlayerByPrefix`). Only the names with the prefix are looked at.
     #[doc(alias = "Server::getPlayerByPrefix")]
     pub fn player_by_prefix(&self, prefix: &str) -> Option<PlayerId> {
         let starts = |name: &str| {
@@ -184,25 +250,25 @@ impl Context<'_> {
                 .get(..prefix.len())
                 .is_some_and(|head| head.eq_ignore_ascii_case(prefix.as_bytes()))
         };
-        let mut best: Option<&Player> = None;
-        for p in self.players() {
-            let name = &p.identity.name;
-            if starts(name) && best.is_none_or(|b| name.len() < b.identity.name.len()) {
-                best = Some(p);
-                if name.len() == prefix.len() {
-                    break;
-                }
-            }
-        }
-        best.map(Player::id)
+        // Lowercase names with the prefix follow it in order: the scan stops at the first other.
+        self.state
+            .names
+            .range((prefix.to_ascii_lowercase(), SessionId::new(0))..)
+            .take_while(|(name, _)| starts(name))
+            .filter(|&&(_, session)| self.player(PlayerId::new(session)).is_some())
+            .min_by_key(|(name, session)| (name.len(), *session))
+            .map(|&(_, session)| PlayerId::new(session))
     }
 
-    /// The online player whose UUID is `uuid` (PMMP `getPlayerByUUID`). The players (at most
-    /// `max-players`) are compared one by one.
+    /// The online player whose UUID is `uuid` (PMMP `getPlayerByUUID`), the first in
+    /// [`Id`](PlayerId) order if logins share it. An index search.
     #[doc(alias = "Server::getPlayerByUUID")]
     pub fn player_by_uuid(&self, uuid: Uuid) -> Option<PlayerId> {
-        self.players()
-            .find(|p| p.identity.uuid == uuid)
+        self.state
+            .uuids
+            .range((uuid, SessionId::new(0))..)
+            .take_while(|(u, _)| *u == uuid)
+            .find_map(|&(_, session)| self.player(PlayerId::new(session)))
             .map(Player::id)
     }
 
@@ -216,34 +282,38 @@ impl Context<'_> {
         player::broadcast(self.state, message)
     }
 
-    /// The default world: the one the settings name (`level-name`), where players join.
+    /// The default world, where players join: the one the settings name (`level-name`) unless
+    /// [`set_default_world`](Self::set_default_world) named another.
     #[doc(alias = "WorldManager::getDefaultWorld")]
     pub fn default_world(&self) -> &World {
         #[expect(
             clippy::indexing_slicing,
-            reason = "invariant: a server always has its default world at index 0"
+            reason = "invariant: the default world is always one of the server's, and loaded"
         )]
-        &self.state.worlds[0]
+        &self.state.worlds[self.state.catalog.default_world()]
     }
 
     /// The default world, to change it.
     pub fn default_world_mut(&mut self) -> &mut World {
+        let index = self.state.catalog.default_world();
         #[expect(
             clippy::indexing_slicing,
-            reason = "invariant: a server always has its default world at index 0"
+            reason = "invariant: the default world is always one of the server's, and loaded"
         )]
-        &mut self.state.worlds[0]
+        &mut self.state.worlds[index]
     }
 
-    /// The world named `name`, if the server has it.
+    /// The loaded world named `name`, if any.
     #[doc(alias = "WorldManager::getWorldByName")]
     pub fn world_named(&self, name: &str) -> Option<&World> {
-        self.state.worlds.iter().find(|w| w.name() == name)
+        let index = self.state.catalog.named(name)?;
+        self.world(crate::world::Id::of(index))
     }
 
-    /// The world named `name`, to change it.
+    /// The loaded world named `name`, to change it.
     pub fn world_named_mut(&mut self, name: &str) -> Option<&mut World> {
-        self.state.worlds.iter_mut().find(|w| w.name() == name)
+        let index = self.state.catalog.named(name)?;
+        self.world_mut(crate::world::Id::of(index))
     }
 
     /// Saves every persistent world and the player data at the end of this tick, together, as
@@ -253,6 +323,24 @@ impl Context<'_> {
         self.state.saving.requested = true;
     }
 
+    /// Saves as [`save`](Self::save) does, then copies the saved world file into
+    /// `data/backups/world-<unix seconds>.redb` while the server runs, keeping the 3 newest
+    /// backups (those made at start included). The save thread copies it in steps between its
+    /// other work, so players do not wait for it; what came of it is in the log, not here: a
+    /// backup asked for while another is being made is not made, and a failed one leaves no
+    /// file. A stop waits for the backup being made. Calling it again before the save changes
+    /// nothing. PMMP has no backup.
+    ///
+    /// Returns `false`, asking for nothing, when backups are off (`backups = false`).
+    pub fn backup(&mut self) -> bool {
+        if !self.state.settings.backups {
+            return false;
+        }
+        self.state.saving.requested = true;
+        self.state.saving.backup = true;
+        true
+    }
+
     /// Spawns a villager-type NPC (PLAN.md 8.6: no AI, network actor `minecraft:villager_v2`)
     /// at `pos` (its feet) in `world`, showing `profession` (the actor variant) and trading
     /// `offers` in screen order, like
@@ -260,8 +348,8 @@ impl Context<'_> {
     /// [`custom::Error::Offer`](crate::custom::Error::Offer) for an offer
     /// [`set_trade_offers`](Self::set_trade_offers) refuses, and with
     /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) if the world does not
-    /// exist, `pos` is not finite or outside the world border, its chunk is not loaded, or the
-    /// world is at its entity limit.
+    /// exist, `pos` is not finite, outside the world border or more than 64 blocks above or below
+    /// the world height, its chunk is not loaded, or the world is at its entity limit.
     pub fn spawn_villager(
         &mut self,
         world: crate::world::Id,
@@ -270,10 +358,8 @@ impl Context<'_> {
         offers: &[crate::custom::Offer],
     ) -> std::result::Result<crate::entity::Id, crate::custom::Error> {
         let offers = trade::new_offers(offers)?;
-        let border = f64::from(MAX_COORDINATE);
-        let w = super::world_api::index(self.state, world)
-            .filter(|_| pos.is_finite() && [pos.x, pos.y, pos.z].iter().all(|c| c.abs() <= border))
-            .ok_or(crate::custom::Error::NotSpawned)?;
+        let w =
+            super::world_api::index(self.state, world).ok_or(crate::custom::Error::NotSpawned)?;
         let npc = entity::Npc::Villager { profession, offers };
         entity::spawn_npc(self.state, w, pos, npc).ok_or(crate::custom::Error::NotSpawned)
     }
@@ -293,9 +379,10 @@ impl Context<'_> {
                 value: GameRuleValue::Uint32(speed),
             }],
         });
-        // Players before the spawn window get the rule in it (`survival::game_rules`).
+        // A player still loading gets the rule in its spawn window (`survival::game_rules`); a
+        // joined one whose window has not gone out yet gets it twice, which does no harm.
         for p in self.state.players.values_mut() {
-            if matches!(p.phase, Phase::Spawning | Phase::Spawned) {
+            if online(p) {
                 p.send_packet(packet.clone());
             }
         }
@@ -359,6 +446,27 @@ impl Tasks {
         }
         state.tasks.every = every;
         schedule::run(state);
+    }
+
+    /// Writes what changes while the server runs: the build-time tasks are code, fixed at build
+    /// (their periods are in the registration fingerprint).
+    pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
+        let Self {
+            every: _,
+            queue,
+            jobs,
+        } = self;
+        queue.checkpoint(w);
+        jobs.checkpoint(w);
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote into the tasks registered at build.
+    pub(super) fn restore(
+        &mut self,
+        r: &mut super::checkpoint::Reader<'_>,
+    ) -> super::checkpoint::Result<()> {
+        self.queue.restore(r)?;
+        self.jobs.restore(r)
     }
 
     /// The ids of the blocking jobs waiting for their result, in order.
@@ -425,6 +533,7 @@ mod tests {
             skin: crate::tick::queue::Skin::default(),
             device_os: -1,
             address: None,
+            client: crate::tick::queue::Client::default(),
         };
         let second = input(
             2,
@@ -583,6 +692,8 @@ mod tests {
             Vec3::new(0.0, f64::INFINITY, 0.0),
             Vec3::new(30_000_001.0, 0.0, 0.0),
             Vec3::new(0.0, 0.0, -30_000_001.0),
+            Vec3::new(0.0, f64::from(crate::world::MAX_Y) + 65.0, 0.0),
+            Vec3::new(0.0, f64::from(crate::world::MIN_Y) - 65.0, 0.0),
         ] {
             assert_eq!(
                 ctx.spawn_villager(WorldId::DEFAULT, feet, FARMER, &[]),
@@ -600,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn the_random_tick_speed_changes_up_to_the_setting_limit_and_spawned_players_hear_it() {
+    fn the_random_tick_speed_changes_up_to_the_setting_limit_and_joined_players_hear_it() {
         let (mut state, [mut rx1, mut rx2]) = state();
         let mut ctx = Context { state: &mut state };
         assert!(!ctx.set_random_tick_speed(4097));
@@ -625,8 +736,9 @@ mod tests {
         assert!(spawned.iter().all(|r| r.len() == 1
             && r[0].name == "randomTickSpeed"
             && matches!(r[0].value, GameRuleValue::Uint32(0 | 4096))));
-        // Session 2 has not asked for its chunks: its spawn window carries the new value.
-        assert!(rules(&mut rx2).is_empty());
+        // Session 2 has not asked for its chunks: it hears the rule now, and its spawn window
+        // carries the new value again.
+        assert_eq!(rules(&mut rx2), spawned);
     }
 
     // pmmp: World::save, WorldManager::getDefaultWorld, WorldManager::getWorldByName
@@ -662,6 +774,30 @@ mod tests {
         Tasks::run(&mut state);
         assert!(state.saving.requested);
         assert!(format!("{:?}", state.tasks).contains("every: [2], scheduled: 0"));
+    }
+
+    #[test]
+    fn shutdown_runs_deferred_callbacks_before_the_final_snapshot() {
+        let mut listeners = Listeners::default();
+        listeners.push(
+            crate::event::Priority::Normal,
+            |_: &mut crate::event::PlayerQuit, cx: &mut Context<'_>| {
+                cx.defer(|cx| *cx.data_mut::<u32>().expect("registered") += 1)
+                    .expect("room");
+            },
+        );
+        listeners.sort();
+        let mut state = new_state(settings(|_| {}), listeners);
+        state.data = registered::<u32, u32>("visits", "quits");
+        let (j, _rx) = join(1, 0);
+        tick(&mut state, &mut vec![j], &mut Output::default());
+        state.close_all(&mut Output::default());
+        let snapshot =
+            crate::tick::save::snapshot(&mut state, &mut crate::tick::InputLog::default(), true);
+        let Some(crate::save::Request::Commit(snapshot)) = snapshot else {
+            panic!("the final snapshot is always taken");
+        };
+        assert_eq!(snapshot.user, [("quits".to_owned(), b"1".to_vec())]);
     }
 
     #[test]

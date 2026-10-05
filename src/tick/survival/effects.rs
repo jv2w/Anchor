@@ -27,11 +27,19 @@ pub(super) struct Active {
     pub(super) infinite: bool,
 }
 
+crate::tick::checkpoint::fields!(Active {
+    duration,
+    amplifier,
+    visible,
+    ambient,
+    infinite,
+});
+
 impl Active {
     /// The effect a potion, food or the API gives.
     pub(super) fn of(instance: Instance) -> Self {
         Self {
-            duration: instance.duration().min(MAX_DURATION),
+            duration: instance.duration_ticks().min(MAX_DURATION),
             amplifier: instance.amplifier(),
             visible: instance.is_visible(),
             ambient: instance.is_ambient(),
@@ -197,20 +205,24 @@ pub(super) fn remove_from(player: &mut Player, effect: Type) -> bool {
     on_remove(&mut player.survival, effect, old);
     player.data_dirty = true;
     if player.phase == Phase::Spawned {
-        let packet = packet(player, effect, None, MobEffectOperation::Remove);
+        // BDS's removal carries the effect's amplifier and the time it had left (P6 `syntax`).
+        let packet = packet(player, effect, Some(old), MobEffectOperation::Remove);
         player.send_packet(packet);
     }
     true
 }
 
-/// Removes every effect (milk, respawn, a totem).
+/// Removes every effect (milk, respawn, a totem), in effect ID order as BDS removes them (P6
+/// `syntax` `effect @s clear`, m9-facts.md).
 pub(super) fn clear(state: &mut State, session: SessionId) {
-    for effect in active_types(state, session).into_iter().flatten() {
+    let mut active = active_types(state, session);
+    active.sort_unstable_by_key(|t| t.map(Type::id));
+    for effect in active.into_iter().flatten() {
         remove(state, session, effect);
     }
 }
 
-/// The active effect types in order, without allocating (at most one per type).
+/// The active effect types, without allocating (at most one per type).
 fn active_types(state: &State, session: SessionId) -> [Option<Type>; EFFECT_TYPES] {
     let mut out = [None; EFFECT_TYPES];
     if let Some(player) = state.players.get(&session) {
@@ -438,7 +450,7 @@ mod tests {
     fn an_instance_keeps_its_flags_through_an_active_effect() {
         let given = Type::Speed
             .instance()
-            .with_duration(40)
+            .with_duration_ticks(40)
             .with_amplifier(2)
             .with_visible(false)
             .with_ambient(true)

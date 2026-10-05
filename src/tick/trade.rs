@@ -16,7 +16,7 @@
 //!   its item changes committed (a check/apply pair; `traded` cannot fail after `offer`
 //!   succeeded in the same request). A trade counts uses (at most 256 per request), gives the
 //!   villager experience and tiers, and drops reward orbs at the villager. Like BDS, no
-//!   `UpdateTrade` follows a trade; one does when the villager reaches a new tier.
+//!   `UpdateTrade` follows a trade, not even one that reaches a new tier (P6 `tradeup`).
 //! - [`closed`]: the inventory module's report that the trade window closed (it returns the
 //!   payment slots). [`tick`] closes the window of every player whose villager is gone or in
 //!   another world.
@@ -176,6 +176,35 @@ impl Trades {
         h.u64(u64::from(*next_net_id));
         // The stand-in villagers' offers, which the entity module hashes in the game.
         fixtures.hash_into(h);
+    }
+}
+
+super::checkpoint::fields!(Session { villager, window });
+
+/// The sessions and the next network ID; `by_villager` is `sessions` again.
+impl super::checkpoint::Codec for Trades {
+    fn encode(&self, w: &mut super::checkpoint::Writer) {
+        let Self {
+            sessions,
+            by_villager: _,
+            next_net_id,
+            #[cfg(test)]
+                fixtures: _,
+        } = self;
+        sessions.encode(w);
+        next_net_id.encode(w);
+    }
+
+    fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
+        let sessions: BTreeMap<SessionId, Session> = super::checkpoint::Codec::decode(r)?;
+        let by_villager = sessions.iter().map(|(&s, t)| (t.villager, s)).collect();
+        Ok(Self {
+            sessions,
+            by_villager,
+            next_net_id: super::checkpoint::Codec::decode(r)?,
+            #[cfg(test)]
+            fixtures: tests::Fixtures::default(),
+        })
     }
 }
 
@@ -383,10 +412,9 @@ fn traded_with(state: &mut State, session: SessionId, net_id: u32, times: u32, h
         let at = Vec3::new(position.x, position.y + REWARD_HEIGHT, position.z);
         (hooks.drop_experience)(state, world, at, amount);
     }
+    // A new tier reaches the traders through the villager's entity data alone: BDS sends no
+    // UpdateTrade then (P6 `tradeup`, m9-facts.md).
     (hooks.villager_traded)(state, villager, before);
-    if applied.tier_changed {
-        refresh(state, villager, hooks);
-    }
 }
 
 /// `session`'s trade window closed (by the client, leaving, dying, another window, the villager

@@ -130,7 +130,7 @@ impl Item {
         self
     }
 
-    /// The same item that can be held in the off hand.
+    /// The same item, allowed in the off-hand slot.
     #[must_use]
     pub const fn allow_off_hand(mut self) -> Self {
         self.allow_off_hand = true;

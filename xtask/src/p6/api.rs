@@ -1,5 +1,7 @@
 //! The API scenarios of `cargo xtask p6` (PLAN.md 10.8 P6): `commands`, `particles`, `kick`,
-//! `forms` and `script` (the bot's `api.go`). They run on the game scenarios' machinery (`game`):
+//! `forms` and `script` (the bot's `api.go`), and `weather`, `joinrain` and `joinstorm` (the
+//! bot's `weather.go`, PLAN.md 10.9 날씨와 번개: each runs after the one before it, whose weather
+//! it joins in). They run on the game scenarios' machinery (`game`):
 //! the bot plays each one with its own player name and writes the console commands it needs as
 //! `command` records, which the harness runs on the server's console. The script scenario runs
 //! the actions of `SCRIPT`.
@@ -8,10 +10,11 @@
 //!   allowed (player commands need them) and the forms script pack (`FORMS_PACK`) installed in the
 //!   new world, into `target/p6/bds-api/`; the session first runs `game::SESSION_SETUP`.
 //! - `p6 api anchor [scenario]...`: the same against Anchor in this process (`game::console`
-//!   carries out `op`, `kick`, `scriptevent p6:<kind>` and `summon snowball|egg` through Anchor's
-//!   public API; player commands are Anchor's own), into `target/p6/anchor-api/`, then compared with
-//!   `bds-api/` (also written to `anchor-api/compare.txt`).
-//! - `p6 api compare A B`: compares the API captures two folders hold.
+//!   carries out `op`, `kick`, `scriptevent p6:<kind>`, `summon snowball|egg`, `weather` and
+//!   `summon lightning_bolt` through Anchor's public API; player commands are Anchor's own), into
+//!   `target/p6/anchor-api/`, then compared with `bds-api/` (also written to
+//!   `anchor-api/compare.txt`).
+//! - `p6 api compare A B`: compares the API captures of two folders; a missing one is a difference.
 //!
 //! Each capture gets a report (`<scenario>.txt`): per step of the bot, its output, check, form and
 //! command list lines and the packets of `REPORTED` with their fields. The comparison pairs the
@@ -38,10 +41,99 @@ use super::compare::{self, Received, field};
 use super::game;
 
 /// The API scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 5] = ["commands", "particles", "kick", "forms", "script"];
+pub(crate) const SCENARIOS: [&str; 42] = [
+    "commands",
+    "particles",
+    "kick",
+    "forms",
+    "script",
+    "weather",
+    "joinrain",
+    "joinstorm",
+    "enchants",
+    "stations",
+    "potions",
+    "entities",
+    "villagers",
+    "numbers",
+    "syntax",
+    "limits",
+    "limitchat",
+    "line256",
+    "line257",
+    "line384",
+    "line448",
+    "line480",
+    "line484",
+    "line488",
+    "line492",
+    "line496",
+    "line500",
+    "line504",
+    "line505",
+    "line506",
+    "line507",
+    "line508",
+    "line511",
+    "lineunknown600",
+    "line512",
+    "line1000",
+    "linekorean387",
+    "linekorean519",
+    "others",
+    "rules",
+    "rulesjoin",
+    "tradeup",
+];
 /// The scenarios whose comparison is facts only: the particles scenario records what each server
-/// sends, and the script scenario tests the bot's `-script` actions (`SCRIPT`).
-const FACTS_ONLY: [&str; 2] = ["particles", "script"];
+/// sends, the script scenario tests the bot's `-script` actions (`SCRIPT`), and the M9
+/// verification scenarios `villagers` (random professions), `numbers` (BDS-only items and
+/// telemetry), `rules` and `rulesjoin` (game rules Anchor takes from its settings, not a command)
+/// and the command line lengths (BDS ends the connection from 508 bytes, Anchor answers) record
+/// BDS facts for `xtask/data/p6/m9-facts.md`.
+const FACTS_ONLY: [&str; 27] = [
+    "particles",
+    "script",
+    "villagers",
+    "numbers",
+    "rules",
+    "rulesjoin",
+    "line256",
+    "line257",
+    "line384",
+    "line448",
+    "line480",
+    "line484",
+    "line488",
+    "line492",
+    "line496",
+    "line500",
+    "line504",
+    "line505",
+    "line506",
+    "line507",
+    "line508",
+    "line511",
+    "lineunknown600",
+    "line512",
+    "line1000",
+    "linekorean387",
+    "linekorean519",
+];
+/// The M9 verification scenarios that compare their checks only, not the fixed-field packets of
+/// their steps: what each checks is its item (potion colours and cloud, another player, chat
+/// limits), and the other packets differ for reasons recorded in `xtask/data/p6/m9-facts.md` (a
+/// splash's effect durations follow PMMP, Anchor keeps no default death message).
+const CHECKS_ONLY: &[&str] = &[
+    "potions",
+    "others",
+    "mover",
+    "limits",
+    "limitchat",
+    "tradeup",
+];
+/// Scenarios with a second bot (`game::run_scenarios`): the others scenario watches the mover.
+const COMPANIONS: &[(&str, &str)] = &[("others", "mover")];
 /// The action file of the script scenario, relative to the repository root.
 const SCRIPT: &str = "xtask/data/p6/script.txt";
 /// The intended-difference file, relative to the repository root.
@@ -150,12 +242,31 @@ pub(crate) fn session(
         for scenario in scenarios {
             let script = script_of(root, scenario);
             let console = |l: &str| server.command(l);
-            passed &=
-                game::run_scenario(bot, addr, &dir, scenario, script.as_deref(), console, out)?;
+            passed &= game::run_scenarios(
+                bot,
+                addr,
+                &dir,
+                scenario,
+                script.as_deref(),
+                companion(scenario),
+                console,
+                out,
+            )?;
             write_report(&dir, scenario)?;
+            if let Some(c) = companion(scenario) {
+                write_report(&dir, c)?;
+            }
         }
         Ok(passed)
     })
+}
+
+/// The companion scenario of `scenario`, if it has one.
+fn companion(scenario: &str) -> Option<&'static str> {
+    COMPANIONS
+        .iter()
+        .find(|(s, _)| *s == scenario)
+        .map(|(_, c)| *c)
 }
 
 /// The action file of the scenario, for the script scenario.
@@ -206,7 +317,7 @@ pub(crate) fn anchor_session(
     let dir = root.join(super::OUT_DIR).join("anchor-api");
     let (mut console, task) = game::console::console();
     let with_console = |b: anchor::ServerBuilder| b.every(game::console::EVERY_TICK, task);
-    let played = super::anchor_session(&dir, "zlib", None, with_console, out, |addr, out| {
+    let played = super::anchor_session(&dir, "zlib", None, with_console, out, |addr, _, out| {
         for line in game::SESSION_SETUP {
             console.send(line)?;
         }
@@ -214,9 +325,21 @@ pub(crate) fn anchor_session(
         for scenario in scenarios {
             let script = script_of(root, scenario);
             let send = |l: &str| console.send(l);
-            passed &= game::run_scenario(bot, addr, &dir, scenario, script.as_deref(), send, out)?;
+            passed &= game::run_scenarios(
+                bot,
+                addr,
+                &dir,
+                scenario,
+                script.as_deref(),
+                companion(scenario),
+                send,
+                out,
+            )?;
             passed &= console.settle(out)?;
             write_report(&dir, scenario)?;
+            if let Some(c) = companion(scenario) {
+                write_report(&dir, c)?;
+            }
         }
         Ok(passed)
     })?;
@@ -235,7 +358,8 @@ pub(crate) fn anchor_session(
     Ok(played && same)
 }
 
-/// `p6 api compare A B`: compares the API captures both folders hold.
+/// `p6 api compare A B`: compares every API scenario's captures in the two folders; a missing
+/// capture is a difference.
 pub(crate) fn compare(
     root: &Path,
     a: &Path,
@@ -245,7 +369,8 @@ pub(crate) fn compare(
     compare_scenarios(root, a, b, &SCENARIOS, out)
 }
 
-/// [`compare()`] for the captures of `scenarios` only.
+/// [`compare()`] for the captures of `scenarios` only. A scenario without a capture in either
+/// folder is a difference.
 fn compare_scenarios(
     root: &Path,
     a: &Path,
@@ -261,18 +386,34 @@ fn compare_scenarios(
     let intended = parse_intended(&super::read_text(&root.join(INTENDED))?)
         .map_err(|e| format!("{INTENDED}: {e}"))?;
     let mut same = true;
-    let mut compared = 0;
-    for scenario in scenarios {
+    let with_companions = scenarios
+        .iter()
+        .flat_map(|s| std::iter::once(*s).chain(companion(s)));
+    for scenario in with_companions {
+        let scenario = &scenario;
         let capture = |dir: &Path| dir.join(format!("{scenario}.jsonl"));
-        if !super::is_file(&capture(a)) || !super::is_file(&capture(b)) {
+        if let Some(dir) = [a, b].into_iter().find(|d| !super::is_file(&capture(d))) {
+            super::say(
+                out,
+                &format!(
+                    "DIFFERENT {scenario}: no capture in {}; run `p6 api bds {scenario}`",
+                    dir.display()
+                ),
+            )?;
+            same = false;
             continue;
         }
-        compared += 1;
         let read = |dir: &Path| {
             steps(&super::read_text(&capture(dir))?)
                 .map_err(|e| format!("{}: {e}", capture(dir).display()))
         };
-        let (differences, notes) = compare_steps(&read(a)?, &read(b)?, &fields);
+        let checks_only = fields.only(&[]);
+        let listed = if CHECKS_ONLY.contains(scenario) {
+            &checks_only
+        } else {
+            &fields
+        };
+        let (differences, notes) = compare_steps(&read(a)?, &read(b)?, listed);
         for note in &notes {
             super::say(out, &format!("note {scenario}: {note}"))?;
         }
@@ -306,9 +447,6 @@ fn compare_scenarios(
             ),
         )?;
         same &= !differ;
-    }
-    if compared == 0 {
-        return Err("the folders hold no API scenario captures in common".to_owned());
     }
     super::say(out, if same { "SAME" } else { "DIFFERENT" })?;
     Ok(same)
@@ -361,7 +499,11 @@ fn parse_intended(text: &str) -> Result<Intended, String> {
         let Some((difference, _)) = rest.rsplit_once(" | ") else {
             return Err(at("want `<scenario> | <difference> | <reason>`"));
         };
-        if !SCENARIOS.contains(&scenario) {
+        // `p6 import` reads its own lines (`super::import`).
+        if scenario == super::import::SCENARIO {
+            continue;
+        }
+        if !SCENARIOS.contains(&scenario) && !COMPANIONS.iter().any(|(_, c)| *c == scenario) {
             return Err(at(&format!("unknown API scenario `{scenario}`")));
         }
         if difference.is_empty() || reason.trim().is_empty() {
@@ -864,5 +1006,21 @@ mod tests {
     fn unknown_api_scenarios_are_refused() {
         assert_eq!(scenarios(&[]).expect("all"), SCENARIOS.to_vec());
         assert!(scenarios(&["trade"]).is_err());
+    }
+
+    #[test]
+    fn a_missing_capture_of_a_requested_scenario_fails() {
+        let dir = std::env::temp_dir().join(format!("anchor-p6-api-{}", std::process::id()));
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        for (d, scenario) in [(&a, "commands"), (&b, "commands"), (&a, "kick")] {
+            super::super::create_dir(d).expect("dir");
+            super::super::write(&d.join(format!("{scenario}.jsonl")), b"").expect("capture");
+        }
+        let mut out = Vec::new();
+        let same = compare_scenarios(&crate::root(), &a, &b, &["commands", "kick"], &mut out);
+        super::super::remove_dir(&dir).expect("cleanup");
+        assert_eq!(same, Ok(false));
+        let report = String::from_utf8_lossy(&out);
+        assert!(report.contains("DIFFERENT kick: no capture in"), "{report}");
     }
 }

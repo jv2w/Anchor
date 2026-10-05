@@ -6,7 +6,9 @@
 //! list reads and writes back to the same bytes. gophertunnel keeps the type only for empty
 //! `TAG_Int` and `TAG_Long` lists and writes other empty lists with element type `TAG_End`.
 //! Limits (PLAN.md 10.1): containers nest at most 512 deep counting the root, one root takes at
-//! most 4 MiB on the wire, and lengths and allocations go through the reader's limit check.
+//! most 4 MiB on the wire (or a store's own limit), and lengths and allocations go through the
+//! reader's limit check. Writing a root also counts what reading it back takes from a reader's
+//! allocation budget (`Cost`), so a store can keep what it writes readable.
 //! Reading and writing keep nested containers on a heap stack, not the thread stack.
 
 use std::collections::{BTreeMap, btree_map};
@@ -242,12 +244,14 @@ struct Decoder<'r, 'a> {
     r: &'r mut Reader<'a>,
     encoding: Encoding,
     start: usize,
+    /// The most bytes the root may take.
+    limit: usize,
 }
 
 impl Decoder<'_, '_> {
     fn check_root_size(&self) -> Result<()> {
         let used = self.start.saturating_sub(self.r.remaining().len());
-        if used > MAX_ROOT_BYTES {
+        if used > self.limit {
             return Err(Error::Size);
         }
         Ok(())
@@ -436,6 +440,16 @@ impl Decoder<'_, '_> {
     }
 }
 
+/// What an encoded root takes: its bytes, and what decoding them takes from a reader's
+/// allocation budget ([`Reader::limit`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Cost {
+    /// The bytes written.
+    pub(crate) bytes: usize,
+    /// The budget [`Reader::nbt`] takes to read them back.
+    pub(crate) alloc: usize,
+}
+
 /// A container being written; the iterative counterpart of [`ReadFrame`].
 enum WriteFrame<'v> {
     Compound(btree_map::Iter<'v, String, Value>),
@@ -456,6 +470,9 @@ struct Encoder<'w> {
     encoding: Encoding,
     /// The buffer length writing must not pass: the root's start plus its byte limit.
     end: usize,
+    /// What decoding what is written takes from a reader's budget: the [`Decoder`]'s charges
+    /// ([`Reader::limit`]), taken here at the same places and with the same element types.
+    alloc: usize,
 }
 
 impl Encoder<'_> {
@@ -466,6 +483,11 @@ impl Encoder<'_> {
             return Err(Error::Size);
         }
         Ok(())
+    }
+
+    /// Counts `count` elements of `size` bytes, as the decoder's limit check takes them.
+    fn charge(&mut self, count: usize, size: usize) {
+        self.alloc = self.alloc.saturating_add(count.saturating_mul(size));
     }
 
     /// Fails if `n` more bytes would pass [`Self::end`]; checked before a byte run is copied.
@@ -500,6 +522,7 @@ impl Encoder<'_> {
             return Err(Error::Size);
         }
         self.room(x.len())?;
+        self.charge(x.len(), 1);
         match self.encoding {
             Encoding::NetworkLittleEndian => self.w.string(x),
             Encoding::LittleEndian => self.w.string_utf(x),
@@ -509,12 +532,14 @@ impl Encoder<'_> {
     fn byte_array(&mut self, x: &[u8]) -> Result<()> {
         self.length(x.len())?;
         self.room(x.len())?;
+        self.charge(x.len(), 1);
         self.w.bytes(x);
         Ok(())
     }
 
     fn int_array(&mut self, x: &[i32]) -> Result<()> {
         self.length(x.len())?;
+        self.charge(x.len(), size_of::<i32>());
         x.iter().try_for_each(|v| {
             self.int32(*v);
             self.check()
@@ -523,6 +548,7 @@ impl Encoder<'_> {
 
     fn long_array(&mut self, x: &[i64]) -> Result<()> {
         self.length(x.len())?;
+        self.charge(x.len(), size_of::<i64>());
         x.iter().try_for_each(|v| {
             self.int64(*v);
             self.check()
@@ -552,6 +578,22 @@ impl Encoder<'_> {
     fn list<'v>(&mut self, list: &'v List) -> Result<Option<WriteFrame<'v>>> {
         self.w.uint8(list.tag());
         self.length(list.len())?;
+        let element = match list {
+            List::End => 0,
+            List::Byte(_) => size_of::<u8>(),
+            List::Short(_) => size_of::<i16>(),
+            List::Int(_) => size_of::<i32>(),
+            List::Long(_) => size_of::<i64>(),
+            List::Float(_) => size_of::<f32>(),
+            List::Double(_) => size_of::<f64>(),
+            List::ByteArray(_) => size_of::<Vec<u8>>(),
+            List::String(_) => size_of::<String>(),
+            List::List(_) => size_of::<List>(),
+            List::Compound(_) => size_of::<Compound>(),
+            List::IntArray(_) => size_of::<Vec<i32>>(),
+            List::LongArray(_) => size_of::<Vec<i64>>(),
+        };
+        self.charge(list.len(), element);
         match list {
             List::End => {}
             List::Byte(x) => {
@@ -599,6 +641,7 @@ impl Encoder<'_> {
                     if let Some((name, value)) = entries.next() {
                         self.w.uint8(value.tag());
                         self.string(name)?;
+                        self.charge(1, size_of::<(String, Value)>());
                         match value {
                             Value::List(list) => Next::List(list),
                             Value::Compound(map) => Next::Compound(map),
@@ -636,11 +679,17 @@ impl Reader<'_> {
     /// `NBT`: a root compound. A lone `TAG_End` reads as an empty compound (gophertunnel
     /// `AllowZero`).
     pub(crate) fn nbt(&mut self, encoding: Encoding) -> Result<Compound> {
+        self.nbt_within(encoding, MAX_ROOT_BYTES)
+    }
+
+    /// [`Self::nbt`] for a root of at most `limit` bytes, a store's own limit.
+    pub(crate) fn nbt_within(&mut self, encoding: Encoding, limit: usize) -> Result<Compound> {
         let start = self.remaining().len();
         let mut d = Decoder {
             r: self,
             encoding,
             start,
+            limit,
         };
         let map = match d.root()? {
             TAG_END => Compound::new(),
@@ -660,33 +709,37 @@ impl Reader<'_> {
 impl Writer {
     /// `NBT`: a root compound with an empty name, at most [`MAX_ROOT_BYTES`].
     pub(crate) fn nbt(&mut self, x: &Compound, encoding: Encoding) -> Result<()> {
-        self.nbt_within(x, encoding, MAX_ROOT_BYTES)
+        self.nbt_within(x, encoding, MAX_ROOT_BYTES).map(drop)
     }
 
-    /// [`Self::nbt`] for a root of at most `limit` bytes (and [`MAX_ROOT_BYTES`]): a larger one
-    /// is a size error, found as writing passes the limit, so the buffer never holds much more
-    /// than `limit` bytes of it whatever `x` holds. On an error the buffer holds part of the root.
+    /// [`Self::nbt`] for a root of at most `limit` bytes, a store's own limit (one over
+    /// [`MAX_ROOT_BYTES`] reads back only through [`Reader::nbt_within`]): a larger one is a size
+    /// error, found as writing passes the limit, so the buffer never holds much more than `limit`
+    /// bytes of it whatever `x` holds. On an error the buffer holds part of the root. Returns what
+    /// the root takes.
     pub(crate) fn nbt_within(
         &mut self,
         x: &Compound,
         encoding: Encoding,
         limit: usize,
-    ) -> Result<()> {
+    ) -> Result<Cost> {
         let start = self.as_bytes().len();
-        let limit = limit.min(MAX_ROOT_BYTES);
         self.uint8(TAG_COMPOUND);
         let end = start.saturating_add(limit);
         let mut e = Encoder {
             w: self,
             encoding,
             end,
+            alloc: 0,
         };
         e.string("")?;
         e.compound(x)?;
-        if self.as_bytes().len().saturating_sub(start) > limit {
+        let alloc = e.alloc;
+        let bytes = self.as_bytes().len().saturating_sub(start);
+        if bytes > limit {
             return Err(Error::Size);
         }
-        Ok(())
+        Ok(Cost { bytes, alloc })
     }
 }
 
@@ -899,6 +952,45 @@ mod tests {
         }
     }
 
+    /// What writing a root counts is exactly what reading it back takes from the budget and the
+    /// bytes it wrote, for every tag and random compounds, in both encodings; a root over its
+    /// own limit reads back only through a reader with that limit.
+    #[test]
+    fn a_written_root_counts_the_bytes_and_budget_its_reading_takes() {
+        let mut rng = crate::protocol::Rng(91);
+        let mut roots = vec![every_tag(), Compound::new()];
+        roots.extend((0..200).map(|_| crate::storage::codec::tests::random_compound(&mut rng, 3)));
+        for encoding in [Encoding::NetworkLittleEndian, Encoding::LittleEndian] {
+            for root in &roots {
+                let mut w = Writer::new(Vec::new(), 0);
+                let cost = w.nbt_within(root, encoding, MAX_ROOT_BYTES).unwrap();
+                assert_eq!(cost.bytes, w.as_bytes().len());
+                let mut r = Reader::new(w.as_bytes(), BUDGET, 0);
+                assert_eq!(r.nbt(encoding).as_ref(), Ok(root));
+                assert_eq!(BUDGET - r.budget(), cost.alloc, "{root:?}");
+            }
+        }
+        let big = Compound::from([("a".to_owned(), Value::ByteArray(vec![0; MAX_ROOT_BYTES]))]);
+        let mut w = Writer::new(Vec::new(), 0);
+        let cost = w
+            .nbt_within(&big, Encoding::LittleEndian, 2 * MAX_ROOT_BYTES)
+            .unwrap();
+        assert!(cost.bytes > MAX_ROOT_BYTES);
+        let budget = 4 * MAX_ROOT_BYTES;
+        let mut r = Reader::new(w.as_bytes(), budget, 0);
+        assert_eq!(r.nbt(Encoding::LittleEndian), Err(Error::Size));
+        let mut r = Reader::new(w.as_bytes(), budget, 0);
+        assert_eq!(
+            r.nbt_within(Encoding::LittleEndian, cost.bytes),
+            Ok(big.clone())
+        );
+        let mut r = Reader::new(w.as_bytes(), budget, 0);
+        assert_eq!(
+            r.nbt_within(Encoding::LittleEndian, cost.bytes - 1),
+            Err(Error::Size)
+        );
+    }
+
     #[test]
     fn a_lone_end_tag_reads_as_an_empty_compound() {
         assert_eq!(
@@ -999,8 +1091,9 @@ mod tests {
             let overhead = write(&fit(LIMIT / 2), encoding).unwrap().len() - LIMIT / 2;
             let mut w = Writer::new(Vec::new(), 0);
             assert_eq!(
-                w.nbt_within(&fit(LIMIT - overhead), encoding, LIMIT),
-                Ok(())
+                w.nbt_within(&fit(LIMIT - overhead), encoding, LIMIT)
+                    .map(|c| c.bytes),
+                Ok(LIMIT)
             );
             assert_eq!(w.as_bytes().len(), LIMIT);
             let mut w = Writer::new(Vec::new(), 0);

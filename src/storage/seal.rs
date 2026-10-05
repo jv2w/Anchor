@@ -18,14 +18,21 @@ use super::codec::Record;
 use super::{Error, Result};
 
 /// The format version this Anchor writes and the newest it reads. Format 2 (M7) adds player
-/// extras and chunk kinds 1 to 3, format 3 (M7) the world time in world records; format 1 and 2
-/// values still read.
-pub(crate) const FORMAT_VERSION: u16 = 3;
-/// The largest record, in bytes before compression. The largest legal chunk (24 sub-chunks of
-/// two 16-bit layers with 4096 palette entries each) takes about 12 MiB.
+/// extras and chunk kinds 1 to 3, format 3 (M7) the world time in world records, format 4 (M9)
+/// the terrain as one value per sub-chunk and extras lists in pages, format 5 (M9) the time stop
+/// and the difficulty in world records, format 6 (M9) the weather in world records, format 7 (M9)
+/// the commit identity in the meta value; values of formats 1 to 6 still read.
+pub(crate) const FORMAT_VERSION: u16 = 7;
+/// The largest record, in bytes before compression. The largest sub-chunk value takes about
+/// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
+/// on average) and about 9.4 MB with 4096 custom states of the longest NBT (2,293 bytes); a
+/// whole column of formats 1 to 3 took up to 24 times that, which is why the terrain is stored
+/// by sub-chunk. Extras lists are split into pages of at most this.
 pub(crate) const MAX_RECORD: usize = 16 << 20;
-/// Bytes a record decoder may allocate: four times the record, for palette NBT.
-const DECODE_BUDGET: usize = 4 * MAX_RECORD;
+/// Bytes a record decoder may allocate: four times the record, for palette NBT. Extras pages
+/// are cut to read back within it (`ExtraRecord::pages`), and a player record's stacks are
+/// bounded so that it does (`item::MAX_NBT_BYTES`).
+pub(crate) const DECODE_BUDGET: usize = 4 * MAX_RECORD;
 const HEADER: usize = 12;
 /// Records shorter than this are stored: compression cannot pay for itself.
 const MIN_COMPRESSED: usize = 64;
@@ -37,6 +44,11 @@ pub(crate) fn seal(key: &[u8], record: &impl Record) -> Result<Vec<u8>> {
     let mut w = Writer::new(Vec::new(), 0);
     record.encode(&mut w).map_err(Error::Encode)?;
     seal_bytes(key, w.as_bytes(), FORMAT_VERSION)
+}
+
+/// Seals record bytes already encoded in the current format (an extras page) under `key`.
+pub(crate) fn seal_encoded(key: &[u8], record: &[u8]) -> Result<Vec<u8>> {
+    seal_bytes(key, record, FORMAT_VERSION)
 }
 
 /// Seals encoded record bytes of format `version` under `key`.
@@ -304,9 +316,9 @@ mod tests {
             unseal::<ChunkRecord>(KEY, &seal(KEY, &chunk).unwrap()).unwrap(),
             chunk
         );
-        let meta = Meta { tick: 77 };
+        let meta = Meta::at(77);
         let sealed = seal(b"meta", &meta).unwrap();
-        assert_eq!((sealed[2], sealed.len()), (STORED, HEADER + 8));
+        assert_eq!((sealed[2], sealed.len()), (STORED, HEADER + 9));
         assert_eq!(unseal::<Meta>(b"meta", &sealed).unwrap(), meta);
         assert_eq!(version(&sealed).unwrap(), FORMAT_VERSION);
     }
@@ -324,7 +336,7 @@ mod tests {
 
     #[test]
     fn versions_are_checked() {
-        let mut sealed = seal(b"meta", &Meta { tick: 1 }).unwrap();
+        let mut sealed = seal(b"meta", &Meta::at(1)).unwrap();
         sealed[..2].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
         assert!(matches!(
             unseal::<Meta>(b"meta", &sealed),

@@ -83,7 +83,7 @@ fn worlds_are_found_by_their_id_in_list_order() {
     assert!(ctx.world_mut(world::Id::of(7)).is_none());
     let arena = ctx.world_mut(world::Id::of(1)).unwrap();
     assert_eq!(arena.id(), world::Id::of(1));
-    assert_eq!(ctx.worlds().len(), 2);
+    assert_eq!(ctx.worlds().count(), 2);
 }
 
 // pmmp: World::setSpawnLocation, World::getSpawnLocation, World::isSpawnChunk
@@ -168,14 +168,14 @@ fn sounds_particles_and_packets_reach_only_the_players_who_see_the_place() {
 
 // pmmp: World::setTime, World::getTime, World::getPlayers
 #[test]
-fn setting_the_time_tells_the_spawned_players_of_the_world_at_once() {
+fn setting_the_time_tells_the_players_of_the_world_at_once() {
     let (mut state, [mut rx1, mut rx2]) = state();
     received(&mut rx1);
     received(&mut rx2);
     let mut ctx = context(&mut state);
     assert!(ctx.set_time(WORLD, 18_000));
     assert!(!ctx.set_time(world::Id::of(1), 5));
-    assert_eq!(ctx.world(WORLD).unwrap().time(), 18_000);
+    assert_eq!(ctx.world(WORLD).unwrap().time_ticks(), 18_000);
     let players: Vec<player::Id> = ctx.players_in(WORLD).collect();
     assert_eq!(
         players,
@@ -197,7 +197,11 @@ fn setting_the_time_tells_the_spawned_players_of_the_world_at_once() {
             .collect::<Vec<_>>()
     };
     assert_eq!(clocks(&mut rx1), vec![18_000]);
-    assert!(clocks(&mut rx2).is_empty(), "not spawned yet");
+    assert_eq!(
+        clocks(&mut rx2),
+        vec![18_000],
+        "joined: its StartGame went out"
+    );
 }
 
 // pmmp: World::getChunkPlayers, World::getViewersForPosition

@@ -1,0 +1,206 @@
+{
+  "source": "BDS 1.26.52.3 (protocol 2193): the CameraPresets and CameraAimAssistPresets of its spawn window, the same in every `cargo xtask p6 bds` capture (target/p6/bds-*/spawn.jsonl, 2026-10-04), as the P6 bot records the fields (gophertunnel names), null fields left out.",
+  "CameraPresets": {
+    "Presets": [
+      {
+        "ApplyInheritedStartingRotation": true,
+        "Name": "minecraft:first_person",
+        "Parent": ""
+      },
+      {
+        "ApplyInheritedStartingRotation": true,
+        "EntityOffset": [
+          0,
+          0,
+          0
+        ],
+        "Name": "minecraft:fixed_boom",
+        "Parent": "",
+        "ViewOffset": [
+          0,
+          0
+        ]
+      },
+      {
+        "ApplyInheritedStartingRotation": true,
+        "EntityOffset": [
+          0,
+          0,
+          0
+        ],
+        "Name": "minecraft:follow_orbit",
+        "Parent": "",
+        "Radius": 10,
+        "ViewOffset": [
+          0,
+          0
+        ]
+      },
+      {
+        "ApplyInheritedStartingRotation": true,
+        "Name": "minecraft:free",
+        "Parent": "",
+        "PosX": 0,
+        "PosY": 0,
+        "PosZ": 0,
+        "RotX": 0,
+        "RotY": 0
+      },
+      {
+        "ApplyInheritedStartingRotation": true,
+        "Name": "minecraft:third_person",
+        "Parent": ""
+      },
+      {
+        "ApplyInheritedStartingRotation": true,
+        "Name": "minecraft:third_person_front",
+        "Parent": ""
+      }
+    ]
+  },
+  "CameraAimAssistPresets": {
+    "Categories": [
+      {
+        "Name": "minecraft:bucket",
+        "Priorities": {
+          "BlockDefault": 30,
+          "BlockTags": [],
+          "Blocks": [
+            {
+              "Identifier": "minecraft:cauldron",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:lava",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:water",
+              "Priority": 60
+            }
+          ],
+          "Entities": [],
+          "EntityDefault": 30,
+          "EntityTypeFamilies": []
+        }
+      },
+      {
+        "Name": "minecraft:empty_hand",
+        "Priorities": {
+          "BlockDefault": 30,
+          "BlockTags": [],
+          "Blocks": [
+            {
+              "Identifier": "minecraft:oak_log",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:cherry_log",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:birch_log",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:spruce_log",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:acacia_log",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:jungle_log",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:dark_oak_log",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:mangrove_log",
+              "Priority": 60
+            }
+          ],
+          "Entities": [],
+          "EntityDefault": 30,
+          "EntityTypeFamilies": []
+        }
+      },
+      {
+        "Name": "minecraft:default",
+        "Priorities": {
+          "BlockTags": [],
+          "Blocks": [
+            {
+              "Identifier": "minecraft:lever",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:oak_button",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:birch_button",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:spruce_button",
+              "Priority": 60
+            },
+            {
+              "Identifier": "minecraft:dark_oak_button",
+              "Priority": 60
+            }
+          ],
+          "Entities": [],
+          "EntityTypeFamilies": []
+        }
+      }
+    ],
+    "Operation": 1,
+    "Presets": [
+      {
+        "BlockExclusions": [
+          "minecraft:bedrock"
+        ],
+        "BlockTagExclusions": [],
+        "DefaultItemSettings": "minecraft:default",
+        "EntityExclusions": [
+          "minecraft:arrow"
+        ],
+        "EntityTypeFamilyExclusions": [],
+        "HandSettings": "minecraft:empty_hand",
+        "Identifier": "minecraft:aim_assist_default",
+        "ItemSettings": [
+          {
+            "Category": "minecraft:bucket",
+            "Item": "minecraft:bucket"
+          }
+        ],
+        "LiquidTargets": [
+          "minecraft:bucket",
+          "minecraft:oak_boat",
+          "minecraft:birch_boat",
+          "minecraft:spruce_boat",
+          "minecraft:jungle_boat",
+          "minecraft:acacia_boat",
+          "minecraft:dark_oak_boat",
+          "minecraft:mangrove_boat",
+          "minecraft:cherry_boat",
+          "minecraft:bamboo_raft",
+          "minecraft:oak_chest_boat",
+          "minecraft:birch_chest_boat",
+          "minecraft:spruce_chest_boat",
+          "minecraft:jungle_chest_boat",
+          "minecraft:acacia_chest_boat",
+          "minecraft:dark_oak_chest_boat",
+          "minecraft:mangrove_chest_boat",
+          "minecraft:cherry_chest_boat",
+          "minecraft:bamboo_chest_raft"
+        ]
+      }
+    ]
+  }
+}

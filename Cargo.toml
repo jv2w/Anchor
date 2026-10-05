@@ -12,14 +12,19 @@ workspace = true
 aws-lc-rs = { version = "=1.18.1", default-features = false, features = ["aws-lc-sys", "alloc"] }
 libdeflater = "=1.26.1"
 miniz_oxide = "=0.9.1"
+# The resident memory `/status` shows; `always_use_statm` reads one line on Linux instead of
+# the whole of `/proc/self/smaps` (PLAN.md 9.1).
+memory-stats = { version = "=1.2.0", features = ["always_use_statm"] }
 rayon = "=1.12.0"
-# The default `std` feature only; `logging` would pull in `log`.
-redb = "=4.3.0"
+# The default `std` feature only; `logging` would pull in `log`. The fixed copy (PLAN.md 9.1).
+redb = { path = "vendor/redb", version = "=4.3.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 socket2 = "=0.6.5"
-str0m = { version = "=0.24.0", default-features = false, features = ["aws-lc-rs"] }
+# The fixed copy; its own manifest points at the copies of dimpl, sctp-proto and the str0m crates
+# between them (PLAN.md 9.1).
+str0m = { path = "vendor/str0m", version = "=0.24.1", default-features = false, features = ["aws-lc-rs"] }
 tokio = { version = "=1.53.1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "io-util"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["aws_lc_rs", "tls12"] }
 toml = { version = "=1.1.6", default-features = false, features = ["std", "serde", "parse"] }
@@ -32,17 +37,12 @@ tokio = { version = "=1.53.1", features = ["test-util"] }
 
 [workspace]
 members = ["xtask"]
-# Patched copies of dependencies (PLAN.md 9.1): built as dependencies, not linted or tested as
+# Fixed copies of dependencies until upstream releases the fixes (PLAN.md 9.1). Each differs from
+# the published crate only in its fixes and in `path` entries to the other copies; remove it when
+# a release has them. Used by path, not `[patch]`, so a project depending on Anchor builds them
+# too: `[patch]` applies only in the root workspace. Built as dependencies, not linted or tested as
 # members; xtask/tests holds their reproduction tests.
 exclude = ["vendor"]
-
-# Fixed copies of dependencies until upstream releases the fixes (PLAN.md 9.1). Each copy
-# differs from the published crate only in its fixes; remove it when a release has them.
-[patch.crates-io]
-dimpl = { path = "vendor/dimpl" }
-redb = { path = "vendor/redb" }
-sctp-proto = { path = "vendor/sctp-proto" }
-str0m = { path = "vendor/str0m" }
 
 [workspace.package]
 edition = "2024"
@@ -92,6 +92,12 @@ print_stdout = "warn"
 print_stderr = "warn"
 
 # Profiles apply only when this workspace is the root build: Anchor's own tests and examples.
+[profile.dev]
+debug = "line-tables-only" # panic and backtrace locations keep file and line; full debug info is not built
+
+[profile.dev.package."*"]
+debug = false # dependencies carry no debug info
+
 [profile.release]
 overflow-checks = true # an overflow stops the test instead of wrapping silently
 

@@ -258,6 +258,8 @@ pub(in crate::tick) fn on_item_stack_request(
     if player.phase == Phase::Loading {
         return;
     }
+    // PMMP `executeInventoryTransaction`: moving items stops drawing a bow.
+    player.breaking.stop_using();
     let inv = &mut player.inventory;
     if inv.budget.0 != tick {
         inv.budget = (tick, 0);
@@ -727,7 +729,7 @@ impl<'a> Exec<'a> {
                 let stack = self
                     .ctx
                     .custom
-                    .creative_stack(a.creative_item_network_id)
+                    .creative_stack(self.ctx.creative, a.creative_item_network_id)
                     .ok_or(Error::Recipe)?;
                 self.set_created(Some(Created {
                     stack,
@@ -738,6 +740,9 @@ impl<'a> Exec<'a> {
             }
             StackRequestAction::CraftRecipe(a) if !super::station::takes_craft_recipe(self) => {
                 self.begin_craft(a.recipe_network_id, a.number_of_crafts, false)
+            }
+            StackRequestAction::AutoCraftRecipe(_) if !self.ctx.custom.has_recipe_book() => {
+                Err(Error::Recipe)
             }
             StackRequestAction::AutoCraftRecipe(a) => {
                 // The client's ingredient list is not used, only bounded (P6 facts 2).
@@ -834,7 +839,7 @@ impl<'a> Exec<'a> {
     }
 
     /// Whether slot `r` takes `stack` (PMMP slot validators): armour only in its slot (a carved
-    /// pumpkin or a mob head on the head), no shulker box inside a shulker box.
+    /// pumpkin or a mob head on the head), only what [`Stack::fits_shulker_box`] in a shulker box.
     fn accepts(&self, r: SlotRef, stack: &Stack) -> Result<()> {
         let Some(item) = stack.item() else {
             return Ok(());
@@ -864,7 +869,7 @@ impl<'a> Exec<'a> {
                         kind: Container::ShulkerBox,
                         ..
                     })
-                ) || !crate::inventory::is_shulker_box(stack)
+                ) || stack.fits_shulker_box()
             }
             _ => true,
         };
@@ -1073,7 +1078,8 @@ impl<'a> Exec<'a> {
         Ok(())
     }
 
-    /// Whether the consume actions took exactly what `craft` takes.
+    /// Whether the consume actions took exactly what `craft` takes, each cell's from the item it
+    /// held when the craft began.
     fn check_consumed(&self, craft: &Craft<'_>) -> Result<()> {
         let times = u32::from(craft.times);
         let Some((cells, refs, side)) = &craft.grid else {
@@ -1093,6 +1099,9 @@ impl<'a> Exec<'a> {
                 .iter()
                 .position(|x| Some(*x) == *r)
                 .ok_or(Error::Consumed)?;
+            if !cells.get(k).is_some_and(|cell| cell.can_stack_with(stack)) {
+                return Err(Error::Consumed);
+            }
             let t = taken.get_mut(k).ok_or(Error::Consumed)?;
             *t = t.saturating_add(u32::from(stack.count()));
         }

@@ -123,6 +123,33 @@ impl Default for Custom {
     }
 }
 
+crate::tick::checkpoint::fields!(Custom {
+    name_tag,
+    score_tag,
+    invisible,
+    silent,
+    no_client_predictions,
+    allow_flight,
+    block_collision,
+    flight_speed,
+    max_health,
+    killed,
+    respawn,
+    wake,
+    operator,
+    can_climb,
+    can_climb_walls,
+    hunger,
+    attracts_orbs,
+    movement_speed,
+    max_air,
+    auto_jump,
+    motion,
+    emote,
+    skin,
+    touched,
+});
+
 impl Custom {
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut crate::tick::Fnv) {
@@ -234,6 +261,11 @@ fn within(value: f64, range: std::ops::RangeInclusive<f64>) -> Result<()> {
     } else {
         Err(Error::OutOfRange)
     }
+}
+
+/// Fails with [`Error::Disabled`] unless the system is `on`.
+fn enabled(on: bool) -> Result<()> {
+    if on { Ok(()) } else { Err(Error::Disabled) }
 }
 
 /// Fails for a text longer than a client decodes.
@@ -429,9 +461,10 @@ impl Player {
         self.survival.food
     }
 
-    /// Sets the food level. Fails outside 0 to 20.
+    /// Sets the food level. Fails outside 0 to 20, and with `hunger = false`.
     #[doc(alias = "HungerManager::setFood")]
     pub fn set_food(&mut self, food: f64) -> Result<()> {
+        enabled(self.survival.switches.hunger)?;
         within(food, 0.0..=MAX_FOOD)?;
         food::set_food(&mut self.survival, food);
         self.survival.touch(0);
@@ -439,9 +472,11 @@ impl Player {
         Ok(())
     }
 
-    /// Adds food up to 20. Fails for a value that is negative or not finite.
+    /// Adds food up to 20. Fails for a value that is negative or not finite, and with
+    /// `hunger = false`.
     #[doc(alias = "HungerManager::addFood")]
     pub fn add_food(&mut self, food: f64) -> Result<()> {
+        enabled(self.survival.switches.hunger)?;
         within(food, 0.0..=f64::MAX)?;
         food::add_food(&mut self.survival, food, 0.0);
         self.survival.touch(0);
@@ -475,9 +510,10 @@ impl Player {
         self.survival.saturation
     }
 
-    /// Sets the saturation. Fails outside 0 to 20.
+    /// Sets the saturation. Fails outside 0 to 20, and with `hunger = false`.
     #[doc(alias = "HungerManager::setSaturation")]
     pub fn set_saturation(&mut self, saturation: f64) -> Result<()> {
+        enabled(self.survival.switches.hunger)?;
         within(saturation, 0.0..=MAX_SATURATION)?;
         self.survival.saturation = saturation;
         self.survival.touch(SATURATION);
@@ -485,9 +521,11 @@ impl Player {
         Ok(())
     }
 
-    /// Adds saturation up to 20. Fails for a value that is negative or not finite.
+    /// Adds saturation up to 20. Fails for a value that is negative or not finite, and with
+    /// `hunger = false`.
     #[doc(alias = "HungerManager::addSaturation")]
     pub fn add_saturation(&mut self, saturation: f64) -> Result<()> {
+        enabled(self.survival.switches.hunger)?;
         within(saturation, 0.0..=f64::MAX)?;
         food::add_food(&mut self.survival, 0.0, saturation);
         self.survival.touch(0);
@@ -502,9 +540,10 @@ impl Player {
     }
 
     /// Sets the exhaustion; what is over 4 is spent at the next exhaustion. Fails outside 0 to
-    /// 20.
+    /// 20, and with `hunger = false`.
     #[doc(alias = "HungerManager::setExhaustion")]
     pub fn set_exhaustion(&mut self, exhaustion: f64) -> Result<()> {
+        enabled(self.survival.switches.hunger)?;
         within(exhaustion, 0.0..=20.0)?;
         self.survival.exhaustion = exhaustion;
         self.survival.touch(EXHAUSTION);
@@ -513,10 +552,11 @@ impl Player {
     }
 
     /// Adds exhaustion, spending saturation, then food, for every 4; nothing while the player
-    /// does not get hungry (`hunger = false`, creative, spectator). Fails for a value that is
-    /// negative or not finite.
+    /// does not get hungry (creative, spectator, [`set_hunger_enabled`](Self::set_hunger_enabled)).
+    /// Fails for a value that is negative or not finite, and with `hunger = false`.
     #[doc(alias = "HungerManager::exhaust")]
     pub fn exhaust(&mut self, amount: f64) -> Result<()> {
+        enabled(self.survival.switches.hunger)?;
         within(amount, 0.0..=f64::MAX)?;
         food::exhaust(&mut self.survival, amount);
         self.survival.touch(0);
@@ -530,9 +570,11 @@ impl Player {
         super::xp_level(self)
     }
 
-    /// Sets the experience level, keeping the progress. Fails above 24,791.
+    /// Sets the experience level, keeping the progress. Fails above 24,791, and with
+    /// `experience = false`.
     #[doc(alias = "ExperienceManager::setXpLevel")]
     pub fn set_xp_level(&mut self, level: u32) -> Result<()> {
+        enabled(self.survival.switches.experience)?;
         if level > crate::player::MAX_LEVEL {
             return Err(Error::OutOfRange);
         }
@@ -543,14 +585,16 @@ impl Player {
         Ok(())
     }
 
-    /// Adds experience levels, keeping the progress. Fails if the level would pass 24,791.
+    /// Adds experience levels, keeping the progress. Fails if the level would pass 24,791, and
+    /// with `experience = false`.
     #[doc(alias = "ExperienceManager::addXpLevels")]
     pub fn add_xp_levels(&mut self, levels: u32) -> Result<()> {
         let level = self.survival.xp_level.saturating_add(levels);
         self.set_xp_level(level)
     }
 
-    /// Takes experience levels, keeping the progress; not below 0.
+    /// Takes experience levels, keeping the progress; not below 0. Nothing with
+    /// `experience = false`.
     #[doc(alias = "ExperienceManager::subtractXpLevels")]
     pub fn subtract_xp_levels(&mut self, levels: u32) {
         super::subtract_levels(self, levels);
@@ -564,9 +608,10 @@ impl Player {
     }
 
     /// Sets the progress through the level. Fails outside 0 to below 1 (a full bar is the next
-    /// level).
+    /// level), and with `experience = false`.
     #[doc(alias = "ExperienceManager::setXpProgress")]
     pub fn set_xp_progress(&mut self, progress: f64) -> Result<()> {
+        enabled(self.survival.switches.experience)?;
         if !(progress.is_finite() && (0.0..1.0).contains(&progress)) {
             return Err(Error::OutOfRange);
         }
@@ -578,16 +623,23 @@ impl Player {
     }
 
     /// Adds experience points, raising the level as they fill it (without PMMP's sound); the
-    /// points ever collected stay below 2^31.
+    /// points ever collected stay below 2^31. Nothing with `experience = false`.
     #[doc(alias = "ExperienceManager::addXp")]
     pub fn add_xp(&mut self, points: u32) {
+        if !self.survival.switches.experience {
+            return;
+        }
         food::add_experience(self, points);
         self.survival.touch(0);
     }
 
-    /// Takes experience points, lowering the level; not below 0.
+    /// Takes experience points, lowering the level; not below 0. Nothing with
+    /// `experience = false`.
     #[doc(alias = "ExperienceManager::subtractXp")]
     pub fn subtract_xp(&mut self, points: u32) {
+        if !self.survival.switches.experience {
+            return;
+        }
         let s = &mut self.survival;
         let total = food::current_xp(s).saturating_sub(u64::from(points));
         food::set_xp(s, total);
@@ -602,9 +654,10 @@ impl Player {
     }
 
     /// Sets the level and progress from experience points. Fails above 2^31 - 1, like
-    /// [`set_lifetime_total_xp`](Self::set_lifetime_total_xp).
+    /// [`set_lifetime_total_xp`](Self::set_lifetime_total_xp), and with `experience = false`.
     #[doc(alias = "ExperienceManager::setCurrentTotalXp")]
     pub fn set_current_total_xp(&mut self, points: u32) -> Result<()> {
+        enabled(self.survival.switches.experience)?;
         if points > i32::MAX.cast_unsigned() {
             return Err(Error::OutOfRange);
         }
@@ -620,9 +673,11 @@ impl Player {
         self.survival.xp_lifetime
     }
 
-    /// Sets the experience points collected since the last death. Fails above 2^31 - 1.
+    /// Sets the experience points collected since the last death. Fails above 2^31 - 1, and
+    /// with `experience = false`.
     #[doc(alias = "ExperienceManager::setLifetimeTotalXp")]
     pub fn set_lifetime_total_xp(&mut self, points: u32) -> Result<()> {
+        enabled(self.survival.switches.experience)?;
         if points > i32::MAX.cast_unsigned() {
             return Err(Error::OutOfRange);
         }
@@ -700,13 +755,13 @@ impl Player {
         self.survival.effects.contains_key(&effect)
     }
 
-    /// Gives the player `effect` for `duration` ticks (at most 2^31 - 1) at `amplifier` (0 is
+    /// Gives the player `effect` for `duration_ticks` ticks (at most 2^31 - 1) at `amplifier` (0 is
     /// level I), with particles, as PMMP's `EffectInstance` defaults. False if an effect of the
     /// type with a higher amplifier, or the same amplifier and a longer duration, stays.
     #[doc(alias = "EffectManager::add")]
     #[doc(alias = "EffectCollection::add")]
-    pub fn add_effect(&mut self, effect: effect::Type, duration: u32, amplifier: u8) -> bool {
-        let duration = duration.min(crate::effect::MAX_DURATION);
+    pub fn add_effect(&mut self, effect: effect::Type, duration_ticks: u32, amplifier: u8) -> bool {
+        let duration = duration_ticks.min(crate::effect::MAX_DURATION);
         let added = effects::add_to(self, effect, Active::new(duration, amplifier));
         self.survival.touch(0);
         added
@@ -724,7 +779,8 @@ impl Player {
     /// Ends every effect.
     #[doc(alias = "EffectCollection::clear")]
     pub fn clear_effects(&mut self) {
-        while let Some(&effect) = self.survival.effects.keys().next() {
+        // In effect ID order, as BDS removes them (P6 `syntax` `effect @s clear`).
+        while let Some(&effect) = self.survival.effects.keys().min_by_key(|t| t.id()) {
             effects::remove_from(self, effect);
         }
         self.survival.touch(0);
@@ -775,9 +831,10 @@ impl Player {
 
     /// Sets the air supply in ticks; the client and the viewers see it. Fails outside -20 to
     /// [`max_air_supply_ticks`](Self::max_air_supply_ticks) (PMMP takes any number, which the
-    /// air rules never reach again).
+    /// air rules never reach again), and with `drowning = false`.
     #[doc(alias = "Living::setAirSupplyTicks")]
     pub fn set_air_supply_ticks(&mut self, ticks: i32) -> Result<()> {
+        enabled(self.survival.switches.drowning)?;
         let s = &mut self.survival;
         let ticks = i16::try_from(ticks)
             .ok()
@@ -797,9 +854,10 @@ impl Player {
     }
 
     /// Sets the full air supply in ticks: the air refills to it, and the air above it is cut.
-    /// Not saved, as in PMMP. Fails outside 1 to 32,767.
+    /// Not saved, as in PMMP. Fails outside 1 to 32,767, and with `drowning = false`.
     #[doc(alias = "Living::setMaxAirSupplyTicks")]
     pub fn set_max_air_supply_ticks(&mut self, ticks: i32) -> Result<()> {
+        enabled(self.survival.switches.drowning)?;
         let max = i16::try_from(ticks)
             .ok()
             .filter(|&t| t >= 1)
@@ -810,20 +868,22 @@ impl Player {
             s.air = max;
             self.data_dirty = true;
         }
-        s.breathing = s.air >= max;
         s.touch(DATA);
         Ok(())
     }
 
-    /// Sets whether the player counts as breathing (PMMP's flag): out of breath, its air refills
-    /// out of water until it is full, which makes it breathing again; breathing, the air stays
-    /// as it is. Under water it loses air whatever this says.
+    /// Sets whether the player counts as breathing (the Breathing entity flag). Each tick of a
+    /// living, spawned player sets it again from whether it can breathe, as BDS does, so it holds
+    /// only while the player does not tick; the air refills or drops whatever this says. Nothing
+    /// with `drowning = false`: the player then always breathes.
     #[doc(alias = "Living::setBreathing")]
     pub fn set_breathing(&mut self, breathing: bool) {
-        self.survival.breathing = breathing;
+        if self.survival.switches.drowning {
+            self.survival.breathing = breathing;
+        }
     }
 
-    /// Whether the player breathes: not under water, or its air refilled since.
+    /// Whether the player could breathe at its last tick (not under water, or protected).
     #[doc(alias = "Living::isBreathing")]
     pub fn is_breathing(&self) -> bool {
         self.survival.breathing
@@ -986,6 +1046,15 @@ impl Player {
     #[doc(alias = "Living::getArmorPoints")]
     pub fn armor_points(&self) -> u32 {
         damage::armor_points(self)
+    }
+
+    /// The Frost Walker level of the boots the player wears (0 without): moving freezes the
+    /// water around its feet, and magma does not burn it.
+    #[doc(alias = "Living::getFrostWalkerLevel")]
+    pub fn frost_walker_level(&self) -> u32 {
+        self.inventory.armor().get(3).map_or(0, |boots| {
+            damage::level_of(boots, item::Enchantment::FrostWalker)
+        })
     }
 
     /// Why and from what the player last took damage, kept through a respawn; `None` before its
@@ -1381,7 +1450,7 @@ impl Context<'_> {
 
     /// The ticks `player` has been eating or drinking; `None` if it is not, or is gone.
     #[doc(alias = "Player::getItemUseDuration")]
-    pub fn item_use_duration(&self, player: Id) -> Option<u64> {
+    pub fn item_use_duration_ticks(&self, player: Id) -> Option<u64> {
         let p = self.state.players.get(&player.session())?;
         p.survival
             .using
@@ -1468,7 +1537,8 @@ impl Context<'_> {
     /// Puts `player` to sleep in the bed at `pos` in its world, night or day and however far
     /// (PMMP `Player::sleepOn`, without its event: a direct call raises none): the bed shows
     /// occupied and becomes its respawn point. False unless the player is spawned, alive and
-    /// awake and `pos` is a half of a whole bed nobody sleeps in.
+    /// awake and `pos` is a half of a whole bed nobody sleeps in; always false with
+    /// `beds = false`.
     #[doc(alias = "Player::sleepOn")]
     pub fn sleep_on(&mut self, player: Id, pos: BlockPos) -> bool {
         super::clock::sleep_on(self.state, player.session(), pos)
@@ -1865,7 +1935,7 @@ mod tests {
         assert!(p.add_effect(effect::Type::Haste, u32::MAX, 0));
         assert!(p.has_effect(effect::Type::Speed));
         let haste = p.effect(effect::Type::Haste).unwrap();
-        assert_eq!(haste.duration(), crate::effect::MAX_DURATION);
+        assert_eq!(haste.duration_ticks(), crate::effect::MAX_DURATION);
         let all: Vec<effect::Type> = p.effects().map(Instance::effect).collect();
         assert_eq!(all, [effect::Type::Haste, effect::Type::Speed]);
         assert!(p.remove_effect(effect::Type::Speed));
@@ -2093,22 +2163,20 @@ mod tests {
         p.set_air_supply_ticks(50).unwrap();
         p.set_breathing(false);
         run(&mut state, Vec::new());
-        // Out of water and out of breath: 5 ticks of air back each tick.
-        assert_eq!(player_mut(&mut state, 1).air_supply_ticks(), 55);
+        // Out of water: breathing again and 4 ticks of air back each tick (BDS).
+        let p = player_mut(&mut state, 1);
+        assert_eq!(p.air_supply_ticks(), 54);
+        assert!(p.is_breathing());
         let got = received(&mut rx2).0;
         let data = last_data(&got).expect("the viewer sees the air");
         assert!(matches!(
             data.get(&EntityDataKey::AirSupplyMax.into()),
             Some(MetadataValue::Int16(100))
         ));
-        let p = player_mut(&mut state, 1);
-        p.set_breathing(true);
-        run(&mut state, Vec::new());
-        assert_eq!(
-            player_mut(&mut state, 1).air_supply_ticks(),
-            55,
-            "breathing"
-        );
+        for _ in 0..12 {
+            run(&mut state, Vec::new());
+        }
+        assert_eq!(player_mut(&mut state, 1).air_supply_ticks(), 100, "full");
     }
 
     // pmmp: Living::setSneaking, Living::setSprinting, Living::setSwimming, Living::setGliding, Living::getMovementSpeed, Living::setMovementSpeed
@@ -2367,7 +2435,7 @@ mod tests {
         assert_eq!(ctx.item_cooldown_expiry(id, bread), Some(tick + 5));
         assert!(!ctx.reset_item_cooldown(gone, pearl, None));
         assert!(!ctx.has_item_cooldown(gone, pearl));
-        assert_eq!(ctx.item_use_duration(id), None);
+        assert_eq!(ctx.item_use_duration_ticks(id), None);
         ctx.state
             .players
             .get_mut(&id.session())
@@ -2377,8 +2445,8 @@ mod tests {
             since: tick,
             item: bread,
         });
-        assert_eq!(ctx.item_use_duration(id), Some(0));
-        assert_eq!(ctx.item_use_duration(gone), None);
+        assert_eq!(ctx.item_use_duration_ticks(id), Some(0));
+        assert_eq!(ctx.item_use_duration_ticks(gone), None);
         for _ in 0..5 {
             run(&mut state, Vec::new());
         }

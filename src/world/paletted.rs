@@ -8,6 +8,7 @@
 //! cannot alternate on every set).
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use crate::protocol::Writer;
 
@@ -84,30 +85,63 @@ fn to_index(i: usize) -> u16 {
     u16::try_from(i).unwrap_or(u16::MAX)
 }
 
+/// A value of a palette, with what the palette keeps worked out beside each entry
+/// ([`Paletted::derived`]): a reader that needs only that reads it by the slot's index, never
+/// the entry. The light work reads a block's light values (3 bytes) this way instead of its
+/// 24-byte entry and the state table behind it, 2 to 5 times faster per block (PLAN.md 10.9).
+pub(crate) trait Derive: Copy + Ord {
+    /// What is kept beside each entry; `()` keeps nothing and takes no memory.
+    type Derived: Copy + Eq + fmt::Debug;
+
+    /// What is kept beside `self`.
+    fn derive(self) -> Self::Derived;
+}
+
+/// Biome IDs keep nothing.
+impl Derive for u32 {
+    type Derived = ();
+
+    fn derive(self) {}
+}
+
+/// Imported block IDs keep nothing.
+impl Derive for u16 {
+    type Derived = ();
+
+    fn derive(self) {}
+}
+
 /// A cube of values of type `T`: block entries or biome IDs.
 ///
 /// Invariants: `bits` is a Bedrock width; `words` has [`word_count`] words; every slot's index
 /// points into `palette` and the bits that are no slot's are 0; `palette` holds distinct entries,
-/// at most [`capacity`]; `counts[i]` is the number of slots at entry `i` (they sum to
-/// [`SLOTS`]); `dead` is the number of zero counts; `lookup` holds every entry with its index,
-/// sorted.
+/// at most [`capacity`]; `derived[i]` is `palette[i].derive()`; `counts[i]` is the number of
+/// slots at entry `i` (they sum to [`SLOTS`]); `dead` is the number of zero counts; `lookup`
+/// holds every entry with its index, sorted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Paletted<T> {
+pub(crate) struct Paletted<T: Derive> {
     bits: u8,
     words: Vec<u32>,
     palette: Vec<T>,
+    derived: Vec<T::Derived>,
     counts: Vec<u16>,
     lookup: Vec<(T, u16)>,
     dead: usize,
 }
 
-impl<T: Copy + Ord> Paletted<T> {
+/// What each entry of `palette` keeps.
+fn derive_all<T: Derive>(palette: &[T]) -> Vec<T::Derived> {
+    palette.iter().map(|&v| v.derive()).collect()
+}
+
+impl<T: Derive> Paletted<T> {
     /// A cube with `value` in every slot, in width 0 (no words).
     pub(crate) fn uniform(value: T) -> Self {
         Self {
             bits: 0,
             words: Vec::new(),
             palette: vec![value],
+            derived: vec![value.derive()],
             counts: vec![SLOTS],
             lookup: vec![(value, 0)],
             dead: 0,
@@ -133,6 +167,7 @@ impl<T: Copy + Ord> Paletted<T> {
             bits,
             words: words.to_vec(),
             palette: palette.to_vec(),
+            derived: Vec::new(),
             counts: Vec::new(),
             lookup: Vec::new(),
             dead: 0,
@@ -143,14 +178,67 @@ impl<T: Copy + Ord> Paletted<T> {
         Ok(stored.compacted())
     }
 
-    /// The cube with every entry passed through `f`, compacted ([`Self::from_parts`]): entries
-    /// `f` makes equal merge.
-    pub(crate) fn map(&self, f: impl Fn(T) -> T) -> Self {
-        let mut mapped = self.clone();
-        for v in &mut mapped.palette {
-            *v = f(*v);
+    /// A cube from the exact parts of a live one ([`Self::bits`], [`Self::words`],
+    /// [`Self::palette`]), as a checkpoint keeps it (PLAN.md 10.9 재생 도구): unlike
+    /// [`Self::from_parts`] nothing is compacted, so it is the cube that was kept, unused entries
+    /// and width included. Fails unless the parts keep the invariants: a Bedrock width, its word
+    /// count, distinct entries the width indexes, every slot's index in the palette and the bits
+    /// that are no slot's 0.
+    pub(crate) fn from_raw(bits: u8, words: &[u32], palette: &[T]) -> Result<Self> {
+        if !WIDTHS.contains(&bits) || words.len() != word_count(bits) {
+            return Err(Error::Malformed("a kept palette width or word count"));
         }
-        mapped.compacted()
+        if palette.is_empty() || palette.len() > capacity(bits) {
+            return Err(Error::Malformed("a kept palette size"));
+        }
+        let mut out = Self {
+            bits,
+            words: words.to_vec(),
+            palette: palette.to_vec(),
+            derived: derive_all(palette),
+            counts: vec![0; palette.len()],
+            lookup: (0..).zip(palette).map(|(i, &v)| (v, i)).collect(),
+            dead: 0,
+        };
+        out.lookup.sort_unstable();
+        if out
+            .lookup
+            .iter()
+            .zip(out.lookup.iter().skip(1))
+            .any(|(a, b)| a.0 == b.0)
+        {
+            return Err(Error::Malformed("repeated kept palette entries"));
+        }
+        if bits == 0 {
+            out.counts = vec![SLOTS];
+            return Ok(out);
+        }
+        // The bits of each word that hold slots: whole indices, and in the last word only the
+        // slots left.
+        let per = per_word(bits);
+        let mut left = usize::from(SLOTS);
+        for &word in words {
+            let here = left.min(per);
+            left -= here;
+            let used = u32::try_from(here * usize::from(bits)).unwrap_or(32);
+            let mask = if used >= 32 {
+                u32::MAX
+            } else {
+                (1 << used) - 1
+            };
+            if word & !mask != 0 {
+                return Err(Error::Malformed("kept padding bits"));
+            }
+        }
+        for offset in 0..SLOTS {
+            let index = out.index(offset);
+            let Some(c) = out.counts.get_mut(usize::from(index)) else {
+                return Err(Error::Malformed("a kept slot points outside its palette"));
+            };
+            *c += 1;
+        }
+        out.dead = out.counts.iter().filter(|&&c| c == 0).count();
+        Ok(out)
     }
 
     /// Compacts the cube as [`Self::from_parts`] does. Generated chunks are compacted, which
@@ -193,6 +281,7 @@ impl<T: Copy + Ord> Paletted<T> {
             bits,
             words: vec![0; word_count(bits)],
             palette: palette.to_vec(),
+            derived: derive_all(palette),
             counts: vec![0; palette.len()],
             lookup: (0..).zip(palette).map(|(i, &v)| (v, i)).collect(),
             dead: 0,
@@ -257,6 +346,16 @@ impl<T: Copy + Ord> Paletted<T> {
         self.palette[usize::from(self.index(offset))]
     }
 
+    /// What the palette keeps for the value of a slot (`offset` below [`SLOTS`]).
+    #[inline]
+    pub(crate) fn derived(&self, offset: u16) -> T::Derived {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "invariant: every slot's index points into the palette, which `derived` matches"
+        )]
+        self.derived[usize::from(self.index(offset))]
+    }
+
     /// Whether every slot holds `value`.
     pub(crate) fn is_uniform(&self, value: T) -> bool {
         self.find(value)
@@ -311,6 +410,7 @@ impl<T: Copy + Ord> Paletted<T> {
         }
         let index = to_index(self.palette.len());
         self.palette.push(value);
+        self.derived.push(value.derive());
         self.counts.push(0);
         let at = self.lookup.partition_point(|(v, _)| *v < value);
         self.lookup.insert(at, (value, index));
@@ -325,6 +425,9 @@ impl<T: Copy + Ord> Paletted<T> {
         };
         self.dead -= 1;
         let index = to_index(slot);
+        if let Some(kept) = self.derived.get_mut(slot) {
+            *kept = value.derive();
+        }
         if let Some(entry) = self.palette.get_mut(slot) {
             let gone = std::mem::replace(entry, value);
             if let Ok(at) = self.lookup.binary_search(&(gone, index)) {
@@ -410,16 +513,49 @@ impl<T: Copy + Ord> Paletted<T> {
     }
 }
 
+/// A cube's checkpoint form: its exact parts ([`Paletted::from_raw`]); the kept values, the
+/// counts and the lookup are the parts' again.
+impl<T: Derive + crate::tick::checkpoint::Codec> crate::tick::checkpoint::Codec for Paletted<T> {
+    fn encode(&self, w: &mut crate::tick::checkpoint::Writer) {
+        let Self {
+            bits,
+            words,
+            palette,
+            derived: _,
+            counts: _,
+            lookup: _,
+            dead: _,
+        } = self;
+        bits.encode(w);
+        words.encode(w);
+        palette.encode(w);
+    }
+
+    fn decode(
+        r: &mut crate::tick::checkpoint::Reader<'_>,
+    ) -> crate::tick::checkpoint::Result<Self> {
+        use crate::tick::checkpoint::{Codec, Error};
+        let bits = u8::decode(r)?;
+        let words: Vec<u32> = Codec::decode(r)?;
+        let palette: Vec<T> = Codec::decode(r)?;
+        Self::from_raw(bits, &words, &palette).map_err(|_| Error::Format("palette"))
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::protocol::Rng;
 
     /// Checks every invariant of the type.
-    pub(crate) fn check<T: Copy + Ord + std::fmt::Debug>(p: &Paletted<T>) {
+    pub(crate) fn check<T: Derive + std::fmt::Debug>(p: &Paletted<T>) {
         assert!(WIDTHS.contains(&p.bits));
         assert_eq!(p.words.len(), word_count(p.bits));
         assert!(p.palette.len() <= capacity(p.bits));
+        assert_eq!(p.derived, derive_all(&p.palette), "kept values");
+        for o in 0..SLOTS {
+            assert_eq!(p.derived(o), p.get(o).derive());
+        }
         let mut counts = vec![0u16; p.palette.len()];
         for o in 0..SLOTS {
             counts[usize::from(p.index(o))] += 1;
@@ -484,6 +620,41 @@ pub(crate) mod tests {
         assert!(widths.len() >= 6, "widths seen: {widths:?}");
     }
 
+    /// A value whose kept value differs from it, so a stale one shows.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    struct Kept(u32);
+
+    impl Derive for Kept {
+        type Derived = u64;
+
+        fn derive(self) -> u64 {
+            u64::from(self.0) * 3 + 1
+        }
+    }
+
+    #[test]
+    fn kept_values_follow_their_entries_through_growth_reuse_shrinking_and_parts() {
+        let mut rng = Rng(0x5eed_0002);
+        let mut p = Paletted::uniform(Kept(0));
+        for round in 0..30_000usize {
+            // Many distinct values fill the palette (widening, then reusing dead entries at
+            // 4096); few values narrow it again.
+            let spread = if (round / 6_000) % 2 == 0 { 6000 } else { 3 };
+            let o = u16::try_from(rng.below(usize::from(SLOTS))).unwrap();
+            p.set(o, Kept(u32::try_from(rng.below(spread)).unwrap()));
+            if round % 1_499 == 0 {
+                check(&p);
+            }
+        }
+        check(&p);
+        let q = Paletted::from_raw(p.bits(), p.words(), p.palette()).unwrap();
+        check(&q);
+        let mut r = Paletted::from_parts(p.bits(), p.words(), p.palette()).unwrap();
+        check(&r);
+        r.compact();
+        check(&r);
+    }
+
     #[test]
     fn all_distinct_values_fit_in_4096_entries() {
         let mut p = Paletted::uniform(u32::MAX);
@@ -525,6 +696,38 @@ pub(crate) mod tests {
         assert_eq!(r.palette(), [4, 8]);
         assert_eq!(r.get(offset(0, 2, 0)), 8);
         assert_eq!(r.get(offset(0, 1, 0)), 4);
+    }
+
+    #[test]
+    fn raw_parts_give_the_exact_cube_and_malformed_ones_are_errors() {
+        let mut p = Paletted::uniform(5u32);
+        for o in 0..SLOTS {
+            p.set(o, u32::from(o % 7) * 3);
+        }
+        p.set(0, 99);
+        p.set(0, 0);
+        let q = Paletted::from_raw(p.bits(), p.words(), p.palette()).unwrap();
+        check(&q);
+        assert_eq!(q, p, "unused entries, order and width kept");
+        let u = Paletted::uniform(7u32);
+        assert_eq!(Paletted::from_raw(0, &[], &[7]).unwrap(), u);
+        assert!(Paletted::<u32>::from_raw(0, &[], &[7, 8]).is_err());
+        assert!(
+            Paletted::<u32>::from_raw(2, &[0; 256], &[4, 4]).is_err(),
+            "repeated"
+        );
+        assert!(Paletted::<u32>::from_raw(1, &[0; 128], &[]).is_err());
+        assert!(
+            Paletted::<u32>::from_raw(2, &[0b11; 256], &[1, 2]).is_err(),
+            "outside"
+        );
+        // 3 bits: 10 indices a word, the top 2 bits padding.
+        let mut words = vec![0u32; 410];
+        words[0] = 1 << 31;
+        assert!(
+            Paletted::<u32>::from_raw(3, &words, &[1]).is_err(),
+            "padding"
+        );
     }
 
     #[test]

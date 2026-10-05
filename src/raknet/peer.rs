@@ -33,6 +33,10 @@ const MAX_RELIABLE_GAPS: usize = 8192;
 /// Split messages being reassembled at once (go-raknet `maxConcurrentSplits`). Honest senders
 /// finish one before most of the next arrives; only loss keeps a few open.
 const MAX_ASSEMBLIES: usize = 16;
+/// Memory one held fragment or early ordered message costs besides its payload: its map slot
+/// and `Vec` header, with the allocator's smallest block for the payload. Charged to the held
+/// bytes so that many tiny ones cannot exceed the cap's memory, as `FRAME_COST` does outbound.
+const PART_COST: usize = 64;
 /// Order indices a message may run ahead of the next one due (go-raknet `maxWindowSize`).
 const ORDER_WINDOW: u32 = 2048;
 /// First congestion window, in datagrams carrying reliable frames.
@@ -80,9 +84,9 @@ pub(super) struct Limits {
     message: usize,
     /// Most fragments one message may declare: `message / MIN_FRAGMENT`, rounded up.
     splits: u32,
-    /// Bytes in unfinished reassemblies and ordering queues together: two largest messages and
-    /// a full send window, so a largest message may still be missing a fragment while the next
-    /// one arrives.
+    /// Bytes in unfinished reassemblies and ordering queues together, `PART_COST` included per
+    /// entry: two largest messages in the smallest full fragments and a full send window, so a
+    /// largest message may still be missing a fragment while the next one arrives.
     held: usize,
 }
 
@@ -95,9 +99,14 @@ impl Limits {
         if splits >= MAX_SPAN {
             return Err(invalid);
         }
+        let parts = usize::try_from(splits)
+            .map_err(|_| invalid)?
+            .checked_mul(2 * PART_COST)
+            .ok_or(invalid)?;
         let held = message
             .checked_mul(2)
             .and_then(|held| held.checked_add(MAX_CWND * usize::from(MAX_MTU)))
+            .and_then(|held| held.checked_add(parts))
             .ok_or(invalid)?;
         Ok(Self {
             message,
@@ -518,7 +527,10 @@ impl Peer {
         if bytes > self.limits.message {
             return Err(Error::Limit("message size"));
         }
-        let held = self.held.saturating_add(body.len());
+        let held = self
+            .held
+            .saturating_add(body.len())
+            .saturating_add(PART_COST);
         if held > self.limits.held {
             return Err(Error::Limit("held bytes"));
         }
@@ -531,7 +543,10 @@ impl Peer {
         let Some(assembly) = self.assemblies.remove(&split.id) else {
             return Err(Error::Invariant("finished split message missing"));
         };
-        self.held = self.held.saturating_sub(assembly.bytes);
+        let parts_cost = assembly.parts.len().saturating_mul(PART_COST);
+        self.held = self
+            .held
+            .saturating_sub(assembly.bytes.saturating_add(parts_cost));
         let mut parts = assembly.parts.into_values();
         let first = parts.next().unwrap_or_default();
         let (&id, rest) = first.split_first().ok_or(Error::Malformed("empty frame"))?;
@@ -570,7 +585,10 @@ impl Peer {
         }
         if ahead > 0 {
             if let Entry::Vacant(entry) = channel.waiting.entry(header.order_index) {
-                let held = self.held.saturating_add(message.body.len());
+                let held = self
+                    .held
+                    .saturating_add(message.body.len())
+                    .saturating_add(PART_COST);
                 if held > self.limits.held {
                     return Err(Error::Limit("held bytes"));
                 }
@@ -586,7 +604,9 @@ impl Peer {
             let Some(message) = channel.waiting.remove(&channel.next) else {
                 return Ok(());
             };
-            self.held = self.held.saturating_sub(message.body.len());
+            self.held = self
+                .held
+                .saturating_sub(message.body.len().saturating_add(PART_COST));
             out.push(message);
         }
     }
@@ -921,7 +941,10 @@ pub(super) mod tests {
             limits.splits,
             u32::try_from((max + 1).div_ceil(345)).unwrap()
         );
-        assert_eq!(limits.held, 2 * (max + 1) + 2048 * 1492);
+        assert_eq!(
+            limits.held,
+            2 * (max + 1) + 2048 * 1492 + 2 * usize::try_from(limits.splits).unwrap() * PART_COST
+        );
         assert!(Limits::new(usize::MAX).is_err());
         assert!(Limits::new(1 << 40).is_err());
     }
@@ -1001,7 +1024,8 @@ pub(super) mod tests {
 
     #[test]
     fn held_bytes_over_the_limit_is_an_error() {
-        // 2 x 1,000,001 + 2048 x 1492 bytes: the sixth unfinished message goes over.
+        // 2 x 1,000,001 + 2048 x 1492 + 2 x 2899 x 64 bytes: the sixth unfinished message of
+        // 714 x (1400 + 64) bytes goes over.
         let mut peer = peer(1_000_000);
         let part = [0xfe; 1400];
         let mut index = 0;
@@ -1019,6 +1043,78 @@ pub(super) mod tests {
             panic!("no error");
         };
         assert_eq!(error, (5, Error::Limit("held bytes")));
+    }
+
+    /// The default `max-batch-bytes` message limit (PLAN.md 3, plus the 8-byte checksum).
+    const DEFAULT_MESSAGE: usize = 19_573_468;
+
+    #[test]
+    fn tiny_fragments_count_against_held_bytes() {
+        // Every assembly declares the largest count and misses one fragment, so none finishes:
+        // 1-byte fragments cost far more memory than their payload.
+        let mut peer = peer(DEFAULT_MESSAGE);
+        let count = peer.limits.splits;
+        let unreliable = |id, index| Header {
+            split: Some(Split { count, id, index }),
+            ..header(Reliability::Unreliable)
+        };
+        let mut seq = 0;
+        let mut stored = 0_usize;
+        let error = 'fill: {
+            for id in 0..16 {
+                for first in (1..count).step_by(100) {
+                    let frames: Vec<_> = (first..count.min(first + 100))
+                        .map(|index| (unreliable(id, index), &b"\xfe"[..]))
+                        .collect();
+                    let data = datagram(seq, &frames);
+                    seq += 1;
+                    let result = receive(&mut peer, &data);
+                    assert!(peer.held <= peer.limits.held);
+                    match result {
+                        Ok(_) => stored += frames.len(),
+                        Err(error) => break 'fill error,
+                    }
+                }
+            }
+            panic!("{stored} one-byte fragments held without an error");
+        };
+        assert_eq!(error, Error::Limit("held bytes"));
+        assert!(
+            stored <= peer.limits.held / PART_COST,
+            "{stored} fragments held"
+        );
+    }
+
+    #[test]
+    fn honest_largest_messages_still_fit_with_part_cost() {
+        // Two largest messages in the smallest full fragments, each missing its last one.
+        let mut peer = peer(DEFAULT_MESSAGE);
+        let count = peer.limits.splits;
+        let full = [0xfe; MIN_FRAGMENT];
+        let last = peer.limits.message - MIN_FRAGMENT * (usize::try_from(count).unwrap() - 1);
+        let unreliable = |id, index| Header {
+            split: Some(Split { count, id, index }),
+            ..header(Reliability::Unreliable)
+        };
+        let mut seq = 0;
+        for id in 0..2 {
+            for first in (0..count - 1).step_by(4) {
+                let frames: Vec<_> = (first..(count - 1).min(first + 4))
+                    .map(|index| (unreliable(id, index), &full[..]))
+                    .collect();
+                assert_eq!(receive(&mut peer, &datagram(seq, &frames)), Ok(Vec::new()));
+                seq += 1;
+            }
+        }
+        for id in 0..2 {
+            let data = datagram(seq, &[(unreliable(id, count - 1), &full[..last])]);
+            seq += 1;
+            let done = receive(&mut peer, &data).unwrap();
+            assert_eq!(done.len(), 1);
+            assert_eq!(done[0].body.len(), DEFAULT_MESSAGE);
+        }
+        assert!(peer.assemblies.is_empty());
+        assert_eq!(peer.held, 0);
     }
 
     #[test]

@@ -9,9 +9,10 @@ use std::collections::BTreeSet;
 use super::Cx;
 use super::props;
 use super::support::{self, side};
-use crate::block::{self, Class, Face, Kind, Trait};
+use crate::block::{self, Class, CopperOxidation, Face, Kind, Trait};
 use crate::event::{Actor, EntityTrampleFarmland, FarmlandHydrationChange, LeavesDecay};
 use crate::random::Random;
+use crate::tick::interact;
 use crate::world::BlockPos;
 
 /// Whether `s` is plain dirt (PMMP `Dirt` with `DirtType::NORMAL`).
@@ -372,60 +373,25 @@ pub(super) fn budding_amethyst(cx: &mut Cx<'_>, pos: BlockPos) {
     cx.grow(at, bud);
 }
 
-/// The oxidation prefixes of copper names, by level.
-const OXIDATION: [&str; 4] = ["", "exposed_", "weathered_", "oxidized_"];
-
-/// A copper state's name without `minecraft:` and `waxed_`, split into its oxidation level and
-/// its unoxidized name, and whether it is waxed.
-fn copper_parts(block: block::State) -> Option<(usize, String, bool)> {
-    let name = block.name().strip_prefix("minecraft:")?;
-    let (waxed, name) = match name.strip_prefix("waxed_") {
-        Some(rest) => (true, rest),
-        None => (false, name),
-    };
-    for (level, prefix) in OXIDATION.iter().enumerate().skip(1) {
-        if let Some(rest) = name.strip_prefix(prefix) {
-            let base = if rest == "copper" {
-                "copper_block"
-            } else {
-                rest
-            };
-            return Some((level, base.to_owned(), waxed));
-        }
-    }
-    Some((0, name.to_owned(), waxed))
-}
-
-/// The copper state of `block` at oxidation `level`.
-fn copper_at(block: block::State, base: &str, level: usize) -> Option<block::State> {
-    let prefix = OXIDATION.get(level)?;
-    let name = if level > 0 && base == "copper_block" {
-        format!("minecraft:{prefix}copper")
-    } else {
-        format!("minecraft:{prefix}{base}")
-    };
-    props::renamed(block, &name)
-}
-
-/// The oxidation level of an unwaxed copper block, if it is one.
-fn oxidation(block: block::State) -> Option<usize> {
+/// The oxidation stage of an unwaxed copper block, if it is one.
+fn oxidation(block: block::State) -> Option<CopperOxidation> {
     if !block.has_trait(Trait::Copper) {
         return None;
     }
-    let (level, _, waxed) = copper_parts(block)?;
-    (!waxed).then_some(level)
+    let (stage, waxed, _) = block::copper_parts(block)?;
+    (!waxed).then_some(stage)
 }
 
 /// Whether the block is unwaxed copper that can oxidize further: it takes random ticks.
 pub(super) fn is_oxidizable(block: block::State) -> bool {
-    block.has_trait(Trait::Copper) && oxidation(block).is_some_and(|l| l < 3)
+    oxidation(block).is_some_and(|l| l.next().is_some())
 }
 
 /// dragonfly `attemptOxidation` (vanilla's rule; PMMP does not oxidize copper): a chance of
 /// 64/1125, then by how many unwaxed copper blocks within four blocks (taxicab) are more
 /// oxidized, unless one is less oxidized. A door oxidizes both halves.
 pub(super) fn oxidize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    let Some(level) = oxidation(block).filter(|l| *l < 3) else {
+    let Some((level, next_level)) = oxidation(block).and_then(|l| Some((l, l.next()?))) else {
         return;
     };
     let mut rng = cx.rng();
@@ -453,7 +419,7 @@ pub(super) fn oxidize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         }
     }
     let base = f64::from(higher + 1) / f64::from(all + 1);
-    let chance = if level == 0 {
+    let chance = if level == CopperOxidation::None {
         base * base * 0.75
     } else {
         base * base
@@ -461,10 +427,11 @@ pub(super) fn oxidize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if rng.unit() >= chance {
         return;
     }
-    let Some((_, name, _)) = copper_parts(block) else {
+    let Some((_, _, rest)) = block::copper_parts(block) else {
         return;
     };
-    let Some(next) = copper_at(block, &name, level + 1) else {
+    let name = block::copper_name(next_level, false, rest);
+    let Some(next) = interact::props::renamed(block, &name) else {
         return;
     };
     cx.set(pos, next);
@@ -474,7 +441,7 @@ pub(super) fn oxidize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         && let Some(other) = cx.get(other_pos)
         && other.kind() == block.kind()
         && oxidation(other) == Some(level)
-        && let Some(other_next) = copper_at(other, &name, level + 1)
+        && let Some(other_next) = interact::props::renamed(other, &name)
     {
         cx.set(other_pos, other_next);
     }
@@ -518,7 +485,7 @@ pub(super) fn coral_check(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
     if !water
         && let Some(rest) = block.name().strip_prefix("minecraft:")
-        && let Some(dead) = props::renamed(block, &format!("minecraft:dead_{rest}"))
+        && let Some(dead) = interact::props::renamed(block, &format!("minecraft:dead_{rest}"))
     {
         cx.die(pos, dead);
     }
@@ -726,23 +693,16 @@ mod tests {
     }
 
     #[test]
-    fn copper_names_step_through_the_oxidation_levels() {
-        let block = named("minecraft:copper_block");
-        assert_eq!(oxidation(block), Some(0));
-        let (_, base, waxed) = copper_parts(block).unwrap();
-        assert!(!waxed);
+    fn copper_oxidation_stages_of_unwaxed_copper_only() {
+        use CopperOxidation as O;
+        assert_eq!(oxidation(named("minecraft:copper_block")), Some(O::None));
         assert_eq!(
-            copper_at(block, &base, 1).unwrap().name(),
-            "minecraft:exposed_copper"
+            oxidation(named("minecraft:exposed_copper")),
+            Some(O::Exposed)
         );
-        let exposed = named("minecraft:exposed_copper");
-        assert_eq!(oxidation(exposed), Some(1));
-        assert_eq!(copper_parts(exposed).unwrap().1, "copper_block");
-        let cut = named("minecraft:weathered_cut_copper");
-        let (_, base, _) = copper_parts(cut).unwrap();
         assert_eq!(
-            copper_at(cut, &base, 3).unwrap().name(),
-            "minecraft:oxidized_cut_copper"
+            oxidation(named("minecraft:weathered_cut_copper")),
+            Some(O::Weathered)
         );
         assert_eq!(oxidation(named("minecraft:waxed_exposed_copper")), None);
         assert!(!is_oxidizable(named("minecraft:oxidized_copper")));

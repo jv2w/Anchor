@@ -5,24 +5,29 @@
 //! Login; idle connections close at the login deadline and one IP gets four connections before
 //! login. NetherNet: the same spawns over WebRTC, both transports at once, the fallback to RakNet
 //! when NetherNet fails, the pre-login peer limit, the identity binding and PMMP's duplicate
-//! login in both outcomes.
+//! login in both outcomes. The jigsaw and biome data on the wire equal `CloudburstMC`'s. Sessions
+//! that logged in but have not joined are capped at `max-players`, and the server's stop reaches
+//! them with the shutdown message.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
-use std::sync::OnceLock;
+use std::sync::{MutexGuard, OnceLock, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use anchor::config::GameMode;
-use anchor::event::{PlayerDuplicateLogin, Priority};
+use anchor::event::{PlayerDuplicateLogin, PlayerQuit, Priority};
 use anchor::protocol::compression::Compression;
 use anchor::{Config, Server, ServerBuilder, ShutdownHandle};
 use serde_json::Value;
+use tracing::field::{Field, Visit};
+use tracing::level_filters::LevelFilter;
+use tracing::{Event, Level, Metadata, Subscriber, span};
 
 /// RakNet's offline message magic.
 const MAGIC: [u8; 16] = [
@@ -60,35 +65,91 @@ fn bot() -> &'static Path {
     })
 }
 
-/// A port no socket uses right now for UDP or TCP. Another test process may still take it before
-/// the server binds it; [`Running::start_with`] retries then.
+/// The addresses the starting server logs, one line per opened address (`listening …
+/// addr=…`). The servers of this process run without Anchor's console log, so their events reach
+/// [`Listening`], the global subscriber; [`START`] lets one server start at a time, so the lines
+/// logged while it is held are that server's.
 #[expect(
     clippy::disallowed_types,
-    reason = "off-tick: test tooling outside the server"
+    reason = "off-tick: the subscriber hears the server's threads"
 )]
-fn free_port() -> u16 {
-    loop {
-        let tcp = std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("bind a port");
-        let port = tcp.local_addr().expect("local address").port();
-        if std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, port)).is_ok() {
-            return port;
+static LISTENED: std::sync::Mutex<Vec<(String, SocketAddr)>> = std::sync::Mutex::new(Vec::new());
+/// Held while one server starts, until it has logged its addresses.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: the tests of this process start servers on their own threads"
+)]
+static START: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Keeps the `listening` info events of Anchor's networking in [`LISTENED`].
+struct Listening;
+
+impl Subscriber for Listening {
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+        metadata.is_event()
+            && *metadata.level() == Level::INFO
+            && metadata.target() == "anchor::session"
+    }
+
+    fn max_level_hint(&self) -> Option<LevelFilter> {
+        Some(LevelFilter::INFO)
+    }
+
+    fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
+        span::Id::from_u64(1)
+    }
+
+    fn record(&self, _: &span::Id, _: &span::Record<'_>) {}
+
+    fn record_follows_from(&self, _: &span::Id, _: &span::Id) {}
+
+    fn event(&self, event: &Event<'_>) {
+        let mut line = Line::default();
+        event.record(&mut line);
+        if let Some(addr) = line.addr
+            && line.message.starts_with("listening")
+        {
+            lock(&LISTENED).push((line.message, addr));
+        }
+    }
+
+    fn enter(&self, _: &span::Id) {}
+
+    fn exit(&self, _: &span::Id) {}
+}
+
+/// The message and the `addr` field of one event.
+#[derive(Default)]
+struct Line {
+    message: String,
+    addr: Option<SocketAddr>,
+}
+
+impl Visit for Line {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        match field.name() {
+            "message" => self.message = format!("{value:?}"),
+            "addr" => self.addr = format!("{value:?}").parse().ok(),
+            _ => {}
         }
     }
 }
 
-/// Tries at starting a server on fresh ports when another process took them first.
-const START_TRIES: usize = 5;
-
-/// How waiting for a server's first pong ended.
-enum Pong {
-    Answered(String),
-    /// The server thread ended first, with this result.
-    Ended(std::thread::Result<anchor::Result<()>>),
+/// Locks `mutex`; a test that failed while holding it left nothing half done.
+#[expect(
+    clippy::disallowed_types,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn lock<T>(mutex: &std::sync::Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// An Anchor server on a thread of this process.
 struct Running {
-    port: u16,
+    /// The RakNet (and server list ping) port.
+    raknet_port: u16,
+    /// The NetherNet signaling port.
+    signaling_port: u16,
     shutdown: ShutdownHandle,
     thread: Option<JoinHandle<anchor::Result<()>>>,
 }
@@ -98,59 +159,76 @@ impl Running {
         Self::start_with(name, config, data_dir, |builder| builder)
     }
 
-    /// Starts with `edit` applied to the builder (event listeners) and waits until it answers
-    /// pings, so the bot never races the start.
+    /// Starts with `edit` applied to the builder (event listeners) on ports the system picks
+    /// when the server binds them (port 0), so no other process can take them first, and waits
+    /// until the server has logged the addresses it opened, so the bot never races the start.
     fn start_with(
         name: &str,
         mut config: Config,
         data_dir: &Path,
         edit: impl Fn(ServerBuilder) -> ServerBuilder,
     ) -> Self {
+        static SUBSCRIBER: OnceLock<()> = OnceLock::new();
+        SUBSCRIBER.get_or_init(|| {
+            tracing::subscriber::set_global_default(Listening).expect("the only global subscriber");
+        });
         config.general.enable_ipv6 = false;
         config.general.level_name = name.to_owned();
-        for attempt in 1..=START_TRIES {
-            let port = free_port();
-            let mut nethernet_port = free_port();
-            while nethernet_port == port {
-                nethernet_port = free_port();
-            }
-            config.general.server_port = port;
-            config.general.nethernet_port = nethernet_port;
-            let server = edit(Server::builder().config(config.clone()).data_dir(data_dir))
-                .build()
-                .expect("valid settings");
-            let shutdown = server.shutdown_handle();
-            let thread = spawn(move || server.run());
-            let mut running = Self {
-                port,
-                shutdown,
-                thread: Some(thread),
+        config.general.server_port = 0;
+        config.general.nethernet_port = 0;
+        let server = edit(Server::builder().config(config).data_dir(data_dir))
+            .without_console_log()
+            .build()
+            .expect("valid settings");
+        let shutdown = server.shutdown_handle();
+        let _one = lock(&START);
+        lock(&LISTENED).clear();
+        let mut thread = Some(spawn(move || server.run()));
+        // RakNet opens last; the limit only catches a server that neither starts nor stops.
+        for _ in 0..300 {
+            let listened = lock(&LISTENED);
+            let find = |what: &str| {
+                listened
+                    .iter()
+                    .find(|(message, _)| message.contains(what))
+                    .map(|(_, addr)| addr.port())
             };
-            match running.try_pong() {
-                Pong::Answered(_) => return running,
-                Pong::Ended(Ok(Err(anchor::Error::Network(e))))
-                    if e.kind() == std::io::ErrorKind::AddrInUse && attempt < START_TRIES => {}
-                Pong::Ended(run) => panic!("the server stopped before answering pings: {run:?}"),
+            if let (Some(raknet_port), Some(signaling_port)) = (find("pings"), find("signaling")) {
+                return Self {
+                    raknet_port,
+                    signaling_port,
+                    shutdown,
+                    thread,
+                };
             }
+            drop(listened);
+            if thread.as_ref().is_some_and(JoinHandle::is_finished) {
+                let run = thread.take().expect("checked").join();
+                panic!("the server stopped before opening its addresses: {run:?}");
+            }
+            pause();
         }
-        panic!("no free ports after {START_TRIES} tries")
-    }
-
-    /// Pings until the server answers and returns the pong text.
-    fn pong(&mut self) -> String {
-        match self.try_pong() {
-            Pong::Answered(text) => text,
-            Pong::Ended(run) => panic!("the server stopped before answering pings: {run:?}"),
-        }
+        // Stop it while `START` is still held: a server that ends logs before the next test
+        // clears `LISTENED`, so only a server hung for good, which never logs, is left.
+        shutdown.shutdown();
+        let ended = (0..300).any(|_| {
+            let ended = thread.as_ref().is_some_and(JoinHandle::is_finished);
+            if !ended {
+                pause();
+            }
+            ended
+        });
+        let state = if ended { "ended" } else { "still runs" };
+        panic!("the server did not open its addresses; after a shutdown its thread {state}");
     }
 
     /// Pings until the server answers (pings 300 ms apart stay under the rate limit of 5 per
-    /// second), or until the server thread ends.
+    /// second) and returns the pong text.
     #[expect(
         clippy::disallowed_types,
         reason = "off-tick: test tooling outside the server"
     )]
-    fn try_pong(&mut self) -> Pong {
+    fn pong(&mut self) -> String {
         let socket =
             std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind the ping socket");
         socket
@@ -163,17 +241,18 @@ impl Running {
         let mut buf = [0; 1500];
         for _ in 0..100 {
             socket
-                .send_to(&ping, (Ipv4Addr::LOCALHOST, self.port))
+                .send_to(&ping, (Ipv4Addr::LOCALHOST, self.raknet_port))
                 .expect("send a ping");
             // 0x1c, time, server GUID, magic, then the length-prefixed pong text.
             if let Ok((n, _)) = socket.recv_from(&mut buf)
                 && n > 35
                 && buf[0] == 0x1c
             {
-                return Pong::Answered(String::from_utf8_lossy(&buf[35..n]).into_owned());
+                return String::from_utf8_lossy(&buf[35..n]).into_owned();
             }
             if self.thread.as_ref().is_some_and(JoinHandle::is_finished) {
-                return Pong::Ended(self.thread.take().expect("checked").join());
+                let run = self.thread.take().expect("checked").join();
+                panic!("the server stopped before answering pings: {run:?}");
             }
             // An ICMP "port unreachable" makes `recv_from` fail at once on Windows.
             pause();
@@ -182,7 +261,11 @@ impl Running {
     }
 
     fn addr(&self) -> String {
-        format!("127.0.0.1:{}", self.port)
+        format!("127.0.0.1:{}", self.raknet_port)
+    }
+
+    fn signaling_addr(&self) -> String {
+        format!("127.0.0.1:{}", self.signaling_port)
     }
 
     fn stop(mut self) {
@@ -216,7 +299,13 @@ fn config(compression: Compression) -> Config {
 fn bot_command(server: &Running, scenario: &str, name: &str, extra: &[&str]) -> Command {
     let mut command = Command::new(bot());
     command
-        .args(["-addr", &server.addr(), "-scenario", scenario, "-out"])
+        .args([
+            "-addr",
+            &server.addr(),
+            "-signaling-addr",
+            &server.signaling_addr(),
+        ])
+        .args(["-scenario", scenario, "-out"])
         .arg(out_file(name))
         .args(["-timeout", "60s", "-stay", "2s"])
         .args(extra);
@@ -287,6 +376,40 @@ fn the_bot_spawns_with_snappy_and_with_zlib() {
     }
 }
 
+/// The jigsaw structure data and biome definitions Anchor sends equal `CloudburstMC`'s data, as
+/// BDS's do (PLAN.md 10.6), checked on the wire by `bot cloudburst` when the pinned checkout is in
+/// `.cache` (`cargo xtask dump` needs it too).
+#[test]
+fn the_jigsaw_and_biome_data_sent_equal_the_cloudburst_data() {
+    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.cache/cloudburst-data");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: test tooling outside the server"
+    )]
+    let present = data.join("jigsaw_structure_data.nbt").exists();
+    if !present {
+        return;
+    }
+    let name = "cloudburst";
+    let server = Running::start(name, config(Compression::Snappy), &data_dir(name));
+    play(&server, "spawn", name, &[]);
+    server.stop();
+    let output = Command::new(bot())
+        .arg("cloudburst")
+        .arg("-world")
+        .arg(work_dir().join(format!("{name}.world.jsonl")))
+        .arg("-data")
+        .arg(&data)
+        .output()
+        .expect("the bot starts");
+    assert!(
+        output.status.success(),
+        "bot cloudburst: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn sessions_end_cleanly_and_the_pong_counts_no_one_after_they_leave() {
     let mut server = Running::start("cycles", config(Compression::Snappy), &data_dir("cycles"));
@@ -307,6 +430,22 @@ fn sessions_end_cleanly_and_the_pong_counts_no_one_after_they_leave() {
         "players still counted: {counts:?}"
     );
     server.stop();
+}
+
+/// `enable-encryption`: over RakNet the bot gets the handshake and encrypts with it on, and
+/// spawns without either with it off.
+#[test]
+fn the_bot_spawns_over_raknet_with_and_without_encryption() {
+    for (encryption, name) in [(true, "encrypted"), (false, "plain")] {
+        let mut config = config(Compression::Snappy);
+        config.developer.enable_encryption = encryption;
+        let server = Running::start(name, config, &data_dir(name));
+        let outcome = result(&play(&server, "spawn", name, &[]));
+        assert_eq!(outcome["spawned"], true, "{name}: {outcome}");
+        assert_eq!(outcome["handshake"], encryption, "{name}: {outcome}");
+        assert_eq!(outcome["encrypted"], encryption, "{name}: {outcome}");
+        server.stop();
+    }
 }
 
 #[test]
@@ -467,28 +606,43 @@ fn one_ip_gets_four_nethernet_peers_before_login() {
     // Offline offers need no identity; these peers never connect, so they stay counted until
     // their establishment deadline.
     for n in 0..4 {
-        let (status, body) = post_offer(server.port);
+        let (status, body) = post_offer(server.signaling_port);
         assert_eq!(status, 200, "offer {n}: {body}");
         assert!(body.starts_with("v=0"), "offer {n}: {body}");
     }
-    assert_eq!(post_offer(server.port).0, 503);
+    assert_eq!(post_offer(server.signaling_port).0, 503);
     server.stop();
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test hears the quits of the server's tick and times its status poll"
+)]
 fn nethernet_sessions_end_cleanly_and_the_join_status_counts_no_one_after_they_leave() {
-    let server = Running::start(
+    const CYCLES: usize = 5;
+    let (quit, quits) = std::sync::mpsc::sync_channel(CYCLES);
+    let server = Running::start_with(
         "nn-cycles",
         config(Compression::Snappy),
         &data_dir("nn-cycles"),
+        |builder| {
+            let quit = quit.clone();
+            builder.on(Priority::Normal, move |_: &mut PlayerQuit, _| {
+                quit.try_send(()).expect("one quit per cycle");
+            })
+        },
     );
     let players = |server: &Running| -> Value {
-        let (status, body) = http(server.port, "GET /v1/join HTTP/1.1\r\nHost: x\r\n\r\n");
+        let (status, body) = http(
+            server.signaling_port,
+            "GET /v1/join HTTP/1.1\r\nHost: x\r\n\r\n",
+        );
         assert_eq!(status, 200, "{body}");
         serde_json::from_str::<Value>(&body).expect("JSON status")["players"].clone()
     };
     assert_eq!(players(&server), 0);
-    for cycle in 0..5 {
+    for cycle in 0..CYCLES {
         let name = format!("nn-cycle-{cycle}");
         play(
             &server,
@@ -497,20 +651,23 @@ fn nethernet_sessions_end_cleanly_and_the_join_status_counts_no_one_after_they_l
             &[NETHERNET, &["-stay", "0s"]].concat(),
         );
     }
-    // Sessions report their end to the accept task a moment after the bot closes.
-    let mut counts = Vec::new();
-    for _ in 0..20 {
-        counts.push(players(&server));
-        if counts.last() == Some(&Value::from(0)) {
-            break;
-        }
-        pause();
+    // A session queues its leave for the tick, then reports its end to the accept task; the
+    // tick's quit means the session has ended. The limit only keeps a broken server from
+    // hanging the test: a session the bot's close does not end ends at the idle timeout.
+    for cycle in 0..CYCLES {
+        quits
+            .recv_timeout(Duration::from_secs(60))
+            .unwrap_or_else(|e| panic!("quit {cycle} of {CYCLES}: {e}"));
     }
-    assert_eq!(
-        counts.last(),
-        Some(&Value::from(0)),
-        "players still counted: {counts:?}"
-    );
+    // What is left is the accept task taking the end report the session sent after its leave;
+    // no event follows it, so the status is polled. The limit only catches a broken server.
+    let end = std::time::Instant::now() + Duration::from_secs(60);
+    let mut counted = players(&server);
+    while counted != 0 && std::time::Instant::now() < end {
+        pause();
+        counted = players(&server);
+    }
+    assert_eq!(counted, 0, "players still counted");
     server.stop();
 }
 
@@ -542,7 +699,7 @@ fn a_duplicate_login_replaces_the_player_already_online() {
     let first = finish(first, "kicked", "dup-first");
     let first = result(&first);
     assert_eq!(
-        first["disconnect_message"], "Logged in from other location",
+        first["disconnect_message"], "disconnectionScreen.loggedinOtherLocation",
         "{first}"
     );
     server.stop();
@@ -575,23 +732,75 @@ fn a_cancelled_duplicate_login_turns_the_new_player_away() {
     );
     assert_eq!(
         result(&second)["disconnect_message"],
-        "Logged in from other location"
+        "disconnectionScreen.loggedinOtherLocation"
     );
     // The first player stays connected for its whole stay without a disconnect.
     finish(first, "spawn", "dupc-first");
     server.stop();
 }
 
+#[test]
+fn sessions_past_login_but_not_joined_are_capped() {
+    let mut config = config(Compression::Snappy);
+    config.general.max_players = 2;
+    let server = Running::start("waiting-cap", config, &data_dir("waiting-cap"));
+    let stalled: Vec<_> = (0..2)
+        .map(|n| {
+            let name = format!("waiting-{n}");
+            let bot = start_bot(&server, "stall", &name, &["-name", &format!("Waiting{n}")]);
+            wait_for_packs_info(&name);
+            (bot, name)
+        })
+        .collect();
+    // Both places are taken by players still in the resource pack stage.
+    let refused = play(&server, "stall", "waiting-refused", &["-name", "Refused"]);
+    let refused = result(&refused);
+    assert_eq!(refused["play_status"], 7, "{refused}");
+    assert_eq!(refused["resource_packs_info_index"], -1, "{refused}");
+    server.stop();
+    for (bot, name) in stalled {
+        let lines = finish(bot, "stall", &name);
+        assert_eq!(
+            result(&lines)["disconnect_message"],
+            "The server has stopped",
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_player_downloading_packs_gets_the_shutdown_message() {
+    let mut config = config(Compression::Snappy);
+    "Back soon".clone_into(&mut config.general.shutdown_message);
+    let server = Running::start("packs-stop", config, &data_dir("packs-stop"));
+    let bot = start_bot(&server, "stall", "packs-stop", &[]);
+    wait_for_packs_info("packs-stop");
+    server.stop();
+    let lines = finish(bot, "stall", "packs-stop");
+    let result = result(&lines);
+    assert_eq!(result["disconnect_message"], "Back soon", "{result}");
+}
+
 /// Waits until the bot writing `<name>.jsonl` has sent `SetLocalPlayerAsInitialised` (the bot
 /// flushes its output right after).
 fn wait_for_spawn(name: &str) {
+    wait_for(name, "\"name\":\"SetLocalPlayerAsInitialised\"");
+}
+
+/// Waits until the stalling bot writing `<name>.jsonl` has received `ResourcePacksInfo` (it
+/// flushes its output then).
+fn wait_for_packs_info(name: &str) {
+    wait_for(name, "\"name\":\"ResourcePacksInfo\"");
+}
+
+fn wait_for(name: &str, text: &str) {
     for _ in 0..300 {
-        if read(&out_file(name)).contains("\"name\":\"SetLocalPlayerAsInitialised\"") {
+        if read(&out_file(name)).contains(text) {
             return;
         }
         pause();
     }
-    panic!("{name} did not spawn");
+    panic!("{name} never wrote {text}");
 }
 
 /// A NetherNet offer without an identity, which offline servers accept.

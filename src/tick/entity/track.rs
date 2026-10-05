@@ -13,13 +13,14 @@ use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::{EntityDataFlag, EntityDataKey};
 use crate::protocol::packet::{
-    AddActor, AddItemActor, AddPainting, AddPlayer, MobArmourEquipment, MobEquipment,
-    MoveActorDelta, MovePlayer, Packet, PlayerList, RemoveActor, SetActorData, SetActorMotion,
-    UpdateAttributes,
+    AddActor, AddItemActor, AddPainting, AddPlayer, LocatorBar, MobArmourEquipment, MobEquipment,
+    MoveActorDelta, MovePlayer, Packet, PlayerList, PlayerLocation, RemoveActor, SetActorData,
+    SetActorMotion, UpdateAttributes,
 };
 use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, FlagSet, ItemInstance,
-    MetadataValue, PlayerListEntry, Rgba, Skin, Uuid,
+    LocatorBarWaypoint, MetadataValue, PlayerListEntry, Rgba, Skin, Uuid, Waypoint,
+    WaypointWorldPosition,
 };
 use crate::tick::trade::{MAX_TIER, Offers};
 
@@ -102,6 +103,7 @@ pub(super) fn flags(entity: &Entity, still: bool) -> u64 {
         }
         Kind::Tnt(_) => set.insert(EntityDataFlag::Ignited),
         Kind::EndCrystal(c) if c.show_base => set.insert(EntityDataFlag::ShowBottom),
+        kind if kind.is_baby() => set.insert(EntityDataFlag::Baby),
         _ => {}
     }
     set.words()[0]
@@ -144,9 +146,9 @@ pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
         MetadataValue::Float32(to_f32(entity.scale)),
     );
     put(EntityDataKey::LeashHolder, MetadataValue::Int64(-1));
+    // A firework rocket shows no owner (BDS, P6 `entities`, m9-facts.md).
     let owner = match &entity.kind {
         Kind::Projectile(p) if p.owner_runtime_id != 0 => unique(p.owner_runtime_id),
-        Kind::Firework(f) if f.owner_runtime_id != 0 => unique(f.owner_runtime_id),
         _ => -1,
     };
     put(EntityDataKey::Owner, MetadataValue::Int64(owner));
@@ -162,7 +164,7 @@ pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
         | Kind::Projectile(_)
         | Kind::Painting(_)
         | Kind::Npc(Character {
-            form: Form::Human { .. } | Form::Custom(_),
+            form: Form::Human { .. } | Form::Custom(_) | Form::Zombie { .. },
             ..
         }) => {}
         Kind::EndCrystal(_) | Kind::Firework(_) => object_metadata(&entity.kind, &mut put),
@@ -188,7 +190,9 @@ pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
         }
         Kind::Cloud(cloud) => cloud_metadata(cloud, &mut put),
         Kind::Npc(Character {
-            form: Form::Villager { profession, offers },
+            form: Form::Villager {
+                profession, offers, ..
+            },
             ..
         }) => {
             put(
@@ -220,8 +224,9 @@ pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
 }
 
 /// An end crystal's and a firework rocket's own metadata (PMMP `EndCrystal::syncNetworkData`:
-/// the beam target, (0, 0, 0) without one; `FireworkRocket::syncNetworkData`: the explosions as
-/// the item's NBT holds them).
+/// the beam target, (0, 0, 0) without one; a rocket as BDS shows it (P6 `entities`,
+/// m9-facts.md): the item's NBT with the explosions and the flight, the direction (0, 1, 0) and
+/// no attached entity (-1)).
 fn object_metadata(kind: &Kind, put: &mut impl FnMut(EntityDataKey, MetadataValue)) {
     match kind {
         Kind::EndCrystal(c) => {
@@ -235,15 +240,20 @@ fn object_metadata(kind: &Kind, put: &mut impl FnMut(EntityDataKey, MetadataValu
             let explosions = List::Compound(f.explosions.clone());
             let fireworks = Compound::from([(
                 object::TAG_FIREWORKS.to_owned(),
-                Value::Compound(Compound::from([(
-                    object::TAG_EXPLOSIONS.to_owned(),
-                    Value::List(explosions),
-                )])),
+                Value::Compound(Compound::from([
+                    (object::TAG_EXPLOSIONS.to_owned(), Value::List(explosions)),
+                    (object::TAG_FLIGHT.to_owned(), Value::Byte(f.flight)),
+                ])),
             )]);
             put(
                 EntityDataKey::DISPLAY_FIREWORK,
                 MetadataValue::CompoundTag(fireworks),
             );
+            put(
+                EntityDataKey::DisplayOffset,
+                MetadataValue::Vec3([0.0, 1.0, 0.0]),
+            );
+            put(EntityDataKey::CustomDisplay, MetadataValue::Int64(-1));
         }
         _ => {}
     }
@@ -281,8 +291,13 @@ pub(super) fn trade_data(runtime_id: u64, offers: &Offers, before: (u8, u32)) ->
     })
 }
 
-/// A cloud's metadata (PMMP `AreaEffectCloud::syncNetworkData`: the radius and colour, and the
-/// properties that keep the client from changing the cloud by itself).
+/// The particle a potion's cloud shows (BDS, P6 `potions`, m9-facts.md).
+const CLOUD_PARTICLE: i32 = 35;
+
+/// A cloud's metadata as BDS shows a lingering potion's (P6 `potions`, m9-facts.md; PMMP
+/// `AreaEffectCloud::syncNetworkData` names the keys): the radius, colour, particle, duration,
+/// radius change on pickup and pickup count. The radius change per tick stays 0: the server
+/// shrinks the cloud and sends its radius.
 fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataValue)) {
     put(
         EntityDataKey::DataRadius,
@@ -292,16 +307,23 @@ fn cloud_metadata(cloud: &Cloud, put: &mut impl FnMut(EntityDataKey, MetadataVal
         EntityDataKey::EffectColor,
         MetadataValue::Int32(argb(effect_colour(&cloud.effects))),
     );
-    put(EntityDataKey::EffectAmbience, MetadataValue::Byte(0));
-    put(EntityDataKey::DataDuration, MetadataValue::Int32(-1));
+    put(
+        EntityDataKey::DataParticle,
+        MetadataValue::Int32(CLOUD_PARTICLE),
+    );
+    put(
+        EntityDataKey::DataDuration,
+        MetadataValue::Int32(cloud.max_age),
+    );
     put(
         EntityDataKey::DataChangeOnPickup,
-        MetadataValue::Float32(0.0),
+        MetadataValue::Float32(to_f32(cloud.radius_on_pickup)),
     );
     put(EntityDataKey::DataChangeRate, MetadataValue::Float32(0.0));
-    put(EntityDataKey::DataSpawnTime, MetadataValue::Int32(0));
-    put(EntityDataKey::DataPickupCount, MetadataValue::Float32(0.0));
-    put(EntityDataKey::DataWaiting, MetadataValue::Int32(0));
+    put(
+        EntityDataKey::DataPickupCount,
+        MetadataValue::Int32(cloud.pickup_count),
+    );
 }
 
 /// An `f32` for a packet (rounded to nearest).
@@ -607,7 +629,7 @@ pub(super) fn data(runtime_id: u64, flags: u64, radius: Option<f64>) -> Packet {
 }
 
 /// What a viewer needs to draw another player.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct Shown<'a> {
     pub(super) runtime_id: u64,
     pub(super) uuid: Uuid,
@@ -616,49 +638,34 @@ pub(super) struct Shown<'a> {
     pub(super) eye: Vec3,
     pub(super) game_mode: GameMode,
     pub(super) held: &'a Stack,
+    /// The player's whole entity data, as its own client gets it (`survival::full_metadata`).
+    pub(super) data: EntityMetadata,
+    /// The device ID and the build platform (device OS) its client gave.
+    pub(super) device_id: &'a str,
+    pub(super) build_platform: i32,
 }
 
-/// The packet that shows a player to another (BDS `AddPlayer`, P6 `duplicate`; the feet
-/// position, the default game type, the base ability layer).
+/// The packet that shows a player to another as BDS shows it (P6 `others`, m9-facts.md): the
+/// feet position, the default game type, the base ability layer, the device, and the player's own
+/// entity data (its flags now, such as Breathing) with the seven keys BDS adds for the others:
+/// jump duration, scale, the box's width and height, seat offset and index, arrow shooter.
 pub(super) fn add_player(p: Shown<'_>) -> Packet {
-    let mut flags = FlagSet::<EntityDataFlag>::new();
-    for f in [
-        EntityDataFlag::HasGravity,
-        EntityDataFlag::HasCollision,
-        EntityDataFlag::HiddenWhenInvisible,
-        EntityDataFlag::PushTowardsClosestSpace,
-    ] {
-        flags.insert(f);
-    }
-    let [low, high, ..] = flags.words();
-    let mut m = EntityMetadata::new();
-    let mut put = |k: EntityDataKey, v: MetadataValue| {
-        m.insert(k as u32, v);
+    let mut m = p.data;
+    let (width, height) = match m.get(&(EntityDataKey::CollisionBox as u32)) {
+        Some(MetadataValue::Vec3([w, h, _])) => (*w, *h),
+        _ => (to_f32(PLAYER_WIDTH), to_f32(PLAYER_HEIGHT)),
     };
-    put(
-        EntityDataKey::Flags,
-        MetadataValue::Int64(low.cast_signed()),
-    );
-    put(
-        EntityDataKey::FlagsTwo,
-        MetadataValue::Int64(high.cast_signed()),
-    );
-    put(
-        EntityDataKey::Name,
-        MetadataValue::String(p.name.to_owned()),
-    );
-    put(
-        EntityDataKey::Width,
-        MetadataValue::Float32(to_f32(PLAYER_WIDTH)),
-    );
-    put(
-        EntityDataKey::Height,
-        MetadataValue::Float32(to_f32(PLAYER_HEIGHT)),
-    );
-    put(EntityDataKey::Scale, MetadataValue::Float32(1.0));
-    put(EntityDataKey::AlwaysShowNameTag, MetadataValue::Byte(1));
-    put(EntityDataKey::LeashHolder, MetadataValue::Int64(0));
-    put(EntityDataKey::Owner, MetadataValue::Int64(-1));
+    for (k, v) in [
+        (EntityDataKey::JumpDuration, MetadataValue::Byte(0)),
+        (EntityDataKey::Scale, MetadataValue::Float32(1.0)),
+        (EntityDataKey::Width, MetadataValue::Float32(width)),
+        (EntityDataKey::Height, MetadataValue::Float32(height)),
+        (EntityDataKey::SeatOffset, MetadataValue::Vec3([0.0; 3])),
+        (EntityDataKey::ControllingSeatIndex, MetadataValue::Byte(0)),
+        (EntityDataKey::ArrowShooterId, MetadataValue::Int64(0)),
+    ] {
+        m.insert(k as u32, v);
+    }
     let feet = p.eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
     Packet::AddPlayer(Box::new(AddPlayer {
         uuid: p.uuid,
@@ -686,8 +693,113 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
                 walk_speed: 0.1,
             }],
         },
+        device_id: p.device_id.to_owned(),
+        build_platform: p.build_platform,
         ..AddPlayer::default()
     }))
+}
+
+/// `PlayerLocation` types and `LocatorBar` waypoint actions (gophertunnel `PlayerLocationType*`,
+/// `WaypointAction*`).
+const LOCATION_COORDINATES: i32 = 0;
+const LOCATION_HIDE: i32 = 1;
+const WAYPOINT_ADD: u8 = 1;
+const WAYPOINT_REMOVE: u8 = 2;
+const WAYPOINT_UPDATE: u8 = 3;
+/// The update flag BDS gives a change of visibility (P6 `others`: 2, where gophertunnel's
+/// `WaypointUpdateFlagVisible` is 1).
+const WAYPOINT_VISIBLE: u32 = 2;
+/// The update flags of BDS's waypoint add (all) and of its update right after (P6 `others`).
+const WAYPOINT_ALL: u32 = 63;
+const WAYPOINT_FOLLOW: u32 = 44;
+/// A player's waypoint colour: its player list colour (BDS gives both the same value, P6
+/// `others`), ARGB.
+const WAYPOINT_COLOUR: i32 = 0xffed_eded_u32.cast_signed();
+
+/// A waypoint of the player with runtime ID `runtime_id`; its group handle is made of the ID
+/// (BDS's is a random UUID per player, P6 `others`).
+fn waypoint(runtime_id: u64, action: u8, waypoint: Waypoint) -> Packet {
+    let mut handle = [0; 16];
+    handle[8..].copy_from_slice(&runtime_id.to_be_bytes());
+    Packet::LocatorBar(LocatorBar {
+        waypoints: vec![LocatorBarWaypoint {
+            group_handle: Uuid::from_bytes(handle),
+            waypoint,
+            action,
+        }],
+    })
+}
+
+/// What a player sees of another on its locator bar when it starts seeing it, as BDS sends it (P6
+/// `others`, m9-facts.md): its location at the eyes, its waypoint added there, then handed to the
+/// client to follow the player (the client's position authority, the small dot).
+pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
+    let (position, unique_id) = (eye.to_f32(), unique(runtime_id));
+    [
+        Packet::PlayerLocation(PlayerLocation {
+            r#type: LOCATION_COORDINATES,
+            entity_unique_id: unique_id,
+            position,
+        }),
+        waypoint(
+            runtime_id,
+            WAYPOINT_ADD,
+            Waypoint {
+                update_flag: WAYPOINT_ALL,
+                visible: Some(true),
+                world_position: Some(WaypointWorldPosition {
+                    position,
+                    dimension_id: 0,
+                }),
+                texture_path: Some("textures/ui/locator_bar_dot_3".to_owned()),
+                icon_size: Some([0.2, 0.2]),
+                colour: Some(WAYPOINT_COLOUR),
+                client_position_authority: Some(false),
+                actor_unique_id: Some(unique_id),
+            },
+        ),
+        waypoint(
+            runtime_id,
+            WAYPOINT_UPDATE,
+            Waypoint {
+                update_flag: WAYPOINT_FOLLOW,
+                texture_path: Some("textures/ui/locator_bar_dot_0".to_owned()),
+                icon_size: Some([1.0, 1.0]),
+                client_position_authority: Some(true),
+                ..Waypoint::default()
+            },
+        ),
+    ]
+}
+
+/// A player's waypoint leaving the bar of a player who no longer sees it.
+pub(super) fn locator_removed(runtime_id: u64) -> Packet {
+    waypoint(runtime_id, WAYPOINT_REMOVE, Waypoint::default())
+}
+
+/// A dead player leaves the bars of those who see it (BDS: its location hidden, its waypoint
+/// invisible); `alive` puts its waypoint back (BDS at the respawn).
+pub(in crate::tick) fn locator_life(runtime_id: u64, alive: bool) -> Vec<Packet> {
+    let shown = waypoint(
+        runtime_id,
+        WAYPOINT_UPDATE,
+        Waypoint {
+            update_flag: WAYPOINT_VISIBLE,
+            visible: Some(alive),
+            ..Waypoint::default()
+        },
+    );
+    if alive {
+        return vec![shown];
+    }
+    vec![
+        Packet::PlayerLocation(PlayerLocation {
+            r#type: LOCATION_HIDE,
+            entity_unique_id: unique(runtime_id),
+            position: [0.0; 3],
+        }),
+        shown,
+    ]
 }
 
 /// A player's movement to the players who see it (dragonfly and PMMP send the eye position).
@@ -734,4 +846,49 @@ pub(super) fn armour(runtime_id: u64, armour: &[Stack; 4]) -> Packet {
         boots: instance(boots),
         body: ItemInstance::default(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A lingering potion's cloud shows BDS's cloud keys and types (P6 `potions`, m9-facts.md):
+    /// the particle 35, the duration and the radius change on pickup, an int pickup count, and
+    /// not the keys BDS leaves out.
+    #[test]
+    fn a_cloud_shows_bds_cloud_data() {
+        let cloud = super::super::projectile::new_cloud(&[]);
+        let mut m = EntityMetadata::new();
+        cloud_metadata(&cloud, &mut |k, v| {
+            m.insert(k as u32, v);
+        });
+        let get = |k: EntityDataKey| m.get(&(k as u32)).cloned();
+        assert_eq!(
+            get(EntityDataKey::DataParticle),
+            Some(MetadataValue::Int32(35))
+        );
+        assert_eq!(
+            get(EntityDataKey::DataDuration),
+            Some(MetadataValue::Int32(600))
+        );
+        assert_eq!(
+            get(EntityDataKey::DataChangeOnPickup),
+            Some(MetadataValue::Float32(-0.5))
+        );
+        assert_eq!(
+            get(EntityDataKey::DataPickupCount),
+            Some(MetadataValue::Int32(0))
+        );
+        assert_eq!(
+            get(EntityDataKey::DataRadius),
+            Some(MetadataValue::Float32(3.0))
+        );
+        for absent in [
+            EntityDataKey::EffectAmbience,
+            EntityDataKey::DataSpawnTime,
+            EntityDataKey::DataWaiting,
+        ] {
+            assert_eq!(get(absent), None, "{absent:?}");
+        }
+    }
 }

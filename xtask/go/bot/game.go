@@ -42,31 +42,39 @@ const feedLimit = 1 << 18
 
 // gameScenarios are the game scenarios and their scripts (scenarios.go), with the API scenarios (api.go).
 var gameScenarios = map[string]func(*game) error{
-	"craft":     playCraft,
-	"furnace":   playFurnace,
-	"enchant":   playEnchant,
-	"crops":     playCrops,
-	"trade":     playTrade,
-	"commands":  playCommands,
-	"particles": playParticles,
-	"kick":      playKick,
-	"forms":     playForms,
-	"script":    playScript,
+	"craft":      playCraft,
+	"furnace":    playFurnace,
+	"enchant":    playEnchant,
+	"crops":      playCrops,
+	"trade":      playTrade,
+	"commands":   playCommands,
+	"particles":  playParticles,
+	"kick":       playKick,
+	"forms":      playForms,
+	"script":     playScript,
+	"weather":    playWeather,
+	"joinrain":   playJoinRain,
+	"joinstorm":  playJoinStorm,
+	"grindstone": playGrindstone,
 }
 
 // gameAreas are the scenarios' player positions (feet block): one area each in the spawn chunks of a flat
 // world whose grass is at y -61, far enough apart that the blocks of one never touch another. The script
 // scenario has none: it does not teleport.
 var gameAreas = map[string]protocol.BlockPos{
-	"craft":     {-12, -60, -12},
-	"furnace":   {-12, -60, -4},
-	"enchant":   {-12, -60, 4},
-	"crops":     {-12, -60, 12},
-	"trade":     {-12, -60, 20},
-	"commands":  {-4, -60, -12},
-	"particles": {-4, -60, -4},
-	"kick":      {-4, -60, 4},
-	"forms":     {-4, -60, 12},
+	"craft":      {-12, -60, -12},
+	"furnace":    {-12, -60, -4},
+	"enchant":    {-12, -60, 4},
+	"crops":      {-12, -60, 12},
+	"trade":      {-12, -60, 20},
+	"commands":   {-4, -60, -12},
+	"particles":  {-4, -60, -4},
+	"kick":       {-4, -60, 4},
+	"forms":      {-4, -60, 12},
+	"weather":    {4, -60, -12},
+	"joinrain":   {4, -60, -4},
+	"joinstorm":  {4, -60, 4},
+	"grindstone": {4, -60, 12},
 }
 
 // isGame reports whether the scenario is a game scenario.
@@ -150,7 +158,7 @@ func (s stack) instance() protocol.ItemInstance {
 }
 
 // slotRef is a slot of a window: the inventory (0), the UI (124: cursor 0, crafting grid 28-40, enchanting
-// 14-15, trade ingredients 4-5, created output 50) or the opened container (its window ID).
+// 14-15, grindstone 16-17, trade ingredients 4-5, created output 50) or the opened container (its window ID).
 type slotRef struct {
 	window uint32
 	slot   byte
@@ -185,11 +193,19 @@ type game struct {
 	actors map[uint64]*packet.AddActor
 	// random marks the steps recorded while it is set as random steps (step).
 	random bool
+	// flags is the bot's own entity flags (entity data key 0) as last sent.
+	flags int64
 	// available is the last AvailableCommands, displays the forms, scoreboards and boss bar shown, and
 	// lastOutput the output of the last player command (api.go).
 	available  *packet.AvailableCommands
 	displays   *displays
 	lastOutput *packet.CommandOutput
+	// weather is what the weather scenarios saw since their last check (weather.go).
+	weather weatherLog
+	// verify is what the M9 verification scenarios keep (verify.go).
+	verify verifyLog
+	// noSteps leaves step lines out while it is set (a part whose steps differ between servers).
+	noSteps bool
 }
 
 // recipe is a crafting recipe from CraftingData.
@@ -352,6 +368,9 @@ func (g *game) record(kind string, fields map[string]any) {
 
 // step records what the script is about to do, after the state the previous step ended in.
 func (g *game) step(name string, fields map[string]any) {
+	if g.noSteps {
+		return
+	}
 	g.state()
 	if fields == nil {
 		fields = map[string]any{}
@@ -393,7 +412,12 @@ func (g *game) state() {
 
 // check records a fact the script established.
 func (g *game) check(name string, value any) {
-	g.record("check", map[string]any{"name": name, "value": value})
+	kind := "check"
+	if g.noSteps {
+		// A part whose steps differ between servers keeps its checks as facts.
+		kind = "fact"
+	}
+	g.record(kind, map[string]any{"name": name, "value": value})
 }
 
 // command asks the caller to run a console command and flushes the capture so it sees the line.
@@ -408,6 +432,8 @@ func (g *game) observe(pk packet.Packet) {
 	if err := g.displays.observe(pk); err != nil {
 		g.check("display error", err.Error())
 	}
+	g.observeWeather(pk)
+	g.observeVerify(pk)
 	switch pk := pk.(type) {
 	case *packet.StartGame:
 		g.runtimeID, g.pos = pk.EntityRuntimeID, pk.PlayerPosition
@@ -497,6 +523,10 @@ func (g *game) observe(pk packet.Packet) {
 		g.options = pk.Options
 	case *packet.UpdateTrade:
 		g.trade = pk
+	case *packet.SetActorData:
+		if f, ok := pk.EntityMetadata[protocol.EntityDataKeyFlags].(int64); ok && pk.EntityRuntimeID == g.runtimeID {
+			g.flags = f
+		}
 	case *packet.UpdateAttributes:
 		if pk.EntityRuntimeID == g.runtimeID {
 			for _, a := range pk.Attributes {
@@ -506,6 +536,11 @@ func (g *game) observe(pk packet.Packet) {
 	}
 }
 
+// breathing reports the bot's own Breathing entity flag.
+func (g *game) breathing() bool {
+	return g.flags&(1<<protocol.EntityDataFlagBreathing) != 0
+}
+
 // craftingData keeps the shaped and shapeless recipes, in network ID order.
 func (g *game) craftingData(pk *packet.CraftingData) {
 	for _, r := range pk.ShapedRecipes {
@@ -513,6 +548,10 @@ func (g *game) craftingData(pk *packet.CraftingData) {
 	}
 	for _, r := range pk.ShapelessRecipes {
 		g.recipes = append(g.recipes, recipe{id: r.RecipeID, networkID: r.RecipeNetworkID, block: r.Block, input: r.Input, output: r.Output})
+	}
+	for _, r := range pk.SmithingTransformRecipes {
+		input := []protocol.ItemDescriptorCount{r.Base, r.Addition, r.Template}
+		g.recipes = append(g.recipes, recipe{id: r.RecipeID, networkID: r.RecipeNetworkID, block: r.Block, input: input, output: []protocol.ItemStack{r.Result}})
 	}
 	slices.SortFunc(g.recipes, func(a, b recipe) int { return cmp.Compare(a.networkID, b.networkID) })
 }
@@ -671,7 +710,11 @@ func (g *game) refOf(container, slot byte) (slotRef, bool) {
 		protocol.ContainerEnchantingInput, protocol.ContainerEnchantingMaterial,
 		protocol.ContainerTradeTwoIngredientOne, protocol.ContainerTradeTwoIngredientTwo,
 		protocol.ContainerTradeTwoResultPreview, protocol.ContainerTradeIngredientOne,
-		protocol.ContainerTradeIngredientTwo, protocol.ContainerTradeResultPreview:
+		protocol.ContainerTradeIngredientTwo, protocol.ContainerTradeResultPreview,
+		protocol.ContainerGrindstoneInput, protocol.ContainerGrindstoneAdditional, protocol.ContainerGrindstoneResultPreview,
+		protocol.ContainerAnvilInput, protocol.ContainerAnvilMaterial, protocol.ContainerSmithingTableInput,
+		protocol.ContainerSmithingTableMaterial, protocol.ContainerSmithingTableTemplate,
+		protocol.ContainerBeaconPayment:
 		return slotRef{protocol.WindowIDUI, slot}, true
 	case protocol.ContainerOffhand:
 		return slotRef{protocol.WindowIDOffHand, slot}, true
@@ -1024,8 +1067,13 @@ type inputLoop struct {
 	ack      bool
 	actions  []protocol.PlayerBlockAction
 	interact *protocol.UseItemTransactionData
-	done     chan struct{}
-	stopped  chan struct{}
+	// step and steps walk the bot (verify.go): each tick moves the position by step and turns the view by
+	// turn (pitch, yaw), while steps is above zero.
+	step    mgl32.Vec3
+	turn    mgl32.Vec2
+	steps   int
+	done    chan struct{}
+	stopped chan struct{}
 }
 
 func startInput(s *session, rid uint64, pos mgl32.Vec3) *inputLoop {
@@ -1062,7 +1110,21 @@ func (l *inputLoop) packet() (*packet.PlayerAuthInput, bool) {
 	l.tick++
 	flags := protocol.NewInputFlags(packet.InputFlagCount)
 	flags.Set(packet.InputFlagVerticalCollision)
+	var move mgl32.Vec2
+	var delta mgl32.Vec3
+	if l.steps > 0 {
+		l.steps--
+		l.pos = l.pos.Add(l.step)
+		l.pitch += l.turn[0]
+		l.yaw += l.turn[1]
+		delta = l.step
+		if l.step.Len() > 0 {
+			move = mgl32.Vec2{0, 1}
+			flags.Set(packet.InputFlagUp)
+		}
+	}
 	pk := &packet.PlayerAuthInput{
+		MoveVector: move, RawMoveVector: move, AnalogueMoveVector: move, Delta: delta,
 		Pitch: l.pitch, Yaw: l.yaw, HeadYaw: l.yaw, Position: l.pos, InputMode: packet.InputModeMouse,
 		PlayMode: packet.PlayModeNormal, InteractionModel: packet.InteractionModelCrosshair,
 		InteractPitch: l.pitch, InteractYaw: l.yaw, Tick: l.tick, CameraOrientation: direction(l.pitch, l.yaw),
@@ -1116,6 +1178,20 @@ func (l *inputLoop) blockActions(actions []protocol.PlayerBlockAction, interact 
 	l.actions = append(l.actions, actions...)
 	l.interact = interact
 	l.mu.Unlock()
+}
+
+// walk moves the bot by step and turns its view by turn (pitch, yaw in degrees) on each of the next ticks.
+func (l *inputLoop) walk(step mgl32.Vec3, turn mgl32.Vec2, ticks int) {
+	l.mu.Lock()
+	l.step, l.turn, l.steps = step, turn, ticks
+	l.mu.Unlock()
+}
+
+// facing is the view direction (pitch, yaw in degrees).
+func (l *inputLoop) facing() (float32, float32) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.pitch, l.yaw
 }
 
 func (l *inputLoop) stop() {

@@ -177,10 +177,12 @@ fn a_custom_ore_drops_its_items_with_a_compatible_tool() {
     let (items, xp) = ore_drops(&mut h, pick(crate::item::Kind::IronPickaxe));
     assert_eq!(items, [Stack::new(ruby, 2)]);
     assert!((1..=3).contains(&xp), "{xp}");
-    let silk = pick(crate::item::Kind::StonePickaxe).with_extra(Some(Extra {
-        enchantments: vec![(crate::item::Enchantment::SilkTouch, 1)],
-        ..Extra::default()
-    }));
+    let silk = pick(crate::item::Kind::StonePickaxe)
+        .with_extra(Some(Extra {
+            enchantments: vec![(crate::item::Enchantment::SilkTouch, 1)],
+            ..Extra::default()
+        }))
+        .unwrap();
     let own = r
         .resolve(crate::custom::ItemRef::CustomBlock(&ORE))
         .unwrap();
@@ -188,7 +190,7 @@ fn a_custom_ore_drops_its_items_with_a_compatible_tool() {
     // The break time is PMMP's: 3 × 1.5 / 6 with an iron pickaxe.
     let ore = r.block_state(&ORE).unwrap();
     assert_eq!(
-        ore.break_time(&pick(crate::item::Kind::IronPickaxe)),
+        ore.break_time_secs(&pick(crate::item::Kind::IronPickaxe)),
         Some(0.75)
     );
 }
@@ -379,6 +381,7 @@ impl Disk {
         for request in requests {
             tx.blocking_send(request).unwrap();
         }
+        tx.blocking_send(Request::Finish).unwrap();
         drop(tx);
         handle.join().unwrap().unwrap();
         let mut out = Vec::new();

@@ -6,15 +6,20 @@
 //! `{name, states, version}`), kept as they are, so unknown blocks survive a round trip.
 //!
 //! A record is decoded in the format version its seal names: format 1 player records have no
-//! `extra` compound and a 32-bit position, format 1 has no [`ExtraRecord`], and world records
-//! before format 3 have no time. Every other record has one layout in every format. NBT keeps the codec's limits (PLAN.md 4): 512 levels and
-//! 4 MiB per root compound.
+//! `extra` compound and a 32-bit position, format 1 has no [`ExtraRecord`], formats before 4
+//! have no [`SubChunkRecord`] values, world records before format 3 have no time, before
+//! format 5 no time stop or difficulty and before format 6 no weather, and meta values before
+//! format 7 have no commit identity. Every other record has one layout in every format. NBT keeps the codec's limits (PLAN.md 4): 512
+//! levels and 4 MiB per root compound, except a player's extra compound, which may fill its
+//! record ([`MAX_PLAYER_EXTRA_BYTES`]).
 
 use std::borrow::Cow;
 use std::mem::size_of;
 
-use crate::nbt::{Compound, Encoding};
+use super::seal::{DECODE_BUDGET, MAX_RECORD};
+use crate::nbt::{Compound, Encoding, MAX_ROOT_BYTES};
 use crate::protocol::{Error, Reader, Result, Writer, length};
+use crate::world::Weather;
 
 /// Sub-chunks in a chunk column, from index -4 (y -64) to 19 (y 304..=319).
 pub(crate) const SUB_CHUNKS: usize = 24;
@@ -25,12 +30,17 @@ pub(crate) const MIN_SUB_CHUNK: i8 = -4;
 pub(crate) const MAX_LAYERS: usize = 2;
 /// Longest world or generator name, in bytes.
 pub(crate) const MAX_NAME: usize = 256;
+/// The most bytes a player's extra compound takes: what its record holds after the longest world
+/// name and the position. It holds up to 146 stacks and the user's data (PLAN.md 10.9), more
+/// than the 4 MiB of one NBT root elsewhere; the record's reader budget covers it
+/// (`item::MAX_NBT_BYTES`).
+pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME + 3 * 8);
 /// Blocks (and biome cells) in a sub-chunk.
-const BLOCKS: usize = 4096;
+pub(crate) const BLOCKS: usize = 4096;
 /// Bits per index Bedrock writes.
 // The same packing as `protocol::block_storage`; one shared definition belongs to the world
 // integration (PLAN.md 10.6).
-const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
+pub(crate) const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
 /// Most compounds in one [`ExtraRecord`]: one per block of a chunk column (16 × 16 × 384). Block
 /// entities and scheduled updates have at most one per block; entities are bounded by the world's
@@ -48,7 +58,7 @@ pub(crate) trait Record: Sized {
 
 /// The 32-bit little-endian words that hold [`BLOCKS`] indices of `bits` bits each, without
 /// splitting an index across words.
-fn word_count(bits: u8) -> usize {
+pub(crate) fn word_count(bits: u8) -> usize {
     if bits == 0 {
         0
     } else {
@@ -130,7 +140,7 @@ fn write_packed(w: &mut Writer, bits: u8, words: &[u32], palette_len: usize) -> 
     Ok(())
 }
 
-fn check_indices(bits: u8, words: &[u32], palette_len: usize) -> Result<()> {
+pub(crate) fn check_indices(bits: u8, words: &[u32], palette_len: usize) -> Result<()> {
     if indices_below(bits, words, palette_len) {
         Ok(())
     } else {
@@ -173,7 +183,87 @@ pub(crate) struct SubChunkRecord {
     pub(crate) biomes: Biomes,
 }
 
-/// The terrain of a chunk column: the `chunks` value of kind 0.
+impl SubChunkRecord {
+    fn write(&self, w: &mut Writer) -> Result<()> {
+        if self.layers.len() > MAX_LAYERS {
+            return Err(Error::InvalidValue {
+                field: "sub-chunk",
+                reason: "more than two layers",
+            });
+        }
+        w.uint8(length(self.layers.len())?);
+        for layer in &self.layers {
+            write_packed(w, layer.bits, &layer.words, layer.palette.len())?;
+            for entry in &layer.palette {
+                w.nbt(entry, Encoding::LittleEndian)?;
+            }
+        }
+        let biomes = &self.biomes;
+        write_packed(w, biomes.bits, &biomes.words, biomes.palette.len())?;
+        for &id in &biomes.palette {
+            w.uint32(id);
+        }
+        Ok(())
+    }
+
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        let layer_count = r.uint8()?;
+        let layer_count = r.limit(layer_count.into(), MAX_LAYERS, size_of::<BlockLayer>())?;
+        let mut layers = Vec::with_capacity(layer_count);
+        for _ in 0..layer_count {
+            let (bits, words, palette_len) = read_packed(r)?;
+            let palette_len = r.limit(length(palette_len)?, palette_len, size_of::<Compound>())?;
+            let mut palette = Vec::with_capacity(palette_len);
+            for _ in 0..palette_len {
+                palette.push(r.nbt(Encoding::LittleEndian)?);
+            }
+            check_indices(bits, &words, palette.len())?;
+            layers.push(BlockLayer {
+                bits,
+                words,
+                palette,
+            });
+        }
+        let (bits, words, palette_len) = read_packed(r)?;
+        let palette_len = r.limit(length(palette_len)?, palette_len, size_of::<u32>())?;
+        let mut palette = Vec::with_capacity(palette_len);
+        for _ in 0..palette_len {
+            palette.push(r.uint32()?);
+        }
+        check_indices(bits, &words, palette.len())?;
+        Ok(Self {
+            layers,
+            biomes: Biomes {
+                bits,
+                words,
+                palette,
+            },
+        })
+    }
+}
+
+/// The terrain of one sub-chunk: the `chunks` value of a sub-chunk key (format 4). A value of an
+/// older format under such a key is damage: formats 1 to 3 wrote the whole column.
+impl Record for SubChunkRecord {
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        self.write(w)
+    }
+
+    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
+        if version < 4 {
+            return Err(Error::InvalidValue {
+                field: "sub-chunk",
+                reason: "formats 1 to 3 have none",
+            });
+        }
+        let record = Self::read(r)?;
+        end(r)?;
+        Ok(record)
+    }
+}
+
+/// The terrain of a chunk column: the whole-terrain `chunks` value of formats 1 to 3 (kind 0),
+/// and the 24 sub-chunk values of format 4 put together.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ChunkRecord {
     /// Sub-chunks from index -4 up: entry `i` is index `i - 4`.
@@ -182,65 +272,13 @@ pub(crate) struct ChunkRecord {
 
 impl Record for ChunkRecord {
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        for sub_chunk in self.sub_chunks.iter() {
-            if sub_chunk.layers.len() > MAX_LAYERS {
-                return Err(Error::InvalidValue {
-                    field: "sub-chunk",
-                    reason: "more than two layers",
-                });
-            }
-            w.uint8(length(sub_chunk.layers.len())?);
-            for layer in &sub_chunk.layers {
-                write_packed(w, layer.bits, &layer.words, layer.palette.len())?;
-                for entry in &layer.palette {
-                    w.nbt(entry, Encoding::LittleEndian)?;
-                }
-            }
-            let biomes = &sub_chunk.biomes;
-            write_packed(w, biomes.bits, &biomes.words, biomes.palette.len())?;
-            for &id in &biomes.palette {
-                w.uint32(id);
-            }
-        }
-        Ok(())
+        self.sub_chunks.iter().try_for_each(|sub| sub.write(w))
     }
 
     fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
         let mut sub_chunks = Vec::with_capacity(SUB_CHUNKS);
         for _ in 0..SUB_CHUNKS {
-            let layer_count = r.uint8()?;
-            let layer_count = r.limit(layer_count.into(), MAX_LAYERS, size_of::<BlockLayer>())?;
-            let mut layers = Vec::with_capacity(layer_count);
-            for _ in 0..layer_count {
-                let (bits, words, palette_len) = read_packed(r)?;
-                let palette_len =
-                    r.limit(length(palette_len)?, palette_len, size_of::<Compound>())?;
-                let mut palette = Vec::with_capacity(palette_len);
-                for _ in 0..palette_len {
-                    palette.push(r.nbt(Encoding::LittleEndian)?);
-                }
-                check_indices(bits, &words, palette.len())?;
-                layers.push(BlockLayer {
-                    bits,
-                    words,
-                    palette,
-                });
-            }
-            let (bits, words, palette_len) = read_packed(r)?;
-            let palette_len = r.limit(length(palette_len)?, palette_len, size_of::<u32>())?;
-            let mut palette = Vec::with_capacity(palette_len);
-            for _ in 0..palette_len {
-                palette.push(r.uint32()?);
-            }
-            check_indices(bits, &words, palette.len())?;
-            sub_chunks.push(SubChunkRecord {
-                layers,
-                biomes: Biomes {
-                    bits,
-                    words,
-                    palette,
-                },
-            });
+            sub_chunks.push(SubChunkRecord::read(r)?);
         }
         end(r)?;
         let sub_chunks = sub_chunks
@@ -254,7 +292,8 @@ impl Record for ChunkRecord {
 /// What is kept of a player between joins: the `players` value.
 ///
 /// Format 2: the world name, the position as three f64, then `extra`, a little-endian NBT root
-/// compound. Format 1 had the position as three f32 and no `extra`; it reads with an empty one.
+/// compound of at most [`MAX_PLAYER_EXTRA_BYTES`]. Format 1 had the position as three f32 and no
+/// `extra`; it reads with an empty one.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlayerRecord {
     /// The name of the world the player is in.
@@ -274,7 +313,8 @@ impl Record for PlayerRecord {
             }
             w.float64(c);
         }
-        w.nbt(&self.extra, Encoding::LittleEndian)
+        w.nbt_within(&self.extra, Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)
+            .map(drop)
     }
 
     fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
@@ -293,7 +333,7 @@ impl Record for PlayerRecord {
         let extra = if version == 1 {
             Compound::new()
         } else {
-            r.nbt(Encoding::LittleEndian)?
+            r.nbt_within(Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)?
         };
         end(r)?;
         Ok(Self {
@@ -304,11 +344,67 @@ impl Record for PlayerRecord {
     }
 }
 
-/// The block entities, entities or scheduled block updates of a chunk: the `chunks` value of kind
-/// 1, 2 or 3 (format 2). A u32 count, then that many little-endian NBT root compounds, each as
-/// the module that owns the kind wrote it. A commit encodes the tick's list in place (borrowed).
+/// A page of the block entities, entities or scheduled block updates of a chunk: the `chunks`
+/// value of an extras page (format 2; pages after the first, format 4). A u32 count, then that
+/// many little-endian NBT root compounds, each as the module that owns the kind wrote it. A list
+/// is stored in [`pages`](Self::pages), its entries in order.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ExtraRecord<'a>(pub(crate) Cow<'a, [Compound]>);
+
+impl ExtraRecord<'_> {
+    /// The encoded pages that hold `list`, in order, each at most `max` bytes and read back
+    /// within the [`DECODE_BUDGET`] of a record's reader: entries are added to a page until the
+    /// next would not fit either. An entry is at most an NBT root (4 MiB) and a quarter of the
+    /// budget (an error otherwise), so with `max` at least four times the root every full page
+    /// holds more than three quarters of `max` or of the budget, and [`MAX_EXTRA_ENTRIES`]
+    /// entries never take more than 65,535 pages (32,767 closed by each bound, and the last). An
+    /// empty list has none.
+    pub(crate) fn pages(list: &[Compound], max: usize) -> Result<Vec<Vec<u8>>> {
+        if list.len() > MAX_EXTRA_ENTRIES {
+            return Err(Error::Size);
+        }
+        let mut pages = Vec::new();
+        let mut page: Vec<u8> = Vec::new();
+        let (mut count, mut page_alloc) = (0u32, 0usize);
+        let mut entry = Vec::new();
+        for compound in list {
+            let mut w = Writer::new(std::mem::take(&mut entry), 0);
+            let cost = w.nbt_within(compound, Encoding::LittleEndian, MAX_ROOT_BYTES)?;
+            entry = w.into_inner();
+            // The decoder takes a list place for each entry ([`Self::decode`]).
+            let alloc = cost.alloc.saturating_add(size_of::<Compound>());
+            if alloc > DECODE_BUDGET / 4 {
+                return Err(Error::Size);
+            }
+            if count > 0
+                && (page.len().saturating_add(entry.len()) > max
+                    || page_alloc.saturating_add(alloc) > DECODE_BUDGET)
+            {
+                close_page(&mut page, count, &mut pages);
+                (count, page_alloc) = (0, 0);
+            }
+            if page.is_empty() {
+                page.extend_from_slice(&[0; size_of::<u32>()]);
+            }
+            page.extend_from_slice(&entry);
+            count += 1;
+            page_alloc = page_alloc.saturating_add(alloc);
+            entry.clear();
+        }
+        if count > 0 {
+            close_page(&mut page, count, &mut pages);
+        }
+        Ok(pages)
+    }
+}
+
+/// Writes the entry count at the start of `page` and moves it to `pages`.
+fn close_page(page: &mut Vec<u8>, count: u32, pages: &mut Vec<Vec<u8>>) {
+    if let Some(head) = page.first_chunk_mut::<4>() {
+        *head = count.to_le_bytes();
+    }
+    pages.push(std::mem::take(page));
+}
 
 impl Record for ExtraRecord<'_> {
     fn encode(&self, w: &mut Writer) -> Result<()> {
@@ -360,8 +456,12 @@ impl Record for UserRecord<'_> {
 
 /// A persistent world: the `worlds` value, keyed by the world name.
 ///
-/// Format 3: the number, the seed, the spawn, the generator name, then the world time (i64).
-/// Formats 1 and 2 end after the generator name; they read with time 0, as the world was new.
+/// Format 6: the number, the seed, the spawn, the generator name, the world time (i64), whether
+/// the time stands still (bool), the world's own difficulty (u8 0 to 3, or 255 for none: it
+/// follows the server's) and the weather (u8: 0 clear, 1 rain, 2 thunder). Format 5 ends after
+/// the difficulty and reads clear; formats 3 and 4 end after the time and read with the time
+/// running and no difficulty of their own too; formats 1 and 2 end after the generator name and
+/// read with time 0 too, as the world was new.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorldRecord {
     /// The number that `chunks` keys carry for this world.
@@ -372,9 +472,23 @@ pub(crate) struct WorldRecord {
     pub(crate) spawn: [i32; 3],
     /// The name of the generator that fills chunks never saved.
     pub(crate) generator: String,
-    /// The world time in ticks at the commit (`World::time`): the day cycle goes on from it.
+    /// The world time in ticks at the commit (`World::time_ticks`): the day cycle goes on from it.
     pub(crate) time: i64,
+    /// Whether the time stands still (`World::is_time_stopped`).
+    pub(crate) time_stopped: bool,
+    /// The world's own difficulty, 0 (peaceful) to 3 (hard); `None` follows the server's.
+    pub(crate) difficulty: Option<u8>,
+    /// The weather (`World::weather`).
+    pub(crate) weather: Weather,
 }
+
+/// The weathers in the order of their record byte.
+const WEATHERS: [Weather; 3] = [Weather::Clear, Weather::Rain, Weather::Thunder];
+
+/// The [`WorldRecord::difficulty`] byte of a world that follows the server's difficulty.
+const SERVER_DIFFICULTY: u8 = u8::MAX;
+/// The highest difficulty byte: hard.
+const MAX_DIFFICULTY: u8 = 3;
 
 impl Record for WorldRecord {
     fn encode(&self, w: &mut Writer) -> Result<()> {
@@ -385,6 +499,13 @@ impl Record for WorldRecord {
         }
         write_name(w, &self.generator)?;
         w.int64(self.time);
+        w.bool(self.time_stopped);
+        match self.difficulty {
+            Some(d) if d > MAX_DIFFICULTY => return Err(Error::Size),
+            d => w.uint8(d.unwrap_or(SERVER_DIFFICULTY)),
+        }
+        let weather = (0..).zip(WEATHERS).find(|&(_, x)| x == self.weather);
+        w.uint8(weather.map_or(0, |(byte, _)| byte));
         Ok(())
     }
 
@@ -397,6 +518,31 @@ impl Record for WorldRecord {
         }
         let generator = read_name(r)?;
         let time = if version < 3 { 0 } else { r.int64()? };
+        let (time_stopped, difficulty) = if version < 5 {
+            (false, None)
+        } else {
+            let stopped = r.bool()?;
+            let difficulty = match r.uint8()? {
+                SERVER_DIFFICULTY => None,
+                d if d <= MAX_DIFFICULTY => Some(d),
+                d => {
+                    return Err(Error::UnknownEnum {
+                        name: "difficulty",
+                        value: i64::from(d),
+                    });
+                }
+            };
+            (stopped, difficulty)
+        };
+        let weather = if version < 6 {
+            Weather::Clear
+        } else {
+            let byte = r.uint8()?;
+            *WEATHERS.get(usize::from(byte)).ok_or(Error::UnknownEnum {
+                name: "weather",
+                value: i64::from(byte),
+            })?
+        };
         end(r)?;
         Ok(Self {
             number,
@@ -404,6 +550,9 @@ impl Record for WorldRecord {
             spawn,
             generator,
             time,
+            time_stopped,
+            difficulty,
+            weather,
         })
     }
 }
@@ -413,18 +562,41 @@ impl Record for WorldRecord {
 pub(crate) struct Meta {
     /// The engine tick the saved state belongs to.
     pub(crate) tick: u64,
+    /// The commit identity of the saved state (the input log's chain, PLAN.md 10.9); `None` if
+    /// unknown (format 6 and older).
+    pub(crate) identity: Option<u64>,
+}
+
+#[cfg(test)]
+impl Meta {
+    /// The meta value of `tick` without a commit identity.
+    pub(crate) fn at(tick: u64) -> Self {
+        Self {
+            tick,
+            identity: None,
+        }
+    }
 }
 
 impl Record for Meta {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.uint64(self.tick);
+        w.bool(self.identity.is_some());
+        if let Some(identity) = self.identity {
+            w.uint64(identity);
+        }
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
         let tick = r.uint64()?;
+        let identity = if version >= 7 && r.bool()? {
+            Some(r.uint64()?)
+        } else {
+            None
+        };
         end(r)?;
-        Ok(Self { tick })
+        Ok(Self { tick, identity })
     }
 }
 
@@ -585,7 +757,10 @@ pub(crate) mod tests {
         Compound::from([
             ("name".to_owned(), Value::String(name.to_owned())),
             ("states".to_owned(), Value::Compound(states)),
-            ("version".to_owned(), Value::Int(18_168_865)),
+            (
+                "version".to_owned(),
+                Value::Int(crate::import::BLOCK_STATE_VERSION),
+            ),
         ])
     }
 
@@ -844,13 +1019,44 @@ pub(crate) mod tests {
                 spawn: [i32::MIN, 0, i32::MAX],
                 generator: "flat".to_owned(),
                 time: rng.next().cast_signed(),
+                time_stopped: rng.below(2) == 0,
+                difficulty: [None, Some(0), Some(3)][rng.below(3)],
+                weather: WEATHERS[rng.below(3)],
             };
             assert_eq!(decode::<WorldRecord>(&encode(&world)).unwrap(), world);
-            let meta = Meta { tick: rng.next() };
+            let meta = Meta {
+                tick: rng.next(),
+                identity: [None, Some(rng.next())][rng.below(2)],
+            };
             assert_eq!(decode::<Meta>(&encode(&meta)).unwrap(), meta);
             let user = UserRecord(format!("[{}]", rng.below(1 << 20)).into_bytes().into());
             assert_eq!(decode::<UserRecord<'_>>(&encode(&user)).unwrap(), user);
         }
+    }
+
+    /// A list splits into pages of at most the limit, entries in order and never split; each
+    /// page is an [`ExtraRecord`] of its entries, and an empty list has no page.
+    #[test]
+    fn extras_lists_split_into_pages_under_the_limit() {
+        let mut rng = Rng(0x0c0d_ec01);
+        let list: Vec<Compound> = (0..300).map(|_| random_compound(&mut rng, 3)).collect();
+        let whole = encode(&ExtraRecord(list.clone().into()));
+        let one = ExtraRecord::pages(&list, whole.len()).unwrap();
+        assert_eq!(one, std::slice::from_ref(&whole));
+        let max = whole.len() / 5;
+        let pages = ExtraRecord::pages(&list, max).unwrap();
+        assert!(pages.len() >= 5, "{} pages", pages.len());
+        let mut read = Vec::new();
+        for page in &pages {
+            assert!(page.len() <= max);
+            let entries = decode::<ExtraRecord<'_>>(page).unwrap().0.into_owned();
+            assert!(!entries.is_empty());
+            read.extend(entries);
+        }
+        assert_eq!(read, list);
+        assert!(ExtraRecord::pages(&[], max).unwrap().is_empty());
+        let over = vec![Compound::new(); MAX_EXTRA_ENTRIES + 1];
+        assert_eq!(ExtraRecord::pages(&over, usize::MAX), Err(Error::Size));
     }
 
     #[test]
@@ -898,13 +1104,13 @@ pub(crate) mod tests {
             extra: Compound::new(),
         };
         assert!(player.encode(&mut w).is_err());
-        // An extra compound over the NBT root limit of 4 MiB.
+        // An extra compound over what its record holds.
         let player = PlayerRecord {
             world: "w".to_owned(),
             position: [0.0; 3],
             extra: Compound::from([(
                 "big".to_owned(),
-                Value::ByteArray(vec![0; crate::nbt::MAX_ROOT_BYTES]),
+                Value::ByteArray(vec![0; MAX_PLAYER_EXTRA_BYTES]),
             )]),
         };
         assert!(player.encode(&mut w).is_err());
@@ -916,8 +1122,17 @@ pub(crate) mod tests {
             spawn: [0; 3],
             generator: "g".repeat(MAX_NAME + 1),
             time: 0,
+            time_stopped: false,
+            difficulty: None,
+            weather: Weather::Clear,
         };
         assert!(world.encode(&mut w).is_err());
+        let world = WorldRecord {
+            generator: "g".to_owned(),
+            difficulty: Some(4),
+            ..world
+        };
+        assert_eq!(world.encode(&mut w), Err(Error::Size));
     }
 
     #[test]
@@ -990,7 +1205,7 @@ pub(crate) mod tests {
         assert!(decode::<PlayerRecord>(&bytes).is_err());
         let extras = encode(&ExtraRecord(vec![Compound::new()].into()));
         assert!(ExtraRecord::decode(&mut Reader::new(&extras, BUDGET, 0), 1).is_err());
-        // Chunks and meta have one layout in every format.
+        // Chunks have one layout in every format.
         let chunk = random_chunk(&mut Rng(8));
         let bytes = encode(&chunk);
         assert_eq!(
@@ -1007,11 +1222,14 @@ pub(crate) mod tests {
             spawn: [1, -60, 2],
             generator: "flat".to_owned(),
             time: 123_456_789,
+            time_stopped: false,
+            difficulty: None,
+            weather: Weather::Clear,
         };
         let bytes = encode(&world);
         assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
         // Formats 1 and 2 (Anchor M6 and early M7) end after the generator name.
-        let old = &bytes[..bytes.len() - 8];
+        let old = &bytes[..bytes.len() - 11];
         for version in [1, 2] {
             let read = WorldRecord::decode(&mut Reader::new(old, BUDGET, 0), version).unwrap();
             assert_eq!(
@@ -1030,8 +1248,96 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn world_records_before_format_5_read_with_the_time_running_and_the_server_difficulty() {
+        let world = WorldRecord {
+            number: 3,
+            seed: 11,
+            spawn: [0, -60, 0],
+            generator: "void".to_owned(),
+            time: 6_000,
+            time_stopped: true,
+            difficulty: Some(0),
+            weather: Weather::Clear,
+        };
+        let bytes = encode(&world);
+        assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
+        // Formats 3 and 4 end after the time.
+        let old = &bytes[..bytes.len() - 3];
+        for version in [3, 4] {
+            let read = WorldRecord::decode(&mut Reader::new(old, BUDGET, 0), version).unwrap();
+            assert_eq!(
+                read,
+                WorldRecord {
+                    time_stopped: false,
+                    difficulty: None,
+                    ..world.clone()
+                }
+            );
+        }
+        assert!(decode::<WorldRecord>(old).is_err(), "format 5 needs both");
+        let mut bad = bytes.clone();
+        let at = bad.len() - 2;
+        bad[at] = 4;
+        assert!(decode::<WorldRecord>(&bad).is_err(), "no difficulty 4");
+        bad = bytes;
+        let at = bad.len() - 3;
+        bad[at] = 2;
+        assert!(decode::<WorldRecord>(&bad).is_err(), "a bool is 0 or 1");
+    }
+
+    #[test]
+    fn world_records_keep_the_weather_and_read_clear_before_format_6() {
+        let world = WorldRecord {
+            number: 4,
+            seed: 9,
+            spawn: [0, -60, 0],
+            generator: "flat".to_owned(),
+            time: 100,
+            time_stopped: false,
+            difficulty: None,
+            weather: Weather::Thunder,
+        };
+        let bytes = encode(&world);
+        assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
+        // Format 5 ends after the difficulty.
+        let old = &bytes[..bytes.len() - 1];
+        let read = WorldRecord::decode(&mut Reader::new(old, BUDGET, 0), 5).unwrap();
+        assert_eq!(
+            read,
+            WorldRecord {
+                weather: Weather::Clear,
+                ..world
+            }
+        );
+        assert!(decode::<WorldRecord>(old).is_err(), "format 6 needs it");
+        let mut bad = bytes;
+        *bad.last_mut().unwrap() = 3;
+        assert!(decode::<WorldRecord>(&bad).is_err(), "no weather 3");
+    }
+
+    #[test]
+    fn meta_values_keep_the_commit_identity_and_read_without_one_before_format_7() {
+        let meta = Meta {
+            tick: 5,
+            identity: Some(u64::MAX),
+        };
+        let bytes = encode(&meta);
+        assert_eq!(decode::<Meta>(&bytes).unwrap(), meta);
+        // Formats 1 to 6 hold the tick alone.
+        let old = &bytes[..8];
+        for version in 1..=6 {
+            let read = Meta::decode(&mut Reader::new(old, BUDGET, 0), version).unwrap();
+            assert_eq!(read, Meta::at(5));
+        }
+        assert!(decode::<Meta>(old).is_err(), "format 7 needs the flag");
+        let mut bad = bytes;
+        bad[8] = 2;
+        assert!(decode::<Meta>(&bad).is_err(), "a bool is 0 or 1");
+    }
+
+    #[test]
     fn trailing_bytes_and_non_finite_positions_are_refused() {
-        let mut bytes = encode(&Meta { tick: 5 });
+        let mut bytes = encode(&Meta::at(5));
         bytes.push(0);
         assert!(decode::<Meta>(&bytes).is_err());
         let mut bytes = encode(&PlayerRecord {

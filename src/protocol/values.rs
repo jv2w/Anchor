@@ -2,6 +2,7 @@
 
 use super::consts::PackSettingType;
 use super::io::{Codec, Error, Reader, Result, Writer, length};
+use super::types::PACK_SETTING_NAME_MAX_LEN;
 
 /// A game rule and its value (gophertunnel `GameRule`).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -83,7 +84,7 @@ impl Reader<'_> {
             3 => GameRuleValue::Float32(self.float32()?),
             t => {
                 return Err(Error::UnknownEnum {
-                    name: "game rule type",
+                    name: "GameRuleValue type",
                     value: t.into(),
                 });
             }
@@ -104,7 +105,7 @@ impl Reader<'_> {
             1 => Ok(AbilityValue::Bool(bool_value)),
             2 => Ok(AbilityValue::Float32(float_value)),
             t => Err(Error::UnknownEnum {
-                name: "ability value type",
+                name: "AbilityValue type",
                 value: t.into(),
             }),
         }
@@ -112,7 +113,7 @@ impl Reader<'_> {
 
     /// `PackSetting`
     pub(crate) fn pack_setting(&mut self) -> Result<PackSetting> {
-        let name = self.string()?;
+        let name = self.string_max(PACK_SETTING_NAME_MAX_LEN)?;
         let value = match PackSettingType::try_from(self.varuint32()?)? {
             PackSettingType::Float => PackSettingValue::Float32(self.float32()?),
             PackSettingType::Bool => PackSettingValue::Bool(self.bool()?),

@@ -25,6 +25,7 @@ use serde::de::DeserializeOwned;
 use tracing::{error, warn};
 
 use super::super::Player;
+use super::super::checkpoint::{self, Codec as _, Reader, Writer};
 use super::super::extra::PlayerExtra;
 use super::Context;
 use crate::ServerBuilder;
@@ -201,6 +202,83 @@ impl UserData {
             }
         }
     }
+}
+
+impl UserData {
+    /// Writes the server values by their JSON (as `Self::hash_into` hashes them), with their
+    /// marks; the types are code, fixed at build. A value whose JSON does not encode makes the
+    /// checkpoint opaque.
+    pub(in crate::tick) fn checkpoint(&self, w: &mut Writer) {
+        w.len(self.servers.len());
+        for server in &self.servers {
+            server.dirty.encode(w);
+            json(w, &server.codec, &server.value);
+        }
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote into the types registered at build.
+    pub(in crate::tick) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
+        if r.len()? != self.servers.len() {
+            return Err(checkpoint::Error::Format("server data types"));
+        }
+        for server in &mut self.servers {
+            server.dirty = bool::decode(r)?;
+            server.value = value(r, &server.codec)?;
+        }
+        Ok(())
+    }
+
+    /// Writes a player's data values by their JSON, one per registered player type that has a
+    /// value. An extension has no checkpoint form (it is not serializable): it makes the
+    /// checkpoint opaque.
+    pub(in crate::tick) fn checkpoint_player(&self, user: &PlayerUser, w: &mut Writer) {
+        let PlayerUser { data, extensions } = user;
+        w.opaque("player extensions", extensions.len());
+        for codec in &self.players {
+            match data.get(&codec.type_id) {
+                Some(v) => {
+                    w.u8(1);
+                    json(w, codec, v);
+                }
+                None => w.u8(0),
+            }
+        }
+    }
+
+    /// Reads what [`Self::checkpoint_player`] wrote: the values, and no extension.
+    pub(in crate::tick) fn restore_player(
+        &self,
+        r: &mut Reader<'_>,
+    ) -> checkpoint::Result<PlayerUser> {
+        let mut data = BTreeMap::new();
+        for codec in &self.players {
+            if bool::decode(r)? {
+                data.insert(codec.type_id, value(r, codec)?);
+            }
+        }
+        Ok(PlayerUser {
+            data,
+            extensions: BTreeMap::new(),
+        })
+    }
+}
+
+/// Writes a value's JSON; one that does not encode makes the checkpoint opaque.
+fn json(w: &mut Writer, codec: &crate::data::Codec, value: &Value) {
+    if let Ok(bytes) = codec.encode(value, usize::MAX) {
+        w.bytes(&bytes);
+    } else {
+        w.opaque("user data that does not serialize", 1);
+        w.len(0);
+    }
+}
+
+/// Reads a value's JSON into its type.
+fn value(r: &mut Reader<'_>, codec: &crate::data::Codec) -> checkpoint::Result<Value> {
+    let bytes = Vec::<u8>::decode(r)?;
+    codec
+        .decode(&bytes)
+        .ok_or(checkpoint::Error::Format("user data"))
 }
 
 impl fmt::Debug for UserData {

@@ -3,7 +3,7 @@
 use std::fmt;
 use std::io;
 
-use crate::{command, config, data, entity, pack, storage};
+use crate::{command, config, data, entity, import, pack, storage};
 
 /// A failure to build or run a [`Server`](crate::Server).
 #[derive(Debug)]
@@ -21,7 +21,9 @@ pub enum Error {
         /// The thread budget.
         budget: usize,
     },
-    /// The runtime, the tick thread or the server key could not be started.
+    /// The runtime, a thread (tick, save, CPU pool, console, console log) or the startup state
+    /// (server key, random numbers, shared spawn batches, resource pack loading) could not be
+    /// started.
     Start(io::Error),
     /// The network ports could not be opened.
     Network(io::Error),
@@ -57,6 +59,17 @@ pub enum Error {
         /// The name.
         name: String,
     },
+    /// A world's name or its generator's [`name`](crate::world::Generator::name) is longer than
+    /// the world file holds, 256 bytes.
+    NameTooLong {
+        /// The name.
+        name: String,
+    },
+    /// Two generator types have the same [`name`](crate::world::Generator::name).
+    DuplicateGenerator {
+        /// The name.
+        name: String,
+    },
     /// The registered commands or permissions break a rule; the source says which.
     Command(command::Error),
     /// A registered custom entity type breaks a rule; the source says which.
@@ -68,6 +81,9 @@ pub enum Error {
     /// A resource pack cannot be read or offered; the source says why. Lets a program's `main`
     /// use `?` on [`Pack::from_bytes`](crate::pack::Pack::from_bytes) and the other pack calls.
     Pack(pack::Error),
+    /// [`Server::import_world`](crate::Server::import_world) could not import the world; the
+    /// source says why. The world file is left as it was.
+    Import(import::Error),
 }
 
 /// A result with the crate [`enum@Error`].
@@ -86,7 +102,9 @@ impl fmt::Display for Error {
                 "network-threads ({network}) + cpu-threads ({cpu}) + 2 exceeds the thread budget \
                  of {budget}, the larger of the logical CPU count and 4"
             ),
-            Self::Start(_) => f.write_str("could not start the runtime or the tick thread"),
+            Self::Start(_) => {
+                f.write_str("could not start the runtime, a thread or the startup state")
+            }
             Self::Network(_) => f.write_str("could not open the network ports"),
             Self::IdentityKey(_) => f.write_str("the nethernet identity key is unreadable"),
             Self::TlsCertificate(_) => f.write_str("the nethernet tls certificate is unusable"),
@@ -99,11 +117,20 @@ impl fmt::Display for Error {
             ),
             Self::Storage(_) => f.write_str("the world file could not be opened, read or saved"),
             Self::DuplicateWorld { name } => write!(f, "two worlds are named {name:?}"),
+            Self::NameTooLong { name } => write!(
+                f,
+                "the world or generator name {name:?} is longer than {} bytes",
+                storage::codec::MAX_NAME
+            ),
+            Self::DuplicateGenerator { name } => {
+                write!(f, "two generator types are named {name:?}")
+            }
             Self::Command(_) => f.write_str("a registered command is invalid"),
             Self::CustomEntity(_) => f.write_str("a registered custom entity type is invalid"),
             Self::Custom(_) => f.write_str("a registered custom item, block or recipe is invalid"),
             Self::Data(_) => f.write_str("a registered data type is invalid"),
             Self::Pack(_) => f.write_str("a resource pack is invalid"),
+            Self::Import(_) => f.write_str("the world could not be imported"),
         }
     }
 }
@@ -118,6 +145,7 @@ impl std::error::Error for Error {
             Self::Custom(e) => Some(e),
             Self::Data(e) => Some(e),
             Self::Pack(e) => Some(e),
+            Self::Import(e) => Some(e),
             Self::Auth(e)
             | Self::IdentityKey(e)
             | Self::TlsCertificate(e)
@@ -126,7 +154,9 @@ impl std::error::Error for Error {
             Self::Threads { .. }
             | Self::TickPanicked { .. }
             | Self::WorldNewerFormat { .. }
-            | Self::DuplicateWorld { .. } => None,
+            | Self::DuplicateWorld { .. }
+            | Self::NameTooLong { .. }
+            | Self::DuplicateGenerator { .. } => None,
         }
     }
 }
@@ -143,6 +173,12 @@ impl From<pack::Error> for Error {
     }
 }
 
+impl From<import::Error> for Error {
+    fn from(e: import::Error) -> Self {
+        Self::Import(e)
+    }
+}
+
 impl From<storage::Error> for Error {
     fn from(e: storage::Error) -> Self {
         match e {
@@ -153,5 +189,19 @@ impl From<storage::Error> for Error {
             e if e.is_damage() => Self::WorldDamaged(Box::new(e)),
             e => Self::Storage(Box::new(e)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_start_message_covers_every_thread_and_startup_step() {
+        let e = Error::Start(io::Error::other("no thread"));
+        assert_eq!(
+            e.to_string(),
+            "could not start the runtime, a thread or the startup state"
+        );
     }
 }

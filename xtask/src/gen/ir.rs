@@ -57,8 +57,6 @@ pub(crate) struct Packet {
 #[serde(deny_unknown_fields)]
 pub(crate) struct TypeDef {
     pub(crate) name: String,
-    #[serde(default)]
-    pub(crate) doc: String,
     pub(crate) kind: String,
     pub(crate) underlying: Option<Type>,
     #[serde(default)]
@@ -81,8 +79,6 @@ pub(crate) struct Field {
     pub(crate) name: String,
     #[serde(rename = "type")]
     pub(crate) ty: Type,
-    #[serde(default)]
-    pub(crate) doc: String,
     #[serde(default, rename = "embedded")]
     _embedded: bool,
 }
@@ -117,8 +113,6 @@ pub(crate) struct Param {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Function {
     pub(crate) name: String,
-    #[serde(default)]
-    pub(crate) doc: String,
     pub(crate) receiver: Option<Param>,
     pub(crate) io: bool,
     pub(crate) params: Vec<Param>,
@@ -207,8 +201,6 @@ pub(crate) struct DeclConst {
     pub(crate) basic: String,
     pub(crate) value: String,
     pub(crate) alias: Option<String>,
-    #[serde(default)]
-    pub(crate) doc: String,
 }
 
 /// One statement.

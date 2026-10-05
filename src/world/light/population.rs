@@ -13,7 +13,7 @@ use std::fmt;
 use super::super::chunk::{COLUMNS, SUB_CHUNKS, column};
 use super::super::paletted::offset;
 use super::super::{BlockPos, Chunk, MAX_Y, MIN_Y};
-use super::{ChunkLight, FULL, Nibbles, emission, filter, sky_height};
+use super::{ChunkLight, FULL, Nibbles, sky_height};
 
 /// Blocks in a chunk: a node index is `sub-chunk << 12 | offset`.
 const NODES: usize = SUB_CHUNKS * 4096;
@@ -36,6 +36,7 @@ enum Phase {
 }
 
 /// The working memory of a running population.
+#[derive(Clone)]
 struct Buffers {
     /// The filter plus 1 of each block, by node.
     filters: Vec<u8>,
@@ -48,6 +49,7 @@ struct Buffers {
 }
 
 /// The light of one chunk being worked out.
+#[derive(Clone)]
 pub(crate) struct Population {
     chunk: Chunk,
     heights: [i16; COLUMNS],
@@ -82,8 +84,9 @@ impl Population {
         true
     }
 
-    /// Works until done or until `units` is spent: one unit per block read, column, sub-chunk
-    /// filled or node spread. Returns whether it is done.
+    /// Works until done or until `units` is spent: one unit per block read (a column's sky height
+    /// reads down to its highest sky blocker, at least one), sub-chunk filled or node spread; the
+    /// last column may take more than what was left. Returns whether it is done.
     pub(crate) fn run(&mut self, units: &mut u32) -> bool {
         let mut b = self.buffers.take().unwrap_or_else(|| {
             Box::new(Buffers {
@@ -103,10 +106,11 @@ impl Population {
             match self.phase {
                 Phase::Scan(s, at) => self.scan(b, s, at, units),
                 Phase::Heights(c) => {
-                    *units -= 1;
                     let (x, z) = local(c);
+                    let (height, looked) = sky_height(&self.chunk, x, z, MAX_Y);
+                    *units = units.saturating_sub(looked.max(1));
                     if let Some(h) = self.heights.get_mut(c) {
-                        *h = sky_height(&self.chunk, x, z);
+                        *h = height;
                     }
                     self.phase = next(c, COLUMNS, Phase::Heights, Phase::Sky(0));
                 }
@@ -172,12 +176,12 @@ impl Population {
         let end = u32::from(at).saturating_add(*units).min(4096);
         for o in u32::from(at)..end {
             let o16 = u16::try_from(o).unwrap_or(0);
-            let entry = sub.get(o16);
+            let values = sub.light_values(o16);
             let node = base + usize::from(o16);
             if let Some(f) = b.filters.get_mut(node) {
-                *f = filter(entry);
+                *f = values.filter;
             }
-            let light = emission(entry);
+            let light = values.emission;
             if light > 0 {
                 if let Some(l) = b.levels.get_mut(node) {
                     *l = light;
@@ -264,6 +268,28 @@ impl Population {
         }
     }
 }
+
+crate::tick::checkpoint::fields!(Population {
+    chunk,
+    heights,
+    phase,
+    buffers,
+    changed,
+    changed_limit,
+});
+crate::tick::checkpoint::fields!(Buffers {
+    filters,
+    levels,
+    queued,
+    queue
+});
+crate::tick::checkpoint::variants!(Phase {
+    0 => Scan(sub, at),
+    1 => Heights(column),
+    2 => Sky(sub),
+    3 => SkySeeds(column),
+    4 => Spread,
+});
 
 impl fmt::Debug for Population {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

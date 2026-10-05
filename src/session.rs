@@ -1,24 +1,29 @@
 //! Connection sessions: batches, encryption, the login sequence and the tick queues.
 //!
-//! [`start`] opens both transports (RakNet and NetherNet at once) and spawns the accept task. The
+//! [`start`] opens both transports (NetherNet, then RakNet; both serve at once) and spawns the
+//! accept task. The
 //! accept task numbers new connections of both in arrival order (the one place that allocates
 //! [`SessionId`]s, so no shared counter is needed), spawns a session task for each and keeps the
 //! server-list status current (the RakNet pong and the NetherNet JSON).
 //! A session task owns one connection: it decodes batches, runs the login sequence of PLAN.md
 //! 10.2 (with the resource pack download of [`packs`]) and then relays packets between the
 //! connection and the tick.
+//!
+//! The accept task also does what the tick asks of the networking ([`Control`]: the server
+//! name, blocked addresses) and reports the connection counts to the tick (PLAN.md 10.9).
 
 mod connection;
 mod packs;
 mod transport;
 
-use std::net::{SocketAddrV4, SocketAddrV6};
+use std::collections::BTreeMap;
+use std::net::{IpAddr, SocketAddrV4, SocketAddrV6};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tracing::{debug, error, info, warn};
 
@@ -32,7 +37,7 @@ use crate::pack::{Offer, Pack};
 use crate::protocol::batch;
 use crate::protocol::packet::{GAME_VERSION, PROTOCOL_VERSION};
 use crate::raknet;
-use crate::tick::queue::{InputSender, SessionId};
+use crate::tick::queue::{Control, InputKind, InputSender, Measure, SessionId, SessionInputs};
 
 use transport::Transport;
 
@@ -46,6 +51,12 @@ const EVENT_QUEUE: usize = 256;
 const STOP_GRACE: Duration = Duration::from_secs(10);
 /// Bytes a RakNet message may add to a compressed batch: the 8-byte checksum.
 const CHECKSUM_BYTES: usize = 8;
+/// How often the accept task reports changed connection counts to the tick and forgets ended
+/// blocks. Each report is a logged input, so the counts the tick reads are at most this old.
+const REPORT_INTERVAL: Duration = Duration::from_secs(1);
+/// Addresses blocked at once (PMMP `Network::blockAddress` has no bound); a block past it is
+/// refused with a warning.
+const MAX_BLOCKED: usize = 4096;
 
 /// Running networking: the transports, the accept task and every session.
 #[derive(Debug)]
@@ -67,6 +78,14 @@ struct Shared {
     inputs: InputSender,
     events: mpsc::Sender<Event>,
     shutdown: watch::Receiver<bool>,
+    /// What a session that is still in the login sequence when the server stops sees.
+    shutdown_message: String,
+    /// Whether RakNet logins are encrypted (`enable-encryption`).
+    encryption: bool,
+    /// One permit per session that has logged in but not joined: `max-players` at start (PLAN.md
+    /// 10.9). Logged-in sessions have left the pre-login limit, and the tick counts players only
+    /// at the join.
+    waiting: Arc<Semaphore>,
 }
 
 /// A session's report to the accept task.
@@ -74,8 +93,8 @@ struct Shared {
 enum Event {
     /// The session passed login verification.
     LoggedIn,
-    /// The session ended; `logged_in` tells whether it had sent [`Event::LoggedIn`].
-    Ended { logged_in: bool },
+    /// A session that had sent [`Event::LoggedIn`] ended.
+    Ended,
 }
 
 /// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
@@ -83,12 +102,18 @@ enum Event {
 /// The resource packs load first: the `resource-packs` files, then `packs` given in code
 /// (PLAN.md 10.8); one that cannot be offered stops the start. With `xbox-auth = true` the
 /// authorization keys load next (PLAN.md 10.2), and a server without keys does not start.
-/// NetherNet loads its identity key from `data_dir` (PLAN.md 10.3).
+/// NetherNet loads its identity key from `data_dir` (PLAN.md 10.3). The accept task takes the
+/// tick's `controls` and reports the connection counts on `inputs`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "consistency: one function opens every part of networking in its order"
+)]
 pub(crate) async fn start(
     config: Arc<Config>,
     packs: Vec<Pack>,
     data_dir: &Path,
     inputs: InputSender,
+    controls: mpsc::Receiver<Control>,
 ) -> Result<Network> {
     let batch = config.batch_settings()?;
     let paths = config.resource_pack_paths();
@@ -96,12 +121,12 @@ pub(crate) async fn start(
     let packs = tokio::task::spawn_blocking(move || Offer::load(&paths, packs, force))
         .await
         .map_err(|e| Error::Start(std::io::Error::other(e)))?
-        .map_err(|e| Error::Start(std::io::Error::other(e)))?;
+        .map_err(Error::from)?;
     if !packs.packs().is_empty() {
         info!(count = packs.packs().len(), "resource packs loaded");
     }
     let auth = if config.general.xbox_auth {
-        let auth = Auth::start(data_dir, unix_now)
+        let auth = Auth::start(data_dir, clock::token_now)
             .await
             .map_err(|e| Error::Auth(Box::new(e)))?;
         Some(auth)
@@ -127,11 +152,9 @@ pub(crate) async fn start(
     let status = Status::new(&config, guid);
     let (pong_tx, pong_rx) = watch::channel(status.pong(0));
     let (json_tx, json_rx) = watch::channel(status.json(0));
-    let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let raknet = raknet::spawn(settings, pong_rx, raknet_tx).map_err(Error::Network)?;
-    info!(addresses = ?raknet.local_addrs(), "raknet listening");
 
-    let settings = nethernet::Settings {
+    // NetherNet opens first: a RakNet pong then means that every listener is ready.
+    let nethernet_settings = nethernet::Settings {
         signaling_v4: v4.map(|ip| SocketAddrV4::new(ip, general.server_port)),
         signaling_v6: v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0)),
         udp_v4: v4.map(|ip| SocketAddrV4::new(ip, general.nethernet_port)),
@@ -145,19 +168,36 @@ pub(crate) async fn start(
             .zip(config.developer.nethernet_tls_key.clone()),
     };
     let (nethernet_tx, nethernet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let nethernet =
-        match nethernet::start(settings, data_dir, json_rx, auth.clone(), nethernet_tx).await {
-            Ok(nethernet) => nethernet,
-            Err(e) => {
-                raknet.shutdown().await;
-                return Err(e.into());
-            }
-        };
-    info!(
-        signaling = ?nethernet.signaling_addrs(),
-        udp = ?nethernet.udp_addrs(),
-        "nethernet listening"
-    );
+    let nethernet = nethernet::start(
+        nethernet_settings,
+        data_dir,
+        json_rx,
+        auth.clone(),
+        nethernet_tx,
+    )
+    .await?;
+    for addr in nethernet.signaling_addrs() {
+        info!(%addr, "listening for NetherNet signaling on TCP");
+    }
+    for addr in nethernet.udp_addrs() {
+        info!(%addr, "listening for NetherNet game data on UDP");
+    }
+    let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
+    let raknet = match raknet::spawn(settings, pong_rx, raknet_tx) {
+        Ok(raknet) => raknet,
+        Err(e) => {
+            nethernet.shutdown().await;
+            return Err(Error::Network(e));
+        }
+    };
+    let raknet_use = if config.developer.raknet {
+        "listening for RakNet and server list pings on UDP"
+    } else {
+        "listening for server list pings only on UDP (raknet = false)"
+    };
+    for addr in raknet.local_addrs() {
+        info!(%addr, "{raknet_use}");
+    }
 
     let (events_tx, events_rx) = mpsc::channel(EVENT_QUEUE);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -169,10 +209,19 @@ pub(crate) async fn start(
         inputs,
         events: events_tx,
         shutdown: shutdown_rx,
+        shutdown_message: config.general.shutdown_message.clone(),
+        encryption: config.developer.enable_encryption,
+        waiting: Arc::new(Semaphore::new(
+            usize::try_from(config.general.max_players).unwrap_or(usize::MAX),
+        )),
     });
     let (stop_tx, stop_rx) = oneshot::channel();
     let accept = Accept {
+        network: shared.inputs.session(SessionId::NETWORK),
         shared,
+        controls,
+        blocks: Blocks::default(),
+        reported: (0, 0),
         raknet: raknet_rx,
         nethernet: nethernet_rx,
         events: events_rx,
@@ -204,8 +253,8 @@ impl Network {
         if let Err(e) = self.accept.await {
             warn!(error = %e, "accept task failed");
         }
-        self.raknet.shutdown().await;
-        self.nethernet.shutdown().await;
+        // Each transport lingers for its peers' last messages; together the wait is the longer.
+        tokio::join!(self.raknet.shutdown(), self.nethernet.shutdown());
     }
 }
 
@@ -216,17 +265,16 @@ fn max_message(batch: &batch::Settings) -> usize {
     max.saturating_add(max / 6).saturating_add(42)
 }
 
-/// Wall-clock Unix seconds for token checks; before 1970 reads as 0 and fails every check.
-fn unix_now() -> i64 {
-    clock::unix_now()
-        .and_then(|s| i64::try_from(s).ok())
-        .unwrap_or(0)
-}
-
-/// The accept task: numbers connections, spawns sessions, reaps them and keeps the status
-/// current.
+/// The accept task: numbers connections, spawns sessions, reaps them, keeps the status current
+/// and does the tick's controls.
 struct Accept {
     shared: Arc<Shared>,
+    controls: mpsc::Receiver<Control>,
+    blocks: Blocks,
+    /// Where the connection counts go to the tick.
+    network: SessionInputs,
+    /// The counts last reported: all connections, logged in.
+    reported: (u32, u32),
     raknet: mpsc::Receiver<raknet::Connection>,
     nethernet: mpsc::Receiver<nethernet::Connection>,
     events: mpsc::Receiver<Event>,
@@ -243,9 +291,18 @@ impl Accept {
     async fn run(mut self, mut stop: oneshot::Receiver<()>) {
         // `false` once a transport ends, so a closed queue is not polled again in a loop.
         let (mut raknet, mut nethernet) = (true, true);
+        // `false` once the tick has stopped and dropped its end.
+        let mut controls = true;
+        let mut report = tokio::time::interval(REPORT_INTERVAL);
+        report.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tokio::select! {
                 _ = &mut stop => break,
+                control = self.controls.recv(), if controls => match control {
+                    Some(control) => self.on_control(control),
+                    None => controls = false,
+                },
+                _ = report.tick() => self.report(),
                 conn = self.raknet.recv(), if raknet => {
                     if let Some(conn) = conn {
                         self.spawn(Transport::Raknet(conn));
@@ -276,6 +333,12 @@ impl Accept {
     }
 
     fn spawn(&mut self, conn: Transport) {
+        let ip = conn.addr().ip();
+        if self.blocks.is_blocked(ip, clock::now()) {
+            debug!(addr = %conn.addr(), "connection from a blocked address refused");
+            conn.close();
+            return;
+        }
         let id = SessionId::new(self.next_session);
         // A u64 counter does not wrap in a process lifetime; saturating keeps it panic-free.
         self.next_session = self.next_session.saturating_add(1);
@@ -284,11 +347,44 @@ impl Accept {
             .spawn(connection::run(id, conn, Arc::clone(&self.shared)));
     }
 
+    /// Does what the tick asked: a new server name in the pong and the join status, or a block
+    /// or its end.
+    fn on_control(&mut self, control: Control) {
+        match control {
+            Control::Motd(motd) => {
+                self.status.motd = motd;
+                self.pong.send_replace(self.status.pong(self.logged_in));
+                self.json.send_replace(self.status.json(self.logged_in));
+            }
+            Control::Block { ip, duration } => {
+                if !self.blocks.block(ip, duration, clock::now()) {
+                    warn!(%ip, max = MAX_BLOCKED, "too many blocked addresses; block refused");
+                }
+            }
+            Control::Unblock(ip) => self.blocks.unblock(ip),
+        }
+    }
+
+    /// Forgets ended blocks and reports the connection counts to the tick if they changed. A
+    /// full tick queue skips the report; the next one sends the counts then.
+    fn report(&mut self) {
+        self.blocks.forget_ended(clock::now());
+        let all = u32::try_from(self.sessions.len()).unwrap_or(u32::MAX);
+        let logged_in = u32::try_from(self.logged_in).unwrap_or(u32::MAX);
+        if self.reported == (all, logged_in) {
+            return;
+        }
+        let measure = Measure::Connections { all, logged_in };
+        match self.network.try_send(InputKind::Measure(measure)) {
+            Ok(()) => self.reported = (all, logged_in),
+            Err(e) => debug!(error = %e, "connection counts not reported"),
+        }
+    }
+
     fn on_event(&mut self, event: Event) {
         match event {
             Event::LoggedIn => self.logged_in = self.logged_in.saturating_add(1),
-            Event::Ended { logged_in: true } => self.logged_in = self.logged_in.saturating_sub(1),
-            Event::Ended { logged_in: false } => return,
+            Event::Ended => self.logged_in = self.logged_in.saturating_sub(1),
         }
         self.pong.send_replace(self.status.pong(self.logged_in));
         self.json.send_replace(self.status.json(self.logged_in));
@@ -317,6 +413,45 @@ impl Accept {
                 },
             }
         }
+    }
+}
+
+/// Addresses whose new connections are refused (PMMP `Network::blockAddress`), by canonical IP
+/// (an IPv4-mapped IPv6 address is its IPv4 address), with when each block ends; `None` lasts
+/// until it is lifted. At most [`MAX_BLOCKED`].
+#[derive(Debug, Default)]
+struct Blocks(BTreeMap<IpAddr, Option<Instant>>);
+
+impl Blocks {
+    /// Blocks `ip` from `now` for `duration` (endless if its end is past what [`Instant`]
+    /// holds), replacing an earlier block of it. False, blocking nothing, when [`MAX_BLOCKED`]
+    /// other addresses stay blocked after the ended blocks are forgotten.
+    fn block(&mut self, ip: IpAddr, duration: Duration, now: Instant) -> bool {
+        let ip = ip.to_canonical();
+        if !self.0.contains_key(&ip) && self.0.len() >= MAX_BLOCKED {
+            self.forget_ended(now);
+            if self.0.len() >= MAX_BLOCKED {
+                return false;
+            }
+        }
+        self.0.insert(ip, now.checked_add(duration));
+        true
+    }
+
+    fn unblock(&mut self, ip: IpAddr) {
+        self.0.remove(&ip.to_canonical());
+    }
+
+    /// Whether connections from `ip` are refused at `now`.
+    fn is_blocked(&self, ip: IpAddr, now: Instant) -> bool {
+        self.0
+            .get(&ip.to_canonical())
+            .is_some_and(|until| until.is_none_or(|until| now < until))
+    }
+
+    fn forget_ended(&mut self, now: Instant) {
+        self.0
+            .retain(|_, until| until.is_none_or(|until| now < until));
     }
 }
 
@@ -422,5 +557,169 @@ mod tests {
              \"level\":\"world\",\"players\":3,\"maxPlayers\":20,\"gameType\":0}}"
         );
         assert_eq!(std::str::from_utf8(&json).unwrap(), expected);
+    }
+
+    // pmmp: Network::blockAddress, Network::unblockAddress
+    /// A block ends after its duration or when lifted, an endless one stays, an IPv4-mapped
+    /// address is its IPv4 address, a new block replaces the old end, and past the bound only
+    /// ended blocks make room.
+    #[test]
+    fn blocks_end_after_their_duration_and_stay_bounded() {
+        let now = clock::now();
+        let later = |secs| now + Duration::from_secs(secs);
+        let ip = IpAddr::from([192, 0, 2, 7]);
+        let mut blocks = Blocks::default();
+        assert!(!blocks.is_blocked(ip, now));
+        assert!(blocks.block(ip, Duration::from_secs(300), now));
+        assert!(blocks.is_blocked(ip, later(299)));
+        assert!(blocks.is_blocked("::ffff:192.0.2.7".parse().unwrap(), now));
+        assert!(!blocks.is_blocked(ip, later(300)));
+        // A new block replaces the end; an endless one outlives the clock.
+        assert!(blocks.block(ip, Duration::from_secs(10), now));
+        assert!(!blocks.is_blocked(ip, later(10)));
+        assert!(blocks.block(ip, Duration::MAX, now));
+        assert!(blocks.is_blocked(ip, later(1_000_000_000)));
+        blocks.unblock("::ffff:192.0.2.7".parse().unwrap());
+        assert!(!blocks.is_blocked(ip, now));
+        // The bound: one more address is refused until a block has ended.
+        for n in 0..MAX_BLOCKED {
+            let ip = IpAddr::from(u32::try_from(n).unwrap().to_be_bytes());
+            assert!(blocks.block(ip, Duration::from_secs(1), now));
+        }
+        assert!(!blocks.block(ip, Duration::from_secs(1), now));
+        assert!(!blocks.is_blocked(ip, now));
+        assert!(blocks.block(ip, Duration::from_secs(1), later(1)));
+        assert_eq!(blocks.0.len(), 1, "the ended blocks were forgotten");
+    }
+
+    /// A pong of the server at `raknet` that contains `name`, within 10 seconds.
+    async fn shows(socket: &tokio::net::UdpSocket, raknet: std::net::SocketAddr, name: &str) {
+        let start = clock::now();
+        loop {
+            let pong = crate::raknet::tests::ping(socket, raknet).await;
+            if pong.windows(name.len()).any(|w| w == name.as_bytes()) {
+                return;
+            }
+            assert!(
+                clock::now() - start < Duration::from_secs(10),
+                "the pong never showed {name:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// The `GET /v1/join` body of the signaling server at `addr`. The limit only catches a
+    /// server that never ends its answer.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test client reads the whole reply of the server under test"
+    )]
+    async fn join_status(addr: std::net::SocketAddr) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        tcp.write_all(b"GET /v1/join HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(10), tcp.read_to_end(&mut response))
+            .await
+            .expect("the signaling server ends its answer")
+            .unwrap();
+        let response = String::from_utf8(response).unwrap();
+        response.split("\r\n\r\n").nth(1).unwrap().to_owned()
+    }
+
+    // pmmp: Network::setName, Network::blockAddress, Network::unblockAddress
+    // pmmp: Network::getConnectionCount, Network::getValidConnectionCount
+    /// The tick's controls reach the networking: a new name shows in the RakNet pong and in
+    /// `GET /v1/join`, a blocked address is refused at connect until it is unblocked, and the
+    /// connection counts reach the tick as logged inputs.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the test keeps a data folder"
+    )]
+    fn controls_rename_block_and_unblock_and_the_counts_reach_the_tick() {
+        use std::net::{Ipv4Addr, SocketAddr};
+
+        use crate::tick::queue::{control_queue, input_queue};
+
+        let dir =
+            std::env::temp_dir().join(format!("anchor-session-controls-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Port 0: the system picks the ports at bind time, so no other process can take them
+        // first; the test reads the bound addresses back.
+        let mut config = Config::default();
+        config.general.xbox_auth = false;
+        config.general.enable_ipv6 = false;
+        config.general.server_ip = Ipv4Addr::LOCALHOST;
+        config.general.server_port = 0;
+        config.general.nethernet_port = 0;
+        let localhost = IpAddr::from(Ipv4Addr::LOCALHOST);
+        crate::raknet::tests::run(async {
+            let (inputs, mut queue) = input_queue();
+            let (controls, control_queue) = control_queue();
+            let network = start(Arc::new(config), Vec::new(), &dir, inputs, control_queue)
+                .await
+                .unwrap();
+            let raknet: SocketAddr = network.raknet.local_addrs()[0];
+            let signaling: SocketAddr = network.nethernet.signaling_addrs()[0];
+            let socket = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
+                .await
+                .unwrap();
+            // A new name: the pong and the join status show it.
+            controls
+                .send(Control::Motd("Renamed server".to_owned()))
+                .await
+                .unwrap();
+            shows(&socket, raknet, "MCPE;Renamed server;").await;
+            assert!(
+                join_status(signaling)
+                    .await
+                    .starts_with("{\"name\":\"Renamed server\"")
+            );
+            // Blocked: the connection is closed at once. The name after it shows that the
+            // networking has read the block.
+            let block = Control::Block {
+                ip: localhost,
+                duration: Duration::MAX,
+            };
+            controls.send(block).await.unwrap();
+            controls
+                .send(Control::Motd("Blocked".to_owned()))
+                .await
+                .unwrap();
+            shows(&socket, raknet, "MCPE;Blocked;").await;
+            let end = clock::now() + Duration::from_secs(10);
+            assert!(
+                crate::raknet::tests::disconnected_before(raknet, || clock::now() >= end).await
+            );
+            // Unblocked: the connection gets a session, which the next report counts.
+            controls.send(Control::Unblock(localhost)).await.unwrap();
+            controls
+                .send(Control::Motd("Open".to_owned()))
+                .await
+                .unwrap();
+            shows(&socket, raknet, "MCPE;Open;").await;
+            // The connection stays until the first report has counted it; the deadline only
+            // catches a server that never reports.
+            let mut counts = Vec::new();
+            let end = clock::now() + Duration::from_secs(10);
+            let reported = || {
+                while let Ok(input) = queue.try_recv() {
+                    if let InputKind::Measure(Measure::Connections { all, logged_in }) = input.kind
+                    {
+                        assert_eq!(input.session, SessionId::NETWORK);
+                        counts.push((all, logged_in));
+                    }
+                }
+                !counts.is_empty() || clock::now() >= end
+            };
+            assert!(!crate::raknet::tests::disconnected_before(raknet, reported).await);
+            assert_eq!(counts.first(), Some(&(1, 0)), "{counts:?}");
+            drop(controls);
+            network.stop().await;
+        });
+        std::fs::remove_dir_all(&dir).unwrap_or(());
     }
 }

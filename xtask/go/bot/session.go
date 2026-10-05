@@ -38,7 +38,7 @@ type result struct {
 	loginSent, handshake                  bool
 	loginSize, decodeErrors, packets      int
 	loginSuccessIndex, packsInfoIndex     int
-	disconnectReason                      int
+	disconnectReason, playStatus          int
 	disconnectMessage                     string
 	transport, nethernetError, joinScheme string
 	join                                  map[string]any
@@ -50,7 +50,7 @@ type result struct {
 }
 
 func newResult() *result {
-	return &result{loginSuccessIndex: -1, packsInfoIndex: -1, disconnectReason: -1}
+	return &result{loginSuccessIndex: -1, packsInfoIndex: -1, disconnectReason: -1, playStatus: -1}
 }
 
 func (r *result) json(c config) map[string]any {
@@ -68,6 +68,7 @@ func (r *result) json(c config) map[string]any {
 		"handshake":                 r.handshake,
 		"disconnect_reason":         r.disconnectReason,
 		"disconnect_message":        r.disconnectMessage,
+		"play_status":               r.playStatus,
 		"client_protocol":           protocol.CurrentProtocol,
 		"protocol_accepted":         r.protocolAccepted,
 		"encrypted":                 r.encrypted,
@@ -231,7 +232,12 @@ func (s *session) judge(ctx context.Context, loopErr error) {
 	res := s.res
 	// The server ended the connection: a read failed and neither -stay nor the time limit closed it.
 	closedByServer := s.reader.readErr != nil && !s.stayed.Load() && ctx.Err() == nil
-	switch s.c.scenario {
+	// Every game scenario is judged by its script (a script that fails marks the session stayed too).
+	scenario := s.c.scenario
+	if isGame(scenario) {
+		scenario = "game"
+	}
+	switch scenario {
 	case "kicked":
 		res.pass = res.initialised && res.decodeErrors == 0 &&
 			res.disconnectReason == int(packet.DisconnectReasonLoggedInOtherLocation)
@@ -240,6 +246,16 @@ func (s *session) judge(ctx context.Context, loopErr error) {
 			res.reason = "disconnected after spawning: " + res.disconnect
 		case s.stayed.Load():
 			res.reason = fmt.Sprintf("stayed %v without a Disconnect", s.c.stay)
+		default:
+			res.reason = s.failure(ctx, loopErr)
+		}
+	case "stall":
+		res.pass = res.disconnect != "" || res.playStatus >= 0
+		switch {
+		case res.disconnect != "":
+			res.reason = "disconnected: " + res.disconnect
+		case res.playStatus >= 0:
+			res.reason = fmt.Sprintf("play status %v", res.playStatus)
 		default:
 			res.reason = s.failure(ctx, loopErr)
 		}
@@ -256,7 +272,7 @@ func (s *session) judge(ctx context.Context, loopErr error) {
 		default:
 			res.reason = s.failure(ctx, loopErr)
 		}
-	case "craft", "furnace", "enchant", "crops", "trade", "commands", "particles", "kick", "forms", "script":
+	case "game":
 		disconnected := res.disconnect != "" && !s.disconnectExpected.Load()
 		res.pass = res.ended && s.gameErr == nil && !disconnected && res.decodeErrors == 0
 		switch {
@@ -487,10 +503,16 @@ func (s *session) react(pk packet.Packet, index int, request []byte) error {
 			s.res.spawned = true
 			return s.tryInitialise()
 		default:
+			s.res.playStatus = int(pk.Status)
 			return fmt.Errorf("login failed: play status %v", pk.Status)
 		}
 	case *packet.ResourcePacksInfo:
 		s.res.packsInfoIndex = index
+		if s.c.scenario == "stall" {
+			// Never answered: the session stays logged in and not joined until the server ends it.
+			s.out.flush()
+			return nil
+		}
 		return s.packsInfo(pk)
 	case *packet.ResourcePackDataInfo:
 		return s.packDataInfo(pk)

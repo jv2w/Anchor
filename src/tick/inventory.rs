@@ -42,6 +42,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use tracing::{error, warn};
 
+use super::checkpoint::{self, Codec, Reader, Writer, fields, variants};
 use super::{Phase, Player, SessionId, State, block_entity, dispatch, trade};
 use crate::block::{self, Class, ItemForm};
 use crate::config::GameMode;
@@ -75,6 +76,8 @@ const MAIN: usize = 36;
 const HOTBAR: u8 = crate::inventory::HOTBAR_SIZE;
 /// Armour slots: helmet, chestplate, leggings, boots.
 const ARMOR: usize = 4;
+/// The slots a player carries items in: the main slots, armour and the off hand.
+pub(super) const CARRIED: usize = MAIN + ARMOR + 1;
 /// Slots of the armour window the client takes (the fifth is a mount's body slot).
 const ARMOR_WINDOW: usize = 5;
 /// Slots of the 2x2 crafting grid.
@@ -96,6 +99,8 @@ const UI_STONECUTTER: u8 = 3;
 const UI_TRADE: u8 = 4;
 const UI_LOOM: u8 = 9;
 const UI_ENCHANTING: u8 = 14;
+/// The grindstone's input and additional item (dragonfly `grindstoneFirstInputSlot`).
+const UI_GRINDSTONE: u8 = 16;
 const UI_BEACON: u8 = 27;
 const UI_SMITHING: u8 = 51;
 /// The type a server answers a window close with (PMMP `WindowTypes::NONE`, -9; P6 facts 1).
@@ -123,7 +128,7 @@ const MAX_GIVE_BACK: usize = 1 + GRID + 9;
 /// (`request::Error::Unreturnable`), and only a close turns a held stack into at most one
 /// waiting stack (what [`give`] leaves of it). So the waiting list never passes this bound and
 /// no item a player holds is ever lost for want of room.
-const MAX_SAVED_PENDING: usize = MAX_PENDING + MAX_GIVE_BACK;
+pub(super) const MAX_SAVED_PENDING: usize = MAX_PENDING + MAX_GIVE_BACK;
 /// Where a player drops items: PMMP `Player::dropItem` drops 1.3 above the feet, and the tick
 /// keeps the eye position, 1.62 above the feet.
 const DROP_BELOW_EYE: f64 = 0.32;
@@ -255,13 +260,16 @@ pub(super) struct Inventory {
     /// Stacks waiting for room in the inventory, at most [`MAX_SAVED_PENDING`] with what is held
     /// outside the slots (its invariant).
     pending: Vec<Stack>,
-    /// The next recipe network ID of an enchanting option: counting from after the last recipe
-    /// (P6 facts 4), so a request for options no longer shown finds none.
+    /// The next recipe network ID of an enchanting option, counting from after the last recipe
+    /// (`Registry::first_special_id`, P6 facts 4), so a request for options no longer shown finds
+    /// none.
     next_option_id: u32,
     /// The open menu, exactly while the window is a [`WindowKind::Menu`].
     menu: Option<menu::Open>,
     /// The number of the next menu ([`crate::menu::Id`]); numbers at or past 2^32 are refused.
     next_menu: u64,
+    /// The creative inventory the player sees: its index in `custom::Registry::creatives`.
+    pub(super) creative: u16,
 }
 
 impl Default for Inventory {
@@ -283,9 +291,10 @@ impl Default for Inventory {
             budget: (0, 0),
             resent: None,
             pending: Vec::new(),
-            next_option_id: crate::crafting::first_special_id(),
+            next_option_id: 0,
             menu: None,
             next_menu: 0,
+            creative: 0,
         }
     }
 }
@@ -357,6 +366,7 @@ enum Station {
     Stonecutter,
     Loom,
     Beacon,
+    Grindstone,
 }
 
 /// A run of request slots of a window and where they live.
@@ -466,6 +476,16 @@ const LOOM: [Part; 3] = [
     part(ContainerId::LoomMaterial, UI_LOOM + 2, 1, Store::Ui(2)),
 ];
 const BEACON: [Part; 1] = [part(ContainerId::BeaconPayment, UI_BEACON, 1, Store::Ui(0))];
+/// A grindstone: input 16, additional item 17.
+const GRINDSTONE: [Part; 2] = [
+    part(ContainerId::GrindstoneInput, UI_GRINDSTONE, 1, Store::Ui(0)),
+    part(
+        ContainerId::GrindstoneAdditional,
+        UI_GRINDSTONE + 1,
+        1,
+        Store::Ui(1),
+    ),
+];
 /// A trade: payments 4 and 5 (containers 47 and 48, BDS facts 6).
 const TRADE: [Part; 2] = [
     part(
@@ -484,7 +504,7 @@ const TRADE: [Part; 2] = [
 
 impl WindowKind {
     /// The request slots of the window; a menu has none, as requests never move its items
-    /// ([`menu::click_of`]).
+    /// ([`menu::touch`]).
     fn parts(self) -> &'static [Part] {
         match self {
             Self::Own | Self::Menu { .. } => &[],
@@ -508,6 +528,7 @@ impl WindowKind {
                 Station::Stonecutter => &STONECUTTER,
                 Station::Loom => &LOOM,
                 Station::Beacon => &BEACON,
+                Station::Grindstone => &GRINDSTONE,
             },
             Self::Trade { .. } => &TRADE,
         }
@@ -534,6 +555,7 @@ impl WindowKind {
                 Station::Stonecutter => ContainerType::Stonecutter,
                 Station::Loom => ContainerType::Loom,
                 Station::Beacon => ContainerType::Beacon,
+                Station::Grindstone => ContainerType::Grindstone,
             },
             Self::Trade { .. } => ContainerType::Trade,
             Self::Menu { kind, .. } => match kind {
@@ -798,6 +820,7 @@ impl Inventory {
             next_option_id,
             menu,
             next_menu,
+            creative,
         } = self;
         let mut slots = |stacks: &[Stack], ids: &[StackId]| {
             for (s, id) in stacks.iter().zip(ids) {
@@ -852,6 +875,143 @@ impl Inventory {
             None => h.u64(0),
         }
         h.u64(*next_menu);
+        h.u64(u64::from(*creative));
+    }
+}
+
+fields!(StackId { net, request });
+fields!(Window {
+    id,
+    kind,
+    ui,
+    ids,
+    station
+});
+fields!(Slot { stack, id });
+variants!(WindowKind {
+    0 => Own,
+    1 => Container { world, pos, pair, kind },
+    2 => Ender { world, pos },
+    3 => Workbench { world, pos },
+    4 => Station { world, pos, kind },
+    5 => Trade { villager },
+    6 => Menu { pos, kind },
+});
+variants!(Container {
+    0 => Chest,
+    1 => Barrel,
+    2 => ShulkerBox,
+    3 => Hopper,
+    4 => Furnace(kind),
+    5 => BrewingStand,
+});
+variants!(Station {
+    0 => Enchant,
+    1 => Anvil,
+    2 => Smithing,
+    3 => Stonecutter,
+    4 => Loom,
+    5 => Beacon,
+    6 => Grindstone,
+});
+
+impl<const N: usize> Codec for Slots<N> {
+    fn encode(&self, w: &mut Writer) {
+        let Self { stacks, ids } = self;
+        stacks.encode(w);
+        ids.encode(w);
+    }
+
+    fn decode(r: &mut Reader<'_>) -> checkpoint::Result<Self> {
+        Ok(Self {
+            stacks: Codec::decode(r)?,
+            ids: Codec::decode(r)?,
+        })
+    }
+}
+
+/// Every field but the set of recent request IDs, which is `recent` again.
+impl Codec for Inventory {
+    fn encode(&self, w: &mut Writer) {
+        let Self {
+            main,
+            armor,
+            offhand,
+            cursor,
+            grid,
+            ender,
+            held,
+            next_id,
+            last_window,
+            window,
+            pending_close,
+            recent,
+            recent_set: _,
+            budget,
+            resent,
+            pending,
+            next_option_id,
+            menu,
+            next_menu,
+            creative,
+        } = self;
+        main.encode(w);
+        armor.encode(w);
+        offhand.encode(w);
+        cursor.encode(w);
+        grid.encode(w);
+        ender.encode(w);
+        held.encode(w);
+        next_id.encode(w);
+        last_window.encode(w);
+        window.encode(w);
+        pending_close.encode(w);
+        recent.encode(w);
+        budget.encode(w);
+        resent.encode(w);
+        pending.encode(w);
+        next_option_id.encode(w);
+        menu.encode(w);
+        next_menu.encode(w);
+        creative.encode(w);
+    }
+
+    fn decode(r: &mut Reader<'_>) -> checkpoint::Result<Self> {
+        let main = Codec::decode(r)?;
+        let armor = Codec::decode(r)?;
+        let offhand = Codec::decode(r)?;
+        let cursor = Codec::decode(r)?;
+        let grid = Codec::decode(r)?;
+        let ender = Codec::decode(r)?;
+        let held = Codec::decode(r)?;
+        let next_id = Codec::decode(r)?;
+        let last_window = Codec::decode(r)?;
+        let window = Codec::decode(r)?;
+        let pending_close = Codec::decode(r)?;
+        let recent: VecDeque<i32> = Codec::decode(r)?;
+        let recent_set = recent.iter().copied().collect();
+        Ok(Self {
+            main,
+            armor,
+            offhand,
+            cursor,
+            grid,
+            ender,
+            held,
+            next_id,
+            last_window,
+            window,
+            pending_close,
+            recent,
+            recent_set,
+            budget: Codec::decode(r)?,
+            resent: Codec::decode(r)?,
+            pending: Codec::decode(r)?,
+            next_option_id: Codec::decode(r)?,
+            menu: Codec::decode(r)?,
+            next_menu: Codec::decode(r)?,
+            creative: Codec::decode(r)?,
+        })
     }
 }
 
@@ -861,10 +1021,16 @@ fn hash_id(h: &mut super::Fnv, id: StackId) {
     h.u64(id.request.map_or(0, |r| u64::from(r.cast_unsigned()) + 1));
 }
 
-/// Hashes a stack by its disk form.
+/// Hashes a stack by its disk form. Every empty stack has the same disk form, so it hashes as a
+/// 0 (no disk form's length): most slots are empty, and building their NBT was most of the
+/// hashing of a debug determinism run.
 #[cfg(test)]
 pub(super) fn hash_stack(h: &mut super::Fnv, stack: &Stack) {
-    super::extra::hash_nbt(h, &stack.to_nbt());
+    if stack.is_empty() {
+        h.u64(0);
+    } else {
+        super::extra::hash_nbt(h, &stack.to_nbt());
+    }
 }
 
 /// The container `FullContainerName` of the inventory packets (PMMP sends container 0).
@@ -1300,6 +1466,7 @@ pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &M
 fn hold(player: &mut Player, slot: u8) {
     player.inventory.held = slot;
     player.data_dirty = true;
+    player.breaking.stop_using();
 }
 
 /// Tells the client which hotbar slot is selected and what it holds (a selection the server did
@@ -1447,9 +1614,19 @@ pub(super) fn on_block_pick_request(
             return;
         }
     }
-    let Some(player) = state.players.get_mut(&session) else {
-        return;
-    };
+    if let Some(player) = state.players.get_mut(&session) {
+        equip_or_add(player, picked);
+    }
+    if let Some(e) = event {
+        dispatch::watch(state, &e);
+    }
+}
+
+/// Puts a picked block's or entity's item in the player's hand (PMMP
+/// `Player::equipOrAddPickedItem`): selected if the inventory has it in the hotbar, swapped with
+/// the held slot if elsewhere, else put into the first empty slot (selected in the hotbar, else
+/// swapped with the held slot), else into the held slot.
+pub(super) fn equip_or_add(player: &mut Player, picked: Stack) {
     let held = player.inventory.held;
     match player.inventory.first(&picked) {
         Some(slot) if slot < HOTBAR => select(player, slot),
@@ -1466,9 +1643,11 @@ pub(super) fn on_block_pick_request(
             }
         },
     }
-    if let Some(e) = event {
-        dispatch::watch(state, &e);
-    }
+}
+
+/// Whether the player's main inventory holds `stack` (PMMP `Inventory::first` finds it).
+pub(super) fn has(player: &Player, stack: &Stack) -> bool {
+    player.inventory.first(stack).is_some()
 }
 
 /// What picking the block at `pos` gives `session` now: its world, the block and the item;
@@ -1509,6 +1688,7 @@ fn pick(
 fn select(player: &mut Player, slot: u8) {
     player.inventory.held = slot;
     player.data_dirty = true;
+    player.breaking.stop_using();
     player.send_packet(hotbar_packet(slot));
 }
 
@@ -1525,6 +1705,7 @@ pub(super) fn set_held(player: &mut Player, stack: Stack) {
     let held = player.inventory.held;
     set_own(player, SlotRef::Main(held), stack);
     give_pending(player);
+    player.breaking.stop_using();
 }
 
 /// Replaces an armour piece (0 helmet … 3 boots: damage, breaking) and tells the client.
@@ -1713,6 +1894,8 @@ fn window_of(block: block::State, world: WorldIndex, pos: BlockPos) -> Option<Wi
         station(Station::Loom)
     } else if is(Class::Beacon) {
         station(Station::Beacon)
+    } else if is(Class::Grindstone) {
+        station(Station::Grindstone)
     } else {
         return None;
     })

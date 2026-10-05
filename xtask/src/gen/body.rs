@@ -25,6 +25,9 @@ pub(crate) enum Dir {
 type Vars = BTreeSet<usize>;
 type R<T> = Result<T, String>;
 
+/// The prefix of the helper entry that marks a decode limit (`Model::limits`) as applied.
+pub(crate) const LIMIT_USED: &str = "limit ";
+
 /// A Rust expression and the tracked locals it reads.
 #[derive(Debug, Clone, Default)]
 struct E {
@@ -237,6 +240,9 @@ struct Lower<'m, 'a> {
     fallible: bool,
     /// Go names bound to `usize` values (range keys).
     usize_names: BTreeSet<String>,
+    /// Decode: the limit key of the locals that list and optional bodies read into, innermost
+    /// last (`None` for a local of a place without a key).
+    limit_vars: Vec<(String, Option<String>)>,
 }
 
 /// Lowers a `Marshal` body of the Go type `go` in one direction.
@@ -523,6 +529,7 @@ impl<'m, 'a> Lower<'m, 'a> {
             helpers: BTreeSet::new(),
             fallible: false,
             usize_names: BTreeSet::new(),
+            limit_vars: Vec::new(),
         }
     }
 
@@ -1012,7 +1019,50 @@ impl<'m, 'a> Lower<'m, 'a> {
             return Err(format!("{} does not return a value", s.method));
         }
         self.fallible = true;
-        Ok(format!("r.{}({})", spec.rust, Self::io_args(s)?.join(", ")))
+        let args = Self::io_args(s)?;
+        if let Some(max) = self.limit(s.place.as_ref()) {
+            if !matches!(spec.rust, "string" | "byte_slice") || !args.is_empty() {
+                return Err(format!(
+                    "{} has no reader that takes a field limit",
+                    s.method
+                ));
+            }
+            return Ok(format!(
+                "r.{}_max({})",
+                spec.rust,
+                int_lit(&max.to_string())
+            ));
+        }
+        Ok(format!("r.{}({})", spec.rust, args.join(", ")))
+    }
+
+    /// The decode limit key of a place: `<Go type>.<field>` for a field, or the key a list or
+    /// optional body gave the local it reads into.
+    fn limit_key(&self, place: &Expr) -> Option<String> {
+        match place.kind.as_str() {
+            "field" => {
+                let ty = place.x.as_deref()?.ty.as_ref()?;
+                (ty.kind == "named").then(|| format!("{}.{}", ty.name, place.name))
+            }
+            "var" => self
+                .limit_vars
+                .iter()
+                .rev()
+                .find(|(name, _)| *name == place.name)
+                .and_then(|(_, key)| key.clone()),
+            _ => None,
+        }
+    }
+
+    /// Decode: the limit of the string or list read into a place, marked as applied.
+    fn limit(&mut self, place: Option<&Expr>) -> Option<usize> {
+        if self.dir != Dir::Decode {
+            return None;
+        }
+        let key = self.limit_key(place?)?;
+        let max = *self.m.limits.get(&key)?;
+        self.helpers.insert(format!("{LIMIT_USED}{key}"));
+        Some(max)
     }
 
     fn io(&mut self, s: &Stmt, out: &mut Vec<S>) -> R<()> {
@@ -1128,20 +1178,31 @@ impl<'m, 'a> Lower<'m, 'a> {
         })
     }
 
-    /// Decode: `r.list_*(F)` of a slice statement, returning `Result`.
+    /// Decode: `r.list_*(F)` of a slice statement, returning `Result`; `r.list_*_max(N, F)`
+    /// when the field holds at most `N` elements.
     fn list_call(&mut self, s: &Stmt) -> R<E> {
         let elem = s.elem.as_ref().ok_or("slice without element")?;
-        let f = self.elem_fn(&s.body, elem)?;
+        let max = self.limit(s.place.as_ref());
+        let key = s.place.as_ref().and_then(|p| self.limit_key(p));
+        self.limit_vars
+            .push((elem.name.clone(), key.map(|k| format!("{k}[]"))));
+        let f = self.elem_fn(&s.body, elem);
+        self.limit_vars.pop();
+        let f = f?;
+        let (suffix, max) = match max {
+            Some(max) => ("_max", format!("{}, ", int_lit(&max.to_string()))),
+            None => ("", String::new()),
+        };
         Ok(match s.prefix.as_str() {
-            "varuint32" | "uint8" | "uint32" => {
-                f.clone().code(format!("r.list_{}({})", s.prefix, f.code))
-            }
+            "varuint32" | "uint8" | "uint32" => f
+                .clone()
+                .code(format!("r.list_{}{suffix}({max}{})", s.prefix, f.code)),
             "" => {
                 let len = self.expr(s.len.as_ref().ok_or("slice without length")?)?;
                 let len = self.u64_value(len)?;
                 f.clone()
                     .with(&len)
-                    .code(format!("r.list({}, {})", len.code, f.code))
+                    .code(format!("r.list{suffix}({}, {max}{})", len.code, f.code))
             }
             other => return Err(format!("unsupported slice prefix {other}")),
         })
@@ -1227,9 +1288,18 @@ impl<'m, 'a> Lower<'m, 'a> {
         (code, reads)
     }
 
-    /// Decode: `if r.bool()? { Some(..) } else { None }` of an optional statement.
+    /// Decode: `if r.bool()? { Some(..) } else { None }` of an optional statement. The value
+    /// takes the place's limit.
     fn option_value(&mut self, s: &Stmt) -> R<E> {
         let elem = s.elem.as_ref().ok_or("optional without element")?;
+        let key = s.place.as_ref().and_then(|p| self.limit_key(p));
+        self.limit_vars.push((elem.name.clone(), key));
+        let value = self.option_inner(s, elem);
+        self.limit_vars.pop();
+        value
+    }
+
+    fn option_inner(&mut self, s: &Stmt, elem: &Param) -> R<E> {
         self.fallible = true;
         let inner = if let Some((value, call)) = self.elem_value(&s.body, elem)? {
             if call {

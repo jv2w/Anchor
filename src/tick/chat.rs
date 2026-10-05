@@ -9,12 +9,15 @@ use tracing::{debug, trace};
 
 use super::queue::SessionId;
 use super::{Context, Phase, State, dispatch, inventory, player};
-use crate::command::parse::{MAX_LINE_BYTES, MAX_LINE_CHARS};
+
 use crate::command::{Line, Sender};
 use crate::event::PlayerChat;
 use crate::player::{Id, MAX_TEXT, Message, Packets};
 use crate::protocol::consts::TextType;
 use crate::protocol::packet::Text;
+
+/// The longest chat line BDS relays, in bytes (P6 `limits`, m9-facts.md).
+const MAX_CHAT_BYTES: usize = 512;
 
 /// Chat lines and command requests a player may send in one tick, together (PMMP
 /// `Player::$messageCounter`, which its command requests spend as chat lines).
@@ -109,19 +112,20 @@ pub(super) fn spend_line(state: &mut State, session: SessionId) -> bool {
 /// The lines `message` holds (PMMP `Player::chat`): nothing once the player sent 2 lines this
 /// tick or for a message longer than the lines it may still send; then the message is cleaned
 /// (private-use characters and terminal escapes removed, `§` codes kept) and split at line
-/// breaks into at most the lines left. Blank lines and lines over 512 characters or 2,048 bytes
-/// are dropped; each kept line spends one of the limit. A line that starts with `/` (or `./`,
+/// breaks into at most the lines left. Blank lines and lines over 512 bytes (BDS's limit, P6
+/// `limits`; PMMP's is 512 characters or 2,048 bytes) are dropped; each kept line spends one of
+/// the limit. A line that starts with `/` (or `./`,
 /// whose dot is dropped) is a command, as in PMMP.
 fn check(state: &State, session: SessionId, message: &str) -> Option<Lines> {
     let player = state.players.get(&session)?;
     let mut left = lines_left(player, state.tick);
-    if left == 0 || message.len() > usize::from(left) * (MAX_LINE_BYTES + 1) {
+    if left == 0 || message.len() > usize::from(left) * (MAX_CHAT_BYTES + 1) {
         return None;
     }
     let cleaned = clean(message);
     let mut lines = Vec::with_capacity(usize::from(left));
     for part in cleaned.splitn(usize::from(left) + 1, '\n') {
-        let fits = part.len() <= MAX_LINE_BYTES && part.chars().count() <= MAX_LINE_CHARS;
+        let fits = part.len() <= MAX_CHAT_BYTES;
         if trim(part).is_empty() || !fits || left == 0 {
             continue;
         }
@@ -519,8 +523,11 @@ mod tests {
     #[test]
     fn long_blank_command_and_non_chat_lines_are_not_broadcast() {
         let (mut state, [_rx1, mut rx2]) = server();
-        let long = "x".repeat(MAX_LINE_CHARS + 1);
-        let wide = "é".repeat(MAX_LINE_CHARS);
+        // BDS relays a chat line of at most 512 bytes (P6 `limits`, m9-facts.md): 170 three-byte
+        // characters pass, 171 do not.
+        let long = "x".repeat(MAX_CHAT_BYTES + 1);
+        let wide = "가".repeat(170);
+        let too_wide = "가".repeat(171);
         let other = Text {
             text_type: TextType::Raw.into(),
             message: "raw".to_owned(),
@@ -531,13 +538,14 @@ mod tests {
             vec![
                 chat(1, 10, &long),
                 chat(1, 11, "  \t "),
-                chat(1, 12, "/help"),
-                input(1, 13, packet(Packet::Text(Box::new(other)))),
+                chat(1, 12, &too_wide),
+                chat(1, 13, "/help"),
+                input(1, 14, packet(Packet::Text(Box::new(other)))),
             ],
         );
         assert!(lines(&mut rx2).is_empty());
-        // 512 two-byte characters fit both bounds; `./me` is a command, as `/me` is.
-        run(&mut state, vec![chat(1, 14, &wide), chat(1, 15, "./me")]);
+        // 510 bytes fit; `./me` is a command, as `/me` is.
+        run(&mut state, vec![chat(1, 15, &wide), chat(1, 16, "./me")]);
         let got: Vec<String> = lines(&mut rx2).into_iter().map(|l| l[1].clone()).collect();
         assert_eq!(got, [wide]);
         // A player that has not spawned cannot chat.
@@ -616,7 +624,7 @@ mod tests {
     #[test]
     fn a_message_longer_than_the_lines_left_is_dropped_whole() {
         let (mut state, [_rx1, mut rx2]) = server();
-        let message = "y".repeat(2 * (MAX_LINE_BYTES + 1) + 1);
+        let message = "y".repeat(2 * (MAX_CHAT_BYTES + 1) + 1);
         run(&mut state, vec![chat(1, 10, &message)]);
         assert!(lines(&mut rx2).is_empty());
         assert_eq!(state.players[&SessionId::new(1)].marks.chat.1, 0);

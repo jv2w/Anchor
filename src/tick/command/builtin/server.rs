@@ -1,6 +1,7 @@
 //! Commands on the server and its worlds: `/help`, `/list`, `/me`, `/say`, `/seed`,
 //! `/setworldspawn`, `/defaultgamemode`, `/difficulty`, `/time`, `/particle`, `/save-all`,
-//! `/save-off`, `/save-on`, `/status`, `/stop` and `/version` (PMMP's classes of the same names).
+//! `/save-off`, `/save-on`, `/status`, `/stop` and `/version` (PMMP's classes of the same names),
+//! and Anchor's own `/backup`. `/status` shows Anchor's own lines.
 
 use tracing::info;
 
@@ -17,38 +18,40 @@ use crate::player::{Message, Player};
 use crate::protocol::Rgba;
 use crate::protocol::packet::PROTOCOL_VERSION;
 use crate::random::{self, Random};
+use crate::runtime::ThreadTotals;
 use crate::tick::Context;
 use crate::tick::queue::SessionId;
 use crate::world::{self, BlockPos, Particle};
 
 /// Adds the commands of this module.
+#[expect(
+    clippy::too_many_lines,
+    reason = "consistency: the commands read as one table, one entry per PMMP class"
+)]
 pub(super) fn add(commands: &mut Vec<Command>) {
     commands.extend([
-        Command::new("help", "Shows the help menu")
+        Command::new("help", "commands.help.description")
             .alias("?")
             .permission(permission::COMMAND_HELP)
             .overload(&[Param::int("page").optional()], help)
             .overload(&[Param::string("command")], help),
-        Command::new("list", "Lists all online players")
+        Command::new("list", "commands.list.description")
             .permission(permission::COMMAND_LIST)
             .overload(&[], infallible(list)),
-        Command::new("me", "Performs the specified action in chat")
+        Command::new("me", "commands.me.description")
             .permission(permission::COMMAND_ME)
             .overload(&[Param::message("action")], me),
-        Command::new("say", "Broadcasts the given message as the sender")
+        Command::new("say", "commands.say.description")
             .permission(permission::COMMAND_SAY)
             .overload(&[Param::message("message")], say),
-        Command::new("seed", "Shows the world seed")
+        Command::new("seed", "Shows the seed of the world")
             .permission(permission::COMMAND_SEED)
             .overload(&[], infallible(seed)),
-        Command::new(
-            "setworldspawn",
-            "Sets a world's spawn point. If no coordinates are specified, the player's coordinates will be used.",
-        )
-        .permission(permission::COMMAND_SETWORLDSPAWN)
-        .overload(&[], setworldspawn)
-        .overload(&[Param::position("spawnPoint")], setworldspawn),
-        Command::new("defaultgamemode", "Set the default gamemode")
+        Command::new("setworldspawn", "commands.setworldspawn.description")
+            .permission(permission::COMMAND_SETWORLDSPAWN)
+            .overload(&[], setworldspawn)
+            .overload(&[Param::position("spawnPoint")], setworldspawn),
+        Command::new("defaultgamemode", "commands.defaultgamemode.description")
             .permission(permission::COMMAND_DEFAULTGAMEMODE)
             .overload(
                 &[Param::enumeration(
@@ -58,7 +61,7 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 )],
                 defaultgamemode,
             ),
-        Command::new("difficulty", "Sets the game difficulty")
+        Command::new("difficulty", "commands.difficulty.description")
             .permission(permission::COMMAND_DIFFICULTY)
             .overload(
                 &[Param::enumeration(
@@ -68,10 +71,12 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 )],
                 difficulty,
             ),
-        Command::new("time", "Changes the time on each world")
+        Command::new("time", "commands.time.description")
             .permission(permission::COMMAND_TIME_ADD)
             .permission(permission::COMMAND_TIME_SET)
             .permission(permission::COMMAND_TIME_QUERY)
+            .permission(permission::COMMAND_TIME_START)
+            .permission(permission::COMMAND_TIME_STOP)
             .overload(
                 &[
                     Param::literal("set"),
@@ -81,8 +86,16 @@ pub(super) fn add(commands: &mut Vec<Command>) {
             )
             .overload(&[Param::literal("set"), Param::int("amount")], time)
             .overload(&[Param::literal("add"), Param::int("amount")], time)
-            .overload(&[Param::literal("query")], time),
-        Command::new("particle", "Adds particles to a world")
+            .overload(
+                &[
+                    Param::literal("query"),
+                    Param::enumeration("time", "TimeQuery", &TIME_QUERIES),
+                ],
+                time,
+            )
+            .overload(&[Param::literal("start")], time)
+            .overload(&[Param::literal("stop")], time),
+        Command::new("particle", "commands.particle.description")
             .permission(permission::COMMAND_PARTICLE)
             .overload(
                 &[
@@ -96,53 +109,38 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                 ],
                 particle,
             ),
-        Command::new("save-all", "Saves the server to disk")
+        Command::new("save-all", "Saves every world and player now")
             .permission(permission::COMMAND_SAVE_PERFORM)
             .overload(&[], infallible(save_all)),
-        Command::new("save-off", "Disables server autosaving")
+        Command::new("save-off", "Turns automatic saving off until save-on")
             .permission(permission::COMMAND_SAVE_DISABLE)
             .overload(&[], infallible(save_off)),
-        Command::new("save-on", "Enables server autosaving")
+        Command::new("save-on", "commands.save-on.description")
             .permission(permission::COMMAND_SAVE_ENABLE)
             .overload(&[], infallible(save_on)),
-        Command::new("status", "Reads back the server's performance.")
+        Command::new("backup", "Saves the server and backs up the world")
+            .permission(permission::COMMAND_BACKUP)
+            .overload(&[], backup),
+        Command::new("status", "Shows how the server is running")
             .permission(permission::COMMAND_STATUS)
             .overload(&[], infallible(status)),
-        Command::new("stop", "Stops the server")
+        Command::new("stop", "commands.stop.description")
             .permission(permission::COMMAND_STOP)
             .overload(&[], infallible(stop)),
-        Command::new(
-            "version",
-            "Gets the version of this server including any plugins in use",
-        )
-        .alias("ver")
-        .alias("about")
-        .permission(permission::COMMAND_VERSION)
-        .overload(&[], infallible(version)),
+        Command::new("version", "Shows the Anchor and Minecraft versions")
+            .alias("ver")
+            .alias("about")
+            .permission(permission::COMMAND_VERSION)
+            .overload(&[], infallible(version)),
     ]);
 }
 
 const HELP_HEADER: Msg = Msg::client("commands.help.header");
-const HELP_COMMAND_HEADER: Msg = Msg::pmmp(
-    "pocketmine.command.help.specificCommand.header",
-    "§e--------- §rHelp: /{%0}§e ---------",
-);
-const HELP_COMMAND_DESCRIPTION: Msg = Msg::pmmp(
-    "pocketmine.command.help.specificCommand.description",
-    "§6Description: §r{%0}",
-);
-const HELP_COMMAND_USAGE: Msg = Msg::pmmp(
-    "pocketmine.command.help.specificCommand.usage",
-    "§6Usage: §r{%0}",
-);
-const HELP_COMMAND_ALIASES: Msg = Msg::pmmp(
-    "pocketmine.command.help.specificCommand.aliases",
-    "§6Aliases: §r{%0}",
-);
-const COMMAND_NOT_FOUND: Msg = Msg::pmmp(
-    "pocketmine.command.notFound",
-    "Unknown command: {%0}. Use {%1} for a list of available commands.",
-);
+/// The first line of `/help <command>`.
+const HELP_COMMAND_NAME: Msg = Msg::own("§e/{%0}");
+/// The last line of `/help <command>` for a command with other names.
+const HELP_COMMAND_ALIASES: Msg = Msg::own("§7Also: {%0}");
+const COMMAND_UNKNOWN: Msg = Msg::client("commands.generic.unknown");
 const PLAYERS_LIST: Msg = Msg::client("commands.players.list");
 const EMOTE: Msg = Msg::client("chat.type.emote");
 const ANNOUNCEMENT: Msg = Msg::client("chat.type.announcement");
@@ -151,43 +149,27 @@ const SETWORLDSPAWN_SUCCESS: Msg = Msg::client("commands.setworldspawn.success")
 const DEFAULTGAMEMODE_SUCCESS: Msg = Msg::client("commands.defaultgamemode.success");
 const DIFFICULTY_SUCCESS: Msg = Msg::client("commands.difficulty.success");
 const TIME_ADDED: Msg = Msg::client("commands.time.added");
-const TIME_QUERY: Msg = Msg::client("commands.time.query");
+const TIME_QUERY_DAYTIME: Msg = Msg::client("commands.time.query.daytime");
+const TIME_QUERY_GAMETIME: Msg = Msg::client("commands.time.query.gametime");
+const TIME_QUERY_DAY: Msg = Msg::client("commands.time.query.day");
 const TIME_SET: Msg = Msg::client("commands.time.set");
+/// `/time stop`: the client has no key for it.
+const TIME_STOPPED: Msg = Msg::own("The time stands still in every world");
+/// `/time start`: the client has no key for it.
+const TIME_STARTED: Msg = Msg::own("The time runs again in every world");
 const PARTICLE_SUCCESS: Msg = Msg::client("commands.particle.success");
-const SAVE_START: Msg = Msg::pmmp("pocketmine.save.start", "Saving server data...");
+const SAVE_START: Msg = Msg::client("commands.save.start");
+/// PMMP has no backup command.
+const BACKUP_START: Msg =
+    Msg::own("Saving and backing up the world; the server log tells when the backup is made");
+/// `backups = false`.
+const BACKUP_OFF: Msg = Msg::own("Backups are turned off on this server");
 const SAVE_DISABLED: Msg = Msg::client("commands.save.disabled");
 const SAVE_ENABLED: Msg = Msg::client("commands.save.enabled");
 const STOP_START: Msg = Msg::client("commands.stop.start");
-const STATUS_HEADER: Msg = Msg::pmmp(
-    "pocketmine.command.status.header",
-    "§a---- §rServer status§a ----§r",
-);
-/// Anchor's line: PMMP's uptime is wall-clock time, which the tick does not read.
-const STATUS_UPTIME: Msg = Msg::pmmp("pocketmine.command.status.uptime", "§6Uptime: §c{%0} ticks");
-/// Anchor's line: PMMP has no player count in its status.
-const STATUS_PLAYERS: Msg = Msg::pmmp("anchor.command.status.players", "§6Players: §c{%0}/{%1}");
-/// PMMP's world line without the tick time (wall clock).
-const STATUS_WORLD: Msg = Msg::pmmp(
-    "pocketmine.command.status.world",
-    "§6World \"{%0}\": §c{%1}§a loaded chunks, §c{%2}§a entities",
-);
-const VERSION_SOFTWARE_NAME: Msg = Msg::pmmp(
-    "pocketmine.command.version.serverSoftwareName",
-    "This server is running §a{%0}§r",
-);
-/// PMMP's line without the git hash, which a library build does not know.
-const VERSION_SOFTWARE_VERSION: Msg = Msg::pmmp(
-    "pocketmine.command.version.serverSoftwareVersion",
-    "Server version: §a{%0}§r",
-);
-const VERSION_MINECRAFT: Msg = Msg::pmmp(
-    "pocketmine.command.version.minecraftVersion",
-    "Compatible Minecraft version: §a{%0}§r (protocol version: §a{%1}§r)",
-);
-const VERSION_OS: Msg = Msg::pmmp(
-    "pocketmine.command.version.operatingSystem",
-    "Operating system: §a{%0}§r",
-);
+/// The `/version` line: the software, its version, the Minecraft version and protocol, and the
+/// operating system.
+const VERSION_LINE: Msg = Msg::own("{%0} {%1} for Minecraft {%2} (protocol {%3}) on {%4}");
 
 /// The most particles one `/particle` shows: PMMP has no bound, and a count of 2^31 would stall
 /// the tick.
@@ -213,6 +195,10 @@ const DIFFICULTIES: [(&str, Difficulty); 12] = [
 ];
 /// PMMP's names of times of day (`TimeCommand`).
 const TIME_NAMES: [&str; 6] = ["day", "noon", "sunset", "night", "midnight", "sunrise"];
+/// What `/time query` reads, as BDS names it (its `TimeQuery` enum).
+const TIME_QUERIES: [&str; 3] = ["daytime", "gametime", "day"];
+/// Ticks in a Minecraft day.
+const DAY_TICKS: i64 = 24_000;
 /// PMMP's particle names (`ParticleCommand::getParticle`).
 const PARTICLE_NAMES: [&str; 35] = [
     "explode",
@@ -252,32 +238,35 @@ const PARTICLE_NAMES: [&str; 35] = [
     "sonicexplosion",
 ];
 
-/// `/help [page]` and `/help <command>` (alias `/?`; PMMP `HelpCommand`): the commands the
-/// sender may use in name order, a player's screen line height a page (7 unless set) and one
-/// page for the console, or one command's description, usage and aliases.
+/// `/help [page]` and `/help <command>` (alias `/?`; PMMP `HelpCommand`, in Anchor's layout):
+/// the first usage line of each command the sender may use, in name order, a player's screen
+/// line height a page (7 unless set) and one page for the console; or one command's name, its
+/// description on a line of its own (the client translates a description that is a key, as
+/// Anchor's own commands' are), its usage lines and its other names.
 fn help(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     if let Some(name) = args.string("command") {
         let command = cx
             .command(name)
             .filter(|c| cx.can_use(*sender, c))
-            .ok_or_else(|| COMMAND_NOT_FOUND.error(&[name, "/help"]))?;
+            .ok_or_else(|| COMMAND_UNKNOWN.error(&[name]))?;
+        let mut out = HELP_COMMAND_NAME
+            .output(&[command.name()])
+            .translated(command.description(), &[]);
+        for line in command.usage_text().lines() {
+            out = out.line(line);
+        }
         let mut aliases: Vec<&str> = command.aliases().iter().map(String::as_str).collect();
-        aliases.sort_unstable();
-        let usage = command.usage_text().replace('\n', "\n§r");
-        let mut out = HELP_COMMAND_HEADER.output(&[command.name()]);
-        for (msg, value) in [
-            (HELP_COMMAND_DESCRIPTION, command.description().to_owned()),
-            (HELP_COMMAND_USAGE, usage),
-            (HELP_COMMAND_ALIASES, aliases.join(", ")),
-        ] {
-            out.lines.extend(msg.output(&[&value]).lines);
+        if !aliases.is_empty() {
+            aliases.sort_unstable();
+            let line = HELP_COMMAND_ALIASES.output(&[&aliases.join(", ")]);
+            out.lines.extend(line.lines);
         }
         return Ok(out);
     }
-    let mut usable: Vec<(&str, &str)> = cx
+    let mut usable: Vec<(&str, String)> = cx
         .commands()
         .filter(|c| cx.can_use(*sender, c))
-        .map(|c| (c.name(), c.description()))
+        .map(|c| (c.name(), c.usage_text()))
         .collect();
     usable.sort_unstable();
     let height = match sender {
@@ -290,8 +279,8 @@ fn help(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let wanted = usize::try_from(args.int("page").unwrap_or(1)).unwrap_or(1);
     let page = wanted.clamp(1, pages);
     let mut out = HELP_HEADER.output(&[&page.to_string(), &pages.to_string()]);
-    for (name, description) in usable.iter().skip((page - 1) * height).take(height) {
-        out = out.line(format!("§2/{name}: §r{description}"));
+    for (_, usage) in usable.iter().skip((page - 1) * height).take(height) {
+        out = out.line(format!("§2{}", usage.lines().next().unwrap_or_default()));
     }
     Ok(out)
 }
@@ -336,8 +325,10 @@ fn say(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 /// The world `sender` is in: a player's own, the default world for the console.
 fn sender_world(cx: &Context<'_>, sender: Sender) -> world::Id {
     match sender {
-        Sender::Player(id) => cx.player(id).map_or(world::Id::DEFAULT, Player::world),
-        Sender::Console => world::Id::DEFAULT,
+        Sender::Player(id) => cx
+            .player(id)
+            .map_or_else(|| cx.default_world().id(), Player::world),
+        Sender::Console => cx.default_world().id(),
     }
 }
 
@@ -394,18 +385,42 @@ fn difficulty(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outp
     Ok(announce(cx, *sender, DIFFICULTY_SUCCESS, &[&number]))
 }
 
-/// `/time set <day|noon|...|ticks>`, `/time add <ticks>` and `/time query` (PMMP `TimeCommand`),
-/// on every world; each action has its own permission. A number is taken from 0 to 30,000,000.
-/// PMMP's `start` and `stop` are left out: Anchor's day cycle cannot be stopped (PLAN.md 10.8).
+/// `/time set <day|noon|...|ticks>`, `/time add <ticks>`, `/time stop` and `/time start` (PMMP
+/// `TimeCommand`) on every world, and `/time query <daytime|gametime|day>` on the sender's world,
+/// as BDS reads it: the time of day, the world's clock (Anchor keeps one clock, which `/time set`
+/// moves) or the days passed. Each action has its own permission. A number is taken from 0 to
+/// 30,000,000.
 fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     if args.has("query") {
         require(cx, *sender, permission::COMMAND_TIME_QUERY, "time")?;
         let world = sender_world(cx, *sender);
-        let now = cx.world(world).map_or(0, world::World::time);
-        return Ok(TIME_QUERY.output(&[&now.to_string()]));
+        let now = cx.world(world).map_or(0, world::World::time_ticks);
+        let (msg, value) = match args.string("time").unwrap_or_default() {
+            "daytime" => (TIME_QUERY_DAYTIME, now.rem_euclid(DAY_TICKS)),
+            "gametime" => (TIME_QUERY_GAMETIME, now),
+            _ => (TIME_QUERY_DAY, now.div_euclid(DAY_TICKS)),
+        };
+        return Ok(msg.output(&[&value.to_string()]));
     }
     let amount = args.int("amount").map(|n| n.clamp(0, super::MAX_COORD));
-    let worlds: Vec<(world::Id, i64)> = cx.worlds().map(|w| (w.id(), w.time())).collect();
+    let worlds: Vec<(world::Id, i64)> = cx.worlds().map(|w| (w.id(), w.time_ticks())).collect();
+    if args.has("stop") || args.has("start") {
+        let stop = args.has("stop");
+        let (needed, msg) = if stop {
+            (permission::COMMAND_TIME_STOP, TIME_STOPPED)
+        } else {
+            (permission::COMMAND_TIME_START, TIME_STARTED)
+        };
+        require(cx, *sender, needed, "time")?;
+        for (id, _) in worlds {
+            if stop {
+                cx.stop_time(id);
+            } else {
+                cx.start_time(id);
+            }
+        }
+        return Ok(announce(cx, *sender, msg, &[]));
+    }
     if args.has("add") {
         require(cx, *sender, permission::COMMAND_TIME_ADD, "time")?;
         let added = amount.unwrap_or(0);
@@ -544,8 +559,19 @@ fn save_all(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     out
 }
 
+/// `/backup` (Anchor's own): saves everything at the end of the tick, then backs up the saved
+/// world file while the server runs ([`Context::backup`]). The backup ends later, off the tick,
+/// so the log tells its result, as for `/save-all`'s commit.
+fn backup(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
+    if !cx.backup() {
+        return Err(BACKUP_OFF.error(&[]));
+    }
+    Ok(announce(cx, *sender, BACKUP_START, &[]))
+}
+
 /// `/save-off` (PMMP `SaveOffCommand`): turns the periodic save off until the server stops or
-/// `/save-on`; `/save-all`, the memory bounds and shutdown still save.
+/// `/save-on`; `/save-all`, the memory bounds, a quarter of the input log's bound recorded since
+/// the last save (PLAN.md 10.9) and shutdown still save.
 fn save_off(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     cx.set_auto_save(false);
     announce(cx, *sender, SAVE_DISABLED, &[])
@@ -557,33 +583,74 @@ fn save_on(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     announce(cx, *sender, SAVE_ENABLED, &[])
 }
 
-/// `/status` (PMMP `StatusCommand`): what the tick can tell without a wall clock: the ticks run
-/// since start, the players, and each world's loaded chunks and entities. PMMP's TPS, load,
-/// network, thread and memory lines are left out: the tick reads no clock or process data.
+/// `/status` (PMMP `StatusCommand`, in Anchor's own lines): the uptime by the wall clock and in
+/// ticks, the TPS and tick times now and averaged over the last 20 ticks, the resident memory,
+/// the threads, the players, and each loaded world's chunks, entities and block entities. The
+/// uptime, memory and tick times are measured off the tick and read from the input log (PLAN.md
+/// 10.9), so the uptime and memory are at most a second old.
 fn status(cx: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
-    let uptime = cx
-        .tick()
-        .saturating_sub(cx.state.commands.started.unwrap_or(cx.tick()));
-    let mut out = STATUS_HEADER.output(&[]);
-    out.lines
-        .extend(STATUS_UPTIME.output(&[&uptime.to_string()]).lines);
-    let players = [cx.player_count().to_string(), cx.max_players().to_string()];
-    out.lines
-        .extend(STATUS_PLAYERS.output(&[&players[0], &players[1]]).lines);
-    let worlds: Vec<(world::Id, String, usize)> = cx
-        .worlds()
-        .map(|w| (w.id(), w.name().to_owned(), w.loaded_chunks().len()))
-        .collect();
-    for (id, name, chunks) in worlds {
-        let entities = cx.entities(id).count();
-        let params = [name, chunks.to_string(), entities.to_string()];
-        out.lines.extend(
-            STATUS_WORLD
-                .output(&[&params[0], &params[1], &params[2]])
-                .lines,
-        );
+    let state = &*cx.state;
+    let network = &state.network;
+    let ticks = state
+        .tick
+        .saturating_sub(state.commands.started.unwrap_or(state.tick));
+    let secs = network.uptime().as_secs();
+    let threads = network.threads();
+    let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+    let mut out = Output::from("Server status".to_owned())
+        .line(format!(
+            "Uptime: {}:{:02}:{:02} ({ticks} ticks)",
+            secs / 3600,
+            secs / 60 % 60,
+            secs % 60
+        ))
+        .line(format!(
+            "TPS: {:.2} now, {:.2} average",
+            network.tps(),
+            network.average_tps()
+        ))
+        .line(format!(
+            "Tick time: {:.2} ms now, {:.2} ms average",
+            ms(network.mspt()),
+            ms(network.average_mspt())
+        ))
+        .line(memory_line(network.memory()))
+        .line(format!(
+            "Threads: tick and save {}, network {}, CPU pool {}, blocking up to {}, console {}, \
+             log {}",
+            ThreadTotals::FIXED,
+            threads.network,
+            threads.cpu,
+            ThreadTotals::BLOCKING,
+            u8::from(threads.console),
+            u8::from(threads.log)
+        ))
+        .line(format!(
+            "Players: {} of {}",
+            cx.player_count(),
+            cx.max_players()
+        ));
+    for world in cx.worlds() {
+        let index = world.id().index();
+        out = out.line(format!(
+            "World \"{}\": {} chunks, {} entities, {} block entities",
+            world.name(),
+            world.loaded_chunks().len(),
+            state.rules.entities.count(index),
+            state.rules.block_entities.count(index)
+        ));
     }
     out
+}
+
+/// The memory line of `/status` for `bytes` resident (0: unknown), in MiB to a tenth.
+pub(super) fn memory_line(bytes: u64) -> String {
+    const MIB: u64 = 1 << 20;
+    if bytes == 0 {
+        return "Memory: unknown".to_owned();
+    }
+    let tenths = bytes.saturating_mul(10).saturating_add(MIB / 2) / MIB;
+    format!("Memory: {}.{} MiB resident", tenths / 10, tenths % 10)
 }
 
 /// `/stop` (PMMP `StopCommand`): stops the server after this tick.
@@ -593,17 +660,14 @@ fn stop(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     out
 }
 
-/// `/version` (aliases `/ver`, `/about`; PMMP `VersionCommand`): the server software, its
-/// version, the Minecraft version and protocol, and the operating system. PMMP's PHP lines and
-/// plugin lookup are left out.
+/// `/version` (aliases `/ver`, `/about`; PMMP `VersionCommand`, in Anchor's layout): one line
+/// with [`VERSION_LINE`]. PMMP's PHP lines and plugin lookup are left out.
 fn version(_: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
-    let mut out = VERSION_SOFTWARE_NAME.output(&[Context::NAME]);
-    for line in [
-        VERSION_SOFTWARE_VERSION.output(&[Context::ANCHOR_VERSION]),
-        VERSION_MINECRAFT.output(&[Context::VERSION, &PROTOCOL_VERSION.to_string()]),
-        VERSION_OS.output(&[std::env::consts::OS]),
-    ] {
-        out.lines.extend(line.lines);
-    }
-    out
+    VERSION_LINE.output(&[
+        Context::NAME,
+        Context::ANCHOR_VERSION,
+        Context::VERSION,
+        &PROTOCOL_VERSION.to_string(),
+        std::env::consts::OS,
+    ])
 }

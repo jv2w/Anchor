@@ -1,7 +1,8 @@
 //! Forced shutdown with user data (PLAN.md 10.8 판정식 "사용자 데이터"): a server writes the tick
 //! into a server data value, a player data value and the terrain every tick, saving every third
-//! tick, and is killed at random moments, again and again. Every restart must find the three
-//! holding one and the same committed tick, with no tick counted twice or lost.
+//! tick, and is killed a random number of ticks after its first commit, again and again. Every
+//! restart must find the three holding one and the same committed tick, newer than the last
+//! restart's, with no tick counted twice or lost.
 //!
 //! The test runs its own test binary as the server process (`user_data_crash_child`) and kills
 //! only that child, through its process handle, as the item crash test does
@@ -24,9 +25,10 @@ use super::super::{Phase, SaveLink, Settings, Shared, State, Tasks, run};
 use super::{Context, registered};
 use crate::block::{self, Kind as BlockKind};
 use crate::config::Config;
+use crate::event::{Listeners, Priority, WorldSave};
 use crate::protocol::Uuid;
 use crate::save::WorldSpec;
-use crate::world::{BlockPos, Flat};
+use crate::world::{BlockPos, ChunkPos, Flat};
 
 /// The child's environment variable naming its data folder.
 const DATA_ENV: &str = "ANCHOR_USER_CRASH_DATA";
@@ -76,6 +78,7 @@ struct Writer {
 impl Writer {
     #[expect(
         clippy::print_stdout,
+        clippy::disallowed_methods,
         reason = "consistency: the child reports to the parent on standard output"
     )]
     fn report(line: &str) {
@@ -138,16 +141,19 @@ impl Writer {
         }
     }
 
-    /// Reports what the server started with once the player's data is in; false while waiting.
+    /// Reports what the server started with once the player's data and the spawn chunks, where
+    /// the marker [`path`] runs, are in (the save thread may answer them in different ticks);
+    /// false while waiting.
     fn check(&mut self, cx: &mut Context<'_>, start: u64) -> bool {
         let state: &State = cx.state;
         let Some(player) = state.players.get(&SESSION) else {
             return false;
         };
-        if player.phase == Phase::Loading {
+        let world = &state.worlds[0];
+        let mut spawn_chunks = (-1..=1).flat_map(|x| (-1..=1).map(move |z| ChunkPos::new(x, z)));
+        if player.phase == Phase::Loading || !spawn_chunks.all(|pos| world.is_chunk_loaded(pos)) {
             return false;
         }
-        let world = &state.worlds[0];
         let mut golds = Vec::new();
         for x in -16..32 {
             for z in -16..32 {
@@ -215,6 +221,15 @@ fn user_data_crash_child() {
     };
     let mut tasks = Tasks::default();
     tasks.push(NonZeroU32::MIN, move |cx| writer.tick(cx));
+    // The parent times its kill from the commits.
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        |_: &mut WorldSave, cx: &mut Context<'_>| {
+            Writer::report(&format!("committed={}", cx.tick()));
+        },
+    );
+    listeners.sort();
     let state = State::new(
         Settings::new(&Config::default()),
         Shared::new(
@@ -224,6 +239,7 @@ fn user_data_crash_child() {
         )
         .unwrap(),
         crate::tick::Setup {
+            listeners,
             tasks,
             data: user,
             ..crate::tick::Setup::default()
@@ -242,6 +258,7 @@ fn user_data_crash_child() {
                 skin: crate::tick::queue::Skin::default(),
                 device_os: -1,
                 address: None,
+                client: crate::tick::queue::Client::default(),
             },
             outbound,
         })
@@ -325,14 +342,6 @@ fn progress(text: &str) -> Progress {
 
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the test waits between starting and killing its child, and owns its folder"
-)]
-fn pause(ms: u64) {
-    std::thread::sleep(Duration::from_millis(ms));
-}
-
-#[expect(
-    clippy::disallowed_methods,
     reason = "off-tick: the test prepares and removes its data folder"
 )]
 fn fresh(dir: &Path, create: bool) {
@@ -344,6 +353,78 @@ fn fresh(dir: &Path, create: bool) {
 
 fn data_dir() -> PathBuf {
     std::env::temp_dir().join(format!("anchor-user-crash-{}", std::process::id()))
+}
+
+/// The check of a restart reads the marker block only once the spawn chunks are in, even when the
+/// save thread answers them a tick after the player data (a busy save thread on a loaded machine).
+#[test]
+fn the_check_waits_for_spawn_chunks_answered_after_the_player() {
+    use crate::save::{Loaded, Response};
+    use crate::tick::Output;
+    use crate::tick::tests::{join, settings, shared, tick};
+
+    let world = crate::world::World::new(
+        "world",
+        crate::world::Kind::Persistent,
+        0,
+        crate::world::Generator::spawn(&Flat, 0),
+    );
+    let mut state = State::new(
+        settings(|c| c.general.save_player_data = true),
+        shared(),
+        crate::tick::Setup {
+            data: registered::<Progress, Progress>("progress", "progress"),
+            ..crate::tick::Setup::default()
+        },
+        vec![world],
+        0,
+    );
+    let (stop, _stop_rx) = mpsc::channel(1);
+    let mut writer = Writer {
+        writes: false,
+        stop,
+        start: None,
+        ready: false,
+        marker: None,
+    };
+    let marker = path(5);
+    let mut output = Output::default();
+    let (j, _rx) = join(SESSION.get(), 0);
+    let mut batch = vec![j];
+    let mut late = Vec::new();
+    for _ in 0..10 {
+        tick(&mut state, &mut batch, &mut output);
+        // The chunks answer a tick after the rest; the file holds the marker block.
+        let (mut chunks, rest): (Vec<_>, Vec<_>) = output
+            .answers
+            .drain(..)
+            .partition(|a| matches!(a, Response::Chunk { .. }));
+        for a in &mut chunks {
+            if let Response::Chunk {
+                pos,
+                loaded: Loaded::Generated(chunk, _),
+                ..
+            } = a
+                && *pos == marker.chunk()
+            {
+                let local = |c: i32| u8::try_from(c.rem_euclid(16)).unwrap();
+                chunk
+                    .set_block(local(marker.x), marker.y, local(marker.z), gold())
+                    .unwrap();
+            }
+        }
+        output.answers = rest;
+        output.answers.append(&mut late);
+        late = chunks;
+        if writer.check(&mut Context { state: &mut state }, 0) {
+            break;
+        }
+    }
+    assert_eq!(
+        writer.marker,
+        Some(marker),
+        "the check saw the file's marker"
+    );
 }
 
 #[test]
@@ -401,16 +482,11 @@ fn forced_kills_keep_user_data_with_its_tick() {
             advanced += 1;
             last_start = start;
         }
-        if mode == "run" {
-            pause(200 + next() % 1800);
-            server.child.kill().unwrap();
-        }
-        server.child.wait().unwrap();
         // Within a run every tick writes once: ticks and counts go up by one together, from
         // what the restart found.
         let mut last = (start.checked_sub(1), on_server.count);
-        for line in &server.lines {
-            let f = fields(&line);
+        let mut record = |line: &str| {
+            let f = fields(line);
             if let Some(t) = f.get("tick") {
                 let values = (progress(&f["server"]), progress(&f["player"]));
                 let tick: u64 = t.parse().unwrap();
@@ -420,12 +496,35 @@ fn forced_kills_keep_user_data_with_its_tick() {
                 last = (Some(tick), values.0.count);
                 written.insert(tick, values);
             }
+        };
+        if mode == "run" {
+            // The kill lands a random number of ticks after the run's first commit, counted by
+            // the child's reports, so every restart finds a newer commit however slow the
+            // machine is.
+            let after = next() % 30;
+            let mut since_commit = None;
+            while since_commit.is_none_or(|ticks| ticks < after) {
+                let line = server
+                    .lines
+                    .recv_timeout(Duration::from_secs(120))
+                    .unwrap_or_else(|_| panic!("kill {kill}: the child stopped reporting"));
+                record(&line);
+                if line.starts_with("committed=") {
+                    since_commit.get_or_insert(0);
+                } else if let Some(ticks) = &mut since_commit
+                    && line.starts_with("tick=")
+                {
+                    *ticks += 1;
+                }
+            }
+            server.child.kill().unwrap();
+        }
+        server.child.wait().unwrap();
+        for line in &server.lines {
+            record(&line);
         }
     }
     assert!(committed, "nothing was ever committed");
-    assert!(
-        advanced * 10 >= KILLS * 7,
-        "only {advanced} of {KILLS} runs committed"
-    );
+    assert_eq!(advanced, KILLS, "every restart finds a newer commit");
     fresh(&data, false);
 }

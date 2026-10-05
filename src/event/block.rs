@@ -4,9 +4,12 @@
 //! A block event names its block by world, position and state. Other blocks it mentions are still
 //! in the world while the listeners run, so the event gives their positions only.
 
+use super::entity::DEFAULT_FIRE_CHANCE;
 use crate::block::State;
 use crate::item::Stack;
+use crate::math::{self, Vec3};
 use crate::player;
+use crate::tile::Side;
 use crate::world::{self, BlockPos};
 
 /// Raised when a player breaks a block, before it goes. Cancelling keeps the block.
@@ -106,6 +109,63 @@ getters!(BlockDeath {
     /// The dead block it becomes.
     new_state: State,
 });
+
+/// Raised when a block explodes (a respawn anchor), after the blocks it breaks are known and
+/// before they break. Cancelling keeps the blocks and hurts nobody; the exploding block is gone
+/// either way.
+#[doc(alias = "BlockExplodeEvent")]
+#[derive(Debug)]
+pub struct BlockExplode {
+    pub(crate) world: world::Id,
+    pub(crate) pos: BlockPos,
+    pub(crate) block: State,
+    pub(crate) position: Vec3,
+    pub(crate) blocks: Vec<BlockPos>,
+    pub(crate) yield_percent: f64,
+    pub(crate) ignitions: Vec<BlockPos>,
+    pub(crate) cancelled: bool,
+}
+
+getters!(BlockExplode {
+    /// The world of the block.
+    world: world::Id,
+    /// Where the exploding block was.
+    pos: BlockPos,
+    /// The block that explodes.
+    block: State,
+    /// The centre of the explosion.
+    #[doc(alias = "BlockExplodeEvent::getPosition")]
+    position: Vec3,
+    /// The blocks that break.
+    #[doc(alias = "BlockExplodeEvent::getAffectedBlocks")]
+    blocks: &[BlockPos],
+    /// The chance in percent that a broken block drops its items.
+    #[doc(alias = "BlockExplodeEvent::getYield")]
+    yield_percent: f64,
+    /// The blocks that catch fire.
+    #[doc(alias = "BlockExplodeEvent::getIgnitions")]
+    ignitions: &[BlockPos],
+});
+
+setters!(BlockExplode {
+    /// Replaces the blocks that break. Blocks outside loaded chunks are left alone.
+    #[doc(alias = "BlockExplodeEvent::setAffectedBlocks")]
+    set_blocks => blocks: Vec<BlockPos>,
+    /// Replaces the blocks that catch fire.
+    #[doc(alias = "BlockExplodeEvent::setIgnitions")]
+    set_ignitions => ignitions: Vec<BlockPos>,
+});
+
+impl BlockExplode {
+    /// Sets the chance in percent that a broken block drops its items, limited to 0 to 100. A
+    /// value that is not a number is ignored.
+    #[doc(alias = "BlockExplodeEvent::setYield")]
+    pub fn set_yield_percent(&mut self, percent: f64) {
+        if !percent.is_nan() {
+            self.yield_percent = math::clamp(percent, 0.0, 100.0);
+        }
+    }
+}
 
 /// Raised when a block forms: water hardens concrete powder, lava and water make stone. Cancelling
 /// keeps the old block.
@@ -211,6 +271,87 @@ getters!(BlockPlace {
     /// The item the player places.
     #[doc(alias = "BlockPlaceEvent::getItem")]
     item: &Stack,
+});
+
+/// Raised when a block is about to explode (a charged respawn anchor a player uses), before it
+/// goes and the blocks it breaks are found. Cancelling keeps the block.
+#[doc(alias = "BlockPreExplodeEvent")]
+#[derive(Debug)]
+pub struct BlockPreExplode {
+    pub(crate) world: world::Id,
+    pub(crate) pos: BlockPos,
+    pub(crate) block: State,
+    pub(crate) player: Option<player::Id>,
+    pub(crate) radius: f64,
+    pub(crate) fire_chance: f64,
+    pub(crate) block_breaking: bool,
+    pub(crate) cancelled: bool,
+}
+
+getters!(BlockPreExplode {
+    /// The world of the block.
+    world: world::Id,
+    /// Where the block is.
+    pos: BlockPos,
+    /// The block that explodes.
+    block: State,
+    /// The player who made it explode, if one did.
+    #[doc(alias = "BlockPreExplodeEvent::getPlayer")]
+    player: Option<player::Id>,
+    /// The radius of the explosion, in blocks.
+    #[doc(alias = "BlockPreExplodeEvent::getRadius")]
+    radius: f64,
+    /// The chance, 0 to 1, that a block the explosion reaches catches fire.
+    #[doc(alias = "BlockPreExplodeEvent::getFireChance")]
+    fire_chance: f64,
+});
+
+impl BlockPreExplode {
+    /// Sets the radius of the explosion. A value that is not above 0 is ignored; Anchor's
+    /// explosions reach at most 8 blocks, and a larger radius stops there.
+    #[doc(alias = "BlockPreExplodeEvent::setRadius")]
+    pub fn set_radius(&mut self, radius: f64) {
+        if radius.is_finite() && radius > 0.0 {
+            self.radius = radius;
+        }
+    }
+
+    /// Sets the chance that a block catches fire, limited to 0 to 1. A value that is not a number
+    /// is ignored.
+    #[doc(alias = "BlockPreExplodeEvent::setFireChance")]
+    pub fn set_fire_chance(&mut self, chance: f64) {
+        if !chance.is_nan() {
+            self.fire_chance = math::clamp(chance, 0.0, 1.0);
+        }
+    }
+
+    /// Whether the explosion sets fires.
+    #[doc(alias = "BlockPreExplodeEvent::isIncendiary")]
+    pub fn is_incendiary(&self) -> bool {
+        self.fire_chance > 0.0
+    }
+
+    /// Makes the explosion set fires (with a chance of 1/3 unless one is set) or none.
+    #[doc(alias = "BlockPreExplodeEvent::setIncendiary")]
+    pub fn set_incendiary(&mut self, incendiary: bool) {
+        if !incendiary {
+            self.fire_chance = 0.0;
+        } else if self.fire_chance <= 0.0 {
+            self.fire_chance = DEFAULT_FIRE_CHANCE;
+        }
+    }
+
+    /// Whether the explosion breaks blocks.
+    #[doc(alias = "BlockPreExplodeEvent::isBlockBreaking")]
+    pub fn is_block_breaking(&self) -> bool {
+        self.block_breaking
+    }
+}
+
+setters!(BlockPreExplode {
+    /// Sets whether the explosion breaks blocks.
+    #[doc(alias = "BlockPreExplodeEvent::setBlockBreaking")]
+    set_block_breaking => block_breaking: bool,
 });
 
 /// Raised when a block spreads: grass and mycelium to dirt, fire to a neighbour, a liquid into a
@@ -485,7 +626,7 @@ pub struct SignChange {
     pub(crate) block: State,
     pub(crate) old_text: [String; 4],
     pub(crate) new_text: [String; 4],
-    pub(crate) front_face: bool,
+    pub(crate) side: Side,
     pub(crate) cancelled: bool,
 }
 
@@ -506,15 +647,10 @@ getters!(SignChange {
     /// The four lines of the side after, cleaned of formatting codes.
     #[doc(alias = "SignChangeEvent::getNewText")]
     new_text: &[String; 4],
-});
-
-impl SignChange {
-    /// Whether the front side changes (otherwise the back).
+    /// The side written on.
     #[doc(alias = "SignChangeEvent::isFrontFace")]
-    pub fn is_front_face(&self) -> bool {
-        self.front_face
-    }
-}
+    side: Side,
+});
 
 setters!(SignChange {
     /// Replaces the lines written. They are checked again like the player's (at most 1,000 bytes
@@ -562,6 +698,10 @@ cancellable! {
         #[doc(alias = "BlockBurnEvent::uncancel")]
         #[doc(alias = "BlockBurnEvent::isCancelled")];
     BlockDeath;
+    BlockExplode
+        #[doc(alias = "BlockExplodeEvent::cancel")]
+        #[doc(alias = "BlockExplodeEvent::uncancel")]
+        #[doc(alias = "BlockExplodeEvent::isCancelled")];
     BlockForm;
     BlockGrow;
     BlockMelt;
@@ -569,6 +709,10 @@ cancellable! {
         #[doc(alias = "BlockPlaceEvent::cancel")]
         #[doc(alias = "BlockPlaceEvent::uncancel")]
         #[doc(alias = "BlockPlaceEvent::isCancelled")];
+    BlockPreExplode
+        #[doc(alias = "BlockPreExplodeEvent::cancel")]
+        #[doc(alias = "BlockPreExplodeEvent::uncancel")]
+        #[doc(alias = "BlockPreExplodeEvent::isCancelled")];
     BlockSpread;
     BlockTeleport
         #[doc(alias = "BlockTeleportEvent::cancel")]
@@ -961,7 +1105,7 @@ mod tests {
 
     // pmmp: SignChangeEvent, SignChangeEvent::getPlayer, SignChangeEvent::getSign, SignChangeEvent::getOldText, SignChangeEvent::getNewText, SignChangeEvent::isFrontFace, SignChangeEvent::setNewText, SignChangeEvent::cancel, SignChangeEvent::uncancel, SignChangeEvent::isCancelled
     #[test]
-    fn sign_change_text_can_change() {
+    fn sign_change_names_its_side_and_its_text_can_change() {
         let lines = |s: &str| [s.to_owned(), String::new(), String::new(), String::new()];
         let mut e = SignChange {
             player: player(1),
@@ -970,7 +1114,7 @@ mod tests {
             block: DIRT,
             old_text: lines("old"),
             new_text: lines("new"),
-            front_face: false,
+            side: Side::Back,
             cancelled: false,
         };
         assert_eq!(
@@ -978,7 +1122,7 @@ mod tests {
             (player(1), WORLD, POS, DIRT)
         );
         assert_eq!((e.old_text(), e.new_text()), (&lines("old"), &lines("new")));
-        assert!(!e.is_front_face());
+        assert_eq!(e.side(), Side::Back);
         e.set_new_text(lines("other"));
         assert_eq!(e.new_text(), &lines("other"));
         e.cancel();
@@ -1001,6 +1145,78 @@ mod tests {
         assert_eq!((e.world(), e.pos(), e.block()), (WORLD, POS, DIRT));
         assert_eq!(e.blocks(), &[(POS, GRASS_BLOCK)]);
         assert_eq!(e.player(), None);
+        e.cancel();
+        assert!(e.is_cancelled());
+        e.uncancel();
+        assert!(!e.is_cancelled());
+    }
+
+    // pmmp: BlockPreExplodeEvent, BlockPreExplodeEvent::getRadius, BlockPreExplodeEvent::setRadius, BlockPreExplodeEvent::getFireChance, BlockPreExplodeEvent::setFireChance, BlockPreExplodeEvent::isIncendiary, BlockPreExplodeEvent::setIncendiary, BlockPreExplodeEvent::isBlockBreaking, BlockPreExplodeEvent::setBlockBreaking, BlockPreExplodeEvent::getPlayer, BlockPreExplodeEvent::cancel, BlockPreExplodeEvent::uncancel, BlockPreExplodeEvent::isCancelled
+    #[test]
+    fn block_pre_explode_keeps_its_values_in_range() {
+        let mut e = BlockPreExplode {
+            world: WORLD,
+            pos: POS,
+            block: DIRT,
+            player: Some(player(1)),
+            radius: 5.0,
+            fire_chance: 0.0,
+            block_breaking: true,
+            cancelled: false,
+        };
+        assert_eq!((e.world(), e.pos(), e.block()), (WORLD, POS, DIRT));
+        assert_eq!((e.player(), e.radius()), (Some(player(1)), 5.0));
+        assert!(!e.is_incendiary() && e.is_block_breaking());
+        e.set_radius(2.5);
+        e.set_radius(-1.0);
+        e.set_radius(f64::NAN);
+        assert_eq!(e.radius(), 2.5);
+        e.set_incendiary(true);
+        assert_eq!(e.fire_chance(), DEFAULT_FIRE_CHANCE);
+        e.set_fire_chance(2.0);
+        assert_eq!(e.fire_chance(), 1.0);
+        e.set_fire_chance(f64::NAN);
+        assert_eq!(e.fire_chance(), 1.0);
+        e.set_incendiary(false);
+        assert!(!e.is_incendiary());
+        e.set_block_breaking(false);
+        assert!(!e.is_block_breaking());
+        e.cancel();
+        assert!(e.is_cancelled());
+        e.uncancel();
+        assert!(!e.is_cancelled());
+    }
+
+    // pmmp: BlockExplodeEvent, BlockExplodeEvent::getPosition, BlockExplodeEvent::getAffectedBlocks, BlockExplodeEvent::setAffectedBlocks, BlockExplodeEvent::getIgnitions, BlockExplodeEvent::setIgnitions, BlockExplodeEvent::getYield, BlockExplodeEvent::setYield, BlockExplodeEvent::cancel, BlockExplodeEvent::uncancel, BlockExplodeEvent::isCancelled
+    #[test]
+    fn block_explode_blocks_and_yield_can_change() {
+        let centre = Vec3::new(1.5, 64.5, -1.5);
+        let mut e = BlockExplode {
+            world: WORLD,
+            pos: POS,
+            block: DIRT,
+            position: centre,
+            blocks: vec![POS, OTHER],
+            yield_percent: 20.0,
+            ignitions: vec![OTHER],
+            cancelled: false,
+        };
+        assert_eq!((e.world(), e.pos(), e.block()), (WORLD, POS, DIRT));
+        assert_eq!(e.position(), centre);
+        assert_eq!(
+            (e.blocks(), e.ignitions()),
+            ([POS, OTHER].as_slice(), [OTHER].as_slice())
+        );
+        e.set_blocks(vec![OTHER]);
+        e.set_ignitions(Vec::new());
+        assert_eq!(
+            (e.blocks(), e.ignitions()),
+            ([OTHER].as_slice(), [].as_slice())
+        );
+        e.set_yield_percent(150.0);
+        assert_eq!(e.yield_percent(), 100.0);
+        e.set_yield_percent(f64::NAN);
+        assert_eq!(e.yield_percent(), 100.0);
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();

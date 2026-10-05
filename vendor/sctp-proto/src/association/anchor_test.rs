@@ -2,7 +2,7 @@
 //! fails on the published 0.10.5 and passes here. Last, an ignored measurement of the receive
 //! path (Anchor PLAN.md 10.5).
 
-use crate::chunk::chunk_selective_ack::ChunkSelectiveAck;
+use crate::chunk::chunk_selective_ack::{ChunkSelectiveAck, GapAckBlock};
 use crate::packet::CommonHeader;
 
 use super::*;
@@ -137,8 +137,9 @@ fn the_inbound_stream_count_follows_the_peer_outbound_streams() -> Result<()> {
     Ok(())
 }
 
-/// RFC 4960 6.5: DATA on a stream beyond the negotiated count is discarded; 0.10.5 created a
-/// stream for any of the 65,536 identifiers.
+/// RFC 4960 6.5: DATA on a stream beyond the negotiated count is acknowledged and discarded;
+/// 0.10.5 created a stream for any of the 65,536 identifiers. Its TSN still counts, or the
+/// cumulative TSN would stall behind it.
 #[test]
 fn data_beyond_the_negotiated_streams_creates_no_stream() -> Result<()> {
     let mut a = established();
@@ -147,6 +148,10 @@ fn data_beyond_the_negotiated_streams_creates_no_stream() -> Result<()> {
     chunk.stream_identifier = 5;
     a.handle_data(&chunk)?;
     assert!(!a.streams.contains_key(&5));
+    a.handle_data(&data(2, 0, false, 10))?;
+    assert_eq!(a.peer_last_tsn, 2);
+    assert!(a.payload_queue.is_empty());
+    assert!(a.stream(STREAM)?.read()?.is_some());
     Ok(())
 }
 
@@ -190,6 +195,34 @@ fn a_sack_across_the_tsn_wrap_is_processed() -> Result<()> {
     a.handle_sack(&sack, Instant::now())?;
     assert_eq!(a.cumulative_tsn_ack_point, 0);
     assert!(a.inflight_queue.is_empty());
+    Ok(())
+}
+
+/// A gap block past the TSN wrap: 0.10.5 added its offset with `+`, which panics in a debug
+/// build when the cumulative TSN is near `u32::MAX`.
+#[test]
+fn a_sack_gap_block_across_the_tsn_wrap_is_processed() -> Result<()> {
+    let mut a = established();
+    a.cumulative_tsn_ack_point = u32::MAX - 1;
+    a.advanced_peer_tsn_ack_point = u32::MAX - 1;
+    a.my_next_tsn = 2;
+    for tsn in [u32::MAX, 0, 1] {
+        a.inflight_queue.push_no_check(ChunkPayloadData {
+            tsn,
+            nsent: 1,
+            ..data(tsn, 0, false, 10)
+        });
+    }
+    let sack = ChunkSelectiveAck {
+        cumulative_tsn_ack: u32::MAX - 1,
+        advertised_receiver_window_credit: 65_536,
+        gap_ack_blocks: vec![GapAckBlock { start: 2, end: 3 }],
+        duplicate_tsn: vec![],
+    };
+    a.handle_sack(&sack, Instant::now())?;
+    assert!(a.inflight_queue.get(0).is_some_and(|c| c.acked));
+    assert!(a.inflight_queue.get(1).is_some_and(|c| c.acked));
+    assert!(a.inflight_queue.get(u32::MAX).is_some_and(|c| !c.acked));
     Ok(())
 }
 

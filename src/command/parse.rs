@@ -232,14 +232,16 @@ fn snake_name(variant: &str) -> String {
     out
 }
 
-/// Fits `words` (of `line`) to `params`: one argument per parameter given, in order, or `None`
-/// if the words do not fit (a word of the wrong kind, too few words, or words left over).
+/// Fits `words` (of `line`) to `params`: one argument per parameter given, in order, or the
+/// byte offset in `line` where the words stop fitting: the start of a word of the wrong kind or
+/// of the first word left over, or the end of the line's text where a required word is missing.
 pub(crate) fn fit(
     params: &[Param],
     line: &str,
     words: &[Word<'_>],
     names: &Names,
-) -> Option<Vec<Raw>> {
+) -> Result<Vec<Raw>, usize> {
+    let end = line.trim_end().len();
     let mut out = Vec::with_capacity(params.len());
     let mut i = 0;
     for param in params {
@@ -247,25 +249,33 @@ pub(crate) fn fit(
             if param.optional {
                 break;
             }
-            return None;
+            return Err(end);
         };
+        let bad = word.start;
         let text = word.text.as_ref();
         let raw = match &param.kind {
-            Kind::Int => Raw::Value(Value::Int(text.parse().ok()?)),
-            Kind::Float => Raw::Value(Value::Float(number(text)?)),
+            Kind::Int => Raw::Value(Value::Int(text.parse().map_err(|_| bad)?)),
+            Kind::Float => Raw::Value(Value::Float(number(text).ok_or(bad)?)),
             Kind::String => Raw::Value(Value::Text(text.to_owned())),
             Kind::Bool => Raw::Value(Value::Bool(if text.eq_ignore_ascii_case("true") {
                 true
             } else if text.eq_ignore_ascii_case("false") {
                 false
             } else {
-                return None;
+                return Err(bad);
             })),
-            Kind::Target => Raw::Target(target(word)?),
+            Kind::Target => Raw::Target(target(word).ok_or(bad)?),
             Kind::Position => {
-                let [x, y, z] = [words.get(i)?, words.get(i + 1)?, words.get(i + 2)?];
+                let mut coords = [Coord {
+                    relative: false,
+                    value: 0.0,
+                }; 3];
+                for (k, c) in coords.iter_mut().enumerate() {
+                    let w = words.get(i + k).ok_or(end)?;
+                    *c = coord(w).ok_or(w.start)?;
+                }
                 i += 2;
-                Raw::Position([coord(x)?, coord(y)?, coord(z)?])
+                Raw::Position(coords)
             }
             Kind::Message | Kind::RawText => {
                 let rest = line.get(word.start..).unwrap_or_default().trim_end();
@@ -275,16 +285,16 @@ pub(crate) fn fit(
             }
             Kind::Json => {
                 let rest = line.get(word.start..).unwrap_or_default();
-                let end = json_end(rest)?;
-                let json = rest.get(..end)?;
-                let after = word.start.checked_add(end)?;
+                let json_len = json_end(rest).ok_or(bad)?;
+                let json = rest.get(..json_len).ok_or(bad)?;
+                let after = word.start.checked_add(json_len).ok_or(bad)?;
                 // The value must end where a word does.
                 if line
                     .get(after..)
                     .and_then(|s| s.chars().next())
                     .is_some_and(|c| !c.is_whitespace())
                 {
-                    return None;
+                    return Err(bad);
                 }
                 i = words
                     .iter()
@@ -294,18 +304,47 @@ pub(crate) fn fit(
                 continue;
             }
             Kind::Enum { values, .. } => {
-                let value = values.iter().find(|v| v.eq_ignore_ascii_case(text))?;
+                let value = values
+                    .iter()
+                    .find(|v| v.eq_ignore_ascii_case(text))
+                    .ok_or(bad)?;
                 Raw::Value(Value::Text(value.clone()))
             }
-            Kind::Item => Raw::Value(Value::Item(Names::item(text)?)),
-            Kind::Block => Raw::Value(Value::Block(Names::block(text)?)),
-            Kind::Effect => Raw::Value(Value::Effect(names.effect(text)?)),
-            Kind::Enchantment => Raw::Value(Value::Enchantment(names.enchantment(text)?)),
+            Kind::Item => Raw::Value(Value::Item(Names::item(text).ok_or(bad)?)),
+            Kind::Block => Raw::Value(Value::Block(Names::block(text).ok_or(bad)?)),
+            Kind::Effect => Raw::Value(Value::Effect(names.effect(text).ok_or(bad)?)),
+            Kind::Enchantment => {
+                Raw::Value(Value::Enchantment(names.enchantment(text).ok_or(bad)?))
+            }
         };
         out.push(raw);
         i += 1;
     }
-    (i == words.len()).then_some(out)
+    match words.get(i) {
+        Some(left_over) => Err(left_over.start),
+        None => Ok(out),
+    }
+}
+
+/// The characters of BDS's syntax error on each side of the word.
+const SYNTAX_CONTEXT: usize = 10;
+
+/// BDS's syntax error for `line` (without its `/`) that stops fitting at byte `at` ([`fit`]):
+/// the word there, with up to [`SYNTAX_CONTEXT`] characters of `/` and the line before and after
+/// it (P6 `syntax`, m9-facts.md).
+pub(crate) fn syntax_error(line: &str, at: usize) -> Error {
+    let typed = format!("/{line}");
+    let at = at.saturating_add(1).min(typed.len());
+    let (head, tail) = typed.split_at_checked(at).unwrap_or((&typed, ""));
+    let word_len = tail.find(char::is_whitespace).unwrap_or(tail.len());
+    let (word, rest) = tail.split_at(word_len);
+    let rest = if word.is_empty() { "" } else { rest };
+    let skip = head.chars().count().saturating_sub(SYNTAX_CONTEXT);
+    Error::Syntax {
+        before: head.chars().skip(skip).collect(),
+        word: word.to_owned(),
+        after: rest.chars().take(SYNTAX_CONTEXT).collect(),
+    }
 }
 
 /// A finite number (no `NaN`, no infinity: the tick holds none, CLAUDE.md 2.1).

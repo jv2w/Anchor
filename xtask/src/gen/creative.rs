@@ -1,5 +1,6 @@
 //! `src/item/creative.rs`: the creative inventory (PLAN.md 10.4) from the PMMP dump
-//! (`creative.json`), with groups built as PMMP's `CreativeInventoryCache` builds them.
+//! (`creative.json`) and the user exceptions' entries (`data::Exceptions`), with groups built as
+//! PMMP's `CreativeInventoryCache` builds them.
 
 use std::collections::BTreeMap;
 
@@ -23,7 +24,15 @@ type Stack = (usize, u16, Option<BTreeMap<String, Tag>>);
 
 /// Generates the file text (unformatted).
 pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, String> {
-    let entries: Vec<Json> = read_json(root, PMMP_DIR, "creative.json")?;
+    let mut entries: Vec<Json> = read_json(root, PMMP_DIR, "creative.json")?;
+    for e in &data.exceptions.creative {
+        let name = |entry: &Json| entry.get("item").and_then(|i| i.get("name")).cloned();
+        let at = entries
+            .iter()
+            .position(|entry| name(entry).as_ref().and_then(Json::as_str) == Some(&e.after))
+            .ok_or_else(|| format!("creative exception after {}: no such entry", e.after))?;
+        entries.insert(at + 1, e.entry.clone());
+    }
 
     // PMMP `CreativeInventoryCache::buildCacheEntry`: a group gets an index the first time it is
     // seen in a category. A PMMP group object is one group of a creative data file, whose entries

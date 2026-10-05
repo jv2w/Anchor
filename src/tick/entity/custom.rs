@@ -37,8 +37,8 @@ pub(crate) const MAX_TYPES: usize = 1024;
 pub(super) const MAX_DATA_BYTES: usize = 4096;
 /// The longest identifier, in bytes.
 const MAX_IDENTIFIER_BYTES: usize = 128;
-/// The largest box side of a type, in blocks (scaled entities are bounded by the scale).
-const MAX_SIZE: f64 = 16.0;
+/// The largest box side of a type, in blocks, and of any entity's scaled box.
+pub(super) const MAX_SIZE: f64 = 16.0;
 /// The largest maximum health of a type.
 const MAX_HEALTH: f64 = 1_000_000.0;
 /// The allocation budget for reading the vanilla identifier list (it is 8,907 bytes).
@@ -271,6 +271,12 @@ impl Entities {
     /// Takes the custom entity types of the server (at start, before any chunk loads).
     pub(crate) fn set_customs(&mut self, customs: Customs) {
         self.custom = customs;
+    }
+
+    /// Lends out the custom entity types, as a checkpoint's restore reads saved custom entities
+    /// with them; [`Self::set_customs`] gives them back.
+    pub(crate) fn take_customs(&mut self) -> Customs {
+        std::mem::take(&mut self.custom)
     }
 }
 

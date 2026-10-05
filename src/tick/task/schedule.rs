@@ -149,6 +149,31 @@ impl Queue {
     pub(super) fn len(&self) -> usize {
         self.tasks.len()
     }
+
+    /// Writes the next id. A scheduled task is a closure, with no checkpoint form: it makes the
+    /// checkpoint opaque. Nothing runs between ticks.
+    pub(super) fn checkpoint(&self, w: &mut crate::tick::checkpoint::Writer) {
+        let Self {
+            order: _,
+            tasks,
+            next_id,
+            running: _,
+        } = self;
+        w.opaque("scheduled tasks", tasks.len());
+        crate::tick::checkpoint::Codec::encode(next_id, w);
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote: no task, and the next id.
+    pub(super) fn restore(
+        &mut self,
+        r: &mut crate::tick::checkpoint::Reader<'_>,
+    ) -> crate::tick::checkpoint::Result<()> {
+        *self = Self {
+            next_id: crate::tick::checkpoint::Codec::decode(r)?,
+            ..Self::default()
+        };
+        Ok(())
+    }
 }
 
 /// Runs the scheduled tasks due at the state's tick, by due tick then id. Tasks scheduled while
@@ -206,23 +231,23 @@ pub(super) fn run(state: &mut State) {
 }
 
 impl Context<'_> {
-    /// Runs `task` once, in the tick's task step `delay` ticks from now (0: this tick's step if
-    /// it has not run yet, else the next one). Returns its handle, to cancel it. Fails while
+    /// Runs `task` once, in the tick's task step `delay_ticks` ticks from now (0: this tick's
+    /// step if it has not run yet, else the next one). Returns its handle, to cancel it. Fails while
     /// [`MAX_TASKS`] tasks are scheduled.
     #[doc(alias = "TaskScheduler::scheduleTask")]
     #[doc(alias = "TaskScheduler::scheduleDelayedTask")]
     #[doc(alias = "ClosureTask")]
     pub fn schedule(
         &mut self,
-        delay: u32,
+        delay_ticks: u32,
         task: impl FnOnce(&mut Context<'_>) + Send + 'static,
     ) -> Result<Handle> {
-        let due = self.state.tick.saturating_add(u64::from(delay));
+        let due = self.state.tick.saturating_add(u64::from(delay_ticks));
         self.state.tasks.queue.push(due, Body::Once(Box::new(task)))
     }
 
     /// Runs `task` from this tick's task step on (the next one if it has run already), then
-    /// every `period` ticks until it is cancelled ([`Self::cancel_task`]; the task itself can use
+    /// every `period_ticks` ticks until it is cancelled ([`Self::cancel_task`]; the task itself can use
     /// [`Self::current_task`]). Fails while [`MAX_TASKS`] tasks are scheduled. This is the
     /// runtime way, counted from now and cancellable;
     /// [`ServerBuilder::every`](crate::ServerBuilder::every) is the build-time one, fixed for the
@@ -230,23 +255,23 @@ impl Context<'_> {
     #[doc(alias = "TaskScheduler::scheduleRepeatingTask")]
     pub fn schedule_repeating(
         &mut self,
-        period: NonZeroU32,
+        period_ticks: NonZeroU32,
         task: impl FnMut(&mut Context<'_>) + Send + 'static,
     ) -> Result<Handle> {
-        self.schedule_delayed_repeating(0, period, task)
+        self.schedule_delayed_repeating(0, period_ticks, task)
     }
 
-    /// [`Self::schedule_repeating`], first run `delay` ticks from now.
+    /// [`Self::schedule_repeating`], first run `delay_ticks` ticks from now.
     #[doc(alias = "TaskScheduler::scheduleDelayedRepeatingTask")]
     pub fn schedule_delayed_repeating(
         &mut self,
-        delay: u32,
-        period: NonZeroU32,
+        delay_ticks: u32,
+        period_ticks: NonZeroU32,
         task: impl FnMut(&mut Context<'_>) + Send + 'static,
     ) -> Result<Handle> {
-        let due = self.state.tick.saturating_add(u64::from(delay));
+        let due = self.state.tick.saturating_add(u64::from(delay_ticks));
         let body = Body::Repeat {
-            period,
+            period: period_ticks,
             body: Box::new(task),
         };
         self.state.tasks.queue.push(due, body)
@@ -275,11 +300,11 @@ impl Context<'_> {
             .map(|(due, _)| due)
     }
 
-    /// The period of `task` if it repeats and will run again; `None` for a task that runs once
-    /// or will not run again.
+    /// The period of `task` in ticks if it repeats and will run again; `None` for a task that runs
+    /// once or will not run again.
     #[doc(alias = "TaskHandler::getPeriod")]
     #[doc(alias = "TaskHandler::isRepeating")]
-    pub fn task_period(&self, task: Handle) -> Option<NonZeroU32> {
+    pub fn task_period_ticks(&self, task: Handle) -> Option<NonZeroU32> {
         let queue = &self.state.tasks.queue;
         queue
             .next_run(task.get(), self.state.tick)
@@ -377,11 +402,11 @@ mod tests {
         let three = NonZeroU32::new(3).unwrap();
         let every = cx.schedule_delayed_repeating(2, three, |_| {}).unwrap();
         assert_eq!(
-            (cx.task_next_run(once), cx.task_period(once)),
+            (cx.task_next_run(once), cx.task_period_ticks(once)),
             (Some(15), None)
         );
         assert_eq!(
-            (cx.task_next_run(every), cx.task_period(every)),
+            (cx.task_next_run(every), cx.task_period_ticks(every)),
             (Some(12), Some(three))
         );
         // While it runs, a repeating task's next run is a period away.
@@ -395,7 +420,7 @@ mod tests {
             .schedule_repeating(three, |cx| {
                 let me = cx.current_task().unwrap();
                 assert_eq!(cx.task_next_run(me), Some(cx.tick() + 3));
-                assert_eq!(cx.task_period(me), Some(NonZeroU32::new(3).unwrap()));
+                assert_eq!(cx.task_period_ticks(me), Some(NonZeroU32::new(3).unwrap()));
             })
             .unwrap();
         run_ticks(&mut state, 10, 16);
@@ -405,7 +430,7 @@ mod tests {
         assert_eq!(cx.task_next_run(every), Some(18));
         assert!(cx.cancel_task(seen) && cx.cancel_task(every));
         assert_eq!(
-            (cx.task_next_run(every), cx.task_period(every)),
+            (cx.task_next_run(every), cx.task_period_ticks(every)),
             (None, None)
         );
     }

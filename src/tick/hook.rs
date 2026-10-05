@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::fmt;
 
 use super::queue::{Message, SessionId};
-use super::{Context, State};
+use super::{Context, Settings, State};
 use crate::ServerBuilder;
 use crate::player;
 use crate::protocol::packet::{Packet, StartGame};
@@ -59,7 +59,8 @@ impl ServerBuilder {
     /// it returns `false` the packet is dropped and later hooks do not see it.
     ///
     /// Hooks see the packets from the join on: the login and resource pack sequence is the
-    /// session's and never reaches them. Like listeners, hooks run only in the tick with a
+    /// session's and never reaches them. With `hook-player-input = false`, `PlayerAuthInput`
+    /// (sent every client tick) skips them. Like listeners, hooks run only in the tick with a
     /// [`Context`], so a replay of the input log runs them the same way. PMMP's
     /// `DataPacketDecodeEvent` (raw bytes before decoding) has no counterpart: Anchor decodes
     /// and checks every packet first.
@@ -83,7 +84,9 @@ impl ServerBuilder {
     /// skip the hooks: the start-game data every player gets the same (item registry, recipes,
     /// creative inventory, biomes, entity types, block shapes, armour trims), which is encoded
     /// once at start and shared; the last packet of a session the server closes (its
-    /// `Disconnect`); and the login and resource pack sequence, which the session sends.
+    /// `Disconnect`); and the login and resource pack sequence, which the session sends. With
+    /// `hook-movement-packets = false` the movement packets skip them too: `MovePlayer`,
+    /// `MoveActorDelta`, `MoveActorAbsolute` and `SetActorMotion`.
     #[doc(alias = "DataPacketSendEvent")]
     #[must_use]
     pub fn on_send(
@@ -101,12 +104,12 @@ impl ServerBuilder {
     ///
     /// Anchor then sets back the fields its game state decides, so the client and the server
     /// keep agreeing: the entity IDs, the game modes, the position, the dimension, the spawn,
-    /// the difficulty and hardcore, the time, the chunk tick radius, the block and item data
-    /// (`blocks`, `use_block_network_id_hashes`, `server_block_state_checksum`,
-    /// `property_data`), the server-authoritative settings (`server_authoritative_inventory`,
-    /// `server_authoritative_sound`, `player_movement_settings`) and the versions
-    /// (`game_version`, `base_game_version`). Like send hooks, `edit` runs on the CPU pool and
-    /// reaches no game state.
+    /// the difficulty and hardcore, the time, the rain and lightning levels (the weather), the
+    /// chunk tick radius, the block and item data (`blocks`, `use_block_network_id_hashes`,
+    /// `server_block_state_checksum`, `property_data`), the server-authoritative settings
+    /// (`server_authoritative_inventory`, `server_authoritative_sound`,
+    /// `player_movement_settings`) and the versions (`game_version`, `base_game_version`). Like
+    /// send hooks, `edit` runs on the CPU pool and reaches no game state.
     #[must_use]
     pub fn start_game(mut self, edit: impl Fn(&mut StartGame) + Send + Sync + 'static) -> Self {
         self.setup.hooks.start_game.push(Box::new(edit));
@@ -115,14 +118,18 @@ impl ServerBuilder {
 }
 
 /// Runs the receive hooks on a packet of `session`: the packet to apply, changed or not, or
-/// `None` when a hook dropped it. Without hooks, or for a session that is not a player, the
-/// packet passes as it is, without a copy.
+/// `None` when a hook dropped it. Without hooks, for a session that is not a player, and for
+/// `PlayerAuthInput` with `hook-player-input = false`, the packet passes as it is, without a
+/// copy.
 pub(super) fn receive<'a>(
     state: &mut State,
     session: SessionId,
     packet: &'a Packet,
 ) -> Option<Cow<'a, Packet>> {
-    if state.hooks.receive.is_empty() || !state.players.contains_key(&session) {
+    if state.hooks.receive.is_empty()
+        || !state.players.contains_key(&session)
+        || (!state.settings.hook_player_input && matches!(packet, Packet::PlayerAuthInput(_)))
+    {
         return Some(Cow::Borrowed(packet));
     }
     // Taken out while they run, so each hook's context can lend the whole state.
@@ -137,14 +144,23 @@ pub(super) fn receive<'a>(
 }
 
 /// Runs the send hooks on the packets of `messages` for `session`, removing those a hook drops.
-/// Shared batches pass untouched; a shared packet is copied for the session only here, where a
-/// hook may change it.
-pub(super) fn send(hooks: &[SendHook], session: SessionId, messages: &mut Vec<Message>) {
+/// Shared batches pass untouched, and so do the movement packets with
+/// `hook-movement-packets = false` ([`is_movement`]); a shared packet is copied for the session
+/// only here, where a hook may change it.
+pub(super) fn send(
+    hooks: &[SendHook],
+    settings: &Settings,
+    session: SessionId,
+    messages: &mut Vec<Message>,
+) {
     if hooks.is_empty() {
         return;
     }
     let id = player::Id::new(session);
+    let skip = |packet: &Packet| !settings.hook_movement_packets && is_movement(packet);
     messages.retain_mut(|message| match message {
+        Message::Packet(packet) if skip(packet) => true,
+        Message::SharedPacket(packet) if skip(packet) => true,
         Message::Packet(packet) => hooks.iter().all(|hook| hook(id, packet)),
         Message::SharedPacket(packet) => {
             let packet = std::sync::Arc::make_mut(packet);
@@ -152,6 +168,18 @@ pub(super) fn send(hooks: &[SendHook], session: SessionId, messages: &mut Vec<Me
         }
         Message::Shared(_) => true,
     });
+}
+
+/// Whether the server sends `packet` to move an entity or a player: what
+/// `hook-movement-packets = false` keeps from the send hooks.
+fn is_movement(packet: &Packet) -> bool {
+    matches!(
+        packet,
+        Packet::MovePlayer(_)
+            | Packet::MoveActorDelta(_)
+            | Packet::MoveActorAbsolute(_)
+            | Packet::SetActorMotion(_)
+    )
 }
 
 /// Runs the start-game hooks on `packet`, then sets back the fields the game state decides
@@ -174,6 +202,8 @@ pub(super) fn start_game(hooks: &[StartHook], packet: StartGame) -> StartGame {
         hardcore,
         difficulty,
         world_spawn,
+        rain_level,
+        lightning_level,
         server_chunk_tick_radius,
         base_game_version,
         player_movement_settings,
@@ -197,6 +227,8 @@ pub(super) fn start_game(hooks: &[StartHook], packet: StartGame) -> StartGame {
         hardcore,
         difficulty,
         world_spawn,
+        rain_level,
+        lightning_level,
         server_chunk_tick_radius,
         base_game_version,
         player_movement_settings,
@@ -218,14 +250,93 @@ mod tests {
     use crate::Server;
     use crate::event::Listeners;
     use crate::protocol::ExperimentData;
-    use crate::protocol::packet::SetTime;
+    use crate::protocol::packet::{
+        MoveActorAbsolute, MoveActorDelta, MovePlayer, SetActorMotion, SetTime,
+    };
     use crate::tick::Output;
     use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
 
     fn state_with(builder: ServerBuilder) -> State {
-        let mut state = new_state(settings(|_| {}), Listeners::default());
+        configured(builder, |_| {})
+    }
+
+    /// [`state_with`] with the settings `edit` makes.
+    fn configured(builder: ServerBuilder, edit: impl FnOnce(&mut crate::Config)) -> State {
+        let mut state = new_state(settings(edit), Listeners::default());
         state.hooks = builder.setup.hooks;
         state
+    }
+
+    /// The movement packets session 1 gets when the serial phases queue one of each kind and a
+    /// send hook drops every movement packet it sees, on a server with `hook-movement-packets`
+    /// set to `hooked`.
+    fn movement_sent(hooked: bool) -> usize {
+        let builder = Server::builder().on_send(|_, packet| !is_movement(packet));
+        let mut state = configured(builder, |c| c.developer.hook_movement_packets = hooked);
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j], &mut output);
+        received(&mut rx);
+        let player = state.players.get_mut(&SessionId::new(1)).unwrap();
+        for packet in [
+            Packet::MovePlayer(MovePlayer::default()),
+            Packet::MoveActorDelta(MoveActorDelta::default()),
+            Packet::MoveActorAbsolute(MoveActorAbsolute::default()),
+            Packet::SetActorMotion(SetActorMotion::default()),
+            Packet::SetTime(SetTime { time: 7 }),
+        ] {
+            player.send_packet(packet);
+        }
+        tick(&mut state, &mut Vec::new(), &mut output);
+        let (packets, ..) = received(&mut rx);
+        assert!(packets.contains(&Packet::SetTime(SetTime { time: 7 })));
+        packets.iter().filter(|p| is_movement(p)).count()
+    }
+
+    /// `hook-movement-packets = false`: movement packets skip the send hooks, so a hook that
+    /// drops them does not see them and they go out.
+    #[test]
+    fn movement_packets_skip_the_send_hooks_when_not_hooked() {
+        assert_eq!(movement_sent(true), 0);
+        assert_eq!(movement_sent(false), 4);
+    }
+
+    thread_local! {
+        /// The `PlayerAuthInput` and `RequestChunkRadius` packets the receive hooks saw (they
+        /// run on the tick's thread).
+        static RECEIVED: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+    }
+
+    /// `hook-player-input = false`: `PlayerAuthInput` skips the receive hooks; other packets
+    /// still pass them.
+    #[test]
+    fn player_input_skips_the_receive_hooks_when_not_hooked() {
+        for hooked in [true, false] {
+            RECEIVED.set((0, 0));
+            let builder = Server::builder().on_receive(|_, _, packet| {
+                let (inputs, radii) = RECEIVED.get();
+                match packet {
+                    Packet::PlayerAuthInput(_) => RECEIVED.set((inputs + 1, radii)),
+                    Packet::RequestChunkRadius(_) => RECEIVED.set((inputs, radii + 1)),
+                    _ => {}
+                }
+                true
+            });
+            let mut state = configured(builder, |c| c.developer.hook_player_input = hooked);
+            let mut output = Output::default();
+            let (j, _rx) = join(1, 0);
+            let input = crate::tick::tests::input(
+                1,
+                2,
+                crate::tick::tests::packet(Packet::PlayerAuthInput(Box::default())),
+            );
+            tick(
+                &mut state,
+                &mut vec![j, radius(1, 1, 4), input],
+                &mut output,
+            );
+            assert_eq!(RECEIVED.get(), (usize::from(hooked), 1), "hooked: {hooked}");
+        }
     }
 
     fn id(session: u64) -> player::Id {

@@ -7,6 +7,8 @@
 //! player gets the whole list in its window and is added to everyone else's, and a player who
 //! leaves is removed from the others' lists.
 
+mod vanilla;
+
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -37,14 +39,15 @@ use crate::player::{self, Message as Text};
 use crate::pool::Pool;
 use crate::protocol::consts::DisconnectReason;
 use crate::protocol::packet::{
-    self, AvailableActorIdentifiers, ChunkRadiusUpdated, Disconnect, Packet, PlayStatus, PlayerFog,
-    PlayerList, RequestChunkRadius, Respawn, SetActorData, SetCommandsEnabled, SetDifficulty,
-    SetHealth, SetLocalPlayerAsInitialised, SetSpawnPosition, StartGame, TrimData, VoxelShapes,
+    self, AvailableActorIdentifiers, ChunkRadiusUpdated, CurrentStructureFeature, Disconnect,
+    Packet, PlayStatus, PlayerFog, PlayerList, RequestChunkRadius, Respawn, SetActorData,
+    SetCommandsEnabled, SetDifficulty, SetHealth, SetLocalPlayerAsInitialised, SetSpawnPosition,
+    StartGame, TrimData, VoxelShapes,
 };
 use crate::protocol::{self, batch};
 use crate::protocol::{
-    EntityProperties, PlayerListEntry, PlayerMovementSettings, Rgba, ServerJoinInformation,
-    TrimMaterial, TrimPattern, VoxelCells, VoxelShape, VoxelShapeNameEntry,
+    EntityProperties, PLAYER_LIST_ENTRIES_MAX_LEN, PlayerListEntry, PlayerMovementSettings, Rgba,
+    ServerJoinInformation, TrimMaterial, TrimPattern, VoxelCells, VoxelShape, VoxelShapeNameEntry,
 };
 use crate::save::{PlayerData, PlayerLoad, Request};
 use crate::storage::PlayerKey as StoredPlayer;
@@ -78,17 +81,24 @@ const SPAWN_POSITION_DIMENSION: i32 = 3;
 
 /// The start-game batches every player gets the same (PLAN.md 10.4, 10.6, 10.7): the item
 /// registry, the biome definitions, the creative inventory, the recipes, the block collision
-/// shapes, the entity types and the armour trims. Each is encoded and compressed once at start;
-/// sessions only encrypt them.
+/// shapes, the entity types, the armour trims, the jigsaw structure data, the entity property
+/// definitions and the camera presets. Each is encoded and compressed once at start; sessions
+/// only encrypt them.
 #[derive(Debug, Clone)]
 pub(crate) struct Shared {
     item_registry: SharedBatches,
     biome_definitions: SharedBatches,
-    creative_content: SharedBatches,
+    /// The creative inventories ([`custom::Registry::creatives`]), each player's by its index.
+    creative_content: Vec<SharedBatches>,
     crafting_data: SharedBatches,
     voxel_shapes: SharedBatches,
     actor_identifiers: SharedBatches,
     trim_data: SharedBatches,
+    jigsaw_structure_data: SharedBatches,
+    /// The 13 `SyncActorProperty` packets.
+    actor_properties: SharedBatches,
+    /// `CameraPresets`, `CameraAimAssistPresets` and `CameraSpline`.
+    camera: SharedBatches,
     /// The custom block definitions `StartGame` carries (empty without custom blocks).
     blocks: Arc<[protocol::BlockEntry]>,
 }
@@ -119,31 +129,60 @@ impl Shared {
     ) -> Result<Self, batch::Error> {
         let mut encoder = batch::Encoder::new(settings);
         Ok(Self {
-            item_registry: encode(&mut encoder, &Packet::ItemRegistry(custom.item_registry()))?,
+            item_registry: encode(
+                &mut encoder,
+                &[Packet::ItemRegistry(custom.item_registry())],
+            )?,
             biome_definitions: encode(
                 &mut encoder,
-                &Packet::BiomeDefinitionList(biome::definition_list()),
+                &[Packet::BiomeDefinitionList(biome::definition_list())],
             )?,
-            creative_content: encode(
-                &mut encoder,
-                &Packet::CreativeContent(custom.creative_content()),
-            )?,
+            creative_content: custom
+                .creatives()
+                .iter()
+                .map(|c| {
+                    encode(
+                        &mut encoder,
+                        &[Packet::CreativeContent(c.content().clone())],
+                    )
+                })
+                .collect::<Result<_, _>>()?,
             crafting_data: encode(
                 &mut encoder,
-                &Packet::CraftingData(Box::new(custom.crafting_data())),
+                &[Packet::CraftingData(Box::new(custom.crafting_data()))],
             )?,
-            voxel_shapes: encode(&mut encoder, &Packet::VoxelShapes(voxel_shapes()))?,
+            voxel_shapes: encode(&mut encoder, &[Packet::VoxelShapes(voxel_shapes())])?,
             actor_identifiers: encode(
                 &mut encoder,
-                &Packet::AvailableActorIdentifiers(AvailableActorIdentifiers {
-                    serialised_entity_identifiers: custom_entities
-                        .identifier_list(ENTITY_IDENTIFIERS)
-                        .map_err(batch::Error::Packet)?,
-                }),
+                &[Packet::AvailableActorIdentifiers(
+                    AvailableActorIdentifiers {
+                        serialised_entity_identifiers: custom_entities
+                            .identifier_list(ENTITY_IDENTIFIERS)
+                            .map_err(batch::Error::Packet)?,
+                    },
+                )],
             )?,
-            trim_data: encode(&mut encoder, &Packet::TrimData(trim_data()))?,
+            trim_data: encode(&mut encoder, &[Packet::TrimData(trim_data())])?,
+            jigsaw_structure_data: encode(&mut encoder, &[vanilla::jigsaw_structure_data()])?,
+            actor_properties: encode(&mut encoder, &vanilla::actor_properties())?,
+            camera: encode(&mut encoder, &vanilla::camera())?,
             blocks: custom.block_entries().into(),
         })
+    }
+}
+
+impl Shared {
+    /// The batches of every creative inventory, in the server's order (tests).
+    #[cfg(test)]
+    pub(super) fn creative_batches(&self) -> &[SharedBatches] {
+        &self.creative_content
+    }
+
+    /// The batches of `player`'s creative inventory.
+    fn creative(&self, player: &Player) -> Option<Message> {
+        self.creative_content
+            .get(usize::from(player.inventory.creative))
+            .map(|c| Message::Shared(Arc::clone(c)))
     }
 }
 
@@ -256,15 +295,18 @@ fn trim_data() -> TrimData {
     }
 }
 
-/// Encodes and compresses one packet into its batch bodies.
-fn encode(encoder: &mut batch::Encoder, packet: &Packet) -> Result<SharedBatches, batch::Error> {
-    let header = batch::Header {
-        id: packet.id(),
-        ..batch::Header::default()
-    };
+/// Encodes and compresses packets, in order, into their batch bodies.
+fn encode(encoder: &mut batch::Encoder, packets: &[Packet]) -> Result<SharedBatches, batch::Error> {
+    let headed = packets.iter().map(|packet| {
+        let header = batch::Header {
+            id: packet.id(),
+            ..batch::Header::default()
+        };
+        (header, packet)
+    });
     let mut payload = Vec::new();
     let mut bodies = Vec::new();
-    batch::encode_packets([(header, packet)], SHIELD_RUNTIME_ID, &mut payload, |p| {
+    batch::encode_packets(headed, SHIELD_RUNTIME_ID, &mut payload, |p| {
         let mut body = Vec::new();
         encoder.encode(p, &mut body)?;
         bodies.push(body);
@@ -283,6 +325,9 @@ pub(super) struct Pending {
     pub(super) radius: Option<RadiusAnswer>,
     /// `PlayStatus(PlayerSpawn)`: the spawn chunks were sent.
     pub(super) spawn_status: bool,
+    /// The player's creative inventory again: it was switched once the client asked for its
+    /// chunk radius (the spawn window has it or is sent this tick).
+    pub(super) creative: bool,
 }
 
 /// The answer to a chunk radius request.
@@ -350,7 +395,7 @@ pub(super) fn output(
                     .cloned()
                     .map(Message::SharedPacket),
             );
-            hook::send(sends, session, &mut out);
+            hook::send(sends, settings, session, &mut out);
         }
         (session, out)
     });
@@ -380,8 +425,10 @@ pub(super) fn output(
 /// packets. Built only when a player needs a window this tick.
 #[derive(Debug, Default)]
 struct Window {
-    /// Every placed player, in session order.
-    roster: Vec<PlayerListEntry>,
+    /// The list of every placed player, in session order, built once for every window: it holds
+    /// each player's skin (up to 4 MiB). A client takes at most
+    /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet, so a longer list goes in several.
+    player_list: Vec<Arc<Packet>>,
     /// Per world: the clock state, the clock definition and the sleeping counts.
     worlds: Vec<[Packet; 3]>,
 }
@@ -394,12 +441,18 @@ impl Window {
         if !needed {
             return Self::default();
         }
+        let placed: Vec<&Player> = state
+            .players
+            .values()
+            .filter(|p| p.phase != Phase::Loading)
+            .collect();
         Self {
-            roster: state
-                .players
-                .values()
-                .filter(|p| p.phase != Phase::Loading)
-                .map(list_entry)
+            player_list: placed
+                .chunks(PLAYER_LIST_ENTRIES_MAX_LEN)
+                .map(|players| {
+                    let entries = players.iter().map(|p| list_entry(p)).collect();
+                    Arc::new(Packet::PlayerList(PlayerList { entries }))
+                })
                 .collect(),
             worlds: (0..state.worlds.len())
                 .map(|w| {
@@ -419,11 +472,11 @@ impl Window {
         Some(Message::Packet(packet.clone()))
     }
 
-    /// The player list of the window.
-    fn player_list(&self) -> Message {
-        Message::Packet(Packet::PlayerList(PlayerList {
-            entries: self.roster.clone(),
-        }))
+    /// The player list of the window, shared.
+    fn player_list(&self) -> impl Iterator<Item = Message> + '_ {
+        self.player_list
+            .iter()
+            .map(|p| Message::SharedPacket(Arc::clone(p)))
     }
 }
 
@@ -465,10 +518,10 @@ fn operators_starting(state: &mut State) -> BTreeSet<SessionId> {
 
 /// One player's packets of the tick, in the order BDS sends them (P6, PLAN.md 10.2, 10.4, 10.6,
 /// m7-facts.md 7): the start-game packets; for the first chunk radius answer the spawn window
-/// (spawn position, clocks, difficulty, settings, abilities, rules, player list, biomes, entity
-/// types, fog, attributes, creative inventory, trims, inventory, recipes, respawn, entity data);
-/// the granted radius; the chunk packets; the health and the spawn status; then the block changes
-/// it sees.
+/// (spawn position, clocks, difficulty, settings, weather, abilities, rules, player list, biomes,
+/// entity types, fog, camera presets, attributes, creative inventory, trims, inventory, recipes,
+/// commands, respawn, entity data, structure feature); the granted radius; the chunk packets; the
+/// health and the spawn status; then the block changes it sees.
 fn messages(
     built: &Built<'_>,
     world: Option<&World>,
@@ -492,24 +545,30 @@ fn messages(
     let index = player.world;
     if player.pending.start_game {
         out.extend(window.world(index, 2));
-        out.push(window.player_list());
+        out.extend(window.player_list());
         out.extend(window.world(index, 0));
+        out.push(Message::Shared(Arc::clone(&shared.jigsaw_structure_data)));
         out.push(Message::Shared(Arc::clone(&shared.voxel_shapes)));
         let op = ops.contains(&session);
         let start = hook::start_game(starts, start_game(settings, shared, world, player, op));
         out.push(Message::Packet(Packet::StartGame(Box::new(start))));
+        out.push(Message::Shared(Arc::clone(&shared.actor_properties)));
         out.push(Message::Shared(Arc::clone(&shared.item_registry)));
     }
     if let Some(answer) = player.pending.radius {
         if answer.first {
             let commands = command::available_commands(commands, session, player);
-            spawn_window(settings, shared, player, window, commands, &mut out);
+            spawn_window(settings, shared, world, player, window, commands, &mut out);
         }
         out.push(Message::Packet(Packet::ChunkRadiusUpdated(
             ChunkRadiusUpdated {
                 chunk_radius: i32::from(answer.radius),
             },
         )));
+    }
+    // A spawn window sent now has the inventory already.
+    if player.pending.creative && player.pending.radius.is_none_or(|a| !a.first) {
+        out.extend(shared.creative(player));
     }
     out.extend(
         view::packets(world, player, encoded)
@@ -533,11 +592,13 @@ fn messages(
 }
 
 /// The packets BDS sends between the chunk radius request and the chunks (m7-facts.md 7), with
-/// the player's `AvailableCommands`, but for the camera presets and the sound and structure
-/// packets Anchor never sends (deferred.txt).
+/// the player's `AvailableCommands`, but for the spawn sound Anchor never sends (deferred.txt).
+/// BDS sends the entity data and the structure feature with its first chunks; the chunk packets
+/// leave the order of the others as it is.
 fn spawn_window(
     settings: &Settings,
     shared: &Shared,
+    world: &World,
     player: &Player,
     window: &Window,
     commands: Packet,
@@ -553,23 +614,25 @@ fn spawn_window(
     })));
     out.extend(window.world(index, 1));
     out.push(packet(Packet::SetDifficulty(SetDifficulty {
-        difficulty: difficulty_id(settings.difficulty).cast_unsigned(),
+        difficulty: difficulty_id(super::world_api::difficulty_of(settings, world)).cast_unsigned(),
     })));
     out.push(packet(Packet::SetCommandsEnabled(SetCommandsEnabled {
         enabled: true,
     })));
+    out.extend(super::weather::joined(world.weather()).map(packet));
     out.push(packet(survival::adventure_settings()));
     let abilities = survival::update_abilities(settings, player);
     out.push(packet(abilities.clone()));
     out.push(packet(survival::game_rules(settings)));
-    out.push(window.player_list());
+    out.extend(window.player_list());
     out.push(packet(abilities));
     out.push(Message::Shared(Arc::clone(&shared.biome_definitions)));
     out.push(Message::Shared(Arc::clone(&shared.actor_identifiers)));
     out.push(packet(Packet::PlayerFog(PlayerFog { stack: Vec::new() })));
+    out.push(Message::Shared(Arc::clone(&shared.camera)));
     let attributes = survival::all_attributes(player);
     out.push(packet(attributes.clone()));
-    out.push(Message::Shared(Arc::clone(&shared.creative_content)));
+    out.extend(shared.creative(player));
     out.push(Message::Shared(Arc::clone(&shared.trim_data)));
     let mut inventory = Vec::new();
     inventory::spawn_packets(player, &mut inventory);
@@ -594,6 +657,12 @@ fn spawn_window(
         entity_properties: EntityProperties::default(),
         tick: 0,
     })));
+    // The structure the player is in: none, as Anchor generates no vanilla structures.
+    out.push(packet(Packet::CurrentStructureFeature(
+        CurrentStructureFeature {
+            current_feature: String::new(),
+        },
+    )));
     out.push(packet(attributes));
 }
 
@@ -626,14 +695,14 @@ fn list_entry(player: &Player) -> PlayerListEntry {
 }
 
 /// Adds a placed player to the list of every other placed player (their own windows, if they are
-/// placed this tick too, list everyone).
+/// placed this tick too, list everyone), its skin held once for all of them.
 fn announce(state: &mut State, player: &Player) {
-    let packet = Packet::PlayerList(PlayerList {
+    let packet = Arc::new(Packet::PlayerList(PlayerList {
         entries: vec![list_entry(player)],
-    });
+    }));
     for p in state.players.values_mut() {
         if p.phase != Phase::Loading && !p.pending.start_game {
-            p.send_packet(packet.clone());
+            p.send_shared(Arc::clone(&packet));
         }
     }
 }
@@ -757,6 +826,7 @@ fn enter(
         position: Vec3::ZERO,
         data_dirty: false,
         chunk_radius: None,
+        asked_radius: None,
         phase: Phase::Loading,
         view: view::View::default(),
         outbound,
@@ -769,6 +839,7 @@ fn enter(
         shared_outbox: Vec::new(),
         overflowed: false,
         marks: super::player::Marks::default(),
+        presence: super::player::Presence::default(),
     };
     let op = super::Context { state: &mut *state }.is_op(&player.identity.name);
     player.survival.set_operator(op);
@@ -790,7 +861,7 @@ fn enter(
 }
 
 /// Puts a player into its saved world and position, or the default world's spawn if it has none
-/// (a new player, a world no longer configured, a position outside the world border), hands its
+/// (a new player, a world not loaded, a position outside the world border), hands its
 /// saved extra to the rule modules ([`extra::player_loaded`]), marks the start-game packets and
 /// adds it to the other players' lists.
 fn place(state: &mut State, player: &mut Player, data: Option<PlayerData>) {
@@ -799,11 +870,17 @@ fn place(state: &mut State, player: &mut Player, data: Option<PlayerData>) {
         inventory::load(&mut player.inventory, player.extra.raw(), &state.custom);
         inventory::restore(&mut player.inventory);
         survival::load(&mut player.survival, player.extra.raw(), &state.custom);
-        let world = state.worlds.iter().position(|w| w.name() == d.world)?;
+        let world = state.catalog.named(&d.world)?;
+        state.catalog.is_loaded(world).then_some(())?;
         Some((world, tick_position(d.position)?))
     });
     super::task::placed(&state.data, &mut player.extra);
-    let (world, position) = saved.unwrap_or_else(|| (0, spawn_position(state.worlds.first())));
+    let history = survival::load_played(player.extra.raw());
+    let join_ms = player.identity.client.join_time_ms;
+    player.presence.place(history, join_ms, state.tick);
+    let default = state.catalog.default_world();
+    let (world, position) =
+        saved.unwrap_or_else(|| (default, spawn_position(state.worlds.get(default))));
     player.world = world;
     player.position = position;
     player.phase = Phase::Joined;
@@ -1013,11 +1090,12 @@ pub(super) fn request_chunk_radius(
         );
         return;
     }
-    let view_distance = state.settings.view_distance;
-    let radius = u8::try_from(request.chunk_radius).map_or(view_distance, |r| r.min(view_distance));
     let Some(mut player) = state.players.remove(&session) else {
         return;
     };
+    let view_distance = state.settings.view(player.world).view_distance;
+    let asked = u8::try_from(request.chunk_radius).unwrap_or(u8::MAX);
+    let radius = asked.min(view_distance);
     let mut changed = None;
     if player.phase == Phase::Loading {
         debug!(
@@ -1025,6 +1103,7 @@ pub(super) fn request_chunk_radius(
             "chunk radius before the player data ignored"
         );
     } else {
+        player.asked_radius = Some(asked);
         let old = grant_radius(state, &mut player, radius);
         if old != Some(radius) {
             changed = Some(old);
@@ -1047,7 +1126,7 @@ pub(super) fn request_chunk_radius(
 /// Grants `radius` to `player`, taken out of the player table and past loading: the view opens
 /// or resizes, and the output phase sends the radius (the first time with the spawn window).
 /// Returns the radius it had.
-fn grant_radius(state: &mut State, player: &mut Player, radius: u8) -> Option<u8> {
+pub(super) fn grant_radius(state: &mut State, player: &mut Player, radius: u8) -> Option<u8> {
     let earlier = player.pending.radius.unwrap_or_default();
     player.pending.radius = Some(RadiusAnswer {
         radius,
@@ -1063,19 +1142,23 @@ fn grant_radius(state: &mut State, player: &mut Player, radius: u8) -> Option<u8
 
 impl super::Context<'_> {
     /// Sets the chunk radius `player` sees (PMMP `Player::setViewDistance`), kept from 1 to
-    /// `view-distance`: its view grows or shrinks at once, and its client is told the radius at
-    /// the end of the tick. The client asks again when its own setting changes, and that request
-    /// wins. A direct call: it raises no [`PlayerViewDistanceChange`] (PLAN.md 8.2).
+    /// the `view-distance` of its world: its view grows or shrinks at once, and its client is
+    /// told the radius at the end of the tick. A world the player goes to later grants the
+    /// radius set here up to its own `view-distance`. The client asks again when its own
+    /// setting changes, and that request wins. A direct call: it raises no
+    /// [`PlayerViewDistanceChange`] (PLAN.md 8.2).
     ///
     /// Returns the radius set; `None`, changing nothing, if the player is not in the game or its
     /// client has not asked for a radius yet (the first answer opens the spawn window).
     #[doc(alias = "Player::setViewDistance")]
     pub fn set_view_distance(&mut self, player: player::Id, distance: u8) -> Option<u8> {
         let session = player.session();
-        let radius = distance.min(self.state.settings.view_distance).max(1);
         let mut p = self.state.players.remove(&session)?;
+        let view_distance = self.state.settings.view(p.world).view_distance;
+        let radius = distance.min(view_distance).max(1);
         let ready = p.phase != Phase::Loading && p.chunk_radius.is_some();
         if ready {
+            p.asked_radius = Some(distance.max(1));
             grant_radius(self.state, &mut p, radius);
         }
         self.state.players.insert(session, p);
@@ -1119,16 +1202,10 @@ pub(super) fn initialised(
     joined(state, session);
 }
 
-/// The translation key of the join message (PMMP `KnownTranslationFactory::
-/// multiplayer_player_joined` with its yellow prefix): BDS sends it the same, as a translated
-/// `Text` with the name (P6 duplicate capture).
+/// The join message, BDS's yellow "joined the game" line: BDS sends it as a translated `Text`
+/// with the name (P6 duplicate capture). Listeners see this key; a message left at it is sent so,
+/// any other as it is (like [`LEFT`](super::player::LEFT)).
 const JOINED_KEY: &str = "\u{a7}e%multiplayer.player.joined";
-
-/// The join message as listeners see it: the English text of [`JOINED_KEY`]. Left unchanged,
-/// the client gets the translation instead.
-fn join_text(name: &str) -> String {
-    format!("\u{a7}e{name} joined the game")
-}
 
 /// The player of `session` spawned (PMMP `Player::doFirstSpawn`): [`PlayerJoin`] may change the
 /// join message, which every other player in the game then sees (BDS sends it to the others
@@ -1148,16 +1225,15 @@ fn joined(state: &mut State, session: SessionId) {
     };
     let mut event = None;
     let message = if dispatch::heard::<PlayerJoin>(state) {
-        let default = join_text(&name);
         let e = event.insert(PlayerJoin {
             player: player::Id::new(session),
-            join_message: default.clone(),
+            join_message: JOINED_KEY.to_owned(),
         });
         dispatch::call(state, e);
         let still = state.players.get(&session).is_some_and(Player::is_online);
         if !still || e.join_message.is_empty() {
             None
-        } else if e.join_message == default {
+        } else if e.join_message == JOINED_KEY {
             Some(translated(name))
         } else {
             Some(Text::Raw(e.join_message.clone()))
@@ -1217,11 +1293,12 @@ fn start_game(
     op: bool,
 ) -> StartGame {
     let game_mode = survival::game_mode_id(settings.game_mode);
-    let difficulty = difficulty_id(settings.difficulty);
+    let difficulty = difficulty_id(super::world_api::difficulty_of(settings, world));
     // BDS sends 5 (the world's mode) for a player without its own mode (P6).
     let player_game_mode = survival::own_game_mode(settings, player)
         .map_or(PLAYER_GAME_MODE_WORLD, survival::game_mode_id);
     let spawn = world.spawn();
+    let (rain_level, lightning_level) = super::weather::levels(world.weather());
     StartGame {
         // Runtime IDs stay far below 2^63; the unique ID reuses it like most servers.
         entity_unique_id: i64::try_from(player.runtime_id).unwrap_or(i64::MAX),
@@ -1245,7 +1322,7 @@ fn start_game(
         } else {
             PERMISSION_MEMBER
         },
-        server_chunk_tick_radius: i32::from(settings.tick_radius),
+        server_chunk_tick_radius: i32::from(settings.view(player.world).tick_radius),
         // BDS sends "*" (P6): any base game version.
         base_game_version: "*".to_owned(),
         world_name: settings.motd.clone(),
@@ -1262,7 +1339,10 @@ fn start_game(
         // data-driven blocks are not PMMP blocks (PLAN.md 7).
         blocks: shared.blocks.to_vec(),
         // PMMP `PreSpawnPacketHandler`: the world's time, so the day cycle starts where it is.
-        time: world.time(),
+        time: world.time_ticks(),
+        day_cycle_lock_time: survival::day_cycle_lock_time(settings, world.time_ticks()),
+        rain_level,
+        lightning_level,
         ..StartGame::default()
     }
 }
@@ -1397,6 +1477,43 @@ mod tests {
         assert_eq!(crate::protocol::skin_validate(skin), None);
     }
 
+    #[test]
+    fn a_player_list_longer_than_a_client_takes_goes_in_several_packets() {
+        use super::super::tests::{join, new_state, radius, received, settings, tick};
+        use crate::event::Listeners;
+
+        let count = PLAYER_LIST_ENTRIES_MAX_LEN + 1;
+        let players = u32::try_from(count).unwrap();
+        let mut state = new_state(
+            settings(|c| c.general.max_players = players),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (mut joins, mut queues): (Vec<_>, Vec<_>) = (1..=u64::try_from(count).unwrap())
+            .map(|s| join(s, 0))
+            .unzip();
+        tick(&mut state, &mut joins, &mut output);
+        tick(&mut state, &mut vec![radius(1, 1, 1)], &mut output);
+        let lists: Vec<usize> = received(&mut queues[0])
+            .0
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::PlayerList(l) => Some(l.entries.len()),
+                _ => None,
+            })
+            .collect();
+        // The start-game list and the spawn window's, each of every placed player.
+        assert_eq!(
+            lists,
+            [
+                PLAYER_LIST_ENTRIES_MAX_LEN,
+                1,
+                PLAYER_LIST_ENTRIES_MAX_LEN,
+                1
+            ]
+        );
+    }
+
     /// The login, join, duplicate login and view distance events (PLAN.md 10.8 판정식 "이벤트").
     mod events {
         use std::cell::Cell;
@@ -1472,6 +1589,7 @@ mod tests {
                 skin: crate::tick::queue::Skin::default(),
                 device_os: -1,
                 address,
+                client: crate::tick::queue::Client::default(),
             }
         }
 
@@ -1531,7 +1649,7 @@ mod tests {
             let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
                 panic!("a refused join ends with a Disconnect");
             };
-            assert_eq!(d.message, "You are banned from this server");
+            assert_eq!(d.message, "This server has banned you");
             assert_eq!(state.players.len(), 1);
             Context { state: &mut state }.pardon("banned");
             let (j, mut rx) = join_as(3, identity("Banned", address));
@@ -1598,7 +1716,7 @@ mod tests {
             let Some(Packet::Disconnect(d)) = received(&mut rx).1 else {
                 panic!("a refused join ends with a Disconnect");
             };
-            assert_eq!(d.message, "You are banned from this server. Reason: spam");
+            assert_eq!(d.message, "This server has banned you: spam");
             assert!(state.players.is_empty());
         }
 
@@ -1681,7 +1799,7 @@ mod tests {
                 texts(&mut first);
                 logged();
                 let _second = spawn(&mut state, 2);
-                assert_eq!(logged(), ["\u{a7}eplayer2 joined the game", "monitor true"]);
+                assert_eq!(logged(), [JOINED_KEY, "monitor true"]);
                 assert_eq!(texts(&mut first), expected);
             }
         }

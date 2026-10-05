@@ -14,9 +14,9 @@ use crate::display::{
     BossBar, Error, Holder, MAX_LINES, MAX_SIDEBAR_LINES, MAX_TEXT, Result, Scoreboard, Slot, Sort,
 };
 use crate::player;
-use crate::protocol::ScoreboardEntry;
 use crate::protocol::consts::{BossEventType, ScoreboardIdentity};
 use crate::protocol::packet::{BossEvent, Packet, RemoveObjective, SetDisplayObjective, SetScore};
+use crate::protocol::{BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN, ScoreboardEntry};
 
 /// Colour codes that fill empty text lines, so that each is its own blank line (dragonfly).
 const BLANKS: [&str; 15] = [
@@ -55,6 +55,18 @@ enum Who {
     /// A player, by unique ID.
     Player(i64),
 }
+
+crate::tick::checkpoint::fields!(Shown { boards, bar });
+crate::tick::checkpoint::fields!(Board {
+    title,
+    sort,
+    entries
+});
+crate::tick::checkpoint::fields!(Entry { id, who, score });
+crate::tick::checkpoint::variants!(Who {
+    0 => Text(text),
+    1 => Player(unique_id),
+});
 
 impl Shown {
     #[cfg(test)]
@@ -257,9 +269,9 @@ impl Context<'_> {
     /// title or progress updates the bar, a new colour shows it again.
     ///
     /// Fails, changing nothing, if the player is not in the game or the title is longer than
-    /// 1,024 bytes.
+    /// 256 bytes.
     pub fn set_boss_bar(&mut self, player: player::Id, bar: BossBar) -> Result<()> {
-        if bar.title.len() > MAX_TEXT {
+        if bar.title.len() > BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN {
             return Err(Error::TooLong);
         }
         let (p, open) = open(self.state, player).ok_or(Error::Offline)?;

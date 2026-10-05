@@ -336,7 +336,7 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
         run(state, output, &mut s, Vec::new());
     }
 
-    // The block entities break: one chest with items spills them; the rest drop nothing.
+    // The block entities break: one chest with items spills them.
     state
         .rules
         .block_entities
@@ -344,11 +344,7 @@ fn cycle(state: &mut State, output: &mut Output, n: u64) {
         .unwrap()
         .items[0] = stick;
     for (i, kind) in WINDOWS.into_iter().enumerate() {
-        let cause = if i == 0 {
-            interact::Destroy::Rules
-        } else {
-            interact::Destroy::NoDrops
-        };
+        let cause = interact::Destroy::Rules;
         assert!(interact::destroy(state, 0, spot(i), cause), "{kind:?}");
     }
     for _ in 0..10 {

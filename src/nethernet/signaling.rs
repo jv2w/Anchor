@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::{self, Read};
+use std::io;
 use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -144,27 +144,20 @@ pub(crate) fn load_tls(cert: &Path, key: &Path) -> Result<Arc<rustls::ServerConf
     Ok(Arc::new(config))
 }
 
-/// Reads up to [`MAX_PEM_BYTES`] of `path`.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: read once at start on the blocking pool"
-)]
+/// Reads at most [`MAX_PEM_BYTES`] of `path`.
 fn read_pem(path: &Path) -> Result<Vec<u8>> {
-    let read = |source| Error::Read {
-        path: path.to_owned(),
-        source,
-    };
-    let file = std::fs::File::open(path).map_err(read)?;
-    let mut bytes = Vec::new();
-    file.take(MAX_PEM_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(read)?;
-    if u64::try_from(bytes.len()).map_or(true, |len| len > MAX_PEM_BYTES) {
-        return Err(Error::TooLarge {
-            path: path.to_owned(),
-        });
-    }
-    Ok(bytes)
+    crate::fs::read_bounded(path, MAX_PEM_BYTES).map_err(|source| {
+        if source.kind() == io::ErrorKind::FileTooLarge {
+            Error::TooLarge {
+                path: path.to_owned(),
+            }
+        } else {
+            Error::Read {
+                path: path.to_owned(),
+                source,
+            }
+        }
+    })
 }
 
 /// Socket settings for `spawn`.
@@ -567,7 +560,7 @@ impl Status {
         match self {
             Self::Ok => "OK",
             Self::BadRequest => "Bad Request",
-            Self::BadNetworkId => "Expected /v1/join/{networkId}",
+            Self::BadNetworkId => "Bad Request: the path needs a network ID",
             Self::NotFound => "Not Found",
             Self::PayloadTooLarge => "Payload Too Large",
             Self::HeaderFieldsTooLarge => "Request Header Fields Too Large",
@@ -1076,6 +1069,10 @@ mod tests {
         read_all(&mut stream).await
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test client reads the whole reply of the server under test"
+    )]
     async fn read_all<S: AsyncRead + Unpin>(stream: &mut S) -> Vec<u8> {
         let mut response = Vec::new();
         tokio::time::timeout(WAIT, stream.read_to_end(&mut response))
@@ -1166,7 +1163,7 @@ mod tests {
             3;ext=1\r\noff\r\n2\r\ner\r\n0\r\nTrailer: x\r\n\r\n";
         assert_eq!(send(addr, chunked).await, sdp("answer to offer"));
 
-        let bad_id = text("400 Expected /v1/join/{networkId}");
+        let bad_id = text("400 Bad Request: the path needs a network ID");
         for id in ["", "abc", "+1", "-1", "1a", "18446744073709551616", "1/2"] {
             assert_eq!(send(addr, &post(id, "offer")).await, bad_id, "{id}");
         }
@@ -1318,6 +1315,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: a test client reads the whole reply of the server under test"
+    )]
     fn connections_over_the_ip_limit_get_503() {
         run(async {
             let (offers, _received) = mpsc::channel(1);
@@ -1455,6 +1456,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn load_tls_refuses_bad_files() {
         let missing = testdata("missing.pem");
         let cert = testdata("cert.pem");
@@ -1464,6 +1466,15 @@ mod tests {
         // A key file holds no certificate, and a certificate file no key.
         assert!(matches!(load_tls(&key, &key), Err(Error::Pem { .. })));
         assert!(matches!(load_tls(&cert, &cert), Err(Error::Pem { .. })));
+        let huge = std::env::temp_dir().join(format!("anchor-huge-{}.pem", std::process::id()));
+        std::fs::write(
+            &huge,
+            vec![b' '; usize::try_from(MAX_PEM_BYTES).unwrap() + 1],
+        )
+        .unwrap();
+        let refused = load_tls(&huge, &key);
+        std::fs::remove_file(&huge).unwrap();
+        assert!(matches!(refused, Err(Error::TooLarge { .. })));
     }
 
     #[test]

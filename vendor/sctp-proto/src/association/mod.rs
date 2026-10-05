@@ -2433,11 +2433,23 @@ impl Association {
                         );
                     }
                 }
+            } else if self.get_my_receiver_window_credit() > 0
+                || d.tsn == self.peer_last_tsn.wrapping_add(1)
+            {
+                // RFC 4960 6.5: DATA on a stream the peer may not use is acknowledged and its
+                // data discarded (no ERROR chunk is sent). Unacknowledged, its TSN would stall
+                // the cumulative TSN for good. Only the TSN is kept, under the window rule of
+                // other DATA.
+                debug!(
+                    "[{}] discard DATA on stream {} beyond the negotiated streams",
+                    self.side, d.stream_identifier
+                );
+                self.payload_queue.push(tsn_record(d), self.peer_last_tsn);
             } else {
-                // silently discard the data. (sender will retry on T3-rtx timeout)
-                // see pion/sctp#30
-                debug!("[{}] discard {}", self.side, d.stream_sequence_number);
-                return Ok(vec![]);
+                debug!(
+                    "[{}] receive buffer full. dropping DATA with tsn={} on stream {}",
+                    self.side, d.tsn, d.stream_identifier
+                );
             }
         }
 
@@ -3062,7 +3074,7 @@ impl Association {
         // Mark selectively acknowledged chunks as "acked"
         for g in &d.gap_ack_blocks {
             for i in g.start..=g.end {
-                let tsn = d.cumulative_tsn_ack + i as u32;
+                let tsn = d.cumulative_tsn_ack.wrapping_add(u32::from(i));
 
                 let (is_existed, is_acked) = if let Some(c) = self.inflight_queue.get(tsn) {
                     (true, c.acked)
@@ -3442,8 +3454,9 @@ impl Association {
         } else if self.my_max_num_inbound_streams != 0
             && stream_identifier >= self.my_max_num_inbound_streams
         {
-            // RFC 4960 6.5: a stream the peer may not use; its DATA is discarded. Zero is no
-            // negotiated count (an INIT announcing zero streams is refused), so no limit.
+            // RFC 4960 6.5: a stream the peer may not use; `handle_data` acknowledges its DATA
+            // and discards it. Zero is no negotiated count (an INIT announcing zero streams is
+            // refused), so no limit.
             None
         } else {
             self.create_stream(

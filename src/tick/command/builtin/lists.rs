@@ -5,10 +5,7 @@
 use std::net::IpAddr;
 
 use super::super::Refusal;
-use super::{
-    DISCONNECT_KICK, DISCONNECT_KICK_NO_REASON, Msg, announce, infallible, kick, name_of,
-    player_name, tell, usage,
-};
+use super::{Msg, announce, infallible, kick, name_of, player_name, tell, usage};
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
 use crate::permission::{self, BanEntry};
 use crate::tick::Context;
@@ -16,79 +13,67 @@ use crate::tick::Context;
 /// Adds the commands of this module.
 pub(super) fn add(commands: &mut Vec<Command>) {
     commands.extend([
-        Command::new(
-            "ban",
-            "Prevents the specified player from using this server",
-        )
-        .permission(permission::COMMAND_BAN_PLAYER)
-        .overload(
-            &[Param::string("name"), Param::message("reason").optional()],
-            ban,
-        ),
-        Command::new(
-            "ban-ip",
-            "Prevents the specified IP address from using this server",
-        )
-        .permission(permission::COMMAND_BAN_IP)
-        .overload(
-            &[
-                Param::string("address"),
-                Param::message("reason").optional(),
-            ],
-            ban_ip,
-        ),
-        Command::new("banlist", "View all players banned from this server")
+        Command::new("ban", "commands.ban.description")
+            .permission(permission::COMMAND_BAN_PLAYER)
+            .overload(
+                &[Param::string("name"), Param::message("reason").optional()],
+                ban,
+            ),
+        Command::new("ban-ip", "commands.banip.description")
+            .permission(permission::COMMAND_BAN_IP)
+            .overload(
+                &[
+                    Param::string("address"),
+                    Param::message("reason").optional(),
+                ],
+                ban_ip,
+            ),
+        Command::new("banlist", "Shows the banned names and addresses")
             .permission(permission::COMMAND_BAN_LIST)
             .overload(
                 &[Param::enumeration("type", "BanListType", &["ips", "players"]).optional()],
                 infallible(banlist),
             ),
-        Command::new("pardon", "Allows the specified player to use this server")
+        Command::new("pardon", "Lifts the ban on a name")
             .alias("unban")
             .permission(permission::COMMAND_UNBAN_PLAYER)
             .overload(&[Param::string("name")], infallible(pardon)),
-        Command::new(
-            "pardon-ip",
-            "Allows the specified IP address to use this server",
-        )
-        .alias("unban-ip")
-        .permission(permission::COMMAND_UNBAN_IP)
-        .overload(&[Param::string("address")], pardon_ip),
-        Command::new("op", "Gives the specified player operator status")
+        Command::new("pardon-ip", "Lifts the ban on an IP address")
+            .alias("unban-ip")
+            .permission(permission::COMMAND_UNBAN_IP)
+            .overload(&[Param::string("address")], pardon_ip),
+        Command::new("op", "commands.op.description")
             .permission(permission::COMMAND_OP_GIVE)
             .overload(&[Param::string("player")], op),
-        Command::new("deop", "Takes the specified player's operator status")
+        Command::new("deop", "commands.deop.description")
             .permission(permission::COMMAND_OP_TAKE)
             .overload(&[Param::string("player")], deop),
-        Command::new(
-            "whitelist",
-            "Manages the list of players allowed to use this server",
-        )
-        .permission(permission::COMMAND_WHITELIST_ENABLE)
-        .permission(permission::COMMAND_WHITELIST_DISABLE)
-        .permission(permission::COMMAND_WHITELIST_LIST)
-        .permission(permission::COMMAND_WHITELIST_ADD)
-        .permission(permission::COMMAND_WHITELIST_REMOVE)
-        .overload(
-            &[Param::enumeration(
-                "action",
-                "WhitelistAction",
-                &["on", "off", "list"],
-            )],
-            whitelist,
-        )
-        .overload(
-            &[
-                Param::enumeration("action", "WhitelistEdit", &["add", "remove"]),
-                Param::string("player"),
-            ],
-            whitelist,
-        ),
-        Command::new("kick", "Removes the specified player from the server")
+        Command::new("whitelist", "commands.allowlist.description")
+            .permission(permission::COMMAND_WHITELIST_ENABLE)
+            .permission(permission::COMMAND_WHITELIST_DISABLE)
+            .permission(permission::COMMAND_WHITELIST_LIST)
+            .permission(permission::COMMAND_WHITELIST_ADD)
+            .permission(permission::COMMAND_WHITELIST_REMOVE)
+            .overload(
+                &[Param::enumeration(
+                    "action",
+                    "WhitelistAction",
+                    &["on", "off", "list"],
+                )],
+                whitelist,
+            )
+            .overload(
+                &[
+                    Param::enumeration("action", "WhitelistEdit", &["add", "remove"]),
+                    Param::string("player"),
+                ],
+                whitelist,
+            ),
+        Command::new("kick", "commands.kick.description")
             .permission(permission::COMMAND_KICK)
             .overload(
                 &[Param::target("player"), Param::message("reason").optional()],
-                infallible(kick_command),
+                kick_command,
             ),
     ]);
 }
@@ -106,15 +91,18 @@ const OP_MESSAGE: Msg = Msg::client("commands.op.message");
 const OP_SUCCESS: Msg = Msg::client("commands.op.success");
 const DEOP_MESSAGE: Msg = Msg::client("commands.deop.message");
 const DEOP_SUCCESS: Msg = Msg::client("commands.deop.success");
-const WHITELIST_ENABLED: Msg = Msg::client("commands.whitelist.enabled");
-const WHITELIST_DISABLED: Msg = Msg::client("commands.whitelist.disabled");
-const WHITELIST_LIST: Msg = Msg::client("commands.whitelist.list");
-const WHITELIST_ADD_SUCCESS: Msg = Msg::client("commands.whitelist.add.success");
-const WHITELIST_REMOVE_SUCCESS: Msg = Msg::client("commands.whitelist.remove.success");
+// The client names the whitelist "allowlist": it has no `commands.whitelist.*` keys.
+const WHITELIST_ENABLED: Msg = Msg::client("commands.allowlist.enabled");
+const WHITELIST_DISABLED: Msg = Msg::client("commands.allowlist.disabled");
+const WHITELIST_LIST: Msg = Msg::client("commands.allowlist.list");
+const WHITELIST_ADD_SUCCESS: Msg = Msg::client("commands.allowlist.add.success");
+const WHITELIST_REMOVE_SUCCESS: Msg = Msg::client("commands.allowlist.remove.success");
 const KICK_SUCCESS: Msg = Msg::client("commands.kick.success");
 const KICK_SUCCESS_REASON: Msg = Msg::client("commands.kick.success.reason");
-/// What an operator sees when its status changes (PMMP: gray).
-const OP_CHANGE_PREFIX: &str = "§7";
+/// What an operator sees when its status changes: aqua.
+const OP_CHANGE_PREFIX: &str = "§b";
+/// What a player kicked without a reason sees: the client's "kicked" text.
+const KICKED: &str = "disconnect.kicked";
 /// The most names `/banlist` and `/whitelist list` show (PMMP shows every one, and a list may
 /// hold 262,144); the others are counted in a last line.
 const MAX_LISTED: usize = 100;
@@ -134,7 +122,7 @@ fn ban(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         .map_err(list_error)?;
     let shown = match cx.player_exact(name) {
         Some(id) => {
-            kick(cx, id, &Refusal::Banned(reason.to_owned()).message());
+            kick(cx, id, &Refusal::Banned(reason.to_owned()).message())?;
             player_name(cx, id)
         }
         None => name.to_owned(),
@@ -169,7 +157,7 @@ fn ban_ip(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
         .map(crate::player::Player::id)
         .collect();
     for id in at_address {
-        kick(cx, id, &message);
+        kick(cx, id, &message)?;
     }
     let ip = ip.to_string();
     Ok(match owner {
@@ -268,13 +256,6 @@ fn deop(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     Ok(announce(cx, *sender, DEOP_SUCCESS, &[name]))
 }
 
-/// The text a player sees when the whitelist leaves it out.
-fn not_whitelisted() -> String {
-    DISCONNECT_KICK
-        .render(&[&Refusal::NotWhitelisted.message()])
-        .unwrap_or_default()
-}
-
 /// `/whitelist on|off|list` and `/whitelist add|remove <player>` (PMMP `WhitelistCommand`).
 /// Turning it on kicks the online players it leaves out; removing a player kicks it unless it is
 /// an operator. Each action has its own permission. PMMP's `reload` is left out: the whitelist
@@ -298,9 +279,9 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
                 .filter(|p| !cx.is_whitelisted(p.name()))
                 .map(crate::player::Player::id)
                 .collect();
-            let message = not_whitelisted();
+            let message = Refusal::NotWhitelisted.message();
             for id in left_out {
-                kick(cx, id, &message);
+                kick(cx, id, &message)?;
             }
             Ok(announce(cx, *sender, WHITELIST_ENABLED, &[]))
         }
@@ -326,26 +307,23 @@ fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outpu
             if !cx.is_whitelisted(name)
                 && let Some(id) = cx.player_exact(name)
             {
-                kick(cx, id, &not_whitelisted());
+                kick(cx, id, &Refusal::NotWhitelisted.message())?;
             }
             Ok(announce(cx, *sender, WHITELIST_REMOVE_SUCCESS, &[name]))
         }
     }
 }
 
-/// `/kick <player> [reason]`: disconnects the players with PMMP's kick text (PMMP `KickCommand`).
-fn kick_command(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Output {
+/// `/kick <player> [reason]` (PMMP `KickCommand`): disconnects the players showing the reason as
+/// it is, as BDS's kick does, or the client's "kicked" text without one. The success line comes
+/// before the [`PlayerKick`](crate::event::PlayerKick) listeners decide, as in PMMP.
+fn kick_command(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let reason = args.string("reason").unwrap_or_default().trim();
-    let text = if reason.is_empty() {
-        DISCONNECT_KICK_NO_REASON.render(&[])
-    } else {
-        DISCONNECT_KICK.render(&[reason])
-    }
-    .unwrap_or_default();
+    let text = if reason.is_empty() { KICKED } else { reason };
     let mut out = Output::new();
     for &id in args.targets("player").unwrap_or_default() {
         let name = player_name(cx, id);
-        kick(cx, id, &text);
+        kick(cx, id, text)?;
         let line = if reason.is_empty() {
             announce(cx, *sender, KICK_SUCCESS, &[&name])
         } else {
@@ -353,5 +331,5 @@ fn kick_command(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Output {
         };
         out.lines.extend(line.lines);
     }
-    out
+    Ok(out)
 }

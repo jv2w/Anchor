@@ -68,7 +68,7 @@ pub(in crate::tick) struct Step {
     /// The fuel item that started burning (BDS `LastFuel`).
     pub(in crate::tick) fuel: Option<Stack>,
     /// The `ContainerSetData` values that changed: key and value.
-    pub(in crate::tick) data: Vec<(i32, i32)>,
+    pub(in crate::tick) data: super::DataChanges,
     /// Whether the furnace needs another tick (PMMP `onUpdate`'s return value).
     pub(in crate::tick) active: bool,
 }
@@ -165,7 +165,7 @@ impl Furnace {
             self.burn(items, time, true, &mut t);
         }
         if let Some((_, result)) = self.cook(items, custom, &mut t) {
-            self.smelt(items, &result, rng, &mut t);
+            self.smelt(items, &result, Some(rng), &mut t);
         }
         self.finish(t)
     }
@@ -202,7 +202,7 @@ impl Furnace {
         custom: &Registry,
     ) -> Option<(Stack, u16)> {
         let fuel = items.get(FUEL).cloned().unwrap_or_default();
-        let time = fuel.item().map_or(0, crate::item::Type::fuel_time);
+        let time = fuel.item().map_or(0, crate::item::Type::fuel_time_ticks);
         (self.burn == 0 && time > 0 && fuel.count() > 0 && self.ready(items, custom).is_some())
             .then(|| (fuel.with_count(1), time))
     }
@@ -274,12 +274,13 @@ impl Furnace {
                 <= u16::from(result.max_count())
     }
 
-    /// Smelts one input into `result` (which [`fits`](Self::fits)) and stores its experience.
+    /// Smelts one input into `result` (which [`fits`](Self::fits)) and stores its experience,
+    /// drawn from `experience` (`None` with `experience = false`: nothing is stored).
     pub(in crate::tick) fn smelt(
         &mut self,
         items: &mut [Stack],
         result: &Stack,
-        rng: &mut Random,
+        experience: Option<&mut Random>,
         t: &mut Tick,
     ) {
         let raw = items.get(INPUT).cloned().unwrap_or_default();
@@ -292,7 +293,9 @@ impl Furnace {
             raw.with_count(raw.count().saturating_sub(1)),
             &mut t.out,
         );
-        self.xp = self.xp.saturating_add(earned(result, rng));
+        if let Some(rng) = experience {
+            self.xp = self.xp.saturating_add(earned(result, rng));
+        }
     }
 
     /// Ends a tick: what it did, with the window data that changed.
@@ -308,7 +311,7 @@ impl Furnace {
             (DATA_MAX_BURN, prev_max, self.max_burn),
         ] {
             if before != now {
-                out.data.push((key, i32::from(now)));
+                out.data.push(key, i32::from(now));
             }
         }
         out

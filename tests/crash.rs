@@ -1,6 +1,8 @@
 //! Forced shutdown (PLAN.md 10.6 판정식): a server that keeps moving one block and saving is killed
-//! at random moments, again and again; every restart must find an undamaged world file whose last
-//! commit holds the block exactly once, where that commit's tick put it.
+//! a random number of ticks after its first commit (counted from its reports, never in wall-clock
+//! time), during a later commit or between two, again and again; every restart must find an
+//! undamaged world file whose last commit is newer than the last restart's and holds the block
+//! exactly once, where that commit's tick put it.
 //!
 //! The test runs its own test binary as the server process (`crash_child`) and kills only that
 //! child, through its process handle.
@@ -15,6 +17,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use anchor::block::State;
+use anchor::event::WorldSave;
 use anchor::world::{BlockPos, ChunkPos, World};
 use anchor::{Config, Context, Server};
 
@@ -22,7 +25,7 @@ use anchor::{Config, Context, Server};
 const DATA_ENV: &str = "ANCHOR_CRASH_DATA";
 /// The child's environment variable: `run` keeps moving the block, `check` only reports.
 const MODE_ENV: &str = "ANCHOR_CRASH_MODE";
-/// The prefix of the child's report line.
+/// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-CRASH";
 /// Kills, each followed by a restart that checks the file.
 const KILLS: u32 = 50;
@@ -42,19 +45,15 @@ fn gold() -> State {
     State::find("minecraft:gold_block", &[]).unwrap()
 }
 
-/// Settings that run without the network beyond loopback.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: the test finds free ports"
-)]
+/// Settings that run without the network beyond loopback. Port 0 lets the system pick every port
+/// at bind time: nothing connects, and a port picked earlier and released could be taken by
+/// another process first.
 fn local_config() -> Config {
-    let free = || std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("free port");
-    let (raknet, nethernet) = (free(), free());
     let mut config = Config::default();
     config.general.xbox_auth = false;
     config.general.enable_ipv6 = false;
-    config.general.server_port = raknet.local_addr().expect("local address").port();
-    config.general.nethernet_port = nethernet.local_addr().expect("local address").port();
+    config.general.server_port = 0;
+    config.general.nethernet_port = 0;
     config.developer.console_input = false;
     config
 }
@@ -87,8 +86,14 @@ struct Mover {
 impl Mover {
     #[expect(
         clippy::print_stdout,
-        reason = "the child reports to the parent on standard output"
+        clippy::disallowed_methods,
+        reason = "consistency: the child reports to the parent on standard output"
     )]
+    fn report(line: &str) {
+        println!("{REPORT} {line}");
+        std::io::stdout().flush().unwrap();
+    }
+
     fn tick(&mut self, ctx: &mut Context<'_>, stop: &anchor::ShutdownHandle) {
         let start = *self.start.get_or_insert(ctx.tick());
         if ctx.tick() > start + CHILD_TICKS {
@@ -107,8 +112,7 @@ impl Mover {
                 return;
             };
             let list: Vec<String> = found.iter().map(|p| format!("{},{}", p.x, p.z)).collect();
-            println!("{REPORT} start={start} golds={}", list.join(";"));
-            std::io::stdout().flush().unwrap();
+            Self::report(&format!("start={start} golds={}", list.join(";")));
             self.at = found.first().copied();
             self.checked = true;
             if !self.moves {
@@ -129,6 +133,7 @@ impl Mover {
         }
         world.set_block(next, gold()).unwrap();
         self.at = Some(next);
+        Self::report(&format!("tick={}", ctx.tick()));
         if ctx.tick().is_multiple_of(3) {
             ctx.save();
         }
@@ -161,13 +166,15 @@ fn crash_child() {
             let stop = stop.get_or_insert_with(|| handle_rx.recv().unwrap());
             mover.tick(ctx, stop);
         })
+        // The parent times its kill from the commits.
+        .monitor(|_: &WorldSave, _| Mover::report("committed"))
         .build()
         .unwrap();
     handle_tx.send(server.shutdown_handle()).unwrap();
     server.run().unwrap();
 }
 
-/// A started child and its report lines.
+/// A started child and its report lines (the text after the prefix).
 struct Running {
     child: Child,
     lines: mpsc::Receiver<String>,
@@ -196,7 +203,12 @@ fn start(data: &Path, mode: &str) -> Running {
     let (tx, lines) = mpsc::channel();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if tx.send(line).is_err() {
+            // libtest writes the test's name first on the same line.
+            if let Some(rest) = line
+                .find(REPORT)
+                .and_then(|at| line.get(at + REPORT.len()..))
+                && tx.send(rest.trim().to_owned()).is_err()
+            {
                 break;
             }
         }
@@ -204,47 +216,28 @@ fn start(data: &Path, mode: &str) -> Running {
     Running { child, lines }
 }
 
-/// The child's report: the tick of the commit it started from and the gold blocks found.
+/// The child's first report: the tick of the commit it started from and the gold blocks found.
 fn report(server: &mut Running) -> (u64, Vec<(i32, i32)>) {
-    loop {
-        let line = server
-            .lines
-            .recv_timeout(Duration::from_secs(120))
-            .unwrap_or_else(|_| {
-                let status = server.child.try_wait().unwrap();
-                panic!(
-                    "no report from the child (exit {status:?}): a damaged file is refused at start"
-                )
-            });
-        // libtest writes the test's name first on the same line.
-        let Some(rest) = line
-            .find(REPORT)
-            .and_then(|at| line.get(at + REPORT.len()..))
-        else {
-            continue;
-        };
-        let mut start = None;
-        let mut golds = Vec::new();
-        for field in rest.split_whitespace() {
-            if let Some(t) = field.strip_prefix("start=") {
-                start = Some(t.parse().unwrap());
-            } else if let Some(list) = field.strip_prefix("golds=") {
-                for p in list.split(';').filter(|p| !p.is_empty()) {
-                    let (x, z) = p.split_once(',').unwrap();
-                    golds.push((x.parse().unwrap(), z.parse().unwrap()));
-                }
+    let line = server
+        .lines
+        .recv_timeout(Duration::from_secs(120))
+        .unwrap_or_else(|_| {
+            let status = server.child.try_wait().unwrap();
+            panic!("no report from the child (exit {status:?}): a damaged file is refused at start")
+        });
+    let mut start = None;
+    let mut golds = Vec::new();
+    for field in line.split_whitespace() {
+        if let Some(t) = field.strip_prefix("start=") {
+            start = Some(t.parse().unwrap());
+        } else if let Some(list) = field.strip_prefix("golds=") {
+            for p in list.split(';').filter(|p| !p.is_empty()) {
+                let (x, z) = p.split_once(',').unwrap();
+                golds.push((x.parse().unwrap(), z.parse().unwrap()));
             }
         }
-        return (start.unwrap(), golds);
     }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test waits between starting and killing its child"
-)]
-fn pause(ms: u64) {
-    std::thread::sleep(Duration::from_millis(ms));
+    (start.unwrap(), golds)
 }
 
 #[expect(
@@ -254,6 +247,14 @@ fn pause(ms: u64) {
 fn fresh(dir: &Path) {
     std::fs::remove_dir_all(dir).unwrap_or(());
     std::fs::create_dir_all(dir).unwrap();
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test removes its data folder"
+)]
+fn remove(dir: &Path) {
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 fn data_dir() -> PathBuf {
@@ -301,21 +302,28 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
             last_start = start;
         }
         if mode == "run" {
-            // Let it move and save for a while, then kill it at a random moment.
-            pause(200 + next() % 1800);
+            // The kill lands a random number of ticks after the run's first commit, counted by
+            // the child's reports, however slow the machine is.
+            let after = next() % 30;
+            let mut since_commit = None;
+            while since_commit.is_none_or(|ticks| ticks < after) {
+                let line = server
+                    .lines
+                    .recv_timeout(Duration::from_secs(120))
+                    .unwrap_or_else(|_| panic!("kill {kill}: the child stopped reporting"));
+                if line == "committed" {
+                    since_commit.get_or_insert(0);
+                } else if let Some(ticks) = &mut since_commit
+                    && line.starts_with("tick=")
+                {
+                    *ticks += 1;
+                }
+            }
             server.child.kill().unwrap();
         }
         server.child.wait().unwrap();
     }
-    assert!(
-        placed,
-        "the block was never committed: the kills came too early"
-    );
     assert_eq!(checked, KILLS + 1);
-    // Most kills land while the server commits every 150 ms, not before its first commit.
-    assert!(
-        advanced * 10 >= KILLS * 8,
-        "only {advanced} of {KILLS} runs committed"
-    );
-    fresh(&data);
+    assert_eq!(advanced, KILLS, "every restart finds a newer commit");
+    remove(&data);
 }

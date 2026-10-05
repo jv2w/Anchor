@@ -3,7 +3,9 @@
 //! `BlockTransaction`).
 //!
 //! The random numbers come from the engine stream of the growing block ([`Cx::rng`]) instead of
-//! a `Random` seeded from `mt_rand`, so a tree is the same in a replay.
+//! a `Random` seeded from `mt_rand`, so a tree is the same in a replay. [`Context::grow_tree`]
+//! grows one where the API asks, without [`StructureGrow`](crate::event::StructureGrow) (a direct
+//! call raises no event, PLAN.md 8.2).
 
 use std::collections::BTreeMap;
 
@@ -11,7 +13,8 @@ use super::Cx;
 use super::props::{self, HORIZONTAL};
 use crate::block::{self, Class, Face, Kind, TypeTag};
 use crate::random::Random;
-use crate::world::{BlockPos, MIN_Y};
+use crate::tick::Context;
+use crate::world::{self, BlockPos, MIN_Y, TreeType};
 
 /// Blocks to set together, all or none (PMMP `BlockTransaction`).
 #[derive(Debug, Default)]
@@ -47,71 +50,70 @@ impl Tx {
         let Ok(event) = cx.ask_structure(origin, &self.blocks) else {
             return false;
         };
+        let changed = self.set(cx);
+        if changed {
+            cx.tell(event);
+        }
+        changed
+    }
+
+    /// Sets the blocks if every position is loaded, without an event; whether a block changed.
+    fn apply_quietly(self, cx: &mut Cx<'_>) -> bool {
+        self.blocks.keys().all(|p| cx.is_loaded(*p)) && self.set(cx)
+    }
+
+    /// Sets the blocks; whether one changed.
+    fn set(self, cx: &mut Cx<'_>) -> bool {
         let mut changed = false;
         for (pos, s) in self.blocks {
             if cx.get(pos) != Some(s) && cx.set(pos, s) {
                 changed = true;
             }
         }
-        if changed {
-            cx.tell(event);
-        }
         changed
     }
-}
-
-/// The trees PMMP grows (`TreeType` with a generator; dark oak has none in PMMP).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Type {
-    Oak,
-    Spruce,
-    Birch,
-    Jungle,
-    Acacia,
-    Azalea,
-    Crimson,
-    Warped,
 }
 
 /// A sapling grows its tree; whether it did.
 pub(super) fn grow_sapling(cx: &mut Cx<'_>, pos: BlockPos, sapling: block::State) -> bool {
     let kind = match sapling.kind() {
-        Kind::OakSapling => Type::Oak,
-        Kind::SpruceSapling => Type::Spruce,
-        Kind::BirchSapling => Type::Birch,
-        Kind::JungleSapling => Type::Jungle,
-        Kind::AcaciaSapling => Type::Acacia,
+        Kind::OakSapling => TreeType::Oak,
+        Kind::SpruceSapling => TreeType::Spruce,
+        Kind::BirchSapling => TreeType::Birch,
+        Kind::JungleSapling => TreeType::Jungle,
+        Kind::AcaciaSapling => TreeType::Acacia,
         _ => return false,
     };
     grow(cx, pos, kind)
 }
 
 /// Grows a tree of `kind` at `pos`; whether a block changed.
-pub(super) fn grow(cx: &mut Cx<'_>, pos: BlockPos, kind: Type) -> bool {
+pub(super) fn grow(cx: &mut Cx<'_>, pos: BlockPos, kind: TreeType) -> bool {
     let mut rng = cx.rng();
     let tx = generate(cx, pos, kind, &mut rng);
     tx.is_some_and(|tx| tx.apply(cx, pos))
 }
 
 /// The tree a generator would place at `pos` (PMMP `TreeFactory::get` then
-/// `getBlockTransaction`), or `None` where it does not fit.
-pub(super) fn generate(cx: &Cx<'_>, pos: BlockPos, kind: Type, rng: &mut Random) -> Option<Tx> {
+/// `getBlockTransaction`), or `None` where it does not fit or PMMP has no generator (dark oak).
+pub(super) fn generate(cx: &Cx<'_>, pos: BlockPos, kind: TreeType, rng: &mut Random) -> Option<Tx> {
     let plain = |k: Kind| k.default_state();
     let mut tree = match kind {
-        Type::Oak => Tree::new(Kind::OakLog, Kind::OakLeaves, 4 + below(rng, 3)),
-        Type::Spruce => Tree::new(Kind::SpruceLog, Kind::SpruceLeaves, 10),
-        Type::Birch => {
+        TreeType::Oak => Tree::new(Kind::OakLog, Kind::OakLeaves, 4 + below(rng, 3)),
+        TreeType::Spruce => Tree::new(Kind::SpruceLog, Kind::SpruceLeaves, 10),
+        TreeType::Birch => {
             let tall = rng.below(39) == 0;
             Tree::new(Kind::BirchLog, Kind::BirchLeaves, 7).with_birch(tall)
         }
-        Type::Jungle => Tree::new(Kind::JungleLog, Kind::JungleLeaves, 8),
-        Type::Acacia => Tree::new(Kind::AcaciaLog, Kind::AcaciaLeaves, 0),
-        Type::Azalea => Tree::new(Kind::OakLog, Kind::AzaleaLeaves, 0),
-        Type::Crimson | Type::Warped => {
+        TreeType::Jungle => Tree::new(Kind::JungleLog, Kind::JungleLeaves, 8),
+        TreeType::Acacia => Tree::new(Kind::AcaciaLog, Kind::AcaciaLeaves, 0),
+        TreeType::Azalea => Tree::new(Kind::OakLog, Kind::AzaleaLeaves, 0),
+        TreeType::DarkOak => return None,
+        TreeType::Crimson | TreeType::Warped => {
             let base = below(rng, 9) + 4;
             let height = base * if rng.below(12) == 0 { 2 } else { 1 };
             let huge = rng.unit() < 0.06;
-            let (stem, hat) = if kind == Type::Crimson {
+            let (stem, hat) = if kind == TreeType::Crimson {
                 (Kind::CrimsonStem, Kind::NetherWartBlock)
             } else {
                 (Kind::WarpedStem, Kind::WarpedWartBlock)
@@ -123,19 +125,39 @@ pub(super) fn generate(cx: &Cx<'_>, pos: BlockPos, kind: Type, rng: &mut Random)
                 plain(stem),
                 plain(hat),
                 height,
-                kind == Type::Crimson,
+                kind == TreeType::Crimson,
                 huge,
             ));
         }
     };
     // Birch picks its height in `getBlockTransaction`, after the factory's draws.
     match kind {
-        Type::Birch => tree.height = below(rng, 3) + 5 + if tree.tall { 5 } else { 0 },
-        Type::Spruce => tree.height = below(rng, 4) + 6,
-        Type::Azalea => tree.height = below(rng, 3) + 4,
+        TreeType::Birch => tree.height = below(rng, 3) + 5 + if tree.tall { 5 } else { 0 },
+        TreeType::Spruce => tree.height = below(rng, 4) + 6,
+        TreeType::Azalea => tree.height = below(rng, 3) + 4,
         _ => {}
     }
     tree.place(cx, pos, kind, rng)
+}
+
+impl Context<'_> {
+    /// Grows a tree of `kind` from `pos` in `world`, as a sapling (or an azalea, a fungus) there
+    /// would (PMMP `TreeFactory::get`, then `Tree::getBlockTransaction` and its `apply`): the
+    /// same generators, with the engine's random numbers for that position and tick. Nothing
+    /// changes, and the result is false, where the tree does not fit, a block it needs is in a
+    /// chunk that is not loaded, for [`TreeType::DarkOak`] (PMMP has no generator) or a world the
+    /// server does not have. Like every direct call it raises no event (a sapling's growth raises
+    /// [`StructureGrow`](crate::event::StructureGrow)).
+    #[doc(alias = "TreeFactory")]
+    #[doc(alias = "TreeFactory::get")]
+    pub fn grow_tree(&mut self, world: world::Id, pos: BlockPos, kind: TreeType) -> bool {
+        let Some(w) = crate::tick::world_api::index(self.state, world) else {
+            return false;
+        };
+        let mut cx = Cx::new(self.state, w, pos);
+        let mut rng = cx.rng();
+        generate(&cx, pos, kind, &mut rng).is_some_and(|tx| tx.apply_quietly(&mut cx))
+    }
 }
 
 /// `nextBoundedInt(n)` as an `i32`.
@@ -168,15 +190,16 @@ impl Tree {
     }
 
     /// PMMP `Tree::canOverride` (with azalea's additions).
-    fn can_override(s: block::State, kind: Type) -> bool {
+    fn can_override(s: block::State, kind: TreeType) -> bool {
         s.can_be_replaced()
             || s.is(Class::Sapling)
             || s.is(Class::Leaves)
-            || (kind == Type::Azalea && matches!(s.kind(), Kind::Azalea | Kind::FloweringAzalea))
+            || (kind == TreeType::Azalea
+                && matches!(s.kind(), Kind::Azalea | Kind::FloweringAzalea))
     }
 
     /// PMMP `Tree::getBlockTransaction`.
-    fn place(&self, cx: &Cx<'_>, pos: BlockPos, kind: Type, rng: &mut Random) -> Option<Tx> {
+    fn place(&self, cx: &Cx<'_>, pos: BlockPos, kind: TreeType, rng: &mut Random) -> Option<Tx> {
         // canPlaceObject
         let mut radius = 0;
         for yy in 0..self.height + 3 {
@@ -193,15 +216,15 @@ impl Tree {
         }
         let mut tx = Tx::default();
         match kind {
-            Type::Acacia => self.acacia(cx, &mut tx, pos, rng),
-            Type::Azalea => self.azalea(cx, &mut tx, pos, rng),
+            TreeType::Acacia => self.acacia(cx, &mut tx, pos, rng),
+            TreeType::Azalea => self.azalea(cx, &mut tx, pos, rng),
             _ => {
                 let trunk = match kind {
-                    Type::Spruce => self.height - below(rng, 3),
+                    TreeType::Spruce => self.height - below(rng, 3),
                     _ => self.height - 1,
                 };
                 self.trunk(cx, &mut tx, pos, trunk, kind);
-                if kind == Type::Spruce {
+                if kind == TreeType::Spruce {
                     self.spruce_canopy(cx, &mut tx, pos, rng);
                 } else {
                     self.canopy(cx, &mut tx, pos, rng);
@@ -212,7 +235,7 @@ impl Tree {
     }
 
     /// PMMP `Tree::placeTrunk`: dirt below, logs up through replaceable blocks.
-    fn trunk(&self, cx: &Cx<'_>, tx: &mut Tx, pos: BlockPos, height: i32, kind: Type) {
+    fn trunk(&self, cx: &Cx<'_>, tx: &mut Tx, pos: BlockPos, height: i32, kind: TreeType) {
         if let Some(below) = pos.offset(0, -1, 0) {
             tx.add(below, block::DIRT);
         }
@@ -388,7 +411,7 @@ impl Tree {
                 z += dz;
             }
             let at = BlockPos::new(x, y, z);
-            if Self::can_override(tx.fetch(cx, Some(at)), Type::Azalea) {
+            if Self::can_override(tx.fetch(cx, Some(at)), TreeType::Azalea) {
                 tx.add(at, self.trunk);
             }
             if i >= 3 {
@@ -592,5 +615,115 @@ fn weeping_vines(
         if let Some(s) = props::with_int(vine, "weeping_vines_age", (23 + v).min(25)) {
             tx.add(p, s);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::{Listeners, Priority, StructureGrow};
+    use crate::tick::State;
+    use crate::tick::tests::{new_state, settings};
+
+    /// A flat world whose listeners count [`StructureGrow`] events in `count`.
+    fn server(count: fn()) -> State {
+        let mut l = Listeners::default();
+        l.push(
+            Priority::Normal,
+            move |_: &mut StructureGrow, _: &mut Context<'_>| count(),
+        );
+        l.sort();
+        new_state(
+            settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
+            l,
+        )
+    }
+
+    thread_local! {
+        static HEARD: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+
+    fn heard() {
+        HEARD.with(|h| h.set(h.get() + 1));
+    }
+
+    /// The oak logs in the column of `pos` from its height up.
+    fn logs(state: &State, pos: BlockPos) -> usize {
+        (0..20)
+            .filter(|dy| {
+                state.worlds[0]
+                    .block(BlockPos::new(pos.x, pos.y + dy, pos.z))
+                    .is_some_and(|b| b.kind() == Kind::OakLog)
+            })
+            .count()
+    }
+
+    // pmmp: TreeFactory, TreeFactory::get
+    #[test]
+    fn the_api_grows_pmmps_trees_where_they_fit_without_an_event() {
+        let world = world::Id::DEFAULT;
+        let at = BlockPos::new(20, -60, 20);
+        let mut state = server(heard);
+        let mut cx = Context { state: &mut state };
+        assert!(cx.grow_tree(world, at, TreeType::Oak));
+        assert!(
+            (4..=6).contains(&logs(&state, at)),
+            "PMMP's oak: 4 to 6 logs"
+        );
+        assert_eq!(
+            state.worlds[0].block(at.step(Face::Down).unwrap()),
+            Some(block::DIRT)
+        );
+        let mut cx = Context { state: &mut state };
+        assert!(
+            !cx.grow_tree(world, at, TreeType::Oak),
+            "a log is in the way"
+        );
+        let dark = BlockPos::new(-20, -60, 20);
+        assert!(!cx.grow_tree(world, dark, TreeType::DarkOak));
+        let missing = world::Id::new(7).unwrap();
+        assert!(!cx.grow_tree(missing, at, TreeType::Oak));
+        assert!(!cx.grow_tree(world, BlockPos::new(10_000, -60, 0), TreeType::Oak));
+        assert_eq!(state.worlds[0].block(dark), Some(block::AIR));
+        assert_eq!(
+            logs(&state, at),
+            logs(&state, at.step(Face::Up).unwrap()) + 1
+        );
+        assert_eq!(
+            HEARD.with(std::cell::Cell::get),
+            0,
+            "a direct call raises no event"
+        );
+        for kind in [
+            TreeType::Spruce,
+            TreeType::Birch,
+            TreeType::Jungle,
+            TreeType::Acacia,
+            TreeType::Azalea,
+            TreeType::Crimson,
+            TreeType::Warped,
+        ] {
+            let mut state = server(heard);
+            let at = BlockPos::new(-20, -60, -20);
+            assert!(
+                Context { state: &mut state }.grow_tree(world, at, kind),
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_tree_grows_from_the_same_state() {
+        let grow = || {
+            let mut state = server(heard);
+            let at = BlockPos::new(-20, -60, 20);
+            assert!(Context { state: &mut state }.grow_tree(
+                world::Id::DEFAULT,
+                at,
+                TreeType::Birch
+            ));
+            state.hash()
+        };
+        assert_eq!(grow(), grow());
     }
 }

@@ -95,8 +95,6 @@ type extractor struct {
 	ioType   *types.Named
 	optional *types.Named
 	funcs    map[*types.Func]*funcInfo
-	typeDocs map[*types.TypeName]*ast.CommentGroup
-	fieldDoc map[*types.Var]*ast.CommentGroup
 
 	types     map[string]*TypeDef
 	typeQueue []*types.Named
@@ -113,8 +111,6 @@ func newExtractor(pkgs []*packages.Package) *extractor {
 	ex := &extractor{
 		pkgs:      map[string]*packages.Package{},
 		funcs:     map[*types.Func]*funcInfo{},
-		typeDocs:  map[*types.TypeName]*ast.CommentGroup{},
-		fieldDoc:  map[*types.Var]*ast.CommentGroup{},
 		types:     map[string]*TypeDef{},
 		seenTypes: map[*types.Named]bool{},
 		fnSeen:    map[*types.Func]bool{},
@@ -128,12 +124,9 @@ func newExtractor(pkgs []*packages.Package) *extractor {
 		ex.pkgs[p.PkgPath] = p
 		for _, f := range p.Syntax {
 			for _, d := range f.Decls {
-				switch d := d.(type) {
-				case *ast.FuncDecl:
+				if d, ok := d.(*ast.FuncDecl); ok {
 					obj := p.TypesInfo.Defs[d.Name].(*types.Func)
 					ex.funcs[obj] = &funcInfo{decl: d, pkg: p, obj: obj}
-				case *ast.GenDecl:
-					ex.indexTypeDecl(p, d)
 				}
 			}
 		}
@@ -142,28 +135,6 @@ func newExtractor(pkgs []*packages.Package) *extractor {
 	ex.ioType = scope.Lookup("IO").Type().(*types.Named)
 	ex.optional = scope.Lookup("Optional").Type().(*types.Named)
 	return ex
-}
-
-func (ex *extractor) indexTypeDecl(p *packages.Package, d *ast.GenDecl) {
-	if d.Tok != token.TYPE {
-		return
-	}
-	for _, s := range d.Specs {
-		ts := s.(*ast.TypeSpec)
-		doc := ts.Doc
-		if doc == nil && len(d.Specs) == 1 {
-			doc = d.Doc
-		}
-		obj := p.TypesInfo.Defs[ts.Name].(*types.TypeName)
-		ex.typeDocs[obj] = doc
-		if st, ok := ts.Type.(*ast.StructType); ok {
-			for _, f := range st.Fields.List {
-				for _, n := range f.Names {
-					ex.fieldDoc[p.TypesInfo.Defs[n].(*types.Var)] = f.Doc
-				}
-			}
-		}
-	}
 }
 
 func (ex *extractor) fail(pos token.Pos, format string, args ...any) {
@@ -396,13 +367,6 @@ func (ex *extractor) needFunc(f *types.Func) {
 	ex.fnQueue = append(ex.fnQueue, f)
 }
 
-func docText(cg *ast.CommentGroup) string {
-	if cg == nil {
-		return ""
-	}
-	return strings.TrimSpace(cg.Text())
-}
-
 // marshalMethod returns the Marshal(IO) method of *n, if any.
 func (ex *extractor) marshalMethod(n *types.Named) *types.Func {
 	obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(n), true, n.Obj().Pkg(), "Marshal")
@@ -426,14 +390,14 @@ func (ex *extractor) emitType(n *types.Named) {
 	obj := n.Obj()
 	name := qualName(obj)
 	pos := obj.Pos()
-	td := &TypeDef{Name: name, Doc: docText(ex.typeDocs[obj])}
+	td := &TypeDef{Name: name}
 	switch u := n.Underlying().(type) {
 	case *types.Struct:
 		td.Kind = "struct"
 		td.Fields = []Field{}
 		for i := 0; i < u.NumFields(); i++ {
 			f := u.Field(i)
-			td.Fields = append(td.Fields, Field{Name: f.Name(), Type: ex.typ(f.Type(), f.Pos()), Doc: docText(ex.fieldDoc[f]), Embedded: f.Embedded()})
+			td.Fields = append(td.Fields, Field{Name: f.Name(), Type: ex.typ(f.Type(), f.Pos()), Embedded: f.Embedded()})
 		}
 	case *types.Interface:
 		td.Kind = "interface"

@@ -1,34 +1,50 @@
-//! Start-time copies of the world file: `data/backups/world-<unix seconds>[-<n>].redb`.
+//! Copies of the world file: `data/backups/world-<unix seconds>[-<n>].redb`.
 //!
-//! The copy is taken from the closed file, under an exclusive lock that also tells whether
-//! another process has the file open. A backup is never overwritten, and its name sorts after
-//! every backup already there: a second start in the same second adds `-<n>`, and after the clock
-//! went back the name keeps the newest second found. So the newest backups are the last names.
+//! A start copy is taken from the closed file, under an exclusive lock that also tells whether
+//! another process has the file open. An online copy ([`Online`], PLAN.md 10.9 백업) is taken
+//! while the server runs, from one read transaction of the open file, in steps. A backup is never
+//! overwritten, and its name sorts after every backup already there: a second backup in the same
+//! second adds `-<n>`, and after the clock went back the name keeps the newest second found. So
+//! the newest backups are the last names. A copy is written under `<name>.tmp` and renamed when
+//! whole, except a start copy with `backups = false`, which keeps its temporary name and is
+//! removed once the file opened (or renamed by [`keep`] if a failed start keeps it); both kinds
+//! share the [`KEPT`] newest names.
 
 use std::fs::TryLockError;
 use std::io;
+use std::iter::Peekable;
 use std::path::{Path, PathBuf};
 
+use redb::backends::FileBackend;
+use redb::{Builder, Database, ReadableDatabase, TableDefinition, TableHandle};
 use tracing::warn;
 
-use super::{Error, Result};
+use super::{CACHE_BYTES, Error, Result, StartBackup};
 use crate::clock;
 
-/// Backups kept after a successful start.
+/// Backups kept, of starts and online backups together.
 pub(crate) const KEPT: usize = 3;
+/// Key and value bytes an online backup copies in one step, unless one value alone is larger:
+/// the save thread serves its queued requests between steps, so a load waits at most one step.
+const STEP_BYTES: usize = 8 << 20;
 /// Names tried when another process takes the chosen one first.
 const ATTEMPTS: u32 = 100;
 const PREFIX: &str = "world-";
 const SUFFIX: &str = ".redb";
+/// Added to a backup's name while it is being written.
+const TEMP_SUFFIX: &str = ".tmp";
 
 /// Copies `world` into `dir` and returns the copy, or `None` if there is no file or it is empty
-/// (a new world). Fails with [`Error::InUse`] if another process has the file open.
+/// (a new world). With [`StartBackup::Transient`] the copy keeps its temporary name: a start
+/// killed before removing it leaves no backup, and the next start removes it; a start that fails
+/// and keeps it gives it its backup name ([`keep`]). Fails with [`Error::InUse`] if another
+/// process has the file open.
 #[expect(
     clippy::disallowed_types,
     clippy::disallowed_methods,
     reason = "off-tick: the save thread backs up the world file once, before opening it"
 )]
-pub(crate) fn create(world: &Path, dir: &Path) -> Result<Option<PathBuf>> {
+pub(crate) fn create(world: &Path, dir: &Path, start: StartBackup) -> Result<Option<PathBuf>> {
     let mut source = match std::fs::File::open(world) {
         Ok(file) => file,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -43,24 +59,116 @@ pub(crate) fn create(world: &Path, dir: &Path) -> Result<Option<PathBuf>> {
         return Ok(None);
     }
     std::fs::create_dir_all(dir).map_err(Error::Io)?;
-    let (path, mut target) = new_file(dir)?;
-    let copied = io::copy(&mut source, &mut target).and_then(|_| target.sync_all());
-    if let Err(e) = copied {
-        drop(target);
-        if let Err(remove) = std::fs::remove_file(&path) {
-            warn!(path = %path.display(), error = %remove, "could not remove an incomplete backup");
-        }
-        return Err(Error::Io(e));
-    }
-    Ok(Some(path))
+    remove_stale(dir)?;
+    copy(&mut source, dir, start).map(Some)
 }
 
-/// Creates a backup file whose name sorts after every backup in `dir`.
+/// Copies `source` into a new backup in `dir` and returns its path. The bytes go to
+/// `<backup>.tmp`, which is flushed to disk and then renamed, so a process killed mid-copy
+/// leaves no file with a backup name (it would count among the [`KEPT`] and push out a whole
+/// one); the next start removes the temporary file. A [`StartBackup::Transient`] copy is not
+/// renamed: its temporary path is returned.
+fn copy(source: &mut impl io::Read, dir: &Path, start: StartBackup) -> Result<PathBuf> {
+    let (path, temp, mut target) = new_file(dir)?;
+    let copied = io::copy(source, &mut target).and_then(|_| target.sync_all());
+    // Windows cannot rename or remove a file that is still open.
+    drop(target);
+    copied.map_err(Error::Io)?;
+    match start {
+        StartBackup::Make => {
+            temp.rename(&path)?;
+            Ok(path)
+        }
+        StartBackup::Transient => Ok(temp.keep()),
+    }
+}
+
+/// Gives `copy`, a [`StartBackup::Transient`] copy that a failed start keeps, its backup name, so
+/// the next start does not remove it as an incomplete one; returns the new path.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the save thread names a start copy it keeps, once"
+)]
+pub(crate) fn keep(copy: &Path) -> Result<PathBuf> {
+    // The copy's name is the backup's with `TEMP_SUFFIX`, one extension, after it.
+    let path = copy.with_extension("");
+    std::fs::rename(copy, &path).map_err(Error::Io)?;
+    Ok(path)
+}
+
+/// A backup's temporary file: removed when dropped, unless renamed to its backup name or kept
+/// first.
+#[derive(Debug)]
+struct Temp {
+    path: PathBuf,
+    kept: bool,
+}
+
+impl Temp {
+    /// Gives the file its backup name `to`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread names a whole backup"
+    )]
+    fn rename(mut self, to: &Path) -> Result<()> {
+        std::fs::rename(&self.path, to).map_err(Error::Io)?;
+        self.kept = true;
+        Ok(())
+    }
+
+    /// Keeps the file under its temporary name and returns its path.
+    fn keep(mut self) -> PathBuf {
+        self.kept = true;
+        std::mem::take(&mut self.path)
+    }
+}
+
+impl Drop for Temp {
+    /// Removes the incomplete backup; the file must be closed (Windows cannot remove an open
+    /// file).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread removes an incomplete backup"
+    )]
+    fn drop(&mut self) {
+        if self.kept {
+            return;
+        }
+        if let Err(e) = std::fs::remove_file(&self.path) {
+            warn!(path = %self.path.display(), error = %e, "could not remove an incomplete backup");
+        }
+    }
+}
+
+/// Removes the temporary files of backups that a killed process left in `dir`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the save thread cleans the backup folder once, before backing up"
+)]
+fn remove_stale(dir: &Path) -> Result<()> {
+    for entry in std::fs::read_dir(dir).map_err(Error::Io)? {
+        let entry = entry.map_err(Error::Io)?;
+        let name = entry.file_name();
+        let stale = name
+            .to_str()
+            .and_then(|name| name.strip_suffix(TEMP_SUFFIX))
+            .and_then(order)
+            .is_some();
+        if stale {
+            warn!(path = %entry.path().display(), "removing an incomplete backup");
+            std::fs::remove_file(entry.path()).map_err(Error::Io)?;
+        }
+    }
+    Ok(())
+}
+
+/// Creates the temporary file of a backup whose name sorts after every backup in `dir`; returns
+/// the backup's path, the temporary file and the file open for reading and writing.
 #[expect(
     clippy::disallowed_types,
-    reason = "off-tick: the save thread backs up the world file once, before opening it"
+    reason = "off-tick: the save thread creates a backup file"
 )]
-fn new_file(dir: &Path) -> Result<(PathBuf, std::fs::File)> {
+fn new_file(dir: &Path) -> Result<(PathBuf, Temp, std::fs::File)> {
     // A clock before 1970 counts as second 0.
     let now = clock::unix_now().unwrap_or_default();
     let last = backups(dir)?.into_iter().map(|(order, _)| order).max();
@@ -74,13 +182,21 @@ fn new_file(dir: &Path) -> Result<(PathBuf, std::fs::File)> {
         } else {
             format!("{PREFIX}{secs}-{n}{SUFFIX}")
         };
-        let path = dir.join(name);
+        let temp = dir.join(format!("{name}{TEMP_SUFFIX}"));
+        // Read too: an online backup is a database redb reads back as it writes.
         match std::fs::OpenOptions::new()
+            .read(true)
             .write(true)
             .create_new(true)
-            .open(&path)
+            .open(&temp)
         {
-            Ok(file) => return Ok((path, file)),
+            Ok(file) => {
+                let temp = Temp {
+                    path: temp,
+                    kept: false,
+                };
+                return Ok((dir.join(name), temp, file));
+            }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => n = n.saturating_add(1),
             Err(e) => return Err(Error::Io(e)),
         }
@@ -111,11 +227,11 @@ pub(crate) fn restore(backup: &Path, world: &Path) -> Result<()> {
     std::fs::remove_file(backup).map_err(Error::Io)
 }
 
-/// Removes all but the [`KEPT`] newest backups in `dir`, never `newest` (the copy this start
-/// made). Other files are left alone.
+/// Removes all but the [`KEPT`] newest backups in `dir`, never `newest` (the backup just made).
+/// Other files are left alone.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread prunes backups once, after a successful start"
+    reason = "off-tick: the save thread prunes backups at start and after an online backup"
 )]
 pub(crate) fn prune(dir: &Path, newest: &Path) -> Result<()> {
     let mut backups = backups(dir)?;
@@ -134,7 +250,7 @@ pub(crate) fn prune(dir: &Path, newest: &Path) -> Result<()> {
     clippy::disallowed_methods,
     reason = "off-tick: the save thread lists backups at start"
 )]
-fn backups(dir: &Path) -> Result<Vec<((u64, u32), PathBuf)>> {
+pub(super) fn backups(dir: &Path) -> Result<Vec<((u64, u32), PathBuf)>> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -167,6 +283,147 @@ fn number<T: std::str::FromStr>(digits: &str) -> Option<T> {
     digits.parse().ok()
 }
 
+/// A table of the world file as an online backup copies it: its name and the entries left.
+type Source = (
+    String,
+    Peekable<redb::Range<'static, &'static [u8], &'static [u8]>>,
+);
+
+/// An online backup being made (PLAN.md 10.9 백업): every table of one read transaction of the
+/// open world file, copied in steps of at most [`STEP_BYTES`], one commit each, into a new
+/// database under `<backup>.tmp`, which is then closed, flushed to disk and renamed. The
+/// read transaction is a consistent view of one commit, so commits made between steps are not
+/// in the copy. Dropped before it is whole, it removes its temporary file.
+pub(crate) struct Online {
+    // Dropped in this order: the source's read transaction, the copy, then its file, which
+    // Windows cannot remove while it is open.
+    /// The tables left to copy, the next last.
+    tables: Vec<Source>,
+    /// The copy.
+    db: Database,
+    temp: Temp,
+    /// The backup's name.
+    path: PathBuf,
+    dir: PathBuf,
+}
+
+impl std::fmt::Debug for Online {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Online")
+            .field("path", &self.path)
+            .field("tables_left", &self.tables.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Online {
+    /// Starts a backup of `source`'s last commit into a new backup in `dir`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread starts an online backup"
+    )]
+    pub(crate) fn begin(source: &Database, dir: &Path) -> Result<Self> {
+        std::fs::create_dir_all(dir).map_err(Error::Io)?;
+        let (path, temp, file) = new_file(dir)?;
+        let mut builder = Builder::new();
+        builder.set_cache_size(CACHE_BYTES);
+        let backend = FileBackend::new(file).map_err(|e| Error::Database(e.into()))?;
+        let db = builder
+            .create_with_backend(backend)
+            .map_err(Error::from_open)?;
+        let read = source.begin_read()?;
+        let mut tables = Vec::new();
+        for table in read.list_tables()? {
+            let name = table.name().to_owned();
+            let entries = read
+                .open_table(TableDefinition::<&[u8], &[u8]>::new(&name))?
+                .range::<&[u8]>(..)?;
+            tables.push((name, entries.peekable()));
+        }
+        tables.reverse();
+        Ok(Self {
+            tables,
+            db,
+            temp,
+            path,
+            dir: dir.to_path_buf(),
+        })
+    }
+
+    /// Whether every table is copied: [`finish`](Self::finish) is left.
+    pub(crate) fn is_copied(&self) -> bool {
+        self.tables.is_empty()
+    }
+
+    /// Copies the next step and commits it: entries while the step stays within
+    /// [`STEP_BYTES`] (a larger value is a step alone). Each step is its own durable commit, so
+    /// no step writes or flushes more than its own entries.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the save thread copies a step of an online backup"
+    )]
+    pub(crate) fn step(&mut self) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        let mut bytes = 0usize;
+        while let Some((name, entries)) = self.tables.last_mut() {
+            // Opening it creates it, so an empty table is in the copy too.
+            let mut target = txn.open_table(TableDefinition::<&[u8], &[u8]>::new(name))?;
+            while let Some(entry) = entries.peek() {
+                let size = match entry {
+                    Ok((key, value)) => key.value().len().saturating_add(value.value().len()),
+                    Err(_) => 0,
+                };
+                if bytes > 0 && bytes.saturating_add(size) > STEP_BYTES {
+                    drop(target);
+                    txn.commit()?;
+                    return Ok(());
+                }
+                if let Some(entry) = entries.next() {
+                    let (key, value) = entry?;
+                    drop(target.insert(key.value(), value.value())?);
+                }
+                bytes = bytes.saturating_add(size);
+            }
+            drop(target);
+            self.tables.pop();
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Closes and flushes the whole copy, gives it its backup name and keeps the [`KEPT`] newest
+    /// backups; returns its path.
+    ///
+    /// The copy is not compacted (PLAN.md 10.9 저장 시작 비용): `compact` is one call that took
+    /// 3.7 to 4.1 s on copies of 116 and 456 MiB, which every request would wait for, and saves
+    /// 10 to 13% of the file. A backup put back as the world file is compacted by that start.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: the save thread finishes an online backup"
+    )]
+    pub(crate) fn finish(self) -> Result<PathBuf> {
+        let Self {
+            tables: _,
+            db,
+            temp,
+            path,
+            dir,
+        } = self;
+        // Closed first: Windows cannot rename an open file.
+        drop(db);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&temp.path)
+            .and_then(|file| file.sync_all())
+            .map_err(Error::Io)?;
+        temp.rename(&path)?;
+        if let Err(e) = prune(&dir, &path) {
+            warn!(error = %e, "could not remove old world backups");
+        }
+        Ok(path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +447,52 @@ mod tests {
         assert!(order("world-9-1.redb") < order("world-10.redb"));
     }
 
+    /// A copy source whose second read never returns: the process is killed mid-copy.
+    struct Killed(bool);
+
+    impl io::Read for Killed {
+        #[expect(
+            clippy::panic_in_result_fn,
+            reason = "consistency: the panic stands in for a kill, which runs no clean-up"
+        )]
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            assert!(!self.0, "killed during the copy");
+            self.0 = true;
+            buf.fill(7);
+            Ok(buf.len())
+        }
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn an_interrupted_backup_is_not_kept_as_a_backup() {
+        let dir = std::env::temp_dir().join(format!("anchor-backup-killed-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).unwrap_or(());
+        std::fs::create_dir_all(&dir).unwrap();
+        // A kill runs no clean-up: the unwinding panic stands in for it.
+        let killed = std::panic::catch_unwind(|| copy(&mut Killed(false), &dir, StartBackup::Make));
+        assert!(killed.is_err());
+        assert!(
+            backups(&dir).unwrap().is_empty(),
+            "the incomplete copy has a backup name"
+        );
+        // The unwinding removed the temporary file; a kill runs no drop and leaves it.
+        std::fs::write(dir.join("world-1.redb.tmp"), b"partial").unwrap();
+        // The next start removes what the killed copy left and makes a whole backup.
+        let world = dir.join("world.redb");
+        std::fs::write(&world, b"world bytes").unwrap();
+        let made = create(&world, &dir, StartBackup::Make).unwrap().unwrap();
+        let mut names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        let made_name = made.file_name().unwrap().to_str().unwrap();
+        assert_eq!(names, [made_name, "world.redb"]);
+        assert_eq!(std::fs::read(&made).unwrap(), b"world bytes");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_new_name_sorts_after_backups_from_a_later_clock() {
@@ -198,7 +501,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // A backup from far in the future: the clock went back since.
         std::fs::write(dir.join("world-99999999999-4.redb"), b"").unwrap();
-        let (path, file) = new_file(&dir).unwrap();
+        let (path, _, file) = new_file(&dir).unwrap();
         drop(file);
         let name = path.file_name().unwrap().to_str().unwrap();
         assert_eq!(name, "world-99999999999-5.redb");

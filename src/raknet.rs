@@ -4,6 +4,7 @@
 //! connection state needs no locks (PLAN.md 10.2). `wire`, `peer` and `listener` are the core,
 //! free of sockets and clocks; this module binds the sockets, runs the task and hands finished
 //! connections to the session layer. The 0xfe game message byte is added and removed here.
+//! The socket setup and the session link types here serve the NetherNet driver too.
 
 mod listener;
 mod peer;
@@ -33,7 +34,7 @@ use peer::{Limits, MAX_MTU, MIN_MTU};
 /// sessions to the pace of the socket task instead of buffering without bound.
 const COMMAND_QUEUE: usize = 4096;
 /// Messages received on one connection that its session has not taken yet. Bytes are bounded
-/// separately (`inbound_bytes`); a full queue disconnects (PLAN.md 10.2).
+/// separately ([`Inbox`]); a full queue disconnects (PLAN.md 10.2, 10.3).
 const INBOUND_QUEUE: usize = 1024;
 /// Datagrams read from one socket before the task serves its other inputs.
 const RECV_BATCH: usize = 256;
@@ -158,7 +159,8 @@ pub(crate) fn spawn(
     })
 }
 
-fn bind(addr: SocketAddr) -> io::Result<UdpSocket> {
+/// Opens a nonblocking UDP socket on `addr` with large kernel buffers (RakNet and NetherNet).
+pub(crate) fn bind(addr: SocketAddr) -> io::Result<UdpSocket> {
     let socket = Socket::new(Domain::for_address(addr), Type::DGRAM, Some(Protocol::UDP))?;
     if addr.is_ipv6() {
         // Lets the IPv4 socket bind the same port on every OS.
@@ -198,11 +200,26 @@ impl Handle {
     }
 }
 
-/// What a connection tells the socket task through its watch channel.
+/// What a connection tells its socket task through its watch channel (RakNet and NetherNet).
 #[derive(Clone, Copy, Debug, Default)]
-struct Flags {
-    logged_in: bool,
-    closed: bool,
+pub(crate) struct Flags {
+    pub(crate) logged_in: bool,
+    pub(crate) closed: bool,
+}
+
+impl Flags {
+    /// The flags in `signal` if they changed since the last call; a dropped connection reads as
+    /// closed.
+    pub(crate) fn changed(signal: &mut watch::Receiver<Self>) -> Option<Self> {
+        match signal.has_changed() {
+            Ok(false) => None,
+            Ok(true) => Some(*signal.borrow_and_update()),
+            Err(_) => Some(Self {
+                logged_in: false,
+                closed: true,
+            }),
+        }
+    }
 }
 
 /// A game message for the socket task to send.
@@ -215,9 +232,42 @@ struct Outbound {
 
 /// A received game message and its share of the connection's inbound byte budget.
 #[derive(Debug)]
-struct Inbound {
-    message: Vec<u8>,
+pub(crate) struct Inbound {
+    pub(crate) message: Vec<u8>,
     _budget: OwnedSemaphorePermit,
+}
+
+/// The socket task's end of one connection's inbound queue and its byte budget (RakNet and
+/// NetherNet).
+#[derive(Debug)]
+pub(crate) struct Inbox {
+    inbound: mpsc::Sender<Inbound>,
+    budget: Arc<Semaphore>,
+}
+
+impl Inbox {
+    /// An inbox whose session may leave `bytes` received bytes untaken, and the session's end.
+    pub(crate) fn new(bytes: usize) -> (Self, mpsc::Receiver<Inbound>) {
+        let (inbound, receiver) = mpsc::channel(INBOUND_QUEUE);
+        let budget = Arc::new(Semaphore::new(bytes));
+        (Self { inbound, budget }, receiver)
+    }
+
+    /// Passes a message to the session; `false` when its queue or byte budget is full.
+    pub(crate) fn deliver(&self, message: Vec<u8>) -> bool {
+        let Ok(len) = u32::try_from(message.len()) else {
+            return false;
+        };
+        let Ok(budget) = Arc::clone(&self.budget).try_acquire_many_owned(len) else {
+            return false;
+        };
+        self.inbound
+            .try_send(Inbound {
+                message,
+                _budget: budget,
+            })
+            .is_ok()
+    }
 }
 
 /// One RakNet connection, held by its session. Dropping it closes the connection gracefully.
@@ -228,12 +278,19 @@ pub(crate) struct Connection {
     inbound: mpsc::Receiver<Inbound>,
     outbound: mpsc::Sender<Outbound>,
     signal: watch::Sender<Flags>,
+    ping: watch::Receiver<Option<Duration>>,
 }
 
 impl Connection {
     /// The client address.
     pub(crate) fn addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    /// The round trip time of the latest connected ping the client answered; `None` until one
+    /// was (`RakLib`'s ping measure, which PMMP reports).
+    pub(crate) fn ping(&self) -> Option<Duration> {
+        *self.ping.borrow()
     }
 
     /// The next game message (after its 0xfe byte), or `None` once the connection is closed.
@@ -274,9 +331,9 @@ impl Connection {
 #[derive(Debug)]
 struct Link {
     addr: SocketAddr,
-    inbound: mpsc::Sender<Inbound>,
-    budget: Arc<Semaphore>,
+    inbox: Inbox,
     signal: watch::Receiver<Flags>,
+    ping: watch::Sender<Option<Duration>>,
 }
 
 /// The sockets and session channels: the listener's `Sink`.
@@ -306,14 +363,16 @@ impl Sink for Io {
     }
 
     fn accept(&mut self, id: u64, addr: SocketAddr) -> bool {
-        let (inbound, receiver) = mpsc::channel(INBOUND_QUEUE);
+        let (inbox, receiver) = Inbox::new(self.inbound_bytes);
         let (signal, watcher) = watch::channel(Flags::default());
+        let (ping, pings) = watch::channel(None);
         let connection = Connection {
             id,
             addr,
             inbound: receiver,
             outbound: self.outbound.clone(),
             signal,
+            ping: pings,
         };
         if let Err(error) = self.accepted.try_send(connection) {
             debug!(%addr, %error, "raknet connection not accepted");
@@ -321,34 +380,28 @@ impl Sink for Io {
         }
         let link = Link {
             addr,
-            inbound,
-            budget: Arc::new(Semaphore::new(self.inbound_bytes)),
+            inbox,
             signal: watcher,
+            ping,
         };
         self.links.insert(id, link);
         true
     }
 
     fn deliver(&mut self, id: u64, message: Vec<u8>) -> bool {
-        let Some(link) = self.links.get(&id) else {
-            return false;
-        };
-        let Ok(len) = u32::try_from(message.len()) else {
-            return false;
-        };
-        let Ok(budget) = Arc::clone(&link.budget).try_acquire_many_owned(len) else {
-            return false;
-        };
-        link.inbound
-            .try_send(Inbound {
-                message,
-                _budget: budget,
-            })
-            .is_ok()
+        self.links
+            .get(&id)
+            .is_some_and(|link| link.inbox.deliver(message))
     }
 
     fn close(&mut self, id: u64) {
         self.links.remove(&id);
+    }
+
+    fn ping(&mut self, id: u64, rtt: Duration) {
+        if let Some(link) = self.links.get(&id) {
+            link.ping.send_replace(Some(rtt));
+        }
     }
 }
 
@@ -383,11 +436,10 @@ impl Driver {
                         self.send(command);
                     }
                 }
-                _ = interval.tick() => self.update(),
+                _ = interval.tick() => self.tick(&mut commands),
                 _ = &mut stopped, if !stopping => {
                     stopping = true;
-                    let now = self.now();
-                    self.listener.shutdown(now, &mut self.io);
+                    self.stop(&mut commands);
                 }
             }
             if stopping && self.listener.is_empty() {
@@ -437,20 +489,38 @@ impl Driver {
             .send(now, command.addr, command.id, command.message, &mut self.io);
     }
 
+    /// The timer handler.
+    fn tick(&mut self, commands: &mut mpsc::Receiver<Outbound>) {
+        self.drain(commands);
+        self.update();
+    }
+
+    /// The stop handler: stops accepting and closes every connection.
+    fn stop(&mut self, commands: &mut mpsc::Receiver<Outbound>) {
+        self.drain(commands);
+        let now = self.now();
+        self.listener.shutdown(now, &mut self.io);
+    }
+
+    /// Sends what sessions queued, at most a full queue. A session queues its last packets
+    /// before it sets its close flag, and a closing connection takes no more, so the timer and
+    /// stop handlers call this before they apply close flags.
+    fn drain(&mut self, commands: &mut mpsc::Receiver<Outbound>) {
+        for _ in 0..COMMAND_QUEUE {
+            let Ok(command) = commands.try_recv() else {
+                break;
+            };
+            self.send(command);
+        }
+    }
+
     fn update(&mut self) {
         let now = self.now();
         self.refresh_pong();
         for (&id, link) in &mut self.io.links {
-            let flags = match link.signal.has_changed() {
-                Ok(false) => continue,
-                Ok(true) => *link.signal.borrow_and_update(),
-                // The connection was dropped.
-                Err(_) => Flags {
-                    logged_in: false,
-                    closed: true,
-                },
-            };
-            self.signals.push((link.addr, id, flags));
+            if let Some(flags) = Flags::changed(&mut link.signal) {
+                self.signals.push((link.addr, id, flags));
+            }
         }
         for (addr, id, flags) in self.signals.drain(..) {
             if flags.logged_in {
@@ -464,7 +534,8 @@ impl Driver {
     }
 }
 
-async fn readable(socket: Option<&UdpSocket>) -> io::Result<()> {
+/// Waits until `socket` has a datagram; never returns without a socket (RakNet and NetherNet).
+pub(crate) async fn readable(socket: Option<&UdpSocket>) -> io::Result<()> {
     match socket {
         Some(socket) => socket.readable().await,
         None => std::future::pending().await,
@@ -472,7 +543,7 @@ async fn readable(socket: Option<&UdpSocket>) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     use super::listener::tests::{Client, GUID, MAX_MESSAGE};
@@ -545,7 +616,8 @@ mod tests {
         }
     }
 
-    async fn ping(socket: &UdpSocket, server: SocketAddr) -> Vec<u8> {
+    /// The pong `server` answers an unconnected ping from `socket` with.
+    pub(crate) async fn ping(socket: &UdpSocket, server: SocketAddr) -> Vec<u8> {
         socket.send_to(&Client::ping(1), server).await.unwrap();
         let mut buf = vec![0; RECV_BUFFER];
         let received = tokio::time::timeout(WAIT, socket.recv_from(&mut buf)).await;
@@ -559,7 +631,7 @@ mod tests {
         clippy::disallowed_methods,
         reason = "off-tick: a test drives the socket task on a runtime of its own"
     )]
-    fn run<F: Future>(test: F) -> F::Output {
+    pub(crate) fn run<F: Future>(test: F) -> F::Output {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -619,6 +691,154 @@ mod tests {
         assert_eq!(received.unwrap(), None);
         assert_eq!(connection.send(b"late".to_vec()).await, Err(Error::Closed));
         handle.shutdown().await;
+    }
+
+    /// A driver on a loopback socket that the test runs by calling its handlers, its command
+    /// queue and the connections it accepts.
+    fn driver() -> (Driver, mpsc::Receiver<Outbound>, mpsc::Receiver<Connection>) {
+        let socket = bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+        let (_, pong) = watch::channel(Arc::<[u8]>::from(&b""[..]));
+        let (accepted, connections) = mpsc::channel(1);
+        let (outbound, commands) = mpsc::channel(COMMAND_QUEUE);
+        let listener = Listener::new(listener::tests::config(), Arc::clone(&pong.borrow()));
+        let driver = Driver {
+            listener,
+            io: Io {
+                v4: Some(socket),
+                v6: None,
+                accepted,
+                outbound,
+                links: BTreeMap::new(),
+                inbound_bytes: 2 * (MAX_MESSAGE + 1),
+            },
+            pong,
+            start: clock::now(),
+            buf: vec![0; RECV_BUFFER],
+            signals: Vec::new(),
+        };
+        (driver, commands, connections)
+    }
+
+    /// Runs the client's timers, the driver's socket and timer handlers, then the client's
+    /// receive, once.
+    async fn step(
+        driver: &mut Driver,
+        commands: &mut mpsc::Receiver<Outbound>,
+        remote: &mut Remote,
+    ) {
+        assert!(remote.now() < WAIT, "timed out");
+        let now = remote.now();
+        remote.client.update(now);
+        remote.flush().await;
+        let readable = readable(driver.io.v4.as_ref());
+        if tokio::time::timeout(UPDATE_INTERVAL, readable)
+            .await
+            .is_ok()
+        {
+            driver.receive(false);
+        }
+        driver.tick(commands);
+        let mut buf = [0; RECV_BUFFER];
+        while let Ok((len, _)) = remote.socket.try_recv_from(&mut buf) {
+            let now = remote.now();
+            remote.client.handle(now, &buf[..len]);
+        }
+    }
+
+    /// Connects a test client to the RakNet server at `server` over loopback and keeps the link
+    /// running until `done` holds or the server disconnects it; whether it did.
+    pub(crate) async fn disconnected_before(
+        server: SocketAddr,
+        mut done: impl FnMut() -> bool,
+    ) -> bool {
+        let mut remote = Remote::new(server).await;
+        remote.client.start();
+        let mut buf = vec![0; RECV_BUFFER];
+        while !remote.client.disconnected() && !done() {
+            if remote.now() >= remote.updated + UPDATE_INTERVAL {
+                remote.updated = remote.now();
+                remote.client.update(remote.updated);
+            }
+            remote.flush().await;
+            let received =
+                tokio::time::timeout(UPDATE_INTERVAL, remote.socket.recv_from(&mut buf)).await;
+            if let Ok(received) = received {
+                let (len, _) = received.unwrap();
+                let now = remote.now();
+                remote.client.handle(now, &buf[..len]);
+            }
+        }
+        remote.client.disconnected()
+    }
+
+    /// The server's connected ping comes back as a pong: the connection's ping is the time
+    /// between (`RakLib`'s ping measure, PMMP `NetworkSession::getPing`).
+    #[test]
+    fn a_connected_pong_sets_the_connections_ping() {
+        run(connected_pong_sets_the_connections_ping());
+    }
+
+    async fn connected_pong_sets_the_connections_ping() {
+        let (mut driver, mut commands, mut connections) = driver();
+        let server = driver.io.v4.as_ref().unwrap().local_addr().unwrap();
+        let mut remote = Remote::new(server).await;
+        remote.client.start();
+        let connection = loop {
+            if let Ok(connection) = connections.try_recv() {
+                break connection;
+            }
+            step(&mut driver, &mut commands, &mut remote).await;
+        };
+        assert_eq!(connection.ping(), None);
+        let sent = loop {
+            let ping = remote
+                .client
+                .messages
+                .iter()
+                .find(|m| m.id == wire::ID_CONNECTED_PING);
+            if let Some(ping) = ping {
+                break u64::from_be_bytes(ping.body[..8].try_into().unwrap());
+            }
+            step(&mut driver, &mut commands, &mut remote).await;
+        };
+        let mut pong = sent.to_be_bytes().to_vec();
+        pong.extend_from_slice(&0_u64.to_be_bytes());
+        let now = remote.now();
+        remote.client.send(now, wire::ID_CONNECTED_PONG, pong);
+        while connection.ping().is_none() {
+            step(&mut driver, &mut commands, &mut remote).await;
+        }
+        assert!(connection.ping().unwrap() < WAIT);
+    }
+
+    #[test]
+    fn a_message_sent_just_before_close_is_delivered() {
+        run(message_sent_just_before_close_is_delivered());
+    }
+
+    async fn message_sent_just_before_close_is_delivered() {
+        let (mut driver, mut commands, mut connections) = driver();
+        let server = driver.io.v4.as_ref().unwrap().local_addr().unwrap();
+        let mut remote = Remote::new(server).await;
+        remote.client.start();
+        let connection = loop {
+            if let Ok(connection) = connections.try_recv() {
+                break connection;
+            }
+            step(&mut driver, &mut commands, &mut remote).await;
+        };
+        // The session's last packets, then its close flag, all before the timer runs.
+        for i in 0..300_u32 {
+            connection.send(i.to_le_bytes().to_vec()).await.unwrap();
+        }
+        connection.send(b"bye".to_vec()).await.unwrap();
+        connection.close();
+        while !remote.client.disconnected() {
+            step(&mut driver, &mut commands, &mut remote).await;
+        }
+        let game = remote.client.game();
+        assert_eq!(game.len(), 301);
+        assert_eq!(game.last(), Some(&&b"bye"[..]));
     }
 
     #[test]

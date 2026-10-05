@@ -2,7 +2,9 @@
 //
 // All commands read and write record files: a sequence of [u32 LE id][u32 LE len][len bytes].
 //
-//	corpus -seed <u64> -samples <K> -out <file>      random packet payloads, id = packet ID
+//	corpus -seed <u64> -samples <K> -limits <file> -out <file>
+//	                                                 random packet payloads within Anchor's field limits,
+//	                                                 id = packet ID
 //	check -in <file> -out <file>                     gophertunnel decode + re-encode, id 0 ok / 1 error
 //	compress -algo zlib|snappy -in <file> -out <file>
 //	decompress -algo zlib|snappy -in <file> -out <file>
@@ -110,12 +112,14 @@ func run(args []string) error {
 	var seed *uint64
 	var samples *int
 	var verbose *bool
+	var limitsPath *string
 	var algo *string
 	switch args[0] {
 	case "corpus":
 		seed = fs.Uint64("seed", 0, "PCG seed")
 		samples = fs.Int("samples", 64, "samples per packet")
 		verbose = fs.Bool("v", false, "print per-packet attempt counts")
+		limitsPath = fs.String("limits", "", "Anchor's field limits (protocol_limits.json)")
 	case "compress", "decompress":
 		algo = fs.String("algo", "", "zlib or snappy")
 	case "check":
@@ -135,7 +139,14 @@ func run(args []string) error {
 		if *samples < 0 {
 			return errors.New("-samples must not be negative")
 		}
-		return writeRecords(*out, corpus(*seed, *samples, *verbose))
+		if *limitsPath == "" {
+			return errors.New("-limits is required")
+		}
+		lim, err := loadLimits(*limitsPath)
+		if err != nil {
+			return err
+		}
+		return writeRecords(*out, corpus(*seed, *samples, *verbose, lim))
 	}
 	if *in == "" {
 		return errors.New("-in is required")

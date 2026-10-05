@@ -1,9 +1,13 @@
 //! Forced shutdown with item flows (PLAN.md 10.7 판정식 "강제 종료"): a server keeps moving items
-//! between a player's inventory, a chest and item entities on the ground, saving every third
-//! tick, and is killed at random moments, again and again; some commits find items on the
-//! player's cursor and in its crafting grid. Every restart must find an
-//! undamaged world file whose last commit holds every item exactly once (no duplicate, no loss)
-//! and holds the player, the chest, the ground and the terrain of one and the same tick.
+//! between a player's inventory, a chest and item entities on the ground, and is killed again and
+//! again, at moments counted in ticks from the commits it reports (never in wall-clock time). Every
+//! other run saves every third tick and is killed a random number of ticks after its first commit,
+//! during a later commit or between two; the runs between commit once, at a phase of the item cycle
+//! taken by turns (items on the ground, on the player's cursor and in its crafting grid, or in the
+//! slots and the chest only), and are killed after that commit, so the commits caught hold items in
+//! every place however slow the machine is. Every restart must find an undamaged world file whose
+//! last commit is newer than the last restart's and holds every item exactly once (no duplicate,
+//! no loss) and holds the player, the chest, the ground and the terrain of one and the same tick.
 //!
 //! The test runs its own test binary as the server process (`item_crash_child`) and kills only
 //! that child, through its process handle. The child is the real server without the network:
@@ -30,7 +34,7 @@ use super::super::{
 use super::packet;
 use crate::block::{self, Face, Kind as BlockKind};
 use crate::config::Config;
-use crate::event::Listeners;
+use crate::event::{Listeners, Priority, WorldSave};
 use crate::item::{Kind as ItemKind, Stack, Type};
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -44,6 +48,15 @@ use crate::world::{BlockPos, ChunkPos, Flat};
 const DATA_ENV: &str = "ANCHOR_ITEM_CRASH_DATA";
 /// The child's environment variable: `run` keeps moving items, `check` only reports.
 const MODE_ENV: &str = "ANCHOR_ITEM_CRASH_MODE";
+/// The child's environment variable naming the phase of the item cycle (the tick modulo 12, see
+/// [`step`]) its run commits once, after [`SETTLE`] ticks of moves; without it the run commits
+/// every third tick.
+const AIM_ENV: &str = "ANCHOR_ITEM_CRASH_AIM";
+/// The phases the aimed runs commit, by turns: items on the ground (2, 3), on the cursor and in the
+/// grid (6, 9), in the slots and the chest only (0).
+const AIMS: [u64; 5] = [2, 3, 6, 9, 0];
+/// Ticks of moves before an aimed commit, so that items are in every place of the cycle.
+const SETTLE: u64 = 24;
 /// The prefix of the child's report lines.
 const REPORT: &str = "ANCHOR-ITEMS";
 /// Kills, each followed by a restart that checks the file.
@@ -343,6 +356,10 @@ fn moves(state: &mut State, k: u64, tick: u64) {
 /// The child's task state.
 struct Mover {
     moves: bool,
+    /// The phase of the run's only commit ([`AIM_ENV`]).
+    aim: Option<u64>,
+    /// The tick of that commit, chosen at the first move.
+    target: Option<u64>,
     stop: mpsc::Sender<()>,
     /// The tick the server started at: its last commit's.
     start: Option<u64>,
@@ -355,7 +372,8 @@ struct Mover {
 impl Mover {
     #[expect(
         clippy::print_stdout,
-        reason = "the child reports to the parent on standard output"
+        clippy::disallowed_methods,
+        reason = "consistency: the child reports to the parent on standard output"
     )]
     fn report(line: &str) {
         println!("{REPORT} {line}");
@@ -426,8 +444,18 @@ impl Mover {
             text(chest),
             text(on_ground)
         ));
-        // Every third tick, and when items go onto the cursor and into the grid.
-        if tick.is_multiple_of(3) || tick % 12 == 6 {
+        let save = match self.aim {
+            // Every third tick, and when items go onto the cursor and into the grid.
+            None => tick.is_multiple_of(3) || tick % 12 == 6,
+            Some(phase) => {
+                let target = *self.target.get_or_insert_with(|| {
+                    let settled = tick + SETTLE;
+                    settled + (phase + 12 - settled % 12) % 12
+                });
+                tick == target
+            }
+        };
+        if save {
             ctx.save();
         }
     }
@@ -530,6 +558,8 @@ fn item_crash_child() {
     .unwrap();
     let mut mover = Mover {
         moves: mode == "run",
+        aim: std::env::var(AIM_ENV).ok().map(|a| a.parse().unwrap()),
+        target: None,
         stop: stop_tx,
         start: None,
         ready: false,
@@ -537,6 +567,13 @@ fn item_crash_child() {
     };
     let mut tasks = Tasks::default();
     tasks.push(NonZeroU32::MIN, move |ctx| mover.tick(ctx));
+    // The parent times its kill from the commits.
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        |_: &mut WorldSave, _: &mut task::Context<'_>| Mover::report("committed"),
+    );
+    listeners.sort();
     let state = State::new(
         Settings::new(&Config::default()),
         Shared::new(
@@ -546,6 +583,7 @@ fn item_crash_child() {
         )
         .unwrap(),
         crate::tick::Setup {
+            listeners,
             tasks,
             ..crate::tick::Setup::default()
         },
@@ -565,6 +603,7 @@ fn item_crash_child() {
                 skin: crate::tick::queue::Skin::default(),
                 device_os: -1,
                 address: None,
+                client: crate::tick::queue::Client::default(),
             },
             outbound,
         })
@@ -607,8 +646,12 @@ struct Running {
     clippy::disallowed_methods,
     reason = "off-tick: the test starts and reads its child process"
 )]
-fn start(data: &Path, mode: &str) -> Running {
-    let mut child = Command::new(std::env::current_exe().unwrap())
+fn start(data: &Path, mode: &str, aim: Option<u64>) -> Running {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    if let Some(phase) = aim {
+        command.env(AIM_ENV, phase.to_string());
+    }
+    let mut child = command
         .args([
             "tick::tests::crash::item_crash_child",
             "--exact",
@@ -672,12 +715,41 @@ fn record(line: &str, ticks: &mut BTreeMap<u64, Places>) {
     }
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the test waits between starting and killing its child"
-)]
-fn pause(ms: u64) {
-    std::thread::sleep(Duration::from_millis(ms));
+/// The child's first report: what the server started with.
+fn first_report(server: &mut Running, kill: u32) -> String {
+    server
+        .lines
+        .recv_timeout(Duration::from_secs(120))
+        .unwrap_or_else(|_| {
+            let status = server.child.try_wait().unwrap();
+            panic!("kill {kill}: no report (exit {status:?}): a damaged file is refused at start")
+        })
+}
+
+/// Kills the child `after` ticks after its first commit (an aimed run's only one), counted by
+/// its reports however slow the machine is, recording the tick lines read on the way.
+fn kill_after_commit(
+    server: &mut Running,
+    kill: u32,
+    after: u64,
+    ticks: &mut BTreeMap<u64, Places>,
+) {
+    let mut since_commit = None;
+    while since_commit.is_none_or(|n| n < after) {
+        let line = server
+            .lines
+            .recv_timeout(Duration::from_secs(120))
+            .unwrap_or_else(|_| panic!("kill {kill}: the child stopped reporting"));
+        record(&line, ticks);
+        if line == "committed" {
+            since_commit.get_or_insert(0);
+        } else if let Some(n) = &mut since_commit
+            && line.starts_with("tick=")
+        {
+            *n += 1;
+        }
+    }
+    server.child.kill().unwrap();
 }
 
 #[expect(
@@ -689,49 +761,82 @@ fn fresh(dir: &Path) {
     std::fs::create_dir_all(dir).unwrap();
 }
 
-fn data_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("anchor-item-crash-{}", std::process::id()))
+/// The data folder of the chain whose first kill is `first`.
+fn data_dir(first: u32) -> PathBuf {
+    std::env::temp_dir().join(format!("anchor-item-crash-{}-{first}", std::process::id()))
+}
+
+/// What the restarts of a chain found.
+#[derive(Default)]
+struct Found {
+    /// Restarts that found items in the player, the chest and on the ground.
+    held: [u32; 3],
+    /// Restarts that found items on the cursor or in the grid.
+    carried: u32,
+    /// Restarts that found a newer commit than the restart before.
+    advanced: u32,
 }
 
 #[test]
 fn forced_kills_never_duplicate_lose_or_split_items() {
-    let data = data_dir();
-    fresh(&data);
-    // A fixed-seed generator for the kill moments (xorshift).
+    // A fixed-seed generator for the kill moments (xorshift), in kill order.
     let mut seed = 0x17e5_c0de_u64;
-    let mut next = || {
-        seed ^= seed << 13;
-        seed ^= seed >> 7;
-        seed ^= seed << 17;
-        seed
-    };
+    let afters: Vec<u64> = (0..KILLS)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % 30
+        })
+        .collect();
+    // The kills run in two chains side by side, each on a world file of its own, at the moments
+    // and aims one chain of all of them takes: the children tick in real time, so one chain
+    // takes twice as long for the same kills.
+    let half = KILLS / 2;
+    let chains = super::side_by_side(&[(0, half), (half, KILLS)], |&(first, end)| {
+        chain(first, end, &afters)
+    });
+    let advanced: u32 = chains.iter().map(|c| c.advanced).sum();
+    assert_eq!(advanced, KILLS, "every restart finds a newer commit");
+    // The commits caught items in every place (player, chest, ground) many times: the aimed
+    // ones alone catch the ground ten times and the cursor and the grid ten times.
+    let held: [u32; 3] = std::array::from_fn(|i| chains.iter().map(|c| c.held[i]).sum());
+    assert!(
+        held.iter().all(|&n| n >= 10),
+        "items found by place: {held:?}"
+    );
+    let carried: u32 = chains.iter().map(|c| c.carried).sum();
+    assert!(
+        carried >= 10,
+        "only {carried} commits held items on the cursor"
+    );
+}
+
+/// Kills `first` to `end` (not included), each `afters[kill]` ticks after a commit, on a world
+/// file of their own, then a last restart that only checks.
+fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
+    let data = data_dir(first);
+    fresh(&data);
     let mut ticks: BTreeMap<u64, Places> = BTreeMap::new();
     let mut committed = false;
-    // Restarts that found items in the player, the chest and on the ground, and on the cursor
-    // and in the grid.
-    let mut held = [0; 3];
-    let mut carried = 0;
-    let (mut last_start, mut advanced) = (0, 0);
-    for kill in 0..=KILLS {
-        let mode = if kill == KILLS { "check" } else { "run" };
-        let mut server = start(&data, mode);
-        let line = server
-            .lines
-            .recv_timeout(Duration::from_secs(120))
-            .unwrap_or_else(|_| {
-                let status = server.child.try_wait().unwrap();
-                panic!(
-                    "kill {kill}: no report (exit {status:?}): a damaged file is refused at start"
-                )
-            });
+    let mut found = Found::default();
+    let mut last_start = 0;
+    // The phase the last run committed, if it was aimed.
+    let mut aimed = None;
+    for kill in first..=end {
+        let mode = if kill == end { "check" } else { "run" };
+        let aim = (mode == "run" && kill.is_multiple_of(2))
+            .then(|| AIMS[usize::try_from(kill / 2).unwrap() % AIMS.len()]);
+        let mut server = start(&data, mode, aim);
+        let line = first_report(&mut server, kill);
         let f = fields(&line);
         let start: u64 = f["start"].parse().unwrap();
         assert_eq!(
             f["quarantined"], "0",
             "kill {kill}: a damaged chunk (start {start})"
         );
-        let found = places(&f);
-        let total: Counts = std::array::from_fn(|i| found.iter().map(|p| p[i]).sum());
+        let in_places = places(&f);
+        let total: Counts = std::array::from_fn(|i| in_places.iter().map(|p| p[i]).sum());
         if f["name"] == "-" {
             // Nothing was committed: no chest, no items anywhere, no marker.
             assert!(
@@ -742,13 +847,13 @@ fn forced_kills_never_duplicate_lose_or_split_items() {
             assert_eq!(f["golds"], "", "kill {kill}: a marker without the chest");
         } else {
             committed = true;
-            for (h, place) in held.iter_mut().zip(&found) {
+            for (h, place) in found.held.iter_mut().zip(&in_places) {
                 if place.iter().any(|n| *n > 0) {
                     *h += 1;
                 }
             }
             if counts(&f["carried"]) != [0, 0] {
-                carried += 1;
+                found.carried += 1;
             }
             let expected: Counts = std::array::from_fn(|i| ITEMS[i].1);
             assert_eq!(
@@ -757,6 +862,13 @@ fn forced_kills_never_duplicate_lose_or_split_items() {
             );
             // The committed tick: the marker, the chest's name and where every item was.
             let tick = start - 1;
+            if let Some(phase) = aimed {
+                assert_eq!(
+                    tick % 12,
+                    phase,
+                    "kill {kill}: not the aimed commit: {line}"
+                );
+            }
             let p = path(tick);
             assert_eq!(
                 f["golds"],
@@ -766,44 +878,26 @@ fn forced_kills_never_duplicate_lose_or_split_items() {
             assert_eq!(f["name"], format!("t{tick}"), "kill {kill}: {line}");
             assert_eq!(
                 ticks.get(&tick),
-                Some(&found),
+                Some(&in_places),
                 "kill {kill}: the commit of tick {tick} holds another tick's items: {line}"
             );
         }
         if start > last_start {
-            advanced += 1;
+            found.advanced += 1;
             last_start = start;
         }
         if mode == "run" {
-            // Let it move and save for a while, then kill it at a random moment.
-            pause(200 + next() % 1800);
-            server.child.kill().unwrap();
+            let after = afters[usize::try_from(kill).unwrap()];
+            kill_after_commit(&mut server, kill, after, &mut ticks);
         }
         server.child.wait().unwrap();
         for line in &server.lines {
             record(&line, &mut ticks);
         }
+        aimed = aim;
     }
-    assert!(
-        committed,
-        "nothing was ever committed: the kills came too early"
-    );
-    // The commits caught items in every place (player, chest, ground) many times.
-    assert!(
-        held.iter().all(|&n| n >= 10),
-        "items found by place: {held:?}"
-    );
-    // About four commits in ten are taken while items are on the cursor and in the grid.
-    assert!(
-        carried >= 5,
-        "only {carried} commits held items on the cursor"
-    );
-    // Most kills land while the server commits every 150 ms, not before its first commit.
-    assert!(
-        advanced * 10 >= KILLS * 8,
-        "only {advanced} of {KILLS} runs committed"
-    );
     remove(&data);
+    found
 }
 
 #[expect(

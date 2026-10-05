@@ -18,6 +18,8 @@ impl Error {
             Self::Multiplier => offer("a price multiplier that is not finite"),
             Self::TierExperience => offer("tier experience that goes down or is above i32::MAX"),
             Self::Full => offer("more than 128 offers"),
+            Self::TooLarge => offer("offers whose saved form is over 2 MiB"),
+
             Self::NoOffer => offer("no offer at that index"),
         }
     }

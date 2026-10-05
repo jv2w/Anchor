@@ -557,7 +557,7 @@ fn render(counts: Counts, sections: &BTreeMap<&str, Section>) -> Result<String, 
 
 /// The `.rs` files under `dirs` (missing directories are skipped) as (path from the root with
 /// `/`, text), sorted by path.
-fn sources(root: &Path, dirs: &[&str]) -> Result<Vec<(String, String)>, String> {
+pub(crate) fn sources(root: &Path, dirs: &[&str]) -> Result<Vec<(String, String)>, String> {
     let mut paths = Vec::new();
     for dir in dirs {
         walk(root, dir, &mut paths)?;

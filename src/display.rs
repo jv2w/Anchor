@@ -150,7 +150,7 @@ pub enum Error {
     Offline,
     /// The scoreboard has more lines than its slot shows (15 in the sidebar, 1,024 elsewhere).
     TooManyLines,
-    /// A title or line text is longer than 1,024 bytes.
+    /// A title or line text is longer than 1,024 bytes, or a boss bar title longer than 256.
     TooLong,
     /// A player line names a player who is not in the game.
     UnknownPlayer,
@@ -166,7 +166,7 @@ impl fmt::Display for Error {
         f.write_str(match self {
             Self::Offline => "the player is not in the game",
             Self::TooManyLines => "the scoreboard has more lines than its slot shows",
-            Self::TooLong => "a title or line is longer than 1024 bytes",
+            Self::TooLong => "a title or line is longer than a client takes",
             Self::UnknownPlayer => "a scoreboard line names a player who is not in the game",
             Self::DuplicatePlayer => "two scoreboard lines name the same player",
         })

@@ -7,7 +7,7 @@
 //! state has and, where Bedrock reuses a name with different values (`direction`), by the PMMP
 //! class, as PMMP's serializer does.
 
-use crate::block::{Class, Face, PropertyValue, State};
+use crate::block::{Class, Face, MAX_PROPERTIES, PropertyValue, State};
 
 /// `minecraft:cardinal_direction`.
 const CARDINAL: &str = "minecraft:cardinal_direction";
@@ -326,10 +326,11 @@ pub(super) const fn rotate_y(face: Face, clockwise: bool) -> Face {
 /// properties to another type (stripping a log, waxing copper, a dead coral); `None` if no such
 /// state exists.
 pub(in crate::tick) fn renamed(state: State, name: &str) -> Option<State> {
-    let mut buffer = [("", PropertyValue::Byte(0)); 8];
+    // `State::find` takes at most the properties a table state has.
+    let mut buffer = [("", PropertyValue::Byte(0)); MAX_PROPERTIES];
     let mut count = 0;
-    for (slot, p) in buffer.iter_mut().zip(state.properties()) {
-        *slot = (p.name(), p.value());
+    for p in state.properties() {
+        *buffer.get_mut(count)? = (p.name(), p.value());
         count += 1;
     }
     State::find(name, buffer.get(..count)?)
@@ -371,6 +372,16 @@ mod tests {
             checked += 1;
         }
         assert!(checked > 1000, "{checked}");
+    }
+
+    #[test]
+    fn renamed_keeps_the_properties() {
+        let water = State::all()
+            .find(|s| s.name() == "minecraft:water")
+            .unwrap();
+        let flowing = renamed(water, "minecraft:flowing_water").unwrap();
+        assert_eq!(flowing.name(), "minecraft:flowing_water");
+        assert_eq!(flowing.value("liquid_depth"), water.value("liquid_depth"));
     }
 
     #[test]

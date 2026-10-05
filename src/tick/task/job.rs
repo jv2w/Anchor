@@ -87,6 +87,30 @@ impl Jobs {
     }
 }
 
+impl Jobs {
+    /// Writes the next id. A waiting job's callback is a closure, with no checkpoint form: it
+    /// makes the checkpoint opaque.
+    pub(super) fn checkpoint(&self, w: &mut crate::tick::checkpoint::Writer) {
+        let Self {
+            pending,
+            next_id,
+            runner: _,
+        } = self;
+        w.opaque("blocking jobs waiting for their result", pending.len());
+        crate::tick::checkpoint::Codec::encode(next_id, w);
+    }
+
+    /// Reads what [`Self::checkpoint`] wrote: no waiting job, and the next id. The runner stays.
+    pub(super) fn restore(
+        &mut self,
+        r: &mut crate::tick::checkpoint::Reader<'_>,
+    ) -> crate::tick::checkpoint::Result<()> {
+        self.pending.clear();
+        self.next_id = crate::tick::checkpoint::Codec::decode(r)?;
+        Ok(())
+    }
+}
+
 impl fmt::Debug for Jobs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Jobs")
@@ -107,15 +131,16 @@ fn encode<T: Serialize>(value: &T) -> JobOutcome {
 
 impl Runner {
     /// Starts `work` as job `id`. The result waits for a free slot's thread, then for room in the
-    /// input queue; it is dropped if the tick has stopped.
-    fn run<T, W>(&self, id: u64, work: W)
+    /// input queue; it is dropped if the tick has stopped. Returns the job's task, which the
+    /// engine does not wait for (tests do).
+    fn run<T, W>(&self, id: u64, work: W) -> tokio::task::JoinHandle<()>
     where
         T: Serialize + Send + 'static,
         W: FnOnce() -> T + Send + 'static,
     {
         let inputs = self.inputs.clone();
         let slots = Arc::clone(&self.slots);
-        drop(self.handle.spawn(async move {
+        self.handle.spawn(async move {
             // The semaphore is never closed, so acquiring only waits.
             let Ok(permit) = slots.acquire_owned().await else {
                 return;
@@ -133,7 +158,7 @@ impl Runner {
             if inputs.job(id, outcome).await.is_err() {
                 debug!(job = id, "the tick stopped before the job's result arrived");
             }
-        }));
+        })
     }
 }
 
@@ -149,8 +174,9 @@ impl Context<'_> {
     /// not go through JSON and back. At most [`MAX_RUNNING_JOBS`] jobs run at once; the others
     /// wait their turn. A
     /// result that arrives after the server stopped is dropped, and work still running 10
-    /// seconds after the stop is abandoned. What the work wrote outside the world file stays
-    /// after a crash (PLAN.md 6). Fails, running nothing, while [`MAX_JOBS`] jobs wait for their
+    /// seconds after the stop is abandoned: [`Server::run`](crate::Server::run) returns while its
+    /// thread runs on, until the work ends or the process exits. What the work wrote outside the
+    /// world file stays after a crash (PLAN.md 6). Fails, running nothing, while [`MAX_JOBS`] jobs wait for their
     /// result.
     #[doc(alias = "AsyncPool::submitTask")]
     #[doc(alias = "AsyncTask")]
@@ -176,7 +202,7 @@ impl Context<'_> {
         });
         jobs.pending.insert(id, finish);
         if let Some(runner) = &jobs.runner {
-            runner.run(id, work);
+            drop(runner.run(id, work));
         }
         Ok(())
     }
@@ -427,19 +453,17 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the test waits for the blocking pool"
-    )]
     fn results_of_a_stopped_tick_are_dropped() {
         let runtime = runtime();
-        let (mut state, queue) = live(&runtime);
+        let (state, queue) = live(&runtime);
         drop(queue);
-        let mut cx = Context { state: &mut state };
-        cx.spawn_blocking(|| 5_u8, |_, _| panic!("the tick stopped"))
-            .unwrap();
-        std::thread::sleep(Duration::from_millis(50));
+        let runner = state.tasks.jobs.runner.as_ref().expect("live runner");
+        let task = runner.run(0, || 5_u8);
+        // The job's task ends only after offering its result to the stopped tick; the guard only
+        // catches a task that never ends.
+        let ended =
+            runtime.block_on(async { tokio::time::timeout(Duration::from_secs(20), task).await });
         runtime.shutdown();
-        assert_eq!(state.tasks.jobs.len(), 1, "nothing arrived");
+        assert!(matches!(ended, Ok(Ok(()))), "{ended:?}");
     }
 }

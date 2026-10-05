@@ -1,5 +1,5 @@
 //! Custom content (PLAN.md 8.3, 8.6, 10.8): items and blocks a server adds beyond vanilla, its
-//! own recipes, and villager trade offers as typed values.
+//! own recipes, its creative inventories, and villager trade offers as typed values.
 //!
 //! Items and blocks are `static` definitions ([`Item`], [`Block`]) given to the builder
 //! ([`ServerBuilder::custom_item`], [`ServerBuilder::custom_block`]); recipes are values
@@ -17,6 +17,7 @@
 //! gone, its blocks stay as they were saved and show as `minecraft:info_update` (PLAN.md 7).
 
 mod block;
+mod creative;
 mod item;
 mod offer;
 mod recipe;
@@ -27,11 +28,12 @@ pub(crate) mod tests;
 use std::fmt;
 
 pub use self::block::{Behaviour, Block, Drops, Material, Property, RenderMethod};
+pub use self::creative::{CreativeGroup, CreativeInventory, CreativeItem};
 pub use self::item::Item;
 pub use self::offer::Offer;
 pub use self::recipe::{Ingredient, Recipe};
 pub(crate) use self::registry::Registry;
-pub use crate::crafting::FurnaceType;
+pub use crate::crafting::{FurnaceType, ShapelessType};
 
 use crate::ServerBuilder;
 
@@ -49,9 +51,10 @@ pub enum Category {
     Items,
 }
 
-/// Where a custom item or block's item shows in the creative inventory: a tab and an optional
-/// group (a vanilla group such as `itemGroup.name.sword`, or a name of the resource pack).
-/// Entries in a row with the same tab and group share one group, as PMMP builds them.
+/// Where a custom item or block's item shows in the default creative inventory, after its own
+/// entries: a tab and an optional group (a vanilla group name such as `itemGroup.name.sword`, or
+/// a name of the resource pack). Custom entries with the same tab and group share one group shown
+/// with the first of them, as one PMMP `CreativeGroup` would be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Creative {
     category: Category,
@@ -139,11 +142,17 @@ pub enum Error {
     },
     /// The entity is not a villager NPC.
     NotVillager,
-    /// The villager was not spawned: the world does not exist, the position is not finite or
-    /// outside the world border, its chunk is not loaded, or the world is at its entity limit.
+    /// The villager was not spawned: the world does not exist, the position is not finite,
+    /// outside the world border or more than 64 blocks above or below the world height, its
+    /// chunk is not loaded, or the world is at its entity limit.
     NotSpawned,
     /// An offer or an offer list change breaks a rule.
     Offer {
+        /// What is wrong.
+        reason: &'static str,
+    },
+    /// A creative inventory breaks a rule.
+    Creative {
         /// What is wrong.
         reason: &'static str,
     },
@@ -171,6 +180,7 @@ impl fmt::Display for Error {
             Self::NotVillager => f.write_str("the entity is not a villager"),
             Self::NotSpawned => f.write_str("the villager cannot be spawned there"),
             Self::Offer { reason } => write!(f, "offer refused: {reason}"),
+            Self::Creative { reason } => write!(f, "creative inventory refused: {reason}"),
         }
     }
 }
@@ -195,13 +205,41 @@ impl ServerBuilder {
 
     /// Adds `recipe` after PMMP's recipes (checked by [`build`](Self::build): its size, counts
     /// and items, which must be vanilla or registered custom ones). PMMP takes its recipes the
-    /// same way: shaped and shapeless crafting recipes and furnace recipes.
+    /// same way: shaped and shapeless crafting recipes, stonecutter recipes, furnace recipes and
+    /// brewing recipes; smithing recipes are dragonfly's.
     #[doc(alias = "CraftingManager::registerShapedRecipe")]
     #[doc(alias = "CraftingManager::registerShapelessRecipe")]
     #[doc(alias = "FurnaceRecipeManager::register")]
+    #[doc(alias = "CraftingManager::registerPotionTypeRecipe")]
+    #[doc(alias = "CraftingManager::registerPotionContainerChangeRecipe")]
     #[must_use]
     pub fn recipe(mut self, recipe: Recipe) -> Self {
         self.setup.custom.add_recipe(recipe);
+        self
+    }
+
+    /// Sets the creative inventory every player sees unless switched to an alternative
+    /// ([`Context::set_creative_inventory`](crate::Context::set_creative_inventory)): `inventory`
+    /// (checked by [`build`](Self::build)), then the custom items and blocks that ask for a
+    /// place ([`Creative`]). Without a call it is PMMP's ([`CreativeInventory::vanilla`]).
+    #[must_use]
+    pub fn creative_inventory(mut self, inventory: CreativeInventory) -> Self {
+        self.setup.custom.set_creative_inventory(inventory);
+        self
+    }
+
+    /// Registers `inventory` as the alternative creative inventory `name` (PMMP: a clone of
+    /// `CreativeInventory` given to `Player::setCreativeInventory`), which a player is switched
+    /// to while the server runs. It holds what it lists: no custom item or block place is added.
+    /// [`build`](Self::build) checks it and refuses an empty, longer than 128 bytes or repeated
+    /// name, or more than 64 alternatives.
+    #[must_use]
+    pub fn alternative_creative_inventory(
+        mut self,
+        name: &'static str,
+        inventory: CreativeInventory,
+    ) -> Self {
+        self.setup.custom.add_creative_inventory(name, inventory);
         self
     }
 }

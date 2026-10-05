@@ -18,10 +18,20 @@ func encodeRecords(recs []record) []byte {
 	return b.Bytes()
 }
 
+// testLimits are Anchor's field limits, which the corpus keeps within.
+func testLimits(t *testing.T) limits {
+	l, err := loadLimits("../../data/reference/protocol_limits.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
+}
+
 func TestCorpusIsDeterministicAndFullyCovered(t *testing.T) {
 	const samples = 64
-	a := corpus(1, samples, false)
-	b := corpus(1, samples, false)
+	lim := testLimits(t)
+	a := corpus(1, samples, false, lim)
+	b := corpus(1, samples, false, lim)
 	if !bytes.Equal(encodeRecords(a), encodeRecords(b)) {
 		t.Fatal("corpus output differs between runs")
 	}
@@ -49,7 +59,7 @@ func TestCorpusIsDeterministicAndFullyCovered(t *testing.T) {
 // TestCheckRoundTrip: every corpus record decodes in check; re-encoded bytes differ from the input only
 // for samples holding multi-key NBT compounds (gophertunnel writes map keys in random order).
 func TestCheckRoundTrip(t *testing.T) {
-	in := corpus(1, 64, false)
+	in := corpus(1, 64, false, testLimits(t))
 	out := check(in)
 	pool := packetPool()
 	mismatch, multiKeyMismatch := 0, 0
@@ -65,7 +75,7 @@ func TestCheckRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, multiKey, _ := canonEncode(pk)
+		_, multiKey, _ := sortedEncode(pk)
 		if multiKey > 0 && len(r.data) == len(in[i].data) {
 			multiKeyMismatch++
 			continue

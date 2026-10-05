@@ -391,7 +391,10 @@ fn drop_action(count: u8, source: StackRequestSlotInfo) -> StackRequestAction {
     })
 }
 
-fn swap(source: StackRequestSlotInfo, destination: StackRequestSlotInfo) -> StackRequestAction {
+pub(super) fn swap(
+    source: StackRequestSlotInfo,
+    destination: StackRequestSlotInfo,
+) -> StackRequestAction {
     StackRequestAction::Swap(SwapStackRequestAction {
         source,
         destination,
@@ -509,6 +512,61 @@ fn shape(r: &ItemStackResponse) -> Vec<(u8, u8, u8, i32)> {
 
 const CRAFT: u8 = C::CraftingInput as u8;
 const COMBINED: u8 = C::CombinedHotBarAndInventory as u8;
+
+/// `recipe-book = false`: the recipe book's quick crafting is refused and changes nothing; the
+/// grid still crafts.
+#[test]
+fn a_hidden_recipe_book_refuses_its_quick_crafting() {
+    let mut w = World::new(GameMode::Survival);
+    let mut custom = crate::custom::Registry::default();
+    custom.hide_recipe_book();
+    custom.finish().unwrap();
+    w.state.custom = std::sync::Arc::new(custom);
+    let s = w.join(1);
+    let (log, plank) = (
+        block_item(blk::Kind::OakLog),
+        block_item(blk::Kind::OakPlanks),
+    );
+    let (planks, _) = recipe_for(plank, &[log]);
+    w.give(s, Stack::new(log, 4));
+    w.open_inventory(s);
+    w.sent(s);
+    let l = w.id(s, C::CombinedHotBarAndInventory, 0);
+    let id = w.next_id(s);
+    let r = w.request_as(
+        s,
+        id,
+        vec![
+            auto(planks, 1),
+            deprecated(),
+            consume(1, at(C::CombinedHotBarAndInventory, 0, l)),
+            place(4, created(id), at(C::CombinedHotBarAndInventory, 1, 0)),
+        ],
+    );
+    assert!(!ok(&r), "the recipe book is refused");
+    assert_eq!(w.slot(s, C::CombinedHotBarAndInventory, 0).stack.count(), 4);
+    let r = w.request(
+        s,
+        vec![place(
+            4,
+            at(C::CombinedHotBarAndInventory, 0, l),
+            at(C::CraftingInput, 28, 0),
+        )],
+    );
+    assert!(ok(&r));
+    let id = w.next_id(s);
+    let r = w.request_as(
+        s,
+        id,
+        vec![
+            craft(planks, 1),
+            deprecated(),
+            consume(1, at(C::CraftingInput, 28, l)),
+            place(4, created(id), at(C::CombinedHotBarAndInventory, 0, 0)),
+        ],
+    );
+    assert!(ok(&r), "the grid crafts");
+}
 
 #[test]
 #[expect(
@@ -1264,11 +1322,13 @@ fn lay_out(
 
 fn stock(w: &mut World, s: SessionId) {
     let mut sword = Stack::new(item(it::Kind::DiamondSword), 1).with_damage(7);
-    sword = sword.with_extra(Some(Extra {
-        custom_name: Some("Blade".to_owned()),
-        enchantments: vec![(Enchantment::from_id(9).unwrap(), 2)],
-        ..Extra::default()
-    }));
+    sword = sword
+        .with_extra(Some(Extra {
+            custom_name: Some("Blade".to_owned()),
+            enchantments: vec![(Enchantment::from_id(9).unwrap(), 2)],
+            ..Extra::default()
+        }))
+        .unwrap();
     for stack in [
         Stack::new(block_item(blk::Kind::OakLog), 64),
         Stack::new(block_item(blk::Kind::OakLog), 30),
@@ -1858,7 +1918,7 @@ fn join_open_close_leave_cycles_leave_every_table_at_its_start() {
         if n % 2 == 0 {
             w.close(s);
         }
-        w.state.leave(s);
+        w.state.leave(s, "client disconnect");
         w.tick(Vec::new());
         let now = w.state.rules.block_entities.sizes();
         assert_eq!(
@@ -2183,7 +2243,7 @@ fn every_crafting_recipe_crafts_from_its_grid_and_shifted_or_short_grids_are_ref
     // wildflowers: PMMP has no such items, so neither does Anchor.
     assert_eq!(
         unknown,
-        [696, 706, 828, 1008, 1041, 1042, 1156, 1260, 1370, 1404]
+        [696, 706, 828, 1012, 1045, 1046, 1160, 1264, 1374, 1408]
     );
     assert!(all.len() > 1000, "{} crafting recipes", all.len());
     assert!(
@@ -2213,12 +2273,9 @@ fn crafting_samples() -> BTreeMap<String, Stack> {
 
 fn sample(i: &Ingredient, by_name: &BTreeMap<String, Stack>) -> Option<Stack> {
     match i {
-        Ingredient::Exact(e) => Some(Stack::from_parts(
-            e.item,
-            1,
-            e.meta,
-            e.nbt.map(crate::nbt::compound),
-        )),
+        Ingredient::Exact(e) => {
+            Some(Stack::from_parts(e.item, 1, e.meta, e.nbt.map(crate::nbt::compound)).unwrap())
+        }
         Ingredient::AnyMeta(n) => by_name.get(n.name).cloned().or_else(|| {
             Type::from_name(n.name, 0, None, &crate::nbt::Compound::new()).map(|t| Stack::new(t, 1))
         }),
@@ -2336,4 +2393,116 @@ fn clear(w: &mut World, s: SessionId) {
     }
     inv.main = Slots::default();
     w.sent(s);
+}
+
+#[test]
+fn crafting_refuses_ingredients_swapped_after_the_craft_began() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let bench = BlockPos::new(3, -60, 3);
+    w.place_block(bench, blk::Kind::CraftingTable.default_state());
+    w.open_block(s, bench);
+    let log = block_item(blk::Kind::OakLog);
+    let (id, recipe) = recipe_for(block_item(blk::Kind::OakPlanks), &[log]);
+    let planks = results(recipe)[0].clone();
+    set_grid(&mut w, s, &[Stack::new(log, 1)]);
+    w.give(s, Stack::new(block_item(blk::Kind::Dirt), 1));
+    let rid = w.next_id(s);
+    // The log laid out at the craft, then swapped for dirt, which is consumed instead.
+    let actions = vec![
+        craft(id, 1),
+        swap(at(C::CraftingInput, 32, rid), at(C::HotBar, 0, rid)),
+        consume(1, at(C::CraftingInput, 32, rid)),
+        place(planks.count(), created(rid), at(C::HotBar, 1, 0)),
+    ];
+    let request = ItemStackRequest {
+        request_id: rid,
+        actions: actions.clone(),
+        filter_strings: Vec::new(),
+        filter_cause: 0,
+    };
+    assert_eq!(
+        request::dry_run(&w.state, s, &request),
+        Err(request::Error::Consumed)
+    );
+    let before = snapshot(&w.state);
+    assert!(!ok(&w.request_as(s, rid, actions)));
+    assert_eq!(snapshot(&w.state), before);
+}
+
+#[test]
+fn death_drops_waiting_at_the_entity_limit_survive_a_restart() {
+    use super::super::{entity, survival};
+    use crate::nbt::{List, Value};
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let runtime_id = w.player(s).runtime_id;
+    w.tick(vec![super::super::tests::initialised(1, 2, runtime_id)]);
+    // Distinct items, so none merge: the main slots full and the most waiting stacks.
+    let mut items = crafting_samples()
+        .into_values()
+        .filter(|st| st.max_count() > 1)
+        .map(|st| st.with_count(1));
+    for st in items.by_ref().take(MAIN) {
+        w.give(s, st);
+    }
+    let pending: Vec<Stack> = items.by_ref().take(MAX_SAVED_PENDING).collect();
+    assert_eq!(pending.len(), MAX_SAVED_PENDING);
+    w.player(s).inventory.pending = pending;
+    let before: u64 = totals(&w.state).values().sum();
+    // The world's entity limit: no death drop drops.
+    let at = w.player(s).position;
+    while entity::drop_item(&mut w.state, 0, at, Stack::new(item(it::Kind::Stick), 1)) {}
+    assert!(survival::damage(
+        &mut w.state,
+        s,
+        1000.0,
+        survival::Damage::Suicide
+    ));
+    let held = |extra: &Compound| -> u64 {
+        match extra.get("PendingDeathDrops") {
+            Some(Value::List(List::Compound(list))) => list
+                .iter()
+                .map(|nbt| u64::from(Stack::from_nbt(nbt).unwrap().count()))
+                .sum(),
+            _ => 0,
+        }
+    };
+    let mut saved = Compound::new();
+    survival::save(&w.player(s).survival, &mut saved);
+    let kept: u64 = totals(&w.state).values().sum();
+    assert_eq!(kept + held(&saved), before, "no item is lost on death");
+    // A restart loads every held-back stack.
+    let mut loaded = survival::Survival::default();
+    survival::load(&mut loaded, &saved, &crate::custom::Registry::default());
+    let mut again = Compound::new();
+    survival::save(&loaded, &mut again);
+    assert_eq!(held(&again), held(&saved));
+    assert_eq!(again, saved);
+}
+
+#[test]
+fn placing_over_a_stale_shulker_entity_drops_its_items() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let pos = BlockPos::new(3, -60, 3);
+    let shulker = blk::State::all()
+        .find(|b| b.is(blk::Class::ShulkerBox))
+        .unwrap();
+    w.place_block(pos, shulker);
+    w.give(s, Stack::new(item(it::Kind::Stick), 7));
+    w.open_block(s, pos);
+    let id = w.id(s, C::HotBar, 0);
+    assert!(ok(&w.request(
+        s,
+        vec![place(7, at(C::HotBar, 0, id), at(C::ShulkerBox, 2, 0))]
+    )));
+    w.close(s);
+    let before = totals(&w.state);
+    // The box is set to air outside breaking: its entity stays until the change feed runs, and a
+    // box placed there meanwhile replaces it.
+    w.state.worlds[0].set_block(pos, blk::AIR).unwrap();
+    w.place_block(pos, shulker);
+    assert_eq!(dropped(), vec![Stack::new(item(it::Kind::Stick), 7)]);
+    assert_eq!(totals(&w.state), before);
 }

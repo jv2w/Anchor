@@ -1,10 +1,11 @@
 //! Sounds a world plays at a position (PMMP `world\sound\*`), for
 //! [`Context::add_sound`](crate::Context::add_sound): each is the packet PMMP sends for its
-//! class, with gophertunnel's names and numbers (PLAN.md 4.9).
+//! class, with gophertunnel's names and numbers (CLAUDE.md 4.9).
 //!
 //! Left out: sounds of an entity (`EntityLandSound`, `EntityLongFallSound`,
-//! `EntityShortFallSound`: the entity rules play them) and redstone's (`PressurePlate*`,
-//! `RedstonePower*`, CLAUDE.md 1).
+//! `EntityShortFallSound`: the entity rules play them) and pressure plates' (`PressurePlate*`:
+//! redstone, CLAUDE.md 1). Levers and buttons switch their own state, with their
+//! `RedstonePower*` sounds.
 
 use crate::block;
 use crate::item;
@@ -304,6 +305,12 @@ pub enum Sound {
     /// A jukebox stops.
     #[doc(alias = "RecordStopSound")]
     RecordStop,
+    /// A lever or button switches on.
+    #[doc(alias = "RedstonePowerOnSound")]
+    RedstonePowerOn,
+    /// A lever or button switches off.
+    #[doc(alias = "RedstonePowerOffSound")]
+    RedstonePowerOff,
     /// A respawn anchor is charged.
     #[doc(alias = "RespawnAnchorChargeSound")]
     RespawnAnchorCharge,
@@ -564,6 +571,8 @@ impl Sound {
             Self::PotionSplash => plain(S::Glass),
             Self::Record(disc) => plain(record(disc)),
             Self::RecordStop => plain(S::RecordNull),
+            Self::RedstonePowerOn => plain(S::PowerOn),
+            Self::RedstonePowerOff => plain(S::PowerOff),
             Self::RespawnAnchorCharge => plain(S::RespawnAnchorCharge),
             Self::RespawnAnchorDeplete => plain(S::RespawnAnchorDeplete),
             Self::RespawnAnchorSetSpawn => plain(S::RespawnAnchorSetSpawn),
@@ -582,7 +591,8 @@ impl Sound {
             }
             Self::XpCollect => level(L::SoundExperienceOrbPickup),
             Self::XpLevelUp { level } => {
-                // PMMP: "no idea why such odd numbers, but this works".
+                // The volume field carries the level: 0x1000_0000 for every five levels up to 30,
+                // the values PMMP sends.
                 let step = i32::try_from(level.min(30) / 5).unwrap_or(0);
                 Sent::Sound(S::LevelUp, 0x1000_0000_i32.saturating_mul(step), NO_ENTITY)
             }
@@ -736,6 +746,19 @@ mod tests {
         for (sound, want) in cases {
             assert_eq!(sent(sound), want, "{sound:?}");
         }
+    }
+
+    // pmmp: RedstonePowerOnSound, RedstonePowerOffSound
+    #[test]
+    fn levers_and_buttons_sound_as_pmmps_redstone_power() {
+        assert_eq!(
+            sent(Sound::RedstonePowerOn),
+            ("power.on".to_owned(), -1, ":".to_owned())
+        );
+        assert_eq!(
+            sent(Sound::RedstonePowerOff),
+            ("power.off".to_owned(), -1, ":".to_owned())
+        );
     }
 
     // pmmp: NoteSound, NoteInstrument, RecordSound, GoatHornSound

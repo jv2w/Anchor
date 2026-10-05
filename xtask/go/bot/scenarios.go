@@ -77,7 +77,7 @@ func (g *game) fillGrid(name string, item string, grid []byte) error {
 
 // playCraft: logs into planks in the 2x2 grid, two crafting tables, sticks from the recipe book
 // (CraftRecipeAuto); one table placed with the crafted item's form and one with a wrong block runtime ID;
-// then a wooden pickaxe in the 3x3 grid of the first table.
+// then a wooden pickaxe in the 3x3 grid of the first table. Then the bot dives into a pool (dive).
 func playCraft(g *game) error {
 	if err := g.give("oak_log", 4); err != nil {
 		return err
@@ -207,7 +207,7 @@ func playCraft(g *game) error {
 	if g.count("minecraft:wooden_pickaxe") != 1 {
 		return fmt.Errorf("the inventory holds %v wooden pickaxes", g.count("minecraft:wooden_pickaxe"))
 	}
-	return nil
+	return g.dive()
 }
 
 // autoCraft crafts the recipe once from the recipe book (CraftRecipeAuto) with ingredients of the named item
@@ -513,6 +513,45 @@ func playCrops(g *game) error {
 	if len(g.items) > 0 || g.count("minecraft:wheat") == 0 {
 		return fmt.Errorf("%v drops left, %v wheat picked up", len(g.items), g.count("minecraft:wheat"))
 	}
+	return nil
+}
+
+// dive: the bot stands in a glass-walled pool of still water three blocks deep until it takes drowning
+// damage, then is teleported out; it records its Breathing entity flag before, under water and after.
+func (g *game) dive() error {
+	pool := g.offset(0, 0, -4)
+	g.setup("build a pool")
+	g.command("fill %v %v %v %v %v %v glass", pool[0]-2, pool[1], pool[2]-2, pool[0]+2, pool[1]+3, pool[2]+2)
+	g.command("fill %v %v %v %v %v %v water", pool[0]-1, pool[1], pool[2]-1, pool[0]+1, pool[1]+2, pool[2]+1)
+	water := state("minecraft:water", map[string]any{"liquid_depth": int32(0)})
+	if err := g.waitState("the pool", gameWait, func() bool { return g.blocks[pool] == water }); err != nil {
+		return err
+	}
+	if err := g.settleSetup(); err != nil {
+		return err
+	}
+	g.step("dive", nil)
+	g.check("breathing before diving", g.breathing())
+	if err := g.teleportTo(blockCentre(pool).Sub(mgl32.Vec3{0, 0.5, 0})); err != nil {
+		return err
+	}
+	if err := g.waitState("out of breath", 5*time.Second, func() bool { return !g.breathing() }); err != nil {
+		return err
+	}
+	g.check("breathing under water", g.breathing())
+	// 300 ticks of air, then drowning damage when it reaches -20.
+	if err := g.waitState("drowning", 30*time.Second, func() bool { return g.attrs["minecraft:health"] < 20 }); err != nil {
+		return err
+	}
+	g.check("drowned", map[string]any{"health": g.attrs["minecraft:health"]})
+	g.step("surface", nil)
+	if err := g.teleportTo(blockCentre(g.area).Sub(mgl32.Vec3{0, 0.5, 0})); err != nil {
+		return err
+	}
+	if err := g.waitState("breathing again", 10*time.Second, g.breathing); err != nil {
+		return err
+	}
+	g.check("breathing after surfacing", g.breathing())
 	return nil
 }
 

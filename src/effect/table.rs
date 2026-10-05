@@ -144,7 +144,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         12,
         "potion.fireResistance",
-        [228, 154, 58, 255],
+        [255, 153, 0, 255],
         false,
         false,
         600,
@@ -177,12 +177,12 @@ pub(super) static DATA: [Data; 27] = [
         600,
         true,
     ),
-    Data::new(7, "potion.harm", [67, 10, 9, 255], true, true, 1, false),
+    Data::new(7, "potion.harm", [169, 101, 106, 255], true, true, 1, false),
     Data::new(6, "potion.heal", [248, 36, 35, 255], false, true, 1, false),
     Data::new(
         14,
         "potion.invisibility",
-        [127, 131, 146, 255],
+        [246, 246, 246, 255],
         false,
         false,
         600,
@@ -191,7 +191,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         8,
         "potion.jump",
-        [34, 255, 76, 255],
+        [253, 255, 132, 255],
         false,
         false,
         600,
@@ -227,7 +227,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         16,
         "potion.nightVision",
-        [31, 31, 161, 255],
+        [194, 255, 102, 255],
         false,
         false,
         600,
@@ -236,7 +236,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         19,
         "potion.poison",
-        [78, 147, 49, 255],
+        [135, 163, 99, 255],
         true,
         false,
         600,
@@ -254,7 +254,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         11,
         "potion.resistance",
-        [153, 69, 58, 255],
+        [145, 70, 240, 255],
         false,
         false,
         600,
@@ -272,7 +272,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         2,
         "potion.moveSlowdown",
-        [90, 108, 129, 255],
+        [139, 175, 224, 255],
         true,
         false,
         600,
@@ -281,7 +281,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         1,
         "potion.moveSpeed",
-        [124, 175, 198, 255],
+        [51, 235, 255, 255],
         false,
         false,
         600,
@@ -290,7 +290,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         5,
         "potion.damageBoost",
-        [147, 36, 35, 255],
+        [255, 199, 0, 255],
         false,
         false,
         600,
@@ -299,7 +299,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         13,
         "potion.waterBreathing",
-        [46, 82, 153, 255],
+        [152, 218, 192, 255],
         false,
         false,
         600,
@@ -317,7 +317,7 @@ pub(super) static DATA: [Data; 27] = [
     Data::new(
         20,
         "potion.wither",
-        [53, 42, 39, 255],
+        [115, 97, 86, 255],
         true,
         false,
         600,

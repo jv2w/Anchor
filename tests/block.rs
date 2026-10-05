@@ -1,6 +1,5 @@
-//! Block states through the public API (PLAN.md 10.4 "M4 판정식"): the network hash golden over
-//! the reference list, the state table against the reference list and the PMMP dump, and unknown
-//! input to the lookups.
+//! Block states through the public API (PLAN.md 10.4 "M4 판정식"): the state table against the
+//! reference list (network IDs included) and the PMMP dump, and unknown input to the lookups.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
@@ -112,48 +111,6 @@ fn reference() -> Vec<(Key, u32)> {
         .collect()
 }
 
-/// dragonfly `networkBlockHash`: FNV-1a 32 over the little-endian NBT
-/// `{name: string, states: compound sorted by key}`; `minecraft:unknown` is 0xfffffffe.
-fn network_hash(name: &str, properties: &[(String, Owned)]) -> u32 {
-    fn string(out: &mut Vec<u8>, s: &str) {
-        out.extend_from_slice(&u16::try_from(s.len()).expect("short string").to_le_bytes());
-        out.extend_from_slice(s.as_bytes());
-    }
-    if name == "minecraft:unknown" {
-        return 0xffff_fffe;
-    }
-    let mut sorted: Vec<_> = properties.iter().collect();
-    sorted.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut data = vec![10, 0, 0, 8];
-    string(&mut data, "name");
-    string(&mut data, name);
-    data.push(10);
-    string(&mut data, "states");
-    for (k, v) in sorted {
-        match v {
-            Owned::Byte(b) => {
-                data.push(1);
-                string(&mut data, k);
-                data.push(*b);
-            }
-            Owned::Int(i) => {
-                data.push(3);
-                string(&mut data, k);
-                data.extend_from_slice(&i.to_le_bytes());
-            }
-            Owned::String(s) => {
-                data.push(8);
-                string(&mut data, k);
-                string(&mut data, s);
-            }
-        }
-    }
-    data.extend_from_slice(&[0, 0]);
-    data.iter().fold(0x811c_9dc5_u32, |h, &b| {
-        (h ^ u32::from(b)).wrapping_mul(0x0100_0193)
-    })
-}
-
 /// splitmix64: a small fixed-seed generator for reproducible inputs.
 struct Rng(u64);
 
@@ -181,20 +138,12 @@ impl Rng {
     }
 }
 
-#[test]
-fn network_hash_matches_every_reference_state() {
-    let reference = reference();
-    assert_eq!(reference.len(), 22_091);
-    for ((name, properties), id) in &reference {
-        assert_eq!(network_hash(name, properties), *id, "{name} {properties:?}");
-    }
-}
-
 // pmmp: BlockStateDictionary::getStates
 #[test]
 fn every_state_is_a_reference_state_with_its_network_id() {
     let reference: BTreeMap<Key, u32> = reference().into_iter().collect();
-    assert_eq!(State::all().len(), 12_468);
+    // PMMP's 12,468 states and the 16 of the grindstone, a user exception (PLAN.md 8.4).
+    assert_eq!(State::all().len(), 12_484);
     for state in State::all() {
         let key = key_of(state);
         assert_eq!(
@@ -236,7 +185,7 @@ fn every_state_is_found_by_its_network_id_and_properties() {
 // pmmp: Block::getSupportType, Block::getCollisionBoxes
 #[test]
 fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
-    let upgrade = read_json("xtask/data/block_upgrade.json");
+    let upgrade = read_json("xtask/data/upgrade/blocks/0351_1.26.40_to_1.26.50.json");
     let added = upgrade["addedProperties"]
         .as_object()
         .expect("addedProperties");
@@ -359,16 +308,9 @@ fn check_physics(state: State, block: &Json) {
         .map(|s| s.as_str().expect("support type"))
         .collect();
     assert_eq!(support, want, "{state:?}");
-    // PMMP's inside-out boxes (a wall hanging sign's bar) never collide, so Anchor drops them.
-    let boxes = block["boxes"]
-        .as_array()
-        .expect("boxes")
-        .iter()
-        .filter(|b| {
-            let v: Vec<f64> = b.as_array().expect("box").iter().map(float).collect();
-            (0..3).all(|axis| v[axis] <= v[axis + 3])
-        })
-        .count();
+    // PMMP's inside-out box (a wall hanging sign's bar) is rebuilt as BDS's bar, so the count
+    // stays (m9-facts.md).
+    let boxes = block["boxes"].as_array().expect("boxes").len();
     assert_eq!(state.collision_boxes().len(), boxes, "{state:?}");
 }
 
@@ -502,5 +444,5 @@ fn unknown_names_and_properties_give_none() {
         );
         found += usize::from(expected.is_some());
     }
-    assert_eq!(found, 12_688);
+    assert_eq!(found, 12_430);
 }

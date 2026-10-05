@@ -172,7 +172,7 @@ fn a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved() {
     t.set_sign_text(Side::Back, text(["", "Back", "", ""], 0xff00_0000))
         .unwrap();
     t.set_sign_waxed(true).unwrap();
-    assert_eq!(t.set_cooking_time(0, 1), Err(Error::WrongKind));
+    assert_eq!(t.set_cooking_time_ticks(0, 1), Err(Error::WrongKind));
     let view = t.view();
     assert_eq!(
         view.sign_text(Side::Front).map(SignText::colour),
@@ -447,11 +447,12 @@ fn lecterns_and_bookshelves_keep_their_books_place() {
         "pages".to_owned(),
         Value::List(crate::nbt::List::Compound(vec![Compound::new(); 3])),
     )]);
-    let book =
-        Stack::new(item::Kind::WritableBook.default_type(), 2).with_extra(Some(item::Extra {
+    let book = Stack::new(item::Kind::WritableBook.default_type(), 2)
+        .with_extra(Some(item::Extra {
             nbt: pages,
             ..item::Extra::default()
-        }));
+        }))
+        .unwrap();
     let mut cx = h.cx();
     let mut t = cx.block_entity_mut(WORLD, lectern).unwrap();
     assert_eq!(t.set_lectern_page(0), Err(Error::Invalid), "no book");
@@ -504,20 +505,20 @@ fn campfires_beacons_and_cauldrons_take_their_values() {
     h.place(cauldron, block::Kind::Cauldron.default_state());
     let mut cx = h.cx();
     let mut t = cx.block_entity_mut(WORLD, fire).unwrap();
-    assert_eq!(t.view().cooking_time(0), Some(0));
-    t.set_cooking_time(2, 100).unwrap();
+    assert_eq!(t.view().cooking_time_ticks(0), Some(0));
+    t.set_cooking_time_ticks(2, 100).unwrap();
     assert_eq!(
-        t.set_cooking_time(4, 1),
+        t.set_cooking_time_ticks(4, 1),
         Err(Error::Invalid),
         "no fifth slot"
     );
     assert_eq!(
-        t.set_cooking_time(0, u16::MAX),
+        t.set_cooking_time_ticks(0, u16::MAX),
         Err(Error::Invalid),
         "past the cook time"
     );
-    assert_eq!(t.view().cooking_time(2), Some(100));
-    assert_eq!(t.view().cooking_time(4), None);
+    assert_eq!(t.view().cooking_time_ticks(2), Some(100));
+    assert_eq!(t.view().cooking_time_ticks(4), None);
 
     let mut cx = h.cx();
     let mut t = cx.block_entity_mut(WORLD, beacon).unwrap();
@@ -589,4 +590,20 @@ fn a_write_twice_leaves_the_same_state_as_once() {
     };
     let first = once(&mut h);
     assert_eq!(once(&mut h), first);
+}
+
+/// `/status` counts the block entities of a world's loaded chunks, across chunks, and none for
+/// another world.
+#[test]
+fn block_entities_are_counted_per_world_across_chunks() {
+    let mut h = Harness::new();
+    assert_eq!(h.state.rules.block_entities.count(0), 0);
+    let chest = block::Kind::Chest.default_state();
+    // Two chunks: x 1 and 3 share chunk 0, x -1 is in chunk -1.
+    for dx in [1, 3, -1] {
+        let pos = h.spot(dx);
+        h.place(pos, chest);
+    }
+    assert_eq!(h.state.rules.block_entities.count(0), 3);
+    assert_eq!(h.state.rules.block_entities.count(1), 0);
 }

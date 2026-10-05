@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use super::super::super::interact::{self, Destroy};
 use super::super::super::{State, block_entity, survival};
 use super::super::tests::{
-    World, at, check_slots, consume, craft, created, dropped, item, ok, place, take, totals,
+    World, at, check_slots, consume, craft, created, dropped, item, ok, place, swap, take, totals,
 };
 use super::super::{Slot, SlotRef, StackId, close_window, on_item_stack_request, open_trade};
 use super::*;
@@ -151,6 +151,29 @@ fn a_furnace_window_cooks_with_bds_data_and_the_output_gives_its_experience() {
     check_slots(&w.state);
 }
 
+/// `experience = false`: a furnace stores no experience for what it smelts.
+#[test]
+fn without_experience_a_furnace_stores_no_experience() {
+    let (mut w, s) = world(&[
+        Stack::new(item(Kind::Coal), 1),
+        Stack::new(named("minecraft:raw_iron"), 8),
+    ]);
+    w.state.settings.experience = false;
+    w.place_block(AT, blk::Kind::Furnace.default_state());
+    w.open_block(s, AT);
+    put(&mut w, s, 0, 1, (C::FurnaceFuel, 1));
+    put(&mut w, s, 1, 8, (C::FurnaceIngredient, 0));
+    for _ in 0..1700 {
+        w.tick(Vec::new());
+    }
+    assert_eq!(
+        w.slot(s, C::FurnaceResult, 2).stack,
+        Stack::new(named("minecraft:iron_ingot"), 8)
+    );
+    let furnace = w.state.rules.block_entities.get(0, AT).unwrap();
+    assert!(matches!(&furnace.kind, block_entity::Kind::Furnace(f) if f.xp == 0));
+}
+
 #[test]
 fn a_furnace_opens_without_block_actor_data_and_its_tick_keeps_the_ids_of_counts() {
     let (mut w, s) = world(&[
@@ -232,7 +255,7 @@ fn a_brewing_stand_window_brews_every_bottle_with_one_ingredient_and_blaze_powde
     for _ in 0..401 {
         w.tick(Vec::new());
     }
-    let awkward = crate::crafting::brew(
+    let awkward = crate::crafting::brew_potion_type(
         &Stack::new(water, 1),
         &Stack::new(named("minecraft:nether_wart"), 1),
     )
@@ -390,6 +413,54 @@ fn enchanting_refuses_stale_options_short_lapis_and_a_repeat() {
 }
 
 #[test]
+fn enchanting_refuses_an_option_after_the_input_is_swapped() {
+    let (mut w, s, options) = enchanting(3);
+    w.give(s, Stack::new(item(Kind::IronSword), 1));
+    let before = total_count(&w.state);
+    // The pickaxe's option, taken for a sword swapped into the input in the same request.
+    let id = w.next_id(s);
+    let actions = vec![
+        swap(at(C::EnchantingInput, 14, id), at(COMBINED, 0, id)),
+        craft(options[0].0, 1),
+        consume(1, at(C::EnchantingInput, 14, id)),
+        consume(1, at(C::EnchantingMaterial, 15, id)),
+        place(1, created(id), at(C::EnchantingInput, 14, id)),
+    ];
+    assert!(!ok(&w.request_as(s, id, actions)));
+    assert_eq!(ui_stack(&w, s, 0), Stack::new(item(Kind::IronPickaxe), 1));
+    assert_eq!(total_count(&w.state), before);
+    check_slots(&w.state);
+}
+
+#[test]
+fn enchanting_option_ids_follow_custom_recipes() {
+    use crate::custom::{Ingredient, ItemRef, Recipe, Registry};
+    let mut custom = Registry::default();
+    for result in [Kind::Diamond, Kind::Emerald] {
+        custom.add_recipe(Recipe::shapeless(
+            &[Ingredient::Item(ItemRef::Item(item(Kind::Stick)))],
+            &[(ItemRef::Item(item(result)), 1)],
+        ));
+    }
+    custom.finish().unwrap();
+    let first = custom.first_special_id();
+    assert_eq!(first, crate::crafting::first_special_id() + 2);
+    let (mut w, s) = world(&[
+        Stack::new(item(Kind::IronPickaxe), 1),
+        Stack::new(item(Kind::LapisLazuli), 3),
+    ]);
+    w.state.custom = std::sync::Arc::new(custom);
+    w.place_block(AT, blk::Kind::EnchantingTable.default_state());
+    w.open_block(s, AT);
+    put(&mut w, s, 0, 1, (C::EnchantingInput, 14));
+    let options = w.inv(s).window.as_ref().unwrap().station.options.clone();
+    assert_eq!(options.len(), 3);
+    // No option shares a network ID with a custom recipe.
+    assert_eq!(options[0].0, first);
+    assert!(options.iter().all(|(id, _)| *id >= first));
+}
+
+#[test]
 fn the_anvil_renames_and_repairs_for_levels() {
     let pick = Stack::new(item(Kind::IronPickaxe), 1).with_damage(200);
     let (mut w, s) = world(&[pick.clone(), Stack::new(item(Kind::IronIngot), 5)]);
@@ -431,16 +502,57 @@ fn the_anvil_renames_and_repairs_for_levels() {
     check_slots(&w.state);
 }
 
+/// `experience = false`: the levels a player kept count as none, so a survival player takes no
+/// enchanting option and no anvil work, and keeps its levels.
+#[test]
+fn without_experience_enchanting_and_the_anvil_take_no_levels_and_refuse() {
+    let (mut w, s, options) = enchanting(3);
+    w.state.settings.experience = false;
+    let level = survival::xp_level(w.player(s));
+    let id = w.next_id(s);
+    let actions = enchant_request(&w, s, options[0].0, 0, id);
+    assert!(!ok(&w.request_as(s, id, actions)));
+    assert_eq!(ui_stack(&w, s, 0), Stack::new(item(Kind::IronPickaxe), 1));
+    assert_eq!(survival::xp_level(w.player(s)), level);
+    let pick = Stack::new(item(Kind::IronPickaxe), 1).with_damage(200);
+    let (mut w, s) = world(&[pick.clone(), Stack::new(item(Kind::IronIngot), 5)]);
+    w.state.settings.experience = false;
+    w.place_block(AT, blk::Kind::Anvil.default_state());
+    w.open_block(s, AT);
+    put(&mut w, s, 0, 1, (C::AnvilInput, 1));
+    put(&mut w, s, 1, 5, (C::AnvilMaterial, 2));
+    let used = anvil::craft(
+        &pick,
+        &Stack::new(item(Kind::IronIngot), 5),
+        Some("Pick"),
+        false,
+    )
+    .unwrap()
+    .material_used;
+    let input = w.id(s, C::AnvilInput, 1);
+    let material = w.id(s, C::AnvilMaterial, 2);
+    let id = w.next_id(s);
+    let actions = vec![
+        StackRequestAction::CraftRecipeOptional(CraftRecipeOptionalStackRequestAction {
+            recipe_network_id: 0,
+            filter_string_index: 0,
+        }),
+        consume(1, at(C::AnvilInput, 1, input)),
+        consume(used, at(C::AnvilMaterial, 2, material)),
+        place(1, created(id), at(COMBINED, 7, 0)),
+    ];
+    assert!(!ok(&request_filter(&mut w, s, id, actions, "Pick")));
+    assert!(w.inv(s).main.stack(7).is_empty());
+    check_slots(&w.state);
+}
+
 /// A stack an ingredient takes (exact items as they are, wildcards by name, tags by their
 /// first item).
 fn sample(i: &Ingredient) -> Option<Stack> {
     match i {
-        Ingredient::Exact(e) => Some(Stack::from_parts(
-            e.item,
-            1,
-            e.meta,
-            e.nbt.map(crate::nbt::compound),
-        )),
+        Ingredient::Exact(e) => {
+            Some(Stack::from_parts(e.item, 1, e.meta, e.nbt.map(crate::nbt::compound)).unwrap())
+        }
         Ingredient::AnyMeta(n) => {
             Type::from_network_any_block(i32::from(n.runtime_id), 0, 0, &Compound::new())
                 .map(|t| Stack::new(t, 1))
@@ -524,7 +636,8 @@ fn smithing_upgrades_keeping_enchantments_and_trims_armour() {
         .with_extra(Some(Extra {
             enchantments: vec![(crate::item::Enchantment::Sharpness, 3)],
             ..Extra::default()
-        }));
+        }))
+        .unwrap();
     let (mut w, s) = world(&[
         sword.clone(),
         Stack::new(item(Kind::NetheriteIngot), 1),
@@ -721,6 +834,10 @@ fn stations() -> Vec<(blk::State, (C, u8))> {
         (blk::Kind::Loom.default_state(), (C::LoomInput, 9)),
         (blk::Kind::Beacon.default_state(), (C::BeaconPayment, 27)),
         (
+            blk::Kind::Grindstone.default_state(),
+            (C::GrindstoneInput, 16),
+        ),
+        (
             blk::Kind::Furnace.default_state(),
             (C::FurnaceIngredient, 0),
         ),
@@ -759,7 +876,7 @@ fn closing_leaving_or_dying_mid_use_returns_every_input() {
 #[test]
 fn opening_and_closing_every_station_a_hundred_times_leaves_nothing_behind() {
     let (mut w, s) = world(&[]);
-    let positions: Vec<BlockPos> = (0..8).map(|i| BlockPos::new(-6 + i * 2, -60, 6)).collect();
+    let positions: Vec<BlockPos> = (0..9).map(|i| BlockPos::new(-6 + i * 2, -60, 6)).collect();
     for ((block, _), pos) in stations().into_iter().zip(&positions) {
         w.place_block(*pos, block);
     }
@@ -800,11 +917,11 @@ fn breaking_a_container_like_block_drops_its_contents_once() {
             e.items.len()
         };
         assert!(slots > 0, "{block:?}");
-        assert!(interact::destroy(&mut w.state, 0, AT, Destroy::NoDrops));
+        assert!(interact::destroy(&mut w.state, 0, AT, Destroy::Rules));
         let got = dropped();
         assert_eq!(got.len(), slots, "{block:?}");
         assert!(got.iter().all(|s| *s == stick));
-        assert!(!interact::destroy(&mut w.state, 0, AT, Destroy::NoDrops));
+        assert!(!interact::destroy(&mut w.state, 0, AT, Destroy::Rules));
         assert_eq!(dropped().len(), slots, "{block:?}: once");
         assert!(w.state.rules.block_entities.get(0, AT).is_none());
     }
@@ -870,11 +987,371 @@ fn beds_banners_and_heads_keep_their_item_data() {
         ])])),
     );
     let banner_type = named_meta("minecraft:banner", 4);
-    let banner = Stack::from_parts(banner_type, 1, 4, Some(tag));
+    let banner = Stack::from_parts(banner_type, 1, 4, Some(tag)).unwrap();
     let at2 = BlockPos::new(5, -60, 3);
     let standing = blk::State::all()
         .find(|b| b.name() == "minecraft:standing_banner")
         .unwrap();
     place_with(&mut w, at2, standing, &banner, Face::Up);
     assert_eq!(block_entity::own_item(&w.state, 0, at2), Some(banner));
+}
+
+/// [`world`] on a server with the recipes of `builder`.
+fn custom_world(
+    builder: crate::ServerBuilder,
+    stacks: &[Stack],
+) -> (World, super::super::super::SessionId) {
+    let (mut w, s) = world(stacks);
+    let mut custom = builder.setup.custom;
+    custom.finish().unwrap();
+    w.state.custom = std::sync::Arc::new(custom);
+    (w, s)
+}
+
+fn own(kind: Kind) -> crate::custom::ItemRef {
+    crate::custom::ItemRef::Item(item(kind))
+}
+
+/// A server whose stonecutter cuts a diamond into four sticks and whose smithing table turns a
+/// golden sword with an emerald and a netherite upgrade template into a diamond sword.
+fn station_recipes() -> crate::ServerBuilder {
+    use crate::custom::{Ingredient as I, Recipe as R};
+    crate::Server::builder()
+        .recipe(R::stonecutter(
+            I::Item(own(Kind::Diamond)),
+            (own(Kind::Stick), 4),
+        ))
+        .recipe(R::smithing_transform(
+            I::Item(crate::custom::ItemRef::Item(named(
+                "minecraft:netherite_upgrade_smithing_template",
+            ))),
+            // Any damage: an exact ingredient takes an undamaged item only (PMMP).
+            I::AnyMeta(own(Kind::GoldenSword)),
+            I::AnyMeta(own(Kind::Emerald)),
+            own(Kind::DiamondSword),
+        ))
+}
+
+/// The stonecutter request cutting `times` diamonds with server recipe `rid`.
+fn cut(w: &mut World, s: super::super::super::SessionId, rid: u32, times: u8, id: i32) -> bool {
+    let net = w.inv(s).get(SlotRef::Ui(0)).unwrap().id.net;
+    let actions = vec![
+        craft(rid, times),
+        consume(times, at(C::StonecutterInput, 3, net)),
+        place(4 * times, created(id), at(COMBINED, 1, 0)),
+    ];
+    ok(&w.request_as(s, id, actions))
+}
+
+#[test]
+fn a_servers_stonecutter_recipe_cuts_once_per_request_and_keeps_the_count() {
+    let run = |twice: bool| {
+        let (mut w, s) = custom_world(station_recipes(), &[Stack::new(item(Kind::Diamond), 3)]);
+        let rid = crate::crafting::first_special_id();
+        w.place_block(AT, blk::Kind::Stonecutter.default_state());
+        w.open_block(s, AT);
+        put(&mut w, s, 0, 3, (C::StonecutterInput, 3));
+        let before = totals(&w.state);
+        assert!(cut(&mut w, s, rid, 2, -101));
+        if twice {
+            assert!(!cut(&mut w, s, rid, 2, -101), "the same request again");
+        }
+        assert_eq!(w.inv(s).main.stack(1), &Stack::new(item(Kind::Stick), 8));
+        assert_eq!(ui_stack(&w, s, 0), Stack::new(item(Kind::Diamond), 1));
+        // Two diamonds in, eight sticks out, nothing else made or lost.
+        let after = totals(&w.state);
+        let count = |t: &BTreeMap<(Option<Type>, u16, String), u64>, kind| {
+            t.iter()
+                .filter(|((i, _, _), _)| *i == Some(item(kind)))
+                .map(|(_, n)| *n)
+                .sum::<u64>()
+        };
+        assert_eq!(
+            count(&before, Kind::Diamond) - count(&after, Kind::Diamond),
+            2
+        );
+        assert_eq!(count(&after, Kind::Stick) - count(&before, Kind::Stick), 8);
+        assert_eq!(total_count(&w.state), 3 - 2 + 8);
+        // Another recipe's ID is refused at the stonecutter.
+        assert!(!cut(&mut w, s, rid + 1, 1, -103));
+        check_slots(&w.state);
+        w.state.tick = 1000;
+        w.state.hash()
+    };
+    assert_eq!(run(false), run(true));
+}
+
+#[test]
+fn a_servers_smithing_recipe_transforms_keeping_the_inputs_data_once() {
+    let sword = Stack::new(item(Kind::GoldenSword), 1)
+        .with_damage(7)
+        .with_extra(Some(Extra {
+            enchantments: vec![(crate::item::Enchantment::Sharpness, 1)],
+            ..Extra::default()
+        }))
+        .unwrap();
+    let run = |twice: bool| {
+        let (mut w, s) = custom_world(
+            station_recipes(),
+            &[
+                sword.clone(),
+                Stack::new(item(Kind::Emerald), 2),
+                Stack::new(named("minecraft:netherite_upgrade_smithing_template"), 1),
+            ],
+        );
+        let rid = crate::crafting::first_special_id() + 1;
+        w.place_block(AT, blk::Kind::SmithingTable.default_state());
+        w.open_block(s, AT);
+        put(&mut w, s, 0, 1, (C::SmithingTableInput, 51));
+        put(&mut w, s, 1, 2, (C::SmithingTableMaterial, 52));
+        put(&mut w, s, 2, 1, (C::SmithingTableTemplate, 53));
+        assert!(
+            !ok(&smith(&mut w, s, rid - 1)),
+            "the stonecutter recipe's ID"
+        );
+        let ids: Vec<i32> = (0..3)
+            .map(|i| w.inv(s).get(SlotRef::Ui(i)).unwrap().id.net)
+            .collect();
+        let actions = vec![
+            craft(rid, 1),
+            consume(1, at(C::SmithingTableInput, 51, ids[0])),
+            consume(1, at(C::SmithingTableMaterial, 52, ids[1])),
+            consume(1, at(C::SmithingTableTemplate, 53, ids[2])),
+            place(1, created(-101), at(COMBINED, 8, 0)),
+        ];
+        assert!(ok(&w.request_as(s, -101, actions.clone())));
+        if twice {
+            assert!(!ok(&w.request_as(s, -101, actions)));
+        }
+        let got = w.inv(s).main.stack(8).clone();
+        assert_eq!(got.item(), Some(item(Kind::DiamondSword)));
+        assert_eq!(got.damage(), 7);
+        assert_eq!(got.extra(), sword.extra());
+        assert_eq!(ui_stack(&w, s, 1), Stack::new(item(Kind::Emerald), 1));
+        assert!(ui_stack(&w, s, 0).is_empty() && ui_stack(&w, s, 2).is_empty());
+        assert_eq!(total_count(&w.state), 1 + 1);
+        check_slots(&w.state);
+        w.state.tick = 1000;
+        w.state.hash()
+    };
+    assert_eq!(run(false), run(true));
+}
+
+#[test]
+fn a_brewing_stand_brews_a_servers_recipes_after_pmmps_container_changes() {
+    use crate::custom::{Ingredient as I, Recipe as R};
+    let water = item(Kind::Potion);
+    let splash = named("minecraft:splash_potion");
+    let builder = crate::Server::builder()
+        .recipe(R::brewing(
+            I::Item(crate::custom::ItemRef::Item(water)),
+            I::Item(own(Kind::Emerald)),
+            crate::custom::ItemRef::Item(named_meta("minecraft:potion", 7)),
+        ))
+        .recipe(R::brewing_container(
+            crate::custom::ItemRef::Item(splash),
+            I::Item(own(Kind::Emerald)),
+            crate::custom::ItemRef::Item(named("minecraft:lingering_potion")),
+        ));
+    let (mut w, s) = custom_world(
+        builder,
+        &[
+            Stack::new(item(Kind::Emerald), 1),
+            Stack::new(water, 1),
+            Stack::new(splash, 1),
+            Stack::new(item(Kind::BlazePowder), 1),
+        ],
+    );
+    w.place_block(AT, blk::Kind::BrewingStand.default_state());
+    w.open_block(s, AT);
+    put(&mut w, s, 0, 1, (C::BrewingStandInput, 0));
+    put(&mut w, s, 1, 1, (C::BrewingStandResult, 1));
+    put(&mut w, s, 2, 1, (C::BrewingStandResult, 2));
+    put(&mut w, s, 3, 1, (C::BrewingStandFuel, 4));
+    for _ in 0..401 {
+        w.tick(Vec::new());
+    }
+    assert_eq!(
+        w.slot(s, C::BrewingStandResult, 1).stack,
+        Stack::new(named_meta("minecraft:potion", 7), 1)
+    );
+    assert_eq!(
+        w.slot(s, C::BrewingStandResult, 2).stack,
+        Stack::new(named("minecraft:lingering_potion"), 1),
+        "the splash water bottle keeps its meta"
+    );
+    assert!(
+        w.slot(s, C::BrewingStandInput, 0).stack.is_empty(),
+        "one emerald for both"
+    );
+    check_slots(&w.state);
+}
+
+/// One `kind` with `damage` and `enchantments`.
+fn enchanted(kind: Kind, damage: u16, enchantments: &[(crate::item::Enchantment, u8)]) -> Stack {
+    Stack::new(item(kind), 1)
+        .with_damage(damage)
+        .with_extra(Some(Extra {
+            enchantments: enchantments.to_vec(),
+            ..Extra::default()
+        }))
+        .unwrap()
+}
+
+/// A grindstone at [`AT`] open for a player holding `stacks`, each put into the grindstone slot
+/// given with it (16 input, 17 additional).
+fn grindstone(stacks: &[(Stack, u8)]) -> (World, super::super::super::SessionId) {
+    let all: Vec<Stack> = stacks.iter().map(|(s, _)| s.clone()).collect();
+    let (mut w, s) = world(&all);
+    w.place_block(AT, blk::Kind::Grindstone.default_state());
+    w.open_block(s, AT);
+    for (i, (_, slot)) in stacks.iter().enumerate() {
+        let container = if *slot == 16 {
+            C::GrindstoneInput
+        } else {
+            C::GrindstoneAdditional
+        };
+        put(&mut w, s, u8::try_from(i).unwrap(), 1, (container, *slot));
+    }
+    (w, s)
+}
+
+/// The client's grindstone request (dragonfly `handleGrindstoneCraft`): the craft, a consume of
+/// each filled slot and the result into main slot 8.
+fn grind_request(w: &World, s: super::super::super::SessionId, id: i32) -> Vec<StackRequestAction> {
+    let mut actions = vec![StackRequestAction::CraftGrindstoneRecipe(
+        crate::protocol::CraftGrindstoneRecipeStackRequestAction {
+            recipe_network_id: 0,
+            number_of_crafts: 1,
+            cost: 0,
+        },
+    )];
+    for (container, slot) in [(C::GrindstoneInput, 16), (C::GrindstoneAdditional, 17)] {
+        if let Some(found) = w.try_slot(s, container, slot)
+            && !found.stack.is_empty()
+        {
+            actions.push(consume(1, at(container, slot, found.id.net)));
+        }
+    }
+    actions.push(place(1, created(id), at(COMBINED, 8, 0)));
+    actions
+}
+
+/// The experience orbs in the world: their count and total value.
+fn orbs(w: &mut World) -> (usize, u32) {
+    let cx = super::super::super::Context {
+        state: &mut w.state,
+    };
+    cx.entities(crate::world::Id::DEFAULT)
+        .filter_map(|(_, e)| e.xp_value())
+        .fold((0, 0), |(n, total), v| (n + 1, total + u32::from(v)))
+}
+
+#[test]
+fn a_grindstone_takes_off_all_but_curses_and_gives_their_experience() {
+    use crate::item::Enchantment::{Sharpness, Vanishing};
+    let sword = enchanted(Kind::IronSword, 0, &[(Sharpness, 3), (Vanishing, 1)]);
+    let (mut w, s) = grindstone(&[(sword, 16)]);
+    let before = total_count(&w.state);
+    let id = w.next_id(s);
+    let actions = grind_request(&w, s, id);
+    assert!(ok(&w.request_as(s, id, actions)));
+    assert_eq!(
+        w.inv(s).main.stack(8),
+        &enchanted(Kind::IronSword, 0, &[(Vanishing, 1)])
+    );
+    assert!(ui_stack(&w, s, 0).is_empty());
+    assert_eq!(total_count(&w.state), before);
+    // Sharpness III has enchanting power 23: half rounded up (12) plus up to 11 more.
+    let (count, total) = orbs(&mut w);
+    assert!(
+        count > 0 && (12..24).contains(&total),
+        "{count} orbs, {total}"
+    );
+    check_slots(&w.state);
+}
+
+#[test]
+fn a_grindstone_joins_two_worn_items_of_a_kind_with_five_percent_more() {
+    use crate::item::Enchantment::{Unbreaking, Vanishing};
+    let first = enchanted(Kind::IronSword, 100, &[(Unbreaking, 2)]);
+    let second = enchanted(Kind::IronSword, 200, &[(Vanishing, 1)]);
+    let (mut w, s) = grindstone(&[(first, 16), (second, 17)]);
+    let before = total_count(&w.state);
+    let id = w.next_id(s);
+    let actions = grind_request(&w, s, id);
+    assert!(ok(&w.request_as(s, id, actions)));
+    // 251 - ((251 - 100) + (251 - 200) + 12) = 37.
+    assert_eq!(
+        w.inv(s).main.stack(8),
+        &enchanted(Kind::IronSword, 37, &[(Vanishing, 1)])
+    );
+    assert!(ui_stack(&w, s, 0).is_empty() && ui_stack(&w, s, 1).is_empty());
+    assert_eq!(total_count(&w.state), before - 1, "two swords become one");
+    let (_, total) = orbs(&mut w);
+    // Unbreaking II has enchanting power 13: 7 plus up to 6 more.
+    assert!((7..14).contains(&total), "{total}");
+    check_slots(&w.state);
+}
+
+#[test]
+fn a_grindstone_refuses_different_items_plain_items_and_wrong_consumes() {
+    use crate::item::Enchantment::Sharpness;
+    let iron = enchanted(Kind::IronSword, 10, &[(Sharpness, 1)]);
+    let gold = enchanted(Kind::GoldenSword, 10, &[]);
+    let (mut w, s) = grindstone(&[(iron.clone(), 16), (gold, 17)]);
+    let id = w.next_id(s);
+    let actions = grind_request(&w, s, id);
+    assert!(!ok(&w.request_as(s, id, actions)), "two kinds of sword");
+    // A plain sword alone has nothing to take off.
+    let (mut w, s) = grindstone(&[(enchanted(Kind::IronSword, 10, &[]), 16)]);
+    let id = w.next_id(s);
+    let actions = grind_request(&w, s, id);
+    assert!(!ok(&w.request_as(s, id, actions)), "a plain sword");
+    // Leaving the additional slot's item unconsumed is refused and changes nothing.
+    let (mut w, s) = grindstone(&[(iron.clone(), 16), (iron.clone(), 17)]);
+    let before = totals(&w.state);
+    let id = w.next_id(s);
+    let mut actions = grind_request(&w, s, id);
+    actions.remove(2);
+    assert!(!ok(&w.request_as(s, id, actions)));
+    assert_eq!(totals(&w.state), before);
+    assert_eq!(
+        (ui_stack(&w, s, 0), ui_stack(&w, s, 1)),
+        (iron.clone(), iron)
+    );
+    assert!(w.inv(s).main.stack(8).is_empty());
+    assert_eq!(orbs(&mut w).0, 0);
+    check_slots(&w.state);
+}
+
+#[test]
+fn a_grindstone_request_sent_twice_grinds_once() {
+    use crate::item::Enchantment::{Sharpness, Vanishing};
+    let run = |twice: bool| {
+        let sword = enchanted(Kind::IronSword, 0, &[(Sharpness, 3), (Vanishing, 1)]);
+        let (mut w, s) = grindstone(&[(sword, 16)]);
+        let actions = grind_request(&w, s, -101);
+        assert!(ok(&w.request_as(s, -101, actions.clone())));
+        if twice {
+            assert!(!ok(&w.request_as(s, -101, actions)));
+        }
+        w.state.tick = 1000;
+        (w.state.hash(), orbs(&mut w))
+    };
+    assert_eq!(run(false), run(true));
+}
+
+/// `experience = false`: the grindstone still grinds, but gives no orbs.
+#[test]
+fn without_experience_a_grindstone_gives_no_orbs() {
+    use crate::item::Enchantment::Sharpness;
+    let sword = enchanted(Kind::IronSword, 0, &[(Sharpness, 3)]);
+    let (mut w, s) = grindstone(&[(sword, 16)]);
+    w.state.settings.experience = false;
+    let id = w.next_id(s);
+    let actions = grind_request(&w, s, id);
+    assert!(ok(&w.request_as(s, id, actions)));
+    assert_eq!(w.inv(s).main.stack(8), &enchanted(Kind::IronSword, 0, &[]));
+    assert_eq!(orbs(&mut w), (0, 0));
 }

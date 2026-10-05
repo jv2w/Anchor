@@ -14,7 +14,9 @@ mod stack;
 mod table;
 
 pub(crate) use registry::SHIELD_RUNTIME_ID;
-pub use stack::{Extra, Stack};
+#[cfg(test)]
+pub(crate) use stack::MAX_STORED_BYTES;
+pub use stack::{Error, Extra, MAX_NBT_BYTES, Result, Stack};
 pub use table::{Class, Enchantment, Kind, ToolTier, Trait};
 
 use std::cmp::Ordering;
@@ -249,10 +251,7 @@ impl Type {
     /// 2: BDS matches requests by network ID, count and stack ID, not by the block runtime ID):
     /// [`Type::from_network`] with the block, else the one type of the runtime ID and meta with
     /// any block; `None` if several types could be meant.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "consistency: `Stack::from_network`'s lookup")
-    )]
+    #[cfg(test)]
     pub(crate) fn from_network_any_block(
         runtime_id: i32,
         meta: u32,
@@ -1026,7 +1025,7 @@ impl Type {
     /// The ticks one item burns as fuel; 0 if it is not fuel.
     #[doc(alias = "Item::getFuelTime")]
     #[inline]
-    pub fn fuel_time(self) -> u16 {
+    pub fn fuel_time_ticks(self) -> u16 {
         self.info().fuel_time
     }
 
@@ -1232,11 +1231,16 @@ impl CreativeItem {
     }
 }
 
-/// The `CreativeContent` packet: PMMP's creative inventory with its groups, as PMMP's
-/// `CreativeInventoryCache` builds it (a group icon carries `___GroupBugWorkaround___` set to its group
+/// The NBT key PMMP's `CreativeInventoryCache` sets on a group icon to the group's index (its
+/// workaround for a 1.21.60 client glitch).
+pub(crate) const GROUP_WORKAROUND: &str = "___GroupBugWorkaround___";
+
+/// The generated `CreativeContent` packet: PMMP's creative inventory with its groups, as PMMP's
+/// `CreativeInventoryCache` builds it (a group icon carries [`GROUP_WORKAROUND`] set to its group
 /// index). Creative item network IDs count from 1 as BDS sends them (P6, PLAN.md 10.4), where PMMP
-/// counts from 0. Built once at start.
-#[doc(alias = "CreativeInventoryCache::buildPacket")]
+/// counts from 0. The server builds its inventories from [`creative_entry`]; this is what it
+/// builds of PMMP's unchanged.
+#[cfg(test)]
 pub(crate) fn creative_content() -> packet::CreativeContent {
     packet::CreativeContent {
         groups: creative::GROUPS
@@ -1262,9 +1266,35 @@ pub(crate) fn creative_content() -> packet::CreativeContent {
     }
 }
 
-/// How many items [`creative_content`] has (their network IDs are 1 to it).
-pub(crate) fn creative_count() -> u32 {
-    u32::try_from(creative::ITEMS.len()).unwrap_or(u32::MAX)
+/// One entry of PMMP's creative inventory ([`creative_entry`]).
+#[derive(Debug)]
+pub(crate) struct CreativeEntry {
+    /// The stack a player takes ([`creative_stack`]).
+    pub(crate) stack: Stack,
+    /// Its network form.
+    pub(crate) net: protocol::ItemStack,
+    /// Its category number (1 construction to 4 items).
+    pub(crate) category: u8,
+    /// Its group's name and icon network form (without [`GROUP_WORKAROUND`]); `None` for the
+    /// category's anonymous group.
+    pub(crate) group: Option<(&'static str, protocol::ItemStack)>,
+}
+
+/// Entry `index` (from 0) of PMMP's creative inventory; `None` past the last one.
+pub(crate) fn creative_entry(index: usize) -> Option<CreativeEntry> {
+    let c = creative::ITEMS.get(index)?;
+    let group = creative::GROUPS.get(usize::try_from(c.group).ok()?)?;
+    let named = group.icon.as_ref().map(|icon| {
+        let mut icon = icon.to_network();
+        icon.nbt_data.remove(GROUP_WORKAROUND);
+        (group.name, icon)
+    });
+    Some(CreativeEntry {
+        stack: creative_stack(u32::try_from(index).ok()?.checked_add(1)?)?,
+        net: c.stack.to_network(),
+        category: group.category,
+        group: named,
+    })
 }
 
 /// The highest runtime ID of the vanilla item registry (custom items take the ones after it).
@@ -1276,13 +1306,13 @@ pub(crate) fn max_runtime_id() -> i16 {
         .unwrap_or(0)
 }
 
-/// The stack of the creative item with this network ID as [`creative_content`] numbers them (from
-/// 1), one item; `None` for an unknown ID. O(1).
+/// The stack of PMMP's creative item with this network ID (from 1, in PMMP's order), one item;
+/// `None` for an unknown ID. O(1).
 pub(crate) fn creative_stack(network_id: u32) -> Option<Stack> {
     let index = usize::try_from(network_id).ok()?.checked_sub(1)?;
     let c = creative::ITEMS.get(index)?;
     let tag = c.stack.nbt.map(nbt::compound);
-    Some(Stack::from_parts(c.stack.item, 1, c.stack.meta, tag))
+    Stack::from_parts(c.stack.item, 1, c.stack.meta, tag).ok()
 }
 
 /// The dye colours by PMMP `DyeColorIdMap` ID (white 0 … black 15): the dye item's name and the
@@ -1331,6 +1361,14 @@ mod tests {
 
     const REFERENCE: &str = include_str!("../xtask/data/reference/items.json");
     const CREATIVE: &str = include_str!("../xtask/data/pmmp/creative.json");
+    /// The user exceptions the generator adds to the PMMP dump (PLAN.md 8.4).
+    const EXCEPTIONS: &str = include_str!("../xtask/data/exceptions.json");
+
+    /// A part of [`EXCEPTIONS`].
+    fn exceptions(part: &str) -> Vec<Json> {
+        let all: Json = serde_json::from_str(EXCEPTIONS).unwrap();
+        all[part].as_array().unwrap().clone()
+    }
 
     fn all() -> impl Iterator<Item = Type> {
         (0..u16::try_from(table::ITEMS.len()).unwrap()).map(Type::from_index)
@@ -1432,7 +1470,8 @@ mod tests {
     #[test]
     fn every_type_has_the_runtime_id_of_its_name() {
         let ids = reference_ids();
-        assert_eq!(all().count(), 1613);
+        // PMMP's 1,613 and the grindstone, a user exception.
+        assert_eq!(all().count(), 1614);
         for t in all() {
             assert_eq!(Some(&i64::from(t.runtime_id())), ids.get(t.name()), "{t:?}");
         }
@@ -1513,7 +1552,14 @@ mod tests {
     #[test]
     fn creative_content_is_the_pmmp_inventory() {
         let ids = reference_ids();
-        let dump: Vec<Json> = serde_json::from_str(CREATIVE).unwrap();
+        let mut dump: Vec<Json> = serde_json::from_str(CREATIVE).unwrap();
+        for e in exceptions("creative") {
+            let at = dump
+                .iter()
+                .position(|d| d["item"]["name"] == e["after"])
+                .unwrap();
+            dump.insert(at + 1, e["entry"].clone());
+        }
         // The 61 bare enchanted books PMMP leaves of the enchantments it lacks are left out.
         let dump: Vec<Json> = dump
             .into_iter()
@@ -1523,7 +1569,7 @@ mod tests {
             })
             .collect();
         let content = creative_content();
-        assert_eq!(content.items.len(), 1694 - 61);
+        assert_eq!(content.items.len(), 1694 - 61 + 1, "and the grindstone");
         assert_eq!(content.items.len(), dump.len());
         // Recomputed from PMMP's creative data files with PMMP's group rules.
         assert_eq!(content.groups.len(), 107);
@@ -1708,7 +1754,7 @@ mod tests {
         assert_eq!(pickaxe.block_tool_type(), ToolType::PICKAXE);
         assert_eq!(pickaxe.block_tool_harvest_level(), 1);
         assert_eq!(pickaxe.mining_efficiency(), 2.0);
-        assert_eq!(pickaxe.fuel_time(), 200);
+        assert_eq!(pickaxe.fuel_time_ticks(), 200);
         assert_eq!(ToolTier::Wood.harvest_level(), 1);
         assert_eq!(ToolTier::Diamond.max_durability(), 1562);
         assert_eq!(ToolTier::Netherite.base_attack_points(), 9);
@@ -1757,9 +1803,9 @@ mod tests {
                 .requires_hunger()
         );
         // Coal burns 1,600 ticks; a lava bucket 20,000 and leaves a bucket.
-        assert_eq!(by_name("minecraft:coal").fuel_time(), 1600);
+        assert_eq!(by_name("minecraft:coal").fuel_time_ticks(), 1600);
         let lava = by_name("minecraft:lava_bucket");
-        assert_eq!(lava.fuel_time(), 20_000);
+        assert_eq!(lava.fuel_time_ticks(), 20_000);
         assert_eq!(lava.fuel_residue(), Some(by_name("minecraft:bucket")));
         // Armour.
         let chest = by_name("minecraft:diamond_chestplate");
@@ -1793,7 +1839,7 @@ mod tests {
         let planks = all().find(|t| t.name() == "minecraft:oak_planks").unwrap();
         assert_eq!(planks.kind(), None);
         assert_eq!(planks.class(), Class::ItemBlock);
-        assert_eq!(planks.fuel_time(), 300);
+        assert_eq!(planks.fuel_time_ticks(), 300);
         assert_eq!(
             planks.block().map(block::State::kind),
             Some(block::Kind::OakPlanks)
@@ -1885,7 +1931,7 @@ mod tests {
                 assert!(
                     effects
                         .iter()
-                        .all(|e| e.duration() > 0 || e.effect().is_instant())
+                        .all(|e| e.duration_ticks() > 0 || e.effect().is_instant())
                 );
             }
             for e in t.primary_enchantments().iter() {
@@ -1903,7 +1949,10 @@ mod tests {
 
     /// The PMMP item dump (`items.json`), one entry per item type in table order.
     fn item_dump() -> Vec<Json> {
-        serde_json::from_str(include_str!("../xtask/data/pmmp/items.json")).unwrap()
+        let mut dump: Vec<Json> =
+            serde_json::from_str(include_str!("../xtask/data/pmmp/items.json")).unwrap();
+        dump.extend(exceptions("items"));
+        dump
     }
 
     /// The PMMP dump's tables (`tables.json`).
@@ -2015,7 +2064,7 @@ mod tests {
                             for (e, w) in effects.iter().zip(wanted) {
                                 let at = table_index(&tables, "effects", &w["effect"]);
                                 assert_eq!(e.effect(), effect::Type::all()[at], "{t:?}");
-                                assert_eq!(u64::from(e.duration()), int(&w["duration"]));
+                                assert_eq!(u64::from(e.duration_ticks()), int(&w["duration"]));
                                 assert_eq!(u64::from(e.amplifier()), int(&w["amplifier"]));
                             }
                         }
@@ -2025,7 +2074,7 @@ mod tests {
                 (None, want) => panic!("{t:?} is not consumable, PMMP {want}"),
             }
             let fuel = &d["fuel"];
-            assert_eq!(u64::from(t.fuel_time()), int(&fuel["time"]), "{t:?}");
+            assert_eq!(u64::from(t.fuel_time_ticks()), int(&fuel["time"]), "{t:?}");
             assert_eq!(t.fuel_residue(), dumped_type(&fuel["residue"]), "{t:?}");
         }
     }

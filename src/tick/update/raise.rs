@@ -231,7 +231,10 @@ mod tests {
         let mut listeners = Listeners::default();
         add(&mut listeners);
         listeners.sort();
-        let mut state = new_state(settings(|c| c.developer.lighting = false), listeners);
+        let mut state = new_state(
+            settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
+            listeners,
+        );
         state.worlds[0].set_time(6_000);
         state
     }
@@ -246,12 +249,10 @@ mod tests {
     }
 
     fn advance(state: &mut Server, ticks: u32) {
-        let pool = crate::runtime::cpu_pool(1).unwrap();
         for _ in 0..ticks {
-            tick(state, &pool);
+            tick(state);
             state.tick += 1;
         }
-        assert!(pool.shutdown());
     }
 
     fn set(state: &mut Server, pos: BlockPos, s: State) {

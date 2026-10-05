@@ -555,6 +555,21 @@ fn scoreboards_that_break_a_bound_are_refused() {
 }
 
 #[test]
+fn a_boss_bar_title_longer_than_a_client_decodes_is_refused() {
+    let (mut state, _rx) = server();
+    let mut cx = Context { state: &mut state };
+    let max = crate::protocol::BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN;
+    assert!(
+        cx.set_boss_bar(id(1), BossBar::new("x".repeat(max)))
+            .is_ok()
+    );
+    assert_eq!(
+        cx.set_boss_bar(id(1), BossBar::new("x".repeat(max + 1))),
+        Err(DisplayError::TooLong)
+    );
+}
+
+#[test]
 fn a_boss_bar_is_shown_on_the_players_own_entity_and_updated_by_what_changed() {
     let (mut state, mut rx) = server();
     let me = i64::try_from(state.players[&SessionId::new(1)].runtime_id).unwrap();
