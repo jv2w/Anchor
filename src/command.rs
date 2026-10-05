@@ -343,7 +343,7 @@ impl Param {
     /// the same values in the same order, or [`build`](crate::ServerBuilder::build) fails with
     /// [`Error::ConflictingEnum`]. Anchor's own commands use BDS's names and values: `Boolean`,
     /// `Item`, `Block`, `Effect`, `Enchant`, `GameMode`, `Difficulty`, `ClearEffects`,
-    /// `TitleClear`, `TitleReset`, `TitleSet`, `TitleTimes`, `TimeModeAdd`, `TimeModeSet`,
+    /// `AddInfiniteEffect`, `TitleClear`, `TitleReset`, `TitleSet`, `TitleTimes`, `TimeModeAdd`, `TimeModeSet`,
     /// `TimeModeQuery`, `TimeSpec`, `TimeQuery` and `<name>CommandAliases` for a command with
     /// aliases, and Anchor's `TimeModeStart`, `TimeModeStop`, `BanListType`, `WhitelistAction`,
     /// `WhitelistEdit` and `ParticleName`, unless the user replaces or drops the command.

@@ -661,6 +661,27 @@ fn effect_gives_takes_and_clears_with_pmmp_bounds() {
         ["commands.effect.success.removed.all"]
     );
     assert!(player(&state, 2).effects().next().is_none());
+    // BDS's `hideParticles` and `infinite`.
+    ok(&mut state, id(1), "effect @s resistance 600 255 true");
+    let resistance = player(&state, 1).effect(effect::Type::Resistance).unwrap();
+    assert!(!resistance.is_visible() && !resistance.is_infinite());
+    assert_eq!(
+        (resistance.duration_ticks(), resistance.amplifier()),
+        (12_000, 255)
+    );
+    ok(&mut state, id(1), "effect @s speed 5 0 false");
+    let speed = player(&state, 1).effect(effect::Type::Speed).unwrap();
+    assert!(speed.is_visible());
+    assert_eq!(
+        ok(&mut state, id(1), "effect @s haste infinite 1 true"),
+        ["commands.effect.success.infinite"]
+    );
+    let haste = player(&state, 1).effect(effect::Type::Haste).unwrap();
+    assert!(haste.is_infinite() && !haste.is_visible());
+    assert_eq!(haste.amplifier(), 1);
+    ok(&mut state, id(1), "effect @s jump_boost infinite");
+    let jump = player(&state, 1).effect(effect::Type::JumpBoost).unwrap();
+    assert!(jump.is_infinite() && jump.is_visible());
 }
 
 #[test]
@@ -1475,7 +1496,8 @@ const BDS_OVERLOADS: [&str; 42] = [
 ];
 
 /// BDS's values of the enums of [`BDS_OVERLOADS`] (but `Item`), from the same packet.
-const BDS_ENUMS: [(&str, &[&str]); 15] = [
+const BDS_ENUMS: [(&str, &[&str]); 16] = [
+    ("AddInfiniteEffect", &["infinite"]),
     ("Boolean", &["true", "false"]),
     ("ClearEffects", &["clear"]),
     (
@@ -1699,9 +1721,7 @@ fn shared_commands_take_the_argument_types_and_enums_bds_sends() {
             (e.r#type.as_str(), values)
         })
         .collect();
-    // `Boolean` is only in BDS's forms Anchor leaves out (`hideParticles`).
-    assert!(!enums.contains_key("Boolean"));
-    for (name, values) in BDS_ENUMS.iter().filter(|(name, _)| *name != "Boolean") {
+    for (name, values) in &BDS_ENUMS {
         let ours = &enums[name];
         if matches!(*name, "Effect" | "Enchant") {
             // Anchor has PMMP's effects and enchantments, each under BDS's name.

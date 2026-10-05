@@ -53,6 +53,17 @@ pub(super) fn add(commands: &mut Vec<Command>) {
                     Param::effect("effect"),
                     Param::int("seconds").optional(),
                     Param::int("amplifier").optional(),
+                    Param::bool("hideParticles").optional(),
+                ],
+                effect,
+            )
+            .overload(
+                &[
+                    Param::target("player"),
+                    Param::effect("effect"),
+                    Param::enumeration("Mode", "AddInfiniteEffect", &["infinite"]),
+                    Param::int("amplifier").optional(),
+                    Param::bool("hideParticles").optional(),
                 ],
                 effect,
             ),
@@ -194,6 +205,7 @@ const EFFECT_NOT_ACTIVE_ALL: Msg = Msg::client("commands.effect.failure.notActiv
 const EFFECT_REMOVED: Msg = Msg::client("commands.effect.success.removed");
 const EFFECT_REMOVED_ALL: Msg = Msg::client("commands.effect.success.removed.all");
 const EFFECT_SUCCESS: Msg = Msg::client("commands.effect.success");
+const EFFECT_SUCCESS_INFINITE: Msg = Msg::client("commands.effect.success.infinite");
 const ENCHANT_NO_ITEM: Msg = Msg::client("commands.enchant.noItem");
 const ENCHANT_SUCCESS: Msg = Msg::client("commands.enchant.success");
 const ENCHANT_CANT: Msg = Msg::client("commands.enchant.cantEnchant");
@@ -325,9 +337,9 @@ fn clear(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     results.finish()
 }
 
-/// `/effect <player> clear` and `/effect <player> <effect> [seconds] [amplifier]` (PMMP
-/// `EffectCommand`): 0 seconds takes the effect away; no seconds gives its default duration.
-/// Left out until the player API takes them: PMMP's `infinite` duration and `hideParticles`.
+/// `/effect <player> clear` and `/effect <player> <effect> [seconds|infinite] [amplifier]
+/// [hideParticles]` (PMMP `EffectCommand`, in BDS's overloads): 0 seconds takes the effect away;
+/// no seconds gives its default duration; `infinite` never ends.
 fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let own = (
         permission::COMMAND_EFFECT_SELF,
@@ -352,6 +364,14 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
     let amplifier = bounded(args.int("amplifier").unwrap_or(0), 0, 255)?;
     let amplifier = u8::try_from(amplifier).unwrap_or(u8::MAX);
     let duration = seconds.map_or(kind.default_duration_ticks(), |s| s.unsigned_abs() * 20);
+    // Only the `infinite` overload has a `Mode` with an effect.
+    let infinite = args.has("Mode");
+    let given = kind
+        .instance()
+        .with_duration_ticks(duration)
+        .with_amplifier(amplifier)
+        .with_visible(args.bool("hideParticles") != Some(true))
+        .with_infinite(infinite);
     let effect_name = format!("%{}", kind.text());
     for id in targets {
         let shown = display_name_of(cx, Sender::Player(id));
@@ -367,15 +387,16 @@ fn effect(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> 
                 Err(EFFECT_NOT_ACTIVE.error(&[&effect_name, &shown]))
             });
         } else {
-            p.add_effect(kind, duration, amplifier);
-            let seconds = (f64::from(duration) / 20.0).to_string();
-            let params = [
-                effect_name.as_str(),
-                &amplifier.to_string(),
-                &shown,
-                &seconds,
-            ];
-            results.add(Ok(announce(cx, *sender, EFFECT_SUCCESS, &params)));
+            p.add_effect(given);
+            let amplifier = amplifier.to_string();
+            results.add(Ok(if infinite {
+                let params = [effect_name.as_str(), &amplifier, &shown];
+                announce(cx, *sender, EFFECT_SUCCESS_INFINITE, &params)
+            } else {
+                let seconds = (f64::from(duration) / 20.0).to_string();
+                let params = [effect_name.as_str(), &amplifier, &shown, &seconds];
+                announce(cx, *sender, EFFECT_SUCCESS, &params)
+            }));
         }
     }
     results.finish()

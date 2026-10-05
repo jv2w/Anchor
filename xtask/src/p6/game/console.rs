@@ -64,12 +64,11 @@ pub(super) enum Command {
     },
     /// `summon villager <x> <y> <z> ...`: a farmer villager NPC with [`farmer_offers`].
     Villager { pos: Vec3 },
-    /// `effect <player> <effect> [seconds] [amplifier]`.
+    /// `effect <player> <effect> [seconds] [amplifier] [hideParticles]`: the effect with the
+    /// ticks, amplifier and particles given, or none for 0 seconds.
     Effect {
         player: String,
-        effect: effect::Type,
-        ticks: u32,
-        amplifier: u8,
+        effect: effect::Instance,
     },
     /// `kill @e[type=!player]`: the villagers this console summoned.
     KillNonPlayers,
@@ -306,11 +305,17 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             let amplifier = rest.get(1).map_or(Ok(0), |a| {
                 a.parse::<u8>().map_err(|_| format!("bad amplifier {a:?}"))
             })?;
+            let hide = rest.get(2).map_or(Ok(false), |h| {
+                h.parse::<bool>()
+                    .map_err(|_| format!("bad hideParticles {h:?}"))
+            })?;
             Ok(Command::Effect {
                 player: (*player).to_owned(),
-                effect: effect_type(name)?,
-                ticks: seconds.saturating_mul(20),
-                amplifier,
+                effect: effect_type(name)?
+                    .instance()
+                    .with_duration_ticks(seconds.saturating_mul(20))
+                    .with_amplifier(amplifier)
+                    .with_visible(!hide),
             })
         }
         ["kill", target] if *target == NON_PLAYERS => Ok(Command::KillNonPlayers),
@@ -599,21 +604,16 @@ fn execute(
                 Err(e) => Outcome::Failed(format!("no villager NPC was spawned: {e}")),
             }
         }
-        Command::Effect {
-            player,
-            effect,
-            ticks,
-            amplifier,
-        } => {
+        Command::Effect { player, effect } => {
             let Some(p) = ctx.player_exact(player).and_then(|id| ctx.player_mut(id)) else {
                 return not_joined(player);
             };
             // As on BDS, 0 seconds takes the effect away.
-            if *ticks == 0 {
-                let removed = p.remove_effect(*effect);
+            if effect.is_expired() {
+                let removed = p.remove_effect(effect.effect());
                 return Outcome::Done((!removed).then(|| "not removed".to_owned()));
             }
-            let added = p.add_effect(*effect, *ticks, *amplifier);
+            let added = p.add_effect(*effect);
             Outcome::Done((!added).then(|| "not added".to_owned()))
         }
         Command::KillNonPlayers => {
@@ -855,15 +855,17 @@ mod tests {
             Ok(Command::RandomTickSpeed(0))
         );
         assert_eq!(parse("kill @e[type=!player]"), Ok(Command::KillNonPlayers));
-        assert!(matches!(
-            parse("effect P6Trade slowness 600 255 true"),
-            Ok(Command::Effect {
-                effect: effect::Type::Slowness,
-                ticks: 12_000,
-                amplifier: 255,
-                ..
-            })
-        ));
+        let Ok(Command::Effect { effect, .. }) = parse("effect P6Trade slowness 600 255 true")
+        else {
+            panic!("an effect");
+        };
+        assert_eq!(effect.effect(), effect::Type::Slowness);
+        assert_eq!((effect.duration_ticks(), effect.amplifier()), (12_000, 255));
+        assert!(!effect.is_visible(), "hideParticles");
+        let Ok(Command::Effect { effect, .. }) = parse("effect P6Trade speed 10") else {
+            panic!("an effect");
+        };
+        assert!(effect.is_visible());
         assert!(matches!(
             parse("summon villager -9.5 -60 20.5 0 0 minecraft:spawn_farmer P6Farmer"),
             Ok(Command::Villager { .. })

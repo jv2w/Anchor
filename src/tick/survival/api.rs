@@ -755,14 +755,29 @@ impl Player {
         self.survival.effects.contains_key(&effect)
     }
 
-    /// Gives the player `effect` for `duration_ticks` ticks (at most 2^31 - 1) at `amplifier` (0 is
-    /// level I), with particles, as PMMP's `EffectInstance` defaults. False if an effect of the
-    /// type with a higher amplifier, or the same amplifier and a longer duration, stays.
+    /// Gives the player `effect`: its type, duration, amplifier, particles (shown, faint or
+    /// hidden) and whether it never ends all come from the [`Instance`], which
+    /// [`effect::Type::instance`] starts with PMMP's defaults. False if an effect of the type with
+    /// a higher amplifier, or the same amplifier and a longer duration, stays.
+    ///
+    /// ```
+    /// use anchor::effect;
+    /// use anchor::player::Player;
+    ///
+    /// // Speed II for 10 seconds, without particles.
+    /// fn hidden_speed(player: &mut Player) -> bool {
+    ///     let speed = effect::Type::Speed
+    ///         .instance()
+    ///         .with_duration_ticks(200)
+    ///         .with_amplifier(1)
+    ///         .with_visible(false);
+    ///     player.add_effect(speed)
+    /// }
+    /// ```
     #[doc(alias = "EffectManager::add")]
     #[doc(alias = "EffectCollection::add")]
-    pub fn add_effect(&mut self, effect: effect::Type, duration_ticks: u32, amplifier: u8) -> bool {
-        let duration = duration_ticks.min(crate::effect::MAX_DURATION);
-        let added = effects::add_to(self, effect, Active::new(duration, amplifier));
+    pub fn add_effect(&mut self, effect: Instance) -> bool {
+        let added = effects::add_to(self, effect.effect(), Active::of(effect));
         self.survival.touch(0);
         added
     }
@@ -1930,9 +1945,11 @@ mod tests {
     fn effects_are_added_read_and_removed_as_pmmp() {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);
-        assert!(p.add_effect(effect::Type::Speed, 200, 1));
-        assert!(!p.add_effect(effect::Type::Speed, 100, 0), "weaker");
-        assert!(p.add_effect(effect::Type::Haste, u32::MAX, 0));
+        let speed = effect::Type::Speed.instance().with_duration_ticks(200);
+        assert!(p.add_effect(speed.with_amplifier(1)));
+        assert!(!p.add_effect(speed.with_duration_ticks(100)), "weaker");
+        let haste = effect::Type::Haste.instance();
+        assert!(p.add_effect(haste.with_duration_ticks(u32::MAX)));
         assert!(p.has_effect(effect::Type::Speed));
         let haste = p.effect(effect::Type::Haste).unwrap();
         assert_eq!(haste.duration_ticks(), crate::effect::MAX_DURATION);
@@ -1953,6 +1970,61 @@ mod tests {
             .collect();
         // Add, add, remove, remove.
         assert_eq!(ops, [1, 1, 3, 3]);
+    }
+
+    /// An instance's particles, faint particles and endless duration reach the player as BDS
+    /// sends `/effect <player> resistance 600 255 true` (P6 `potions`: `MobEffect` with
+    /// `Particles` false, key 131 still 0) and as PMMP packs the visible effects.
+    // pmmp: EffectInstance::setVisible, EffectInstance::setAmbient, EffectInstance::isInfinite
+    #[test]
+    fn effects_keep_their_particles_and_endless_duration() {
+        let (mut state, [mut rx1, _rx2]) = two();
+        run(&mut state, Vec::new());
+        received(&mut rx1);
+        let p = player_mut(&mut state, 1);
+        let hidden = effect::Type::Resistance
+            .instance()
+            .with_duration_ticks(12_000)
+            .with_amplifier(255)
+            .with_visible(false);
+        assert!(p.add_effect(hidden));
+        assert_eq!(p.effect(effect::Type::Resistance), Some(hidden));
+        run(&mut state, Vec::new());
+        let got = received(&mut rx1).0;
+        let mob_effects = |got: &[Packet]| -> Vec<_> {
+            got.iter()
+                .filter_map(|p| match p {
+                    Packet::MobEffect(m) => {
+                        Some((m.effect_type, m.particles, m.ambient, m.duration))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(mob_effects(&got), [(11, false, false, 12_000)]);
+        let effects_data = |data: Option<&crate::protocol::EntityMetadata>| {
+            data.and_then(|d| d.get(&EntityDataKey::VisibleMobEffects.into()).cloned())
+        };
+        // A hidden effect is not one of the visible effects: no change to send.
+        assert_eq!(effects_data(last_data(&got)), None);
+        let p = player_mut(&mut state, 1);
+        let faint = effect::Type::Speed
+            .instance()
+            .with_ambient(true)
+            .with_infinite(true);
+        assert!(p.add_effect(faint));
+        run(&mut state, Vec::new());
+        let got = received(&mut rx1).0;
+        assert_eq!(mob_effects(&got), [(1, true, true, -1)]);
+        // Speed (ID 1) with the ambient bit; the hidden resistance stays out.
+        assert_eq!(
+            effects_data(last_data(&got)),
+            Some(MetadataValue::Int64(1 << 1 | 1))
+        );
+        let speed = player_mut(&mut state, 1)
+            .effect(effect::Type::Speed)
+            .unwrap();
+        assert!(speed.is_infinite() && speed.is_ambient() && speed.is_visible());
     }
 
     // pmmp: Entity::isOnFire, Entity::getFireTicks, Entity::setFireTicks, Entity::setOnFire, Living::setOnFire, Entity::extinguish, Living::getAirSupplyTicks, Living::getMaxAirSupplyTicks, Living::isBreathing, Entity::getFallDistance, Entity::setFallDistance, Entity::resetFallDistance, Player::resetFallDistance

@@ -4599,32 +4599,32 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::canBeCollidedWith` | implemented | src/tick/entity/api.rs:214 `can_be_collided_with` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `pocketmine\entity\Entity::canBeMovedByCurrents` | skipped |  |  | entity rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Entity::canBeRenamed` | skipped |  |  | name tag item rule code (PLAN.md 10.7) |
-| `pocketmine\entity\Entity::canClimb` | implemented | src/tick/survival/api.rs:1075 `can_climb` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `pocketmine\entity\Entity::canClimbWalls` | implemented | src/tick/survival/api.rs:1088 `can_climb_walls` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `pocketmine\entity\Entity::canClimb` | implemented | src/tick/survival/api.rs:1090 `can_climb` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `pocketmine\entity\Entity::canClimbWalls` | implemented | src/tick/survival/api.rs:1103 `can_climb_walls` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `pocketmine\entity\Entity::canCollideWith` | skipped |  |  | entity rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Entity::canSaveWithChunk` | implemented | src/tick/entity/api.rs:207 `can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it |  |
 | `pocketmine\entity\Entity::close` | implemented | src/tick/entity/api.rs:931 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `pocketmine\entity\Entity::despawnFrom` | skipped |  |  | viewers follow the chunks each player sees (PLAN.md 10.7) |
 | `pocketmine\entity\Entity::despawnFromAll` | skipped |  |  | viewers follow the chunks each player sees (PLAN.md 10.7) |
-| `pocketmine\entity\Entity::extinguish` | implemented | src/tick/entity/api.rs:837 `set_fire_ticks`<br>src/tick/survival/api.rs:804 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Entity::extinguish` | implemented | src/tick/entity/api.rs:837 `set_fire_ticks`<br>src/tick/survival/api.rs:819 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::flagForDespawn` | implemented | src/tick/entity/api.rs:930 `flag_for_despawn` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `pocketmine\entity\Entity::getAttributeMap` | skipped |  |  | attributes are a fixed set; each is a typed getter and setter (PLAN.md 8.4) |
 | `pocketmine\entity\Entity::getBoundingBox` | implemented | src/tick/entity.rs:454 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `pocketmine\entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:115 `direction`<br>src/tick/survival/api.rs:933 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
-| `pocketmine\entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:115 `direction`<br>src/tick/survival/api.rs:933 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\entity\Entity::getDirectionPlane` | merged | src/tick/entity/api.rs:115 `direction`<br>src/tick/survival/api.rs:948 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported | into `Entity::getDirectionVector` |
+| `pocketmine\entity\Entity::getDirectionVector` | implemented | src/tick/entity/api.rs:115 `direction`<br>src/tick/survival/api.rs:948 `direction` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\entity\Entity::getEyeHeight` | implemented | src/tick/entity/api.rs:98 `eye_height` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `pocketmine\entity\Entity::getEyePos` | implemented | src/tick/entity/api.rs:109 `eye_position`<br>src/tick/player.rs:597 `eye_position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
-| `pocketmine\entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:159 `fall_distance`<br>src/tick/survival/api.rs:893 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `pocketmine\entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:141 `fire_ticks`<br>src/tick/survival/api.rs:796 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Entity::getFallDistance` | implemented | src/tick/entity/api.rs:159 `fall_distance`<br>src/tick/survival/api.rs:908 `fall_distance` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Entity::getFireTicks` | implemented | src/tick/entity/api.rs:141 `fire_ticks`<br>src/tick/survival/api.rs:811 `fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::getGravity` | implemented | src/tick/entity/api.rs:465 `gravity` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `pocketmine\entity\Entity::getHealth` | implemented | src/tick/entity/api.rs:121 `health`<br>src/tick/survival/api.rs:345 `health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Entity::getHorizontalFacing` | implemented | src/tick/survival/api.rs:939 `horizontal_facing` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
+| `pocketmine\entity\Entity::getHorizontalFacing` | implemented | src/tick/survival/api.rs:954 `horizontal_facing` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `pocketmine\entity\Entity::getId` | implemented | src/tick/entity/api.rs:47 `runtime_id` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `pocketmine\entity\Entity::getLastDamageCause` | implemented | src/tick/survival/api.rs:1062 `last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
+| `pocketmine\entity\Entity::getLastDamageCause` | implemented | src/tick/survival/api.rs:1077 `last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
 | `pocketmine\entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:73 `position`<br>src/tick/player.rs:591 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:128 `max_health`<br>src/tick/survival/api.rs:376 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `pocketmine\entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:91 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `pocketmine\entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:171 `name_tag`<br>src/tick/survival/api.rs:1325 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:171 `name_tag`<br>src/tick/survival/api.rs:1340 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::getNetworkProperties` | skipped |  |  | protocol internals: entity metadata is sent by the engine (CLAUDE.md 4.2-4.3) |
 | `pocketmine\entity\Entity::getNetworkTypeId` | implemented | src/tick/entity/api.rs:58 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `pocketmine\entity\Entity::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset (CLAUDE.md 4.2-4.3) |
@@ -4633,7 +4633,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:306 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
 | `pocketmine\entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:72 `position`<br>src/tick/player.rs:590 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::getScale` | implemented | src/tick/entity/api.rs:189 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `pocketmine\entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:1347 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:1362 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::getSize` | merged | src/tick/entity.rs:454 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `pocketmine\entity\Entity::getStepHeight` | implemented | src/tick/entity/api.rs:471 `step_height` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `pocketmine\entity\Entity::getTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope (CLAUDE.md 1) |
@@ -4642,20 +4642,20 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:65 `world`<br>src/tick/player.rs:583 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:201 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::hasMovementUpdate` | skipped |  |  | entity rule code (PLAN.md 10.7) |
-| `pocketmine\entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:1395 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:1410 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::heal` | implemented | src/tick/entity/api.rs:864 `heal`<br>src/tick/survival/api.rs:403 `heal` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `pocketmine\entity\Entity::isAlive` | implemented | src/tick/entity/api.rs:135 `is_alive`<br>src/tick/survival/api.rs:425 `is_alive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::a_kill_drops_the_items_once_and_a_respawn_brings_the_player_back |  |
 | `pocketmine\entity\Entity::isClosed` | skipped |  |  | a removed entity's Id finds nothing (`Context::entity` is `None`, PLAN.md 8.1) |
 | `pocketmine\entity\Entity::isFireProof` | implemented | src/tick/entity/api.rs:165 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `pocketmine\entity\Entity::isFlaggedForDespawn` | skipped |  |  | a flagged entity is gone from the API at once: `Context::entity` is `None` (PLAN.md 8.1) |
-| `pocketmine\entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1494 `is_player_inside_solid` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
-| `pocketmine\entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:195 `is_invisible`<br>src/tick/survival/api.rs:1364 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1509 `is_player_inside_solid` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:195 `is_invisible`<br>src/tick/survival/api.rs:1379 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::isNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:183 `is_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::isNameTagVisible` | implemented | src/tick/entity/api.rs:177 `is_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `pocketmine\entity\Entity::isOnFire` | implemented | src/tick/entity/api.rs:147 `is_on_fire`<br>src/tick/survival/api.rs:790 `is_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `pocketmine\entity\Entity::isOnGround` | implemented | src/tick/entity/api.rs:153 `is_on_ground`<br>src/tick/survival/api.rs:972 `is_on_ground` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
-| `pocketmine\entity\Entity::isSilent` | implemented | src/tick/survival/api.rs:1382 `is_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `pocketmine\entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1484 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\entity\Entity::isOnFire` | implemented | src/tick/entity/api.rs:147 `is_on_fire`<br>src/tick/survival/api.rs:805 `is_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Entity::isOnGround` | implemented | src/tick/entity/api.rs:153 `is_on_ground`<br>src/tick/survival/api.rs:987 `is_on_ground` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\entity\Entity::isSilent` | implemented | src/tick/survival/api.rs:1397 `is_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1499 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `pocketmine\entity\Entity::kill` | implemented | src/tick/entity/api.rs:887 `kill`<br>src/tick/survival/api.rs:411 `kill` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::a_kill_drops_the_items_once_and_a_respawn_brings_the_player_back |  |
 | `pocketmine\entity\Entity::nextRuntimeId` | skipped |  |  | runtime IDs are assigned by the engine (PLAN.md 8.1) |
 | `pocketmine\entity\Entity::onCollideWithPlayer` | skipped |  |  | entity rule code (PLAN.md 10.7): listeners see EntityItemPickup (PLAN.md 10.8 B4) |
@@ -4663,34 +4663,34 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::onNearbyBlockChange` | skipped |  |  | entity rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Entity::onRandomUpdate` | skipped |  |  | entity rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Entity::onUpdate` | implemented | src/entity/custom.rs:32 `on_tick` | src/tick/entity/custom/tests.rs::behaviours_tick_every_period_in_id_order_and_answer_interactions |  |
-| `pocketmine\entity\Entity::resetFallDistance` | implemented | src/tick/survival/api.rs:909 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Entity::resetFallDistance` | implemented | src/tick/survival/api.rs:924 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::respawnToAll` | skipped |  |  | viewers follow the chunks each player sees (PLAN.md 10.7) |
 | `pocketmine\entity\Entity::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store (PLAN.md 6) |
 | `pocketmine\entity\Entity::scheduleUpdate` | skipped |  |  | entity rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Entity::sendData` | skipped |  |  | protocol internals: entity metadata is sent by the engine (CLAUDE.md 4.2-4.3) |
-| `pocketmine\entity\Entity::setCanClimb` | implemented | src/tick/survival/api.rs:1081 `set_can_climb` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `pocketmine\entity\Entity::setCanClimbWalls` | implemented | src/tick/survival/api.rs:1094 `set_can_climb_walls` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `pocketmine\entity\Entity::setCanClimb` | implemented | src/tick/survival/api.rs:1096 `set_can_climb` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `pocketmine\entity\Entity::setCanClimbWalls` | implemented | src/tick/survival/api.rs:1109 `set_can_climb_walls` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `pocketmine\entity\Entity::setCanSaveWithChunk` | implemented | src/tick/entity/api.rs:819 `set_can_save_with_chunk` | src/tick/entity/api/tests.rs::entities_not_saved_with_their_chunk_are_left_out_and_go_with_it |  |
-| `pocketmine\entity\Entity::setFallDistance` | implemented | src/tick/survival/api.rs:900 `set_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `pocketmine\entity\Entity::setFireTicks` | implemented | src/tick/entity/api.rs:836 `set_fire_ticks`<br>src/tick/survival/api.rs:803 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Entity::setFallDistance` | implemented | src/tick/survival/api.rs:915 `set_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Entity::setFireTicks` | implemented | src/tick/entity/api.rs:836 `set_fire_ticks`<br>src/tick/survival/api.rs:818 `set_fire_ticks` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::setForceMovementUpdate` | skipped |  |  | entity rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Entity::setGravity` | skipped |  |  | an entity kind's physics are PMMP's constants per kind (PLAN.md 10.7): `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off |
 | `pocketmine\entity\Entity::setHasGravity` | implemented | src/tick/entity/api.rs:810 `set_has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::setHealth` | implemented | src/tick/entity/api.rs:847 `set_health`<br>src/tick/survival/api.rs:353 `set_health` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/entity/saved.rs::an_npc_saved_without_health_loads_dying<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Entity::setInvisible` | implemented | src/tick/entity/api.rs:804 `set_invisible`<br>src/tick/survival/api.rs:1375 `set_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `pocketmine\entity\Entity::setLastDamageCause` | implemented | src/tick/survival/api.rs:1069 `set_last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
+| `pocketmine\entity\Entity::setInvisible` | implemented | src/tick/entity/api.rs:804 `set_invisible`<br>src/tick/survival/api.rs:1390 `set_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setLastDamageCause` | implemented | src/tick/survival/api.rs:1084 `set_last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
 | `pocketmine\entity\Entity::setMaxHealth` | implemented | src/tick/survival/api.rs:384 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `pocketmine\entity\Entity::setMotion` | implemented | src/tick/entity/api.rs:689 `set_motion` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
-| `pocketmine\entity\Entity::setNameTag` | implemented | src/tick/entity/api.rs:768 `set_name_tag`<br>src/tick/survival/api.rs:1336 `set_name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setNameTag` | implemented | src/tick/entity/api.rs:768 `set_name_tag`<br>src/tick/survival/api.rs:1351 `set_name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::setNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:784 `set_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::setNameTagVisible` | implemented | src/tick/entity/api.rs:778 `set_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `pocketmine\entity\Entity::setNoClientPredictions` | implemented | src/tick/survival/api.rs:1401 `set_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `pocketmine\entity\Entity::setOnFire` | implemented | src/tick/entity/api.rs:827 `set_on_fire`<br>src/tick/survival/api.rs:818 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Entity::setNoClientPredictions` | implemented | src/tick/survival/api.rs:1416 `set_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setOnFire` | implemented | src/tick/entity/api.rs:827 `set_on_fire`<br>src/tick/survival/api.rs:833 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::setOwningEntity` | implemented | src/tick/entity/api.rs:1145 `set_owning_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `pocketmine\entity\Entity::setRotation` | implemented | src/tick/entity/api.rs:703 `set_rotation` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
 | `pocketmine\entity\Entity::setScale` | implemented | src/tick/entity/api.rs:791 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `pocketmine\entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1353 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `pocketmine\entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1388 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1368 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1403 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::setStepHeight` | skipped |  |  | an entity kind's physics are PMMP's constants per kind (PLAN.md 10.7): `Entity::step_height` reads them |
 | `pocketmine\entity\Entity::setTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope (CLAUDE.md 1) |
 | `pocketmine\entity\Entity::spawnTo` | skipped |  |  | viewers follow the chunks each player sees (PLAN.md 10.7) |
@@ -4747,7 +4747,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Human::applyDamageModifiers` | skipped |  |  | damage rule code (PLAN.md 10.7): listeners change the modifiers in EntityDamage (PLAN.md 10.8 B3) |
 | `pocketmine\entity\Human::canEat` | skipped |  |  | hunger rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Human::consumeObject` | skipped |  |  | item rule code (PLAN.md 10.7): listeners see PlayerItemConsume (PLAN.md 10.8 B3) |
-| `pocketmine\entity\Human::emote` | implemented | src/tick/survival/api.rs:1132 `emote` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
+| `pocketmine\entity\Human::emote` | implemented | src/tick/survival/api.rs:1147 `emote` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `pocketmine\entity\Human::getDrops` | skipped |  |  | entity rule code (PLAN.md 10.7): listeners see and change the drops in EntityDeath (PLAN.md 10.8 B4) |
 | `pocketmine\entity\Human::getEnchantmentSeed` | implemented | src/tick/survival/api.rs:715 `enchantment_seed` | src/tick/survival/api.rs::experience_and_the_enchanting_seed_follow_pmmp |  |
 | `pocketmine\entity\Human::getEnderInventory` | implemented | src/tick/inventory/api.rs:26 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -4768,7 +4768,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Human::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store (PLAN.md 6) |
 | `pocketmine\entity\Human::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine (CLAUDE.md 4.2-4.3) |
 | `pocketmine\entity\Human::setEnchantmentSeed` | implemented | src/tick/survival/api.rs:721 `set_enchantment_seed` | src/tick/survival/api.rs::experience_and_the_enchanting_seed_follow_pmmp |  |
-| `pocketmine\entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1144 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
+| `pocketmine\entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1159 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `pocketmine\entity\Human::spawnTo` | skipped |  |  | viewers follow the chunks each player sees (PLAN.md 10.7) |
 | `pocketmine\entity\HungerManager` | merged | src/tick/survival/api.rs:459 `food` | src/tick/survival/api.rs::hunger_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `pocketmine\entity\HungerManager::__construct` | skipped |  |  | every player has its hunger (PLAN.md 10.7) |
@@ -4797,45 +4797,45 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Living::consumeObject` | skipped |  |  | item rule code (PLAN.md 10.7): listeners see PlayerItemConsume (PLAN.md 10.8 B3) |
 | `pocketmine\entity\Living::damageArmor` | skipped |  |  | damage rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Living::getAbsorption` | implemented | src/tick/survival/api.rs:442 `absorption` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Living::getAirSupplyTicks` | implemented | src/tick/survival/api.rs:827 `air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Living::getAirSupplyTicks` | implemented | src/tick/survival/api.rs:842 `air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Living::getArmorInventory` | implemented | src/tick/inventory/api.rs:22 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\entity\Living::getArmorPoints` | implemented | src/tick/survival/api.rs:1046 `armor_points` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
+| `pocketmine\entity\Living::getArmorPoints` | implemented | src/tick/survival/api.rs:1061 `armor_points` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
 | `pocketmine\entity\Living::getDisplayName` | merged | src/tick/player.rs:405 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getDisplayName` |
 | `pocketmine\entity\Living::getDrops` | skipped |  |  | entity rule code (PLAN.md 10.7): listeners see and change the drops in EntityDeath (PLAN.md 10.8 B4) |
 | `pocketmine\entity\Living::getEffects` | implemented | src/tick/survival/api.rs:734 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
-| `pocketmine\entity\Living::getFrostWalkerLevel` | implemented | src/tick/survival/api.rs:1053 `frost_walker_level` | src/tick/survival/movement.rs::frost_walker_freezes_the_water_sources_around_the_feet_with_air_above_and_nobody_in |  |
+| `pocketmine\entity\Living::getFrostWalkerLevel` | implemented | src/tick/survival/api.rs:1068 `frost_walker_level` | src/tick/survival/movement.rs::frost_walker_freezes_the_water_sources_around_the_feet_with_air_above_and_nobody_in |  |
 | `pocketmine\entity\Living::getHighestArmorEnchantmentLevel` | skipped |  |  | damage rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Living::getJumpVelocity` | skipped |  |  | movement rule code (PLAN.md 10.7) |
-| `pocketmine\entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1507 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
-| `pocketmine\entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:851 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
+| `pocketmine\entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1522 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:866 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
 | `pocketmine\entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:129 `max_health`<br>src/tick/survival/api.rs:377 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:1027 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `pocketmine\entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:1042 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `pocketmine\entity\Living::getName` | merged | src/tick/player.rs:398 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `pocketmine\entity\Living::getSneakOffset` | skipped |  |  | protocol internals: the network position offset (CLAUDE.md 4.2-4.3) |
-| `pocketmine\entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1532 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1547 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `pocketmine\entity\Living::getXpDropAmount` | skipped |  |  | entity rule code (PLAN.md 10.7): listeners see and change the experience in EntityDeath (PLAN.md 10.8 B4) |
-| `pocketmine\entity\Living::isBreathing` | implemented | src/tick/survival/api.rs:887 `is_breathing` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `pocketmine\entity\Living::isGliding` | implemented | src/tick/survival/api.rs:1162 `is_gliding` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
-| `pocketmine\entity\Living::isSneaking` | implemented | src/tick/survival/api.rs:978 `is_sneaking` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
-| `pocketmine\entity\Living::isSprinting` | implemented | src/tick/survival/api.rs:990 `is_sprinting` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
-| `pocketmine\entity\Living::isSwimming` | implemented | src/tick/survival/api.rs:1156 `is_swimming` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\entity\Living::isBreathing` | implemented | src/tick/survival/api.rs:902 `is_breathing` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Living::isGliding` | implemented | src/tick/survival/api.rs:1177 `is_gliding` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\entity\Living::isSneaking` | implemented | src/tick/survival/api.rs:993 `is_sneaking` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\entity\Living::isSprinting` | implemented | src/tick/survival/api.rs:1005 `is_sprinting` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\entity\Living::isSwimming` | implemented | src/tick/survival/api.rs:1171 `is_swimming` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\entity\Living::jump` | skipped |  |  | movement rule code (PLAN.md 10.7): listeners see PlayerJump (PLAN.md 10.8 B3) |
 | `pocketmine\entity\Living::knockBack` | implemented | src/tick/entity/api.rs:911 `knock_back` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events |  |
 | `pocketmine\entity\Living::lookAt` | implemented | src/tick/entity/api.rs:715 `look_at` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
 | `pocketmine\entity\Living::onAirExpired` | skipped |  |  | damage rule code (PLAN.md 10.7) |
 | `pocketmine\entity\Living::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store (PLAN.md 6) |
 | `pocketmine\entity\Living::setAbsorption` | implemented | src/tick/survival/api.rs:448 `set_absorption` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Living::setAirSupplyTicks` | implemented | src/tick/survival/api.rs:835 `set_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
-| `pocketmine\entity\Living::setBreathing` | implemented | src/tick/survival/api.rs:879 `set_breathing` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
-| `pocketmine\entity\Living::setGliding` | implemented | src/tick/survival/api.rs:1019 `set_gliding` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `pocketmine\entity\Living::setAirSupplyTicks` | implemented | src/tick/survival/api.rs:850 `set_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
+| `pocketmine\entity\Living::setBreathing` | implemented | src/tick/survival/api.rs:894 `set_breathing` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
+| `pocketmine\entity\Living::setGliding` | implemented | src/tick/survival/api.rs:1034 `set_gliding` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `pocketmine\entity\Living::setHealth` | implemented | src/tick/entity/api.rs:848 `set_health`<br>src/tick/survival/api.rs:354 `set_health` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Living::setMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:858 `set_max_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
+| `pocketmine\entity\Living::setMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:873 `set_max_air_supply_ticks` | src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
 | `pocketmine\entity\Living::setMaxHealth` | implemented | src/tick/survival/api.rs:385 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Living::setMovementSpeed` | implemented | src/tick/survival/api.rs:1036 `set_movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `pocketmine\entity\Living::setOnFire` | implemented | src/tick/entity/api.rs:828 `set_on_fire`<br>src/tick/survival/api.rs:819 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `pocketmine\entity\Living::setSneaking` | implemented | src/tick/survival/api.rs:997 `set_sneaking` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `pocketmine\entity\Living::setSprinting` | implemented | src/tick/survival/api.rs:1005 `set_sprinting` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
-| `pocketmine\entity\Living::setSwimming` | implemented | src/tick/survival/api.rs:1012 `set_swimming` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `pocketmine\entity\Living::setMovementSpeed` | implemented | src/tick/survival/api.rs:1051 `set_movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `pocketmine\entity\Living::setOnFire` | implemented | src/tick/entity/api.rs:828 `set_on_fire`<br>src/tick/survival/api.rs:834 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\entity\Living::setSneaking` | implemented | src/tick/survival/api.rs:1012 `set_sneaking` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `pocketmine\entity\Living::setSprinting` | implemented | src/tick/survival/api.rs:1020 `set_sprinting` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
+| `pocketmine\entity\Living::setSwimming` | implemented | src/tick/survival/api.rs:1027 `set_swimming` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `pocketmine\entity\Location` | merged | src/tick/entity/api.rs:79 `yaw` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Location::getYaw` |
 | `pocketmine\entity\Location::__construct` | skipped |  |  | a location is a `Vec3` plus yaw and pitch values (PLAN.md 8.1) |
 | `pocketmine\entity\Location::__toString` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
@@ -4933,19 +4933,19 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\effect\Effect::hasBubbles` | implemented | src/effect.rs:295 `has_bubbles` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
 | `pocketmine\entity\effect\Effect::isBad` | implemented | src/effect.rs:278 `is_bad` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
 | `pocketmine\entity\effect\Effect::remove` | skipped |  |  | effect rule code (PLAN.md 10.7): listeners see EntityEffectRemove (PLAN.md 10.8 B3) |
-| `pocketmine\entity\effect\EffectCollection` | merged | src/tick/survival/api.rs:762 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp | into `EffectCollection::add` |
+| `pocketmine\entity\effect\EffectCollection` | merged | src/tick/survival/api.rs:778 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp | into `EffectCollection::add` |
 | `pocketmine\entity\effect\EffectCollection::__construct` | skipped |  |  | every player and living entity has its effects (PLAN.md 10.7) |
-| `pocketmine\entity\effect\EffectCollection::add` | implemented | src/tick/survival/api.rs:762 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
+| `pocketmine\entity\effect\EffectCollection::add` | implemented | src/tick/survival/api.rs:778 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `pocketmine\entity\effect\EffectCollection::all` | implemented | src/tick/survival/api.rs:735 `effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `pocketmine\entity\effect\EffectCollection::canAdd` | implemented | src/effect.rs:194 `can_replace` | src/effect.rs::collections_replace_and_colour_as_pmmp |  |
-| `pocketmine\entity\effect\EffectCollection::clear` | implemented | src/tick/survival/api.rs:780 `clear_effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
+| `pocketmine\entity\effect\EffectCollection::clear` | implemented | src/tick/survival/api.rs:795 `clear_effects` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `pocketmine\entity\effect\EffectCollection::get` | implemented | src/tick/survival/api.rs:744 `effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `pocketmine\entity\effect\EffectCollection::getBubbleColor` | implemented | src/effect.rs:204 `bubble_colour` | src/effect.rs::collections_replace_and_colour_as_pmmp |  |
 | `pocketmine\entity\effect\EffectCollection::getEffectAddHooks` | skipped |  |  | effect hooks are events: EntityEffectAdd and EntityEffectRemove (PLAN.md 10.8 B3) |
 | `pocketmine\entity\effect\EffectCollection::getEffectRemoveHooks` | skipped |  |  | effect hooks are events: EntityEffectAdd and EntityEffectRemove (PLAN.md 10.8 B3) |
 | `pocketmine\entity\effect\EffectCollection::has` | implemented | src/tick/survival/api.rs:753 `has_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `pocketmine\entity\effect\EffectCollection::hasOnlyAmbientEffects` | implemented | src/effect.rs:211 `only_ambient` | src/effect.rs::collections_replace_and_colour_as_pmmp |  |
-| `pocketmine\entity\effect\EffectCollection::remove` | implemented | src/tick/survival/api.rs:772 `remove_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
+| `pocketmine\entity\effect\EffectCollection::remove` | implemented | src/tick/survival/api.rs:787 `remove_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `pocketmine\entity\effect\EffectCollection::setEffectFilterForBubbles` | skipped |  |  | bubbles follow each effect's `is_visible` and `Type::has_bubbles` (`effect::bubble_colour`); no filter callbacks (PLAN.md 8.4) |
 | `pocketmine\entity\effect\EffectInstance` | implemented | src/effect.rs:67 `Instance` | src/effect.rs::effect_and_potion_data_are_pmmp_values |  |
 | `pocketmine\entity\effect\EffectInstance::__construct` | implemented | src/effect.rs:303 `instance` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
@@ -4957,18 +4957,18 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\effect\EffectInstance::getType` | implemented | src/effect.rs:138 `effect` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
 | `pocketmine\entity\effect\EffectInstance::hasExpired` | implemented | src/effect.rs:180 `is_expired` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
 | `pocketmine\entity\effect\EffectInstance::isAmbient` | implemented | src/effect.rs:162 `is_ambient` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
-| `pocketmine\entity\effect\EffectInstance::isInfinite` | implemented | src/effect.rs:168 `is_infinite` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
+| `pocketmine\entity\effect\EffectInstance::isInfinite` | implemented | src/effect.rs:168 `is_infinite` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
 | `pocketmine\entity\effect\EffectInstance::isVisible` | implemented | src/effect.rs:156 `is_visible` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values |  |
 | `pocketmine\entity\effect\EffectInstance::resetColor` | skipped |  |  | an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved (PLAN.md 10.7) |
-| `pocketmine\entity\effect\EffectInstance::setAmbient` | implemented | src/effect.rs:124 `with_ambient` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
+| `pocketmine\entity\effect\EffectInstance::setAmbient` | implemented | src/effect.rs:124 `with_ambient` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
 | `pocketmine\entity\effect\EffectInstance::setAmplifier` | implemented | src/effect.rs:110 `with_amplifier` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
 | `pocketmine\entity\effect\EffectInstance::setColor` | skipped |  |  | an effect's particle colour is its type's (`Type::colour`): players and entities keep active effects as type, duration, amplifier and flags, as saved (PLAN.md 10.7) |
 | `pocketmine\entity\effect\EffectInstance::setDuration` | implemented | src/effect.rs:98 `with_duration_ticks` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
-| `pocketmine\entity\effect\EffectInstance::setVisible` | implemented | src/effect.rs:117 `with_visible` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy |  |
-| `pocketmine\entity\effect\EffectManager` | merged | src/tick/survival/api.rs:761 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp | into `EffectManager::add` |
+| `pocketmine\entity\effect\EffectInstance::setVisible` | implemented | src/effect.rs:117 `with_visible` | src/effect.rs::instances_start_with_pmmp_defaults_and_change_by_copy<br>src/tick/survival/api.rs::effects_keep_their_particles_and_endless_duration |  |
+| `pocketmine\entity\effect\EffectManager` | merged | src/tick/survival/api.rs:777 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp | into `EffectManager::add` |
 | `pocketmine\entity\effect\EffectManager::__construct` | skipped |  |  | every player and living entity has its effects (PLAN.md 10.7) |
-| `pocketmine\entity\effect\EffectManager::add` | implemented | src/tick/survival/api.rs:761 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
-| `pocketmine\entity\effect\EffectManager::remove` | implemented | src/tick/survival/api.rs:771 `remove_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
+| `pocketmine\entity\effect\EffectManager::add` | implemented | src/tick/survival/api.rs:777 `add_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
+| `pocketmine\entity\effect\EffectManager::remove` | implemented | src/tick/survival/api.rs:786 `remove_effect` | src/tick/survival/api.rs::effects_are_added_read_and_removed_as_pmmp |  |
 | `pocketmine\entity\effect\EffectManager::tick` | skipped |  |  | effect rule code (PLAN.md 10.7) |
 | `pocketmine\entity\effect\HealthBoostEffect` | merged | src/effect/table.rs:7 `Type` | src/effect.rs::effect_and_potion_data_are_pmmp_values<br>src/effect.rs::every_effect_and_potion_has_the_pmmp_dump_values | into `Effect` |
 | `pocketmine\entity\effect\HealthBoostEffect::add` | skipped |  |  | effect rule code (PLAN.md 10.7): listeners see EntityEffectAdd (PLAN.md 10.8 B3) |
@@ -8422,10 +8422,10 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::canBreathe` | skipped |  |  | player rule code (PLAN.md 10.7) |
 | `pocketmine\player\Player::canCollideWith` | skipped |  |  | player rule code (PLAN.md 10.7) |
 | `pocketmine\player\Player::canEat` | skipped |  |  | hunger rule code (PLAN.md 10.7) |
-| `pocketmine\player\Player::canInteract` | implemented | src/tick/survival/api.rs:956 `can_interact` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
+| `pocketmine\player\Player::canInteract` | implemented | src/tick/survival/api.rs:971 `can_interact` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `pocketmine\player\Player::canSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks (PLAN.md 6) |
 | `pocketmine\player\Player::canSee` | implemented | src/tick/entity/api.rs:1839 `can_see` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
-| `pocketmine\player\Player::changeSkin` | merged | src/tick/survival/api.rs:1144 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
+| `pocketmine\player\Player::changeSkin` | merged | src/tick/survival/api.rs:1159 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
 | `pocketmine\player\Player::chat` | implemented | src/action/survival.rs:84 `Chat` | src/tick/survival/wiring.rs::chat_listeners_change_the_line_its_format_and_recipients |  |
 | `pocketmine\player\Player::closeAllForms` | implemented | src/tick/form.rs:161 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them |  |
 | `pocketmine\player\Player::consumeHeldItem` | skipped |  |  | item rule code (PLAN.md 10.7): listeners see PlayerItemConsume (PLAN.md 10.8 B3) |
@@ -8433,23 +8433,23 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::disconnect` | implemented | src/tick/player.rs:645 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `pocketmine\player\Player::doChunkRequests` | skipped |  |  | chunk sending is the engine's (PLAN.md 10.4) |
 | `pocketmine\player\Player::doFirstSpawn` | skipped |  |  | the spawn flow is the engine's (PLAN.md 10.2) |
-| `pocketmine\player\Player::dropItem` | implemented | src/tick/survival/api.rs:1464 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\player\Player::dropItem` | implemented | src/tick/survival/api.rs:1479 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `pocketmine\player\Player::emote` | skipped |  |  | player rule code (PLAN.md 10.7): listeners see PlayerEmote (PLAN.md 10.8 B3) |
-| `pocketmine\player\Player::getAllowFlight` | implemented | src/tick/survival/api.rs:1193 `allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::getAllowFlight` | implemented | src/tick/survival/api.rs:1208 `allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::getCraftingGrid` | implemented | src/tick/inventory/api.rs:25 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\player\Player::getCreativeInventory` | implemented | src/tick/inventory/api.rs:169 `creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `pocketmine\player\Player::getCurrentWindow` | implemented | src/tick/inventory/api.rs:74 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `pocketmine\player\Player::getCursorInventory` | implemented | src/tick/inventory/api.rs:24 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:1295 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `pocketmine\player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:1310 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::getDisplayName` | implemented | src/tick/player.rs:405 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::getDrops` | skipped |  |  | player rule code (PLAN.md 10.7): listeners see and change the drops in PlayerDeath (PLAN.md 10.8 B3) |
 | `pocketmine\player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:1193 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `pocketmine\player\Player::getFirstPlayed` | differs | src/tick/player.rs:522 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
-| `pocketmine\player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1209 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1224 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::getGamemode` | implemented | src/tick/survival/api.rs:282 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
-| `pocketmine\player\Player::getInAirTicks` | implemented | src/tick/survival/api.rs:917 `in_air_ticks` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `pocketmine\player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1423 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `pocketmine\player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1452 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `pocketmine\player\Player::getInAirTicks` | implemented | src/tick/survival/api.rs:932 `in_air_ticks` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
+| `pocketmine\player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1438 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `pocketmine\player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1467 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1) |
 | `pocketmine\player\Player::getLastPlayed` | differs | src/tick/player.rs:531 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock, PLAN.md 10.9) |
 | `pocketmine\player\Player::getLeaveMessage` | merged | src/event/player.rs:1353 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
@@ -8461,7 +8461,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::getSaveData` | skipped |  |  | player records are internal and commit with the world (PLAN.md 6); user values are `Player::data` (PLAN.md 10.8 C3) |
 | `pocketmine\player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:558 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` (CLAUDE.md 4.1, PLAN.md 8.4) |
-| `pocketmine\player\Player::getSpawn` | implemented | src/tick/survival/api.rs:1266 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `pocketmine\player\Player::getSpawn` | implemented | src/tick/survival/api.rs:1281 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::getUniqueId` | implemented | src/tick/player.rs:438 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::getUsedChunkStatus` | skipped |  |  | chunk sending is the engine's (PLAN.md 10.4) |
 | `pocketmine\player\Player::getUsedChunks` | skipped |  |  | chunk sending is the engine's (PLAN.md 10.4) |
@@ -8469,14 +8469,14 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::getXpDropAmount` | skipped |  |  | player rule code (PLAN.md 10.7): listeners see and change the experience in PlayerDeath (PLAN.md 10.8 B3) |
 | `pocketmine\player\Player::getXuid` | implemented | src/tick/player.rs:426 `xuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::handleMovement` | skipped |  |  | movement rule code (PLAN.md 10.7): listeners see PlayerMove (PLAN.md 10.8 B3) |
-| `pocketmine\player\Player::hasAutoJump` | implemented | src/tick/survival/api.rs:1101 `auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `pocketmine\player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:1230 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::hasAutoJump` | implemented | src/tick/survival/api.rs:1116 `auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `pocketmine\player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:1245 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:339 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
-| `pocketmine\player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1416 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `pocketmine\player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1431 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::hasPermission` | implemented | src/tick/command.rs:1101 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:539 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `pocketmine\player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's (PLAN.md 10.4) |
-| `pocketmine\player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:1267 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `pocketmine\player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:1282 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1806 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `pocketmine\player\Player::interactBlock` | implemented | src/action/interact.rs:51 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `pocketmine\player\Player::interactEntity` | implemented | src/action/interact.rs:91 `InteractEntity`<br>src/tick/entity.rs:4138 `interact` | src/tick/entity/npc.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
@@ -8484,15 +8484,15 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::isAuthenticated` | implemented | src/tick/player.rs:432 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::isConnected` | implemented | src/tick/player.rs:577 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `pocketmine\player\Player::isCreative` | implemented | src/tick/survival/api.rs:321 `is_creative` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
-| `pocketmine\player\Player::isFlying` | implemented | src/tick/survival/api.rs:1174 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::isFlying` | implemented | src/tick/survival/api.rs:1189 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::isOnline` | implemented | src/tick/player.rs:576 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `pocketmine\player\Player::isPermissionSet` | implemented | src/tick/command.rs:1108 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `pocketmine\player\Player::isSleeping` | implemented | src/tick/survival/api.rs:1247 `is_sleeping` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
-| `pocketmine\player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:984 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\player\Player::isSleeping` | implemented | src/tick/survival/api.rs:1262 `is_sleeping` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
+| `pocketmine\player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:999 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\player\Player::isSpectator` | implemented | src/tick/survival/api.rs:333 `is_spectator` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `pocketmine\player\Player::isSurvival` | implemented | src/tick/survival/api.rs:315 `is_survival` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `pocketmine\player\Player::isUsingChunk` | skipped |  |  | chunk sending is the engine's (PLAN.md 10.4) |
-| `pocketmine\player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:1168 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:1183 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\player\Player::isValidUserName` | skipped |  |  | login checks the name (PLAN.md 10.2) |
 | `pocketmine\player\Player::jump` | skipped |  |  | player rule code (PLAN.md 10.7): listeners see PlayerJump (PLAN.md 10.8 B3) |
 | `pocketmine\player\Player::kick` | implemented | src/action/survival.rs:145 `Kick`<br>src/tick/player.rs:644 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
@@ -8512,8 +8512,8 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::removeAttachment` | merged | src/tick/command.rs:1144 `unset_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::unsetPermission` |
 | `pocketmine\player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:188 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `pocketmine\player\Player::removeTitles` | implemented | src/tick/player.rs:630 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `pocketmine\player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:910 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `pocketmine\player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1432 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `pocketmine\player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:925 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
+| `pocketmine\player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1447 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::resetTitles` | implemented | src/tick/player.rs:631 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::respawn` | implemented | src/tick/survival/api.rs:432 `respawn` | src/tick/survival/api.rs::a_kill_drops_the_items_once_and_a_respawn_brings_the_player_back |  |
 | `pocketmine\player\Player::save` | skipped |  |  | player records commit with the world (CLAUDE.md 4.7) |
@@ -8529,30 +8529,30 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::sendTip` | implemented | src/tick/player.rs:624 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::sendTitle` | implemented | src/tick/player.rs:628 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::sendToastNotification` | implemented | src/tick/player.rs:633 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `pocketmine\player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:1199 `set_allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `pocketmine\player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:1107 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `pocketmine\player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:1214 `set_allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:1122 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `pocketmine\player\Player::setBasePermission` | merged | src/tick/command.rs:1120 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `pocketmine\player\Player::setCanSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks (PLAN.md 6) |
 | `pocketmine\player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:147 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `pocketmine\player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:131 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
-| `pocketmine\player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:1305 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
+| `pocketmine\player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:1320 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `pocketmine\player\Player::setDisplayName` | implemented | src/tick/player.rs:415 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
-| `pocketmine\player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1216 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `pocketmine\player\Player::setFlying` | implemented | src/tick/survival/api.rs:1181 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1231 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::setFlying` | implemented | src/tick/survival/api.rs:1196 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::setGamemode` | implemented | src/action/survival.rs:59 `SetGameMode`<br>src/tick/survival/api.rs:291 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
-| `pocketmine\player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:1237 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `pocketmine\player\Player::setMotion` | implemented | src/tick/survival/api.rs:1120 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `pocketmine\player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:1252 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::setMotion` | implemented | src/tick/survival/api.rs:1135 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `pocketmine\player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:565 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::setSneakPressed` | skipped |  |  | the client's input sets it (PLAN.md 10.7) |
-| `pocketmine\player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1277 `set_spawn` | src/tick/interact/tests/events.rs::a_listener_may_make_the_anchor_set_the_spawn_once<br>src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `pocketmine\player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1292 `set_spawn` | src/tick/interact/tests/events.rs::a_listener_may_make_the_anchor_set_the_spawn_once<br>src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::setTitleDuration` | implemented | src/tick/player.rs:632 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::setUsingItem` | skipped |  |  | the client's input sets it (PLAN.md 10.7) |
 | `pocketmine\player\Player::setViewDistance` | implemented | src/tick/spawn.rs:1153 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
 | `pocketmine\player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1828 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
-| `pocketmine\player\Player::sleepOn` | implemented | src/tick/survival/api.rs:1542 `sleep_on` | src/tick/survival.rs::sleep_on_lies_down_by_day_and_from_afar_without_an_event |  |
+| `pocketmine\player\Player::sleepOn` | implemented | src/tick/survival/api.rs:1557 `sleep_on` | src/tick/survival.rs::sleep_on_lies_down_by_day_and_from_afar_without_an_event |  |
 | `pocketmine\player\Player::spawnTo` | skipped |  |  | viewers follow the chunks each player sees (PLAN.md 10.7) |
 | `pocketmine\player\Player::stopBreakBlock` | skipped |  |  | block breaking rule code (PLAN.md 10.7): listeners see BlockBreak (PLAN.md 10.8 B1) |
-| `pocketmine\player\Player::stopSleep` | implemented | src/tick/survival/api.rs:1254 `stop_sleep` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
+| `pocketmine\player\Player::stopSleep` | implemented | src/tick/survival/api.rs:1269 `stop_sleep` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
 | `pocketmine\player\Player::teleport` | implemented | src/action/survival.rs:113 `Teleport`<br>src/tick/player.rs:608 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty |  |
 | `pocketmine\player\Player::toggleFlight` | skipped |  |  | movement rule code (PLAN.md 10.7): listeners see PlayerToggle* (PLAN.md 10.8 B3) |
 | `pocketmine\player\Player::toggleGlide` | skipped |  |  | movement rule code (PLAN.md 10.7): listeners see PlayerToggle* (PLAN.md 10.8 B3) |

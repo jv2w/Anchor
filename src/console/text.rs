@@ -7,7 +7,7 @@
 use crate::player::Message;
 
 /// Anchor's sentences by translation key, in key order; `{%0}`, `{%1}`... are the parameters.
-const TEXTS: [(&str, &str); 139] = [
+const TEXTS: [(&str, &str); 140] = [
     ("chat.type.admin", "[{%0}: {%1}]"),
     ("chat.type.announcement", "[{%0}] {%1}"),
     ("chat.type.emote", "* {%0} {%1}"),
@@ -79,6 +79,10 @@ const TEXTS: [(&str, &str); 139] = [
     (
         "commands.effect.success",
         "{%2} has {%0} at amplifier {%1} for {%3} seconds",
+    ),
+    (
+        "commands.effect.success.infinite",
+        "{%2} has {%0} at amplifier {%1} with no end",
     ),
     ("commands.effect.success.removed", "Took {%0} from {%1}"),
     (

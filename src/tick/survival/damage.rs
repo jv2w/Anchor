@@ -842,7 +842,8 @@ fn use_totem(state: &mut State, session: SessionId, raise: entity::Raise) {
             if let Some(player) = state.players.get_mut(&session) {
                 player.clear_effects();
                 for (effect, ticks) in given {
-                    player.add_effect(effect, ticks, 1);
+                    let instance = effect.instance().with_duration_ticks(ticks);
+                    player.add_effect(instance.with_amplifier(1));
                 }
             }
         }
