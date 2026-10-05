@@ -1199,6 +1199,7 @@ console-input = true
 - U9 합침: `integrity-check` 연결(`after-unclean-shutdown`은 정상 종료가 compact 뒤 마지막 커밋으로 `meta`의 `closed` 표시를 쓰고 다음 시작 첫 커밋이 지움; 실패·패닉·강제 종료는 표시 없음). `backups = true`의 시작 백업은 늘, `backups = false`의 임시 사본은 검사하는 시작에서만. `/check`(op, 게임·콘솔): 다음 저장 커밋 뒤 저장 스레드가 그 커밋의 값을 8 MiB 단계로 읽어 봉인 확인, 단계 사이 요청 먼저 처리(틱 안 막음), 하나씩, 결과는 실행한 사람에게(Anchor 문장). redb `check_integrity`는 닫힌 파일이 필요하고 원본을 고쳐 쓰므로 실행 중 안 씀. 입력 로그 형식 11(검사 결과도 틱 입력), `storage::Start { backup, check }`.
 - R5 합침: 1명 p99 +15%의 원인은 M9에서 커진 `light::Engine::step` 안의 `level`·`relax`·`relax_at`이 인라인되지 않은 것(일의 양 같음, codegen-units=1이면 M7과 같음). `#[inline]`으로 청크 한 줄 빛 일 0.267 → 0.172 ms(M7 0.186), 1명 p99 0.469 → 0.376 ms(M7 0.380). 표 9 검증 필요 A 닫음.
 - 남은 지적 12 합침: verify의 비공개 문서 검사를 `target/verify-private-docs`로 옮김(바뀐 것 없을 때 두 문서 검사 약 25초 → 약 1초).
+- R1 합침: P6 trace가 시나리오 영역(teleport 위치)에서 4칸 밖의 블록 변화·블록 엔티티 데이터·LevelEvent와 이 캡처에서 추가된 적 없는 엔티티의 제거를 보여 주기만 하고 비교하지 않음(영역 8칸 간격의 절반). 시험 `what_other_scenarios_left_behind_is_shown_only`.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

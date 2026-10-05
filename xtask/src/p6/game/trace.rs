@@ -27,7 +27,11 @@
 //! (`ContainerSetData` values and counts, entity motion), sounds, chat, recipe unlocks,
 //! `SetActorData`, positions of dropped items, and `Event` types: the only one BDS sends in the
 //! scenarios is `EntityInteract` when trading opens, which feeds the client's statistics and
-//! changes nothing the client does, so Anchor does not send it (P6 facts 8). Within a step the
+//! changes nothing the client does, so Anchor does not send it (P6 facts 8). What other scenarios
+//! of the session left behind is shown only, so one scenario's leftovers never land in another's
+//! comparison at whatever time they happen (a furnace going out): block changes, block entity
+//! data and level events farther than [`AREA_REACH`] from the scenario's area (its `teleport`
+//! step), and the removal of an entity the capture never saw added. Within a step the
 //! fixed lines are compared as a sorted list, so packets of one step that a server sends in
 //! another order still match.
 //!
@@ -52,6 +56,9 @@ const FLAT: [(i64, &str); 4] = [
     (-62, "minecraft:dirt[]"),
     (-61, "minecraft:grass_block[]"),
 ];
+/// How far, on `x` and `z`, a scenario's own blocks are from its area: the areas are 8 blocks
+/// apart (`gameAreas` in `xtask/go/bot/game.go`), so each scenario owns the half way to the next.
+const AREA_REACH: i32 = 4;
 /// A new player's experience level.
 const START_LEVEL: &str = "0";
 
@@ -127,6 +134,7 @@ pub(crate) fn trace(
         steps: Vec::new(),
         current: None,
         player: None,
+        area: None,
         stacks: BTreeMap::new(),
         windows: BTreeMap::new(),
         runtime: BTreeMap::new(),
@@ -271,6 +279,8 @@ struct Tracer<'a> {
     current: Option<Step>,
     /// The player's runtime ID (from `StartGame`).
     player: Option<i64>,
+    /// The scenario's area (`x`, `z`), from its `teleport` step.
+    area: Option<(f64, f64)>,
     /// Stack network IDs and window IDs in order of appearance.
     stacks: BTreeMap<i64, usize>,
     windows: BTreeMap<i64, usize>,
@@ -300,6 +310,13 @@ impl Tracer<'_> {
         match field(v, "type").as_str() {
             Some("step") => {
                 self.end_step();
+                if field(v, "name").as_str() == Some("teleport")
+                    && let [x, _, z] = field(v, "position")
+                        .as_array()
+                        .map_or(&[][..], Vec::as_slice)
+                {
+                    self.area = x.as_f64().zip(z.as_f64());
+                }
                 self.current = Some(Step {
                     name: field(v, "name").as_str().unwrap_or_default().to_owned(),
                     setup: field(v, "setup").as_bool() == Some(true),
@@ -581,7 +598,21 @@ impl Tracer<'_> {
         }
     }
 
-    /// Block changes (their last state per position), block entity data and level events.
+    /// Whether `position` (`[x, y, z]`, block or exact) is outside the scenario's area: another
+    /// scenario's.
+    fn elsewhere(&self, position: &Value) -> bool {
+        let coordinate = |i: usize| position.get(i).and_then(Value::as_f64).map(f64::floor);
+        match (self.area, coordinate(0), coordinate(2)) {
+            (Some((ax, az)), Some(x), Some(z)) => {
+                let reach = f64::from(AREA_REACH);
+                (x - ax).abs() > reach || (z - az).abs() > reach
+            }
+            _ => false,
+        }
+    }
+
+    /// Block changes (their last state per position), block entity data and level events; those
+    /// of other scenarios are shown only.
     fn world(&mut self, name: &str, f: &Value) {
         match name {
             "UpdateBlock" => {
@@ -592,6 +623,10 @@ impl Tracer<'_> {
                     field(f, "Flags"),
                     field(f, "Layer")
                 );
+                if self.elsewhere(field(f, "Position")) {
+                    self.shown(format!("{line} (elsewhere)"));
+                    return;
+                }
                 if field(f, "Layer").as_i64() == Some(0) {
                     self.placed.insert(field(f, "Position").to_string(), state);
                 }
@@ -607,6 +642,10 @@ impl Tracer<'_> {
                             field(e, "BlockPos"),
                             field(e, "Flags")
                         );
+                        if self.elsewhere(field(e, "BlockPos")) {
+                            self.shown(format!("{line} (elsewhere)"));
+                            continue;
+                        }
                         if key == "Blocks" {
                             self.placed.insert(field(e, "BlockPos").to_string(), state);
                         }
@@ -620,10 +659,12 @@ impl Tracer<'_> {
                     .as_object()
                     .map(|m| m.keys().collect())
                     .unwrap_or_default();
-                self.fixed(format!(
-                    "BlockActorData {} keys {keys:?}",
-                    field(f, "Position")
-                ));
+                let line = format!("BlockActorData {} keys {keys:?}", field(f, "Position"));
+                if self.elsewhere(field(f, "Position")) {
+                    self.shown(format!("{line} (elsewhere)"));
+                } else {
+                    self.fixed(line);
+                }
                 self.shown(format!(
                     "BlockActorData {} {}",
                     field(f, "Position"),
@@ -632,7 +673,9 @@ impl Tracer<'_> {
             }
             _ => {
                 let event = field(f, "EventType");
-                if !RANDOM_LEVEL_EVENTS.contains(&event.as_i64().unwrap_or_default()) {
+                if !RANDOM_LEVEL_EVENTS.contains(&event.as_i64().unwrap_or_default())
+                    && !self.elsewhere(field(f, "Position"))
+                {
                     self.fixed(format!("LevelEvent {event}"));
                 }
                 self.shown(format!("LevelEvent {}", compact(f)));
@@ -640,7 +683,8 @@ impl Tracer<'_> {
         }
     }
 
-    /// Entities, by what they are.
+    /// Entities, by what they are. The removal of an entity the capture never saw added (another
+    /// scenario's) is shown only.
     fn entity(&mut self, name: &str, f: &Value) {
         let kind_of = |map: &BTreeMap<i64, String>, key: &str| {
             map.get(&field(f, key).as_i64().unwrap_or_default())
@@ -657,7 +701,7 @@ impl Tracer<'_> {
                     kind_of(&self.unique, "EntityUniqueID")
                 };
                 let line = format!("{name} {kind}");
-                if RANDOM_ENTITIES.contains(&kind.as_str()) {
+                if RANDOM_ENTITIES.contains(&kind.as_str()) || kind == "unknown" {
                     self.shown(line);
                 } else {
                     self.fixed(line);
@@ -1010,6 +1054,48 @@ mod tests {
         assert!(give.shown.contains(&"Event EntityInteract".to_owned()));
         let fixed = |steps: &[Step]| steps.iter().map(|s| s.fixed.clone()).collect::<Vec<_>>();
         assert_eq!(fixed(&with), fixed(&without));
+    }
+
+    #[test]
+    fn what_other_scenarios_left_behind_is_shown_only() {
+        let capture = |leftovers: &str| {
+            [
+                r#"{"type":"packet","name":"StartGame","fields":{"EntityRuntimeID":6}}"#,
+                r#"{"type":"step","name":"teleport","position":[4,-60,12],"setup":true}"#,
+                r#"{"type":"step","name":"place"}"#,
+                r#"{"type":"packet","name":"UpdateBlock","fields":{"Position":[8,-60,8],"NewBlockRuntimeID":1,"Flags":3,"Layer":0}}"#,
+                r#"{"type":"packet","name":"LevelEvent","fields":{"EventType":2001,"Position":[8.5,-59.5,8.5],"EventData":0}}"#,
+                leftovers,
+            ]
+            .join("\n")
+        };
+        // Another scenario's furnace (8 blocks away) goes out, its block entity changes and its
+        // smoke rises, and a drop it left despawns.
+        let leftovers = [
+            r#"{"type":"packet","name":"UpdateBlock","fields":{"Position":[-10,-60,-4],"NewBlockRuntimeID":1,"Flags":3,"Layer":0}}"#,
+            r#"{"type":"packet","name":"UpdateSubChunkBlocks","fields":{"Blocks":[{"BlockPos":[13,-60,12],"BlockRuntimeID":1,"Flags":3}],"Extra":[]}}"#,
+            r#"{"type":"packet","name":"BlockActorData","fields":{"Position":[-10,-60,-4],"NBTData":{"compound":{"LastFuel":{}}}}}"#,
+            r#"{"type":"packet","name":"LevelEvent","fields":{"EventType":2005,"Position":[-9.5,-60,-3.5],"EventData":0}}"#,
+            r#"{"type":"packet","name":"RemoveActor","fields":{"EntityUniqueID":-77}}"#,
+        ]
+        .join("\n");
+        let fixed = |steps: &[Step]| steps.iter().map(|s| s.fixed.clone()).collect::<Vec<_>>();
+        let own = trace(&capture(""), &items(), &blocks()).expect("own");
+        let with = trace(&capture(&leftovers), &items(), &blocks()).expect("with leftovers");
+        assert_eq!(fixed(&with), fixed(&own));
+        assert_eq!(
+            fixed(&own)[1],
+            ["LevelEvent 2001", "block [8,-60,8] minecraft:stone[]"]
+        );
+        let place = with.get(1).expect("place");
+        assert!(
+            place.shown.contains(
+                &"UpdateBlock [-10,-60,-4] minecraft:stone[] flags 3 layer 0 (elsewhere)"
+                    .to_owned()
+            ),
+            "{:?}",
+            place.shown
+        );
     }
 
     #[test]
