@@ -4006,7 +4006,7 @@ pub(super) enum Npc {
 
 /// Throws the projectile of `item` from `session`'s eyes along its look (snowball, egg, ender
 /// pearl, splash or lingering potion, experience bottle; PMMP `ProjectileItem::onClickAir`).
-/// False if `item` throws nothing (a bottle o' enchanting with `experience-bottles = false`), the
+/// False if `item` throws nothing (a bottle o' enchanting with `experience-orbs = false`), the
 /// player cannot (not spawned, dead, spectator) or the entity limit is reached (the caller keeps
 /// the item; it takes one away on true, and keeps the ender pearl cooldown).
 #[doc(alias = "ProjectileItem::onClickAir")]

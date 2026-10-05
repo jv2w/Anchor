@@ -51,15 +51,17 @@ hardcore = false
 pvp = true
 # Each switch below turns a game system off completely when false: its rules stop running.
 hunger = true
-# Experience points, levels and experience orbs.
+# Gaining experience points and levels. false also means no experience orbs.
 experience = true
-# Throwing bottles o' enchanting.
-experience-bottles = true
+# Experience orbs and throwing bottles o' enchanting.
+experience-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
 drowning = true
 # Armour protection and armour wear.
 armor = true
+# Tools, weapons and armour wear out with use.
+durability = true
 # Sleeping in beds and bed spawn points.
 beds = true
 # The time of day moving on.
@@ -68,6 +70,8 @@ daylight-cycle = true
 recipe-book = true
 # The vanilla recipes; false keeps only recipes the server program registers.
 vanilla-recipes = true
+# Education Edition items (elements, compounds and their tools). false: they do not exist.
+education-items = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
 # true: a hit while sprinting can be critical.
@@ -148,6 +152,9 @@ hook-movement-packets = true
 hook-player-input = true
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
+# When the world file is checked at start: "always", "after-unclean-shutdown" or "never".
+# The check command checks it while the server runs.
+integrity-check = "always"
 # false: Anchor does not read commands from standard input.
 console-input = true
 
@@ -498,16 +505,18 @@ pub struct General {
     pub pvp: bool,
     /// `hunger`: whether players get hungry.
     pub hunger: bool,
-    /// `experience`: whether experience points, levels and experience orbs exist.
+    /// `experience`: whether players gain experience points and levels.
     pub experience: bool,
-    /// `experience-bottles`: whether bottles o' enchanting can be thrown.
-    pub experience_bottles: bool,
+    /// `experience-orbs`: whether experience orbs exist and bottles o' enchanting can be thrown.
+    pub experience_orbs: bool,
     /// `fall-damage`: whether falling hurts.
     pub fall_damage: bool,
     /// `drowning`: whether air runs out under water and drowning and suffocation hurt.
     pub drowning: bool,
     /// `armor`: whether armour protects and wears.
     pub armor: bool,
+    /// `durability`: whether tools, weapons and armour wear out with use.
+    pub durability: bool,
     /// `beds`: whether players can sleep in beds and set their spawn point with them.
     pub beds: bool,
     /// `daylight-cycle`: whether the time of day moves on.
@@ -516,6 +525,8 @@ pub struct General {
     pub recipe_book: bool,
     /// `vanilla-recipes`: whether the vanilla recipes exist besides those the server registers.
     pub vanilla_recipes: bool,
+    /// `education-items`: whether the Education Edition items exist.
+    pub education_items: bool,
     /// `item-despawn-ticks`: ticks a dropped item stays on the ground.
     pub item_despawn_ticks: u32,
     /// `sprint-critical-hits`: whether a hit while sprinting can be critical.
@@ -575,14 +586,16 @@ impl General {
                 "pvp" => self.pvp = boolean(value, key)?,
                 "hunger" => self.hunger = boolean(value, key)?,
                 "experience" => self.experience = boolean(value, key)?,
-                "experience-bottles" => self.experience_bottles = boolean(value, key)?,
+                "experience-orbs" => self.experience_orbs = boolean(value, key)?,
                 "fall-damage" => self.fall_damage = boolean(value, key)?,
                 "drowning" => self.drowning = boolean(value, key)?,
                 "armor" => self.armor = boolean(value, key)?,
+                "durability" => self.durability = boolean(value, key)?,
                 "beds" => self.beds = boolean(value, key)?,
                 "daylight-cycle" => self.daylight_cycle = boolean(value, key)?,
                 "recipe-book" => self.recipe_book = boolean(value, key)?,
                 "vanilla-recipes" => self.vanilla_recipes = boolean(value, key)?,
+                "education-items" => self.education_items = boolean(value, key)?,
                 "item-despawn-ticks" => {
                     self.item_despawn_ticks = int(value, key, ITEM_DESPAWN_TICKS)?;
                 }
@@ -630,14 +643,16 @@ impl Default for General {
             pvp: true,
             hunger: true,
             experience: true,
-            experience_bottles: true,
+            experience_orbs: true,
             fall_damage: true,
             drowning: true,
             armor: true,
+            durability: true,
             beds: true,
             daylight_cycle: true,
             recipe_book: true,
             vanilla_recipes: true,
+            education_items: true,
             item_despawn_ticks: 6000,
             sprint_critical_hits: false,
             break_time_check: true,
@@ -706,6 +721,8 @@ pub struct Developer {
     pub hook_player_input: bool,
     /// `save-interval-minutes`: minutes between whole-state saves.
     pub save_interval_minutes: u16,
+    /// `integrity-check`: when the world file is checked at start.
+    pub integrity_check: IntegrityCheck,
     /// `console-input`: whether commands are read from standard input.
     pub console_input: bool,
 }
@@ -761,6 +778,9 @@ impl Developer {
                 "save-interval-minutes" => {
                     self.save_interval_minutes = int(value, key, SAVE_INTERVAL_MINUTES)?;
                 }
+                "integrity-check" => {
+                    self.integrity_check = choice(value, key, &IntegrityCheck::NAMES)?;
+                }
                 "console-input" => self.console_input = boolean(value, key)?,
                 _ => return Err(Error::UnknownKey(key.path())),
             }
@@ -795,6 +815,7 @@ impl Default for Developer {
             hook_movement_packets: true,
             hook_player_input: true,
             save_interval_minutes: 10,
+            integrity_check: IntegrityCheck::Always,
             console_input: true,
         }
     }
@@ -909,6 +930,26 @@ impl Lighting {
     pub(crate) fn is_calculated(self) -> bool {
         self != Self::Fixed
     }
+}
+
+/// When the world file is checked at start (`integrity-check`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntegrityCheck {
+    /// `"always"`: on every start.
+    Always,
+    /// `"after-unclean-shutdown"`: only when the last run did not stop normally.
+    AfterUncleanShutdown,
+    /// `"never"`: never at start; the check command still checks on request.
+    Never,
+}
+
+impl IntegrityCheck {
+    /// The `integrity-check` values.
+    const NAMES: [(&str, Self); 3] = [
+        ("always", Self::Always),
+        ("after-unclean-shutdown", Self::AfterUncleanShutdown),
+        ("never", Self::Never),
+    ];
 }
 
 /// The console log detail (`log-level`).

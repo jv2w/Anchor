@@ -111,16 +111,18 @@ pub(crate) struct Settings {
     pvp: bool,
     /// Whether players get hungry (`hunger`).
     hunger: bool,
-    /// Whether experience exists (`experience`).
+    /// Whether players gain experience (`experience`).
     experience: bool,
-    /// Whether bottles o' enchanting can be thrown (`experience-bottles`).
-    experience_bottles: bool,
+    /// Whether experience orbs exist and bottles o' enchanting can be thrown (`experience-orbs`).
+    experience_orbs: bool,
     /// Whether falling hurts (`fall-damage`).
     fall_damage: bool,
     /// Whether air, drowning and suffocation exist (`drowning`).
     drowning: bool,
     /// Whether armour protects and wears (`armor`).
     armor: bool,
+    /// Whether tools, weapons and armour wear out (`durability`).
+    durability: bool,
     /// Whether beds can be slept in and set spawn points (`beds`).
     beds: bool,
     /// Whether the time of day moves on (`daylight-cycle`).
@@ -179,10 +181,11 @@ impl Settings {
             pvp: general.pvp,
             hunger: general.hunger,
             experience: general.experience,
-            experience_bottles: general.experience_bottles,
+            experience_orbs: general.experience_orbs,
             fall_damage: general.fall_damage,
             drowning: general.drowning,
             armor: general.armor,
+            durability: general.durability,
             beds: general.beds,
             daylight_cycle: general.daylight_cycle,
             item_despawn_ticks: general.item_despawn_ticks,
@@ -606,10 +609,11 @@ impl State {
             pvp: _,
             hunger: _,
             experience: _,
-            experience_bottles: _,
+            experience_orbs: _,
             fall_damage: _,
             drowning: _,
             armor: _,
+            durability: _,
             beds: _,
             daylight_cycle: _,
             item_despawn_ticks: _,

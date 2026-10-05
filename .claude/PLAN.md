@@ -177,15 +177,17 @@ hardcore = false
 pvp = true
 # Each switch below turns a game system off completely when false: its rules stop running.
 hunger = true
-# Experience points, levels and experience orbs.
+# Gaining experience points and levels. false also means no experience orbs.
 experience = true
-# Throwing bottles o' enchanting.
-experience-bottles = true
+# Experience orbs and throwing bottles o' enchanting.
+experience-orbs = true
 fall-damage = true
 # Air supply under water, drowning and suffocation damage.
 drowning = true
 # Armour protection and armour wear.
 armor = true
+# Tools, weapons and armour wear out with use.
+durability = true
 # Sleeping in beds and bed spawn points.
 beds = true
 # The time of day moving on.
@@ -194,6 +196,8 @@ daylight-cycle = true
 recipe-book = true
 # The vanilla recipes; false keeps only recipes the server program registers.
 vanilla-recipes = true
+# Education Edition items (elements, compounds and their tools). false: they do not exist.
+education-items = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
 # true: a hit while sprinting can be critical.
@@ -274,6 +278,9 @@ hook-movement-packets = true
 hook-player-input = true
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
+# When the world file is checked at start: "always", "after-unclean-shutdown" or "never".
+# The check command checks it while the server runs.
+integrity-check = "always"
 # false: Anchor does not read commands from standard input.
 console-input = true
 
@@ -1164,6 +1171,20 @@ console-input = true
 - `.cache` 사고와 복구(2026-10-05): 남은 worktree를 `git worktree remove --force`로 지울 때 그 안의 `.cache` junction을 따라가 메인 `.cache`가 지워짐(리드 실수, 앞선 재개 때 `.cache`가 사라진 것도 같은 원인으로 봄). 고정 커밋·sha256대로 다시 받음: pmmp 6a7cc02(+`composer.lock` vendor), dragonfly 4c7b5074, cloudburst-data 659ce1e, protocol docs 475bd72, 업그레이드 스키마 4e874a16·7f551f62, PM5 PHP(zip sha256 9.1과 같음), Strawberry Perl 5.42.3.1 portable(zip sha256 `6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690`, GitHub 릴리스 SP_54231_64bit 값과 같음), `m9-resume.md`(리드가 읽은 내용 그대로), BDS는 P6V가 다시 받음. `cargo xtask dump --check` 통과, dimpl 시험 560개 통과. 앞으로 worktree를 지우기 전에 junction을 `cmd //c rmdir`로 먼저 뗌.
 - 재개 시점 verify: dimpl 시험만 실패(위 사고로 Perl 없음), 나머지 검사 모두 통과.
 - 사용자 결정(2026-10-05, 사용자와 대화 중인 다른 Claude 세션이 전함): 사용자 정의 상태 효과·인챈트 API는 M9 범위에서 뺌(클라이언트가 새 효과·인챈트를 표시할 수 없음). STATIONS는 숫돌·빈 주민 오퍼만 함. 8.4, 표 41, 설계 7번, 대응표 규칙 4개(`EffectIdMap::register`, `EnchantmentIdMap::register`, `*Effect::__construct`, `*Enchantment::__construct`)를 고침.
+
+#### M9 후속 (2026-10-05, 지시: `.cache/m9-followup.md`)
+- 공유 약속(리드): 새 설정 키 `experience-orbs`(`experience-bottles`를 대신함, 구슬과 경험치 병), `durability`, `education-items`, `integrity-check`(`config::IntegrityCheck`), 권한 `anchor.command.check`, `/check` 자리 `src/tick/command/builtin/check.rs`. 8.5 정본 키 66개.
+- 커밋: 항목마다 합치고 빌드·clippy·영역 시험이 통과하면 그 항목만 커밋(사용자 결정, 다른 세션이 전함). 푸시 안 함.
+
+| 항목 | 담당 | 상태 |
+|---|---|---|
+| U1 명령 등록, U2 인자 타입, U3 콘솔 문장 | CMD | 진행 중 |
+| U5 활과 아이템 사용, U4 교육판 아이템, R4 삼지창 소리·투척 물약 | ITEMUSE | 진행 중 |
+| U8 움직임 끊김 | MOVE | 진행 중 |
+| U9 무결성 검사·`/check`, R2 백업 단계, 남은 지적 7 | STORE | 진행 중 |
+| R1 P6 격리, R6 번개 난이도, 남은 지적 10·12 | P6 | 진행 중 |
+| R5 1명 p99 | PERF | 진행 중 |
+| R7 숫돌 삭제, U6 경험치, U7 내구도, 남은 지적 4·5·6·9 | CLEAN | 진행 중 |
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

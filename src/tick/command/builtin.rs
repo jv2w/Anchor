@@ -17,6 +17,7 @@
 //!
 //! Left out: `dumpmemory`, `gc`, `plugins` and `timings` (PHP and plugins).
 
+mod check;
 mod lists;
 mod players;
 mod server;
@@ -43,6 +44,7 @@ pub(super) fn all() -> Vec<Command> {
     lists::add(&mut commands);
     players::add(&mut commands);
     server::add(&mut commands);
+    check::add(&mut commands);
     commands
 }
 

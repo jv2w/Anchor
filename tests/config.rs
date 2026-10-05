@@ -11,7 +11,8 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 
 use anchor::config::{
-    Difficulty, Error, GameMode, LevelType, Lighting, LogLevel, Threads, WorldSettings,
+    Difficulty, Error, GameMode, IntegrityCheck, LevelType, Lighting, LogLevel, Threads,
+    WorldSettings,
 };
 use anchor::protocol::compression::Compression;
 use anchor::world::{Flat, Kind};
@@ -150,14 +151,16 @@ hardcore = true
 pvp = false
 hunger = false
 experience = false
-experience-bottles = false
+experience-orbs = false
 fall-damage = false
 drowning = false
 armor = false
+durability = false
 beds = false
 daylight-cycle = false
 recipe-book = false
 vanilla-recipes = false
+education-items = false
 item-despawn-ticks = 1200
 sprint-critical-hits = true
 break-time-check = false
@@ -197,6 +200,7 @@ item-pickup-interval = 4
 hook-movement-packets = false
 hook-player-input = false
 save-interval-minutes = 5
+integrity-check = "never"
 console-input = false
 
 [worlds.lobby]
@@ -230,14 +234,16 @@ fn custom() -> Config {
     g.pvp = false;
     g.hunger = false;
     g.experience = false;
-    g.experience_bottles = false;
+    g.experience_orbs = false;
     g.fall_damage = false;
     g.drowning = false;
     g.armor = false;
+    g.durability = false;
     g.beds = false;
     g.daylight_cycle = false;
     g.recipe_book = false;
     g.vanilla_recipes = false;
+    g.education_items = false;
     g.item_despawn_ticks = 1200;
     g.sprint_critical_hits = true;
     g.break_time_check = false;
@@ -276,6 +282,7 @@ fn custom() -> Config {
     d.hook_movement_packets = false;
     d.hook_player_input = false;
     d.save_interval_minutes = 5;
+    d.integrity_check = IntegrityCheck::Never;
     d.console_input = false;
     let lobby = WorldSettings {
         view_distance: Some(6),
@@ -370,14 +377,16 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ("general.pvp", bools(), vec![]),
         ("general.hunger", bools(), vec![]),
         ("general.experience", bools(), vec![]),
-        ("general.experience-bottles", bools(), vec![]),
+        ("general.experience-orbs", bools(), vec![]),
         ("general.fall-damage", bools(), vec![]),
         ("general.drowning", bools(), vec![]),
         ("general.armor", bools(), vec![]),
+        ("general.durability", bools(), vec![]),
         ("general.beds", bools(), vec![]),
         ("general.daylight-cycle", bools(), vec![]),
         ("general.recipe-book", bools(), vec![]),
         ("general.vanilla-recipes", bools(), vec![]),
+        ("general.education-items", bools(), vec![]),
         (
             "general.item-despawn-ticks",
             s(&["1", "72000"]),
@@ -548,6 +557,11 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&["1", "1440"]),
             s(&["0", "1441"]),
         ),
+        (
+            "developer.integrity-check",
+            s(&[r#""always""#, r#""after-unclean-shutdown""#, r#""never""#]),
+            s(&[r#""Always""#, r#""""#, "true"]),
+        ),
         ("developer.console-input", bools(), vec![]),
     ]
 }
@@ -587,7 +601,7 @@ fn every_key_left_out_keeps_the_previous_value() {
     let file = File::new("every_key_left_out");
     let default = plan_default_file();
     let keys = key_lines(&default);
-    assert_eq!(keys.len(), 63, "PLAN.md 8.5 has 63 keys");
+    assert_eq!(keys.len(), 66, "PLAN.md 8.5 has 66 keys");
     for (_, key, value) in &keys {
         let line = format!("{key} = {value}\n");
         let text = default.replacen(&line, "", 1);
@@ -688,7 +702,9 @@ fn new_keys_default_to_the_behaviour_before_them() {
     let (g, d) = (&config.general, &config.developer);
     for on in [
         g.experience,
-        g.experience_bottles,
+        g.experience_orbs,
+        g.durability,
+        g.education_items,
         g.fall_damage,
         g.drowning,
         g.armor,
@@ -712,6 +728,7 @@ fn new_keys_default_to_the_behaviour_before_them() {
     assert_eq!(d.lighting, Lighting::Dynamic);
     assert_eq!(d.fixed_light_level, 15);
     assert_eq!(d.item_pickup_interval, 1);
+    assert_eq!(d.integrity_check, IntegrityCheck::Always);
     assert!(config.worlds.is_empty());
 }
 

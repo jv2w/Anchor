@@ -295,6 +295,8 @@ builtin! {
     BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
     /// Back up the world while the server runs (`/backup`; Anchor's own, PMMP has none).
     COMMAND_BACKUP = "anchor.command.backup", Op;
+    /// Check the world file while the server runs (`/check`; Anchor's own, PMMP has none).
+    COMMAND_CHECK = "anchor.command.check", Op;
     /// Ban IP addresses (`/ban-ip`).
     COMMAND_BAN_IP = "anchor.command.ban.ip", Op;
     /// List the bans (`/banlist`).
