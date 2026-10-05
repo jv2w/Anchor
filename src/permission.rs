@@ -7,7 +7,7 @@
 //! from its default and the operator list, unless a grant made while the player is online
 //! ([`Context::set_permission`](crate::Context::set_permission), PMMP's permission attachments)
 //! says otherwise. Grants are not saved; the operator list, the ban lists and the whitelist are
-//! saved in the world file with everything else.
+//! saved in the server file with everything else.
 //!
 //! Anchor's own permissions are the constants of this module. Their names follow PMMP's
 //! `DefaultPermissionNames` with `anchor` in place of `pocketmine`: `pocketmine.command.give.self`
@@ -221,7 +221,7 @@ impl BanEntry {
         Ok(self)
     }
 
-    /// An entry as the world file stores it.
+    /// An entry as the server file stores it.
     pub(crate) fn from_parts(
         name: String,
         ip: Option<IpAddr>,
@@ -295,7 +295,7 @@ builtin! {
     BROADCAST_ADMIN = "anchor.broadcast.admin", Op;
     /// Back up the world while the server runs (`/backup`; Anchor's own, PMMP has none).
     COMMAND_BACKUP = "anchor.command.backup", Op;
-    /// Check the world file while the server runs (`/check`; Anchor's own, PMMP has none).
+    /// Check the server file while the server runs (`/check`; Anchor's own, PMMP has none).
     COMMAND_CHECK = "anchor.command.check", Op;
     /// Ban IP addresses (`/ban-ip`).
     COMMAND_BAN_IP = "anchor.command.ban.ip", Op;

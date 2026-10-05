@@ -1345,11 +1345,11 @@ fn check_is_for_operators_one_at_a_time_and_tells_who_asked() {
     assert!(is_refused(&run(&mut state, id(2), "check")));
     assert_eq!(
         ok(&mut state, id(1), "check"),
-        ["Saving and checking the world file; you are told the result when it ends"]
+        ["Saving and checking the server file; you are told the result when it ends"]
     );
     assert_eq!(
         fails(&mut state, Sender::Console, "check"),
-        "A world file check is already running"
+        "A server file check is already running"
     );
     let mut log = InputLog::default();
     let Some(crate::save::Request::Commit(snapshot)) = save::snapshot(&mut state, &mut log, false)

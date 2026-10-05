@@ -1,4 +1,4 @@
-//! Chunk and player extras on the tick side (PLAN.md 10.7): what the world file keeps of a
+//! Chunk and player extras on the tick side (PLAN.md 10.7): what the server file keeps of a
 //! chunk besides its terrain (block entities, entities, scheduled block updates) and of a player
 //! besides its world and position, and the hooks where rule modules take it over.
 //!
@@ -216,7 +216,7 @@ impl Held {
         }
     }
 
-    /// Reads what [`Self::checkpoint`] wrote; `stored` gives the lists the world file or the
+    /// Reads what [`Self::checkpoint`] wrote; `stored` gives the lists the server file or the
     /// generator has for the chunk, used when no kind is marked.
     pub(super) fn restore(
         r: &mut super::checkpoint::Reader<'_>,
@@ -225,7 +225,7 @@ impl Held {
         use super::checkpoint::{Codec, Error};
         let dirty = u8::decode(r)?;
         let extras = if dirty == 0 {
-            stored.ok_or(Error::Format("chunk extras the world file does not give"))?
+            stored.ok_or(Error::Format("chunk extras the server file does not give"))?
         } else {
             let mut extras = ChunkExtras::default();
             for kind in ChunkKind::EXTRAS {

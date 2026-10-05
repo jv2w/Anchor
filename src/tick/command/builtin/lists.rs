@@ -262,7 +262,7 @@ fn deop(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
 /// `/whitelist on|off|list` and `/whitelist add|remove <player>` (PMMP `WhitelistCommand`).
 /// Turning it on kicks the online players it leaves out; removing a player kicks it unless it is
 /// an operator. Each action has its own permission. PMMP's `reload` is left out: the whitelist
-/// is kept in the world file, not reread from a text file. `on` and `off` last until the server
+/// is kept in the server file, not reread from a text file. `on` and `off` last until the server
 /// stops (`white-list` decides at start). `list` shows at most [`MAX_LISTED`] names.
 fn whitelist(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let action = args.string("action").unwrap_or_default();

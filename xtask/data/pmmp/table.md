@@ -81,8 +81,8 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::getName` | implemented | src/tick/task.rs:58 `NAME` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getNameBans` | implemented | src/tick/command.rs:1311 `bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getNetwork` | skipped |  |  | protocol internals (CLAUDE.md 4.2-4.3, 4.8) |
-| `pocketmine\Server::getOfflinePlayer` | skipped |  |  | saved player data is in the world file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
-| `pocketmine\Server::getOfflinePlayerData` | skipped |  |  | saved player data is in the world file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
+| `pocketmine\Server::getOfflinePlayer` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
+| `pocketmine\Server::getOfflinePlayerData` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
 | `pocketmine\Server::getOnlineMode` | implemented | src/config.rs:484 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getOnlinePlayers` | implemented | src/tick/task.rs:206 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_online |  |
 | `pocketmine\Server::getOps` | implemented | src/tick/command.rs:1254 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
@@ -112,7 +112,7 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::getViewDistance` | implemented | src/tick/task.rs:193 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getWhitelisted` | implemented | src/tick/command.rs:1348 `whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getWorldManager` | merged | src/tick/world_api.rs:54 `world` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order | into `WorldManager::getWorld` |
-| `pocketmine\Server::hasOfflinePlayerData` | skipped |  |  | saved player data is in the world file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
+| `pocketmine\Server::hasOfflinePlayerData` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
 | `pocketmine\Server::hasWhitelist` | implemented | src/tick/command.rs:1354 `whitelist_enabled` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::isHardcore` | implemented | src/tick/task.rs:186 `is_hardcore` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::isLanguageForced` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates (PLAN.md 10.8 C1) |
@@ -123,7 +123,7 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::removeOp` | implemented | src/tick/command.rs:1237 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
 | `pocketmine\Server::removeWhitelist` | implemented | src/tick/command.rs:1332 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::requiresAuthentication` | implemented | src/config.rs:485 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `pocketmine\Server::saveOfflinePlayerData` | skipped |  |  | saved player data is in the world file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
+| `pocketmine\Server::saveOfflinePlayerData` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
 | `pocketmine\Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
 | `pocketmine\Server::shouldSavePlayerData` | implemented | src/tick/task.rs:199 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::shutdown` | implemented | src/server.rs:736 `shutdown`<br>src/tick/command.rs:1375 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |

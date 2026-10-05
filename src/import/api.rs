@@ -1,6 +1,6 @@
 //! The import's run and report (PLAN.md 10.9): [`Server::import_world`](crate::Server) reads a
 //! Bedrock world folder through the reader ([`Source`]), upgrades its blocks and items
-//! ([`upgrade`]), and writes it as a new persistent world of the world file, in one write
+//! ([`upgrade`]), and writes it as a new persistent world of the server file, in one write
 //! transaction.
 //!
 //! Each chunk becomes Anchor's own records: its terrain goes through [`save::to_chunk`] (palette
@@ -15,7 +15,7 @@
 //!
 //! Chunks are read in (x, z) order a step at a time, then decoded and converted on the CPU pool,
 //! which keeps input order, so the same source gives the same bytes whatever the thread count.
-//! Any chunk that fails ends the import before its commit: the world file is left as it was, and
+//! Any chunk that fails ends the import before its commit: the server file is left as it was, and
 //! the source is never written.
 
 use std::collections::BTreeMap;
@@ -144,7 +144,7 @@ impl Report {
     }
 }
 
-/// What a converted chunk adds to the world file and the report.
+/// What a converted chunk adds to the server file and the report.
 #[derive(Debug, Default)]
 struct Converted {
     values: Vec<(Key, Vec<u8>)>,
@@ -169,7 +169,7 @@ struct Target<'a> {
     spawn: Option<(ChunkPos, u8, u8)>,
 }
 
-/// Imports the world folder `dir` as the persistent world `name` of `worlds` into the world file
+/// Imports the world folder `dir` as the persistent world `name` of `worlds` into the server file
 /// of `data_dir`, opened as `start` says, with `custom` resolving custom blocks, on a
 /// CPU pool of `cpu` threads that is joined before returning.
 pub(crate) fn run(

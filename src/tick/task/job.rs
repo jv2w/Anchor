@@ -176,7 +176,7 @@ impl Context<'_> {
     /// result that arrives after the server stopped is dropped, and work still running 10
     /// seconds after the stop is abandoned: [`Server::run`](crate::Server::run) returns while its
     /// thread runs on, until the work ends or the process exits. What the work wrote outside the
-    /// world file stays after a crash (PLAN.md 6). Fails, running nothing, while [`MAX_JOBS`] jobs wait for their
+    /// server file stays after a crash (PLAN.md 6). Fails, running nothing, while [`MAX_JOBS`] jobs wait for their
     /// result.
     #[doc(alias = "AsyncPool::submitTask")]
     #[doc(alias = "AsyncTask")]

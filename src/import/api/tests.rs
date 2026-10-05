@@ -621,7 +621,7 @@ fn a_chunk_that_fails_ends_the_import_with_its_position_and_writes_nothing() {
 }
 
 #[test]
-fn a_failed_commit_leaves_the_world_file_as_it_was() {
+fn a_failed_commit_leaves_the_server_file_as_it_was() {
     let mut rng = crate::protocol::Rng(0x1a9_0e77);
     let raws: BTreeMap<(i32, i32), Raw> = (0..3).map(|i| ((i, i), full_raw())).collect();
     for at in 1.. {
@@ -900,7 +900,7 @@ fn measure_100k_chunk_import() {
     let committed = ms(start);
     let peak = peak_memory_mib();
     assert!(pool.shutdown());
-    let file = dir.0.join(crate::storage::WORLD_FILE);
+    let file = dir.0.join(crate::storage::SERVER_FILE);
     let size = file_mib(&file);
     let start = crate::clock::now();
     storage.close().unwrap();

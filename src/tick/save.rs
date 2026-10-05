@@ -77,7 +77,7 @@ impl Unsaved {
     }
 
     /// Reads what [`Self::checkpoint`] wrote, with the terrain the checkpoint kept and the lists
-    /// the world file or the generator has for the chunk.
+    /// the server file or the generator has for the chunk.
     pub(super) fn restore(
         r: &mut super::checkpoint::Reader<'_>,
         chunk: Chunk,
@@ -111,7 +111,7 @@ pub(super) struct Saving {
     pub(super) requested: bool,
     /// A task or command asked for an online backup after the next save (PLAN.md 10.9 백업).
     pub(super) backup: bool,
-    /// `/check` asked for a check of the world file after the next save.
+    /// `/check` asked for a check of the server file after the next save.
     check: bool,
     /// Who asked for the check asked for or being made, until its result comes: one at a time.
     checker: Option<Sender>,
@@ -496,7 +496,7 @@ pub(super) fn committed(state: &mut State, log: &mut InputLog, start: u64) {
     }
 }
 
-/// Asks for a check of the world file after the next save (`/check`), for `sender`; false, asking
+/// Asks for a check of the server file after the next save (`/check`), for `sender`; false, asking
 /// for nothing, while another is asked for or being made.
 pub(super) fn ask_check(state: &mut State, sender: Sender) -> bool {
     if state.saving.checker.is_some() {
@@ -543,7 +543,7 @@ pub(super) fn failed(start: u64) {
 
 /// A batch of chunks could not be read: the tick stops without saving, as for a failed commit.
 pub(super) fn load_failed() {
-    error!("the world file could not be read; stopping without saving (the last save is kept)");
+    error!("the server file could not be read; stopping without saving (the last save is kept)");
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
 //!
 //! A crash log (`data/crash/input-*.log`) holds segments: the inputs of every tick from a state
 //! on, and a checkpoint of that state. The replay starts from the oldest segment whose state a
-//! world file still holds (`data/world.redb`, then the backups newest first, each opened
+//! server file still holds (`data/server.redb`, then the backups newest first, each opened
 //! read-only and picked by the tick and commit identity of its last commit, so a file another run
 //! committed at the same tick is not taken for it), preferring one after the log's last
 //! truncation, and applies the logged ticks in order to the end of the log or to its first
@@ -97,9 +97,9 @@ pub enum Error {
     /// What the server registers (commands, custom content, listeners, tasks, data types,
     /// hooks) differs from what the run that wrote the log registered.
     RegistrationsDiffer,
-    /// No world file in the data folder holds the state of a segment of the log.
+    /// No server file in the data folder holds the state of a segment of the log.
     NoMatchingWorld,
-    /// The segments a world file holds have checkpoints that hold what cannot be replayed.
+    /// The segments a server file holds have checkpoints that hold what cannot be replayed.
     Opaque {
         /// The tick of the segment's state.
         tick: u64,
@@ -112,7 +112,7 @@ pub enum Error {
         /// The tick where it was seen.
         tick: u64,
     },
-    /// A world file failed.
+    /// A server file failed.
     Storage(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -129,14 +129,14 @@ impl fmt::Display for Error {
                 f.write_str("the registrations differ from the logged run's")
             }
             Self::NoMatchingWorld => {
-                f.write_str("no world file holds the state of a segment of the log")
+                f.write_str("no server file holds the state of a segment of the log")
             }
             Self::Opaque { tick, what } => write!(
                 f,
                 "the checkpoint of tick {tick} cannot be replayed from: it holds {what}"
             ),
             Self::Diverged { tick } => write!(f, "the replay left the logged run at tick {tick}"),
-            Self::Storage(_) => f.write_str("a world file failed"),
+            Self::Storage(_) => f.write_str("a server file failed"),
         }
     }
 }
@@ -296,8 +296,8 @@ fn read(path: &Path) -> Result<InputLog> {
     InputLog::decode(&bytes).map_err(format)
 }
 
-/// The segment to start from (its place among the log's), its world file and its checkpoint:
-/// the oldest segment with a checkpoint whose state a world file holds, after the log's last
+/// The segment to start from (its place among the log's), its server file and its checkpoint:
+/// the oldest segment with a checkpoint whose state a server file holds, after the log's last
 /// truncation if one is; refuses an opaque checkpoint. A file holds a segment's state if its last
 /// commit is of the segment's tick and has the segment's commit identity, unless either identity
 /// is unknown (a file an older Anchor committed last, a log of an older format).
@@ -311,7 +311,7 @@ fn choose(
         match save::committed_meta(&file) {
             Ok(meta) => files.push((meta, file)),
             Err(e) => {
-                info!(file = %file.display(), error = %e, "world file left out of the replay");
+                info!(file = %file.display(), error = %e, "server file left out of the replay");
             }
         }
     }
@@ -354,7 +354,7 @@ fn choose(
     Ok(usable.swap_remove(pick))
 }
 
-/// The raw extras the world file (or the generator) has for the chunks `checkpoint` names: the
+/// The raw extras the server file (or the generator) has for the chunks `checkpoint` names: the
 /// checkpoint keeps their terrain and typed state, and the extras as they are stored.
 fn extras(
     disk: &mut save::Thread,
@@ -402,7 +402,7 @@ impl Drop for Progress {
 /// The replay on its tick thread.
 struct Replayer {
     state: State,
-    /// The world file, read-only, with the replay's commits in memory.
+    /// The server file, read-only, with the replay's commits in memory.
     disk: save::Thread,
     pool: Pool,
     /// The replay's own log: its checkpoints are compared with the replayed log's.
@@ -514,7 +514,7 @@ impl Replayer {
             .collect()
     }
 
-    /// The save thread's logged answers of tick `t`: chunks loaded again from the world file and
+    /// The save thread's logged answers of tick `t`: chunks loaded again from the server file and
     /// the generators, each checked against its logged origin and checksum.
     fn responses(&mut self, t: &tick::LoggedTick) -> Result<Vec<Response>> {
         let keys: Vec<_> = t

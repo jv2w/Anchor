@@ -5,13 +5,13 @@
 //! during a later commit or between two; the runs between commit once, at a phase of the item cycle
 //! taken by turns (items on the ground, on the player's cursor and in its crafting grid, or in the
 //! slots and the chest only), and are killed after that commit, so the commits caught hold items in
-//! every place however slow the machine is. Every restart must find an undamaged world file whose
+//! every place however slow the machine is. Every restart must find an undamaged server file whose
 //! last commit is newer than the last restart's and holds every item exactly once (no duplicate,
 //! no loss) and holds the player, the chest, the ground and the terrain of one and the same tick.
 //!
 //! The test runs its own test binary as the server process (`item_crash_child`) and kills only
 //! that child, through its process handle. The child is the real server without the network:
-//! the world file, the save thread and the tick thread as `Server::run` starts them, and one
+//! the server file, the save thread and the tick thread as `Server::run` starts them, and one
 //! player who joins through the tick's input queue as a session would. The items move by a
 //! scheduled task through the rule modules' own functions: the public `Context` has no chest or
 //! item entity calls before the API milestone (PLAN.md 10.7, M8), and a player client is not
@@ -789,7 +789,7 @@ fn forced_kills_never_duplicate_lose_or_split_items() {
             seed % 30
         })
         .collect();
-    // The kills run in two chains side by side, each on a world file of its own, at the moments
+    // The kills run in two chains side by side, each on a server file of its own, at the moments
     // and aims one chain of all of them takes: the children tick in real time, so one chain
     // takes twice as long for the same kills.
     let half = KILLS / 2;

@@ -2,7 +2,7 @@
 //! tick's save snapshots, so the tick never touches the disk.
 //!
 //! The tick sends [`Request`]s and gets [`Response`]s back as inputs of a later tick. Loads read
-//! the world file in one read transaction per batch; chunks it does not hold are generated.
+//! the server file in one read transaction per batch; chunks it does not hold are generated.
 //! Decoding, generating and encoding run on the CPU pool. A commit writes a whole snapshot in one
 //! write transaction; requests are handled in order, so commits land in the order they were taken.
 //!
@@ -100,7 +100,7 @@ pub(crate) enum Response {
 /// Where a loaded chunk came from. The extras come from the file either way.
 #[derive(Debug)]
 pub(crate) enum Loaded {
-    /// The terrain was read from the world file.
+    /// The terrain was read from the server file.
     Disk(Box<Chunk>, Stored),
     /// The terrain was never saved, so it was generated.
     Generated(Box<Chunk>, Stored),
@@ -136,7 +136,7 @@ impl ChunkExtras {
     }
 }
 
-/// What a load read from the world file for a chunk besides its terrain.
+/// What a load read from the server file for a chunk besides its terrain.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Stored {
     /// The chunk's extras; empty when the file has none.
@@ -281,7 +281,7 @@ pub(crate) enum AccessWrite {
     Ban(BanEntry),
 }
 
-/// The operator list, the bans and the whitelist as the world file holds them.
+/// The operator list, the bans and the whitelist as the server file holds them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AccessData {
     /// Operator names, ASCII lowercase.
@@ -362,7 +362,7 @@ pub(crate) fn stored_world(name: &str, kind: Kind, record: &WorldRecord) -> Worl
     world
 }
 
-/// The world file and the worlds, ready to run.
+/// The server file and the worlds, ready to run.
 pub(crate) struct Opened {
     /// The worlds for the tick, in the order of the specs.
     pub(crate) worlds: Vec<World>,
@@ -469,7 +469,7 @@ impl Thread {
     }
 }
 
-/// Opens the world file (PLAN.md 10.6: backup, integrity check, compaction) and resolves the
+/// Opens the server file (PLAN.md 10.6: backup, integrity check, compaction) and resolves the
 /// worlds: a persistent world the file holds keeps its seed, spawn, time and number; a new one
 /// gets the spec's seed or a random one, the generator's spawn, time 0 and the next free number.
 /// Keeps the start copy of the file unless `start` says [`storage::StartBackup::Transient`]
@@ -484,7 +484,7 @@ pub(crate) fn open_with(
     resolve(Storage::open(data_dir, start)?, specs, None, backups)
 }
 
-/// [`open_with`] a start backup and a check, as the tests open world files.
+/// [`open_with`] a start backup and a check, as the tests open server files.
 #[cfg(test)]
 pub(crate) fn open(
     data_dir: &std::path::Path,
@@ -497,7 +497,7 @@ pub(crate) fn open(
     )
 }
 
-/// Opens the world file `path` read-only for a replay ([`Storage::open_replica`]) and resolves the
+/// Opens the server file `path` read-only for a replay ([`Storage::open_replica`]) and resolves the
 /// worlds as [`open_with`] does, with the seeds a checkpoint kept (`seeds`, by world): a world the
 /// file does not hold got a random one. Commits of the thread stay in memory.
 pub(crate) fn open_replica(
@@ -510,13 +510,13 @@ pub(crate) fn open_replica(
     resolve(Storage::open_replica(path)?, specs, Some(seeds), backups)
 }
 
-/// The engine tick and commit identity of the last commit of the world file `path`, opened
+/// The engine tick and commit identity of the last commit of the server file `path`, opened
 /// read-only (a replay looks for the file of its segment's state).
 pub(crate) fn committed_meta(path: &std::path::Path) -> Result<Meta, crate::Error> {
     Ok(stored_meta(&mut Storage::open_replica(path)?)?)
 }
 
-/// The engine tick of the last commit of the world file `path`.
+/// The engine tick of the last commit of the server file `path`.
 #[cfg(test)]
 pub(crate) fn committed_tick(path: &std::path::Path) -> Result<u64, crate::Error> {
     Ok(committed_meta(path)?.tick)
@@ -856,14 +856,14 @@ fn background_step(storage: &mut Storage, responses: &mpsc::Sender<Response>) {
 fn begin_check(storage: &mut Storage, start: u64) -> Option<storage::Checked> {
     match storage.begin_check() {
         Ok(true) => {
-            info!(start, "world file check started");
+            info!(start, "server file check started");
             None
         }
         Ok(false) => Some(storage::Checked::Failed(
             "another check is being made".to_owned(),
         )),
         Err(e) => {
-            error!(error = %e, start, "world file check could not start");
+            error!(error = %e, start, "server file check could not start");
             Some(storage::Checked::Failed(e.to_string()))
         }
     }
@@ -873,13 +873,13 @@ fn begin_check(storage: &mut Storage, start: u64) -> Option<storage::Checked> {
 fn check_step(storage: &mut Storage) -> Option<storage::Checked> {
     let found = storage.check_step()?;
     match &found {
-        storage::Checked::Passed { values } => info!(values, "world file check passed"),
+        storage::Checked::Passed { values } => info!(values, "server file check passed"),
         storage::Checked::Damaged {
             values,
             damaged,
             first,
-        } => error!(values, damaged, first, "world file check found damage"),
-        storage::Checked::Failed(error) => error!(error, "world file check failed"),
+        } => error!(values, damaged, first, "server file check found damage"),
+        storage::Checked::Failed(error) => error!(error, "server file check failed"),
     }
     Some(found)
 }
@@ -2212,7 +2212,7 @@ pub(crate) mod tests {
         };
         assert_eq!(committed_tick(backup).unwrap(), 10);
         // A normal stop marks the file.
-        assert!(storage::closed_normally(&dir.0.join(storage::WORLD_FILE)));
+        assert!(storage::closed_normally(&dir.0.join(storage::SERVER_FILE)));
         assert_eq!(open(&dir.0, specs()).unwrap().tick, 30);
     }
 
@@ -2275,7 +2275,7 @@ pub(crate) mod tests {
             "{answers:?}"
         );
         // The stop closed the file normally all the same.
-        assert!(storage::closed_normally(&dir.0.join(storage::WORLD_FILE)));
+        assert!(storage::closed_normally(&dir.0.join(storage::SERVER_FILE)));
     }
 
     #[test]
@@ -2312,7 +2312,7 @@ pub(crate) mod tests {
         );
         // Nothing after the failed snapshot was written: the file is as it was, without the
         // mark of a normal stop.
-        assert!(!storage::closed_normally(&dir.0.join(storage::WORLD_FILE)));
+        assert!(!storage::closed_normally(&dir.0.join(storage::SERVER_FILE)));
         let opened = open(&dir.0, specs()).unwrap();
         assert_eq!(opened.tick, 0);
         let mut storage = opened.thread.storage;

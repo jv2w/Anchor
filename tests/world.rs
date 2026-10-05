@@ -86,7 +86,7 @@ fn a_generator_fills_an_empty_chunk() {
     );
 }
 
-/// A generator whose name is longer than the world file holds (256 bytes).
+/// A generator whose name is longer than the server file holds (256 bytes).
 #[derive(Debug)]
 struct LongName;
 

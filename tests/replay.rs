@@ -1,7 +1,7 @@
 //! The replay tool through the public API (PLAN.md 10.9 재생 도구): a server process whose task
 //! saves and then panics writes a crash log; the same build replays it to the same panic without
-//! changing the world file, and again after a restart moved the world file on, from the backup
-//! the restart made. A world file another run committed at a segment's tick is not replayed on.
+//! changing the server file, and again after a restart moved the server file on, from the backup
+//! the restart made. A server file another run committed at a segment's tick is not replayed on.
 //!
 //! The test runs its own test binary as the server process (`replay_child`).
 
@@ -208,7 +208,7 @@ fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
     fresh(&data);
     child(&data, "crash");
     let log = crash_log(&data);
-    let world = data.join("world.redb");
+    let world = data.join("server.redb");
     let before = read(&world);
     let panicked = End::Panicked {
         tick: PANIC_AT,
@@ -220,9 +220,9 @@ fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
     assert_eq!(replay.base_tick(), SAVE_AT + 1, "from the save's commit");
     assert_eq!(read(&world), before, "a replay writes nothing");
 
-    // A restart backs the world file up and commits on: the replay starts from the backup.
+    // A restart backs the server file up and commits on: the replay starts from the backup.
     child(&data, "restart");
-    assert_ne!(read(&world), before, "the restart moved the world file on");
+    assert_ne!(read(&world), before, "the restart moved the server file on");
     let replay = build(&data, CRASH, true).replay(&log).unwrap();
     assert_eq!(replay.end(), &panicked);
     assert_eq!(replay.base_tick(), SAVE_AT + 1);
@@ -230,12 +230,12 @@ fn a_crash_log_replays_to_its_panic_before_and_after_a_restart() {
 }
 
 #[test]
-fn a_crash_log_is_not_replayed_on_a_world_file_another_run_committed_at_its_tick() {
+fn a_crash_log_is_not_replayed_on_a_server_file_another_run_committed_at_its_tick() {
     let data =
         Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("replay-fork-{}", std::process::id()));
     fresh(&data);
-    let world = data.join("world.redb");
-    // A world file stopped at some tick, without backups.
+    let world = data.join("server.redb");
+    // A server file stopped at some tick, without backups.
     child(&data, "base");
     let base = read(&world);
     // Run A from there commits its save and panics; its commit never reached the disk.

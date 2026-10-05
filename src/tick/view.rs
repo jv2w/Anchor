@@ -486,7 +486,7 @@ impl Chunks {
     }
 
     /// Reads what [`Self::checkpoint`] wrote into the chunks of a new state (which keeps the
-    /// events it heard); `ground` gives what the world file or the generator has.
+    /// events it heard); `ground` gives what the server file or the generator has.
     pub(super) fn restore(
         &mut self,
         r: &mut super::checkpoint::Reader<'_>,

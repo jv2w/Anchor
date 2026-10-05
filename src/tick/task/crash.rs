@@ -6,7 +6,7 @@
 //!
 //! The test runs its own test binary as the server process (`user_data_crash_child`) and kills
 //! only that child, through its process handle, as the item crash test does
-//! (`tick::tests::crash`): the world file, the save thread and the tick thread as `Server::run`
+//! (`tick::tests::crash`): the server file, the save thread and the tick thread as `Server::run`
 //! starts them, and one player who joins through the tick's input queue.
 
 use std::collections::BTreeMap;

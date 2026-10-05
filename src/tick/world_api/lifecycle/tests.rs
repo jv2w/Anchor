@@ -1,6 +1,6 @@
 //! Worlds while the server runs (PLAN.md 10.9 대응표 재검토): making, loading and unloading
 //! worlds with their events, the default world, the time stop, each world's difficulty and the
-//! chunk tickets; cycles that leave nothing behind, an unload the world file holds after a
+//! chunk tickets; cycles that leave nothing behind, an unload the server file holds after a
 //! restart, and a script of world changes that replays to the same states.
 
 use std::cell::Cell;
@@ -808,7 +808,7 @@ fn a_load_in_flight_when_its_world_unloads_is_dropped_on_arrival() {
     assert!(pool.shutdown());
 }
 
-/// A server on the world file of `dir` with `listeners` (sorted) and the real save thread: the
+/// A server on the server file of `dir` with `listeners` (sorted) and the real save thread: the
 /// state, the save link and the save thread.
 fn open_server(
     dir: &crate::save::tests::TempDir,
@@ -906,7 +906,7 @@ fn finish(
 
 // pmmp: WorldManager::loadWorld, WorldManager::isWorldGenerated, World::stopTime, World::setDifficulty, World::getDifficulty
 #[test]
-fn an_unloaded_world_is_in_the_world_file_after_a_restart_and_loads_back() {
+fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     let dir = crate::save::tests::TempDir::new("world-lifecycle");
     let pool = crate::runtime::cpu_pool(1).unwrap();
     let at = BlockPos::new(1, -60, 1);

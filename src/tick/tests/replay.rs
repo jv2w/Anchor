@@ -1,4 +1,4 @@
-//! The replay tool against live runs with the real save thread on a temporary world file
+//! The replay tool against live runs with the real save thread on a temporary server file
 //! (PLAN.md 10.9 재생 도구): a crash log replays from the state of its last commit to the same
 //! states (a task sends the state hash of every tick in both runs) and panics where the server
 //! did; a commit the tick never learnt of is where the replay starts; an opaque checkpoint and a
@@ -127,9 +127,9 @@ fn setup(plan: Plan, hashes: mpsc::Sender<(u64, u64)>, extra: usize) -> Setup {
     }
 }
 
-/// The tick of the last commit of the world file in `dir`.
+/// The tick of the last commit of the server file in `dir`.
 fn committed(dir: &Path) -> u64 {
-    crate::save::committed_tick(&dir.join("world.redb")).unwrap()
+    crate::save::committed_tick(&dir.join("server.redb")).unwrap()
 }
 
 /// The hashes sent so far.
@@ -285,10 +285,10 @@ fn a_crash_log_replays_from_its_last_commit_to_the_same_states_and_panics_where_
         command_at: None,
     };
     let (log, live) = crash(&dir, plan);
-    let before = read(&dir.join("world.redb"));
+    let before = read(&dir.join("server.redb"));
     let (result, replayed) = replay(&dir, &log, plan, 0, &Config::default());
     let replay = result.unwrap();
-    // The world file's last commit: the snapshot asked for at tick 25, before tick 26, unless the
+    // The server file's last commit: the snapshot asked for at tick 25, before tick 26, unless the
     // save thread was slower than the crash.
     let base = committed(&dir);
     assert_eq!(replay.base_tick(), base);
@@ -309,7 +309,7 @@ fn a_crash_log_replays_from_its_last_commit_to_the_same_states_and_panics_where_
         "the replayed states are the live ones"
     );
     assert_eq!(
-        read(&dir.join("world.redb")),
+        read(&dir.join("server.redb")),
         before,
         "the replay writes nothing"
     );
@@ -402,7 +402,7 @@ fn a_server_built_otherwise_is_refused() {
         matches!(result, Err(Error::RegistrationsDiffer)),
         "{result:?}"
     );
-    // Without a world file of any segment's tick there is nothing to start from, and without
+    // Without a server file of any segment's tick there is nothing to start from, and without
     // the log nothing to replay.
     let empty = fresh("differ-empty");
     let (result, _) = replay(&empty, &log, plan, 0, &Config::default());
@@ -421,7 +421,7 @@ fn a_server_built_otherwise_is_refused() {
 
 /// Runs the server of `plan` for `ticks` ticks with the real save thread on `dir` but its own
 /// loop, which holds back the answer to the commit of the snapshot at tick `held` (it waits for
-/// the commit, so the world file has it); returns the log and the hashes sent.
+/// the commit, so the server file has it); returns the log and the hashes sent.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the test plays the tick's side of the save thread"
@@ -511,21 +511,21 @@ fn a_commit_the_tick_never_learnt_of_is_where_the_replay_starts() {
         command_at: None,
     };
     let (log, live) = held_commit(&dir, plan, 40, 26);
-    // The log's newest committed segment is the one of tick 11; the world file is at tick 26.
+    // The log's newest committed segment is the one of tick 11; the server file is at tick 26.
     let written = InputLog::decode(&read(&log)).unwrap();
     let starts: Vec<u64> = written
         .segments()
         .map(super::super::Segment::start)
         .collect();
     assert_eq!(starts, [0, 11, 26]);
-    let file = dir.join("world.redb");
+    let file = dir.join("server.redb");
     assert_eq!(crate::save::committed_tick(&file).unwrap(), 26);
     let (result, replayed) = replay(&dir, &log, plan, 0, &Config::default());
     let replay = result.unwrap();
     assert_eq!(
         replay.base_tick(),
         26,
-        "the world file holds the commit of tick 26"
+        "the server file holds the commit of tick 26"
     );
     assert_eq!(replay.end(), &End::Completed);
     assert_eq!((replay.last_tick(), replay.ticks()), (Some(39), 14));

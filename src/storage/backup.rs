@@ -1,4 +1,5 @@
-//! Copies of the world file: `data/backups/world-<unix seconds>[-<n>].redb`.
+//! Copies of the server file: `data/backups/server-<unix seconds>[-<n>].redb`. Backups an older
+//! Anchor named `world-...` count as backups too, until pruned.
 //!
 //! A start copy is taken from the closed file, under an exclusive lock that also tells whether
 //! another process has the file open, when a start backup or the start's integrity check asks
@@ -31,18 +32,20 @@ pub(crate) const KEPT: usize = 3;
 pub(super) const STEP_BYTES: usize = 8 << 20;
 /// Names tried when another process takes the chosen one first.
 const ATTEMPTS: u32 = 100;
-const PREFIX: &str = "world-";
+const PREFIX: &str = "server-";
+/// The prefix of the backups of an older Anchor, before the server file was renamed.
+const OLD_PREFIX: &str = "world-";
 const SUFFIX: &str = ".redb";
 /// Added to a backup's name while it is being written.
 const TEMP_SUFFIX: &str = ".tmp";
 
-/// Locks the closed world file `world` and removes the temporary files a killed process left in
+/// Locks the closed server file `world` and removes the temporary files a killed process left in
 /// `dir`; returns the file, still locked, or `None` if there is none or it is empty (a new world).
 /// The lock tells whether another process has the file open ([`Error::InUse`]); it ends when the
 /// file is dropped, which must come before the file is opened as a database.
 #[expect(
     clippy::disallowed_types,
-    reason = "off-tick: the save thread locks the world file once, before opening it"
+    reason = "off-tick: the save thread locks the server file once, before opening it"
 )]
 pub(crate) fn lock(world: &Path, dir: &Path) -> Result<Option<std::fs::File>> {
     let source = match std::fs::File::open(world) {
@@ -76,7 +79,7 @@ pub(crate) fn create(world: &Path, dir: &Path, start: StartBackup) -> Result<Opt
         .transpose()
 }
 
-/// Copies `source`, the world file [`lock`] gave, into a new backup in `dir` and returns its
+/// Copies `source`, the server file [`lock`] gave, into a new backup in `dir` and returns its
 /// path. The bytes go to `<backup>.tmp`, which is flushed to disk and then renamed, so a process
 /// killed mid-copy leaves no file with a backup name (it would count among the [`KEPT`] and push
 /// out a whole one); the next start removes the temporary file. With
@@ -85,7 +88,7 @@ pub(crate) fn create(world: &Path, dir: &Path, start: StartBackup) -> Result<Opt
 /// a start that fails and keeps it gives it its backup name ([`keep`]).
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread backs up the world file once, before opening it"
+    reason = "off-tick: the save thread backs up the server file once, before opening it"
 )]
 pub(crate) fn copy(source: &mut impl io::Read, dir: &Path, start: StartBackup) -> Result<PathBuf> {
     #[cfg(test)]
@@ -238,11 +241,11 @@ fn new_file(dir: &Path) -> Result<(PathBuf, Temp, std::fs::File)> {
 }
 
 /// Writes the bytes of `backup` back over `world`, then removes `backup`. Used when a start is
-/// refused, so the world file is left exactly as it was before the start opened it.
+/// refused, so the server file is left exactly as it was before the start opened it.
 #[expect(
     clippy::disallowed_types,
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread restores the world file once, after a refused start"
+    reason = "off-tick: the save thread restores the server file once, after a refused start"
 )]
 pub(crate) fn restore(backup: &Path, world: &Path) -> Result<()> {
     let mut source = std::fs::File::open(backup).map_err(Error::Io)?;
@@ -298,7 +301,10 @@ pub(super) fn backups(dir: &Path) -> Result<Vec<((u64, u32), PathBuf)>> {
 
 /// The (seconds, n) a backup name sorts by, or `None` for any other name.
 pub(crate) fn order(name: &str) -> Option<(u64, u32)> {
-    let stem = name.strip_prefix(PREFIX)?.strip_suffix(SUFFIX)?;
+    let stem = name
+        .strip_prefix(PREFIX)
+        .or_else(|| name.strip_prefix(OLD_PREFIX))?
+        .strip_suffix(SUFFIX)?;
     match stem.split_once('-') {
         Some((secs, n)) => Some((number(secs)?, number(n).filter(|&n| n != 0)?)),
         None => Some((number(stem)?, 0)),
@@ -333,7 +339,7 @@ fn target(file: std::fs::File) -> Result<tests::Counted, redb::DatabaseError> {
     FileBackend::new(file).map(tests::Counted)
 }
 
-/// A table of the world file as an online backup copies it (or a check reads it): its name and
+/// A table of the server file as an online backup copies it (or a check reads it): its name and
 /// the entries left.
 pub(super) type Source = (
     String,
@@ -344,7 +350,7 @@ pub(super) type Source = (
 /// last commit, which commits made meanwhile do not change.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread reads the world file for a backup or a check"
+    reason = "off-tick: the save thread reads the server file for a backup or a check"
 )]
 pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
     let read = source.begin_read()?;
@@ -361,7 +367,7 @@ pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
 }
 
 /// An online backup being made (PLAN.md 10.9 백업): every table of one read transaction of the
-/// open world file, copied in steps of at most [`STEP_BYTES`], one commit each, into a new
+/// open server file, copied in steps of at most [`STEP_BYTES`], one commit each, into a new
 /// database under `<backup>.tmp`, which is then committed durably once, closed, flushed to disk
 /// and renamed. The step commits are not flushed: only the whole copy has to reach the disk, and
 /// a copy cut short is a `.tmp` file, never a backup. The read transaction is a consistent view
@@ -462,7 +468,7 @@ impl Online {
     ///
     /// The copy is not compacted (PLAN.md 10.9 저장 시작 비용): `compact` is one call that took
     /// 3.7 to 4.1 s on copies of 116 and 456 MiB, which every request would wait for, and saves
-    /// 10 to 13% of the file. A backup put back as the world file is compacted by that start.
+    /// 10 to 13% of the file. A backup put back as the server file is compacted by that start.
     #[expect(
         clippy::disallowed_types,
         clippy::disallowed_methods,
@@ -486,7 +492,7 @@ impl Online {
             .map_err(Error::Io)?;
         temp.rename(&path)?;
         if let Err(e) = prune(&dir, &path) {
-            warn!(error = %e, "could not remove old world backups");
+            warn!(error = %e, "could not remove old backups");
         }
         Ok(path)
     }
@@ -498,21 +504,27 @@ mod tests {
 
     #[test]
     fn only_backup_names_have_an_order() {
+        assert_eq!(order("server-17.redb"), Some((17, 0)));
+        assert_eq!(order("server-17-3.redb"), Some((17, 3)));
+        // An older Anchor's backups.
         assert_eq!(order("world-17.redb"), Some((17, 0)));
         assert_eq!(order("world-17-3.redb"), Some((17, 3)));
         for other in [
-            "world-.redb",
-            "world-17-0.redb",
-            "world-17-.redb",
-            "world-+1.redb",
-            "world-1-+2.redb",
+            "server-.redb",
+            "server-17-0.redb",
+            "server-17-.redb",
+            "server-+1.redb",
+            "server-1-+2.redb",
+            "server-17.redb.tmp",
             "world-17.redb.tmp",
             "notes.txt",
-            "world-a.redb",
+            "server-a.redb",
+            "worlds-17.redb",
         ] {
             assert_eq!(order(other), None, "{other}");
         }
-        assert!(order("world-9-1.redb") < order("world-10.redb"));
+        assert!(order("server-9-1.redb") < order("server-10.redb"));
+        assert!(order("world-9-1.redb") < order("server-10.redb"));
     }
 
     /// A copy source whose second read never returns: the process is killed mid-copy.
@@ -545,9 +557,11 @@ mod tests {
             "the incomplete copy has a backup name"
         );
         // The unwinding removed the temporary file; a kill runs no drop and leaves it.
+        std::fs::write(dir.join("server-1.redb.tmp"), b"partial").unwrap();
+        // An older Anchor's killed copy too.
         std::fs::write(dir.join("world-1.redb.tmp"), b"partial").unwrap();
         // The next start removes what the killed copy left and makes a whole backup.
-        let world = dir.join("world.redb");
+        let world = dir.join("server.redb");
         std::fs::write(&world, b"world bytes").unwrap();
         let made = create(&world, &dir, StartBackup::Make).unwrap().unwrap();
         let mut names: Vec<_> = std::fs::read_dir(&dir)
@@ -556,31 +570,31 @@ mod tests {
             .collect();
         names.sort();
         let made_name = made.file_name().unwrap().to_str().unwrap();
-        assert_eq!(names, [made_name, "world.redb"]);
+        assert_eq!(names, [made_name, "server.redb"]);
         assert_eq!(std::fs::read(&made).unwrap(), b"world bytes");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn a_start_without_a_world_file_removes_what_a_killed_copy_left() {
+    fn a_start_without_a_server_file_removes_what_a_killed_copy_left() {
         let dir = std::env::temp_dir().join(format!("anchor-backup-gone-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).unwrap_or(());
         let backups = dir.join("backups");
         std::fs::create_dir_all(&backups).unwrap();
-        std::fs::write(backups.join("world-1.redb.tmp"), b"partial").unwrap();
-        std::fs::write(backups.join("world-2.redb"), b"whole").unwrap();
-        let world = dir.join("world.redb");
-        // No world file, then an empty one: neither is copied, and both clean the folder.
+        std::fs::write(backups.join("server-1.redb.tmp"), b"partial").unwrap();
+        std::fs::write(backups.join("server-2.redb"), b"whole").unwrap();
+        let world = dir.join("server.redb");
+        // No server file, then an empty one: neither is copied, and both clean the folder.
         assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
-        std::fs::write(backups.join("world-1.redb.tmp"), b"partial").unwrap();
+        std::fs::write(backups.join("server-1.redb.tmp"), b"partial").unwrap();
         std::fs::write(&world, b"").unwrap();
         assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
         let names: Vec<_> = std::fs::read_dir(&backups)
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert_eq!(names, ["world-2.redb"]);
+        assert_eq!(names, ["server-2.redb"]);
         // No backup folder at all is no error.
         std::fs::remove_dir_all(&backups).unwrap();
         assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
@@ -593,12 +607,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("anchor-backup-names-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).unwrap_or(());
         std::fs::create_dir_all(&dir).unwrap();
-        // A backup from far in the future: the clock went back since.
+        // A backup from far in the future, by an older Anchor: the clock went back since.
         std::fs::write(dir.join("world-99999999999-4.redb"), b"").unwrap();
         let (path, _, file) = new_file(&dir).unwrap();
         drop(file);
         let name = path.file_name().unwrap().to_str().unwrap();
-        assert_eq!(name, "world-99999999999-5.redb");
+        assert_eq!(name, "server-99999999999-5.redb");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -652,7 +666,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("anchor-backup-syncs-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).unwrap_or(());
         std::fs::create_dir_all(&dir).unwrap();
-        let source = Builder::new().create(dir.join("world.redb")).unwrap();
+        let source = Builder::new().create(dir.join("server.redb")).unwrap();
         let table = TableDefinition::<&[u8], &[u8]>::new("chunks");
         let value = vec![7u8; 1 << 20];
         let txn = source.begin_write().unwrap();

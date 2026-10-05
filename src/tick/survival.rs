@@ -3333,7 +3333,7 @@ mod tests {
         };
         let mut extra = Compound::new();
         save(&s, &mut extra);
-        // Through the world file's player record.
+        // Through the server file's player record.
         let record = crate::storage::codec::PlayerRecord {
             world: "world".to_owned(),
             position: [0.5, -58.38, 0.5],

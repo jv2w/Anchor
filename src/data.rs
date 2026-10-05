@@ -17,7 +17,7 @@
 //! than its limit (or does not serialize) is not written, its last saved form stays, and a
 //! warning is logged. A saved value that no longer deserializes into its type (a changed type)
 //! is never overwritten: a player's reads as `None` and stays as saved, a server value refuses
-//! the start. Changes written to systems outside the world file are not undone by a crash
+//! the start. Changes written to systems outside the server file are not undone by a crash
 //! (PLAN.md 6).
 
 use std::any::{Any, TypeId};

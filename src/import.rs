@@ -105,7 +105,7 @@ pub enum Error {
         /// The name.
         name: String,
     },
-    /// The world file already holds the world. An import only creates a world, so running it
+    /// The server file already holds the world. An import only creates a world, so running it
     /// again changes nothing.
     WorldExists {
         /// The name.
@@ -143,7 +143,7 @@ impl fmt::Display for Error {
                 write!(f, "no persistent world named {name:?} is declared")
             }
             Self::WorldExists { name } => {
-                write!(f, "the world file already holds the world {name:?}")
+                write!(f, "the server file already holds the world {name:?}")
             }
         }
     }
@@ -173,7 +173,7 @@ impl std::error::Error for Error {
 /// The result of reading the world being imported.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// The allocation budget for decoding one chunk or `level.dat` (the world file's own budget,
+/// The allocation budget for decoding one chunk or `level.dat` (the server file's own budget,
 /// `storage::seal`).
 const DECODE_BUDGET: usize = 4 * crate::storage::seal::MAX_RECORD;
 /// The largest `level.dat`: its header and the 4 MiB NBT limit.

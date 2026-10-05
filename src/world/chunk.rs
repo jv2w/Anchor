@@ -61,7 +61,7 @@ pub struct Chunk {
     unknown: Arc<[nbt::Compound]>,
     /// The sub-chunks changed since the world's last save snapshot, one bit per index.
     dirty: u32,
-    /// Whether the world file holds this chunk one value per sub-chunk (format 4), so a save
+    /// Whether the server file holds this chunk one value per sub-chunk (format 4), so a save
     /// writes only the changed ones. Otherwise (generated, or saved whole by formats 1 to 3) the
     /// next save writes all 24 and removes a whole value.
     split: bool,
@@ -314,7 +314,7 @@ impl Chunk {
         }
     }
 
-    /// Whether the world file holds the chunk one value per sub-chunk.
+    /// Whether the server file holds the chunk one value per sub-chunk.
     pub(crate) fn is_split(&self) -> bool {
         self.split
     }
@@ -421,7 +421,7 @@ impl Default for Chunk {
 }
 
 /// A chunk's checkpoint form (PLAN.md 10.9 재생 도구): its exact sub-chunks and biomes (palette
-/// order and unused entries included, which a load from the world file compacts), its unknown
+/// order and unused entries included, which a load from the server file compacts), its unknown
 /// states, save marks and light; the heights are worked out again as it reads.
 impl crate::tick::checkpoint::Codec for Chunk {
     fn encode(&self, w: &mut crate::tick::checkpoint::Writer) {

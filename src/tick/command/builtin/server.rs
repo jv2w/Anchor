@@ -585,7 +585,7 @@ fn save_all(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
 }
 
 /// `/backup` (Anchor's own): saves everything at the end of the tick, then backs up the saved
-/// world file while the server runs ([`Context::backup`]). The backup ends later, off the tick,
+/// server file while the server runs ([`Context::backup`]). The backup ends later, off the tick,
 /// so the log tells its result, as for `/save-all`'s commit.
 fn backup(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
     if !cx.backup() {

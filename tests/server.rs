@@ -251,7 +251,7 @@ fn the_smallest_explicit_thread_counts_always_fit() {
     Server::builder().config(config).build().unwrap();
 }
 
-/// `backups = false`: a start keeps no copy of the world file; with it on, the second start
+/// `backups = false`: a start keeps no copy of the server file; with it on, the second start
 /// does.
 #[test]
 fn without_backups_a_start_keeps_no_copy() {
@@ -341,7 +341,7 @@ impl Subscriber for Warnings {
 }
 
 /// Stops a running server from another thread. The verdict does not depend on the machine's
-/// load. The stop's slow stages are the final commit and the world file's compaction, durable
+/// load. The stop's slow stages are the final commit and the server file's compaction, durable
 /// writes that take what the disk takes (under load up to 1.6 s, after a start of up to 4 s), so
 /// a wall-clock bound measured the disk, not the stop. What matters is checked instead: `run`
 /// returns `Ok` only after the tick has stopped, networking has stopped and the final commit and

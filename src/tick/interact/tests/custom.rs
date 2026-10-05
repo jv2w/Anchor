@@ -345,7 +345,7 @@ fn custom_furnace_and_campfire_recipes_cook() {
     assert_eq!(diamonds(&mut h) - before, 1);
 }
 
-/// A world file in a temporary folder, served by the real save thread.
+/// A server file in a temporary folder, served by the real save thread.
 struct Disk(crate::save::tests::TempDir);
 
 impl Disk {

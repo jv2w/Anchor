@@ -1,6 +1,6 @@
 //! The operator list, the name and IP bans and the whitelist in the tick (PLAN.md 6, 10.8).
 //!
-//! Loaded from the world file at start and kept whole in memory. Every change is recorded by its
+//! Loaded from the server file at start and kept whole in memory. Every change is recorded by its
 //! key until the next save snapshot takes it, so a commit writes each changed entry once, as its
 //! last value: a write is absolute, and the same change twice writes the same bytes.
 
@@ -38,7 +38,7 @@ crate::tick::checkpoint::fields!(Access {
 });
 
 impl Access {
-    /// The lists the world file held, with the whitelist on or off as the settings say.
+    /// The lists the server file held, with the whitelist on or off as the settings say.
     pub(crate) fn new(data: AccessData, whitelist_enabled: bool) -> Self {
         let AccessData {
             ops,

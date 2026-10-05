@@ -189,7 +189,7 @@ fn ruby_command() -> Command {
 }
 
 /// Puts the wisp and the shop next to the spawn unless they are there: both are saved with
-/// their chunk, so after a restart they come back from the world file. True once both are in
+/// their chunk, so after a restart they come back from the server file. True once both are in
 /// the world.
 fn place_wisp_and_shop(cx: &mut Context<'_>) -> bool {
     let world = cx.default_world().id();

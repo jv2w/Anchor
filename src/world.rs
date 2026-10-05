@@ -188,9 +188,9 @@ pub enum Error {
     Malformed(&'static str),
     /// The server has no loaded world with that ID or name.
     WorldNotLoaded,
-    /// A world of that name exists: the world file holds it, or the server runs it.
+    /// A world of that name exists: the server file holds it, or the server runs it.
     WorldExists,
-    /// The world file holds no world of that name.
+    /// The server file holds no world of that name.
     NotGenerated,
     /// The world is the default world, where players join: make another the default first.
     DefaultWorld,
@@ -203,7 +203,7 @@ pub enum Error {
     /// A view value of the world's [`Options::settings`] is outside the range its
     /// `[worlds.<name>]` key allows.
     InvalidSettings,
-    /// A limit is reached: 1,024 worlds a run names (or the world file holds), 1,024 chunk
+    /// A limit is reached: 1,024 worlds a run names (or the server file holds), 1,024 chunk
     /// tickets or 4,096 chunks they hold, or a ticket radius over 8.
     Full,
 }
@@ -422,7 +422,7 @@ pub struct World {
     difficulty: Option<crate::config::Difficulty>,
     /// The weather, saved with the world.
     weather: Weather,
-    /// The `chunks` key number of a persistent world the world file holds or will hold.
+    /// The `chunks` key number of a persistent world the server file holds or will hold.
     number: Option<u32>,
     /// The name of the generator that fills its chunks never saved (empty in tests that make
     /// worlds without one).
@@ -975,7 +975,7 @@ impl World {
 }
 
 /// What a checkpoint keeps of a world besides its plain fields (PLAN.md 10.9 재생 도구): the
-/// light work and every loaded chunk as it is, its light apart. A chunk the world file holds is
+/// light work and every loaded chunk as it is, its light apart. A chunk the server file holds is
 /// kept too: a load compacts its palettes, and a replay must go on from the exact chunk. It
 /// shares the sub-chunks and light arrays with the live world until they change, and is encoded
 /// only when a crash log is written.
@@ -1036,7 +1036,7 @@ crate::tick::checkpoint::fields!(Saved {
 impl World {
     /// What a checkpoint keeps of the world, naming every field; `fed` is `feed` again, the
     /// custom content comes from the server's build, and the name, kind and number from the
-    /// world list the checkpoint keeps (and the world file of its tick).
+    /// world list the checkpoint keeps (and the server file of its tick).
     pub(crate) fn checkpoint(&self) -> (Saved, Kept) {
         let Self {
             id: _,

@@ -101,7 +101,7 @@ pub(crate) struct Settings {
     save_interval: u64,
     /// Whether player data is loaded and saved (`save-player-data`).
     save_player_data: bool,
-    /// Whether the world file is backed up at start and on request (`backups`).
+    /// Whether the server file is backed up at start and on request (`backups`).
     backups: bool,
     /// How light is calculated (`lighting`).
     lighting: Lighting,
@@ -297,7 +297,7 @@ pub(crate) struct State {
     deferred: dispatch::Deferred,
     /// The worlds the server had this run, by index, loaded or not (`world_api::Catalog`).
     worlds: Vec<World>,
-    /// Which worlds are loaded, the default one, the world file's other worlds, and the world
+    /// Which worlds are loaded, the default one, the server file's other worlds, and the world
     /// events and unloads waiting for the view phase.
     catalog: world_api::Catalog,
     /// Which chunks are held, in flight or waiting for a commit.
@@ -319,7 +319,7 @@ pub(crate) struct State {
     custom: std::sync::Arc<crate::custom::Registry>,
     /// What the server was built with, which the input log names (fixed at build).
     fingerprints: log::Fingerprints,
-    /// The commit identity of the state the world file held at the start, which the input log
+    /// The commit identity of the state the server file held at the start, which the input log
     /// chains on from (fixed at start; `None` for a file that has none).
     identity: Option<u64>,
     /// The measured tick times and connection counts, and the controls for the networking.
@@ -526,7 +526,7 @@ impl State {
         self.network.connect(link);
     }
 
-    /// Sets the commit identity of the state the world file holds
+    /// Sets the commit identity of the state the server file holds
     /// ([`crate::save::Opened::identity`]).
     pub(crate) fn set_identity(&mut self, identity: Option<u64>) {
         self.identity = identity;
@@ -2969,7 +2969,7 @@ mod tests {
                         usize::from(checkpoint::tests::assert_round_trip(&state, fresh, &pool));
                 }
             }
-            // Commits stay unanswered: these runs replay from the start, with no world file, and
+            // Commits stay unanswered: these runs replay from the start, with no server file, and
             // an answered commit would let the log drop the ticks before it (tested apart).
             output.answers = answer(&state, requests);
             output
@@ -3087,7 +3087,7 @@ mod tests {
     const SEEDS: [u64; 4] = [0x5eed_0005, 42, u64::MAX, 0x8000_0000_0000_0000];
 
     /// `check` of every run, the runs side by side on a pool of their own, results in run
-    /// order. The runs are independent (seeds, world files), so this checks what running them in
+    /// order. The runs are independent (seeds, server files), so this checks what running them in
     /// turn checks, in a fraction of the time.
     pub(super) fn side_by_side<T: Sync, R: Send>(
         runs: &[T],

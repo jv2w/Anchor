@@ -1,7 +1,7 @@
 //! Forced shutdown (PLAN.md 10.6 판정식): a server that keeps moving one block and saving is killed
 //! a random number of ticks after its first commit (counted from its reports, never in wall-clock
 //! time), during a later commit or between two, again and again; every restart must find an
-//! undamaged world file whose last commit is newer than the last restart's and holds the block
+//! undamaged server file whose last commit is newer than the last restart's and holds the block
 //! exactly once, where that commit's tick put it.
 //!
 //! The test runs its own test binary as the server process (`crash_child`) and kills only that

@@ -208,7 +208,7 @@ pub(crate) fn spawn_tick<T: Send + 'static>(
 }
 
 /// Starts the save thread running `run` (PLAN.md 10.6): the one thread that reads and commits
-/// the world file.
+/// the server file.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the runtime module creates the save thread"

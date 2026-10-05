@@ -1351,7 +1351,7 @@ pocketmine\block\BaseSign::update*Text skipped a player's edit goes through the 
 
 # F4: entity, effect, animation and server rows decided after the F4 API (PLAN.md 10.8).
 pocketmine\Server::getPlayerByRawUUID merged Server::getPlayerByUUID
-pocketmine\Server::*OfflinePlayer* skipped saved player data is in the world file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players`
+pocketmine\Server::*OfflinePlayer* skipped saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players`
 pocketmine\Server::*BroadcastChannel* skipped PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones (PLAN.md 8.4 merges the message methods)
 pocketmine\entity\Entity::setGravity skipped an entity kind's physics are PMMP's constants per kind (PLAN.md 10.7): `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off
 pocketmine\entity\Entity::setStepHeight skipped an entity kind's physics are PMMP's constants per kind (PLAN.md 10.7): `Entity::step_height` reads them

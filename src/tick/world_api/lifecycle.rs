@@ -5,14 +5,14 @@
 //! Every world keeps its index, its [`world::Id`], for the run: an unloaded world stays in the
 //! state's list without chunks, holding only its settings, and loads again in the same place; a
 //! temporary world made again under its name takes the place too. A run names at most
-//! [`MAX_WORLDS`] worlds, as many as the world file holds.
+//! [`MAX_WORLDS`] worlds, as many as the server file holds.
 //!
-//! Loading a world reads nothing on the tick: the world file's records are read when it opens
+//! Loading a world reads nothing on the tick: the server file's records are read when it opens
 //! and live here after (only the tick writes records, so memory is never older than the file),
 //! and the chunks load through the save thread as always. Unloading waits for the view phase,
 //! where [`WorldUnload`] may cancel it: the world's players go to the default world's spawn
 //! (PMMP), its chunks unload as every chunk does (their changes wait in memory for the commit
-//! the unload asks for, so the world file gets them atomically with the rest of the state), and
+//! the unload asks for, so the server file gets them atomically with the rest of the state), and
 //! the world forgets everything but its settings. The save thread learns of new worlds before
 //! the first load or commit that names them.
 
@@ -31,7 +31,7 @@ use crate::save::{self, NewWorld, WorldIndex};
 use crate::storage::codec::{MAX_NAME, WorldRecord};
 use crate::world::{self, Generators, Kind, World};
 
-/// The most worlds a run names, and the most persistent worlds the world file holds.
+/// The most worlds a run names, and the most persistent worlds the server file holds.
 pub(in crate::tick) const MAX_WORLDS: usize = crate::storage::MAX_WORLDS;
 /// The engine stream of the seeds the engine draws for new worlds.
 const WORLD_SEED: u64 = tag("world-seed");
@@ -44,7 +44,7 @@ pub(in crate::tick) struct Catalog {
     /// Each world's index by name, loaded or not: derived from the worlds (a place keeps its
     /// name), so neither saved nor hashed.
     names: BTreeMap<String, WorldIndex>,
-    /// The persistent worlds the world file holds that the server has not loaded, by name.
+    /// The persistent worlds the server file holds that the server has not loaded, by name.
     stored: BTreeMap<String, WorldRecord>,
     /// The `chunks` key number of the next new persistent world.
     next_number: u32,
@@ -107,7 +107,7 @@ crate::tick::checkpoint::fields!(WorldSlot {
 
 impl Catalog {
     /// The catalog of a state made with `worlds`, all loaded, and the build's `generators`; the
-    /// world file's part comes with [`State::open_worlds`].
+    /// server file's part comes with [`State::open_worlds`].
     pub(in crate::tick) fn new(worlds: &[World], generators: Generators) -> Self {
         Self {
             loaded: vec![true; worlds.len()],
@@ -235,7 +235,7 @@ impl Catalog {
 }
 
 impl State {
-    /// Gives the state what the world file says of the worlds it does not start with: the
+    /// Gives the state what the server file says of the worlds it does not start with: the
     /// persistent worlds it may load, and the next world number.
     pub(crate) fn open_worlds(&mut self, catalog: save::Catalog) {
         let save::Catalog {
@@ -264,7 +264,7 @@ fn named(state: &State, name: &str) -> Option<WorldIndex> {
     state.catalog.named(name)
 }
 
-/// The persistent worlds the server has or the world file holds.
+/// The persistent worlds the server has or the server file holds.
 fn persistent_count(state: &State) -> usize {
     let had = state
         .worlds
@@ -450,11 +450,11 @@ impl Context<'_> {
     ///
     /// Fails, making nothing, with [`world::Error::InvalidName`] for an empty name or one over
     /// 256 bytes, [`WorldExists`](world::Error::WorldExists) if the server runs a world of that
-    /// name or the world file holds one ([`is_world_generated`](Self::is_world_generated)),
+    /// name or the server file holds one ([`is_world_generated`](Self::is_world_generated)),
     /// [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
     /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value of
     /// [`Options::settings`](world::Options::settings) out of its range, and
-    /// [`Full`](world::Error::Full) past 1,024 worlds named this run or held by the world file.
+    /// [`Full`](world::Error::Full) past 1,024 worlds named this run or held by the server file.
     ///
     /// The world keeps the difficulty of [`Options::difficulty`](world::Options::difficulty) as
     /// its own, but a `hardcore` server plays every world on hard.
@@ -524,14 +524,14 @@ impl Context<'_> {
         Ok(install(state, index, world, generator.as_ref(), true))
     }
 
-    /// Loads the persistent world `name` the world file holds (PMMP `WorldManager::loadWorld`):
+    /// Loads the persistent world `name` the server file holds (PMMP `WorldManager::loadWorld`):
     /// its spawn chunks load from the next view phase on, where [`WorldLoad`] is raised. A world
     /// already loaded is its `Id` as it is, and an unload asked for it before the next view phase
     /// is dropped (the later call wins; no [`WorldUnload`] is raised for it). Inside a
     /// [`WorldUnload`] listener, cancelling the event is what keeps the world.
     ///
     /// Fails with [`world::Error::NotGenerated`] if the server runs no world of that name and
-    /// the world file holds none (a temporary world unloaded is gone), and with
+    /// the server file holds none (a temporary world unloaded is gone), and with
     /// [`UnknownGenerator`](world::Error::UnknownGenerator) if no registered generator has the
     /// name the world was saved with.
     #[doc(alias = "WorldManager::loadWorld")]
@@ -597,7 +597,7 @@ impl Context<'_> {
         Ok(())
     }
 
-    /// Whether a world named `name` exists: the server runs it, or the world file holds it
+    /// Whether a world named `name` exists: the server runs it, or the server file holds it
     /// (PMMP `WorldManager::isWorldGenerated`). A temporary world unloaded does not.
     #[doc(alias = "WorldManager::isWorldGenerated")]
     pub fn is_world_generated(&self, name: &str) -> bool {

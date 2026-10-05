@@ -1,4 +1,4 @@
-//! The world file check while the server runs (`/check`): every value of one read transaction
+//! The server file check while the server runs (`/check`): every value of one read transaction
 //! of the open file, read in steps of at most [`STEP_BYTES`] between the save thread's other
 //! work, and checked against its seal (header and checksum, [`seal::verify`]). redb's own
 //! integrity check needs the file closed, so it runs only at start (`integrity-check`); this

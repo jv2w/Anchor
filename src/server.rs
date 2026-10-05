@@ -94,7 +94,7 @@ impl Server {
     /// and the game write it) as the persistent world `world`, before [`run`](Self::run).
     ///
     /// The world must be declared ([`ServerBuilder::world`] with [`Kind::Persistent`], or
-    /// `level-name`) and not yet be in the world file: an import only creates a world, so a
+    /// `level-name`) and not yet be in the server file: an import only creates a world, so a
     /// second run is refused with [`import::Error::WorldExists`](crate::import::Error) and
     /// changes nothing. Blocks and items of older versions are upgraded as PMMP upgrades them;
     /// blocks Anchor does not know are kept as unknown blocks. The overworld's blocks and block
@@ -104,10 +104,10 @@ impl Server {
     /// Nether, the End and the players (Bedrock files players by device, not by Xbox user ID).
     /// The [`import::Report`](crate::import::Report) counts what was imported and left out.
     ///
-    /// It blocks the calling thread, opens the world file as [`run`](Self::run) does (backup as
+    /// It blocks the calling thread, opens the server file as [`run`](Self::run) does (backup as
     /// `backups` says, integrity check as `integrity-check` says), uses a CPU pool of
     /// `cpu-threads` that it joins before returning, and writes the whole world in one
-    /// transaction: on any failure, a chunk that cannot be read included, the world file is left
+    /// transaction: on any failure, a chunk that cannot be read included, the server file is left
     /// as it was; the error names the chunk and the key at fault
     /// ([`import::Error::Key`](crate::import::Error::Key)). The source folder is only read, and the
     /// import fails if it changes meanwhile.
@@ -141,10 +141,10 @@ impl Server {
     /// While it runs, Anchor's console log ([`ServerBuilder::without_console_log`]) is the calling
     /// thread's default and that of every thread Anchor starts.
     ///
-    /// It first opens the world file `data/world.redb` (PLAN.md 10.6): it backs up the closed
+    /// It first opens the server file `data/server.redb` (PLAN.md 10.6): it backs up the closed
     /// file to `data/backups/`, checks it as `integrity-check` says and refuses a damaged one,
     /// leaving it as it was. On shutdown every player sees `shutdown-message`, the last state is
-    /// saved, networking stops, and the threads are joined. Fails if the world file is damaged or
+    /// saved, networking stops, and the threads are joined. Fails if the server file is damaged or
     /// cannot be opened, if the runtime, the threads or networking cannot start, if a save fails
     /// after its retries, or if the tick thread panics.
     #[expect(
@@ -292,12 +292,12 @@ impl Server {
     /// Replays the crash log at `log` (a `data/crash/input-*.log` the server wrote when it
     /// stopped on a panic or a failed save) with this server's settings, worlds and
     /// registrations, and reports how it ended ([`crate::replay`]): it starts from the saved
-    /// state of the log's oldest segment that `data/world.redb` or a backup still holds, and
+    /// state of the log's oldest segment that `data/server.redb` or a backup still holds, and
     /// applies the logged ticks. A tick that panics again ends it with
     /// [`End::Panicked`](crate::replay::End::Panicked).
     ///
     /// Build the server as the run that wrote the log was built: the same settings, worlds and
-    /// registrations, or the replay is refused. It opens the world files read-only, runs no
+    /// registrations, or the replay is refused. It opens the server files read-only, runs no
     /// network, commits nothing and writes no file. State that listeners, tasks and behaviours
     /// keep in their closures starts over, and their callbacks run again, so what they do outside
     /// the server (files, network) happens again.
@@ -614,7 +614,7 @@ impl ServerBuilder {
     }
 
     /// Adds a world besides the default one (`level-name`), loaded from the start. A
-    /// [`Kind::Persistent`] world is saved in the world file under its name; a
+    /// [`Kind::Persistent`] world is saved in the server file under its name; a
     /// [`Kind::Temporary`] one is generated fresh at every start and never saved. A new world
     /// gets a random seed. Players join the default world. Its generator is registered as
     /// [`generator`](Self::generator) registers one.

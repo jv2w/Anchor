@@ -187,7 +187,7 @@ fn an_import_keeps_a_backup_only_with_backups_on() {
                 .build()
                 .expect("the server builds")
         };
-        // The first import creates the world file, the second opens (and copies) it.
+        // The first import creates the server file, the second opens (and copies) it.
         for world in [NAME, "second"] {
             server().import_world(FIXTURE, world).expect("the import");
         }
@@ -201,18 +201,18 @@ fn an_import_keeps_a_backup_only_with_backups_on() {
 #[test]
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: reads the world files on disk"
+    reason = "off-tick: reads the server files on disk"
 )]
-fn one_and_many_threads_write_the_same_world_file() {
+fn one_and_many_threads_write_the_same_server_file() {
     let mut files = Vec::new();
     for cpu in [1, 4] {
         let data = TempPath::new(&format!("threads-{cpu}"));
         server(&data.0, cpu)
             .import_world(FIXTURE, NAME)
             .expect("the import");
-        files.push(std::fs::read(data.0.join("world.redb")).expect("the world file"));
+        files.push(std::fs::read(data.0.join("server.redb")).expect("the server file"));
     }
-    assert!(files[0] == files[1], "the world files differ");
+    assert!(files[0] == files[1], "the server files differ");
 }
 
 #[test]
@@ -250,5 +250,5 @@ fn a_folder_that_is_not_a_bedrock_world_fails_and_writes_no_world() {
         .import_world(data.0.join("missing"), NAME)
         .expect_err("not a world");
     assert!(matches!(err, Error::Import(_)), "{err:?}");
-    assert!(!data.0.join("world.redb").exists());
+    assert!(!data.0.join("server.redb").exists());
 }

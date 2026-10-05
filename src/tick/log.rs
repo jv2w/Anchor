@@ -6,7 +6,7 @@
 //! Packets are encoded only when the log is written, on the main thread after the tick thread
 //! ended. The log is a list of segments: one from the start of the process and one per save
 //! snapshot, each starting at the tick its state was taken with a checkpoint of that state
-//! ([`super::checkpoint`]), which a replay starts from with the world file of the same tick.
+//! ([`super::checkpoint`]), which a replay starts from with the server file of the same tick.
 //!
 //! Committed segments are kept while there is room: the oldest go only when the bound needs
 //! room ([`MAX_BYTES`], inputs counted by their size on the wire, and the checkpoints of the
@@ -17,7 +17,7 @@
 //! segment is not truncated in normal running.
 //!
 //! The log chains every input the tick applies, recorded or not, into a commit identity
-//! ([`InputLog::identity`]), from the identity of the state the world file held at the start. A
+//! ([`InputLog::identity`]), from the identity of the state the server file held at the start. A
 //! snapshot's commit writes it with the tick into the file, and each segment keeps the identity of
 //! its state, so a replay starts a segment only from a file that holds that very state, not one
 //! another run committed at the same tick. The chain takes each input's place and kind and the
@@ -60,7 +60,7 @@ const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// 8 keeps segments with their checkpoints, the settings and registration fingerprints and a
 /// closing checksum; 9 adds the joining player's client data (locale, input mode, device,
 /// version, server address, port, join time) and the measures (tick times, pings, connection
-/// counts); 10 adds each segment's commit identity; 11 adds world file check results.
+/// counts); 10 adds each segment's commit identity; 11 adds server file check results.
 const FORMAT: u32 = 11;
 /// The first format with segments and checkpoints, the oldest [`InputLog::decode`] reads: older
 /// logs have no checkpoint to replay from.
@@ -125,7 +125,7 @@ pub(crate) struct Fingerprints {
 
 impl Fingerprints {
     /// The fingerprints of a server built with `settings`, `worlds` and `setup`, taken before it
-    /// reads its world file: every field of each, by its `Debug` form, which names every
+    /// reads its server file: every field of each, by its `Debug` form, which names every
     /// registration (commands, custom items, blocks and entities, listeners per event, task
     /// periods, data types, hooks) without the closures.
     pub(crate) fn of(
@@ -152,10 +152,10 @@ pub(crate) struct Segment {
     bytes: usize,
     /// Recording stopped at the bound; later ticks of this segment are missing.
     truncated: bool,
-    /// The world file holds the state at `start`: the start of the process, or a commit the tick
+    /// The server file holds the state at `start`: the start of the process, or a commit the tick
     /// learnt of.
     committed: bool,
-    /// The commit identity of the state at `start`; `None` if unknown (a world file that has
+    /// The commit identity of the state at `start`; `None` if unknown (a server file that has
     /// none, a log of format 8 or 9).
     identity: Option<u64>,
 }
@@ -249,7 +249,7 @@ pub(crate) struct Tick {
 }
 
 /// A save thread answer as the log keeps it (PLAN.md 10.6): what arrived and where from, not
-/// the chunk itself, which a replay loads again from the same world file or generator, checking
+/// the chunk itself, which a replay loads again from the same server file or generator, checking
 /// it against the checksum.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Answer {
@@ -458,7 +458,7 @@ impl std::error::Error for Error {
 }
 
 impl InputLog {
-    /// A log whose state starts at tick `start` (which the world file holds), taking no
+    /// A log whose state starts at tick `start` (which the server file holds), taking no
     /// checkpoints: tests replay it from a state they know.
     pub(crate) fn starting_at(start: u64) -> Self {
         Self::from_state(start, None)
@@ -478,7 +478,7 @@ impl InputLog {
         }
     }
 
-    /// The tick's log: it starts at `checkpoint`'s state, the one the world file holds at the
+    /// The tick's log: it starts at `checkpoint`'s state, the one the server file holds at the
     /// start of the process with commit identity `identity`, and takes a checkpoint at every
     /// snapshot ([`Self::needs_checkpoint`]).
     pub(crate) fn new(
@@ -495,7 +495,7 @@ impl InputLog {
         log
     }
 
-    /// A replay's log: it starts at the restored `checkpoint`, the state the world file holds
+    /// A replay's log: it starts at the restored `checkpoint`, the state the server file holds
     /// with commit identity `identity`, and takes a checkpoint at every snapshot, to compare with
     /// the replayed log's; the replayed log's snapshots started at the ticks of `planned`, which
     /// decide [`Self::wants_commit`].
@@ -511,7 +511,7 @@ impl InputLog {
     }
 
     /// The commit identity of the state the inputs chained so far lead to: what the commit of a
-    /// snapshot taken now writes into the world file.
+    /// snapshot taken now writes into the server file.
     pub(crate) fn identity(&self) -> u64 {
         self.chain.0
     }
@@ -814,7 +814,7 @@ impl InputLog {
     }
 
     /// The written form if it takes at most `limit` bytes; otherwise the written form from the
-    /// newest committed segment on, which a replay starts from with the world file of the last
+    /// newest committed segment on, which a replay starts from with the server file of the last
     /// commit, if that fits; otherwise [`Error::TooLarge`].
     fn encode_within(&self, limit: usize) -> Result<Vec<u8>> {
         let all = self.encode()?;
@@ -1911,7 +1911,7 @@ mod tests {
                 damaged: 2,
                 first: "table chunks: a stored value does not match its checksum".to_owned(),
             },
-            Checked::Failed("the world file was reopened after a failure".to_owned()),
+            Checked::Failed("the server file was reopened after a failure".to_owned()),
         ];
         let mut log = InputLog::default();
         log.begin(0);

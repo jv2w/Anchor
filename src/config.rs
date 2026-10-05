@@ -89,7 +89,7 @@ level-seed = ""
 view-distance = 16
 # false: player inventories and positions are not kept between joins.
 save-player-data = true
-# Copies of the world file in data/backups, at start and with the backup command.
+# Copies of the server file in data/backups, at start and with the backup command.
 backups = true
 # Message players see when the server stops.
 shutdown-message = "The server has stopped"
@@ -152,7 +152,7 @@ hook-movement-packets = true
 hook-player-input = true
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
-# When the world file is checked at start: "always", "after-unclean-shutdown" or "never".
+# When the server file is checked at start: "always", "after-unclean-shutdown" or "never".
 # The check command checks it while the server runs.
 integrity-check = "always"
 # false: Anchor does not read commands from standard input.
@@ -550,7 +550,7 @@ pub struct General {
     pub view_distance: u8,
     /// `save-player-data`: whether inventories and positions are kept between joins.
     pub save_player_data: bool,
-    /// `backups`: whether the world file is copied to `data/backups` at start and by the backup
+    /// `backups`: whether the server file is copied to `data/backups` at start and by the backup
     /// command.
     pub backups: bool,
     /// `shutdown-message`: the message players see when the server stops.
@@ -726,7 +726,7 @@ pub struct Developer {
     pub hook_player_input: bool,
     /// `save-interval-minutes`: minutes between whole-state saves.
     pub save_interval_minutes: u16,
-    /// `integrity-check`: when the world file is checked at start.
+    /// `integrity-check`: when the server file is checked at start.
     pub integrity_check: IntegrityCheck,
     /// `console-input`: whether commands are read from standard input.
     pub console_input: bool,
@@ -937,7 +937,7 @@ impl Lighting {
     }
 }
 
-/// When the world file is checked at start (`integrity-check`).
+/// When the server file is checked at start (`integrity-check`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntegrityCheck {
     /// `"always"`: on every start.

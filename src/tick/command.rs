@@ -218,7 +218,7 @@ impl Commands {
         }
     }
 
-    /// Takes the operator list, the bans and the whitelist the world file held, and whether the
+    /// Takes the operator list, the bans and the whitelist the server file held, and whether the
     /// whitelist is on (`white-list`). `Server::run` calls it once, before the tick starts.
     pub(crate) fn start(&mut self, access: AccessData, whitelist_enabled: bool) {
         self.access = Access::new(access, whitelist_enabled);
