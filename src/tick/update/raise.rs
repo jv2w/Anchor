@@ -230,7 +230,6 @@ mod tests {
     fn server(add: impl FnOnce(&mut Listeners)) -> Server {
         let mut listeners = Listeners::default();
         add(&mut listeners);
-        listeners.sort();
         let mut state = new_state(
             settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
             listeners,

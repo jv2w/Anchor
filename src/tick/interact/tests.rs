@@ -42,9 +42,8 @@ impl Harness {
         Self::with(edit, Listeners::default())
     }
 
-    /// [`Harness::new`] with event listeners (sorted here, as `build()` does).
-    fn with(edit: impl FnOnce(&mut Config), mut listeners: Listeners) -> Self {
-        listeners.sort();
+    /// [`Harness::new`] with event listeners.
+    fn with(edit: impl FnOnce(&mut Config), listeners: Listeners) -> Self {
         let state = new_state(settings(edit), listeners);
         let (j, rx) = join(1, 0);
         let mut h = Self {

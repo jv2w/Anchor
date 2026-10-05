@@ -679,7 +679,6 @@ impl ServerBuilder {
             developer.cpu_threads,
             runtime::logical_cpus(),
         )?;
-        self.setup.listeners.sort();
         if !self.config.general.education_items {
             self.setup.commands.drop_education_items();
             self.setup.custom.drop_education_items();

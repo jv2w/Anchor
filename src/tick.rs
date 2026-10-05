@@ -1643,13 +1643,8 @@ mod tests {
         run_ticks_with(settings, Listeners::default(), ticks)
     }
 
-    /// [`run_ticks`] with event listeners (sorted here, as `build()` does).
-    fn run_ticks_with(
-        settings: Settings,
-        mut listeners: Listeners,
-        ticks: Vec<Vec<Input>>,
-    ) -> State {
-        listeners.sort();
+    /// [`run_ticks`] with event listeners.
+    fn run_ticks_with(settings: Settings, listeners: Listeners, ticks: Vec<Vec<Input>>) -> State {
         let mut state = new_state(settings, listeners);
         let mut output = Output::default();
         for mut batch in ticks {
@@ -2160,7 +2155,6 @@ mod tests {
                     panic!("listener failed");
                 },
             );
-            listeners.sort();
             listeners
         }
         fn run(state: &mut State, mut batch: Vec<Input>, output: &mut Output, log: &mut InputLog) {
@@ -2440,7 +2434,7 @@ mod tests {
         let cancel: Hook = PlayerDuplicateLogin::cancel;
         let uncancel: Hook = PlayerDuplicateLogin::uncancel;
         let cases = [
-            // Registered out of order: the sort puts Lowest first, so Highest decides.
+            // Registered out of order: Lowest runs first, so Highest decides.
             (
                 with(&[(Priority::Highest, uncancel), (Priority::Lowest, cancel)]),
                 [2],
@@ -2537,7 +2531,6 @@ mod tests {
                 e.cancel();
             }
         });
-        listeners.sort();
         let mut state = new_state(settings(|_| {}), listeners);
         let mut output = Output::default();
         for n in 0..100 {
@@ -3219,7 +3212,6 @@ mod tests {
             listeners.push(Priority::Normal, |_: &mut PlayerDuplicateLogin, _| {
                 panic!("listener failed");
             });
-            listeners.sort();
             listeners
         };
         let (sender, queue) = input_queue();

@@ -786,7 +786,6 @@ mod tests {
                     .expect("room");
             },
         );
-        listeners.sort();
         let mut state = new_state(settings(|_| {}), listeners);
         state.data = registered::<u32, u32>("visits", "quits");
         let (j, _rx) = join(1, 0);

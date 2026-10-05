@@ -207,12 +207,6 @@ macro_rules! listeners {
         }
 
         impl Listeners {
-            /// Orders every list by priority, keeping registration order within a priority.
-            pub(crate) fn sort(&mut self) {
-                let Self { $($field),* } = self;
-                $($field.sort();)*
-            }
-
             /// Adds a listener on every event that calls `heard` with the event's field name.
             #[cfg(test)]
             pub(crate) fn listen_to_every_event(&mut self, heard: fn(&'static str)) {
@@ -384,16 +378,17 @@ mod sealed {
     }
 
     impl Listeners {
-        /// Adds `listener` for `E` at `priority`, after the listeners already added.
+        /// Adds `listener` for `E` at `priority`, after the listeners already added at that or a
+        /// lower priority: the list stays in call order, equal priorities in registration order.
+        /// Inserting in place rather than sorting once keeps a sort out of every event's code.
         pub(crate) fn push<E: Event>(
             &mut self,
             priority: Priority,
             listener: impl FnMut(&mut E, &mut Context<'_>) + Send + 'static,
         ) {
-            E::list(self)
-                .registered()
-                .listeners
-                .push((priority, Box::new(listener)));
+            let listeners = &mut E::list(self).registered().listeners;
+            let at = listeners.partition_point(|&(p, _)| p <= priority);
+            listeners.insert(at, (priority, Box::new(listener)));
         }
 
         /// Adds `monitor` for `E`, after the monitors already added.
@@ -433,13 +428,6 @@ mod sealed {
                 for monitor in &mut r.monitors {
                     monitor(event, cx);
                 }
-            }
-        }
-
-        /// Stable, so equal priorities keep registration order.
-        fn sort(&mut self) {
-            if let Some(r) = &mut self.0 {
-                r.listeners.sort_by_key(|&(priority, _)| priority);
             }
         }
 

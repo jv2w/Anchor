@@ -39,8 +39,7 @@ impl Game {
         Self::with(n, listeners, |_| {})
     }
 
-    fn with(n: u64, mut listeners: Listeners, edit: impl FnOnce(&mut Config)) -> Self {
-        listeners.sort();
+    fn with(n: u64, listeners: Listeners, edit: impl FnOnce(&mut Config)) -> Self {
         let mut game = Self {
             state: new_state(settings(edit), listeners),
             receivers: Vec::new(),

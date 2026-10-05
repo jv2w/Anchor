@@ -1396,7 +1396,6 @@ mod tests {
             Priority::Normal,
             |_: &mut FarmlandHydrationChange, _: &mut Context<'_>| {},
         );
-        listeners.sort();
         (listeners, rx)
     }
 

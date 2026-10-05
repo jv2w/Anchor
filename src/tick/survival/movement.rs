@@ -1130,8 +1130,7 @@ mod tests {
         tokio::sync::mpsc::Receiver<crate::tick::queue::Outbound>,
     ) {
         use crate::tick::tests::{initialised, join, new_state, radius, settings, tick};
-        let mut listeners = listeners;
-        listeners.sort();
+        let listeners = listeners;
         let mut state = new_state(settings(|_| {}), listeners);
         let mut output = crate::tick::Output::default();
         let (j, rx) = join(1, 0);

@@ -54,7 +54,7 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::dispatchCommand` | implemented | src/tick/command.rs:987 `dispatch_command` | src/tick/command/tests.rs::a_command_request_answers_with_command_output |  |
 | `pocketmine\Server::enablePlugins` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\Server::exceptionHandler` | skipped |  |  | PMMP crash dumps: Anchor keeps the input log instead (CLAUDE.md 4.6) |
-| `pocketmine\Server::forceShutdown` | merged | src/server.rs:758 `shutdown`<br>src/tick/command.rs:1392 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
+| `pocketmine\Server::forceShutdown` | merged | src/server.rs:757 `shutdown`<br>src/tick/command.rs:1392 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end | into `Server::shutdown` |
 | `pocketmine\Server::getAllowedViewDistance` | merged | src/tick/task.rs:193 `view_distance` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins | into `Server::getViewDistance` |
 | `pocketmine\Server::getApiVersion` | skipped |  |  | no plugins: Anchor is a library used from the user's binary (CLAUDE.md 1) |
 | `pocketmine\Server::getAsyncPool` | merged | src/tick/task/job.rs:181 `spawn_blocking` | src/tick/task/job.rs::blocking_work_runs_off_tick_and_its_result_reaches_done_in_a_later_tick | into `AsyncPool::submitTask` |
@@ -126,7 +126,7 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::saveOfflinePlayerData` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O (CLAUDE.md 2.2) and writes only whole-state commits (CLAUDE.md 2.1, 4.7); online players are `Context::players` |
 | `pocketmine\Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
 | `pocketmine\Server::shouldSavePlayerData` | implemented | src/tick/task.rs:199 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::shutdown` | implemented | src/server.rs:758 `shutdown`<br>src/tick/command.rs:1392 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
+| `pocketmine\Server::shutdown` | implemented | src/server.rs:757 `shutdown`<br>src/tick/command.rs:1392 `shutdown` | src/tick/command/builtin/tests.rs::stop_asks_the_tick_loop_to_end |  |
 | `pocketmine\Server::subscribeToBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones (PLAN.md 8.4 merges the message methods) |
 | `pocketmine\Server::unsubscribeFromAllBroadcastChannels` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones (PLAN.md 8.4 merges the message methods) |
 | `pocketmine\Server::unsubscribeFromBroadcastChannel` | skipped |  |  | PMMP broadcast channel subscriptions: `Context::broadcast` reaches every online player and `Player::send` the chosen ones (PLAN.md 8.4 merges the message methods) |

@@ -851,8 +851,7 @@ pub(super) mod tests {
     }
 
     /// [`two`] with `listeners`.
-    fn two_with(mut listeners: Listeners) -> (State, [mpsc::Receiver<Outbound>; 2]) {
-        listeners.sort();
+    fn two_with(listeners: Listeners) -> (State, [mpsc::Receiver<Outbound>; 2]) {
         let mut state = new_state(settings(|_| {}), listeners);
         let mut output = Output::default();
         let (j1, mut rx1) = join(1, 0);

@@ -376,7 +376,6 @@ mod tests {
                 assert!(cx.set_motd("Bye"));
             },
         );
-        listeners.sort();
         let mut state = new_state(settings(|_| {}), listeners);
         let (link, mut controls) = control_queue();
         state.connect_network(link);

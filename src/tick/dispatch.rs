@@ -174,7 +174,6 @@ mod tests {
             assert!(e.disconnect_reason().ends_with("highest"));
             assert_eq!(cx.tick(), 0);
         });
-        listeners.sort();
         let mut state = new_state(settings(|_| {}), listeners);
         assert!(heard::<PlayerDuplicateLogin>(&state));
         assert!(listened::<PlayerDuplicateLogin>(&state));

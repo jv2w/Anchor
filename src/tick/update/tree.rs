@@ -632,7 +632,6 @@ mod tests {
             Priority::Normal,
             move |_: &mut StructureGrow, _: &mut Context<'_>| count(),
         );
-        l.sort();
         new_state(
             settings(|c| c.developer.lighting = crate::config::Lighting::Fixed),
             l,

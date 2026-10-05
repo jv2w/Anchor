@@ -73,9 +73,8 @@ pub(super) fn server(commands: Vec<Command>) -> (State, Vec<mpsc::Receiver<Outbo
 /// [`server`] with `listeners`.
 pub(super) fn server_with(
     commands: Vec<Command>,
-    mut listeners: Listeners,
+    listeners: Listeners,
 ) -> (State, Vec<mpsc::Receiver<Outbound>>) {
-    listeners.sort();
     let mut state = new_state(settings(|_| {}), listeners);
     for command in commands {
         state.commands.register(command, Origin::User);

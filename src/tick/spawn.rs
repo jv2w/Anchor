@@ -1588,8 +1588,7 @@ mod tests {
 
         fn state(edit: impl FnOnce(&mut crate::config::Config), listeners: Listeners) -> State {
             LOG.set(Vec::new());
-            let mut listeners = listeners;
-            listeners.sort();
+            let listeners = listeners;
             new_state(settings(edit), listeners)
         }
 

@@ -574,7 +574,6 @@ fn item_crash_child() {
         Priority::Normal,
         |_: &mut WorldSave, _: &mut task::Context<'_>| Mover::report("committed"),
     );
-    listeners.sort();
     let state = State::new(
         Settings::new(&Config::default()),
         Shared::new(

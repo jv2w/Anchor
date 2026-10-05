@@ -581,9 +581,8 @@ mod tests {
 
     /// A server that saves player data with session 1 spawned, its data changed since the last
     /// snapshot.
-    fn state(mut listeners: Listeners) -> State {
+    fn state(listeners: Listeners) -> State {
         LOG.set(Vec::new());
-        listeners.sort();
         let mut state = new_state(settings(|c| c.general.save_player_data = true), listeners);
         let mut output = Output::default();
         let (j, _rx) = join(1, 0);

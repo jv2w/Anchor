@@ -4517,7 +4517,7 @@ mod tests {
             Self::with_listeners(threads, Listeners::default())
         }
 
-        /// [`Harness::new`] with `listeners` (sorted here).
+        /// [`Harness::new`] with `listeners`.
         pub(super) fn with_listeners(threads: usize, listeners: Listeners) -> Self {
             Self::with_config(threads, listeners, |_| {})
         }
@@ -4525,10 +4525,9 @@ mod tests {
         /// [`Harness::with_listeners`] with the settings `edit` makes.
         pub(super) fn with_config(
             threads: usize,
-            mut listeners: Listeners,
+            listeners: Listeners,
             edit: impl FnOnce(&mut crate::config::Config),
         ) -> Self {
-            listeners.sort();
             let mut state = new_state(settings(edit), listeners);
             // The preloaded chunks' extras reach the rules as a load's would.
             let loaded: Vec<ChunkPos> = state.worlds[0].loaded().collect();

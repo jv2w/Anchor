@@ -82,11 +82,10 @@ impl World {
         Self::with_listeners(mode, Listeners::default())
     }
 
-    /// A world whose events go to `listeners` (sorted here).
-    pub(super) fn with_listeners(mode: GameMode, mut listeners: Listeners) -> Self {
+    /// A world whose events go to `listeners`.
+    pub(super) fn with_listeners(mode: GameMode, listeners: Listeners) -> Self {
         set_room(usize::MAX);
         DROPPED.set(Vec::new());
-        listeners.sort();
         let mut state = new_state(settings(|c| c.general.gamemode = mode), listeners);
         // The test server loads its spawn chunks without the rule modules; hand them over.
         let loaded: Vec<_> = state.worlds[0].loaded().collect();

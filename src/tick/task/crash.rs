@@ -230,7 +230,6 @@ fn user_data_crash_child() {
             Writer::report(&format!("committed={}", cx.tick()));
         },
     );
-    listeners.sort();
     let state = State::new(
         Settings::new(&Config::default()),
         Shared::new(

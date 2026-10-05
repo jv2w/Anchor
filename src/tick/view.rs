@@ -1779,10 +1779,9 @@ mod tests {
         l
     }
 
-    fn state(mut listeners: Listeners) -> State {
+    fn state(listeners: Listeners) -> State {
         LOG.set(Vec::new());
         KEEP.set(true);
-        listeners.sort();
         new_state(settings(|_| {}), listeners)
     }
 

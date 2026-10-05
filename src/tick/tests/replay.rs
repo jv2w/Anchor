@@ -120,7 +120,6 @@ fn setup(plan: Plan, hashes: mpsc::Sender<(u64, u64)>, extra: usize) -> Setup {
             panic!("command listener failed at {}", cx.tick());
         });
     }
-    listeners.sort();
     Setup {
         listeners,
         tasks,

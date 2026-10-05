@@ -77,10 +77,9 @@ fn world_listeners() -> Listeners {
 
 /// A server with the flat default world, `listeners` (sorted), and session 1 spawned at its spawn
 /// with a view of radius 2.
-fn server(mut listeners: Listeners) -> (State, Output, mpsc::Receiver<Outbound>) {
+fn server(listeners: Listeners) -> (State, Output, mpsc::Receiver<Outbound>) {
     LOG.set(Vec::new());
     CANCEL.set(false);
-    listeners.sort();
     let mut state = new_state(settings(|_| {}), listeners);
     let mut output = Output::default();
     let (j, rx) = join(1, 0);
@@ -805,7 +804,7 @@ fn a_load_in_flight_when_its_world_unloads_is_dropped_on_arrival() {
 /// state, the save link and the save thread.
 fn open_server(
     dir: &crate::save::tests::TempDir,
-    mut listeners: Listeners,
+    listeners: Listeners,
 ) -> (
     State,
     crate::tick::SaveLink,
@@ -819,7 +818,6 @@ fn open_server(
         spawn: None,
     }];
     let opened = crate::save::open(&dir.0, specs).unwrap();
-    listeners.sort();
     let mut state = State::new(
         settings(|_| {}),
         shared(),

@@ -357,16 +357,14 @@ fn busy() -> Listeners {
             e.cancel();
         }
     });
-    l.sort();
     l
 }
 
-/// Idle listeners and monitors on every event (sorted): every event is built and checked again.
+/// Idle listeners and monitors on every event: every event is built and checked again.
 pub(super) fn idle() -> Listeners {
     let mut l = Listeners::default();
     l.listen_to_every_event(|_| {});
     l.monitor_every_event(|_| {});
-    l.sort();
     l
 }
 
