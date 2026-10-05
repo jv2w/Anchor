@@ -8,8 +8,10 @@
 //! sub-chunk both servers sent, in every layer (a layer one side does not send is air), must have
 //! the same network ID.
 //!
-//! Anchor keeps a block PMMP does not have as an unknown block and sends it as `info_update`: a
-//! block BDS sends where Anchor sends `info_update` is an intended difference when its name is
+//! Anchor keeps a block PMMP does not have as an unknown block. It sends the stored state when the
+//! client knows it (an inert block, with no server behaviour) and `info_update` otherwise: a
+//! block BDS sends where Anchor sends `info_update`, or a different state where Anchor sends the
+//! stored one (BDS updates some blocks after loading), is an intended difference when its name is
 //! listed in `xtask/data/p6/intended.txt` as `import | block <name> | <reason>`. A block BDS sends
 //! that Anchor sends as the state PMMP reads it as is intended too: PMMP ignores some vanilla
 //! properties, such as a pumpkin's facing (`xtask/data/pmmp/deserialized.json`). Every other
@@ -350,9 +352,8 @@ fn state_name(states: &BTreeMap<u32, String>, id: u32) -> String {
 
 /// Compares, block by block, the sub-chunks both captures hold and prints the result: each pair
 /// of differing states with how many blocks and the first positions. Where Anchor sends
-/// `info_update` (an unknown block), BDS's block is excused when its name is listed as intended
-/// and the second layers agree, or when BDS sends Anchor's second-layer liquid in its place (a
-/// waterlogged block BDS sends as its water, such as a bubble column). Where Anchor sends the
+/// `info_update` (an unknown block), or a stored block of an intended name BDS changed after
+/// loading, the difference is excused as [`excuse`] says. Where Anchor sends the
 /// state PMMP reads BDS's as (`aliases`), the block is excused too.
 fn compare(
     bds: &BTreeMap<[i64; 3], Layers>,
@@ -393,17 +394,9 @@ fn compare(
                 block(b, 0, i),
                 block(b, 1, i),
             );
-            if b0 == unknown && a0 != unknown {
-                if intended.contains(&name(a0)) && a1 == b1 {
-                    *excused.entry(name(a0)).or_default() += 1;
-                    continue;
-                }
-                if a1 == air && a0 == b1 && name(b1).contains("water") {
-                    *excused
-                        .entry("a waterlogged unknown block sent as its water".to_owned())
-                        .or_default() += 1;
-                    continue;
-                }
+            if let Some(why) = excuse([a0, a1], [b0, b1], air, unknown, intended, &name) {
+                *excused.entry(why).or_default() += 1;
+                continue;
             }
             for layer in 0..a.len().max(b.len()).max(2) {
                 let (x, y) = (block(a, layer, i), block(b, layer, i));
@@ -459,6 +452,34 @@ fn compare(
         )?;
     }
     Ok(compared > 0 && pairs.is_empty())
+}
+
+/// Why the difference between BDS's layers `a` and Anchor's `b` at one block is intended, if it
+/// is: Anchor sends a block of an intended name as it was stored, with no server behaviour
+/// (PLAN.md 7, U12), and BDS may have changed it after loading the world (a bubble column over no
+/// soul sand turns to water, a trial spawner wakes up); or Anchor sends `unknown` (`info_update`)
+/// for a block whose name is intended, or for a waterlogged block BDS sends as its water.
+fn excuse(
+    [a0, a1]: [u32; 2],
+    [b0, b1]: [u32; 2],
+    air: u32,
+    unknown: u32,
+    intended: &BTreeSet<String>,
+    name: &impl Fn(u32) -> String,
+) -> Option<String> {
+    let water_for_second_layer = a1 == air && a0 == b1;
+    if b0 != a0 && intended.contains(&name(b0)) && (a1 == b1 || water_for_second_layer) {
+        return Some(name(b0));
+    }
+    if b0 == unknown && a0 != unknown {
+        if intended.contains(&name(a0)) && a1 == b1 {
+            return Some(name(a0));
+        }
+        if water_for_second_layer && name(b1).contains("water") {
+            return Some("a waterlogged unknown block sent as its water".to_owned());
+        }
+    }
+    None
 }
 
 /// Copies the folder `from` with everything in it to `to`.

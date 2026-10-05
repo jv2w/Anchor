@@ -1200,12 +1200,15 @@ func playOthers(g *game) error {
 		return err
 	}
 	g.record("fact", map[string]any{"name": "packets about the other player", "value": summary.lines})
-	// The moves by kind, and the locator bar with the deaths and respawns in order: the timing of the
-	// rest differs between servers.
+	// The packet kinds that carry the walk, and the locator bar with the deaths and respawns in
+	// order: the timing of the rest differs between servers. Teleports (MovePlayer mode 2) and the
+	// on-ground flag depend on when the mover's inputs arrive, so they are left out of the check;
+	// the fact above keeps them.
 	moves := map[string]bool{}
 	for _, l := range summary.lines {
-		if strings.HasPrefix(l, "Move") {
-			moves[l] = true
+		if strings.HasPrefix(l, "Move") && l != "MovePlayer mode 2" {
+			kind, _, _ := strings.Cut(l, " flags ")
+			moves[kind] = true
 		}
 	}
 	g.check("moves of the other player", moves)

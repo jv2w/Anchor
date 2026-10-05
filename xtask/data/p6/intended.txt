@@ -32,17 +32,17 @@ commands | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilit
 # lost), BDS's block of a listed name is an intended difference. PMMP does not have these blocks
 # (xtask/data/pmmp/blocks.json). A block Anchor sends as the state PMMP reads it as (a pumpkin
 # facing south for any facing: xtask/data/pmmp/deserialized.json) needs no line.
-import | block minecraft:bubble_column | PMMP has no bubble column; kept as an unknown block
-import | block minecraft:bush | PMMP has no bush; kept as an unknown block
-import | block minecraft:cinnabar | PMMP has no cinnabar; kept as an unknown block
-import | block minecraft:decorated_pot | PMMP has no decorated pot; kept as an unknown block
-import | block minecraft:dispenser | PMMP has no dispenser (redstone); kept as an unknown block
-import | block minecraft:firefly_bush | PMMP has no firefly bush; kept as an unknown block
-import | block minecraft:seagrass | PMMP has no seagrass; kept as an unknown block
-import | block minecraft:sulfur | PMMP has no sulfur; kept as an unknown block
-import | block minecraft:trial_spawner | PMMP has no trial spawner; kept as an unknown block
-import | block minecraft:vault | PMMP has no vault; kept as an unknown block
-import | block minecraft:wildflowers | PMMP has no wildflowers; kept as an unknown block
+import | block minecraft:bubble_column | PMMP has no bubble column; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:bush | PMMP has no bush; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:cinnabar | PMMP has no cinnabar; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:decorated_pot | PMMP has no decorated pot; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:dispenser | PMMP has no dispenser (redstone); kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:firefly_bush | PMMP has no firefly bush; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:seagrass | PMMP has no seagrass; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:sulfur | PMMP has no sulfur; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:trial_spawner | PMMP has no trial spawner; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:vault | PMMP has no vault; kept as an unknown block, sent as stored without server behaviour
+import | block minecraft:wildflowers | PMMP has no wildflowers; kept as an unknown block, sent as stored without server behaviour
 
 # M9 verification scenarios (P6V, m9-facts.md): differences Anchor keeps on purpose.
 enchants | trident into the table: check options trident: A {"options":3,"slot":32768} != B {"options":0,"slot":null} | PMMP has no trident enchantments (impaling, loyalty, riptide, channeling): its enchanting table gives a trident no options
@@ -60,4 +60,4 @@ syntax | command gamemode survival: UpdateAbilities: A 0 != B 1 | UpdateAbilitie
 # Other players' movement (U8, PLAN.md 10.7): BDS sends it as MovePlayer, which the client applies
 # at once (20 jumps a second); Anchor sends MoveActorAbsolute, which the client interpolates, as
 # PMMP and dragonfly do. Teleports stay MovePlayer mode 2 on both.
-others | wait for the other player: check moves of the other player: A {"MovePlayer mode 0":true,"MovePlayer mode 2":true} != B {"MoveActorAbsolute flags 1":true,"MovePlayer mode 2":true} | other players move by MoveActorAbsolute, which the client interpolates (PMMP broadcastMovement); MovePlayer snaps them
+others | wait for the other player: check moves of the other player: A {"MovePlayer mode 0":true} != B {"MoveActorAbsolute":true} | other players move by MoveActorAbsolute, which the client interpolates (PMMP broadcastMovement); MovePlayer snaps them
