@@ -45,6 +45,26 @@
 //! Measured with an empty server, 8 build jobs: a clean debug build 25% shorter, a debug rebuild
 //! after changing Anchor 35% shorter, a rebuild after changing only the server's code 55% shorter
 //! in debug and 14% shorter in release.
+//!
+//! ## Start and stop
+//!
+//! A stop writes only the data files that changed and compacts none of them, so it takes well
+//! under a second. What a start costs depends on two settings in `anchor.toml`:
+//!
+//! ```toml
+//! [general]
+//! # A start copies every data file into data/backups first; false skips the copy.
+//! backups = true
+//! [developer]
+//! # "after-unclean-shutdown": the files are read through only when the last run did not stop
+//! # normally (a crash or a killed process), instead of on every start.
+//! integrity-check = "after-unclean-shutdown"
+//! ```
+//!
+//! Measured with an imported world of 59,740 chunks (381 MB of data files), a release build and
+//! `backups = false`: a start after a normal stop took under 0.1 s with
+//! `integrity-check = "after-unclean-shutdown"` and 5.6 to 16.4 s with `"always"`, the default,
+//! almost all of it spent reading the files from disk; a stop took 0.2 to 0.5 s.
 
 // Per-connection panic isolation needs unwinding, and the binary's profile decides the strategy.
 #[cfg(not(panic = "unwind"))]
