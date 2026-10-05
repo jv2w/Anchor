@@ -30,6 +30,7 @@ use crate::command::{
     MAX_PERMISSIONS, Output, Sender, Value,
 };
 use crate::config::{Difficulty, GameMode};
+use crate::console::text;
 use crate::math::Vec3;
 use crate::permission::{self, BanEntry, Permission};
 use crate::player::{self, MAX_TEXT};
@@ -858,10 +859,12 @@ pub(super) fn console(state: &mut State, line: &str) {
     };
     let (success, lines) = shown(&result);
     for l in &lines {
+        // The client's keys become Anchor's sentences; players get the keys.
+        let line = text::render(&l.text, &l.params);
         if success {
-            info!(output = %l.text, params = ?l.params, "console command");
+            info!(output = %line, "console command");
         } else {
-            info!(error = %l.text, params = ?l.params, "console command failed");
+            info!(error = %line, "console command failed");
         }
     }
 }
@@ -1001,7 +1004,8 @@ impl Context<'_> {
         match sender {
             Sender::Player(id) => self.player_mut(id).map_or(Ok(()), |p| p.send(message)),
             Sender::Console => {
-                info!(?message, "console message");
+                let message = text::message(&message);
+                info!(%message, "console message");
                 Ok(())
             }
         }

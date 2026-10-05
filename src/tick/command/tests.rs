@@ -1461,6 +1461,41 @@ fn every_name_and_alias_reaches_the_client_as_bds_lists_them() {
 }
 
 #[test]
+fn the_console_reads_anchors_sentences_where_players_get_keys() {
+    let (mut state, _rx) = server(Vec::new());
+    Context { state: &mut state }.op("player1").unwrap();
+    let typed = lines(execute(&mut state, id(1), "list"));
+    assert_eq!(
+        typed[0], "commands.players.list",
+        "the player's client translates"
+    );
+    let logged = crate::console::log::tests::captured(|| {
+        console(&mut state, "list");
+        console(&mut state, "no_such_command");
+        execute(&mut state, id(1), "kill player2").unwrap();
+        Context { state: &mut state }
+            .send_to(
+                Sender::Console,
+                player::Message::Translation {
+                    key: "commands.op.success".to_owned(),
+                    parameters: vec!["Steve".to_owned()],
+                },
+            )
+            .unwrap();
+    })
+    .concat();
+    for sentence in [
+        "Players online: 2 of ",
+        "No command is named no_such_command",
+        "player2 was killed",
+        "Steve is an operator now",
+    ] {
+        assert!(logged.contains(sentence), "{sentence}: {logged}");
+    }
+    assert!(!logged.contains("commands."), "{logged}");
+}
+
+#[test]
 fn a_number_suffix_is_ascii_letters() {
     let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
     for (suffix, fine) in [("l", true), ("ticks", true), ("", false), ("1", false)] {

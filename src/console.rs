@@ -22,6 +22,7 @@ use crate::command::parse::MAX_LINE_BYTES;
 use crate::tick::queue::{self, InputKind, InputSender, SessionId, SessionInputs};
 
 pub(crate) mod log;
+pub(crate) mod text;
 
 /// Starts the console thread reading standard input into the tick's input queue.
 #[expect(

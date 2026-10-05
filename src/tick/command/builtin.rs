@@ -31,6 +31,7 @@ use super::{ADMIN_PREFIX, CONSOLE_NAME, Context};
 use crate::action::{self, Action};
 use crate::command::{Args, Command, Error, Output, Param, Result, Sender};
 use crate::config::GameMode;
+use crate::console::text;
 use crate::math::{self, Vec3};
 use crate::permission::Permission;
 use crate::player::{self, Message};
@@ -85,26 +86,7 @@ impl Msg {
     /// The own text with `params` filled in, in one pass so that a parameter's own text is kept
     /// as it is; `None` for a client key.
     fn render(self, params: &[&str]) -> Option<String> {
-        if !self.own {
-            return None;
-        }
-        let mut out = String::new();
-        let mut rest = self.key;
-        while let Some((before, after)) = rest.split_once("{%") {
-            out.push_str(before);
-            let param = after.split_once('}').and_then(|(digits, tail)| {
-                Some((params.get(digits.parse::<usize>().ok()?)?, tail))
-            });
-            if let Some((param, tail)) = param {
-                out.push_str(param);
-                rest = tail;
-            } else {
-                out.push_str("{%");
-                rest = after;
-            }
-        }
-        out.push_str(rest);
-        Some(out)
+        self.own.then(|| text::fill(self.key, params))
     }
 
     /// The message as a command result line.
@@ -214,7 +196,8 @@ fn notify(cx: &mut Context<'_>, sender: Sender, msg: Msg, params: &[&str]) {
         };
         cx.tell_admins(sender, &copy);
         if let Sender::Player(_) = sender {
-            info!(%source, key = msg.key, ?params, "command result");
+            let result = text::render(msg.key, params);
+            info!(%source, %result, "command result");
         }
         return;
     };

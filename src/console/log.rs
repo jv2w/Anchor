@@ -478,7 +478,7 @@ impl fmt::Write for Clean<'_> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
 
     use tracing::{debug, error, info, warn};
@@ -514,7 +514,8 @@ mod tests {
         fn exit(&self, _: &Id) {}
     }
 
-    fn captured(f: impl FnOnce()) -> Vec<String> {
+    /// The lines `f` logs on this thread, as the console would write them.
+    pub(crate) fn captured(f: impl FnOnce()) -> Vec<String> {
         let capture = Arc::new(Capture::default());
         dispatcher::with_default(&Dispatch::from(Arc::clone(&capture)), f);
         capture.lines.lock().unwrap().clone()
