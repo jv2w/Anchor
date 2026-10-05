@@ -32,7 +32,9 @@ use super::{
 };
 use crate::block::{self, Class, Face, SupportType};
 use crate::entity::Id;
-use crate::event::{Actor, BlockExplode, DamageSource, EntityExplode, EntityPreExplode};
+use crate::event::{
+    Actor, BlockExplode, DEFAULT_FIRE_CHANCE, DamageSource, EntityExplode, EntityPreExplode,
+};
 use crate::item::Enchantment;
 use crate::math::{self, Aabb, Vec3};
 use crate::protocol::consts::LevelEvent;
@@ -54,8 +56,6 @@ pub(super) const MAX_BLOCKS_PER_TICK: usize = 8192;
 /// Rays per edge of PMMP's cube of rays, and the step along a ray.
 const RAYS: u32 = 16;
 const STEP: f64 = 0.3;
-/// The share of destroyed blocks set on fire (PMMP `DEFAULT_FIRE_CHANCE`).
-const FIRE_CHANCE: f64 = 1.0 / 3.0;
 /// The fuse of lit TNT that an explosion reaches (PMMP `explodeB`: `mt_rand(10, 30)`).
 const CHAIN_FUSE: (i32, i32) = (10, 30);
 /// How far above its position primed TNT explodes (half its height, PMMP `explode`).
@@ -217,7 +217,7 @@ impl Blast {
     pub(in crate::tick) fn new(size: f64, fire: bool) -> Self {
         Self {
             size,
-            fire_chance: if fire { FIRE_CHANCE } else { 0.0 },
+            fire_chance: if fire { DEFAULT_FIRE_CHANCE } else { 0.0 },
             breaks: true,
         }
     }
@@ -1145,6 +1145,14 @@ mod tests {
         assert_eq!(tnt_count(&h), 100 - MAX_EXPLOSIONS_PER_TICK);
         h.entities();
         assert_eq!(tnt_count(&h), 0, "the rest go next tick");
+    }
+
+    /// An incendiary blast of the rules takes the fire chance the events' `set_incendiary` sets.
+    #[test]
+    fn incendiary_blasts_take_the_event_fire_chance() {
+        let chance = |fire| Blast::new(4.0, fire).fire_chance.to_bits();
+        assert_eq!(chance(true), DEFAULT_FIRE_CHANCE.to_bits());
+        assert_eq!(chance(false), 0.0f64.to_bits());
     }
 
     #[test]

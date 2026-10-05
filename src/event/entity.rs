@@ -720,9 +720,11 @@ pub struct EntityPreExplode {
     pub(crate) cancelled: bool,
 }
 
-/// PMMP `Explosion::DEFAULT_FIRE_CHANCE`: what [`EntityPreExplode::set_incendiary`] and
-/// [`BlockPreExplode::set_incendiary`](super::BlockPreExplode::set_incendiary) set.
-pub(super) const DEFAULT_FIRE_CHANCE: f64 = 1.0 / 3.0;
+/// PMMP `Explosion::DEFAULT_FIRE_CHANCE`: the share of destroyed blocks an incendiary explosion
+/// sets on fire, which [`EntityPreExplode::set_incendiary`],
+/// [`BlockPreExplode::set_incendiary`](super::BlockPreExplode::set_incendiary) and the
+/// explosion rules use.
+pub(crate) const DEFAULT_FIRE_CHANCE: f64 = 1.0 / 3.0;
 
 getters!(EntityPreExplode {
     /// The entity that explodes.

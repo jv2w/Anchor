@@ -4,7 +4,7 @@
 //! A block event names its block by world, position and state. Other blocks it mentions are still
 //! in the world while the listeners run, so the event gives their positions only.
 
-use super::entity::DEFAULT_FIRE_CHANCE;
+use super::DEFAULT_FIRE_CHANCE;
 use crate::block::State;
 use crate::item::Stack;
 use crate::math::{self, Vec3};

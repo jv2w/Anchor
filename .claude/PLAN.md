@@ -1207,6 +1207,7 @@ console-input = true
 - U6 합침: 규칙 하나 `Settings::has_orbs()` = `experience` 그리고 `experience-orbs`. `drop_orbs`, 구슬 API, 청크 로드 때 저장된 구슬, 병 던지기, 블록·화로·좀비 경험치 계산이 씀. 결정(추천안): 구슬이 꺼지면 구슬만 없어지고 경험치를 바로 주지 않음. 점수·레벨은 `experience`만 따름.
 - U7 합침: 내구도를 깎는 모든 경로가 `interact::breaking::damage` 한 곳을 지나고, `durability = false`면 계산과 난수 뽑기를 하지 않음. `durability`만 끄면 갑옷은 막되 닳지 않음, `armor`를 끄면 방어·갑옷 소모·가시가 모두 없음.
 - 남은 지적 4 합침: `.clippy.toml` 금지 목록에 std `Read::read_to_end`·`Read::read_to_string`·`io::read_to_string`. 사용처는 `src/fs.rs` 한 곳(`take` 상한, `safety` 태그 `#[expect]`)과 xtask 시험. LevelDB·zip은 상한 있는 `read_exact`라 해당 없음.
+- 남은 지적 9 합침: 불 확률 1/3을 `event::DEFAULT_FIRE_CHANCE` 하나로.
 
 ## 11. 버전업
 gophertunnel 새 정식 태그 → IR 비교와 외부 불신 검토 → `cargo xtask gen`과 P1~P5 → 기준 목록 교체와 상태 대조 → 새 버전 BDS로 P6 → 깨지는 변경으로 표시.

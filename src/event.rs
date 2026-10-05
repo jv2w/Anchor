@@ -114,6 +114,7 @@ pub use inventory::{
     CraftItem, FurnaceBurn, FurnaceSmelt, Inventory, InventoryClose, InventoryOpen,
     InventoryTransaction, SlotChange, Trade, TradeOpen, Window,
 };
+pub(crate) use entity::DEFAULT_FIRE_CHANCE;
 pub(crate) use player::DuplicateOutcome;
 pub use player::{
     BookAction, EnchantOption, ExhaustCause, InteractAction, KickFlag, PlayerBedEnter,
