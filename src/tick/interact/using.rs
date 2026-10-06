@@ -2,11 +2,10 @@
 //! `Block::onInteract` of every class and trait, `Item::onInteractBlock`, `Item::onClickAir`,
 //! `Player::useHeldItem`, `releaseHeldItem`, `attackEntity`, `interactEntity`).
 //!
-//! Redstone is out of scope (CLAUDE.md 1): buttons, levers, repeaters and comparators only change
-//! their own state. Block entity contents (signs, item frames, flower pots, jukeboxes, lecterns,
-//! campfire cooking, cauldron dye) are [`super::decor`]'s; thrown items, bows, tridents,
-//! paintings, end crystals, firework rockets, primed TNT and entity attacks go to the entity
-//! rules.
+//! Redstone is out of scope: buttons, levers, repeaters and comparators only change their own
+//! state. Block entity contents (signs, item frames, flower pots, jukeboxes, lecterns, campfire
+//! cooking, cauldron dye) are [`super::decor`]'s; thrown items, bows, tridents, paintings, end
+//! crystals, firework rockets, primed TNT and entity attacks go to the entity rules.
 
 use crate::block::{self, Class, Face, Kind, State as BlockState};
 use crate::config::GameMode;
@@ -431,7 +430,7 @@ fn obstructed(state: &State, world: WorldIndex, pos: BlockPos, block: BlockState
 )]
 fn interact(state: &mut State, u: &mut Use) -> bool {
     let block = u.block;
-    // A custom block's own use (PLAN.md 8.3); no vanilla class applies to it.
+    // A custom block's own use; no vanilla class applies to it.
     if block.custom_block().is_some() {
         return super::custom::used(state, u.actor.session, u.actor.world, u.pos, block);
     }
@@ -1016,7 +1015,7 @@ fn cake(state: &mut State, u: &mut Use) -> bool {
 }
 
 /// PMMP `Campfire::onInteract`: lighting with a fire charge, flint and steel or Fire Aspect, and
-/// putting out with a shovel. Cooking items is the block entity's (wave C).
+/// putting out with a shovel. Cooking items is the block entity's.
 fn campfire(state: &mut State, u: &mut Use) -> bool {
     let lit = props::flag(u.block, "extinguished") != Some(true);
     let world = u.actor.world;

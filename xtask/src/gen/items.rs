@@ -1,4 +1,4 @@
-//! `src/item/table.rs`: the item type table and its lookup indices (PLAN.md 10.4) from [`Data`].
+//! `src/item/table.rs`: the item type table and its lookup indices from [`Data`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,7 +21,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     put!(
         out,
         "{HEADER}\n//! Item types generated from the PMMP dump and the 1.26.50 reference list \
-         (PLAN.md 10.4): {} types.\n\n\
+        : {} types.\n\n\
          use super::{{Armor, Consumable, Cooldown, Data, EnchantmentData, EnchantmentSet, Food, \
          Info, Type}};\nuse crate::block::{{State, ToolType}};\nuse crate::effect;\n\n\
          /// Every PMMP item type in Bedrock form, in dump order: (name, meta, block, block \

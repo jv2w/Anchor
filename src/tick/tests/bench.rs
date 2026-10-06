@@ -1,10 +1,9 @@
-//! Tick cost measurements (PLAN.md 10.7 판정식 "성능"): whole ticks of the in-process server
-//! (inputs, rules, views, output and delivery; the stand-in save thread answers outside the
-//! measured time, lighting new chunks on the CPU pool as the save thread does) on a CPU pool of
-//! max(logical CPUs, 4) threads, with a flat world and a view distance of 8:
-//! `cargo test --release --lib tick::tests::bench -- --ignored --nocapture`. Each measurement
-//! runs without listeners, then with an idle listener and monitor on every event (PLAN.md 10.8
-//! 판정식 "결정성·성능"), so every event is built and every rule checks again.
+//! Tick cost measurements: whole ticks of the in-process server (inputs, rules, views, output and
+//! delivery; the stand-in save thread answers outside the measured time, lighting new chunks on the
+//! CPU pool as the save thread does) on a CPU pool of max(logical CPUs, 4) threads, with a flat
+//! world and a view distance of 8: `cargo test --release --lib tick::tests::bench -- --ignored
+//! --nocapture`. Each measurement runs without listeners, then with an idle listener and monitor on
+//! every event, so every event is built and every rule checks again.
 //!
 //! Each tick is timed per [`Part`] of the step by the mark [`step_marked`] calls as each ends.
 

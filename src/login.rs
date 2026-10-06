@@ -1,6 +1,6 @@
 //! Login verification: the multiplayer token, the client data and offline requests.
 //!
-//! Rules (PLAN.md 10.2, gophertunnel `minecraft/protocol/login`):
+//! Rules (gophertunnel `minecraft/protocol/login`):
 //! - Online: only the `Token` (RS256 by the authorization service, JWKS key by `kid`) proves the
 //!   identity; the legacy chain is ignored.
 //! - Offline: the `Token` claims are read without verification when present, else the legacy
@@ -346,7 +346,7 @@ pub(crate) fn check_times(
     Ok(())
 }
 
-/// Verifies a multiplayer token with the online rules (PLAN.md 10.2): the Login `Token` and the
+/// Verifies a multiplayer token with the online rules: the Login `Token` and the
 /// NetherNet offer identity share them. [`Error::UnknownKeyId`] asks for one JWKS refresh.
 pub(crate) fn verify_online_token(
     token: &str,
@@ -503,7 +503,7 @@ fn parse_xuid(xid: &str) -> Result<Option<u64>> {
         .ok_or(Error::Identity("xuid out of range"))
 }
 
-/// Offline name rules ([`check_user_name`], user decision, PLAN.md 10.3).
+/// Offline name rules: the ones of [`check_user_name`].
 fn check_offline_name(name: &str) -> Result<()> {
     check_user_name(name).map_err(Error::Identity)
 }

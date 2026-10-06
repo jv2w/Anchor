@@ -1,7 +1,7 @@
 //! Block entities: containers, furnaces, brewing stands, campfires, signs, beds, banners and the
-//! other blocks with data beyond their state (PLAN.md 10.7, PMMP `tile`), by position, saved with
-//! their chunk (chunk extras kind 1, in Bedrock form: `id`, `x`, `y`, `z`, `Items` with `Slot`,
-//! `CustomName`, `pairx`/`pairz`…).
+//! other blocks with data beyond their state (PMMP `tile`), by position, saved with their chunk
+//! (chunk extras kind 1, in Bedrock form: `id`, `x`, `y`, `z`, `Items` with `Slot`, `CustomName`,
+//! `pairx`/`pairz`…).
 //!
 //! The store keeps a typed [`BlockEntity`] per position of every loaded chunk; a saved entry of an
 //! id Anchor does not type is kept as it came ([`Kind::Other`]). A kind with slots keeps them in
@@ -17,10 +17,10 @@
 //! Items that cannot be dropped when a container breaks (the world's entity limit) wait in the
 //! chunk as spills ([`Spill`], saved with the chunk) and drop on later ticks: nothing is lost.
 //!
-//! Events (PLAN.md 10.8) sit between the steps of a tick: `FurnaceBurn` before a fuel burns,
-//! `FurnaceSmelt` before an item smelts, `BrewingFuelUse` and `BrewItem` (one per bottle),
-//! `CampfireCook` before a cooked item drops, `ChestPair` before two chests pair. After a
-//! listener the step is checked again on the block as the listener left it.
+//! Events sit between the steps of a tick: `FurnaceBurn` before a fuel burns, `FurnaceSmelt` before
+//! an item smelts, `BrewingFuelUse` and `BrewItem` (one per bottle), `CampfireCook` before a cooked
+//! item drops, `ChestPair` before two chests pair. After a listener the step is checked again on
+//! the block as the listener left it.
 
 mod api;
 mod beacon;
@@ -972,7 +972,7 @@ impl BlockEntities {
     }
 
     /// The `ContainerSetData` values a window on the block at `pos` opens with (BDS sends a
-    /// furnace's keys 0 to 3 on open, P6 facts 3); empty for other blocks.
+    /// furnace's keys 0 to 3 on open, P6); empty for other blocks.
     pub(super) fn window_data(&self, world: WorldIndex, pos: BlockPos) -> Vec<(i32, i32)> {
         match self.get(world, pos).map(|e| &e.kind) {
             Some(Kind::Furnace(f)) => f.data().to_vec(),
@@ -1301,7 +1301,7 @@ pub(super) fn placed(
 
 /// A window opens on a container block without its block entity (a block a task or a console
 /// set): creates an empty one. Clients are not sent it: the client makes a block's block entity
-/// with the block, and BDS sends no `BlockActorData` when a window opens (P6 F2); a chest that
+/// with the block, and BDS sends no `BlockActorData` when a window opens (P6); a chest that
 /// pairs sends both halves as on placing.
 pub(super) fn missing(state: &mut State, world: WorldIndex, pos: BlockPos) {
     create(state, world, pos, None, &Stack::EMPTY, Face::Up);
@@ -1808,7 +1808,7 @@ pub(super) fn tick(state: &mut State) {
 }
 
 /// The active block entity the tick visits after `at`: past every one of `at`'s world in one
-/// step when that world is asleep (CLAUDE.md 2.2, no walk over what does not run).
+/// step when that world is asleep (no walk over what does not run).
 fn next(state: &State, (world, pos): (WorldIndex, BlockPos)) -> Option<(WorldIndex, BlockPos)> {
     let after = if state.is_awake(world) {
         pos
@@ -1828,7 +1828,7 @@ fn next(state: &State, (world, pos): (WorldIndex, BlockPos)) -> Option<(WorldInd
 }
 
 /// A tick's stagger for periodic work at `pos`, so blocks of one period do not all run on the
-/// same tick (CLAUDE.md 2.2).
+/// same tick.
 fn stagger(pos: BlockPos, period: u64) -> u64 {
     let key = random::key(
         TICK,

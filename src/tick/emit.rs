@@ -1,9 +1,8 @@
 //! Sounds and particles the game plays at a place (PMMP `World::addSound`, `World::addParticle`,
 //! `Entity::broadcastSound`): the one way rule code plays a [`Sound`] or a [`Particle`], which
-//! raises [`WorldSound`] or [`WorldParticle`] when something listens (PLAN.md 8.2). The players
-//! who see the place's chunk hear and see it; a listener may change what plays or narrow who
-//! gets it, and those it names who do not see the place are left out (PMMP
-//! `filterViewersForPosition`).
+//! raises [`WorldSound`] or [`WorldParticle`] when something listens. The players who see the
+//! place's chunk hear and see it; a listener may change what plays or narrow who gets it, and those
+//! it names who do not see the place are left out (PMMP `filterViewersForPosition`).
 //!
 //! A direct API call raises no event: [`Context::add_sound`](crate::Context::add_sound) does not
 //! come here, and a rule that runs for a direct call (an explosion of `Context::explode`) plays

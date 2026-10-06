@@ -1,4 +1,4 @@
-//! The world API as a user sees it (PLAN.md 10.6): positions, errors, and a generator written
+//! The world API as a user sees it: positions, errors, and a generator written
 //! outside Anchor. Worlds themselves are made by the server builder and tested inside the crate.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).

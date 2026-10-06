@@ -1,4 +1,4 @@
-//! A sub-chunk (PLAN.md 10.6): a 16×16×16 cube of blocks in two layers (layer 1 holds water
+//! A sub-chunk: a 16×16×16 cube of blocks in two layers (layer 1 holds water
 //! logging), and its network form.
 
 use crate::block::{self, Inert, State};
@@ -16,7 +16,7 @@ pub(crate) enum Entry {
     /// A block state of the table.
     Known(State),
     /// A block state Anchor does not know: the index of its original NBT in the chunk's unknown
-    /// list (PLAN.md 7). It is kept as read and sent as `minecraft:info_update`.
+    /// list. It is kept as read and sent as `minecraft:info_update`.
     Unknown(u32),
     /// A block state Anchor does not know that clients do ([`Inert`]), with the index of its
     /// original NBT in the chunk's unknown list. It is kept as read and sent as itself.

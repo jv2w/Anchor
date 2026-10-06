@@ -1,7 +1,8 @@
 //! NetherNet signaling: a minimal HTTP/1.1 server over TCP, with optional TLS.
 //!
 //! It answers `GET /v1/join` with the server-list status and hands `POST /v1/join/{networkId}`
-//! offers to the offer consumer, enforcing the limits of PLAN.md 10.3. It never reads the SDP.
+//! offers to the offer consumer, within the connection, size and time limits below. It never
+//! reads the SDP.
 //! Responses copy BDS 1.26.52: each one closes the connection, and a failed negotiation is still
 //! `200` with the error code as an `application/sdp` body.
 
@@ -26,20 +27,20 @@ use tracing::{debug, error, trace, warn};
 
 use crate::raknet::ip_key;
 
-/// Open signaling connections at once (PLAN.md 10.3).
+/// Open signaling connections at once.
 const MAX_CONNECTIONS: usize = 64;
-/// Open signaling connections from one IPv4 address or one IPv6 /64 (PLAN.md 10.3). A /64 is
+/// Open signaling connections from one IPv4 address or one IPv6 /64. A /64 is
 /// the smallest block one IPv6 host is commonly given, so it counts as one address.
 const MAX_CONNECTIONS_PER_IP: u8 = 4;
-/// The request line and headers, the closing empty line included (PLAN.md 10.3).
+/// The request line and headers, the closing empty line included.
 const MAX_HEAD: usize = 8 * 1024;
-/// A request body after chunked decoding: the SDP offer limit (PLAN.md 10.3).
+/// A request body after chunked decoding: the SDP offer limit.
 const MAX_BODY: usize = 64 * 1024;
 /// Chunked framing (size lines, extensions, trailers), so tiny chunks cannot stretch a body read
 /// far past [`MAX_BODY`]. A client writing 4 KiB chunks spends about 8 bytes per chunk.
 const MAX_FRAMING: usize = 8 * 1024;
 /// One connection from accept to close: TLS handshake, reading, waiting for the answer and
-/// writing (PLAN.md 10.3). When it passes, the connection is dropped without a response.
+/// writing. When it passes, the connection is dropped without a response.
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 /// Bytes read from a connection at once.
 const READ_CHUNK: usize = 4096;
@@ -48,7 +49,7 @@ const BACKLOG: i32 = 128;
 /// Pause after an accept error such as running out of file descriptors, which would otherwise
 /// repeat at once and spin the task.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
-/// The first byte of a TLS handshake record: a client trying HTTPS first (PLAN.md 2).
+/// The first byte of a TLS handshake record: a client trying HTTPS first.
 const TLS_HANDSHAKE: u8 = 0x16;
 /// What BDS sends to a TLS client hello on plain HTTP: an alert record (TLS 1.2, length 2)
 /// holding a fatal `handshake_failure`.
@@ -204,7 +205,7 @@ pub(crate) enum Reply {
     Answer(String),
     /// `200`, `application/sdp`, the negotiation error code in decimal (BDS).
     Code(u32),
-    /// `503 Service Unavailable`: too many peers before login (PLAN.md 3).
+    /// `503 Service Unavailable`: too many peers before login.
     Busy,
 }
 

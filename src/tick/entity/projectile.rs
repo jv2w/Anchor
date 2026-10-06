@@ -5,11 +5,11 @@
 //! A projectile flies along a ray each tick ([`super::physics`]); the serial phase then looks for
 //! the nearest player, NPC or end crystal on the ray (not the shooter in its first 5 ticks, never
 //! for a trident) and resolves the hit: the kind's effect (an arrow's or trident's damage and
-//! knockback, an ender pearl's teleport, a potion's splash or cloud, a bottle's experience, an
-//! ice bomb's frost), then a block hit sticks an arrow or a trident and ends a thrown item, an
-//! entity hit ends any projectile but a trident, which bounces back and hits nothing more until
-//! it meets a block. Eggs hatch nothing (mobs are out of scope, CLAUDE.md 1). A stuck trident is
-//! picked up whole by the first player who touches it and has room for it.
+//! knockback, an ender pearl's teleport, a potion's splash or cloud, a bottle's experience, an ice
+//! bomb's frost), then a block hit sticks an arrow or a trident and ends a thrown item, an entity
+//! hit ends any projectile but a trident, which bounces back and hits nothing more until it meets a
+//! block. Eggs hatch nothing (mobs are out of scope). A stuck trident is picked up whole by the
+//! first player who touches it and has room for it.
 //!
 //! Fixed PMMP defects: a critical arrow's extra damage is counted before the hit clears the
 //! critical flag (PMMP clears it first, so the bonus never applies); arrows shot by players
@@ -84,7 +84,7 @@ const HIT_FIRE_SECONDS: i16 = 5;
 /// The fall damage an ender pearl's thrower takes (PMMP `EnderPearl::onHit`).
 const PEARL_DAMAGE: f64 = 5.0;
 /// The particles a snowball or an egg leaves where it hits (PMMP `Snowball::onHit`,
-/// `Egg::onHit`; BDS sends as many, m8-facts.md 6).
+/// `Egg::onHit`; BDS sends as many).
 const HIT_PARTICLES: usize = 6;
 /// The experience a bottle drops (PMMP `ExperienceBottle::onHit`: `mt_rand(3, 11)`).
 const BOTTLE_EXPERIENCE: (i32, i32) = (3, 11);
@@ -342,7 +342,7 @@ pub(super) fn release_trident_with(
     if !launch(state, id, still) {
         return false;
     }
-    // BDS plays it at the middle of the thrower's body (P6 `itemuse`, m9-facts.md ITEMUSE).
+    // BDS plays it at the middle of the thrower's body (P6 `itemuse`).
     let middle = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT - PLAYER_HEIGHT / 2.0, 0.0);
     super::play(state, world, middle, crate::world::Sound::TridentThrow);
     true
@@ -953,7 +953,7 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
 
 /// [`HIT_PARTICLES`] numbered particles `data` at `at`, in BDS's form: `LevelEvent` 2009
 /// (`ParticleGenericSpawn`) with the particle number and its extra value in the data
-/// (m8-facts.md 6).
+/// (P6).
 fn hit_particles(state: &mut State, world: usize, at: Vec3, data: i32) {
     for _ in 0..HIT_PARTICLES {
         level_event(state, world, at, LevelEvent::ParticleGenericSpawn, data);
@@ -1114,10 +1114,10 @@ fn eye_of(state: &State, target: Struck) -> Option<Vec3> {
 }
 
 /// The share of a splash potion's effect durations `target` gets from a splash at `at`, as BDS
-/// gives it (P6 `itemuse`, m9-facts.md ITEMUSE): full within 2/9 of a block of the target's
-/// upright middle line (feet to the top of its box), then 0.225 less per block. PMMP's
-/// `0.75 × (1 − distance from the eyes / 4)` gives a third less at the feet and differs with the
-/// height of the splash, which BDS ignores beside the body.
+/// gives it (P6 `itemuse`): full within 2/9 of a block of the target's upright middle line (feet to
+/// the top of its box), then 0.225 less per block. PMMP's `0.75 × (1 − distance from the eyes / 4)`
+/// gives a third less at the feet and differs with the height of the splash, which BDS ignores
+/// beside the body.
 fn duration_share(state: &State, target: Struck, at: Vec3) -> f64 {
     let b = match target {
         Struck::Player(s) => state.players.get(&s).map(player_box),
@@ -1180,7 +1180,7 @@ fn with_duration(effect: effect::Instance, ticks: f64) -> effect::Instance {
 }
 
 /// Gives a lasting effect: players get it; NPCs have no lasting effects (they have no AI the
-/// effects could change; PLAN.md 10.7 decision).
+/// effects could change).
 fn give(state: &mut State, target: Struck, effect: effect::Instance, hooks: Hooks) {
     if let Struck::Player(s) = target {
         (hooks.add_effect)(state, s, effect);

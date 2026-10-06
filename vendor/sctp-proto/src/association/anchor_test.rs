@@ -1,6 +1,6 @@
-//! Reproduction tests for the fixes Anchor carries in this copy (Anchor PLAN.md 9.1). Each one
-//! fails on the published 0.10.5 and passes here. Last, an ignored measurement of the receive
-//! path (Anchor PLAN.md 10.5).
+//! Reproduction tests for the fixes Anchor carries in this copy (Anchor docs/dependencies.md).
+//! Each one fails on the published 0.10.5 and passes here. Last, an ignored measurement of the
+//! receive path.
 
 use crate::chunk::chunk_selective_ack::{ChunkSelectiveAck, GapAckBlock};
 use crate::packet::CommonHeader;
@@ -266,7 +266,7 @@ fn pushing_a_tsn_does_not_sort_the_whole_queue() {
 
 /// Every outbound poll walked all chunks in flight looking for ones a T3-rtx timeout marked,
 /// though only that timeout marks them: O(in flight) per poll, the largest share of a sending
-/// peer's cost (Anchor PLAN.md 10.5). 20,000 polls over 2,000 chunks took seconds in 0.10.5.
+/// peer's cost. 20,000 polls over 2,000 chunks took seconds in 0.10.5.
 /// Marked chunks still go out, once.
 #[test]
 fn polling_without_a_retransmission_timeout_skips_the_chunks_in_flight() {
@@ -284,7 +284,10 @@ fn polling_without_a_retransmission_timeout_skips_the_chunks_in_flight() {
         assert!(a.get_data_packets_to_retransmit(now).is_empty());
     }
     let took = now.elapsed();
-    assert!(took < Duration::from_millis(500), "{POLLS} polls took {took:?}");
+    assert!(
+        took < Duration::from_millis(500),
+        "{POLLS} polls took {took:?}"
+    );
 
     a.inflight_queue.mark_all_to_retrasmit();
     let resent: usize = a

@@ -1,4 +1,4 @@
-//! NetherNet: HTTP signaling, WebRTC peers and their UDP driver (PLAN.md 2.1, 10.3).
+//! NetherNet: HTTP signaling, WebRTC peers and their UDP driver.
 //!
 //! The signaling server hands each offer to an offer task, which parses it, verifies its
 //! identity and asks the driver for a peer; the answer goes back signed with the server identity.
@@ -37,14 +37,14 @@ use identity::ServerIdentity;
 use peer::{Certificate, Peer};
 use signaling::{CODE_BAD_OFFER, CODE_INTERNAL, Offer, Reply};
 
-/// The identity key file in the data folder (PLAN.md 1).
+/// The identity key file in the data folder.
 const IDENTITY_FILE: &str = "identity.key";
 /// Offers waiting for the offer task; the signaling server answers 503 when it is full.
 const OFFER_QUEUE: usize = 64;
 /// Messages from sessions and offer tasks to the driver. Sends wait when it is full, which slows
 /// sessions to the driver's pace instead of buffering without bound.
 const COMMAND_QUEUE: usize = 4096;
-/// Peers before login, in all and per IPv4 address or IPv6 /64 (PLAN.md 10.3).
+/// Peers before login, in all and per IPv4 address or IPv6 /64.
 const MAX_PRE_LOGIN: usize = 64;
 const MAX_PRE_LOGIN_PER_IP: usize = 4;
 /// Tries at a peer whose 24-bit ufrag no other peer uses; a fourth collision in a row means the
@@ -64,7 +64,7 @@ const CLOSE_LINGER: Duration = Duration::from_secs(5);
 /// Larger than any datagram a peer accepts, so that an oversized one is seen and dropped.
 const RECV_BUFFER: usize = 2048;
 /// Signaling answer code (go-nethernet `ErrorCodeIdentityVerificationFailed`) for an offer
-/// identity that fails (PLAN.md 10.3).
+/// identity that fails.
 const CODE_IDENTITY: u32 = 37;
 
 /// Ports, addresses and limits for [`start`].
@@ -171,7 +171,7 @@ pub(crate) async fn start(
         ),
         None => None,
     };
-    // One certificate for every peer, made now so that no join pays for it (PLAN.md 10.3).
+    // One certificate for every peer, made now so that no join pays for it.
     let certificate = Certificate::generate().map_err(StartError::Certificate)?;
     let v4 = settings.udp_v4.map(|a| bind(a.into())).transpose();
     let v6 = settings.udp_v6.map(|a| bind(a.into())).transpose();

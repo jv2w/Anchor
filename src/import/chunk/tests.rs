@@ -402,9 +402,8 @@ fn malformed_sub_chunks_are_errors() {
 
 #[test]
 fn biomes_entities_and_pending_ticks_are_not_read() {
-    // Values each of which failed the chunk when it was read: biomes after the storages the
-    // chunk version has (a real 1.21 chunk, U11), a short Data2D, entities and pending ticks that
-    // are not NBT.
+    // Values each of which must not fail the chunk: biomes after the storages the chunk version
+    // has (as in a real 1.21 chunk), a short Data2D, entities and pending ticks that are not NBT.
     let mut data_3d = vec![0; 512];
     data_3d.extend(std::iter::repeat_n(1_u8, 25));
     let e = entries(

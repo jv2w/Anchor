@@ -1,4 +1,4 @@
-//! Replaying a crash log (PLAN.md 10.9 재생 도구): [`Server::replay`](crate::Server::replay)
+//! Replaying a crash log: [`Server::replay`](crate::Server::replay)
 //! runs the ticks a crashed server applied again, from a saved state, with the same build.
 //!
 //! A crash log (`data/crash/input-*.log`) holds segments: the inputs of every tick from a state

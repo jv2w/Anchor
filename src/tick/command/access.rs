@@ -1,4 +1,4 @@
-//! The operator list, the name and IP bans and the whitelist in the tick (PLAN.md 6, 10.8).
+//! The operator list, the name and IP bans and the whitelist in the tick.
 //!
 //! Loaded from the server file at start and kept whole in memory. Every change is recorded by its
 //! key until the next save snapshot takes it, so a commit writes each changed entry once, as its

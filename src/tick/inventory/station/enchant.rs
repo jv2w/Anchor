@@ -198,8 +198,8 @@ pub(in crate::tick) fn enchant(
 }
 
 /// The `Slot` of the `PlayerEnchantOptions` for `input`: the item's enchantment slot flag, as BDS
-/// sends it (P6 `enchants`, m9-facts.md): PMMP's `ItemFlags` values except that BDS gives leggings
-/// 8 and boots 4 (PMMP 4 and 8), and a book -1; 0 for other items.
+/// sends it (P6 `enchants`): PMMP's `ItemFlags` values except that BDS gives leggings 8 and boots 4
+/// (PMMP 4 and 8), and a book -1; 0 for other items.
 pub(in crate::tick) fn slot(input: Option<Type>) -> i32 {
     let Some(item) = input else {
         return 0;
@@ -236,7 +236,8 @@ pub(in crate::tick) fn slot(input: Option<Type>) -> i32 {
 /// enchantments worn (equipped), 1 for those that act through the held item, 2 for the item's
 /// own (self). The lists are the ones gophertunnel documents for the vanilla server, and BDS sends
 /// a pickaxe's unbreaking in list 1 and efficiency in list 2 (P6 `enchant`). Swift sneak, missing
-/// from that documentation, is worn armour (verify (M9); no enchanting table gives it).
+/// from that documentation, is worn armour (not verified against BDS; no enchanting table gives
+/// it).
 pub(in crate::tick) fn activation(e: Enchantment) -> usize {
     match e {
         Enchantment::Protection
@@ -269,8 +270,7 @@ pub(in crate::tick) fn activation(e: Enchantment) -> usize {
 mod tests {
     use super::*;
 
-    /// BDS's option `Slot` per item (P6 `enchants`, m9-facts.md): leggings 8 and boots 4, a book
-    /// -1.
+    /// BDS's option `Slot` per item (P6 `enchants`): leggings 8 and boots 4, a book -1.
     #[test]
     fn option_slots_are_the_ones_bds_sends() {
         let slot_of = |k: Kind| slot(Some(k.default_type()));

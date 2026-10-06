@@ -213,7 +213,7 @@ pub(super) fn remove_from(player: &mut Player, effect: Type) -> bool {
 }
 
 /// Removes every effect (milk, respawn, a totem), in effect ID order as BDS removes them (P6
-/// `syntax` `effect @s clear`, m9-facts.md).
+/// `syntax` `effect @s clear`).
 pub(super) fn clear(state: &mut State, session: SessionId) {
     let mut active = active_types(state, session);
     active.sort_unstable_by_key(|t| t.map(Type::id));

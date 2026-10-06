@@ -464,10 +464,10 @@ pub(super) fn firework_tick(state: &mut State, id: Id, hooks: Hooks) {
 }
 
 /// A firework rocket bursts (PMMP `FireworkRocket::explode`): the viewers see the burst event (as
-/// BDS sends it, explosions or not: P6 `entities`, m9-facts.md); with explosions they hear each
-/// one (a large ball louder, a twinkle crackling), and the players and NPCs within 5 blocks of it
-/// that a ray to their feet or their middle reaches without a block take
-/// (explosions × 2 + 5) × √((5 − distance) / 5) damage from it.
+/// BDS sends it, explosions or not: P6 `entities`); with explosions they hear each one (a large
+/// ball louder, a twinkle crackling), and the players and NPCs within 5 blocks of it that a ray to
+/// their feet or their middle reaches without a block take (explosions × 2 + 5) × √((5 − distance)
+/// / 5) damage from it.
 fn burst(state: &mut State, id: Id, hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
         return;

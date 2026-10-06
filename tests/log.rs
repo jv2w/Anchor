@@ -1,4 +1,4 @@
-//! The console log (PLAN.md 10.9 "로그"): a server process writes Anchor's lines on standard
+//! The console log: a server process writes Anchor's lines on standard
 //! error at `log-level`, and with the log off (`log-level = "off"` or
 //! `ServerBuilder::without_console_log`) Anchor's events reach the program's own subscriber
 //! instead.

@@ -1,4 +1,4 @@
-//! The import's run and report (PLAN.md 10.9): [`Server::import_world`](crate::Server) reads a
+//! The import's run and report: [`Server::import_world`](crate::Server) reads a
 //! Bedrock world folder through the reader ([`Source`]), upgrades its blocks and items
 //! ([`upgrade`]), and writes it as a new persistent world of the server file, in one write
 //! transaction.
@@ -148,7 +148,7 @@ impl Report {
     }
 
     /// Of the blocks Anchor does not know, those clients know (states of the protocol's block
-    /// list, PLAN.md 7): clients see them as themselves; the server gives them no behaviour beyond
+    /// list): clients see them as themselves; the server gives them no behaviour beyond
     /// their collision, light and breaking (no drops).
     pub fn inert_blocks(&self) -> u64 {
         self.inert_blocks
@@ -163,7 +163,7 @@ impl Report {
     /// The vanilla world's spawn, from `level.dat`; a spawn without a height stands on the
     /// highest block of its column (the generator's height if the column is empty). Anchor does
     /// not take it, nor any other setting of `level.dat` (seed, game mode, difficulty, game
-    /// rules): the world runs with the settings of the server (PLAN.md 10.6). To keep the spawn,
+    /// rules): the world runs with the settings of the server. To keep the spawn,
     /// write it as `spawn = [x, y, z]` in the world's `[worlds.<name>]` table.
     pub fn spawn(&self) -> BlockPos {
         self.spawn

@@ -1,6 +1,6 @@
-//! Custom entity types on the tick (PLAN.md 8.3, 10.8): the registry the builder fills, the
-//! entries the engine adds to `AvailableActorIdentifiers`, the calls of the types' behaviours,
-//! and the API that spawns custom entities and reads and changes their data.
+//! Custom entity types on the tick: the registry the builder fills, the entries the engine adds to
+//! `AvailableActorIdentifiers`, the calls of the types' behaviours, and the API that spawns custom
+//! entities and reads and changes their data.
 //!
 //! A custom entity is an NPC of [`Form::Custom`]: it shares the living rules of NPCs (hits,
 //! cooldown, knockback, death, suffocation, fall damage) and is not invulnerable unless the API

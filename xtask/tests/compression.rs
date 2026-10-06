@@ -1,6 +1,5 @@
-//! Batch compression against gophertunnel (PLAN.md 10.1 "M1 판정식" P3 batches, P4): zlib and
-//! Snappy bodies cross-decompress in both directions, and malformed or oversized bodies are
-//! errors.
+//! Batch compression against gophertunnel (the batch part of P3, and P4): zlib and Snappy bodies
+//! cross-decompress in both directions, and malformed or oversized bodies are errors.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]

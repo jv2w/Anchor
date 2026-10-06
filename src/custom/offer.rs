@@ -1,4 +1,4 @@
-//! Villager trade offers as typed values (PLAN.md 8.6): what the API takes and gives instead of
+//! Villager trade offers as typed values: what the API takes and gives instead of
 //! offer NBT. The villager keeps them in its entity; [`Context::set_trade_offers`] and the other
 //! trade methods read and change them.
 //!
@@ -6,14 +6,14 @@
 
 use crate::item::Stack;
 
-/// The price multiplier BDS gives most offers (m7-facts.md 6).
+/// The price multiplier BDS gives most offers (P6, `xtask/data/p6/facts.md`).
 const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 
 /// One trade a villager offers: what the player pays (one or two stacks, their counts are the
 /// price) and what one trade gives, with its limits and rewards.
 ///
 /// Prices are the stacks' real counts; the price multipliers and the demand are only sent to
-/// the client as they are (Anchor runs no villager economy, CLAUDE.md 1).
+/// the client as they are (Anchor runs no villager economy).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Offer {
     pub(crate) buy_a: Stack,

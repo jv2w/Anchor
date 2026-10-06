@@ -200,7 +200,7 @@ type game struct {
 	lastOutput *packet.CommandOutput
 	// weather is what the weather scenarios saw since their last check (weather.go).
 	weather weatherLog
-	// verify is what the M9 verification scenarios keep (verify.go).
+	// verify is what the verification scenarios keep (verify.go).
 	verify verifyLog
 	// noSteps leaves step lines out while it is set (a part whose steps differ between servers).
 	noSteps bool

@@ -1,8 +1,8 @@
 //! The tick loop, the tick step and the game state.
 //!
 //! One thread owns [`State`] and changes it only in [`step`], once per tick, from the inputs the
-//! sessions queued and the answers of the save thread (PLAN.md 5, 10.2, 10.6). Outputs leave
-//! through each session's bounded queue and the save thread's request queue.
+//! sessions queued and the answers of the save thread. Outputs leave through each session's bounded
+//! queue and the save thread's request queue.
 
 mod block_entity;
 mod chat;
@@ -69,7 +69,7 @@ pub(crate) const TICK: Duration = Duration::from_millis(50);
 pub(crate) const MAX_INPUTS_PER_TICK: usize = INPUT_CAPACITY / 8;
 /// Save thread answers one tick applies; the rest wait for the next tick.
 pub(crate) const MAX_RESPONSES_PER_TICK: usize = 1024;
-/// Light work per world per tick, in blocks looked at: about 1 to 1.4 ms (PLAN.md 10.7).
+/// Light work per world per tick, in blocks looked at: about 1 to 1.4 ms.
 const LIGHT_BUDGET: u32 = 16_384;
 /// `Disconnect` reason for a server shutdown (gophertunnel `DisconnectReasonShutdown`).
 const DISCONNECT_REASON_SHUTDOWN: i32 = 68;
@@ -206,10 +206,9 @@ impl Settings {
         }
     }
 
-    /// Whether experience orbs exist (PLAN.md 10.9): `experience-orbs` with `experience`, as
-    /// no experience means no orbs. Off, no rule works out experience to drop, no orb is made
-    /// or loaded and no bottle o' enchanting is thrown; points and levels follow `experience`
-    /// alone.
+    /// Whether experience orbs exist: `experience-orbs` with `experience`, as no experience means
+    /// no orbs. Off, no rule works out experience to drop, no orb is made or loaded and no bottle
+    /// o' enchanting is thrown; points and levels follow `experience` alone.
     fn has_orbs(&self) -> bool {
         self.experience && self.experience_orbs
     }
@@ -220,8 +219,8 @@ impl Settings {
     }
 
     /// The view values in effect in world `world`: its `[worlds.<name>]` values over the global
-    /// ones (PLAN.md 8.5). A world made while the server runs has its options' values over the
-    /// global ones; one loaded while it runs has the global ones.
+    /// ones. A world made while the server runs has its options' values over the global ones; one
+    /// loaded while it runs has the global ones.
     pub(crate) fn view(&self, world: WorldIndex) -> ViewLimits {
         self.world_views.get(world).copied().unwrap_or(self.view)
     }
@@ -254,7 +253,7 @@ pub(crate) struct Setup {
     pub(crate) custom: crate::custom::Registry,
     /// The generators worlds are made with, by name.
     pub(crate) generators: crate::world::Generators,
-    /// What the server was built with, for the input log (PLAN.md 10.9).
+    /// What the server was built with, for the input log.
     pub(crate) fingerprints: log::Fingerprints,
 }
 
@@ -330,8 +329,8 @@ pub(crate) struct State {
     awake: Vec<Pace>,
 }
 
-/// What makes two logins the same player (PLAN.md 10.3): the XUID with Xbox sign-in, otherwise
-/// the name in ASCII lowercase (PMMP compares with `strcasecmp`, which folds ASCII only).
+/// What makes two logins the same player: the XUID with Xbox sign-in, otherwise the name in ASCII
+/// lowercase (PMMP compares with `strcasecmp`, which folds ASCII only).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum PlayerKey {
     Xuid(u64),
@@ -347,9 +346,8 @@ impl PlayerKey {
     }
 }
 
-/// A joined player, as a [`Context`] lends it (PLAN.md 10.8). Its getters show what the player
-/// is and has; its setters change it and tell its client and the players who see it by the end
-/// of the tick.
+/// A joined player, as a [`Context`] lends it. Its getters show what the player is and has; its
+/// setters change it and tell its client and the players who see it by the end of the tick.
 #[derive(Debug)]
 // pmmp-class: Player
 pub struct Player {
@@ -797,10 +795,9 @@ impl State {
         self.players.insert(session, player);
     }
 
-    /// Removes the player of `session`, if any, with its index entries and the chunks it held;
-    /// its open window closes first, so the cursor and grid items are back in its inventory
-    /// (PLAN.md 10.7). Unsaved data stays in memory for the next commit. Returns its outbound
-    /// queue.
+    /// Removes the player of `session`, if any, with its index entries and the chunks it held; its
+    /// open window closes first, so the cursor and grid items are back in its inventory. Unsaved
+    /// data stays in memory for the next commit. Returns its outbound queue.
     fn remove(&mut self, session: SessionId) -> Option<Player> {
         inventory::close_window(self, session);
         let mut player = self.players.remove(&session)?;
@@ -880,7 +877,7 @@ pub(crate) struct Output {
     closes: Vec<(mpsc::Sender<Outbound>, Packet)>,
     /// Requests for the save thread, in order.
     requests: Vec<Request>,
-    /// A commit or a chunk load failed: the server stops without saving (PLAN.md 6).
+    /// A commit or a chunk load failed: the server stops without saving.
     save_failed: bool,
     /// Tests: the answers of a stand-in save thread, applied by the next tick.
     #[cfg(test)]
@@ -899,13 +896,18 @@ impl Output {
 }
 
 /// Applies one tick of `inputs` and save thread `responses`, leaving both empty, and records them
-/// in `log` (PLAN.md 5, 10.5, 10.6).
+/// in `log`.
 ///
 /// 1. Input (serial): the save thread's answers in arrival order (loaded chunks and player data,
 ///    commits), then the session inputs in (session, seq) order, so the result does not depend
-///    on how sessions interleaved in the queue. Then the scheduled tasks.
-/// 2. Compute and 3. apply (serial for now): each view follows its player, picks the chunks to
-///    send and asks for the loads it needs.
+///    on how sessions interleaved in the queue, each followed by the callbacks it deferred. Then
+///    the scheduled tasks.
+/// 2. Rules ([`rules()`]): survival and the world clocks, breaking, block updates, entities (their
+///    physics computed on the CPU pool read-only, then applied in entity order), trades, block
+///    entities and light.
+/// 3. Sync (serial): the deferred callbacks, the command and player changes the API marked, the
+///    sessions whose outbound queue overflowed, then the views: each follows its player, picks the
+///    chunks to send and asks for the loads it needs.
 /// 4. Output (parallel, read-only): the sub-chunks the answers need, encoded once each, then
 ///    every marked player's packets, built on the CPU pool in player order, so the output does
 ///    not depend on the thread count.
@@ -958,7 +960,7 @@ fn step_marked(
     // Keys are unique per input, so the unstable sort is deterministic and allocates nothing.
     inputs.sort_unstable_by_key(|i| (i.session, i.seq));
     // Each input is logged before it applies, so the log of a tick that panics in a user callback
-    // holds the input that raised it (PLAN.md 10.5).
+    // holds the input that raised it.
     for input in inputs.drain(..) {
         let (session, seq) = (input.session, input.seq);
         let entry = match input.kind {
@@ -1021,9 +1023,9 @@ fn step_marked(
 }
 
 /// The tick boundary after a step and its delivery: a save snapshot for the save thread if one is
-/// due (PLAN.md 10.6), then the tick's controls to the networking. It comes after the delivery
-/// because sessions dropped there change the state of the tick, and their quit listeners may ask
-/// for controls; none waits past the tick, where its checkpoint would not keep it.
+/// due, then the tick's controls to the networking. It comes after the delivery because sessions
+/// dropped there change the state of the tick, and their quit listeners may ask for controls; none
+/// waits past the tick, where its checkpoint would not keep it.
 pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLog) {
     if let Some(request) = save::snapshot(state, log, false) {
         output.requests.push(request);
@@ -1050,9 +1052,9 @@ fn respond(state: &mut State, response: Response, output: &mut Output, log: &mut
     }
 }
 
-/// Applies an in-game packet of `session`: each packet goes to the rule module that owns it
-/// (PLAN.md 10.7). `PlayerAuthInput` runs in PMMP's order: movement, block actions and item
-/// interaction, then its item stack request.
+/// Applies an in-game packet of `session`: each packet goes to the rule module that owns it.
+/// `PlayerAuthInput` runs in PMMP's order: movement, block actions and item interaction, then its
+/// item stack request.
 fn apply_packet(state: &mut State, session: SessionId, packet: &Packet) {
     match packet {
         Packet::RequestChunkRadius(p) => spawn::request_chunk_radius(state, session, p),
@@ -1091,17 +1093,13 @@ fn apply_packet(state: &mut State, session: SessionId, packet: &Packet) {
         Packet::PlayerSkin(p) => survival::on_skin(state, session, p),
         Packet::CommandRequest(p) => command::on_request(state, session, p),
         Packet::ModalFormResponse(p) => form::on_response(state, session, p),
-        p => trace!(
-            session = session.get(),
-            id = p.id(),
-            "packet not handled yet"
-        ),
+        p => trace!(session = session.get(), id = p.id(), "packet not handled"),
     }
 }
 
-/// Runs the rule modules' tick after the inputs and tasks (PLAN.md 5 phases 2 and 3): survival
-/// and the world clocks, breaking in progress, block updates, entities, trades with vanished
-/// villagers, then light work, calling `mark` after each.
+/// Runs the rule modules' tick after the inputs and tasks (phase 2 of [`step`]): survival and the
+/// world clocks, breaking in progress, block updates, entities, trades with vanished villagers,
+/// block entities, then light work, calling `mark` after each.
 fn rules(state: &mut State, pool: &Pool, mark: &mut impl FnMut(Part)) {
     wake(state);
     survival::tick(state);
@@ -1141,10 +1139,9 @@ enum Pace {
 }
 
 /// Works out which worlds run their world rules this tick ([`State::is_awake`]): with
-/// `slow-empty-worlds`, world `w` without players only on the ticks `t` where
-/// `(t + w) % SLOW_WORLD_PERIOD == 0`, so empty worlds run on ticks of their own instead of
-/// all on one (CLAUDE.md 2.2). Entities and random block ticks need no check: they tick only
-/// near players.
+/// `slow-empty-worlds`, world `w` without players only on the ticks `t` where `(t + w) %
+/// SLOW_WORLD_PERIOD == 0`, so empty worlds run on ticks of their own instead of all on one.
+/// Entities and random block ticks need no check: they tick only near players.
 fn wake(state: &mut State) {
     state.awake.clear();
     if !state.settings.slow_empty_worlds {
@@ -1229,7 +1226,7 @@ fn dropped(state: &mut State, log: &mut InputLog, session: SessionId) {
 }
 
 /// Hands the input log to the main thread if the tick thread panics, so it can be written to
-/// `data/crash/` without the tick thread touching files (CLAUDE.md 4.6, PLAN.md 10.5).
+/// `data/crash/` without the tick thread touching files.
 struct CrashGuard {
     log: InputLog,
     crash: Option<oneshot::Sender<InputLog>>,
@@ -1287,8 +1284,8 @@ pub(crate) fn run(
     let mut pacer = clock::Pacer::new(TICK, clock::now());
     info!(tick = state.tick, "tick started");
     let mut failed = false;
-    // How long the previous tick took, which the next one reads as a logged input (PLAN.md
-    // 10.9): measured from its first input to its last request, outside the game logic.
+    // How long the previous tick took, which the next one reads as a logged input so a replay sees
+    // the same value: measured from its first input to its last request, outside the game logic.
     let mut took = None;
     loop {
         if !matches!(stop.try_recv(), Err(TryRecvError::Empty)) {
@@ -1357,11 +1354,11 @@ pub(crate) fn run(
     }
 }
 
-/// One tick of a replay (PLAN.md 10.9 재생 도구), as [`run`] applies it: the step with the
-/// logged `inputs` and the save thread's logged `responses`, the delivery (the replay drains the
-/// outbound queues, so none fills), the sessions the live tick forgot after its output
-/// (`dropped`, in order), the tick boundary, and the checkpoint of a segment it starts. Returns
-/// the requests for the save thread, in order.
+/// One tick of a replay, as [`run`] applies it: the step with the logged `inputs` and the save
+/// thread's logged `responses`, the delivery (the replay drains the outbound queues, so none
+/// fills), the sessions the live tick forgot after its output (`dropped`, in order), the tick
+/// boundary, and the checkpoint of a segment it starts. Returns the requests for the save thread,
+/// in order.
 pub(crate) fn replay_tick(
     state: &mut State,
     inputs: &mut Vec<Input>,
@@ -1475,7 +1472,7 @@ mod tests {
         assert_eq!(longest.save_interval, u64::from(u16::MAX) * 1_200);
     }
 
-    /// The IDs of the start-game packets (m7-facts.md 7): `LevelEventGeneric`, `PlayerList`,
+    /// The IDs of the start-game packets (BDS, P6): `LevelEventGeneric`, `PlayerList`,
     /// `SyncWorldClocks`, `JigsawStructureData`, `VoxelShapes`, `StartGame`, 13
     /// `SyncActorProperty`, `ItemRegistry`.
     const START_GAME: [u32; 20] = [
@@ -2277,7 +2274,7 @@ mod tests {
         assert_eq!(start.player_position, [0.5, -58.38, 0.5]);
         assert_eq!(start.game_version, crate::protocol::packet::GAME_VERSION);
         // The start-game packets, then the spawn window up to the chunk radius answer, the first
-        // NetworkChunkPublisherUpdate and a chunk (m7-facts.md 7; the survival tests check it).
+        // NetworkChunkPublisherUpdate and a chunk (BDS, P6; the survival tests check it).
         let window = START_GAME.len();
         assert_eq!(sent[..window], START_GAME);
         assert_eq!(sent[window..window + 3], [43, 344, 60]);
@@ -2552,14 +2549,14 @@ mod tests {
     /// One tick of a determinism run: the state hash after it and what every session received.
     type Observed = (u64, Vec<(u64, Vec<u32>, Option<Packet>)>);
 
-    /// A fixed-seed script of inputs for `sessions` sessions (PLAN.md 10.5, 10.6, 10.7): joins
-    /// (some under one name, so duplicate logins happen), chunk radius requests (some invalid),
-    /// right and wrong initialisations, moves (some to positions that are not finite), sub-chunk
-    /// requests, packets the tick does not handle, leaves, and sessions whose outbound queue
-    /// closes, which the tick must forget; and the M7 inputs of each session's scripted
-    /// [`client::Client`]; and the measures a live server logs (tick times, connection counts,
-    /// pings). The state also runs [`script_task`]. A [`busy`](Self::busy) script adds the M8
-    /// inputs of [`busy`]: chat, commands, form answers and blocking job results.
+    /// A fixed-seed script of inputs for `sessions` sessions: joins (some under one name, so
+    /// duplicate logins happen), chunk radius requests (some invalid), right and wrong
+    /// initialisations, moves (some to positions that are not finite), sub-chunk requests, packets
+    /// the tick does not handle, leaves, and sessions whose outbound queue closes, which the tick
+    /// must forget; and the game inputs of each session's scripted [`client::Client`]; and the
+    /// measures a live server logs (tick times, connection counts, pings). The state also runs
+    /// [`script_task`]. A [`busy`](Self::busy) script adds the API inputs of [`busy`]: chat,
+    /// commands, form answers and blocking job results.
     struct Script {
         rng: crate::protocol::Rng,
         sessions: usize,
@@ -2573,7 +2570,7 @@ mod tests {
         villagers: BTreeSet<u64>,
         /// What the clients received, by kind.
         seen: client::Seen,
-        /// Whether the script sends the M8 inputs too.
+        /// Whether the script sends the API inputs too.
         extras: bool,
         /// The forms each session was sent and has not answered, by session.
         forms: BTreeMap<u64, Vec<u32>>,
@@ -2598,7 +2595,7 @@ mod tests {
             }
         }
 
-        /// The script of `seed` with the M8 inputs.
+        /// The script of `seed` with the API inputs.
         fn busy(seed: u64, sessions: usize) -> Self {
             Self {
                 extras: true,
@@ -2607,7 +2604,7 @@ mod tests {
         }
 
         /// The inputs of one tick, in an arrival order unlike the applied (session, seq) order.
-        /// The M7 inputs follow what the clients were sent and where their players are.
+        /// The game inputs follow what the clients were sent and where their players are.
         #[expect(
             clippy::too_many_lines,
             reason = "consistency: one generator keeps the input mix in one place"
@@ -2831,8 +2828,7 @@ mod tests {
 
     /// The task of the determinism runs: every other tick it sets a block of the spawn chunks
     /// (always loaded) to stone or air, and every 50 ticks it saves. Every tick it gives a player
-    /// items, and it spawns villager NPCs trading apples for bread, removing the first one later
-    /// (PLAN.md 10.7).
+    /// items, and it spawns villager NPCs trading apples for bread, removing the first one later.
     fn script_task() -> Tasks {
         use crate::block::Kind as B;
         use crate::item::{Kind as I, Stack};
@@ -2973,7 +2969,7 @@ mod tests {
         }
         assert!(pool.shutdown());
         assert!(extras_saved > 0, "the script saved no chunk extras");
-        // The M8 inputs leave forms and jobs waiting, whose closures make a checkpoint opaque.
+        // The API inputs leave forms and jobs waiting, whose closures make a checkpoint opaque.
         assert!(
             restored > 0 || script.extras,
             "no save boundary was restored from its checkpoint"
@@ -3075,8 +3071,7 @@ mod tests {
     }
 
     /// Seeds of the determinism runs: different inputs, sessions colliding differently. Four
-    /// seeds of 400 ticks keep the run near the M6 time while each tick carries the M7 inputs
-    /// (PLAN.md 10.7).
+    /// seeds of 400 ticks keep the run short while each tick carries the game inputs.
     const SEEDS: [u64; 4] = [0x5eed_0005, 42, u64::MAX, 0x8000_0000_0000_0000];
 
     /// `check` of every run, the runs side by side on a pool of their own, results in run
@@ -3092,7 +3087,7 @@ mod tests {
         out
     }
 
-    /// What the scripted clients must have received over all seeds: proof the M7 inputs reached
+    /// What the scripted clients must have received over all seeds: proof the game inputs reached
     /// their rules (moves and crafts done and refused, windows, item entities, villagers, trade
     /// screens, broken and placed blocks, attacks).
     const REACHED: [&str; 11] = [
@@ -3302,7 +3297,7 @@ mod tests {
         assert!(pool.shutdown());
     }
 
-    // M6 (PLAN.md 10.6): chunk views, sub-chunk answers, block changes, saving.
+    // Chunk views, sub-chunk answers, block changes, saving.
 
     /// Moves a player's eyes to `position` as a teleport does (view and save tests; a
     /// client's own moves are checked by the survival rules, which allow at most 15 blocks).

@@ -1,10 +1,10 @@
-//! The public inventory API (PLAN.md 10.8): a player's inventories, its hotbar selection and
-//! window on [`Player`], container blocks on [`Context`], and the writes of [`Editor`].
+//! The public inventory API: a player's inventories, its hotbar selection and window on [`Player`],
+//! container blocks on [`Context`], and the writes of [`Editor`].
 //!
 //! A write outside a request gives the slot a new stack network ID and sends it to the client
 //! that shows it ([`super::set_own`] for a player's slots; [`request::notify`] for every viewer of
 //! a container), so the next request of a client that still shows the old stack is refused.
-//! Writes raise no events (PLAN.md 8.2).
+//! Writes raise no events.
 
 use super::super::{Context, Player, State, block_entity};
 use super::{

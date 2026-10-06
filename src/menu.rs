@@ -1,5 +1,5 @@
 //! Menu windows and fake blocks: container screens whose items stay the server's, and blocks one
-//! player sees in place of the world's (PLAN.md 8.3, 10.8).
+//! player sees in place of the world's.
 //!
 //! A [`Menu`] looks like a chest, a double chest or a hopper with a title. Open it with
 //! [`Context::open_menu`](crate::Context::open_menu); the player cannot take, place or drop its

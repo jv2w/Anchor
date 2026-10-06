@@ -18,7 +18,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/nbt"
 )
 
-// cloudburstCommand compares the world packets of a capture with CloudburstMC's data (PLAN.md 10.6):
+// cloudburstCommand compares the world packets of a capture with CloudburstMC's data:
 //
 //	bot cloudburst -world CAPTURE.world.jsonl -data DIR
 //

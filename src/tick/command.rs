@@ -1,6 +1,6 @@
 //! Commands in the tick: the registered commands and permissions, `CommandRequest`, the console
-//! lines and `AvailableCommands` (PLAN.md 10.8), and the operator list, bans and whitelist with
-//! the join policy that reads them.
+//! lines and `AvailableCommands`, and the operator list, bans and whitelist with the join policy
+//! that reads them.
 //!
 //! A command runs in the tick's serial step, where its input arrived: a player's
 //! `CommandRequest` in the packet inputs, a console line as its own input
@@ -1384,7 +1384,7 @@ impl Context<'_> {
 }
 
 /// Server control the built-in commands use: stopping, periodic saves and the settings that may
-/// change while the server runs (PLAN.md 8.5: until it stops, never written to the file).
+/// change while the server runs (until it stops, never written to the file).
 impl Context<'_> {
     /// Stops the server after this tick, as a [`ShutdownHandle`](crate::ShutdownHandle) does:
     /// every player sees `shutdown-message`, the last state is saved, then

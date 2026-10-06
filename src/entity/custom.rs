@@ -1,4 +1,4 @@
-//! Custom entity types (PLAN.md 8.3, 10.8): their definition ([`Custom`]), what drives them
+//! Custom entity types: their definition ([`Custom`]), what drives them
 //! ([`Behaviour`]) and why one is refused ([`Error`]).
 
 use std::fmt;

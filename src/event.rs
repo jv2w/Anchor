@@ -2,7 +2,7 @@
 //!
 //! Listeners are registered with [`ServerBuilder::on`](crate::ServerBuilder::on) and monitors
 //! with [`ServerBuilder::monitor`](crate::ServerBuilder::monitor), sorted once when the server is
-//! built, and called only in the tick's serial step (PLAN.md 5, 8.2, 10.8). Every listener sees
+//! built, and called only in the tick's serial step. Every listener sees
 //! the event, cancelled or not; one that should not act on a cancelled event checks
 //! `is_cancelled` (PMMP calls a listener on a cancelled event only with `@handleCancelled`).
 //!
@@ -175,7 +175,7 @@ pub enum Priority {
 // pmmp-class: Event
 pub trait Event: sealed::Sealed + Send + 'static {}
 
-/// A listener: an extension point, so a boxed closure (CLAUDE.md 2.2).
+/// A listener: an extension point, so a boxed closure.
 type Listener<E> = Box<dyn FnMut(&mut E, &mut Context<'_>) + Send>;
 /// A monitor: called after the outcome is applied, with shared access only.
 type Monitor<E> = Box<dyn FnMut(&E, &Context<'_>) + Send>;

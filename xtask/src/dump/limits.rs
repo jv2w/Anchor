@@ -1,4 +1,4 @@
-//! The per-field decode limits (PLAN.md 10.1): every `maxLength`, `maxItems` and
+//! The per-field decode limits: every `maxLength`, `maxItems` and
 //! `maxProperties` in the JSON schemas of Mojang's bedrock-protocol-docs, joined with the
 //! gophertunnel field each one limits, written as [`FILE`] for `gen`. The join is the table
 //! below; the numbers come from the schemas. A schema limit without a row, or a row without a

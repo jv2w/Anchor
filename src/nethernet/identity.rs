@@ -1,4 +1,4 @@
-//! The NetherNet identity (PLAN.md 2.1, 10.3): the server's long-lived P-384 key in
+//! The NetherNet identity: the server's long-lived P-384 key in
 //! `data/identity.key`, the `a=identity` assertion of every answer, and verification of the
 //! assertion in a client offer.
 
@@ -98,7 +98,7 @@ impl std::error::Error for Error {
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 /// The server's NetherNet identity: a P-384 key kept across restarts, so players confirm a
-/// new key only once (PLAN.md 2.1).
+/// new key only once.
 pub(crate) struct ServerIdentity {
     key: ServerKey,
     /// The JWT header as BDS writes it: `{"alg":"ES384","x5u":"<base64 SPKI>"}` and a line feed.
@@ -118,7 +118,7 @@ impl fmt::Debug for ServerIdentity {
 impl ServerIdentity {
     /// Reads the key from `path` (P-384 PKCS#8 DER, at most [`MAX_KEY_FILE`] bytes), or creates
     /// one there when the file does not exist. A file that cannot be read or parsed is an error
-    /// and is left untouched (PLAN.md 10.3). Blocking: call it on the blocking pool at start.
+    /// and is left untouched. Blocking: call it on the blocking pool at start.
     pub(crate) fn load_or_create(path: &Path) -> Result<Self> {
         let key = if let Some(der) = read_key_file(path)? {
             ServerKey::from_pkcs8(&der).map_err(|source| Error::KeyFile {
@@ -204,7 +204,7 @@ struct AssertionJson<'a> {
 }
 
 /// Verifies an offer's identity assertion against the offer's fingerprint and returns the key it
-/// proves (the `cpk` claim), which the Login must use (PLAN.md 2.1).
+/// proves (the `cpk` claim), which the Login must use.
 ///
 /// The token follows `mode`: online, every Login `Token` rule; offline, no signature, but the
 /// algorithm must be RS256 or ES384 and `exp`, `nbf` and `iat` hold when present. `cpk` is base64
@@ -321,7 +321,7 @@ mod tests {
     /// Inside both captured tokens' lifetimes: BDS iat 1790993459, exp 1790993519; go-nethernet
     /// exp 1790997059.
     const NOW: i64 = 1_790_993_469;
-    /// The `a=identity` value of a BDS 1.26.52.3 answer (2026-10-03).
+    /// The `a=identity` value of a captured BDS 1.26.52.3 answer.
     const BDS_IDENTITY: &str = "eyJhc3NlcnRpb24iOiJ7XCJmaW5nZXJwcmludHNcIjpcImV5SmhiR2NpT2lKRlV6TTROQ0o5Li45N0M2d21LYXVlTnlIcVdHcU83ZXZuNVJnU09OZG54NFZLbDFCR0hRUzAwNzZoMm50akF2bXFlRjFiX1k2MXlnU2RpVjR4QnhoWThGcG5lNU5oMnlXRHZZNFBWX0l2UjFseXhtT2hKZW5HU2NzdmNIek5fSGR1VVlDTHZRT29rQ1wiLFwidG9rZW5cIjpcImV5SmhiR2NpT2lKRlV6TTROQ0lzSW5nMWRTSTZJazFJV1hkRlFWbElTMjlhU1hwcU1FTkJVVmxHU3pSRlJVRkRTVVJaWjBGRmVXRXZhbmh3U0VObVRWcGlhazVLUTJwVWJtTmFjREJ3T1c4MFpHZGpUMFphYVZoc2NrRmpOMDlXWjBnMk5rNDJZblpQU2toTGRFRkxVMFl3V1RBNFRqTlBjM3BQVERORFZrRTNRV1pSY3pscllreExSVm8zTkhsRmFHeEtObUZJVDFGc2RUaG9TMGhsUmpGSk9FOXdkMnhSTTNoMVUya3diVnBGUm5JM1Z6QWlmUW8uZXlKamNHc2lPbnNpWTNKMklqb2lVQzB6T0RRaUxDSnJkSGtpT2lKRlF5SXNJbmdpT2lKNVlWOXFlSEJJUTJaTldtSnFUa3BEYWxSdVkxcHdNSEE1YnpSa1oyTlBSbHBwV0d4eVFXTTNUMVpuU0RZMlRqWmlkazlLU0V0MFFVdFRSakJaTURoT0lpd2llU0k2SWpOUGMzcFBURE5EVmtFM1FXWlJjemxyWWt4TFJWbzNOSGxGYUd4S05tRklUMUZzZFRob1MwaGxSakZKT0U5d2QyeFJNM2gxVTJrd2JWcEZSbkkzVnpBaWZTd2laWGh3SWpveE56a3dPVGt6TlRFNUxDSnBZWFFpT2pFM09UQTVPVE0wTlRsOUNnLlBURFlTVVEwWXFfQmFZWS1IZGttM1c5TEU5aXBvTTJZbE1VNktDNUZqRkNmZ1hhbEsyV2k5elFhLUhVNzBqaUZ4WWFLd3MycW5rZ0dUTHQ2ckdVM3lXd0tkU1ZZLWt4ZmdXdDkxM0xYNFhLOHAzRVYwMnBoNzZnV2RyQjFEWkVZXCJ9IiwiaWRwIjp7ImRvbWFpbiI6InNlbGYiLCJwcm90b2NvbCI6ImRlZmF1bHQifX0=";
     /// The `a=fingerprint` digest of the same answer.
     const BDS_FINGERPRINT: &str = "7D:C0:D8:7A:F6:1F:11:CF:20:96:15:45:82:89:DC:2E:E9:12:99:44:CD:60:C7:25:D5:7C:85:7E:19:AE:41:D9";

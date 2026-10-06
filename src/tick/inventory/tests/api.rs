@@ -1,6 +1,5 @@
-//! Tests of the public inventory API (PLAN.md 10.8): a player's inventories, the hotbar, the
-//! window, container blocks; every write reaches the clients with a new stack network ID and
-//! raises no event.
+//! Tests of the public inventory API: a player's inventories, the hotbar, the window, container
+//! blocks; every write reaches the clients with a new stack network ID and raises no event.
 
 use std::cell::Cell;
 

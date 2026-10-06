@@ -18,7 +18,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The API scenarios (PLAN.md 10.8 P6) run on the game scenarios' machinery (game.go): a script goroutine with
+// The API scenarios run on the game scenarios' machinery (game.go): a script goroutine with
 // the client-side model, and console commands as "command" records the caller runs.
 //
 //	commands   the bot's AvailableCommands as a member, a command it may not use, then "op <name>" on the

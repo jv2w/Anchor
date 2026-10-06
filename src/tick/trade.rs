@@ -1,17 +1,17 @@
-//! Villager trading (PLAN.md 8.6, 10.7 "거래", m7-facts.md 6): the offer lists of villager NPCs,
-//! the trade screen and the trades themselves. No vanilla villager economy (CLAUDE.md 1): code
-//! sets and changes the offers ([`change_offers`]); prices are the real counts.
+//! Villager trading: the offer lists of villager NPCs, the trade screen and the trades themselves.
+//! No vanilla villager economy: code sets and changes the offers ([`change_offers`]); prices are
+//! the real counts.
 //!
 //! A villager NPC keeps its [`Offers`] in its entity (the entity module saves them with it, in
 //! the same commit). This module keeps who trades with which villager ([`Trades`]).
 //!
-//! - [`open`]: an interaction with a villager opens the trade window (`inventory::open_trade`)
-//!   and sends `UpdateTrade` (BDS: no `ContainerOpen`; window type 15, size 0, the villager's
-//!   tier and unique ID, entity -1, the profession's display name, new trade UI, demand-based
-//!   prices, the offers in network NBT), after `TradeOpen` (PLAN.md 8.6; cancelled, nothing
-//!   opens). Offers get network IDs from a server counter that
-//!   starts after the last `CraftingData` recipe; reopening an unchanged list shows the same IDs
-//!   (BDS), and every change of the list gives it new ones, so a stale screen's IDs fail.
+//! - [`open`]: an interaction with a villager opens the trade window (`inventory::open_trade`) and
+//!   sends `UpdateTrade` (BDS: no `ContainerOpen`; window type 15, size 0, the villager's tier and
+//!   unique ID, entity -1, the profession's display name, new trade UI, demand-based prices, the
+//!   offers in network NBT), after `TradeOpen` (cancelled, nothing opens). Offers get network IDs
+//!   from a server counter that starts after the last `CraftingData` recipe; reopening an unchanged
+//!   list shows the same IDs (BDS), and every change of the list gives it new ones, so a stale
+//!   screen's IDs fail.
 //! - The inventory executor checks a trade with [`offer`] and counts it with [`traded`] after
 //!   its item changes committed (a check/apply pair; `traded` cannot fail after `offer`
 //!   succeeded in the same request). A trade counts uses (at most 256 per request), gives the
@@ -45,12 +45,12 @@ use crate::save::WorldIndex;
 pub(super) use self::api::new_offers;
 pub(super) use self::offers::{Damage, Error, MAX_TIER, Offers, Recipe, Result};
 
-/// The most trades one request may repeat (PLAN.md 8.6).
+/// The most trades one request may repeat.
 pub(super) const MAX_REPEAT: u32 = 256;
 /// `UpdateTrade.EntityUniqueID` as BDS sends it.
 const ANY_ENTITY: i64 = -1;
 /// Experience per rewarded trade: 3 plus 0 to 3 (Java `Villager.rewardTradeXp`; BDS drops a
-/// random amount, m7-facts.md 6).
+/// random amount).
 const REWARD_BASE: u32 = 3;
 /// The random part of [`REWARD_BASE`]: `0..REWARD_SPREAD`.
 const REWARD_SPREAD: u32 = 4;
@@ -413,7 +413,7 @@ fn traded_with(state: &mut State, session: SessionId, net_id: u32, times: u32, h
         (hooks.drop_experience)(state, world, at, amount);
     }
     // A new tier reaches the traders through the villager's entity data alone: BDS sends no
-    // UpdateTrade then (P6 `tradeup`, m9-facts.md).
+    // UpdateTrade then (P6 `tradeup`).
     (hooks.villager_traded)(state, villager, before);
 }
 
@@ -449,7 +449,7 @@ fn tick_with(state: &mut State, hooks: Hooks) {
 
 /// Changes the offers of the villager NPC `villager` with `change` (one of the [`Offers`]
 /// methods: `set`, `add`, `remove`, `replace`, `set_tier`, `set_tier_experience`, `reset_uses`)
-/// and shows the result to every player trading with it. The M8 API and the P6 console wrap
+/// and shows the result to every player trading with it. The trade API and the P6 console wrap
 /// it. Nothing changes if `change` fails.
 pub(super) fn change_offers<T>(
     state: &mut State,
@@ -506,7 +506,7 @@ fn allocate_net_ids(state: &mut State, villager: Id, hooks: Hooks) {
 }
 
 /// The first network ID after the last `CraftingData` recipe, the server's own recipes included
-/// (BDS numbers trade offers after it, m7-facts.md 4).
+/// (BDS numbers trade offers after it).
 fn first_net_id(state: &State) -> u32 {
     state.custom.first_special_id()
 }
@@ -539,7 +539,7 @@ impl View {
         })
     }
 
-    /// `UpdateTrade` for trade window `window`, as BDS sends it (m7-facts.md 6).
+    /// `UpdateTrade` for trade window `window`, as BDS sends it (P6).
     fn packet(&self, window: u8) -> Packet {
         Packet::UpdateTrade(UpdateTrade {
             window_id: window,

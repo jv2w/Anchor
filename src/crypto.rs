@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn one_server_key_signs_and_agrees() {
-        // PLAN.md 9.2 "검증 필요(M2)": the same P-384 scalar signs a JWT (ES384) and does ECDH.
+        // The same P-384 scalar signs a JWT (ES384) and does ECDH.
         let server = ServerKey::generate().unwrap();
         let client = ServerKey::generate().unwrap();
         let token = sign_jwt(&server, &serde_json::json!({"salt": "x"})).unwrap();
@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(back.spki(), public.spki());
         let sig = key.sign_es384(b"m").unwrap();
         back.verify_es384(b"m", &sig).unwrap();
-        // The coordinates of the BDS 1.26.52 identity key in its answer (PLAN.md 10.3) match the
+        // The coordinates of the BDS 1.26.52 identity key in its answer match the
         // SPKI in the same token's `x5u`.
         let x5u = "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEya/jxpHCfMZbjNJCjTncZp0p9o4dgcOFZiXlrAc7OVgH66N6bvOJHKtAKSF0Y08N3OszOL3CVA7AfQs9kbLKEZ74yEhlJ6aHOQlu8hKHeF1I8OpwlQ3xuSi0mZEFr7W0";
         let bds = PublicKey::from_p384_jwk(

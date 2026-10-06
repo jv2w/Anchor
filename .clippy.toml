@@ -18,7 +18,7 @@ allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
 
-# Library rules (CLAUDE.md 2 and 5): tick code replays bit-identically; tick and async code never block.
+# Library rules: tick code replays bit-identically; tick and async code never block.
 disallowed-methods = [
     { path = "std::time::Instant::now", reason = "time comes from the engine clock" },
     { path = "std::time::Instant::elapsed", reason = "time comes from the engine clock" },
@@ -66,7 +66,7 @@ disallowed-methods = [
     { path = "std::io::stderr", reason = "tick and async code do no blocking I/O; the console log's thread writes standard error" },
     { path = "std::io::stdout", reason = "tick and async code do no blocking I/O; standard output is the server program's" },
     { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "tick and async code do no blocking I/O" },
-    # Dependencies (CLAUDE.md 6): DEFLATE goes through protocol::compression only.
+    # Dependencies: DEFLATE goes through protocol::compression only.
     { path = "miniz_oxide::inflate::decompress_to_vec", reason = "inflates without a size limit; use the bounded batch decoder" },
     { path = "miniz_oxide::inflate::decompress_to_vec_zlib", reason = "inflates without a size limit; use the bounded batch decoder" },
     { path = "miniz_oxide::deflate::compress_to_vec", reason = "one compressor: libdeflate through the batch encoder" },
@@ -169,7 +169,7 @@ disallowed-methods = [
     { path = "ureq::Body::into_reader", reason = "read bodies through with_config().limit(..)" },
     { path = "serde_json::from_reader", reason = "reads without a size limit; read a bounded buffer and use from_slice" },
     # redb: every entry point does blocking file I/O or waits for the writer; only the storage
-    # module, on the save thread, uses them (PLAN.md 10.6).
+    # module, on the save thread, uses them.
     { path = "redb::Database::create", reason = "blocking file I/O; only the storage module opens the world file" },
     { path = "redb::Database::open", reason = "blocking file I/O; only the storage module opens the world file" },
     { path = "redb::Database::builder", reason = "only the storage module opens the world file" },
@@ -185,7 +185,7 @@ disallowed-methods = [
     { path = "redb::Database::compact", reason = "rewrites the file; only the storage module, at start and shutdown" },
     { path = "redb::WriteTransaction::commit", reason = "blocking file I/O and fsync; only the storage module, on the save thread" },
     # rayon: outside the CPU pool these start rayon's hidden global pool; only src/pool.rs and the
-    # runtime module (which builds the pool) use rayon (PLAN.md 10.5).
+    # runtime module (which builds the pool) use rayon.
     { path = "rayon_core::join", reason = "starts the global pool; use pool::Pool::map" },
     { path = "rayon_core::join_context", reason = "starts the global pool; use pool::Pool::map" },
     { path = "rayon_core::scope", reason = "starts the global pool; use pool::Pool::map" },

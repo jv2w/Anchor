@@ -1,5 +1,5 @@
 //! The item stack request executor (PMMP `ItemStackRequestExecutor`, with BDS's stack network
-//! ID rules, P6 facts 1–2).
+//! ID rules, P6).
 //!
 //! A request is one unit: its actions run in order on a scratch copy of the slots they touch
 //! ([`Exec`]); if every action and the end-of-request checks pass, the changes are committed at
@@ -11,13 +11,13 @@
 //! of a stack moved into an empty slot gets a new ID while the rest keeps its own; a merge or a
 //! count change keeps the ID; created items (crafting, creative) get new IDs.
 //!
-//! Crafting (PLAN.md 10.7 "제작 판정"): `CraftRecipe` crafts from the crafting grid (2x2, or the
-//! crafting table's 3x3): the grid as the action finds it must lay out the recipe (shaped:
-//! exact shape or its mirror; shapeless: exactly the ingredients), and the request must consume
-//! exactly the crafted count from every occupied cell and nothing else. `CraftRecipeAuto` (the
-//! recipe book) ignores the client's ingredient list: what the request consumes, from the
-//! inventory and the grid, must be exactly the recipe's ingredients for the crafted count.
-//! `CraftResultsDeprecated` is ignored (BDS does not check it either).
+//! Crafting: `CraftRecipe` crafts from the crafting grid (2x2, or the crafting table's 3x3): the
+//! grid as the action finds it must lay out the recipe (shaped: exact shape or its mirror;
+//! shapeless: exactly the ingredients), and the request must consume exactly the crafted count from
+//! every occupied cell and nothing else. `CraftRecipeAuto` (the recipe book) ignores the client's
+//! ingredient list: what the request consumes, from the inventory and the grid, must be exactly the
+//! recipe's ingredients for the crafted count. `CraftResultsDeprecated` is ignored (BDS does not
+//! check it either).
 
 mod events;
 
@@ -301,9 +301,9 @@ pub(in crate::tick) fn on_item_stack_request(
     }
 }
 
-/// Checks a request, raises its events and applies it (PLAN.md 10.8): the events see the plan;
-/// a cancelled one refuses the request. If a listener ran, the request is checked again on the
-/// game as the listeners left it, and refused unless it still does exactly what they saw.
+/// Checks a request, raises its events and applies it: the events see the plan; a cancelled one
+/// refuses the request. If a listener ran, the request is checked again on the game as the
+/// listeners left it, and refused unless it still does exactly what they saw.
 fn run(state: &mut State, session: SessionId, request: &ItemStackRequest) -> Result<()> {
     let describe = events::heard(state);
     let plan = check(state, session, request, describe)?;
@@ -486,8 +486,8 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
 pub(super) enum Renumber {
     /// A new ID (another player's request, an item that changed).
     New,
-    /// The slot's ID stays: the container's own tick changed only its count (BDS keeps it, P6
-    /// F2). An empty slot gets ID 0 and a slot without an ID a new one.
+    /// The slot's ID stays: the container's own tick changed only its count (BDS keeps it, P6). An
+    /// empty slot gets ID 0 and a slot without an ID a new one.
     Keep,
 }
 
@@ -745,7 +745,7 @@ impl<'a> Exec<'a> {
                 Err(Error::Recipe)
             }
             StackRequestAction::AutoCraftRecipe(a) => {
-                // The client's ingredient list is not used, only bounded (P6 facts 2).
+                // The client's ingredient list is not used, only bounded (P6).
                 if a.ingredients.len() > MAX_INGREDIENT_ENTRIES {
                     return Err(Error::TooLarge);
                 }

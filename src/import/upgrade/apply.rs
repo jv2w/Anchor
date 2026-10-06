@@ -1,5 +1,5 @@
-//! Block state upgrade rules and their interpreter: a port of PMMP `BlockStateUpgrader`
-//! (PLAN.md 10.9). The import runs the generated rules (`super::table`); `cargo xtask gen`
+//! Block state upgrade rules and their interpreter: a port of PMMP `BlockStateUpgrader`.
+//! The import runs the generated rules (`super::table`); `cargo xtask gen`
 //! includes this file by path to check the schemas with the same code before it generates them,
 //! so the rules and their meaning live in one place.
 
@@ -126,7 +126,7 @@ impl<'a> Schema<'a> {
 /// PMMP's rule.
 ///
 /// A state of a version above the newest schema's is upgraded as one of the newest version, where
-/// PMMP upgrades nothing: a 1.21 game wrote 18,186,752 (1.21.130) in a real world (U11) for states
+/// PMMP upgrades nothing: a 1.21 game wrote 18,186,752 (1.21.130) in a real world for states
 /// without the properties the 1.26 schemas of version 1.21.60.33 add (fence connections, stair
 /// corners), which BDS 1.26.52 still numbers 1.21.60.33. Those schemas only add properties that
 /// are missing and rename old names, so they leave a state that has them as it is.

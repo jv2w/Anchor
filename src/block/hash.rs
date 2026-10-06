@@ -1,4 +1,4 @@
-//! The network block hash (PLAN.md 7, 10.4): the ID a client with `UseBlockNetworkIDHashes`
+//! The network block hash: the ID a client with `UseBlockNetworkIDHashes`
 //! knows a block state by, FNV-1a 32 over the state's little-endian NBT `{name, states}` with
 //! the states in name order (dragonfly `networkBlockHash`; BDS sends the same values).
 //!

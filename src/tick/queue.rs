@@ -11,10 +11,10 @@ use tokio::sync::mpsc::error::TrySendError;
 use crate::protocol::packet::Packet;
 use crate::protocol::{self, Uuid};
 
-/// Inputs the tick queue holds (PLAN.md 10.2). A session that finds it full disconnects.
+/// Inputs the tick queue holds. A session that finds it full disconnects.
 pub(crate) const INPUT_CAPACITY: usize = 65_536;
-/// Messages a session's outbound queue holds (PLAN.md 10.2). The tick drops a session whose queue
-/// is full instead of waiting.
+/// Messages a session's outbound queue holds. The tick drops a session whose queue is full instead
+/// of waiting.
 const OUTBOUND_CAPACITY: usize = 1_024;
 /// [`Control`]s one tick may ask for; a call past it changes nothing.
 pub(crate) const MAX_CONTROLS_PER_TICK: usize = 256;
@@ -71,7 +71,7 @@ pub(crate) struct Identity {
     /// (`PlayerListEntry::skin`; `AddPlayer` has no skin: a client needs the list entry first).
     pub(crate) skin: Skin,
     /// The client's device (`DeviceOS` of the login's client data, 1 to 15; -1 unknown), the
-    /// player list's `BuildPlatform` (BDS sends it, P6 facts 7).
+    /// player list's `BuildPlatform` (BDS sends it, P6).
     pub(crate) device_os: i32,
     /// The address the client connected from, which IP bans match; `None` when unknown
     /// (tests).
@@ -306,7 +306,7 @@ pub(crate) enum InputKind {
         outbound: mpsc::Sender<Outbound>,
     },
     /// An in-game packet (after `StartGame`) and its size on the wire, which the input log
-    /// counts against its bound (PLAN.md 10.5).
+    /// counts against its bound.
     Packet { packet: Packet, size: usize },
     /// The connection closed.
     Leave,
@@ -314,15 +314,15 @@ pub(crate) enum InputKind {
     /// [`MAX_LINE_BYTES`](crate::command::parse::MAX_LINE_BYTES) bytes, without its line end.
     Console(String),
     /// The result of the blocking job whose id is the input's sequence number, on
-    /// [`SessionId::JOBS`] (PLAN.md 10.8).
+    /// [`SessionId::JOBS`].
     Job(JobOutcome),
     /// A value measured off the tick by a clock or the network, which the tick reads only as
     /// this logged input, so that a replay reads the same.
     Measure(Measure),
 }
 
-/// A value measured off the tick (PLAN.md 10.9): what PMMP reads from the wall clock or the
-/// network when asked, Anchor reads from the input log.
+/// A value measured off the tick: what PMMP reads from the wall clock or the network when asked,
+/// Anchor reads from the input log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Measure {
     /// How long the previous tick took, in microseconds (at most `u32::MAX`), on
@@ -369,9 +369,9 @@ pub(crate) enum Control {
 /// there is none.
 pub(crate) type JobOutcome = std::result::Result<Vec<u8>, crate::task::Error>;
 
-/// Batches encoded and compressed once at start and sent to every player as they are (PLAN.md 3,
-/// 10.4): batch bodies, each a compression header and the compressed packets, without the
-/// encryption a RakNet session adds.
+/// Batches encoded and compressed once at start and sent to every player as they are: batch bodies,
+/// each a compression header and the compressed packets, without the encryption a RakNet session
+/// adds.
 pub(crate) type SharedBatches = Arc<[Vec<u8>]>;
 
 /// One thing for a session to send.

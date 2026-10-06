@@ -1,12 +1,12 @@
-//! One connection's session: the login sequence of PLAN.md 10.2, then the relay between the
-//! connection and the tick.
+//! One connection's session: the login sequence (network settings, login, handshake, resource
+//! packs), then the relay between the connection and the tick.
 //!
 //! Inbound, a message is decrypted (RakNet after the handshake), decompressed and split into
 //! packets. Before the player joins, packets outside the login sequence wait in a short queue
 //! and reach the tick after the join, in order (gophertunnel defers them the same way, without
 //! a bound). Outbound, the tick's packets are batched, compressed and encrypted here, off the
 //! tick. NetherNet runs the same handshake but never encrypts (DTLS protects it, as on BDS), and
-//! its Login must carry the key its offer proved (PLAN.md 2.1, 10.3).
+//! its Login must carry the key its offer proved.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -35,22 +35,22 @@ use crate::tick::queue::{
     self, Client, Identity, InputKind, Measure, Message, Outbound, SessionId, SessionInputs, Skin,
 };
 
-/// From connection to verified login (PLAN.md 10.2).
+/// From connection to verified login.
 const LOGIN_DEADLINE: Duration = Duration::from_secs(10);
-/// From connection to `SetLocalPlayerAsInitialised` (PLAN.md 10.2), plus the allowance of a
-/// resource pack download (PLAN.md 10.8, [`packs`]).
+/// From connection to `SetLocalPlayerAsInitialised`, plus the allowance of a
+/// resource pack download ([`packs`]).
 const SPAWN_DEADLINE: Duration = Duration::from_secs(60);
-/// How often a joined session reports its ping to the tick when it changed (PLAN.md 10.9): each
+/// How often a joined session reports its ping to the tick when it changed: each
 /// report is a logged input.
 const PING_REPORT: Duration = Duration::from_secs(5);
-/// The largest message before `NetworkSettings` (PLAN.md 3).
+/// The largest message before `NetworkSettings`.
 const FIRST_MESSAGE_BYTES: usize = 1024;
 /// Packets outside the login sequence held until the join. The official client's order is not
 /// observable; 32 is far above the few packets (cache status, violation warnings) clients send.
 const MAX_DEFERRED: usize = 32;
-/// Reassembled plus decompressed bytes before login verification, in batch limits (PLAN.md 3).
+/// Reassembled plus decompressed bytes before login verification, in batch limits.
 const PRE_AUTH_BATCHES: usize = 8;
-/// The input budget refills this fraction of `max-batch-bytes` per second (PLAN.md 10.2).
+/// The input budget refills this fraction of `max-batch-bytes` per second.
 const BUDGET_REFILL_DIVISOR: usize = 4;
 /// The shield's item network ID, which the item registry Anchor sends names.
 const SHIELD_ID: i32 = crate::item::SHIELD_RUNTIME_ID;
@@ -380,7 +380,7 @@ impl Session {
         for (header, bytes) in batch::split(payload).map_err(Error::Batch)? {
             match Packet::decode(header.id, bytes, &mut budget, SHIELD_ID) {
                 Ok(packet) => self.on_packet(packet, bytes.len()).await?,
-                // After the spawn one bad packet is dropped (PLAN.md 10.2); the batch length
+                // After the spawn one bad packet is dropped; the batch length
                 // prefixes keep the other packets intact.
                 Err(e) if self.spawned => {
                     warn!(session = self.id.get(), id = header.id, error = %e, "packet dropped");
@@ -404,7 +404,7 @@ impl Session {
                 .transfer
                 .on_chunk_request(&self.shared.packs, &request)
                 .map_err(Error::Packs),
-            // The blob cache is not used until chunks are (M6); the answer needs no reply.
+            // Chunks are sent without the blob cache, so the client's cache status needs no reply.
             (Stage::Handshake | Stage::Packs, Packet::ClientCacheStatus(_)) => Ok(()),
             (
                 _,
@@ -516,7 +516,7 @@ impl Session {
         let handshake =
             Handshake::new(&self.shared.server_key, &client_key).map_err(Error::Crypto)?;
         // The handshake goes out before encryption starts; everything after it is encrypted.
-        // BDS sends it on NetherNet too but never encrypts there (P6, PLAN.md 10.3).
+        // BDS sends it on NetherNet too but never encrypts there (P6).
         self.send(&[Packet::ServerToClientHandshake(ServerToClientHandshake {
             jwt: handshake.jwt.into_bytes(),
         })])
@@ -656,7 +656,7 @@ impl Session {
             .map_err(Error::Queue)
     }
 
-    /// Counts bytes against the pre-login total (PLAN.md 3).
+    /// Counts bytes against the pre-login total.
     fn charge_pre_auth(&mut self, bytes: usize) -> Result<()> {
         if self.logged_in {
             return Ok(());
@@ -753,7 +753,7 @@ fn deadline(at: Instant) -> tokio::time::Sleep {
     tokio::time::sleep_until(tokio::time::Instant::from_std(at))
 }
 
-/// A token bucket over decompressed input bytes (PLAN.md 10.2).
+/// A token bucket over decompressed input bytes.
 #[derive(Debug)]
 struct Budget {
     tokens: usize,

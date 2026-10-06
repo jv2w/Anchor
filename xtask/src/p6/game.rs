@@ -1,4 +1,4 @@
-//! The game scenarios of `cargo xtask p6` (PLAN.md 10.7 P6, 10.9): `craft`, `furnace`, `enchant`,
+//! The game scenarios of `cargo xtask p6`: `craft`, `furnace`, `enchant`,
 //! `crops` and `trade`. The bot plays each one like the official client
 //! (`xtask/go/bot/game.go`) and writes the console commands it needs into its capture as `command`
 //! records; the harness runs

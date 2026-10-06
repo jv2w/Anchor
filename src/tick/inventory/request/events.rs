@@ -1,6 +1,6 @@
-//! The events of an item stack request (PLAN.md 10.8): the whole request as one
-//! [`InventoryTransaction`], then what it makes ([`CraftItem`], [`PlayerItemEnchant`],
-//! [`Trade`]) and what it drops ([`PlayerDropItem`]), each built only when heard.
+//! The events of an item stack request: the whole request as one [`InventoryTransaction`], then
+//! what it makes ([`CraftItem`], [`PlayerItemEnchant`], [`Trade`]) and what it drops
+//! ([`PlayerDropItem`]), each built only when heard.
 //!
 //! PMMP raises only one of the first four (a crafting transaction raises `CraftItemEvent`
 //! instead of `InventoryTransactionEvent`); Anchor raises the transaction for every request, so a

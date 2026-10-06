@@ -404,7 +404,7 @@ func (s *session) handle(b []byte, request []byte) error {
 		rec["error"] = err.Error()
 	}
 	if e, ok := pk.(*packet.Event); ok && e.Event != nil {
-		// The event's concrete type, which its fields do not show (PLAN.md 10.1 event ordinals).
+		// The event's concrete type, which its fields do not show.
 		rec["event"] = reflect.TypeOf(e.Event).Elem().Name()
 	}
 	s.out.line(rec)

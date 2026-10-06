@@ -1,8 +1,8 @@
-//! Tests of the weather and lightning (PLAN.md 10.9 날씨와 번개): the level events of each
-//! change as BDS sends them once settled (P6 `weather`), who is told of a change, what a join and
-//! a move to another world say, the send and start-game hooks, and lightning bolts with their
-//! damage and fire options. Saving is tested with the world record (`save`, `storage::codec`),
-//! replays with the world lifecycle script (`world_api::lifecycle`).
+//! Tests of the weather and lightning: the level events of each change as BDS sends them once
+//! settled (P6 `weather`), who is told of a change, what a join and a move to another world say,
+//! the send and start-game hooks, and lightning bolts with their damage and fire options. Saving is
+//! tested with the world record (`save`, `storage::codec`), replays with the world lifecycle script
+//! (`world_api::lifecycle`).
 
 use tokio::sync::mpsc;
 
@@ -108,7 +108,7 @@ fn move_to(state: &mut State, s: u64, w: usize) {
 #[test]
 fn changes_start_and_stop_rain_and_thunder_as_settled_bds_weather_does() {
     use Weather::{Clear, Rain, Thunder};
-    // P6 `weather` (m9-facts.md WEATHER), every step after BDS's levels settled.
+    // P6 `weather` (P6), every step after BDS's levels settled.
     let cases = [
         (Clear, Rain, vec![start(3001)]),
         (Rain, Rain, vec![]),

@@ -20,7 +20,7 @@ const (
 	propertiesOut    = "entity_properties.dat"
 )
 
-// writeNetworkCopies writes the CloudburstMC data BDS sends in the spawn window (PLAN.md 10.6) as the network
+// writeNetworkCopies writes the CloudburstMC data BDS sends in the spawn window as the network
 // little-endian NBT of the packets, compound keys in byte order as Anchor writes them:
 //   - jigsaw_structure_data.dat: jigsaw_structure_data.nbt, the StructureData of JigsawStructureData.
 //   - entity_properties.dat: each compound of entity_properties.nbt as one root, in the file's order (BDS's

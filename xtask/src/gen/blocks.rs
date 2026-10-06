@@ -1,4 +1,4 @@
-//! `src/block/table.rs`: the block state table (PLAN.md 10.4) from [`Data`].
+//! `src/block/table.rs`: the block state table from [`Data`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,7 +16,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     put!(
         out,
         "{HEADER}\n//! Block states generated from the PMMP dump, the block upgrade schema and the \
-         1.26.50 reference list (PLAN.md 10.4): {} states and {} aliases.\n\n\
+         1.26.50 reference list: {} states and {} aliases.\n\n\
          use super::{{Alias, BreakInfo, Data, Info, KindData, Property, PropertyValue, State, \
          ToolType}};\n\
          use crate::math::{{Aabb, Vec3}};\n\n",
@@ -77,7 +77,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     );
     put!(
         out,
-        "/// The reference states that are not states but that PMMP reads as one (PLAN.md 7), \
+        "/// The reference states that are not states but that PMMP reads as one, \
          sorted by name and then properties: (name, first property, property count, the state \
          PMMP reads it as).\npub(super) static ALIASES: [Alias; {}] = [{aliases}];\n\n",
         data.aliases.len()
@@ -347,7 +347,7 @@ fn bits(list: &[String], names: &[&str]) -> Result<u64, String> {
 const NO_ITEM: u16 = 0xffff;
 const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
 
-/// The per-state gameplay data (PLAN.md 10.7): the type tag enum, the deduplicated physics rows
+/// The per-state gameplay data: the type tag enum, the deduplicated physics rows
 /// with their collision boxes, and each state's kind, row and item form.
 #[expect(
     clippy::too_many_lines,
@@ -690,7 +690,7 @@ fn variant_of(key: &StateKey, kind: &str) -> Result<Option<(StateKey, usize, usi
     Ok(Some((base, index, count)))
 }
 
-/// The connection table (PLAN.md 10.6): a packed word per state and the variant lists.
+/// The connection table: a packed word per state and the variant lists.
 fn connections(out: &mut String, data: &Data) -> Result<(), String> {
     const NONE: u32 = 0xffff;
     let mut groups: BTreeMap<String, u8> = BTreeMap::new();

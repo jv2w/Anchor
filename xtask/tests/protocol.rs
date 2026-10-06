@@ -1,7 +1,7 @@
-//! Protocol conformance against gophertunnel (PLAN.md 4 P1–P4, 10.1 "M1 판정식"): corpus
-//! coverage, decoding with no bytes left (P1), byte-identical round trips (P2), agreement with
-//! gophertunnel in both directions (P3), and fixed-seed mutations that never panic plus
-//! over-limit declarations that end in size errors (P4).
+//! Protocol conformance against gophertunnel (P1–P4, see docs/protocol.md): corpus coverage,
+//! decoding with no bytes left (P1), byte-identical round trips (P2), agreement with gophertunnel
+//! in both directions (P3), and fixed-seed mutations that never panic plus over-limit declarations
+//! that end in size errors (P4).
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
@@ -339,7 +339,7 @@ fn mutated_inputs_never_panic_and_decoded_ones_re_encode_stably() {
 }
 
 /// Known, intended differences from gophertunnel's decode and re-encode, each reproduced
-/// exactly (PLAN.md 10.1). Nothing else is excused.
+/// exactly. Nothing else is excused.
 ///
 /// - `CraftingData` material reducers: gophertunnel reads the input `mix` as `mix << 16` and
 ///   `mix & 0x7fff`, then writes `network_id << 16 | metadata`, so the input comes back as

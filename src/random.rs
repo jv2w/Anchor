@@ -1,4 +1,4 @@
-//! Engine randomness for tick code (PLAN.md 10.7): counter-based streams with no saved state.
+//! Engine randomness for tick code: counter-based streams with no saved state.
 //!
 //! A stream is `SplitMix64` started from a mix of the world seed, the engine tick and a stream key,
 //! so the same world, tick and key give the same numbers after a restart, in a replay and on any

@@ -1,4 +1,4 @@
-//! The Bedrock world import as a user runs it (PLAN.md 10.9): `Server::import_world` on the
+//! The Bedrock world import as a user runs it: `Server::import_world` on the
 //! world BDS 1.26.52 made (`xtask/data/import/flat`, flat, seed 7), then the server loading it.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).

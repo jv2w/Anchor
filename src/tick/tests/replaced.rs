@@ -1,6 +1,6 @@
-//! Block entities of blocks that change without being broken (PLAN.md 2.1, m7-results W): fire
-//! burning, liquids flowing, explosions and a task's `World::set_block` leave no block entity
-//! behind, and everything the block entity held drops once.
+//! Block entities of blocks that change without being broken: fire burning, liquids flowing,
+//! explosions and a task's `World::set_block` leave no block entity behind, and everything the
+//! block entity held drops once.
 
 use tokio::sync::mpsc;
 

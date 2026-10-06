@@ -1,4 +1,4 @@
-//! The resource pack sequence of a session (PLAN.md 10.2, 10.8): what a client may ask for between
+//! The resource pack sequence of a session: what a client may ask for between
 //! `ResourcePacksInfo` and its `Completed` answer, checked as PMMP's
 //! `ResourcePacksPacketHandler` checks it, and the chunks it downloads.
 //!

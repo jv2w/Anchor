@@ -1,4 +1,4 @@
-//! The console: commands typed on standard input (`console-input`, PLAN.md 10.8), and the log
+//! The console: commands typed on standard input (`console-input`), and the log
 //! written to standard error ([`log`]).
 //!
 //! Reading standard input blocks and cannot be interrupted, so it runs on a thread of its own,

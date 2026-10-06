@@ -365,7 +365,7 @@ const SYNTAX_CONTEXT: usize = 10;
 
 /// BDS's syntax error for `line` (without its `/`) that stops fitting at byte `at` ([`fit`]):
 /// the word there, with up to [`SYNTAX_CONTEXT`] characters of `/` and the line before and after
-/// it (P6 `syntax`, m9-facts.md).
+/// it (P6 `syntax`, `xtask/data/p6/facts.md`).
 pub(crate) fn syntax_error(line: &str, at: usize) -> Error {
     let typed = format!("/{line}");
     let at = at.saturating_add(1).min(typed.len());
@@ -381,7 +381,7 @@ pub(crate) fn syntax_error(line: &str, at: usize) -> Error {
     }
 }
 
-/// A finite number (no `NaN`, no infinity: the tick holds none, CLAUDE.md 2.1).
+/// A finite number (no `NaN`, no infinity: the tick holds none).
 fn number(text: &str) -> Option<f64> {
     let v: f64 = text.parse().ok()?;
     // `parse` takes "inf" and "NaN"; only digits, signs, a point and an exponent pass.

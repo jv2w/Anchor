@@ -53,7 +53,7 @@ impl Decoder {
     ///
     /// The buffer grows only up to `limit + 1` bytes; a stream that needs more is a size error.
     /// Input left after the final block is ignored: only official clients show whether their
-    /// encoder leaves any, so Anchor accepts every case (PLAN.md 10.2). The input is already
+    /// encoder leaves any, so Anchor accepts every case. The input is already
     /// within the reassembly limit.
     pub(crate) fn decompress(
         &mut self,

@@ -60,7 +60,7 @@ pub(in crate::tick) struct Step {
     /// Bit `i`: slot `i` changed.
     pub(in crate::tick) slots: u8,
     /// Bit `i`: slot `i` changed only its count (the same item before and after), so its viewers
-    /// keep its stack network ID (BDS, P6 F2: a furnace's output growing, its input shrinking).
+    /// keep its stack network ID (BDS, P6: a furnace's output growing, its input shrinking).
     pub(in crate::tick) kept: u8,
     /// A brew finished with something brewed (PMMP `PotionFinishBrewingSound`).
     pub(in crate::tick) brewed: bool,

@@ -1,4 +1,4 @@
-//! `src/item/creative.rs`: the creative inventory (PLAN.md 10.4) from the PMMP dump
+//! `src/item/creative.rs`: the creative inventory from the PMMP dump
 //! (`creative.json`), with groups built as PMMP's `CreativeInventoryCache` builds them.
 
 use std::collections::BTreeMap;
@@ -68,7 +68,7 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! The creative inventory generated from the PMMP dump (PLAN.md 10.4): {} \
+        "{HEADER}\n//! The creative inventory generated from the PMMP dump: {} \
          groups, {} items.\n\n\
          use super::{{CreativeGroup, CreativeItem, StaticStack, Type}};\n\n\
          /// The groups in PMMP's order: (category, name, icon).\n\
@@ -141,7 +141,7 @@ fn stack(item: usize, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) -> String 
 /// Whether a dumped stack is an enchanted book without enchantments. PMMP drops the enchantments
 /// it does not implement when it reads the creative data, which leaves a bare book in place of
 /// each book of such an enchantment (61 identical entries that BDS does not list, P6); Anchor
-/// leaves them out (PLAN.md 10.4).
+/// leaves them out.
 fn is_lost_enchanted_book(stack: &Json) -> bool {
     stack.get("name").and_then(Json::as_str) == Some("minecraft:enchanted_book")
         && stack.get("nbt").and_then(|n| n.get("ench")).is_none()

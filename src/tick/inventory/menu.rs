@@ -1,5 +1,5 @@
-//! Menu windows (PLAN.md 8.3, 10.8; `InvMenu`'s way): a chest, double chest or hopper screen whose
-//! items are the server's, opened on fake container blocks behind the player.
+//! Menu windows (`InvMenu`'s way): a chest, double chest or hopper screen whose items are the
+//! server's, opened on fake container blocks behind the player.
 //!
 //! Opening shows the container blocks to the player alone (`view`'s menu blocks, over its other
 //! fake blocks) with their client data (the title as `CustomName`, a double chest's pair), and
@@ -37,7 +37,7 @@ use crate::world::{self, BlockPos};
 
 /// Ticks between showing a menu's blocks and opening its window, so the client has the container
 /// blocks and their data when the window opens (`InvMenu` waits for the client the same way).
-/// Verification needed (M9): the delay the official client needs.
+/// The delay the official client needs is not verified.
 const OPEN_DELAY: u64 = 2;
 /// A menu closes when its player's eyes are farther than this from its block's centre (8 blocks).
 const MAX_DISTANCE_SQUARED: f64 = 64.0;

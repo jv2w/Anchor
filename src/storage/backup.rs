@@ -5,7 +5,7 @@
 //!
 //! A start copy is taken from the closed file, under an exclusive lock that also tells whether
 //! another process has the file open, when a start backup or the start's integrity check asks
-//! for one (`Storage::open`). An online copy ([`Online`], PLAN.md 10.9 백업) is taken
+//! for one (`Storage::open`). An online copy ([`Online`]) is taken
 //! while the server runs, from one read transaction of the open file, in steps. A backup is never
 //! overwritten, and its name sorts after every backup already there: a second backup in the same
 //! second adds `-<n>`, and after the clock went back the name keeps the newest second found. So
@@ -362,7 +362,7 @@ pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
     Ok(tables)
 }
 
-/// An online backup being made (PLAN.md 10.9 백업): every table of one read transaction of the
+/// An online backup being made: every table of one read transaction of the
 /// open server file, copied in steps of at most [`STEP_BYTES`], one commit each, into a new
 /// database under `<backup>.tmp`, which is then committed durably once, closed, flushed to disk
 /// and renamed. The step commits are not flushed: only the whole copy has to reach the disk, and
@@ -462,7 +462,7 @@ impl Online {
     /// the [`KEPT`] newest backups; returns its path. The durable commit is the one that makes
     /// the steps' commits reach the disk; closing the copy alone could not report a failure.
     ///
-    /// The copy is not compacted (PLAN.md 10.9 저장 시작 비용): `compact` is one call that took
+    /// The copy is not compacted: `compact` is one call that took
     /// 3.7 to 4.1 s on copies of 116 and 456 MiB, which every request would wait for, and saves
     /// 10 to 13% of the file. A backup put back as the server file is compacted by that start.
     #[expect(
@@ -682,9 +682,8 @@ mod tests {
         let made = online.finish().unwrap();
         let finish = SYNCS.get() - before;
         // A step syncs only to make a growth of the file durable (redb does, before a header can
-        // name the larger file), never for its commit: before, every step synced once more than
-        // it grew the file. The file grows by an eighth (PLAN.md 9.1 redb ③), so every step of
-        // this small copy grows it.
+        // name the larger file), never for its commit, so no step syncs more often than it grows
+        // the file. redb grows the file by an eighth, so every step of this small copy grows it.
         assert!(steps.len() >= 6, "{steps:?}");
         assert!(
             steps.iter().all(|&(syncs, grown)| syncs <= grown),

@@ -16,7 +16,7 @@ pub(crate) const STORAGE_VERSION: i32 = 10;
 
 /// What Anchor reads of `level.dat`: the spawn for the import's report and the time, which is
 /// state. No setting (seed, game mode, difficulty, game rules) is read: the imported world runs
-/// with the server's (PLAN.md 10.6).
+/// with the server's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldData {
     /// `SpawnX`, `SpawnY`, `SpawnZ`. Y 32767 means "on the highest block".

@@ -1,10 +1,10 @@
 //! Sounds a world plays at a position (PMMP `world\sound\*`), for
 //! [`Context::add_sound`](crate::Context::add_sound): each is the packet PMMP sends for its
-//! class, with gophertunnel's names and numbers (CLAUDE.md 4.9).
+//! class, with gophertunnel's names and numbers.
 //!
 //! Left out: sounds of an entity (`EntityLandSound`, `EntityLongFallSound`,
 //! `EntityShortFallSound`: the entity rules play them) and pressure plates' (`PressurePlate*`:
-//! redstone, CLAUDE.md 1). Levers and buttons switch their own state, with their
+//! redstone). Levers and buttons switch their own state, with their
 //! `RedstonePower*` sounds.
 
 use crate::block;

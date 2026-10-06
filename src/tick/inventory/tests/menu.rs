@@ -1,5 +1,5 @@
-//! Tests of fake blocks and menu windows (PLAN.md 10.8 "메뉴 창", "가짜 블록"): who is sent
-//! what and when, the bounds, and that a menu never moves an item.
+//! Tests of fake blocks and menu windows: who is sent what and when, the bounds, and that a menu
+//! never moves an item.
 
 use std::cell::Cell;
 

@@ -56,7 +56,7 @@ const MIN_RTO: Duration = Duration::from_millis(100);
 const ACK_DELAY: Duration = Duration::from_millis(100);
 /// Highest resend timeout, well inside the idle timeout so a slow link still resends.
 const MAX_RTO: Duration = Duration::from_secs(2);
-/// Bytes queued or in flight to one peer at most; more disconnects it (PLAN.md 10.2).
+/// Bytes queued or in flight to one peer at most; more disconnects it.
 const OUTBOUND_CAP: usize = 32 * 1024 * 1024;
 /// Memory one queued frame costs besides its payload, charged against `OUTBOUND_CAP` so that
 /// many tiny messages cannot exceed the cap's memory.
@@ -931,7 +931,7 @@ pub(super) mod tests {
 
     #[test]
     fn limits_follow_the_message_size() {
-        // PLAN.md 3: 16 MiB + 16 MiB / 6 + 42, then the 8-byte checksum.
+        // A 16 MiB batch's Snappy worst case, 16 MiB + 16 MiB / 6 + 42, then the 8-byte checksum.
         let batch = 16 << 20;
         let max = batch + batch / 6 + 42 + 8;
         let limits = Limits::new(max).unwrap();
@@ -1045,7 +1045,7 @@ pub(super) mod tests {
         assert_eq!(error, (5, Error::Limit("held bytes")));
     }
 
-    /// The default `max-batch-bytes` message limit (PLAN.md 3, plus the 8-byte checksum).
+    /// The default `max-batch-bytes` message limit (plus the 8-byte checksum).
     const DEFAULT_MESSAGE: usize = 19_573_468;
 
     #[test]

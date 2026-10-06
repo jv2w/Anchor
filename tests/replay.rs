@@ -1,4 +1,4 @@
-//! The replay tool through the public API (PLAN.md 10.9 재생 도구): a server process whose task
+//! The replay tool through the public API: a server process whose task
 //! saves and then panics writes a crash log; the same build replays it to the same panic without
 //! changing the data files, and again after a restart moved the data files on, from the backups
 //! the restart made. Data files another run committed at a segment's tick are not replayed on.

@@ -5,8 +5,8 @@
 //! name the player, and `world::Sound` leaves out) go through `tick::emit` with their
 //! [`WorldSound`](crate::event::WorldSound).
 //!
-//! BDS was seen sending the experience pickup sound (`LevelEvent` 1051, m7-facts.md 3); the other
-//! sounds follow PMMP's packets (verification needed (P6): BDS's sounds for the other events).
+//! BDS was seen sending the experience pickup sound (`LevelEvent` 1051); the other sounds follow
+//! PMMP's packets (verification needed (P6): BDS's sounds for the other events).
 
 use super::{broadcast_from, feet};
 use crate::math::Vec3;

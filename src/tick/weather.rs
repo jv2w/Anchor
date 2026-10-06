@@ -1,8 +1,7 @@
-//! What clients are told of a world's weather (PLAN.md 10.9 날씨와 번개), as BDS tells them
-//! (P6 `weather`, `joinrain`, `joinstorm`; m9-facts.md WEATHER): `StartGame`'s rain and
-//! lightning levels and one level event in the spawn window at a join, and the level events of a
-//! change for the players already in the world ([`Context::set_weather`](crate::Context::set_weather))
-//! or arriving from another world.
+//! What clients are told of a world's weather, as BDS tells them (P6 `weather`, `joinrain`,
+//! `joinstorm`): `StartGame`'s rain and lightning levels and one level event in the spawn window at
+//! a join, and the level events of a change for the players already in the world
+//! ([`Context::set_weather`](crate::Context::set_weather)) or arriving from another world.
 //!
 //! BDS raises and lowers its levels over about five seconds and sends what the levels reached
 //! call for; Anchor's weather changes at once, which is BDS's weather once it settled: a change

@@ -1,4 +1,4 @@
-//! A chunk column (PLAN.md 10.6): 24 sub-chunks from y -64 to 319, 3D biomes, the height of each
+//! A chunk column: 24 sub-chunks from y -64 to 319, 3D biomes, the height of each
 //! column and the original NBT of the block states Anchor does not know, and its network form.
 //!
 //! Sub-chunks and biomes are shared `Arc`s: a clone (a save snapshot) costs reference counts, and
@@ -50,7 +50,7 @@ pub(super) fn column(x: u8, z: u8) -> usize {
 /// z from 0 to 15, y the world height (-64 to 319).
 ///
 /// A clone shares the blocks and biomes and has no light: light is never saved, and a copy is
-/// lit again where it is loaded (PLAN.md 6).
+/// lit again where it is loaded.
 // pmmp-class: Chunk
 pub struct Chunk {
     sub_chunks: [Option<Arc<SubChunk>>; SUB_CHUNKS],
@@ -86,7 +86,7 @@ impl Chunk {
         }
     }
 
-    /// Generates the chunk at `pos` (PLAN.md 5: a pure function of the seed and the position),
+    /// Generates the chunk at `pos` (a pure function of the seed and the position),
     /// then compacts its palettes: the order of first use, as BDS writes them (P6), whatever
     /// order the generator wrote in.
     pub(crate) fn generate(generator: &dyn Generator, seed: i64, pos: ChunkPos) -> Self {
@@ -102,7 +102,7 @@ impl Chunk {
         chunk
     }
 
-    /// A chunk from stored parts (external input, PLAN.md 6): the sub-chunks from the bottom,
+    /// A chunk from stored parts (external input): the sub-chunks from the bottom,
     /// the biomes of each, and the unknown states the layers' unknown and inert entries index.
     /// Fails if an entry indexes past the unknown list or the list is longer than one per slot.
     /// Sub-chunks of air are dropped.
@@ -391,7 +391,7 @@ impl Chunk {
 
     /// The `LevelChunk` payload of the sub-chunk request system: the biomes of the 24
     /// sub-chunks (one equal to the one below it is written as 0xff), then 0 border blocks
-    /// (PLAN.md 10.6, dragonfly network encoding).
+    /// (dragonfly network encoding).
     pub(crate) fn level_chunk_payload(&self) -> Vec<u8> {
         let mut w = Writer::new(Vec::with_capacity(64), 0);
         let mut below: Option<&Arc<Paletted<u32>>> = None;
@@ -438,7 +438,7 @@ impl Default for Chunk {
     }
 }
 
-/// A chunk's checkpoint form (PLAN.md 10.9 재생 도구): its exact sub-chunks and biomes (palette
+/// A chunk's checkpoint form for the replay tool: its exact sub-chunks and biomes (palette
 /// order and unused entries included, which a load from the server file compacts), its unknown
 /// states, save marks and light; the heights are worked out again as it reads.
 impl crate::tick::checkpoint::Codec for Chunk {
@@ -521,7 +521,7 @@ pub(crate) mod tests {
     use crate::world::{Flat, Void};
 
     /// The network ID of `minecraft:kelp` with `kelp_age` 3 in the 1.26.50 reference list (the
-    /// value BDS sends, PLAN.md 7).
+    /// value BDS sends).
     const KELP_AGE_3: u32 = 3_718_566_417;
 
     /// States without neighbour rules, so setting one changes nothing else.

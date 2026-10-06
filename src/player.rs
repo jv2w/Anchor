@@ -1,5 +1,5 @@
 //! Players: the joined players a [`Context`](crate::Context) reaches, what can be read and
-//! changed on them, and the messages they can be shown (PLAN.md 8.4, 10.8).
+//! changed on them, and the messages they can be shown.
 //!
 //! Code outside a tick keeps only an [`Id`]; [`Context::player`](crate::Context::player) and
 //! [`Context::player_mut`](crate::Context::player_mut) lend the [`Player`] itself.
@@ -144,8 +144,8 @@ const MAX_SOURCE: usize = TEXT_SOURCE_NAME_MAX_LEN;
 const MAX_PARAMETERS: usize = TEXT_PARAMETERS_MAX_LEN;
 
 /// Something to show a player with [`Player::send`] or everyone with
-/// [`Context::broadcast`](crate::Context::broadcast): PMMP's message methods merged into one
-/// (PLAN.md 8.4). Texts may hold `§` format codes; a key is a client translation key such as
+/// [`Context::broadcast`](crate::Context::broadcast): PMMP's message methods merged into one.
+/// Texts may hold `§` format codes; a key is a client translation key such as
 /// `chat.type.text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Message {

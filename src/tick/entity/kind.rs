@@ -1,6 +1,6 @@
-//! The kinds of entities: a closed set (PLAN.md 10.7), each with its data and the constants that
-//! set it apart (size, physics, network type, saved identifier). A new kind is a new variant with
-//! an arm in each `match` here and in the rules of [`super`]; nothing else changes shape.
+//! The kinds of entities: a closed set, each with its data and the constants that set it apart
+//! (size, physics, network type, saved identifier). A new kind is a new variant with an arm in each
+//! `match` here and in the rules of [`super`]; nothing else changes shape.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -32,7 +32,7 @@ pub(super) enum Kind {
     Projectile(Projectile),
     /// A lingering potion's cloud (PMMP `AreaEffectCloud`).
     Cloud(Cloud),
-    /// A non-player character without AI (PLAN.md 8.6: villager NPCs trade; human NPCs).
+    /// A non-player character without AI (villager NPCs trade; human NPCs).
     Npc(Character),
     /// A painting on a wall (PMMP `Painting`).
     Painting(Painting),
@@ -157,7 +157,7 @@ pub(super) enum Shot {
     Arrow(Arrow),
     /// PMMP `Snowball`.
     Snowball,
-    /// PMMP `Egg` (no chickens: mobs are out of scope, CLAUDE.md 1).
+    /// PMMP `Egg` (no chickens: mobs are out of scope).
     Egg,
     /// PMMP `EnderPearl`.
     EnderPearl,
@@ -274,7 +274,7 @@ pub(super) const MAX_DEAD_TICKS: u8 = 25;
 /// What an NPC is.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Form {
-    /// A villager (network actor `minecraft:villager_v2`, PLAN.md 8.6) with its trades.
+    /// A villager (network actor `minecraft:villager_v2`) with its trades.
     Villager {
         /// The profession shown (`Variant`).
         profession: u8,
@@ -667,7 +667,7 @@ pub(super) enum Cause {
 
 impl Cause {
     /// BDS's damage cause number, which the hurt event carries (the players' numbers,
-    /// `survival::Damage::bds_cause`; P6: a trident's hit on a villager 3, m9-facts.md).
+    /// `survival::Damage::bds_cause`; P6: a trident's hit on a villager 3).
     pub(super) fn bds_cause(self) -> i32 {
         match self {
             Self::Custom => 0,

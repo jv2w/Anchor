@@ -1,6 +1,6 @@
-//! Chunk and player extras on the tick side (PLAN.md 10.7): what the server file keeps of a
-//! chunk besides its terrain (block entities, entities, scheduled block updates) and of a player
-//! besides its world and position, and the hooks where rule modules take it over.
+//! Chunk and player extras on the tick side: what the server file keeps of a chunk besides its
+//! terrain (block entities, entities, scheduled block updates) and of a player besides its world
+//! and position, and the hooks where rule modules take it over.
 //!
 //! # Contract for rule modules
 //!

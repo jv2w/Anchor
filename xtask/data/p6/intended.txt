@@ -1,4 +1,4 @@
-# Intended differences of `cargo xtask p6 api` (PLAN.md 10.8 P6, m8-facts.md 9): differences from
+# Intended differences of `cargo xtask p6 api` (`xtask/data/p6/facts.md`): differences from
 # BDS that Anchor keeps on purpose, each with its reason. `p6 api compare` reports a difference
 # whose text is exactly a line's (in that line's scenario) as `intended` and does not fail for it;
 # any other difference still fails. A line the comparison no longer finds is printed as a note:
@@ -6,8 +6,7 @@
 # <scenario> | <difference, exactly as printed after `DIFFERENT <scenario>: `> | <reason>
 
 # `/say`: BDS sends no CommandOutput and everyone a Text 8 `[name] message`; Anchor keeps PMMP's
-# `SayCommand`: the `§d%chat.type.announcement` translation and an empty CommandOutput (decision
-# to keep PMMP's behaviour, m8-facts.md 9).
+# `SayCommand`: the `§d%chat.type.announcement` translation and an empty CommandOutput.
 commands | command say hi: CommandOutput: A 0 != B 1 | /say keeps PMMP's SayCommand: Anchor answers with an empty CommandOutput, BDS with none
 commands | command say hi: Text#0.TextType: A 8 != B 2 | /say keeps PMMP's SayCommand: a translation Text, BDS a Text 8
 commands | command say hi: Text#0.NeedsTranslation: A false != B true | /say keeps PMMP's SayCommand: a translation Text, BDS a Text 8
@@ -18,7 +17,7 @@ commands | command say hi: output uuid_echoed: A null != B true | /say keeps PMM
 commands | command say hi: CommandOutput: A none B sent | /say keeps PMMP's SayCommand: Anchor answers with an empty CommandOutput, BDS with none
 
 # give: BDS names the item by its language-file name (`Stone`), Anchor by its ID: Anchor has no
-# item display name table (PMMP uses `Item::getName()`); match it once item data has names.
+# item display name table (PMMP uses `Item::getName()`).
 commands | command give @s stone 3: CommandOutput#0.OutputMessages: A [{"Message":"commands.give.success","Parameters":["Stone","3","P6Commands"],"Success":true}] != B [{"Message":"commands.give.success","Parameters":["minecraft:stone","3","P6Commands"],"Success":true}] | no item display name table: give names the item by its ID
 commands | command give @s stone 3: Text#0.Message: A "{\"rawtext\":[{\"translate\":\"commands.give.successRecipient\",\"with\":{\"rawtext\":[{\"text\":\"Stone\"},{\"text\":\"3\"}]}}]}\n" != B "{\"rawtext\":[{\"translate\":\"commands.give.successRecipient\",\"with\":{\"rawtext\":[{\"text\":\"minecraft:stone\"},{\"text\":\"3\"}]}}]}\n" | no item display name table: give names the item by its ID
 
@@ -27,7 +26,7 @@ commands | command give @s stone 3: Text#0.Message: A "{\"rawtext\":[{\"translat
 # same values, harmless to the client).
 commands | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
 
-# `cargo xtask p6 import` (PLAN.md 10.9): `import | block <name> | <reason>`. Where Anchor sends
+# `cargo xtask p6 import`: `import | block <name> | <reason>`. Where Anchor sends
 # `info_update` for an imported block it keeps as an unknown block (with its NBT, so nothing is
 # lost), BDS's block of a listed name is an intended difference. PMMP does not have these blocks
 # (xtask/data/pmmp/blocks.json). A block Anchor sends as the state PMMP reads it as (a pumpkin
@@ -44,7 +43,7 @@ import | block minecraft:trial_spawner | PMMP has no trial spawner; kept as an u
 import | block minecraft:vault | PMMP has no vault; kept as an unknown block, sent as stored without server behaviour
 import | block minecraft:wildflowers | PMMP has no wildflowers; kept as an unknown block, sent as stored without server behaviour
 
-# M9 verification scenarios (P6V, m9-facts.md): differences Anchor keeps on purpose.
+# Verification scenarios (`xtask/data/p6/facts.md`): differences Anchor keeps on purpose.
 enchants | trident into the table: check options trident: A {"options":3,"slot":32768} != B {"options":0,"slot":null} | PMMP has no trident enchantments (impaling, loyalty, riptide, channeling): its enchanting table gives a trident no options
 potions | throw splash potion 42: check splash colours: A {"0":4281884102,"1":4281884102,"10":4294836100,"11":4294836100,"12":4294940928,"13":4294940928,"14":4281592831,"15":4281592831,"16":4281592831,"17":4287344608,"18":4287344608,"19":4288207552,"2":4281884102,"20":4288207552,"21":4294452259,"22":4294452259,"23":4289291626,"24":4289291626,"25":4287079267,"26":4287079267,"27":4287079267,"28":4291648683,"29":4291648683,"3":4281884102,"30":4291648683,"31":4294952704,"32":4294952704,"33":4294952704,"34":4282928456,"35":4282928456,"36":4285751638,"37":4287464166,"38":4287464166,"39":4287464934,"4":4281884102,"40":4294168505,"41":4294168505,"42":4287344608,"5":4290969446,"6":4290969446,"7":4294375158,"8":4294375158,"9":4294836100} != B {"0":4281884102,"1":4281884102,"10":4294836100,"11":4294836100,"12":4294940928,"13":4294940928,"14":4281592831,"15":4281592831,"16":4281592831,"17":4287344608,"18":4287344608,"19":4288207552,"2":4281884102,"20":4288207552,"21":4294452259,"22":4294452259,"23":4289291626,"24":4289291626,"25":4287079267,"26":4287079267,"27":4287079267,"28":4291648683,"29":4291648683,"3":4281884102,"30":4291648683,"31":4294952704,"32":4294952704,"33":4294952704,"34":4282928456,"35":4282928456,"36":4285751638,"37":4287464166,"38":4287464166,"39":4287464934,"4":4281884102,"40":4281884102,"41":4281884102,"42":4287344608,"5":4290969446,"6":4290969446,"7":4294375158,"8":4294375158,"9":4294836100} | PMMP has no slow falling effect: Anchor's slow falling potions (40, 41) have no effect and show the water colour
 syntax | command xp abc @s: CommandOutput#0.OutputMessages: A [{"Message":"commands.generic.syntax","Parameters":["/xp ","abc"," @s"],"Success":false}] != B [{"Message":"commands.generic.usage","Parameters":["/xp <amount: string> [player: target]"],"Success":false}] | /xp keeps PMMP's single amount parameter (`10` or `10L`): a bad amount fits the overload and the handler answers with the usage
@@ -57,7 +56,7 @@ syntax | command gamemode creative: UpdateAbilities: A 0 != B 1 | UpdateAbilitie
 syntax | command gamemode spectator: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
 syntax | command gamemode survival: UpdateAbilities: A 0 != B 1 | UpdateAbilities after a game mode change, as PMMP and dragonfly send it
 
-# Other players' movement (U8, PLAN.md 10.7): BDS sends it as MovePlayer, which the client applies
+# Other players' movement: BDS sends it as MovePlayer, which the client applies
 # at once (20 jumps a second); Anchor sends MoveActorAbsolute, which the client interpolates, as
 # PMMP and dragonfly do. Teleports stay MovePlayer mode 2 on both.
 others | wait for the other player: check moves of the other player: A {"MovePlayer mode 0":true} != B {"MoveActorAbsolute":true} | other players move by MoveActorAbsolute, which the client interpolates (PMMP broadcastMovement); MovePlayer snaps them

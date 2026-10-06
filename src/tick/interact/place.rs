@@ -3,7 +3,7 @@
 //! every class and trait, the `canBeSupportedAt` rules of `StaticSupportTrait`).
 //!
 //! [`placement`] only reads the world: it returns the blocks to set, which the caller checks
-//! (entities in the way, adventure mode, events in M8) and then applies.
+//! (entities in the way, adventure mode, events) and then applies.
 
 use crate::block::{self, Class, Face, Kind, State, SupportType, Trait, TypeTag};
 use crate::item;
@@ -36,8 +36,8 @@ impl Placer {
     }
 }
 
-/// The block at `pos`, air where nothing is known (an unloaded chunk, outside the world): the
-/// neighbour rules of PLAN.md 10.6. An inert block reads as its stand-in
+/// The block at `pos`, air where nothing is known (an unloaded chunk, outside the world), so the
+/// neighbour rules never load a chunk. An inert block reads as its stand-in
 /// ([`block::Inert::stand_in`]), which no placement replaces.
 pub(super) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
     pos.and_then(|p| placed_on(world, p)).unwrap_or(block::AIR)

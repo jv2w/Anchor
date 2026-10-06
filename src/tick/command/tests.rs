@@ -207,8 +207,8 @@ fn bad_lines_get_the_clients_or_anchors_messages_and_run_nothing() {
         echo("n", &[Param::int("a")]),
         echo("t", &[Param::target("who")]),
     ]);
-    // BDS's syntax error (P6 `syntax`, m9-facts.md): the word where the line stops fitting, empty
-    // where words are missing, with up to 10 characters of the line before and after it.
+    // BDS's syntax error (P6 `syntax`): the word where the line stops fitting, empty where words
+    // are missing, with up to 10 characters of the line before and after it.
     let syntax = |before: &str, word: &str, after: &str| Error::Syntax {
         before: before.to_owned(),
         word: word.to_owned(),
@@ -290,7 +290,7 @@ fn bad_lines_get_the_clients_or_anchors_messages_and_run_nothing() {
 }
 
 /// Syntax errors name the word where the line stops fitting the overload that fits furthest, as
-/// BDS does (P6 `syntax`, m9-facts.md).
+/// BDS does (P6 `syntax`).
 #[test]
 fn syntax_errors_name_the_word_where_the_line_stops_fitting() {
     let syntax = |before: &str, word: &str, after: &str| Error::Syntax {

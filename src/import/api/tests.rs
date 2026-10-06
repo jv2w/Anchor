@@ -922,7 +922,7 @@ fn file_mib(path: &Path) -> u64 {
     std::fs::metadata(path).unwrap().len() >> 20
 }
 
-/// Measurements for PLAN.md: `cargo test --release --lib
+/// Measures the import: `cargo test --release --lib
 /// import::api::tests::measure_100k_chunk_import -- --ignored --nocapture`.
 #[test]
 #[ignore = "measurement"]

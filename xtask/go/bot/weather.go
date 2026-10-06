@@ -10,7 +10,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The weather API scenarios (PLAN.md 10.9 날씨와 번개) run on the game scenarios' machinery, one after another
+// The weather API scenarios run on the game scenarios' machinery, one after another
 // in one server session:
 //
 //	weather    each of weatherSteps on the console in its own step: every move between clear, rain and
@@ -183,7 +183,7 @@ func (g *game) settleWeather(lightning bool) error {
 	return g.settle(boltSettle)
 }
 
-// boltDifficulties are the bolt scenarios (PLAN.md 10.9 날씨와 번개, the M9 "검증 필요 B"): each sets its
+// boltDifficulties are the bolt scenarios (how lightning damage depends on difficulty): each sets its
 // difficulty on the console, strikes a bolt 2 blocks from the bot like the weather scenario's "lightning
 // near" step with the same check, and sets the difficulty back to normal. Each runs with a new player of
 // full health in its own area.

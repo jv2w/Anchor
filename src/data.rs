@@ -1,4 +1,4 @@
-//! Data the user keeps on players and on the server (PLAN.md 8.1, 10.8).
+//! Data the user keeps on players and on the server.
 //!
 //! - **Extensions**: any `Send + Sync + 'static` value per player and type
 //!   ([`Player::insert_extension`](crate::player::Player::insert_extension)). They are not saved
@@ -17,8 +17,7 @@
 //! than its limit (or does not serialize) is not written, its last saved form stays, and a
 //! warning is logged. A saved value that no longer deserializes into its type (a changed type)
 //! is never overwritten: a player's reads as `None` and stays as saved, a server value refuses
-//! the start. Changes written to systems outside the server file are not undone by a crash
-//! (PLAN.md 6).
+//! the start. Changes written to systems outside the server file are not undone by a crash.
 
 use std::any::{Any, TypeId};
 use std::fmt;

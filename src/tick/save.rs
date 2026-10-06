@@ -1,5 +1,5 @@
-//! Save snapshots (PLAN.md 10.6): when the tick takes one, and what it keeps in memory until the
-//! save thread reports the commit.
+//! Save snapshots: when the tick takes one, and what it keeps in memory until the save thread
+//! reports the commit.
 //!
 //! A snapshot holds everything changed since the last one. Until the tick learns that a
 //! snapshot is committed, the data in it stays in memory even when its chunk unloads or its
@@ -109,7 +109,7 @@ pub(super) struct Saving {
     next_due: u64,
     /// A task or command asked for a save at the next tick boundary.
     pub(super) requested: bool,
-    /// A task or command asked for an online backup after the next save (PLAN.md 10.9 백업).
+    /// A task or command asked for an online backup after the next save.
     pub(super) backup: bool,
     /// `/check` asked for a check of the server file after the next save.
     check: bool,
@@ -244,8 +244,7 @@ super::checkpoint::variants!(Sender {
     1 => Console,
 });
 
-/// The storage key of a player (PLAN.md 6): the XUID in decimal, or `offline:` and the name in
-/// ASCII lowercase.
+/// The storage key of a player: the XUID in decimal, or `offline:` and the name in ASCII lowercase.
 pub(super) fn storage_key(key: &PlayerKey) -> StoredPlayer {
     match key {
         PlayerKey::Xuid(xuid) => StoredPlayer::xuid(*xuid),
@@ -329,7 +328,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         return None;
     }
     let data_saves = ask_data_saves(state);
-    // The rule modules' changed chunk state goes to the extras holder first (PLAN.md 10.7).
+    // The rule modules' changed chunk state goes to the extras holder first.
     state.rules.flush(&mut state.chunks.extras);
     let start = state.tick;
     let mut snapshot = Snapshot {
@@ -431,10 +430,9 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
 /// holds, before anything goes into it, so that what the listeners change is in it too. The
 /// events come back for the monitors, who see them once the snapshot is taken.
 ///
-/// Cancelling saves the data all the same: a snapshot holds the whole state of one tick boundary
-/// (CLAUDE.md 2.1), and a player's data left out of it would come back after a crash beside a
-/// newer world (an item both in a chest and in the inventory). `save-player-data` turns player
-/// data off for good.
+/// Cancelling saves the data all the same: a snapshot holds the whole state of one tick boundary,
+/// and a player's data left out of it would come back after a crash beside a newer world (an item
+/// both in a chest and in the inventory). `save-player-data` turns player data off for good.
 fn ask_data_saves(state: &mut State) -> Vec<PlayerDataSave> {
     if !state.saving.players || !dispatch::heard::<PlayerDataSave>(state) {
         return Vec::new();
@@ -532,8 +530,7 @@ pub(super) fn checked(state: &mut State, found: &Checked) {
     }
 }
 
-/// The snapshot taken before tick `start` could not be committed: the tick stops without saving
-/// (PLAN.md 6).
+/// The snapshot taken before tick `start` could not be committed: the tick stops without saving.
 pub(super) fn failed(start: u64) {
     error!(
         start,
@@ -548,8 +545,8 @@ pub(super) fn load_failed() {
 
 #[cfg(test)]
 mod tests {
-    //! The save events (PLAN.md 10.8 판정식 "이벤트"): the player data saves before a snapshot and
-    //! the world saves after its commit.
+    //! The save events: the player data saves before a snapshot and the world saves after its
+    //! commit.
 
     use std::cell::Cell;
 

@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// issuerCommand makes a test issuer for the online scenario (PLAN.md 10.2):
+// issuerCommand makes a test issuer for the online scenario:
 //
 //	bot issuer -dir DIR -kid K -iss ISS
 //

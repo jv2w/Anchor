@@ -1,4 +1,4 @@
-//! Server settings: the `anchor.toml` file (PLAN.md 8.5), its defaults and its validation.
+//! Server settings: the `anchor.toml` file, its defaults and its validation.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -15,8 +15,8 @@ use crate::fs::{self, Access};
 use crate::protocol::batch;
 use crate::protocol::compression::Compression;
 
-/// The file [`Config::load`] writes when the settings file is missing. PLAN.md 8.5 holds the same
-/// text; a test keeps the two byte-identical.
+/// The file [`Config::load`] writes when the settings file is missing; a test checks that it
+/// loads as the default settings.
 const DEFAULT_FILE: &str = r#"# Anchor server settings. Anchor reads this file at start and never writes it again.
 # A wrong value or an unknown key stops the start with a message naming the key.
 # A key left out keeps its default, so new Anchor versions start with an old file.
@@ -176,7 +176,7 @@ const RENAMED_KEYS: [(&str, &str); 1] = [("general.experience-bottles", "general
 
 /// Bounds the player and session tables that are sized from it.
 const MAX_PLAYERS: RangeInclusive<u32> = 1..=10_000;
-/// PLAN.md 8.5.
+/// The `view-distance` range the settings file accepts.
 const VIEW_DISTANCE: RangeInclusive<u8> = 2..=64;
 /// The effective radius is at most `view-distance`, so a larger value means nothing.
 const RADIUS: RangeInclusive<u8> = 1..=*VIEW_DISTANCE.end();
@@ -184,11 +184,11 @@ const RADIUS: RangeInclusive<u8> = 1..=*VIEW_DISTANCE.end();
 const CHUNKS_PER_TICK: RangeInclusive<u32> = 1..=256;
 /// A sub-chunk holds 4096 blocks; more ticks than blocks add only cost.
 pub(crate) const RANDOM_TICK_SPEED: RangeInclusive<u32> = 0..=4096;
-/// go-raknet's dialer probes 1492, 1200 and 576 (PLAN.md 10.2).
+/// go-raknet's dialer probes 1492, 1200 and 576.
 const MAX_MTU_SIZE: RangeInclusive<u16> = 576..=1492;
-/// One minute to one day (PLAN.md 8.5).
+/// One minute to one day.
 const SAVE_INTERVAL_MINUTES: RangeInclusive<u16> = 1..=1440;
-/// A fixed thread count; the runtime checks the total against the logical CPUs (PLAN.md 10.2).
+/// A fixed thread count; the runtime checks the total against the logical CPUs.
 const THREADS: RangeInclusive<u16> = 1..=u16::MAX;
 /// The RakNet pong carries `motd` and `level-name` in one datagram; 256 + 64 bytes and the other
 /// fields fit the 576-byte minimum MTU.
@@ -197,16 +197,16 @@ const MAX_MOTD_BYTES: usize = 256;
 const MAX_LEVEL_NAME_BYTES: usize = 64;
 /// A disconnect message several lines long fits.
 const MAX_SHUTDOWN_MESSAGE_BYTES: usize = 1024;
-/// One tick to an hour (PLAN.md 8.5).
+/// One tick to an hour.
 pub(crate) const ITEM_DESPAWN_TICKS: RangeInclusive<u32> = 1..=72_000;
-/// The light levels (PLAN.md 8.5).
+/// The light levels.
 const FIXED_LIGHT_LEVEL: RangeInclusive<u8> = 0..=15;
-/// Every tick to once a second (PLAN.md 8.5).
+/// Every tick to once a second.
 const ITEM_PICKUP_INTERVAL: RangeInclusive<u8> = 1..=20;
 
 /// Every server setting. [`Config::default`] holds the values of the default `anchor.toml`.
 ///
-/// The server file saves none of them (PLAN.md 10.6): every start takes the settings from the
+/// The server file saves none of them: every start takes the settings from the
 /// config it is built with, so a value changed while the server runs (the difficulty, a world's
 /// spawn, difficulty, weather or time stop, a game rule) is back to its setting after a restart.
 ///
@@ -223,7 +223,7 @@ pub struct Config {
     /// build fails.
     pub worlds: BTreeMap<String, WorldSettings>,
     /// Top-level tables of the loaded file that Anchor does not know; [`Config::validate`]
-    /// rejects them (PLAN.md 8.5).
+    /// rejects them.
     unknown_tables: BTreeSet<String>,
     /// The folder of the last file [`Config::load`] read; `None` before any.
     dir: Option<PathBuf>,
@@ -294,7 +294,7 @@ impl Config {
 
     /// The view values in effect in a world with the `[worlds.<name>]` values `world` (`None`:
     /// a world without them): each value it sets replaces the global one, and the radii are at
-    /// most the view distance (PLAN.md 8.5).
+    /// most the view distance.
     pub(crate) fn view_limits(&self, world: Option<&WorldSettings>) -> ViewLimits {
         self.global_view()
             .apply(&world.copied().unwrap_or_default())
@@ -911,7 +911,7 @@ pub(crate) struct ViewLimits {
 
 impl ViewLimits {
     /// These values (the global ones, [`Config::global_view`]) with each value `world` sets in
-    /// their place, and the radii at most the view distance (PLAN.md 8.5).
+    /// their place, and the radii at most the view distance.
     pub(crate) fn apply(self, world: &WorldSettings) -> Self {
         let view_distance = world.view_distance.unwrap_or(self.view_distance);
         Self {
@@ -1106,7 +1106,7 @@ impl LevelType {
 /// A thread count setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Threads {
-    /// `"auto"`: chosen from the number of logical CPUs (PLAN.md 10.2).
+    /// `"auto"`: chosen from the number of logical CPUs.
     Auto,
     /// A fixed number of threads.
     Count(NonZeroU16),
@@ -1386,8 +1386,7 @@ fn threads(value: &Value, key: Key<'_>) -> Result<Threads> {
         .ok_or_else(|| key.out_of_range(0, THREADS))
 }
 
-/// Reads a `lighting` value; the `true` and `false` of older files mean `"dynamic"` and `"fixed"`
-/// (PLAN.md 8.5).
+/// Reads a `lighting` value; the `true` and `false` of older files mean `"dynamic"` and `"fixed"`.
 fn lighting(value: &Value, key: Key<'_>) -> Result<Lighting> {
     match value.as_bool() {
         Some(true) => Ok(Lighting::Dynamic),

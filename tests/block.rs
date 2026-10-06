@@ -1,5 +1,5 @@
-//! Block states through the public API (PLAN.md 10.4 "M4 판정식"): the state table against the
-//! reference list (network IDs included) and the PMMP dump, and unknown input to the lookups.
+//! Block states through the public API: the state table against the reference list (network
+//! IDs included) and the PMMP dump, and unknown input to the lookups.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
@@ -308,7 +308,7 @@ fn check_physics(state: State, block: &Json) {
         .collect();
     assert_eq!(support, want, "{state:?}");
     // PMMP's inside-out box (a wall hanging sign's bar) is rebuilt as BDS's bar, so the count
-    // stays (m9-facts.md).
+    // stays (BDS, P6).
     let boxes = block["boxes"].as_array().expect("boxes").len();
     assert_eq!(state.collision_boxes().len(), boxes, "{state:?}");
 }

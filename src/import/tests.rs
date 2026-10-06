@@ -8,7 +8,7 @@ use super::*;
 use crate::import::leveldb::tests::database_files;
 use crate::save::tests::TempDir;
 
-/// The world BDS 1.26.52 made (PLAN.md 10.9): a flat world, seed 7, with blocks filled, entities
+/// The world BDS 1.26.52 made: a flat world, seed 7, with blocks filled, entities
 /// summoned and water placed over five runs, so it has a table and a live log.
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 
@@ -188,7 +188,7 @@ fn a_read_takes_the_chunks_keys_only() {
     assert_eq!(ids_of(corner), vec!["corner"]);
 }
 
-/// Keys of two chunks of a world a 1.21 game saved, which once failed the import (U11), as
+/// Keys of two chunks of a world a 1.21 game saved, with values a strict reader rejects, as
 /// (little-endian `u32` length, bytes) of each key then its value, in key order: chunk (-198, 8),
 /// chunk version 41, whose `Data3D` holds 25 biome storages where 24 are read; chunk (-5, -44),
 /// with its block entities and three entities whose NBT holds a string of binary bytes (the

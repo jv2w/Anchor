@@ -1,4 +1,4 @@
-// Command reference converts the reference lists (PLAN.md 7, 10.4) into the committed JSON files that
+// Command reference converts the reference lists into the committed JSON files that
 // `cargo xtask gen` and the tests read:
 //
 //	go run ./reference -dragonfly DIR -cloudburst DIR -out DIR

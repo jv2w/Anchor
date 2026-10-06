@@ -1,5 +1,5 @@
 //! The rule modules' state that lives with chunks, and where it meets the chunk extras holder
-//! ([`super::extra`], PLAN.md 10.7).
+//! ([`super::extra`]).
 //!
 //! Three modules own a chunk extras kind each: block entities ([`super::block_entity`]),
 //! entities ([`super::entity`]) and scheduled block updates ([`super::update`]). Each keeps its

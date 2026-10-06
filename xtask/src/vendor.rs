@@ -1,5 +1,5 @@
 //! `cargo xtask vendor-test str0m`: the str0m copy's full test suite, run when `vendor/str0m`
-//! changes (PLAN.md 9.1); `verify` runs only its library tests. The integration tests need seven
+//! changes; `verify` runs only its library tests. The integration tests need seven
 //! capture files the published crate leaves out and the repository does not commit: they are
 //! downloaded from the upstream commit of the copy into `.cache/`, checked against the SHA-256
 //! list in `xtask/data/vendor/`, copied into the copy's `tests/data/` for the run and removed

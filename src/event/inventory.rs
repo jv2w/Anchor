@@ -1,5 +1,5 @@
 //! Inventory events (PMMP `pocketmine\event\inventory`): windows, transactions, crafting and the
-//! furnace, and the two trade events PMMP does not have (PLAN.md 8.6).
+//! furnace, and the two trade events PMMP does not have.
 
 use crate::block::State;
 use crate::entity;

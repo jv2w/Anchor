@@ -1,4 +1,4 @@
-//! `src/item/registry.rs`: the 1.26.50 item registry (PLAN.md 10.4), every entry of the reference
+//! `src/item/registry.rs`: the 1.26.50 item registry, every entry of the reference
 //! list (`xtask/data/reference/items.json`) with its component data, in runtime ID order.
 
 use serde::Deserialize;
@@ -35,7 +35,7 @@ pub(crate) fn generate(root: &std::path::Path) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! The item registry generated from the 1.26.50 reference list (PLAN.md 10.4): \
+        "{HEADER}\n//! The item registry generated from the 1.26.50 reference list: \
          {} entries.\n\n\
          use super::RegistryEntry;\n\n\
          /// The runtime ID of `{SHIELD}`: item stacks of it carry a blocking tick on the wire.\n\

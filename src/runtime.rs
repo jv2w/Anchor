@@ -14,7 +14,7 @@ use crate::error::{Error, Result};
 use crate::pool::Pool;
 
 /// Stack size of every thread Anchor creates. Network workers drop NBT nested 512 deep, which
-/// recurses (PLAN.md 10.2); one size for every thread keeps the bound independent of the OS
+/// recurses; one size for every thread keeps the bound independent of the OS
 /// default and of `RUST_MIN_STACK`.
 const STACK_BYTES: usize = 4 << 20;
 /// Blocking jobs of the user ([`Context::spawn_blocking`](crate::Context::spawn_blocking)) that
@@ -22,11 +22,11 @@ const STACK_BYTES: usize = 4 << 20;
 pub(crate) const USER_BLOCKING_THREADS: usize = 4;
 /// Threads tokio may start for blocking work: 4 for the engine's own (the authorization fetch,
 /// pack and key loading) and [`USER_BLOCKING_THREADS`] for the user's jobs. tokio's default of 512
-/// would let blocking work grow without bound (PLAN.md 5). Blocking threads wait on I/O and are
+/// would let blocking work grow without bound. Blocking threads wait on I/O and are
 /// not counted in the compute thread budget.
 const MAX_BLOCKING_THREADS: usize = 4 + USER_BLOCKING_THREADS;
-/// How long stopping the runtime waits for blocking work: the authorization fetch's 10 s limit
-/// (PLAN.md 10.2), so a fetch in progress finishes and its thread is joined. Its DNS lookups are
+/// How long stopping the runtime waits for blocking work: the authorization fetch's 10 s limit,
+/// so a fetch in progress finishes and its thread is joined. Its DNS lookups are
 /// outside that limit, bounded only by the OS resolver; user jobs still running are abandoned
 /// ([`Context::spawn_blocking`](crate::Context::spawn_blocking)).
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
@@ -35,12 +35,12 @@ const FIXED_THREADS: usize = 2;
 /// The smallest thread budget, whatever the logical CPU count.
 const MIN_BUDGET: usize = 4;
 
-/// Thread counts resolved from `network-threads` and `cpu-threads` (PLAN.md 10.2).
+/// Thread counts resolved from `network-threads` and `cpu-threads`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ThreadCounts {
     /// Tokio worker threads.
     pub(crate) network: usize,
-    /// Threads of the parallel game pool (created in M5).
+    /// Threads of the parallel game pool.
     pub(crate) cpu: usize,
 }
 
@@ -162,7 +162,7 @@ impl Runtime {
     }
 }
 
-/// Starts the CPU pool of `threads` threads (PLAN.md 10.5). Each thread reports its end, so
+/// Starts the CPU pool of `threads` threads. Each thread reports its end, so
 /// [`Pool::shutdown`] can wait for all of them.
 #[expect(
     clippy::disallowed_methods,
@@ -207,7 +207,7 @@ pub(crate) fn spawn_tick<T: Send + 'static>(
         .map_err(Error::Start)
 }
 
-/// Starts the save thread running `run` (PLAN.md 10.6): the one thread that reads and commits
+/// Starts the save thread running `run`: the one thread that reads and commits
 /// the server file.
 #[expect(
     clippy::disallowed_methods,

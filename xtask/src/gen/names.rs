@@ -1,4 +1,4 @@
-//! Go names to Rust names (CLAUDE.md 5.1, PLAN.md 4). This is the one place for the word
+//! Go names to Rust names. This is the one place for the word
 //! splitting rule, the term table and the exception table.
 //!
 //! Splitting: at each word start the term table is tried first (longest term first; a term

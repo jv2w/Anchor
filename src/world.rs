@@ -1,4 +1,4 @@
-//! Worlds (PLAN.md 6, 10.6): block and chunk positions, the loaded chunks of a world, generators,
+//! Worlds: block and chunk positions, the loaded chunks of a world, generators,
 //! the neighbour rules that keep fence, pane, wall, fence gate, stair and tripwire states up to
 //! date when a block is set, and the light of the loaded chunks (10.7).
 //!
@@ -169,7 +169,7 @@ impl Id {
 /// Whether a world is saved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    /// Saved with every commit (PLAN.md 6).
+    /// Saved with every commit.
     Persistent,
     /// Never saved: it starts from its generator at every start, such as a minigame arena.
     Temporary,
@@ -183,7 +183,7 @@ pub enum Error {
     /// The chunk of the position is not loaded.
     NotLoaded,
     /// The chunk of the position is quarantined: its saved data is damaged, so it is shown
-    /// empty and never changed or saved (PLAN.md 10.6).
+    /// empty and never changed or saved.
     Quarantined,
     /// Stored chunk data breaks a rule of the format.
     Malformed(&'static str),
@@ -246,7 +246,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// [`Context::load_world`](crate::Context::load_world) loads a stored one with (PMMP
 /// `WorldCreationOptions`). The defaults: a [`Kind::Persistent`] world of the `flat` generator,
 /// a seed made from the world's name, the generator's spawn, the server's difficulty and the
-/// global view values. The server file saves none of them (PLAN.md 10.6): a world loaded after a
+/// global view values. The server file saves none of them: a world loaded after a
 /// restart takes the options of that load.
 #[doc(alias = "WorldCreationOptions")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -399,7 +399,7 @@ impl Ticket {
 /// value ([`ServerBuilder::server_data`](crate::ServerBuilder::server_data),
 /// [`Context::data_mut`](crate::Context::data_mut)) keeps it across restarts, committed with the
 /// rest of the game. No event tells of a change: only the program's own calls make one, and
-/// direct calls raise no events (PLAN.md 8.2).
+/// direct calls raise no events.
 ///
 /// ```no_run
 /// use std::num::NonZeroU32;
@@ -461,7 +461,7 @@ pub struct Lightning {
 
 /// A world: its settings and the chunks loaded in memory.
 ///
-/// Only the tick thread changes it (CLAUDE.md 4.2). The engine loads and unloads chunks; a block
+/// Only the tick thread changes it. The engine loads and unloads chunks; a block
 /// of a chunk that is not loaded reads as `None` and cannot be set.
 // pmmp-class: World
 pub struct World {
@@ -538,7 +538,7 @@ impl World {
         }
     }
 
-    /// Gives the world the server's custom content (PLAN.md 10.8), for the loaders of its saved
+    /// Gives the world the server's custom content, for the loaders of its saved
     /// block entities and entities.
     pub(crate) fn set_custom(&mut self, custom: std::sync::Arc<crate::custom::Registry>) {
         self.custom = Some(custom);
@@ -586,8 +586,8 @@ impl World {
         self.spawn
     }
 
-    /// Moves the spawn until the server stops: a restart takes the spawn of the settings again
-    /// (PLAN.md 10.6). The 3 × 3 spawn chunks the server keeps loaded move
+    /// Moves the spawn until the server stops: a restart takes the spawn of the settings again.
+    /// The 3 × 3 spawn chunks the server keeps loaded move
     /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
     /// sees them (PMMP keeps the old ones held and does not hold the new ones).
     #[doc(alias = "World::setSpawnLocation")]
@@ -718,7 +718,7 @@ impl World {
     /// Sets the block at `pos`.
     ///
     /// The neighbour rules then work out the connection properties of the block and of its
-    /// neighbours (fences, panes and bars, walls, fence gates, stairs, tripwire: PLAN.md 10.6),
+    /// neighbours (fences, panes and bars, walls, fence gates, stairs, tripwire),
     /// so the block may end up in a state that differs from `state` in those properties.
     /// Neighbours in chunks that are not loaded read as air and are not changed.
     #[doc(alias = "World::setBlockAt")]
@@ -882,7 +882,7 @@ impl World {
     }
 
     /// Whether the chunk is loaded and lit (always, with light off): random block ticks need it
-    /// around a chunk (PLAN.md 6).
+    /// around a chunk.
     pub(crate) fn is_chunk_lit(&self, pos: ChunkPos) -> bool {
         self.light.is_lit(&self.chunks, pos)
     }
@@ -901,7 +901,7 @@ impl World {
         self.light.step(&mut self.chunks, budget)
     }
 
-    /// A hash of the world's light (state hashes, PLAN.md 10.7 결정성): the light work waiting,
+    /// A hash of the world's light (state hashes): the light work waiting,
     /// then each loaded chunk's light in position order. About 260 word mixes per sub-chunk that
     /// is not uniform, a few per one that is.
     #[cfg(test)]
@@ -975,7 +975,7 @@ impl World {
     }
 
     /// Loads `chunk` at `pos` from memory as it is: an unloaded chunk whose changes are not
-    /// committed yet keeps its dirty mark (PLAN.md 10.6).
+    /// committed yet keeps its dirty mark.
     pub(crate) fn restore_chunk(&mut self, pos: ChunkPos, chunk: Chunk) {
         self.put_chunk(pos, chunk);
     }
@@ -1056,7 +1056,7 @@ impl World {
     }
 }
 
-/// What a checkpoint keeps of a world besides its plain fields (PLAN.md 10.9 재생 도구): the
+/// What a checkpoint keeps of a world besides its plain fields: the
 /// light work and every loaded chunk as it is, its light apart. A chunk the server file holds is
 /// kept too: a load compacts its palettes, and a replay must go on from the exact chunk. It
 /// shares the sub-chunks and light arrays with the live world until they change, and is encoded
@@ -1985,7 +1985,7 @@ mod tests {
             .unwrap()
     }
 
-    /// Measures `block` and `set_block` (PLAN.md 10.6 "색인"):
+    /// Measures `block` and `set_block`:
     /// `cargo test --release --lib world::tests::block_access_cost -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement"]

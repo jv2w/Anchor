@@ -1,4 +1,4 @@
-//! Displays: the scoreboards and the boss bar each player sees (PLAN.md 10.8).
+//! Displays: the scoreboards and the boss bar each player sees.
 //!
 //! Each player has its own: [`Context::set_scoreboard`](crate::Context::set_scoreboard) shows a
 //! [`Scoreboard`] in one [`Slot`] and [`Context::set_boss_bar`](crate::Context::set_boss_bar) a

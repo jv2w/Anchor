@@ -1,7 +1,7 @@
-//! Lightning bolts (PLAN.md 10.9 날씨와 번개): [`Context::strike_lightning`](crate::Context::strike_lightning)
-//! shows a bolt as BDS's `summon lightning_bolt` does (P6 `weather`, m9-facts.md WEATHER): the
-//! `minecraft:lightning_bolt` actor at the strike with its `thunder` and `explode` sounds to the
-//! players who see the chunk, and the actor's removal a second later.
+//! Lightning bolts: [`Context::strike_lightning`](crate::Context::strike_lightning) shows a bolt as
+//! BDS's `summon lightning_bolt` does (P6 `weather`): the `minecraft:lightning_bolt` actor at the
+//! strike with its `thunder` and `explode` sounds to the players who see the chunk, and the actor's
+//! removal a second later.
 //!
 //! The bolt is no entity of the store: it does nothing after its strike and nothing touches it,
 //! so it is its packets and the removal it waits for ([`Bolt`]). What it does, it does at once

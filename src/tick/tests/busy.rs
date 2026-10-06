@@ -1,9 +1,9 @@
-//! The M8 determinism run (PLAN.md 10.8 판정식 "결정성·성능"): the M7 script with listeners and
-//! monitors on every event, busy listeners that cancel at a fixed pattern, change fields, call the
-//! direct API, defer and perform actions, scheduled tasks and blocking jobs; its clients also
-//! chat, run commands and answer forms. One and many pool threads must give the same ticks, and
-//! the input log (job results included) must replay them. A run with idle listeners and monitors
-//! on every event must give the M7 run's ticks.
+//! The determinism run with listeners: the base script with listeners and monitors on every event,
+//! busy listeners that cancel at a fixed pattern, change fields, call the direct API, defer and
+//! perform actions, scheduled tasks and blocking jobs; its clients also chat, run commands and
+//! answer forms. One and many pool threads must give the same ticks, and the input log (job results
+//! included) must replay them. A run with idle listeners and monitors on every event must give the
+//! base run's ticks.
 
 use std::num::NonZeroU32;
 
@@ -50,8 +50,8 @@ const ANSWERS: [Option<&[u8]>; 5] = [
     Some(b"{oops"),
 ];
 
-/// One M8 input of a client: a chat line, a command, or an answer to one of `forms` (sometimes
-/// to a form already answered or never sent).
+/// One API input of a client: a chat line, a command, or an answer to one of `forms` (sometimes to
+/// a form already answered or never sent).
 pub(super) fn client_input(rng: &mut Rng, forms: &mut Vec<u32>) -> Packet {
     match rng.below(4) {
         0 => Packet::Text(Box::new(Text {
@@ -115,7 +115,7 @@ fn every(n: u32, k: u32) -> bool {
     n.is_multiple_of(k)
 }
 
-/// The M8 listeners: idle listeners and monitors on every event, then busy ones (sorted).
+/// The run's listeners: idle listeners and monitors on every event, then busy ones (sorted).
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: the run's listeners in one place"
@@ -368,10 +368,10 @@ pub(super) fn idle() -> Listeners {
     l
 }
 
-/// Seeds of the M8 run: two keep it near the M7 run's time, with more work per tick.
+/// Seeds of the run with listeners: two keep it near the base run's time, with more work per tick.
 const BUSY_SEEDS: [u64; 2] = [SEEDS[0], SEEDS[2]];
 
-/// What the M8 inputs must have reached over all seeds, besides [`REACHED`].
+/// What the API inputs must have reached over all seeds, besides [`REACHED`].
 const BUSY_REACHED: [&str; 1] = ["form"];
 
 #[test]

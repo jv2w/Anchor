@@ -9644,7 +9644,7 @@ impl Packet {
 
     /// Decodes the payload of a packet with this ID: the bytes after the packet header. Every byte must be part of the packet.
     ///
-    /// `budget` is the allocation budget left for the batch the packet came in (PLAN.md 10.1); decoding takes what the packet allocates from it. `shield_id` is the shield's item network ID, which changes the item wire format.
+    /// `budget` is the allocation budget left for the batch the packet came in; decoding takes what the packet allocates from it. `shield_id` is the shield's item network ID, which changes the item wire format.
     pub fn decode(id: u32, payload: &[u8], budget: &mut usize, shield_id: i32) -> Result<Self> {
         let mut r = Reader::new(payload, *budget, shield_id);
         let packet = Self::decode_body(id, &mut r);

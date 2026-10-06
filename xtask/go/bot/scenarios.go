@@ -123,7 +123,7 @@ func playCraft(g *game) error {
 		return err
 	}
 	// The second table names a result in CraftResultsDeprecated with the block runtime ID of stone: does
-	// the server check the item form a client derives from CraftingData (PLAN.md 10.4)?
+	// the server check the item form a client derives from CraftingData?
 	if err := g.fillGrid("planks into the grid", "minecraft:oak_planks", []byte{28, 29, 30, 31}); err != nil {
 		return err
 	}

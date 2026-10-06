@@ -1,12 +1,11 @@
 //! `cargo xtask gen`: runs the Go extractor (`xtask/go/extract`) into the protocol IR
 //! (`xtask/data/protocol.json`) and generates `src/protocol/types.rs` and
-//! `src/protocol/packet.rs` from it, and the block, item and recipe tables (PLAN.md 10.4, see
+//! `src/protocol/packet.rs` from it, and the block, item and recipe tables (see
 //! `data`; with the reference states Anchor shows but does not implement, see `inert`), the biome
-//! table (PLAN.md 10.6) and the import's upgrade tables (PLAN.md 10.9, see
-//! `upgrade`) from the committed data in `xtask/data/`. With
-//! `--check` it does the same in `target/` and fails if the committed IR or a generated file
-//! differs. The protocol decoders also apply the per-field limits in
-//! `xtask/data/reference/protocol_limits.json` (PLAN.md 10.1).
+//! table and the import's upgrade tables (see `upgrade`) from the committed data in
+//! `xtask/data/`. With `--check` it does the same in `target/` and fails if the committed IR or a
+//! generated file differs. The protocol decoders also apply the per-field limits in
+//! `xtask/data/reference/protocol_limits.json`.
 
 /// Appends formatted text to a `String`, which cannot fail (unlike `write!`).
 macro_rules! put {
@@ -40,7 +39,7 @@ use std::process::{Command, Stdio};
 
 /// The IR, relative to the repository root.
 const IR_PATH: &str = "xtask/data/protocol.json";
-/// The per-field decode limits `dump` writes (PLAN.md 10.1), relative to the repository root.
+/// The per-field decode limits `dump` writes, relative to the repository root.
 const LIMITS_PATH: &str = "xtask/data/reference/protocol_limits.json";
 /// The generated files, relative to the repository root.
 const TYPES_PATH: &str = "src/protocol/types.rs";

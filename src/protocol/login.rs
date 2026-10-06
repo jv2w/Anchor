@@ -1,6 +1,6 @@
 //! The envelope of Login's connection request: two little-endian int32 length-prefixed strings
 //! (gophertunnel `login.parseLoginRequest` and `encodeRequest`). The JWTs inside are verified in
-//! the session (PLAN.md 3), not here.
+//! the session, not here.
 
 use super::io::{Codec, Error, Reader, Result, Writer, length};
 

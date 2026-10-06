@@ -4,7 +4,7 @@
 //! Bedrock item compounds), which PMMP does not keep.
 //!
 //! The extra comes from the server file, so every value is checked on load: a wrong type or a
-//! value out of range keeps the default (PLAN.md 2.1); nothing here panics.
+//! value out of range keeps the default; nothing here panics.
 
 use tracing::warn;
 

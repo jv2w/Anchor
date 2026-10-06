@@ -21,6 +21,11 @@
 //! The binary's profiles must keep `panic = "unwind"`, the default: a panicking connection task
 //! closes only that connection.
 //!
+//! Items that come from PocketMine-MP carry its names as search aliases, so searching these docs
+//! for `Player::getName` finds [`Player::name`](player::Player::name). The design notes (threads
+//! and tick, network, protocol, storage, data sources, dependencies, testing, and every
+//! `anchor.toml` key) are in the repository's `docs/` folder.
+//!
 //! # Build, start and stop times
 //!
 //! ## Build

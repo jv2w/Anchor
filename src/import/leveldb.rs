@@ -2,7 +2,7 @@
 //! 1.x, as BDS writes it).
 //!
 //! Opening writes nothing: no `LOCK`, no replay of the logs into new tables, no compaction
-//! (rusty-leveldb does all three to the source folder, PLAN.md 10.9). `CURRENT` names the
+//! (rusty-leveldb does all three to the source folder). `CURRENT` names the
 //! `MANIFEST`, whose version edits (google/leveldb `db/version_edit.cc`: tags 1 comparator,
 //! 2 log number, 3 next file number, 4 last sequence, 5 compaction pointer, 6 deleted table,
 //! 7 new table, 9 previous log number; BDS 1.26.52 writes 1 to 5 and 7) give the live tables per

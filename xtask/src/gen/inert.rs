@@ -1,5 +1,5 @@
-//! `src/block/inert/table.rs`: the block states of the reference list that are not Anchor states
-//! (PLAN.md 7), with BDS's physics for them from `block_physics.json`.
+//! `src/block/inert/table.rs`: the block states of the reference list that are not Anchor states,
+//! with BDS's physics for them from `block_physics.json`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -104,7 +104,7 @@ pub(crate) fn generate(root: &Path, data: &Data) -> Result<String, String> {
     put!(
         out,
         "{HEADER}\n//! The block states of the 1.26.50 reference list that are not Anchor states \
-         (PLAN.md 7): {} states of {} blocks, with BDS's physics.\n\n\
+        : {} states of {} blocks, with BDS's physics.\n\n\
          use super::Profile;\n\
          use crate::math::{{Aabb, Vec3}};\n",
         states.len(),

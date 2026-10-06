@@ -559,7 +559,7 @@ fn a_flattened_property_names_the_block_only_with_its_expected_type() {
 
 #[test]
 fn states_a_game_numbered_past_the_schemas_get_the_newest_properties() {
-    // Palette entries of a real 1.21 world (U11): version 18,186,752 (1.21.130), above the
+    // Palette entries of a real 1.21 world: version 18,186,752 (1.21.130), above the
     // newest schema's 1.21.60.33, without the 1.26 connection and corner properties.
     let entry = |name: &str, states: &[(&str, Value)]| {
         Compound::from([

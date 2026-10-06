@@ -1,11 +1,11 @@
-//! The public block entity API (PLAN.md 10.8): [`Context::block_entity`] lends a [`Tile`] to read
-//! and [`Context::block_entity_mut`] a [`Mut`] to change.
+//! The public block entity API: [`Context::block_entity`] lends a [`Tile`] to read and
+//! [`Context::block_entity_mut`] a [`Mut`] to change.
 //!
 //! A read looks the block entity up by position (two ordered-map steps) each time, so a [`Tile`]
-//! holds no borrow of the store's insides. A write checks its value, changes the block entity
-//! (its chunk is saved at the next commit) and sends its client data to the players who see the
-//! chunk (PMMP sends a tile's spawn compound when it changes). Writes raise no events (PLAN.md
-//! 8.2).
+//! holds no borrow of the store's insides. A write checks its value, changes the block entity (its
+//! chunk is saved at the next commit) and sends its client data to the players who see the chunk
+//! (PMMP sends a tile's spawn compound when it changes). Writes raise no events: a direct API call
+//! never re-enters the listeners.
 
 use super::super::{Context, State, inventory};
 use super::{

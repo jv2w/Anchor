@@ -1,5 +1,4 @@
-//! P5 (PLAN.md 4; 10.2 "M2 판정식", 10.3 "M3 판정식"): the gophertunnel-based bot
-//! (`xtask/go/bot`) joins an Anchor server running in this process.
+//! P5: the gophertunnel-based bot (`xtask/go/bot`) joins an Anchor server running in this process.
 //!
 //! RakNet: spawns with zlib and Snappy, offline and online (a test issuer), and with a 6 MiB
 //! Login; idle connections close at the login deadline and one IP gets four connections before
@@ -47,7 +46,7 @@ fn work_dir() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join("p5")
 }
 
-/// Builds the bot once per test process. Fails the test if Go is missing (PLAN.md 4).
+/// Builds the bot once per test process. Fails the test if Go is missing.
 fn bot() -> &'static Path {
     static BOT: OnceLock<PathBuf> = OnceLock::new();
     BOT.get_or_init(|| {
@@ -504,7 +503,7 @@ fn the_bot_spawns_with_snappy_and_with_zlib() {
 }
 
 /// The jigsaw structure data and biome definitions Anchor sends equal `CloudburstMC`'s data, as
-/// BDS's do (PLAN.md 10.6), checked on the wire by `bot cloudburst` when the pinned checkout is in
+/// BDS's do, checked on the wire by `bot cloudburst` when the pinned checkout is in
 /// `.cache` (`cargo xtask dump` needs it too).
 #[test]
 fn the_jigsaw_and_biome_data_sent_equal_the_cloudburst_data() {

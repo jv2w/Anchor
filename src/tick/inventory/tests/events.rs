@@ -1,5 +1,5 @@
 //! Tests of the inventory, crafting, station, furnace, brewing, campfire, chest and trade events
-//! (PLAN.md 10.8 판정식 "이벤트"): the listener sees the right fields, cancelling keeps the game and
+//!: the listener sees the right fields, cancelling keeps the game and
 //! resyncs the client, changed fields change the outcome, monitors see the applied state, and a
 //! listener that changes the game so the check fails cancels the action.
 

@@ -1,8 +1,7 @@
 //! Entity movement (PMMP `Entity::tryChangeMovement`, `move`, `checkObstruction`,
-//! `checkBlockIntersections`, `Liquid::getFlowVector`): pure functions of an entity's body and
-//! the world's blocks, so the tick runs them on the CPU pool and applies the results in entity
-//! order (PLAN.md 5, 10.7). Only `crate::math` arithmetic is used, so the bits do not depend on
-//! the platform or the thread.
+//! `checkBlockIntersections`, `Liquid::getFlowVector`): pure functions of an entity's body and the
+//! world's blocks, so the tick runs them on the CPU pool and applies the results in entity order.
+//! Only `crate::math` arithmetic is used, so the bits do not depend on the platform or the thread.
 //!
 //! Blocks of chunks that are not loaded, and states Anchor does not know, are full cubes: an
 //! entity never moves into a chunk that is not loaded (a projectile sticks at its border).

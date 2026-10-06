@@ -93,7 +93,7 @@ impl Server {
     /// Imports the Bedrock world folder `dir` (a `level.dat` and its `db` database folder, as BDS
     /// and the game write it) as the persistent world `world`, before [`run`](Self::run).
     ///
-    /// The world becomes the new file `data/world/<world>.redb` (PLAN.md 6), and nothing else is
+    /// The world becomes the new file `data/world/<world>.redb`, and nothing else is
     /// written: several Bedrock worlds import side by side under their own names. A declared
     /// world ([`ServerBuilder::world`], or `level-name`) must be [`Kind::Persistent`]; a name not
     /// declared takes the default world's generator for its biomes, and the tick loads it with
@@ -150,7 +150,7 @@ impl Server {
     /// While it runs, Anchor's console log ([`ServerBuilder::without_console_log`]) is the calling
     /// thread's default and that of every thread Anchor starts.
     ///
-    /// It first opens the data files (PLAN.md 6): `data/main.redb` (the save's tick),
+    /// It first opens the data files: `data/main.redb` (the save's tick),
     /// `data/players.redb`, `data/access.redb` (operators, bans, whitelist), `data/user.redb` (the
     /// server data) and the file `data/world/<name>.redb` of each persistent world it starts
     /// with; the other world files there are worlds [`Context::load_world`] may load. Each is
@@ -281,8 +281,8 @@ impl Server {
             runtime.block_on(running.serve(config, packs, &data_dir, inputs, control_queue));
         // `serve` returns only after the tick thread has ended, so this does not wait long.
         let joined = tick_thread.join();
-        // The tick has ended: after its `Finish` the save thread commits what it holds, compacts
-        // the file and ends; after a tick panic it ends without committing.
+        // The tick has ended: after its `Finish` the save thread commits what it holds and ends;
+        // after a tick panic it ends without committing.
         let saved = save_thread.join();
         runtime.shutdown();
         // `Pool::shutdown` warns about threads that did not end.
@@ -470,7 +470,7 @@ const INTERRUPTED_EXIT: i32 = 130;
 
 /// Turns the first stop signal into a shutdown request and ends the process at the second, as
 /// PMMP does (it drops its handlers after the first): an operator whose stop hangs can still end
-/// it, with the result of a crash (the last commit stays, CLAUDE.md 4.6).
+/// it, with the result of a crash (the last commit stays).
 async fn signals(shutdown: ShutdownHandle, log: Option<console::log::Drained>) {
     let (received, mut signals) = mpsc::channel(1);
     listen(&received);
@@ -742,7 +742,7 @@ impl ServerBuilder {
             spawn: None,
         });
         for world in self.worlds {
-            // Names that differ only in letter case would be one file (PLAN.md 6).
+            // Names that differ only in letter case would be one file.
             let key = crate::storage::world_name_key(&world.name);
             if worlds
                 .iter()

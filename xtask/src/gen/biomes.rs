@@ -1,4 +1,4 @@
-//! `src/world/biome/table.rs`: the biome definitions of the spawn window (PLAN.md 10.6) from
+//! `src/world/biome/table.rs`: the biome definitions of the spawn window from
 //! `xtask/data/reference/biomes.json`, with the packet's string list: every biome name and tag
 //! once, in order of first use, and the definitions referring to it by index.
 
@@ -86,7 +86,7 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     put!(
         out,
         "{HEADER}\n//! The biome definitions generated from `CloudburstMC`'s stripped biome \
-         definitions (PLAN.md 10.6): {} biomes, {} strings.\n\n\
+         definitions: {} biomes, {} strings.\n\n\
          use super::Definition;\n\n\
          /// The packet's string list: every biome name and tag once, in order of first use.\n\
          pub(super) static STRINGS: [&str; {}] = [",

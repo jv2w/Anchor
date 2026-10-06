@@ -1,4 +1,4 @@
-//! Neighbour connections (PLAN.md 7, 10.6): after a block is set, the states of the block and of
+//! Neighbour connections: after a block is set, the states of the block and of
 //! the neighbours that depend on it are worked out again from their neighbours.
 //!
 //! The rules follow BDS where P6 recorded it (fences, panes, bars, stairs, tripwire) and PMMP's

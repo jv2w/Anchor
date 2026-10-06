@@ -10,11 +10,10 @@
 //! of rays from the centre to points of their box no block stops). With `fire`, a third of the
 //! destroyed blocks become fire where the block under them is a full top.
 //!
-//! Bounds (PLAN.md 10.7): the size is at most [`MAX_SIZE`], so one explosion looks at no more
-//! than 1,352 × 47 cells; primed TNT explodes while the tick has done fewer than
-//! [`MAX_EXPLOSIONS_PER_TICK`] explosions and affected fewer than [`MAX_BLOCKS_PER_TICK`]
-//! blocks, and waits with an empty fuse otherwise (an end crystal that died waits the same
-//! way). Rays stop at chunks that are not loaded
+//! Bounds: the size is at most [`MAX_SIZE`], so one explosion looks at no more than 1,352 × 47
+//! cells; primed TNT explodes while the tick has done fewer than [`MAX_EXPLOSIONS_PER_TICK`]
+//! explosions and affected fewer than [`MAX_BLOCKS_PER_TICK`] blocks, and waits with an empty fuse
+//! otherwise (an end crystal that died waits the same way). Rays stop at chunks that are not loaded
 //! (PMMP skips such cells and goes on), so an explosion never reaches past the loaded border.
 //! Clouds are not hurt by explosions (their box can be 128 blocks wide; PMMP hurts them).
 //!
@@ -1193,9 +1192,8 @@ mod tests {
         assert!(lit > 0, "some fire ({} air)", burning.len());
     }
 
-    /// Measures a 100-TNT chain (PLAN.md 10.7 "성능"): the worst entity tick while it goes off.
-    /// `cargo test --release --lib tick::entity::explosion::tests::chain_cost -- --ignored
-    /// --nocapture`.
+    /// Measures a 100-TNT chain: the worst entity tick while it goes off. `cargo test --release
+    /// --lib tick::entity::explosion::tests::chain_cost -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement"]
     #[expect(

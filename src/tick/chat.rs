@@ -1,5 +1,4 @@
-//! Chat: the `Text` packets players send, checked and broadcast as PMMP's `Player::chat` does
-//! (PLAN.md 10.8).
+//! Chat: the `Text` packets players send, checked and broadcast as PMMP's `Player::chat` does.
 //!
 //! A chat packet is checked first ([`check`]: the sender, the per-tick limit, the length, the
 //! cleaning), then applied ([`apply`]: the limit is spent, a line starting with `/` runs as the
@@ -16,7 +15,7 @@ use crate::player::{Id, MAX_TEXT, Message, Packets};
 use crate::protocol::consts::TextType;
 use crate::protocol::packet::Text;
 
-/// The longest chat line BDS relays, in bytes (P6 `limits`, m9-facts.md).
+/// The longest chat line BDS relays, in bytes (P6 `limits`, `xtask/data/p6/facts.md`).
 const MAX_CHAT_BYTES: usize = 512;
 
 /// Chat lines and command requests a player may send in one tick, together (PMMP
@@ -523,8 +522,8 @@ mod tests {
     #[test]
     fn long_blank_command_and_non_chat_lines_are_not_broadcast() {
         let (mut state, [_rx1, mut rx2]) = server();
-        // BDS relays a chat line of at most 512 bytes (P6 `limits`, m9-facts.md): 170 three-byte
-        // characters pass, 171 do not.
+        // BDS relays a chat line of at most 512 bytes (P6 `limits`): 170 three-byte characters
+        // pass, 171 do not.
         let long = "x".repeat(MAX_CHAT_BYTES + 1);
         let wide = "가".repeat(170);
         let too_wide = "가".repeat(171);

@@ -1,6 +1,6 @@
-//! Non-player characters (PLAN.md 8.6, 10.7): villager NPCs that trade, human NPCs and PMMP's
-//! zombie, all PMMP `Living` without AI, and players' melee hits and interactions with entities
-//! (PMMP `Player::attackEntity`, `Player::interactEntity`).
+//! Non-player characters: villager NPCs that trade, human NPCs and PMMP's zombie, all PMMP `Living`
+//! without AI, and players' melee hits and interactions with entities (PMMP `Player::attackEntity`,
+//! `Player::interactEntity`).
 //!
 //! NPCs that [`spawn_npc`] makes are invulnerable, except zombies: lobby and shop NPCs are the
 //! use, and a trader killed by a stray hit would take its offers with it. An NPC whose
@@ -562,7 +562,7 @@ mod tests {
         );
         h.entities();
         let runtime_id = e_runtime(&h, guide);
-        // The hurt event carries BDS's cause number, 2 for an attack (m9-facts.md).
+        // The hurt event carries BDS's cause number, 2 for an attack (P6).
         let hurt = h.take(1).iter().any(|p| {
             matches!(p,
             Packet::ActorEvent(a) if a.entity_runtime_id == runtime_id

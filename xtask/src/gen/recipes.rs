@@ -1,4 +1,4 @@
-//! `src/crafting/table.rs`: the recipe tables (PLAN.md 10.4) from the PMMP recipe dump
+//! `src/crafting/table.rs`: the recipe tables from the PMMP recipe dump
 //! (`xtask/data/pmmp/recipes.json`). Every item must resolve to an Anchor item type or a known
 //! item name, or generation fails.
 
@@ -118,7 +118,7 @@ pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Recipes generated from the PMMP recipe dump (PLAN.md 10.4).\n\n\
+        "{HEADER}\n//! Recipes generated from the PMMP recipe dump.\n\n\
          use super::{{Exact, Furnace, FurnaceType, Ingredient, Name, PotionContainerChange, \
          PotionType, Shaped, Shapeless, ShapelessType, SmithingTransform, SmithingTrim, Stack}};\n\
          use crate::item;\n\n"

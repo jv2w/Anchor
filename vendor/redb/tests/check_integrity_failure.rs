@@ -95,7 +95,7 @@ fn writes_are_refused_after_a_failed_check_integrity() {
     );
 
     // Anchor: a debug build of this copy verifies the data pages before its debug-only walk of
-    // them at open (copy fix 2, Anchor PLAN.md 9.1), so it refuses this damage there, before
+    // them at open (copy fix 2, Anchor docs/dependencies.md), so it refuses this damage there, before
     // check_integrity() can run. Release builds open the file as upstream does and go on below.
     if cfg!(debug_assertions) {
         assert!(matches!(

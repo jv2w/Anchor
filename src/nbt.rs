@@ -5,7 +5,7 @@
 //! are written in byte order. A list keeps its element type even when empty ([`List`]), so every
 //! list reads and writes back to the same bytes. gophertunnel keeps the type only for empty
 //! `TAG_Int` and `TAG_Long` lists and writes other empty lists with element type `TAG_End`.
-//! Limits (PLAN.md 10.1): containers nest at most 512 deep counting the root, one root takes at
+//! Limits: containers nest at most 512 deep counting the root, one root takes at
 //! most 4 MiB on the wire (or a store's own limit), and lengths and allocations go through the
 //! reader's limit check. Writing a root also counts what reading it back takes from a reader's
 //! allocation budget (`Cost`), so a store can keep what it writes readable.
@@ -743,7 +743,7 @@ impl Writer {
     }
 }
 
-/// A compound in a generated static table (PLAN.md 10.4): entries in key byte order.
+/// A compound in a generated static table: entries in key byte order.
 pub(crate) type StaticCompound = &'static [(&'static str, Static)];
 
 /// An NBT value in a generated static table. Tables cannot hold [`Value`] (it owns heap data),

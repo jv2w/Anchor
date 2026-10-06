@@ -1,5 +1,5 @@
-//! The examples (PLAN.md 10.8 "예제 4개"): each example binary runs in a fresh folder with its own
-//! `anchor.toml`, as a user would run it, and the bot (`xtask/go/bot`) plays the example's script
+//! The examples: each example binary runs in a fresh folder with its own `anchor.toml`, as a user
+//! would run it, and the bot (`xtask/go/bot`) plays the example's script
 //! `xtask/data/examples/<name>.txt` (`-scenario script`), checking what a player sees.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
@@ -25,7 +25,7 @@ fn root() -> &'static Path {
         .expect("xtask is in the repository")
 }
 
-/// Builds the bot once per test process. Fails the test if Go is missing (PLAN.md 4).
+/// Builds the bot once per test process. Fails the test if Go is missing.
 fn bot() -> &'static Path {
     static BOT: OnceLock<PathBuf> = OnceLock::new();
     BOT.get_or_init(|| {

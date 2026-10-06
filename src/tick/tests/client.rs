@@ -1,9 +1,9 @@
-//! A scripted client for the determinism runs (PLAN.md 10.7 판정식 "결정성"): it learns what a
-//! real client learns from the packets it receives (stack network IDs, the open window, the
-//! villagers it sees) and sends the M7 inputs the run's fixed-seed generator picks: item stack
-//! requests (moves, crafts, drops, creative items, broken ones), block actions, item use on
-//! blocks, in the air and on entities (attacks), windows, the hotbar and player actions. Most
-//! inputs are valid by the server's rules; some are not.
+//! A scripted client for the determinism runs: it learns what a real client learns from the packets
+//! it receives (stack network IDs, the open window, the villagers it sees) and sends the game
+//! inputs the run's fixed-seed generator picks: item stack requests (moves, crafts, drops, creative
+//! items, broken ones), block actions, item use on blocks, in the air and on entities (attacks),
+//! windows, the hotbar and player actions. Most inputs are valid by the server's rules; some are
+//! not.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -169,7 +169,7 @@ impl Client {
         self.window
     }
 
-    /// The packets of one M7 input of the spawned `player`: one packet, or a burst for actions a
+    /// The packets of one game input of the spawned `player`: one packet, or a burst for actions a
     /// client sends over several of its ticks (breaking, crafting from the grid, choosing an
     /// item before using it). Empty when the player lacks what the drawn input needs (a log to
     /// craft planks from).

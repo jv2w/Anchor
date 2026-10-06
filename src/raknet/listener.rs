@@ -15,17 +15,17 @@ use super::peer::{Limits, MAX_MTU, MIN_MTU, Message, Peer};
 use super::wire::{self, Cursor, FLAG_DATAGRAM, Reliability, UDP_HEADER};
 use super::{Error, Result};
 
-/// Connections between `OpenConnectionRequest2` and the session's login (PLAN.md 10.2).
+/// Connections between `OpenConnectionRequest2` and the session's login.
 const MAX_PRE_LOGIN: usize = 64;
-/// Such connections from one IPv4 address or IPv6 /64 (PLAN.md 10.2).
+/// Such connections from one IPv4 address or IPv6 /64.
 const MAX_PRE_LOGIN_PER_IP: u8 = 4;
-/// Pings answered per second and IP once the burst is spent (PLAN.md 10.2).
+/// Pings answered per second and IP once the burst is spent.
 const PING_RATE: u64 = 5;
-/// Pings answered back to back from one IP (PLAN.md 10.2).
+/// Pings answered back to back from one IP.
 const PING_BURST: u64 = 10;
-/// IPs whose ping rate is tracked. When full, pings from new IPs get no reply (PLAN.md 10.2).
+/// IPs whose ping rate is tracked. When full, pings from new IPs get no reply.
 const MAX_PING_IPS: usize = 4096;
-/// A ping rate entry is dropped after this long without pings (PLAN.md 10.2).
+/// A ping rate entry is dropped after this long without pings.
 const PING_IDLE: Duration = Duration::from_secs(60);
 /// How often idle ping rate entries are dropped.
 const SWEEP_INTERVAL: Duration = Duration::from_secs(1);
@@ -389,7 +389,7 @@ impl Listener {
         sink: &mut impl Sink,
     ) -> Result<()> {
         // No cookie: BDS replies with security off, and the official client's cookie handling
-        // cannot be observed (CLAUDE.md 8). A spoofed source therefore can open a connection
+        // cannot be observed. A spoofed source therefore can open a connection
         // state here; the pre-login caps (64 in total, 4 per IP, the 10 s handshake deadline and
         // the 5 s idle timeout) bound what such requests hold.
         cur.magic()?;
@@ -610,7 +610,7 @@ pub(super) mod tests {
     use crate::protocol::{Rng, fuzz};
 
     pub(in crate::raknet) const GUID: u64 = 0x0123_4567_89ab_cdef;
-    /// The message limit for a 2 MiB `max-batch-bytes` (PLAN.md 3, plus the 8-byte checksum).
+    /// The message limit for a 2 MiB `max-batch-bytes` (plus the 8-byte checksum).
     pub(in crate::raknet) const MAX_MESSAGE: usize = (2 << 20) + (2 << 20) / 6 + 42 + 8;
     const PONG: &[u8] = b"MCPE;Anchor;1;1.26.50;0;20;1;Anchor;Survival;1;19132;19133;";
     const T: Duration = Duration::from_secs(100);

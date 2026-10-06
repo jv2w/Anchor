@@ -1,6 +1,6 @@
-//! Tick tests of custom content (PLAN.md 10.8): a custom block placed, used and broken with its
-//! behaviour hooks and drops, a villager's offers read and changed as typed values, custom
-//! furnace recipes cooked, and custom items kept through a save and a restart.
+//! Tick tests of custom content: a custom block placed, used and broken with its behaviour hooks
+//! and drops, a villager's offers read and changed as typed values, custom furnace recipes cooked,
+//! and custom items kept through a save and a restart.
 
 use super::*;
 use crate::Context as Ctx;

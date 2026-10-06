@@ -5,12 +5,12 @@
 //! accept task numbers new connections of both in arrival order (the one place that allocates
 //! [`SessionId`]s, so no shared counter is needed), spawns a session task for each and keeps the
 //! server-list status current (the RakNet pong and the NetherNet JSON).
-//! A session task owns one connection: it decodes batches, runs the login sequence of PLAN.md
-//! 10.2 (with the resource pack download of [`packs`]) and then relays packets between the
-//! connection and the tick.
+//! A session task owns one connection: it decodes batches, runs the login sequence (with the
+//! resource pack download of [`packs`]) and then relays packets between the connection and the
+//! tick.
 //!
 //! The accept task also does what the tick asks of the networking ([`Control`]: the server
-//! name, blocked addresses) and reports the connection counts to the tick (PLAN.md 10.9).
+//! name, blocked addresses) and reports the connection counts to the tick.
 
 mod connection;
 mod packs;
@@ -82,8 +82,8 @@ struct Shared {
     shutdown_message: String,
     /// Whether RakNet logins are encrypted (`enable-encryption`).
     encryption: bool,
-    /// One permit per session that has logged in but not joined: `max-players` at start (PLAN.md
-    /// 10.9). Logged-in sessions have left the pre-login limit, and the tick counts players only
+    /// One permit per session that has logged in but not joined: `max-players` at start.
+    /// Logged-in sessions have left the pre-login limit, and the tick counts players only
     /// at the join.
     waiting: Arc<Semaphore>,
 }
@@ -100,10 +100,10 @@ enum Event {
 /// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
 ///
 /// The resource packs load first: the pack folder of earlier versions moves to `data_dir/packs`,
-/// then the `resource-packs` files load from there, then `packs` given in code (PLAN.md 8.5,
-/// 10.8); a folder that cannot move or a pack that cannot be offered stops the start. With `xbox-auth = true` the
-/// authorization keys load next (PLAN.md 10.2), and a server without keys does not start.
-/// NetherNet loads its identity key from `data_dir` (PLAN.md 10.3). The accept task takes the
+/// then the `resource-packs` files load from there, then `packs` given in code; a folder
+/// that cannot move or a pack that cannot be offered stops the start. With `xbox-auth = true` the
+/// authorization keys load next, and a server without keys does not start.
+/// NetherNet loads its identity key from `data_dir`. The accept task takes the
 /// tick's `controls` and reports the connection counts on `inputs`.
 #[expect(
     clippy::too_many_lines,
@@ -266,7 +266,7 @@ impl Network {
 }
 
 /// The largest game message a client may send, without transport framing: the reassembly bound
-/// of PLAN.md 3 (the worst Snappy expansion of the largest batch and its header byte).
+/// (the worst Snappy expansion of the largest batch and its header byte).
 fn max_message(batch: &batch::Settings) -> usize {
     let max = batch.max_batch_bytes();
     max.saturating_add(max / 6).saturating_add(42)
@@ -330,7 +330,7 @@ impl Accept {
                 Some(event) = self.events.recv() => self.on_event(event),
                 Some(ended) = self.sessions.join_next(), if !self.sessions.is_empty() => {
                     if let Err(e) = ended {
-                        // A panic in one session ends only that connection (CLAUDE.md 4.6).
+                        // A panic in one session ends only that connection.
                         warn!(error = %e, "session task failed");
                     }
                 }
@@ -465,7 +465,7 @@ impl Blocks {
 /// The server-list status. The RakNet pong uses the field order BDS 1.26.52 answers with (P6):
 /// `MCPE;motd;protocol;version;players;max;guid;level;mode;1;port v4;port v6;0;1;1;`. BDS sends
 /// `Survival;1`; what it sends after other modes is unverified, so the `1` is kept for all. The
-/// NetherNet JSON uses the key order of BDS's `GET /v1/join` (PLAN.md 10.3).
+/// NetherNet JSON uses the key order of BDS's `GET /v1/join`.
 #[derive(Debug)]
 struct Status {
     motd: String,

@@ -1,5 +1,5 @@
-//! The saved form of entities: chunk extras kind 2 (PLAN.md 10.7), one Bedrock-like NBT compound
-//! per entity, with PMMP's keys (`Entity::saveNBT` and the kinds' overrides).
+//! The saved form of entities: chunk extras kind 2, one Bedrock-like NBT compound per entity, with
+//! PMMP's keys (`Entity::saveNBT` and the kinds' overrides).
 //!
 //! Common keys: `identifier` (the Bedrock actor type; PMMP's save names `Item`, `XPOrb`,
 //! `FallingSand`, `PrimedTNT`, `Arrow`, `Snowball`, `Egg`, `ThrownEnderpearl`, `ThrownPotion`,
@@ -486,7 +486,7 @@ fn load_kind(
                     Some(Value::Int(p)) => u8::try_from(*p).ok()?,
                     _ => 0,
                 },
-                // The trade module bounds and checks the offers it reads (PLAN.md 8.6).
+                // The trade module bounds and checks the offers it reads.
                 offers: match c.get("Offers") {
                     Some(Value::Compound(offers)) => Offers::from_nbt(offers, content),
                     None => Offers::default(),

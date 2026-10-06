@@ -1,21 +1,20 @@
-//! Forced shutdown with item flows (PLAN.md 10.7 판정식 "강제 종료"): a server keeps moving items
-//! between a player's inventory, a chest and item entities on the ground, and is killed again and
-//! again, at moments counted in ticks from the commits it reports (never in wall-clock time). Every
-//! other run saves every third tick and is killed a random number of ticks after its first commit,
-//! during a later commit or between two; the runs between commit once, at a phase of the item cycle
-//! taken by turns (items on the ground, on the player's cursor and in its crafting grid, or in the
-//! slots and the chest only), and are killed after that commit, so the commits caught hold items in
-//! every place however slow the machine is. Every restart must find an undamaged server file whose
-//! last commit is newer than the last restart's and holds every item exactly once (no duplicate,
-//! no loss) and holds the player, the chest, the ground and the terrain of one and the same tick.
+//! Forced shutdown with item flows: a server keeps moving items between a player's inventory, a
+//! chest and item entities on the ground, and is killed again and again, at moments counted in
+//! ticks from the commits it reports (never in wall-clock time). Every other run saves every third
+//! tick and is killed a random number of ticks after its first commit, during a later commit or
+//! between two; the runs between commit once, at a phase of the item cycle taken by turns (items on
+//! the ground, on the player's cursor and in its crafting grid, or in the slots and the chest
+//! only), and are killed after that commit, so the commits caught hold items in every place however
+//! slow the machine is. Every restart must find an undamaged server file whose last commit is newer
+//! than the last restart's and holds every item exactly once (no duplicate, no loss) and holds the
+//! player, the chest, the ground and the terrain of one and the same tick.
 //!
-//! The test runs its own test binary as the server process (`item_crash_child`) and kills only
-//! that child, through its process handle. The child is the real server without the network:
-//! the server file, the save thread and the tick thread as `Server::run` starts them, and one
-//! player who joins through the tick's input queue as a session would. The items move by a
-//! scheduled task through the rule modules' own functions: the public `Context` has no chest or
-//! item entity calls before the API milestone (PLAN.md 10.7, M8), and a player client is not
-//! needed for what is tested here, which is that one commit holds every part of the state.
+//! The test runs its own test binary as the server process (`item_crash_child`) and kills only that
+//! child, through its process handle. The child is the real server without the network: the server
+//! file, the save thread and the tick thread as `Server::run` starts them, and one player who joins
+//! through the tick's input queue as a session would. The items move by a scheduled task through
+//! the rule modules' own functions; a player client is not needed for what is tested here, which is
+//! that one commit holds every part of the state.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -848,7 +847,7 @@ fn chain(first: u32, end: u32, afters: &[u64]) -> Found {
         let in_places = places(&f);
         let total: Counts = std::array::from_fn(|i| in_places.iter().map(|p| p[i]).sum());
         // A kill between the files of one save leaves them at different saves: the start finds
-        // it, and nothing is promised of where the items are then (CLAUDE.md 4.7).
+        // it, and nothing is promised of where the items are then.
         if f["split"] == "1" {
             found.splits += 1;
             committed = true;

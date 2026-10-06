@@ -1,7 +1,6 @@
-//! The public [`Player`] methods on its survival state (PLAN.md 10.8; PMMP `Player`, `Human`,
-//! `Living`, `Entity`, `HungerManager`, `ExperienceManager`, `EffectManager`): game mode,
-//! health, hunger, experience, effects, fire, flight, the spawn point and the entity data the
-//! viewers see.
+//! The public [`Player`] methods on its survival state (PMMP `Player`, `Human`, `Living`, `Entity`,
+//! `HungerManager`, `ExperienceManager`, `EffectManager`): game mode, health, hunger, experience,
+//! effects, fire, flight, the spawn point and the entity data the viewers see.
 //!
 //! Each setter changes the value at once. What the client and the viewers must learn is marked
 //! (attribute and data bits, [`Custom`] marks) and sent by the tick's attribute flush or by
@@ -814,7 +813,7 @@ impl Player {
     }
 
     /// Sets the ticks the player keeps burning; 0 puts the fire out (PMMP `extinguish`, merged:
-    /// a direct call raises no event, PLAN.md 8.2). Fails above 32,767.
+    /// a direct call raises no event). Fails above 32,767.
     #[doc(alias = "Entity::setFireTicks")]
     #[doc(alias = "Entity::extinguish")]
     pub fn set_fire_ticks(&mut self, ticks: u32) -> Result<()> {
@@ -1641,11 +1640,10 @@ pub(in crate::tick) fn marked(player: &Player) -> bool {
 }
 
 /// The marks of a spawned player's survival state at the end of the tick: an API death drops its
-/// items, a respawn and a wake happen, and the attributes and entity data changed since the
-/// rules' flush are sent. These are the game's own steps in the tick's serial phase, so they
-/// raise their events (PLAN.md 10.8: the call raised none, what follows from it does). A changed
-/// skin goes out if it fits in `skin_budget`, the skin bytes left this tick; otherwise it stays
-/// marked for the next tick.
+/// items, a respawn and a wake happen, and the attributes and entity data changed since the rules'
+/// flush are sent. These are the game's own steps in the tick's serial phase, so they raise their
+/// events (the call raised none, what follows from it does). A changed skin goes out if it fits in
+/// `skin_budget`, the skin bytes left this tick; otherwise it stays marked for the next tick.
 pub(in crate::tick) fn sync(
     state: &mut crate::tick::State,
     session: crate::tick::SessionId,

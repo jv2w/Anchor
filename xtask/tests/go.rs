@@ -1,4 +1,4 @@
-//! The Go tests of the bot, the oracle and the other tools in `xtask/go` (PLAN.md 4: every check
+//! The Go tests of the bot, the oracle and the other tools in `xtask/go` (every check
 //! runs under `cargo test`). Like the protocol tests, they need Go on PATH.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).

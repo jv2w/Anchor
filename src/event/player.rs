@@ -269,7 +269,7 @@ impl PlayerChat {
 }
 
 /// Raised before a player's data goes into the next save of the server's state. Cancelling is
-/// ignored: the data is saved anyway, so the commit stays atomic (CLAUDE.md 4.7); what listeners
+/// ignored: the data is saved anyway, so the commit stays atomic; what listeners
 /// change before the snapshot is saved.
 #[doc(alias = "PlayerDataSaveEvent")]
 #[derive(Debug)]
@@ -290,7 +290,7 @@ getters!(PlayerDataSave {
 
 impl PlayerDataSave {
     /// Marks the event cancelled, which Anchor ignores: the data is saved anyway, because a
-    /// snapshot holds the whole state of one tick boundary (CLAUDE.md 4.7), and a player's data
+    /// snapshot holds the whole state of one tick boundary, and a player's data
     /// left out of it would come back after a crash beside a newer world. `save-player-data`
     /// turns player data saving off.
     #[doc(alias = "PlayerDataSaveEvent::cancel")]

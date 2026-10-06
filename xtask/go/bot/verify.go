@@ -13,9 +13,9 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The M9 verification scenarios (PLAN.md 10.9, the BDS-checkable "검증 필요" items) run on the game scenarios'
+// The verification scenarios check behaviour only BDS can show; they run on the game scenarios'
 // machinery. Each plays the game actions of its items and ends its steps with checks of the facts the
-// comparison holds; the full packets stay in the capture for the facts file (xtask/data/p6/m9-facts.md).
+// comparison holds; the full packets stay in the capture for the facts file (xtask/data/p6/facts.md).
 //
 //	enchants   an enchanting table: each of enchantItems into the input, the Slot of the options it gets
 //	stations   an anvil rename and repair, a smithing table netherite upgrade and a beacon payment, with the
@@ -412,7 +412,7 @@ func playStations(g *game) error {
 		return err
 	}
 	// The paid beacon would give its effect to the players of later scenarios (and BDS stops
-	// answering a player in its range: m9-facts.md); it goes.
+	// answering a player in its range: xtask/data/p6/facts.md); it goes.
 	g.setup("remove the beacon")
 	g.command("setblock %v %v %v air", beacon[0], beacon[1], beacon[2])
 	return g.settle(time.Second)
@@ -534,7 +534,7 @@ func (g *game) actorAdded(entityType string, d time.Duration) (*packet.AddActor,
 
 // actorFacts is the comparable part of an AddActor: its type and the entity data keys of its kind (keys,
 // as the entity data names them). The whole entity data is a fact (the generic keys BDS gives every actor
-// differ from Anchor's PMMP set: m9-facts.md).
+// differ from Anchor's PMMP set: xtask/data/p6/facts.md).
 func (g *game) actorFacts(a *packet.AddActor, keys ...uint32) map[string]any {
 	g.record("fact", map[string]any{"name": a.EntityType + " entity data", "value": toJSON(reflect.ValueOf(a.EntityMetadata), 0, true)})
 	data := map[string]any{}
@@ -1077,7 +1077,7 @@ func playLimitChat(g *game) error {
 //
 // The comparable part: the entity data keys with their types, the flags, the game type, whether it holds an
 // item, whether a device ID is given, the build platform and the links. The ability layers (BDS adds a
-// loading screen layer while the player loads) and the values are facts (m9-facts.md).
+// loading screen layer while the player loads) and the values are facts (xtask/data/p6/facts.md).
 func otherFacts(p *packet.AddPlayer) map[string]any {
 	return map[string]any{
 		"data types": dataTypes(p.EntityMetadata), "flags": breathless(p.EntityMetadata[protocol.EntityDataKeyFlags]),
@@ -1089,7 +1089,7 @@ func otherFacts(p *packet.AddPlayer) map[string]any {
 
 // breathless is entity flags without Breathing: a player that just joined has it from its first tick
 // after the spawn window, so whether an AddPlayer has it depends on timing (both servers send the
-// player's flags as they are: m9-facts.md).
+// player's flags as they are: xtask/data/p6/facts.md).
 func breathless(flags any) any {
 	f, ok := flags.(int64)
 	if !ok {

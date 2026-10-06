@@ -6,7 +6,7 @@
 //! since 1.18.30: `digp` + chunk position holds the chunk's 8-byte actor ids, `actorprefix` + id
 //! each actor's NBT; older chunks keep entities under tag 50.
 //!
-//! Anchor imports blocks and block entities only (PLAN.md 10.9). The values it reads (PMMP
+//! Anchor imports blocks and block entities only. The values it reads (PMMP
 //! `LevelDB::loadChunk`, BDS 1.26.52 output for the current forms):
 //! - Version (44, or 118 in old worlds): one byte, 0 to 42 (PMMP `ChunkVersion`, 42 = 1.21.120;
 //!   BDS 1.26.52 still writes 42).

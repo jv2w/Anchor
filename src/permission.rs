@@ -1,5 +1,4 @@
-//! Permissions: what a player may do, with PMMP's defaults (op, not op, everyone, nobody)
-//! (PLAN.md 10.8).
+//! Permissions: what a player may do, with PMMP's defaults (op, not op, everyone, nobody).
 //!
 //! A [`Permission`] is a name and a [`Default`](enum@Default): who has it unless the server says otherwise.
 //! Register yours with [`ServerBuilder::permission`](crate::ServerBuilder::permission); a
@@ -106,7 +105,7 @@ impl Default {
 /// when.
 ///
 /// Times are engine ticks ([`Context::tick`](crate::Context::tick)), not wall-clock dates: the
-/// game state never reads the wall clock (CLAUDE.md 2.1), so a ban of 72,000 ticks lasts an hour
+/// game state never reads the wall clock, so a ban of 72,000 ticks lasts an hour
 /// of server running time, and the time the server is down does not count.
 #[derive(Debug, Clone, PartialEq, Eq)]
 // pmmp-class: BanEntry

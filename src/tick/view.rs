@@ -1,5 +1,5 @@
-//! What each player sees of its world (PLAN.md 10.6, 10.8): the chunks around it, the chunk loads
-//! they need, the sub-chunk request answers, the block changes it is sent and its fake blocks.
+//! What each player sees of its world: the chunks around it, the chunk loads they need, the
+//! sub-chunk request answers, the block changes it is sent and its fake blocks.
 //!
 //! Chunks go out in the sub-chunk request system, as BDS sends them (P6): a `LevelChunk` with the
 //! biomes, then the client asks for the sub-chunks it wants. A chunk stays loaded while a player
@@ -8,7 +8,7 @@
 //! at its world tick too), with or without [`ChunkUnload`] listeners, so that listening changes
 //! nothing; an unloaded chunk with unsaved changes waits in memory for the next commit (`save`).
 //!
-//! Fake blocks (PLAN.md 10.8) are blocks one player is shown instead of the world's: the user's
+//! Fake blocks are blocks one player is shown instead of the world's: the user's
 //! ([`Context::send_fake_block`]) and, over them, the container blocks of an open menu. They are
 //! sent in the output phase, so the last change of a tick wins whatever its order with the
 //! world's changes; sent again after every sub-chunk answer that holds them, as the client then
@@ -354,11 +354,11 @@ pub(super) struct Chunks {
     interest: BTreeMap<Key, u32>,
     /// Chunks asked of the save thread and not answered yet.
     pub(super) requested: BTreeSet<Key>,
-    /// Unloaded chunks with changes no commit holds yet (PLAN.md 10.6).
+    /// Unloaded chunks with changes no commit holds yet.
     pub(super) unsaved: BTreeMap<Key, Unsaved>,
     /// Loads to ask for at the end of this tick; empty between ticks.
     batch: Vec<Key>,
-    /// The extras of the loaded chunks (PLAN.md 10.7).
+    /// The extras of the loaded chunks.
     pub(super) extras: Extras,
     /// The spawn whose 3 × 3 chunks are held for each world, by world index: the world's spawn,
     /// or its old one until the view phase moves the hold ([`move_spawns`]).
@@ -644,7 +644,7 @@ impl Chunks {
 
 /// Adds one holder of `key`. A chunk unloaded with unsaved changes comes back from memory, its
 /// terrain and extras with their dirty marks, so a load never reads a file older than the tick's
-/// data (PLAN.md 10.6).
+/// data.
 fn hold(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, key: Key) {
     let count = chunks.interest.entry(key).or_insert(0);
     *count = count.saturating_add(1);
@@ -949,7 +949,7 @@ pub(super) fn queue_request(player: &mut Player, request: SubChunkRequest) {
 
 /// A load the save thread answered: the terrain goes into its world and the extras that came
 /// with it to their holder ([`Extras::chunk_loaded`]). A chunk nobody holds any more is dropped;
-/// a damaged one is quarantined, extras included (PLAN.md 10.6, 10.7).
+/// a damaged one is quarantined, extras included.
 pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded: Loaded) {
     let key = (world, pos);
     if let Some(n) = state.chunks.stale.get_mut(&key) {
@@ -1438,8 +1438,8 @@ impl Context<'_> {
     }
 }
 
-/// The encoded sub-chunks this tick's answers need, encoded once for every player who asked
-/// (PLAN.md 10.6): `None` for a sub-chunk of air.
+/// The encoded sub-chunks this tick's answers need, encoded once for every player who asked: `None`
+/// for a sub-chunk of air.
 pub(super) type Encoded = BTreeMap<(WorldIndex, ChunkPos, usize), Option<Vec<u8>>>;
 
 /// The sub-chunks the answers of this tick read, each once.
@@ -1747,8 +1747,8 @@ pub(super) fn block_packets(player: &Player, changes: &Changes) -> Vec<Packet> {
 
 #[cfg(test)]
 mod tests {
-    //! The chunk events (PLAN.md 10.8 판정식 "이벤트"): loads, unloads and the chunks a listener
-    //! keeps, the chunks sent to a player and the spawn moving.
+    //! The chunk events: loads, unloads and the chunks a listener keeps, the chunks sent to a
+    //! player and the spawn moving.
 
     use std::cell::Cell;
 

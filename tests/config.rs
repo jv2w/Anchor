@@ -1,5 +1,5 @@
-//! The settings file through the public API (PLAN.md 10.2 "M2 판정식", 설정): the default file,
-//! every key's defaults, types and ranges, unknown keys, and file handling.
+//! The settings file through the public API: the default file, every key's defaults, types and
+//! ranges, unknown keys, and file handling.
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
@@ -97,15 +97,12 @@ fn chain(error: &Error) -> String {
     text
 }
 
-/// Returns the toml block of PLAN.md 8.5: the canonical default file.
-fn plan_default_file() -> String {
-    let plan = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".claude/PLAN.md"));
-    let (_, section) = plan
-        .split_once("\n### 8.5 ")
-        .expect("PLAN.md has section 8.5");
-    let (_, block) = section
+/// Returns the first toml block of `docs/config.md`: the documented default file.
+fn documented_default_file() -> String {
+    let doc = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/config.md"));
+    let (_, block) = doc
         .split_once("```toml\n")
-        .expect("8.5 has a toml block");
+        .expect("docs/config.md has a toml block");
     let (block, _) = block.split_once("\n```").expect("the toml block closes");
     format!("{block}\n")
 }
@@ -569,11 +566,11 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
 }
 
 #[test]
-fn missing_file_is_created_with_the_plan_default_text() {
+fn missing_file_is_created_with_the_documented_default_text() {
     let file = File::new("missing_file");
     let first = Config::default().load(&file.path).expect("loads");
     assert_eq!(first, Config::default());
-    assert_eq!(read(&file.path), plan_default_file());
+    assert_eq!(read(&file.path), documented_default_file());
     assert!(!exists(&file.path.with_extension("toml.tmp")));
     let again = Config::default().load(&file.path).expect("loads again");
     assert_eq!(again, first);
@@ -601,9 +598,9 @@ fn every_key_reaches_its_field() {
 #[test]
 fn every_key_left_out_keeps_the_previous_value() {
     let file = File::new("every_key_left_out");
-    let default = plan_default_file();
+    let default = documented_default_file();
     let keys = key_lines(&default);
-    assert_eq!(keys.len(), 66, "PLAN.md 8.5 has 66 keys");
+    assert_eq!(keys.len(), 66, "the default file has 66 keys");
     for (_, key, value) in &keys {
         let line = format!("{key} = {value}\n");
         let text = default.replacen(&line, "", 1);
@@ -622,7 +619,7 @@ fn every_key_left_out_keeps_the_previous_value() {
 #[test]
 fn every_key_rejects_a_wrong_type_by_name() {
     let file = File::new("every_key_wrong_type");
-    for (table, key, value) in key_lines(&plan_default_file()) {
+    for (table, key, value) in key_lines(&documented_default_file()) {
         let path = format!("{table}.{key}");
         // `lighting` also takes the `true` and `false` of older files.
         let typed = if path == "developer.lighting" {
@@ -652,7 +649,7 @@ fn every_key_accepts_its_edges_and_rejects_beyond() {
     let file = File::new("every_key_edges");
     let cases = cases();
     let mut listed: Vec<String> = cases.iter().map(|(k, _, _)| (*k).to_owned()).collect();
-    let mut keys: Vec<String> = key_lines(&plan_default_file())
+    let mut keys: Vec<String> = key_lines(&documented_default_file())
         .into_iter()
         .map(|(table, key, _)| format!("{table}.{key}"))
         .collect();

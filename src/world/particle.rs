@@ -3,7 +3,7 @@
 //! its class.
 //!
 //! Particle type numbers are PMMP's (`ParticleIds`), which are BDS's: BDS's snowball and egg hits
-//! send 15 and 14 (m8-facts.md 6) and its potion clouds 35 (m9-facts.md). gophertunnel's
+//! send 15 and 14 and its potion clouds 35 (BDS, P6). gophertunnel's
 //! `protocol::consts::ParticleType` puts `CANDLE_FLAME` (PMMP 9) and `BREEZE_WIND_EXPLOSION` (PMMP
 //! 18) at its end, so its numbers from 9 on are one or two lower. The numbers used are the
 //! variants' docs.
@@ -287,7 +287,7 @@ mod tests {
     }
 
     // PMMP's particle numbers (`ParticleIds`) are BDS's: 14 and 15 in BDS's snowball and egg hits
-    // (m8-facts.md 6), 35 in BDS's potion cloud (m9-facts.md); gophertunnel's are smaller from 9 on.
+    // (P6), 35 in BDS's potion cloud (P6); gophertunnel's are smaller from 9 on.
     // pmmp: AngryVillagerParticle, BlockBreakParticle, BlockForceFieldParticle, BlockPunchParticle, BubbleParticle, CriticalParticle, DragonEggTeleportParticle, DustParticle, EnchantParticle, EnchantmentTableParticle, EndermanTeleportParticle, EntityFlameParticle, ExplodeParticle, FlameParticle, HappyVillagerParticle, HeartParticle, HugeExplodeParticle, HugeExplodeSeedParticle, InkParticle, InstantEnchantParticle, ItemBreakParticle, LavaDripParticle, LavaParticle, MobSpawnParticle, PortalParticle, PotionSplashParticle, RainSplashParticle, RedstoneParticle, SmokeParticle, SnowballPoofParticle, SonicExplosionParticle, SplashParticle, SporeParticle, TerrainParticle, WaterDripParticle, WaterParticle, Particle
     #[test]
     fn particles_send_pmmps_events_with_pmmps_numbers() {

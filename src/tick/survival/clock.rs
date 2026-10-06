@@ -31,9 +31,9 @@ const SYNC_TICKS: u32 = 256;
 const SLEEP_DELAY: u32 = 60;
 /// The longest distance, squared, from the player's feet to a bed half (PMMP `Bed::onInteract`).
 const BED_REACH_SQUARED: f64 = 4.0;
-/// The overworld clock's ID, as BDS sends it in every run (P6 facts 7).
+/// The overworld clock's ID, as BDS sends it in every run (P6).
 const OVERWORLD_CLOCK: u64 = 7_194_480_507_151_251_734;
-/// The overworld clock's time markers: ID, name, time of day (P6 facts 7, fixed in every run).
+/// The overworld clock's time markers: ID, name, time of day (P6, fixed in every run).
 const MARKERS: [(u64, &str, i32); 6] = [
     (2_625_810_911_898_139_949, "minecraft:sunrise", 23_000),
     (4_918_950_784_056_990_566, "minecraft:night", 13_000),
@@ -97,8 +97,7 @@ pub(in crate::tick) fn time(state: &State, world: WorldIndex) -> i64 {
 
 /// Whether the time of `world` was stopped there (PMMP `World::stopTime`): clients then pause
 /// their clock too. With `daylight-cycle = false` the time stands still as BDS's does with
-/// `doDayLightCycle` false: the rule holds the client's clock, which is not paused (P6 `rules`,
-/// m9-facts.md).
+/// `doDayLightCycle` false: the rule holds the client's clock, which is not paused (P6 `rules`).
 fn is_stopped(state: &State, world: WorldIndex) -> bool {
     state
         .worlds
@@ -566,7 +565,7 @@ mod tests {
         data.insert("ableToSleep".to_owned(), nbt::Value::Int(1));
         data.insert("overworldPlayerCount".to_owned(), nbt::Value::Int(1));
         data.insert("sleepingPlayerCount".to_owned(), nbt::Value::Int(0));
-        // BDS 1.26.52 (P6 facts 7), base64 "AwthYmxlVG9TbGVlcAIDFG92ZXJ3b3JsZFBsYXllckNvdW50AgMTc2xlZXBpbmdQbGF5ZXJDb3VudAAA".
+        // BDS 1.26.52 (P6), base64 "AwthYmxlVG9TbGVlcAIDFG92ZXJ3b3JsZFBsYXllckNvdW50AgMTc2xlZXBpbmdQbGF5ZXJDb3VudAAA".
         let mut want = vec![3, 11];
         want.extend(b"ableToSleep");
         want.extend([2, 3, 20]);

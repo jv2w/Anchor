@@ -13,17 +13,18 @@ aws-lc-rs = { version = "=1.18.1", default-features = false, features = ["aws-lc
 libdeflater = "=1.26.1"
 miniz_oxide = "=0.9.1"
 # The resident memory `/status` shows; `always_use_statm` reads one line on Linux instead of
-# the whole of `/proc/self/smaps` (PLAN.md 9.1).
+# the whole of `/proc/self/smaps`.
 memory-stats = { version = "=1.2.0", features = ["always_use_statm"] }
 rayon = "=1.12.0"
-# The default `std` feature only; `logging` would pull in `log`. The fixed copy (PLAN.md 9.1).
+# The fixed copy (see docs/dependencies.md), default `std` feature only: `logging` would pull in
+# `log`.
 redb = { path = "vendor/redb", version = "=4.3.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 socket2 = "=0.6.5"
 # The fixed copy; its own manifest points at the copies of dimpl, sctp-proto and the str0m crates
-# between them (PLAN.md 9.1).
+# between them.
 str0m = { path = "vendor/str0m", version = "=0.24.1", default-features = false, features = ["aws-lc-rs"] }
 tokio = { version = "=1.53.1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "io-util"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["aws_lc_rs", "tls12"] }
@@ -37,9 +38,9 @@ tokio = { version = "=1.53.1", features = ["test-util"] }
 
 [workspace]
 members = ["xtask"]
-# Fixed copies of dependencies until upstream releases the fixes (PLAN.md 9.1). Each differs from
-# the published crate only in its fixes and in `path` entries to the other copies; remove it when
-# a release has them. Used by path, not `[patch]`, so a project depending on Anchor builds them
+# Fixed copies of dependencies until upstream releases the fixes (docs/dependencies.md). Each
+# differs from the published crate only in its fixes and in `path` entries to the other copies;
+# remove it when a release has them. Used by path, not `[patch]`, so a project depending on Anchor builds them
 # too: `[patch]` applies only in the root workspace. Built as dependencies, not linted or tested as
 # members; xtask/tests holds their reproduction tests.
 exclude = ["vendor"]

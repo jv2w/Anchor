@@ -1,6 +1,7 @@
-//! What the tick knows of its own load and of the networking (PLAN.md 10.9): the measured tick
-//! times, connection counts, pings and process memory and uptime, which arrive as logged inputs
-//! ([`Measure`]), the threads the server started with, and the controls the API asks of the networking ([`Control`]), which leave after the tick's output.
+//! What the tick knows of its own load and of the networking: the measured tick times, connection
+//! counts, pings and process memory and uptime, which arrive as logged inputs ([`Measure`]), the
+//! threads the server started with, and the controls the API asks of the networking ([`Control`]),
+//! which leave after the tick's output.
 //!
 //! PMMP reads the wall clock and the network when asked; the tick reads neither, so the same
 //! values come in through the input log and a replay reads what the run read.

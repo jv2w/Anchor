@@ -1,4 +1,4 @@
-//! Custom block definitions (PLAN.md 8.3): the states, what the client is told to draw, the
+//! Custom block definitions: the states, what the client is told to draw, the
 //! server-side data the rules read, and the behaviour.
 
 use std::fmt;
@@ -265,9 +265,9 @@ pub enum Drops {
 }
 
 /// What a custom block does when players use it, place it or break it, and on random ticks: the
-/// extension point of PLAN.md 8.3. Each hook runs in the tick's serial step with the whole game,
-/// after the engine's own rules and events for the action; direct API calls in it raise no
-/// events (PLAN.md 8.2).
+/// extension point for custom block behaviour. Each hook runs in the tick's serial step with the
+/// whole game, after the engine's own rules and events for the action; direct API calls in it
+/// raise no events.
 pub trait Behaviour: Send + Sync {
     /// The player used (right-clicked) the block at `pos`. True if the block did something:
     /// then the held item is neither used nor placed (PMMP `Block::onInteract`).
@@ -336,7 +336,7 @@ const FULL: Aabb = Aabb::new(Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0))
 /// The materials of [`Block::new`] until [`Block::with_materials`] replaces them.
 type Materials = &'static [Material];
 
-/// A custom block (PLAN.md 8.3): a `static` definition the server is given with
+/// A custom block: a `static` definition the server is given with
 /// [`ServerBuilder::custom_block`](crate::ServerBuilder::custom_block). Its textures and models
 /// come from a resource pack.
 ///

@@ -26,7 +26,8 @@ pub(crate) struct Received {
     pub(crate) fields: Value,
 }
 
-/// Packets Anchor does not send yet, by name, with the milestone that adds them.
+/// Packets left out of the spawn window comparison, by name, with their status (`-`: Anchor never
+/// sends the packet).
 #[derive(Debug, Default)]
 pub(crate) struct Deferred(BTreeMap<String, String>);
 
@@ -54,29 +55,24 @@ impl Fields {
     }
 }
 
-/// Reads the deferral table: one `<packet> <milestone> <reason>` per line, `#` starts a comment.
+/// Reads the deferral table: one `<packet> <status> <reason>` per line, `#` starts a comment.
 pub(crate) fn parse_deferred(text: &str) -> Result<Deferred, String> {
     let mut map = BTreeMap::new();
     for (number, line) in table_lines(text) {
         let mut words = line.split_whitespace();
-        let (Some(name), Some(milestone), Some(_reason)) =
-            (words.next(), words.next(), words.next())
+        let (Some(name), Some(status), Some(_reason)) = (words.next(), words.next(), words.next())
         else {
             return Err(format!(
-                "{DEFERRED_PATH}:{number}: want `<packet> <milestone> <reason>`"
+                "{DEFERRED_PATH}:{number}: want `<packet> <status> <reason>`"
             ));
         };
         // `-`: Anchor never sends the packet (the reason says why).
-        let valid = milestone == "-"
-            || milestone
-                .strip_prefix('M')
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
-        if !valid {
+        if status != "-" {
             return Err(format!(
-                "{DEFERRED_PATH}:{number}: milestone `{milestone}` is not M<number> or -"
+                "{DEFERRED_PATH}:{number}: status `{status}` is not -"
             ));
         }
-        if map.insert(name.to_owned(), milestone.to_owned()).is_some() {
+        if map.insert(name.to_owned(), status.to_owned()).is_some() {
             return Err(format!(
                 "{DEFERRED_PATH}:{number}: `{name}` is listed twice"
             ));
@@ -321,8 +317,8 @@ pub(crate) fn compare_listed(a: &[Received], b: &[Received], fields: &Fields) ->
 const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
 
 /// Entity packets that also carry other entities' data: BDS sends them for the flat world's
-/// mobs that come into view during the spawn window (m7-facts.md 7), Anchor never (no mobs,
-/// CLAUDE.md 1). Only the player's own are compared.
+/// mobs that come into view during the spawn window (P6, `xtask/data/p6/facts.md`), Anchor never
+/// (it simulates no mobs). Only the player's own are compared.
 const ENTITY_DATA: [&str; 2] = ["SetActorData", "UpdateAttributes"];
 
 /// The packets of a window that are neither deferred nor chunk packets, nor entity data of
@@ -1036,7 +1032,7 @@ fn sub_chunk_entries(fields: &Value) -> Vec<(Value, Value)> {
 /// - a `SubChunk` answer (by relative centre and offset) differs or only one side has it: result,
 ///   height maps, payload hash and length, strict check and layer contents;
 /// - B's payloads break Anchor's strict sub-chunk rules;
-/// - B sent its chunks before spawning not nearest first (PLAN.md 10.6), or a chunk twice;
+/// - B sent its chunks before spawning not nearest first, or a chunk twice;
 /// - the publisher updates after `ChunkRadiusUpdated`, runs of equal values counted once, differ.
 ///
 /// The counts and the publisher updates before `ChunkRadiusUpdated` are notes.
@@ -1292,7 +1288,7 @@ impl StepSummary {
         }
     }
 
-    /// The packet kind Anchor sends for this step (PLAN.md 10.6): `UpdateBlock` when one position
+    /// The packet kind Anchor sends for this step: `UpdateBlock` when one position
     /// changed, else `UpdateSubChunkBlocks`. BDS repeats a position in one `UpdateSubChunkBlocks`
     /// (a block and its neighbour's update of it) and sometimes sends a block and its neighbours'
     /// updates in two packets of consecutive ticks; neither is followed.
@@ -1405,7 +1401,7 @@ mod tests {
     #[test]
     fn deferred_packets_and_unlisted_fields_are_ignored() {
         let (deferred, fields) = tables(
-            "LevelChunk M6 chunks\n",
+            "LevelChunk - chunks\n",
             "StartGame GameVersion\nStartGame Movement.Rewind\n",
         );
         let a = window(CAPTURE).expect("window");
@@ -1444,11 +1440,11 @@ mod tests {
 
     #[test]
     fn tables_reject_malformed_lines() {
-        assert!(parse_deferred("LevelChunk M6\n").is_err());
+        assert!(parse_deferred("LevelChunk -\n").is_err());
         assert!(parse_deferred("LevelChunk 6 chunks\n").is_err());
-        assert!(parse_deferred("A M4 x\nA M6 y\n").is_err());
+        assert!(parse_deferred("A - x\nA - y\n").is_err());
         let deferred =
-            parse_deferred("# comment\nLevelChunk M6 chunks # trailing\n").expect("deferral table");
+            parse_deferred("# comment\nLevelChunk - chunks # trailing\n").expect("deferral table");
         assert!(parse_fields("LevelChunk Position\n", &deferred).is_err());
         assert!(parse_fields("StartGame\n", &deferred).is_err());
         assert!(parse_fields("StartGame a..b\n", &deferred).is_err());
@@ -1521,7 +1517,7 @@ mod tests {
 
     #[test]
     fn sequence_counts_runs_without_deferred_packets() {
-        let (deferred, _) = tables("LevelChunk M6 chunks\n", "");
+        let (deferred, _) = tables("LevelChunk - chunks\n", "");
         let w = window(&CAPTURE.replace("StartGame", "NetworkSettings")).expect("window");
         assert_eq!(sequence(&w, &deferred), ["NetworkSettings x2"]);
     }

@@ -192,7 +192,7 @@ func paddedGeometry(defaultGeometry []byte, cubes int) ([]byte, error) {
 }
 
 // mintToken mints the multiplayer token of a test issuer: RS256 with the PEM RSA key, header kid, and the
-// claims Anchor checks (PLAN.md 3 and 10.2).
+// claims Anchor checks.
 func mintToken(c config, key *ecdsa.PrivateKey) (string, error) {
 	b, err := os.ReadFile(c.tokenKey)
 	if err != nil {

@@ -1,11 +1,10 @@
 //! Joining and spawning: the saved player data, the start-game packets, the chunk radius and the
 //! spawn status.
 //!
-//! The packet order and the values follow what BDS 1.26.52 sends (P6, PLAN.md 10.2, 10.6,
-//! xtask/data/p6/m7-facts.md 7); the packets BDS sends that Anchor does not yet, or never will,
-//! are listed in `xtask/data/p6/deferred.txt`. The player list is kept for everyone: a placed
-//! player gets the whole list in its window and is added to everyone else's, and a player who
-//! leaves is removed from the others' lists.
+//! The packet order and the values follow what BDS 1.26.52 sends (P6, `xtask/data/p6/facts.md`);
+//! the packets BDS sends that Anchor does not send are listed in `xtask/data/p6/deferred.txt`. The
+//! player list is kept for everyone: a placed player gets the whole list in its window and is added
+//! to everyone else's, and a player who leaves is removed from the others' lists.
 
 mod vanilla;
 
@@ -79,11 +78,10 @@ const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
 /// The dimension BDS's `SetSpawnPosition` names at join (P6).
 const SPAWN_POSITION_DIMENSION: i32 = 3;
 
-/// The start-game batches every player gets the same (PLAN.md 10.4, 10.6, 10.7): the item
-/// registry, the biome definitions, the creative inventory, the recipes, the block collision
-/// shapes, the entity types, the armour trims, the jigsaw structure data, the entity property
-/// definitions and the camera presets. Each is encoded and compressed once at start; sessions
-/// only encrypt them.
+/// The start-game batches every player gets the same: the item registry, the biome definitions, the
+/// creative inventory, the recipes, the block collision shapes, the entity types, the armour trims,
+/// the jigsaw structure data, the entity property definitions and the camera presets. Each is
+/// encoded and compressed once at start; sessions only encrypt them.
 #[derive(Debug, Clone)]
 pub(crate) struct Shared {
     item_registry: SharedBatches,
@@ -104,24 +102,23 @@ pub(crate) struct Shared {
 }
 
 /// The entity types BDS 1.26.52 sends in `AvailableActorIdentifiers`: `CloudburstMC`'s
-/// `entity_identifiers.dat`, byte for byte what BDS sends (P6 facts 7, 8,907 bytes).
+/// `entity_identifiers.dat`, byte for byte what BDS sends (P6, 8,907 bytes).
 const ENTITY_IDENTIFIERS: &[u8] =
     include_bytes!("../../xtask/data/reference/entity_identifiers.dat");
 
 /// The block collision shapes BDS 1.26.52 sends in `VoxelShapes`: `CloudburstMC`'s
-/// `voxel_shapes.json`, whose counts (287 shapes, 220 names), name order and encoded size
-/// (23,178 bytes) equal BDS's (P6 facts 7); the shape contents are compared with BDS in M7
-/// wave C.
+/// `voxel_shapes.json`, whose counts (287 shapes, 220 names), name order and encoded size (23,178
+/// bytes) equal BDS's (P6).
 const VOXEL_SHAPES: &str = include_str!("../../xtask/data/reference/voxel_shapes.json");
 
 impl Shared {
     /// Builds the batches with the server's batch settings. Fails if a packet cannot be encoded
     /// or its batch is larger than `max-batch-bytes`.
     ///
-    /// With the server's custom content (PLAN.md 10.8): the custom items after the vanilla ones
-    /// in the item registry and the creative inventory, the custom recipes after PMMP's, the
-    /// custom block definitions for `StartGame` and the custom entity identifiers. Without custom
-    /// content the batches are byte for byte the vanilla ones.
+    /// With the server's custom content: the custom items after the vanilla ones in the item
+    /// registry and the creative inventory, the custom recipes after PMMP's, the custom block
+    /// definitions for `StartGame` and the custom entity identifiers. Without custom content the
+    /// batches are byte for byte the vanilla ones.
     pub(crate) fn new(
         settings: batch::Settings,
         custom: &custom::Registry,
@@ -273,8 +270,8 @@ struct CellsJson {
     storage: Vec<u8>,
 }
 
-/// The armour trim patterns and materials BDS 1.26.52 sends (P6 facts 7), from the tables the
-/// smithing table uses ([`crafting::TRIM_PATTERNS`], [`crafting::TRIM_MATERIALS`]).
+/// The armour trim patterns and materials BDS 1.26.52 sends (P6), from the tables the smithing
+/// table uses ([`crafting::TRIM_PATTERNS`], [`crafting::TRIM_MATERIALS`]).
 fn trim_data() -> TrimData {
     TrimData {
         patterns: crafting::TRIM_PATTERNS
@@ -315,8 +312,8 @@ fn encode(encoder: &mut batch::Encoder, packets: &[Packet]) -> Result<SharedBatc
     Ok(bodies.into())
 }
 
-/// What the output phase sends a player at the end of a tick (PLAN.md 10.5). The input and view
-/// phases set it and the output phase clears it, so it is empty between ticks.
+/// What the output phase sends a player at the end of a tick. The input and view phases set it and
+/// the output phase clears it, so it is empty between ticks.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Pending {
     /// `StartGame` and the item registry.
@@ -481,7 +478,7 @@ impl Window {
 }
 
 /// The y BDS sends in its first two spawn `Respawn` packets: the top of the build limit, above
-/// the eyes and at the feet (P6 facts 7).
+/// the eyes and at the feet (P6).
 const RESPAWN_SEARCH_Y: f64 = 32_768.0;
 
 /// What every player's packets of a tick are built from.
@@ -516,12 +513,12 @@ fn operators_starting(state: &mut State) -> BTreeSet<SessionId> {
         .collect()
 }
 
-/// One player's packets of the tick, in the order BDS sends them (P6, PLAN.md 10.2, 10.4, 10.6,
-/// m7-facts.md 7): the start-game packets; for the first chunk radius answer the spawn window
-/// (spawn position, clocks, difficulty, settings, weather, abilities, rules, player list, biomes,
-/// entity types, fog, camera presets, attributes, creative inventory, trims, inventory, recipes,
-/// commands, respawn, entity data, structure feature); the granted radius; the chunk packets; the
-/// health and the spawn status; then the block changes it sees.
+/// One player's packets of the tick, in the order BDS sends them (P6): the start-game packets; for
+/// the first chunk radius answer the spawn window (spawn position, clocks, difficulty, settings,
+/// weather, abilities, rules, player list, biomes, entity types, fog, camera presets, attributes,
+/// creative inventory, trims, inventory, recipes, commands, respawn, entity data, structure
+/// feature); the granted radius; the chunk packets; the health and the spawn status; then the block
+/// changes it sees.
 fn messages(
     built: &Built<'_>,
     world: Option<&World>,
@@ -591,10 +588,10 @@ fn messages(
     out
 }
 
-/// The packets BDS sends between the chunk radius request and the chunks (m7-facts.md 7), with
-/// the player's `AvailableCommands`, but for the spawn sound Anchor never sends (deferred.txt).
-/// BDS sends the entity data and the structure feature with its first chunks; the chunk packets
-/// leave the order of the others as it is.
+/// The packets BDS sends between the chunk radius request and the chunks (P6), with the player's
+/// `AvailableCommands`, but for the spawn sound Anchor never sends (deferred.txt). BDS sends the
+/// entity data and the structure feature with its first chunks; the chunk packets leave the order
+/// of the others as it is.
 fn spawn_window(
     settings: &Settings,
     shared: &Shared,
@@ -666,8 +663,8 @@ fn spawn_window(
     out.push(packet(attributes));
 }
 
-/// A player's entry in the player list (BDS values, P6 facts 7): the skin and device the client
-/// sent at login, unchanged.
+/// A player's entry in the player list (BDS values, P6): the skin and device the client sent at
+/// login, unchanged.
 fn list_entry(player: &Player) -> PlayerListEntry {
     PlayerListEntry {
         action_type: 0,
@@ -733,8 +730,8 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
 /// does not hold it; the player waits in [`Phase::Loading`] until it arrives.
 ///
 /// When the same player is already online, [`PlayerDuplicateLogin`] decides which of the two is
-/// disconnected (PLAN.md 10.3). That check comes before the full check: replacing the existing
-/// player frees its slot, so a full server still lets a player take over its own place.
+/// disconnected. That check comes before the full check: replacing the existing player frees its
+/// slot, so a full server still lets a player take over its own place.
 pub(super) fn join(
     state: &mut State,
     session: SessionId,
@@ -910,7 +907,7 @@ fn spawn_position(world: Option<&World>) -> Vec3 {
 }
 
 /// The saved data of a loading player arrived: it joins where it was, or at the spawn if it is
-/// new. Damaged data refuses the join and leaves the saved bytes as they are (PLAN.md 10.6).
+/// new. Damaged data refuses the join and leaves the saved bytes as they are.
 pub(super) fn player_loaded(
     state: &mut State,
     key: &StoredPlayer,
@@ -954,8 +951,8 @@ pub(super) fn player_loaded(
 }
 
 /// Raises [`PlayerDuplicateLogin`] for `connecting` against the player of `existing` and returns
-/// `connecting` with the outcome. Without listeners the event is not built (PLAN.md 8.2): the
-/// outcome is the default one and nothing is cloned.
+/// `connecting` with the outcome. Without listeners the event is not built: the outcome is the
+/// default one and nothing is cloned.
 fn duplicate_login(
     state: &mut State,
     existing: SessionId,
@@ -1146,7 +1143,7 @@ impl super::Context<'_> {
     /// told the radius at the end of the tick. A world the player goes to later grants the
     /// radius set here up to its own `view-distance`. The client asks again when its own
     /// setting changes, and that request wins. A direct call: it raises no
-    /// [`PlayerViewDistanceChange`] (PLAN.md 8.2).
+    /// [`PlayerViewDistanceChange`].
     ///
     /// Returns the radius set; `None`, changing nothing, if the player is not in the game or its
     /// client has not asked for a radius yet (the first answer opens the spawn window).
@@ -1335,8 +1332,8 @@ fn start_game(
         server_join_information: Some(ServerJoinInformation::default()),
         game_version: packet::GAME_VERSION.to_owned(),
         use_block_network_id_hashes: true,
-        // The custom block definitions (PLAN.md 10.8); none for a vanilla server, as BDS's
-        // data-driven blocks are not PMMP blocks (PLAN.md 7).
+        // The custom block definitions; none for a vanilla server, as BDS's data-driven blocks are
+        // not PMMP blocks.
         blocks: shared.blocks.to_vec(),
         // PMMP `PreSpawnPacketHandler`: the world's time, so the day cycle starts where it is.
         time: world.time_ticks(),
@@ -1434,10 +1431,10 @@ mod tests {
         assert_eq!(payload(&Packet::TrimData(trims)).len(), 1269);
     }
 
-    /// The trim tables are the BDS `TrimData` the P6 facts recorded, in its order.
+    /// The trim tables are the BDS `TrimData` the P6 run recorded, in its order.
     #[test]
-    fn trim_data_equals_the_p6_facts() {
-        let facts = include_str!("../../xtask/data/p6/m7-facts.md");
+    fn trim_data_equals_the_bds_record() {
+        let facts = include_str!("../../xtask/data/p6/facts.md");
         let line = facts
             .lines()
             .find(|l| l.starts_with("- TrimData:"))
@@ -1541,7 +1538,7 @@ mod tests {
         );
     }
 
-    /// The login, join, duplicate login and view distance events (PLAN.md 10.8 판정식 "이벤트").
+    /// The login, join, duplicate login and view distance events.
     mod events {
         use std::cell::Cell;
         use std::net::{IpAddr, Ipv4Addr};

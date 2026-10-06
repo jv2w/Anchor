@@ -15,7 +15,7 @@ fn work_dir() -> PathBuf {
 }
 
 /// Builds the oracle on first use and returns its path. Fails the test if Go is missing
-/// (PLAN.md 4: the protocol tests need Go).
+/// (the protocol tests need Go).
 fn binary() -> &'static Path {
     static BINARY: OnceLock<PathBuf> = OnceLock::new();
     BINARY.get_or_init(|| {

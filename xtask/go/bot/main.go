@@ -46,7 +46,7 @@
 //	               forms, scores, boss bar, titles, menu clicks), for the example tests
 //	weather, joinrain, joinstorm  weather changes and lightning, and joining in rain and thunder (weather.go)
 //	enchants, stations, potions, entities, villagers, numbers, syntax, limits, limitchat, others, mover, rules,
-//	rulesjoin, tradeup, line<bytes>, linekorean<bytes>  the M9 verification scenarios (verify.go); the line
+//	rulesjoin, tradeup, line<bytes>, linekorean<bytes>  the verification scenarios (verify.go); the line
 //	               scenarios are the byte counts of lineScenarios
 //
 // -scenario's usage text lists every scenario name (scenarioList).

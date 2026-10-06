@@ -1,5 +1,5 @@
-//! A user project that depends on Anchor (CLAUDE.md 1: Anchor is a library) gets the fixed
-//! copies in `vendor/` (PLAN.md 9.1) with no configuration of its own: the project is created
+//! A user project that depends on Anchor (Anchor is a library) gets the fixed
+//! copies in `vendor/` with no configuration of its own: the project is created
 //! outside the repository, so nothing of Anchor's workspace applies to it, and every fixed crate
 //! and every crate that names one in its API must resolve to the copy, never to crates.io.
 

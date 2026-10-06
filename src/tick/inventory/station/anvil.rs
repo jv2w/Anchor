@@ -1,6 +1,6 @@
-//! Anvil rules (PMMP has none; dragonfly `handleCraftRecipeOptional`, PLAN.md 8.4): renaming,
-//! repairing with the material or with a second item of the same kind, combining enchantments,
-//! and the level cost, which grows with the items' prior work (`RepairCost`).
+//! Anvil rules (PMMP has none; dragonfly `handleCraftRecipeOptional`): renaming, repairing with the
+//! material or with a second item of the same kind, combining enchantments, and the level cost,
+//! which grows with the items' prior work (`RepairCost`).
 
 use crate::item::{self, Enchantment, Kind, Stack, ToolTier};
 use crate::nbt::Value;

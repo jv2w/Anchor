@@ -1,4 +1,4 @@
-//! `cargo xtask table [--check]`: the PMMP mapping table (PLAN.md 8.4, 10.8). Rows are the
+//! `cargo xtask table [--check]`: the PMMP mapping table. Rows are the
 //! non-`@internal` class-likes of `xtask/data/pmmp/api.json` and the non-`@internal` public
 //! methods each declares. A row is implemented when an item in `src/` carries its
 //! `#[doc(alias)]` (or, for a type named like its PMMP class, a `// pmmp-class: Name` line: see

@@ -1,4 +1,4 @@
-//! The CPU pool (PLAN.md 5, 10.5): the threads of the parallel, read-only tick phases.
+//! The CPU pool: the threads of the parallel, read-only tick phases.
 //!
 //! It is one rayon pool that `runtime` builds; this module is the only user of rayon's parallel
 //! APIs (`.clippy.toml` forbids them elsewhere, since used outside the pool they would start
@@ -15,7 +15,7 @@ use tracing::warn;
 /// is empty, and the tick has stopped by then.
 const EXIT_WAIT: Duration = Duration::from_secs(5);
 
-/// The CPU pool. The tick and the save thread share it (PLAN.md 10.6).
+/// The CPU pool. The tick and the save thread share it.
 #[derive(Debug)]
 pub(crate) struct Pool {
     inner: rayon::ThreadPool,

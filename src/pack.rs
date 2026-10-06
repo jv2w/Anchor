@@ -1,5 +1,4 @@
-//! Resource packs: the `.mcpack` and `.zip` files players download when they join (PLAN.md 8.5,
-//! 10.8).
+//! Resource packs: the `.mcpack` and `.zip` files players download when they join.
 //!
 //! The packs come from the `resource-packs` setting (files relative to the pack folder
 //! `data/packs`, each with an optional `<file>.key` content key next to it) and from

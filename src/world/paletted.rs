@@ -1,4 +1,4 @@
-//! Paletted storage of one 16×16×16 cube (PLAN.md 10.6): a palette and a bit array of palette
+//! Paletted storage of one 16×16×16 cube: a palette and a bit array of palette
 //! indices in Bedrock's widths and word packing, so the network and disk forms copy the words.
 //!
 //! Each palette entry counts the slots that use it. A new value takes the place of an entry no
@@ -88,7 +88,7 @@ fn to_index(i: usize) -> u16 {
 /// A value of a palette, with what the palette keeps worked out beside each entry
 /// ([`Paletted::derived`]): a reader that needs only that reads it by the slot's index, never
 /// the entry. The light work reads a block's light values (3 bytes) this way instead of its
-/// 24-byte entry and the state table behind it, 2 to 5 times faster per block (PLAN.md 10.9).
+/// 24-byte entry and the state table behind it, 2 to 5 times faster per block.
 pub(crate) trait Derive: Copy + Ord {
     /// What is kept beside each entry; `()` keeps nothing and takes no memory.
     type Derived: Copy + Eq + fmt::Debug;
@@ -179,7 +179,7 @@ impl<T: Derive> Paletted<T> {
     }
 
     /// A cube from the exact parts of a live one ([`Self::bits`], [`Self::words`],
-    /// [`Self::palette`]), as a checkpoint keeps it (PLAN.md 10.9 재생 도구): unlike
+    /// [`Self::palette`]), as a checkpoint for the replay tool keeps it: unlike
     /// [`Self::from_parts`] nothing is compacted, so it is the cube that was kept, unused entries
     /// and width included. Fails unless the parts keep the invariants: a Bedrock width, its word
     /// count, distinct entries the width indexes, every slot's index in the palette and the bits

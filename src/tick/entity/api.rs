@@ -1,13 +1,12 @@
-//! The public entity API (PLAN.md 10.8, PMMP `Entity`, `Living`, `object\*` (with `Painting`,
-//! `EndCrystal`, `FireworkRocket`), `projectile\*` (with `Trident`, `IceBomb`), `Human`,
-//! `Villager`, `World::dropItem`, `World::getNearbyEntities`...): what an [`Entity`]
-//! shows, what an [`Mut`] changes, and the [`Context`] methods that find, lend and spawn
-//! entities.
+//! The public entity API (PMMP `Entity`, `Living`, `object\*` (with `Painting`, `EndCrystal`,
+//! `FireworkRocket`), `projectile\*` (with `Trident`, `IceBomb`), `Human`, `Villager`,
+//! `World::dropItem`, `World::getNearbyEntities`...): what an [`Entity`] shows, what an [`Mut`]
+//! changes, and the [`Context`] methods that find, lend and spawn entities.
 //!
 //! Setters change the entity at once, mark its chunk for the next save and, for what viewers
 //! draw (name tag, scale, kind values), mark it for the next movement pass, which sends it with
 //! the position, motion, rotation and flags it compares anyway. No setter raises an event
-//! (PLAN.md 8.2: direct calls do not re-enter).
+//! (direct calls do not re-enter).
 //!
 //! Lookups go through the store's slots and indexes: an [`Id`] or a runtime ID is O(1)
 //! (O(log n)), "what is near" visits the chunk index, and the entities of a world are the store's
@@ -832,7 +831,7 @@ impl Mut<'_> {
     }
 
     /// Sets the ticks it burns, at most 32,767 (none for a fire-proof entity); 0 puts its fire
-    /// out (PMMP `extinguish`, merged: a direct call raises no event, PLAN.md 8.2).
+    /// out (PMMP `extinguish`, merged: a direct call raises no event).
     #[doc(alias = "Entity::setFireTicks")]
     #[doc(alias = "Entity::extinguish")]
     pub fn set_fire_ticks(&mut self, ticks: u16) {

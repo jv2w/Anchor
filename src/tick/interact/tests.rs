@@ -1,4 +1,4 @@
-//! Tick tests of interaction: packets in, state and packets out (PLAN.md 10.7 judgement).
+//! Tick tests of interaction: packets in, state and packets out.
 
 use tokio::sync::mpsc;
 
@@ -1497,7 +1497,7 @@ fn a_used_bow_trident_horn_or_spyglass_shows_the_using_item_flag() {
 }
 
 /// An explosion at the world's entity limit breaks an item frame: the frame and its item wait as
-/// a spill in the chunk instead of being lost (PLAN.md 10.7).
+/// a spill in the chunk instead of being lost.
 #[test]
 fn explosion_at_the_entity_cap_keeps_framed_items_as_spill() {
     let mut h = Harness::new(|_| {});
@@ -1641,9 +1641,9 @@ fn spawn_eggs_hatch_a_zombie_or_a_villager_and_are_used_up() {
     );
 }
 
-/// User decision (PLAN.md 8.4, 2026-10-04): a villager from a spawn egg or from the API without
-/// offers has an empty trade list (no vanilla trade templates) and opens no trade window; offers
-/// set through the trade API then trade as usual.
+/// A villager from a spawn egg or from the API without offers has an empty trade list (the vanilla
+/// villager economy is out of scope, so there are no trade templates) and opens no trade window;
+/// offers set through the trade API then trade as usual.
 #[test]
 fn villagers_hatched_or_spawned_without_offers_have_an_empty_trade_list() {
     let mut h = Harness::new(|_| {});

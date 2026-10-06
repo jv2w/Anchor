@@ -11,7 +11,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// The itemuse scenario uses items in the air the way the official client does (M9 follow-up U5, R4). An item
+// The itemuse scenario uses items in the air the way the official client does. An item
 // with a use animation (a bow, a trident, a potion to drink) starts with an InventoryTransaction UseItem
 // ClickAir and, in the PlayerAuthInput of the same tick, the StartUsingItem input flag; the server answers with
 // the UsingItem entity flag (bedrock-protocol-docs changelog 776: true if it agrees). A bow or trident ends with
@@ -182,7 +182,7 @@ func playItemUse(g *game) error {
 			throw = map[string]any{"data": s.ExtraData, "height above the feet": fmt.Sprintf("%.2f", s.Position[1]-feetY)}
 		}
 	}
-	// The entity type of a sound without an entity ("" on BDS) is another difference (M9 report 13).
+	// The entity type of a sound without an entity ("" on BDS) differs between the servers: a fact.
 	g.record("fact", map[string]any{"name": "trident sounds", "value": all})
 	g.check("trident throw sound", throw)
 	g.check("trident released", !g.usingItem())
@@ -285,7 +285,7 @@ func playItemUse(g *game) error {
 			return err
 		}
 		if s.height > 1.8 {
-			// Above the head the servers differ by a few ticks (m9-facts.md ITEMUSE): a fact.
+			// Above the head the servers differ by a few ticks (xtask/data/p6/facts.md): a fact.
 			g.record("fact", map[string]any{"name": "splash duration " + name, "value": got})
 		} else {
 			durations[name] = got

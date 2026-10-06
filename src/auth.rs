@@ -1,6 +1,6 @@
 //! Authorization environment: discovery, OpenID configuration and JWKS, cached in `data/auth.json`.
 //!
-//! Start (PLAN.md 10.2): a cache younger than an hour is used as is; otherwise the documents are
+//! Start: a cache younger than an hour is used as is; otherwise the documents are
 //! fetched, falling back to the cache when that fails. With neither the server does not start. A
 //! corrupt cache stops the start and is left untouched. While running, everything is fetched
 //! again every hour, and a token with an unknown `kid` may trigger one JWKS fetch per five

@@ -1,6 +1,6 @@
 //! The public player API on [`Player`]: who it is, where it is, the messages it is shown, and
 //! leaving (its survival state is in `survival::api`); and the per-tick sync that does what the
-//! setters marked (PLAN.md 10.8).
+//! setters marked.
 //!
 //! A setter changes the value at once (after [`Player::teleport`], [`Player::position`] is the
 //! new place) and marks what the world and the other players must see. [`sync`] runs after the
@@ -617,9 +617,9 @@ impl Player {
         Ok(())
     }
 
-    /// Shows the player `message` (PLAN.md 8.4: PMMP's message methods merged). The packets
-    /// follow this tick's other packets. Fails, sending nothing, for a message a client does not
-    /// decode ([`Message`] gives the bounds).
+    /// Shows the player `message` (PMMP's message methods merged). The packets follow this tick's
+    /// other packets. Fails, sending nothing, for a message a client does not decode ([`Message`]
+    /// gives the bounds).
     #[doc(alias = "Player::sendMessage")]
     #[doc(alias = "Player::sendTip")]
     #[doc(alias = "Player::sendPopup")]

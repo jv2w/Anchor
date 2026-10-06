@@ -1,4 +1,4 @@
-//! The Go cross-check of the world import reader (PLAN.md 10.9): df-mc/goleveldb, the LevelDB
+//! The Go cross-check of the world import reader: df-mc/goleveldb, the LevelDB
 //! reader dragonfly uses, must read the BDS fixture world (`xtask/data/import/flat`) as
 //! `xtask/data/import/flat.dump` says, and Anchor's reader is checked against that same file
 //! (`import::leveldb::tests::the_bds_fixture_reads_like_goleveldb`). Like the other Go tests,

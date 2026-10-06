@@ -1,4 +1,4 @@
-//! World generators (PLAN.md 6, 10.6): the [`Generator`] extension point, the built-in flat
+//! World generators: the [`Generator`] extension point, the built-in flat
 //! and void worlds, and the generators a server makes worlds with by name.
 
 use std::any::TypeId;
@@ -13,7 +13,7 @@ use super::{BlockPos, Chunk, ChunkPos};
 
 /// Fills the chunks of a world that were never saved.
 ///
-/// It runs outside the tick, on the CPU pool, for chunks no save holds (PLAN.md 5): it must be a
+/// It runs outside the tick, on the CPU pool, for chunks no save holds: it must be a
 /// pure function of the seed and the chunk position, so the same seed and position always give
 /// the same chunk and a crash replay rebuilds the same world. A chunk that was generated and
 /// never changed is not saved but generated again when it is loaded, so changing a world's
@@ -104,7 +104,7 @@ impl Generators {
     }
 }
 
-/// Lists the names: the registration fingerprint of a replay compares them (PLAN.md 10.9).
+/// Lists the names: the registration fingerprint of a replay compares them.
 impl fmt::Debug for Generators {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_set().entries(self.names()).finish()

@@ -1,8 +1,7 @@
-//! Forced shutdown with user data (PLAN.md 10.8 판정식 "사용자 데이터"): a server writes the tick
-//! into a server data value, a player data value and the terrain every tick, saving every third
-//! tick, and is killed a random number of ticks after its first commit, again and again. Every
-//! restart must find the three holding one and the same committed tick, newer than the last
-//! restart's, with no tick counted twice or lost.
+//! Forced shutdown with user data: a server writes the tick into a server data value, a player data
+//! value and the terrain every tick, saving every third tick, and is killed a random number of
+//! ticks after its first commit, again and again. Every restart must find the three holding one and
+//! the same committed tick, newer than the last restart's, with no tick counted twice or lost.
 //!
 //! The test runs its own test binary as the server process (`user_data_crash_child`) and kills
 //! only that child, through its process handle, as the item crash test does
@@ -469,7 +468,7 @@ fn forced_kills_keep_user_data_with_its_tick() {
         let start: u64 = f["start"].parse().unwrap();
         let (on_server, on_player) = (progress(&f["server"]), progress(&f["player"]));
         // A kill between the files of one save leaves them at different saves: the start finds
-        // it, and nothing is promised of what they hold then (CLAUDE.md 4.7).
+        // it, and nothing is promised of what they hold then.
         let split = f["split"] == "1";
         if split {
             splits += 1;

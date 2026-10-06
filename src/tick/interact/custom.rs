@@ -1,6 +1,6 @@
-//! Custom blocks in the interaction rules (PLAN.md 8.3, 10.8): the server's custom item types and
-//! block states for the API, the drops of a broken custom block, and the calls into a custom
-//! block's [`Behaviour`](crate::custom::Behaviour).
+//! Custom blocks in the interaction rules: the server's custom item types and block states for the
+//! API, the drops of a broken custom block, and the calls into a custom block's
+//! [`Behaviour`](crate::custom::Behaviour).
 
 use super::super::{Context, SessionId, State};
 use crate::block;

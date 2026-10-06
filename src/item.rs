@@ -1,9 +1,9 @@
-//! Item types (PLAN.md 10.4): every item type Anchor knows, in Bedrock form, with its 1.26.50
+//! Item types: every item type Anchor knows, in Bedrock form, with its 1.26.50
 //! runtime ID, the lookups from the forms clients and saved data use, and the item registry and
 //! creative inventory sent at spawn.
 //!
 //! The types are PMMP's item types (its item registry, the item form of every block state and
-//! every name PMMP parses) merged by Bedrock form, with PMMP's data for each (PLAN.md 10.7):
+//! every name PMMP parses) merged by Bedrock form, with PMMP's data for each:
 //! PMMP type and class, stack size, durability, tool, armour, food, fuel, enchanting, cooldown;
 //! and the enchantment, item tag and tool tier tables. All data lives in static tables generated
 //! by `cargo xtask gen`, so nothing is built at start and a lookup never allocates.
@@ -175,7 +175,7 @@ impl Type {
 
     /// The network ID of the block state a block item is sent with, 0 for other items. It is the
     /// state BDS sends with the item (the vanilla creative state), which may differ from the
-    /// state the item places (PLAN.md 10.4).
+    /// state the item places.
     #[inline]
     pub(crate) fn block_network_id(self) -> u32 {
         match self.0 {
@@ -247,8 +247,8 @@ impl Type {
         Self::lookup(runtime_id, |e| e.1 == block, u16::try_from(meta).ok(), nbt)
     }
 
-    /// The type of an item in network form whose block a client may send differently (P6 facts
-    /// 2: BDS matches requests by network ID, count and stack ID, not by the block runtime ID):
+    /// The type of an item in network form whose block a client may send differently (P6:
+    /// BDS matches requests by network ID, count and stack ID, not by the block runtime ID):
     /// [`Type::from_network`] with the block, else the one type of the runtime ID and meta with
     /// any block; `None` if several types could be meant.
     #[cfg(test)]
@@ -1191,7 +1191,7 @@ pub(crate) fn is_education(name: &str) -> bool {
 }
 
 /// The `ItemRegistry` packet: every item of the 1.26.50 reference list with its component data,
-/// in runtime ID order (PLAN.md 10.4). The client does not depend on the order: PMMP sends the
+/// in runtime ID order. The client does not depend on the order: PMMP sends the
 /// list by name and dragonfly in Go map order. Built once when the server is built.
 pub(crate) fn registry() -> packet::ItemRegistry {
     packet::ItemRegistry {
@@ -1266,7 +1266,7 @@ pub(crate) const GROUP_WORKAROUND: &str = "___GroupBugWorkaround___";
 
 /// The generated `CreativeContent` packet: PMMP's creative inventory with its groups, as PMMP's
 /// `CreativeInventoryCache` builds it (a group icon carries [`GROUP_WORKAROUND`] set to its group
-/// index). Creative item network IDs count from 1 as BDS sends them (P6, PLAN.md 10.4), where PMMP
+/// index). Creative item network IDs count from 1 as BDS sends them (P6), where PMMP
 /// counts from 0. The server builds its inventories from [`creative_entry`]; this is what it
 /// builds of PMMP's unchanged.
 #[cfg(test)]
@@ -1528,7 +1528,7 @@ mod tests {
     ) {
         let name = want["name"].as_str().unwrap();
         assert_eq!(i64::from(stack.item_type.network_id), ids[name], "{name}");
-        // BDS sends the ominous banner white (meta 15) where PMMP has it black (PLAN.md 10.4).
+        // BDS sends the ominous banner white (meta 15) where PMMP has it black.
         let ominous = name == "minecraft:banner" && want["nbt"]["Type"]["int"] == 1;
         let meta = match want["meta"].as_u64().unwrap() {
             0 if ominous => 15,
@@ -1556,7 +1556,7 @@ mod tests {
             None => assert_eq!(stack.block_runtime_id, 0, "{name}"),
             Some(block) => {
                 // The item places the dumped (PMMP) block and is sent with the vanilla item state
-                // where the reference list has one (PLAN.md 10.4).
+                // where the reference list has one.
                 let state = item.block().unwrap();
                 assert_eq!(state.name(), block["name"].as_str().unwrap());
                 assert_eq!(
@@ -2008,7 +2008,7 @@ mod tests {
         for (t, entry) in all().zip(&dump) {
             let (bedrock, d) = (&entry["bedrock"], &entry["data"]);
             assert_eq!(t.name(), bedrock["name"]);
-            // BDS sends the ominous banner white (meta 15) where PMMP has it black (PLAN.md 10.4).
+            // BDS sends the ominous banner white (meta 15) where PMMP has it black.
             let meta = match int(&bedrock["meta"]) {
                 0 if bedrock["nbt"]["Type"]["int"] == 1 => 15,
                 m => m,

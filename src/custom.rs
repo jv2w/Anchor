@@ -1,4 +1,4 @@
-//! Custom content (PLAN.md 8.3, 8.6, 10.8): items and blocks a server adds beyond vanilla, its
+//! Custom content: items and blocks a server adds beyond vanilla, its
 //! own recipes, its creative inventories, and villager trade offers as typed values.
 //!
 //! Items and blocks are `static` definitions ([`Item`], [`Block`]) given to the builder
@@ -14,7 +14,7 @@
 //! ([`Context::custom_item`](crate::Context::custom_item),
 //! [`Context::custom_block`](crate::Context::custom_block)) and every rule reads their data
 //! from the definition. Saved worlds keep custom blocks and items by name: when a definition is
-//! gone, its blocks stay as they were saved and show as `minecraft:info_update` (PLAN.md 7).
+//! gone, its blocks stay as they were saved and show as `minecraft:info_update`.
 
 mod block;
 mod creative;

@@ -1,4 +1,4 @@
-//! The biome definitions the client gets once in the spawn window (PLAN.md 10.6): the 89 vanilla
+//! The biome definitions the client gets once in the spawn window: the 89 vanilla
 //! biomes BDS sends, generated from `CloudburstMC`'s stripped definitions into [`table`].
 
 mod table;

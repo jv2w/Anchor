@@ -1,4 +1,4 @@
-//! The upgrade part of `cargo xtask dump` (PLAN.md 10.9): copies the block and item upgrade
+//! The upgrade part of `cargo xtask dump`: copies the block and item upgrade
 //! schemas from their pinned checkouts into `xtask/data/upgrade/`, converts the legacy block table
 //! `id_meta_to_nbt/1.12.0.bin` into typed JSON lines, records the SHA-256 of every source file,
 //! and runs PMMP's own upgrader over the copies (`xtask/php/upgrade.php`) for the golden files the
@@ -133,7 +133,7 @@ pub(super) fn run(root: &Path, out: &Path) -> Result<Vec<String>, String> {
         .arg(root.join(REFERENCE_OUT).join("blocks.json"))
         .current_dir(root.join(PMMP.0))
         .status()
-        .map_err(|e| format!("cannot run {PHP} ({e}); see PLAN.md 10.4"))?;
+        .map_err(|e| format!("cannot run {PHP} ({e}); see docs/data.md"))?;
     if !status.success() {
         return Err(format!("the PMMP upgrade golden run failed ({status})"));
     }

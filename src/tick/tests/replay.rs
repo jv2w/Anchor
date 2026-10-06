@@ -1,8 +1,7 @@
-//! The replay tool against live runs with the real save thread on a temporary server file
-//! (PLAN.md 10.9 재생 도구): a crash log replays from the state of its last commit to the same
-//! states (a task sends the state hash of every tick in both runs) and panics where the server
-//! did; a commit the tick never learnt of is where the replay starts; an opaque checkpoint and a
-//! server built otherwise are refused.
+//! The replay tool against live runs with the real save thread on a temporary server file: a crash
+//! log replays from the state of its last commit to the same states (a task sends the state hash of
+//! every tick in both runs) and panics where the server did; a commit the tick never learnt of is
+//! where the replay starts; an opaque checkpoint and a server built otherwise are refused.
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -314,7 +313,7 @@ fn a_crash_log_replays_from_its_last_commit_to_the_same_states_and_panics_where_
         "the replay writes nothing"
     );
     // The live loop measured its ticks off the game logic and logged each time for the next
-    // tick (PLAN.md 10.9): the replay read the same times, so its states are the live ones.
+    // tick: the replay read the same times, so its states are the live ones.
     let written = InputLog::decode(&read(&log)).unwrap();
     let measured = written
         .ticks()

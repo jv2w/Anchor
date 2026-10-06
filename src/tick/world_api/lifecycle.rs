@@ -1,21 +1,20 @@
-//! The server's worlds while it runs (PLAN.md 10.9 대응표 재검토; PMMP `WorldManager`,
-//! `World::stopTime`, `World::setDifficulty`): making, loading, unloading and deleting worlds,
-//! the default world, the time stop and each world's difficulty.
+//! The server's worlds while it runs (PMMP `WorldManager`, `World::stopTime`,
+//! `World::setDifficulty`): making, loading, unloading and deleting worlds, the default world, the
+//! time stop and each world's difficulty.
 //!
 //! Every world keeps its index, its [`world::Id`], for the run: an unloaded world stays in the
 //! state's list without chunks, holding only its settings, and loads again in the same place; a
 //! temporary world made again under its name takes the place too. A run names at most
 //! [`MAX_WORLDS`] worlds, as many as the server file holds.
 //!
-//! Every persistent world is its file `data/world/<name>.redb` (PLAN.md 6). Loading a world reads
-//! nothing on the tick: the records of the world files are read when the server starts and live
-//! here after (only the tick writes records, so memory is never older than the files),
-//! and the chunks load through the save thread as always. Unloading waits for the view phase,
-//! where [`WorldUnload`] may cancel it: the world's players go to the default world's spawn
-//! (PMMP), its chunks unload as every chunk does (their changes wait in memory for the commit
-//! the unload asks for, so the server file gets them atomically with the rest of the state), and
-//! the world forgets everything but its settings. The save thread learns of new worlds before
-//! the first load or commit that names them.
+//! Every persistent world is its file `data/world/<name>.redb`. Loading a world reads nothing on
+//! the tick: the records of the world files are read when the server starts and live here after
+//! (only the tick writes records, so memory is never older than the files), and the chunks load
+//! through the save thread as always. Unloading waits for the view phase, where [`WorldUnload`] may
+//! cancel it: the world's players go to the default world's spawn (PMMP), its chunks unload as
+//! every chunk does (their changes wait in memory for the commit the unload asks for, so the server
+//! file gets them atomically with the rest of the state), and the world forgets everything but its
+//! settings. The save thread learns of new worlds before the first load or commit that names them.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -379,7 +378,7 @@ pub(in crate::tick) fn take_deleted_worlds(state: &mut State) -> Vec<DeletedWorl
 }
 
 /// Whether a world of the run (persistent, or loaded) or a stored one has a name that differs
-/// from `name` at most in letter case: its file would be the same (PLAN.md 6).
+/// from `name` at most in letter case: its file would be the same.
 fn name_taken(state: &State, name: &str) -> bool {
     let key = crate::storage::world_name_key(name);
     let same = |n: &str| crate::storage::world_name_key(n) == key;
@@ -548,13 +547,13 @@ impl Context<'_> {
     /// Loads the persistent world `name` whose file `data/world/<name>.redb` was there when the
     /// server started, declared or not (PMMP `WorldManager::loadWorld`), with the settings of
     /// `options`, as [`create_world`](Self::create_world) makes one: the file keeps its chunks and
-    /// time, never its settings (PLAN.md 10.6), so a world stored in an earlier run gets its
-    /// generator, seed, spawn, difficulty and view values from here (its kind is persistent whatever the options say). Its spawn chunks load from the
-    /// next view phase on, where [`WorldLoad`] is raised. A world the server already has this run
-    /// keeps the settings it has and the options are not used: a loaded one is its `Id` as it is,
-    /// and an unload asked for it before the next view phase is dropped (the later call wins; no
-    /// [`WorldUnload`] is raised for it). Inside a [`WorldUnload`] listener, cancelling the event
-    /// is what keeps the world.
+    /// time, never its settings, so a world stored in an earlier run gets its generator, seed,
+    /// spawn, difficulty and view values from here (its kind is persistent whatever the options
+    /// say). Its spawn chunks load from the next view phase on, where [`WorldLoad`] is raised. A
+    /// world the server already has this run keeps the settings it has and the options are not
+    /// used: a loaded one is its `Id` as it is, and an unload asked for it before the next view
+    /// phase is dropped (the later call wins; no [`WorldUnload`] is raised for it). Inside a
+    /// [`WorldUnload`] listener, cancelling the event is what keeps the world.
     ///
     /// Fails with [`world::Error::NotGenerated`] if the server runs no world of that name and
     /// `data/world/` held none at start (a temporary world unloaded is gone), and, for a stored
@@ -730,10 +729,10 @@ impl Context<'_> {
     }
 
     /// Gives `world` its own difficulty, or `None` to follow the server's
-    /// ([`difficulty`](Self::difficulty)), and tells its players (PMMP `World::setDifficulty`).
-    /// Its rules (hunger, fire) use it until the server stops: it is not saved, and a restart
-    /// takes the difficulty of the settings again (PLAN.md 10.6). False, changing nothing, for
-    /// a world that is not loaded, or a difficulty other than hard on a `hardcore` server.
+    /// ([`difficulty`](Self::difficulty)), and tells its players (PMMP `World::setDifficulty`). Its
+    /// rules (hunger, fire) use it until the server stops: it is not saved, and a restart takes the
+    /// difficulty of the settings again. False, changing nothing, for a world that is not loaded,
+    /// or a difficulty other than hard on a `hardcore` server.
     #[doc(alias = "World::setDifficulty")]
     pub fn set_world_difficulty(
         &mut self,

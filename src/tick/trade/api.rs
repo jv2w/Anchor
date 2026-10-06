@@ -1,5 +1,5 @@
-//! The typed trade API (PLAN.md 8.6, 10.8): [`Context`] methods that read and change a villager
-//! NPC's offers as [`Offer`] values, and the conversion between them and the stored offers.
+//! The typed trade API: [`Context`] methods that read and change a villager NPC's offers as
+//! [`Offer`] values, and the conversion between them and the stored offers.
 
 use super::super::{Context, State};
 use super::{Damage, Error, HOOKS, Offers, Recipe, Result, change_offers};

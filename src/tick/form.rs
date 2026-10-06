@@ -1,5 +1,5 @@
 //! Forms in the tick: the forms each player has open, their answers, and the per-player
-//! scoreboard and boss bar (PLAN.md 10.8).
+//! scoreboard and boss bar.
 //!
 //! A form's handler is kept with the shape of the answer it waits for, under the form ID sent to
 //! the player. The answer (`ModalFormResponse`) removes it whether it fits or not, so a second

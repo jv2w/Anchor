@@ -1,6 +1,5 @@
 //! Block updates: scheduled updates, neighbour updates and random ticks, and the block rules
-//! they run (crops, saplings, leaves, fire, grass, ice, copper, liquids, falling blocks)
-//! (PLAN.md 6, 10.7).
+//! they run (crops, saplings, leaves, fire, grass, ice, copper, liquids, falling blocks).
 //!
 //! Each world runs, once a tick and in this order (PMMP `World::actuallyDoTick`):
 //!
@@ -15,12 +14,12 @@
 //!    through a first-in first-out queue that skips positions already in it. Changes the rules
 //!    make join the same queue, so cascades run in the same tick, at most
 //!    [`MAX_NEIGHBOUR_UPDATES_PER_TICK`]; the rest waits for the next tick.
-//! 3. **Random ticks** (PLAN.md 6): the chunks within `tick-radius` of a player of the world
-//!    whose 3 × 3 neighbourhood is loaded and lit, in position order; in each sub-chunk that is
-//!    not air, `random-tick-speed` positions from the engine random stream of the chunk and tick
-//!    (PMMP uses the global `mt_rand`; dragonfly a per-world generator that depends on thread
-//!    timing: both fixed). Blocks named in `disable-block-ticking` never tick. A custom block
-//!    ticks if its definition asks for it, through its behaviour's `on_random_tick`.
+//! 3. **Random ticks**: the chunks within `tick-radius` of a player of the world whose 3 × 3
+//!    neighbourhood is loaded and lit, in position order; in each sub-chunk that is not air,
+//!    `random-tick-speed` positions from the engine random stream of the chunk and tick (PMMP uses
+//!    the global `mt_rand`; dragonfly a per-world generator that depends on thread timing: both
+//!    fixed). Blocks named in `disable-block-ticking` never tick. A custom block ticks if its
+//!    definition asks for it, through its behaviour's `on_random_tick`.
 //!
 //! A rule never reads a chunk that is not loaded as air: it waits (PMMP loads it, or reads air
 //! and breaks blocks on chunk borders: fixed). Liquids that need such a block try again after
@@ -595,7 +594,7 @@ fn refill(state: &mut State, world: WorldIndex) {
     }
 }
 
-/// Random ticks of `world` (PLAN.md 6, PMMP `World::tickChunks`).
+/// Random ticks of `world` (PMMP `World::tickChunks`).
 fn run_random(state: &mut State, world: WorldIndex) {
     let speed = state.settings.random_tick_speed;
     let radius = state.settings.view(world).tick_radius;

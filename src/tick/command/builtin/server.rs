@@ -177,8 +177,8 @@ const MAX_PARTICLES: i32 = 1024;
 /// The random stream that spreads `/particle`'s particles.
 const PARTICLE_SPREAD: u64 = random::tag("command-particle-spread");
 
-/// BDS's `Difficulty` enum (P6, m9-facts.md; PMMP `World::getDifficultyFromString` takes the
-/// same words) and what `/difficulty` reads them as; a number is the difficulty's ID.
+/// BDS's `Difficulty` enum (P6; PMMP `World::getDifficultyFromString` takes the same words) and
+/// what `/difficulty` reads them as; a number is the difficulty's ID.
 const DIFFICULTIES: [(&str, Difficulty); 8] = [
     ("normal", Difficulty::Normal),
     ("peaceful", Difficulty::Peaceful),
@@ -543,7 +543,7 @@ fn particle_of(name: &str, data: Option<&str>) -> Option<Particle> {
 /// `/particle <name> <x> <y> <z> <xd> <yd> <zd> [count] [data]` (PMMP `ParticleCommand`): `count`
 /// particles (1 to 1,024) spread at random up to the distances on each axis, in the sender's
 /// world. The spread comes from the engine's random streams, so a replay shows the same.
-/// Particle numbers are gophertunnel's; comparing them with BDS is pending (PLAN.md 10.8).
+/// Particle numbers are gophertunnel's; comparing them with BDS is pending.
 fn particle(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
     let name = args.string("name").unwrap_or_default();
     let Some(effect) = particle_of(name, args.string("data")) else {
@@ -596,7 +596,7 @@ fn backup(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
 
 /// `/save-off` (PMMP `SaveOffCommand`): turns the periodic save off until the server stops or
 /// `/save-on`; `/save-all`, the memory bounds, a quarter of the input log's bound recorded since
-/// the last save (PLAN.md 10.9) and shutdown still save.
+/// the last save and shutdown still save.
 fn save_off(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     cx.set_auto_save(false);
     announce(cx, *sender, SAVE_DISABLED, &[])
@@ -609,10 +609,10 @@ fn save_on(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
 }
 
 /// `/status` (PMMP `StatusCommand`, in Anchor's own lines): the uptime by the wall clock and in
-/// ticks, the TPS and tick times now and averaged over the last 20 ticks, the resident memory,
-/// the threads, the players, and each loaded world's chunks, entities and block entities. The
-/// uptime, memory and tick times are measured off the tick and read from the input log (PLAN.md
-/// 10.9), so the uptime and memory are at most a second old.
+/// ticks, the TPS and tick times now and averaged over the last 20 ticks, the resident memory, the
+/// threads, the players, and each loaded world's chunks, entities and block entities. The uptime,
+/// memory and tick times are measured off the tick and read from the input log, so a replay sees
+/// the same values; the uptime and memory are at most a second old.
 fn status(cx: &mut Context<'_>, _: &Sender, _: &Args) -> Output {
     let state = &*cx.state;
     let network = &state.network;

@@ -1,11 +1,10 @@
-//! The API scenarios of `cargo xtask p6` (PLAN.md 10.8 P6): `commands`, `particles`, `kick`,
-//! `forms` and `script` (the bot's `api.go`), and `weather`, `joinrain` and `joinstorm` (the
-//! bot's `weather.go`, PLAN.md 10.9 날씨와 번개: each runs after the one before it, whose weather
-//! it joins in), and `boltpeaceful`, `bolteasy` and `bolthard` (a bolt next to the bot at that
-//! difficulty). They run on the game scenarios' machinery (`game`):
-//! the bot plays each one with its own player name and writes the console commands it needs as
-//! `command` records, which the harness runs on the server's console. The script scenario runs
-//! the actions of `SCRIPT`.
+//! The API scenarios of `cargo xtask p6`: `commands`, `particles`, `kick`, `forms` and `script`
+//! (the bot's `api.go`), and `weather`, `joinrain` and `joinstorm` (the bot's `weather.go`: each
+//! runs after the one before it, whose weather it joins in), and `boltpeaceful`, `bolteasy` and
+//! `bolthard` (a bolt next to the bot at that difficulty). They run on the game scenarios'
+//! machinery (`game`): the bot plays each one with its own player name and writes the console
+//! commands it needs as `command` records, which the harness runs on the server's console. The
+//! script scenario runs the actions of `SCRIPT`.
 //!
 //! - `p6 api bds [scenario]...`: one BDS session (RakNet, zlib, a fresh flat world) with cheats
 //!   allowed (player commands need them) and the forms script pack (`FORMS_PACK`) installed in the
@@ -28,10 +27,10 @@
 //! facts only.
 //!
 //! Differences Anchor keeps on purpose are listed with their reasons in the intended-difference
-//! file (`xtask/data/p6/intended.txt`, reviewed like the deferral table): a difference whose text
-//! is exactly one of its lines, in that line's scenario, is reported as `intended` and does not
-//! fail the comparison; every other difference does. A listed difference the comparison no longer
-//! finds is a note, so the file can be trimmed.
+//! file (`xtask/data/p6/intended.txt`): a difference whose text is exactly one of its lines, in
+//! that line's scenario, is reported as `intended` and does not fail the comparison; every other
+//! difference does. A listed difference the comparison no longer finds is a note, so the file can
+//! be trimmed.
 
 use std::io::Write;
 use std::path::Path;
@@ -91,11 +90,11 @@ pub(crate) const SCENARIOS: [&str; 46] = [
     "itemuse",
 ];
 /// The scenarios whose comparison is facts only: the particles scenario records what each server
-/// sends, the script scenario tests the bot's `-script` actions (`SCRIPT`), and the M9
-/// verification scenarios `villagers` (random professions), `numbers` (BDS-only items and
-/// telemetry), `rules` and `rulesjoin` (game rules Anchor takes from its settings, not a command)
-/// and the command line lengths (BDS ends the connection from 508 bytes, Anchor answers) record
-/// BDS facts for `xtask/data/p6/m9-facts.md`.
+/// sends, the script scenario tests the bot's `-script` actions (`SCRIPT`), and the verification
+/// scenarios (the bot's `verify.go`) `villagers` (random professions), `numbers` (BDS-only items
+/// and telemetry), `rules` and `rulesjoin` (game rules Anchor takes from its settings, not a
+/// command) and the command line lengths (BDS ends the connection from 508 bytes, Anchor answers)
+/// record BDS facts for `xtask/data/p6/facts.md`.
 const FACTS_ONLY: [&str; 27] = [
     "particles",
     "script",
@@ -125,10 +124,10 @@ const FACTS_ONLY: [&str; 27] = [
     "linekorean387",
     "linekorean519",
 ];
-/// The M9 verification scenarios that compare their checks only, not the fixed-field packets of
+/// The verification scenarios that compare their checks only, not the fixed-field packets of
 /// their steps: what each checks is its item (potion colours and cloud, another player, chat
 /// limits, item use), and the other packets differ for reasons recorded in
-/// `xtask/data/p6/m9-facts.md` (Anchor keeps no default death message, its projectiles fly
+/// `xtask/data/p6/facts.md` (Anchor keeps no default death message, its projectiles fly
 /// otherwise).
 const CHECKS_ONLY: &[&str] = &[
     "potions",

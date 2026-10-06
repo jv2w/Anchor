@@ -1,4 +1,4 @@
-//! SDP for NetherNet signaling (PLAN.md 10.3): the client's offer parser and Anchor's answer
+//! SDP for NetherNet signaling: the client's offer parser and Anchor's answer
 //! writer, in the layout BDS 1.26.52 answers with.
 
 use std::fmt;
@@ -20,13 +20,13 @@ const MAX_CANDIDATES: usize = 32;
 const ICE_UFRAG_LEN: RangeInclusive<usize> = 4..=256;
 /// `ice-pwd` length in characters (RFC 8839 5.4).
 const ICE_PWD_LEN: RangeInclusive<usize> = 22..=256;
-/// Smallest `max-message-size` accepted (PLAN.md 10.3).
+/// Smallest `max-message-size` accepted.
 const MIN_MESSAGE_SIZE: u32 = 1024;
 /// The only SCTP port accepted: the RFC 8841 default, which go-nethernet and BDS write.
 const SCTP_PORT: &str = "5000";
 /// Largest decoded `a=identity` JSON.
 const MAX_IDENTITY_JSON: usize = 32 * 1024;
-/// Longest identity token text: the Login token's 16 KiB payload cap (PLAN.md 10.2) in base64,
+/// Longest identity token text: the Login token's 16 KiB payload cap in base64,
 /// with room for the header and the signature.
 const MAX_TOKEN_TEXT: usize = 25 * 1024;
 /// Longest detached fingerprint JWS text. An ES384 one is 150 characters.
@@ -156,7 +156,7 @@ struct Attributes<'a> {
     identity: Option<Assertion>,
 }
 
-/// Parses a client offer (PLAN.md 10.3). Lines end in CRLF or LF; empty lines and unknown line
+/// Parses a client offer. Lines end in CRLF or LF; empty lines and unknown line
 /// types and attributes are skipped. ICE, DTLS, SCTP attributes and candidates may sit at the
 /// session or the media level; `a=identity` only at the session level.
 pub(crate) fn parse_offer(text: &str) -> Result<Offer> {
@@ -469,7 +469,7 @@ fn is_compact_jws(text: &str, detached: bool) -> bool {
         && url(signature)
 }
 
-/// Anchor's answer. [`write_answer`] lays it out as BDS 1.26.52 does (PLAN.md 10.3).
+/// Anchor's answer. [`write_answer`] lays it out as BDS 1.26.52 does.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Answer<'a> {
     /// The `o=` session ID, random per answer as BDS draws it.
@@ -541,7 +541,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::protocol::{self, fuzz};
 
-    /// The go-nethernet offer captured on 2026-10-03 (offline, self-signed ES384 token). The
+    /// A captured go-nethernet offer (offline, self-signed ES384 token). The
     /// candidate's `ufrag` extension differs from the capture; extensions are ignored.
     pub(crate) const OFFER: &str = "v=0
 o=- 2327969700533983999 2 IN IP4 127.0.0.1

@@ -1,4 +1,4 @@
-//! Creative inventories (PMMP `CreativeInventory`, PLAN.md 10.4, 10.8): what the creative
+//! Creative inventories (PMMP `CreativeInventory`): what the creative
 //! inventory screen lists. A server has a default inventory (PMMP's list, or the one given to
 //! [`ServerBuilder::creative_inventory`](crate::ServerBuilder::creative_inventory), then the
 //! places custom items and blocks ask for) and may register named alternatives that a player is

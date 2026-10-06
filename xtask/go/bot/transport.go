@@ -22,7 +22,7 @@ type packetConn interface {
 }
 
 // connect opens the connection over -transport and records the transport facts in res: NetherNet
-// first unless it is raknet, then RakNet unless it is nethernet (PLAN.md 2, the client's order). The
+// first unless it is raknet, then RakNet unless it is nethernet (the client's order). The
 // token is the online scenario's multiplayer token, which the NetherNet offer identity carries too.
 func connect(ctx context.Context, c config, out *output, key *ecdsa.PrivateKey, token string, res *result) (packetConn, error) {
 	if c.transport != "raknet" {

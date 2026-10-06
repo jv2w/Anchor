@@ -9,9 +9,9 @@
 //! `extra` compound and a 32-bit position, format 1 has no [`ExtraRecord`], formats before 4
 //! have no [`SubChunkRecord`] values, world records before format 3 have no time and before
 //! format 8 hold settings, which are skipped ([`WorldRecord`]), and meta values before format 7
-//! have no commit identity. Every other record has one layout in every format. NBT keeps the codec's limits (PLAN.md 4): 512
-//! levels and 4 MiB per root compound, except a player's extra compound, which may fill its
-//! record ([`MAX_PLAYER_EXTRA_BYTES`]).
+//! have no commit identity. Every other record has one layout in every format. NBT keeps the
+//! codec's limits: 512 levels and 4 MiB per root compound, except a player's extra compound,
+//! which may fill its record ([`MAX_PLAYER_EXTRA_BYTES`]).
 
 use std::borrow::Cow;
 use std::mem::size_of;
@@ -30,15 +30,14 @@ pub(crate) const MAX_LAYERS: usize = 2;
 /// Longest world or generator name, in bytes.
 pub(crate) const MAX_NAME: usize = 256;
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
-/// name and the position. It holds up to 146 stacks and the user's data (PLAN.md 10.9), more
+/// name and the position. It holds up to 146 stacks and the user's data, more
 /// than the 4 MiB of one NBT root elsewhere; the record's reader budget covers it
 /// (`item::MAX_NBT_BYTES`).
 pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME + 3 * 8);
 /// Blocks (and biome cells) in a sub-chunk.
 pub(crate) const BLOCKS: usize = 4096;
 /// Bits per index Bedrock writes.
-// The same packing as `protocol::block_storage`; one shared definition belongs to the world
-// integration (PLAN.md 10.6).
+// The same packing as `protocol::block_storage`.
 pub(crate) const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
 /// Most compounds in one [`ExtraRecord`]: one per block of a chunk column (16 × 16 × 384). Block
@@ -299,7 +298,7 @@ pub(crate) struct PlayerRecord {
     pub(crate) world: String,
     /// The position, finite in each component.
     pub(crate) position: [f64; 3],
-    /// What the rule modules keep of the player, each under its own keys (PLAN.md 10.7).
+    /// What the rule modules keep of the player, each under its own keys.
     pub(crate) extra: Compound,
 }
 
@@ -436,7 +435,7 @@ impl Record for ExtraRecord<'_> {
     }
 }
 
-/// A server data value of the user: the `user` value, keyed by the data's name (PLAN.md 10.8).
+/// A server data value of the user: the `user` value, keyed by the data's name.
 /// The JSON bytes as they are; the user type's deserializer checks them. A commit encodes the
 /// tick's bytes in place (borrowed).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -454,7 +453,7 @@ impl Record for UserRecord<'_> {
 }
 
 /// A persistent world: the `worlds` value, keyed by the world name. It holds the world's state
-/// alone, never a setting (PLAN.md 10.6): the seed, spawn, generator, difficulty, time stop and
+/// alone, never a setting: the seed, spawn, generator, difficulty, time stop and
 /// weather come from the settings and the code at every start.
 ///
 /// Format 8: the number, then the world time (i64). Formats 1 to 7 also held settings (the seed,
@@ -509,7 +508,7 @@ impl Record for WorldRecord {
 pub(crate) struct Meta {
     /// The engine tick the saved state belongs to.
     pub(crate) tick: u64,
-    /// The commit identity of the saved state (the input log's chain, PLAN.md 10.9); `None` if
+    /// The commit identity of the saved state (the input log's chain); `None` if
     /// unknown (format 6 and older).
     pub(crate) identity: Option<u64>,
 }
@@ -679,7 +678,7 @@ pub(crate) mod tests {
         w.into_inner()
     }
 
-    /// A format 1 player record, as Anchor M6 wrote it: the name and an f32 position.
+    /// A format 1 player record: the name and an f32 position.
     pub(crate) fn player_v1(world: &str, position: [f32; 3]) -> Vec<u8> {
         let mut w = Writer::new(Vec::new(), 0);
         write_name(&mut w, world).unwrap();

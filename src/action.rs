@@ -1,5 +1,5 @@
 //! Actions: things a player or the game does, done on request through the game rules so that
-//! their events are raised (PLAN.md 8.2, 10.8). [`Context::perform`](crate::Context::perform)
+//! their events are raised. [`Context::perform`](crate::Context::perform)
 //! takes one.
 //!
 //! The direct API (for example [`Player`](crate::player::Player) setters) changes the game

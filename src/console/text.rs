@@ -1,5 +1,5 @@
 //! What the console shows for a message a client translates: Anchor's own sentence for each
-//! translation key the server sends (PLAN.md 8.4: no Mojang or other server sentences), filled
+//! translation key the server sends (no Mojang or other server sentences), filled
 //! with the key's parameters. Players get the key and their client translates it; the console
 //! log reads the sentence. Every path to the console uses [`render`]: command results and
 //! errors, the copies of command results, and messages sent to the console.

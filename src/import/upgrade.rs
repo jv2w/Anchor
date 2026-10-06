@@ -1,4 +1,4 @@
-//! Old block states and item names to the protocol version's (PLAN.md 10.9), as PMMP upgrades
+//! Old block states and item names to the protocol version's, as PMMP upgrades
 //! them when it loads a world: block states through pmmp/BedrockBlockUpgradeSchema (PMMP
 //! `BlockDataUpgrader`), legacy numeric and string IDs with a meta through its 1.12.0 table
 //! (`BlockIdMetaUpgrader`), and item stacks through pmmp/BedrockItemUpgradeSchema

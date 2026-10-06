@@ -1,7 +1,6 @@
-//! Tests of the station windows (PLAN.md 10.7 판정식 "제작과 작업대"): each station's rules,
-//! conservation (items in = items out + consumed), the same request twice, closing mid-use, and
-//! open/close cycles leaving no state behind; the furnace and brewing stand windows and their
-//! block entity ticks; breaking containers.
+//! Tests of the station windows: each station's rules, conservation (items in = items out +
+//! consumed), the same request twice, closing mid-use, and open/close cycles leaving no state
+//! behind; the furnace and brewing stand windows and their block entity ticks; breaking containers.
 
 use std::collections::BTreeMap;
 
@@ -342,7 +341,7 @@ fn enchanting_options_have_the_bds_shape() {
     assert_eq!(enchant::slot(None), 0);
 }
 
-/// The BDS enchant request for option `index` (P6 facts 4).
+/// The BDS enchant request for option `index` (P6).
 fn enchant_request(
     w: &World,
     s: super::super::super::SessionId,

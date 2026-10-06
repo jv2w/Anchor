@@ -1,4 +1,4 @@
-//! Custom item definitions (PLAN.md 8.3): what the client is told about the item (its item
+//! Custom item definitions: what the client is told about the item (its item
 //! components, dragonfly `iteminternal.Components`) and the data the server's rules read.
 
 use super::{Category, Creative};
@@ -19,7 +19,7 @@ const CLASSES_ITEM: [Class; 1] = [Class::Item];
 const CLASSES_FOOD: [Class; 2] = [Class::Food, Class::Item];
 const CLASSES_DURABLE: [Class; 2] = [Class::Durable, Class::Item];
 
-/// A custom item (PLAN.md 8.3): a `static` definition the server is given with
+/// A custom item: a `static` definition the server is given with
 /// [`ServerBuilder::custom_item`](crate::ServerBuilder::custom_item). Its icon comes from a
 /// resource pack (`item_texture.json`).
 ///

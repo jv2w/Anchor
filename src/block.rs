@@ -1,4 +1,4 @@
-//! Block states (PLAN.md 7, 10.4, 10.7): every block state Anchor knows, with its 1.26.50 network
+//! Block states: every block state Anchor knows, with its 1.26.50 network
 //! ID and PMMP's values for it: light, PMMP type, class and traits, break info, fire, physics,
 //! collision boxes, support and item form.
 //!
@@ -326,8 +326,7 @@ impl State {
         }
     }
 
-    /// The network ID: the block state hash the client uses with `UseBlockNetworkIDHashes`
-    /// (PLAN.md 7).
+    /// The network ID: the block state hash the client uses with `UseBlockNetworkIDHashes`.
     #[inline]
     pub fn network_id(self) -> u32 {
         match self.0 {
@@ -956,7 +955,7 @@ pub(crate) const SUPPORT_NONE: u16 = 0x0fff;
 const NO_ITEM: u16 = 0xffff;
 const BLOCK_ENTITY_ITEM: u16 = 0xfffe;
 
-/// The classes of a custom block: no PMMP class of its own (PLAN.md 8.3), a transparent or an
+/// The classes of a custom block: no PMMP class of its own, a transparent or an
 /// opaque block.
 const CUSTOM_TRANSPARENT: [Class; 2] = [Class::Transparent, Class::Block];
 const CUSTOM_OPAQUE: [Class; 2] = [Class::Opaque, Class::Block];
@@ -1358,8 +1357,8 @@ impl BannerPattern {
 }
 
 /// The golden drops of a state (tests only): what PMMP drops for it with an empty hand, with
-/// the lowest-tier compatible tool and with that tool (or a stick) enchanted with Silk Touch
-/// (PLAN.md 10.7). The drop rules are checked against it.
+/// the lowest-tier compatible tool and with that tool (or a stick) enchanted with Silk Touch.
+/// The drop rules are checked against it.
 #[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct Golden {
@@ -1496,7 +1495,7 @@ impl Facing {
     }
 }
 
-/// How a state takes part in neighbour connections (PLAN.md 10.6): the PMMP block class whose
+/// How a state takes part in neighbour connections: the PMMP block class whose
 /// rules work its state out from the neighbours, or which those rules look for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Connection {
@@ -1951,7 +1950,8 @@ mod tests {
             }
             assert!(own, "{state:?} is one of its variants");
         }
-        // PLAN.md 7: 13 fences, 43 panes and bars, 1 tripwire, 58 stairs; 26 walls.
+        // The names whose neighbour states the server computes: 13 fences, 43 panes and bars,
+        // 1 tripwire, 58 stairs; 26 walls.
         assert_eq!(counts[1], 13 * 16);
         assert_eq!(counts[2], 43 * 16);
         assert_eq!(counts[3], 26 * 162);

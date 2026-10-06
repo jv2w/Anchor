@@ -1,4 +1,4 @@
-//! Block and item data (PLAN.md 10.4, 10.7): reads the committed PMMP dump (`xtask/data/pmmp/`),
+//! Block and item data: reads the committed PMMP dump (`xtask/data/pmmp/`),
 //! the reference lists (`xtask/data/reference/`) and the block upgrade schema of the protocol
 //! version (`upgrade::LATEST`), checks them against each other, and builds the block state
 //! and item type lists, with their gameplay data, and the tables the data generators emit. The
@@ -21,7 +21,7 @@ pub(crate) const PMMP_DIR: &str = "xtask/data/pmmp";
 pub(crate) const REFERENCE_DIR: &str = "xtask/data/reference";
 const UPGRADE_PATH: &str = super::upgrade::LATEST;
 
-/// Bedrock states PMMP splits by data Anchor keeps in the block entity (PLAN.md 10.4, 10.7): the
+/// Bedrock states PMMP splits by data Anchor keeps in the block entity: the
 /// Bedrock name, the PMMP type Anchor's state takes and what the block entity holds. Only PMMP
 /// states of these names may differ in PMMP type, class, item form or drops; where their item
 /// forms or drops differ, the Anchor state's are marked as depending on the block entity. Every
@@ -521,7 +521,7 @@ impl Data {
 
     /// Sets the block network ID block items are sent with: the vanilla creative state of
     /// `item_blocks.json`, which BDS sends, where the item name has a single PMMP block item type
-    /// and a single vanilla state (PLAN.md 10.4); PMMP's own default state otherwise. The vanilla
+    /// and a single vanilla state; PMMP's own default state otherwise. The vanilla
     /// state may be one PMMP does not have (glazed terracotta facing down); it is only the network
     /// form, and the item still places PMMP's state.
     fn use_vanilla_item_blocks(&mut self, root: &Path, network: &BTreeMap<StateKey, u32>) -> R<()> {
@@ -688,7 +688,7 @@ impl Data {
 
 /// The meta of an item form, corrected where PMMP sends a different one than BDS: PMMP's
 /// ominous banner (`Type` 1) has the black base colour, meta 0, where BDS sends it white, meta 15
-/// (P6, PLAN.md 10.4). Every item read from the dumps passes here, so types and stacks agree.
+/// (P6). Every item read from the dumps passes here, so types and stacks agree.
 fn corrected_meta(name: &str, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) -> u16 {
     const OMINOUS: Tag = Tag::Int(1);
     let ominous = nbt.and_then(|n| n.get("Type")) == Some(&OMINOUS);
@@ -887,8 +887,8 @@ fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
 
 /// PMMP classes whose collision box is inside out, with min above max (PMMP defect): a wall
 /// hanging sign squashes its cross bar by 3/4 from each side where 3/8 was meant. The 3/8 bar is
-/// BDS's box (`CloudburstMC` `blocks.json` `collisionShape`, P6 m9-facts.md), so the box is
-/// rebuilt with 3/8 on the squashed axes.
+/// BDS's box (`CloudburstMC` `blocks.json` `collisionShape`, P6 `xtask/data/p6/facts.md`), so
+/// the box is rebuilt with 3/8 on the squashed axes.
 const INSIDE_OUT_BOXES: [&str; 1] = ["WallHangingSign"];
 
 /// The collision boxes of a dumped state with inside-out ones rebuilt, which only
@@ -1388,7 +1388,7 @@ mod tests {
         }
     }
 
-    /// The value check of overlapping PMMP states (PLAN.md 10.4, 10.7): any difference fails
+    /// The value check of overlapping PMMP states: any difference fails
     /// generation unless `SHARED` names the Bedrock state, and there only the PMMP type, block
     /// flags, item form and drops may differ.
     #[test]

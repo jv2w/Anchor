@@ -1,4 +1,4 @@
-//! `verify`'s check of lint exceptions (CLAUDE.md 2.3): the reason of every `#[expect]` in
+//! `verify`'s check of lint exceptions: the reason of every `#[expect]` in
 //! `src/`, `tests/`, `examples/`, `xtask/src/` and `xtask/tests/` starts with a tag. Comments and string literals are skipped,
 //! so test data that spells an attribute is not taken for one.
 

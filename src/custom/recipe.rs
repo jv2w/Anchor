@@ -1,4 +1,4 @@
-//! Recipes a server adds (PLAN.md 8.3, 10.8): shaped and shapeless crafting, the furnace family,
+//! Recipes a server adds: shaped and shapeless crafting, the furnace family,
 //! the stonecutter, the smithing table and the brewing stand. They are checked when the server
 //! is built, sent in `CraftingData` after PMMP's recipes and judged by the same rules (a shaped
 //! recipe matches its exact shape or its mirror image, as vanilla's; brewing tries PMMP's

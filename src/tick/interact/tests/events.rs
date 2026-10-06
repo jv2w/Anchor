@@ -1,6 +1,6 @@
-//! Tick tests of the interaction events and actions (PLAN.md 10.8): what listeners see, what
-//! cancelling and changing fields do, what monitors see, and that listeners changing the game
-//! neither make nor lose items.
+//! Tick tests of the interaction events and actions: what listeners see, what cancelling and
+//! changing fields do, what monitors see, and that listeners changing the game neither make nor
+//! lose items.
 
 use std::cell::Cell;
 use std::fmt::Debug;

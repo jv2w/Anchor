@@ -1,7 +1,7 @@
-//! Blocking work off the tick (PLAN.md 5, 10.8, PMMP `AsyncPool`/`AsyncTask`): the work runs on the
-//! runtime's blocking pool, at most [`MAX_RUNNING_JOBS`] jobs at once, and its result comes
-//! back as an input of a later tick ([`InputKind::Job`](super::super::queue::InputKind::Job)),
-//! which the input log records.
+//! Blocking work off the tick (PMMP `AsyncPool`/`AsyncTask`): the work runs on the runtime's
+//! blocking pool, at most [`MAX_RUNNING_JOBS`] jobs at once, and its result comes back as an input
+//! of a later tick ([`InputKind::Job`](super::super::queue::InputKind::Job)), which the input log
+//! records.
 //!
 //! A job's result is its JSON form ([`MAX_RESULT_BYTES`] at most), made on the blocking thread;
 //! the completion callback deserializes it in the tick. The log keeps the JSON, so a replay hands
@@ -10,7 +10,7 @@
 //!
 //! A panic in the work is caught by the blocking pool, as any blocking task's is, and reaches the
 //! callback as [`Error::Panicked`]: user work is neither the tick nor the save thread, whose panics
-//! stop the server (CLAUDE.md 4.6), and a panicking job must not take the game down with it.
+//! stop the server, and a panicking job must not take the game down with it.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -169,15 +169,14 @@ impl Context<'_> {
     /// `done` the same value without running `work` again (PMMP `AsyncTask` without its
     /// serialized task object).
     ///
-    /// `done` gets [`Error::Panicked`] if `work` panicked, [`Error::TooLarge`] if the result's
-    /// JSON is longer than [`MAX_RESULT_BYTES`], [`Error::Encode`] or [`Error::Decode`] if it does
-    /// not go through JSON and back. At most [`MAX_RUNNING_JOBS`] jobs run at once; the others
-    /// wait their turn. A
-    /// result that arrives after the server stopped is dropped, and work still running 10
-    /// seconds after the stop is abandoned: [`Server::run`](crate::Server::run) returns while its
-    /// thread runs on, until the work ends or the process exits. What the work wrote outside the
-    /// server file stays after a crash (PLAN.md 6). Fails, running nothing, while [`MAX_JOBS`] jobs wait for their
-    /// result.
+    /// `done` gets [`Error::Panicked`] if `work` panicked, [`Error::TooLarge`] if the result's JSON
+    /// is longer than [`MAX_RESULT_BYTES`], [`Error::Encode`] or [`Error::Decode`] if it does not
+    /// go through JSON and back. At most [`MAX_RUNNING_JOBS`] jobs run at once; the others wait
+    /// their turn. A result that arrives after the server stopped is dropped, and work still
+    /// running 10 seconds after the stop is abandoned: [`Server::run`](crate::Server::run) returns
+    /// while its thread runs on, until the work ends or the process exits. What the work wrote
+    /// outside the server file stays after a crash. Fails, running nothing, while [`MAX_JOBS`] jobs
+    /// wait for their result.
     #[doc(alias = "AsyncPool::submitTask")]
     #[doc(alias = "AsyncTask")]
     #[doc(alias = "AsyncTask::onRun")]

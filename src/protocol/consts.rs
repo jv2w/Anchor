@@ -22022,7 +22022,7 @@ mod tests {
         "protocol.ShapeDataPyramid",
         "protocol.ShapeDataEllipsoid",
         "protocol.ShapeDataCone",
-        // packet.DefaultMaxDecompressedLen: the max-batch-bytes setting (PLAN.md 3)
+        // packet.DefaultMaxDecompressedLen: the max-batch-bytes setting
         "packet.DefaultMaxDecompressedLen",
         // packet.ID: packet IDs: the Packet enum
         "packet.IDLogin",

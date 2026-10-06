@@ -1,4 +1,4 @@
-//! The gameplay data of the PMMP dump (PLAN.md 10.7): the JSON forms of block physics, block and
+//! The gameplay data of the PMMP dump: the JSON forms of block physics, block and
 //! item data and the tables of `tables.json`, with the checks and conversions the generators
 //! share. `data` loads them; `blocks`, `items`, `effects`, `drops` and `recipes` emit them.
 
@@ -180,7 +180,7 @@ pub(crate) fn f64_lit(v: f64) -> String {
 }
 
 /// An upper camel case Rust name of a snake case or PMMP name (`oak_planks` → `OakPlanks`), with
-/// acronyms as one word (`TNT` → `Tnt`, CLAUDE.md 5.1).
+/// acronyms as one word (`TNT` → `Tnt`).
 pub(crate) fn camel(name: &str) -> String {
     let mut joined = String::with_capacity(name.len());
     for part in name.split('_') {

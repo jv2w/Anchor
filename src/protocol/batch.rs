@@ -21,7 +21,7 @@ const MAX_BATCH_BYTES: std::ops::RangeInclusive<usize> = 1024 * 1024..=64 * 1024
 const DEFAULT_MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
 /// The most packets a batch may hold (gophertunnel `maximumInBatch`).
 const MAX_PACKETS: usize = 812;
-/// The payload size [`encode_packets`] cuts batches before (PLAN.md 3).
+/// The payload size [`encode_packets`] cuts batches before.
 const SPLIT_BYTES: usize = 256 * 1024;
 /// The largest packet ID a header can carry.
 const MAX_PACKET_ID: u32 = 0x3ff;
@@ -211,7 +211,7 @@ impl fmt::Debug for Decoder {
 /// sub-client in bits 12 and 13. Sub-clients are split-screen players on one connection.
 ///
 /// Reading ignores bits above 13, like gophertunnel: only official clients show whether they set
-/// them, so Anchor accepts every case (PLAN.md 10.2).
+/// them, so Anchor accepts every case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Header {
     /// The packet ID, at most 1023.
@@ -331,7 +331,7 @@ pub fn split(payload: &[u8]) -> Result<Packets<'_>> {
 
 /// Replaces the contents of `out` with the packets of a batch payload, decoded in order.
 ///
-/// The whole batch shares one allocation budget of 2 × `max_batch_bytes` (PLAN.md 10.1), `out`
+/// The whole batch shares one allocation budget of 2 × `max_batch_bytes`, `out`
 /// included; going over it is [`protocol::Error::Size`]. `shield_id` is the shield's item network
 /// ID. Errors are those of [`split`] and of [`Packet::decode`], as [`Error::Packet`]; on error
 /// `out` is empty.
@@ -377,7 +377,7 @@ fn decode_into(
 
 /// Encodes `packets` in order into batch payloads and calls `flush` with each, in order.
 ///
-/// A payload is cut before it would pass 256 KiB (PLAN.md 3) or 812 packets; a packet over
+/// A payload is cut before it would pass 256 KiB or 812 packets; a packet over
 /// 256 KiB goes alone in its own payload. `payload` is a working buffer kept for reuse; its
 /// contents on return are unspecified. A header whose ID is not the packet's, a header field out
 /// of range or a packet that cannot be encoded is [`Error::Packet`]; payloads given to `flush`

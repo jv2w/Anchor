@@ -1,5 +1,5 @@
-//! The [`Context`] every task and listener gets: the root handle of the game (PLAN.md 10.8, PMMP
-//! `Server`), and the user's tasks, blocking jobs and data (PLAN.md 8.3, 10.6, 10.8).
+//! The [`Context`] every task and listener gets: the root handle of the game (PMMP `Server`), and
+//! the user's tasks, blocking jobs and data.
 //!
 //! Build-time tasks ([`ServerBuilder::every`](crate::ServerBuilder::every)) run in registration
 //! order after the tick's inputs, then the scheduled tasks due ([`schedule`]); blocking jobs
@@ -272,8 +272,8 @@ impl Context<'_> {
             .map(Player::id)
     }
 
-    /// Shows `message` to every online player (PMMP's broadcast methods merged, PLAN.md 8.4);
-    /// returns how many got it. Fails, sending nothing, for a message a client does not decode.
+    /// Shows `message` to every online player (PMMP's broadcast methods merged); returns how many
+    /// got it. Fails, sending nothing, for a message a client does not decode.
     #[doc(alias = "Server::broadcastMessage")]
     #[doc(alias = "Server::broadcastTip")]
     #[doc(alias = "Server::broadcastPopup")]
@@ -317,7 +317,7 @@ impl Context<'_> {
     }
 
     /// Saves every persistent world and the player data at the end of this tick, together, as
-    /// one commit (PLAN.md 6). Calling it again in the same tick changes nothing.
+    /// one commit. Calling it again in the same tick changes nothing.
     #[doc(alias = "World::save")]
     pub fn save(&mut self) {
         self.state.saving.requested = true;
@@ -342,15 +342,14 @@ impl Context<'_> {
         true
     }
 
-    /// Spawns a villager-type NPC (PLAN.md 8.6: no AI, network actor `minecraft:villager_v2`)
-    /// at `pos` (its feet) in `world`, showing `profession` (the actor variant) and trading
-    /// `offers` in screen order, like
-    /// [`spawn_custom_entity`](Self::spawn_custom_entity). Fails with
+    /// Spawns a villager-type NPC (no AI, network actor `minecraft:villager_v2`) at `pos` (its
+    /// feet) in `world`, showing `profession` (the actor variant) and trading `offers` in screen
+    /// order, like [`spawn_custom_entity`](Self::spawn_custom_entity). Fails with
     /// [`custom::Error::Offer`](crate::custom::Error::Offer) for an offer
     /// [`set_trade_offers`](Self::set_trade_offers) refuses, and with
-    /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) if the world does not
-    /// exist, `pos` is not finite, outside the world border or more than 64 blocks above or below
-    /// the world height, its chunk is not loaded, or the world is at its entity limit.
+    /// [`custom::Error::NotSpawned`](crate::custom::Error::NotSpawned) if the world does not exist,
+    /// `pos` is not finite, outside the world border or more than 64 blocks above or below the
+    /// world height, its chunk is not loaded, or the world is at its entity limit.
     pub fn spawn_villager(
         &mut self,
         world: crate::world::Id,

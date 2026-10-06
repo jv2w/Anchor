@@ -1,17 +1,17 @@
-# P6 deferral table (PLAN.md 10.2): packets BDS sends in the spawn window that Anchor does not
-# send yet, with the milestone (PLAN.md 10) that adds them, or `-` for packets Anchor never sends.
-# `cargo xtask p6 compare` removes them from both captures. Remove a line when its milestone sends
-# the packet. Anchor sends every packet of the window the official client may need; a packet stays
-# here only when it is tied to something Anchor never has or does nothing the client needs.
-# <packet> <milestone|-> <reason>
+# P6 deferral table: packets BDS sends in the spawn window that Anchor never sends, each with
+# its reason. `cargo xtask p6 compare` removes them from both captures. Anchor sends every packet
+# of the window the official client may need; a packet is listed only when it is tied to
+# something Anchor does not have or does nothing the client needs.
+# <packet> <status> <reason>; status `-`: Anchor never sends the packet.
 
-# The recipe book: BDS 1.26.52 unlocks entries right after the window (UnlockedRecipes type 1, 20
-# recipes, m7-facts.md 7) and after each craft. Anchor marks every recipe of its CraftingData
-# always unlocked (PLAN.md 10.4), so the client shows them all without unlocks, as with PMMP.
+# The recipe book: BDS 1.26.52 unlocks entries right after the window (UnlockedRecipes type 1,
+# 20 recipes, `xtask/data/p6/facts.md`) and after each craft. With `recipe-book` on, Anchor marks
+# every recipe of its CraftingData always unlocked, so the client shows them all without unlocks,
+# as with PMMP.
 UnlockedRecipes - recipe book unlocks; every recipe Anchor sends is always unlocked, as PMMP
 
-# Vanilla mobs: BDS spawns and despawns animals in the flat world during the spawn window
-# (m7-facts.md 7); Anchor simulates no mobs (CLAUDE.md 1), so it never sends these there. The
+# Vanilla mobs: BDS spawns and despawns animals in the flat world during the spawn window;
+# Anchor simulates no mobs, so it never sends these there. The
 # SetActorData and UpdateAttributes BDS sends for those mobs are left out by `compare.rs`
 # (`ENTITY_DATA`: only the player's own are compared).
 AddActor - the flat world's natural mobs; Anchor spawns no mobs

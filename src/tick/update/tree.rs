@@ -5,7 +5,7 @@
 //! The random numbers come from the engine stream of the growing block ([`Cx::rng`]) instead of
 //! a `Random` seeded from `mt_rand`, so a tree is the same in a replay. [`Context::grow_tree`]
 //! grows one where the API asks, without [`StructureGrow`](crate::event::StructureGrow) (a direct
-//! call raises no event, PLAN.md 8.2).
+//! call raises no event).
 
 use std::collections::BTreeMap;
 

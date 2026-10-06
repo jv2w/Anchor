@@ -1,5 +1,5 @@
 //! Block entities: the data of blocks beyond their state (PMMP `pocketmine\block\tile`), read
-//! through [`Tile`] and changed through [`Mut`] (PLAN.md 10.7, 10.8).
+//! through [`Tile`] and changed through [`Mut`].
 //!
 //! [`Context::block_entity`](crate::Context) lends the block entity at a position to read and
 //! `block_entity_mut` to change: a sign's text, a banner's patterns, an item frame's item, a
@@ -11,7 +11,7 @@
 //! A read of a kind the block entity is not gives `None`. A write changes the block entity at
 //! once, tells the players who see its chunk (its client data, as when the rules change it) and
 //! is saved with the chunk at the next commit; a value it does not take or a kind it does not
-//! apply to is an [`Error`], changing nothing. Writes raise no events (PLAN.md 8.2).
+//! apply to is an [`Error`], changing nothing. Writes raise no events.
 
 use std::fmt;
 

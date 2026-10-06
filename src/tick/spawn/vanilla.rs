@@ -1,6 +1,6 @@
 //! The vanilla data packets of the spawn window that are the same for every server and player:
 //! the jigsaw structure data, the entity property definitions and the camera presets, built
-//! once at start from the committed data BDS 1.26.52 sends (P6, PLAN.md 10.6).
+//! once at start from the committed data BDS 1.26.52 sends (P6).
 
 use serde::Deserialize;
 

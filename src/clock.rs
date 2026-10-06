@@ -20,7 +20,7 @@ pub(crate) fn unix_now() -> Option<u64> {
 }
 
 /// Milliseconds since the Unix epoch by the wall clock, for times a session hands to the tick as
-/// logged inputs (a player's join, PLAN.md 10.9); 0 if the system clock is set before 1970.
+/// logged inputs (a player's join); 0 if the system clock is set before 1970.
 pub(crate) fn unix_millis() -> i64 {
     since_epoch().map_or(0, |since| {
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
@@ -59,7 +59,7 @@ pub(crate) fn sleep_until(deadline: Instant) {
 ///
 /// A tick that ends late starts the next one at once, which catches the schedule up. When the
 /// schedule falls a whole period or more behind, the missed ticks are dropped and the schedule
-/// restarts at the current time, so at most one tick is ever caught up (PLAN.md 5).
+/// restarts at the current time, so at most one tick is ever caught up.
 #[derive(Debug)]
 pub(crate) struct Pacer {
     period: Duration,

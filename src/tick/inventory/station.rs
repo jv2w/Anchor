@@ -1,5 +1,5 @@
 //! Station windows' request actions: enchanting, anvil, smithing, stonecutter, loom, beacon
-//! payment and trades (PLAN.md 10.7 "작업대 계열", 8.4, 8.6).
+//! payment and trades.
 //!
 //! The executor hands a station everything it does not do itself: [`takes_craft_recipe`] says
 //! whether a `CraftRecipe` belongs to the open station (an enchanting option, a stonecutter or
@@ -97,8 +97,7 @@ pub(super) struct Context {
     pub(super) creative: u16,
 }
 
-/// Reads what the stations need for `request` of `session` (PLAN.md 10.7: the executor sees only
-/// the inventory).
+/// Reads what the stations need for `request` of `session` (the executor sees only the inventory).
 pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequest) -> Context {
     let Some(player) = state.players.get(&session) else {
         return Context::default();
@@ -209,7 +208,7 @@ fn trading(exec: &Exec<'_>) -> bool {
 }
 
 /// Whether the open window's station handles `CraftRecipe` itself (enchanting options, trade
-/// offers, stonecutter and smithing recipes; P6 facts 4 and 6).
+/// offers, stonecutter and smithing recipes; P6).
 pub(super) fn takes_craft_recipe(exec: &Exec<'_>) -> bool {
     trading(exec)
         || matches!(
@@ -271,7 +270,7 @@ fn ui(exec: &Exec<'_>, i: u8) -> Result<Stack> {
 /// input (PMMP `ItemStackRequestExecutor`, `EnchantingTransaction`): the option must be shown
 /// for the input there now (PMMP shows new options as the input changes, so old IDs fail); with
 /// finite resources the player needs the option's level, and the lapis spent is the option's
-/// index plus one (P6 facts 4).
+/// index plus one (P6).
 fn begin_enchant(exec: &mut Exec<'_>, id: u32) -> Result<Craft> {
     let window = exec.window.ok_or(Error::NoSlot)?;
     let (index, choice) = window
@@ -475,8 +474,8 @@ fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Cra
     Ok(Craft::Beacon { primary, secondary })
 }
 
-/// `CraftRecipe` in a trade window (PLAN.md 8.6, BDS facts 6): the offer with that network ID,
-/// `times` times; its payments come from the two payment slots.
+/// `CraftRecipe` in a trade window (BDS, P6): the offer with that network ID, `times` times; its
+/// payments come from the two payment slots.
 fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8) -> Result<Craft> {
     let offer = exec
         .ctx
@@ -484,8 +483,7 @@ fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8) -> Result<Craft> {
         .iter()
         .find_map(|(id, o)| (*id == net_id).then(|| o.clone()))
         .ok_or(Error::Recipe)?;
-    // At most the offer's uses left, capped at 256 by trading (PLAN.md 8.6); the action's count
-    // is a byte.
+    // At most the offer's uses left, capped at 256 by trading; the action's count is a byte.
     if times == 0
         || u32::from(times) > offer.max_times
         || offer.sell.is_empty()
@@ -642,7 +640,7 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
 /// Applies the effects of a committed request of `session`: levels, the enchanting seed, the
 /// anvil's damage, the beacon's effects, the trade's count. Then, if the request changed an
 /// enchanting table's input, its options are worked out again and sent (PMMP
-/// `EnchantInventory::onSlotChange`; BDS sends the empty list after an enchant, P6 facts 4).
+/// `EnchantInventory::onSlotChange`; BDS sends the empty list after an enchant, P6).
 pub(super) fn apply(
     state: &mut State,
     session: SessionId,
@@ -811,7 +809,7 @@ fn choice_of(o: &EnchantOption) -> Choice {
 }
 
 /// Shows `choices` for `input` in `session`'s enchanting window, each with a new recipe network
-/// ID after every recipe, the server's own too (P6 facts 4: BDS never reuses one).
+/// ID after every recipe, the server's own too (P6: BDS never reuses one).
 fn show_options(state: &mut State, session: SessionId, input: &Stack, choices: Vec<Choice>) {
     let first = state.custom.first_special_id();
     let Some(player) = state.players.get_mut(&session) else {

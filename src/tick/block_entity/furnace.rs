@@ -61,7 +61,7 @@ pub(in crate::tick) struct Step {
     /// Bit `i`: slot `i` changed.
     pub(in crate::tick) slots: u8,
     /// Bit `i`: slot `i` changed only its count (the same item before and after), so its viewers
-    /// keep its stack network ID (BDS, P6 F2: a furnace's output growing, its input shrinking).
+    /// keep its stack network ID (BDS, P6: a furnace's output growing, its input shrinking).
     pub(in crate::tick) kept: u8,
     /// The block must become lit (`Some(true)`) or unlit (`Some(false)`).
     pub(in crate::tick) lit: Option<bool>,
@@ -123,7 +123,7 @@ impl Furnace {
     }
 
     /// The `ContainerSetData` values a viewer gets when it opens the window (BDS sends keys 0
-    /// to 3 on open, P6 facts 3).
+    /// to 3 on open, P6).
     pub(in crate::tick) fn data(&self) -> [(i32, i32); 4] {
         [
             (DATA_COOK, i32::from(self.cook)),

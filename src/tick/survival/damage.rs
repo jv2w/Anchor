@@ -2,7 +2,7 @@
 //! `Living::applyDamageModifiers`, `Human::applyDamageModifiers`, `Player::attack`,
 //! `Player::attackEntity`, `Player::onDeath`, `Player::respawn`, `DeathPacketHandler`).
 //!
-//! A hit is worked out in two steps, so events (M8) can sit between them: [`assess`] checks
+//! A hit is worked out in two steps, so events can sit between them: [`assess`] checks
 //! whether the hit lands and computes its modifiers, [`apply`] changes the state.
 
 use tracing::debug;
@@ -142,8 +142,8 @@ impl Damage {
         }
     }
 
-    /// BDS's damage cause number, which the hurt event carries (P6, m9-facts.md: an attack 2, a
-    /// projectile 3, drowning 9, lightning 24; the others in the same numbering, PMMP's
+    /// BDS's damage cause number, which the hurt event carries (P6: an attack 2, a projectile 3,
+    /// drowning 9, lightning 24; the others in the same numbering, PMMP's
     /// `EntityDamageEvent::CAUSE_*` plus one, 0 for none).
     pub(in crate::tick) fn bds_cause(self) -> i32 {
         match self {
@@ -427,10 +427,10 @@ fn hurt(state: &mut State, session: SessionId, hit: Hit) -> bool {
     true
 }
 
-/// Deals `amount` damage for `cause` with no source and no events, for the direct API (an
-/// explosion through `Context::explode`; PLAN.md 10.8: no re-entry); false if no damage was
-/// taken. What follows from it happens at the player's survival sync, raising its events there:
-/// a death (with the generic death message, as `Player::kill`) and a wake.
+/// Deals `amount` damage for `cause` with no source and no events, for the direct API (an explosion
+/// through `Context::explode`: a direct API call never re-enters events); false if no damage was
+/// taken. What follows from it happens at the player's survival sync, raising its events there: a
+/// death (with the generic death message, as `Player::kill`) and a wake.
 pub(super) fn damage_quiet(
     state: &mut State,
     session: SessionId,

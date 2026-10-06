@@ -1,4 +1,4 @@
-//! The custom content of one server (PLAN.md 8.3, 10.8): what the builder registered, checked
+//! The custom content of one server: what the builder registered, checked
 //! and numbered when the server is built, and every lookup the engine needs of it.
 //!
 //! Numbers follow registration order, so they are the same on every start: custom items and

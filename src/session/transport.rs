@@ -90,12 +90,12 @@ impl Transport {
     }
 
     /// Whether game messages are encrypted after the handshake. NetherNet relies on DTLS and has
-    /// no Minecraft encryption (PLAN.md 2.1).
+    /// no Minecraft encryption.
     pub(super) fn encrypts(&self) -> bool {
         matches!(self, Self::Raknet(_))
     }
 
-    /// The client key the NetherNet offer proved, which the Login must carry (PLAN.md 2.1).
+    /// The client key the NetherNet offer proved, which the Login must carry.
     /// `None` for RakNet and for offline offers without an identity.
     pub(super) fn proven_key(&self) -> Option<&PublicKey> {
         match self {

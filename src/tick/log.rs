@@ -1,5 +1,5 @@
-//! The input log (PLAN.md 5, 10.5, 10.6, 10.9): every input each tick applied, in order, so that a
-//! crash can be replayed from a saved state.
+//! The input log: every input each tick applied, in order, so that a crash can be replayed from a
+//! saved state.
 //!
 //! The tick moves each input into the log before it applies it, and applies the logged value, so
 //! recording copies nothing large and the log of a tick that panics holds the input that did.
@@ -115,8 +115,8 @@ pub(crate) struct InputLog {
     chain: super::Fnv,
 }
 
-/// What a replay must have in common with the run that wrote the log (PLAN.md 10.9): SHA-256 of
-/// the tick settings and worlds, and of what the user registered.
+/// What a replay must have in common with the run that wrote the log: SHA-256 of the tick settings
+/// and worlds, and of what the user registered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Fingerprints {
     pub(crate) settings: [u8; 32],
@@ -248,9 +248,9 @@ pub(crate) struct Tick {
     pub(crate) responses: Vec<Answer>,
 }
 
-/// A save thread answer as the log keeps it (PLAN.md 10.6): what arrived and where from, not
-/// the chunk itself, which a replay loads again from the same server file or generator, checking
-/// it against the checksum.
+/// A save thread answer as the log keeps it: what arrived and where from, not the chunk itself,
+/// which a replay loads again from the same server file or generator, checking it against the
+/// checksum.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Answer {
     Chunk {
@@ -1070,7 +1070,7 @@ fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
     Ok(())
 }
 
-/// The folder of crash reports in the data folder (PLAN.md 1).
+/// The folder of crash reports in the data folder.
 const CRASH_DIR: &str = "crash";
 
 /// Writes `log` to `<data_dir>/crash/input-<unix seconds>-<last tick>.log` and returns the path:

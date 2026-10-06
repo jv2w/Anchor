@@ -1,8 +1,7 @@
-//! The public world API on [`Context`] (PLAN.md 10.8, PMMP `WorldManager`, `World` and
-//! `Explosion`): the worlds by [`world::Id`], the players in a world or who see a chunk, the
-//! world clock, the weather and lightning (PLAN.md 10.9, [`weather`]), sounds,
-//! particles and packets for those who see a place, explosions, and the
-//! [`World`] queries that are rule code (the respawn rule's safe spawn, the entity rules'
+//! The public world API on [`Context`] (PMMP `WorldManager`, `World` and `Explosion`): the worlds
+//! by [`world::Id`], the players in a world or who see a chunk, the world clock, the weather and
+//! lightning ([`weather`]), sounds, particles and packets for those who see a place, explosions,
+//! and the [`World`] queries that are rule code (the respawn rule's safe spawn, the entity rules'
 //! collision boxes). The recipe lookups are in `recipes` (PMMP `CraftingManager`).
 //!
 //! Sounds, particles and packets go out at once from the call (no queue): each is one packet per

@@ -1,7 +1,7 @@
-//! A sub-chunk's 4-bit light values (PLAN.md 10.7): one value per block, two to a byte, or one
+//! A sub-chunk's 4-bit light values: one value per block, two to a byte, or one
 //! value for the whole cube, which costs no allocation (PMMP `LightArray::fill`). A full array is
 //! shared until it changes (copy on write), so a checkpoint keeps the light of every loaded chunk
-//! without copying it on the tick (PLAN.md 10.9 재생 도구).
+//! without copying it on the tick, for the replay tool.
 
 use std::fmt;
 use std::sync::Arc;

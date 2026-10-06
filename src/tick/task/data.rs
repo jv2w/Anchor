@@ -1,5 +1,5 @@
-//! User data on the tick side (PLAN.md 8.1, 10.8, [`crate::data`]): the registered types and the
-//! server's values, each player's values and extensions, and how they reach a save.
+//! User data on the tick side ([`crate::data`]): the registered types and the server's values, each
+//! player's values and extensions, and how they reach a save.
 //!
 //! A player's data values are saved in its record's extra compound, under [`DATA_KEY`]: a
 //! compound of one byte array (the JSON) per registered name. So they ride the same record, the
@@ -8,7 +8,7 @@
 //!
 //! performance: the JSON is encoded on the tick thread, at the snapshot's tick boundary
 //! ([`UserData::take_changes`], [`save_player`]). The values are game state that a snapshot must
-//! take whole at one boundary (PLAN.md 2.1 atomicity before 2.2), so the encoding is not capped
+//! take whole at one boundary (atomicity comes before performance), so the encoding is not capped
 //! per snapshot: a cap would save part of a boundary. The cost is bounded instead: only server
 //! values changed since the last snapshot ([`MAX_SERVER_TYPES`] × [`MAX_SERVER_VALUE_BYTES`] at
 //! most) and the players marked dirty ([`MAX_PLAYER_TYPES`] × [`MAX_PLAYER_VALUE_BYTES`] each),
@@ -125,9 +125,9 @@ impl UserData {
         self.error.clone().map_or(Ok(()), Err)
     }
 
-    /// Reads the saved server values before the threads start (PLAN.md 10.8). A value never
-    /// saved stays at its default. A damaged value, or one that does not deserialize into its
-    /// type, refuses the start and stays as saved.
+    /// Reads the saved server values before the threads start. A value never saved stays at its
+    /// default. A damaged value, or one that does not deserialize into its type, refuses the start
+    /// and stays as saved.
     pub(crate) fn load(&mut self, thread: &mut crate::save::Thread) -> crate::Result<()> {
         let names: Vec<&str> = self.servers.iter().map(|s| s.codec.name.as_str()).collect();
         let saved = thread.read_user(&names)?;

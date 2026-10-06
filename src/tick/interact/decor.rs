@@ -4,7 +4,7 @@
 //! see it get its new client data.
 //!
 //! An action that would drop an item first checks that the world can take one more entity
-//! (PLAN.md 10.7: at the entity limit the action is refused and nothing changes).
+//! (at the entity limit the action is refused and nothing changes).
 
 use super::super::block_entity::{self, BlockEntity, Kind};
 use super::super::{SessionId, State, dispatch, entity};

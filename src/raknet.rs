@@ -1,7 +1,7 @@
 //! Server-side RakNet: the protocol core and its UDP driver.
 //!
 //! One tokio task owns both UDP sockets (IPv4 and IPv6 on one port) and every connection, so
-//! connection state needs no locks (PLAN.md 10.2). `wire`, `peer` and `listener` are the core,
+//! connection state needs no locks. `wire`, `peer` and `listener` are the core,
 //! free of sockets and clocks; this module binds the sockets, runs the task and hands finished
 //! connections to the session layer. The 0xfe game message byte is added and removed here.
 //! The socket setup and the session link types here serve the NetherNet driver too.
@@ -34,7 +34,7 @@ use peer::{Limits, MAX_MTU, MIN_MTU};
 /// sessions to the pace of the socket task instead of buffering without bound.
 const COMMAND_QUEUE: usize = 4096;
 /// Messages received on one connection that its session has not taken yet. Bytes are bounded
-/// separately ([`Inbox`]); a full queue disconnects (PLAN.md 10.2, 10.3).
+/// separately ([`Inbox`]); a full queue disconnects.
 const INBOUND_QUEUE: usize = 1024;
 /// Datagrams read from one socket before the task serves its other inputs.
 const RECV_BATCH: usize = 256;

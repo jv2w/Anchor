@@ -1,17 +1,16 @@
-//! What players do to blocks and with items: server-authoritative breaking, placing, using
-//! items on blocks, in the air and on entities, and the per-block and per-item rules this runs
-//! (PLAN.md 10.7, PMMP `Player::attackBlock`/`continueBreakBlock`/`breakBlock`/`interactBlock`/
-//! `useHeldItem`, `World::useBreakOn`/`useItemOn`, `Block::onInteract`/`place`/`onBreak`/
-//! `getDrops`, `Item::onInteractBlock`/`onClickAir`/`onReleaseUsing`).
+//! What players do to blocks and with items: server-authoritative breaking, placing, using items on
+//! blocks, in the air and on entities, and the per-block and per-item rules this runs (PMMP
+//! `Player::attackBlock`/`continueBreakBlock`/`breakBlock`/`interactBlock`/ `useHeldItem`,
+//! `World::useBreakOn`/`useItemOn`, `Block::onInteract`/`place`/`onBreak`/ `getDrops`,
+//! `Item::onInteractBlock`/`onClickAir`/`onReleaseUsing`).
 //!
-//! Breaking is server-authoritative: a break the client predicts is accepted only when the
-//! server's own progress for that block (PMMP `SurvivalBlockBreakHandler`, counted per client
-//! input tick and limited by server time) has reached it; with `break-time-check = false` the
-//! progress is not counted and the client's break is taken at once. A refused break or
-//! placement leaves the world unchanged and sends the client the real blocks around it (PMMP
-//! `syncBlocksNearby`). Every rule is split into a check that only reads and an apply step;
-//! its event goes between them (PLAN.md 10.8), and the actions in [`crate::action`] run the same
-//! rules.
+//! Breaking is server-authoritative: a break the client predicts is accepted only when the server's
+//! own progress for that block (PMMP `SurvivalBlockBreakHandler`, counted per client input tick and
+//! limited by server time) has reached it; with `break-time-check = false` the progress is not
+//! counted and the client's break is taken at once. A refused break or placement leaves the world
+//! unchanged and sends the client the real blocks around it (PMMP `syncBlocksNearby`). Every rule
+//! is split into a check that only reads and an apply step; its event goes between them, and the
+//! actions in [`crate::action`] run the same rules.
 
 mod book;
 pub(super) mod breaking;
@@ -425,7 +424,7 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
 }
 
 /// `InventoryTransaction`: use item (on a block or in the air), use item on entity (attack,
-/// interact), release item (bows, food). Its legacy item lists are not trusted (PLAN.md 10.7).
+/// interact), release item (bows, food). Its legacy item lists are not trusted.
 pub(super) fn on_inventory_transaction(
     state: &mut State,
     session: SessionId,
@@ -622,7 +621,7 @@ fn sign_edit_check(
 /// already air.
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "consistency: the M7 wave B contract takes the cause by value"
+    reason = "consistency: every caller hands over the cause it built, so it is taken by value"
 )]
 pub(super) fn destroy(state: &mut State, world: WorldIndex, pos: BlockPos, cause: Destroy) -> bool {
     let particles = !matches!(cause, Destroy::Explosion { .. });
@@ -834,9 +833,8 @@ fn advance(state: &mut State, session: SessionId) {
     }
 }
 
-/// The block actions of one `PlayerAuthInput`. An action the server does not accept (or an
-/// invalid face) drops every action of the packet (PLAN.md 10.2: one bad field drops the
-/// packet, not the session).
+/// The block actions of one `PlayerAuthInput`. An action the server does not accept (or an invalid
+/// face) drops every action of the packet (one bad field drops the packet, not the session).
 fn block_actions(state: &mut State, session: SessionId, actions: &[PlayerBlockAction]) {
     if actions.len() > MAX_BLOCK_ACTIONS {
         debug!(session = session.get(), "too many block actions");
@@ -1443,7 +1441,7 @@ fn affected_blocks(
 /// `destroyBlockInternal`, `Block::onBreak`, `Explosion::explodeB` per block): drops worked out
 /// first, then every affected block removed with its block entity, then drops and experience.
 /// A player's break whose drops find no room for entities changes nothing (the world's entity
-/// limit, PLAN.md 10.7).
+/// limit).
 fn destroy_with(
     state: &mut State,
     world: WorldIndex,
@@ -1517,10 +1515,10 @@ fn plan_destruction(
 
 /// Applies a destruction (PMMP `World::useBreakOn` after its checks, `destroyBlockInternal`,
 /// `Block::onBreak`): the windows on the affected blocks close, every affected block is removed
-/// with its block entity, then the drops and experience. A close listener may change what the
-/// drops copy (PLAN.md 10.8): a player's break then changes nothing, another cause drops what
-/// is there now. A player's break whose drops find no room for entities changes nothing (the
-/// world's entity limit, PLAN.md 10.7); drops of other causes that find none wait as a spill.
+/// with its block entity, then the drops and experience. A close listener may change what the drops
+/// copy: a player's break then changes nothing, another cause drops what is there now. A player's
+/// break whose drops find no room for entities changes nothing (the world's entity limit); drops of
+/// other causes that find none wait as a spill.
 fn apply_destruction(
     state: &mut State,
     world: WorldIndex,
@@ -1775,7 +1773,7 @@ fn use_in_air(state: &mut State, session: SessionId) {
 }
 
 /// Whether the client's held item is the server's: the same hotbar slot, network ID and count
-/// (BDS ignores block runtime IDs and NBT, P6 facts 2).
+/// (BDS ignores block runtime IDs and NBT, P6).
 fn held_matches(state: &State, session: SessionId, data: &UseItemTransactionData) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;

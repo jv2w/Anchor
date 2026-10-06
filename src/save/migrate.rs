@@ -1,6 +1,5 @@
-//! The move of the one server file of an older Anchor, `data/server.redb`, to the data files
-//! (U16, PLAN.md 6): a start that finds it and no main data file moves it before it opens the data
-//! files.
+//! The move of the one server file of an older Anchor, `data/server.redb`, to the data files: a
+//! start that finds it and no main data file moves it before it opens the data files.
 //!
 //! The move never writes the old file. It copies it into `data/moving/`, opens and checks the copy
 //! (a damaged file stops the start, the old file as it was), and writes every value into new data

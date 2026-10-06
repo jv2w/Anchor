@@ -51,7 +51,7 @@ const CHECKS: &[&[&str]] = &[
     ],
     &["test", "--workspace", "--quiet"],
     // The fixed copies are not workspace members; their own tests, the reproduction tests of
-    // their fixes among them, run here (PLAN.md 9.1).
+    // their fixes among them, run here.
     &[
         "test",
         "--manifest-path",
@@ -67,7 +67,7 @@ const CHECKS: &[&[&str]] = &[
         "--quiet",
     ],
     // With Anchor's features, the library tests only: the integration tests need capture files
-    // the published crate leaves out (`vendor-test str0m`, PLAN.md 9.1).
+    // the published crate leaves out (`vendor-test str0m`).
     &[
         "test",
         "--manifest-path",

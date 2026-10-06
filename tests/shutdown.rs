@@ -1,4 +1,4 @@
-//! Normal shutdown (PLAN.md 10.9 "정상 종료"): a server process that reads `stop` from its console
+//! Normal shutdown: a server process that reads `stop` from its console
 //! stops cleanly. It exits with success, writes no crash log, and its final commit holds what the
 //! last tick changed, which a restart reads back.
 //!

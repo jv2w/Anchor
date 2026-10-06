@@ -1,7 +1,6 @@
-//! Run-state checkpoints (PLAN.md 10.9 운영 기능 설계, 재생 도구): the whole [`State`] at a save
-//! snapshot or at the start of the process, except the raw chunk extras, which the data files of
-//! the same tick (or a generator) gives back as they were stored, so that a replay can start from
-//! a committed state of a crash log.
+//! Run-state checkpoints: the whole [`State`] at a save snapshot or at the start of the process,
+//! except the raw chunk extras, which the data files of the same tick (or a generator) gives back
+//! as they were stored, so that a replay can start from a committed state of a crash log.
 //!
 //! [`State::checkpoint`] names every field of the state, as `State::hash` does, so a new field
 //! does not compile until it is kept or left out here. Each rule module encodes its own state
@@ -1210,10 +1209,10 @@ fn decode_player(
 }
 
 impl State {
-    /// The state as a replay starts from it (PLAN.md 10.9 재생 도구). Every field is named, as in
-    /// `State::hash`: the indexes are functions of the players; the listeners, hooks, shared
-    /// batches and custom content are fixed at build or start; the settings no API call changes
-    /// are in the log's settings fingerprint. Players are encoded on the CPU pool.
+    /// The state as a replay starts from it. Every field is named, as in `State::hash`: the indexes
+    /// are functions of the players; the listeners, hooks, shared batches and custom content are
+    /// fixed at build or start; the settings no API call changes are in the log's settings
+    /// fingerprint. Players are encoded on the CPU pool.
     pub(crate) fn checkpoint(&self, pool: &Pool) -> Checkpoint {
         let Self {
             settings,
@@ -1422,8 +1421,7 @@ impl State {
 
 #[cfg(test)]
 pub(super) mod tests {
-    //! Checkpoint round trips (PLAN.md 10.9 재생 도구): the determinism runs check one at every
-    //! save boundary they reach.
+    //! Checkpoint round trips: the determinism runs check one at every save boundary they reach.
 
     use super::*;
 

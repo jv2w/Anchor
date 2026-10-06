@@ -7,13 +7,12 @@
 //! their values sit in shared tables, each once. A player's packet only picks the commands it
 //! may use and renumbers the enums and values they use, in first-use order, copying their texts.
 //!
-//! The names take BDS's shape (P6, m9-facts.md): a command's aliases enum is
-//! `<name>CommandAliases` with the name first, and a `CommandName` enum lists every name and
-//! alias the player may type. `help` is listed there but not sent as a command: the client has
-//! its own `/help`, and neither BDS nor PMMP sends one.
-//! The catalog holds no handler, so it is `Sync`: the spawn window builds the packet in the
-//! parallel output phase ([`Listing`]); a resend after a permission change is built at the end of
-//! the tick's serial phases.
+//! The names take BDS's shape (P6): a command's aliases enum is `<name>CommandAliases` with the
+//! name first, and a `CommandName` enum lists every name and alias the player may type. `help` is
+//! listed there but not sent as a command: the client has its own `/help`, and neither BDS nor PMMP
+//! sends one. The catalog holds no handler, so it is `Sync`: the spawn window builds the packet in
+//! the parallel output phase ([`Listing`]); a resend after a permission change is built at the end
+//! of the tick's serial phases.
 
 use std::collections::BTreeMap;
 
@@ -364,9 +363,9 @@ impl Builder {
         index_of(suffixes.len() - 1)
     }
 
-    /// The network type of `param` as BDS sends it (P6, m9-facts.md): a basic type, an enum
-    /// (`VALID | type` or `VALID | ENUM | index`, as PMMP's assembler) or a suffixed number.
-    /// Item and block names come with and without `minecraft:`.
+    /// The network type of `param` as BDS sends it (P6): a basic type, an enum (`VALID | type` or
+    /// `VALID | ENUM | index`, as PMMP's assembler) or a suffixed number. Item and block names come
+    /// with and without `minecraft:`.
     fn parameter(&mut self, names: &Names, param: &Param) -> Type {
         match &param.kind {
             Kind::Int => Type::Basic(CommandArgType::Int),

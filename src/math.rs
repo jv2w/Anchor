@@ -1,5 +1,5 @@
 //! Deterministic math for tick code: vectors, boxes and float helpers that give the same bits on
-//! every platform and thread count (PLAN.md 5, 10.7).
+//! every platform and thread count.
 //!
 //! Tick state holds `f64`; packets carry `f32`, converted at the protocol boundary. Only the four
 //! arithmetic operations, `sqrt`, `floor`, `ceil`, `round` and `abs` are used: IEEE 754 fixes

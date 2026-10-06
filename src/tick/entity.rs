@@ -1,11 +1,10 @@
 //! Entities on the tick: the store of every world, physics, tracking and the per-kind rules
-//! (dropped items, experience orbs, falling blocks, primed TNT and explosions, projectiles,
-//! potion clouds, NPCs, custom entities ([`custom`]), paintings, end crystals and firework rockets
-//! ([`object`])) (PLAN.md 10.7 "엔티티", 10.8, PMMP `Entity`, `ItemEntity`, `ExperienceOrb`,
-//! `FallingBlock`, `PrimedTNT`, `Explosion`, `Projectile` and its kinds, `AreaEffectCloud`,
-//! `Living`, `Human`, `Villager`, `Painting`, `EndCrystal`, `FireworkRocket`, `World::dropItem`,
-//! `World::dropExperience`), and lightning bolts, which are shown like entities but are none
-//! ([`lightning`], PLAN.md 10.9).
+//! (dropped items, experience orbs, falling blocks, primed TNT and explosions, projectiles, potion
+//! clouds, NPCs, custom entities ([`custom`]), paintings, end crystals and firework rockets
+//! ([`object`])) (PMMP `Entity`, `ItemEntity`, `ExperienceOrb`, `FallingBlock`, `PrimedTNT`,
+//! `Explosion`, `Projectile` and its kinds, `AreaEffectCloud`, `Living`, `Human`, `Villager`,
+//! `Painting`, `EndCrystal`, `FireworkRocket`, `World::dropItem`, `World::dropExperience`), and
+//! lightning bolts, which are shown like entities but are none ([`lightning`]).
 //!
 //! # Store
 //!
@@ -20,7 +19,7 @@
 //! the tick gets one at once, and an entity loaded with its chunk (where the tick state is not at
 //! hand) gets one at the start of the next entity tick, in `Id` order, before anything can see it.
 //!
-//! # Tick (PLAN.md 5)
+//! # Tick
 //!
 //! Entities in chunks within `tick-radius` of a player tick (like blocks; the rest wait).
 //! 1. Compute (parallel, read-only): each entity's movement against the blocks
@@ -42,7 +41,7 @@
 //!    its removal; players who see each other's chunk are sent each other. Every kind of packet
 //!    has a per-tick bound, and what is over it waits for the next tick.
 //!
-//! # Events (PLAN.md 10.8)
+//! # Events
 //!
 //! The rules raise their events only in the serial parts of the tick: the physics computes in
 //! parallel and its results apply in `Id` order, where the hits, pickups, merges, landings and
@@ -114,10 +113,10 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
 
-/// The most entities one world holds. 16,384 keeps the tick of a world full of falling items
-/// within a few milliseconds (measured in `tick_cost`, PLAN.md 10.7) and the store's memory near
-/// 6 MiB; PMMP and dragonfly have no cap. At the cap, actions that would create an entity are
-/// refused and the caller keeps its items.
+/// The most entities one world holds. 16,384 keeps the tick of a world full of falling items within
+/// a few milliseconds (measured in `tick_cost`) and the store's memory near 6 MiB; PMMP and
+/// dragonfly have no cap. At the cap, actions that would create an entity are refused and the
+/// caller keeps its items.
 pub(super) const MAX_ENTITIES_PER_WORLD: usize = 16_384;
 /// The most players one player hides (`Context::hide_player`).
 pub(super) const MAX_HIDDEN_PER_PLAYER: usize = 1024;
@@ -174,8 +173,8 @@ const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
 const UNSTICK_RANDOM: u64 = random::tag("entity-unstick");
 const ANVIL_RANDOM: u64 = random::tag("entity-anvil-land");
 
-/// An entity, as a [`Context`](crate::Context) lends it (PLAN.md 10.8, PMMP `Entity`): what it is
-/// and where; [`Mut`] changes it.
+/// An entity, as a [`Context`](crate::Context) lends it (PMMP `Entity`): what it is and where;
+/// [`Mut`] changes it.
 #[derive(Debug, Clone)]
 // pmmp-class: Entity
 pub struct Entity {
@@ -343,7 +342,7 @@ impl Blow {
 }
 
 /// Whether a rule raises the events of what it does: the game's own actions do, the direct API
-/// (a [`Context`](crate::Context) call) does not (PLAN.md 8.2: no re-entry).
+/// (a [`Context`](crate::Context) call) does not (no re-entry).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Raise {
     /// The rule raises its events.
@@ -1981,8 +1980,7 @@ pub(super) fn fall(
     create(state, world, at, kind, |_| (Vec3::ZERO, 0.0, 0.0)).is_some()
 }
 
-/// The entity with runtime ID `runtime_id`, for packets that name one (attacks and interactions
-/// from wave C on).
+/// The entity with runtime ID `runtime_id`, for packets that name one (attacks and interactions).
 pub(super) fn find(state: &State, runtime_id: u64) -> Option<Id> {
     state.rules.entities.runtime_ids.get(&runtime_id).copied()
 }
@@ -2018,7 +2016,7 @@ pub(super) fn block_changed(state: &mut State, world: WorldIndex, pos: BlockPos)
 }
 
 /// One tick of every entity: physics on the CPU pool (read-only), then the results applied in
-/// entity order, then pickups, removals and tracking (PLAN.md 5 phases 2 and 3).
+/// entity order, then pickups, removals and tracking.
 pub(super) fn tick(state: &mut State, pool: &Pool) {
     tick_with(state, pool, HOOKS);
 }
@@ -2067,7 +2065,7 @@ fn compute(state: &State, pool: &Pool) -> Vec<(Id, Option<Step>)> {
 }
 
 /// What the apply phase of one tick may still do: merges, and explosions with the blocks they
-/// affect (PLAN.md 10.7 per-tick bounds).
+/// affect, bounded so that a chain of explosions spreads over ticks instead of stalling one.
 #[derive(Debug, Default)]
 struct Budget {
     /// Item merges so far ([`MAX_MERGES_PER_TICK`]).
@@ -3997,7 +3995,7 @@ pub(super) fn left(state: &mut State, session: SessionId) {
 /// A non-player character to spawn ([`spawn_npc`]).
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Npc {
-    /// A villager-type NPC (network actor `minecraft:villager_v2`, PLAN.md 8.6): no AI.
+    /// A villager-type NPC (network actor `minecraft:villager_v2`): no AI.
     Villager {
         /// The profession shown (`EntityVariant`).
         profession: u8,
@@ -5816,8 +5814,8 @@ mod tests {
         assert_eq!(turn.flags, u8::from(MoveFlag::OnGround));
     }
 
-    /// Another player is shown as BDS shows it (P6 `others`, m9-facts.md): its own whole entity
-    /// data (its Breathing flag now) with BDS's seven additions, its device ID and build platform.
+    /// Another player is shown as BDS shows it (P6 `others`): its own whole entity data (its
+    /// Breathing flag now) with BDS's seven additions, its device ID and build platform.
     #[test]
     fn players_see_each_others_bds_entity_data() {
         let mut h = Harness::new(1);
@@ -5860,9 +5858,9 @@ mod tests {
         assert_eq!(add.device_id, "device-1");
     }
 
-    /// Players see each other on the locator bar as BDS shows them (P6 `others`, m9-facts.md):
-    /// with the player, its location and a waypoint (added, then given to the client to follow);
-    /// when it goes, the waypoint goes.
+    /// Players see each other on the locator bar as BDS shows them (P6 `others`): with the player,
+    /// its location and a waypoint (added, then given to the client to follow); when it goes, the
+    /// waypoint goes.
     #[test]
     fn players_see_each_other_on_the_locator_bar() {
         let mut h = Harness::new(1);
@@ -5910,8 +5908,8 @@ mod tests {
         assert_eq!(gone, [(2, 0)]);
     }
 
-    /// Measures the entity tick (PLAN.md 10.7 "성능") with one player who sees every item:
-    /// `cargo test --release --lib tick::entity::tests::tick_cost -- --ignored --nocapture`.
+    /// Measures the entity tick with one player who sees every item: `cargo test --release --lib
+    /// tick::entity::tests::tick_cost -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement"]
     #[expect(

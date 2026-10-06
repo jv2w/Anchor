@@ -1,5 +1,5 @@
 <?php
-// Liquid flow goldens (PLAN.md 10.7): PMMP 6a7cc02's own Liquid, Water, Lava and
+// Liquid flow goldens: PMMP 6a7cc02's own Liquid, Water, Lava and
 // MinimumCostFlowCalculator run in a stand-in World whose block storage and update queues copy
 // World::actuallyDoTick, scheduleDelayedBlockUpdate and internalNotifyNeighbourBlockUpdate. The
 // ground is the flat world: bedrock at y -64, dirt -63 and -62, grass -61. The Anchor test

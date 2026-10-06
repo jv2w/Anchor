@@ -1,4 +1,4 @@
-//! `cargo xtask p6`: the reference server comparison (PLAN.md 4 P6, 10.2, 10.3). It builds the Go
+//! `cargo xtask p6`: the reference server comparison. It builds the Go
 //! bot (`xtask/go/bot`), runs its scenarios against BDS or any running server, and compares
 //! captures. It needs Go and, for `bds`, the BDS copy in `.cache/bds/`, so `verify` does not run it.
 //!
@@ -63,7 +63,7 @@ const OUT_DIR: &str = "target/p6";
 /// Scenarios every server must pass, over each transport.
 const SCENARIOS: &[&str] = &["spawn", "big-skin"];
 /// Test settings written into the copy's `server.properties`, besides the transport, ports and
-/// compression of each run. The world and gameplay values are Anchor's defaults (PLAN.md 8.5), so
+/// compression of each run. The world and gameplay values are Anchor's defaults, so
 /// config-dependent fields compare equal. LAN visibility is on because BDS answers RakNet pings
 /// with empty data without it; it also binds UDP 19132 and 19133.
 const BDS_SETTINGS: &[(&str, &str)] = &[
@@ -80,7 +80,7 @@ const BDS_SETTINGS: &[(&str, &str)] = &[
     ("view-distance", "16"),
     ("compression-threshold", "256"),
 ];
-/// The block states of the reference list (PLAN.md 7), relative to the repository root.
+/// The block states of the reference list, relative to the repository root.
 const REFERENCE_BLOCKS: &str = "xtask/data/reference/blocks.json";
 /// The `y` of the blocks scenario: the first air layer of BDS's default flat world (bedrock at
 /// -64, two dirt layers, grass at -61). Every step uses `keep`, so a wrong height places nothing
@@ -172,7 +172,7 @@ const MARKER: (i32, i32) = (-4, 0);
 const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
 /// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
 const END_MARKER: &str = "diamond_block";
-/// The `CloudburstMC` Data checkout (PLAN.md 10.4), relative to the repository root.
+/// The `CloudburstMC` Data checkout, relative to the repository root.
 const CLOUDBURST_DATA: &str = ".cache/cloudburst-data";
 /// The packets `compare::compare_chunks` checks; while any is deferred, its differences are shown
 /// without failing the comparison.
@@ -193,7 +193,7 @@ const TWIN_STAY: &str = "20s";
 const FIRST_SEND_DELAY: &str = "1s";
 /// A segment payload smaller than go-nethernet's 262,143 (the bot's default): what a sender
 /// limited to 64 KiB SCTP messages uses. `p6 bds` sends big-skin in it to record whether BDS
-/// accepts it; Anchor accepts both (PLAN.md 10.3).
+/// accepts it; Anchor accepts both.
 const SMALL_SEGMENT: &str = "65535";
 const START_TIMEOUT: Duration = Duration::from_mins(2);
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -299,7 +299,7 @@ fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
 }
 
 /// Checks the biome definitions and jigsaw structure data of `<dir>/spawn.world.jsonl` against
-/// `CloudburstMC`'s data with the bot (`bot cloudburst`, PLAN.md 10.6) and prints the result. Any
+/// `CloudburstMC`'s data with the bot (`bot cloudburst`) and prints the result. Any
 /// difference, or either packet missing, fails, on BDS's captures and on Anchor's alike.
 fn cloudburst(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Result<bool, String> {
     let output = Command::new(bot)
@@ -1037,7 +1037,7 @@ fn spawn_column(capture: &str) -> Result<(i32, i32), String> {
     Err("the capture has no StartGame".to_owned())
 }
 
-/// Reads the reference block list (PLAN.md 7) into network ID -> `name[property=value,...]`.
+/// Reads the reference block list into network ID -> `name[property=value,...]`.
 fn block_states(text: &str) -> Result<BTreeMap<u32, String>, String> {
     let list: Vec<Value> =
         serde_json::from_str(text).map_err(|e| format!("{REFERENCE_BLOCKS}: {e}"))?;

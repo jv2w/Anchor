@@ -1,6 +1,6 @@
 //! What the client is told about a player's survival state: attributes (`UpdateAttributes`),
 //! entity data (`SetActorData`), abilities (`UpdateAbilities`), adventure settings and game
-//! rules, with the values BDS sends (P6 facts 7) and the changes sent at the end of each tick.
+//! rules, with the values BDS sends (P6) and the changes sent at the end of each tick.
 
 use super::{Survival, broadcast_to_viewers, effects, f32_of, first_session, next_session};
 use crate::config::GameMode;
@@ -74,7 +74,7 @@ impl Def {
 }
 
 /// The attributes of a player in the order BDS sends them, with BDS's ranges and defaults
-/// (P6 facts 7: 17 attributes, no modifiers).
+/// (P6: 17 attributes, no modifiers).
 const DEFS: [Def; 17] = [
     Def::new("minecraft:player.hunger", 0.0, 20.0, 20.0, HUNGER),
     Def::new("minecraft:player.saturation", 0.0, 20.0, 5.0, SATURATION),
@@ -241,7 +241,7 @@ pub(super) fn shown(player: &Player) -> Shown {
     let s = &player.survival;
     let mode = player.survival.mode();
     let mut flags: FlagSet<EntityDataFlag> = FlagSet::new();
-    // BDS sends these for every player (P6 facts 7); PMMP sets `CAN_CLIMB` for players too.
+    // BDS sends these for every player (P6); PMMP sets `CAN_CLIMB` for players too.
     flags.insert(EntityDataFlag::HiddenWhenInvisible);
     flags.insert(EntityDataFlag::PushTowardsClosestSpace);
     if mode != GameMode::Spectator {
@@ -353,7 +353,7 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
     }
     if old.is_none_or(|o| o.died != new.died || o.death != new.death) {
         // BDS sends the death position as a block position (P6 `others` data types and its
-        // death, m9-facts.md).
+        // death).
         out.insert(
             EntityDataKey::PlayerLastDeathPosition.into(),
             MetadataValue::BlockPos(new.death),
@@ -377,8 +377,8 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
     }
 }
 
-/// The whole entity data of a player as BDS sends it at spawn (P6 facts 7: 72 keys; the types
-/// match BDS's packet size). The settings argument is the spawn module's calling form.
+/// The whole entity data of a player as BDS sends it at spawn (P6: 72 keys; the types match BDS's
+/// packet size). The settings argument is the spawn module's calling form.
 pub(in crate::tick) fn full_metadata(_settings: &Settings, player: &Player) -> EntityMetadata {
     use EntityDataKey as K;
     use MetadataValue as V;
@@ -441,21 +441,20 @@ pub(in crate::tick) fn full_metadata(_settings: &Settings, player: &Player) -> E
     put(K::HeartbeatSoundEvent, V::Int32(614));
     put(K::PlayerLastDeathDimension, V::Int32(0));
     put(K::FilteredName, V::String(String::new()));
-    // BDS sends this key as three floats (P6 `others` data types, m9-facts.md).
+    // BDS sends this key as three floats (P6 `others` data types).
     put(K::EnterBedPosition, V::Vec3([0.0; 3]));
     put(K::SeatThirdPersonCameraRadius, V::Float32(0.0));
     put(K::SeatCameraRelaxDistanceSmoothing, V::Float32(0.0));
     put(K::AimAssistPriorityPresetId, V::Int32(-1));
     put(K::AimAssistPriorityCategoryId, V::Int32(-1));
-    // BDS sends this key as an int32 (P6 `others` data types, m9-facts.md).
+    // BDS sends this key as an int32 (P6 `others` data types).
     put(K::AimAssistPriorityActorId, V::Int32(-1));
     put(K::FireworkDirection, V::Float32(64.0));
     changed_metadata(&shown(player), None, &mut m);
     m
 }
 
-/// The base abilities of a game mode, as BDS sends them for a member (P6 facts 7: survival
-/// `Values` 63).
+/// The base abilities of a game mode, as BDS sends them for a member (P6: survival `Values` 63).
 fn mode_abilities(mode: GameMode, flying: bool) -> FlagSet<Ability> {
     let survival = [
         Ability::Build,
@@ -566,7 +565,7 @@ pub(in crate::tick) fn update_abilities(_settings: &Settings, player: &Player) -
     })
 }
 
-/// `UpdateAdventureSettings` as BDS sends it (P6 facts 7).
+/// `UpdateAdventureSettings` as BDS sends it (P6).
 pub(in crate::tick) fn adventure_settings() -> Packet {
     adventure_packet(true)
 }
@@ -583,11 +582,11 @@ fn adventure_packet(auto_jump: bool) -> Packet {
     })
 }
 
-/// The 39 game rules BDS sends, in its order (P6 facts 7), with the values Anchor's rules have:
-/// what Anchor does not simulate (mob spawning, weather, insomnia, freezing, command blocks,
-/// respawn anchors exploding, projectiles breaking blocks) is off, `pvp`, `randomTickSpeed`,
-/// the day cycle, drowning and fall damage come from the settings, players respawn on the spawn
-/// block (`spawnRadius` 0) and death messages are not broadcast.
+/// The 39 game rules BDS sends, in its order (P6), with the values Anchor's rules have: what Anchor
+/// does not simulate (mob spawning, weather, insomnia, freezing, command blocks, respawn anchors
+/// exploding, projectiles breaking blocks) is off, `pvp`, `randomTickSpeed`, the day cycle,
+/// drowning and fall damage come from the settings, players respawn on the spawn block
+/// (`spawnRadius` 0) and death messages are not broadcast.
 pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
     use GameRuleValue::{Bool, Uint32};
     let rules = [

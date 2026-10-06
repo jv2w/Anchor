@@ -1,4 +1,4 @@
-//! `src/effect/table.rs`: the status effect and potion tables (PLAN.md 10.7) from the PMMP dump
+//! `src/effect/table.rs`: the status effect and potion tables from the PMMP dump
 //! (`tables.json`).
 
 use super::blocks::{by_id, enumeration, pmmp_enumeration, strings, variants};
@@ -11,7 +11,7 @@ use super::items::effect_instance;
 pub(crate) const PATH: &str = "src/effect/table.rs";
 
 /// BDS's colours (RGB) of the effects whose splash potions it shows, where they differ from
-/// PMMP's older ones (P6 `potions`, `xtask/data/p6/m9-facts.md`: the splash `LevelEvent` colours;
+/// PMMP's older ones (P6 `potions`, `xtask/data/p6/facts.md`: the splash `LevelEvent` colours;
 /// resistance from the turtle master's mixes). The client draws potions and particles in them.
 const BDS_COLOURS: [(&str, [u8; 3]); 12] = [
     ("fire_resistance", [0xff, 0x99, 0x00]),
@@ -43,7 +43,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Status effects and potion types generated from the PMMP dump (PLAN.md 10.7): \
+        "{HEADER}\n//! Status effects and potion types generated from the PMMP dump: \
          {} effects, {} potion types.\n\nuse super::{{Data, Instance, PotionData}};\n",
         effects.len(),
         potions.len()

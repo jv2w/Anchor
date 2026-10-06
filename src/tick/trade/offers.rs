@@ -1,4 +1,4 @@
-//! The offer list of one villager NPC and its two NBT forms (PLAN.md 8.6, m7-facts.md 6).
+//! The offer list of one villager NPC and its two NBT forms (P6).
 //!
 //! An offer list holds the offers ([`Recipe`], BDS `Recipes`) in the order the trade screen
 //! shows them, the villager's tier and trade experience, and the experience each tier needs (BDS
@@ -22,7 +22,7 @@
 //! `WasPickedUp`. Unknown recipe and root keys are kept and written back. A saved recipe Anchor
 //! cannot use (unknown item, a value out of range, a wrong tag type) is skipped with a warning,
 //! never shown, and written back as it was at the end of `Recipes` (saved data is not
-//! destroyed, CLAUDE.md 2.1).
+//! destroyed).
 
 use std::fmt;
 
@@ -45,9 +45,9 @@ pub(in crate::tick) const MAX_OFFERS: usize = 128;
 /// (`item::MAX_NBT_BYTES` each), but the villager's entity must fit one NBT root (4 MiB) and its
 /// `UpdateTrade` one packet NBT root. PMMP has no such limit.
 const MAX_SAVED_BYTES: usize = 2 << 20;
-/// The experience each tier needs, as BDS sends it (m7-facts.md 6).
+/// The experience each tier needs, as BDS sends it (P6).
 const DEFAULT_TIER_EXPERIENCE: [u32; TIERS] = [0, 10, 70, 150, 250];
-/// The price multiplier BDS gives most offers (m7-facts.md 6).
+/// The price multiplier BDS gives most offers (P6).
 const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 /// The largest value an NBT `TAG_Int` counter holds.
 const MAX_INT: u32 = i32::MAX.cast_unsigned();
@@ -106,7 +106,7 @@ const RECIPE_KEYS: [&str; 14] = [
     TRADER_EXP,
     USES,
 ];
-/// A payment item's `Damage` that takes any damage (the Bedrock any-meta value, P6 facts 6).
+/// A payment item's `Damage` that takes any damage (the Bedrock any-meta value, P6).
 const ANY_DAMAGE: i16 = i16::MAX;
 
 /// Why an offer or an offer list change is refused.
@@ -162,8 +162,8 @@ pub(in crate::tick) enum Damage {
     /// The offer item's damage (meta) exactly.
     #[default]
     Exact,
-    /// Any damage: BDS offers carry `Damage` 32767 on their payments (P6 facts 6), written back
-    /// and sent as it came.
+    /// Any damage: BDS offers carry `Damage` 32767 on their payments (P6), written back and sent as
+    /// it came.
     Any,
 }
 
@@ -1093,7 +1093,7 @@ pub(in crate::tick) mod tests {
 
     #[test]
     fn bds_payments_of_any_damage_are_kept_and_written_as_they_came() {
-        // A BDS farmer offer (P6 facts 6): `Damage` 32767 on both payments.
+        // A BDS farmer offer (P6): `Damage` 32767 on both payments.
         let mut wheat = sample().recipes[0].to_nbt(None);
         let any = |c: &mut Compound, key: &str| {
             if let Some(Value::Compound(item)) = c.get_mut(key) {

@@ -8,7 +8,7 @@ import (
 	"github.com/sandertv/go-raknet"
 )
 
-// preLoginPerIP is Anchor's limit of connections per IP that have not logged in (PLAN.md 10.2).
+// preLoginPerIP is Anchor's limit of connections per IP that have not logged in.
 const preLoginPerIP = 4
 
 // playLimit runs the scenarios that check server limits instead of a spawn:

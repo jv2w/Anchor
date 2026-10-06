@@ -1,4 +1,4 @@
-//! Reproduction tests for the fixed redb copy in `vendor/redb` (PLAN.md 9.1): opening a file and
+//! Reproduction tests for the fixed redb copy in `vendor/redb`: opening a file and
 //! checking it must turn a damaged byte into an error. The published 4.3.0 reads the system tree
 //! at open before anything verifies it, so one damaged byte there panics the open
 //! (cberner/redb#1505, #1334); this test fails on it with a panic. The copy also grows the file

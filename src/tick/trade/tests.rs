@@ -1,6 +1,6 @@
-//! Tests of trading (PLAN.md 10.7 판정식 "거래"): the screen BDS sends, the trade rules, the end
-//! of trading, and that nothing stays behind. Villagers, windows and orbs are stand-ins here
-//! (the entity and inventory modules own them).
+//! Tests of trading: the screen BDS sends, the trade rules, the end of trading, and that nothing
+//! stays behind. Villagers, windows and orbs are stand-ins here (the entity and inventory modules
+//! own them).
 
 use std::collections::BTreeMap;
 
@@ -451,8 +451,8 @@ fn trades_reward_orbs_and_raise_the_tier() {
         "each trade tells the villager's viewers of its tier and experience"
     );
     for s in [1, 2] {
-        // BDS sends no UpdateTrade at a new tier (P6 `tradeup`, m9-facts.md): the traders learn
-        // it from the villager's entity data (`traded` above).
+        // BDS sends no UpdateTrade at a new tier (P6 `tradeup`): the traders learn it from the
+        // villager's entity data (`traded` above).
         assert!(server.screens(s).is_empty(), "no new screen at a new tier");
     }
     assert!(server.offer(1, ids[1]).is_some(), "tier 1 unlocked");

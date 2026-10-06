@@ -1,4 +1,4 @@
-//! Entities: what lives in a world besides blocks and players (PLAN.md 10.7, 10.8).
+//! Entities: what lives in a world besides blocks and players.
 //!
 //! The tick owns every entity; code outside a tick keeps only an [`Id`], which stays valid until
 //! the entity is gone and is never reused for another entity. A
@@ -45,7 +45,7 @@ impl Id {
     }
 }
 
-/// What an entity is: a closed set (PLAN.md 10.7; mob AI is out of scope, CLAUDE.md 1).
+/// What an entity is: a closed set (mob AI is out of scope).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Type {
     /// A dropped item stack.
@@ -81,7 +81,7 @@ pub enum Type {
     /// A lingering potion's cloud.
     // pmmp-class: AreaEffectCloud
     AreaEffectCloud,
-    /// A villager-type NPC that trades (no AI, PLAN.md 8.6).
+    /// A villager-type NPC that trades (no AI).
     // pmmp-class: Villager
     Villager,
     /// A player-shaped NPC (no AI).

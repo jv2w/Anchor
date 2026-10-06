@@ -1,5 +1,5 @@
-//! `src/import/upgrade/table.rs`: the block and item upgrade tables of the world import (PLAN.md
-//! 10.9) from the schemas `cargo xtask dump` copied into `xtask/data/upgrade/`.
+//! `src/import/upgrade/table.rs`: the block and item upgrade tables of the world import from the
+//! schemas `cargo xtask dump` copied into `xtask/data/upgrade/`.
 //!
 //! The block schemas are checked with the import's own interpreter (`apply.rs`, included by
 //! path), so a defect the rules hide fails here: an ID that is both renamed and flattened in one
@@ -559,7 +559,7 @@ pub(crate) fn generate(root: &Path) -> R<String> {
     put!(
         out,
         "{HEADER}\n//! Upgrade tables generated from pmmp/BedrockBlockUpgradeSchema and \
-         pmmp/BedrockItemUpgradeSchema (`xtask/data/upgrade/`, PLAN.md 10.9): {} block schemas, \
+         pmmp/BedrockItemUpgradeSchema (`xtask/data/upgrade/`): {} block schemas, \
          {} legacy entries upgraded to {} states, {} item schemas.\n",
         schemas.len(),
         entries.len(),

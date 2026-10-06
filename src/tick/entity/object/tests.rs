@@ -527,7 +527,7 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
         "{sounds:?}"
     );
     // Without explosions a rocket bursts quietly and harmlessly, its burst event shown as BDS
-    // shows it (P6 `entities`, m9-facts.md).
+    // shows it (P6 `entities`).
     let quiet = context(&mut h)
         .spawn_firework_rocket(WORLD, at_burst, 2, Vec::new(), Vec3::ZERO)
         .unwrap();
@@ -598,8 +598,8 @@ fn a_firework_used_on_a_block_flies_for_its_items_flight_and_climbs() {
     else {
         panic!("firework item");
     };
-    // BDS (P6 `entities`, m9-facts.md): the item's explosions and flight, the direction
-    // (0, 1, 0), no attached entity, no owner.
+    // BDS (P6 `entities`): the item's explosions and flight, the direction (0, 1, 0), no attached
+    // entity, no owner.
     assert!(matches!(item_nbt.get(TAG_FIREWORKS),
         Some(Value::Compound(fireworks)) if fireworks.contains_key(TAG_EXPLOSIONS)
             && fireworks.get(TAG_FLIGHT) == Some(&Value::Byte(2))));
@@ -636,8 +636,7 @@ fn throw_trident(h: &mut Harness, ticks: u32) {
     release(h);
 }
 
-/// BDS sounds a trident's throw at the middle of the thrower's body (P6 `itemuse`,
-/// m9-facts.md ITEMUSE).
+/// BDS sounds a trident's throw at the middle of the thrower's body (P6 `itemuse`).
 #[test]
 fn a_trident_throw_sounds_at_the_middle_of_the_body() {
     let mut h = harness();

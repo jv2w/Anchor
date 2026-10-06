@@ -1,6 +1,6 @@
-//! Leaks (PLAN.md 10.7 판정식 "누수"): a player joins, opens and closes every window, places and
-//! breaks blocks with block entities, makes and loses entities, schedules block updates, trades
-//! and leaves, 100 times; every table and queue of the state is back at its start.
+//! Leaks: a player joins, opens and closes every window, places and breaks blocks with block
+//! entities, makes and loses entities, schedules block updates, trades and leaves, 100 times; every
+//! table and queue of the state is back at its start.
 
 use tokio::sync::mpsc;
 

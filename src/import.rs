@@ -1,4 +1,4 @@
-//! Importing a Bedrock (LevelDB) world (PLAN.md 10.9 "가져오기 설계"): reading the source.
+//! Importing a Bedrock (LevelDB) world: reading the source.
 //!
 //! `Source` opens a world folder read-only (`level.dat` and the LevelDB in `db/`), lists its
 //! overworld chunks in numeric (x, z) order (`Catalog`) and reads the values of one chunk
@@ -207,7 +207,7 @@ fn stamp(path: &Path) -> Result<Stamp> {
     ))
 }
 
-/// What a world holds besides its overworld chunks, which Anchor does not import (PLAN.md 10.9).
+/// What a world holds besides its overworld chunks, which Anchor does not import.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Catalog {
     /// The overworld chunks, in numeric (x, z) order.

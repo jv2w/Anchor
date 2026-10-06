@@ -1,4 +1,4 @@
-//! `src/protocol/consts.rs`: the named protocol constants (PLAN.md 10.7) from the const
+//! `src/protocol/consts.rs`: the named protocol constants from the const
 //! declarations of the gophertunnel `protocol` and `packet` packages in the IR.
 //!
 //! [`SPECS`] names every constant group. A constant belongs to the group of its package whose
@@ -231,7 +231,7 @@ const SPECS: &[Spec] = &[
     s("packet.PredictionType", Enum).repr("u8"),
     s(
         "packet.DefaultMaxDecompressedLen",
-        Excluded("the max-batch-bytes setting (PLAN.md 3)"),
+        Excluded("the max-batch-bytes setting"),
     ),
     s("packet.DisconnectReason", Enum),
     s("packet.EmoteFlag", Mask).repr("u8"),

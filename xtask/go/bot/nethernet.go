@@ -31,7 +31,7 @@ const (
 var quiet = slog.New(slog.DiscardHandler)
 
 // signalingClient is the HTTP client for /v1/join. It accepts any certificate: a server with its own
-// certificate is trusted on first use like a plain HTTP one (PLAN.md 2.1).
+// certificate is trusted on first use like a plain HTTP one.
 func signalingClient() *http.Client {
 	return &http.Client{
 		Timeout: signalingRequestTimeout,

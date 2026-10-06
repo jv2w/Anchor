@@ -1,4 +1,4 @@
-//! Scheduled tasks and blocking work (PLAN.md 8.3, 10.8): the handles and errors of
+//! Scheduled tasks and blocking work: the handles and errors of
 //! [`Context::schedule`](crate::Context::schedule) and
 //! [`Context::spawn_blocking`](crate::Context::spawn_blocking).
 //!
@@ -16,7 +16,7 @@
 
 use std::fmt;
 
-/// The most tasks scheduled at once (PLAN.md 2.2: no unbounded queue).
+/// The most tasks scheduled at once (no unbounded queue).
 pub const MAX_TASKS: usize = 65_536;
 /// The most blocking jobs waiting for their result at once.
 pub const MAX_JOBS: usize = 1_024;
@@ -24,7 +24,7 @@ pub const MAX_JOBS: usize = 1_024;
 /// hold every blocking thread.
 pub const MAX_RUNNING_JOBS: usize = crate::runtime::USER_BLOCKING_THREADS;
 /// The largest result of a blocking job, in bytes of its JSON form: it travels through the input
-/// log (PLAN.md 10.8).
+/// log.
 pub const MAX_RESULT_BYTES: usize = 1 << 20;
 
 /// A scheduled task, to cancel it or ask whether it is still scheduled. Ids are never reused, so

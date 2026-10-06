@@ -1498,7 +1498,7 @@ mod tests {
         (client, server)
     }
 
-    /// Anchor copy fix (Anchor PLAN.md 9.1): the client association announced 65,535 inbound
+    /// Anchor copy fix (docs/dependencies.md): the client association announced 65,535 inbound
     /// streams, so a remote writing on many stream ids made a stream and an entry per id, each
     /// scanned on every poll. Fails on the published 0.24.1.
     #[test]
@@ -1541,7 +1541,11 @@ mod tests {
             }
         }
         let max = usize::from(MAX_INBOUND_STREAMS);
-        assert!(client.entries.len() <= max, "{} entries", client.entries.len());
+        assert!(
+            client.entries.len() <= max,
+            "{} entries",
+            client.entries.len()
+        );
         let assoc = client.assoc.as_mut().unwrap();
         for id in MAX_INBOUND_STREAMS..1000 {
             assert!(assoc.stream(id).is_err(), "stream {id} exists");

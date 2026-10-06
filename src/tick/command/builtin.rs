@@ -1,14 +1,13 @@
-//! Anchor's own commands (PLAN.md 10.8): PMMP's default commands that are in scope, one per PMMP
-//! class in `command\defaults`, registered through the same [`Command`] API as the user's.
+//! Anchor's own commands: PMMP's default commands that are in scope, one per PMMP class in
+//! `command\defaults`, registered through the same [`Command`] API as the user's.
 //!
 //! Each follows its PMMP class: names, aliases, permissions (PMMP's names under `anchor`),
 //! arguments and behaviour. A message the client knows (`commands.*`, `chat.*`, `gameMode.*`,
-//! descriptions as BDS sends them) goes as its translation key and parameters; a message the
-//! client has no key for is Anchor's own text (PLAN.md 8.4: no other server's sentences). Where
-//! Anchor differs, the command's function says why. Game mode names and coordinates are written as BDS writes them,
-//! and the player a command acted on is told as BDS tells it ([`tell_object`]). Results that PMMP
-//! broadcasts to operators
-//! (`Command::broadcastCommandMessage`) go to the players with
+//! descriptions as BDS sends them) goes as its translation key and parameters; a message the client
+//! has no key for is Anchor's own text (no other server's sentences). Where Anchor differs, the
+//! command's function says why. Game mode names and coordinates are written as BDS writes them, and
+//! the player a command acted on is told as BDS tells it ([`tell_object`]). Results that PMMP
+//! broadcasts to operators (`Command::broadcastCommandMessage`) go to the players with
 //! [`BROADCAST_ADMIN`](crate::permission::BROADCAST_ADMIN) as `[sender: result]`.
 //!
 //! Arguments are Bedrock's typed parameters, so the client autocompletes them: players are target
@@ -333,8 +332,8 @@ fn two_decimals(v: f64) -> String {
     format!("{v:.2}")
 }
 
-/// BDS's `GameMode` enum (P6, m9-facts.md): the names, their letters and `default` (`d`), the
-/// server's default game mode.
+/// BDS's `GameMode` enum (P6): the names, their letters and `default` (`d`), the server's default
+/// game mode.
 const GAME_MODE_NAMES: [&str; 9] = [
     "default",
     "creative",

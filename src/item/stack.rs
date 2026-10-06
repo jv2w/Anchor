@@ -1,4 +1,4 @@
-//! Item stacks: immutable values (PLAN.md 8.1, 10.7).
+//! Item stacks: immutable values.
 //!
 //! A stack is an item type, a count, a damage (durability used, or the stack state PMMP keeps in
 //! the meta) and optional extra data (custom name, lore, enchantments and every other NBT key,
@@ -7,7 +7,7 @@
 //! A stack has two outside forms, both built from the same item NBT `tag` ([`Stack::tag`]):
 //!
 //! - network (PMMP `TypeConverter::coreItemStackToNet`): runtime ID, the meta, the network ID of
-//!   the block state a block item is sent with (PLAN.md 10.4) and the tag, with the contents of
+//!   the block state a block item is sent with and the tag, with the contents of
 //!   a stored container reduced to what the client shows;
 //! - disk (PMMP `SavedItemStackData`, Bedrock form): `{Name, Count, Damage, Block?, tag?}`, plus
 //!   `Slot` where a list stores it.
@@ -18,10 +18,10 @@
 //! writes back byte for byte. NBT that is part of the item type (an ominous banner's `Type`) is
 //! not kept in the stack: the type adds it when the tag is written.
 //!
-//! Limits (PLAN.md 10.9): a stack is refused where its extra data is set ([`Stack::with_extra`],
+//! Limits: a stack is refused where its extra data is set ([`Stack::with_extra`],
 //! and the conversions from outside forms) if its saved form is over [`MAX_NBT_BYTES`] or its
 //! custom name over [`MAX_NAME_BYTES`]. PMMP has no such limit. The limits are sized so that
-//! everything the game stores whole fits its record (PLAN.md 6): a player's 146 stacks and user
+//! everything the game stores whole fits its record: a player's 146 stacks and user
 //! data in its record, a container's 27 stacks in one NBT root, and a shulker box's 27 stacks of
 //! at most [`MAX_STORED_BYTES`] with its name in one stack.
 
@@ -417,7 +417,8 @@ impl Stack {
     /// The stack a client sent in network form, or `None` if Anchor does not know the item or
     /// the count is above the item's stack size. The block a block item is sent with only tells
     /// apart types of the same runtime ID and meta; a client's different block runtime ID for an
-    /// item without a block form is not a reason to refuse it (P6 facts 2).
+    /// item without a block form is not a reason to refuse it (BDS matches requests by
+    /// network ID, count and stack ID, P6).
     #[cfg(test)]
     pub(crate) fn from_network(stack: &protocol::ItemStack) -> Option<Self> {
         let ItemType {
@@ -466,7 +467,7 @@ impl Stack {
     }
 
     /// The disk form as BDS writes it in the NBT it sends (a furnace's `LastFuel`, trade offers):
-    /// with `WasPickedUp` 0 (P6 facts 3 and 6).
+    /// with `WasPickedUp` 0 (P6).
     pub(crate) fn to_sent_nbt(&self) -> Compound {
         let mut out = self.to_nbt();
         out.insert("WasPickedUp".to_owned(), Value::Byte(0));
@@ -522,7 +523,7 @@ impl Stack {
             Some(c) => c.item_by_name(name, meta, block, tag_or_empty)?,
             None => Type::from_name(name, meta, block, tag_or_empty)?,
         };
-        // performance: saved data is outside input (PLAN.md 6), so a stack read back is checked as
+        // performance: saved data is outside input, so a stack read back is checked as
         // a new one is: one more write of its NBT, only for a stack with extra data.
         Self::from_parts(item, count, meta, tag).ok()
     }

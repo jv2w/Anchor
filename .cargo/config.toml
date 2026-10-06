@@ -2,6 +2,6 @@
 xtask = "run --package xtask --quiet --"
 
 # LLVM's linker that ships with the toolchain links the many test binaries faster than MSVC
-# link.exe (PLAN.md 10.9).
+# link.exe.
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"

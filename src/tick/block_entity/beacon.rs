@@ -1,6 +1,6 @@
 //! Beacons (PMMP keeps only the chosen effects; the pyramid, the payment and the effects follow
-//! dragonfly `block.Beacon`, PLAN.md 8.4): every 80 ticks the pyramid of mineral blocks below is
-//! counted (0 to 4 levels) and, under an open column, the players within range get the effects.
+//! dragonfly `block.Beacon`): every 80 ticks the pyramid of mineral blocks below is counted (0 to 4
+//! levels) and, under an open column, the players within range get the effects.
 
 use super::super::{State, survival};
 use crate::block;

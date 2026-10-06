@@ -1,7 +1,7 @@
-//! Worlds while the server runs (PLAN.md 10.9 대응표 재검토): making, loading and unloading
-//! worlds with their events, the default world, the time stop, each world's difficulty and the
-//! chunk tickets; cycles that leave nothing behind, an unload the server file holds after a
-//! restart, and a script of world changes that replays to the same states.
+//! Worlds while the server runs: making, loading and unloading worlds with their events, the
+//! default world, the time stop, each world's difficulty and the chunk tickets; cycles that leave
+//! nothing behind, an unload the server file holds after a restart, and a script of world changes
+//! that replays to the same states.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -957,8 +957,8 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     assert!(pool.shutdown());
 }
 
-/// A world is its file (U16): a deleted world loses its file alone and its name is free again,
-/// a name that cannot be a file name or differs only in letter case from a world's is refused.
+/// A world is its file: a deleted world loses its file alone and its name is free again, a name
+/// that cannot be a file name or differs only in letter case from a world's is refused.
 #[test]
 fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
     let dir = crate::save::tests::TempDir::new("world-delete");

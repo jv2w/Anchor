@@ -1,4 +1,4 @@
-//! `cargo xtask p6 import`: the world import against BDS (PLAN.md 10.9). It starts the BDS copy on
+//! `cargo xtask p6 import`: the world import against BDS. It starts the BDS copy on
 //! a new world with BDS's own terrain (seed [`SEED`]) and spawn radius 0, lets the spawn bot record
 //! the sub-chunks BDS sends (`target/p6/import-bds/spawn.world.jsonl`), stops BDS, which saves the
 //! world, and copies the world folder to `target/p6/import-world/` (BDS never runs from it). It
@@ -455,9 +455,9 @@ fn compare(
 }
 
 /// Why the difference between BDS's layers `a` and Anchor's `b` at one block is intended, if it
-/// is: Anchor sends a block of an intended name as it was stored, with no server behaviour
-/// (PLAN.md 7, U12), and BDS may have changed it after loading the world (a bubble column over no
-/// soul sand turns to water, a trial spawner wakes up); or Anchor sends `unknown` (`info_update`)
+/// is: Anchor sends a block of an intended name as it was stored, with no server behaviour, and
+/// BDS may have changed it after loading the world (a bubble column over no soul sand turns to
+/// water, a trial spawner wakes up); or Anchor sends `unknown` (`info_update`)
 /// for a block whose name is intended, or for a waterlogged block BDS sends as its water.
 fn excuse(
     [a0, a1]: [u32; 2],

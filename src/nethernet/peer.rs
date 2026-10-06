@@ -3,7 +3,7 @@
 //! `UnreliableDataChannel`, and reliable messages travel as segments (`message`).
 //!
 //! Every call into str0m runs under `catch_unwind`: one driver task owns all peers, and a panic in
-//! str0m or its DTLS and SCTP crates must close only the peer that caused it (CLAUDE.md 4.6). A
+//! str0m or its DTLS and SCTP crates must close only the peer that caused it. A
 //! peer that panicked is never touched again.
 
 use std::collections::VecDeque;
@@ -28,14 +28,14 @@ const RELIABLE_LABEL: &str = "ReliableDataChannel";
 /// Label of the unreliable channel: unordered with no retransmits.
 const UNRELIABLE_LABEL: &str = "UnreliableDataChannel";
 /// Largest data channel message sent: BDS's `a=max-message-size`. BDS sends segments of this
-/// minus the header byte, 262,143 bytes (P6, PLAN.md 10.3); a remote that announces less gets
+/// minus the header byte, 262,143 bytes (P6); a remote that announces less gets
 /// smaller ones.
 const SEND_MESSAGE_LIMIT: usize = 256 * 1024;
 /// Bytes str0m holds for one peer until acknowledged: four of the largest messages, so a segment
 /// always fits, and about 1 MiB per round trip, the receive window go-nethernet's pion offers.
 /// str0m's 128 KiB default can never take a 262,144-byte message.
 const SCTP_SEND_BUFFER: usize = 4 * SEND_MESSAGE_LIMIT;
-/// Bytes waiting to be sent to one peer at most, queued here or buffered in str0m (PLAN.md 10.3).
+/// Bytes waiting to be sent to one peer at most, queued here or buffered in str0m.
 const MAX_UNSENT: usize = 32 * 1024 * 1024;
 /// Memory one queued message costs besides its bytes, charged against `MAX_UNSENT` so that many
 /// tiny messages cannot exceed the cap's memory.
@@ -43,7 +43,7 @@ const PENDING_COST: usize = size_of::<Pending>();
 /// Largest datagram passed to str0m: an Ethernet MTU. Honest peers stay below it (pion sends
 /// SCTP at 1200 bytes and DTLS flights at its MTU); str0m itself reads up to 2000.
 const MAX_DATAGRAM: usize = 1500;
-/// From the peer's creation until both channels are open (PLAN.md 10.3).
+/// From the peer's creation until both channels are open.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// Silence after which an open peer is dead. pion sends an ICE keepalive every 2 s and str0m
 /// checks the nominated pair at least every 3 s (its maximum STUN RTO), so this is three missed
@@ -288,7 +288,7 @@ impl Peer {
         let candidate = Candidate::host(local_addr, "udp").map_err(Error::Address)?;
         let config = RtcConfig::new()
             .set_crypto_provider(Arc::clone(&cert.provider))
-            // The default, kept explicit: DTLS 1.2 fixed (PLAN.md 9.1).
+            // The default, kept explicit: DTLS 1.2 fixed.
             .set_dtls_version(DtlsVersion::Dtls12)
             .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER)
             .set_stats_interval(Some(RTT_INTERVAL))
@@ -785,7 +785,7 @@ fn guard_rtc<T>(rtc: &mut Rtc, f: impl FnOnce(&mut Rtc) -> Result<T, RtcError>) 
 
 /// Writes one segment; `false` if str0m has no room for it yet. Room is checked before the
 /// segment is copied: the driver polls a busy peer thousands of times a second, and copying a
-/// 262,143-byte segment only to have it refused cost 9 µs per poll (PLAN.md 10.5). Only the
+/// 262,143-byte segment only to have it refused cost 9 µs per poll. Only the
 /// reliable channel is written, so its buffered amount is str0m's whole send buffer use.
 fn write(
     rtc: &mut Rtc,
@@ -1517,7 +1517,7 @@ pub(in crate::nethernet) mod tests {
         assert_eq!(h.peer.queued, 0);
     }
 
-    /// Reproduces the str0m 0.24.0 defects fixed in 0.24.1 (#1062, PLAN.md 9.1): the send buffer was fixed at 128 KiB, so a 262,144-byte message never left, and
+    /// Reproduces the str0m 0.24.0 defects fixed in 0.24.1 (#1062): the send buffer was fixed at 128 KiB, so a 262,144-byte message never left, and
     /// polling recursed once per queued SCTP packet, which overflowed the stack on large sends
     /// (see also `channels_open_and_messages_round_trip_both_ways`).
     #[test]
@@ -1832,7 +1832,7 @@ pub(in crate::nethernet) mod tests {
 
     /// Reordering, down to every DTLS record in a datagram of its own (Finished before
     /// `ChangeCipherSpec`, certificate fragments swapped), never stalls the handshake: dimpl
-    /// queues records by handshake sequence (PLAN.md 10.5, dimpl #168).
+    /// queues records by handshake sequence (dimpl #168).
     #[test]
     fn handshake_completes_with_reordered_records() {
         let (server, client) = split_certificates();
@@ -1875,8 +1875,7 @@ pub(in crate::nethernet) mod tests {
     }
 
     /// A lost SCTP INIT is sent again after RTO.Initial, 1 s as RFC 9260 recommends, rather than
-    /// sctp-proto's RFC 4960 default of 3 s, which costs a lossy handshake its deadline (PLAN.md
-    /// 9.1, str0m).
+    /// sctp-proto's RFC 4960 default of 3 s, which costs a lossy handshake its deadline.
     #[test]
     fn a_lost_sctp_init_is_sent_again_after_one_second() {
         let (server, client) = split_certificates();
@@ -1917,7 +1916,7 @@ pub(in crate::nethernet) mod tests {
         );
     }
 
-    /// Handshakes under random loss (PLAN.md 10.5): how many open within the deadline, and how
+    /// Handshakes under random loss: how many open within the deadline, and how
     /// many of the rest failed in DTLS rather than in the SCTP association after it. Run:
     /// `cargo test --release --lib nethernet::peer::tests::handshake_under_random_loss --
     /// --ignored --nocapture`
@@ -1953,7 +1952,7 @@ pub(in crate::nethernet) mod tests {
         }
     }
 
-    /// The driver task's cost for one peer (PLAN.md 10.5): time inside the peer's calls for
+    /// The driver task's cost for one peer: time inside the peer's calls for
     /// bulk transfer each way, for a game-like exchange of one message each way per 50 ms tick,
     /// and while idle. Run: `cargo test --release --lib
     /// nethernet::peer::tests::driver_cost_per_peer -- --ignored --nocapture`

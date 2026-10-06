@@ -1,5 +1,5 @@
 //! Commands: what players and the console type after `/`, with typed arguments and
-//! autocompletion (PLAN.md 10.8).
+//! autocompletion.
 //!
 //! A [`Command`] has a name, aliases, a [`Permission`] and one or more overloads: a list of
 //! [`Param`]s and the handler that runs when a line fits them. Register it with

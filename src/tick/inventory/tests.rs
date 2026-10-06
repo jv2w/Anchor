@@ -1,5 +1,4 @@
-//! Tests of inventories, windows and item stack requests (PLAN.md 10.7 판정식 "인벤토리와 보존",
-//! "제작").
+//! Tests of inventories, windows and item stack requests: item conservation and crafting.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -570,14 +569,14 @@ fn a_hidden_recipe_book_refuses_its_quick_crafting() {
 #[test]
 #[expect(
     clippy::many_single_char_names,
-    reason = "consistency: the IDs keep the short names of the P6 facts (l logs, p planks)"
+    reason = "consistency: the IDs keep the short names of the P6 craft record (l logs, p planks)"
 )]
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: the fixture follows the BDS scenario step by step"
 )]
 fn stack_network_ids_and_responses_follow_the_bds_craft_scenario() {
-    // P6 facts 2 (`craft`), as the bot plays it against BDS.
+    // P6 `craft`, as the bot plays it against BDS (`xtask/data/p6/facts.md`).
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let (log, plank, stick) = (
@@ -1536,8 +1535,8 @@ fn random_requests_keep_every_item_accounted_for() {
 // pmmp: InventoryTransactionEvent, CraftItemEvent, PlayerDropItemEvent
 #[test]
 fn random_requests_with_random_listeners_keep_every_item_accounted_for() {
-    // PLAN.md 10.8: listeners from a fixed seed cancel, change fields or move items themselves
-    // through the Context; no item is made or lost but by the requests' own crafts and drops.
+    // Listeners from a fixed seed cancel, change fields or move items themselves through the
+    // Context; no item is made or lost but by the requests' own crafts and drops.
     run_model(
         GameMode::Survival,
         3,

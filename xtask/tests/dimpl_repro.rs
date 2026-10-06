@@ -1,4 +1,4 @@
-//! Reproduction tests for the fixed dimpl copy in `vendor/dimpl` (PLAN.md 9.1): each drives
+//! Reproduction tests for the fixed dimpl copy in `vendor/dimpl`: each drives
 //! dimpl's public API in memory the way str0m does (a DTLS 1.2 client with the aws-lc-rs
 //! backend against a dimpl server or hand-made records) and fails on the published 0.7.5 with a
 //! panic.

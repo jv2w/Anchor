@@ -1,5 +1,5 @@
-//! Tasks scheduled while the server runs (PLAN.md 10.8, PMMP `TaskScheduler`): run once after a
-//! delay or again every period, by due tick and then in the order they were scheduled.
+//! Tasks scheduled while the server runs (PMMP `TaskScheduler`): run once after a delay or again
+//! every period, by due tick and then in the order they were scheduled.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;

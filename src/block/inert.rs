@@ -1,4 +1,4 @@
-//! Inert blocks (PLAN.md 7, 8.4): the block states of the protocol's reference list that are not
+//! Inert blocks: the block states of the protocol's reference list that are not
 //! Anchor states. A stored block state Anchor does not know that is one of them is shown to
 //! clients as itself, by its network ID, and stays put: no rule changes it. The server knows only
 //! what it needs to judge players by (BDS's values from `CloudburstMC`'s dump): its collision boxes,

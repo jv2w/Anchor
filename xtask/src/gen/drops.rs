@@ -1,4 +1,4 @@
-//! `src/block/drops.rs`: the golden drops of every block state (PLAN.md 10.7) from the PMMP dump
+//! `src/block/drops.rs`: the golden drops of every block state from the PMMP dump
 //! (`blocks.json` `drops`), for the tests of the drop rules; the library does not read it.
 
 use std::collections::BTreeMap;
@@ -60,7 +60,7 @@ pub(crate) fn generate(data: &Data) -> R<String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Golden drops generated from the PMMP dump (PLAN.md 10.7): {} deterministic \
+        "{HEADER}\n//! Golden drops generated from the PMMP dump: {} deterministic \
          and {} random drop cases, {} states whose drops the block entity decides.\n\n\
          use super::{{Golden, GoldenDrop, GoldenItems, GoldenStack}};\nuse crate::item::Type;\n\n\
          /// The stacks of the deterministic drops, one list after another.\npub(super) static \

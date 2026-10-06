@@ -1,7 +1,7 @@
 //! Anchor's console for the game scenarios (`p6 game anchor`): the commands the bot asks for
 //! (`tp`, `give`, `setblock`, `fill`, `xp`, `summon villager`, `effect`, `kill`, `gamerule`) carried
-//! out through Anchor's public task API ([`anchor::Context`], PLAN.md 10.6: no test-only entry
-//! point).
+//! out through Anchor's public task API ([`anchor::Context`]), so the scenarios need no test-only
+//! entry point.
 //!
 //! The harness parses each command line ([`parse`]) and hands it to a task that Anchor runs every
 //! tick (`ServerBuilder::every(1, ..)`, [`console`]). The task runs the commands in order in the
@@ -295,7 +295,7 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
         ["effect", target, name, ..] if *target == NON_PLAYERS => {
             effect_type(name)?;
             Ok(Command::Accepted(
-                "villager NPCs have no AI (PLAN.md 8.6): an effect changes nothing",
+                "villager NPCs have no AI: an effect changes nothing",
             ))
         }
         ["effect", player, name, rest @ ..] => {
@@ -327,7 +327,7 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             ("domobspawning", "false") => Ok(Command::Accepted("Anchor spawns no mobs")),
             ("doweathercycle", "false") => Ok(Command::Accepted("Anchor's weather has no cycle")),
             ("dodaylightcycle", "false") => Ok(Command::Accepted(
-                "Anchor's clock has no stop (no API until M8); it keeps running",
+                "the harness leaves Anchor's clock running",
             )),
             ("falldamage" | "drowningdamage", "false" | "true") => Ok(Command::Accepted(
                 "Anchor takes these rules from its settings (fall-damage, drowning), not a command",
@@ -488,9 +488,9 @@ fn stacks(item: Type, count: u32) -> Vec<Stack> {
     out
 }
 
-/// The points of an `xp` amount: points, or `<n>L` levels. `Context` adds points only (M8 adds
-/// levels), so levels become the points that reach them from level 0, where every scenario
-/// player starts (PMMP `ExperienceUtils::getXpToReachLevel`).
+/// The points of an `xp` amount: points, or `<n>L` levels. The harness adds points only, so levels
+/// become the points that reach them from level 0, where every scenario player starts (PMMP
+/// `ExperienceUtils::getXpToReachLevel`).
 fn experience(amount: &str) -> Result<u32, String> {
     let bad = || format!("bad experience amount {amount:?}");
     let Some(levels) = amount.strip_suffix(['L', 'l']) else {
@@ -517,8 +517,8 @@ fn effect_type(name: &str) -> Result<effect::Type, String> {
         .ok_or_else(|| format!("no effect {name}"))
 }
 
-/// The offers of the console's villager: a farmer's first-tier trades as BDS sends them (P6
-/// facts 6: payments of any damage, price multipliers 0.05 and 0; the trade module numbers
+/// The offers of the console's villager: a farmer's first-tier trades as BDS sends them (P6,
+/// `xtask/data/p6/facts.md`: payments of any damage, price multipliers 0.05 and 0; the trade module numbers
 /// them, `netId`).
 fn farmer_offers() -> Result<Vec<Offer>, String> {
     let offer = |buy: (&str, u8), sell: (&str, u8), trader_exp: u32| {
@@ -622,7 +622,7 @@ fn execute(
                 .filter_map(|id| ctx.entity_mut(id).map(|mut e| e.flag_for_despawn()))
                 .count();
             Outcome::Done(Some(format!(
-                "removed {removed} villagers (Context lists no other entities until M8)"
+                "removed {removed} villagers (the harness removes only the villagers it summoned)"
             )))
         }
         Command::RandomTickSpeed(speed) => {

@@ -1,5 +1,4 @@
-//! Raising events from the rule code, and the deferred work that runs after a callback
-//! (PLAN.md 8.2, 10.8).
+//! Raising events from the rule code, and the deferred work that runs after a callback.
 //!
 //! A rule raises a cancellable event like this:
 //!
@@ -29,7 +28,7 @@ use super::{Context, State};
 use crate::action::{self, Action};
 use crate::event::Event;
 
-/// The most callbacks waiting in the deferred queue (PLAN.md 10.8).
+/// The most callbacks waiting in the deferred queue.
 pub(crate) const MAX_DEFERRED: usize = 4096;
 /// The most deferred callbacks one tick runs; a callback that keeps deferring more cannot hold
 /// the tick, and the rest run in the next tick.

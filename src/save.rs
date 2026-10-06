@@ -1,4 +1,4 @@
-//! The save thread (PLAN.md 6, 10.6): it loads chunks and player data for the tick and commits the
+//! The save thread: it loads chunks and player data for the tick and commits the
 //! tick's save snapshots, so the tick never touches the disk.
 //!
 //! The tick sends [`Request`]s and gets [`Response`]s back as inputs of a later tick. Loads read
@@ -7,18 +7,18 @@
 //! one tick boundary, to every data file it changes, one write transaction each, the main file
 //! last ([`commit`]); requests are handled in order, so commits land in the order they were
 //! taken. Nothing else writes a file: no event (a player leaving, a chunk unloading) saves a part
-//! of the state apart (CLAUDE.md 4.7). A normal stop commits the last snapshot to every file; a
+//! of the state apart. A normal stop commits the last snapshot to every file; a
 //! crash between two files of one save leaves them at different saves, which the next start
 //! reports ([`check_save`]).
 //!
-//! A chunk is its terrain and its extras (PLAN.md 10.7): block entities, entities and scheduled
+//! A chunk is its terrain and its extras: block entities, entities and scheduled
 //! block updates. Every value is under [`MAX_RECORD`] however
-//! much a chunk holds (PLAN.md 6): the terrain is one value per sub-chunk (none for an empty
+//! much a chunk holds: the terrain is one value per sub-chunk (none for an empty
 //! sub-chunk of plains, [`seal_terrain`]) and each extras list is
 //! split into pages, all under keys that share the chunk's prefix. One load reads them all in
 //! one read transaction and answers them together; damage in any of them quarantines the chunk.
 //!
-//! The operator list, the bans and the whitelist (PLAN.md 10.8) are read once when the files
+//! The operator list, the bans and the whitelist are read once when the files
 //! open and live in the tick; a snapshot carries the entries changed since the last one. The
 //! user's server data (`user` table) is read once at start ([`Thread::read_user`]) and saved the
 //! same way.
@@ -81,7 +81,7 @@ pub(crate) enum Request {
     /// A snapshot to commit.
     Commit(Box<Snapshot>),
     /// The tick stopped normally; nothing follows. Without it the tick died, and the save thread
-    /// commits nothing more (CLAUDE.md 4.6).
+    /// commits nothing more.
     Finish,
 }
 
@@ -99,7 +99,7 @@ pub(crate) enum Response {
     /// The snapshot taken before tick `start` is committed.
     Committed { start: u64 },
     /// The snapshot taken before tick `start` could not be committed, even after reopening the
-    /// file: the server stops without saving (PLAN.md 6).
+    /// file: the server stops without saving.
     CommitFailed { start: u64 },
     /// A batch of chunks could not be read, even after reopening the file: the server stops
     /// without saving, as for a failed commit.
@@ -120,7 +120,7 @@ pub(crate) enum Loaded {
     Damaged,
 }
 
-/// The extras of one chunk (PLAN.md 10.7): one raw NBT list per kind of [`ChunkKind::EXTRAS`].
+/// The extras of one chunk: one raw NBT list per kind of [`ChunkKind::EXTRAS`].
 /// An empty list is no value in the file.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct ChunkExtras([Vec<Compound>; 3]);
@@ -152,7 +152,7 @@ impl ChunkExtras {
 pub(crate) struct Stored {
     /// The chunk's extras; empty when the file has none.
     pub(crate) extras: ChunkExtras,
-    /// What the input log keeps of the values read (PLAN.md 10.6): CRC-32C over the key bytes
+    /// What the input log keeps of the values read: CRC-32C over the key bytes
     /// after the chunk's prefix and the seal checksum of each value found, in key order; 0 when
     /// none was found. A replay from the same file reads the same bytes and gets the same value.
     pub(crate) checksum: u32,
@@ -168,7 +168,7 @@ pub(crate) enum PlayerLoad {
     Damaged,
 }
 
-/// What Anchor keeps of a player between joins (PLAN.md 10.6, 10.7).
+/// What Anchor keeps of a player between joins.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlayerData {
     /// The name of the world the player is in.
@@ -180,7 +180,7 @@ pub(crate) struct PlayerData {
 }
 
 /// The state of a tick boundary that a commit writes: everything changed since the last
-/// snapshot (PLAN.md 10.6).
+/// snapshot.
 #[derive(Debug, Default)]
 pub(crate) struct Snapshot {
     /// The tick the snapshot was taken before; the engine starts there after a restart.
@@ -210,7 +210,7 @@ pub(crate) struct Snapshot {
 }
 
 /// What a world record keeps of the tick's world (`World`): its state. Its settings (seed,
-/// spawn, generator, difficulty, time stop, weather) are not saved (PLAN.md 10.6).
+/// spawn, generator, difficulty, time stop, weather) are not saved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldValues {
     /// `World::time_ticks`.
@@ -456,7 +456,7 @@ fn world_file(
 
 /// Warns, loudly, when the data file `file` holds a later save (`meta`) than the main file's last
 /// one (`saved`): a save stopped between its files (a crash or a kill), so the files may hold
-/// different moments (U16; CLAUDE.md 4.7). The main file is committed last, so every file a
+/// different moments. The main file is committed last, so every file a
 /// save reached before it stopped is later than the main file. Returns whether it warned.
 fn check_save(saved: &Meta, file: &std::path::Path, meta: Option<&Meta>) -> bool {
     let Some(meta) = meta else {
@@ -531,7 +531,7 @@ fn delete_worlds(plans: &mut [Plan], opener: &Opener, worlds: &[DeletedWorld]) {
     }
 }
 
-/// What the tick needs to make and load worlds while it runs (PLAN.md 10.9 대응표 재검토).
+/// What the tick needs to make and load worlds while it runs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Catalog {
     /// The persistent worlds of `data/world/` that no spec names, by name.
@@ -568,7 +568,7 @@ impl std::fmt::Debug for Opened {
     }
 }
 
-/// The server's data files besides the worlds' (PLAN.md 6).
+/// The server's data files besides the worlds'.
 struct Files {
     /// The save's tick and commit identity, committed last.
     main: Open,
@@ -577,7 +577,7 @@ struct Files {
     user: Open,
 }
 
-/// The data files a replay starts from (PLAN.md 10.9 재생 도구): each opened read-only.
+/// The data files a replay starts from: each opened read-only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReplayFiles {
     pub(crate) main: PathBuf,
@@ -598,7 +598,7 @@ pub(crate) struct Thread {
     /// Whether loaded and generated chunks are lit on the CPU pool (`lighting`).
     lighting: bool,
     /// The server's custom blocks, which saved unknown states are resolved against on the CPU
-    /// pool as chunks load, before they are lit (PLAN.md 10.8).
+    /// pool as chunks load, before they are lit.
     custom: Arc<Registry>,
     /// The check being made over the open files (`/check`): what the files checked so far
     /// found.
@@ -655,7 +655,7 @@ impl Thread {
         delete_worlds(&mut self.plans, &self.opener, worlds);
     }
 
-    /// Reads the user's server data values `names` (PLAN.md 10.8), before the threads start: the
+    /// Reads the user's server data values `names`, before the threads start: the
     /// JSON of each, or `None` for a value never saved. A damaged value fails the start and stays
     /// as it is; values of names not asked for are neither read nor touched.
     pub(crate) fn read_user(
@@ -714,7 +714,7 @@ impl Thread {
     }
 }
 
-/// Opens the data files (PLAN.md 6: backup and integrity check as `start` says), first moving
+/// Opens the data files (backup and integrity check as `start` says), first moving
 /// the one server file of an older Anchor to them ([`mod@migrate`]), on a CPU pool of `cpu` threads
 /// it joins), and resolves the worlds: each gets the settings of its spec ([`new_world`]); a
 /// persistent world whose file `data/world/` holds keeps its time and number, a new one starts at
@@ -1086,13 +1086,13 @@ fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
 
 /// The save thread: answers requests in order until [`Request::Finish`], then marks every open
 /// file closed after a normal stop. If the tick drops its sender without `Finish` (it died), the
-/// requests still queued are dropped and the files are closed as they are (CLAUDE.md 4.6).
+/// requests still queued are dropped and the files are closed as they are.
 /// Returns the error of a commit or a chunk read that failed after its retries, or of the final
 /// close. After such a failure no later snapshot is committed: it would write a state without the
-/// changes of the one that failed (CLAUDE.md 2.1).
+/// changes of the one that failed.
 ///
-/// A snapshot with its backup flag starts an online backup of every open file once committed
-/// (PLAN.md 10.9 백업), unless one is being made: that request is refused. The backups are copied
+/// A snapshot with its backup flag starts an online backup of every open file once committed,
+/// unless one is being made: that request is refused. The backups are copied
 /// in steps whenever no request waits, so a request waits at most one step; `Finish` completes
 /// them before the files close, and a tick that died drops them. Their result is logged, not
 /// answered: the tick's state does not depend on it. A snapshot with its check flag starts a check
@@ -1564,7 +1564,7 @@ fn load_player(storage: &mut Storage, key: PlayerKey) -> Response {
     Response::Player { key, data }
 }
 
-/// Commits a snapshot (PLAN.md 6): to each world file that changed its changed chunks and extras
+/// Commits a snapshot: to each world file that changed its changed chunks and extras
 /// (sealed on the CPU pool) and its record, then the changed players, operators, bans and
 /// whitelist and server data each to its file, then the meta value to the main file, last. Each
 /// file gets its write transaction, and each written file the meta value too, so a start can tell
@@ -1715,7 +1715,7 @@ pub(crate) type Write = (Key, Option<Vec<u8>>);
 
 /// The sub-chunk values a commit writes for a changed chunk's terrain, by key: its changed
 /// sub-chunks, or all 24 when the file does not hold it by sub-chunk yet. An empty sub-chunk of
-/// plains has no value (format 9, PLAN.md 6), `None` here: a load reads it back from no value.
+/// plains has no value (format 9), `None` here: a load reads it back from no value.
 /// Only a chunk whose every sub-chunk is so keeps the value of its lowest one, written whether it
 /// changed or not, so the file still holds the chunk and does not generate it.
 pub(crate) fn seal_terrain(id: ChunkId, chunk: &Chunk) -> Result<Vec<Write>, storage::Error> {
@@ -1767,7 +1767,7 @@ pub(crate) fn seal_pages(
         .collect()
 }
 
-/// The stored form of a chunk: block states as name, states and version (PLAN.md 6), unknown
+/// The stored form of a chunk: block states as name, states and version, unknown
 /// states as they were read.
 #[cfg(test)]
 pub(crate) fn to_record(chunk: &Chunk) -> ChunkRecord {
@@ -1875,7 +1875,7 @@ pub(crate) fn find_state(entry: &nbt::Compound) -> Option<State> {
 
 /// The chunk of a stored record, or `None` if its parts are invalid (damage: the record decoded
 /// but does not describe a chunk). A state Anchor does not know is one of `custom`'s blocks if it
-/// names one, else inert if clients know it or unknown, keeping its NBT either way (PLAN.md 7):
+/// names one, else inert if clients know it or unknown, keeping its NBT either way:
 /// a stored chunk needs no new format to show its inert blocks.
 pub(crate) fn to_chunk(record: ChunkRecord, custom: &Registry) -> Option<Chunk> {
     let mut unknown: Vec<nbt::Compound> = Vec::new();
@@ -2116,7 +2116,7 @@ pub(crate) mod tests {
             chunks: vec![(0, ChunkPos::new(2, 2), changed_chunk(ChunkPos::new(2, 2)))],
             ..Snapshot::default()
         };
-        // No `Finish`: the tick panicked after queuing the snapshot (CLAUDE.md 4.6).
+        // No `Finish`: the tick panicked after queuing the snapshot.
         let (answers, _, result) = serve_exactly(&dir, vec![Request::Commit(Box::new(snapshot))]);
         result.unwrap();
         assert!(answers.is_empty(), "{answers:?}");
@@ -2528,8 +2528,7 @@ pub(crate) mod tests {
 
     /// A server file of format 7, whose world records held settings, moves to the data files and
     /// opens with the settings of the specs, losing nothing of its state: chunks, extras,
-    /// players, the world's number and time. Every value is in the current format then (PLAN.md
-    /// 10.6, M9 후속 U10, U16).
+    /// players, the world's number and time. Every value is in the current format then.
     #[test]
     #[expect(
         clippy::too_many_lines,
@@ -2549,7 +2548,7 @@ pub(crate) mod tests {
         let extras = random_extras(&mut rng);
         let world = Key::World;
         {
-            // What the Anchor before U10 wrote: format 7 values throughout, its world record with
+            // A format 7 file: format 7 values throughout, its world record with
             // seed 99, spawn (40, 7, -40), the void generator, time stopped, hard and thunder.
             let mut storage = old_file(&dir);
             let mut batch = Batch::default();
@@ -2657,7 +2656,7 @@ pub(crate) mod tests {
         let terrain = chunk_id(0, pos).key(ChunkPart::Column);
         let player = PlayerKey::offline("Old");
         {
-            // What Anchor M6 wrote: format 1 meta, world, chunk and player values.
+            // A format 1 file: meta, world, chunk and player values.
             let mut storage = old_file(&dir);
             let world = WorldRecord { number: 0, time: 0 };
             let mut batch = Batch::default();
@@ -3079,8 +3078,8 @@ pub(crate) mod tests {
         ])
     }
 
-    /// One chunk full of signs at the text limit holds more block entity NBT than one value may
-    /// (PLAN.md 6): it commits all the same, reads back byte for byte, and a shorter list later
+    /// One chunk full of signs at the text limit holds more block entity NBT than one value may:
+    /// it commits all the same, reads back byte for byte, and a shorter list later
     /// leaves no page of the longer one behind.
     #[test]
     fn one_chunk_full_of_max_text_signs_commits_and_reads_back() {
@@ -3118,7 +3117,7 @@ pub(crate) mod tests {
 
     /// A chunk whose every sub-chunk holds 4096 states of the longest NBT: the vanilla ones in
     /// 22 sub-chunks, custom-like ones (128-byte names, 16 properties) in the other two. The
-    /// whole column is far over what one value may hold (PLAN.md 6); it commits and reads back.
+    /// whole column is far over what one value may hold; it commits and reads back.
     #[test]
     fn a_chunk_of_the_largest_states_in_every_sub_chunk_commits() {
         use crate::storage::codec::tests::pack;
@@ -3310,7 +3309,7 @@ pub(crate) mod tests {
         assert!(pool.shutdown());
     }
 
-    /// Format 9 (M9 후속 U14): an empty sub-chunk of plains has no value, so an imported world
+    /// Format 9: an empty sub-chunk of plains has no value, so an imported world
     /// does not hold a value for every sky sub-chunk; a chunk that is empty everywhere keeps the
     /// value of its lowest sub-chunk, so it is loaded and not generated again.
     #[test]
@@ -3509,7 +3508,7 @@ pub(crate) mod tests {
     }
 
     /// Writes the sealed world record `record` under the world name `name` into the old server
-    /// file of `dir` (closed), as the Anchor before U16 keyed its records.
+    /// file of `dir` (closed), as that file keyed its records.
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn old_world_record(dir: &TempDir, name: &str, record: &WorldRecord) {
         let db = redb::Database::create(dir.0.join(storage::OLD_SERVER_FILE)).unwrap();
@@ -3537,7 +3536,7 @@ pub(crate) mod tests {
         specs
     }
 
-    /// The old server file (U16): every value moves to the data files in the current format,
+    /// The old server file: every value moves to the data files in the current format,
     /// each world to its own file with its number and time, a damaged chunk as it was (still
     /// quarantined); the old file and the move's folder are gone, and an undeclared world is one
     /// the tick may load.
@@ -3777,7 +3776,7 @@ pub(crate) mod tests {
     }
 
     /// A normal stop commits the last snapshot to every file it changes, the main file last, and
-    /// marks every file closed: nothing is doubled or lost between the files (CLAUDE.md 4.7).
+    /// marks every file closed: nothing is doubled or lost between the files.
     #[test]
     fn a_normal_stop_saves_the_last_snapshot_to_every_file() {
         let dir = TempDir::new("stop-all");
@@ -3838,7 +3837,7 @@ pub(crate) mod tests {
     }
 
     /// A save that stopped between its files (a kill after the world file's commit, before the
-    /// main file's) is found at the next start: the file is named with its save (CLAUDE.md 4.7).
+    /// main file's) is found at the next start: the file is named with its save.
     #[test]
     fn a_save_stopped_between_files_is_found_at_the_next_start() {
         let dir = TempDir::new("save-split");

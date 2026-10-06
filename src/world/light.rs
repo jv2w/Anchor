@@ -1,4 +1,4 @@
-//! Server light (PLAN.md 6 "서버 조명", 10.7 "조명"): block light and sky light for game rules,
+//! Server light: block light and sky light for game rules,
 //! never sent to clients. A port of PMMP 6a7cc02 `src/world/light/*` and the light parts of its
 //! `World`, with PMMP's defects fixed (listed on [`Engine`]).
 //!
@@ -40,7 +40,7 @@ const DAY: i64 = 24_000;
 /// `computeSunAnglePercentage`, which use `cos`). Each entry is the first tick of the day with
 /// that reduction; the test `the_time_table_is_pmmps_formula` recomputes all 24,000 ticks with
 /// the deterministic [`crate::math::cos`]. A table keeps platform `cos` out of tick code
-/// (PLAN.md 6) and costs a binary search over 23 entries.
+/// and costs a binary search over 23 entries.
 const REDUCTION: [(i64, u8); 23] = [
     (0, 0),
     (12_041, 1),
@@ -230,7 +230,7 @@ impl ChunkLight {
     }
 }
 
-/// A word-at-a-time FNV-1a mix for light hashes (tests, PLAN.md 10.7 결정성): cheap enough to
+/// A word-at-a-time FNV-1a mix for the light hashes of the determinism tests: cheap enough to
 /// hash the light of every loaded chunk after every tick of the determinism runs.
 #[cfg(test)]
 #[derive(Debug)]
@@ -448,7 +448,7 @@ fn face_pair(pos: ChunkPos, side: Facing, i: u32) -> Option<(BlockPos, BlockPos)
 /// Pairs across one chunk face: 24 sub-chunks of 16 × 16.
 const FACE_PAIRS: u32 = 24 * 256;
 
-/// Bounds on the engine's queues (CLAUDE.md 2.2).
+/// Bounds on the engine's queues.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Limits {
     /// Changed blocks waiting to be looked at.
@@ -511,7 +511,7 @@ struct Retired {
     cursor: u32,
 }
 
-/// The light work of a world (PLAN.md 10.7). Only the tick uses it; [`Self::step`] does the
+/// The light work of a world. Only the tick uses it; [`Self::step`] does the
 /// queued work under a budget of units (one per block looked at), in a fixed order, so the
 /// result does not depend on threads or timing.
 ///
@@ -818,7 +818,7 @@ impl Engine {
     /// The light of `channel` at a spot of a lit chunk.
     // `level`, `relax` and `relax_at` run for every block light spreads to. Without the hint the
     // compiler kept them as calls once `step` grew, and lighting a newly loaded chunk cost about
-    // 40% more (PLAN.md 10.9, M9 R5).
+    // 40% more.
     #[inline]
     fn level(chunks: &ChunkIndex, pos: BlockPos, channel: Channel) -> Option<u8> {
         let spot = Spot::of(pos)?;
@@ -1338,7 +1338,7 @@ impl Engine {
     }
 }
 
-// Checkpoint forms (PLAN.md 10.9 재생 도구): light depends on what was loaded when, so a replay
+// Checkpoint forms for the replay tool: light depends on what was loaded when, so a replay
 // takes it from the checkpoint. Every field is kept; the index is `tasks` again.
 
 crate::tick::checkpoint::fields!(ChunkLight { arrays, heights });
@@ -2120,7 +2120,7 @@ mod tests {
         );
     }
 
-    /// Measures light costs (PLAN.md 10.7 "성능"):
+    /// Measures light costs:
     /// `cargo test --release --lib world::light::tests::light_cost -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement"]

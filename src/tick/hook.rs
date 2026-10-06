@@ -1,6 +1,6 @@
-//! Packet hooks (PLAN.md 10.8): user code that sees, changes or drops the packets players send,
-//! in the input phase, and the packets the server sends, in the output phase; and the start-game
-//! hook, which edits each player's `StartGame`.
+//! Packet hooks: user code that sees, changes or drops the packets players send, in the input
+//! phase, and the packets the server sends, in the output phase; and the start-game hook, which
+//! edits each player's `StartGame`.
 //!
 //! Receive hooks run in the tick's serial input phase with a [`Context`], in registration order,
 //! before Anchor applies the packet; the input log keeps the packet as it arrived, so a replay

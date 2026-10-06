@@ -1312,7 +1312,7 @@ fn nothing_registered_sends_exactly_the_vanilla_content() {
 
 /// A saved chunk keeps a custom block by name and state: loaded with the block registered it
 /// is the custom state again; without it, the block stays unknown (shown as
-/// `minecraft:info_update`) and is saved back exactly as it was (PLAN.md 7).
+/// `minecraft:info_update`) and is saved back exactly as it was.
 #[test]
 fn saved_custom_blocks_load_back_or_stay_as_they_were_saved() {
     use crate::world::{Chunk, Entry};

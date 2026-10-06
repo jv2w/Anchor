@@ -2,7 +2,7 @@
 //!
 //! [`Reader`] and [`Writer`] mirror gophertunnel's `protocol.IO`. Every `IO` method has a
 //! `Reader` method that returns the value and a `Writer` method that takes it. The method name
-//! is the Go name in `snake_case`, with acronyms written as one word (CLAUDE.md 5.1):
+//! is the Go name in `snake_case`, with acronyms written as one word:
 //! `Uint8` → `uint8`, `Varuint64` → `varuint64`, `BEInt32` → `be_int32`, `StringUTF` →
 //! `string_utf`, `ByteSlice` → `byte_slice`, `UUID` → `uuid`, `BEARGB` → `be_argb`,
 //! `ActorUniqueIDVaruint64` → `actor_unique_id_varuint64`. `NBTList` has no form because no
@@ -11,7 +11,7 @@
 //! [`Result`] only when it can fail (a length that does not fit its prefix, a value the wire
 //! cannot carry); the infallible ones return nothing.
 //!
-//! Decode limits (PLAN.md 10.1) all go through [`Reader::limit`] and all fail with
+//! Decode limits all go through [`Reader::limit`] and all fail with
 //! [`Error::Size`]: a declared byte length is at most the remaining input, a list count is at
 //! most [`MAX_LIST_LEN`] and the remaining input, and every allocation first takes
 //! `count × size_of` from the reader's allocation budget. The `_max` readers also take a field's

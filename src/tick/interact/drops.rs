@@ -13,7 +13,7 @@ use crate::random::Random;
 use super::props;
 
 /// What a block drops: item stacks, and how many of the block's own item only its block entity
-/// can name (a bed's colour, a banner's patterns; PLAN.md 10.7 `ItemForm::BlockEntity`).
+/// can name (a bed's colour, a banner's patterns: `ItemForm::BlockEntity`).
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Drops {
     /// The stacks, none empty.
@@ -741,7 +741,7 @@ mod tests {
     }
 
     /// Every state's drops by hand, with the lowest compatible tool and with Silk Touch are the
-    /// PMMP dump's deterministic drops (PLAN.md 10.7), and XP is in the dump's range.
+    /// PMMP dump's deterministic drops, and XP is in the dump's range.
     #[test]
     fn deterministic_drops_equal_the_pmmp_dump_for_every_state() {
         let mut wrong = Vec::new();

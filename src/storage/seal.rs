@@ -19,14 +19,14 @@ use crate::protocol::{Reader, Writer};
 use super::codec::Record;
 use super::{Error, Result};
 
-/// The format version this Anchor writes and the newest it reads. Format 2 (M7) adds player
-/// extras and chunk kinds 1 to 3, format 3 (M7) the world time in world records, format 4 (M9)
-/// the terrain as one value per sub-chunk and extras lists in pages, format 5 (M9) the time stop
-/// and the difficulty in world records, format 6 (M9) the weather in world records, format 7 (M9)
-/// the commit identity in the meta value, format 8 (M9 후속 U10) world records without settings
-/// (the number and the time alone); values of formats 1 to 7 still read, their settings skipped.
-/// Format 9 (M9 후속 U14) compresses with raw DEFLATE instead of Snappy, the records unchanged:
-/// a third smaller on the disk (PLAN.md 10.6 저장 크기). Snappy bodies of older values still read.
+/// The format version this Anchor writes and the newest it reads. Format 2 adds player extras
+/// and chunk kinds 1 to 3, format 3 the world time in world records, format 4 the terrain as one
+/// value per sub-chunk and extras lists in pages, format 5 the time stop and the difficulty in
+/// world records, format 6 the weather in world records, format 7 the commit identity in the meta
+/// value, format 8 world records without settings (the number and the time alone); values of
+/// formats 1 to 7 still read, their settings skipped. Format 9 compresses with raw DEFLATE
+/// instead of Snappy, the records unchanged: a third smaller on the disk. Snappy bodies of older
+/// values still read.
 /// Format 9 also leaves out the values of empty sub-chunks of plains (`save::seal_terrain`).
 pub(crate) const FORMAT_VERSION: u16 = 9;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
@@ -46,7 +46,7 @@ const STORED: u8 = 0;
 const SNAPPY: u8 = 1;
 const DEFLATE: u8 = 2;
 /// The libdeflate level values are compressed at: level 9 is 1.2% smaller and level 12 4.1% on
-/// a whole imported world, both slower (PLAN.md 10.6 저장 크기).
+/// a whole imported world, both slower.
 const DEFLATE_LEVEL: u8 = 6;
 
 /// Encodes `record` and seals it under `key` (the key's bytes).
@@ -279,13 +279,13 @@ impl Crc32c {
     }
 }
 
-/// Seals record bytes as Anchor M6 did: format 1.
+/// Seals record bytes in format 1, with Snappy.
 #[cfg(test)]
 pub(crate) fn seal_v1(key: &[u8], record: &[u8]) -> Vec<u8> {
     seal_bytes(key, record, 1, Compression::Snappy).unwrap()
 }
 
-/// Seals record bytes as the Anchor before M9 후속 U10 did: format 7.
+/// Seals record bytes in format 7, with Snappy.
 #[cfg(test)]
 pub(crate) fn seal_v7(key: &[u8], record: &[u8]) -> Vec<u8> {
     seal_bytes(key, record, 7, Compression::Snappy).unwrap()
@@ -370,7 +370,7 @@ mod tests {
         assert_eq!(version(&sealed).unwrap(), FORMAT_VERSION);
     }
 
-    /// Format 9 (M9 후속 U14): values are raw DEFLATE, a third smaller than the Snappy of
+    /// Format 9: values are raw DEFLATE, a third smaller than the Snappy of
     /// format 8 on terrain, and Snappy values of older formats still open to the same record.
     #[test]
     fn values_are_deflated_and_older_snappy_values_still_open() {
@@ -579,7 +579,7 @@ mod tests {
         );
     }
 
-    /// Compression of chunk records for PLAN.md: `cargo test --release --lib
+    /// Measures the compression of chunk records: `cargo test --release --lib
     /// storage::seal::tests::measure_compression -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement"]

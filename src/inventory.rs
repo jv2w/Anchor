@@ -1,5 +1,5 @@
 //! Inventories: the slots of a player and of container blocks, read through [`Inventory`] and
-//! changed through [`Editor`] (PMMP `pocketmine\inventory`, PLAN.md 10.8).
+//! changed through [`Editor`] (PMMP `pocketmine\inventory`).
 //!
 //! A player has six inventories ([`Kind`]); [`Player::inventory`](crate::player::Player) and
 //! `inventory_mut` lend them. A container block's slots (a chest, a double chest as one
@@ -8,8 +8,8 @@
 //!
 //! Every write tells the clients that show the slot: the player's own client, or every player
 //! with the container's window open. A written slot gets a new stack network ID, so a request a
-//! client built on the old contents is refused instead of applied to the new ones (PLAN.md 10.7).
-//! Direct writes raise no events (PLAN.md 8.2).
+//! client built on the old contents is refused instead of applied to the new ones.
+//! Direct writes raise no events.
 
 use std::fmt;
 

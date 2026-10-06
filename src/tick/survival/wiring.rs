@@ -1,7 +1,7 @@
-//! Tests of the events the survival, movement, chat and leave rules raise (PLAN.md 10.8): the
-//! listener sees the right fields, cancelling leaves the game as it was and resyncs the client,
-//! a changed field changes the outcome, a monitor sees the applied state, and a listener that
-//! changes the game so the rule's check fails cancels the action.
+//! Tests of the events the survival, movement, chat and leave rules raise: the listener sees the
+//! right fields, cancelling leaves the game as it was and resyncs the client, a changed field
+//! changes the outcome, a monitor sees the applied state, and a listener that changes the game so
+//! the rule's check fails cancels the action.
 
 use tokio::sync::mpsc;
 
@@ -1096,8 +1096,8 @@ fn rules_without_listeners_build_no_events_and_change_nothing() {
     assert_eq!(script(Listeners::default()), script(watching));
 }
 
-// The settings that switch survival systems off (PLAN.md 8.5, 10.9): with the switch off the
-// system's state stays as it was, its events are not raised and its packets are not sent.
+// The settings that switch survival systems off: with the switch off the system's state stays as it
+// was, its events are not raised and its packets are not sent.
 
 /// The names of the attributes `packets` carry.
 fn attribute_names(packets: &[Packet]) -> Vec<String> {
@@ -1457,9 +1457,8 @@ fn beds_off_let_no_one_sleep_or_set_a_spawn_point() {
 }
 
 /// `daylight-cycle = false` holds the time; the client is told as BDS tells it with
-/// `doDayLightCycle` false (P6 `rules`/`rulesjoin`, m9-facts.md): the rule, the time of day in
-/// `StartGame`'s day cycle lock, the clock not paused and still corrected now and then, at the
-/// held time.
+/// `doDayLightCycle` false (P6 `rules`/`rulesjoin`): the rule, the time of day in `StartGame`'s day
+/// cycle lock, the clock not paused and still corrected now and then, at the held time.
 #[test]
 fn daylight_cycle_off_stops_the_time_and_tells_the_client_as_bds() {
     let window = spawn_window(|c| c.general.daylight_cycle = false);

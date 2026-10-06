@@ -1,7 +1,7 @@
-//! The entity rules' events (PLAN.md 10.8): each is raised at its seam with the right fields;
-//! cancelling keeps the game as it was; changed fields change the outcome; monitors see the
-//! applied state; a listener that changes the game so that the check fails cancels; items are
-//! conserved whatever the listeners do.
+//! The entity rules' events: each is raised at its seam with the right fields; cancelling keeps the
+//! game as it was; changed fields change the outcome; monitors see the applied state; a listener
+//! that changes the game so that the check fails cancels; items are conserved whatever the
+//! listeners do.
 
 use std::cell::Cell;
 

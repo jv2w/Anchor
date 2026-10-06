@@ -1,9 +1,8 @@
-//! The automatic scenario (PLAN.md 10.7 판정식 "자동 시나리오"): one survival player, driven only
-//! by the packets a client sends, goes from a log broken by hand to a trade with a villager. The
-//! client learns its stack network IDs, windows, enchanting options, villagers and offers from the
-//! packets the server sends, as a real client does; it knows which item each of its slots holds
-//! as a real client does from the same packets (the test reads that from the server instead of
-//! decoding item instances).
+//! The automatic scenario: one survival player, driven only by the packets a client sends, goes
+//! from a log broken by hand to a trade with a villager. The client learns its stack network IDs,
+//! windows, enchanting options, villagers and offers from the packets the server sends, as a real
+//! client does; it knows which item each of its slots holds as a real client does from the same
+//! packets (the test reads that from the server instead of decoding item instances).
 //!
 //! The flat world has no trees, stone, ore, grass seeds or villagers, so a task (the public
 //! `Context`) sets up what the stages need: it sets each oak log, stone block and the enchanting

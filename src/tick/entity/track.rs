@@ -1,8 +1,8 @@
-//! What players are sent of entities and of each other (PLAN.md 10.7 "추적"): the spawn packets
-//! (`AddItemActor`, `AddActor`, `AddPlayer` with their metadata, `AddPainting`; a human NPC also
-//! goes through the player list, as PMMP `Human::sendSpawnPacket` does), movement (`MoveActorDelta` as BDS
-//! sends it, `SetActorMotion`; `MoveActorAbsolute` for players, as PMMP sends it), `SetActorData`
-//! when the flags or a cloud's radius change, equipment, and `RemoveActor`.
+//! What players are sent of entities and of each other: the spawn packets (`AddItemActor`,
+//! `AddActor`, `AddPlayer` with their metadata, `AddPainting`; a human NPC also goes through the
+//! player list, as PMMP `Human::sendSpawnPacket` does), movement (`MoveActorDelta` as BDS sends it,
+//! `SetActorMotion`; `MoveActorAbsolute` for players, as PMMP sends it), `SetActorData` when the
+//! flags or a cloud's radius change, equipment, and `RemoveActor`.
 
 use super::kind::{Character, Cloud, Form, Kind, Painting, Projectile, Shot};
 use super::object;
@@ -51,13 +51,13 @@ const PLAYER_LIST_REMOVE: u8 = 1;
 /// The potion splash colour of an effect-less potion or cloud (PMMP
 /// `PotionSplashParticle::DEFAULT_COLOR`, ARGB 0x385dc6).
 pub(super) const DEFAULT_POTION_COLOUR: [u8; 4] = [0x38, 0x5d, 0xc6, 0xff];
-/// The skin of human NPCs: one opaque colour on the standard 64 × 32 model (a default skin;
-/// skins of NPCs are an M8 API).
+/// The default skin of human NPCs: one opaque colour on the standard 64 × 32 model (the API can
+/// give an NPC its own skin).
 const NPC_SKIN_COLOUR: [u8; 4] = [0x9a, 0x6e, 0x52, 0xff];
 /// The health attribute (PMMP `Attribute::HEALTH`).
 const HEALTH: &str = "minecraft:health";
 
-/// The unique ID of a runtime ID (they are equal in Anchor, PLAN.md 10.7).
+/// The unique ID of a runtime ID (they are equal in Anchor).
 fn unique(runtime_id: u64) -> i64 {
     runtime_id.cast_signed()
 }
@@ -144,7 +144,7 @@ pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
         MetadataValue::Float32(to_f32(entity.scale)),
     );
     put(EntityDataKey::LeashHolder, MetadataValue::Int64(-1));
-    // A firework rocket shows no owner (BDS, P6 `entities`, m9-facts.md).
+    // A firework rocket shows no owner (BDS, P6 `entities`).
     let owner = match &entity.kind {
         Kind::Projectile(p) if p.owner_runtime_id != 0 => unique(p.owner_runtime_id),
         _ => -1,
@@ -221,10 +221,9 @@ pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
     m
 }
 
-/// An end crystal's and a firework rocket's own metadata (PMMP `EndCrystal::syncNetworkData`:
-/// the beam target, (0, 0, 0) without one; a rocket as BDS shows it (P6 `entities`,
-/// m9-facts.md): the item's NBT with the explosions and the flight, the direction (0, 1, 0) and
-/// no attached entity (-1)).
+/// An end crystal's and a firework rocket's own metadata (PMMP `EndCrystal::syncNetworkData`: the
+/// beam target, (0, 0, 0) without one; a rocket as BDS shows it (P6 `entities`): the item's NBT
+/// with the explosions and the flight, the direction (0, 1, 0) and no attached entity (-1)).
 fn object_metadata(kind: &Kind, put: &mut impl FnMut(EntityDataKey, MetadataValue)) {
     match kind {
         Kind::EndCrystal(c) => {
@@ -289,10 +288,10 @@ pub(super) fn trade_data(runtime_id: u64, offers: &Offers, before: (u8, u32)) ->
     })
 }
 
-/// The particle a potion's cloud shows (BDS, P6 `potions`, m9-facts.md).
+/// The particle a potion's cloud shows (BDS, P6 `potions`).
 const CLOUD_PARTICLE: i32 = 35;
 
-/// A cloud's metadata as BDS shows a lingering potion's (P6 `potions`, m9-facts.md; PMMP
+/// A cloud's metadata as BDS shows a lingering potion's (P6 `potions`; PMMP
 /// `AreaEffectCloud::syncNetworkData` names the keys): the radius, colour, particle, duration,
 /// radius change on pickup and pickup count. The radius change per tick stays 0: the server
 /// shrinks the cloud and sends its radius.
@@ -643,10 +642,10 @@ pub(super) struct Shown<'a> {
     pub(super) build_platform: i32,
 }
 
-/// The packet that shows a player to another as BDS shows it (P6 `others`, m9-facts.md): the
-/// feet position, the default game type, the base ability layer, the device, and the player's own
-/// entity data (its flags now, such as Breathing) with the seven keys BDS adds for the others:
-/// jump duration, scale, the box's width and height, seat offset and index, arrow shooter.
+/// The packet that shows a player to another as BDS shows it (P6 `others`): the feet position, the
+/// default game type, the base ability layer, the device, and the player's own entity data (its
+/// flags now, such as Breathing) with the seven keys BDS adds for the others: jump duration, scale,
+/// the box's width and height, seat offset and index, arrow shooter.
 pub(super) fn add_player(p: Shown<'_>) -> Packet {
     let mut m = p.data;
     let (width, height) = match m.get(&(EntityDataKey::CollisionBox as u32)) {
@@ -729,8 +728,8 @@ fn waypoint(runtime_id: u64, action: u8, waypoint: Waypoint) -> Packet {
 }
 
 /// What a player sees of another on its locator bar when it starts seeing it, as BDS sends it (P6
-/// `others`, m9-facts.md): its location at the eyes, its waypoint added there, then handed to the
-/// client to follow the player (the client's position authority, the small dot).
+/// `others`): its location at the eyes, its waypoint added there, then handed to the client to
+/// follow the player (the client's position authority, the small dot).
 pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
     let (position, unique_id) = (eye.to_f32(), unique(runtime_id));
     [
@@ -864,9 +863,9 @@ pub(super) fn armour(runtime_id: u64, armour: &[Stack; 4]) -> Packet {
 mod tests {
     use super::*;
 
-    /// A lingering potion's cloud shows BDS's cloud keys and types (P6 `potions`, m9-facts.md):
-    /// the particle 35, the duration and the radius change on pickup, an int pickup count, and
-    /// not the keys BDS leaves out.
+    /// A lingering potion's cloud shows BDS's cloud keys and types (P6 `potions`): the particle 35,
+    /// the duration and the radius change on pickup, an int pickup count, and not the keys BDS
+    /// leaves out.
     #[test]
     fn a_cloud_shows_bds_cloud_data() {
         let cloud = super::super::projectile::new_cloud(&[]);

@@ -425,7 +425,7 @@ fn a_shutdown_from_another_thread_ends_run() {
     assert!(warnings.is_empty(), "{warnings:#?}");
 }
 
-/// Measurement for PLAN.md 5 (U8): the spread of the real tick loop's intervals over 200 ticks,
+/// Measures the spread of the real tick loop's intervals over 200 ticks,
 /// as a task sees them. A wait on Windows' default 15.625 ms timer makes 50 ms ticks 46.9 or
 /// 62.5 ms, which other players' movement shows as stutter. `cargo test --release --test server
 /// tick_intervals -- --ignored --nocapture`.

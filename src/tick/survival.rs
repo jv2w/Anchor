@@ -1,7 +1,6 @@
 //! Survival rules of players: movement, health, hunger, experience, effects, damage, death and
-//! respawn, game modes and abilities, attributes, combat, sleeping and the world clock
-//! (PLAN.md 10.7 "플레이어", PMMP `Player`, `Human`, `Living`, `HungerManager`,
-//! `ExperienceManager`, `EffectManager`).
+//! respawn, game modes and abilities, attributes, combat, sleeping and the world clock (PMMP
+//! `Player`, `Human`, `Living`, `HungerManager`, `ExperienceManager`, `EffectManager`).
 //!
 //! Every rule runs on the tick thread in a serial phase. A player's survival state changes only
 //! here; other modules call the functions below. The client hears about changes at the end of
@@ -64,7 +63,7 @@ const MAX_HEALTH: f64 = 20.0;
 const MAX_FOOD: f64 = 20.0;
 /// The largest saturation (PMMP `Attribute::SATURATION`).
 const MAX_SATURATION: f64 = 20.0;
-/// The saturation of a new or respawned player: BDS sends 5 (P6 facts 7; PMMP starts at 20).
+/// The saturation of a new or respawned player: BDS sends 5 (P6; PMMP starts at 20).
 const DEFAULT_SATURATION: f64 = 5.0;
 /// Air supply in ticks (PMMP `Living::DEFAULT_BREATH_TICKS`).
 const MAX_AIR: i16 = 300;
@@ -156,8 +155,8 @@ pub(super) struct Survival {
     appearance: appearance::Appearance,
 }
 
-/// The survival systems the server settings turn on (PLAN.md 8.5), fixed at start and kept with
-/// each player: the public API, which has only the player, refuses to change a system that is off.
+/// The survival systems the server settings turn on, fixed at start and kept with each player: the
+/// public API, which has only the player, refuses to change a system that is off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Switches {
     /// `hunger`: food, saturation and exhaustion.
@@ -462,8 +461,7 @@ pub(super) fn save(survival: &Survival, extra: &mut Compound) {
 /// `PlayerAuthInput`: rotation, input flags (sneaking, sprinting, swimming, gliding, flying,
 /// jumping, missed swings) and the movement, checked as PMMP does (PMMP
 /// `InGamePacketHandler::handlePlayerAuthInput`, `Player::handleMovement`). Positions that are
-/// not finite or outside the world border are ignored: tick state holds no NaN or infinity
-/// (PLAN.md 2.1).
+/// not finite or outside the world border are ignored: tick state holds no NaN or infinity.
 pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &PlayerAuthInput) {
     movement::on_auth_input(state, session, packet);
 }
@@ -508,11 +506,11 @@ pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Refused;
 
-/// Asks the listeners of `E` whether an action goes ahead (PLAN.md 10.8, [`dispatch`]): the
-/// event is built with `build` only when something listens to or monitors `E`. [`Refused`] if a
-/// listener cancelled it or, after a listener ran, `still` no longer holds for the game the
-/// listeners left (they may have changed it); otherwise the event, if built, to read the
-/// listeners' changes from and to [`watch`] once the action is applied.
+/// Asks the listeners of `E` whether an action goes ahead ([`dispatch`]): the event is built with
+/// `build` only when something listens to or monitors `E`. [`Refused`] if a listener cancelled it
+/// or, after a listener ran, `still` no longer holds for the game the listeners left (they may have
+/// changed it); otherwise the event, if built, to read the listeners' changes from and to [`watch`]
+/// once the action is applied.
 fn ask<E: Event>(
     state: &mut State,
     build: impl FnOnce() -> E,
@@ -1301,7 +1299,7 @@ mod tests {
             .into_iter()
             .filter(|i| !chunks.contains(i))
             .collect();
-        // m7-facts.md 7 without the spawn sound Anchor never sends (deferred.txt).
+        // BDS's spawn window (P6) without the spawn sound Anchor never sends (deferred.txt).
         let property = id(&Packet::SyncActorProperty(p::SyncActorProperty::default()));
         let mut want = vec![
             id(&Packet::LevelEventGeneric(p::LevelEventGeneric::default())),
@@ -1491,7 +1489,7 @@ mod tests {
         assert_eq!(metadata[&7], MetadataValue::Int16(300));
         assert_eq!(metadata[&130], MetadataValue::Vec3([0.6, 1.8, 0.0]));
         assert_eq!(metadata[&4], MetadataValue::String("player1".to_owned()));
-        // BDS's types of keys 136 to 140 (P6 `others` data types, m9-facts.md); 139 is not sent.
+        // BDS's types of keys 136 to 140 (P6 `others` data types); 139 is not sent.
         assert_eq!(metadata[&136], MetadataValue::Int32(-1));
         assert_eq!(metadata[&137], MetadataValue::Int32(-1));
         assert_eq!(metadata[&138], MetadataValue::Int32(-1));
@@ -1744,7 +1742,7 @@ mod tests {
     }
 
     /// The hurt event's data is BDS's damage cause number (P6: drowning 9 in `craft`, an attack 2
-    /// in `others`, lightning 24 in `weather`; m9-facts.md).
+    /// in `others`, lightning 24 in `weather`).
     #[test]
     fn hurt_events_carry_the_bds_damage_cause() {
         let mut server = duel(|_| {});
@@ -1982,8 +1980,7 @@ mod tests {
     }
 
     /// Clearing the effects removes them in effect ID order, each removal carrying the effect's
-    /// amplifier and the time it had left, as BDS sends them (P6 `syntax` `effect @s clear`,
-    /// m9-facts.md).
+    /// amplifier and the time it had left, as BDS sends them (P6 `syntax` `effect @s clear`).
     #[test]
     fn cleared_effects_go_in_id_order_with_what_they_had() {
         let mut server = Server::new(1, |_| {});
@@ -2259,7 +2256,7 @@ mod tests {
     }
 
     /// A player that dies leaves the others' locator bar until it respawns, as BDS shows it (P6
-    /// `others`, m9-facts.md): a hidden location and an invisible waypoint, then a visible one.
+    /// `others`): a hidden location and an invisible waypoint, then a visible one.
     #[test]
     fn the_dead_leave_the_locator_bar_until_they_respawn() {
         let mut server = duel(|_| {});

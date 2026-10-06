@@ -161,8 +161,8 @@ impl ClientData {
     /// `ClientDataToSkinDataHelper::fromClientData`, without PMMP's `LegacySkinAdapter`, which
     /// swaps persona skins for a random colour: Anchor keeps the skin as sent). The images,
     /// geometry, resource patch and animation data are decoded from base64; the full skin ID is
-    /// the skin ID and the cape ID together (PMMP draws a random UUID; verification needed (P6):
-    /// BDS's value). Fails if a field does not decode, an image dimension or animation number is
+    /// the skin ID and the cape ID together (PMMP draws a random UUID; BDS's value is not
+    /// confirmed). Fails if a field does not decode, an image dimension or animation number is
     /// out of range, a frame count is not finite, or the skin holds more than
     /// [`MAX_SKIN_BYTES`].
     pub(crate) fn skin(&self) -> Result<protocol::Skin> {

@@ -1,4 +1,4 @@
-//! A test issuer (PLAN.md 10.2): an RSA key, its OpenID configuration and JWKS, and tokens it
+//! A test issuer: an RSA key, its OpenID configuration and JWKS, and tokens it
 //! signs. Tests use it in place of the Minecraft authorization service; the engine has no test
 //! entry point.
 

@@ -1,14 +1,14 @@
-//! `cargo xtask dump [--check]`: rebuilds the committed block and item data (PLAN.md 10.4) from
+//! `cargo xtask dump [--check]`: rebuilds the committed block and item data from
 //! the pinned external checkouts in `.cache/`. It converts the reference lists of dragonfly and
 //! `CloudburstMC` with `xtask/go/reference` into `xtask/data/reference/` first, as the PMMP run
-//! reads every reference block state with PMMP's deserializer (PLAN.md 7); then it runs PMMP's own
+//! reads every reference block state with PMMP's deserializer; then it runs PMMP's own
 //! registries through `xtask/php/dump.php` with the PMMP PHP binary into `xtask/data/pmmp/`. It
-//! also copies `CloudburstMC`'s biome definitions (PLAN.md 10.6), entity types and block shapes
-//! (10.7) and BDS's per-state block physics (`block_physics.json`, for the block states Anchor
-//! shows but does not implement, PLAN.md 7) into `xtask/data/reference/`, where the Go tool also writes its jigsaw structure data and
-//! entity property definitions as network NBT and this command writes the per-field decode limits
-//! from Mojang's protocol schemas (`limits`, PLAN.md 10.1). The block and item upgrade schemas and
-//! their golden files go to `xtask/data/upgrade/` (see `upgrade`). With `--check` it writes into
+//! also copies `CloudburstMC`'s biome definitions, entity types and block shapes and BDS's
+//! per-state block physics (`block_physics.json`, for the block states Anchor shows but does not
+//! implement) into `xtask/data/reference/`, where the Go tool also writes its jigsaw structure
+//! data and entity property definitions as network NBT and this command writes the per-field
+//! decode limits from Mojang's protocol schemas (`limits`). The block and item upgrade schemas
+//! and their golden files go to `xtask/data/upgrade/` (see `upgrade`). With `--check` it writes into
 //! `target/` and fails if a committed file differs. `verify` does not run it: it needs the
 //! checkouts, the PHP binary and Go, and its inputs never change (`gen --check` checks the code
 //! made from the committed data instead).
@@ -67,10 +67,10 @@ const REFERENCE_FILES: &[&str] = &[
     BLOCK_PHYSICS,
     limits::FILE,
 ];
-/// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends
-/// (PLAN.md 10.6). `biome_definitions.json` holds generation data BDS does not send.
+/// `CloudburstMC`'s biome definitions without chunk generation data: the content BDS sends.
+/// `biome_definitions.json` holds generation data BDS does not send.
 const BIOMES: &str = "stripped_biome_definitions.json";
-/// `CloudburstMC` files Anchor sends byte for byte (PLAN.md 10.7): `AvailableActorIdentifiers`
+/// `CloudburstMC` files Anchor sends byte for byte: `AvailableActorIdentifiers`
 /// and the shapes of `VoxelShapes`.
 const ENTITY_IDENTIFIERS: &str = "entity_identifiers.dat";
 const VOXEL_SHAPES: &str = "voxel_shapes.json";
@@ -125,7 +125,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         .arg(reference_out.join("blocks.json"))
         .current_dir(root.join(PMMP.0))
         .status()
-        .map_err(|e| format!("cannot run {PHP} ({e}); see PLAN.md 10.4"))?;
+        .map_err(|e| format!("cannot run {PHP} ({e}); see docs/data.md"))?;
     if !status.success() {
         return Err(format!("the PMMP dump failed ({status})"));
     }
@@ -288,7 +288,7 @@ fn pinned(root: &Path, dir: &str, commit: &str) -> Result<(), String> {
     let head = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() || head.trim() != commit {
         return Err(format!(
-            "{dir} must be a checkout of commit {commit} (PLAN.md 10.4), found {}",
+            "{dir} must be a checkout of commit {commit}, found {}",
             head.trim()
         ));
     }

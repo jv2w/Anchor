@@ -1,5 +1,5 @@
-//! The lookup-only chunk index (PLAN.md 10.6 "색인", CLAUDE.md 4.4): chunk positions to loaded
-//! chunks through a hash table with a fixed hash, so a block lookup costs one probe instead of a
+//! The lookup-only chunk index: chunk positions to loaded chunks
+//! through a hash table with a fixed hash, so a block lookup costs one probe instead of a
 //! tree search (measured in `world::tests::block_access_cost`: 1.6 ns against 14 to 29 ns for a
 //! `BTreeMap` of 25 to 1,089 chunks).
 //!

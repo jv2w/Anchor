@@ -1,4 +1,4 @@
-//! Forms: the modal, menu and custom windows a player answers, with typed answers (PLAN.md 10.8).
+//! Forms: the modal, menu and custom windows a player answers, with typed answers.
 //!
 //! Build a [`Modal`], [`Menu`] or [`Custom`] form and send it with
 //! [`Context::send_form`](crate::Context::send_form); the handler runs once, in the tick, with

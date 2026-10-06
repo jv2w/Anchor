@@ -1,4 +1,4 @@
-//! One data file (PLAN.md 6): start policy, batched reads and commits. The server's data is split
+//! One data file: start policy, batched reads and commits. The server's data is split
 //! into such files ([`Place`]): `data/main.redb` (the save tick), `data/players.redb`,
 //! `data/access.redb` (operators, bans, whitelist), `data/user.redb` (the user's server data) and
 //! `data/world/<world>.redb` for each persistent world (its record and chunks). The save thread
@@ -20,7 +20,7 @@
 //! `after-unclean-shutdown`, only when the file lacks the mark a normal stop leaves,
 //! [`CLOSED_KEY`]), refuse a damaged file or a newer format and create the tables. A start does
 //! not compact: freed pages are reused by later commits, and only data that shrinks leaves free
-//! pages at the end (U16). A refused start writes the copy back, so the file is left exactly as it
+//! pages at the end. A refused start writes the copy back, so the file is left exactly as it
 //! was, and removes the copy. `check_integrity()` rewrites the file when it repairs it, and the
 //! open itself writes the header, so the copy is what keeps the original bytes. A start that fails
 //! for another reason keeps its copy as a backup and prunes to the [`backup::KEPT`] newest. Only a
@@ -60,8 +60,8 @@ pub(crate) use check::Checked;
 use codec::Meta;
 use seal::{FORMAT_VERSION, unseal};
 
-/// The one server file of Anchor before the data was split into files (U16): a start moves it to
-/// the data files once (`save::migrate`).
+/// The one server file of older Anchor versions, before the data was split into files: a start
+/// moves it to the data files once (`save::migrate`).
 pub(crate) const OLD_SERVER_FILE: &str = "server.redb";
 /// The name the server file had before it held more than worlds: a start renames it to
 /// [`OLD_SERVER_FILE`] ([`rename_old_file`]) before it moves it to the data files.
@@ -99,8 +99,8 @@ const WORLDS: Table = TableDefinition::new("worlds");
 const CHUNKS: Table = TableDefinition::new("chunks");
 const PLAYERS: Table = TableDefinition::new("players");
 const ACCESS: Table = TableDefinition::new("access");
-/// The user's server data (PLAN.md 10.8): one value per registered name. A file without the table
-/// (before M8) reads as having no values; an older Anchor ignores it.
+/// The user's server data: one value per registered name. A file without the table
+/// (written before the table existed) reads as having no values; an older Anchor ignores it.
 const USER: Table = TableDefinition::new("user");
 /// The key of the `meta` value.
 const META_KEY: &[u8] = b"meta";
@@ -332,7 +332,7 @@ from_redb!(
     DatabaseError
 );
 
-/// A kind of chunk extras (PLAN.md 10.7): the kind byte of its `chunks` keys.
+/// A kind of chunk extras: the kind byte of its `chunks` keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ChunkKind {
     /// Block entities.
@@ -384,7 +384,7 @@ impl ChunkId {
 }
 
 /// What a `chunks` value holds, told by the bytes after its chunk's prefix: a kind byte, then
-/// for an extras page after the first the page number (PLAN.md 6). Every value stays under
+/// for an extras page after the first the page number. Every value stays under
 /// [`MAX_RECORD`](seal::MAX_RECORD): the terrain is one value per sub-chunk and an extras list
 /// is split into pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -753,7 +753,7 @@ pub(crate) struct Storage {
     replica: Option<Box<Replica>>,
 }
 
-/// A server file opened read-only for a replay (PLAN.md 10.9 재생 도구): commits go to memory on
+/// A server file opened read-only for a replay: commits go to memory on
 /// top of the file, which is never written, and reads see them as they would see a commit.
 struct Replica {
     db: redb::ReadOnlyDatabase,
@@ -998,7 +998,7 @@ fn failed_start(world: &Path, backups: &Path, copy: PathBuf, start: StartBackup,
 }
 
 /// The copies of the data file at `place` a replay may start from: the file, then its backups
-/// newest first (PLAN.md 10.9 재생 도구). Missing ones are left out.
+/// newest first. Missing ones are left out.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: a replay lists the data files before it starts"
@@ -1037,7 +1037,7 @@ impl Storage {
         })
     }
 
-    /// Starts on the data file at `place` (PLAN.md 6): backs up the closed file, opens it, checks
+    /// Starts on the data file at `place`: backs up the closed file, opens it, checks
     /// it as `start.check` says, refuses a damaged file or a newer format (leaving the file as it
     /// was), and keeps the [`backup::KEPT`] newest backups, or none with
     /// [`StartBackup::Transient`]. A missing or empty file starts empty. Nothing is compacted.
@@ -1344,7 +1344,7 @@ impl Storage {
         self.retrying(|db| write(db, batch))
     }
 
-    /// Starts the world import's write (PLAN.md 10.9): one quick-repair write transaction that
+    /// Starts the world import's write: one quick-repair write transaction that
     /// takes the import's batches as they come and commits once ([`Import::commit`]). Dropping
     /// the [`Import`] uncommitted, or any failure, leaves the file as it was. No retry: the
     /// import's writes are not kept to write again, and a failed import is run again whole.
@@ -1358,7 +1358,7 @@ impl Storage {
         Ok(Import(txn))
     }
 
-    /// Starts an online backup of the last commit into `dir` (PLAN.md 10.9 백업), made in steps
+    /// Starts an online backup of the last commit into `dir`, made in steps
     /// by [`backup_step`](Self::backup_step) while reads and commits go on. False, starting
     /// nothing, while another is being made.
     pub(crate) fn begin_backup(&mut self, dir: &Path) -> Result<bool> {
@@ -1447,7 +1447,7 @@ impl Storage {
     }
 
     /// Marks the file closed after a normal stop ([`CLOSED_KEY`]) and closes it, without
-    /// compacting it (U16: a stop writes what changed and nothing more). Only a normal stop calls
+    /// compacting it (a stop writes what changed and nothing more). Only a normal stop calls
     /// it: a failed one drops the [`Storage`] instead, so its file has no mark.
     pub(crate) fn close(mut self) -> Result<()> {
         // Nobody waits for its result.
@@ -1459,7 +1459,7 @@ impl Storage {
     }
 
     /// Compacts the file: moves its pages to the front and frees the end. Only the move to the
-    /// data files calls it, once, on files it wrote whole (U16).
+    /// data files calls it, once, on files it wrote whole.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the move to the data files compacts the files it wrote, before the server runs"
@@ -3382,7 +3382,7 @@ pub(crate) mod tests {
         clock::now().duration_since(start).as_secs_f64() * 1e3
     }
 
-    /// Measurements for PLAN.md: `cargo test --release --lib storage::tests::measure_server_file
+    /// Measures the server file: `cargo test --release --lib storage::tests::measure_server_file
     /// -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement"]
@@ -3488,7 +3488,7 @@ pub(crate) mod tests {
         chunks
     }
 
-    /// Start and online backup costs by file size for PLAN.md (10.9 저장 시작 비용): `cargo test
+    /// Start and online backup costs by file size: `cargo test
     /// --release --lib storage::tests::measure_start_cost -- --ignored --nocapture`. Each world
     /// is terrain chunks committed by sub-chunk as the save thread writes them, 2,000 a commit,
     /// until the file reaches the size; then it is closed (compacted) as at shutdown, and each

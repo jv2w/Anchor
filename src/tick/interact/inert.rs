@@ -1,6 +1,5 @@
-//! A player breaking an inert block ([`block::Inert`], PLAN.md 7): PMMP `Player::breakBlock`
-//! with the same checks as for an Anchor state, but no drops of its own and no rule of the block:
-//! it becomes air.
+//! A player breaking an inert block ([`block::Inert`]): PMMP `Player::breakBlock` with the same
+//! checks as for an Anchor state, but no drops of its own and no rule of the block: it becomes air.
 
 use tracing::debug;
 

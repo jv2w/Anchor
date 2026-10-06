@@ -1,6 +1,6 @@
 //! The trace of a game scenario capture: the packets after the scenario starts, grouped by the
 //! bot's steps, each turned into a line. A line is *fixed* (compared between servers) or *shown*
-//! (in the report only). What is fixed (PLAN.md 10.7 P6: response status, changed slots, block
+//! (in the report only). What is fixed (response status, changed slots, block
 //! states, window types, offer shape):
 //!
 //! - the bot's commands and request statuses, and `ItemStackResponse` slots (container, slot,
@@ -13,10 +13,9 @@
 //!   `w#n`, numbered in order of appearance), the keys of `ContainerSetData` per window over the
 //!   whole capture (a last step, `ContainerSetData`: when a value arrives is timing);
 //! - the last state of each position a step's `UpdateBlock` and `UpdateSubChunkBlocks` packets set
-//!   (layer 0; PLAN.md 10.6 block changes) when it differs from the state the client knew before
-//!   the step (an earlier update, else the flat world's), the keys of `BlockActorData`,
-//!   `LevelEvent` types. BDS resends the blocks around a clicked block after every placement (P6
-//!   facts 1); a resend that changes nothing is shown only;
+//!   (layer 0) when it differs from the state the client knew before the step (an earlier update,
+//!   else the flat world's), the keys of `BlockActorData`, `LevelEvent` types. BDS resends the
+//!   blocks around a clicked block after every placement (P6, `xtask/data/p6/facts.md`); a resend that changes nothing is shown only;
 //! - entities by type (`AddActor`, `AddItemActor` item, `RemoveActor`, `TakeItemActor` taker);
 //! - `UpdateTrade` window type, size, tier and flags, the key and tag types of the offers;
 //! - the number of `PlayerEnchantOptions` and the player's last experience level of a step when
@@ -27,8 +26,8 @@
 //! (`ContainerSetData` values and counts, entity motion), sounds, chat, recipe unlocks,
 //! `SetActorData`, positions of dropped items, and `Event` types: the only one BDS sends in the
 //! scenarios is `EntityInteract` when trading opens, which feeds the client's statistics and
-//! changes nothing the client does, so Anchor does not send it (P6 facts 8). What other scenarios
-//! of the session left behind is shown only, so one scenario's leftovers never land in another's
+//! changes nothing the client does, so Anchor does not send it (P6, `xtask/data/p6/facts.md`).
+//! What other scenarios of the session left behind is shown only, so one scenario's leftovers never land in another's
 //! comparison at whatever time they happen (a furnace going out): block changes, block entity
 //! data and level events farther than [`AREA_REACH`] from the scenario's area (its `teleport`
 //! step), and the removal of an entity the capture never saw added. Within a step the

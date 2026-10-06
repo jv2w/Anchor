@@ -65,9 +65,9 @@ pub(crate) mod stream;
 mod timer;
 
 #[cfg(test)]
-mod association_test;
-#[cfg(test)]
 mod anchor_test;
+#[cfg(test)]
+mod association_test;
 
 /// Memory one TSN held in the receive payload queue costs (the record, its map entry and its
 /// sorted key), charged to the receive window.
@@ -2416,8 +2416,7 @@ impl Association {
                     // Receive buffer is full
                     if let Some(last_tsn) = self.payload_queue.get_last_tsn_received() {
                         // As for deferred DATA above: only the cumulative TSN's next chunk.
-                        if sna32lt(d.tsn, *last_tsn)
-                            && d.tsn == self.peer_last_tsn.wrapping_add(1)
+                        if sna32lt(d.tsn, *last_tsn) && d.tsn == self.peer_last_tsn.wrapping_add(1)
                         {
                             debug!(
                                 "[{}] receive buffer full, but accepted \
@@ -3477,9 +3476,8 @@ impl Association {
         }
         // Each TSN held above the cumulative TSN costs memory even after its data was read, so
         // a TSN gap closes the window instead of growing the queue without bound.
-        bytes_queued = bytes_queued.saturating_add(
-            (self.payload_queue.len() as u32).saturating_mul(RECEIVED_TSN_COST),
-        );
+        bytes_queued = bytes_queued
+            .saturating_add((self.payload_queue.len() as u32).saturating_mul(RECEIVED_TSN_COST));
 
         self.max_receive_buffer_size.saturating_sub(bytes_queued)
     }
@@ -3724,7 +3722,10 @@ impl Association {
 
             let mut i = 0;
             loop {
-                let tsn = self.cumulative_tsn_ack_point.wrapping_add(i).wrapping_add(1);
+                let tsn = self
+                    .cumulative_tsn_ack_point
+                    .wrapping_add(i)
+                    .wrapping_add(1);
                 if let Some(c) = self.inflight_queue.get_mut(tsn) {
                     if c.acked || c.abandoned() || c.nsent > 1 || c.miss_indicator < 3 {
                         i += 1;
@@ -3894,7 +3895,10 @@ impl Association {
         let mut done = false;
         let mut i = 0;
         while !done {
-            let tsn = self.cumulative_tsn_ack_point.wrapping_add(i).wrapping_add(1);
+            let tsn = self
+                .cumulative_tsn_ack_point
+                .wrapping_add(i)
+                .wrapping_add(1);
             if let Some(c) = self.inflight_queue.get_mut(tsn) {
                 if !c.retransmit {
                     i += 1;
