@@ -133,7 +133,7 @@ pub(super) fn run(root: &Path, out: &Path) -> Result<Vec<String>, String> {
         .arg(root.join(REFERENCE_OUT).join("blocks.json"))
         .current_dir(root.join(PMMP.0))
         .status()
-        .map_err(|e| format!("cannot run {PHP} ({e}); see docs/data.md"))?;
+        .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/docs/data.md"))?;
     if !status.success() {
         return Err(format!("the PMMP upgrade golden run failed ({status})"));
     }

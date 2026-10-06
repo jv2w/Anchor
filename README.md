@@ -22,12 +22,12 @@ fn main() -> anchor::Result<()> {
 ```
 
 - 바이너리 프로필은 `panic = "unwind"`(기본값)를 유지해야 한다.
-- 실행 폴더에는 `anchor.toml`과 `data/`만 생긴다. `anchor.toml`이 없으면 기본 파일을 만든다. 키는 [docs/config.md](docs/config.md), 데이터 폴더는 [docs/storage.md](docs/storage.md).
+- 실행 폴더에는 `anchor.toml`과 `data/`만 생긴다. `anchor.toml`이 없으면 기본 파일을 만든다. 키는 [.claude/docs/config.md](.claude/docs/config.md), 데이터 폴더는 [.claude/docs/storage.md](.claude/docs/storage.md).
 
 ## 문서
 
 - API: `cargo doc --open -p anchor`. PMMP 이름(예: `Player::getName`)으로 검색해도 찾는다.
-- 설계: [docs/](docs/) — architecture, network, protocol, storage, data, dependencies, testing, config.
+- 설계: [.claude/docs/](.claude/docs/) — architecture, network, protocol, storage, data, dependencies, testing, config.
 - 예제: [examples/](examples/) (lobby, pvp, minigame, custom).
 
 ## AI 도구로 개발할 때

@@ -1,6 +1,6 @@
 # P6 사실 (BDS 1.26.52.3)
 
-BDS 1.26.52.3(프로토콜 2193)이 봇에게 보내는 값과, Anchor가 각 값에 대해 하는 일이다. 값은 같은 시나리오를 두 번 이상 돌려 같게 나온 것만 적는다. 실행마다 다른 값은 "무작위"라고 적는다. 시나리오와 비교 방법은 `docs/testing.md`에 있다.
+BDS 1.26.52.3(프로토콜 2193)이 봇에게 보내는 값과, Anchor가 각 값에 대해 하는 일이다. 값은 같은 시나리오를 두 번 이상 돌려 같게 나온 것만 적는다. 실행마다 다른 값은 "무작위"라고 적는다. 시나리오와 비교 방법은 `.claude/docs/testing.md`에 있다.
 
 ## 캡처 조건
 - 게임 시나리오: `cargo xtask p6 game bds [craft|furnace|enchant|crops|trade]...` → `target/p6/bds-game/`. RakNet, zlib, 새 평지 월드.
@@ -249,3 +249,5 @@ BDS 1.26.52.3(프로토콜 2193)이 봇에게 보내는 값과, Anchor가 각 �
 - 비·눈·천둥 하늘과 번개 모습·소리, 플래그 0 AddActor로 번개가 그려지는지.
 - 멀리 있는(보이지 않는) 다른 플레이어의 위치 표시줄.
 - 거래 때 Event EntityInteract를 보내지 않아도 클라이언트 동작에 차이가 없는지.
+- 가져온 월드에서 Anchor가 모르는 화분 식물(벚나무 묘목 등 비활성 블록)이 보이는지. BlockActorData `PlantBlock`에 BDS가 저장한 원본 그대로를 보낸다. 봇 시나리오로는 놓을 수 없다(Anchor에 그 아이템이 없음).
+- Anchor가 모르는 배너 무늬 ID를 BlockActorData `Patterns`로 받을 때 클라이언트가 그 층만 무시하는지.

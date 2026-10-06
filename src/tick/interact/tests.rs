@@ -1049,6 +1049,36 @@ fn the_api_opens_a_sign_editor_only_on_a_sign_in_the_game() {
     assert_eq!(sign_at(&h).0[0], "second");
 }
 
+/// A pot's plant Anchor does not know has no rules, as an inert block: an empty hand takes
+/// nothing out and a flower does not replace it.
+#[test]
+fn a_flower_pot_keeps_a_plant_anchor_does_not_know_when_used() {
+    let mut h = Harness::new(|_| {});
+    set_with_entity(&mut h, Kind::FlowerPot.default_state(), &Stack::EMPTY);
+    let unknown = super::super::block_entity::Kind::FlowerPot {
+        plant: Some(super::super::block_entity::Plant::Unknown {
+            nbt: crate::nbt::Compound::from([(
+                "name".to_owned(),
+                crate::nbt::Value::String("minecraft:cherry_sapling".to_owned()),
+            )]),
+            shown: true,
+        }),
+    };
+    h.state
+        .rules
+        .block_entities
+        .get_mut(0, TARGET)
+        .unwrap()
+        .kind = unknown.clone();
+    use_on_target(&mut h);
+    assert_eq!(entity_at(&h), unknown);
+    assert!(h.held().is_empty());
+    h.hold(block_item(Kind::Dandelion, 1));
+    h.run(Vec::new());
+    use_on_target(&mut h);
+    assert_eq!(entity_at(&h), unknown);
+}
+
 #[test]
 fn flower_pots_frames_jukeboxes_and_lecterns_hold_items() {
     let mut h = Harness::new(|_| {});

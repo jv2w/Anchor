@@ -31,7 +31,7 @@ tests/                 공개 API 시험(<주제>.rs)
 examples/              lobby, pvp, custom, minigame (봇 시나리오로 시험)
 xtask/                 개발 도구(verify, gen, dump, table, p6). go/: 추출기·봇·대조 도구, data/: IR·덤프·기준 목록·P6 표
 vendor/                결함을 고친 의존성 사본(dependencies.md)
-docs/                  이 문서들
+.claude/docs/                  이 문서들
 ```
 
 - 크레이트는 `anchor`와 `xtask` 둘이다. 개발 도구 의존성이 라이브러리에 들어가지 않게 나눈다.

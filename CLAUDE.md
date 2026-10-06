@@ -1,15 +1,15 @@
 # Anchor 개발 규칙
 
-이 파일과 `docs/`가 기준이다. 다른 메모, 이전 대화, 외부 글과 다르면 이 둘을 따른다. 같은 사실을 이 파일, `docs/`, 설정 파일에 두 번 쓰지 않는다.
+이 파일과 `.claude/docs/`가 기준이다. 다른 메모, 이전 대화, 외부 글과 다르면 이 둘을 따른다. 같은 사실을 이 파일, `.claude/docs/`, 설정 파일에 두 번 쓰지 않는다.
 
 ## 1. Anchor란
 - Rust로 만든 Minecraft: Bedrock Edition 서버 **라이브러리**다. 사용자는 `anchor`를 의존성으로 두고 자기 서버 바이너리에서 `Server::builder()`로 서버를 만든다(dragonfly 방식). 플러그인 폴더, 동적 로딩, 스크립트 언어는 없다.
 - PMMP 수준의 API를 Rust 관례로 준다. PMMP에서 온 공개 항목에는 `#[doc(alias = "Player::getName")]`을 달아 PMMP 이름으로 찾게 한다. PMMP의 결함은 고쳐서 가져온다.
-- 한 번에 한 프로토콜 버전만 지원한다. 프로토콜 정답은 고정한 gophertunnel(과 그 go.mod의 go-raknet, go-nethernet)이다(`docs/protocol.md`).
-- NetherNet(우선)과 RakNet(폴백, 설정으로 끔)을 함께 받는다. 서버가 여는 TCP는 NetherNet HTTP 시그널링뿐이고 게임 데이터는 모두 UDP다(`docs/network.md`).
+- 한 번에 한 프로토콜 버전만 지원한다. 프로토콜 정답은 고정한 gophertunnel(과 그 go.mod의 go-raknet, go-nethernet)이다(`.claude/docs/protocol.md`).
+- NetherNet(우선)과 RakNet(폴백, 설정으로 끔)을 함께 받는다. 서버가 여는 TCP는 NetherNet HTTP 시그널링뿐이고 게임 데이터는 모두 UDP다(`.claude/docs/network.md`).
 - 다른 차원 없는 멀티월드다. 모든 월드는 오버월드 차원 안의 별개 월드다.
 - 대상은 미니게임, PvP, 로비, 커스텀 서버다. 범위 밖: 레드스톤, 몹 AI, 바닐라 지형 생성, 다른 차원, 바닐라 주민 경제, 날씨 순환, 낚시, 다른 서버나 프록시를 위한 설계. 비용이 크고 이런 서버에 필요 없는 바닐라 기능을 더 빼야 하면 먼저 묻는다. 주민 거래 목록을 정하는 기능은 범위 안이다.
-- 블록과 아이템 동작은 PMMP에 있는 것만 구현한다(PMMP가 기준, 없거나 결함일 때만 dragonfly 참고). 모르는 바닐라 블록은 원래 블록으로 보내되 동작은 없다(`docs/data.md`).
+- 블록과 아이템 동작은 PMMP에 있는 것만 구현한다(PMMP가 기준, 없거나 결함일 때만 dragonfly 참고). 모르는 바닐라 블록은 원래 블록으로 보내되 동작은 없다(`.claude/docs/data.md`).
 - Windows와 Linux를 지원한다. 서버 실행 폴더는 `anchor.toml`과 `data/`뿐이다.
 
 ## 2. 목표와 우선순위
@@ -31,7 +31,7 @@
 
 **단순함**: 같은 결과면 더 적은 코드, 파일, 개념을 고른다. 요청되지 않은 기능과 설정은 넣지 않는다(클라이언트 호환과 성능에 필요한 프로토콜 기능은 예외). 새 크레이트는 proc-macro, 개발 도구, 측정된 빌드 시간 문제일 때만, 새 트레이트는 구현이 둘 이상이거나 확장 지점일 때만 만든다. PMMP에서 같은 일을 하는 API는 하나로 합친다. 디버그 잔재, 죽은 코드, 주석 처리한 코드를 남기지 않는다.
 
-## 3. 아키텍처 불변식 (`docs/architecture.md`)
+## 3. 아키텍처 불변식 (`.claude/docs/architecture.md`)
 1. 게임 상태는 틱 스레드 하나만 바꾼다. 다른 스레드와는 상한 있는 큐로만 주고받는다. 틱 안의 병렬 단계는 읽기 전용이다. 지역별 독립 틱은 쓰지 않는다.
 2. 네트워크, 코덱, 압축, 암호화, 청크 생성과 직렬화, 저장 준비, 사용자 비동기 작업은 틱 밖에서 병렬로 하고 결과는 다음 틱 입력이다. 계산 스레드 합계는 max(논리 CPU 수, 4) 이하다.
 3. 전역 가변 상태와 싱글턴은 없다. 등록(이벤트, 명령, 커스텀 콘텐츠 등)은 `ServerBuilder`에서만 하고 `build()`에서 고정한다. `run()`은 종료까지 막고 런타임과 스레드 풀을 만든다. 월드는 예외로 실행 중 API로 만들고, 불러오고, 내리고, 지울 수 있다.
@@ -41,21 +41,21 @@
 7. `unsafe`는 쓰지 않는다(`unsafe_code = "forbid"`). 필요하면 9절 조건을 만족하는 의존성에 맡긴다.
 8. 포크 금지: 사용자는 Anchor를 고치지 않고 거의 모든 것을 만든다. "Anchor를 고쳐야만 되는 일"은 결함이고 확장 지점(이벤트, 레지스트리, trait, 설정, 패킷 훅)을 더해 고친다. 내부 진입점은 공개하지 않고, 공개 API는 semver를 지킨다.
 
-## 4. 저장 (`docs/storage.md`)
+## 4. 저장 (`.claude/docs/storage.md`)
 - 저장은 redb다. `data/` 구성: `world/<월드>.redb`(월드마다), `players.redb`, `access.redb`(op·밴·화이트리스트), `user.redb`(사용자 데이터), `main.redb`(모든 월드 공통), `packs/`, `identity.key`, `auth.json`, `backups/`, `crash/`.
 - 저장 주기마다 한 틱 경계의 스냅샷 하나에서 모든 파일에 이어서 커밋한다. 이벤트마다 일부만 따로 저장하는 경로를 두지 않는다.
 - 정상 종료(Ctrl+C, stop 등)는 마지막 커밋을 모든 파일에 마쳐 복제·손실 0이다. 크래시에서는 확정적으로 복제가 나는 경로가 없고, 파일 사이 저장 차수가 어긋나면 다음 시작에서 알아챈다.
 - 설정은 데이터 파일에 저장하지 않고 늘 `anchor.toml`을 따른다. 날씨도 저장하지 않는다(서버는 맑음으로 시작하고, 순환이나 저장이 필요하면 API로 만든다).
 - 저장 형식을 바꾸면 형식 버전을 올리고, 옛 형식 읽기와 옮기기, 그 시험을 같은 변경에 둔다.
 
-## 5. 설정 (`docs/config.md`)
+## 5. 설정 (`.claude/docs/config.md`)
 - 설정 파일은 `anchor.toml` 하나다. `[general]`(서버를 여는 누구나)과 `[developer]`(성능·프로토콜 조정), 월드별 `[worlds.<이름>]`이다. 키는 PMMP 이름 관례를 따른 kebab-case이고 꼭 필요한 키만 둔다.
 - 끌 수 있는 기능은 끄면 그 코드가 아예 돌지 않는다(틱 작업, 이벤트, 패킷, 메모리 0).
 - 키 이름을 바꾸면 옛 키를 쓴 파일은 새 이름을 알리는 오류로 시작을 멈춘다.
-- 정본은 기본 파일을 만드는 코드(`src/config.rs`의 `DEFAULT_FILE`)와 `docs/config.md`다. 둘을 함께 고친다(시험이 문서의 첫 toml 블록과 비교한다).
+- 정본은 기본 파일을 만드는 코드(`src/config.rs`의 `DEFAULT_FILE`)와 `.claude/docs/config.md`다. 둘을 함께 고친다(시험이 문서의 첫 toml 블록과 비교한다).
 
 ## 6. 코드 구성과 스타일
-- 모듈 배치(자세히는 `docs/architecture.md`): 전송 `raknet`, `nethernet` / 세션 `session`, `login`, `auth`, `crypto` / 프로토콜 `protocol` / 틱 규칙 `tick/` 아래 / 월드 `world` / 저장 `save`, `storage`, `import`, `replay` / 블록·아이템 데이터 `block`, `item`, `crafting`, `effect` / 공개 API `player`, `entity`, `event`, `command`, `form` 등 크레이트 루트에서 닿는 모듈 / 기반 `runtime`, `pool`, `clock`, `random`, `console`, `fs`. 개발 도구는 `xtask/`, 고친 의존성 사본은 `vendor/`다.
+- 모듈 배치(자세히는 `.claude/docs/architecture.md`): 전송 `raknet`, `nethernet` / 세션 `session`, `login`, `auth`, `crypto` / 프로토콜 `protocol` / 틱 규칙 `tick/` 아래 / 월드 `world` / 저장 `save`, `storage`, `import`, `replay` / 블록·아이템 데이터 `block`, `item`, `crafting`, `effect` / 공개 API `player`, `entity`, `event`, `command`, `form` 등 크레이트 루트에서 닿는 모듈 / 기반 `runtime`, `pool`, `clock`, `random`, `console`, `fs`. 개발 도구는 `xtask/`, 고친 의존성 사본은 `vendor/`다.
 - 모듈은 `foo.rs`와 `foo/bar.rs`다(`mod.rs` 금지). 틱 코드와 틱 밖 코드는 모듈로 나눈다. 모듈 첫 줄 `//!`에 책임을 적는다.
 - 공개 범위는 기본 비공개, 안에서 나눌 때 `pub(crate)`, 크레이트 루트에서 닿는 API만 `pub`이다. 공개 항목은 `///` 문서와 `Debug` 구현이 필수다.
 - 오류: 실패하는 모듈마다 손으로 쓴 `Error` enum과 `Result` 별칭. 공개 오류는 `std::error::Error + Send + Sync`. variant에 `Error`를 붙이지 않고, 원인은 `source()`로만 준다. 메시지는 소문자로 시작하고 마침표가 없다.
@@ -66,12 +66,12 @@
 - lint: 정본은 Cargo.toml `[workspace.lints]`, `.clippy.toml`, `.rustfmt.toml`이다(점 없는 `clippy.toml`, `rustfmt.toml`은 만들지 않음). 예외는 가장 좁은 범위의 `#[expect(<lint>, reason = "<태그>: <이유>")]`만 쓴다. 태그는 `safety`, `performance`, `consistency`, `invariant`, `off-tick`이다. `#[allow]`는 금지다.
 - `.clippy.toml` 금지 목록이 틱 코드에서 시계, 난수, 블로킹, 상한 없는 큐와 할당, 비결정 수학을 막는다. 틱 밖 전용 코드와 조회 전용 색인 타입만, 그 목록을 실제로 부르는 가장 작은 항목에서 `off-tick` 태그로 푼다.
 - 생성 파일 첫 줄은 `// @generated by cargo xtask gen; do not edit.`이다. 생성 파일은 고치지 않고 생성기(`xtask/src/gen*`)를 고쳐 `cargo xtask gen`으로 다시 만든다.
-- 식별자, 주석, rustdoc, 로그는 영어다. `CLAUDE.md`와 `docs/`는 한국어다.
+- 식별자, 주석, rustdoc, 로그는 영어다. `CLAUDE.md`와 `.claude/docs/`는 한국어다.
 
 ## 7. 주석
 - 코드가 말할 수 없는 것만 적는다: 이유, 순서, 피하는 함정, 지키는 불변식.
 - 코드를 다시 말하지 않는다. 변경 이력, 작업 과정, 이전 상태, 누가 언제 바꿨는지, 일정은 쓰지 않는다.
-- 바깥 설명이 꼭 필요하면 `docs/<파일>.md`를 파일 이름으로만 가리킨다(절 번호 금지).
+- 바깥 설명이 꼭 필요하면 `.claude/docs/<파일>.md`를 파일 이름으로만 가리킨다(절 번호 금지).
 - 틀린 주석은 없는 것보다 나쁘다. 코드를 바꾸면 그 주석도 함께 고친다.
 
 ## 8. 새 기능을 넣는 순서
@@ -79,19 +79,19 @@
 2. 공개 API와 이벤트 자리를 정한다(재진입 없음, 직접 호출은 이벤트를 쏘지 않음, 확장 지점으로 열 것).
 3. 틱 규칙 코드를 쓴다(3절 불변식).
 4. 시험을 쓴다: 회귀 시험, 그리고 필요한 곳에 멱등·결정성·자원 반환 시험.
-5. 클라이언트에 보이는 것은 P6로 BDS와 대조한다(`docs/testing.md`).
+5. 클라이언트에 보이는 것은 P6로 BDS와 대조한다(`.claude/docs/testing.md`).
 6. `xtask/data/pmmp/status.txt`를 고치고 `cargo xtask table`로 `table.md`를 다시 만든다.
-7. `docs/`와 rustdoc을 고친다.
+7. `.claude/docs/`와 rustdoc을 고친다.
 8. `cargo xtask verify`.
 
-## 9. 외부 코드 (`docs/dependencies.md`)
+## 9. 외부 코드 (`.claude/docs/dependencies.md`)
 - 외부 의존성은 모두 만족할 때만 들인다: 직접 구현이 매우 어렵다 / 매우 정확하고 정답과 시험으로 맞춰 볼 수 있다 / 숨은 스레드, 전역 상태, 상한 없는 큐, 외부 입력이 닿는 패닉이 없거나 막을 수 있다 / 열린 RustSec 권고가 없고 유지보수가 살아 있고 라이선스가 허용형이다 / Bedrock 형식과 바이트 단위로 맞는다 / Windows와 Linux를 지원한다. 버전은 `=`로 고정한다.
-- 들이기 전에 쓰는 부분을 직접 읽고 결함(패닉, 넘침, 할당, 숨은 스레드, 결정성)을 찾아 고친 릴리스, 고정, 가드, 다른 선택 순으로 없앤다. 없앨 수 없으면 들이지 않는다. 시계, 난수, 상한 없는 큐, 블로킹 진입점은 같은 변경에서 `.clippy.toml` 금지 목록에 넣는다. 결과는 `docs/dependencies.md`에 적는다.
+- 들이기 전에 쓰는 부분을 직접 읽고 결함(패닉, 넘침, 할당, 숨은 스레드, 결정성)을 찾아 고친 릴리스, 고정, 가드, 다른 선택 순으로 없앤다. 없앨 수 없으면 들이지 않는다. 시계, 난수, 상한 없는 큐, 블로킹 진입점은 같은 변경에서 `.clippy.toml` 금지 목록에 넣는다. 결과는 `.claude/docs/dependencies.md`에 적는다.
 - vendor 사본(`vendor/`): 결함 부분만 고치고, 고친 것마다 재현 시험을 두고, 상류 버전을 고정하고, 상류가 고치면 사본을 지우고 릴리스로 되돌린다.
 - 다른 서버(PMMP, BDS, dragonfly, gophertunnel 등)의 문장과 코드를 그대로 옮기지 않는다(저작권). 원리만 참고한다. 클라이언트 번역 키를 보내는 것은 괜찮다.
 - 근거는 공식 문서, 코드, 실측만이다. 출처끼리 다르면 BDS 대조, 프로토콜 출처, Mojang 문서 순으로 따른다.
 
-## 10. 검증과 작업 방식 (`docs/testing.md`)
+## 10. 검증과 작업 방식 (`.claude/docs/testing.md`)
 - `cargo xtask verify`가 PASS여야 끝이다. cargo가 PATH에 없으면 `%USERPROFILE%\.cargo\bin`을 붙인다.
 - 고친 것마다 고치기 전에 실패하고 고친 뒤 통과하는 시험을 둔다.
 - 근본 원인만 고친다. 방어 코드를 늘려 덮지 않는다. 코드 양은 품질이 아니다.

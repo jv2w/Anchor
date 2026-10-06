@@ -1498,9 +1498,9 @@ mod tests {
         (client, server)
     }
 
-    /// Anchor copy fix (docs/dependencies.md): the client association announced 65,535 inbound
-    /// streams, so a remote writing on many stream ids made a stream and an entry per id, each
-    /// scanned on every poll. Fails on the published 0.24.1.
+    /// Anchor copy fix (.claude/docs/dependencies.md): the client association announced 65,535
+    /// inbound streams, so a remote writing on many stream ids made a stream and an entry per id,
+    /// each scanned on every poll. Fails on the published 0.24.1.
     #[test]
     fn many_remote_streams_stay_bounded() {
         let (mut client, mut server) = connect_client_server();

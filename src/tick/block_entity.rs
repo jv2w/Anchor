@@ -31,7 +31,7 @@ mod furnace;
 
 use std::collections::{BTreeMap, BTreeSet, btree_map};
 
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use super::view::Key;
 use super::{SessionId, State, dispatch, entity, interact, inventory, survival};
@@ -49,7 +49,7 @@ use crate::world::{BlockPos, ChunkPos, World};
 
 pub(super) use beacon::{allowed as beacon_effect_allowed, is_payment as beacon_payment};
 pub(super) use campfire::{cooks as campfire_cooks, kind_of as campfire_kind};
-pub(super) use decor::{BLACK_TEXT, FRAME_ROTATIONS, book_pages};
+pub(super) use decor::{BLACK_TEXT, FRAME_ROTATIONS, Plant, book_pages};
 pub(super) use furnace::OUTPUT as FURNACE_OUTPUT;
 
 /// The most spills one chunk keeps; beyond it new spills are lost with an error (a chunk would
@@ -179,7 +179,7 @@ pub(super) enum Kind {
     /// A flower pot and its plant.
     FlowerPot {
         /// The plant, if any.
-        plant: Option<block::State>,
+        plant: Option<decor::Plant>,
     },
     /// An item frame or glow item frame.
     ItemFrame(Box<decor::Frame>),
@@ -588,7 +588,7 @@ impl BlockEntity {
                 nbt.insert("color".to_owned(), Value::Byte(*colour));
             }
             Kind::Banner(b) => b.write(nbt),
-            Kind::FlowerPot { plant } => decor::write_plant(*plant, nbt),
+            Kind::FlowerPot { plant } => decor::write_plant(plant.as_ref(), nbt, client),
             Kind::ItemFrame(f) => f.write(nbt),
             Kind::Jukebox { record } => decor::write_item(record, "RecordItem", nbt),
             Kind::Lectern { book, page } => decor::write_lectern(book, *page, nbt),
@@ -676,24 +676,33 @@ impl BlockEntity {
 }
 
 /// Reads an `Items` list into `slots` by `Slot` (custom items through `custom`); entries of
-/// unknown items or slots are dropped with a warning (PMMP `Item::safeNbtDeserialize`).
+/// unknown items or slots are dropped (PMMP `Item::safeNbtDeserialize`). An unknown item is
+/// logged at info: an imported world holds vanilla items PMMP lacks.
 fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos, custom: &Registry) {
     for entry in items {
         let slot = match entry.get("Slot") {
             Some(Value::Byte(s)) => usize::from(*s),
             _ => usize::MAX,
         };
-        if let (Some(target), Some(stack)) =
-            (slots.get_mut(slot), Stack::from_nbt_with(entry, custom))
-        {
-            *target = stack;
-        } else {
+        let Some(target) = slots.get_mut(slot) else {
             warn!(
                 x = pos.x,
                 y = pos.y,
                 z = pos.z,
                 slot,
-                "a container item is unknown or in no slot; it is left out"
+                "a container item is in no slot; it is left out"
+            );
+            continue;
+        };
+        if let Some(stack) = Stack::from_nbt_with(entry, custom) {
+            *target = stack;
+        } else {
+            info!(
+                x = pos.x,
+                y = pos.y,
+                z = pos.z,
+                slot,
+                "a container item is unknown; it is left out"
             );
         }
     }
@@ -1613,7 +1622,9 @@ fn take_contents(entity: &mut BlockEntity, out: &mut Vec<Stack>) {
         Kind::Jukebox { record } => out.push(std::mem::take(record)),
         Kind::Lectern { book, .. } => out.push(std::mem::take(book)),
         Kind::FlowerPot { plant } => {
-            if let Some(block::ItemForm::Item(t)) = plant.take().map(block::State::item) {
+            if let Some(decor::Plant::Known(p)) = plant.take()
+                && let block::ItemForm::Item(t) = p.item()
+            {
                 out.push(Stack::new(t, 1));
             }
         }
@@ -1660,10 +1671,12 @@ pub(super) fn drops(
         return Vec::new();
     };
     let one = match &entity.kind {
-        Kind::FlowerPot { plant } => plant.and_then(|p| match p.item() {
+        Kind::FlowerPot {
+            plant: Some(decor::Plant::Known(p)),
+        } => match p.item() {
             block::ItemForm::Item(t) => Some(Stack::new(t, 1)),
             _ => None,
-        }),
+        },
         Kind::ItemFrame(f) => {
             (!f.item.is_empty() && rng.unit() <= f64::from(f.drop_chance)).then(|| f.item.clone())
         }
@@ -2765,7 +2778,7 @@ pub(in crate::tick) mod tests {
             ),
             (
                 Kind::FlowerPot {
-                    plant: Some(block::Kind::Dandelion.default_state()),
+                    plant: Some(decor::Plant::Known(block::Kind::Dandelion.default_state())),
                 },
                 vec![],
             ),
@@ -2842,6 +2855,51 @@ pub(in crate::tick) mod tests {
                 .unwrap();
             assert_eq!(a.as_bytes(), b.as_bytes());
             assert!(!matches!(read.kind, Kind::Other(_)), "{saved:?}");
+        }
+    }
+
+    /// A flower pot's plant Anchor does not know (an imported world's cherry sapling, an inert
+    /// block) is kept as it came and shown to clients as itself; one clients do not know either is
+    /// kept but not sent.
+    #[test]
+    fn a_flower_pot_keeps_a_plant_anchor_does_not_know() {
+        let pos = BlockPos::new(1, 64, 2);
+        let pot = |plant: &Compound| {
+            Compound::from([
+                ("id".to_owned(), Value::String("FlowerPot".to_owned())),
+                ("isMovable".to_owned(), Value::Byte(1)),
+                ("PlantBlock".to_owned(), Value::Compound(plant.clone())),
+                ("x".to_owned(), Value::Int(pos.x)),
+                ("y".to_owned(), Value::Int(pos.y)),
+                ("z".to_owned(), Value::Int(pos.z)),
+            ])
+        };
+        let sapling = Compound::from([
+            (
+                "name".to_owned(),
+                Value::String("minecraft:cherry_sapling".to_owned()),
+            ),
+            (
+                "states".to_owned(),
+                Value::Compound(Compound::from([("age_bit".to_owned(), Value::Byte(0))])),
+            ),
+            (
+                "version".to_owned(),
+                Value::Int(crate::import::BLOCK_STATE_VERSION),
+            ),
+        ]);
+        let modded = Compound::from([
+            ("name".to_owned(), Value::String("example:plant".to_owned())),
+            ("states".to_owned(), Value::Compound(Compound::new())),
+        ]);
+        for (plant, shown) in [(sapling, true), (modded, false)] {
+            let saved = pot(&plant);
+            let read = BlockEntity::read(saved.clone(), pos, &Registry::default());
+            assert_eq!(read.write(pos), saved);
+            assert_eq!(
+                read.spawn_nbt(pos).get("PlantBlock"),
+                shown.then_some(&Value::Compound(plant)),
+            );
         }
     }
 

@@ -97,12 +97,12 @@ fn chain(error: &Error) -> String {
     text
 }
 
-/// Returns the first toml block of `docs/config.md`: the documented default file.
+/// Returns the first toml block of `.claude/docs/config.md`: the documented default file.
 fn documented_default_file() -> String {
-    let doc = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/config.md"));
+    let doc = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join(".claude/docs/config.md"));
     let (_, block) = doc
         .split_once("```toml\n")
-        .expect("docs/config.md has a toml block");
+        .expect(".claude/docs/config.md has a toml block");
     let (block, _) = block.split_once("\n```").expect("the toml block closes");
     format!("{block}\n")
 }

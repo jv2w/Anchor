@@ -231,15 +231,15 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\BaseBanner::getColor` | implemented | src/tick/block_entity/api.rs:203 `banner_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\BaseBanner::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `pocketmine\block\BaseBanner::getMaxStackSize` | merged | src/item.rs:952 `max_stack_size` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Item::getMaxStackSize` |
-| `pocketmine\block\BaseBanner::getPatterns` | implemented | src/tick/block_entity/api.rs:213 `banner_patterns` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\BaseBanner::getPatterns` | implemented | src/tick/block_entity/api.rs:214 `banner_patterns` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\BaseBanner::getPickedItem` | skipped |  |  | block rule code: listeners see PlayerBlockPick |
 | `pocketmine\block\BaseBanner::getSupportType` | merged | src/block.rs:1159 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
 | `pocketmine\block\BaseBanner::isSolid` | merged | src/block.rs:1090 `is_solid` | src/block.rs::gameplay_data_are_pmmp_values<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::isSolid` |
 | `pocketmine\block\BaseBanner::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
 | `pocketmine\block\BaseBanner::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\BaseBanner::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `pocketmine\block\BaseBanner::setColor` | implemented | src/tick/block_entity/api.rs:582 `set_banner_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
-| `pocketmine\block\BaseBanner::setPatterns` | implemented | src/tick/block_entity/api.rs:595 `set_banner_patterns` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\BaseBanner::setColor` | implemented | src/tick/block_entity/api.rs:586 `set_banner_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\BaseBanner::setPatterns` | implemented | src/tick/block_entity/api.rs:600 `set_banner_patterns` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\BaseBanner::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\BaseBigDripleaf` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\BaseBigDripleaf::getFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -309,9 +309,9 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\BaseSign::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\BaseSign::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\BaseSign::setEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS) |
-| `pocketmine\block\BaseSign::setFaceText` | implemented | src/tick/block_entity/api.rs:541 `set_sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
-| `pocketmine\block\BaseSign::setText` | implemented | src/tick/block_entity/api.rs:540 `set_sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
-| `pocketmine\block\BaseSign::setWaxed` | implemented | src/tick/block_entity/api.rs:555 `set_sign_waxed` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
+| `pocketmine\block\BaseSign::setFaceText` | implemented | src/tick/block_entity/api.rs:545 `set_sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
+| `pocketmine\block\BaseSign::setText` | implemented | src/tick/block_entity/api.rs:544 `set_sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
+| `pocketmine\block\BaseSign::setWaxed` | implemented | src/tick/block_entity/api.rs:559 `set_sign_waxed` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `pocketmine\block\BaseSign::updateFaceText` | skipped |  |  | a player's edit goes through the sign rules and raises SignChange; direct writes raise no events |
 | `pocketmine\block\BaseSign::updateText` | skipped |  |  | a player's edit goes through the sign rules and raises SignChange; direct writes raise no events |
 | `pocketmine\block\BaseSign::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
@@ -333,7 +333,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\Bed::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
 | `pocketmine\block\Bed::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\Bed::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `pocketmine\block\Bed::setColor` | implemented | src/tick/block_entity/api.rs:569 `set_bed_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\Bed::setColor` | implemented | src/tick/block_entity/api.rs:573 `set_bed_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\Bed::setFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Bed::setHead` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Bed::setOccupied` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -562,7 +562,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\Campfire::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
 | `pocketmine\block\Campfire::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\Campfire::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `pocketmine\block\Campfire::setCookingTime` | implemented | src/tick/block_entity/api.rs:502 `set_cooking_time_ticks` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\Campfire::setCookingTime` | implemented | src/tick/block_entity/api.rs:506 `set_cooking_time_ticks` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\Campfire::setFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Campfire::setLit` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Campfire::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
@@ -658,7 +658,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\ChiseledBookshelf` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\ChiseledBookshelf::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `pocketmine\block\ChiseledBookshelf::getFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\ChiseledBookshelf::getLastInteractedSlot` | implemented | src/tick/block_entity/api.rs:308 `last_interacted_slot` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\ChiseledBookshelf::getLastInteractedSlot` | implemented | src/tick/block_entity/api.rs:312 `last_interacted_slot` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\ChiseledBookshelf::getSlots` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\ChiseledBookshelf::hasSlot` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\ChiseledBookshelf::isAffectedBySilkTouch` | merged | src/block.rs:1132 `is_affected_by_silk_touch` | src/block.rs::gameplay_data_are_pmmp_values<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::isAffectedBySilkTouch` |
@@ -666,7 +666,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\ChiseledBookshelf::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\ChiseledBookshelf::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\ChiseledBookshelf::setFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\ChiseledBookshelf::setLastInteractedSlot` | implemented | src/tick/block_entity/api.rs:751 `set_last_interacted_slot` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\ChiseledBookshelf::setLastInteractedSlot` | implemented | src/tick/block_entity/api.rs:757 `set_last_interacted_slot` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\ChiseledBookshelf::setSlot` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\ChiseledBookshelf::setSlots` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\ChiseledBookshelf::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
@@ -1036,11 +1036,11 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\FlowerPot::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\FlowerPot::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `pocketmine\block\FlowerPot::getPickedItem` | skipped |  |  | block rule code: listeners see PlayerBlockPick |
-| `pocketmine\block\FlowerPot::getPlant` | implemented | src/tick/block_entity/api.rs:238 `potted_plant` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\FlowerPot::getPlant` | implemented | src/tick/block_entity/api.rs:240 `potted_plant` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\FlowerPot::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `pocketmine\block\FlowerPot::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
 | `pocketmine\block\FlowerPot::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `pocketmine\block\FlowerPot::setPlant` | implemented | src/tick/block_entity/api.rs:627 `set_potted_plant` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\FlowerPot::setPlant` | implemented | src/tick/block_entity/api.rs:633 `set_potted_plant` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\FlowerPot::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\Froglight` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Froglight::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
@@ -1172,9 +1172,9 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\ItemFrame` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\ItemFrame::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `pocketmine\block\ItemFrame::getFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\ItemFrame::getFramedItem` | implemented | src/tick/block_entity/api.rs:248 `framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
-| `pocketmine\block\ItemFrame::getItemDropChance` | implemented | src/tick/block_entity/api.rs:268 `frame_drop_chance` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
-| `pocketmine\block\ItemFrame::getItemRotation` | implemented | src/tick/block_entity/api.rs:258 `frame_rotation` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\ItemFrame::getFramedItem` | implemented | src/tick/block_entity/api.rs:252 `framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\ItemFrame::getItemDropChance` | implemented | src/tick/block_entity/api.rs:272 `frame_drop_chance` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\ItemFrame::getItemRotation` | implemented | src/tick/block_entity/api.rs:262 `frame_rotation` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\ItemFrame::getPickedItem` | skipped |  |  | block rule code: listeners see PlayerBlockPick |
 | `pocketmine\block\ItemFrame::hasMap` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\ItemFrame::onAttack` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -1183,16 +1183,16 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\ItemFrame::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\ItemFrame::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\ItemFrame::setFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\ItemFrame::setFramedItem` | implemented | src/tick/block_entity/api.rs:644 `set_framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\ItemFrame::setFramedItem` | implemented | src/tick/block_entity/api.rs:650 `set_framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\ItemFrame::setHasMap` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\ItemFrame::setItemDropChance` | implemented | src/tick/block_entity/api.rs:674 `set_frame_drop_chance` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
-| `pocketmine\block\ItemFrame::setItemRotation` | implemented | src/tick/block_entity/api.rs:658 `set_frame_rotation` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\ItemFrame::setItemDropChance` | implemented | src/tick/block_entity/api.rs:680 `set_frame_drop_chance` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\ItemFrame::setItemRotation` | implemented | src/tick/block_entity/api.rs:664 `set_frame_rotation` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\ItemFrame::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\Jukebox` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Jukebox::ejectRecord` | skipped |  |  | block rule code |
 | `pocketmine\block\Jukebox::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `pocketmine\block\Jukebox::getFuelTime` | merged | src/item.rs:1026 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
-| `pocketmine\block\Jukebox::getRecord` | implemented | src/tick/block_entity/api.rs:278 `record` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\Jukebox::getRecord` | implemented | src/tick/block_entity/api.rs:282 `record` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\Jukebox::insertRecord` | skipped |  |  | block rule code |
 | `pocketmine\block\Jukebox::onBreak` | skipped |  |  | block rule code: listeners see BlockBreak |
 | `pocketmine\block\Jukebox::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -1254,12 +1254,12 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\Leaves::setNoDecay` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Leaves::ticksRandomly` | merged | src/block.rs:372 `ticks_randomly` | src/block.rs::gameplay_data_are_pmmp_values<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::ticksRandomly` |
 | `pocketmine\block\Lectern` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\Lectern::getBook` | implemented | src/tick/block_entity/api.rs:288 `lectern_book` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\Lectern::getBook` | implemented | src/tick/block_entity/api.rs:292 `lectern_book` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\Lectern::getDrops` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
 | `pocketmine\block\Lectern::getFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Lectern::getFlammability` | merged | src/block.rs:1059 `flammability` | src/block.rs::gameplay_data_are_pmmp_values<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::getFlammability` |
 | `pocketmine\block\Lectern::getSupportType` | merged | src/block.rs:1159 `support` | src/block.rs::support_and_boxes_follow_the_state<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::getSupportType` |
-| `pocketmine\block\Lectern::getViewedPage` | implemented | src/tick/block_entity/api.rs:298 `lectern_page` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\Lectern::getViewedPage` | implemented | src/tick/block_entity/api.rs:302 `lectern_page` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\Lectern::isProducingSignal` | skipped |  |  | redstone |
 | `pocketmine\block\Lectern::onAttack` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `pocketmine\block\Lectern::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
@@ -1267,10 +1267,10 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\Lectern::onScheduledUpdate` | skipped |  |  | block rule code: listeners see BlockUpdate |
 | `pocketmine\block\Lectern::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\Lectern::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `pocketmine\block\Lectern::setBook` | implemented | src/tick/block_entity/api.rs:708 `set_lectern_book` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\Lectern::setBook` | implemented | src/tick/block_entity/api.rs:714 `set_lectern_book` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\Lectern::setFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Lectern::setProducingSignal` | skipped |  |  | redstone |
-| `pocketmine\block\Lectern::setViewedPage` | implemented | src/tick/block_entity/api.rs:730 `set_lectern_page` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\Lectern::setViewedPage` | implemented | src/tick/block_entity/api.rs:736 `set_lectern_page` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\Lectern::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\Lever` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\Lever::getFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
@@ -1348,12 +1348,12 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\MobHead::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
 | `pocketmine\block\MobHead::getFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\MobHead::getMobHeadType` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\MobHead::getRotation` | implemented | src/tick/block_entity/api.rs:318 `skull_rotation` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\MobHead::getRotation` | implemented | src/tick/block_entity/api.rs:322 `skull_rotation` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\MobHead::place` | skipped |  |  | block rule code: listeners see BlockPlace |
 | `pocketmine\block\MobHead::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\MobHead::setFacing` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\MobHead::setMobHeadType` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\MobHead::setRotation` | implemented | src/tick/block_entity/api.rs:769 `set_skull_rotation` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\MobHead::setRotation` | implemented | src/tick/block_entity/api.rs:775 `set_skull_rotation` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\MobHead::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\MonsterSpawner` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\MonsterSpawner::getDropsForCompatibleTool` | skipped |  |  | block rule code: listeners see and change the drops in BlockBreak |
@@ -1489,11 +1489,11 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\PotionCauldron::__construct` | skipped |  |  | kinds are generated from the PMMP dump; users do not make block objects |
 | `pocketmine\block\PotionCauldron::getEmptySound` | skipped |  |  | block rule code |
 | `pocketmine\block\PotionCauldron::getFillSound` | skipped |  |  | block rule code |
-| `pocketmine\block\PotionCauldron::getPotionItem` | implemented | src/tick/block_entity/api.rs:329 `cauldron_potion` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\PotionCauldron::getPotionItem` | implemented | src/tick/block_entity/api.rs:333 `cauldron_potion` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\PotionCauldron::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `pocketmine\block\PotionCauldron::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
 | `pocketmine\block\PotionCauldron::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `pocketmine\block\PotionCauldron::setPotionItem` | implemented | src/tick/block_entity/api.rs:786 `set_cauldron_potion` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\PotionCauldron::setPotionItem` | implemented | src/tick/block_entity/api.rs:792 `set_cauldron_potion` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\PotionCauldron::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\PoweredRail` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\PoweredRail::isPowered` | skipped |  |  | redstone |
@@ -2719,7 +2719,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\Water::onEntityInside` | skipped |  |  | block rule code |
 | `pocketmine\block\Water::tickRate` | skipped |  |  | liquid rule code |
 | `pocketmine\block\WaterCauldron` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\WaterCauldron::getCustomWaterColor` | implemented | src/tick/block_entity/api.rs:348 `cauldron_water_colour` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\WaterCauldron::getCustomWaterColor` | implemented | src/tick/block_entity/api.rs:352 `cauldron_water_colour` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\WaterCauldron::getEmptySound` | skipped |  |  | block rule code |
 | `pocketmine\block\WaterCauldron::getFillSound` | skipped |  |  | block rule code |
 | `pocketmine\block\WaterCauldron::hasEntityCollision` | merged | src/block.rs:1125 `has_entity_collision` | src/block.rs::gameplay_data_are_pmmp_values<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::hasEntityCollision` |
@@ -2727,7 +2727,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\WaterCauldron::onInteract` | skipped |  |  | block rule code: listeners see PlayerInteract |
 | `pocketmine\block\WaterCauldron::onNearbyBlockChange` | skipped |  |  | block rule code: listeners see BlockUpdate |
 | `pocketmine\block\WaterCauldron::readStateFromWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
-| `pocketmine\block\WaterCauldron::setCustomWaterColor` | implemented | src/tick/block_entity/api.rs:813 `set_cauldron_water_colour` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\WaterCauldron::setCustomWaterColor` | implemented | src/tick/block_entity/api.rs:819 `set_cauldron_water_colour` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\WaterCauldron::writeStateToWorld` | skipped |  |  | Anchor computes neighbour-dependent properties in the rules and stores the result |
 | `pocketmine\block\WaterLily` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\WaterLily::canBePlacedAt` | skipped |  |  | block rule code: listeners see BlockPlace |
@@ -2902,12 +2902,12 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\Banner` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Banner::getBaseColor` | implemented | src/tick/block_entity/api.rs:204 `banner_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\tile\Banner::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
-| `pocketmine\block\tile\Banner::getPatterns` | implemented | src/tick/block_entity/api.rs:214 `banner_patterns` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
-| `pocketmine\block\tile\Banner::getType` | implemented | src/tick/block_entity/api.rs:228 `banner_type` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\tile\Banner::getPatterns` | implemented | src/tick/block_entity/api.rs:215 `banner_patterns` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\tile\Banner::getType` | implemented | src/tick/block_entity/api.rs:229 `banner_type` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\tile\Banner::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Banner::setBaseColor` | implemented | src/tick/block_entity/api.rs:583 `set_banner_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
-| `pocketmine\block\tile\Banner::setPatterns` | implemented | src/tick/block_entity/api.rs:596 `set_banner_patterns` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
-| `pocketmine\block\tile\Banner::setType` | implemented | src/tick/block_entity/api.rs:614 `set_banner_type` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\tile\Banner::setBaseColor` | implemented | src/tick/block_entity/api.rs:587 `set_banner_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\tile\Banner::setPatterns` | implemented | src/tick/block_entity/api.rs:601 `set_banner_patterns` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\tile\Banner::setType` | implemented | src/tick/block_entity/api.rs:619 `set_banner_type` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\tile\Barrel` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Barrel::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `pocketmine\block\tile\Barrel::addAdditionalSpawnData` | skipped |  |  | block entity NBT is internal to the chunk store |
@@ -2920,17 +2920,17 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\Barrel::getRealInventory` | merged | src/tick/inventory/api.rs:102 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\tile\Barrel::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `pocketmine\block\tile\Barrel::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Barrel::setName` | merged | src/tick/block_entity/api.rs:385 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
+| `pocketmine\block\tile\Barrel::setName` | merged | src/tick/block_entity/api.rs:389 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `pocketmine\block\tile\Beacon` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Beacon::getPrimaryEffect` | implemented | src/tick/block_entity/api.rs:158 `beacon_effects` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\tile\Beacon::getSecondaryEffect` | implemented | src/tick/block_entity/api.rs:159 `beacon_effects` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\tile\Beacon::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Beacon::setPrimaryEffect` | implemented | src/tick/block_entity/api.rs:520 `set_beacon_effects` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
-| `pocketmine\block\tile\Beacon::setSecondaryEffect` | implemented | src/tick/block_entity/api.rs:521 `set_beacon_effects` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\tile\Beacon::setPrimaryEffect` | implemented | src/tick/block_entity/api.rs:524 `set_beacon_effects` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\tile\Beacon::setSecondaryEffect` | implemented | src/tick/block_entity/api.rs:525 `set_beacon_effects` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\tile\Bed` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Bed::getColor` | implemented | src/tick/block_entity/api.rs:194 `bed_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\tile\Bed::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Bed::setColor` | implemented | src/tick/block_entity/api.rs:570 `set_bed_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\tile\Bed::setColor` | implemented | src/tick/block_entity/api.rs:574 `set_bed_colour` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\tile\Bell` | skipped |  |  | Anchor keeps no bell block entity: a ring is an effect sent to clients with nothing to store |
 | `pocketmine\block\tile\Bell::createFakeUpdatePacket` | skipped |  |  | protocol internals |
 | `pocketmine\block\tile\Bell::getFacing` | skipped |  |  | Anchor keeps no bell block entity: a ring is an effect sent to clients with nothing to store |
@@ -2955,7 +2955,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\BrewingStand::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `pocketmine\block\tile\BrewingStand::onUpdate` | skipped |  |  | block rule code |
 | `pocketmine\block\tile\BrewingStand::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\BrewingStand::setName` | merged | src/tick/block_entity/api.rs:385 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
+| `pocketmine\block\tile\BrewingStand::setName` | merged | src/tick/block_entity/api.rs:389 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `pocketmine\block\tile\Campfire` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Campfire::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `pocketmine\block\tile\Campfire::canOpenWith` | merged | src/tick/block_entity/api.rs:115 `can_open_with` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Container::canOpenWith` |
@@ -2963,14 +2963,14 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\Campfire::getInventory` | merged | src/tick/inventory/api.rs:103 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
 | `pocketmine\block\tile\Campfire::getRealInventory` | merged | src/tick/inventory/api.rs:102 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\tile\Campfire::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Campfire::setCookingTimes` | merged | src/tick/block_entity/api.rs:502 `set_cooking_time_ticks` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values | into `block\Campfire::setCookingTime` |
+| `pocketmine\block\tile\Campfire::setCookingTimes` | merged | src/tick/block_entity/api.rs:506 `set_cooking_time_ticks` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values | into `block\Campfire::setCookingTime` |
 | `pocketmine\block\tile\Cauldron` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `pocketmine\block\tile\Cauldron::getCustomWaterColor` | implemented | src/tick/block_entity/api.rs:349 `cauldron_water_colour` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
-| `pocketmine\block\tile\Cauldron::getPotionItem` | implemented | src/tick/block_entity/api.rs:330 `cauldron_potion` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\tile\Cauldron::getCustomWaterColor` | implemented | src/tick/block_entity/api.rs:353 `cauldron_water_colour` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\tile\Cauldron::getPotionItem` | implemented | src/tick/block_entity/api.rs:334 `cauldron_potion` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\tile\Cauldron::getRenderUpdateBugWorkaroundStateProperties` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `pocketmine\block\tile\Cauldron::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Cauldron::setCustomWaterColor` | implemented | src/tick/block_entity/api.rs:814 `set_cauldron_water_colour` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
-| `pocketmine\block\tile\Cauldron::setPotionItem` | implemented | src/tick/block_entity/api.rs:787 `set_cauldron_potion` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\tile\Cauldron::setCustomWaterColor` | implemented | src/tick/block_entity/api.rs:820 `set_cauldron_water_colour` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
+| `pocketmine\block\tile\Cauldron::setPotionItem` | implemented | src/tick/block_entity/api.rs:793 `set_cauldron_potion` | src/tick/block_entity/api/tests.rs::campfires_beacons_and_cauldrons_take_their_values |  |
 | `pocketmine\block\tile\Chest` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Chest::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `pocketmine\block\tile\Chest::addNameSpawnData` | skipped |  |  | block entity NBT is internal to the chunk store |
@@ -2985,18 +2985,18 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\Chest::getRealInventory` | merged | src/tick/inventory/api.rs:102 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\tile\Chest::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `pocketmine\block\tile\Chest::isPaired` | merged | src/tick/block_entity/api.rs:134 `chest_pair` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `block\tile\Chest::getPair` |
-| `pocketmine\block\tile\Chest::pairWith` | implemented | src/tick/block_entity/api.rs:413 `pair_with` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
+| `pocketmine\block\tile\Chest::pairWith` | implemented | src/tick/block_entity/api.rs:417 `pair_with` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `pocketmine\block\tile\Chest::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Chest::setName` | merged | src/tick/block_entity/api.rs:385 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
-| `pocketmine\block\tile\Chest::unpair` | implemented | src/tick/block_entity/api.rs:442 `unpair` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
+| `pocketmine\block\tile\Chest::setName` | merged | src/tick/block_entity/api.rs:389 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
+| `pocketmine\block\tile\Chest::unpair` | implemented | src/tick/block_entity/api.rs:446 `unpair` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `pocketmine\block\tile\ChiseledBookshelf` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\ChiseledBookshelf::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `pocketmine\block\tile\ChiseledBookshelf::canOpenWith` | merged | src/tick/block_entity/api.rs:115 `can_open_with` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Container::canOpenWith` |
 | `pocketmine\block\tile\ChiseledBookshelf::getInventory` | merged | src/tick/inventory/api.rs:103 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `InventoryHolder::getInventory` |
-| `pocketmine\block\tile\ChiseledBookshelf::getLastInteractedSlot` | implemented | src/tick/block_entity/api.rs:309 `last_interacted_slot` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\tile\ChiseledBookshelf::getLastInteractedSlot` | implemented | src/tick/block_entity/api.rs:313 `last_interacted_slot` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\tile\ChiseledBookshelf::getRealInventory` | merged | src/tick/inventory/api.rs:102 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\tile\ChiseledBookshelf::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\ChiseledBookshelf::setLastInteractedSlot` | implemented | src/tick/block_entity/api.rs:752 `set_last_interacted_slot` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\tile\ChiseledBookshelf::setLastInteractedSlot` | implemented | src/tick/block_entity/api.rs:758 `set_last_interacted_slot` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\tile\Comparator` | skipped |  |  | redstone |
 | `pocketmine\block\tile\Comparator::getSignalStrength` | skipped |  |  | redstone |
 | `pocketmine\block\tile\Comparator::readSaveData` | skipped |  |  | redstone |
@@ -3016,16 +3016,16 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\EnchantTable::getName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `pocketmine\block\tile\EnchantTable::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `pocketmine\block\tile\EnchantTable::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\EnchantTable::setName` | merged | src/tick/block_entity/api.rs:385 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
+| `pocketmine\block\tile\EnchantTable::setName` | merged | src/tick/block_entity/api.rs:389 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `pocketmine\block\tile\EnderChest` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\EnderChest::getViewerCount` | implemented | src/tick/block_entity/api.rs:124 `viewer_count` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `pocketmine\block\tile\EnderChest::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `pocketmine\block\tile\EnderChest::setViewerCount` | skipped |  |  | the engine counts the windows open on a block |
 | `pocketmine\block\tile\FlowerPot` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `pocketmine\block\tile\FlowerPot::getPlant` | implemented | src/tick/block_entity/api.rs:239 `potted_plant` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\FlowerPot::getPlant` | implemented | src/tick/block_entity/api.rs:241 `potted_plant` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\tile\FlowerPot::getRenderUpdateBugWorkaroundStateProperties` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `pocketmine\block\tile\FlowerPot::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\FlowerPot::setPlant` | implemented | src/tick/block_entity/api.rs:628 `set_potted_plant` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\FlowerPot::setPlant` | implemented | src/tick/block_entity/api.rs:634 `set_potted_plant` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\tile\Furnace` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Furnace::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `pocketmine\block\tile\Furnace::addAdditionalSpawnData` | skipped |  |  | block entity NBT is internal to the chunk store |
@@ -3040,7 +3040,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\Furnace::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `pocketmine\block\tile\Furnace::onUpdate` | skipped |  |  | block rule code |
 | `pocketmine\block\tile\Furnace::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Furnace::setName` | merged | src/tick/block_entity/api.rs:385 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
+| `pocketmine\block\tile\Furnace::setName` | merged | src/tick/block_entity/api.rs:389 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `pocketmine\block\tile\GlowingItemFrame` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\HangingSign` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Hopper` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
@@ -3055,47 +3055,47 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\Hopper::getRealInventory` | merged | src/tick/inventory/api.rs:102 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\tile\Hopper::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `pocketmine\block\tile\Hopper::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Hopper::setName` | merged | src/tick/block_entity/api.rs:385 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
+| `pocketmine\block\tile\Hopper::setName` | merged | src/tick/block_entity/api.rs:389 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `pocketmine\block\tile\ItemFrame` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\ItemFrame::__construct` | skipped |  |  | block entities are made by the block rules with their block |
-| `pocketmine\block\tile\ItemFrame::getItem` | implemented | src/tick/block_entity/api.rs:249 `framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
-| `pocketmine\block\tile\ItemFrame::getItemDropChance` | implemented | src/tick/block_entity/api.rs:269 `frame_drop_chance` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
-| `pocketmine\block\tile\ItemFrame::getItemRotation` | implemented | src/tick/block_entity/api.rs:259 `frame_rotation` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
-| `pocketmine\block\tile\ItemFrame::hasItem` | merged | src/tick/block_entity/api.rs:249 `framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given | into `block\tile\ItemFrame::getItem` |
+| `pocketmine\block\tile\ItemFrame::getItem` | implemented | src/tick/block_entity/api.rs:253 `framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\ItemFrame::getItemDropChance` | implemented | src/tick/block_entity/api.rs:273 `frame_drop_chance` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\ItemFrame::getItemRotation` | implemented | src/tick/block_entity/api.rs:263 `frame_rotation` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\ItemFrame::hasItem` | merged | src/tick/block_entity/api.rs:253 `framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given | into `block\tile\ItemFrame::getItem` |
 | `pocketmine\block\tile\ItemFrame::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\ItemFrame::setItem` | implemented | src/tick/block_entity/api.rs:645 `set_framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
-| `pocketmine\block\tile\ItemFrame::setItemDropChance` | implemented | src/tick/block_entity/api.rs:675 `set_frame_drop_chance` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
-| `pocketmine\block\tile\ItemFrame::setItemRotation` | implemented | src/tick/block_entity/api.rs:659 `set_frame_rotation` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\ItemFrame::setItem` | implemented | src/tick/block_entity/api.rs:651 `set_framed_item` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\ItemFrame::setItemDropChance` | implemented | src/tick/block_entity/api.rs:681 `set_frame_drop_chance` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\ItemFrame::setItemRotation` | implemented | src/tick/block_entity/api.rs:665 `set_frame_rotation` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\tile\Jukebox` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `pocketmine\block\tile\Jukebox::getRecord` | implemented | src/tick/block_entity/api.rs:279 `record` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\Jukebox::getRecord` | implemented | src/tick/block_entity/api.rs:283 `record` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\tile\Jukebox::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Jukebox::setRecord` | implemented | src/tick/block_entity/api.rs:691 `set_record` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
+| `pocketmine\block\tile\Jukebox::setRecord` | implemented | src/tick/block_entity/api.rs:697 `set_record` | src/tick/block_entity/api/tests.rs::pots_frames_and_jukeboxes_hold_what_they_are_given |  |
 | `pocketmine\block\tile\Lectern` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
-| `pocketmine\block\tile\Lectern::getBook` | implemented | src/tick/block_entity/api.rs:289 `lectern_book` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
-| `pocketmine\block\tile\Lectern::getViewedPage` | implemented | src/tick/block_entity/api.rs:299 `lectern_page` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\tile\Lectern::getBook` | implemented | src/tick/block_entity/api.rs:293 `lectern_book` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\tile\Lectern::getViewedPage` | implemented | src/tick/block_entity/api.rs:303 `lectern_page` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\tile\Lectern::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Lectern::setBook` | implemented | src/tick/block_entity/api.rs:709 `set_lectern_book` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
-| `pocketmine\block\tile\Lectern::setViewedPage` | implemented | src/tick/block_entity/api.rs:731 `set_lectern_page` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\tile\Lectern::setBook` | implemented | src/tick/block_entity/api.rs:715 `set_lectern_book` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
+| `pocketmine\block\tile\Lectern::setViewedPage` | implemented | src/tick/block_entity/api.rs:737 `set_lectern_page` | src/tick/block_entity/api/tests.rs::lecterns_and_bookshelves_keep_their_books_place |  |
 | `pocketmine\block\tile\MobHead` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\MobHead::getMobHeadType` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\tile\MobHead::getRotation` | implemented | src/tick/block_entity/api.rs:319 `skull_rotation` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\tile\MobHead::getRotation` | implemented | src/tick/block_entity/api.rs:323 `skull_rotation` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\tile\MobHead::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `pocketmine\block\tile\MobHead::setMobHeadType` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
-| `pocketmine\block\tile\MobHead::setRotation` | implemented | src/tick/block_entity/api.rs:770 `set_skull_rotation` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
+| `pocketmine\block\tile\MobHead::setRotation` | implemented | src/tick/block_entity/api.rs:776 `set_skull_rotation` | src/tick/block_entity/api/tests.rs::beds_banners_and_heads_keep_their_look |  |
 | `pocketmine\block\tile\MonsterSpawner` | skipped |  |  | spawners spawn mobs: no mob AI |
 | `pocketmine\block\tile\MonsterSpawner::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `pocketmine\block\tile\Nameable` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Nameable::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
 | `pocketmine\block\tile\Nameable::getName` | implemented | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `pocketmine\block\tile\Nameable::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
-| `pocketmine\block\tile\Nameable::setName` | implemented | src/tick/block_entity/api.rs:385 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
+| `pocketmine\block\tile\Nameable::setName` | implemented | src/tick/block_entity/api.rs:389 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `pocketmine\block\tile\NameableTrait` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\NameableTrait::addAdditionalSpawnData` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `pocketmine\block\tile\NameableTrait::copyDataFromItem` | skipped |  |  | block entity NBT is internal to the chunk store |
 | `pocketmine\block\tile\NameableTrait::getDefaultName` | skipped |  |  | the client names a container without a custom name itself; Anchor sends no default name (PMMP sends none either) |
 | `pocketmine\block\tile\NameableTrait::getName` | implemented | src/tick/block_entity/api.rs:108 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `pocketmine\block\tile\NameableTrait::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
-| `pocketmine\block\tile\NameableTrait::setName` | implemented | src/tick/block_entity/api.rs:386 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
+| `pocketmine\block\tile\NameableTrait::setName` | implemented | src/tick/block_entity/api.rs:390 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
 | `pocketmine\block\tile\NormalFurnace` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\NormalFurnace::getFurnaceType` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\tile\Note` | skipped |  |  | Anchor keeps no note block entity: PMMP plays no notes, and Anchor keeps a saved `Music` entry as it came |
@@ -3116,8 +3116,8 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\ShulkerBox::getRealInventory` | merged | src/tick/inventory/api.rs:102 `block_inventory` | src/tick/inventory/tests/api.rs::container_blocks_read_both_chest_halves_and_tell_every_viewer | into `Container::getRealInventory` |
 | `pocketmine\block\tile\ShulkerBox::hasName` | merged | src/tick/block_entity/api.rs:107 `name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::getName` |
 | `pocketmine\block\tile\ShulkerBox::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\ShulkerBox::setFacing` | implemented | src/tick/block_entity/api.rs:489 `set_shulker_facing` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
-| `pocketmine\block\tile\ShulkerBox::setName` | merged | src/tick/block_entity/api.rs:385 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
+| `pocketmine\block\tile\ShulkerBox::setFacing` | implemented | src/tick/block_entity/api.rs:493 `set_shulker_facing` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side |  |
+| `pocketmine\block\tile\ShulkerBox::setName` | merged | src/tick/block_entity/api.rs:389 `set_name` | src/tick/block_entity/api/tests.rs::containers_take_names_and_chests_pair_side_by_side | into `Nameable::setName` |
 | `pocketmine\block\tile\Sign` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Sign::__construct` | skipped |  |  | block entities are made by the block rules with their block |
 | `pocketmine\block\tile\Sign::fixTextBlob` | skipped |  |  | deprecated PMMP helper: `SignText::from_blob` reads a text blob |
@@ -3126,10 +3126,10 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\tile\Sign::getText` | implemented | src/tick/block_entity/api.rs:173 `sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `pocketmine\block\tile\Sign::isWaxed` | implemented | src/tick/block_entity/api.rs:187 `is_sign_waxed` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `pocketmine\block\tile\Sign::readSaveData` | skipped |  |  | block entity NBT is internal to the chunk store |
-| `pocketmine\block\tile\Sign::setBackText` | implemented | src/tick/block_entity/api.rs:543 `set_sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
+| `pocketmine\block\tile\Sign::setBackText` | implemented | src/tick/block_entity/api.rs:547 `set_sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `pocketmine\block\tile\Sign::setEditorEntityRuntimeId` | skipped |  |  | Anchor locks no sign for one editor (it sends `LockedForEditingBy` -1, as BDS) |
-| `pocketmine\block\tile\Sign::setText` | implemented | src/tick/block_entity/api.rs:542 `set_sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
-| `pocketmine\block\tile\Sign::setWaxed` | implemented | src/tick/block_entity/api.rs:556 `set_sign_waxed` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
+| `pocketmine\block\tile\Sign::setText` | implemented | src/tick/block_entity/api.rs:546 `set_sign_text` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
+| `pocketmine\block\tile\Sign::setWaxed` | implemented | src/tick/block_entity/api.rs:560 `set_sign_waxed` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved |  |
 | `pocketmine\block\tile\Smoker` | merged | src/tile.rs:74 `Tile` | src/tick/block_entity/api/tests.rs::a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved | into `Tile` |
 | `pocketmine\block\tile\Smoker::getFurnaceType` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\tile\Spawnable` | skipped |  |  | block entity NBT is internal to the chunk store |

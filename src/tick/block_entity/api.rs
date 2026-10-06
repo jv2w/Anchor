@@ -9,8 +9,8 @@
 
 use super::super::{Context, State, inventory};
 use super::{
-    BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, beacon_effect_allowed, beside, block_at,
-    book_pages, broadcast_spawn, campfire_kind, cardinal, decor, set_beacon,
+    BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon_effect_allowed, beside,
+    block_at, book_pages, broadcast_spawn, campfire_kind, cardinal, decor, set_beacon,
 };
 use crate::block::{self, Class, Face, TypeTag};
 use crate::effect;
@@ -209,7 +209,8 @@ impl<'a> Tile<'a> {
         }
     }
 
-    /// A banner's pattern layers, bottom first.
+    /// A banner's pattern layers, bottom first, without the saved ones Anchor does not know (kept
+    /// and shown as they came).
     #[doc(alias = "BaseBanner::getPatterns")]
     #[doc(alias = "block\\tile\\Banner::getPatterns")]
     pub fn banner_patterns(&self) -> Option<impl Iterator<Item = BannerPattern> + 'a> {
@@ -234,12 +235,15 @@ impl<'a> Tile<'a> {
         }
     }
 
-    /// The plant in a flower pot; `None` for an empty pot or another kind.
+    /// The plant in a flower pot; `None` for an empty pot, a saved plant Anchor does not know
+    /// (kept and shown as it came) or another kind.
     #[doc(alias = "block\\FlowerPot::getPlant")]
     #[doc(alias = "block\\tile\\FlowerPot::getPlant")]
     pub fn potted_plant(&self) -> Option<block::State> {
         match self.kind()? {
-            Kind::FlowerPot { plant } => *plant,
+            Kind::FlowerPot {
+                plant: Some(Plant::Known(plant)),
+            } => Some(*plant),
             _ => None,
         }
     }
@@ -591,7 +595,8 @@ impl Mut<'_> {
         })
     }
 
-    /// Replaces a banner's pattern layers, bottom first (at most 16).
+    /// Replaces every pattern layer of a banner, even those Anchor does not know, bottom first
+    /// (at most 16).
     #[doc(alias = "BaseBanner::setPatterns")]
     #[doc(alias = "block\\tile\\Banner::setPatterns")]
     pub fn set_banner_patterns(&mut self, patterns: &[BannerPattern]) -> Result<()> {
@@ -623,7 +628,8 @@ impl Mut<'_> {
     }
 
     /// Puts a plant into a flower pot (`None` empties it): a block the pot takes (PMMP
-    /// `FlowerPot::isValidPlant`: the pottable type tag). The plant before is not dropped.
+    /// `FlowerPot::isValidPlant`: the pottable type tag). The plant before, even one Anchor does
+    /// not know, is replaced and not dropped.
     #[doc(alias = "block\\FlowerPot::setPlant")]
     #[doc(alias = "block\\tile\\FlowerPot::setPlant")]
     pub fn set_potted_plant(&mut self, plant: Option<block::State>) -> Result<()> {
@@ -632,7 +638,7 @@ impl Mut<'_> {
         }
         self.edit(|e| match &mut e.kind {
             Kind::FlowerPot { plant: p } => {
-                *p = plant;
+                *p = plant.map(Plant::Known);
                 Some(Ok(()))
             }
             _ => None,

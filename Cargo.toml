@@ -16,8 +16,8 @@ miniz_oxide = "=0.9.1"
 # the whole of `/proc/self/smaps`.
 memory-stats = { version = "=1.2.0", features = ["always_use_statm"] }
 rayon = "=1.12.0"
-# The fixed copy (see docs/dependencies.md), default `std` feature only: `logging` would pull in
-# `log`.
+# The fixed copy (see .claude/docs/dependencies.md), default `std` feature only: `logging`
+# would pull in `log`.
 redb = { path = "vendor/redb", version = "=4.3.0" }
 rustls = { version = "=0.23.45", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -38,11 +38,11 @@ tokio = { version = "=1.53.1", features = ["test-util"] }
 
 [workspace]
 members = ["xtask"]
-# Fixed copies of dependencies until upstream releases the fixes (docs/dependencies.md). Each
-# differs from the published crate only in its fixes and in `path` entries to the other copies;
-# remove it when a release has them. Used by path, not `[patch]`, so a project depending on Anchor builds them
-# too: `[patch]` applies only in the root workspace. Built as dependencies, not linted or tested as
-# members; xtask/tests holds their reproduction tests.
+# Fixed copies of dependencies until upstream releases the fixes (.claude/docs/dependencies.md).
+# Each differs from the published crate only in its fixes and in `path` entries to the other copies;
+# remove it when a release has them. Used by path, not `[patch]`, so a project depending on Anchor
+# builds them too: `[patch]` applies only in the root workspace. Built as dependencies, not linted
+# or tested as members; xtask/tests holds their reproduction tests.
 exclude = ["vendor"]
 
 [workspace.package]

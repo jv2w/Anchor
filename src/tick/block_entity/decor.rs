@@ -5,7 +5,7 @@
 //! Reading takes the keys a kind owns out of the saved compound; the caller keeps the rest as it
 //! came. Values out of range are fixed the way PMMP fixes them on load.
 
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::block;
 use crate::custom::Registry;
@@ -117,10 +117,11 @@ fn take_compound(nbt: &mut Compound, key: &str) -> Option<Compound> {
 }
 
 /// A saved item compound as a stack (custom items through `custom`, the server's custom
-/// content); an unknown item is left out with a warning (PMMP `Item::safeNbtDeserialize`).
+/// content); an unknown item is left out (PMMP `Item::safeNbtDeserialize`), logged at info: an
+/// imported world holds vanilla items PMMP lacks.
 pub(in crate::tick) fn read_stack(nbt: &Compound, what: &str, custom: &Registry) -> Stack {
     Stack::from_nbt_with(nbt, custom).unwrap_or_else(|| {
-        warn!(what, "a saved block entity item is unknown; it is left out");
+        info!(what, "a saved block entity item is unknown; it is left out");
         Stack::EMPTY
     })
 }
@@ -226,17 +227,14 @@ impl Banner {
     }
 }
 
-/// A banner's `Patterns` list: entries with a known pattern ID, at most [`MAX_PATTERNS`] (PMMP
-/// skips unknown patterns and reads a missing colour as black, 0).
+/// A banner's `Patterns` list: entries with a pattern ID, at most [`MAX_PATTERNS`]. An ID Anchor
+/// does not know stays, as clients may know it (PMMP skips it); a missing colour is black, 0.
 pub(in crate::tick) fn read_patterns(list: &[Compound]) -> Vec<(String, i32)> {
     let mut out = Vec::with_capacity(list.len().min(MAX_PATTERNS));
     for entry in list {
         let Some(Value::String(id)) = entry.get("Pattern") else {
             continue;
         };
-        if block::BannerPattern::from_id(id).is_none() {
-            continue;
-        }
         let colour = match entry.get("Color") {
             Some(Value::Int(c)) if (0..16).contains(c) => *c,
             _ => 0,
@@ -265,25 +263,40 @@ pub(in crate::tick) fn patterns_value(patterns: &[(String, i32)]) -> Value {
     ))
 }
 
-/// A flower pot's plant (`PlantBlock`, a block state compound); `None` for none or an unknown
-/// state (PMMP fails the tile; Anchor keeps the pot empty with a warning).
-pub(in crate::tick) fn read_plant(nbt: &mut Compound) -> Option<block::State> {
-    let plant = take_compound(nbt, "PlantBlock")?;
-    let state = crate::save::find_state(&plant);
-    if state.is_none() {
-        warn!("a flower pot's plant is unknown; the pot is left empty");
-    }
-    state.filter(|s| *s != block::AIR)
+/// A flower pot's plant.
+#[derive(Debug, Clone, PartialEq)]
+pub(in crate::tick) enum Plant {
+    /// A block state Anchor knows.
+    Known(block::State),
+    /// A saved plant Anchor does not know, kept as an unknown block in a chunk is: no rule takes it
+    /// out or drops it.
+    Unknown {
+        /// The `PlantBlock` compound as it came.
+        nbt: Compound,
+        /// Whether clients know it: an inert block, sent as itself.
+        shown: bool,
+    },
 }
 
-/// The `PlantBlock` key.
-pub(in crate::tick) fn write_plant(plant: Option<block::State>, nbt: &mut Compound) {
-    if let Some(plant) = plant {
-        nbt.insert(
-            "PlantBlock".to_owned(),
-            Value::Compound(crate::save::state_nbt(plant)),
-        );
+/// A flower pot's plant (`PlantBlock`, a block state compound); `None` for none or air. A state
+/// Anchor does not know stays as it came (PMMP fails the tile).
+pub(in crate::tick) fn read_plant(nbt: &mut Compound) -> Option<Plant> {
+    let plant = take_compound(nbt, "PlantBlock")?;
+    if let Some(state) = crate::save::find_state(&plant) {
+        return (state != block::AIR).then_some(Plant::Known(state));
     }
+    let shown = block::Inert::from_nbt(&plant).is_some();
+    Some(Plant::Unknown { nbt: plant, shown })
+}
+
+/// The `PlantBlock` key; clients get a plant Anchor does not know only if they know it.
+pub(in crate::tick) fn write_plant(plant: Option<&Plant>, nbt: &mut Compound, client: bool) {
+    let value = match plant {
+        Some(Plant::Known(state)) => crate::save::state_nbt(*state),
+        Some(Plant::Unknown { nbt: saved, shown }) if *shown || !client => saved.clone(),
+        _ => return,
+    };
+    nbt.insert("PlantBlock".to_owned(), Value::Compound(value));
 }
 
 impl Frame {
@@ -499,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn banner_patterns_skip_unknown_ids_and_stay_bounded() {
+    fn banner_patterns_keep_unknown_ids_and_stay_bounded() {
         let mut list = vec![Compound::from([
             ("Pattern".to_owned(), Value::String("nope".to_owned())),
             ("Color".to_owned(), Value::Int(3)),
@@ -512,6 +525,12 @@ mod tests {
         }
         let read = read_patterns(&list);
         assert_eq!(read.len(), MAX_PATTERNS);
-        assert!(read.iter().all(|(id, c)| id == "bo" && *c == 3));
+        assert_eq!(read[0], ("nope".to_owned(), 3));
+        assert!(read[1..].iter().all(|(id, c)| id == "bo" && *c == 3));
+        let mut saved = Compound::from([("Patterns".to_owned(), patterns_value(&read[..2]))]);
+        let banner = Banner::read(&mut saved);
+        let mut written = Compound::new();
+        banner.write(&mut written);
+        assert_eq!(written.get("Patterns"), Some(&patterns_value(&read[..2])));
     }
 }

@@ -1,6 +1,6 @@
-//! Reproduction tests for the fixes Anchor carries in this copy (Anchor docs/dependencies.md).
-//! Each one fails on the published 0.10.5 and passes here. Last, an ignored measurement of the
-//! receive path.
+//! Reproduction tests for the fixes Anchor carries in this copy (Anchor
+//! .claude/docs/dependencies.md). Each one fails on the published 0.10.5 and passes here. Last,
+//! an ignored measurement of the receive path.
 
 use crate::chunk::chunk_selective_ack::{ChunkSelectiveAck, GapAckBlock};
 use crate::packet::CommonHeader;

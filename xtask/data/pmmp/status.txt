@@ -23,7 +23,7 @@
 #
 # Rows no rule decides, and `open` rows, stay blank: they are the API Anchor still lacks or has
 # not decided on. A missing feature is never written as skipped without a reason grounded in the
-# project scope (CLAUDE.md, docs/).
+# project scope (CLAUDE.md, .claude/docs/).
 
 # ===== Out of scope for good =====
 

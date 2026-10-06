@@ -1,7 +1,7 @@
-//! Protocol conformance against gophertunnel (P1–P4, see docs/protocol.md): corpus coverage,
-//! decoding with no bytes left (P1), byte-identical round trips (P2), agreement with gophertunnel
-//! in both directions (P3), and fixed-seed mutations that never panic plus over-limit declarations
-//! that end in size errors (P4).
+//! Protocol conformance against gophertunnel (P1–P4, see .claude/docs/protocol.md): corpus
+//! coverage, decoding with no bytes left (P1), byte-identical round trips (P2), agreement with
+//! gophertunnel in both directions (P3), and fixed-seed mutations that never panic plus over-limit
+//! declarations that end in size errors (P4).
 
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]

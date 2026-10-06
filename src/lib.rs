@@ -24,7 +24,7 @@
 //! Items that come from PocketMine-MP carry its names as search aliases, so searching these docs
 //! for `Player::getName` finds [`Player::name`](player::Player::name). The design notes (threads
 //! and tick, network, protocol, storage, data sources, dependencies, testing, and every
-//! `anchor.toml` key) are in the repository's `docs/` folder.
+//! `anchor.toml` key) are in the repository's `.claude/docs/` folder.
 //!
 //! # Build, start and stop times
 //!

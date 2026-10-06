@@ -1,5 +1,5 @@
 //! Reproduction test for the endpoint fix Anchor carries in this copy (Anchor
-//! docs/dependencies.md). It fails on the published 0.10.5 and passes here.
+//! .claude/docs/dependencies.md). It fails on the published 0.10.5 and passes here.
 
 use alloc::boxed::Box;
 use core::str::FromStr;

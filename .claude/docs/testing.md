@@ -116,7 +116,7 @@ P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교
 - Snappy: "AVX2 없는 기기에서 크래시" 보고.
 - 스폰: PlayStatus(PlayerSpawn)를 보내는 시점 차이(Anchor는 `spawn-radius` 원의 청크 뒤), 틱마다 Publisher를 보내지 않음, BiomeDefinitionList 순서.
 - 레시피 책: 공식 클라이언트의 CraftRecipeAuto 재료 목록, `recipe-book = false`에서 책이 비는지, 교육판 아이템의 크리에이티브 표시, 레시피 ID·`deprecated` 블록 이름의 영향.
-- 창과 월드: 창 열기 지연 2틱, 겹상자 짝 표시, 같은 차원 다른 월드 텔레포트 때 옛 청크와 난이도 반영.
+- 창과 월드: 창 열기 지연 2틱, 겹상자 짝 표시, 같은 차원 다른 월드 텔레포트 때 옛 청크와 난이도 반영, 가져온 월드의 모르는 화분 식물과 배너 무늬 표시.
 - 커스텀 콘텐츠: 커스텀 블록 렌더링, 마찰, `"none"` 카테고리, 속성 상한, 커스텀 엔티티 `rid`·`hasspawnegg`.
 - 화면: 보스바 색 갱신, 명령 별칭과 자동 완성, CommandRequest Version 값.
 - 날씨: 비·눈·천둥 하늘, 번개 모습과 소리.

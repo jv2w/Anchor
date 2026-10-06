@@ -6,7 +6,7 @@
 //! An action that would drop an item first checks that the world can take one more entity
 //! (at the entity limit the action is refused and nothing changes).
 
-use super::super::block_entity::{self, BlockEntity, Kind};
+use super::super::block_entity::{self, BlockEntity, Kind, Plant};
 use super::super::{SessionId, State, dispatch, entity};
 use super::using::{self, Use};
 use super::{Actor, center, level_event, open_sign_editor, props, sound};
@@ -228,7 +228,7 @@ pub(super) fn write_sign(
 
 /// PMMP `FlowerPot::onInteract`: a pottable plant goes in an empty pot; a full pot gives its plant
 /// to the player (what does not fit drops), unless the held item could be potted too (vanilla
-/// then places it).
+/// then places it). A plant Anchor does not know stays, as an inert block has no rules.
 pub(super) fn flower_pot(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let plant = u
@@ -236,14 +236,20 @@ pub(super) fn flower_pot(state: &mut State, u: &mut Use) -> bool {
         .item()
         .and_then(|t| t.placed_block(None))
         .filter(|b| b.has_type_tag(TypeTag::Pottable));
-    let Some(BlockEntity {
-        kind: Kind::FlowerPot { plant: potted },
-        ..
-    }) = entity_at(state, world, u.pos)
-    else {
-        return false;
+    let potted = match entity_at(state, world, u.pos) {
+        Some(BlockEntity {
+            kind: Kind::FlowerPot { plant: None },
+            ..
+        }) => None,
+        Some(BlockEntity {
+            kind: Kind::FlowerPot {
+                plant: Some(Plant::Known(old)),
+            },
+            ..
+        }) => Some(*old),
+        _ => return false,
     };
-    match (*potted, plant) {
+    match (potted, plant) {
         (Some(old), None) => {
             if !entity::has_room(state, world, 1) {
                 return false;
@@ -267,7 +273,7 @@ pub(super) fn flower_pot(state: &mut State, u: &mut Use) -> bool {
                 ..
             }) = entity_mut(state, world, u.pos)
             {
-                *plant = Some(new);
+                *plant = Some(Plant::Known(new));
             }
             u.pop();
             block_entity::broadcast_spawn(state, world, u.pos);

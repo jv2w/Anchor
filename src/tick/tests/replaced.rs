@@ -96,7 +96,9 @@ fn water_flowing_into_a_flower_pot_drops_the_pot_and_its_plant_once() {
     place(&mut state, AT, BlockKind::FlowerPot.default_state());
     let dandelion = BlockKind::Dandelion.default_state();
     match &mut state.rules.block_entities.get_mut(0, AT).unwrap().kind {
-        block_entity::Kind::FlowerPot { plant } => *plant = Some(dandelion),
+        block_entity::Kind::FlowerPot { plant } => {
+            *plant = Some(block_entity::Plant::Known(dandelion));
+        }
         other => panic!("{other:?}"),
     }
     let source = AT.step(Face::West).unwrap();
