@@ -125,7 +125,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         .arg(reference_out.join("blocks.json"))
         .current_dir(root.join(PMMP.0))
         .status()
-        .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/docs/data.md"))?;
+        .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;
     if !status.success() {
         return Err(format!("the PMMP dump failed ({status})"));
     }

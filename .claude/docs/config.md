@@ -2,6 +2,8 @@
 
 Anchor의 설정은 `anchor.toml` 파일 하나다. 이 문서는 모든 키의 타입, 기본값, 범위, 뜻과 읽기 규칙을 적는다. 설정이 저장과 맺는 관계는 `storage.md`에 있다.
 
+작업 규칙은 `.claude/rules/config.md`.
+
 ## 파일과 읽기
 
 - 사용자 바이너리가 `Config::default().load("anchor.toml")?`로 읽어 `ServerBuilder::config`에 넘긴다. `config()`를 부르지 않으면 Anchor는 설정 파일을 읽지도 쓰지도 않는다. 라이브러리라 파일 위치와 사용 여부를 사용자가 정한다.
@@ -9,11 +11,10 @@ Anchor의 설정은 `anchor.toml` 파일 하나다. 이 문서는 모든 키의 
 - 값의 우선순위: `Config::default()` → 코드에서 바꾼 값 → `load`가 파일에 있는 키로 덮음 → 그 뒤 코드에서 바꾼 값. 파일에 없는 키는 앞의 값(보통 기본값)을 유지하므로 새 Anchor도 옛 파일로 시작한다.
 - 파일은 1 MiB 이하 UTF-8 TOML이다. 문법 오류는 줄과 칸을 알려 준다.
 - 표는 둘이다: `[general]`(서버를 여는 누구나 정하는 값)과 `[developer]`(성능과 프로토콜, 주의가 필요한 값). 월드별 값은 `[worlds.<이름>]`이다.
-- 키 이름은 PMMP 설정 관례를 따르는 kebab-case이고, 중첩 경로는 평평하게 편다. 더하는 키는 꼭 필요한 것만이다.
 
 ## 기본 파일
 
-`Config::load`가 쓰는 기본 파일(`src/config.rs`의 `DEFAULT_FILE`)이다. 이 문서의 첫 번째 `toml` 블록은 시험(`tests/config.rs`)이 기본 파일과 바이트 단위로 비교한다. 그래서 기본 파일을 고치면 이 블록과 아래 키 표를 같은 변경에서 고친다. 키 66개가 모두 들어 있다.
+`Config::load`가 쓰는 기본 파일(`src/config.rs`의 `DEFAULT_FILE`)이다. 키 66개가 모두 들어 있다.
 
 ```toml
 # Anchor server settings. Anchor reads this file at start and never writes it again.
@@ -168,7 +169,7 @@ console-input = true
 
 ## 검증
 
-모든 값은 시작 전에 검사하고, 틀리면 키 이름을 담은 `config::Error`로 시작을 거부한다. 조용히 고치거나 무시하지 않는다.
+모든 값은 시작 전에 검사하고, 틀리면 키 이름을 담은 `config::Error`로 시작을 거부한다.
 
 - 모르는 키는 `UnknownKey`, 모르는 최상위 표는 `UnknownTable`(`build()`에서 검사), 타입이나 모양이 틀린 값은 `Invalid`, 범위 밖 정수는 `Range`(키, 값, 최소, 최대)다.
 - `hardcore = true`는 `difficulty = "hard"`일 때만 된다.
@@ -222,7 +223,7 @@ console-input = true
 | `force-resources` | bool | `false` | | 리소스팩을 받아야 접속할 수 있는지 |
 | `log-level` | 문자열 | `"info"` | `off`, `error`, `warn`, `info`, `debug`, `trace` | Anchor 콘솔 로그 수준. `off`면 Anchor가 콘솔 로그를 쓰지 않는다 |
 
-`resource-packs`의 상대 경로가 `packs`로 시작하면 거부한다. 설정 파일 옆 `packs` 폴더 기준으로 쓴 경로는 `data/packs/packs/...`를 찾게 되는데, Anchor는 설정 파일을 고치지 않으므로 사용자가 고치게 한다. 시작은 설정 파일 옆의 `packs/` 폴더를 `data/packs`가 없을 때 이름 바꾸기 한 번으로 옮기고, 둘 다 있으면 그 폴더를 그대로 두고 경고한다. 읽는 곳은 늘 `data/packs` 하나다.
+`resource-packs`의 상대 경로가 `packs`로 시작하면 거부하고 사용자가 고친다. 설정 파일 옆 `packs` 폴더 기준으로 쓴 경로는 `data/packs/packs/...`를 찾게 되기 때문이다. 시작은 설정 파일 옆의 `packs/` 폴더를 `data/packs`가 없을 때 이름 바꾸기 한 번으로 옮기고, 둘 다 있으면 그 폴더를 그대로 두고 경고한다. 읽는 곳은 늘 `data/packs` 하나다.
 
 ## `[developer]`
 
@@ -274,13 +275,13 @@ console-input = true
 
 ## 이름을 바꾼 키
 
-Anchor 키의 이름을 바꾸거나 합치면 `src/config.rs`의 `RENAMED_KEYS` 한 곳에 옛 경로와 새 경로를 둔다. 옛 키는 조용히 받지 않고 `config::Error::RenamedKey`로 시작을 거부하며 새 키를 알려 준다. 받아 주면 두 이름이 영원히 남고, 두 키를 함께 쓴 파일의 뜻이 모호해지기 때문이다. Anchor는 파일을 고치지 않으므로 사용자가 고친다.
+이름이 바뀌거나 합쳐진 Anchor 키다. 옛 키는 조용히 받지 않고 `config::Error::RenamedKey`로 시작을 거부하며 새 키를 알려 준다. 사용자가 파일을 고친다. 받아 주면 두 이름이 영원히 남고, 두 키를 함께 쓴 파일의 뜻이 모호해지기 때문이다.
 
 | 옛 키 | 새 키 | 오류 문장 |
 |---|---|---|
 | `general.experience-bottles` | `general.experience-orbs` | ``` `general.experience-bottles` was renamed to `general.experience-orbs` ``` |
 
-PMMP 설정과 이름이 다른 키(Anchor 키였던 적이 없어 위 표에 넣지 않는다):
+PMMP 설정과 이름이 다른 키(Anchor 키였던 적이 없어 위 표에 없다):
 
 | PMMP | Anchor |
 |---|---|
@@ -295,10 +296,9 @@ PMMP 설정 중 없는 것: PHP 전용(메모리, GC, async-workers, timings, �
 
 ## 기능 스위치
 
-`hunger`부터 `movement-check`까지의 bool과 `backups`처럼 기능을 켜고 끄는 키는, `false`면 그 기능의 코드가 아예 돌지 않는다: 틱 작업, 이벤트, 패킷, 그 기능의 표와 메모리가 없다. 숨기기만 하지 않는다. 시험은 끈 상태에서 그 기능의 상태, 출력, 이벤트가 생기지 않고 그 기능의 표가 비어 있음을 확인한다.
+`hunger`부터 `movement-check`까지의 bool과 `backups`처럼 기능을 켜고 끄는 키는, `false`면 그 기능의 코드가 아예 돌지 않는다: 틱 작업, 이벤트, 패킷, 그 기능의 표와 메모리가 없다.
 
-- 설정에 없는 동작은 가장 빠르고 안전하며 어떤 서버에서도 맞는 기본값이다.
-- 새 키의 기본값은 그 키가 없을 때의 동작과 같다. 그래서 옛 파일은 키를 더하지 않아도 같은 서버가 된다.
+새 키가 생겨도 옛 파일은 키를 더하지 않고 같은 서버가 된다.
 
 ## 저장하지 않음
 

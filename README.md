@@ -27,7 +27,7 @@ fn main() -> anchor::Result<()> {
 ## 문서
 
 - API: `cargo doc --open -p anchor`. PMMP 이름(예: `Player::getName`)으로 검색해도 찾는다.
-- 설계: [.claude/docs/](.claude/docs/) — architecture, network, protocol, storage, data, dependencies, testing, config.
+- 설계: [.claude/docs/](.claude/docs/) — architecture, network, protocol, storage, data, dependencies, testing, config. 같은 주제의 작업 규칙은 [.claude/rules/](.claude/rules/)에 있다.
 - 예제: [examples/](examples/) (lobby, pvp, minigame, custom).
 
 ## AI 도구로 개발할 때

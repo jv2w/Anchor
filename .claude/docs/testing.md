@@ -1,10 +1,28 @@
 # 시험과 검증
 
-Anchor의 시험은 두 층이다. `cargo xtask verify`는 모든 변경에서 도는 검사이고, P6는 기준 서버(BDS)와 패킷을 대조하는 별도 도구다. 클라이언트 화면처럼 둘 다 볼 수 없는 것은 실제 클라이언트로 확인한다.
+작업 규칙은 `.claude/rules/testing.md`.
+
+Anchor의 검사는 세 층이다. `cargo xtask check`는 바뀐 것만 보는 가벼운 검사, `cargo xtask verify`는 전체 검사, P6는 기준 서버(BDS)와 패킷을 대조하는 별도 도구다. 클라이언트 화면처럼 셋 다 볼 수 없는 것은 실제 클라이언트로 확인한다.
+
+## `cargo xtask check`
+
+HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로 돌며 처음 실패에서 멈춘다. 통과하면 마지막 줄이 `PASS`다.
+
+1. `cargo fmt --check`
+2. `cargo clippy --workspace --all-targets -- -D warnings`(빌드 포함)
+3. 바뀐 것의 시험:
+   - `src/`의 파일: 그 모듈의 단위 시험(`cargo test -p anchor --lib -- <모듈>::`). 하위 모듈이 있는 파일은 자기 모듈, 없는 파일은 그 폴더를 가진 모듈이다(`foo/bar.rs`, `foo/tests.rs` → `foo::`). `src/lib.rs`나 빌드 파일(`Cargo.toml`, `Cargo.lock`, `.clippy.toml`, `.rustfmt.toml`, `rust-toolchain.toml`, `.cargo/`)이 바뀌면 모든 단위 시험.
+   - `tests/<이름>.rs`, `xtask/tests/<이름>.rs`: 그 시험 파일. 하위 폴더의 공용 파일이 바뀌면 그 패키지의 모든 통합 시험.
+   - `xtask/src/`: xtask 단위 시험.
+
+- 코드가 아닌 파일만 바뀌었으면 바로 통과한다. `examples/`는 clippy가 빌드하고, vendor 사본의 시험은 verify가 돈다.
+- 빌드는 `target/check/`에서 한다. 도는 verify를 기다리지 않고 실행 중인 `xtask.exe`를 다시 빌드하지 않게 하려는 것이다.
+- 통과하면 HEAD와 바뀐 파일 내용의 도장을 `target/check/pass`에 남긴다. 그대로인 트리는 바로 통과한다.
+- `--hook`은 Stop 훅(`.claude/settings.json`)이 쓰는 모드다. 실패하면 출력을 Claude에게 돌려주고 종료 코드 2로 끝난다. 훅이 한 번 막은 뒤(`stop_hook_active`) 그 실패 이후 바뀐 것이 없으면 끝내게 해 무한 반복을 막는다.
 
 ## `cargo xtask verify`
 
-변경의 완료 조건은 `cargo xtask verify`의 마지막 줄 `PASS`다. 검사는 순서대로 돌고, 각 줄은 `ok  ` 또는 `FAIL`로 시작한다. 하나라도 실패하거나 경고를 내면 전체가 `FAIL`이다.
+검사는 순서대로 돌고, 각 줄은 `ok  ` 또는 `FAIL`로 시작한다. 마지막 줄은 전체 결과 `PASS` 또는 `FAIL`이다. 하나라도 실패하거나 경고를 내면 전체가 `FAIL`이다. 이 PC에서 10~15분 걸린다.
 
 | 순서 | 검사 | 보는 것 |
 |---|---|---|
@@ -24,8 +42,7 @@ Anchor의 시험은 두 층이다. `cargo xtask verify`는 모든 변경에서 �
 
 ## 시험 배치
 
-- 단위 시험: 파일 끝 `#[cfg(test)] mod tests`. 시험이 길면 `foo/tests.rs`처럼 옆 파일로 둔다.
-- 공개 API 시험: `tests/<주제>.rs`. 사용자 바이너리처럼 공개 API만 쓴다.
+- 공개 API 시험(`tests/`):
   - `block.rs`, `item.rs`: 상태·아이템 조회, 기준 목록과 PMMP 덤프 대조.
   - `config.rs`: 설정 파일 기본값, 형, 범위, 모르는 키.
   - `server.rs`, `world.rs`: 빌드, 스레드 예산, 종료, 월드 API.
@@ -40,25 +57,23 @@ Anchor의 시험은 두 층이다. `cargo xtask verify`는 모든 변경에서 �
   - `examples.rs`: 예제 바이너리를 새 폴더에서 띄우고 봇이 `xtask/data/examples/<이름>.txt` 스크립트를 돈다.
   - `go.rs`: `xtask/go`의 Go 시험. `import_reader.rs`: goleveldb와 월드 리더 대조.
   - `downstream.rs`, `dimpl_repro.rs`, `redb_repro.rs`: vendor 사본이 사용자 프로젝트에 들어가는지와 고친 결함의 재현(`dependencies.md`).
-- 테스트 이름은 동작을 서술한다(`test_` 접두사 없음). 실패는 `expect`와 `assert`로 낸다.
-- 측정용 시험은 `#[ignore = "measurement"]`이다. 예: `cargo test --release --lib tick::tests::bench -- --ignored --nocapture`(틱 비용). 자식 프로세스 역할의 시험도 `#[ignore]`이고 부모 시험이 부른다.
+- 측정용 시험 실행 예: `cargo test --release --lib tick::tests::bench -- --ignored --nocapture`(틱 비용).
 
-## 회귀, 멱등, 결정성, 보존 시험
+## 멱등, 결정성, 보존 시험
 
-- 회귀: 고친 결함마다 그 결함을 재현하는 시험을 둔다. 외부 크레이트 결함은 vendor 사본의 재현 시험이 맡는다.
-- 멱등: 요청 ID를 받는 처리기마다 같은 입력을 두 번 넣은 상태 해시가 한 번과 같은지 본다. 예: `the_same_request_twice_leaves_the_state_of_once`(인벤토리), `a_repeated_break_changes_nothing_twice`, `the_same_answer_twice_changes_nothing_twice`(폼), `a_duplicate_join_changes_nothing`.
-- 결정성: 스크립트 클라이언트(`src/tick/tests/client.rs`)가 고정 시드로 게임 입력을 보내고, CPU 풀 1개와 max(논리 CPU, 4)개에서 틱별 상태 해시와 출력이 같아야 한다. 입력 로그를 재생해도 같다(`one_and_many_pool_threads_give_the_same_ticks_and_the_log_replays_them`, 리스너가 있는 `busy.rs`). 상태 해시는 모든 구조체를 `..` 없이 분해해서, 새 필드를 해시에 넣지 않으면 컴파일이 실패한다.
+- 멱등 시험 예: `the_same_request_twice_leaves_the_state_of_once`(인벤토리), `a_repeated_break_changes_nothing_twice`, `the_same_answer_twice_changes_nothing_twice`(폼), `a_duplicate_join_changes_nothing`.
+- 결정성: 스크립트 클라이언트(`src/tick/tests/client.rs`)가 고정 시드로 게임 입력을 보내고, CPU 풀 1개와 max(논리 CPU, 4)개에서 틱별 상태 해시와 출력이 같아야 한다. 입력 로그를 재생해도 같다(`one_and_many_pool_threads_give_the_same_ticks_and_the_log_replays_them`, 리스너가 있는 `busy.rs`). 상태 해시가 구조체를 `..` 없이 분해하므로 새 필드를 해시에 넣지 않으면 컴파일이 실패한다.
 - 보존: 고정 시드 무작위 인벤토리 요청에서 아이템 총량이 설명되는 만큼만 바뀐다. 강제 종료 시험(`tests/crash.rs`, `src/tick/tests/crash.rs`)은 틱 수로 정한 순간(벽시계 아님)에 서버를 죽여 복제·손실이 없는지 본다.
 - 누수: 접속·종료, 창, 엔티티, 예약 갱신을 반복한 뒤 모든 표와 큐가 시작 값이다(`src/tick/tests/leak.rs`).
 - 자동 시나리오: 패킷만으로 원목에서 거래까지 가는 생존 흐름(`src/tick/tests/scenario.rs`).
 
 ## P6: BDS 대조
 
-P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교한다. 봇과 시나리오는 BDS에서 먼저 통과해야 믿는다. 그다음 같은 봇으로 Anchor를 검증한다. 다르면 BDS를 따르거나, 일부러 다른 이유를 `intended.txt`에 적는다.
+P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교한다.
 
 - 봇: `xtask/go/bot`(gophertunnel 기반 Go 클라이언트). 공식 클라이언트처럼 서버 권위 인벤토리, PlayerAuthInput, 블록 액션을 쓰고 받은 패킷을 모두 JSON 줄로 기록한다.
-- BDS: 프로토콜 버전에 맞는 BDS(지금 1.26.52.3)를 `.cache/bds/1.26.52.3/`에 복사해 그 사본에서만 실행한다. 받은 원본 폴더는 실행하지 않는다. 하네스가 사본의 `server.properties`를 쓰고 `worlds`를 지운 뒤 띄우고 `stop`으로 끝낸다. BDS 실행 파일은 분석하지 않는다. 오직 봇이 받는 패킷으로만 비교한다.
-- 시험 설정: `online-mode=false`, 평지 시드 1, survival, normal, Anchor 기본값과 같은 값. 그래서 설정에 따른 필드도 같게 비교된다.
+- BDS: 지금 버전은 1.26.52.3이고 사본은 `.cache/bds/1.26.52.3/`이다. 하네스가 사본의 `server.properties`를 쓰고 `worlds`를 지운 뒤 띄우고 `stop`으로 끝낸다.
+- 시험 설정: `online-mode=false`, 평지 시드 1, survival, normal. Anchor 기본값과 같아서 설정에 따른 필드도 같게 비교된다.
 - 캡처: 모두 `target/p6/` 아래다. `bds-<압축>/`, `bds-nethernet-<압축>/`, `bds-game/`, `bds-api/`와 Anchor 쪽 `anchor-*`. 비교 결과는 `anchor-api/compare.txt` 등에도 쓴다.
 
 ### 명령
@@ -73,7 +88,7 @@ P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교
 | `cargo xtask p6 run --addr HOST:PORT --out DIR [--transport T] [--token-key PEM --kid KID --iss ISS]` | 이미 떠 있는 서버에 시나리오를 돈다. 토큰 옵션은 온라인 시나리오를 더한다 |
 | `cargo xtask p6 compare A B`, `p6 game compare A B`, `p6 api compare A B` | 캡처 둘을 비교한다 |
 
-`p6 anchor`는 두 압축을 함께 돌린다. 한 압축만 주면 NetworkSettings를 다른 압축의 BDS 캡처와 비교하는 문제가 있다.
+`p6 anchor`에 한 압축만 주면 NetworkSettings를 다른 압축의 BDS 캡처와 비교하는 문제가 있다.
 
 ### 시나리오
 
@@ -93,24 +108,15 @@ P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교
 
 ### 데이터 파일 (`xtask/data/p6/`)
 
-- `facts.md`: BDS가 보낸 값과 Anchor가 각 값에 대해 하는 일. 주제별로 정리하고, 열린 질문과 실제 클라이언트로만 확인할 것을 끝에 둔다. 코드 주석은 이 파일을 가리킨다.
-- `fields.txt`: 두 서버가 같아야 하는 고정 필드(`<패킷> <필드 경로>`). 월드나 실행마다 다른 값은 넣지 않는다.
+- `facts.md`: BDS가 보낸 값과 Anchor가 각 값에 대해 하는 일. 코드 주석이 이 파일을 가리킨다.
+- `fields.txt`: 두 서버가 같아야 하는 고정 필드(`<패킷> <필드 경로>`).
 - `deferred.txt`: BDS가 스폰 창에서 보내지만 Anchor는 보내지 않는 패킷(`<패킷> - <이유>`). 비교에서 양쪽 모두 뺀다.
-- `intended.txt`: Anchor가 일부러 다른 차이(`<시나리오> | <차이 원문> | <이유>`). 차이 문장이 정확히 같을 때만 통과하고, 더 나오지 않는 줄은 메모로 알린다. 코드 변경처럼 검토한다.
+- `intended.txt`: Anchor가 일부러 다른 차이(`<시나리오> | <차이 원문> | <이유>`). 차이 문장이 정확히 같을 때만 통과하고, 더 나오지 않는 줄은 메모로 알린다.
 - `script.txt`: `script` 시나리오의 동작. `forms-pack/`: BDS 폼 스크립트 팩.
-
-### 시나리오 더하기
-
-1. 봇에 시나리오 함수를 만든다(`xtask/go/bot/`의 `game.go`, `api.go`, `verify.go` 계열). 단계(`step`)를 나누고, 필요한 월드 준비는 `command` 기록(콘솔 명령)으로 쓰고, 비교할 사실은 확인(`check`) 줄로 남긴다. 구역 좌표를 정해 다른 시나리오와 겹치지 않게 한다.
-2. 하네스의 시나리오 목록(`xtask/src/p6/game.rs` 또는 `api.rs`)에 이름을 넣는다. 사실 기록만이면 `FACTS_ONLY`, 확인 줄만 비교하면 `CHECKS_ONLY`에 넣는다.
-3. 시나리오가 쓰는 콘솔 명령을 Anchor가 받아야 하면 `xtask/src/p6/game/console.rs`가 공개 API로 옮긴다.
-4. `cargo xtask p6 ... bds <이름>`을 두 번 이상 돌려 BDS에서 통과하고 값이 같은지 본다. 실행마다 다른 값은 비교에서 뺀다.
-5. 관찰한 값과 Anchor의 결정을 `facts.md`에 적는다.
-6. `cargo xtask p6 ... anchor <이름>`으로 Anchor를 비교한다. 일부러 다른 것만 이유와 함께 `intended.txt`에 넣는다.
 
 ## 실제 클라이언트로만 확인할 것
 
-봇과 BDS로는 클라이언트 화면과 공식 클라이언트가 보내는 값을 볼 수 없다. Anchor는 이런 곳에서 BDS가 보내는 값과 같게 보내거나, 모든 경우를 받도록 설계한다. 아래는 사용자가 공식 클라이언트로 접속해 확인할 목록이다.
+봇과 BDS로는 클라이언트 화면과 공식 클라이언트가 보내는 값을 볼 수 없다. 아래는 사용자가 공식 클라이언트로 접속해 확인할 목록이다.
 
 - 접속: 공식 클라이언트가 RakNet으로 들어오는지(BDS는 "NetherNet 없이 접속 불가"로 기록), Join 전 대기 32개, 엄격한 ClientData JSON, 핑 응답의 게임 모드 뒤 숫자, 비신뢰 데이터 채널 내용 형식, 리소스팩 조각 요청 방식.
 - Snappy: "AVX2 없는 기기에서 크래시" 보고.
@@ -132,16 +138,14 @@ P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교
 
 ## 이 PC에서 알려진 흔들림
 
-- 루프백 TCP: 이 PC는 루프백 TCP 연결이 가끔 1초 뒤 시간 초과된다(Anchor 없이 Go 연결 300번 중 23번). NetherNet 시그널링(HTTP)을 쓰는 시험과 `p6 anchor`의 NetherNet 실행이 이 때문에 가끔 실패한다. 실패가 연결 시간 초과이면 한 번 다시 돌린다. 두 번째도 실패하면 진짜 실패로 본다.
-- 시간 판정: 시험은 벽시계 시간이 아니라 틱 수와 커밋 보고로 순간을 정한다. 부하에 따라 흔들리는 시험을 재시도, sleep, 시간 늘리기로 덮지 않고 원인을 고친다.
+- 루프백 TCP: 이 PC는 루프백 TCP 연결이 가끔 1초 뒤 시간 초과된다(Anchor 없이 Go 연결 300번 중 23번). NetherNet 시그널링(HTTP)을 쓰는 시험과 `p6 anchor`의 NetherNet 실행이 이 때문에 가끔 실패한다.
 - 텔레포트 직후의 MovePlayer mode 2와 땅 플래그는 입력 도착 시각에 따라 두 서버 모두 흔들려 P6에서 비교하지 않는다.
 
 ## 무거운 시험 돌리기
 
 verify 전체, P6, 결정성·강제 종료 시험은 CPU와 메모리를 많이 쓴다. 부하가 크면 편집기나 다른 프로세스가 멈출 수 있다.
 
-- 한 번에 하나만 돌린다. 같은 `target` 폴더를 쓰는 빌드를 동시에 돌리지 않는다(잠금 경쟁).
-- 낮은 우선순위로 돌린다. Windows 예: `cmd /c start /low /b /wait cargo xtask verify`. 자식 프로세스(rustc, 시험 바이너리)도 우선순위를 물려받는다.
-- 범위를 정해 돌린다: 빌드 병렬은 `CARGO_BUILD_JOBS`, 시험 병렬은 `-- --test-threads=N`, 필요한 시험만 이름으로 거른다(`cargo test --lib tick::tests::crash`). P6는 시나리오 이름을 준다.
-- 끝이 있게 돌린다: 하네스는 봇마다 시간 한도(게임 시나리오 150초)와 여유 시간 뒤 강제 종료가 있다. 직접 띄운 프로세스는 그 PID로만 끝낸다.
-- 측정 시험은 release로 따로 돌린다(`--release ... -- --ignored --nocapture`). 다른 빌드와 겹치면 값이 흔들린다.
+- 낮은 우선순위로 띄우는 Windows 예: `cmd /c start /low /b /wait cargo xtask verify`. 자식 프로세스(rustc, 시험 바이너리)도 우선순위를 물려받는다.
+- 범위를 정하는 수단: 빌드 병렬은 `CARGO_BUILD_JOBS`, 시험 병렬은 `-- --test-threads=N`, 이름 거르기는 `cargo test --lib tick::tests::crash`처럼 한다.
+- 하네스는 봇마다 시간 한도(게임 시나리오 150초)가 있고 여유 시간 뒤 강제 종료한다.
+- 측정 시험이 다른 빌드와 겹치면 값이 흔들린다.

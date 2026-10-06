@@ -1,11 +1,13 @@
 //! Repository tasks. `cargo xtask gen [--check]` regenerates the protocol code (or checks it is
-//! current); `cargo xtask verify` runs every check and ends with PASS or FAIL, or with the I/O
-//! error that stopped it; `cargo xtask dump [--check]` rebuilds the committed block and item data
+//! current); `cargo xtask check [--hook]` runs the format, clippy and the tests of what changed,
+//! the check every task ends with; `cargo xtask verify` runs every check and ends with PASS or
+//! FAIL, or with the I/O error that stopped it; `cargo xtask dump [--check]` rebuilds the committed block and item data
 //! and the protocol field limits from the pinned PMMP, dragonfly, `CloudburstMC` and Mojang
 //! protocol docs checkouts; `cargo xtask p6 ...` runs the reference server comparison. Neither
 //! of the last two is part of `verify`: they need `.cache/` checkouts or BDS. `cargo xtask table [--check]` writes (or checks) the PMMP mapping table;
 //! `verify` runs its check.
 
+mod check;
 mod dump;
 mod r#gen;
 mod p6;
@@ -14,6 +16,7 @@ mod table;
 mod vendor;
 
 use std::env;
+use std::ffi::OsStr;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -37,18 +40,22 @@ const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto
 /// changed; it gets a target directory of its own.
 const PRIVATE_DOCS: &str = "--document-private-items";
 
+/// The format check. No `--all`: it also formats path dependencies, the vendor copies.
+const FMT: &[&str] = &["fmt", "--check"];
+/// The lint check.
+const CLIPPY: &[&str] = &[
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings",
+];
+
 /// Checks in run order. Each passes only if it exits successfully and prints no warning.
 const CHECKS: &[&[&str]] = &[
-    // No `--all`: it also formats path dependencies, the vendor copies.
-    &["fmt", "--check"],
-    &[
-        "clippy",
-        "--workspace",
-        "--all-targets",
-        "--",
-        "-D",
-        "warnings",
-    ],
+    FMT,
+    CLIPPY,
     &["test", "--workspace", "--quiet"],
     // The fixed copies are not workspace members; their own tests, the reproduction tests of
     // their fixes among them, run here.
@@ -100,11 +107,15 @@ const CHECKS: &[&[&str]] = &[
 ];
 
 fn main() -> io::Result<ExitCode> {
-    Ok(if run()? {
+    run()
+}
+
+fn exit(passed: bool) -> ExitCode {
+    if passed {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
-    })
+    }
 }
 
 /// The repository root: the parent of this crate's directory.
@@ -118,15 +129,17 @@ fn root() -> PathBuf {
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
-fn run() -> io::Result<bool> {
+fn run() -> io::Result<ExitCode> {
     let mut out = io::stdout().lock();
     let args: Vec<String> = env::args().skip(1).collect();
-    match args
+    let passed = match args
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>()
         .as_slice()
     {
+        ["check"] => return check::command(&root(), false),
+        ["check", "--hook"] => return check::command(&root(), true),
         ["gen"] => gen_command(&mut out, false),
         ["gen", "--check"] => gen_command(&mut out, true),
         ["verify"] => verify(&mut out),
@@ -151,13 +164,15 @@ fn run() -> io::Result<bool> {
         _ => {
             writeln!(
                 out,
-                "usage: cargo xtask gen [--check] | cargo xtask verify | cargo xtask dump [--check] \
-                 | cargo xtask table [--check] | cargo xtask vendor-test str0m | {}",
+                "usage: cargo xtask gen [--check] | cargo xtask check [--hook] | cargo xtask \
+                 verify | cargo xtask dump [--check] | cargo xtask table [--check] | cargo xtask \
+                 vendor-test str0m | {}",
                 p6::USAGE
             )?;
             Ok(false)
         }
-    }
+    }?;
+    Ok(exit(passed))
 }
 
 fn gen_command(out: &mut impl Write, check: bool) -> io::Result<bool> {
@@ -259,36 +274,48 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
         } else {
             "verify"
         };
-        let mut command = Command::new(&cargo);
-        if cfg!(windows) && args.contains(&DIMPL) {
-            command.env("OPENSSL_SRC_PERL", root().join(PERL));
-        }
-        let output = command
-            .args(*args)
-            .current_dir(root())
-            // `cargo test --workspace` unifies features differently from `cargo xtask`, so in the
-            // shared target directory it would rebuild the running xtask.exe, which Windows
-            // cannot replace.
-            .env("CARGO_TARGET_DIR", root().join("target").join(target))
-            .env("RUSTDOCFLAGS", "-D warnings")
-            .env("CARGO_TERM_COLOR", "never")
-            .output()?;
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        // Clippy reports an unresolved .clippy.toml path, and rustfmt an unstable option,
-        // only as a warning with a successful exit code.
-        let warned = stderr.lines().any(|line| {
-            let line = line.trim_start();
-            line.starts_with("warning") || line.starts_with("Warning")
-        });
-        let ok = output.status.success() && !warned;
-        if !ok {
-            out.write_all(&output.stdout)?;
-            out.write_all(&output.stderr)?;
-        }
-        let status = if ok { "ok  " } else { "FAIL" };
-        writeln!(out, "{status} cargo {}", args.join(" "))?;
-        passed &= ok;
+        passed &= cargo_step(out, &cargo, args, target)?;
     }
     writeln!(out, "{}", if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
+}
+
+/// Runs `cargo <args>` at the repository root with its builds in `target/<target>` and writes
+/// `ok` or `FAIL` with the command, after the output of a failure. It passes on a successful exit
+/// that printed no warning.
+fn cargo_step(
+    out: &mut impl Write,
+    cargo: &OsStr,
+    args: &[&str],
+    target: &str,
+) -> io::Result<bool> {
+    let mut command = Command::new(cargo);
+    if cfg!(windows) && args.contains(&DIMPL) {
+        command.env("OPENSSL_SRC_PERL", root().join(PERL));
+    }
+    let output = command
+        .args(args)
+        .current_dir(root())
+        // `cargo test --workspace` unifies features differently from `cargo xtask`, so in the
+        // shared target directory it would rebuild the running xtask.exe, which Windows cannot
+        // replace.
+        .env("CARGO_TARGET_DIR", root().join("target").join(target))
+        .env("RUSTDOCFLAGS", "-D warnings")
+        .env("CARGO_TERM_COLOR", "never")
+        .output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Clippy reports an unresolved .clippy.toml path, and rustfmt an unstable option, only as a
+    // warning with a successful exit code.
+    let warned = stderr.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("warning") || line.starts_with("Warning")
+    });
+    let ok = output.status.success() && !warned;
+    if !ok {
+        out.write_all(&output.stdout)?;
+        out.write_all(&output.stderr)?;
+    }
+    let status = if ok { "ok  " } else { "FAIL" };
+    writeln!(out, "{status} cargo {}", args.join(" "))?;
+    Ok(ok)
 }
