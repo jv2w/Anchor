@@ -37,7 +37,7 @@ paths:
 - `math`는 IEEE 754가 결과를 고정하는 연산(사칙, `sqrt`, `floor`, `ceil`, `round`, `abs`)만 쓴다.
 - `min`·`max`·`clamp`와 삼각함수는 std 대신 `math`의 것을 쓴다. std 쪽은 `.clippy.toml`이 막는다.
 - 클라이언트 좌표는 유한하고 월드 경계(30,000,000) 안인지 검사한다.
-- 공식 클라이언트가 보내는 값처럼 봇과 BDS로 볼 수 없는 값은 모든 경우를 받도록 설계한다.
+- 공식 클라이언트가 보내는 값처럼 봇과 공식 서버로 볼 수 없는 값은 모든 경우를 받도록 설계한다.
 - 이벤트 실수 세터는 NaN·Inf를 무시하고 범위를 자른다.
 - 조회는 O(1) 색인으로 한다. 반복 순서는 결정적으로 둔다(`BTreeMap`, Id 순).
 - 입력 정렬 키는 입력마다 유일하게 둔다.
@@ -67,7 +67,7 @@ paths:
 - 직접 API 호출의 결과로 생기는 일(예: `kick` → 퇴장)은 틱의 정해진 자리에서 처리하고, 이벤트도 거기서 쏜다.
 - EntitySpawn·ItemSpawn은 엔티티 틱에서 쏜다.
 - 이벤트 필드는 `pub(crate)`로 두고 게터·세터·`cancel`만 공개한다.
-- PMMP 하위 클래스 계층은 한 구조체 + 원인 enum으로 합친다(`EntityDamageByEntity` → `EntityDamage`의 원인).
+- 대응표 이벤트의 하위 클래스 계층은 한 구조체 + 원인 enum으로 합친다(`EntityDamageByEntity` → `EntityDamage`의 원인).
 - PlayerDataSave 취소는 무시한다.
 - 날씨처럼 프로그램 자신의 직접 호출로만 바뀌는 값에는 변화 이벤트를 두지 않는다.
 
@@ -88,8 +88,8 @@ paths:
 - redb의 열기, `begin_read`, `begin_write`, `check_integrity`, `compact`, `commit`은 storage 모듈에서만 쓴다.
 - str0m의 공급자, ICE 자격, 인증서는 모두 명시 설정한다.
 
-## PMMP 대응
-- PMMP alias의 짧은 이름이 겹치면 네임스페이스로 구별한다.
+## API 대응표
+- 대응표 alias의 짧은 이름이 겹치면 네임스페이스로 구별한다.
 - rustdoc이 항목 이름과 같은 alias를 거부하는 클래스 행은 항목 위 `// pmmp-class: Name` 주석으로 덮는다.
 - 시험은 시험 함수 위 `// pmmp: A::b, C::d` 주석으로 그 alias를 덮는다.
 

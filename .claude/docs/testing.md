@@ -2,7 +2,7 @@
 
 작업 규칙은 `.claude/rules/testing.md`.
 
-Anchor의 검사는 세 층이다. `cargo xtask check`는 바뀐 것만 보는 가벼운 검사, `cargo xtask verify`는 전체 검사, P6는 기준 서버(BDS)와 패킷을 대조하는 별도 도구다. 클라이언트 화면처럼 셋 다 볼 수 없는 것은 실제 클라이언트로 확인한다.
+Anchor의 검사는 세 층이다. `cargo xtask check`는 바뀐 것만 보는 가벼운 검사, `cargo xtask verify`는 전체 검사, P6는 기준 서버(Mojang이 배포하는 공식 서버)와 패킷을 대조하는 별도 도구다. 클라이언트 화면처럼 셋 다 볼 수 없는 것은 실제 클라이언트로 확인한다.
 
 ## `cargo xtask check`
 
@@ -18,8 +18,6 @@ HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로
 - 코드가 아닌 파일만 바뀌었으면 바로 통과한다. `examples/`는 clippy가 빌드하고, vendor 사본의 시험은 verify가 돈다.
 - 빌드는 `target/check/`에서 한다. 도는 verify를 기다리지 않고 실행 중인 `xtask.exe`를 다시 빌드하지 않게 하려는 것이다.
 - 통과하면 HEAD와 바뀐 파일 내용의 도장을 `target/check/pass`에 남긴다. 그대로인 트리는 바로 통과한다.
-- `--hook`은 Stop 훅(`.claude/settings.json`)이 쓰는 모드다. 실패하면 출력을 Claude에게 돌려주고 종료 코드 2로 끝난다. 훅이 한 번 막은 뒤(`stop_hook_active`) 그 실패 이후 바뀐 것이 없으면 끝내게 해 무한 반복을 막는다.
-
 ## `cargo xtask verify`
 
 검사는 순서대로 돌고, 각 줄은 `ok  ` 또는 `FAIL`로 시작한다. 마지막 줄은 전체 결과 `PASS` 또는 `FAIL`이다. 하나라도 실패하거나 경고를 내면 전체가 `FAIL`이다. 이 PC에서 10~15분 걸린다.
@@ -27,7 +25,7 @@ HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로
 | 순서 | 검사 | 보는 것 |
 |---|---|---|
 | 1 | `cargo xtask gen --check` | 생성된 프로토콜·데이터 코드가 생성기 출력과 같다 |
-| 2 | `cargo xtask table --check` | PMMP 대응표(`xtask/data/pmmp/table.md`)가 최신이고 빈 행이 없다 |
+| 2 | `cargo xtask table --check` | API 대응표(`xtask/data/pmmp/table.md`)가 최신이고 빈 행이 없다 |
 | 3 | lint reason tags | 모든 `#[expect]` 이유가 허용된 태그(`safety`, `performance`, `consistency`, `invariant`, `off-tick`)로 시작한다 |
 | 4 | `cargo fmt --check` | 포맷 |
 | 5 | `cargo clippy --workspace --all-targets -- -D warnings` | lint(`[workspace.lints]`, `.clippy.toml` 금지 목록) |
@@ -38,18 +36,18 @@ HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로
 
 - 각 cargo 검사는 `target/verify/`에서 빌드한다. 실행 중인 `xtask.exe`를 다시 빌드하지 않게 하려는 것이다.
 - 필요한 도구: Go(`PATH`에 있어야 함; 봇, 오라클, Go 시험), dimpl 시험의 OpenSSL 빌드용 Strawberry Perl(`.cache/tools/`). 없으면 해당 검사가 실패한다.
-- `dump --check`와 P6는 verify에 들지 않는다. `.cache/` 사본이나 BDS가 필요하기 때문이다(`data.md`).
+- `dump --check`와 P6는 verify에 들지 않는다. `.cache/` 사본이나 공식 서버가 필요하기 때문이다(`data.md`).
 
 ## 시험 배치
 
 - 공개 API 시험(`tests/`):
-  - `block.rs`, `item.rs`: 상태·아이템 조회, 기준 목록과 PMMP 덤프 대조.
+  - `block.rs`, `item.rs`: 상태·아이템 조회, 기준 목록과 데이터 덤프 대조.
   - `config.rs`: 설정 파일 기본값, 형, 범위, 모르는 키.
   - `server.rs`, `world.rs`: 빌드, 스레드 예산, 종료, 월드 API.
   - `shutdown.rs`: 콘솔 `stop`으로 정상 종료하면 마지막 틱이 커밋된다.
   - `crash.rs`: 강제 종료를 반복해도 데이터 파일이 손상되지 않고 블록이 정확히 하나다.
   - `replay.rs`: 크래시 로그 재생이 같은 패닉에 이른다.
-  - `import.rs`: BDS가 만든 월드 가져오기.
+  - `import.rs`: 공식 서버가 만든 월드 가져오기.
   - `log.rs`: 콘솔 로그와 끄기.
 - xtask 통합 시험(`xtask/tests/`, `cargo test --workspace`로 돈다):
   - `protocol.rs`, `compression.rs`: gophertunnel 대조 P1~P4(`protocol.md`).
@@ -67,12 +65,12 @@ HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로
 - 누수: 접속·종료, 창, 엔티티, 예약 갱신을 반복한 뒤 모든 표와 큐가 시작 값이다(`src/tick/tests/leak.rs`).
 - 자동 시나리오: 패킷만으로 원목에서 거래까지 가는 생존 흐름(`src/tick/tests/scenario.rs`).
 
-## P6: BDS 대조
+## P6: 공식 서버 대조
 
-P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교한다.
+P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷을 비교한다.
 
 - 봇: `xtask/go/bot`(gophertunnel 기반 Go 클라이언트). 공식 클라이언트처럼 서버 권위 인벤토리, PlayerAuthInput, 블록 액션을 쓰고 받은 패킷을 모두 JSON 줄로 기록한다.
-- BDS: 지금 버전은 1.26.52.3이고 사본은 `.cache/bds/1.26.52.3/`이다. 하네스가 사본의 `server.properties`를 쓰고 `worlds`를 지운 뒤 띄우고 `stop`으로 끝낸다.
+- 공식 서버: 지금 버전은 1.26.52.3이고 사본은 `.cache/bds/1.26.52.3/`이다. 하네스가 사본의 `server.properties`를 쓰고 `worlds`를 지운 뒤 띄우고 `stop`으로 끝낸다.
 - 시험 설정: `online-mode=false`, 평지 시드 1, survival, normal. Anchor 기본값과 같아서 설정에 따른 필드도 같게 비교된다.
 - 캡처: 모두 `target/p6/` 아래다. `bds-<압축>/`, `bds-nethernet-<압축>/`, `bds-game/`, `bds-api/`와 Anchor 쪽 `anchor-*`. 비교 결과는 `anchor-api/compare.txt` 등에도 쓴다.
 
@@ -80,15 +78,15 @@ P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교
 
 | 명령 | 하는 일 |
 |---|---|
-| `cargo xtask p6 bds [zlib\|snappy]...` | 압축마다 BDS를 RakNet·NetherNet으로 띄워 spawn·big-skin·blocks 시나리오, 폴백, 이름 중복 로그인, 제안 identity 불일치를 기록한다. 끝에 게임 세션과 API 세션을 한 번씩 돈다 |
-| `cargo xtask p6 anchor [zlib\|snappy]...` | 같은 시나리오를 이 프로세스의 Anchor에 돌리고 각 캡처를 BDS 캡처와 비교한다. 게임과 API 세션도 비교한다 |
+| `cargo xtask p6 bds [zlib\|snappy]...` | 압축마다 공식 서버를 RakNet·NetherNet으로 띄워 spawn·big-skin·blocks 시나리오, 폴백, 이름 중복 로그인, 제안 identity 불일치를 기록한다. 끝에 게임 세션과 API 세션을 한 번씩 돈다 |
+| `cargo xtask p6 anchor [zlib\|snappy]...` | 같은 시나리오를 이 프로세스의 Anchor에 돌리고 각 캡처를 공식 서버 캡처와 비교한다. 게임과 API 세션도 비교한다 |
 | `cargo xtask p6 game bds\|anchor [시나리오]...` | 게임 세션만 |
-| `cargo xtask p6 api bds\|anchor [시나리오]...` | API 세션만(BDS는 `allow-cheats=true`, 폼 스크립트 팩) |
-| `cargo xtask p6 import` | BDS가 만든 월드를 Anchor로 가져와 두 서버가 보내는 블록을 하나하나 비교한다 |
+| `cargo xtask p6 api bds\|anchor [시나리오]...` | API 세션만(공식 서버는 `allow-cheats=true`, 폼 스크립트 팩) |
+| `cargo xtask p6 import` | 공식 서버가 만든 월드를 Anchor로 가져와 두 서버가 보내는 블록을 하나하나 비교한다 |
 | `cargo xtask p6 run --addr HOST:PORT --out DIR [--transport T] [--token-key PEM --kid KID --iss ISS]` | 이미 떠 있는 서버에 시나리오를 돈다. 토큰 옵션은 온라인 시나리오를 더한다 |
 | `cargo xtask p6 compare A B`, `p6 game compare A B`, `p6 api compare A B` | 캡처 둘을 비교한다 |
 
-`p6 anchor`에 한 압축만 주면 NetworkSettings를 다른 압축의 BDS 캡처와 비교하는 문제가 있다.
+`p6 anchor`에 한 압축만 주면 NetworkSettings를 다른 압축의 공식 서버 캡처와 비교하는 문제가 있다.
 
 ### 시나리오
 
@@ -96,29 +94,29 @@ P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교
   - `spawn`: 로그인부터 PlayStatus(PlayerSpawn)까지의 스폰 창. 패킷 순서와 종류, `fields.txt`의 고정 필드, 아이템 패킷 전체, 청크와 서브청크 응답.
   - `big-skin`: 큰 Login 요청. NetherNet에서는 65,535바이트 조각으로도 보낸다.
   - `blocks`: 콘솔로 울타리, 판유리, 쇠창살, 벽, 문, 계단, 철사덫을 붙여 놓고 지우며 단계마다 블록 갱신 상태를 비교한다.
-  - `auto` 폴백, `bind-mismatch`, 이름 중복 로그인. NetherNet 실행은 응답 SDP 구조와 조각 정보도 비교한다. 바이옴 정의와 지그소 데이터는 `bot cloudburst`가 CloudburstMC 데이터와 대조한다.
+  - `auto` 폴백, `bind-mismatch`, 이름 중복 로그인. NetherNet 실행은 응답 SDP 구조와 조각 정보도 비교한다. 바이옴 정의와 지그소 데이터는 `bot cloudburst`가 기준 목록 출처의 데이터와 대조한다.
 - 게임(`p6 game`): `craft`, `furnace`, `enchant`, `crops`, `trade`. 봇의 단계마다 명령, 요청 상태, ItemStackResponse(스택 ID는 처음 나온 순서), 단계 끝 아이템 상태, 위치별 마지막 블록 상태, 창 열기·닫기, 블록 엔티티 키, LevelEvent 종류, 엔티티 종류, 거래 창 모양과 오퍼 키를 비교한다. 소리, 채팅, 경험치 구슬, 오퍼·인챈트 내용 같은 무작위 값은 보이기만 한다. `setup` 단계는 명령만, `random` 단계는 이름·개수를 지운 모양만 비교한다. 시나리오 구역에서 4칸 밖의 변화는 보이기만 한다.
 - API(`p6 api`):
   - `commands`(플레이어 명령과 출력, op), `particles`(사실 기록), `kick`, `forms`, `script`(봇 `-script` 동작 자체 시험, `script.txt`).
   - `weather`, `joinrain`, `joinstorm`(날씨 변화, 비·천둥 중 접속), `boltpeaceful`, `bolteasy`, `bolthard`(난이도별 번개).
   - `enchants`(인챈트 선택지 `Slot`), `stations`(모루, 대장장이, 신호기 요청 모양), `potions`(물약 색과 구름), `entities`(그림, 폭죽, 크리스털, 삼지창), `syntax`(문법 오류와 번역 이름), `tradeup`(거래 등급 상승), `others`와 동반 봇 `mover`(다른 플레이어의 접속, 이동, 공격, 죽음, 리스폰), `itemuse`(활, 삼지창, 물약 사용).
-  - 사실 기록만: `villagers`(직업 번호), `numbers`(BDS 전용 번호와 원격 측정), `rules`, `rulesjoin`(게임 규칙), `line<바이트>`, `linekorean<바이트>`(명령 줄 길이; BDS는 508바이트부터 연결을 끊음). `limits`, `limitchat`(문자열 상한)은 확인 줄만 비교한다.
+  - 사실 기록만: `villagers`(직업 번호), `numbers`(공식 서버 전용 번호와 원격 측정), `rules`, `rulesjoin`(게임 규칙), `line<바이트>`, `linekorean<바이트>`(명령 줄 길이; 공식 서버는 508바이트부터 연결을 끊음). `limits`, `limitchat`(문자열 상한)은 확인 줄만 비교한다.
   - 단계마다 `fields.txt`에 있는 패킷의 개수와 고정 필드, 봇의 출력·확인·폼 줄을 비교한다. 명령 목록은 둘 다 가진 명령만 메모로 비교한다.
-- 가져오기(`p6 import`): BDS 지형 월드의 모든 서브청크, 모든 층의 네트워크 ID가 같아야 한다. Anchor가 모르는 블록으로 두는 PMMP에 없는 블록은 `intended.txt`의 `import | block` 줄로 넘긴다.
+- 가져오기(`p6 import`): 공식 서버 지형 월드의 모든 서브청크, 모든 층의 네트워크 ID가 같아야 한다. Anchor가 모르는 블록으로 두는 덤프에 없는 블록은 `intended.txt`의 `import | block` 줄로 넘긴다.
 
 ### 데이터 파일 (`xtask/data/p6/`)
 
-- `facts.md`: BDS가 보낸 값과 Anchor가 각 값에 대해 하는 일. 코드 주석이 이 파일을 가리킨다.
+- `facts.md`: 공식 서버가 보낸 값과 Anchor가 각 값에 대해 하는 일. 코드 주석이 이 파일을 가리킨다.
 - `fields.txt`: 두 서버가 같아야 하는 고정 필드(`<패킷> <필드 경로>`).
-- `deferred.txt`: BDS가 스폰 창에서 보내지만 Anchor는 보내지 않는 패킷(`<패킷> - <이유>`). 비교에서 양쪽 모두 뺀다.
+- `deferred.txt`: 공식 서버가 스폰 창에서 보내지만 Anchor는 보내지 않는 패킷(`<패킷> - <이유>`). 비교에서 양쪽 모두 뺀다.
 - `intended.txt`: Anchor가 일부러 다른 차이(`<시나리오> | <차이 원문> | <이유>`). 차이 문장이 정확히 같을 때만 통과하고, 더 나오지 않는 줄은 메모로 알린다.
-- `script.txt`: `script` 시나리오의 동작. `forms-pack/`: BDS 폼 스크립트 팩.
+- `script.txt`: `script` 시나리오의 동작. `forms-pack/`: 공식 서버용 폼 스크립트 팩.
 
 ## 실제 클라이언트로만 확인할 것
 
-봇과 BDS로는 클라이언트 화면과 공식 클라이언트가 보내는 값을 볼 수 없다. 아래는 사용자가 공식 클라이언트로 접속해 확인할 목록이다.
+봇과 공식 서버로는 클라이언트 화면과 공식 클라이언트가 보내는 값을 볼 수 없다. 아래는 사용자가 공식 클라이언트로 접속해 확인할 목록이다.
 
-- 접속: 공식 클라이언트가 RakNet으로 들어오는지(BDS는 "NetherNet 없이 접속 불가"로 기록), Join 전 대기 32개, 엄격한 ClientData JSON, 핑 응답의 게임 모드 뒤 숫자, 비신뢰 데이터 채널 내용 형식, 리소스팩 조각 요청 방식.
+- 접속: 공식 클라이언트가 RakNet으로 들어오는지(공식 서버는 "NetherNet 없이 접속 불가"로 기록), Join 전 대기 32개, 엄격한 ClientData JSON, 핑 응답의 게임 모드 뒤 숫자, 비신뢰 데이터 채널 내용 형식, 리소스팩 조각 요청 방식.
 - Snappy: "AVX2 없는 기기에서 크래시" 보고.
 - 스폰: PlayStatus(PlayerSpawn)를 보내는 시점 차이(Anchor는 `spawn-radius` 원의 청크 뒤), 틱마다 Publisher를 보내지 않음, BiomeDefinitionList 순서.
 - 레시피 책: 공식 클라이언트의 CraftRecipeAuto 재료 목록, `recipe-book = false`에서 책이 비는지, 교육판 아이템의 크리에이티브 표시, 레시피 ID·`deprecated` 블록 이름의 영향.
@@ -126,13 +124,13 @@ P6는 같은 봇 시나리오를 BDS와 Anchor에 돌려 받은 패킷을 비교
 - 커스텀 콘텐츠: 커스텀 블록 렌더링, 마찰, `"none"` 카테고리, 속성 상한, 커스텀 엔티티 `rid`·`hasspawnegg`.
 - 화면: 보스바 색 갱신, 명령 별칭과 자동 완성, CommandRequest Version 값.
 - 날씨: 비·눈·천둥 하늘, 번개 모습과 소리.
-- 엔티티: 번호 입자 형식(BDS·PMMP 둘 다), `EntityDataFlagCount` 131, 멀리 있는 플레이어의 위치 표시줄.
+- 엔티티: 번호 입자 형식(LevelEvent 2009 형식과 `0x4000 | id` 형식 둘 다), `EntityDataFlagCount` 131, 멀리 있는 플레이어의 위치 표시줄.
 
 자세한 값은 `xtask/data/p6/facts.md`의 "실제 클라이언트로만 확인"에 있다.
 
 ## 열린 확인
 
-- VoxelShapes 모양 내용은 BDS와 하나하나 대조하지 않았다. 개수, 이름 순서, 인코드 크기만 같다.
+- VoxelShapes 모양 내용은 공식 서버와 하나하나 대조하지 않았다. 개수, 이름 순서, 인코드 크기만 같다.
 - `facts.md`의 "열린 질문" 목록(창 없는 인벤토리 요청, 높은 번호 입자, 플레이어 대상 tp 메시지 등).
 - Linux 검증은 하지 않았다. 설계는 OS 중립이다.
 

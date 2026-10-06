@@ -5,13 +5,13 @@
 rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열 때 읽힌다. 그래서 코드와 문서 파일은 셸(cat, sed)이 아니라 이 도구로 열고 고친다. docs는 저절로 읽히지 않으니 rules가 가리킬 때나 사실이 필요할 때 읽는다.
 
 ## 1. Anchor란
-- Rust로 만든 Minecraft: Bedrock Edition 서버 **라이브러리**다. 사용자는 `anchor`를 의존성으로 두고 자기 서버 바이너리에서 `Server::builder()`로 서버를 만든다(dragonfly 방식). 플러그인 폴더, 동적 로딩, 스크립트 언어는 없다.
-- PMMP 수준의 API를 Rust 관례로 준다. PMMP에서 온 공개 항목에는 `#[doc(alias = "Player::getName")]`을 달아 PMMP 이름으로 찾게 한다. PMMP의 결함은 고쳐서 가져온다.
+- Rust로 만든 Minecraft: Bedrock Edition 서버 **라이브러리**다. 사용자는 `anchor`를 의존성으로 두고 자기 서버 바이너리에서 `Server::builder()`로 서버를 만든다. 플러그인 폴더, 동적 로딩, 스크립트 언어는 없다.
+- 광범위하고 다양한 API를 Rust 관례로 준다. API 대응표(`xtask/data/pmmp/`)에 대응이 있는 공개 항목에는 `#[doc(alias = "Player::getName")]`처럼 대응표의 이름을 달아 그 이름으로도 찾게 한다. 대응하는 API의 결함은 그대로 옮기지 않고 고친다.
 - 한 번에 한 프로토콜 버전만 지원한다. 프로토콜 정답은 고정한 gophertunnel(과 그 go.mod의 go-raknet, go-nethernet)이다(`.claude/docs/protocol.md`).
 - NetherNet(우선)과 RakNet(폴백, 설정으로 끔)을 함께 받는다. 서버가 여는 TCP는 NetherNet HTTP 시그널링뿐이고 게임 데이터는 모두 UDP다(`.claude/docs/network.md`).
 - 다른 차원 없는 멀티월드다. 모든 월드는 오버월드 차원 안의 별개 월드다.
 - 대상은 미니게임, PvP, 로비, 커스텀 서버다. 범위 밖: 레드스톤, 몹 AI, 바닐라 지형 생성, 다른 차원, 바닐라 주민 경제, 날씨 순환, 낚시, 다른 서버나 프록시를 위한 설계. 비용이 크고 이런 서버에 필요 없는 바닐라 기능을 더 빼야 하면 먼저 묻는다. 주민 거래 목록을 정하는 기능은 범위 안이다.
-- 블록과 아이템 동작은 PMMP에 있는 것만 구현한다(PMMP가 기준, 없거나 결함일 때만 dragonfly 참고). 모르는 바닐라 블록은 원래 블록으로 보내되 동작은 없다(`.claude/docs/data.md`).
+- 블록과 아이템 동작은 데이터 덤프(`xtask/data/pmmp/`)에 든 것만 구현한다. 동작의 기준은 덤프 원본 구현이고, 거기에 없거나 결함일 때만 다른 구현을 참고한다. 모르는 바닐라 블록은 원래 블록으로 보내되 동작은 없다(`.claude/docs/data.md`).
 - Windows와 Linux를 지원한다. 서버 실행 폴더는 `anchor.toml`과 `data/`뿐이다.
 
 ## 2. 목표와 우선순위
@@ -31,7 +31,7 @@ rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열
 
 **일관성**: 한 일에 한 방법(비동기 런타임, CPU 풀, 큐 계열, 시계, 설정 형식 TOML, 로그 수단 각 하나). 같은 사실, 규칙, 로직은 한 곳에만 둔다. 같은 크레이트 여러 버전을 두지 않는다(피할 수 없으면 `.clippy.toml`에 이유).
 
-**단순함**: 같은 결과면 더 적은 코드, 파일, 개념을 고른다. 요청되지 않은 기능과 설정은 넣지 않는다(클라이언트 호환과 성능에 필요한 프로토콜 기능은 예외). 새 크레이트는 proc-macro, 개발 도구, 측정된 빌드 시간 문제일 때만, 새 트레이트는 구현이 둘 이상이거나 확장 지점일 때만 만든다. PMMP에서 같은 일을 하는 API는 하나로 합친다. 디버그 잔재, 죽은 코드, 주석 처리한 코드를 남기지 않는다.
+**단순함**: 같은 결과면 더 적은 코드, 파일, 개념을 고른다. 요청되지 않은 기능과 설정은 넣지 않는다(클라이언트 호환과 성능에 필요한 프로토콜 기능은 예외). 새 크레이트는 proc-macro, 개발 도구, 측정된 빌드 시간 문제일 때만, 새 트레이트는 구현이 둘 이상이거나 확장 지점일 때만 만든다. 대응표에서 같은 일을 하는 여러 API는 하나로 합친다. 디버그 잔재, 죽은 코드, 주석 처리한 코드를 남기지 않는다.
 
 ## 3. 아키텍처 불변식 (`.claude/rules/architecture.md`)
 1. 게임 상태는 틱 스레드 하나만 바꾼다. 다른 스레드와는 상한 있는 큐로만 주고받는다. 틱 안의 병렬 단계는 읽기 전용이다. 지역별 독립 틱은 쓰지 않는다.
@@ -51,7 +51,7 @@ rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열
 - 저장 형식을 바꾸면 형식 버전을 올리고, 옛 형식 읽기와 옮기기, 그 시험을 같은 변경에 둔다.
 
 ## 5. 설정 (`.claude/rules/config.md`)
-- 설정 파일은 `anchor.toml` 하나다. `[general]`(서버를 여는 누구나)과 `[developer]`(성능·프로토콜 조정), 월드별 `[worlds.<이름>]`이다. 키는 PMMP 이름 관례를 따른 kebab-case이고 꼭 필요한 키만 둔다.
+- 설정 파일은 `anchor.toml` 하나다. `[general]`(서버를 여는 누구나)과 `[developer]`(성능·프로토콜 조정), 월드별 `[worlds.<이름>]`이다. 키는 기존 서버 설정의 이름 관례를 따른 kebab-case이고 꼭 필요한 키만 둔다.
 - 끌 수 있는 기능은 끄면 그 코드가 아예 돌지 않는다(틱 작업, 이벤트, 패킷, 메모리 0).
 - 키 이름을 바꾸면 옛 키를 쓴 파일은 새 이름을 알리는 오류로 시작을 멈춘다.
 - 정본은 기본 파일을 만드는 코드(`src/config.rs`의 `DEFAULT_FILE`)와 `.claude/docs/config.md`다. 둘을 함께 고친다(시험이 문서의 첫 toml 블록과 비교한다).
@@ -62,8 +62,8 @@ rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열
 - 공개 범위는 기본 비공개, 안에서 나눌 때 `pub(crate)`, 크레이트 루트에서 닿는 API만 `pub`이다. 공개 항목은 `///` 문서와 `Debug` 구현이 필수다.
 - 오류: 실패하는 모듈마다 손으로 쓴 `Error` enum과 `Result` 별칭. 공개 오류는 `std::error::Error + Send + Sync`. variant에 `Error`를 붙이지 않고, 원인은 `source()`로만 준다. 메시지는 소문자로 시작하고 마침표가 없다.
 - 로그는 `tracing` 구조화 필드다. error는 운영자 조치, warn은 복구된 이상, info는 시작·종료·접속, debug는 연결, trace는 패킷 단위다. 비밀(토큰, 키)은 기록하지 않는다. Anchor는 전역 구독자를 정하지 않고 자기 스레드에만 기본 콘솔 출력기를 건다.
-- 이름은 Rust API Guidelines다. 타입·variant는 UpperCamelCase, 함수·필드·모듈·파일은 snake_case, 상수는 SCREAMING_SNAKE_CASE, 패키지와 설정 키는 kebab-case. 약어는 한 단어(`Raknet`, `Nethernet`, `Xuid`, `Uuid`, `Id`, `Nbt`, `Json`, `Http`, `Udp`, `Aabb` 등), 문서 문장에서는 원래 표기(RakNet). 게터에 `get_` 없음, 가변은 `_mut`, 쓰기 `set_`, 불변 값 `with_<필드>`, 질의 `is_`/`has_`/`can_`, 변환 `as_`/`to_`/`into_`/`from_`. 모듈 이름을 타입에 반복하지 않고(`event::PlayerJoin`), PMMP 이벤트는 `Event`를 뗀다. bool 플래그 인자 대신 enum이나 별도 메서드. 단위는 타입(`Duration`, `Tick`)이나 접미사(`_ticks`, `_ms`, `_bytes`)로 나타낸다.
-- PMMP 변환: `getX/setX/isX` → `x/set_x/is_x`, 싱글턴 → `&Server`·`Context` 인자, `null`·예외·`-1` → `Option`·`Result`, 상수 묶음 → enum, 가변 `Vector3` → `Copy` 값, 쌍둥이 메서드 → 하나.
+- 이름은 Rust API Guidelines다. 타입·variant는 UpperCamelCase, 함수·필드·모듈·파일은 snake_case, 상수는 SCREAMING_SNAKE_CASE, 패키지와 설정 키는 kebab-case. 약어는 한 단어(`Raknet`, `Nethernet`, `Xuid`, `Uuid`, `Id`, `Nbt`, `Json`, `Http`, `Udp`, `Aabb` 등), 문서 문장에서는 원래 표기(RakNet). 게터에 `get_` 없음, 가변은 `_mut`, 쓰기 `set_`, 불변 값 `with_<필드>`, 질의 `is_`/`has_`/`can_`, 변환 `as_`/`to_`/`into_`/`from_`. 모듈 이름을 타입에 반복하지 않고(`event::PlayerJoin`), 대응표 이벤트 이름의 `Event` 접미사는 뗀다. bool 플래그 인자 대신 enum이나 별도 메서드. 단위는 타입(`Duration`, `Tick`)이나 접미사(`_ticks`, `_ms`, `_bytes`)로 나타낸다.
+- 대응표 API 변환: `getX/setX/isX` → `x/set_x/is_x`, 싱글턴 → `&Server`·`Context` 인자, `null`·예외·`-1` → `Option`·`Result`, 상수 묶음 → enum, 가변 `Vector3` → `Copy` 값, 쌍둥이 메서드 → 하나.
 - 시험: 단위 시험은 파일 끝 `#[cfg(test)] mod tests`, 공개 API 시험은 `tests/<주제>.rs`. 이름은 동작을 서술한다(`test_` 접두사 없음). `expect`, `assert`로 실패한다.
 - lint: 정본은 Cargo.toml `[workspace.lints]`, `.clippy.toml`, `.rustfmt.toml`이다(점 없는 `clippy.toml`, `rustfmt.toml`은 만들지 않음). 예외는 가장 좁은 범위의 `#[expect(<lint>, reason = "<태그>: <이유>")]`만 쓴다. 태그는 `safety`, `performance`, `consistency`, `invariant`, `off-tick`이다. `#[allow]`는 금지다.
 - `.clippy.toml` 금지 목록이 틱 코드에서 시계, 난수, 블로킹, 상한 없는 큐와 할당, 비결정 수학을 막는다. 틱 밖 전용 코드와 조회 전용 색인 타입만, 그 목록을 실제로 부르는 가장 작은 항목에서 `off-tick` 태그로 푼다.
@@ -77,11 +77,11 @@ rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열
 - 틀린 주석은 없는 것보다 나쁘다. 코드를 바꾸면 그 주석도 함께 고친다.
 
 ## 8. 새 기능을 넣는 순서
-1. PMMP에 대응이 있으면 그 동작과 이름을 확인하고 공개 항목에 alias를 단다.
+1. API 대응표에 대응이 있으면 그 동작과 이름을 확인하고 공개 항목에 alias를 단다.
 2. 공개 API와 이벤트 자리를 정한다(재진입 없음, 직접 호출은 이벤트를 쏘지 않음, 확장 지점으로 열 것).
 3. 틱 규칙 코드를 쓴다(3절 불변식).
 4. 시험을 쓴다: 회귀 시험, 그리고 필요한 곳에 멱등·결정성·자원 반환 시험.
-5. 클라이언트에 보이는 것은 P6로 BDS와 대조한다(`.claude/rules/testing.md`).
+5. 클라이언트에 보이는 것은 P6로 공식 서버(Mojang이 배포하는 서버 프로그램)와 대조한다(`.claude/rules/testing.md`).
 6. `xtask/data/pmmp/status.txt`를 고치고 `cargo xtask table`로 `table.md`를 다시 만든다.
 7. `.claude/rules/`, `.claude/docs/`와 rustdoc을 고친다.
 8. `cargo xtask check`.
@@ -90,15 +90,15 @@ rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열
 - 외부 의존성은 모두 만족할 때만 들인다: 직접 구현이 매우 어렵다 / 매우 정확하고 정답과 시험으로 맞춰 볼 수 있다 / 숨은 스레드, 전역 상태, 상한 없는 큐, 외부 입력이 닿는 패닉이 없거나 막을 수 있다 / 열린 RustSec 권고가 없고 유지보수가 살아 있고 라이선스가 허용형이다 / Bedrock 형식과 바이트 단위로 맞는다 / Windows와 Linux를 지원한다. 버전은 `=`로 고정한다.
 - 들이기 전에 쓰는 부분을 직접 읽고 결함(패닉, 넘침, 할당, 숨은 스레드, 결정성)을 찾아 고친 릴리스, 고정, 가드, 다른 선택 순으로 없앤다. 없앨 수 없으면 들이지 않는다. 시계, 난수, 상한 없는 큐, 블로킹 진입점은 같은 변경에서 `.clippy.toml` 금지 목록에 넣는다. 결과는 `.claude/docs/dependencies.md`에 적는다.
 - vendor 사본(`vendor/`): 결함 부분만 고치고, 고친 것마다 재현 시험을 두고, 상류 버전을 고정하고, 상류가 고치면 사본을 지우고 릴리스로 되돌린다.
-- 다른 서버(PMMP, BDS, dragonfly, gophertunnel 등)의 문장과 코드를 그대로 옮기지 않는다(저작권). 원리만 참고한다. 클라이언트 번역 키를 보내는 것은 괜찮다.
-- 근거는 공식 문서, 코드, 실측만이다. 출처끼리 다르면 BDS 대조, 프로토콜 출처, Mojang 문서 순으로 따른다.
+- 다른 서버와 라이브러리의 문장과 코드를 그대로 옮기지 않는다(저작권). 원리만 참고한다. 클라이언트 번역 키를 보내는 것은 괜찮다.
+- 근거는 공식 문서, 코드, 실측만이다. 출처끼리 다르면 공식 서버 대조, 프로토콜 출처, Mojang 문서 순으로 따른다.
 
 ## 10. 검증과 작업 방식 (`.claude/rules/testing.md`)
-- 작업은 `cargo xtask check`가 PASS여야 끝이다: 포맷, clippy, 바뀐 모듈의 단위 시험과 바뀐 시험 파일. Stop 훅(`.claude/settings.json`)이 응답을 끝낼 때마다 돌리고, 실패하면 끝내지 못하게 한다. 고칠 수 없는 실패는 무엇이 왜 실패하는지 사용자에게 알린다.
+- 작업은 `cargo xtask check`가 PASS여야 끝이다: 포맷, clippy, 바뀐 모듈의 단위 시험과 바뀐 시험 파일. 코드나 빌드 파일을 바꾼 작업은 끝내기 전에 직접 돌리고, 코드를 바꾸지 않은 작업은 돌리지 않는다. 다른 세션이 같은 폴더에서 바꾸는 파일의 실패는 고치지 않고 내 변경 때문이 아님을 알린다. 고칠 수 없는 실패는 무엇이 왜 실패하는지 사용자에게 알린다.
 - 전체 검사 `cargo xtask verify`(봇 시험, vendor 사본, 문서 포함)는 사용자가 `/verify`로 시킬 때만 돌린다. 커밋 전에도 스스로 돌리지 않는다. cargo가 PATH에 없으면 `%USERPROFILE%\.cargo\bin`을 붙인다.
 - 동작을 바꾸는 수정마다 고치기 전에 실패하고 고친 뒤 통과하는 시험을 둔다. 동작이 같은 수정(문서, 정리, 성능)은 근거나 측정 전후 값을 남긴다.
 - 근본 원인만 고친다. 방어 코드를 늘려 덮지 않는다. 코드 양은 품질이 아니다.
-- 클라이언트에 보이는 변경은 P6로 BDS와 대조한다: 봇이 BDS에서 먼저 통과해야 그 봇으로 Anchor를 검증한다. BDS는 `.cache/bds`의 복사본에서만 실행하고, 실행 파일은 분석하지 않는다. 공식 클라이언트에서만 보이는 것은 BDS가 보내는 값과 같게 만들고, 사용자에게 확인 목록을 준다.
+- 클라이언트에 보이는 변경은 P6로 공식 서버와 대조한다: 봇이 공식 서버에서 먼저 통과해야 그 봇으로 Anchor를 검증한다. 공식 서버는 `.cache/bds`의 복사본에서만 실행하고, 실행 파일은 분석하지 않는다. 공식 클라이언트에서만 보이는 것은 공식 서버가 보내는 값과 같게 만들고, 사용자에게 확인 목록을 준다.
 - 무거운 시험은 낮은 우선순위로, 상한 있는 횟수만 돌린다.
 - Windows가 기본이다. Linux 검증은 사용자가 시킬 때 한다.
 - 막히면 추측으로 우회하지 말고 묻는다. 되돌리기 어려운 결정, 이 파일과 충돌하는 요구, 기능·형식·지원 범위 축소도 먼저 묻는다. 그 밖에 기본값이 없으면 골라서 진행하고 이유를 보고한다.

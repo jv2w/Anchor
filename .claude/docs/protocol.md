@@ -2,7 +2,7 @@
 
 작업 규칙은 `.claude/rules/protocol.md`.
 
-이 문서는 정답 출처와 고정 버전, IR에서 생성 코드까지의 파이프라인, 디코드 상한, gophertunnel 결함, 시험 P1~P5를 적는다. 전송, 로그인, 암호화, 압축은 `network.md`, BDS 대조(P6)는 `testing.md`, 블록과 아이템 데이터는 `data.md`, 외부 불신 절차와 의존성 검토는 `dependencies.md`에 있다.
+이 문서는 정답 출처와 고정 버전, IR에서 생성 코드까지의 파이프라인, 디코드 상한, gophertunnel 결함, 시험 P1~P5를 적는다. 전송, 로그인, 암호화, 압축은 `network.md`, 공식 서버 대조(P6)는 `testing.md`, 블록과 아이템 데이터는 `data.md`, 외부 불신 절차와 의존성 검토는 `dependencies.md`에 있다.
 
 ## 한 번에 한 버전
 - 지원 버전은 프로토콜 2193, 게임 버전 1.26.50이다(`protocol::packet::PROTOCOL_VERSION`, `GAME_VERSION`). 인증 디스커버리는 `GAME_VERSION`으로 주소를 만든다.
@@ -20,7 +20,7 @@
 | Mojang bedrock-protocol-docs(필드 상한) | 커밋 `475bd72ed89036af4eb18426774ef3b953de7603`(v1.26.50 릴리스, 프로토콜 2193) |
 
 - 지금 고정한 커밋은 v1.62.0 뒤의 형식 수정 ClientBoundDebugRenderer(`98c3d1f`), NBT 고정 길이 배열 검사(`398154f`), 문자열 `ReadFull`(`a705cae`)을 포함한다.
-- 기준 서버는 같은 프로토콜의 BDS 1.26.52.3이다. BDS의 빌드 번호는 1.26.52이고 Anchor는 프로토콜 출처의 1.26.50을 알리지만 둘 다 2193이다.
+- 기준 서버는 같은 프로토콜의 공식 서버 1.26.52.3이다. 공식 서버의 빌드 번호는 1.26.52이고 Anchor는 프로토콜 출처의 1.26.50을 알리지만 둘 다 2193이다.
 - gophertunnel도 형식 버그를 자주 고친다. P3 통과는 "gophertunnel과 같다"는 뜻일 뿐이다.
 
 ## 파이프라인: Go 추출 → IR → Rust 생성
@@ -57,7 +57,7 @@ Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_l
 
 ### 배치 형식 (`protocol/batch.rs`)
 - 패킷 머리 varuint32: ID는 0~9비트, 보낸 쪽 하위 클라이언트 10~11, 받는 쪽 12~13. 그보다 높은 비트는 읽을 때 무시한다(gophertunnel과 같고, 공식 클라이언트 출력은 관찰할 수 없어 받는 쪽을 넓힌다).
-- 배치당 패킷은 812개 이하(gophertunnel 값)이고 BDS는 최대 45개를 보낸다. 출력은 256 KiB 전과 812개에서 배치를 끊는다. 압축 바이트와 해제 상한은 `network.md`에 있다.
+- 배치당 패킷은 812개 이하(gophertunnel 값)이고 공식 서버는 최대 45개를 보낸다. 출력은 256 KiB 전과 812개에서 배치를 끊는다. 압축 바이트와 해제 상한은 `network.md`에 있다.
 
 ## 디코드 상한
 - 선언 길이는 남은 입력 이하. 목록 개수는 1024 이하(gophertunnel `maxSliceLength`, EntityMetadata 개수 포함)이고 남은 입력 이하.
@@ -79,7 +79,7 @@ Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_l
 - 로그인 마감 없음, 지연 패킷 큐 상한 없음, 0xff 원문 상한 없음: Anchor 세션에는 모두 있다(`network.md`).
 
 ## 시험 P1~P5
-P6(BDS 대조)는 `testing.md`에 있다.
+P6(공식 서버 대조)는 `testing.md`에 있다.
 
 - Go 오라클(`xtask/go/oracle`):
   - `corpus`: 무작위 값을 고르며 쓰는 `protocol.IO` 구현으로 각 패킷의 Marshal을 돌려 표본을 만든다(시드 고정 PCG, 목록 길이 0~4, `-limits`로 필드 상한 안 표본만). 평범한 gophertunnel Writer로 쓰고 패킷 최상위 NBT만 자체 정렬 인코더로 쓴다(Go map 순서가 무작위라서). gophertunnel Reader로 다시 읽어 성공한 표본만 남긴다. 코퍼스는 시험 때 `target/`에 만든다.

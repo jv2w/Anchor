@@ -7,7 +7,7 @@ Anchor의 설정은 `anchor.toml` 파일 하나다. 이 문서는 모든 키의 
 ## 파일과 읽기
 
 - 사용자 바이너리가 `Config::default().load("anchor.toml")?`로 읽어 `ServerBuilder::config`에 넘긴다. `config()`를 부르지 않으면 Anchor는 설정 파일을 읽지도 쓰지도 않는다. 라이브러리라 파일 위치와 사용 여부를 사용자가 정한다.
-- 파일이 없으면 `load`가 아래 기본 파일을 임시 파일에 쓰고 이름을 바꿔 만든 뒤 그 파일을 읽는다. 그래서 첫 시작과 그 파일로 하는 다음 시작의 설정이 같다. 그 밖에는 Anchor가 파일을 다시 쓰지 않는다. 실행 중 API로 바꾼 값은 종료까지만 유지된다.
+- 파일이 없으면 `load`가 아래 기본 파일을 임시 파일에 쓰고 이름을 바꿔 만든 뒤 그 파일을 읽는다. 그래서 첫 시작과 그 파일로 하는 다음 시작의 설정이 같다. 그 밖에는 사용자가 `Config::update_file`을 부를 때만 파일을 다시 쓴다(아래 "파일 갱신"). 실행 중 API로 바꾼 값은 종료까지만 유지된다.
 - 값의 우선순위: `Config::default()` → 코드에서 바꾼 값 → `load`가 파일에 있는 키로 덮음 → 그 뒤 코드에서 바꾼 값. 파일에 없는 키는 앞의 값(보통 기본값)을 유지하므로 새 Anchor도 옛 파일로 시작한다.
 - 파일은 1 MiB 이하 UTF-8 TOML이다. 문법 오류는 줄과 칸을 알려 준다.
 - 표는 둘이다: `[general]`(서버를 여는 누구나 정하는 값)과 `[developer]`(성능과 프로토콜, 주의가 필요한 값). 월드별 값은 `[worlds.<이름>]`이다.
@@ -17,7 +17,8 @@ Anchor의 설정은 `anchor.toml` 파일 하나다. 이 문서는 모든 키의 
 `Config::load`가 쓰는 기본 파일(`src/config.rs`의 `DEFAULT_FILE`)이다. 키 66개가 모두 들어 있다.
 
 ```toml
-# Anchor server settings. Anchor reads this file at start and never writes it again.
+# Anchor server settings. Anchor reads this file at start and writes it only to update it:
+# "<server program> update-config" adds the keys of a newer Anchor and keeps the rest.
 # A wrong value or an unknown key stops the start with a message naming the key.
 # A key left out keeps its default, so new Anchor versions start with an old file.
 
@@ -191,7 +192,7 @@ console-input = true
 | `max-players` | 정수 | `20` | 1~10000 | 동시 접속 상한. 플레이어와 세션 표의 크기를 정한다 |
 | `xbox-auth` | bool | `true` | | Xbox Live 로그인을 요구할지. `false`면 누구나 아무 이름으로 들어온다 |
 | `white-list` | bool | `false` | | 목록에 있는 플레이어만 들어올지. 목록은 `whitelist` 명령으로 관리한다 |
-| `gamemode` | 문자열 | `"survival"` | `survival`, `creative`, `adventure`, `spectator` | 새 플레이어의 게임 모드. 설정은 전체 이름만 받는다(명령은 PMMP의 글자와 숫자 별칭도 받는다) |
+| `gamemode` | 문자열 | `"survival"` | `survival`, `creative`, `adventure`, `spectator` | 새 플레이어의 게임 모드. 설정은 전체 이름만 받는다(명령은 `s`, `0` 같은 글자와 숫자 별칭도 받는다) |
 | `force-gamemode` | bool | `false` | | 접속할 때마다 기본 게임 모드로 맞출지 |
 | `difficulty` | 문자열 | `"normal"` | `peaceful`, `easy`, `normal`, `hard` | 난이도 |
 | `hardcore` | bool | `false` | `difficulty = "hard"`일 때만 `true` | 하드코어 |
@@ -223,7 +224,7 @@ console-input = true
 | `force-resources` | bool | `false` | | 리소스팩을 받아야 접속할 수 있는지 |
 | `log-level` | 문자열 | `"info"` | `off`, `error`, `warn`, `info`, `debug`, `trace` | Anchor 콘솔 로그 수준. `off`면 Anchor가 콘솔 로그를 쓰지 않는다 |
 
-`resource-packs`의 상대 경로가 `packs`로 시작하면 거부하고 사용자가 고친다. 설정 파일 옆 `packs` 폴더 기준으로 쓴 경로는 `data/packs/packs/...`를 찾게 되기 때문이다. 시작은 설정 파일 옆의 `packs/` 폴더를 `data/packs`가 없을 때 이름 바꾸기 한 번으로 옮기고, 둘 다 있으면 그 폴더를 그대로 두고 경고한다. 읽는 곳은 늘 `data/packs` 하나다.
+`resource-packs`의 상대 경로가 `packs`로 시작하면 거부하고 사용자가 고친다. 설정 파일 옆 `packs` 폴더 기준으로 쓴 경로는 `data/packs/packs/...`를 찾게 되기 때문이다. 읽는 곳은 늘 `data/packs` 하나다.
 
 ## `[developer]`
 
@@ -275,7 +276,7 @@ console-input = true
 
 ## 이름을 바꾼 키
 
-이름이 바뀌거나 합쳐진 Anchor 키다. 옛 키는 조용히 받지 않고 `config::Error::RenamedKey`로 시작을 거부하며 새 키를 알려 준다. 사용자가 파일을 고친다. 받아 주면 두 이름이 영원히 남고, 두 키를 함께 쓴 파일의 뜻이 모호해지기 때문이다.
+이름이 바뀌거나 합쳐진 Anchor 키다. 옛 키는 조용히 받지 않고 `config::Error::RenamedKey`로 시작을 거부하며 새 키를 알려 준다. 사용자가 파일을 고치거나 `Config::update_file`로 옮긴다. 받아 주면 두 이름이 영원히 남고, 두 키를 함께 쓴 파일의 뜻이 모호해지기 때문이다.
 
 | 옛 키 | 새 키 | 오류 문장 |
 |---|---|---|
@@ -293,6 +294,18 @@ PMMP 설정과 이름이 다른 키(Anchor 키였던 적이 없어 위 표에 �
 | `debug.level` | `log-level`(끄기와 모든 수준) |
 
 PMMP 설정 중 없는 것: PHP 전용(메모리, GC, async-workers, timings, 통계·보고·업데이트), 플러그인, 범위 밖 기능(query, upnp, 월드 형식), 구조로 대신하는 것(XUID 검사, 생성기 문자열, 별칭, 월드 목록, 언어, IPv6 포트, auto-save).
+
+## 파일 갱신
+
+서버 프로그램을 `<서버> update-config`로 실행하면 옛 Anchor가 만든 파일을 이 Anchor의 키로 맞춘다(프로그램 코드는 필요 없다). `Config::load`가 파일을 읽기 전에 `Config::update_file(경로)`을 하고(옛 파일은 갱신 전에는 읽히지 않을 수 있다), `Server::run`이 바뀐 키를 표준 출력에 적고 서버를 켜지 않고 끝난다. `Config::load`를 쓰지 않는 프로그램에는 고칠 파일이 없다. 시작은 이 일을 하지 않으므로 파일은 운영자가 고른 때에만 바뀐다. 서버가 켜져 있어도 되고, 켜진 서버는 다음 시작에 새 파일을 읽는다.
+
+- 더하기: 기본 파일에 있고 파일에 없는 키를 기본값과, 기본 파일에서 그 키 바로 위에 붙은 주석 줄과 함께 더한다. 자리는 기본 파일에서 그 키보다 앞인 키 중 파일에 있는 가장 가까운 키의 줄 다음이고, 그런 키가 없으면 표 머리 줄 다음이다. 파일에 없는 표는 머리 위 주석과 모든 키를 파일 끝에 빈 줄 하나를 두고 더한다.
+- 이름 바꾸기: `RENAMED_KEYS`의 옛 키는 키 이름만 새 이름으로 바꾸고 값과 줄 끝 주석은 둔다. 같은 표 안의 이름 바꾸기만 한다. 새 이름이 이미 있으면 옛 키를 그대로 두어 `RenamedKey`로 멈춘다.
+- 그 밖의 바이트(값, 주석, 키 순서, BOM, 줄 끝)는 그대로다. 파일이 CRLF를 쓰면 더한 줄도 CRLF다. `[worlds.<이름>]` 표는 건드리지 않는다: 거기서 빠진 키는 전역 값을 뜻한다.
+- 값은 고치지 않는다. 결과가 `load`로 읽히지 않으면(모르는 키, 범위 밖 값, 문법 오류 등) 그 오류를 돌려주고 파일을 그대로 둔다. 파일이 없으면 `Read`(NotFound), 키가 빠진 표가 머리 없이(인라인 표, 점 키) 적혀 있으면 `HeaderlessTable`, 결과가 1 MiB를 넘으면 `TooLarge`다.
+- 바뀐 것이 있을 때만 임시 파일에 쓰고 이름을 바꿔 통째로 바꾼다. 돌려주는 `config::Update`가 더한 키(`added`)와 바꾼 키(`renamed`)를 알려 준다. 다시 부르면 아무것도 바꾸지 않는다.
+- 더한 값은 기본값이라 파일의 뜻은 그대로다(새 키의 기본값은 그 키가 없을 때의 동작이다). 다만 `load` 전에 코드에서 바꾼 값은, 그 키가 더해지면 파일 값에 덮인다. 파일이 없을 때 기본 파일을 쓰는 것과 같다.
+- 계속 읽히는 옛 값 형식(`lighting = true` 등)과 이미 있는 키의 주석은 바꾸지 않는다.
 
 ## 기능 스위치
 

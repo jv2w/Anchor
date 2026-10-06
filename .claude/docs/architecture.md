@@ -36,6 +36,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 ```
 
 - 크레이트는 `anchor`와 `xtask` 둘이다.
+- 서버 프로그램은 코드 없이 실행 인자 명령 `update-config`(`config.md`)와 `import <월드 폴더> [이름]`(`storage.md`)을 받는다(`args` 모듈). `Config::load`와 `Server::run`이 인자를 보고 서버를 켜지 않은 채 일만 하고 끝낸다. 그 밖의 인자는 프로그램의 것이다.
 - 도구 설정을 점 이름으로 두면 상위 폴더와 홈의 설정이 섞이지 않는다. `rust-toolchain.toml`과 `Cargo.lock`은 점 이름을 쓸 수 없다.
 - `.cache/`는 git에서 제외한다.
 
@@ -49,7 +50,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 | 틱 규칙 | `tick` 아래 `survival`, `interact`, `inventory`, `update`, `entity`, `trade`, `block_entity`, `view`, `spawn`, `command`, `form`, `chat`, `weather`, `world_api`, `dispatch`, `hook`, `task`, `log`, `checkpoint`, `queue` | 게임 상태 `State`와 그것을 바꾸는 유일한 코드 |
 | 월드 | `world`(`chunk`, `sub_chunk`, `paletted`, `light`, `generator`, `connect`, `tree`, `biome`) | 청크, 팔레트, 조명, 생성기, 이웃 연결 속성 |
 | 저장 | `save`(저장 스레드), `storage`(redb 파일 하나), `import`(LevelDB 월드 가져오기), `replay` | 스냅샷 커밋, 로드, 백업, 재생 |
-| 블록·아이템 데이터 | `block`, `item`, `crafting`, `effect`, `nbt` | PMMP 덤프에서 생성한 표와 값 타입 |
+| 블록·아이템 데이터 | `block`, `item`, `crafting`, `effect`, `nbt` | 데이터 덤프에서 생성한 표와 값 타입 |
 | 공개 API | `player`, `entity`, `world`, `event`, `action`, `command`, `permission`, `form`, `display`, `menu`, `inventory`, `tile`, `custom`, `task`, `data`, `pack`, `config`, `math`, `replay`, `import` | 사용자가 보는 타입. `anchor::Context`, `Server`, `ServerBuilder`, `ShutdownHandle`, `Config`, `Error`는 루트에서 다시 내보낸다 |
 | 기반 | `runtime`, `pool`, `clock`, `random`, `console`, `fs`, `error` | 스레드 생성, CPU 풀, 시계, 난수, 콘솔 로그, 상한 있는 파일 읽기 |
 
@@ -96,7 +97,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 4. **출력(병렬 읽기 전용)**: 표시된 플레이어마다 패킷 목록을 CPU 풀에서 플레이어 순서로 만든다. 송신 훅이 여기서 돈다. 결과는 스레드 수와 무관하다.
 5. **경계**: 전달 뒤 저장 차례면 스냅샷 하나를 저장 스레드로 보내고, 네트워크 제어(서버 이름, IP 차단)를 넘긴다.
 
-- PlayerAuthInput은 PMMP 순서(이동 → 블록 액션·아이템 상호작용 → 스택 요청)로, 나머지 패킷은 그것을 소유한 규칙 모듈로 간다.
+- PlayerAuthInput은 이동 → 블록 액션·아이템 상호작용 → 스택 요청 순서로, 나머지 패킷은 그것을 소유한 규칙 모듈로 간다.
 - `slow-empty-worlds`가 켜지면 플레이어 없는 월드는 100틱에 1틱만 월드 규칙을 돌리고, 월드마다 다른 틱에 돌아 몰리지 않는다.
 
 ## 결정성
@@ -141,14 +142,14 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 
 ## 이벤트
 
-- 등록: `ServerBuilder::on::<E>(Priority, |e: &mut E, ctx: &mut Context| ..)`, `ServerBuilder::monitor::<E>(|e: &E, ctx: &Context| ..)`. 우선순위는 PMMP의 `Lowest`~`Highest`다. PMMP MONITOR는 타입으로 읽기 전용인 `monitor`가 되고 적용 뒤 상태를 본다.
-- 다시 검사가 있는 까닭: PMMP는 리스너가 바꾼 상태를 다시 보지 않고 적용해 복제·소실이 생긴다.
+- 등록: `ServerBuilder::on::<E>(Priority, |e: &mut E, ctx: &mut Context| ..)`, `ServerBuilder::monitor::<E>(|e: &E, ctx: &Context| ..)`. 우선순위는 `Lowest`~`Highest` 다섯 단계다. 보기만 하는 리스너는 타입으로 읽기 전용인 `monitor`로 따로 등록하고 적용 뒤 상태를 본다.
+- 다시 검사가 있는 까닭: 리스너가 바꾼 상태를 다시 보지 않고 적용하면 복제·소실이 생긴다.
 - 모든 리스너는 취소된 이벤트도 보고 `is_cancelled`로 거른다.
 - **재진입 없음**: 리스너가 도는 동안 그 이벤트의 리스너 목록은 상태 밖으로 빠져 있어도 된다.
   - `ctx.defer(f)`: 지금 콜백이 끝난 뒤 같은 틱에 큐 순서로 돈다.
   - `ctx.perform(action)`: 게임 규칙을 거치는 행동(이벤트 포함)을 defer로 넣는다. 행동은 봉인된 `action::Action` 구현이다(`BreakBlock`, `UseItemOn`, `UseItem`, `AttackBlock`, `InteractEntity`, `Damage`, `SetGameMode`, `Chat`, `Kick`, `Transfer`, `Attack`, `Explode` 등).
 - EntitySpawn·ItemSpawn을 엔티티 틱이 알리는 까닭: 다른 규칙 중간이나 직접 API에서 리스너가 돌지 않게 한다.
-- 목록은 `event/{block,entity,inventory,player,server,world}.rs`의 104개이고 `anchor::event::*`로 평평하게 공개한다. PMMP 이벤트 중 범위 밖(플러그인, PHP·운영 내부, 레드스톤)은 빼고, 원시 패킷 이벤트(DataPacketReceive·Send·Decode)는 패킷 훅으로, PlayerPreLogin은 PlayerLogin으로 합친다. PMMP에 없는 `TradeOpen`, `Trade`를 더한다.
+- 목록은 `event/{block,entity,inventory,player,server,world}.rs`의 104개이고 `anchor::event::*`로 평평하게 공개한다. 대응표 이벤트 중 범위 밖(플러그인, PHP·운영 내부, 레드스톤)은 빼고, 원시 패킷 이벤트(DataPacketReceive·Send·Decode)는 패킷 훅으로, PlayerPreLogin은 PlayerLogin으로 합친다. 대응표에 없는 `TradeOpen`, `Trade`를 더한다.
 - PlayerDataSave 취소를 무시하는 까닭: 원자 저장을 지킨다.
 
 ## 확장 지점
@@ -173,17 +174,17 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 - 클라이언트는 새 상태 효과·인챈트를 표시할 수 없다.
 - 사용자 저장 공급자 trait은 없다.
 
-## PMMP 대응
+## API 대응표
 
-- 대상은 PMMP 5.44.3(커밋 6a7cc02)의 public, 비`@internal` API에서 범위 밖을 뺀 것이다. `xtask/php/api.php`가 PHP 리플렉션으로 `xtask/data/pmmp/api.json`(class-like와 선언된 public 메서드)을 만든다.
+- 대상은 `data.md` 출처 표에 고정한 커밋(`6a7cc02`)의 public, 비`@internal` API에서 범위 밖을 뺀 것이다. `xtask/php/api.php`가 PHP 리플렉션으로 `xtask/data/pmmp/api.json`(class-like와 선언된 public 메서드)을 만든다.
 - `xtask/data/pmmp/status.txt`: 줄마다 `<패턴> <상태> <대상|이유>`. 상태는 `differs`(이유), `merged`(대상 alias), `skipped`(이유), `open`(아직 없고 거부하지도 않음). 패턴은 FQN, `*`(`\`·`:`를 넘지 않음), `**`(모두)다. 위에서 처음 맞는 줄이 이기고, alias가 있으면 구현함이 먼저다.
 - `cargo xtask table [--check]`가 `xtask/data/pmmp/table.md`(행마다 FQN, 상태, 위치 `파일:줄`, 시험, 이유)를 쓴다. verify가 최신 여부와 빈칸 0을 검사한다. 현재 10,217행: implemented 1,827, differs 19, merged 3,566, skipped 4,805, blank 0.
 - 방송 채널은 `broadcast`·`send`로 합쳤다.
-- 고쳐서 가져온 PMMP 결함(대표): 전역 싱글턴, 가변 공유 `Vector3`, 복제하는 게터와 NBT 재직렬화, 문자열 키, 이벤트마다 객체 할당, AsyncTask 직렬화, 원시 패킷 이벤트, 숨은 O(n) 조회, 재진입 디스패치, 주석뿐인 MONITOR, 리스너가 바꾼 상태를 다시 검사하지 않음, 게임 로직의 벽시계와 전역 난수, 비원자 저장, 로드 순서로 바뀌는 ID, 조명 갱신(상한·경계 전파 없음), 예약 갱신을 저장하지 않음, 기본 월드 없이 남는 언로드, 덮어써 잃는 화로 결과, 모양을 검사하지 않는 shaped 레시피(dragonfly).
+- 참고한 구현에서 고쳐서 가져온 결함(대표): 전역 싱글턴, 가변 공유 `Vector3`, 복제하는 게터와 NBT 재직렬화, 문자열 키, 이벤트마다 객체 할당, AsyncTask 직렬화, 원시 패킷 이벤트, 숨은 O(n) 조회, 재진입 디스패치, 주석뿐인 MONITOR, 리스너가 바꾼 상태를 다시 검사하지 않음, 게임 로직의 벽시계와 전역 난수, 비원자 저장, 로드 순서로 바뀌는 ID, 조명 갱신(상한·경계 전파 없음), 예약 갱신을 저장하지 않음, 기본 월드 없이 남는 언로드, 덮어써 잃는 화로 결과, 모양을 검사하지 않는 shaped 레시피.
 
 ## 게임 범위
 
-범위 = PMMP 동작 ∪ dragonfly 야생 시스템 − 범위 밖 기능(`CLAUDE.md`). dragonfly를 참고한 곳: 모루, 대장장이 작업대, 베틀, 신호기 결제, 구리 산화, 화로 경험치.
+범위 = 데이터 덤프와 대응표의 동작 ∪ 다른 구현을 참고한 야생 시스템(모루, 대장장이 작업대, 베틀, 신호기 결제, 구리 산화, 화로 경험치) − 범위 밖 기능(`CLAUDE.md`).
 
 구현한다:
 - 생존: 체력, 배고픔, 공기·익사, 경험치, 상태 효과, 피해·전투·넉백, 죽음·리스폰, 게임 모드, 이동 검사, 서버 권위 부수기 시간.
@@ -195,17 +196,17 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 - 기본 명령 `status`는 가동 시간, TPS·MSPT, 메모리, 스레드, 접속자, 월드별 청크·엔티티 수를 Anchor 고유 형식으로 보여 준다.
 
 - 범위 밖인 바닐라 주민 경제는 기본 거래 템플릿을 말한다.
-- PMMP에 없는 블록의 예: 퇴비통, 다시마, 숫돌. 가져온 월드의 그런 블록은 비활성 블록으로 원래 모습만 보인다. 동작, 아이템, 놓기, 생성은 없다(`data.md`).
+- 덤프에 없는 블록의 예: 퇴비통, 다시마, 숫돌. 가져온 월드의 그런 블록은 비활성 블록으로 원래 모습만 보인다. 동작, 아이템, 놓기, 생성은 없다(`data.md`).
 
 ## 주민 거래 조작
 
-PMMP와 dragonfly에 없는 기능이다. AI 없는 주민형 NPC의 거래 목록을 서버가 정한다.
+대응표에 없는 기능이다. AI 없는 주민형 NPC의 거래 목록을 서버가 정한다.
 
 - 소환: `Context::spawn_villager(world, pos, profession, &[Offer]) -> Result`. 생성 알·명령·API로 소환한 주민은 빈 목록이다.
 - 목록 API: `trade_offers`, `set_trade_offers`, `add_trade_offer`, `replace_trade_offer`, `remove_trade_offer`, `trade_tier`, `set_trade_tier`, `set_trade_tier_experience`, `reset_trade_uses`. 오퍼는 NBT 대신 타입 있는 `custom::Offer`(`new(buy, sell, max_uses)`, `with_second_payment`, `with_any_damage`, `with_tier`, `with_price_multipliers`, `with_demand` 등)다.
 - 이벤트: `TradeOpen`(창 열기), `Trade`(거래 1회).
 - 상한: 주민당 오퍼 128개, 저장 형태 합계 2 MiB.
-- 프로토콜 값(BDS 대조): 창 종류 15, 오퍼 NBT 키는 BDS 키(`Recipes`, `netId` 등), Trade2 입력 칸 4·5, 출력 50(ItemStackRequest에서는 컨테이너 47·48·49). `netId`는 CraftingData 다음부터 서버 카운터로 처음 열 때 매기고 다시 열어도 유지한다. UpdateTrade 재전송은 등급이 오를 때만, 보상 구슬은 거래마다 3~6, Damage 32767은 아무 데미지다.
+- 프로토콜 값(공식 서버 대조): 창 종류 15, 오퍼 NBT 키는 공식 서버 키(`Recipes`, `netId` 등), Trade2 입력 칸 4·5, 출력 50(ItemStackRequest에서는 컨테이너 47·48·49). `netId`는 CraftingData 다음부터 서버 카운터로 처음 열 때 매기고 다시 열어도 유지한다. UpdateTrade 재전송은 등급이 오를 때만, 보상 구슬은 거래마다 3~6, Damage 32767은 아무 데미지다.
 - 거래 데이터는 엔티티와 같은 DB 커밋에 든다.
 
 ## 여러 월드
@@ -221,7 +222,7 @@ PMMP와 dragonfly에 없는 기능이다. AI 없는 주민형 NPC의 거래 목�
 ## 알려진 한계와 위험
 
 - 크래시 때 외부 시스템에 쓴 사용자 효과는 돌아가지 않는다. 재생은 그 효과를 다시 일으킨다.
-- 클로저나 Extensions가 살아 있는 구간은 재생할 수 없다. 예약 작업은 재시작하면 사라진다(PMMP와 같음).
+- 클로저나 Extensions가 살아 있는 구간은 재생할 수 없다. 예약 작업은 재시작하면 사라진다.
 - 실행 중 바꾼 설정 값(난이도, 스폰, 시간 정지, 날씨, 게임 규칙)은 재시작하면 설정 값으로 돌아간다.
 - NetherNet 구동 작업은 하나다. 측정으로 약 500명까지 충분하고, 넘으면 피어를 여러 작업에 나눠야 한다.
 - 같은 차원의 다른 월드로 텔레포트할 때 ChangeDimension을 보내지 않는다. 공식 클라이언트에 옛 청크가 남는지는 실제 접속으로만 확인할 수 있다(`testing.md`).

@@ -24,9 +24,20 @@ fn main() -> anchor::Result<()> {
 - 바이너리 프로필은 `panic = "unwind"`(기본값)를 유지해야 한다.
 - 실행 폴더에는 `anchor.toml`과 `data/`만 생긴다. `anchor.toml`이 없으면 기본 파일을 만든다. 키는 [.claude/docs/config.md](.claude/docs/config.md), 데이터 폴더는 [.claude/docs/storage.md](.claude/docs/storage.md).
 
+## 실행 인자 명령
+
+Anchor로 만든 서버 프로그램은 코드 없이 두 명령을 받는다. 서버를 켜지 않고 일만 하고 끝나므로, 서버가 켜져 있어도 서버 폴더에서 그대로 돌린다.
+
+```
+<서버>.exe update-config                        # 새 Anchor의 빠진 키를 anchor.toml에 더함
+<서버>.exe import <Bedrock 월드 폴더> [이름]     # LevelDB 월드 → data/world/<이름>.redb (이름 없으면 level-name)
+```
+
+그 밖의 인자는 프로그램의 것이고 서버가 평소대로 켜진다.
+
 ## 문서
 
-- API: `cargo doc --open -p anchor`. PMMP 이름(예: `Player::getName`)으로 검색해도 찾는다.
+- API: `cargo doc --open -p anchor`. `Player::getName` 같은 다른 서버의 API 이름으로 검색해도 찾는다.
 - 설계: [.claude/docs/](.claude/docs/) — architecture, network, protocol, storage, data, dependencies, testing, config. 같은 주제의 작업 규칙은 [.claude/rules/](.claude/rules/)에 있다.
 - 예제: [examples/](examples/) (lobby, pvp, minigame, custom).
 

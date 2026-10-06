@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Anchor의 전체 검사 `cargo xtask verify`(생성 코드, PMMP 대응표, 포맷, clippy, 봇 시험을 포함한 모든 시험, vendor 사본 시험, 문서)를 낮은 우선순위로 돌리고 결과를 보고한다. 사용자가 `/verify`로 시킬 때만 쓴다.
+description: Anchor의 전체 검사 `cargo xtask verify`(생성 코드, API 대응표, 포맷, clippy, 봇 시험을 포함한 모든 시험, vendor 사본 시험, 문서)를 낮은 우선순위로 돌리고 결과를 보고한다. 사용자가 `/verify`로 시킬 때만 쓴다.
 disable-model-invocation: true
 ---
 

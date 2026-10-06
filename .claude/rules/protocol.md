@@ -28,9 +28,9 @@ paths:
 # 프로토콜 규칙
 
 ## 정답 출처
-- 프로토콜 사실의 근거는 gophertunnel 코드, Mojang 문서, BDS를 실행해 봇으로 관찰한 값뿐이다.
+- 프로토콜 사실의 근거는 gophertunnel 코드, Mojang 문서, 공식 서버를 실행해 봇으로 관찰한 값뿐이다.
 - `/versionup`은 쓰지 않는다.
-- gophertunnel이 BDS 대조(P6)와 다르면 외부 불신 절차로 처리한다(`.claude/docs/dependencies.md`).
+- gophertunnel이 공식 서버 대조(P6)와 다르면 외부 불신 절차로 처리한다(`.claude/docs/dependencies.md`).
 
 ## 생성 코드
 - 패킷 코덱은 고정한 gophertunnel에서 뽑은 IR로 생성한다.
@@ -79,8 +79,8 @@ paths:
 4. 생성: `cargo xtask gen`. 추출이 모르는 구문으로 실패하면 추출기를 넓힌다. IR diff(`xtask/data/protocol.json`)를 읽어 새·바뀐·사라진 패킷, 필드, union, 상수를 확인하고, 손 코덱과 이를 쓰는 엔진 코드를 맞춘다.
 5. 필드 상한: Mojang bedrock-protocol-docs의 같은 버전 릴리스 커밋으로 `xtask/src/dump.rs`의 고정 값을 바꾸고 `cargo xtask dump`를 돈다. dump나 gen이 상한으로 실패하면 `xtask/src/dump/limits.rs` 표를 고친다.
 6. 시험: P1~P5를 포함한 `cargo xtask verify`가 PASS해야 한다.
-7. 데이터: 같은 버전의 PMMP, dragonfly, CloudburstMC 기준 목록으로 바꾸고 상태 대조와 업그레이드 스키마를 맞춘다(`.claude/docs/data.md`).
-8. BDS 대조: 새 버전 BDS의 복사본(`.cache/bds/<버전>/`)으로 P6 전체를 돌리고 다른 점은 BDS를 따른다(`.claude/docs/testing.md`).
+7. 데이터: `.claude/docs/data.md` 출처 표의 덤프 원본과 기준 목록 출처를 같은 버전으로 바꾸고 상태 대조와 업그레이드 스키마를 맞춘다.
+8. 공식 서버 대조: 새 버전 공식 서버의 복사본(`.cache/bds/<버전>/`)으로 P6 전체를 돌리고 다른 점은 공식 서버를 따른다(`.claude/docs/testing.md`).
 9. 표시: 버전을 올리는 것은 공개 API의 깨지는 변경으로 다룬다(semver). 지원 프로토콜 번호와 고정 버전 표(`.claude/docs/protocol.md`)를 바꾼다.
 
 배경과 자세한 사실은 `.claude/docs/protocol.md`.
