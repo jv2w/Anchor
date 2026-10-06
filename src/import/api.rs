@@ -232,7 +232,6 @@ pub(crate) fn run(
             name: name.to_owned(),
         });
     }
-    save::migrate(data_dir, cpu)?;
     if save::world_file_exists(data_dir, name)? {
         return Err(Error::WorldExists {
             name: name.to_owned(),

@@ -52,8 +52,7 @@ pub enum Error {
         supported: u16,
     },
     /// A data file could not be opened, read or saved: another process has it open, I/O failed,
-    /// a save still failed after its retries, or the server file of an older Anchor could not be
-    /// moved to the data files (it is left as it was).
+    /// or a save still failed after its retries.
     Storage(Box<dyn std::error::Error + Send + Sync>),
     /// Two worlds have the same name, or names that differ only in letter case.
     DuplicateWorld {
@@ -86,13 +85,18 @@ pub enum Error {
     Custom(crate::custom::Error),
     /// The registered user data types break a rule; the source says which.
     Data(data::Error),
-    /// A resource pack cannot be read or offered, or the pack folder of earlier versions cannot
-    /// be moved to `data/packs`; the source says why. Lets a program's `main`
+    /// A resource pack cannot be read or offered; the source says why. Lets a program's `main`
     /// use `?` on [`Pack::from_bytes`](crate::pack::Pack::from_bytes) and the other pack calls.
     Pack(pack::Error),
     /// [`Server::import_world`](crate::Server::import_world) could not import the world; the
     /// source says why. The server file is left as it was.
     Import(import::Error),
+    /// The program was started with `update-config` or `import` but not the arguments the
+    /// command takes: `update-config` alone, or `import <world folder> [<world name>]`.
+    Usage,
+    /// The answer to a command of the process arguments could not be written to standard
+    /// output.
+    Output(io::Error),
 }
 
 /// A result with the crate [`enum@Error`].
@@ -143,6 +147,10 @@ impl fmt::Display for Error {
             Self::Data(_) => f.write_str("a registered data type is invalid"),
             Self::Pack(_) => f.write_str("a resource pack is invalid"),
             Self::Import(_) => f.write_str("the world could not be imported"),
+            Self::Output(_) => f.write_str("could not write to standard output"),
+            Self::Usage => f.write_str(
+                "usage: <program> update-config, or <program> import <world folder> [<world name>]",
+            ),
         }
     }
 }
@@ -151,7 +159,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Config(e) => Some(e),
-            Self::Start(e) | Self::Network(e) => Some(e),
+            Self::Start(e) | Self::Network(e) | Self::Output(e) => Some(e),
             Self::Command(e) => Some(e),
             Self::CustomEntity(e) => Some(e),
             Self::Custom(e) => Some(e),
@@ -169,7 +177,8 @@ impl std::error::Error for Error {
             | Self::DuplicateWorld { .. }
             | Self::NameTooLong { .. }
             | Self::InvalidWorldName { .. }
-            | Self::DuplicateGenerator { .. } => None,
+            | Self::DuplicateGenerator { .. }
+            | Self::Usage => None,
         }
     }
 }

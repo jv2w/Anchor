@@ -23,8 +23,6 @@
 //! user's server data (`user` table) is read once at start ([`Thread::read_user`]) and saved the
 //! same way.
 
-mod migrate;
-
 use std::borrow::Cow;
 use std::collections::{BTreeMap, VecDeque};
 use std::net::IpAddr;
@@ -548,7 +546,7 @@ pub(crate) struct Opened {
     pub(crate) catalog: Catalog,
     /// The engine tick of the last save (0 for new files).
     pub(crate) tick: u64,
-    /// The commit identity of the last save; `None` for new files or a save of an older Anchor.
+    /// The commit identity of the last save; `None` for new files.
     pub(crate) identity: Option<u64>,
     /// The operator list, the bans and the whitelist.
     pub(crate) access: AccessData,
@@ -714,11 +712,10 @@ impl Thread {
     }
 }
 
-/// Opens the data files (backup and integrity check as `start` says), first moving
-/// the one server file of an older Anchor to them ([`mod@migrate`]), on a CPU pool of `cpu` threads
-/// it joins), and resolves the worlds: each gets the settings of its spec ([`new_world`]); a
-/// persistent world whose file `data/world/` holds keeps its time and number, a new one starts at
-/// time 0 with the next free number. The other world files of `data/world/` are listed for the
+/// Opens the data files (backup and integrity check as `start` says) and resolves the worlds:
+/// each gets the settings of its spec ([`new_world`]); a persistent world whose file
+/// `data/world/` holds keeps its time and number, a new one starts at time 0 with the next free
+/// number. The other world files of `data/world/` are listed for the
 /// tick to load ([`Catalog::stored`]); their record is read without writing them, unless a crash
 /// left one to repair, which opens it as a start does. Every file holding a later save than the
 /// main file is reported ([`check_save`]). Runs before the threads start.
@@ -726,9 +723,7 @@ pub(crate) fn open_with(
     data_dir: &std::path::Path,
     specs: Vec<WorldSpec>,
     start: Start,
-    cpu: usize,
 ) -> Result<Opened, crate::Error> {
-    migrate::run(data_dir, cpu)?;
     let open = |name: &str| -> Result<Open, storage::Error> {
         let place = Place::data(data_dir, name);
         Ok(Open {
@@ -840,12 +835,6 @@ fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error
     Ok(names)
 }
 
-/// Moves the one server file of an older Anchor to the data files, if there is one ([`mod@migrate`]),
-/// converting on a CPU pool of `cpu` threads.
-pub(crate) fn migrate(data_dir: &std::path::Path, cpu: usize) -> Result<(), crate::Error> {
-    migrate::run(data_dir, cpu)
-}
-
 /// The names of the world files of `data/world/`, in name order ([`world_names`]).
 pub(crate) fn world_files(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
     world_names(data_dir)
@@ -869,12 +858,7 @@ pub(crate) fn open(
     data_dir: &std::path::Path,
     specs: Vec<WorldSpec>,
 ) -> Result<Opened, crate::Error> {
-    open_with(
-        data_dir,
-        specs,
-        Start::checked(storage::StartBackup::Make),
-        2,
-    )
+    open_with(data_dir, specs, Start::checked(storage::StartBackup::Make))
 }
 
 /// Opens the data files `files` read-only for a replay ([`Storage::open_replica`]) and resolves
@@ -1429,8 +1413,8 @@ fn load_chunks(
 }
 
 /// Decodes the values read for a chunk of a persistent world (in key order) and generates its
-/// terrain if none was saved. The terrain is either the 24 sub-chunk values or one whole value of
-/// formats 1 to 3; an extras list is its pages from 0 on without a gap, at most
+/// terrain if none was saved. The terrain is its sub-chunk values, a sub-chunk without one empty;
+/// an extras list is its pages from 0 on without a gap, at most
 /// [`MAX_EXTRA_ENTRIES`] entries. Anything else, or any damaged value, makes the chunk damaged.
 fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Registry) -> Loaded {
     let damaged = |part: Option<ChunkPart>, e: &dyn std::fmt::Display| {
@@ -1447,14 +1431,12 @@ fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Regis
     let chunk = chunk_id(number, pos);
     let mut stored = Stored::default();
     let mut checksum = Crc32c::new();
-    let mut column = None;
     let mut sub_chunks: [Option<SubChunkRecord>; SUB_CHUNKS] = Default::default();
     // The page each extras list expects next.
     let mut next_pages = [0u16; 3];
     for (part, sealed) in values {
         let key = ChunkKey { chunk, part: *part }.to_bytes();
         let read = match *part {
-            ChunkPart::Column => unseal::<ChunkRecord>(&key, sealed).map(|r| column = Some(r)),
             ChunkPart::SubChunk(index) => unseal::<SubChunkRecord>(&key, sealed).map(|r| {
                 if let Some(slot) = sub_chunks.get_mut(usize::from(index)) {
                     *slot = Some(r);
@@ -1476,27 +1458,18 @@ fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Regis
         checksum.update(&stored_checksum(sealed).to_le_bytes());
     }
     stored.checksum = checksum.finish();
-    let split = column.is_none();
-    let found = sub_chunks.iter().flatten().count();
-    let record = match (column, found) {
-        (None, 0) => {
-            return Loaded::Generated(
-                Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, pos)),
-                stored,
-            );
-        }
-        (Some(record), 0) => Some(record),
-        // A sub-chunk without a value is empty (format 9; formats 4 to 8 wrote all of them).
-        (None, _) => Some(ChunkRecord {
-            sub_chunks: Box::new(sub_chunks.map(|s| s.unwrap_or_else(empty_sub_chunk))),
-        }),
-        (Some(_), _) => None,
+    if sub_chunks.iter().all(Option::is_none) {
+        return Loaded::Generated(
+            Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, pos)),
+            stored,
+        );
+    }
+    let record = ChunkRecord {
+        sub_chunks: Box::new(sub_chunks.map(|s| s.unwrap_or_else(empty_sub_chunk))),
     };
-    match record.and_then(|r| to_chunk(r, custom)) {
+    match to_chunk(record, custom) {
         Some(mut chunk) => {
-            if split {
-                chunk.set_split();
-            }
+            chunk.set_split();
             Loaded::Disk(Box::new(chunk), stored)
         }
         None => damaged(None, &"the terrain values are not a valid chunk"),
@@ -1596,19 +1569,15 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
     let sealed = pool.map(&snapshot.chunks, |(world, pos, chunk)| {
         let number = plans.get(*world).and_then(|p| p.number)?;
         let id = chunk_id(number, *pos);
-        Some((*world, id, chunk.is_split(), seal_terrain(id, chunk)))
+        Some((*world, seal_terrain(id, chunk)))
     });
-    for (world, id, split, values) in sealed.into_iter().flatten() {
+    for (world, values) in sealed.into_iter().flatten() {
         let batch = worlds.entry(world).or_default();
         for (key, value) in values? {
             match value {
                 Some(value) => batch.put(key, value),
                 None => batch.delete(key),
             }
-        }
-        // The whole value of formats 1 to 3 goes in the commit that writes every sub-chunk.
-        if !split {
-            batch.delete(id.key(ChunkPart::Column));
         }
     }
     let sealed = pool.map(&snapshot.extras, |(world, pos, kind, list)| {
@@ -1714,8 +1683,8 @@ fn world_record(plan: &Plan, values: WorldValues) -> Option<WorldRecord> {
 pub(crate) type Write = (Key, Option<Vec<u8>>);
 
 /// The sub-chunk values a commit writes for a changed chunk's terrain, by key: its changed
-/// sub-chunks, or all 24 when the file does not hold it by sub-chunk yet. An empty sub-chunk of
-/// plains has no value (format 9), `None` here: a load reads it back from no value.
+/// sub-chunks, or all 24 when the file does not hold it yet. An empty sub-chunk of
+/// plains has no value, `None` here: a load reads it back from no value.
 /// Only a chunk whose every sub-chunk is so keeps the value of its lowest one, written whether it
 /// changed or not, so the file still holds the chunk and does not generate it.
 pub(crate) fn seal_terrain(id: ChunkId, chunk: &Chunk) -> Result<Vec<Write>, storage::Error> {
@@ -1738,7 +1707,7 @@ pub(crate) fn seal_terrain(id: ChunkId, chunk: &Chunk) -> Result<Vec<Write>, sto
         .collect()
 }
 
-/// The terrain a sub-chunk without a value has (format 9): no blocks, all plains.
+/// The terrain a sub-chunk without a value has: no blocks, all plains.
 pub(crate) fn empty_sub_chunk() -> SubChunkRecord {
     SubChunkRecord {
         layers: Vec::new(),
@@ -1924,8 +1893,7 @@ pub(crate) mod tests {
     use crate::block;
     use crate::config::Difficulty;
     use crate::protocol::{Rng, Writer};
-    use crate::storage::codec::tests::{encode, player_v1, random_compound, world_record_v7};
-    use crate::storage::seal::{seal_v1, seal_v7};
+    use crate::storage::codec::tests::{encode, random_compound};
     use crate::world::Flat;
     use crate::world::{Flat as FlatGenerator, Weather};
 
@@ -2516,247 +2484,11 @@ pub(crate) mod tests {
         assert_ne!(default_seed("world"), default_seed("arena"));
     }
 
-    /// The one server file of an older Anchor in `dir`, opened to write old values into (its
-    /// world records are keyed by name: the world `world`'s is under [`Key::World`]'s bytes).
-    fn old_file(dir: &TempDir) -> Storage {
-        let place = Place {
-            file: dir.0.join(storage::OLD_SERVER_FILE),
-            backups: dir.0.join("old-backups"),
-        };
-        Storage::open(&place, Start::checked(storage::StartBackup::Transient)).unwrap()
-    }
-
-    /// A server file of format 7, whose world records held settings, moves to the data files and
-    /// opens with the settings of the specs, losing nothing of its state: chunks, extras,
-    /// players, the world's number and time. Every value is in the current format then.
-    #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "consistency: one old file is checked from its writing to its next commit"
-    )]
-    fn a_format_7_file_drops_its_world_settings_and_keeps_every_chunk_and_player() {
-        let dir = TempDir::new("format-7");
-        let mut rng = Rng(0x0007_0010);
-        let pos = ChunkPos::new(2, -3);
-        let id = chunk_id(0, pos);
-        let player = PlayerKey::offline("Kept");
-        let data = PlayerData {
-            world: "world".to_owned(),
-            position: [3.5, -58.0, 4.5],
-            extra: random_compound(&mut rng, 4),
-        };
-        let extras = random_extras(&mut rng);
-        let world = Key::World;
-        {
-            // A format 7 file: format 7 values throughout, its world record with
-            // seed 99, spawn (40, 7, -40), the void generator, time stopped, hard and thunder.
-            let mut storage = old_file(&dir);
-            let mut batch = Batch::default();
-            let v7 = |key: &Key, record: &[u8]| seal_v7(&key.to_bytes(), record);
-            batch.put(Key::Meta, v7(&Key::Meta, &encode(&Meta::at(500))));
-            let record = world_record_v7(
-                WorldRecord {
-                    number: 0,
-                    time: 98_765,
-                },
-                99,
-                [40, 7, -40],
-                "void",
-            );
-            batch.put(world.clone(), v7(&world, &record));
-            let chunk = changed_chunk(pos);
-            for (i, index) in (0..SUB_CHUNKS).zip(0u8..) {
-                let key = id.key(ChunkPart::SubChunk(index));
-                batch.put(key.clone(), v7(&key, &encode(&sub_chunk_record(&chunk, i))));
-            }
-            for kind in ChunkKind::EXTRAS {
-                let list = extras.get(kind).to_vec();
-                if list.is_empty() {
-                    continue;
-                }
-                let key = id.key(ChunkPart::Extras(kind, 0));
-                let record = encode(&ExtraRecord(list.into()));
-                batch.put(key.clone(), v7(&key, &record));
-            }
-            let key = Key::Player(player.clone());
-            let record = encode(&PlayerRecord {
-                world: data.world.clone(),
-                position: data.position,
-                extra: data.extra.clone(),
-            });
-            batch.put(key.clone(), v7(&key, &record));
-            storage.commit(&batch).unwrap();
-            storage.close().unwrap();
-        }
-        let opened = open(&dir.0, specs()).unwrap();
-        assert_eq!(opened.tick, 500);
-        let w = &opened.worlds[0];
-        assert_eq!((w.seed(), w.number(), w.time_ticks()), (5, Some(0), 98_765));
-        assert_eq!(w.generator(), "flat");
-        assert_settings_of_spec(w, FlatGenerator.spawn(5));
-        drop(opened);
-        let loads = vec![
-            Request::Chunks(vec![(0, pos)]),
-            Request::Player(player.clone()),
-            Request::Commit(Box::new(Snapshot {
-                start: 501,
-                worlds: vec![(0, WorldValues { time: 98_766 })],
-                ..Snapshot::default()
-            })),
-        ];
-        let (answers, tick, result) = serve(&dir, loads);
-        result.unwrap();
-        assert_eq!(tick, 500);
-        let [
-            Response::Chunk {
-                loaded: Loaded::Disk(chunk, stored),
-                ..
-            },
-            Response::Player {
-                data: PlayerLoad::Found(found),
-                ..
-            },
-            Response::Committed { start: 501 },
-        ] = &answers[..]
-        else {
-            panic!("unexpected answers {answers:?}");
-        };
-        assert_eq!(to_record(chunk), to_record(&changed_chunk(pos)));
-        assert_eq!(stored.extras, extras);
-        assert_eq!(*found, data);
-        let mut opened = open(&dir.0, specs()).unwrap();
-        let sealed = opened
-            .thread
-            .file("world")
-            .read(std::slice::from_ref(&world))
-            .unwrap()
-            .remove(0)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            crate::storage::seal::version(&sealed).unwrap(),
-            crate::storage::seal::FORMAT_VERSION
-        );
-        let record: WorldRecord = unseal(&world.to_bytes(), &sealed).unwrap();
-        assert_eq!(
-            record,
-            WorldRecord {
-                number: 0,
-                time: 98_766
-            }
-        );
-    }
-
-    /// A server file of format 1 moves to the data files with every value in the current format:
-    /// its whole terrain value as sub-chunk values.
-    #[test]
-    fn a_format_1_file_moves_to_the_current_format() {
-        let dir = TempDir::new("format-1");
-        let pos = ChunkPos::new(1, -1);
-        let terrain = chunk_id(0, pos).key(ChunkPart::Column);
-        let player = PlayerKey::offline("Old");
-        {
-            // A format 1 file: meta, world, chunk and player values.
-            let mut storage = old_file(&dir);
-            let world = WorldRecord { number: 0, time: 0 };
-            let mut batch = Batch::default();
-            // Format 1 meta values hold the tick alone.
-            let meta = 300_u64.to_le_bytes();
-            batch.put(Key::Meta, seal_v1(&Key::Meta.to_bytes(), &meta));
-            let key = Key::World;
-            // Format 1 world records end after the generator name (no time, time stop,
-            // difficulty or weather).
-            let world = world_record_v7(world, 5, [0, -60, 0], "flat");
-            let world = &world[..world.len() - 11];
-            batch.put(key.clone(), seal_v1(&key.to_bytes(), world));
-            let record = encode(&to_record(&changed_chunk(pos)));
-            batch.put(terrain.clone(), seal_v1(&terrain.to_bytes(), &record));
-            let key = Key::Player(player.clone());
-            let record = player_v1("world", [2.5, -58.38, 3.5]);
-            batch.put(key.clone(), seal_v1(&key.to_bytes(), &record));
-            storage.commit(&batch).unwrap();
-            storage.close().unwrap();
-        }
-        let loads = vec![
-            Request::Chunks(vec![(0, pos)]),
-            Request::Player(player.clone()),
-            Request::Commit(Box::new(Snapshot {
-                start: 301,
-                worlds: vec![(
-                    0,
-                    WorldValues::of(&{
-                        let mut world =
-                            World::new("world", Kind::Persistent, 5, BlockPos::new(0, -60, 0));
-                        world.set_time(24_301);
-                        world
-                    }),
-                )],
-                ..Snapshot::default()
-            })),
-        ];
-        let (answers, tick, result) = serve(&dir, loads);
-        result.unwrap();
-        assert_eq!(tick, 300);
-        let [
-            Response::Chunk {
-                loaded: Loaded::Disk(chunk, stored),
-                ..
-            },
-            Response::Player {
-                data: PlayerLoad::Found(data),
-                ..
-            },
-            Response::Committed { start: 301 },
-        ] = &answers[..]
-        else {
-            panic!("unexpected answers {answers:?}");
-        };
-        assert_eq!(chunk.block(1, -60, 2), Some(stone()));
-        assert_eq!(stored.extras, ChunkExtras::default());
-        assert_eq!(
-            *data,
-            PlayerData {
-                world: "world".to_owned(),
-                position: [2.5, f64::from(-58.38f32), 3.5],
-                extra: Compound::new(),
-            }
-        );
-        // The move wrote every value in the current format, the whole terrain as sub-chunks; the
-        // commit wrote the world with its time.
-        let mut opened = open(&dir.0, specs()).unwrap();
-        assert_eq!(opened.worlds[0].time_ticks(), 24_301);
-        let storage = opened.thread.file("world");
-        let sub_chunk = chunk_id(0, pos).key(ChunkPart::SubChunk(0));
-        let read = storage
-            .read(&[Key::Meta, Key::World, terrain, sub_chunk])
-            .unwrap();
-        assert!(
-            read[2].as_ref().unwrap().is_none(),
-            "no whole terrain value"
-        );
-        let versions: Vec<u16> = [&read[0], &read[1], &read[3]]
-            .iter()
-            .map(|v| crate::storage::seal::version(v.as_ref().unwrap().as_ref().unwrap()).unwrap())
-            .collect();
-        let current = crate::storage::seal::FORMAT_VERSION;
-        assert_eq!(versions, [current, current, current]);
-        drop(opened);
-        let (answers, tick, _) = serve(&dir, vec![Request::Chunks(vec![(0, pos)])]);
-        assert_eq!(tick, 301);
-        assert!(matches!(
-            answers[..],
-            [Response::Chunk {
-                loaded: Loaded::Disk(..),
-                ..
-            }]
-        ));
-    }
-
     #[test]
     fn a_damaged_chunk_value_loads_as_damaged_and_stays_as_it_was() {
         let dir = TempDir::new("damaged");
         let pos = ChunkPos::new(0, 1);
-        let key = chunk_id(0, pos).key(ChunkPart::Column);
+        let key = chunk_id(0, pos).key(ChunkPart::SubChunk(0));
         {
             let mut opened = open(&dir.0, specs()).unwrap();
             let mut batch = Batch::default();
@@ -3231,23 +2963,15 @@ pub(crate) mod tests {
         assert!(pool.shutdown());
     }
 
-    /// A whole terrain value of formats 1 to 3 is rewritten as sub-chunk values (none for the
-    /// empty ones) and removed in the commit after its chunk changes; from then on a commit
-    /// writes only the sub-chunks that changed.
+    /// A chunk the file does not hold yet is written whole by its first commit (no value for the
+    /// empty sub-chunks); from then on a commit writes only the sub-chunks that changed.
     #[test]
-    fn a_whole_terrain_value_is_split_by_the_next_commit_and_then_only_changes_are_written() {
-        use crate::storage::tests::{Disk, closed, memory};
+    fn a_new_chunk_is_written_whole_once_and_then_only_changes_are_written() {
+        use crate::storage::tests::{Disk, closed};
         let disk = Disk::default();
         let pool = crate::runtime::cpu_pool(2).unwrap();
         let pos = ChunkPos::new(0, 1);
         let id = chunk_id(0, pos);
-        let mut storage = memory(&disk);
-        let mut batch = Batch::default();
-        let column = id.key(ChunkPart::Column);
-        let record = encode(&to_record(&changed_chunk(pos)));
-        batch.put(column.clone(), seal_v1(&column.to_bytes(), &record));
-        storage.commit(&batch).unwrap();
-        drop(storage);
         let load = |world: &mut World| {
             let answers = load_chunks(
                 &mut plans(closed(&disk)),
@@ -3285,15 +3009,12 @@ pub(crate) mod tests {
             closed(&disk).read_chunks(&[id]).unwrap().remove(0).unwrap()
         };
         let mut world = World::new("world", Kind::Persistent, 5, BlockPos::new(0, 0, 0));
-        load(&mut world);
+        world.insert_chunk(pos, changed_chunk(pos));
         world.set_block(BlockPos::new(3, 100, 19), stone()).unwrap();
         let split = save(&mut world);
         let parts: Vec<ChunkPart> = split.iter().map(|v| v.0).collect();
         let sub_chunks = [ChunkPart::SubChunk(0), ChunkPart::SubChunk(10)];
-        assert_eq!(
-            parts, sub_chunks,
-            "the whole value and the empty sub-chunks are gone"
-        );
+        assert_eq!(parts, sub_chunks, "the empty sub-chunks have no value");
         load(&mut world);
         assert_eq!(world.block(BlockPos::new(1, -60, 18)), Some(stone()));
         assert_eq!(world.block(BlockPos::new(3, 100, 19)), Some(stone()));
@@ -3309,7 +3030,7 @@ pub(crate) mod tests {
         assert!(pool.shutdown());
     }
 
-    /// Format 9: an empty sub-chunk of plains has no value, so an imported world
+    /// An empty sub-chunk of plains has no value, so an imported world
     /// does not hold a value for every sky sub-chunk; a chunk that is empty everywhere keeps the
     /// value of its lowest sub-chunk, so it is loaded and not generated again.
     #[test]
@@ -3360,7 +3081,7 @@ pub(crate) mod tests {
         world.set_block(high, stone()).unwrap();
         world.set_block(high, crate::block::AIR).unwrap();
         assert_eq!(save(&mut world), [ChunkPart::SubChunk(0)]);
-        assert!(load().is_split());
+        load();
         world.set_block(high, stone()).unwrap();
         assert_eq!(
             save(&mut world),
@@ -3373,9 +3094,8 @@ pub(crate) mod tests {
         assert!(pool.shutdown());
     }
 
-    /// Values that no commit writes together are damage: the sub-chunks beside a whole terrain
-    /// value, or an extras page without the one before it. A sub-chunk without a value is empty
-    /// (format 9).
+    /// Values that no commit writes together are damage: an extras page without the one before
+    /// it. A sub-chunk without a value is empty.
     #[test]
     fn terrain_values_that_do_not_make_one_chunk_load_as_damaged() {
         type Fill<'a> = &'a dyn Fn(&mut Batch);
@@ -3389,39 +3109,26 @@ pub(crate) mod tests {
             let value = seal(&key.to_bytes(), &record.sub_chunks[usize::from(i)]).unwrap();
             batch.put(key, value);
         };
-        let column = |batch: &mut Batch| {
-            let key = id.key(ChunkPart::Column);
-            batch.put(key.clone(), seal(&key.to_bytes(), &record).unwrap());
-        };
         let page = |batch: &mut Batch, n: u16| {
             let key = id.key(ChunkPart::Extras(ChunkKind::Entities, n));
             let list = ExtraRecord(vec![Compound::new()].into());
             batch.put(key.clone(), seal(&key.to_bytes(), &list).unwrap());
         };
-        let cases: [(&str, Fill<'_>, bool); 5] = [
+        let cases: [(&str, Fill<'_>, bool); 3] = [
             (
                 "all sub-chunks",
                 &|b| (0..24).for_each(|i| sub_chunk(b, i)),
                 true,
             ),
-            ("the whole value", &|b| column(b), true),
             (
                 "the sub-chunk with blocks alone",
                 &|b| sub_chunk(b, 0),
                 true,
             ),
             (
-                "sub-chunks and the whole value",
-                &|b| {
-                    (0..24).for_each(|i| sub_chunk(b, i));
-                    column(b);
-                },
-                false,
-            ),
-            (
                 "page 1 without page 0",
                 &|b| {
-                    column(b);
+                    sub_chunk(b, 0);
                     page(b, 1);
                 },
                 false,
@@ -3507,22 +3214,6 @@ pub(crate) mod tests {
         assert!(pool.shutdown());
     }
 
-    /// Writes the sealed world record `record` under the world name `name` into the old server
-    /// file of `dir` (closed), as that file keyed its records.
-    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn old_world_record(dir: &TempDir, name: &str, record: &WorldRecord) {
-        let db = redb::Database::create(dir.0.join(storage::OLD_SERVER_FILE)).unwrap();
-        let txn = db.begin_write().unwrap();
-        {
-            let mut table = txn
-                .open_table(redb::TableDefinition::<&[u8], &[u8]>::new("worlds"))
-                .unwrap();
-            let sealed = seal(name.as_bytes(), record).unwrap();
-            table.insert(name.as_bytes(), sealed.as_slice()).unwrap();
-        }
-        txn.commit().unwrap();
-    }
-
     /// The specs of [`specs`] and a persistent world `lobby`.
     fn specs_with_lobby() -> Vec<WorldSpec> {
         let mut specs = specs();
@@ -3534,245 +3225,6 @@ pub(crate) mod tests {
             spawn: None,
         });
         specs
-    }
-
-    /// The old server file: every value moves to the data files in the current format,
-    /// each world to its own file with its number and time, a damaged chunk as it was (still
-    /// quarantined); the old file and the move's folder are gone, and an undeclared world is one
-    /// the tick may load.
-    #[test]
-    #[expect(
-        clippy::too_many_lines,
-        clippy::disallowed_methods,
-        reason = "consistency: one old file is checked from its writing to its loads; test fixtures on disk"
-    )]
-    fn the_old_server_file_moves_whole_to_the_data_files() {
-        let dir = TempDir::new("move");
-        let mut rng = Rng(0x0016_0001);
-        let pos = ChunkPos::new(2, -3);
-        let damaged = ChunkPos::new(5, 5);
-        let player = PlayerKey::offline("Kept");
-        let data = PlayerData {
-            world: "lobby".to_owned(),
-            position: [3.5, -58.0, 4.5],
-            extra: random_compound(&mut rng, 4),
-        };
-        let extras = random_extras(&mut rng);
-        let op = access_key(AccessKind::Op, "steve");
-        let user = Key::User("kills".to_owned());
-        {
-            let mut storage = old_file(&dir);
-            let mut batch = Batch::default();
-            let v7 = |key: &Key, record: &[u8]| seal_v7(&key.to_bytes(), record);
-            batch.put(Key::Meta, v7(&Key::Meta, &encode(&Meta::at(500))));
-            // The world `world` (number 0) in format 7; the world `lobby` is number 1.
-            let record = world_record_v7(
-                WorldRecord {
-                    number: 0,
-                    time: 98_765,
-                },
-                99,
-                [40, 7, -40],
-                "void",
-            );
-            batch.put(Key::World, v7(&Key::World, &record));
-            let chunk = changed_chunk(pos);
-            for id in [chunk_id(0, pos), chunk_id(1, pos)] {
-                for (i, index) in (0..SUB_CHUNKS).zip(0u8..) {
-                    let key = id.key(ChunkPart::SubChunk(index));
-                    batch.put(key.clone(), v7(&key, &encode(&sub_chunk_record(&chunk, i))));
-                }
-                for kind in ChunkKind::EXTRAS {
-                    for (key, value) in seal_pages(id, kind, extras.get(kind)).unwrap() {
-                        batch.put(key, value);
-                    }
-                }
-            }
-            batch.put(
-                chunk_id(0, damaged).key(ChunkPart::Column),
-                b"not a sealed value".to_vec(),
-            );
-            let key = Key::Player(player.clone());
-            let record = encode(&PlayerRecord {
-                world: data.world.clone(),
-                position: data.position,
-                extra: data.extra.clone(),
-            });
-            batch.put(key.clone(), v7(&key, &record));
-            let op = Key::Access(op.clone());
-            batch.put(op.clone(), seal(&op.to_bytes(), &Mark).unwrap());
-            batch.put(
-                user.clone(),
-                seal(&user.to_bytes(), &UserRecord(b"[7]".to_vec().into())).unwrap(),
-            );
-            storage.commit(&batch).unwrap();
-            storage.close().unwrap();
-        }
-        old_world_record(&dir, "lobby", &WorldRecord { number: 1, time: 7 });
-        migrate(&dir.0, 2).unwrap();
-        // The moved files are closed as after a normal stop: no check at the next start.
-        for name in ["world", "lobby"] {
-            assert!(storage::closed_normally(&Place::world(&dir.0, name).file));
-        }
-        assert!(storage::closed_normally(
-            &Place::data(&dir.0, storage::MAIN_FILE).file
-        ));
-        let mut opened = open(&dir.0, specs()).unwrap();
-        assert!(!dir.0.join(storage::OLD_SERVER_FILE).exists());
-        assert!(!dir.0.join("moving").exists());
-        assert!(opened.later.is_empty(), "{:?}", opened.later);
-        assert_eq!(opened.tick, 500);
-        assert_eq!(opened.access.ops, ["steve"]);
-        assert_eq!(
-            opened.thread.read_user(&["kills"]).unwrap(),
-            [Some(b"[7]".to_vec())]
-        );
-        assert_eq!(
-            (opened.worlds[0].number(), opened.worlds[0].time_ticks()),
-            (Some(0), 98_765)
-        );
-        // `lobby` is no spec: the tick may load it.
-        assert_eq!(
-            opened.catalog.stored,
-            [("lobby".to_owned(), WorldRecord { number: 1, time: 7 })]
-        );
-        // Every value of the world file is in the current format.
-        let storage = opened.thread.file("world");
-        let values = storage.read_chunks(&[chunk_id(0, pos)]).unwrap();
-        for (_, sealed) in values[0].as_ref().unwrap() {
-            assert_eq!(
-                crate::storage::seal::version(sealed).unwrap(),
-                crate::storage::seal::FORMAT_VERSION
-            );
-        }
-        drop(opened);
-        let loads = vec![
-            Request::Chunks(vec![(0, pos), (0, damaged)]),
-            Request::Player(player.clone()),
-        ];
-        let (answers, _, result) = serve(&dir, loads);
-        result.unwrap();
-        let [
-            Response::Chunk {
-                loaded: Loaded::Disk(chunk, stored),
-                ..
-            },
-            Response::Chunk {
-                loaded: Loaded::Damaged,
-                ..
-            },
-            Response::Player {
-                data: PlayerLoad::Found(found),
-                ..
-            },
-        ] = &answers[..]
-        else {
-            panic!("unexpected answers {answers:?}");
-        };
-        assert_eq!(to_record(chunk), to_record(&changed_chunk(pos)));
-        assert_eq!(stored.extras, extras);
-        assert_eq!(*found, data);
-        // The world `lobby` loads from its own file.
-        let mut opened = open(&dir.0, specs_with_lobby()).unwrap();
-        assert_eq!(opened.worlds[2].time_ticks(), 7);
-        let read = opened
-            .thread
-            .load(
-                &crate::runtime::cpu_pool(1).unwrap(),
-                &[(2, pos), (2, damaged)],
-                false,
-            )
-            .unwrap();
-        assert!(
-            matches!(
-                &read[..],
-                [
-                    Response::Chunk {
-                        loaded: Loaded::Disk(..),
-                        ..
-                    },
-                    Response::Chunk {
-                        loaded: Loaded::Generated(..),
-                        ..
-                    }
-                ]
-            ),
-            "{read:?}"
-        );
-    }
-
-    /// A move that fails leaves the old file exactly as it was and no data file: a file that is
-    /// not redb, and a world file already there that the move did not write.
-    #[test]
-    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn a_failed_move_leaves_the_old_file_as_it_was_and_no_data_file() {
-        let dir = TempDir::new("move-fails");
-        let old = dir.0.join(storage::OLD_SERVER_FILE);
-        std::fs::write(&old, b"not a redb file").unwrap();
-        let e = open(&dir.0, specs()).unwrap_err();
-        assert!(matches!(e, crate::Error::WorldDamaged(_)), "{e:?}");
-        assert_eq!(std::fs::read(&old).unwrap(), b"not a redb file");
-        let names: Vec<_> = std::fs::read_dir(&dir.0)
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, [storage::OLD_SERVER_FILE], "nothing else is left");
-
-        std::fs::remove_file(&old).unwrap();
-        {
-            let mut storage = old_file(&dir);
-            let mut batch = Batch::default();
-            batch.put(
-                Key::World,
-                seal(&Key::World.to_bytes(), &WorldRecord { number: 0, time: 1 }).unwrap(),
-            );
-            storage.commit(&batch).unwrap();
-            storage.close().unwrap();
-        }
-        let bytes = std::fs::read(&old).unwrap();
-        // Someone else's file of the world `world`.
-        Storage::open(
-            &Place::world(&dir.0, "world"),
-            Start::checked(storage::StartBackup::Transient),
-        )
-        .unwrap()
-        .close()
-        .unwrap();
-        let e = open(&dir.0, specs()).unwrap_err();
-        assert!(matches!(e, crate::Error::Storage(_)), "{e:?}");
-        assert_eq!(std::fs::read(&old).unwrap(), bytes);
-        assert!(!Place::data(&dir.0, storage::MAIN_FILE).file.exists());
-        assert!(!dir.0.join("moving").exists());
-    }
-
-    /// An old file left beside the data files after its move (a stop before its removal) is
-    /// removed by the next start; another one is left as it is.
-    #[test]
-    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn an_old_file_left_after_its_move_is_removed_and_another_is_kept() {
-        let dir = TempDir::new("move-left");
-        let old = dir.0.join(storage::OLD_SERVER_FILE);
-        {
-            let mut storage = old_file(&dir);
-            let mut batch = Batch::default();
-            batch.put(
-                Key::Meta,
-                seal(&Key::Meta.to_bytes(), &Meta::at(40)).unwrap(),
-            );
-            storage.commit(&batch).unwrap();
-            storage.close().unwrap();
-        }
-        let bytes = std::fs::read(&old).unwrap();
-        drop(open(&dir.0, specs()).unwrap());
-        assert!(!old.exists());
-        std::fs::write(&old, &bytes).unwrap();
-        drop(open(&dir.0, specs()).unwrap());
-        assert!(!old.exists(), "the moved file is removed");
-        // Another server file, of another save.
-        drop(old_file(&dir));
-        let other = std::fs::read(&old).unwrap();
-        drop(open(&dir.0, specs()).unwrap());
-        assert_eq!(std::fs::read(&old).unwrap(), other, "another file is kept");
     }
 
     /// A normal stop commits the last snapshot to every file it changes, the main file last, and

@@ -1,7 +1,5 @@
 //! Copies of a data file: `<unix seconds>[-<n>].redb` in the file's own backup folder
-//! ([`Place::backups`](super::Place), such as `data/backups/players/`). The backups of the one
-//! server file of an older Anchor (`data/backups/server-*.redb`, `world-*.redb`) are left as they
-//! are: no folder of a data file holds them.
+//! ([`Place::backups`](super::Place), such as `data/backups/players/`).
 //!
 //! A start copy is taken from the closed file, under an exclusive lock that also tells whether
 //! another process has the file open, when a start backup or the start's integrity check asks
@@ -511,9 +509,6 @@ mod tests {
             "17.redb.tmp",
             "notes.txt",
             "a.redb",
-            // An older Anchor's backups of its one server file.
-            "server-17.redb",
-            "world-17.redb",
         ] {
             assert_eq!(order(other), None, "{other}");
         }

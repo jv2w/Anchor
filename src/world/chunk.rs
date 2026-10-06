@@ -61,9 +61,8 @@ pub struct Chunk {
     unknown: Arc<[nbt::Compound]>,
     /// The sub-chunks changed since the world's last save snapshot, one bit per index.
     dirty: u32,
-    /// Whether the server file holds this chunk one value per sub-chunk (format 4), so a save
-    /// writes only the changed ones. Otherwise (generated, or saved whole by formats 1 to 3) the
-    /// next save writes all 24 and removes a whole value.
+    /// Whether the server file holds this chunk, so a save writes only the changed sub-chunks.
+    /// Otherwise (generated) the next save writes all 24.
     split: bool,
     /// The chunk's light once it is worked out, kept apart from the shared sub-chunks so a light
     /// change never copies one.
@@ -314,7 +313,7 @@ impl Chunk {
     }
 
     /// The copy a save snapshot takes (its sub-chunks shared) with the changes it must write,
-    /// after which this chunk is clean and held by sub-chunk.
+    /// after which this chunk is clean and held by the file.
     pub(crate) fn take_save(&mut self) -> Self {
         let save = self.clone();
         self.dirty = 0;
@@ -323,7 +322,7 @@ impl Chunk {
     }
 
     /// The sub-chunks a save of this snapshot writes, one bit per index: the changed ones, or
-    /// all of them when the file does not hold the chunk by sub-chunk yet.
+    /// all of them when the file does not hold the chunk yet.
     pub(crate) fn saved_sub_chunks(&self) -> u32 {
         if self.split {
             self.dirty
@@ -332,12 +331,7 @@ impl Chunk {
         }
     }
 
-    /// Whether the server file holds the chunk one value per sub-chunk.
-    pub(crate) fn is_split(&self) -> bool {
-        self.split
-    }
-
-    /// Notes that the chunk was read from one value per sub-chunk.
+    /// Notes that the chunk was read from the server file.
     pub(crate) fn set_split(&mut self) {
         self.split = true;
     }

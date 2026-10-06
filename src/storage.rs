@@ -60,12 +60,6 @@ pub(crate) use check::Checked;
 use codec::Meta;
 use seal::{FORMAT_VERSION, unseal};
 
-/// The one server file of older Anchor versions, before the data was split into files: a start
-/// moves it to the data files once (`save::migrate`).
-pub(crate) const OLD_SERVER_FILE: &str = "server.redb";
-/// The name the server file had before it held more than worlds: a start renames it to
-/// [`OLD_SERVER_FILE`] ([`rename_old_file`]) before it moves it to the data files.
-const OLDEST_FILE: &str = "world.redb";
 /// The file of the save's tick and commit identity, committed last of a save.
 pub(crate) const MAIN_FILE: &str = "main";
 /// The file of the players' data.
@@ -106,9 +100,6 @@ const USER: Table = TableDefinition::new("user");
 const META_KEY: &[u8] = b"meta";
 /// The key of a world file's record in its `worlds` table: the file's name is the world's.
 const WORLD_KEY: &[u8] = b"world";
-/// The key, in the `meta` table of each data file the move from the one server file wrote, of the
-/// sealed meta value of that server file: tells a file of that move (`save::migrate`).
-const MOVED_KEY: &[u8] = b"moved";
 /// The mark of a normal stop, in the `meta` table with an empty value: the last commit of
 /// [`Storage::close`] writes it and the first commit of a start removes it, so it is there only
 /// while the file is closed after a normal stop (`integrity-check = "after-unclean-shutdown"`).
@@ -389,15 +380,11 @@ impl ChunkId {
 /// is split into pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ChunkPart {
-    /// The whole terrain as formats 1 to 3 wrote it ([`ChunkRecord`](codec::ChunkRecord)),
-    /// kind 0: read, and removed in the commit that writes the terrain by sub-chunk.
-    Column,
     /// A page of an extras list ([`ExtraRecord`](codec::ExtraRecord)), kind 1 to 3: page 0
-    /// has no more bytes (so the one value of formats 2 and 3 is page 0), a later page two more,
-    /// big-endian.
+    /// has no more bytes, a later page two more, big-endian.
     Extras(ChunkKind, u16),
-    /// The terrain of one sub-chunk ([`SubChunkRecord`](codec::SubChunkRecord), format 4), index
-    /// 0 (y -64) to 23: kind `0x20 | index`.
+    /// The terrain of one sub-chunk ([`SubChunkRecord`](codec::SubChunkRecord)), index 0
+    /// (y -64) to 23: kind `0x20 | index`.
     SubChunk(u8),
 }
 
@@ -413,7 +400,6 @@ impl ChunkPart {
         let sub_chunk =
             |k: u8| k & !0x1f == SUB_CHUNK_KIND && usize::from(k & 0x1f) < codec::SUB_CHUNKS;
         let part = match *bytes {
-            [0] => Some(Self::Column),
             [k] if sub_chunk(k) => Some(Self::SubChunk(k & 0x1f)),
             [k] => kind(k).map(|kind| Self::Extras(kind, 0)),
             [k, p0, p1] => {
@@ -443,7 +429,6 @@ impl ChunkKey {
         let mut out = Vec::with_capacity(15);
         out.extend_from_slice(&self.chunk.prefix());
         match self.part {
-            ChunkPart::Column => out.push(0),
             ChunkPart::Extras(kind, page) => {
                 out.push(kind as u8);
                 if page != 0 {
@@ -547,9 +532,6 @@ pub(crate) enum Key {
     Access(AccessKey),
     /// A `user` value, by the server data's name.
     User(String),
-    /// The mark of a file the move from the one server file wrote ([`MOVED_KEY`]): that file's
-    /// sealed meta value, as it was.
-    Moved,
 }
 
 impl Key {
@@ -557,7 +539,6 @@ impl Key {
     pub(crate) fn to_bytes(&self) -> Cow<'_, [u8]> {
         match self {
             Self::Meta => Cow::Borrowed(META_KEY),
-            Self::Moved => Cow::Borrowed(MOVED_KEY),
             Self::World => Cow::Borrowed(WORLD_KEY),
             Self::User(name) => Cow::Borrowed(name.as_bytes()),
             Self::Chunk(key) => Cow::Owned(key.to_bytes()),
@@ -571,7 +552,7 @@ impl Key {
     fn pick<'a, T>(&self, tables: &'a [T; 6]) -> &'a T {
         let [meta, worlds, chunks, players, access, user] = tables;
         match self {
-            Self::Meta | Self::Moved => meta,
+            Self::Meta => meta,
             Self::World => worlds,
             Self::Chunk(_) => chunks,
             Self::Player(_) => players,
@@ -584,7 +565,7 @@ impl Key {
     fn pick_mut<'a, T>(&self, tables: &'a mut [T; 6]) -> &'a mut T {
         let [meta, worlds, chunks, players, access, user] = tables;
         match self {
-            Self::Meta | Self::Moved => meta,
+            Self::Meta => meta,
             Self::World => worlds,
             Self::Chunk(_) => chunks,
             Self::Player(_) => players,
@@ -682,15 +663,6 @@ impl Source {
         };
         opened.map_err(Error::from_open)
     }
-}
-
-/// A table [`Storage::scan`] reads whole.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Scan {
-    Chunks,
-    Players,
-    Access,
-    User,
 }
 
 /// Whether [`Storage::open`] first copies the closed server file into the backups (`backups`).
@@ -937,11 +909,6 @@ impl Replica {
     }
 }
 
-/// A `worlds` key as a world name.
-fn world_name(key: Vec<u8>) -> Result<String> {
-    String::from_utf8(key).map_err(|_| Error::Malformed("world name is not utf-8"))
-}
-
 /// The first and last key bytes of `chunk`'s values.
 fn chunk_range(chunk: ChunkId) -> (Vec<u8>, Vec<u8>) {
     let prefix = chunk.prefix();
@@ -1113,42 +1080,8 @@ impl Storage {
         }
     }
 
-    /// Opens the data file `path` and checks it whole (redb's `check_integrity()`), without a
-    /// copy: the move to the data files opens its own copy of the old server file and the files
-    /// it wrote so.
-    pub(crate) fn open_checked(path: &Path) -> Result<Self> {
-        Self::start(Source::File(path.to_path_buf()))
-    }
-
-    /// Calls `each` with every key and sealed value of `table`, in key order, from one read
-    /// transaction; stops at the first error, its own or a read's.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the move to the data files reads the old server file before the server runs"
-    )]
-    pub(crate) fn scan(
-        &mut self,
-        table: Scan,
-        mut each: impl FnMut(&[u8], &[u8]) -> Result<()>,
-    ) -> Result<()> {
-        let table = match table {
-            Scan::Chunks => CHUNKS,
-            Scan::Players => PLAYERS,
-            Scan::Access => ACCESS,
-            Scan::User => USER,
-        };
-        let txn = self.database()?.begin_read()?;
-        let Some(table) = open_read(&txn, table)? else {
-            return Ok(());
-        };
-        for entry in table.iter()? {
-            let (key, value) = entry?;
-            each(key.value(), value.value())?;
-        }
-        Ok(())
-    }
-
     /// Opens, checks and prepares the database at `source`, as a start that checks it.
+    #[cfg(test)]
     fn start(source: Source) -> Result<Self> {
         let mut db = source.open()?;
         check_integrity(&mut db)?;
@@ -1239,8 +1172,7 @@ impl Storage {
     /// Every value of each of `chunks`, in key order, read in one read transaction: its part
     /// and sealed value (open it with [`unseal`] under its key's bytes), or the damage found in
     /// that chunk alone (a key no Anchor writes, or a page redb found corrupted). The key format
-    /// bounds the values of a chunk: one whole terrain, 24 sub-chunks and 65,536 pages of each
-    /// extras kind. A read that fails otherwise is retried as a commit is, then returns the last
+    /// bounds the values of a chunk: 24 sub-chunks and 65,536 pages of each extras kind. A read that fails otherwise is retried as a commit is, then returns the last
     /// error.
     #[expect(
         clippy::disallowed_methods,
@@ -1267,39 +1199,6 @@ impl Storage {
             }
             Ok(out)
         })
-    }
-
-    /// Every stored world: its name and sealed [`WorldRecord`](codec::WorldRecord), in name
-    /// order.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the save thread reads the server file"
-    )]
-    pub(crate) fn worlds(&mut self) -> Result<Vec<(String, Vec<u8>)>> {
-        if let Some(replica) = &self.replica {
-            let entries = replica.all(WORLDS, 1, MAX_WORLDS)?;
-            if entries.len() > MAX_WORLDS {
-                return Err(Error::TooManyWorlds);
-            }
-            return entries
-                .into_iter()
-                .map(|(name, sealed)| Ok((world_name(name)?, sealed)))
-                .collect();
-        }
-        let txn = self.database()?.begin_read()?;
-        let Some(table) = open_read(&txn, WORLDS)? else {
-            return Ok(Vec::new());
-        };
-        let count = usize::try_from(table.len()?).unwrap_or(usize::MAX);
-        if count > MAX_WORLDS {
-            return Err(Error::TooManyWorlds);
-        }
-        let mut worlds = Vec::with_capacity(count);
-        for entry in table.iter()?.take(MAX_WORLDS) {
-            let (name, sealed) = entry?;
-            worlds.push((world_name(name.value().to_vec())?, sealed.value().to_vec()));
-        }
-        Ok(worlds)
     }
 
     /// Every stored operator, ban and whitelist entry: its key and sealed value, in key order.
@@ -1457,21 +1356,6 @@ impl Storage {
         }
         Ok(())
     }
-
-    /// Compacts the file: moves its pages to the front and frees the end. Only the move to the
-    /// data files calls it, once, on files it wrote whole.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "off-tick: the move to the data files compacts the files it wrote, before the server runs"
-    )]
-    pub(crate) fn compact(&mut self) -> Result<()> {
-        self.check = None;
-        self.backup = None;
-        if let Some(db) = &mut self.db {
-            db.compact()?;
-        }
-        Ok(())
-    }
 }
 
 /// The world import's open write transaction ([`Storage::begin_import`]). Dropping it uncommitted
@@ -1560,42 +1444,6 @@ fn checks(world: &Path, check: IntegrityCheck) -> bool {
         IntegrityCheck::AfterUncleanShutdown => !closed_normally(world),
         IntegrityCheck::Never => false,
     }
-}
-
-/// Renames the server file of an older Anchor, [`OLDEST_FILE`] in `data_dir`, to
-/// [`OLD_SERVER_FILE`] when there is neither that nor the main data file yet. The rename is one atomic file system call, so the file
-/// is under one of the two names whatever happens; a rename that fails fails the start and leaves
-/// the file as it was. Refuses a file another process has open ([`Error::InUse`]): an older
-/// Anchor still running keeps it. With both files there, the old one is left alone.
-#[expect(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "off-tick: the save thread renames the server file once, before opening it"
-)]
-pub(crate) fn rename_old_file(data_dir: &Path) -> Result<()> {
-    let (old, new) = (data_dir.join(OLDEST_FILE), data_dir.join(OLD_SERVER_FILE));
-    let main = Place::data(data_dir, MAIN_FILE).file;
-    if std::fs::exists(&new).map_err(Error::Io)? || std::fs::exists(&main).map_err(Error::Io)? {
-        if std::fs::exists(&old).map_err(Error::Io)? {
-            warn!(file = %old.display(), "an old server file is left beside the server file");
-        }
-        return Ok(());
-    }
-    let file = match std::fs::File::open(&old) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(Error::Io(e)),
-    };
-    match file.try_lock() {
-        Ok(()) => {}
-        Err(std::fs::TryLockError::WouldBlock) => return Err(Error::InUse),
-        Err(std::fs::TryLockError::Error(e)) => return Err(Error::Io(e)),
-    }
-    // Windows cannot rename a file that is still open.
-    drop(file);
-    std::fs::rename(&old, &new).map_err(Error::Io)?;
-    info!(from = %old.display(), to = %new.display(), "server file renamed");
-    Ok(())
 }
 
 /// Whether the closed server file `world` has the mark of a normal stop ([`CLOSED_KEY`]), read
@@ -1943,9 +1791,7 @@ pub(crate) mod tests {
         match key {
             Key::Meta => drop(unseal::<Meta>(&bytes, sealed).unwrap()),
             Key::World => drop(unseal::<WorldRecord>(&bytes, sealed).unwrap()),
-            Key::Moved => {}
             Key::Chunk(ChunkKey { part, .. }) => match part {
-                ChunkPart::Column => drop(unseal::<ChunkRecord>(&bytes, sealed).unwrap()),
                 ChunkPart::SubChunk(_) => drop(unseal::<SubChunkRecord>(&bytes, sealed).unwrap()),
                 ChunkPart::Extras(..) => drop(unseal::<ExtraRecord<'_>>(&bytes, sealed).unwrap()),
             },
@@ -1964,7 +1810,7 @@ pub(crate) mod tests {
     }
 
     fn chunk_key(x: i32, z: i32) -> Key {
-        chunk(x, z).key(ChunkPart::Column)
+        chunk(x, z).key(ChunkPart::SubChunk(0))
     }
 
     /// A small sub-chunk that differs by `n`.
@@ -2106,13 +1952,13 @@ pub(crate) mod tests {
         let key = |world, x, z| {
             ChunkKey {
                 chunk: ChunkId { world, x, z },
-                part: ChunkPart::Column,
+                part: ChunkPart::SubChunk(0),
             }
             .to_bytes()
         };
         assert_eq!(
             key(1, -1, 2),
-            [0, 0, 0, 1, 0x7f, 0xff, 0xff, 0xff, 0x80, 0, 0, 2, 0]
+            [0, 0, 0, 1, 0x7f, 0xff, 0xff, 0xff, 0x80, 0, 0, 2, 0x20]
         );
         let ordered = [
             key(0, i32::MIN, 0),
@@ -2127,13 +1973,12 @@ pub(crate) mod tests {
         assert_eq!(PlayerKey::offline("StEve").0, "offline:steve");
     }
 
-    /// The bytes after a chunk's prefix: the whole terrain 0, extras pages kind then page (none
-    /// for page 0, the key formats 2 and 3 wrote), sub-chunks `0x20 | index`; anything else is
-    /// a key no Anchor writes. Within a chunk, pages sort in order.
+    /// The bytes after a chunk's prefix: extras pages kind then page (none for page 0),
+    /// sub-chunks `0x20 | index`; anything else is a key no Anchor writes. Within a chunk, pages
+    /// sort in order.
     #[test]
     fn chunk_parts_have_one_key_each() {
         let parts = [
-            (ChunkPart::Column, vec![0]),
             (ChunkPart::Extras(ChunkKind::BlockEntities, 0), vec![1]),
             (
                 ChunkPart::Extras(ChunkKind::BlockEntities, 1),
@@ -2162,6 +2007,7 @@ pub(crate) mod tests {
         assert!(keys.is_sorted());
         for bad in [
             &[][..],
+            &[0],
             &[4],
             &[0x1f],
             &[0x38],
@@ -2188,7 +2034,6 @@ pub(crate) mod tests {
         let parts = [
             ChunkPart::SubChunk(3),
             ChunkPart::Extras(ChunkKind::Entities, 2),
-            ChunkPart::Column,
             ChunkPart::Extras(ChunkKind::Entities, 0),
             ChunkPart::Extras(ChunkKind::Entities, 1),
             ChunkPart::Extras(ChunkKind::BlockEntities, 0),
@@ -2202,7 +2047,7 @@ pub(crate) mod tests {
         // A key of chunk `c` with a suffix no Anchor writes.
         let mut odd = ChunkKey {
             chunk: c,
-            part: ChunkPart::Column,
+            part: ChunkPart::SubChunk(0),
         }
         .to_bytes();
         odd[CHUNK_PREFIX] = 9;
@@ -2280,7 +2125,7 @@ pub(crate) mod tests {
         let disk = Disk::default();
         let mut storage = memory(&disk);
         let mut rng = Rng(11);
-        let column = random_chunk(&mut rng);
+        let sub_chunk = random_chunk(&mut rng).sub_chunks[5].clone();
         let world = WorldRecord { number: 3, time: 0 };
         let keys = [
             chunk_key(-1, 1),
@@ -2289,7 +2134,10 @@ pub(crate) mod tests {
             Key::Player(PlayerKey::xuid(7)),
         ];
         let mut batch = Batch::with_capacity(4);
-        batch.put(keys[0].clone(), seal(&keys[0].to_bytes(), &column).unwrap());
+        batch.put(
+            keys[0].clone(),
+            seal(&keys[0].to_bytes(), &sub_chunk).unwrap(),
+        );
         batch.put(keys[1].clone(), seal(&keys[1].to_bytes(), &world).unwrap());
         batch.put(Key::Meta, seal(META_KEY, &Meta::at(40)).unwrap());
         assert_eq!(batch.len(), 3);
@@ -2300,9 +2148,9 @@ pub(crate) mod tests {
         let values = storage.read(&keys).unwrap();
         let [chunk_value, world_value, meta_value, player_value] =
             <[_; 4]>::try_from(values).unwrap();
-        let unsealed: ChunkRecord =
+        let unsealed: SubChunkRecord =
             unseal(&keys[0].to_bytes(), &chunk_value.unwrap().unwrap()).unwrap();
-        assert_eq!(unsealed, column);
+        assert_eq!(unsealed, sub_chunk);
         let world_value = world_value.unwrap().unwrap();
         assert_eq!(
             unseal::<WorldRecord>(WORLD_KEY, &world_value).unwrap(),
@@ -2313,10 +2161,6 @@ pub(crate) mod tests {
             Meta::at(40)
         );
         assert!(player_value.unwrap().is_none());
-        assert_eq!(
-            storage.worlds().unwrap(),
-            [("world".to_owned(), world_value)]
-        );
         // A deletion removes the value.
         let mut batch = Batch::default();
         batch.delete(keys[0].clone());
@@ -2550,7 +2394,6 @@ pub(crate) mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert!(storage.worlds().unwrap().is_empty());
         let mut batch = Batch::default();
         batch.put(Key::Meta, seal(META_KEY, &Meta::at(9)).unwrap());
         storage.commit(&batch).unwrap();
@@ -2580,39 +2423,6 @@ pub(crate) mod tests {
         ));
         assert!(dir.backups().is_empty(), "no copy of a file in use");
         storage.close().unwrap();
-    }
-
-    /// An older Anchor's `world.redb` becomes `server.redb` (which a start then moves to the data
-    /// files), byte for byte: renamed, not copied, and only when there is neither that nor a main
-    /// data file. A file another process has open is left under its old name.
-    #[test]
-    #[expect(
-        clippy::disallowed_types,
-        clippy::disallowed_methods,
-        reason = "off-tick: test fixtures on disk"
-    )]
-    fn an_old_server_file_is_renamed_once_and_kept_whole() {
-        let dir = TempDir::new("old-name");
-        let (old, new) = (dir.0.join(OLDEST_FILE), dir.0.join(OLD_SERVER_FILE));
-        std::fs::write(&old, b"old file").unwrap();
-        // An older Anchor still runs it.
-        let held = std::fs::File::open(&old).unwrap();
-        held.lock().unwrap();
-        assert!(matches!(rename_old_file(&dir.0), Err(Error::InUse)));
-        drop(held);
-        assert!(old.exists() && !new.exists());
-        rename_old_file(&dir.0).unwrap();
-        assert!(!old.exists());
-        assert_eq!(std::fs::read(&new).unwrap(), b"old file");
-        // With both, or with the data files, the old one stays as it is.
-        std::fs::write(&old, b"older").unwrap();
-        rename_old_file(&dir.0).unwrap();
-        assert_eq!(std::fs::read(&old).unwrap(), b"older");
-        std::fs::remove_file(&new).unwrap();
-        std::fs::write(Place::data(&dir.0, MAIN_FILE).file, b"").unwrap();
-        rename_old_file(&dir.0).unwrap();
-        assert_eq!(std::fs::read(&old).unwrap(), b"older");
-        assert!(!new.exists());
     }
 
     #[test]

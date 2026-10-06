@@ -237,7 +237,6 @@ fn read_chunk(storage: &mut Storage, number: u32, x: i32, z: i32) -> (Chunk, [Ve
                 };
                 extras[slot].extend(list);
             }
-            ChunkPart::Column => panic!("an import writes sub-chunks"),
         }
     }
     let record = ChunkRecord {

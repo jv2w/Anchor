@@ -1,5 +1,5 @@
 //! Repository tasks. `cargo xtask gen [--check]` regenerates the protocol code (or checks it is
-//! current); `cargo xtask check [--hook]` runs the format, clippy and the tests of what changed,
+//! current); `cargo xtask check` runs the format, clippy and the tests of what changed,
 //! the check every task ends with; `cargo xtask verify` runs every check and ends with PASS or
 //! FAIL, or with the I/O error that stopped it; `cargo xtask dump [--check]` rebuilds the committed block and item data
 //! and the protocol field limits from the pinned PMMP, dragonfly, `CloudburstMC` and Mojang
@@ -138,8 +138,7 @@ fn run() -> io::Result<ExitCode> {
         .collect::<Vec<_>>()
         .as_slice()
     {
-        ["check"] => return check::command(&root(), false),
-        ["check", "--hook"] => return check::command(&root(), true),
+        ["check"] => return check::command(&root()),
         ["gen"] => gen_command(&mut out, false),
         ["gen", "--check"] => gen_command(&mut out, true),
         ["verify"] => verify(&mut out),
@@ -164,7 +163,7 @@ fn run() -> io::Result<ExitCode> {
         _ => {
             writeln!(
                 out,
-                "usage: cargo xtask gen [--check] | cargo xtask check [--hook] | cargo xtask \
+                "usage: cargo xtask gen [--check] | cargo xtask check | cargo xtask \
                  verify | cargo xtask dump [--check] | cargo xtask table [--check] | cargo xtask \
                  vendor-test str0m | {}",
                 p6::USAGE

@@ -2120,12 +2120,14 @@ fn hotbar_selection_and_pick_block_follow_pmmp() {
     select(&mut w, 6);
     on_block_pick_request(&mut w.state, s, &pick);
     assert_eq!(w.inv(s).held_slot(), 0, "an item already held is selected");
-    // Survival players only select what they have.
-    let mut w = World::new(GameMode::Survival);
-    let s = w.join(1);
-    w.place_block(pos, blk::Kind::Cobblestone.default_state());
-    on_block_pick_request(&mut w.state, s, &pick);
-    assert!(w.inv(s).main.stacks.iter().all(Stack::is_empty));
+    // Players with finite resources, spectators too, only select what they have.
+    for mode in [GameMode::Survival, GameMode::Spectator] {
+        let mut w = World::new(mode);
+        let s = w.join(1);
+        w.place_block(pos, blk::Kind::Cobblestone.default_state());
+        on_block_pick_request(&mut w.state, s, &pick);
+        assert!(w.inv(s).main.stacks.iter().all(Stack::is_empty), "{mode:?}");
+    }
 }
 
 #[test]

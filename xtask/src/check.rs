@@ -8,15 +8,10 @@
 //! The builds go to `target/check`, so a check neither waits on a running `verify` nor rebuilds
 //! the running xtask.exe. A pass is remembered as a stamp of HEAD and the changed files, so an
 //! unchanged tree passes at once.
-//!
-//! `--hook` is the Claude Code Stop hook: it reads the hook input on standard input and reports a
-//! failure on standard error with exit code 2, which keeps the session going. On the hook's own
-//! retry (`stop_hook_active`) with nothing changed since that failure it lets the session end, so
-//! a failure the session cannot fix does not loop.
 
 use std::collections::BTreeSet;
 use std::env;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
@@ -32,33 +27,20 @@ const BUILD_FILES: &[&str] = &[
 ];
 /// The build directory under `target/`.
 const TARGET: &str = "check";
-/// The stamps of the last pass and the last failure.
+/// The stamp of the last pass.
 const PASS: &str = "target/check/pass";
-const FAIL: &str = "target/check/fail";
 
-/// Runs the check (`hook`: as the Stop hook).
-pub(crate) fn command(root: &Path, hook: bool) -> io::Result<ExitCode> {
-    let retry = hook && stop_hook_active()?;
+/// Runs the check.
+pub(crate) fn command(root: &Path) -> io::Result<ExitCode> {
     let files = changed(root)?;
     let stamp = stamp(root, &files)?;
     if read_stamp(root, PASS).as_deref() == Some(stamp.as_str()) {
         return Ok(ExitCode::SUCCESS);
     }
-    if retry && read_stamp(root, FAIL).as_deref() == Some(stamp.as_str()) {
-        return Ok(ExitCode::SUCCESS);
-    }
     let mut report = Vec::new();
     let passed = check(root, &files, &mut report)?;
-    write_stamp(root, if passed { PASS } else { FAIL }, &stamp)?;
-    if hook && !passed {
-        let mut err = stderr();
-        err.write_all(&report)?;
-        writeln!(
-            err,
-            "cargo xtask check failed: fix it before ending the task, or tell the user what fails \
-             and why"
-        )?;
-        return Ok(ExitCode::from(2));
+    if passed {
+        write_stamp(root, PASS, &stamp)?;
     }
     stdout().write_all(&report)?;
     Ok(if passed {
@@ -305,35 +287,12 @@ fn write_stamp(root: &Path, path: &str, stamp: &str) -> io::Result<()> {
     std::fs::write(path, stamp)
 }
 
-/// Whether the Stop hook input on standard input says the hook already stopped the session once.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn stop_hook_active() -> io::Result<bool> {
-    let mut input = String::new();
-    io::stdin().read_to_string(&mut input)?;
-    let value: serde_json::Value = serde_json::from_str(&input).unwrap_or_default();
-    Ok(value
-        .get("stop_hook_active")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false))
-}
-
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
 fn stdout() -> io::StdoutLock<'static> {
     io::stdout().lock()
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn stderr() -> io::StderrLock<'static> {
-    io::stderr().lock()
 }
 
 #[cfg(test)]

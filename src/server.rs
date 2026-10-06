@@ -10,6 +10,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
+use crate::args::{self, Task};
 use crate::clock;
 use crate::config::{Config, LevelType};
 use crate::console;
@@ -113,8 +114,10 @@ impl Server {
     /// ([`import::Report::spawn`](crate::import::Report::spawn)) to copy into the world's
     /// `[worlds.<name>]` table.
     ///
-    /// It blocks the calling thread, first moves the server file of an older Anchor to the data
-    /// files as [`run`](Self::run) does, uses a CPU pool of `cpu-threads` that it joins before
+    /// A program started as `<program> import <world folder> [<world name>]` runs this from
+    /// [`run`](Self::run), the default world without a name.
+    ///
+    /// It blocks the calling thread, uses a CPU pool of `cpu-threads` that it joins before
     /// returning, and writes the whole world in one transaction: on any failure, a chunk that
     /// cannot be read included, no world file is left; the error names the chunk and the key at
     /// fault
@@ -155,26 +158,47 @@ impl Server {
     /// server data) and the file `data/world/<name>.redb` of each persistent world it starts
     /// with; the other world files there are worlds [`Context::load_world`] may load. Each is
     /// backed up into its own folder of `data/backups/` and checked as `backups` and
-    /// `integrity-check` say, and a damaged one refuses the start, left as it was. The one server
-    /// file of an older Anchor (`data/server.redb`) is moved to the data files first, once: every
-    /// value is written again in the current format, the new files are checked, and only then is
-    /// the old file removed; a move that fails stops the start with the old file as it was. A
-    /// file holding a later save than the main file (a crash in the middle of a save) is logged
-    /// as an error naming it. Then a `packs` folder next to the settings file, where earlier
-    /// versions kept the resource packs, is renamed to `data/packs` unless that exists (then it is
-    /// left as it is, with a warning), and the packs load from `data/packs`. On shutdown every
-    /// player sees `shutdown-message`, the last state is saved to every data file it changed (one
-    /// tick's state, the main file last), networking stops, and the threads are joined. Fails if a
-    /// data file is damaged or cannot be opened, if the old server file cannot be moved, if the
-    /// old pack folder
-    /// cannot be moved (it stays where it was) or a pack cannot be offered, if the runtime, the
+    /// `integrity-check` say, and a damaged one refuses the start, left as it was. A file holding
+    /// a later save than the main file (a crash in the middle of a save) is logged as an error
+    /// naming it. Then the packs load from `data/packs`. On shutdown every player sees
+    /// `shutdown-message`, the last state is saved to every data file it changed (one tick's
+    /// state, the main file last), networking stops, and the threads are joined. Fails if a data
+    /// file is damaged or cannot be opened, if a pack cannot be offered, if the runtime, the
     /// threads or networking cannot start, if a save fails after its retries, or if the tick
     /// thread panics.
+    ///
+    /// The program's process arguments can ask for a command instead, which the program answers
+    /// with no code of its own, writing the result to standard output: `<program> update-config`
+    /// reports what [`Config::load`] added to the settings file and renamed in it, and
+    /// `<program> import <world folder> [<world name>]` runs [`import_world`](Self::import_world)
+    /// (the default world, `level-name`, without a name). Either then returns without starting
+    /// the server, so it can run beside a running server. Those commands given other arguments
+    /// fail with [`Error::Usage`]; any other arguments are the program's own.
+    pub fn run(self) -> Result<()> {
+        let task = args::current()?;
+        self.run_task(task)
+    }
+
+    /// [`run`](Self::run) with the command `task` of the process arguments.
+    fn run_task(self, task: Task) -> Result<()> {
+        let answer = match task {
+            Task::Run => return self.serve(),
+            Task::UpdateConfig => args::updated(self.config.updated()),
+            Task::Import { dir, world } => {
+                let world = world.unwrap_or_else(|| self.config.general.level_name.clone());
+                let report = self.import_world(&dir, &world)?;
+                args::imported(&world, &report)
+            }
+        };
+        args::say(&answer).map_err(Error::Output)
+    }
+
+    /// Runs the server ([`run`](Self::run) without a command of the process arguments).
     #[expect(
         clippy::too_many_lines,
         reason = "consistency: one function starts every part of the server in its order"
     )]
-    pub fn run(self) -> Result<()> {
+    fn serve(self) -> Result<()> {
         let started = clock::now();
         let log = self.console_log().map_err(Error::Start)?;
         info!(
@@ -203,12 +227,7 @@ impl Server {
         .map_err(|e| Error::Start(std::io::Error::other(e)))?;
         let mut setup = setup;
         setup.fingerprints = tick::Fingerprints::of(&tick::Settings::new(&config), &worlds, &setup);
-        let mut opened = save::open_with(
-            &data_dir,
-            worlds,
-            crate::storage::Start::of(&config),
-            threads.cpu,
-        )?;
+        let mut opened = save::open_with(&data_dir, worlds, crate::storage::Start::of(&config))?;
         if !opened.later.is_empty() {
             warn!(
                 files = opened.later.len(),
@@ -801,6 +820,47 @@ impl ShutdownHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn argument_commands_answer_without_starting_the_server() {
+        let data = save::tests::TempDir::new("argument-commands");
+        let server = || {
+            Server::builder()
+                .data_dir(&data.0)
+                .without_console_log()
+                .build()
+                .unwrap()
+        };
+        // `Config::load` did the update; the server only reports it, and does not start.
+        server().run_task(Task::UpdateConfig).unwrap();
+        assert!(!data.0.join("main.redb").exists());
+
+        let dir = PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/xtask/data/import/flat"
+        ));
+        let import = |world: Option<&str>| {
+            server().run_task(Task::Import {
+                dir: dir.clone(),
+                world: world.map(str::to_owned),
+            })
+        };
+        // Without a name, as the default world.
+        import(None).unwrap();
+        assert!(data.0.join("world").join("world.redb").exists());
+        import(Some("lobby")).unwrap();
+        assert!(data.0.join("world").join("lobby.redb").exists());
+        let again = import(Some("LOBBY")).unwrap_err();
+        assert!(
+            matches!(
+                again,
+                Error::Import(crate::import::Error::WorldExists { .. })
+            ),
+            "{again:?}"
+        );
+        assert!(!data.0.join("main.redb").exists());
+    }
 
     /// Set for the child process of
     /// `a_second_stop_signal_is_logged_before_the_process_ends`.

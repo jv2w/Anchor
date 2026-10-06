@@ -511,6 +511,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[cfg(test)]
 mod tests {
     use super::super::compression::tests::{ROUND_TRIP_SIZES, sample};
+    use super::super::io::{MAX_LIST_DEPTH, Writer};
     use super::super::io::tests::Rng;
     use super::super::packet::{Login, Packet, SetTime};
     use super::{
@@ -672,6 +673,54 @@ mod tests {
             decode(&[0x03, 0x0a, 0x00, 0x00], &Settings::default()),
             Err(Error::Packet(protocol::Error::InvalidValue { .. }))
         ));
+    }
+
+    /// A batch of one `ClientBoundDataStore` whose value is `depth` lists of one value each, in the
+    /// packet's list of updates. A client can send it: the decoder takes every packet ID.
+    fn nested_data_store(depth: usize) -> Vec<u8> {
+        let mut w = Writer::new(Vec::new(), SHIELD_ID);
+        w.varuint32(330);
+        // One update, a change with an empty name and property, update count 0.
+        for x in [1, 1, 0, 0] {
+            w.varuint32(x);
+        }
+        w.uint32(0);
+        for _ in 0..depth {
+            // A list value of one value.
+            w.int32(5);
+            w.varuint32(1);
+        }
+        w.int32(0);
+        let packet = w.into_inner();
+        let mut payload = Writer::new(Vec::new(), SHIELD_ID);
+        payload.varuint32(u32::try_from(packet.len()).unwrap());
+        payload.bytes(&packet);
+        payload.into_inner()
+    }
+
+    /// Lists nest at most 64 deep: deeper is a size error, not a stack overflow, which would end
+    /// the process. The deepest fits in a quarter of the server threads' stack.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "safety: a thread with a small stack proves the recursion's stack bound"
+    )]
+    fn lists_nested_too_deep_are_a_size_error() {
+        let run = || {
+            assert!(decode(&nested_data_store(MAX_LIST_DEPTH - 1), &Settings::default()).is_ok());
+            for depth in [MAX_LIST_DEPTH, 100_000] {
+                assert_eq!(
+                    decode(&nested_data_store(depth), &Settings::default()),
+                    Err(Error::Packet(protocol::Error::Size))
+                );
+            }
+        };
+        std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(run)
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]

@@ -501,6 +501,58 @@ fn the_anvil_renames_and_repairs_for_levels() {
     check_slots(&w.state);
 }
 
+/// Stacks a server gives with the highest enchantment level, or the highest prior work, go into
+/// the anvil: a level cannot go higher and the cost is too expensive, so both are refused and
+/// nothing changes.
+#[test]
+fn the_anvil_refuses_levels_and_prior_work_at_their_limits() {
+    let sword = |damage: u16, extra: Extra| {
+        Stack::new(item(Kind::DiamondSword), 1)
+            .with_damage(damage)
+            .with_extra(Some(extra))
+            .unwrap()
+    };
+    let highest = Extra {
+        enchantments: vec![(crate::item::Enchantment::Sharpness, u8::MAX)],
+        ..Extra::default()
+    };
+    let worked = Extra {
+        nbt: Compound::from([(
+            "RepairCost".to_owned(),
+            crate::nbt::Value::Int(i32::MAX),
+        )]),
+        ..Extra::default()
+    };
+    for (input, material) in [
+        (sword(0, highest.clone()), sword(0, highest)),
+        (sword(100, worked.clone()), sword(0, worked)),
+    ] {
+        let (mut w, s) = world(&[input, material]);
+        w.place_block(AT, blk::Kind::Anvil.default_state());
+        w.open_block(s, AT);
+        put(&mut w, s, 0, 1, (C::AnvilInput, 1));
+        put(&mut w, s, 1, 1, (C::AnvilMaterial, 2));
+        let before = totals(&w.state);
+        let level = survival::xp_level(w.player(s));
+        let input = w.id(s, C::AnvilInput, 1);
+        let material = w.id(s, C::AnvilMaterial, 2);
+        let id = w.next_id(s);
+        let actions = vec![
+            StackRequestAction::CraftRecipeOptional(CraftRecipeOptionalStackRequestAction {
+                recipe_network_id: 0,
+                filter_string_index: 0,
+            }),
+            consume(1, at(C::AnvilInput, 1, input)),
+            consume(1, at(C::AnvilMaterial, 2, material)),
+            place(1, created(id), at(COMBINED, 7, 0)),
+        ];
+        assert!(!ok(&request_filter(&mut w, s, id, actions, "Sword")));
+        assert_eq!(totals(&w.state), before);
+        assert_eq!(survival::xp_level(w.player(s)), level);
+        check_slots(&w.state);
+    }
+}
+
 /// `experience = false`: the levels a player kept count as none, so a survival player takes no
 /// enchanting option and no anvil work, and keeps its levels.
 #[test]

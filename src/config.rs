@@ -1,5 +1,7 @@
 //! Server settings: the `anchor.toml` file, its defaults and its validation.
 
+mod update;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
@@ -15,9 +17,13 @@ use crate::fs::{self, Access};
 use crate::protocol::batch;
 use crate::protocol::compression::Compression;
 
+pub use self::update::Update;
+
 /// The file [`Config::load`] writes when the settings file is missing; a test checks that it
-/// loads as the default settings.
-const DEFAULT_FILE: &str = r#"# Anchor server settings. Anchor reads this file at start and never writes it again.
+/// loads as the default settings. [`Config::update_file`] adds a missing key with the comment
+/// lines right above it here, and a missing table with those above its header.
+const DEFAULT_FILE: &str = r#"# Anchor server settings. Anchor reads this file at start and writes it only to update it:
+# "<server program> update-config" adds the keys of a newer Anchor and keeps the rest.
 # A wrong value or an unknown key stops the start with a message naming the key.
 # A key left out keeps its default, so new Anchor versions start with an old file.
 
@@ -171,7 +177,8 @@ console-input = true
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
 /// Keys an older Anchor knew, by old path, and the key that replaced each: a file still using
-/// one fails with [`Error::RenamedKey`] naming the new key.
+/// one fails with [`Error::RenamedKey`] naming the new key, and [`Config::update_file`] renames
+/// it when the new key is in the same table.
 const RENAMED_KEYS: [(&str, &str); 1] = [("general.experience-bottles", "general.experience-orbs")];
 
 /// Bounds the player and session tables that are sized from it.
@@ -209,10 +216,7 @@ const ITEM_PICKUP_INTERVAL: RangeInclusive<u8> = 1..=20;
 /// The server file saves none of them: every start takes the settings from the
 /// config it is built with, so a value changed while the server runs (the difficulty, a world's
 /// spawn, difficulty, weather or time stop, a game rule) is back to its setting after a restart.
-///
-/// Two configs are equal when their settings are: the folder of the loaded file, where the pack
-/// folder of earlier versions is looked for, is not a setting and is not compared.
-#[derive(Debug, Clone, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Config {
     /// Settings for anyone opening a server (`[general]`).
     pub general: General,
@@ -225,17 +229,9 @@ pub struct Config {
     /// Top-level tables of the loaded file that Anchor does not know; [`Config::validate`]
     /// rejects them.
     unknown_tables: BTreeSet<String>,
-    /// The folder of the last file [`Config::load`] read; `None` before any.
-    dir: Option<PathBuf>,
-}
-
-impl PartialEq for Config {
-    fn eq(&self, other: &Self) -> bool {
-        self.general == other.general
-            && self.developer == other.developer
-            && self.worlds == other.worlds
-            && self.unknown_tables == other.unknown_tables
-    }
+    /// What [`Config::load`] changed in the file when the program was started as
+    /// `<program> update-config`; [`Server::run`](crate::Server::run) reports it.
+    updated: Option<Update>,
 }
 
 impl Config {
@@ -252,11 +248,22 @@ impl Config {
     /// This does blocking file I/O: call it before the server starts.
     ///
     /// Relative `resource-packs` paths, in the file or set in code, resolve against `packs` in the
-    /// data folder (`data/packs`). Earlier versions resolved them against the folder of the file:
-    /// [`Server::run`](crate::Server::run) moves a `packs` folder found there to `data/packs`.
-    pub fn load(mut self, path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-        self.dir = path.parent().map(Path::to_path_buf);
+    /// data folder (`data/packs`).
+    ///
+    /// When the program was started as `<program> update-config`, the file is first updated as
+    /// [`Config::update_file`] does, and [`Server::run`](crate::Server::run) then reports what
+    /// changed instead of running the server.
+    pub fn load(self, path: impl AsRef<Path>) -> Result<Self> {
+        let update = matches!(crate::args::current(), Ok(crate::args::Task::UpdateConfig));
+        self.load_as(path.as_ref(), update)
+    }
+
+    /// [`Config::load`], updating the file first if `update`.
+    fn load_as(mut self, path: &Path, update: bool) -> Result<Self> {
+        // Before the read: an old file may not load until it is updated.
+        if update {
+            self.updated = Some(update::run(path)?);
+        }
         if let Some(bytes) = read(path)? {
             return self.apply(&bytes);
         }
@@ -268,17 +275,44 @@ impl Config {
         self.apply(DEFAULT_FILE.as_bytes())
     }
 
+    /// Updates the settings file at `path` to this Anchor's keys and returns what changed.
+    ///
+    /// Each key of the default file that the file lacks is added with its default value and the
+    /// comment lines right above it in the default file: after the line of the key before it
+    /// there, or after the table's header when the file has none of those. A table the file
+    /// lacks is added at its end. A key an older Anchor knew under another name gets its new name
+    /// and keeps its value; with both names in the file, the old key stays and fails the load as
+    /// [`Error::RenamedKey`]. Every other byte stays as it was: values, comments, key order and
+    /// line endings. `[worlds.<name>]` tables are not touched, since a key left out there means
+    /// the global value.
+    ///
+    /// The added values are the defaults, so the file means what it meant without them. A value
+    /// set in code before [`Config::load`] for a key this adds is then replaced by the file's, as
+    /// with a missing file.
+    ///
+    /// The update fixes no value. The file is left as it was, and the error returned, when it is
+    /// missing ([`Error::Read`]), when it would not load after the update, when a table lacking a
+    /// key is written without its `[table]` header ([`Error::HeaderlessTable`]), or when the
+    /// update would make it larger than 1 MiB. Otherwise, if anything changed, the file is
+    /// replaced whole (a temporary file renamed into place), so running it again changes nothing.
+    ///
+    /// A server program started as `<program> update-config` runs this from [`Config::load`],
+    /// whether the server runs or not: a running server reads the file only at its next start.
+    /// This does blocking file I/O.
+    pub fn update_file(path: impl AsRef<Path>) -> Result<Update> {
+        update::run(path.as_ref())
+    }
+
+    /// What [`Config::load`] changed in the file under `<program> update-config`; `None` when
+    /// it did not run so.
+    pub(crate) fn updated(&self) -> Option<&Update> {
+        self.updated.as_ref()
+    }
+
     /// The `resource-packs` files, relative paths resolved against the pack folder `folder`.
     pub(crate) fn resource_pack_paths(&self, folder: &Path) -> Vec<PathBuf> {
         let packs = &self.general.resource_packs;
         packs.iter().map(|p| folder.join(p)).collect()
-    }
-
-    /// The pack folder of earlier versions: `packs` next to the last file loaded (in the working
-    /// directory before any).
-    pub(crate) fn old_pack_folder(&self) -> PathBuf {
-        let dir = self.dir.as_deref().unwrap_or(Path::new(""));
-        dir.join(crate::pack::FOLDER)
     }
 
     /// Returns `spawn-radius` limited to `view-distance`: the chunk radius actually sent before a
@@ -351,14 +385,8 @@ impl Config {
 
     /// Parses a settings file's bytes, lays its keys over these values and checks the result.
     fn apply(mut self, bytes: &[u8]) -> Result<Self> {
-        let text = std::str::from_utf8(bytes).map_err(|e| Error::Syntax {
-            position: position(bytes, e.valid_up_to()),
-            message: "invalid utf-8".to_owned(),
-        })?;
-        let table = text.parse::<Table>().map_err(|e| Error::Syntax {
-            position: e.span().and_then(|span| position(bytes, span.start)),
-            message: e.message().to_owned(),
-        })?;
+        let text = utf8(bytes)?;
+        let table = text.parse::<Table>().map_err(|e| syntax(text, &e))?;
         for (name, value) in &table {
             match name.as_str() {
                 "general" => self.general.merge(table_of(value, Key::top(name))?)?,
@@ -1116,21 +1144,21 @@ pub enum Threads {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// The settings file exists but cannot be read.
+    /// The settings file cannot be read, or is missing when [`Config::update_file`] updates it.
     Read {
         /// The settings file.
         path: PathBuf,
         /// The I/O failure.
         source: io::Error,
     },
-    /// The settings file is missing and the default file cannot be written.
+    /// The settings file cannot be written: the default file when it is missing, or an update.
     Write {
         /// The settings file.
         path: PathBuf,
         /// The I/O failure.
         source: io::Error,
     },
-    /// The settings file is larger than 1 MiB.
+    /// The settings file is larger than 1 MiB, or an update would make it so.
     TooLarge {
         /// The settings file.
         path: PathBuf,
@@ -1154,6 +1182,9 @@ pub enum Error {
     },
     /// A top-level table Anchor does not know, such as `plugin` for `[plugin]`.
     UnknownTable(String),
+    /// A table lacking a key that [`Config::update_file`] cannot add to, as it is written
+    /// without its `[table]` header (an inline table or dotted keys), such as `general`.
+    HeaderlessTable(String),
     /// A `[worlds.<name>]` table whose name is not a world the server declares, such as
     /// `lobby` for `[worlds.lobby]`.
     UnknownWorld(String),
@@ -1188,9 +1219,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Read { path, .. } => write!(f, "cannot read {}", path.display()),
-            Self::Write { path, .. } => {
-                write!(f, "cannot write the default settings to {}", path.display())
-            }
+            Self::Write { path, .. } => write!(f, "cannot write {}", path.display()),
             Self::TooLarge { path } => {
                 write!(
                     f,
@@ -1209,6 +1238,10 @@ impl fmt::Display for Error {
             Self::UnknownKey(key) => write!(f, "unknown key `{key}`"),
             Self::RenamedKey { key, renamed } => write!(f, "`{key}` was renamed to `{renamed}`"),
             Self::UnknownTable(name) => write!(f, "unknown table `[{name}]`"),
+            Self::HeaderlessTable(name) => write!(
+                f,
+                "keys cannot be added to `{name}`: write it as a `[{name}]` table"
+            ),
             Self::UnknownWorld(name) => write!(f, "`[worlds.{name}]` names no declared world"),
             Self::Invalid { key, expected } => write!(f, "`{key}` must be {expected}"),
             Self::Range {
@@ -1465,6 +1498,24 @@ fn position(bytes: &[u8], offset: usize) -> Option<(usize, usize)> {
     Some((line, column))
 }
 
+/// A settings file's bytes as text; [`Error::Syntax`] if they are not UTF-8.
+fn utf8(bytes: &[u8]) -> Result<&str> {
+    std::str::from_utf8(bytes).map_err(|e| Error::Syntax {
+        position: position(bytes, e.valid_up_to()),
+        message: "invalid utf-8".to_owned(),
+    })
+}
+
+/// The [`Error::Syntax`] of a TOML parse failure of `text`.
+fn syntax(text: &str, error: &toml::de::Error) -> Error {
+    Error::Syntax {
+        position: error
+            .span()
+            .and_then(|span| position(text.as_bytes(), span.start)),
+        message: error.message().to_owned(),
+    }
+}
+
 /// Reads the settings file, or returns `None` when it does not exist.
 fn read(path: &Path) -> Result<Option<Vec<u8>>> {
     match crate::fs::read_bounded(path, MAX_FILE_BYTES) {
@@ -1597,14 +1648,6 @@ mod tests {
         let paths = config.resource_pack_paths(&folder);
         assert_eq!(paths[0], Path::new("data/packs/a.zip"));
         assert_eq!(paths[1], Path::new("/abs/b.mcpack"));
-        assert_eq!(config.old_pack_folder(), Path::new("packs"));
-        let loaded = Config {
-            dir: Some("server/conf".into()),
-            ..config.clone()
-        };
-        assert_eq!(loaded.resource_pack_paths(&folder), paths);
-        assert_eq!(loaded.old_pack_folder(), Path::new("server/conf/packs"));
-        assert_eq!(loaded, config, "the folder is not a setting");
     }
 
     // pmmp: ResourcePackManager::resourcePacksRequired, ResourcePackManager::setResourcePacksRequired
@@ -1631,6 +1674,32 @@ mod tests {
         config.developer.tick_radius = 2;
         assert_eq!(config.effective_spawn_radius(), 3);
         assert_eq!(config.effective_tick_radius(), 2);
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn load_under_update_config_updates_the_file_first() {
+        let dir = crate::save::tests::TempDir::new("config-update");
+        let path = dir.0.join("anchor.toml");
+        let old = "[general]
+experience-bottles = false
+";
+        std::fs::write(&path, old).unwrap();
+        let error = Config::default().load_as(&path, false).unwrap_err();
+        assert!(matches!(error, Error::RenamedKey { .. }), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        assert_eq!(Config::default().updated(), None);
+
+        let config = Config::default().load_as(&path, true).unwrap();
+        assert!(!config.general.experience_orbs);
+        let update = config.updated().unwrap();
+        assert_eq!(
+            update.renamed(),
+            [("general.experience-bottles", "general.experience-orbs")]
+        );
+        assert_eq!(update.added().len(), 65);
+        let again = Config::default().load_as(&path, true).unwrap();
+        assert!(again.updated().unwrap().is_empty());
     }
 
     #[test]

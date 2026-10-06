@@ -99,9 +99,8 @@ enum Event {
 
 /// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
 ///
-/// The resource packs load first: the pack folder of earlier versions moves to `data_dir/packs`,
-/// then the `resource-packs` files load from there, then `packs` given in code; a folder
-/// that cannot move or a pack that cannot be offered stops the start. With `xbox-auth = true` the
+/// The resource packs load first: the `resource-packs` files from `data_dir/packs`, then `packs`
+/// given in code; a pack that cannot be offered stops the start. With `xbox-auth = true` the
 /// authorization keys load next, and a server without keys does not start.
 /// NetherNet loads its identity key from `data_dir`. The accept task takes the
 /// tick's `controls` and reports the connection counts on `inputs`.
@@ -117,14 +116,9 @@ pub(crate) async fn start(
     controls: mpsc::Receiver<Control>,
 ) -> Result<Network> {
     let batch = config.batch_settings()?;
-    let old_folder = config.old_pack_folder();
-    let folder = data_dir.join(pack::FOLDER);
-    let paths = config.resource_pack_paths(&folder);
+    let paths = config.resource_pack_paths(&data_dir.join(pack::FOLDER));
     let force = config.general.force_resources;
-    let load = move || {
-        pack::move_old_folder(&old_folder, &folder)?;
-        Offer::load(&paths, packs, force)
-    };
+    let load = move || Offer::load(&paths, packs, force);
     let packs = tokio::task::spawn_blocking(load)
         .await
         .map_err(|e| Error::Start(std::io::Error::other(e)))?

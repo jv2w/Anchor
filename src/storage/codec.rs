@@ -5,12 +5,8 @@
 //! Block palette entries are little-endian NBT compounds (Bedrock's disk palette shape
 //! `{name, states, version}`), kept as they are, so unknown blocks survive a round trip.
 //!
-//! A record is decoded in the format version its seal names: format 1 player records have no
-//! `extra` compound and a 32-bit position, format 1 has no [`ExtraRecord`], formats before 4
-//! have no [`SubChunkRecord`] values, world records before format 3 have no time and before
-//! format 8 hold settings, which are skipped ([`WorldRecord`]), and meta values before format 7
-//! have no commit identity. Every other record has one layout in every format. NBT keeps the
-//! codec's limits: 512 levels and 4 MiB per root compound, except a player's extra compound,
+//! Every record has the one layout of the current format (the seal refuses any other). NBT keeps
+//! the codec's limits: 512 levels and 4 MiB per root compound, except a player's extra compound,
 //! which may fill its record ([`MAX_PLAYER_EXTRA_BYTES`]).
 
 use std::borrow::Cow;
@@ -49,9 +45,8 @@ pub(crate) const MAX_EXTRA_ENTRIES: usize = 16 * 16 * 384;
 pub(crate) trait Record: Sized {
     /// Writes the record in the current format.
     fn encode(&self, w: &mut Writer) -> Result<()>;
-    /// Reads a record written in format `version` (1 to the current one, checked by the seal)
-    /// that must take the whole input.
-    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self>;
+    /// Reads a record that must take the whole input.
+    fn decode(r: &mut Reader<'_>) -> Result<Self>;
 }
 
 /// The 32-bit little-endian words that hold [`BLOCKS`] indices of `bits` bits each, without
@@ -240,40 +235,34 @@ impl SubChunkRecord {
     }
 }
 
-/// The terrain of one sub-chunk: the `chunks` value of a sub-chunk key (format 4). A value of an
-/// older format under such a key is damage: formats 1 to 3 wrote the whole column.
+/// The terrain of one sub-chunk: the `chunks` value of a sub-chunk key.
 impl Record for SubChunkRecord {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         self.write(w)
     }
 
-    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
-        if version < 4 {
-            return Err(Error::InvalidValue {
-                field: "sub-chunk",
-                reason: "formats 1 to 3 have none",
-            });
-        }
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let record = Self::read(r)?;
         end(r)?;
         Ok(record)
     }
 }
 
-/// The terrain of a chunk column: the whole-terrain `chunks` value of formats 1 to 3 (kind 0),
-/// and the 24 sub-chunk values of format 4 put together.
+/// The terrain of a chunk column: its 24 sub-chunk values put together.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ChunkRecord {
     /// Sub-chunks from index -4 up: entry `i` is index `i - 4`.
     pub(crate) sub_chunks: Box<[SubChunkRecord; SUB_CHUNKS]>,
 }
 
+/// A whole column as one record, which no file holds: the tests seal it as a large record.
+#[cfg(test)]
 impl Record for ChunkRecord {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         self.sub_chunks.iter().try_for_each(|sub| sub.write(w))
     }
 
-    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let mut sub_chunks = Vec::with_capacity(SUB_CHUNKS);
         for _ in 0..SUB_CHUNKS {
             sub_chunks.push(SubChunkRecord::read(r)?);
@@ -289,9 +278,8 @@ impl Record for ChunkRecord {
 
 /// What is kept of a player between joins: the `players` value.
 ///
-/// Format 2: the world name, the position as three f64, then `extra`, a little-endian NBT root
-/// compound of at most [`MAX_PLAYER_EXTRA_BYTES`]. Format 1 had the position as three f32 and no
-/// `extra`; it reads with an empty one.
+/// The world name, the position as three f64, then `extra`, a little-endian NBT root compound of
+/// at most [`MAX_PLAYER_EXTRA_BYTES`].
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlayerRecord {
     /// The name of the world the player is in.
@@ -315,24 +303,16 @@ impl Record for PlayerRecord {
             .map(drop)
     }
 
-    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let world = read_name(r)?;
         let mut position = [0.0; 3];
         for c in &mut position {
-            *c = if version == 1 {
-                f64::from(r.float32()?)
-            } else {
-                r.float64()?
-            };
+            *c = r.float64()?;
             if !c.is_finite() {
                 return Err(not_finite());
             }
         }
-        let extra = if version == 1 {
-            Compound::new()
-        } else {
-            r.nbt_within(Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)?
-        };
+        let extra = r.nbt_within(Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)?;
         end(r)?;
         Ok(Self {
             world,
@@ -343,7 +323,7 @@ impl Record for PlayerRecord {
 }
 
 /// A page of the block entities, entities or scheduled block updates of a chunk: the `chunks`
-/// value of an extras page (format 2; pages after the first, format 4). A u32 count, then that
+/// value of an extras page. A u32 count, then that
 /// many little-endian NBT root compounds, each as the module that owns the kind wrote it. A list
 /// is stored in [`pages`](Self::pages), its entries in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -416,13 +396,7 @@ impl Record for ExtraRecord<'_> {
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
-        if version < 2 {
-            return Err(Error::InvalidValue {
-                field: "chunk extras",
-                reason: "format 1 has none",
-            });
-        }
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let count = r.uint32()?;
         // A root compound takes at least one byte (a lone TAG_End).
         let count = r.limit(count.into(), MAX_EXTRA_ENTRIES, size_of::<Compound>())?;
@@ -447,7 +421,7 @@ impl Record for UserRecord<'_> {
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self(Cow::Owned(r.bytes()?)))
     }
 }
@@ -456,10 +430,7 @@ impl Record for UserRecord<'_> {
 /// alone, never a setting: the seed, spawn, generator, difficulty, time stop and
 /// weather come from the settings and the code at every start.
 ///
-/// Format 8: the number, then the world time (i64). Formats 1 to 7 also held settings (the seed,
-/// the spawn and the generator name after the number; the time stop, the difficulty and the
-/// weather after the time); they are skipped unchecked. Formats 1 and 2 have no time and read
-/// with time 0, as the world was new.
+/// The number, then the world time (i64).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldRecord {
     /// The number that `chunks` keys carry for this world.
@@ -475,29 +446,9 @@ impl Record for WorldRecord {
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let number = r.uint32()?;
-        if version < 8 {
-            // The seed and the spawn, then the generator name.
-            for _ in 0..4 {
-                r.uint32()?;
-            }
-            r.uint8()?;
-            r.uint8()?;
-            r.uint8()?;
-            r.uint8()?;
-            read_name(r)?;
-        }
-        let time = if version < 3 { 0 } else { r.int64()? };
-        // The time stop and the difficulty (format 5), then the weather (format 6).
-        let settings = match version {
-            5 => 2,
-            6 | 7 => 3,
-            _ => 0,
-        };
-        for _ in 0..settings {
-            r.uint8()?;
-        }
+        let time = r.int64()?;
         end(r)?;
         Ok(Self { number, time })
     }
@@ -508,8 +459,8 @@ impl Record for WorldRecord {
 pub(crate) struct Meta {
     /// The engine tick the saved state belongs to.
     pub(crate) tick: u64,
-    /// The commit identity of the saved state (the input log's chain); `None` if
-    /// unknown (format 6 and older).
+    /// The commit identity of the saved state (the input log's chain); `None` for a file no
+    /// save has written yet.
     pub(crate) identity: Option<u64>,
 }
 
@@ -534,13 +485,9 @@ impl Record for Meta {
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>, version: u16) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let tick = r.uint64()?;
-        let identity = if version >= 7 && r.bool()? {
-            Some(r.uint64()?)
-        } else {
-            None
-        };
+        let identity = if r.bool()? { Some(r.uint64()?) } else { None };
         end(r)?;
         Ok(Self { tick, identity })
     }
@@ -556,7 +503,7 @@ impl Record for Mark {
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         end(r)?;
         Ok(Self)
     }
@@ -583,7 +530,7 @@ impl Record for BanRecord {
         Ok(())
     }
 
-    fn decode(r: &mut Reader<'_>, _version: u16) -> Result<Self> {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let reason = read_name(r)?;
         let source = read_name(r)?;
         let created = r.uint64()?;
@@ -648,44 +595,9 @@ pub(crate) mod tests {
         w.into_inner()
     }
 
-    /// Decodes a record of the current format.
+    /// Decodes a record that must take all of `bytes`.
     pub(crate) fn decode<R: Record>(bytes: &[u8]) -> Result<R> {
-        R::decode(
-            &mut Reader::new(bytes, BUDGET, 0),
-            crate::storage::seal::FORMAT_VERSION,
-        )
-    }
-
-    /// The bytes of a format 7 world record of `record` with the settings it held: seed `seed`,
-    /// spawn `spawn`, generator `generator`, the time stopped, hard and thunder.
-    pub(crate) fn world_record_v7(
-        record: WorldRecord,
-        seed: i64,
-        spawn: [i32; 3],
-        generator: &str,
-    ) -> Vec<u8> {
-        let mut w = Writer::new(Vec::new(), 0);
-        w.uint32(record.number);
-        w.int64(seed);
-        for c in spawn {
-            w.int32(c);
-        }
-        write_name(&mut w, generator).unwrap();
-        w.int64(record.time);
-        w.bool(true);
-        w.uint8(3);
-        w.uint8(2);
-        w.into_inner()
-    }
-
-    /// A format 1 player record: the name and an f32 position.
-    pub(crate) fn player_v1(world: &str, position: [f32; 3]) -> Vec<u8> {
-        let mut w = Writer::new(Vec::new(), 0);
-        write_name(&mut w, world).unwrap();
-        for c in position {
-            w.float32(c);
-        }
-        w.into_inner()
+        R::decode(&mut Reader::new(bytes, BUDGET, 0))
     }
 
     /// A random compound of a few kinds of tags, nested up to `depth`.
@@ -1108,7 +1020,7 @@ pub(crate) mod tests {
         // The allocation budget caps what NBT palettes may claim.
         let chunk = random_chunk(&mut Rng(3));
         let bytes = encode(&chunk);
-        let small = ChunkRecord::decode(&mut Reader::new(&bytes, 1024, 0), 2);
+        let small = ChunkRecord::decode(&mut Reader::new(&bytes, 1024, 0));
         assert_eq!(small, Err(Error::Size));
         // An extras count over the limit, and one the bytes left cannot hold.
         let over = u32::try_from(MAX_EXTRA_ENTRIES + 1).unwrap();
@@ -1135,32 +1047,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn format_1_records_read_with_empty_extras() {
-        let bytes = player_v1("lobby", [1.5, -58.38, f32::MIN_POSITIVE]);
-        let read = PlayerRecord::decode(&mut Reader::new(&bytes, BUDGET, 0), 1).unwrap();
-        assert_eq!(
-            read,
-            PlayerRecord {
-                world: "lobby".to_owned(),
-                position: [1.5, f64::from(-58.38f32), f64::from(f32::MIN_POSITIVE)],
-                extra: Compound::new(),
-            }
-        );
-        // The same bytes are not a format 2 record, and format 1 has no chunk extras.
-        assert!(decode::<PlayerRecord>(&bytes).is_err());
-        let extras = encode(&ExtraRecord(vec![Compound::new()].into()));
-        assert!(ExtraRecord::decode(&mut Reader::new(&extras, BUDGET, 0), 1).is_err());
-        // Chunks have one layout in every format.
-        let chunk = random_chunk(&mut Rng(8));
-        let bytes = encode(&chunk);
-        assert_eq!(
-            ChunkRecord::decode(&mut Reader::new(&bytes, BUDGET, 0), 1).unwrap(),
-            chunk
-        );
-    }
-
-    #[test]
-    fn world_records_hold_the_number_and_time_and_drop_the_settings_of_older_formats() {
+    fn world_records_hold_the_number_and_time() {
         let world = WorldRecord {
             number: 7,
             time: 123_456_789,
@@ -1168,53 +1055,18 @@ pub(crate) mod tests {
         let bytes = encode(&world);
         assert_eq!(bytes.len(), 12, "the number and the time alone");
         assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
-        let old = world_record_v7(world, -3, [1, -60, 2], "flat");
-        let read = |bytes: &[u8], version| {
-            WorldRecord::decode(&mut Reader::new(bytes, BUDGET, 0), version)
-        };
-        // Formats 6 and 7 end after the weather, format 5 after the difficulty, formats 3 and 4
-        // after the time, formats 1 and 2 after the generator name (time 0).
-        for version in [6, 7] {
-            assert_eq!(read(&old, version).unwrap(), world);
-        }
-        assert_eq!(read(&old[..old.len() - 1], 5).unwrap(), world);
-        for version in [3, 4] {
-            assert_eq!(read(&old[..old.len() - 3], version).unwrap(), world);
-        }
-        for version in [1, 2] {
-            let read = read(&old[..old.len() - 11], version).unwrap();
-            assert_eq!(read, WorldRecord { time: 0, ..world });
-        }
-        // Dropped settings are not checked: an unknown difficulty or weather still reads.
-        let mut odd = old.clone();
-        let at = odd.len() - 2;
-        odd[at] = 9;
-        *odd.last_mut().unwrap() = 9;
-        assert_eq!(read(&odd, 7).unwrap(), world);
-        // Each format reads its own length.
-        assert!(read(&old, 8).is_err(), "format 8 has no settings");
-        assert!(read(&bytes, 7).is_err(), "format 7 has them");
-        assert!(
-            read(&old[..old.len() - 1], 6).is_err(),
-            "format 6 has the weather"
-        );
+        assert!(decode::<WorldRecord>(&bytes[..8]).is_err());
     }
 
     #[test]
-    fn meta_values_keep_the_commit_identity_and_read_without_one_before_format_7() {
+    fn meta_values_keep_the_commit_identity() {
         let meta = Meta {
             tick: 5,
             identity: Some(u64::MAX),
         };
         let bytes = encode(&meta);
         assert_eq!(decode::<Meta>(&bytes).unwrap(), meta);
-        // Formats 1 to 6 hold the tick alone.
-        let old = &bytes[..8];
-        for version in 1..=6 {
-            let read = Meta::decode(&mut Reader::new(old, BUDGET, 0), version).unwrap();
-            assert_eq!(read, Meta::at(5));
-        }
-        assert!(decode::<Meta>(old).is_err(), "format 7 needs the flag");
+        assert!(decode::<Meta>(&bytes[..8]).is_err(), "the flag is there");
         let mut bad = bytes;
         bad[8] = 2;
         assert!(decode::<Meta>(&bad).is_err(), "a bool is 0 or 1");

@@ -11,7 +11,7 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 
 use anchor::config::{
-    Difficulty, Error, GameMode, IntegrityCheck, LevelType, Lighting, LogLevel, Threads,
+    Difficulty, Error, GameMode, IntegrityCheck, LevelType, Lighting, LogLevel, Threads, Update,
     WorldSettings,
 };
 use anchor::protocol::compression::Compression;
@@ -121,6 +121,46 @@ fn key_lines(text: &str) -> Vec<(String, String, String)> {
         }
     }
     keys
+}
+
+/// Returns the blocks of a settings file: each key line, by path (`table.key`), and each table
+/// header, by `[table]`, with the comment lines right above it.
+fn blocks(text: &str) -> Vec<(String, String)> {
+    let mut table = String::new();
+    let mut comment = String::new();
+    let mut blocks = Vec::new();
+    for line in text.split_inclusive('\n') {
+        if line.starts_with('#') {
+            comment.push_str(line);
+            continue;
+        }
+        let block = std::mem::take(&mut comment) + line;
+        if let Some(name) = line.trim_end().strip_prefix('[') {
+            table = name.trim_end_matches(']').to_owned();
+            blocks.push((format!("[{table}]"), block));
+        } else if let Some((key, _)) = line.split_once(" = ") {
+            blocks.push((format!("{table}.{key}"), block));
+        }
+    }
+    blocks
+}
+
+/// Writes `text` and updates it; checks that the file means what `text` meant and that a
+/// second update changes nothing. Returns the update and the updated text.
+fn write_and_update(file: &File, text: &str) -> (Update, String) {
+    let before = file.load(text).expect("the file loads before the update");
+    let update = Config::update_file(&file.path).expect("updates");
+    let updated = read(&file.path);
+    let after = Config::default().load(&file.path);
+    assert_eq!(after.expect("the file loads after the update"), before);
+    assert!(
+        Config::update_file(&file.path)
+            .expect("updates again")
+            .is_empty()
+    );
+    assert_eq!(read(&file.path), updated);
+    assert!(!exists(&file.path.with_extension("toml.tmp")));
+    (update, updated)
 }
 
 /// Returns a file that sets only `path` (`table.key`) to `value`.
@@ -1077,4 +1117,178 @@ fn unreadable_or_unwritable_paths_are_errors() {
     let error = Config::default().load(&missing).expect_err("no directory");
     assert!(matches!(error, Error::Write { .. }), "{error}");
     assert!(!exists(&missing));
+}
+
+#[test]
+fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
+    let file = File::new("update_each_key");
+    let default = documented_default_file();
+    let keys: Vec<_> = blocks(&default)
+        .into_iter()
+        .filter(|(path, _)| !path.starts_with('['))
+        .collect();
+    assert_eq!(keys.len(), 66);
+    for (path, block) in keys {
+        let text = default.replacen(&block, "", 1);
+        assert_ne!(text, default, "{path}");
+        let (update, updated) = write_and_update(&file, &text);
+        assert_eq!(update.added(), std::slice::from_ref(&path));
+        assert!(update.renamed().is_empty());
+        assert_eq!(updated, default, "{path}");
+    }
+}
+
+#[test]
+fn update_leaves_a_current_file_as_it_is() {
+    let file = File::new("update_current");
+    let (update, updated) = write_and_update(&file, &documented_default_file());
+    assert!(update.is_empty());
+    assert_eq!(updated, documented_default_file());
+}
+
+#[test]
+fn update_adds_missing_tables_at_the_end() {
+    let file = File::new("update_tables");
+    let default = documented_default_file();
+    let blocks = blocks(&default);
+    // The header and keys of `table` with their comment lines, as the default file has them.
+    let table_text = |table: &str| -> String {
+        let (header, prefix) = (format!("[{table}]"), format!("{table}."));
+        let table = blocks
+            .iter()
+            .filter(|(p, _)| *p == header || p.starts_with(&prefix));
+        table.map(|(_, block)| block.as_str()).collect()
+    };
+    let (general, developer) = (table_text("general"), table_text("developer"));
+    let keys = blocks.iter().map(|(path, _)| path);
+    let keys: Vec<&String> = keys.filter(|p| !p.starts_with('[')).collect();
+
+    let (update, updated) = write_and_update(&file, "");
+    assert_eq!(update.added().iter().collect::<Vec<_>>(), keys);
+    assert_eq!(updated, format!("{general}\n{developer}"));
+
+    // The last line has no line ending; the missing keys of its table come before the new table.
+    let (update, updated) = write_and_update(&file, "[general]\nmotd = \"x\"");
+    let (_, rest) = general
+        .split_once("motd = \"Anchor Server\"\n")
+        .expect("motd's line");
+    assert_eq!(
+        updated,
+        format!("[general]\nmotd = \"x\"\n{rest}\n{developer}")
+    );
+    assert_eq!(update.added().len(), 65);
+
+    let (update, updated) = write_and_update(&file, "[developer]\nraknet = false\n");
+    assert!(updated.starts_with("[developer]\n"));
+    assert!(updated.ends_with(&format!("\nconsole-input = true\n\n{general}")));
+    assert_eq!(update.added().len(), 65);
+}
+
+#[test]
+fn update_keeps_the_rest_of_the_file_byte_for_byte() {
+    let file = File::new("update_keeps");
+    // A byte order mark, CRLF line endings, comments after values and headers, a multi-line
+    // string with a line like a header, a multi-line array, a world table, an unknown table
+    // and no line ending at the end.
+    let text = "\u{feff}# my server\r\n[general]\r\nmotd = \"Lobby\" # shown in the list\r\n\
+                shutdown-message = \"\"\"\r\n[bye]\r\n\"\"\"\r\n\r\n[developer] # tuning\r\n\
+                disable-block-ticking = [\r\n    \"minecraft:grass_block\",\r\n]\r\n\r\n\
+                [worlds.lobby]\r\nview-distance = 6\r\n[plugin]\r\nanswer = 42";
+    let (update, updated) = write_and_update(&file, text);
+    assert_eq!(update.added().len(), 63);
+    for kept in [
+        "general.motd",
+        "general.shutdown-message",
+        "developer.disable-block-ticking",
+    ] {
+        assert!(!update.added().iter().any(|p| p == kept), "{kept}");
+    }
+    assert!(!updated.replace("\r\n", "").contains('\n'), "only CRLF");
+    let default = blocks(&documented_default_file());
+    let mut stripped = updated.clone();
+    for path in update.added() {
+        let (_, block) = default.iter().find(|(p, _)| p == path).expect("a key");
+        let block = block.replace('\n', "\r\n");
+        assert!(stripped.contains(&block), "{path}");
+        stripped = stripped.replacen(&block, "", 1);
+    }
+    assert_eq!(stripped, text);
+    // A key goes after the key before it in the default file, not into the string.
+    assert!(updated.contains("\"\"\"\r\n[bye]\r\n\"\"\"\r\n# Resource pack files"));
+    assert!(updated.contains("[developer] # tuning\r\n# Network compression"));
+}
+
+#[test]
+fn update_renames_old_keys_and_keeps_their_value() {
+    let file = File::new("update_renamed");
+    for old in ["experience-bottles", "\"experience-bottles\""] {
+        let text = format!("[general]\nhunger = false\n{old} = false # no orbs\n");
+        write(&file.path, text.as_bytes());
+        let update = Config::update_file(&file.path).expect("updates");
+        assert_eq!(
+            update.renamed(),
+            [("general.experience-bottles", "general.experience-orbs")]
+        );
+        let added = update.added();
+        assert_eq!(added.len(), 64);
+        assert!(!added.iter().any(|p| p == "general.experience-orbs"));
+        let updated = read(&file.path);
+        assert!(
+            updated.contains(
+                "hunger = false\n# Gaining experience points and levels. false also means no \
+                 experience orbs.\nexperience = true\nexperience-orbs = false # no orbs\n\
+                 fall-damage = true\n"
+            ),
+            "{updated}"
+        );
+        let config = Config::default().load(&file.path).expect("loads");
+        assert!(!config.general.experience_orbs && !config.general.hunger);
+        assert!(Config::update_file(&file.path).expect("again").is_empty());
+    }
+
+    // With both names the old key stays, and the update stops on it.
+    let text = "[general]\nexperience-bottles = false\nexperience-orbs = true\n";
+    write(&file.path, text.as_bytes());
+    let error = Config::update_file(&file.path).expect_err("both names");
+    assert!(matches!(error, Error::RenamedKey { .. }), "{error}");
+    assert_eq!(read(&file.path), text);
+}
+
+#[test]
+fn update_refuses_a_file_it_cannot_update_and_leaves_it() {
+    let file = File::new("update_refused");
+    let error = Config::update_file(&file.path).expect_err("no file");
+    assert!(
+        matches!(&error, Error::Read { source, .. } if source.kind() == ErrorKind::NotFound),
+        "{error}"
+    );
+    assert!(!exists(&file.path));
+
+    let line = format!("#{}\n", "x".repeat(1022));
+    let full = format!("[general]\n{}", line.repeat(1023));
+    let full = format!("{full}{}\n", "#".repeat(1024 * 1024 - full.len() - 1));
+    assert_eq!(full.len(), MIB);
+    for (text, expected) in [
+        ("[general]\nmotdd = 1\n", "unknown key `general.motdd`"),
+        (
+            "[general]\nview-distance = 1\n",
+            "`general.view-distance` = 1 is outside 2..=64",
+        ),
+        ("[general]\nmotd = \n", "invalid toml at line 2"),
+        (
+            "general = { pvp = false }\n",
+            "keys cannot be added to `general`: write it as a `[general]` table",
+        ),
+        (
+            "general.pvp = false\n",
+            "keys cannot be added to `general`: write it as a `[general]` table",
+        ),
+        (full.as_str(), "is larger than 1048576 bytes"),
+    ] {
+        write(&file.path, text.as_bytes());
+        let error = Config::update_file(&file.path).expect_err(expected);
+        assert!(error.to_string().contains(expected), "{error}");
+        assert_eq!(read(&file.path), text);
+        assert!(!exists(&file.path.with_extension("toml.tmp")));
+    }
 }

@@ -218,28 +218,27 @@ fn a_broken_pack_file_fails_run_with_error_pack() {
     clippy::disallowed_methods,
     reason = "off-tick: the test writes its settings and pack files"
 )]
-fn run_moves_the_old_pack_folder_into_the_data_folder_and_reads_packs_there() {
-    let root = TempPath::new("old-packs");
-    let old = root.0.join("packs");
-    std::fs::create_dir_all(&old).expect("create the old pack folder");
-    std::fs::write(old.join("bad.zip"), b"not a zip archive").expect("write the pack file");
+fn run_reads_relative_packs_from_the_data_pack_folder() {
+    let root = TempPath::new("data-packs");
+    let data = root.0.join("data");
+    let packs = data.join("packs");
+    std::fs::create_dir_all(&packs).expect("create the pack folder");
+    std::fs::write(packs.join("bad.zip"), b"not a zip archive").expect("write the pack file");
     let file = root.0.join("anchor.toml");
     let settings = "[general]\nresource-packs = [\"bad.zip\"]\n";
     std::fs::write(&file, settings).expect("write the settings file");
     let config = local_config().load(&file).expect("valid settings");
-    let data = root.0.join("data");
     let server = Server::builder()
         .config(config)
         .data_dir(&data)
         .build()
         .unwrap();
     let err = server.run().unwrap_err();
-    // The broken pack stops the start, read from where the folder moved.
+    // The broken pack stops the start, read from the data folder.
     let Error::Pack(anchor::pack::Error::File { path, .. }) = &err else {
         panic!("{err:?}");
     };
-    assert_eq!(*path, data.join("packs").join("bad.zip"));
-    assert!(!exists(&old));
+    assert_eq!(*path, packs.join("bad.zip"));
 }
 
 #[test]

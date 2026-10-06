@@ -354,7 +354,7 @@ fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayF
 /// the oldest segment with a checkpoint whose save a main data file holds, after the log's last
 /// truncation if one is; refuses an opaque checkpoint. A file holds a segment's state if its last
 /// commit is of the segment's tick and has the segment's commit identity, unless either identity
-/// is unknown (a file an older Anchor committed last, a log of an older format).
+/// is unknown (a file no save wrote, a log of an older format).
 fn choose(
     log: &InputLog,
     data_dir: &Path,

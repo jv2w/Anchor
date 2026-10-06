@@ -15,7 +15,8 @@
 //! [`Error::Size`]: a declared byte length is at most the remaining input, a list count is at
 //! most [`MAX_LIST_LEN`] and the remaining input, and every allocation first takes
 //! `count × size_of` from the reader's allocation budget. The `_max` readers also take a field's
-//! own limit (Mojang `maxLength`, `maxItems`), which the generated decoders pass.
+//! own limit (Mojang `maxLength`, `maxItems`), which the generated decoders pass. Lists nest at
+//! most [`MAX_LIST_DEPTH`] deep.
 
 use std::fmt;
 use std::mem::size_of;
@@ -23,6 +24,11 @@ use std::str;
 
 /// The largest element count of a protocol list (gophertunnel `maxSliceLength`).
 pub(crate) const MAX_LIST_LEN: usize = 1024;
+
+/// The deepest lists nest, a packet's own lists included. Only a type that holds itself
+/// (`DataStorePropertyValue`) nests past a few, and its decoder recurses once per list: without a
+/// bound, one packet nests until the thread stack overflows, which ends the process.
+pub(crate) const MAX_LIST_DEPTH: usize = 64;
 
 /// A failure to decode or encode a protocol value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +108,8 @@ pub(crate) struct Reader<'a> {
     input: &'a [u8],
     budget: usize,
     shield_id: i32,
+    /// The lists the value being read is in.
+    depth: usize,
 }
 
 impl<'a> Reader<'a> {
@@ -112,6 +120,7 @@ impl<'a> Reader<'a> {
             input,
             budget,
             shield_id,
+            depth: 0,
         }
     }
 
@@ -152,28 +161,37 @@ impl<'a> Reader<'a> {
         self.list_max(count, MAX_LIST_LEN, f)
     }
 
-    /// [`Reader::list`] of a field that holds at most `max` elements.
+    /// [`Reader::list`] of a field that holds at most `max` elements, inside fewer than
+    /// [`MAX_LIST_DEPTH`] lists.
     pub(crate) fn list_max<T>(
         &mut self,
         count: u64,
         max: usize,
         mut f: impl FnMut(&mut Self) -> Result<T>,
     ) -> Result<Vec<T>> {
+        if self.depth >= MAX_LIST_DEPTH {
+            return Err(Error::Size);
+        }
         let count = self.limit(count, max.min(MAX_LIST_LEN), size_of::<T>())?;
         let mut items = Vec::with_capacity(count);
-        for _ in 0..count {
+        self.depth += 1;
+        let read = (0..count).try_for_each(|_| {
             items.push(f(self)?);
-        }
-        Ok(items)
+            Ok(())
+        });
+        self.depth -= 1;
+        read.map(|()| items)
     }
 
-    /// Runs `f` on a reader over `input` that shares this reader's budget and shield ID.
+    /// Runs `f` on a reader over `input` that shares this reader's budget, shield ID and list
+    /// depth.
     pub(crate) fn nested<T>(
         &mut self,
         input: &[u8],
         f: impl FnOnce(&mut Reader<'_>) -> Result<T>,
     ) -> Result<T> {
         let mut inner = Reader::new(input, self.budget, self.shield_id);
+        inner.depth = self.depth;
         let value = f(&mut inner);
         self.budget = inner.budget;
         value
