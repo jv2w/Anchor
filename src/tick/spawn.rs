@@ -1340,10 +1340,8 @@ fn start_game(
         day_cycle_lock_time: survival::day_cycle_lock_time(settings, world.time_ticks()),
         rain_level,
         lightning_level,
-        // The client draws the Education items (elements, compounds, their tools) from its
-        // built-in chemistry packs, which apply only to a world with Education features (BDS
-        // `resource_packs/chemistry` declares the `chemistry` capability); PMMP leaves it off.
-        education_features_enabled: settings.education_items,
+        // Education features stay off, as PMMP leaves them: the Education items are never
+        // offered.
         ..StartGame::default()
     }
 }
@@ -1478,27 +1476,21 @@ mod tests {
         assert_eq!(crate::protocol::skin_validate(skin), None);
     }
 
-    /// The client draws the Education items only in a world with Education features
-    /// (`education-items`, on by default).
+    /// The Education items are never offered, so the client gets no Education features.
     #[test]
-    fn start_game_turns_education_features_on_with_the_education_items() {
+    fn start_game_leaves_education_features_off() {
         use super::super::tests::{join, new_state, received, settings, tick};
         use crate::event::Listeners;
 
-        for on in [true, false] {
-            let mut state = new_state(
-                settings(|c| c.general.education_items = on),
-                Listeners::default(),
-            );
-            let mut output = Output::default();
-            let (j, mut rx) = join(1, 0);
-            tick(&mut state, &mut vec![j], &mut output);
-            let sent = received(&mut rx).0.into_iter().find_map(|p| match p {
-                Packet::StartGame(s) => Some(s.education_features_enabled),
-                _ => None,
-            });
-            assert_eq!(sent, Some(on));
-        }
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j], &mut output);
+        let sent = received(&mut rx).0.into_iter().find_map(|p| match p {
+            Packet::StartGame(s) => Some(s.education_features_enabled),
+            _ => None,
+        });
+        assert_eq!(sent, Some(false));
     }
 
     #[test]

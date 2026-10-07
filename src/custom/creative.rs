@@ -202,9 +202,6 @@ impl CreativeInventory {
         } else {
             Vec::new()
         };
-        if !custom.has_education_items() {
-            entries.retain(|e| !e.stack.item().is_some_and(|t| item::is_education(t.name())));
-        }
         for change in &self.changes {
             match change {
                 Change::Add {
@@ -303,9 +300,14 @@ fn resolve_item(
     Ok((stack, net))
 }
 
-/// PMMP's entries, as generated.
+/// PMMP's entries, as generated, without the Education items ([`item::is_education`]). The
+/// `ItemRegistry` keeps those, so a stack that still exists (an old save, a world's element block
+/// broken) stays readable to the client.
 fn vanilla_entries() -> Vec<Entry> {
-    (0..).map_while(item::creative_entry).collect()
+    (0..)
+        .map_while(item::creative_entry)
+        .filter(|e| !e.stack.item().is_some_and(|t| item::is_education(t.name())))
+        .collect()
 }
 
 /// A creative inventory as the server holds it: the stack of each creative item network ID and

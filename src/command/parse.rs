@@ -128,10 +128,9 @@ pub(crate) struct Names {
     effects: Vec<(String, effect::Type)>,
     /// Enchantment names (`sharpness`) in name order.
     enchantments: Vec<(String, item::Enchantment)>,
-    /// What the client offers for an item parameter: every item and block name, in name order.
+    /// What the client offers for an item parameter: every item and block name but the Education
+    /// items', in name order.
     items: Vec<&'static str>,
-    /// The Education items are left out (`education-items = false`).
-    without_education: bool,
 }
 
 impl Names {
@@ -154,27 +153,22 @@ impl Names {
             .collect();
         items.sort_unstable();
         items.dedup();
+        // The names are PMMP's (`element_hydrogen`), so each is judged by the Bedrock name of
+        // its item.
+        items.retain(|n| !Self::item(n).is_some_and(|t| item::is_education(t.name())));
         Self {
             effects,
             enchantments,
             items,
-            without_education: false,
         }
     }
 
-    /// Leaves the Education items ([`item::is_education`]) out of the client's `Item` enum and
-    /// of what item parameters take (`education-items = false`). The names are PMMP's
-    /// (`element_hydrogen`), so each is judged by the Bedrock name of its item.
-    pub(crate) fn drop_education_items(&mut self) {
-        self.items
-            .retain(|n| !Self::item(n).is_some_and(|t| item::is_education(t.name())));
-        self.without_education = true;
-    }
-
-    /// The item an item parameter names ([`Self::item`]), unless it is a left out Education
-    /// item.
+    /// The item an item parameter names ([`Self::item`]), if the client offers that name (no
+    /// Education item).
     pub(crate) fn item_param(&self, name: &str) -> Option<item::Type> {
-        Self::item(name).filter(|t| !(self.without_education && item::is_education(t.name())))
+        let name = name.strip_prefix(NAMESPACE).unwrap_or(name);
+        self.items.binary_search(&name).ok()?;
+        Self::item(name)
     }
 
     /// The item named `name` (with or without `minecraft:`): an item's, or the item of a
@@ -506,10 +500,9 @@ mod tests {
         );
     }
 
-    /// `education-items = false`: the `Item` enum and item parameters leave the Education items
-    /// out, the other items stay.
+    /// The `Item` enum and item parameters leave the Education items out, the other items stay.
     #[test]
-    fn without_education_items_item_names_leave_them_out() {
+    fn item_names_leave_the_education_items_out() {
         // PMMP's names of an element, a compound, hardened glass and a coloured torch.
         let education = [
             "element_hydrogen",
@@ -517,15 +510,14 @@ mod tests {
             "hardened_glass",
             "minecraft:red_torch",
         ];
-        let mut names = Names::new();
-        let all = names.item_names().len();
         for name in education {
-            let t = names.item_param(name);
-            assert!(t.is_some_and(|t| item::is_education(t.name())), "{name}");
+            assert!(
+                Names::item(name).is_some_and(|t| item::is_education(t.name())),
+                "{name}"
+            );
         }
-        names.drop_education_items();
+        let names = Names::new();
         let left = names.item_names();
-        assert!(left.len() < all);
         assert!(!left.iter().any(|n| education.contains(n)));
         for name in education {
             assert!(names.item_param(name).is_none(), "{name}");

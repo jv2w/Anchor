@@ -71,8 +71,6 @@ daylight-cycle = true
 recipe-book = true
 # The vanilla recipes; false keeps only recipes the server program registers.
 vanilla-recipes = true
-# Education Edition items (elements, compounds and their tools). false: they are not offered in the creative inventory or commands.
-education-items = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
 # true: a hit while sprinting can be critical.
@@ -208,7 +206,6 @@ console-input = true
 | `daylight-cycle` | bool | `true` | | 시간이 흐르는 것. `false`면 클라이언트 시계도 멈춘다 |
 | `recipe-book` | bool | `true` | | 레시피 책. `false`면 숨기고 그 빠른 제작을 거부한다. 제작 칸 제작은 된다 |
 | `vanilla-recipes` | bool | `true` | | 바닐라 레시피. `false`면 서버 프로그램이 등록한 레시피만 있다 |
-| `education-items` | bool | `true` | | 교육용 에디션 아이템(원소, 화합물, 그 도구). `false`면 크리에이티브 인벤토리와 명령에서 내놓지 않는다 |
 | `item-despawn-ticks` | 정수 | `6000` | 1~72000 | 떨어진 아이템이 남는 틱 |
 | `sprint-critical-hits` | bool | `false` | | 달리면서 친 공격도 치명타가 될 수 있는지 |
 | `break-time-check` | bool | `true` | | 블록을 부수는 데 충분한 시간이 걸렸는지 서버가 검사할지. 도달 거리와 블록 종류 검사는 늘 한다 |

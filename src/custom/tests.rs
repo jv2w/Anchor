@@ -365,6 +365,11 @@ fn start_game_blocks_carry_dragonflys_components() {
     );
 }
 
+/// The default creative inventory with nothing registered: PMMP's without the Education items.
+fn vanilla_content() -> crate::protocol::packet::CreativeContent {
+    creative::Resolved::vanilla().content().clone()
+}
+
 /// The group index PMMP's rule gives the next entry of `category` without a group after
 /// `content`: the category's anonymous group if no named group of that category came after its
 /// last anonymous entry, else a new group.
@@ -386,7 +391,7 @@ fn next_anonymous(content: &crate::protocol::packet::CreativeContent, category: 
 #[test]
 fn the_creative_inventory_lists_custom_entries_after_pmmps() {
     let r = registry();
-    let vanilla = item::creative_content();
+    let vanilla = vanilla_content();
     let content = r.creative_content();
     let n = vanilla.items.len();
     // The ruby and the apple share their group (same name and icon, PMMP: the same group
@@ -486,7 +491,7 @@ fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
             ),
     )
     .unwrap();
-    let pmmp = item::creative_content();
+    let pmmp = vanilla_content();
     // The default: PMMP's without its first oak planks, then the ruby's place.
     let default = r.creative_content();
     let planks_id = i32::from(planks.runtime_id());
@@ -1235,10 +1240,10 @@ fn a_hidden_recipe_book_sends_every_recipe_locked() {
     assert!(shown.has_recipe_book());
 }
 
-/// `education-items = false`: no Education item in the creative inventory; PMMP's recipes make
-/// and take none either way (they come from BDS's chemistry pack), so `CraftingData` is the same.
+/// No Education item in the creative inventory; PMMP's recipes make and take none (they come
+/// from BDS's chemistry pack), so `CraftingData` needs no such filter.
 #[test]
-fn without_education_items_the_creative_inventory_leaves_them_out() {
+fn the_creative_inventory_leaves_the_education_items_out() {
     let names: std::collections::BTreeMap<i32, String> = item::registry()
         .items
         .into_iter()
@@ -1249,27 +1254,25 @@ fn without_education_items_the_creative_inventory_leaves_them_out() {
             .get(&s.item_type.network_id)
             .is_some_and(|n| item::is_education(n))
     };
-    let mut with = Registry::default();
-    with.finish().unwrap();
-    let mut r = Registry::default();
-    r.drop_education_items();
-    r.finish().unwrap();
-    assert!(with.has_education_items() && !r.has_education_items());
-    let education = |r: &Registry| {
-        let content = r.creative_content();
+    let education = |content: &crate::protocol::packet::CreativeContent| {
         content
             .items
             .iter()
             .filter(|c| is_education(&c.item))
             .count()
     };
+    let mut r = Registry::default();
+    r.finish().unwrap();
+    let pmmp = item::creative_content();
     assert!(
-        education(&with) > 100,
+        education(&pmmp) > 100,
         "elements, compounds, hardened glass"
     );
-    assert_eq!(education(&r), 0);
-    let all = with.creative_content().items.len();
-    assert_eq!(r.creative_content().items.len(), all - education(&with));
+    assert_eq!(education(&r.creative_content()), 0);
+    assert_eq!(
+        r.creative_content().items.len(),
+        pmmp.items.len() - education(&pmmp)
+    );
     let data = r.crafting_data();
     let takes_or_makes = data.shaped_recipes.iter().any(|s| {
         s.output.iter().any(is_education)
@@ -1285,7 +1288,6 @@ fn without_education_items_the_creative_inventory_leaves_them_out() {
             })
     });
     assert!(!takes_or_makes);
-    assert_eq!(data, with.crafting_data());
 }
 
 #[test]
@@ -1293,7 +1295,7 @@ fn nothing_registered_sends_exactly_the_vanilla_content() {
     let mut r = Registry::default();
     r.finish().unwrap();
     assert_eq!(r.item_registry(), item::registry());
-    assert_eq!(r.creative_content(), item::creative_content());
+    assert_eq!(r.creative_content(), vanilla_content());
     assert_eq!(r.crafting_data(), crate::crafting::crafting_data());
     assert!(r.block_entries().is_empty());
     assert_eq!(r.first_special_id(), crate::crafting::first_special_id());

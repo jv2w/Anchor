@@ -512,15 +512,13 @@ fn anchor_session<W: Write>(
 
 /// The settings every Anchor of the harness starts with: offline, IPv4 only, and every port
 /// picked by the system when the server binds it (port 0), so no other process can take one
-/// first; [`run_anchor`] reads the ports the server opened from its log. The Education items
-/// are off, as in the world BDS makes (Education features off: `StartGame`, creative items).
+/// first; [`run_anchor`] reads the ports the server opened from its log.
 fn anchor_config() -> anchor::Config {
     let mut config = anchor::Config::default();
     config.general.xbox_auth = false;
     config.general.enable_ipv6 = false;
     config.general.server_port = 0;
     config.general.nethernet_port = 0;
-    config.general.education_items = false;
     config
 }
 

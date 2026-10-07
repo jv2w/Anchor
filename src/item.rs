@@ -1161,7 +1161,8 @@ impl RegistryEntry {
     }
 }
 
-/// Whether the item named `name` is an Education Edition item (`education-items`): PMMP's
+/// Whether the item named `name` is an Education Edition item, never offered (creative inventory,
+/// commands): PMMP's
 /// chemistry items and blocks (elements, compounds, bleach, ice bombs, medicine, the chemistry
 /// tables, the heat block, coloured and underwater torches, hardened glass) and the reference
 /// list's other Education entries (balloons, sparklers, glow sticks, rapid fertilizer,

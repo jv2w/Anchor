@@ -76,8 +76,6 @@ daylight-cycle = true
 recipe-book = true
 # The vanilla recipes; false keeps only recipes the server program registers.
 vanilla-recipes = true
-# Education Edition items (elements, compounds and their tools). false: they are not offered in the creative inventory or commands.
-education-items = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
 # true: a hit while sprinting can be critical.
@@ -571,9 +569,6 @@ pub struct General {
     pub recipe_book: bool,
     /// `vanilla-recipes`: whether the vanilla recipes exist besides those the server registers.
     pub vanilla_recipes: bool,
-    /// `education-items`: whether the Education Edition items are offered (creative inventory,
-    /// commands) and drawn (`StartGame` Education features).
-    pub education_items: bool,
     /// `item-despawn-ticks`: ticks a dropped item stays on the ground.
     pub item_despawn_ticks: u32,
     /// `sprint-critical-hits`: whether a hit while sprinting can be critical.
@@ -644,7 +639,6 @@ impl General {
                 "daylight-cycle" => self.daylight_cycle = boolean(value, key)?,
                 "recipe-book" => self.recipe_book = boolean(value, key)?,
                 "vanilla-recipes" => self.vanilla_recipes = boolean(value, key)?,
-                "education-items" => self.education_items = boolean(value, key)?,
                 "item-despawn-ticks" => {
                     self.item_despawn_ticks = int(value, key, ITEM_DESPAWN_TICKS)?;
                 }
@@ -701,7 +695,6 @@ impl Default for General {
             daylight_cycle: true,
             recipe_book: true,
             vanilla_recipes: true,
-            education_items: true,
             item_despawn_ticks: 6000,
             sprint_critical_hits: false,
             break_time_check: true,
@@ -1697,7 +1690,7 @@ experience-bottles = false
             update.renamed(),
             [("general.experience-bottles", "general.experience-orbs")]
         );
-        assert_eq!(update.added().len(), 65);
+        assert_eq!(update.added().len(), 64);
         let again = Config::default().load_as(&path, true).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }
