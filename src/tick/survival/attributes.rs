@@ -720,6 +720,7 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
     let adventure =
         (dirty & ADVENTURE != 0).then(|| adventure_packet(player.survival.custom.auto_jump));
     let attributes = (dirty & ALL != 0).then(|| attributes_packet(player, dirty & ALL));
+    let health = (dirty & HEALTH != 0).then(|| health_packet(player));
     let tags = dirty & TAGS != 0;
     let data = (now != old || tags).then(|| {
         let mut m = EntityMetadata::new();
@@ -753,6 +754,16 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
         player.send_packet(data.clone());
         broadcast_to_viewers(state, session, &data);
     }
+    if let Some(health) = health {
+        broadcast_to_viewers(state, session, &health);
+    }
+}
+
+/// The player's health for those who see it, as BDS tells them at a hit, a death and a respawn
+/// (P6 `others`). BDS sends viewers the player's food and exhaustion too, which the client shows
+/// nobody but the player: left out, they would cost a packet per viewer each time they move.
+pub(super) fn health_packet(player: &Player) -> Packet {
+    attributes_packet(player, HEALTH)
 }
 
 /// Marks the player's current entity data as known to the client (its spawn window held it).

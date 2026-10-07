@@ -1738,9 +1738,10 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     });
     let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
     let size = attributes::size_data(player.runtime_id, attributes::size(&player.survival));
+    let health = attributes::health_packet(player);
     let now = attributes::shown(player);
     let seen = [data, alive, size];
-    for packet in &seen {
+    for packet in seen.iter().chain([&health]) {
         broadcast_to_viewers(state, session, packet);
     }
     let Some(player) = state.players.get_mut(&session) else {

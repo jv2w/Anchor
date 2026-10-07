@@ -84,6 +84,8 @@ type verifyLog struct {
 	// sizes are the box sizes (entity data 53, 54) the other entities' SetActorData carried since the
 	// join: the client keeps a dead player's small box until they come.
 	sizes []string
+	// healths are the health values the other entities' UpdateAttributes carried since the join.
+	healths []string
 }
 
 // observeVerify keeps the packets of the verification scenarios; observe calls it for every packet.
@@ -118,6 +120,15 @@ func (g *game) observeVerify(pk packet.Packet) {
 		h, okH := pk.EntityMetadata[protocol.EntityDataKeyHeight]
 		if pk.EntityRuntimeID != g.runtimeID && (okW || okH) {
 			v.sizes = append(v.sizes, fmt.Sprintf("%v %v", w, h))
+		}
+	case *packet.UpdateAttributes:
+		if pk.EntityRuntimeID == g.runtimeID {
+			break
+		}
+		for _, a := range pk.Attributes {
+			if a.Name == "minecraft:health" {
+				v.healths = append(v.healths, fmt.Sprint(a.Value))
+			}
 		}
 	case *packet.Event:
 		v.events = append(v.events, map[string]any{"type": fmt.Sprintf("%T", pk.Event), "event": toJSON(reflect.ValueOf(pk.Event), 0, true)})
@@ -1222,6 +1233,7 @@ func playOthers(g *game) error {
 	g.check("moves of the other player", moves)
 	g.check("locator bar, death and respawn", g.verify.timeline)
 	g.check("box sizes of the other player", g.verify.sizes)
+	g.check("health of the other player", g.verify.healths)
 	g.check("hurt data", g.verify.hurts)
 	return g.settle(time.Second)
 }

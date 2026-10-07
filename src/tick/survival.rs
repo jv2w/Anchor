@@ -2397,6 +2397,55 @@ mod tests {
         assert_eq!(sizes(&server.take(2)), [(0.6, 1.8)]);
     }
 
+    /// Viewers hear another player's health when it changes, at its death and after its respawn,
+    /// as BDS tells them (P6 `others`): the client counts a player at 0 health as dead.
+    #[test]
+    fn viewers_see_the_health_of_other_players() {
+        let mut server = duel(|_| {});
+        let runtime_id = server.player(2).runtime_id;
+        let healths = |packets: &[Packet]| -> Vec<Vec<(String, f32)>> {
+            packets
+                .iter()
+                .filter_map(|p| match p {
+                    Packet::UpdateAttributes(a) if a.entity_runtime_id == runtime_id => Some(
+                        a.attributes
+                            .iter()
+                            .map(|x| (x.attribute_value.name.clone(), x.attribute_value.value))
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .collect()
+        };
+        let health = |v: f32| vec![vec![("minecraft:health".to_owned(), v)]];
+        assert!(server.hurt(2, 1.0, Damage::Magic));
+        server.idle(1);
+        assert_eq!(healths(&server.take(1)), health(19.0));
+        server.idle(100);
+        server.take(1);
+        server.survival(2).no_damage_ticks = 0;
+        server.survival(2).attack_time = 0;
+        assert!(server.hurt(2, 100.0, Damage::Magic));
+        server.idle(1);
+        assert_eq!(healths(&server.take(1)), health(0.0));
+        let ready = p::Respawn {
+            position: [0.0; 3],
+            state: u8::from(RespawnState::ClientReadyToSpawn),
+            entity_runtime_id: runtime_id,
+        };
+        let action = p::PlayerAction {
+            entity_runtime_id: runtime_id,
+            action_type: i32::from(Action::Respawn),
+            ..Default::default()
+        };
+        let inputs = vec![
+            server.send(2, Packet::Respawn(ready)),
+            server.send(2, Packet::PlayerAction(action)),
+        ];
+        server.run(inputs);
+        assert_eq!(healths(&server.take(1)), health(20.0));
+    }
+
     /// A player that respawns where its client has no chunks yet (another world, or far away)
     /// still gets its own respawn data: it does not see itself through the chunks it was sent.
     #[test]
