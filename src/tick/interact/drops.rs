@@ -57,10 +57,7 @@ impl Drops {
 
 /// The level of an enchantment on a stack, 0 if it has none.
 pub(in crate::tick) fn level(stack: &Stack, enchantment: Enchantment) -> u8 {
-    stack
-        .extra()
-        .and_then(|e| e.enchantments.iter().find(|(x, _)| *x == enchantment))
-        .map_or(0, |(_, l)| *l)
+    stack.enchantment_level(enchantment).unwrap_or(0)
 }
 
 /// Whether the item is shears (PMMP `getBlockToolType() & SHEARS`).
@@ -417,14 +414,7 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
             };
             out.add_kind(I::CocoaBeans, n);
         }
-        Class::CoralBlock => {
-            let dead = CORAL_BLOCKS
-                .iter()
-                .find(|(live, _)| *live == state.name())
-                .and_then(|(_, dead)| State::find(dead, &[]))
-                .unwrap_or(state);
-            out.add_own(dead, 1);
-        }
+        Class::CoralBlock => out.add_own(props::dead_coral(state).unwrap_or(state), 1),
         Class::DoublePitcherCrop => {
             // PMMP age 1 (the last) is Bedrock growth 4.
             if growth(state) >= 4 {
@@ -480,8 +470,7 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
             out.add_kind(I::PrismarineCrystals, discrete(tool, rng, 2, 3).min(5));
         }
         Class::Slab => {
-            // Bedrock names double slabs `*_double_slab` or `*double_cut_copper_slab`.
-            let double = state.name().contains("double");
+            let double = props::is_double_slab(state);
             out.add_own(state, if double { 2 } else { 1 });
         }
         Class::SmallDripleaf => {
@@ -511,30 +500,6 @@ fn compatible(state: State, tool: &Stack, rng: &mut Random, out: &mut Drops) {
         _ => out.add_own(state, 1),
     }
 }
-
-/// Each live coral block with its dead form (PMMP `CoralBlock::setDead(true)`).
-const CORAL_BLOCKS: [(&str, &str); 5] = [
-    (
-        "minecraft:tube_coral_block",
-        "minecraft:dead_tube_coral_block",
-    ),
-    (
-        "minecraft:brain_coral_block",
-        "minecraft:dead_brain_coral_block",
-    ),
-    (
-        "minecraft:bubble_coral_block",
-        "minecraft:dead_bubble_coral_block",
-    ),
-    (
-        "minecraft:fire_coral_block",
-        "minecraft:dead_fire_coral_block",
-    ),
-    (
-        "minecraft:horn_coral_block",
-        "minecraft:dead_horn_coral_block",
-    ),
-];
 
 /// PMMP `Leaves::getDropsForCompatibleTool`: itself with shears, else saplings, apples and
 /// sticks by chance.

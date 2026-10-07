@@ -4,7 +4,7 @@
 //! with nothing under it falls.
 
 use super::props::{self, HORIZONTAL};
-use super::{Cx, plant};
+use super::{Cx, interact, plant};
 use crate::block::{self, Class, Face, Kind, SupportType, Trait, TypeTag};
 use crate::world::BlockPos;
 
@@ -41,17 +41,25 @@ pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
 }
 
-/// Whether the block still has what holds it, for the classes that break without it; `None`
-/// for other classes or when a block the check needs is not loaded.
+/// PMMP `canBeSupportedAt` of the classes whose support is a fixed rule of their neighbours
+/// (`StaticSupportTrait` and the checks of the same kind): whether `block` at `pos` stands, with
+/// `get` reading the blocks around it. `None` for another class, or when `get` has no block the
+/// rule needs. Placement and the block update rules share it, each with its own reader.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one table of PMMP's support rules, a short arm per class"
 )]
-pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
-    let down = || side(cx, pos, Face::Down);
-    let up = || side(cx, pos, Face::Up);
+pub(in crate::tick) fn static_support(
+    block: block::State,
+    pos: BlockPos,
+    get: impl Fn(BlockPos) -> Option<block::State>,
+) -> Option<bool> {
+    let side = |face: Face| get(pos.step(face)?);
+    let down = || side(Face::Down);
+    let up = || side(Face::Up);
+    let adjacent = |face: Face| Some(side(face)?.support(face.opposite()));
     Some(match block.class() {
-        // Plants on soil (PMMP `canBeSupportedAt` of each class).
+        // Plants on soil.
         Class::Flower | Class::TallGrass | Class::Sapling | Class::PinkPetals => is_soil(down()?),
         Class::DeadBush => {
             let d = down()?;
@@ -109,7 +117,7 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
                 return Some(false);
             }
             for face in HORIZONTAL {
-                if side(cx, pos, face)?.is_solid() {
+                if side(face)?.is_solid() {
                     return Some(false);
                 }
             }
@@ -125,21 +133,25 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
         }
         Class::NetherVines => {
             let growth = plant::vine_growth(block);
-            let support = side(cx, pos, growth.opposite())?;
+            let support = side(growth.opposite())?;
             support.support(growth).has_center_support() || support.kind() == block.kind()
         }
-        Class::ChorusFlower => chorus_flower(cx, pos)?,
-        Class::ChorusPlant => chorus_plant(cx, pos)?,
+        Class::ChorusFlower => chorus_flower(&side)?,
+        Class::ChorusPlant => chorus_plant(pos, &get)?,
         Class::WaterLily => down()?.kind() == Kind::Water,
-        Class::RedMushroom | Class::BrownMushroom => !down()?.is_transparent(),
-        Class::Sugarcane => plant::sugarcane_supported(cx, pos, block)?,
-        Class::CocoaBlock => plant::cocoa_attached(cx, pos, block)?,
+        Class::Sugarcane => {
+            let d = down()?;
+            d.kind() == block.kind()
+                || d.has_type_tag(TypeTag::Mud)
+                || d.has_type_tag(TypeTag::Dirt)
+                || d.has_type_tag(TypeTag::Sand)
+        }
         // Blocks on a face below or above.
         Class::Coral | Class::FloorCoralFan | Class::FlowerPot | Class::RedstoneWire => {
-            adjacent(cx, pos, Face::Down)?.has_center_support()
+            adjacent(Face::Down)?.has_center_support()
         }
-        Class::HangingRoots => adjacent(cx, pos, Face::Up)?.has_center_support(),
-        Class::SporeBlossom => adjacent(cx, pos, Face::Up)? == SupportType::Full,
+        Class::HangingRoots => adjacent(Face::Up)?.has_center_support(),
+        Class::SporeBlossom => adjacent(Face::Up)? == SupportType::Full,
         Class::Cake | Class::CakeWithCandle | Class::CakeWithDyedCandle | Class::Carpet => {
             down()?.kind() != Kind::Air
         }
@@ -148,11 +160,31 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
         | Class::WeightedPressurePlateLight
         | Class::WeightedPressurePlateHeavy
         | Class::RedstoneComparator
-        | Class::RedstoneRepeater => adjacent(cx, pos, Face::Down)? != SupportType::None,
+        | Class::RedstoneRepeater => adjacent(Face::Down)? != SupportType::None,
         Class::CeilingCenterHangingSign => {
             let u = up()?;
             u.support(Face::Down).has_center_support() || u.has_type_tag(TypeTag::HangingSign)
         }
+        _ => return None,
+    })
+}
+
+/// Whether the block still has what holds it, for the classes that break without it
+/// ([`static_support`], then the attached and two-block ones); `None` for other classes or when a
+/// block the check needs is not loaded.
+#[expect(
+    clippy::too_many_lines,
+    reason = "consistency: one table of PMMP's support rules, a short arm per class"
+)]
+pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
+    if let Some(stands) = static_support(block, pos, |p| cx.get(p)) {
+        return Some(stands);
+    }
+    let down = || side(cx, pos, Face::Down);
+    let up = || side(cx, pos, Face::Up);
+    Some(match block.class() {
+        Class::RedMushroom | Class::BrownMushroom => !down()?.is_transparent(),
+        Class::CocoaBlock => plant::cocoa_attached(cx, pos, block)?,
         Class::CeilingEdgesHangingSign => {
             let u = up()?;
             let facing = props::facing_direction(block)?;
@@ -199,7 +231,7 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
             adjacent(cx, pos, face)? != SupportType::None
         }
         Class::AmethystCluster => {
-            let face = props::face_name(props::text(block, "minecraft:block_face")?)?.opposite();
+            let face = props::face_of(props::text(block, "minecraft:block_face")?)?.opposite();
             adjacent(cx, pos, face)? == SupportType::Full
         }
         Class::WallCoralFan => {
@@ -270,26 +302,21 @@ fn rail(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
     if !adjacent(cx, pos, Face::Down)?.has_edge_support() {
         return Some(false);
     }
-    // PMMP `RailConnectionInfo`: shapes 2 to 5 ascend east, west, north, south.
-    let ascend = match props::int(block, "rail_direction")? {
-        2 => Face::East,
-        3 => Face::West,
-        4 => Face::North,
-        5 => Face::South,
-        _ => return Some(true),
+    let Some(ascend) = interact::rail_ascent(props::int(block, "rail_direction")?) else {
+        return Some(true);
     };
     Some(side(cx, pos, ascend)?.support(Face::Up).has_edge_support())
 }
 
-/// PMMP `ChorusFlower::canBeSupportedAt`.
-fn chorus_flower(cx: &Cx<'_>, pos: BlockPos) -> Option<bool> {
-    let down = side(cx, pos, Face::Down)?;
+/// PMMP `ChorusFlower::canBeSupportedAt`, with `side` reading the block toward a face.
+fn chorus_flower(side: &impl Fn(Face) -> Option<block::State>) -> Option<bool> {
+    let down = side(Face::Down)?;
     if matches!(down.kind(), Kind::EndStone | Kind::ChorusPlant) {
         return Some(true);
     }
     let mut plant_adjacent = false;
     for face in HORIZONTAL {
-        let s = side(cx, pos, face)?;
+        let s = side(face)?;
         if s.kind() == Kind::ChorusPlant {
             if plant_adjacent {
                 return Some(false);
@@ -302,29 +329,25 @@ fn chorus_flower(cx: &Cx<'_>, pos: BlockPos) -> Option<bool> {
     Some(plant_adjacent)
 }
 
-/// PMMP `ChorusPlant::canBeSupportedAt`.
-fn chorus_plant(cx: &Cx<'_>, pos: BlockPos) -> Option<bool> {
+/// PMMP `ChorusPlant::canBeSupportedAt` at `pos`, with `get` reading the blocks.
+fn chorus_plant(pos: BlockPos, get: &impl Fn(BlockPos) -> Option<block::State>) -> Option<bool> {
     let holds = |s: block::State| matches!(s.kind(), Kind::ChorusPlant | Kind::EndStone);
-    let down = side(cx, pos, Face::Down)?;
-    let vertical_air = down.kind() == Kind::Air || side(cx, pos, Face::Up)?.kind() == Kind::Air;
+    let side = |face: Face| get(pos.step(face)?);
+    let down = side(Face::Down)?;
+    let vertical_air = down.kind() == Kind::Air || side(Face::Up)?.kind() == Kind::Air;
     for face in HORIZONTAL {
-        let s = side(cx, pos, face)?;
+        let s = side(face)?;
         if s.kind() == Kind::ChorusPlant {
             if !vertical_air {
                 return Some(false);
             }
-            let below = s_down(cx, pos, face)?;
+            let below = get(pos.step(face)?.step(Face::Down)?)?;
             if holds(below) {
                 return Some(true);
             }
         }
     }
     Some(holds(down))
-}
-
-/// The block below the `face` neighbour of `pos`.
-fn s_down(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<block::State> {
-    cx.get(pos.step(face)?.step(Face::Down)?)
 }
 
 /// PMMP `FallableTrait`: a block with a replaceable block under it falls.

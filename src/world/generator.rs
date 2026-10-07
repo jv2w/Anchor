@@ -33,9 +33,9 @@ pub trait Generator: Send + Sync + 'static {
         BlockPos::new(0, 64, 0)
     }
 
-    /// The name saved with the world, at most 256 bytes ([`Server`](crate::Server) refuses to
-    /// build with a longer one). A world saved with another generator's name is still filled by
-    /// this one, with a warning. The default is the type's name.
+    /// The name worlds pick this generator by
+    /// ([`Options::with_generator`](super::Options::with_generator)); it is not saved with the
+    /// world. The default is the type's name.
     fn name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }

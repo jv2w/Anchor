@@ -49,8 +49,6 @@ const ACCEPT_QUEUE: usize = 64;
 const EVENT_QUEUE: usize = 256;
 /// How long [`Network::stop`] waits for sessions to send what they still hold.
 const STOP_GRACE: Duration = Duration::from_secs(10);
-/// Bytes a RakNet message may add to a compressed batch: the 8-byte checksum.
-const CHECKSUM_BYTES: usize = 8;
 /// How often the accept task reports changed connection counts to the tick and forgets ended
 /// blocks. Each report is a logged input, so the counts the tick reads are at most this old.
 const REPORT_INTERVAL: Duration = Duration::from_secs(1);
@@ -146,7 +144,8 @@ pub(crate) async fn start(
         v4: v4.map(|ip| SocketAddrV4::new(ip, general.server_port)),
         v6: v6.map(|ip| SocketAddrV6::new(ip, general.server_port, 0, 0)),
         max_mtu: config.developer.max_mtu_size,
-        max_message: max_message(&batch).saturating_add(CHECKSUM_BYTES),
+        // An encrypted RakNet message adds the checksum to the batch.
+        max_message: max_message(&batch).saturating_add(crypto::encryption::CHECKSUM),
         accept: config.developer.raknet,
         guid,
     };
@@ -530,12 +529,8 @@ impl Status {
             level: &self.level_name,
             players,
             max_players: self.max_players,
-            game_type: match self.mode {
-                GameMode::Survival => 0,
-                GameMode::Creative => 1,
-                GameMode::Adventure => 2,
-                GameMode::Spectator => 6,
-            },
+            // Every game type is from 0 to 6.
+            game_type: u8::try_from(i32::from(self.mode.game_type())).unwrap_or_default(),
         };
         // Serializing a struct of strings and integers into memory cannot fail; the fallback
         // keeps that a non-panicking path.

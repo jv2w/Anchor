@@ -6,12 +6,16 @@
 
 use super::kind::{Character, Cloud, Form, Kind, Painting, Projectile, Shot};
 use super::object;
-use super::{Entity, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH};
+use super::{EYE_HEIGHT, Entity, PLAYER_HEIGHT, PLAYER_WIDTH};
 use crate::config::GameMode;
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
-use crate::protocol::consts::{EntityDataFlag, EntityDataKey, MoveFlag};
+use crate::protocol::consts::{
+    ABILITY_BASE_FLY_SPEED, ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability,
+    AbilityLayerType, EntityDataFlag, EntityDataKey, GameType, MoveFlag, PermissionLevel,
+    PlayerListAction, PlayerLocationType, WINDOW_ID_INVENTORY, WINDOW_ID_OFF_HAND, WaypointAction,
+};
 use crate::protocol::packet::{
     AddActor, AddItemActor, AddPainting, AddPlayer, LocatorBar, MobArmourEquipment, MobEquipment,
     MoveActorAbsolute, MoveActorDelta, Packet, PlayerList, PlayerLocation, RemoveActor,
@@ -27,27 +31,10 @@ use crate::tick::trade::{MAX_TIER, Offers};
 /// Ticks over which the client spreads a `MoveActorDelta`: BDS sends 0 for items, orbs and
 /// villagers (P6 game captures; 3 only for its own mobs, which Anchor does not have).
 const MOVE_TICKS: u64 = 0;
-/// `MobEquipment` window of the main inventory and of the off hand (gophertunnel
-/// `ContainerIDInventory`, `ContainerIDOffHand`).
-const WINDOW_INVENTORY: u8 = 0;
-const WINDOW_OFF_HAND: u8 = 119;
-/// `AddPlayer` game type BDS sends for a player in the world's default mode, the spectator type
-/// that hides a player from viewers, and the survival type PMMP sends for a `Human`
-/// (gophertunnel `GameType*`).
-const GAME_TYPE_DEFAULT: i32 = 5;
-const GAME_TYPE_SPECTATOR: i32 = 6;
-const GAME_TYPE_SURVIVAL: i32 = 0;
-/// The base ability layer BDS sends with `AddPlayer` (P6 `duplicate`): every ability, the walk
-/// and fly speeds, member permissions.
-const ABILITY_LAYER_BASE: u16 = 1;
-const ABILITIES_ALL: u32 = 1_048_575;
+/// The values of the base ability layer BDS sends with `AddPlayer` (P6 `duplicate`): build,
+/// mine, doors and switches, open containers, attack players and mobs (a combination with no
+/// single generated constant).
 const ABILITY_VALUES: u32 = 63;
-const PLAYER_PERMISSIONS_MEMBER: u8 = 1;
-/// PMMP's permissions of a `Human`: a visitor with no ability.
-const PLAYER_PERMISSIONS_VISITOR: u8 = 0;
-/// `PlayerList` actions (gophertunnel `PlayerListAction*`).
-const PLAYER_LIST_ADD: u8 = 0;
-const PLAYER_LIST_REMOVE: u8 = 1;
 /// The potion splash colour of an effect-less potion or cloud (PMMP
 /// `PotionSplashParticle::DEFAULT_COLOR`, ARGB 0x385dc6).
 pub(super) const DEFAULT_POTION_COLOUR: [u8; 4] = [0x38, 0x5d, 0xc6, 0xff];
@@ -366,7 +353,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
         }) => {
             let name = &entity.name_tag;
             let entry = PlayerListEntry {
-                action_type: PLAYER_LIST_ADD,
+                action_type: PlayerListAction::Add.into(),
                 uuid: *uuid,
                 entity_unique_id: unique(entity.runtime_id),
                 username: name.clone(),
@@ -391,14 +378,16 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
                 yaw,
                 head_yaw: yaw,
                 held_item: ItemInstance::default(),
-                game_type: GAME_TYPE_SURVIVAL,
+                // PMMP sends a `Human` as survival.
+                game_type: GameType::Survival.into(),
                 entity_metadata: metadata,
                 ability_data: AbilityData {
                     entity_unique_id: unique(entity.runtime_id),
-                    player_permissions: PLAYER_PERMISSIONS_VISITOR,
+                    // PMMP's permissions of a `Human`: a visitor with no ability.
+                    player_permissions: PermissionLevel::Visitor.into(),
                     command_permissions: 0,
                     layers: vec![AbilityLayer {
-                        r#type: ABILITY_LAYER_BASE,
+                        r#type: AbilityLayerType::Base.into(),
                         abilities: 0,
                         values: 0,
                         fly_speed: 0.0,
@@ -410,7 +399,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
                 ..AddPlayer::default()
             }));
             let remove = PlayerListEntry {
-                action_type: PLAYER_LIST_REMOVE,
+                action_type: PlayerListAction::Remove.into(),
                 uuid: *uuid,
                 ..PlayerListEntry::default()
             };
@@ -663,7 +652,7 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
     ] {
         m.insert(k as u32, v);
     }
-    let feet = p.eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+    let feet = p.eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     Packet::AddPlayer(Box::new(AddPlayer {
         uuid: p.uuid,
         username: p.name.to_owned(),
@@ -671,23 +660,24 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
         platform_chat_id: String::new(),
         position: feet.to_f32(),
         held_item: instance(p.held),
+        // BDS sends the world's default type, and spectator to hide a player from viewers.
         game_type: if p.game_mode == GameMode::Spectator {
-            GAME_TYPE_SPECTATOR
+            GameType::Spectator.into()
         } else {
-            GAME_TYPE_DEFAULT
+            GameType::Default.into()
         },
         entity_metadata: m,
         ability_data: AbilityData {
             entity_unique_id: unique(p.runtime_id),
-            player_permissions: PLAYER_PERMISSIONS_MEMBER,
+            player_permissions: PermissionLevel::Member.into(),
             command_permissions: 0,
             layers: vec![AbilityLayer {
-                r#type: ABILITY_LAYER_BASE,
-                abilities: ABILITIES_ALL,
+                r#type: AbilityLayerType::Base.into(),
+                abilities: every_ability(),
                 values: ABILITY_VALUES,
-                fly_speed: 0.05,
-                vertical_fly_speed: 1.0,
-                walk_speed: 0.1,
+                fly_speed: ABILITY_BASE_FLY_SPEED,
+                vertical_fly_speed: ABILITY_BASE_VERTICAL_FLY_SPEED,
+                walk_speed: ABILITY_BASE_WALK_SPEED,
             }],
         },
         device_id: p.device_id.to_owned(),
@@ -696,13 +686,13 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
     }))
 }
 
-/// `PlayerLocation` types and `LocatorBar` waypoint actions (gophertunnel `PlayerLocationType*`,
-/// `WaypointAction*`).
-const LOCATION_COORDINATES: i32 = 0;
-const LOCATION_HIDE: i32 = 1;
-const WAYPOINT_ADD: u8 = 1;
-const WAYPOINT_REMOVE: u8 = 2;
-const WAYPOINT_UPDATE: u8 = 3;
+/// Every ability bit, as BDS defines them all in a base layer.
+fn every_ability() -> u32 {
+    let all: FlagSet<Ability> = Ability::ALL.into_iter().collect();
+    let [bits, ..] = all.words();
+    u32::try_from(bits).unwrap_or(u32::MAX)
+}
+
 /// The update flag BDS gives a change of visibility (P6 `others`: 2, where gophertunnel's
 /// `WaypointUpdateFlagVisible` is 1).
 const WAYPOINT_VISIBLE: u32 = 2;
@@ -734,13 +724,13 @@ pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
     let (position, unique_id) = (eye.to_f32(), unique(runtime_id));
     [
         Packet::PlayerLocation(PlayerLocation {
-            r#type: LOCATION_COORDINATES,
+            r#type: PlayerLocationType::Coordinates.into(),
             entity_unique_id: unique_id,
             position,
         }),
         waypoint(
             runtime_id,
-            WAYPOINT_ADD,
+            WaypointAction::Add.into(),
             Waypoint {
                 update_flag: WAYPOINT_ALL,
                 visible: Some(true),
@@ -757,7 +747,7 @@ pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
         ),
         waypoint(
             runtime_id,
-            WAYPOINT_UPDATE,
+            WaypointAction::Update.into(),
             Waypoint {
                 update_flag: WAYPOINT_FOLLOW,
                 texture_path: Some("textures/ui/locator_bar_dot_0".to_owned()),
@@ -771,7 +761,11 @@ pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
 
 /// A player's waypoint leaving the bar of a player who no longer sees it.
 pub(super) fn locator_removed(runtime_id: u64) -> Packet {
-    waypoint(runtime_id, WAYPOINT_REMOVE, Waypoint::default())
+    waypoint(
+        runtime_id,
+        WaypointAction::Remove.into(),
+        Waypoint::default(),
+    )
 }
 
 /// A dead player leaves the bars of those who see it (BDS: its location hidden, its waypoint
@@ -779,7 +773,7 @@ pub(super) fn locator_removed(runtime_id: u64) -> Packet {
 pub(in crate::tick) fn locator_life(runtime_id: u64, alive: bool) -> Vec<Packet> {
     let shown = waypoint(
         runtime_id,
-        WAYPOINT_UPDATE,
+        WaypointAction::Update.into(),
         Waypoint {
             update_flag: WAYPOINT_VISIBLE,
             visible: Some(alive),
@@ -791,7 +785,7 @@ pub(in crate::tick) fn locator_life(runtime_id: u64, alive: bool) -> Vec<Packet>
     }
     vec![
         Packet::PlayerLocation(PlayerLocation {
-            r#type: LOCATION_HIDE,
+            r#type: PlayerLocationType::Hide.into(),
             entity_unique_id: unique(runtime_id),
             position: [0.0; 3],
         }),
@@ -831,7 +825,7 @@ pub(super) fn held(runtime_id: u64, stack: &Stack, slot: u8) -> Packet {
         new_item: instance(stack),
         inventory_slot: slot,
         hot_bar_slot: slot,
-        window_id: WINDOW_INVENTORY,
+        window_id: u8::try_from(WINDOW_ID_INVENTORY).unwrap_or(0),
     }))
 }
 
@@ -842,7 +836,7 @@ pub(super) fn off_hand(runtime_id: u64, stack: &Stack) -> Packet {
         new_item: instance(stack),
         inventory_slot: 0,
         hot_bar_slot: 0,
-        window_id: WINDOW_OFF_HAND,
+        window_id: u8::try_from(WINDOW_ID_OFF_HAND).unwrap_or(0),
     }))
 }
 

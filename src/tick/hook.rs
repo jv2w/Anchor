@@ -82,8 +82,9 @@ impl ServerBuilder {
     /// The output phase runs on the CPU pool, several players at once, so the hook reaches no
     /// game state; for one player the hooks run in the packets' order. Three kinds of packet
     /// skip the hooks: the start-game data every player gets the same (item registry, recipes,
-    /// creative inventory, biomes, entity types, block shapes, armour trims), which is encoded
-    /// once at start and shared; the last packet of a session the server closes (its
+    /// creative inventory, biomes, entity types, block shapes, armour trims, jigsaw structure
+    /// data, entity property definitions, camera presets), which is encoded once at start and
+    /// shared; the last packet of a session the server closes (its
     /// `Disconnect`); and the login and resource pack sequence, which the session sends. With
     /// `hook-movement-packets = false` the movement packets skip them too: `MovePlayer`,
     /// `MoveActorDelta`, `MoveActorAbsolute` and `SetActorMotion`.

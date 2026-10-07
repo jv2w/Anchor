@@ -5,10 +5,12 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[path = "support/bot.rs"]
+mod bot;
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -23,29 +25,6 @@ fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask is in the repository")
-}
-
-/// Builds the bot once per test process. Fails the test if Go is missing.
-fn bot() -> &'static Path {
-    static BOT: OnceLock<PathBuf> = OnceLock::new();
-    BOT.get_or_init(|| {
-        let dir = work_dir();
-        create_dir(&dir);
-        let exe = dir.join(format!("bot{}", std::env::consts::EXE_SUFFIX));
-        let output = Command::new("go")
-            .args(["build", "-o"])
-            .arg(&exe)
-            .arg("./bot")
-            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("go"))
-            .output()
-            .unwrap_or_else(|e| panic!("cannot run `go` (the example tests need Go on PATH): {e}"));
-        assert!(
-            output.status.success(),
-            "go build ./bot failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        exe
-    })
 }
 
 /// Builds the example `name` with the cargo running these tests (same target directory and
@@ -148,7 +127,7 @@ impl Example {
             .join("examples")
             .join(format!("{}.txt", self.name));
         let out = self.dir.join("bot.jsonl");
-        let output = Command::new(bot())
+        let output = Command::new(bot::binary(&work_dir()))
             .args(["-addr", &format!("127.0.0.1:{}", self.port)])
             .args(["-scenario", "script", "-script"])
             .arg(&script)

@@ -6,8 +6,10 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::dump::{BLOCK_PHYSICS, REFERENCE_BLOCKS, REFERENCE_DIR};
+
 use super::blocks::strings;
-use super::data::{Data, REFERENCE_DIR, hex_lit, read_json};
+use super::data::{Data, hex_lit, read_json};
 use super::emit::HEADER;
 use super::info::f64_lit;
 
@@ -36,8 +38,8 @@ const UNIT_CUBE: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
 /// Generates the file text (unformatted). Fails if a state has no physics or two states share a
 /// network ID.
 pub(crate) fn generate(root: &Path, data: &Data) -> Result<String, String> {
-    let reference: Vec<ReferenceBlock> = read_json(root, REFERENCE_DIR, "blocks.json")?;
-    let physics: Physics = read_json(root, REFERENCE_DIR, "block_physics.json")?;
+    let reference: Vec<ReferenceBlock> = read_json(root, REFERENCE_DIR, REFERENCE_BLOCKS)?;
+    let physics: Physics = read_json(root, REFERENCE_DIR, BLOCK_PHYSICS)?;
     let by_id: BTreeMap<u32, (f64, u8, u8, usize)> = physics
         .states
         .iter()

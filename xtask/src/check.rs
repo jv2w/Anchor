@@ -2,14 +2,22 @@
 //! tests of what changed. Those are the library tests of the changed modules (a file's own module
 //! when it has submodules, else the module that owns its directory, so `foo/bar.rs` and
 //! `foo/tests.rs` run `foo::`), every library test when `src/lib.rs` or a build file changed, and
-//! each changed integration test file. `cargo xtask verify` runs everything,
+//! each changed integration test file.
+//!
+//! A changed file that a Rust source under `src/`, `tests/`, `examples/`, `xtask/src/` or
+//! `xtask/tests/` pulls in counts as a change of that source too, so it also runs that source's
+//! tests (in the source's own crate). A source pulls in the file of a `#[path = "…"]` module and
+//! the file of an `include_bytes!` or `include_str!` whose path is a string literal, both from the
+//! source's folder, or `concat!(env!("CARGO_MANIFEST_DIR"), "/…")`, from the source's crate
+//! folder (`xtask/` for the files under it, else the repository root). Any other changed file that
+//! is neither a Rust source nor a build file runs nothing. `cargo xtask verify` runs everything,
 //! when the user asks for it (`/verify`).
 //!
 //! The builds go to `target/check`, so a check neither waits on a running `verify` nor rebuilds
-//! the running xtask.exe. A pass is remembered as a stamp of HEAD and the changed files, so an
-//! unchanged tree passes at once.
+//! the running xtask.exe. A pass is remembered as a stamp of HEAD and the changed files the build
+//! reads, so an unchanged tree passes at once.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::io::{self, Write};
 use std::path::Path;
@@ -25,20 +33,33 @@ const BUILD_FILES: &[&str] = &[
     ".rustfmt.toml",
     "rust-toolchain.toml",
 ];
+/// The folders of the Rust sources whose pulled-in files the check follows.
+const SOURCE_DIRS: &[&str] = &["src", "tests", "examples", "xtask/src", "xtask/tests"];
+/// The macros that include a file, each followed by its path.
+const INCLUDE_MACROS: [&str; 2] = ["include_bytes!(", "include_str!("];
+/// The tokens of an include path from the crate folder, before its `"/…"` literal.
+const FROM_CRATE: [&str; 5] = ["concat!(", "env!(", "\"CARGO_MANIFEST_DIR\"", ")", ","];
+/// The attribute that names a module's file, followed by `= "<path>"`.
+const PATH_ATTRIBUTE: &str = "#[path";
 /// The build directory under `target/`.
 const TARGET: &str = "check";
 /// The stamp of the last pass.
 const PASS: &str = "target/check/pass";
 
+/// The files the Rust sources pull in, each with the sources that pull it in, as repository
+/// paths.
+type Includes = BTreeMap<String, BTreeSet<String>>;
+
 /// Runs the check.
 pub(crate) fn command(root: &Path) -> io::Result<ExitCode> {
     let files = changed(root)?;
-    let stamp = stamp(root, &files)?;
+    let includes = includes(root)?;
+    let stamp = stamp(root, &files, &includes)?;
     if read_stamp(root, PASS).as_deref() == Some(stamp.as_str()) {
         return Ok(ExitCode::SUCCESS);
     }
     let mut report = Vec::new();
-    let passed = check(root, &files, &mut report)?;
+    let passed = check(root, &files, &includes, &mut report)?;
     if passed {
         write_stamp(root, PASS, &stamp)?;
     }
@@ -52,8 +73,13 @@ pub(crate) fn command(root: &Path) -> io::Result<ExitCode> {
 
 /// Runs the steps the changed `files` need, stopping at the first failure, and writes their
 /// lines and `PASS` or `FAIL` to `out`.
-fn check(root: &Path, files: &[String], out: &mut Vec<u8>) -> io::Result<bool> {
-    let plan = Plan::new(root, files);
+fn check(
+    root: &Path,
+    files: &[String],
+    includes: &Includes,
+    out: &mut Vec<u8>,
+) -> io::Result<bool> {
+    let plan = Plan::new(root, files, includes);
     if !plan.code {
         writeln!(out, "no code changed\nPASS")?;
         return Ok(true);
@@ -91,9 +117,11 @@ struct Plan {
 }
 
 impl Plan {
-    fn new(root: &Path, files: &[String]) -> Self {
+    fn new(root: &Path, files: &[String], includes: &Includes) -> Self {
         let mut plan = Self::default();
-        for file in files.iter().filter(|f| is_code(f)) {
+        // A changed included file stands for the sources that include it.
+        let sources = files.iter().filter_map(|f| includes.get(f)).flatten();
+        for file in files.iter().filter(|f| is_code(f)).chain(sources) {
             plan.code = true;
             if !is_rust(file) {
                 if file.starts_with("xtask/") {
@@ -158,10 +186,116 @@ fn targets(package: &str, tests: &BTreeSet<String>) -> Option<Vec<String>> {
     Some(step)
 }
 
-/// Whether the build reads `file`: a Rust source or a build file.
+/// Whether the build reads `file`: a Rust source, a build file or a file a source pulls in.
+fn is_read(file: &str, includes: &Includes) -> bool {
+    is_code(file) || includes.contains_key(file)
+}
+
+/// Whether `file` is a Rust source or a build file.
 fn is_code(file: &str) -> bool {
     let name = file.rsplit('/').next().unwrap_or(file);
     is_rust(file) || file.starts_with(".cargo/") || BUILD_FILES.contains(&name)
+}
+
+/// The files the Rust sources under [`SOURCE_DIRS`] pull in.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+fn includes(root: &Path) -> io::Result<Includes> {
+    let mut includes = Includes::new();
+    let mut dirs: Vec<String> = SOURCE_DIRS.iter().map(|d| (*d).to_owned()).collect();
+    while let Some(dir) = dirs.pop() {
+        let entries = match std::fs::read_dir(root.join(&dir)) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        };
+        for entry in entries {
+            let entry = entry?;
+            let file = format!("{dir}/{}", entry.file_name().to_string_lossy());
+            if entry.file_type()?.is_dir() {
+                dirs.push(file);
+            } else if is_rust(&file) {
+                let text = std::fs::read(entry.path())?;
+                for path in included(&file, &String::from_utf8_lossy(&text)) {
+                    includes.entry(path).or_default().insert(file.clone());
+                }
+            }
+        }
+    }
+    Ok(includes)
+}
+
+/// The files the Rust source `file` (a repository path) pulls in, as the module documentation
+/// says.
+fn included(file: &str, text: &str) -> Vec<String> {
+    let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let crate_dir = if file.starts_with("xtask/") {
+        "xtask"
+    } else {
+        ""
+    };
+    let mut paths = Vec::new();
+    for name in INCLUDE_MACROS {
+        for rest in after(text, name) {
+            paths.extend(match literal(rest) {
+                Some((path, _)) => resolve(dir, path),
+                None => from_crate(rest).and_then(|path| resolve(crate_dir, path)),
+            });
+        }
+    }
+    for rest in after(text, PATH_ATTRIBUTE) {
+        paths.extend(
+            token(rest, "=")
+                .and_then(literal)
+                .and_then(|(path, _)| resolve(dir, path)),
+        );
+    }
+    paths
+}
+
+/// The text after each `token` in `text`.
+fn after<'a>(text: &'a str, token: &'a str) -> impl Iterator<Item = &'a str> {
+    text.match_indices(token)
+        .filter_map(move |(at, _)| text.get(at + token.len()..))
+}
+
+/// `text` after `token`, which may follow whitespace.
+fn token<'a>(text: &'a str, token: &str) -> Option<&'a str> {
+    text.trim_start().strip_prefix(token)
+}
+
+/// The string literal `text` starts with (after whitespace) and the text after it.
+fn literal(text: &str) -> Option<(&str, &str)> {
+    token(text, "\"")?.split_once('"')
+}
+
+/// The path, without its leading `/`, of an include path [`FROM_CRATE`] that `text` starts with.
+fn from_crate(text: &str) -> Option<&str> {
+    let rest = FROM_CRATE.iter().try_fold(text, |rest, t| token(rest, t))?;
+    let (path, rest) = literal(rest)?;
+    token(token(rest, ",").unwrap_or(rest), ")")?;
+    path.strip_prefix('/')
+}
+
+/// `path` relative to the repository folder `dir`, as a repository path; `None` when it is
+/// absolute or leaves the repository.
+fn resolve(dir: &str, path: &str) -> Option<String> {
+    if path.starts_with('/') {
+        return None;
+    }
+    let mut parts: Vec<&str> = dir.split('/').filter(|p| !p.is_empty()).collect();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            _ => parts.push(part),
+        }
+    }
+    Some(parts.join("/"))
 }
 
 fn is_rust(file: &str) -> bool {
@@ -226,13 +360,13 @@ fn changed(root: &Path) -> io::Result<Vec<String>> {
     Ok(files)
 }
 
-/// A stamp of HEAD and the changed code files with their contents (FNV-1a): equal stamps mean
-/// the same code.
+/// A stamp of HEAD and the changed files the build reads with their contents (FNV-1a): equal
+/// stamps mean the same code.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
-fn stamp(root: &Path, files: &[String]) -> io::Result<String> {
+fn stamp(root: &Path, files: &[String], includes: &Includes) -> io::Result<String> {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut add = |bytes: &[u8]| {
         for b in bytes {
@@ -240,7 +374,7 @@ fn stamp(root: &Path, files: &[String]) -> io::Result<String> {
         }
     };
     add(&git(root, &["rev-parse", "HEAD"])?);
-    for file in files.iter().filter(|f| is_code(f)) {
+    for file in files.iter().filter(|f| is_read(f, includes)) {
         add(file.as_bytes());
         match std::fs::read(root.join(file)) {
             Ok(bytes) => {
@@ -299,10 +433,13 @@ fn stdout() -> io::StdoutLock<'static> {
 mod tests {
     use super::*;
 
+    fn root() -> &'static Path {
+        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
+    }
+
     fn plan(files: &[&str]) -> Plan {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let files: Vec<String> = files.iter().map(|f| (*f).to_owned()).collect();
-        Plan::new(root, &files)
+        Plan::new(root(), &files, &includes(root()).unwrap())
     }
 
     #[test]
@@ -313,7 +450,6 @@ mod tests {
             "src/import/api/tests.rs",
             "src/save.rs",
             "src/math.rs",
-            "src/crypto/testdata/encryption.json",
         ]);
         assert!(p.code && !p.all_lib);
         let lib: Vec<&str> = p.lib.iter().map(String::as_str).collect();
@@ -325,6 +461,74 @@ mod tests {
                 "save::",
                 "tick::block_entity::",
                 "tick::interact::tests::"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_included_data_file_runs_the_tests_of_its_includers_and_enters_the_stamp() {
+        let p = plan(&[
+            "src/crypto/testdata/encryption.json",
+            "xtask/data/reference/bds_camera.json",
+            "xtask/data/p6/intended.txt",
+        ]);
+        assert!(p.code && !p.all_lib);
+        assert_eq!(
+            p.tests(),
+            [
+                args(&[
+                    "test",
+                    "-p",
+                    "anchor",
+                    "--lib",
+                    "--quiet",
+                    "--",
+                    "crypto::",
+                    "tick::spawn::"
+                ]),
+                args(&["test", "-p", "xtask", "--bin", "xtask", "--quiet"]),
+            ]
+        );
+        let includes = includes(root()).unwrap();
+        assert!(is_read("xtask/data/reference/bds_camera.json", &includes));
+        assert!(!is_read(".claude/docs/data.md", &includes));
+    }
+
+    #[test]
+    fn a_file_another_crate_pulls_in_also_runs_that_crates_tests() {
+        // `apply.rs` is a module of the library and, by `#[path]`, of xtask's `gen::upgrade`;
+        // `continental.kv` is included from the crate folder by `src/import/tests.rs`.
+        let p = plan(&[
+            "src/import/upgrade/apply.rs",
+            "xtask/data/import/continental.kv",
+        ]);
+        assert!(p.code && !p.all_lib && p.xtask_unit);
+        let lib: Vec<&str> = p.lib.iter().map(String::as_str).collect();
+        assert_eq!(lib, ["import::", "import::upgrade::"]);
+    }
+
+    #[test]
+    fn pulled_in_paths_resolve_from_the_source_folder_or_the_crate_folder() {
+        let text = r#"include_str!("../x/y.json"); include_bytes!( "z.bin");
+            include_str!(concat!("q")); include_bytes!("../../../out");
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/data/k.kv"
+            ));
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/a", "/b"));
+            #[path = "../../shared.rs"]
+            mod shared;"#;
+        assert_eq!(
+            included("src/a/b.rs", text),
+            ["src/a/z.bin", "data/k.kv", "src/x/y.json", "shared.rs"]
+        );
+        assert_eq!(
+            included("xtask/tests/t.rs", text),
+            [
+                "xtask/tests/z.bin",
+                "xtask/data/k.kv",
+                "xtask/x/y.json",
+                "shared.rs"
             ]
         );
     }

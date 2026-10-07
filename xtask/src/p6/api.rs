@@ -1,10 +1,8 @@
-//! The API scenarios of `cargo xtask p6`: `commands`, `particles`, `kick`, `forms` and `script`
-//! (the bot's `api.go`), and `weather`, `joinrain` and `joinstorm` (the bot's `weather.go`: each
-//! runs after the one before it, whose weather it joins in), and `boltpeaceful`, `bolteasy` and
-//! `bolthard` (a bolt next to the bot at that difficulty). They run on the game scenarios'
-//! machinery (`game`): the bot plays each one with its own player name and writes the console
-//! commands it needs as `command` records, which the harness runs on the server's console. The
-//! script scenario runs the actions of `SCRIPT`.
+//! The API scenarios of `cargo xtask p6` (`SCENARIOS`, in run order), each a bot scenario of the
+//! same name. They run on the game scenarios' machinery (`game`): the bot plays each one with its
+//! own player name and writes the console commands it needs as `command` records, which the
+//! harness runs on the server's console. Each weather scenario after the first joins in the
+//! weather the one before it left; the script scenario runs the actions of `SCRIPT`.
 //!
 //! - `p6 api bds [scenario]...`: one BDS session (RakNet, zlib, a fresh flat world) with cheats
 //!   allowed (player commands need them) and the forms script pack (`FORMS_PACK`) installed in the
@@ -23,8 +21,8 @@
 //! fixed fields, the bot's output lines must have the same `uuid_echoed` and `state`, its form
 //! lines the same form JSON (numbers compared as numbers) and its check lines the same values. The
 //! command lists (`available` lines) are compared only for the commands both servers have and only
-//! as notes: BDS has vanilla's commands, Anchor PMMP's. The `particles` and `script` scenarios are
-//! facts only.
+//! as notes: BDS has vanilla's commands, Anchor PMMP's. The scenarios of `FACTS_ONLY` are facts
+//! only, and those of `CHECKS_ONLY` compare no fixed-field packets.
 //!
 //! Differences Anchor keeps on purpose are listed with their reasons in the intended-difference
 //! file (`xtask/data/p6/intended.txt`): a difference whose text is exactly one of its lines, in
@@ -142,8 +140,8 @@ const CHECKS_ONLY: &[&str] = &[
 const COMPANIONS: &[(&str, &str)] = &[("others", "mover")];
 /// The action file of the script scenario, relative to the repository root.
 const SCRIPT: &str = "xtask/data/p6/script.txt";
-/// The intended-difference file, relative to the repository root.
-const INTENDED: &str = "xtask/data/p6/intended.txt";
+/// The intended-difference file, relative to the repository root; `import` reads it too.
+pub(super) const INTENDED: &str = "xtask/data/p6/intended.txt";
 /// Settings of the BDS session besides the test settings: players may run cheat commands.
 const BDS_SETTINGS: &[(&str, &str)] = &[("allow-cheats", "true")];
 /// The forms script pack, relative to the repository root, and its files.

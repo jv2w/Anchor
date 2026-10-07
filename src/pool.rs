@@ -58,6 +58,27 @@ impl Pool {
         self.inner.install(|| items.par_iter().map(f).collect())
     }
 
+    /// [`map`](Self::map) for the save thread: in turns of one item per thread, each mapped after
+    /// the last ended. rayon's threads take work from outside the pool only when none is left to
+    /// steal, so a tick's map would wait behind the whole of one large map; between turns it goes
+    /// first, and waits at most about a turn. The turns cost the save thread throughput when items
+    /// differ in cost, never the tick.
+    pub(crate) fn map_in_turns<T, R>(
+        &self,
+        items: &[T],
+        f: impl Fn(&T) -> R + Sync + Send,
+    ) -> Vec<R>
+    where
+        T: Sync,
+        R: Send,
+    {
+        let mut out = Vec::with_capacity(items.len());
+        for turn in items.chunks(self.threads.max(1)) {
+            out.extend(self.map(turn, &f));
+        }
+        out
+    }
+
     /// Stops the pool and waits until its threads have ended (rayon's drop does not wait).
     /// Returns whether all of them did.
     pub(crate) fn shutdown(self) -> bool {
@@ -98,6 +119,9 @@ mod tests {
             assert_eq!(got, want, "{threads} threads");
             assert_eq!(pool.map(&items[..1], |x| *x), [0]);
             assert!(pool.map(&items[..0], |x| *x).is_empty());
+            let turns = pool.map_in_turns(&items, |x| x.wrapping_mul(2_654_435_761));
+            assert_eq!(turns, want, "{threads} threads in turns");
+            assert!(pool.map_in_turns(&items[..0], |x| *x).is_empty());
             assert!(pool.shutdown());
         }
     }

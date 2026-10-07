@@ -51,6 +51,7 @@ use crate::event::{
     InventoryClose, InventoryOpen, PlayerBlockPick, PlayerDropItem, PlayerItemHeld,
     Window as PublicWindow,
 };
+use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -83,7 +84,7 @@ const ARMOR_WINDOW: usize = 5;
 /// Slots of the 2x2 crafting grid.
 const GRID: usize = 4;
 /// Ender chest slots.
-const ENDER: usize = 27;
+const ENDER: usize = crate::inventory::Kind::EnderChest.size();
 /// Slots of the UI window (124): the cursor at 0, the 2x2 grid at 28–31, the 3x3 grid at 32–40,
 /// the created output at 50.
 const UI_SLOTS: usize = 54;
@@ -396,34 +397,56 @@ const fn part(container: ContainerId, first: u8, len: u8, store: Store) -> Part 
     }
 }
 
-const CHEST: [Part; 1] = [part(ContainerId::LevelEntity, 0, 27, Store::Block(0))];
-const DOUBLE_CHEST: [Part; 1] = [part(ContainerId::LevelEntity, 0, 54, Store::Block(0))];
-const BARREL: [Part; 1] = [part(ContainerId::Barrel, 0, 27, Store::Block(0))];
-const SHULKER_BOX: [Part; 1] = [part(ContainerId::ShulkerBox, 0, 27, Store::Block(0))];
-const HOPPER: [Part; 1] = [part(ContainerId::LevelEntity, 0, 5, Store::Block(0))];
-const ENDER_CHEST: [Part; 1] = [part(ContainerId::LevelEntity, 0, 27, Store::Ender)];
+/// A block container slot number or count as a window slot number: the tables below are
+/// constants, so a number past a byte fails the build.
+const fn byte(n: usize) -> u8 {
+    assert!(n < 256, "a window slot number is a byte");
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "invariant: checked just above"
+    )]
+    let b = n as u8;
+    b
+}
+
+/// A part of a block container whose request slots `first..first + len` are the block slots of
+/// the same numbers.
+const fn block_part(container: ContainerId, first: usize, len: usize) -> Part {
+    part(container, byte(first), byte(len), Store::Block(byte(first)))
+}
+
+const CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, CHEST_SLOTS)];
+const DOUBLE_CHEST: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, 2 * CHEST_SLOTS)];
+const BARREL: [Part; 1] = [block_part(ContainerId::Barrel, 0, CHEST_SLOTS)];
+const SHULKER_BOX: [Part; 1] = [block_part(ContainerId::ShulkerBox, 0, CHEST_SLOTS)];
+const HOPPER: [Part; 1] = [block_part(ContainerId::LevelEntity, 0, HOPPER_SLOTS)];
+const ENDER_CHEST: [Part; 1] = [part(ContainerId::LevelEntity, 0, byte(ENDER), Store::Ender)];
 const WORKBENCH: [Part; 1] = [part(ContainerId::CraftingInput, UI_TABLE, 9, Store::Ui(0))];
-/// A furnace: input 0, fuel 1, output 2 (P6: ingredient 25:0, fuel 24:1, result 26:2).
-const FURNACE: [Part; 3] = [
-    part(ContainerId::FurnaceIngredient, 0, 1, Store::Block(0)),
-    part(ContainerId::FurnaceFuel, 1, 1, Store::Block(1)),
-    part(ContainerId::FurnaceResult, 2, 1, Store::Block(2)),
-];
-const BLAST_FURNACE: [Part; 3] = [
-    part(ContainerId::BlastFurnaceIngredient, 0, 1, Store::Block(0)),
-    part(ContainerId::FurnaceFuel, 1, 1, Store::Block(1)),
-    part(ContainerId::FurnaceResult, 2, 1, Store::Block(2)),
-];
-const SMOKER: [Part; 3] = [
-    part(ContainerId::SmokerIngredient, 0, 1, Store::Block(0)),
-    part(ContainerId::FurnaceFuel, 1, 1, Store::Block(1)),
-    part(ContainerId::FurnaceResult, 2, 1, Store::Block(2)),
-];
-/// A brewing stand: ingredient 0, bottles 1 to 3, fuel 4 (PMMP `BrewingStandInventory`).
+/// A furnace's input, fuel and output with the ingredient container of its kind (P6: ingredient
+/// 25:0, fuel 24:1, result 26:2).
+const fn furnace_parts(ingredient: ContainerId) -> [Part; 3] {
+    [
+        block_part(ingredient, block_entity::FURNACE_INPUT, 1),
+        block_part(ContainerId::FurnaceFuel, block_entity::FURNACE_FUEL, 1),
+        block_part(ContainerId::FurnaceResult, block_entity::FURNACE_OUTPUT, 1),
+    ]
+}
+const FURNACE: [Part; 3] = furnace_parts(ContainerId::FurnaceIngredient);
+const BLAST_FURNACE: [Part; 3] = furnace_parts(ContainerId::BlastFurnaceIngredient);
+const SMOKER: [Part; 3] = furnace_parts(ContainerId::SmokerIngredient);
+/// A brewing stand: the ingredient, the three bottles, the fuel (PMMP `BrewingStandInventory`).
 const BREWING_STAND: [Part; 3] = [
-    part(ContainerId::BrewingStandInput, 0, 1, Store::Block(0)),
-    part(ContainerId::BrewingStandResult, 1, 3, Store::Block(1)),
-    part(ContainerId::BrewingStandFuel, 4, 1, Store::Block(4)),
+    block_part(
+        ContainerId::BrewingStandInput,
+        block_entity::BREWING_INGREDIENT,
+        1,
+    ),
+    block_part(
+        ContainerId::BrewingStandResult,
+        block_entity::BREWING_BOTTLES[0],
+        block_entity::BREWING_BOTTLES.len(),
+    ),
+    block_part(ContainerId::BrewingStandFuel, block_entity::BREWING_FUEL, 1),
 ];
 const ENCHANTING: [Part; 2] = [
     part(ContainerId::EnchantingInput, UI_ENCHANTING, 1, Store::Ui(0)),
@@ -602,6 +625,24 @@ impl WindowKind {
     }
 }
 
+/// Takes the stack network ID `next` holds and moves it on: IDs stay positive and wrap after
+/// `i32::MAX - 1`.
+fn take_stack_id(next: &mut i32) -> i32 {
+    let id = *next;
+    *next = if id >= i32::MAX - 1 { 1 } else { id + 1 };
+    id
+}
+
+/// The slots a player holds stacks in outside its own: the cursor, the 2x2 grid and the open
+/// window's own slots. A close gives them back, so they bound the waiting stacks
+/// ([`MAX_SAVED_PENDING`]).
+fn held_outside(inv: &Inventory) -> impl Iterator<Item = SlotRef> {
+    let ui = inv.window.as_ref().map_or(0, |w| w.ui.len());
+    std::iter::once(SlotRef::Cursor)
+        .chain((0..GRID).filter_map(|i| u8::try_from(i).ok().map(SlotRef::Grid)))
+        .chain((0..ui).filter_map(|i| u8::try_from(i).ok().map(SlotRef::Ui)))
+}
+
 impl Inventory {
     /// The stack in the selected hotbar slot.
     pub(super) fn held(&self) -> &Stack {
@@ -639,11 +680,9 @@ impl Inventory {
         self.window.is_some()
     }
 
-    /// A new stack network ID; IDs stay positive and wrap after `i32::MAX - 1`.
+    /// A new stack network ID ([`take_stack_id`]).
     fn new_id(&mut self) -> i32 {
-        let id = self.next_id;
-        self.next_id = if id >= i32::MAX - 1 { 1 } else { id + 1 };
-        id
+        take_stack_id(&mut self.next_id)
     }
 
     /// The player's slot `r` (not a block container slot).
@@ -727,49 +766,41 @@ impl Inventory {
     /// Puts `stack` where it fits (PMMP `BaseInventory::addItem`): first onto stacks of the same
     /// item with room, in slot order, then into empty slots; changed slots get new IDs. Returns
     /// what did not fit and the main slots changed.
-    fn add(&mut self, mut stack: Stack) -> (Stack, Vec<u8>) {
-        let mut changed = Vec::new();
-        let max = stack.max_count();
-        for pass in [false, true] {
-            for (i, slot) in (0u8..).zip(self.main.stacks.iter_mut()) {
-                if stack.is_empty() {
-                    break;
-                }
-                let moved = if pass {
-                    if !slot.is_empty() {
-                        continue;
-                    }
-                    max.min(stack.count())
-                } else {
-                    if !slot.can_stack_with(&stack) || slot.count() >= max {
-                        continue;
-                    }
-                    (max - slot.count()).min(stack.count())
-                };
-                *slot = stack.with_count(slot.count() + moved);
-                stack = stack.with_count(stack.count() - moved);
+    fn add(&mut self, stack: Stack) -> (Stack, Vec<u8>) {
+        let (writes, left) = self.main_view().plan_add(&stack);
+        if writes.is_empty() {
+            return (stack, Vec::new());
+        }
+        let mut changed = Vec::with_capacity(writes.len());
+        for (i, s) in writes {
+            let Ok(i) = u8::try_from(i) else {
+                continue;
+            };
+            let net = self.new_id();
+            if self.main.put(
+                i,
+                Slot {
+                    stack: s,
+                    id: StackId { net, request: None },
+                },
+            ) {
                 changed.push(i);
             }
         }
-        for &i in &changed {
-            let net = self.new_id();
-            if let Some(id) = self.main.ids.get_mut(usize::from(i)) {
-                *id = StackId { net, request: None };
-            }
-        }
-        (stack, changed)
+        (left, changed)
+    }
+
+    /// The main slots as an inventory to read.
+    fn main_view(&self) -> crate::inventory::Inventory<'_> {
+        crate::inventory::Inventory::new(&self.main.stacks, &[], crate::inventory::MAX_STACK)
     }
 
     /// The first main slot holding the item of `stack` (PMMP `BaseInventory::first`, not
     /// exact: any count; the extra data counts only if `stack` has some).
     fn first(&self, stack: &Stack) -> Option<u8> {
-        (0u8..).zip(&self.main.stacks).find_map(|(i, s)| {
-            let same = s.item().is_some()
-                && s.item() == stack.item()
-                && s.damage() == stack.damage()
-                && (stack.extra().is_none() || s.extra() == stack.extra());
-            same.then_some(i)
-        })
+        self.main_view()
+            .first(stack)
+            .and_then(|i| u8::try_from(i).ok())
     }
 
     /// The first empty main slot.
@@ -1225,7 +1256,7 @@ fn block_slot(kind: WindowKind, i: u8) -> Option<(WorldIndex, BlockPos, usize)> 
             kind: Container::Chest,
             pair: Some(_),
             ..
-        } => 27,
+        } => CHEST_SLOTS,
         _ => usize::MAX,
     };
     if i < half {
@@ -1243,7 +1274,7 @@ fn window_slot_of(kind: WindowKind, pos: BlockPos, index: usize) -> Option<u8> {
     let at = if first.is_some_and(|(_, p)| p == pos) {
         index
     } else if second.is_some_and(|(_, p)| p == pos) {
-        index.checked_add(27)?
+        index.checked_add(CHEST_SLOTS)?
     } else {
         return None;
     };
@@ -1580,7 +1611,7 @@ pub(super) fn on_block_pick_request(
     };
     let mut event = dispatch::heard::<PlayerBlockPick>(state).then(|| PlayerBlockPick {
         player: crate::player::Id::new(session),
-        world: world_id(world),
+        world: crate::world::Id::of(world),
         pos,
         block,
         result_item: picked.clone(),
@@ -1647,10 +1678,7 @@ fn pick(
         return None;
     }
     let world = player.world;
-    let finite = !matches!(
-        super::survival::game_mode(state, player),
-        GameMode::Creative | GameMode::Spectator
-    );
+    let finite = super::survival::game_mode(state, player) != GameMode::Creative;
     let block = state.worlds.get(world).and_then(|w| w.block(pos))?;
     let picked = match block.item() {
         ItemForm::Item(item) if add_data => {
@@ -1983,18 +2011,12 @@ fn public_window(kind: WindowKind) -> Option<PublicWindow> {
         | WindowKind::Ender { world, pos }
         | WindowKind::Workbench { world, pos }
         | WindowKind::Station { world, pos, .. } => PublicWindow::Block {
-            world: world_id(world),
+            world: crate::world::Id::of(world),
             pos,
         },
         WindowKind::Trade { villager } => PublicWindow::Trade(villager),
         WindowKind::Menu { .. } => return None,
     })
-}
-
-/// The public ID of the world at `index` (a server has fewer than 2^32 worlds, so every index
-/// has one).
-pub(super) fn world_id(index: WorldIndex) -> crate::world::Id {
-    crate::world::Id::new(index).unwrap_or(crate::world::Id::DEFAULT)
 }
 
 /// Opens `kind` for `session`: the current window closes from the server side first, and the

@@ -2,9 +2,13 @@
 //! entity data (`SetActorData`), abilities (`UpdateAbilities`), adventure settings and game
 //! rules, with the values BDS sends (P6) and the changes sent at the end of each tick.
 
-use super::{Survival, broadcast_to_viewers, effects, f32_of, first_session, next_session};
+use super::{
+    DEFAULT_SATURATION, MAX_EXHAUSTION, MAX_FOOD, MAX_HEALTH, MAX_SATURATION, PLAYER_HEIGHT,
+    PLAYER_WIDTH, Survival, broadcast_to_viewers, effects, f32_of, first_session, next_session,
+};
 use crate::config::GameMode;
 use crate::effect;
+use crate::player::MAX_LEVEL;
 use crate::protocol::consts::{
     ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability, AbilityLayerType,
     CommandPermissionLevel, EntityDataFlag, EntityDataKey, PermissionLevel,
@@ -76,12 +80,42 @@ impl Def {
 /// The attributes of a player in the order BDS sends them, with BDS's ranges and defaults
 /// (P6: 17 attributes, no modifiers).
 const DEFS: [Def; 17] = [
-    Def::new("minecraft:player.hunger", 0.0, 20.0, 20.0, HUNGER),
-    Def::new("minecraft:player.saturation", 0.0, 20.0, 5.0, SATURATION),
-    Def::new("minecraft:player.exhaustion", 0.0, 20.0, 0.0, EXHAUSTION),
-    Def::new("minecraft:player.level", 0.0, 24_791.0, 0.0, LEVEL),
+    Def::new(
+        "minecraft:player.hunger",
+        0.0,
+        f32_of(MAX_FOOD),
+        f32_of(MAX_FOOD),
+        HUNGER,
+    ),
+    Def::new(
+        "minecraft:player.saturation",
+        0.0,
+        f32_of(MAX_SATURATION),
+        f32_of(DEFAULT_SATURATION),
+        SATURATION,
+    ),
+    Def::new(
+        "minecraft:player.exhaustion",
+        0.0,
+        f32_of(MAX_EXHAUSTION),
+        0.0,
+        EXHAUSTION,
+    ),
+    Def::new(
+        "minecraft:player.level",
+        0.0,
+        f32_of(MAX_LEVEL as f64),
+        0.0,
+        LEVEL,
+    ),
     Def::new("minecraft:player.experience", 0.0, 1.0, 0.0, EXPERIENCE),
-    Def::new("minecraft:health", 0.0, 20.0, 20.0, HEALTH),
+    Def::new(
+        "minecraft:health",
+        0.0,
+        f32_of(MAX_HEALTH),
+        f32_of(MAX_HEALTH),
+        HEALTH,
+    ),
     Def::new("minecraft:follow_range", 0.0, 2048.0, 16.0, 0),
     Def::new("minecraft:knockback_resistance", -2.0, 1.0, 0.0, 0),
     Def::new("minecraft:movement", 0.0, f32::MAX, 0.1, MOVEMENT),
@@ -300,14 +334,15 @@ pub(super) fn shown(player: &Player) -> Shown {
 }
 
 /// The collision box width and height (PMMP `Living::recalculateSize`): 0.6 by 1.8, 1.49 high
-/// sneaking, 0.6 high swimming or gliding.
+/// sneaking, as high as wide swimming or gliding.
 pub(super) fn size(s: &Survival) -> [f32; 2] {
+    let width = f32_of(PLAYER_WIDTH);
     if s.motion.swimming || s.motion.gliding {
-        [0.6, 0.6]
+        [width, width]
     } else if s.motion.sneaking {
-        [0.6, 1.49]
+        [width, 1.49]
     } else {
-        [0.6, 1.8]
+        [width, f32_of(PLAYER_HEIGHT)]
     }
 }
 

@@ -26,15 +26,15 @@ pub(crate) struct Received {
     pub(crate) fields: Value,
 }
 
-/// Packets left out of the spawn window comparison, by name, with their status (`-`: Anchor never
-/// sends the packet).
+/// Packets left out of the spawn window comparison, by name: packets Anchor never sends (status
+/// `-`, the only one the table takes).
 #[derive(Debug, Default)]
-pub(crate) struct Deferred(BTreeMap<String, String>);
+pub(crate) struct Deferred(BTreeSet<String>);
 
 impl Deferred {
     /// Whether the table holds the packet.
     pub(crate) fn contains(&self, name: &str) -> bool {
-        self.0.contains_key(name)
+        self.0.contains(name)
     }
 }
 
@@ -57,7 +57,7 @@ impl Fields {
 
 /// Reads the deferral table: one `<packet> <status> <reason>` per line, `#` starts a comment.
 pub(crate) fn parse_deferred(text: &str) -> Result<Deferred, String> {
-    let mut map = BTreeMap::new();
+    let mut names = BTreeSet::new();
     for (number, line) in table_lines(text) {
         let mut words = line.split_whitespace();
         let (Some(name), Some(status), Some(_reason)) = (words.next(), words.next(), words.next())
@@ -72,13 +72,13 @@ pub(crate) fn parse_deferred(text: &str) -> Result<Deferred, String> {
                 "{DEFERRED_PATH}:{number}: status `{status}` is not -"
             ));
         }
-        if map.insert(name.to_owned(), status.to_owned()).is_some() {
+        if !names.insert(name.to_owned()) {
             return Err(format!(
                 "{DEFERRED_PATH}:{number}: `{name}` is listed twice"
             ));
         }
     }
-    Ok(Deferred(map))
+    Ok(Deferred(names))
 }
 
 /// Reads the fixed-field list: one `<packet> <field>[.<field>...]` per line. A packet listed here
@@ -90,7 +90,7 @@ pub(crate) fn parse_fields(text: &str, deferred: &Deferred) -> Result<Fields, St
         let [name, path] = words.as_slice() else {
             return Err(format!("{FIELDS_PATH}:{number}: want `<packet> <field>`"));
         };
-        if deferred.0.contains_key(*name) {
+        if deferred.contains(name) {
             return Err(format!(
                 "{FIELDS_PATH}:{number}: `{name}` is in the deferral table"
             ));
@@ -335,7 +335,7 @@ fn kept<'a>(window: &'a [Received], deferred: &Deferred) -> Vec<&'a Received> {
     window
         .iter()
         .filter(|p| {
-            !deferred.0.contains_key(&p.name)
+            !deferred.contains(&p.name)
                 && !CHUNK_PACKETS.contains(&p.name.as_str())
                 && !other_entity(p)
         })

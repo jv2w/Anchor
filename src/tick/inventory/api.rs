@@ -247,13 +247,8 @@ fn block_view(
 /// The stacks the player holds outside its slots: the cursor, the 2x2 grid and the window's own
 /// slots (the invariant of [`MAX_SAVED_PENDING`]).
 fn held_outside(inv: &super::Inventory) -> usize {
-    let window = inv.window.as_ref().map_or(&[][..], |w| w.ui.as_slice());
-    inv.cursor
-        .stacks
-        .iter()
-        .chain(&inv.grid.stacks)
-        .chain(window.iter().map(|s| &s.stack))
-        .filter(|s| !s.is_empty())
+    super::held_outside(inv)
+        .filter(|r| inv.get(*r).is_some_and(|s| !s.stack.is_empty()))
         .count()
 }
 

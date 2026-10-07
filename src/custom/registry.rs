@@ -15,6 +15,7 @@ use crate::block::{self, PropertyValue};
 use crate::crafting::{self, FurnaceType, ShapelessType};
 use crate::item::{self, Stack, Type};
 use crate::nbt::{Compound, Value};
+use crate::protocol::consts::ItemEntryVersion;
 use crate::protocol::{BlockEntry, ItemEntry, packet};
 
 /// The most custom items and blocks together.
@@ -27,13 +28,6 @@ const MAX_ALL_STATES: usize = 65_536;
 const MAX_IDENTIFIER: usize = 128;
 /// The first block ID of custom blocks (dragonfly: 10,000 plus the block's index).
 const FIRST_BLOCK_ID: i32 = 10_000;
-/// `ItemEntry.Version` of a component-based item (gophertunnel `ItemEntryVersionDataDriven`).
-const VERSION_DATA_DRIVEN: i32 = 1;
-/// `ItemEntry.Version` of a block's item (gophertunnel `ItemEntryVersionNone`, as vanilla
-/// block items have).
-const VERSION_NONE: i32 = 2;
-/// The meta of an ingredient that matches every meta.
-const WILDCARD_META: i32 = 0x7fff;
 
 /// One registration.
 #[derive(Debug, Clone, Copy)]
@@ -354,7 +348,7 @@ impl Registry {
             for index in 0..count {
                 let index = u16::try_from(index).map_err(|_| Error::Definition {
                     identifier: b.identifier(),
-                    reason: "more than 4,096 states",
+                    reason: "a state index past 65,535",
                 })?;
                 let state =
                     block::State::custom(b, index, t.runtime_id()).ok_or(Error::Definition {
@@ -471,14 +465,15 @@ impl Registry {
                     name: i.identifier().to_owned(),
                     runtime_id: t.runtime_id(),
                     component_based: true,
-                    version: VERSION_DATA_DRIVEN,
+                    version: i32::from(ItemEntryVersion::DataDriven),
                     data: i.components(),
                 },
                 Entry::Block(b) => ItemEntry {
                     name: b.identifier().to_owned(),
                     runtime_id: t.runtime_id(),
                     component_based: false,
-                    version: VERSION_NONE,
+                    // As vanilla block items have.
+                    version: i32::from(ItemEntryVersion::None),
                     data: Compound::new(),
                 },
             })
@@ -990,7 +985,7 @@ impl Registry {
                 // A vanilla block item's legacy meta is not known here: the client is sent any
                 // meta of the name, the server still takes only this type.
                 let network_meta = if t.block().is_some() && t.custom_block().is_none() {
-                    WILDCARD_META
+                    crafting::WILDCARD_META
                 } else {
                     i32::from(t.meta())
                 };

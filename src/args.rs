@@ -11,7 +11,7 @@
 use std::env;
 use std::ffi::OsString;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::Update;
 use crate::error::{Error, Result};
@@ -83,8 +83,8 @@ pub(crate) fn updated(update: Option<&Update>) -> String {
     added.chain(renamed).collect::<Vec<_>>().join("\n")
 }
 
-/// What `import` writes when the world is imported as `world`.
-pub(crate) fn imported(world: &str, report: &Report) -> String {
+/// What `import` writes when the world is imported as `world` into `file`.
+pub(crate) fn imported(world: &str, file: &Path, report: &Report) -> String {
     let spawn = report.spawn();
     let unknown = report.unknown_blocks().values().copied();
     let unknown = unknown.fold(report.unlisted_unknown_blocks(), u64::saturating_add);
@@ -97,11 +97,12 @@ pub(crate) fn imported(world: &str, report: &Report) -> String {
         format!("[worlds.{world:?}]")
     };
     format!(
-        "imported the world {world:?} as data/world/{world}.redb: {} chunks, {} block entities
+        "imported the world {world:?} as {}: {} chunks, {} block entities
 left out: {} entities, {} Nether chunks, {} End chunks, {} players
 unknown blocks, kept as they are: {unknown}
 its spawn in level.dat is {x} {y} {z}; to use it, set spawn = [{x}, {y}, {z}] under {table}
 a running server sees the world after its next start",
+        file.display(),
         report.chunks(),
         report.block_entities(),
         report.entities(),
@@ -126,11 +127,26 @@ pub(crate) fn say(text: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Task, parse};
+    use super::{Task, imported, parse};
     use crate::Error;
+    use crate::import::Report;
 
     fn task(args: &[&str]) -> crate::Result<Task> {
         parse(args.iter().map(Into::into).collect())
+    }
+
+    #[test]
+    fn the_import_report_names_the_file_written() {
+        let file = crate::storage::Place::world(std::path::Path::new("srv"), "lobby").file;
+        let text = imported("lobby", &file, &Report::default());
+        assert!(
+            text.starts_with(&format!(
+                "imported the world \"lobby\" as {}:",
+                file.display()
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("data/world"), "{text}");
     }
 
     #[test]

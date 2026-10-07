@@ -24,8 +24,6 @@
 //! never shown, and written back as it was at the end of `Recipes` (saved data is not
 //! destroyed).
 
-use std::fmt;
-
 use tracing::warn;
 
 use crate::custom::Registry;
@@ -44,11 +42,9 @@ pub(in crate::tick) const MAX_OFFERS: usize = 128;
 /// reader's budget to read back: 128 offers of three stacks could take 36 MiB
 /// (`item::MAX_NBT_BYTES` each), but the villager's entity must fit one NBT root (4 MiB) and its
 /// `UpdateTrade` one packet NBT root. PMMP has no such limit.
-const MAX_SAVED_BYTES: usize = 2 << 20;
+pub(in crate::tick) const MAX_SAVED_BYTES: usize = 2 << 20;
 /// The experience each tier needs, as BDS sends it (P6).
 const DEFAULT_TIER_EXPERIENCE: [u32; TIERS] = [0, 10, 70, 150, 250];
-/// The price multiplier BDS gives most offers (P6).
-const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 /// The largest value an NBT `TAG_Int` counter holds.
 const MAX_INT: u32 = i32::MAX.cast_unsigned();
 
@@ -137,25 +133,6 @@ pub(in crate::tick) enum Error {
 /// The result of an offer list change.
 pub(in crate::tick) type Result<T> = std::result::Result<T, Error>;
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::NoPayment => "the offer has no payment",
-            Self::NoSale => "the offer sells nothing",
-            Self::Uses => "uses above the maximum or a counter out of range",
-            Self::Tier => "a tier above 4",
-            Self::Multiplier => "a price multiplier that is not finite",
-            Self::TierExperience => "tier experience requirements that go down or are too large",
-            Self::Full => "too many offers",
-            Self::TooLarge => "the offers' saved form is over 2 MiB",
-            Self::NoOffer => "no offer at that index",
-            Self::NotVillager => "not a villager",
-        })
-    }
-}
-
-impl std::error::Error for Error {}
-
 /// How a payment item matches what the player gives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(in crate::tick) enum Damage {
@@ -205,8 +182,21 @@ pub(in crate::tick) struct Recipe {
 
 impl Recipe {
     /// An offer of `sell` for `buy_a` (and `buy_b`, or empty) at most `max_uses` times, with
-    /// BDS's defaults: tier 0, no villager experience, reward orbs, multipliers 0.05, demand 0.
+    /// the defaults of [`Offer::new`](crate::custom::Offer::new) and exact payment damage.
     pub(in crate::tick) fn new(buy_a: Stack, buy_b: Stack, sell: Stack, max_uses: u32) -> Self {
+        let crate::custom::Offer {
+            buy_a,
+            buy_b: _,
+            any_damage: _,
+            sell,
+            max_uses,
+            uses,
+            tier,
+            trader_exp,
+            reward_exp,
+            price_multipliers: (price_multiplier_a, price_multiplier_b),
+            demand,
+        } = crate::custom::Offer::new(buy_a, sell, max_uses);
         Self {
             buy_a,
             buy_b,
@@ -214,13 +204,13 @@ impl Recipe {
             damage_b: Damage::Exact,
             sell,
             max_uses,
-            uses: 0,
-            tier: 0,
-            trader_exp: 0,
-            reward_exp: true,
-            price_multiplier_a: DEFAULT_PRICE_MULTIPLIER,
-            price_multiplier_b: DEFAULT_PRICE_MULTIPLIER,
-            demand: 0,
+            uses,
+            tier,
+            trader_exp,
+            reward_exp,
+            price_multiplier_a,
+            price_multiplier_b,
+            demand,
             unknown: Compound::new(),
         }
     }
@@ -816,7 +806,7 @@ fn counter(c: &Compound, key: &str) -> std::result::Result<Option<u32>, &'static
 /// A price multiplier under `key` (the default if absent).
 fn float(c: &Compound, key: &str) -> std::result::Result<f32, &'static str> {
     match c.get(key) {
-        None => Ok(DEFAULT_PRICE_MULTIPLIER),
+        None => Ok(crate::custom::DEFAULT_PRICE_MULTIPLIER),
         Some(Value::Float(v)) => Ok(*v),
         Some(_) => Err("price multiplier is not a float"),
     }

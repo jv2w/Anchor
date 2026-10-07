@@ -1,7 +1,10 @@
 //! Reading and changing the Bedrock properties of block states the rules use, and the facings
-//! PMMP's serializer writes into them (`BlockStateWriter`, `ValueMappings`).
+//! PMMP's serializer writes into them (`BlockStateWriter`, `ValueMappings`) by the property each
+//! rule reads; the encodings themselves are the interaction rules'.
 
 use crate::block::{Face, PropertyValue, State};
+use crate::tick::interact::props::{Encoding, facing_in};
+pub(super) use crate::tick::interact::props::{face_name, face_of, multi_face_bit, vine_bit};
 
 /// An integer or boolean property as a number.
 #[inline]
@@ -55,72 +58,27 @@ pub(super) fn plain(name: &str) -> Option<State> {
 
 /// `facing_direction` as PMMP's `Facing` (down, up, north, south, west, east).
 pub(super) fn facing_direction(s: State) -> Option<Face> {
-    Some(match int(s, "facing_direction")? {
-        0 => Face::Down,
-        1 => Face::Up,
-        2 => Face::North,
-        3 => Face::South,
-        4 => Face::West,
-        5 => Face::East,
-        _ => return None,
-    })
+    facing_in(s, "facing_direction", Encoding::Classic)
 }
 
 /// `minecraft:cardinal_direction` as a facing.
 pub(super) fn cardinal(s: State) -> Option<Face> {
-    face_name(text(s, "minecraft:cardinal_direction")?)
-}
-
-/// A facing from its name (`minecraft:block_face`, `minecraft:cardinal_direction`).
-pub(super) fn face_name(name: &str) -> Option<Face> {
-    Some(match name {
-        "down" => Face::Down,
-        "up" => Face::Up,
-        "north" => Face::North,
-        "south" => Face::South,
-        "west" => Face::West,
-        "east" => Face::East,
-        _ => return None,
-    })
-}
-
-/// The name of a facing (`minecraft:cardinal_direction`).
-pub(super) fn name_of(face: Face) -> &'static str {
-    match face {
-        Face::Down => "down",
-        Face::Up => "up",
-        Face::North => "north",
-        Face::South => "south",
-        Face::West => "west",
-        Face::East => "east",
-    }
+    facing_in(s, "minecraft:cardinal_direction", Encoding::Cardinal)
 }
 
 /// `direction` in PMMP's south-west-north-east order (bells, beds).
 pub(super) fn direction_swne(s: State) -> Option<Face> {
-    [Face::South, Face::West, Face::North, Face::East]
-        .get(usize::try_from(int(s, "direction")?).ok()?)
-        .copied()
+    facing_in(s, "direction", Encoding::Swne)
 }
 
 /// `direction` in north-east-south-west order (cocoa: PMMP `horizontalFacingSWNEInverted`).
 pub(super) fn direction_nesw(s: State) -> Option<Face> {
-    [Face::North, Face::East, Face::South, Face::West]
-        .get(usize::try_from(int(s, "direction")?).ok()?)
-        .copied()
+    facing_in(s, "direction", Encoding::SwneInverted)
 }
 
-/// A torch's facing: Bedrock writes the horizontal directions the other way round (PMMP
-/// `torchFacing`, MCPE-152036); "top" and "unknown" are up.
+/// A torch's facing (PMMP `torchFacing`).
 pub(super) fn torch_facing(s: State) -> Option<Face> {
-    Some(match text(s, "torch_facing_direction")? {
-        "top" | "unknown" => Face::Up,
-        "east" => Face::West,
-        "west" => Face::East,
-        "north" => Face::South,
-        "south" => Face::North,
-        _ => return None,
-    })
+    facing_in(s, "torch_facing_direction", Encoding::Torch)
 }
 
 /// A lever's facing (PMMP `LeverFacing::getFacing`).
@@ -128,34 +86,23 @@ pub(super) fn lever_facing(s: State) -> Option<Face> {
     Some(match text(s, "lever_direction")? {
         "down_east_west" | "down_north_south" => Face::Down,
         "up_east_west" | "up_north_south" => Face::Up,
-        other => face_name(other)?,
+        other => face_of(other)?,
     })
 }
 
 /// A wall coral fan's facing (PMMP `horizontalFacingCoral`).
 pub(super) fn coral_facing(s: State) -> Option<Face> {
-    [Face::West, Face::East, Face::North, Face::South]
-        .get(usize::try_from(int(s, "coral_direction")?).ok()?)
-        .copied()
+    facing_in(s, "coral_direction", Encoding::Coral)
 }
 
 /// The faces of a multi-face block (`multi_face_direction_bits`: glow lichen, resin) or of vines
 /// (`vine_direction_bits`), in [`Face::ALL`] order.
 pub(super) fn faces(s: State) -> Option<Vec<Face>> {
     if let Some(bits) = int(s, "multi_face_direction_bits") {
-        // PMMP `MULTI_FACE_DIRECTION_FLAG_*`: down 1, up 2, south 4, west 8, north 16, east 32.
-        let bit = |f: Face| match f {
-            Face::Down => 1,
-            Face::Up => 2,
-            Face::South => 4,
-            Face::West => 8,
-            Face::North => 16,
-            Face::East => 32,
-        };
         return Some(
             Face::ALL
                 .into_iter()
-                .filter(|f| bits & bit(*f) != 0)
+                .filter(|f| bits & multi_face_bit(*f) != 0)
                 .collect(),
         );
     }
@@ -168,37 +115,13 @@ pub(super) fn faces(s: State) -> Option<Vec<Face>> {
     )
 }
 
-/// The `vine_direction_bits` bit of a side (PMMP `VINE_FLAG_*`: south 1, west 2, north 4, east
-/// 8).
-pub(super) fn vine_bit(face: Face) -> Option<i32> {
-    match face {
-        Face::South => Some(1),
-        Face::West => Some(2),
-        Face::North => Some(4),
-        Face::East => Some(8),
-        Face::Down | Face::Up => None,
-    }
-}
-
-/// The `multi_face_direction_bits` bit of a face.
-pub(super) fn multi_face_bit(face: Face) -> i32 {
-    match face {
-        Face::Down => 1,
-        Face::Up => 2,
-        Face::South => 4,
-        Face::West => 8,
-        Face::North => 16,
-        Face::East => 32,
-    }
-}
-
 /// Whether two faces are on the same axis.
 pub(super) fn same_axis(a: Face, b: Face) -> bool {
     a == b || a == b.opposite()
 }
 
 /// The horizontal faces in PMMP `Facing::HORIZONTAL` order: north, south, west, east.
-pub(super) const HORIZONTAL: [Face; 4] = [Face::North, Face::South, Face::West, Face::East];
+pub(super) const HORIZONTAL: [Face; 4] = Face::HORIZONTAL;
 
 #[cfg(test)]
 mod tests {

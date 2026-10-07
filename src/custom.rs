@@ -30,6 +30,7 @@ use std::fmt;
 pub use self::block::{Behaviour, Block, Drops, Material, Property, RenderMethod};
 pub use self::creative::{CreativeGroup, CreativeInventory, CreativeItem};
 pub use self::item::Item;
+pub(crate) use self::offer::DEFAULT_PRICE_MULTIPLIER;
 pub use self::offer::Offer;
 pub use self::recipe::{Ingredient, Recipe};
 pub(crate) use self::registry::Registry;

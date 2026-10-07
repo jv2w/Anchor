@@ -164,7 +164,8 @@ impl UserData {
                 Err(e) => warn!(
                     name = server.codec.name,
                     error = ?e,
-                    "server data not saved: its json is over 1 MiB or does not serialize; the last saved value stays"
+                    max_bytes = MAX_SERVER_VALUE_BYTES,
+                    "server data not saved: its json is over max_bytes or does not serialize; the last saved value stays"
                 ),
             }
         }
@@ -373,7 +374,8 @@ pub(in crate::tick) fn save_player(data: &UserData, extra: &PlayerExtra, out: &m
             Err(e) => warn!(
                 name = codec.name,
                 error = ?e,
-                "player data not saved: its json is over 64 KiB or does not serialize; the last saved value stays"
+                max_bytes = MAX_PLAYER_VALUE_BYTES,
+                "player data not saved: its json is over max_bytes or does not serialize; the last saved value stays"
             ),
         }
     }

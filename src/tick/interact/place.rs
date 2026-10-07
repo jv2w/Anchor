@@ -11,6 +11,7 @@ use crate::math::Vec3;
 use crate::random::Random;
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
+use super::super::update;
 use super::props::{self, Axis};
 
 /// The blocks a placement sets, in position order (at most a few: doors, beds, tall plants).
@@ -204,7 +205,7 @@ fn can_be_placed_at(ctx: &Context<'_>, state: State) -> bool {
                 if replace.can_be_replaced() {
                     return true;
                 }
-                if replace.kind() == state.kind() && !is_double_slab(replace) {
+                if replace.kind() == state.kind() && !props::is_double_slab(replace) {
                     return if is_top_slab(replace) {
                         ctx.click.y <= 0.5 || (!is_clicked && ctx.face == Face::Up)
                     } else {
@@ -282,147 +283,11 @@ fn uses_static_support(class: Class) -> bool {
     )
 }
 
-/// PMMP `canBeSupportedAt` of the state's class, at the replaced position.
+/// PMMP `canBeSupportedAt` of the state's class, at the replaced position ([`update::static_support`]
+/// with the placement reads; a class without a rule stands).
 fn supported_at(ctx: &Context<'_>, state: State) -> bool {
-    let below = ctx.side(Face::Down);
-    let soil = |s: State| s.has_type_tag(TypeTag::Dirt) || s.has_type_tag(TypeTag::Mud);
-    for class in state.kind().classes() {
-        let result = match class {
-            Class::Azalea => below.kind() == Kind::Clay || soil(below),
-            Class::Bamboo => {
-                below.kind() == state.kind()
-                    || below.kind() == Kind::Gravel
-                    || soil(below)
-                    || below.has_type_tag(TypeTag::Sand)
-            }
-            Class::BambooSapling => {
-                below.kind() == Kind::Gravel || soil(below) || below.has_type_tag(TypeTag::Sand)
-            }
-            Class::BaseCake | Class::Carpet => below != block::AIR,
-            Class::Cactus => {
-                (below.kind() == state.kind() || below.has_type_tag(TypeTag::Sand))
-                    && Face::HORIZONTAL
-                        .into_iter()
-                        .all(|f| !ctx.side(f).is_solid())
-            }
-            Class::CactusFlower => {
-                below.support(Face::Up).has_center_support() || below.kind() == Kind::Cactus
-            }
-            Class::CaveVines => {
-                let up = ctx.side(Face::Up);
-                up.support(Face::Down) == SupportType::Full || up.kind() == state.kind()
-            }
-            Class::CeilingCenterHangingSign => {
-                let up = ctx.side(Face::Up);
-                up.support(Face::Down).has_center_support() || up.has_type_tag(TypeTag::HangingSign)
-            }
-            Class::ChorusFlower => chorus_flower_supported(ctx, below),
-            Class::ChorusPlant => chorus_plant_supported(ctx, state, below),
-            Class::Coral | Class::FloorCoralFan | Class::FlowerPot | Class::RedstoneWire => {
-                ctx.support(Face::Down).has_center_support()
-            }
-            Class::Crops | Class::PitcherCrop | Class::TorchflowerCrop => {
-                below.kind() == Kind::Farmland
-            }
-            Class::DeadBush => {
-                below.has_type_tag(TypeTag::Sand)
-                    || below.has_type_tag(TypeTag::Mud)
-                    || matches!(
-                        below.kind(),
-                        Kind::Podzol
-                            | Kind::Mycelium
-                            | Kind::Dirt
-                            | Kind::Grass
-                            | Kind::HardenedClay
-                            | Kind::StainedClay
-                    )
-            }
-            Class::Flower | Class::Sapling | Class::TallGrass | Class::PinkPetals => soil(below),
-            Class::HangingRoots => ctx.support(Face::Up).has_center_support(),
-            Class::NetherFungus | Class::NetherRoots | Class::NetherSprouts => {
-                soil(below) || below.has_type_tag(TypeTag::Nylium) || below.kind() == Kind::SoulSoil
-            }
-            Class::NetherVines => {
-                // Twisting vines grow up, weeping vines down.
-                let growth = if state.kind() == Kind::WeepingVines {
-                    Face::Down
-                } else {
-                    Face::Up
-                };
-                let support = ctx.side(growth.opposite());
-                support.support(growth).has_center_support() || support.kind() == state.kind()
-            }
-            Class::NetherWartPlant => below.kind() == Kind::SoulSand,
-            Class::PressurePlate | Class::RedstoneComparator | Class::RedstoneRepeater => {
-                ctx.support(Face::Down) != SupportType::None
-            }
-            Class::SporeBlossom => ctx.support(Face::Up) == SupportType::Full,
-            Class::Sugarcane => {
-                below.kind() == state.kind()
-                    || below.has_type_tag(TypeTag::Mud)
-                    || below.has_type_tag(TypeTag::Dirt)
-                    || below.has_type_tag(TypeTag::Sand)
-            }
-            Class::SweetBerryBush => below.kind() != Kind::Farmland && soil(below),
-            Class::WaterLily => below.is(Class::Water),
-            Class::WitherRose => {
-                soil(below)
-                    || matches!(
-                        below.kind(),
-                        Kind::Netherrack | Kind::SoulSand | Kind::SoulSoil
-                    )
-            }
-            _ => continue,
-        };
-        return result;
-    }
-    true
-}
-
-/// PMMP `ChorusFlower::canBeSupportedAt`.
-fn chorus_flower_supported(ctx: &Context<'_>, below: State) -> bool {
-    if matches!(below.kind(), Kind::EndStone | Kind::ChorusPlant) {
-        return true;
-    }
-    let mut plant = false;
-    for f in Face::HORIZONTAL {
-        let side = ctx.side(f);
-        if side.kind() == Kind::ChorusPlant {
-            if plant {
-                return false;
-            }
-            plant = true;
-        } else if side != block::AIR {
-            return false;
-        }
-    }
-    plant
-}
-
-/// PMMP `ChorusPlant::canBeSupportedAt`.
-fn chorus_plant_supported(ctx: &Context<'_>, state: State, below: State) -> bool {
-    let by = |s: State| s.kind() == state.kind() || s.kind() == Kind::EndStone;
-    let vertical_air = below == block::AIR || ctx.side(Face::Up) == block::AIR;
-    for f in Face::HORIZONTAL {
-        let side_pos = ctx.replace.step(f);
-        if block_at(ctx.world, side_pos).kind() == Kind::ChorusPlant {
-            if !vertical_air {
-                return false;
-            }
-            if by(block_at(
-                ctx.world,
-                side_pos.and_then(|p| p.step(Face::Down)),
-            )) {
-                return true;
-            }
-        }
-    }
-    by(below)
-}
-
-/// Whether a slab state is a double slab.
-fn is_double_slab(state: State) -> bool {
-    state.name().contains("double")
+    update::static_support(state, ctx.replace, |p| Some(block_at(ctx.world, Some(p))))
+        .unwrap_or(true)
 }
 
 /// Whether a single slab is in the top half.
@@ -627,16 +492,12 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 }
             }
             Class::CaveVines => {
-                // PMMP draws the age that limits how far the vine grows (MAX_AGE 25).
-                s = props::with_int(s, "growing_plant_age", rng.range(0, 25))?;
+                // PMMP draws the age that limits how far the vine grows.
+                s = props::with_int(s, "growing_plant_age", rng.range(0, update::MAX_VINE_AGE))?;
             }
             Class::NetherVines => {
-                let name = if s.kind() == Kind::WeepingVines {
-                    "weeping_vines_age"
-                } else {
-                    "twisting_vines_age"
-                };
-                s = props::with_int(s, name, rng.range(0, 24))?;
+                let age = rng.range(0, update::MAX_VINE_AGE - 1);
+                s = props::with_int(s, update::nether_vines_age(s), age)?;
             }
             Class::CeilingCenterHangingSign => {
                 if face != Face::Down {
@@ -853,7 +714,8 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 } else {
                     0
                 };
-                s = props::with_int(s, "vine_direction_bits", bits | vine_bit(face.opposite()))?;
+                let bit = props::vine_bit(face.opposite()).unwrap_or(0);
+                s = props::with_int(s, "vine_direction_bits", bits | bit)?;
             }
             Class::WallHangingSign => s = wall_hanging_sign(ctx, s)?,
             Class::GlowLichen | Class::ResinClump => s = multi_support(ctx, s)?,
@@ -913,41 +775,7 @@ fn coral_dead(ctx: &Context<'_>, state: State) -> State {
     if water {
         return state;
     }
-    let name = state.name();
-    if name.contains(":dead_") {
-        return state;
-    }
-    name.strip_prefix("minecraft:")
-        .and_then(|rest| {
-            let mut dead = String::with_capacity(name.len() + 5);
-            dead.push_str("minecraft:dead_");
-            dead.push_str(rest);
-            props::renamed(state, &dead)
-        })
-        .unwrap_or(state)
-}
-
-/// The `vine_direction_bits` bit of a face (PMMP `BlockLegacyMetadata::VINE_FLAG_*`).
-fn vine_bit(face: Face) -> i32 {
-    match face {
-        Face::South => 1,
-        Face::West => 2,
-        Face::North => 4,
-        Face::East => 8,
-        Face::Up | Face::Down => 0,
-    }
-}
-
-/// The `multi_face_direction_bits` bit of a face (PMMP `MULTI_FACE_DIRECTION_FLAG_*`).
-fn multi_face_bit(face: Face) -> i32 {
-    match face {
-        Face::Down => 0x01,
-        Face::Up => 0x02,
-        Face::South => 0x04,
-        Face::West => 0x08,
-        Face::North => 0x10,
-        Face::East => 0x20,
-    }
+    props::dead_coral(state).unwrap_or(state)
 }
 
 /// PMMP `MultiAnySupportTrait::place`: the existing faces, plus the clicked side if it gives full
@@ -961,14 +789,14 @@ fn multi_support(ctx: &Context<'_>, state: State) -> Option<State> {
     };
     let available: Vec<Face> = Face::ALL
         .into_iter()
-        .filter(|f| bits & multi_face_bit(*f) == 0 && ctx.support(*f) == SupportType::Full)
+        .filter(|f| bits & props::multi_face_bit(*f) == 0 && ctx.support(*f) == SupportType::Full)
         .collect();
     let placed = if available.contains(&ctx.face.opposite()) {
         ctx.face.opposite()
     } else {
         *available.first()?
     };
-    bits |= multi_face_bit(placed);
+    bits |= props::multi_face_bit(placed);
     props::with_int(state, "multi_face_direction_bits", bits)
 }
 
@@ -976,7 +804,7 @@ fn multi_support(ctx: &Context<'_>, state: State) -> Option<State> {
 fn slab(ctx: &Context<'_>, state: State) -> Option<State> {
     let existing = ctx.replace_state;
     let face = ctx.face;
-    if existing.kind() == state.kind() && !is_double_slab(existing) {
+    if existing.kind() == state.kind() && !props::is_double_slab(existing) {
         let top = is_top_slab(existing);
         if (top && (ctx.click.y <= 0.5 || face == Face::Up))
             || (!top && (ctx.click.y >= 0.5 || face == Face::Down))

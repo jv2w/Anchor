@@ -29,6 +29,7 @@ use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend, SpawnChange};
 use crate::math::Vec3;
 use crate::menu::{Error as MenuError, Result as MenuResult};
 use crate::player;
+use crate::protocol::consts::{BlockUpdateFlag, HeightMapData, SubChunkResult};
 use crate::protocol::packet::{
     BlockActorData, LevelChunk, NetworkChunkPublisherUpdate, Packet, SubChunk, SubChunkRequest,
     UpdateBlock, UpdateSubChunkBlocks,
@@ -52,19 +53,10 @@ const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 256;
 /// Sub-chunk requests answered per player per tick; the rest wait for the next tick.
 const SUB_CHUNK_REQUESTS_PER_TICK: usize = 64;
 /// The lowest sub-chunk y index (`SubChunkRequest` positions are absolute indices).
-const LOWEST_SUB_CHUNK: i32 = -4;
+const LOWEST_SUB_CHUNK: i32 = crate::world::MIN_Y >> 4;
 /// `UpdateBlock` flags BDS sends (P6): neighbours and network.
-const UPDATE_FLAGS: u32 = 3;
-/// `SubChunkEntry` results (gophertunnel `SubChunkResult*`).
-const RESULT_SUCCESS: u8 = 1;
-const RESULT_CHUNK_NOT_FOUND: u8 = 2;
-const RESULT_INDEX_OUT_OF_BOUNDS: u8 = 5;
-const RESULT_SUCCESS_ALL_AIR: u8 = 6;
-/// Height map types (gophertunnel `HeightMapData*`); 0, none, is the entries' default.
-const HEIGHT_MAP_HAS_DATA: u8 = 1;
-const HEIGHT_MAP_TOO_HIGH: u8 = 2;
-const HEIGHT_MAP_TOO_LOW: u8 = 3;
-const HEIGHT_MAP_ALL_COPIED: u8 = 4;
+pub(super) const UPDATE_FLAGS: u32 =
+    BlockUpdateFlag::Neighbours as u32 | BlockUpdateFlag::Network as u32;
 /// The most fake blocks one player is shown, and the most changes of what a player is shown one
 /// tick takes from the API (clears of fake blocks it had before the tick come on top).
 pub(super) const MAX_FAKE_BLOCKS: usize = 4096;
@@ -430,11 +422,11 @@ impl Ticket {
 /// The most chunk tickets at once.
 const MAX_TICKETS: usize = 1024;
 /// The most chunks the tickets hold together (counted per ticket): the loads in flight times 4.
-const MAX_TICKET_CHUNKS: usize = 4096;
+const MAX_TICKET_CHUNKS: usize = MAX_LOADS_IN_FLIGHT * 4;
 /// The largest ticket radius: 17 × 17 chunks.
 const MAX_TICKET_RADIUS: u8 = 8;
-/// The largest chunk coordinate a ticket may center on: the world border (30,000,000 blocks).
-const MAX_CHUNK_COORDINATE: i32 = 30_000_000 >> 4;
+/// The largest chunk coordinate a ticket may center on: the world border's.
+const MAX_CHUNK_COORDINATE: i32 = crate::world::BORDER >> 4;
 
 /// Which chunk events someone listens to or monitors.
 #[derive(Debug, Default, Clone, Copy)]
@@ -991,8 +983,8 @@ pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded
 
 /// The view phase (serial, after the inputs and tasks): the worlds made, loaded and unloaded
 /// ([`world_api::step`]), then opens the menus that waited for their blocks and closes those
-/// their player left behind ([`super::inventory::tick_menus`]), moves each view to its player,
-/// picks the chunks to send and the sub-chunk requests to answer this tick, and asks for the
+/// their player left behind ([`super::inventory::tick_menus`]), moves each view to its player and
+/// its granted radius, picks the chunks to send and the sub-chunk requests to answer this tick, and asks for the
 /// chunk loads they, the spawns and the tickets need. Returns the requests for the save thread:
 /// the worlds it does not know yet (taken after the last listener that can make one before the
 /// loads, so every load names a world the save thread knows), then the loads. A world the
@@ -1012,8 +1004,9 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
         if player.view.is_open() {
             let limits = settings.view(player.world);
             let center = chunk_of(player.position);
-            if center != player.view.center {
-                let radius = player.view.radius;
+            // The radius granted since the last view phase (`spawn::request_chunk_radius`).
+            let radius = player.chunk_radius.unwrap_or(player.view.radius);
+            if center != player.view.center || radius != player.view.radius {
                 set_view(
                     worlds,
                     chunks,
@@ -1633,22 +1626,23 @@ fn entry(
     offset: [i8; 3],
     encoded: &Encoded,
 ) -> SubChunkEntry {
-    let failed = |result| SubChunkEntry {
+    // The height map types not set stay 0, `HeightMapData::None`, the entries' default.
+    let failed = |result: SubChunkResult| SubChunkEntry {
         offset,
-        result,
+        result: u8::from(result),
         ..SubChunkEntry::default()
     };
     let Some((pos, index)) = target(request, offset) else {
-        return failed(RESULT_INDEX_OUT_OF_BOUNDS);
+        return failed(SubChunkResult::IndexOutOfBounds);
     };
     if !view.sent.contains(&pos) {
-        return failed(RESULT_CHUNK_NOT_FOUND);
+        return failed(SubChunkResult::ChunkNotFound);
     }
     let empty = Chunk::new();
     let chunk = world.chunk(pos).unwrap_or(&empty);
     let (height_map_type, height_map_data) = height_map(chunk, index);
-    let render_height_map_type = if height_map_type == HEIGHT_MAP_HAS_DATA {
-        HEIGHT_MAP_ALL_COPIED
+    let render_height_map_type = if height_map_type == HeightMapData::HasData {
+        HeightMapData::AllCopied
     } else {
         height_map_type
     };
@@ -1657,15 +1651,15 @@ fn entry(
         .and_then(Option::as_ref);
     SubChunkEntry {
         offset,
-        result: if payload.is_some() {
-            RESULT_SUCCESS
+        result: u8::from(if payload.is_some() {
+            SubChunkResult::Success
         } else {
-            RESULT_SUCCESS_ALL_AIR
-        },
+            SubChunkResult::SuccessAllAir
+        }),
         raw_payload: payload.cloned(),
-        height_map_type,
+        height_map_type: u8::from(height_map_type),
         height_map_data,
-        render_height_map_type,
+        render_height_map_type: u8::from(render_height_map_type),
         render_height_map_data: None,
         blob_hash: None,
     }
@@ -1674,7 +1668,7 @@ fn entry(
 /// The height map of the sub-chunk at `index` (P6): per column the highest block's y relative to
 /// the sub-chunk's bottom, plus 1; 16 if it is in a higher sub-chunk, -1 if lower or the column
 /// is air. If every column is higher or every one lower, the type says so without data.
-fn height_map(chunk: &Chunk, index: usize) -> (u8, Option<HeightMap>) {
+fn height_map(chunk: &Chunk, index: usize) -> (HeightMapData, Option<HeightMap>) {
     let bottom = (i32::try_from(index).unwrap_or(0) + LOWEST_SUB_CHUNK) * 16;
     let mut map: HeightMap = [[0; 16]; 16];
     let (mut all_higher, mut all_lower) = (true, true);
@@ -1695,17 +1689,19 @@ fn height_map(chunk: &Chunk, index: usize) -> (u8, Option<HeightMap>) {
         }
     }
     if all_higher {
-        (HEIGHT_MAP_TOO_HIGH, None)
+        (HeightMapData::TooHigh, None)
     } else if all_lower {
-        (HEIGHT_MAP_TOO_LOW, None)
+        (HeightMapData::TooLow, None)
     } else {
-        (HEIGHT_MAP_HAS_DATA, Some(map))
+        (HeightMapData::HasData, Some(map))
     }
 }
 
-/// The block changes of a tick grouped by sub-chunk: (world, chunk, sub-chunk y) to the changed
-/// blocks with their state, in position order.
-pub(super) type Changes = BTreeMap<(WorldIndex, ChunkPos, i32), Vec<(BlockPos, block::State)>>;
+/// The block changes of a tick by world, each world's grouped by sub-chunk: (chunk, sub-chunk y)
+/// to the changed blocks with their state, in position order. Only worlds with changes are in
+/// it, so each player reads its own world's alone.
+pub(super) type Changes =
+    BTreeMap<WorldIndex, BTreeMap<(ChunkPos, i32), Vec<(BlockPos, block::State)>>>;
 
 /// Takes the block changes of every world.
 pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
@@ -1713,7 +1709,9 @@ pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
     for (i, world) in worlds.iter_mut().enumerate() {
         for (pos, state) in world.take_changes() {
             changes
-                .entry((i, pos.chunk(), pos.y >> 4))
+                .entry(i)
+                .or_default()
+                .entry((pos.chunk(), pos.y >> 4))
                 .or_default()
                 .push((pos, state));
         }
@@ -1727,8 +1725,11 @@ pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
 pub(super) fn block_packets(player: &Player, changes: &Changes) -> Vec<Packet> {
     let view = &player.view;
     let mut out = Vec::new();
-    for ((world, pos, sub_y), blocks) in changes {
-        if *world != player.world || !view.sent.contains(pos) {
+    let Some(changes) = changes.get(&player.world) else {
+        return out;
+    };
+    for ((pos, sub_y), blocks) in changes {
+        if !view.sent.contains(pos) {
             continue;
         }
         if !view.shows_in(*pos, *sub_y) && view.out.shown.is_empty() {
@@ -1822,6 +1823,41 @@ mod tests {
             log(format!("monitor {loaded}"));
         });
         l
+    }
+
+    /// The radius requests of one tick resize the view once, to the last radius: requests that
+    /// end on the radius they started with let go of no chunk and send none again.
+    #[test]
+    fn the_radius_requests_of_a_tick_resize_the_view_once() {
+        let mut state = state(Listeners::default());
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 6)], &mut output);
+        let session = crate::tick::SessionId::new(1);
+        for _ in 0..128 {
+            if state.players[&session].view.is_complete() {
+                break;
+            }
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        assert!(state.players[&session].view.is_complete());
+        received(&mut rx);
+        tick(
+            &mut state,
+            &mut vec![radius(1, 2, 1), radius(1, 3, 6)],
+            &mut output,
+        );
+        for _ in 0..8 {
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        let again = received(&mut rx)
+            .0
+            .iter()
+            .filter(|p| matches!(p, Packet::LevelChunk(_)))
+            .count();
+        assert_eq!(again, 0);
+        let view = &state.players[&session].view;
+        assert!(view.radius() == 6 && view.is_complete());
     }
 
     // pmmp: ChunkLoadEvent, ChunkPopulateEvent

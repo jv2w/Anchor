@@ -1036,3 +1036,42 @@ impl Category {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 16 × 16 × 16 × 2 states, each property within its limits.
+    static TOO_MANY_STATES: [Property; 4] = [
+        Property::int("a", 0, 15),
+        Property::int("b", 0, 15),
+        Property::int("c", 0, 15),
+        Property::bool("d"),
+    ];
+
+    #[test]
+    fn the_refusals_name_the_limits_they_enforce() {
+        let max_values = i32::try_from(MAX_VALUES).unwrap();
+        assert_eq!(
+            Property::int("p", 0, max_values).check(),
+            Some(format!("a property has no values or more than {MAX_VALUES}").as_str())
+        );
+        let long: &'static str = String::leak("x".repeat(MAX_NAME + 1));
+        assert_eq!(
+            Property::enumeration("p", Vec::leak(vec![long])).check(),
+            Some(format!("a property value is empty or longer than {MAX_NAME} bytes").as_str())
+        );
+        let many = Vec::leak(vec![Property::bool("p"); MAX_PROPERTIES + 1]);
+        assert_eq!(
+            Block::new("a:b", "t").with_properties(many).check(),
+            Some(format!("more than {MAX_PROPERTIES} properties").as_str())
+        );
+        let states = format!("{},{:03}", MAX_STATES / 1000, MAX_STATES % 1000);
+        assert_eq!(
+            Block::new("a:b", "t")
+                .with_properties(&TOO_MANY_STATES)
+                .check(),
+            Some(format!("more than {states} states").as_str())
+        );
+    }
+}

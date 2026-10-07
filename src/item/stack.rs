@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use super::{Enchantment, Type};
 use crate::nbt::{self, Compound, Cost, Encoding, List, Value};
-use crate::protocol::{self, ItemType, Writer};
+use crate::protocol::{self, Writer};
 use crate::tile::MAX_NAME_BYTES;
 
 /// The tag key of a custom name and lore.
@@ -121,6 +121,16 @@ pub struct Extra {
     pub nbt: Compound,
 }
 
+impl Extra {
+    /// Sets enchantment `e` to `level`, in place of the one there or after the others.
+    pub(crate) fn set_enchantment(&mut self, e: Enchantment, level: u8) {
+        match self.enchantments.iter_mut().find(|(x, _)| *x == e) {
+            Some(slot) => slot.1 = level,
+            None => self.enchantments.push((e, level)),
+        }
+    }
+}
+
 impl Stack {
     /// The empty stack.
     pub const EMPTY: Self = Self {
@@ -174,6 +184,31 @@ impl Stack {
     /// The extra data, if any.
     pub fn extra(&self) -> Option<&Extra> {
         self.extra.as_deref()
+    }
+
+    /// The level of enchantment `e` on the stack (PMMP `Item::getEnchantmentLevel`), `None`
+    /// without it.
+    pub(crate) fn enchantment_level(&self, e: Enchantment) -> Option<u8> {
+        self.extra()?
+            .enchantments
+            .iter()
+            .find(|(x, _)| *x == e)
+            .map(|&(_, level)| level)
+    }
+
+    /// Whether `other` is this stack: `==`, but extra data both stacks share is the same at once,
+    /// without walking its NBT (`Extra` holds floats, so it is not `Eq` and `Arc`'s `==` compares
+    /// the contents). Data shared with itself is the same even if `==` finds it unequal (a NaN
+    /// float).
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        self.item == other.item
+            && self.count == other.count
+            && self.damage == other.damage
+            && match (&self.extra, &other.extra) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b) || a == b,
+                (None, None) => true,
+                _ => false,
+            }
     }
 
     /// The most items a stack of this type holds (0 for an empty stack).
@@ -391,19 +426,7 @@ impl Stack {
                 visible_only(stored);
             }
         }
-        protocol::ItemStack {
-            item_type: ItemType {
-                network_id: i32::from(item.runtime_id()),
-                metadata_value: u32::from(self.meta()),
-            },
-            // The network field is the hash's bit pattern as an int32.
-            block_runtime_id: item.block_network_id().cast_signed(),
-            count: u16::from(self.count),
-            nbt_data,
-            can_be_placed_on: Vec::new(),
-            can_break: Vec::new(),
-            blocking_tick: 0,
-        }
+        super::network_stack_with(item, self.meta(), u16::from(self.count), nbt_data)
     }
 
     /// The network form with its stack network ID (`ItemInstance`); an empty stack has ID 0.
@@ -421,7 +444,7 @@ impl Stack {
     /// network ID, count and stack ID, P6).
     #[cfg(test)]
     pub(crate) fn from_network(stack: &protocol::ItemStack) -> Option<Self> {
-        let ItemType {
+        let protocol::ItemType {
             network_id,
             metadata_value,
         } = stack.item_type;
@@ -632,6 +655,25 @@ mod tests {
                 ..Extra::default()
             }))
             .unwrap()
+    }
+
+    #[test]
+    fn same_is_equality_with_shared_data_always_the_same() {
+        let stick = Stack::new(kind(Kind::Stick), 1);
+        let a = named(&stick, "a");
+        assert!(a.same(&a.clone()));
+        assert!(a.same(&named(&stick, "a")), "equal data apart");
+        assert!(!a.same(&named(&stick, "b")));
+        assert!(!a.same(&stick) && !stick.same(&a));
+        assert!(!a.same(&a.with_count(2)));
+        let nan = stick
+            .with_extra(Some(Extra {
+                nbt: Compound::from([("x".to_owned(), Value::Float(f32::NAN))]),
+                ..Extra::default()
+            }))
+            .unwrap();
+        assert_ne!(nan, nan.clone());
+        assert!(nan.same(&nan.clone()));
     }
 
     #[test]

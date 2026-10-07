@@ -29,7 +29,7 @@ use crate::player;
 /// The most lines of a sidebar: the client shows no more.
 pub(crate) const MAX_SIDEBAR_LINES: usize = 15;
 /// The most lines of a list or below-name scoreboard: the protocol's list bound.
-pub(crate) const MAX_LINES: usize = 1024;
+pub(crate) const MAX_LINES: usize = crate::protocol::MAX_LIST_LEN;
 /// The longest title or line text, in bytes.
 pub(crate) const MAX_TEXT: usize = 1024;
 

@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{PHP, PMMP, REFERENCE_OUT, create_dir, pinned, read, write};
+use super::{PHP, PMMP, REFERENCE_BLOCKS, REFERENCE_DIR, create_dir, pinned, read, write};
 
 /// The pinned checkouts, relative to the repository root, and their commits.
 pub(super) const BLOCKS: (&str, &str) = (
@@ -130,7 +130,7 @@ pub(super) fn run(root: &Path, out: &Path) -> Result<Vec<String>, String> {
         .arg(out)
         .arg(blocks.join(LEGACY_BIN))
         .arg(blocks.join(LEGACY_BIN_1_9))
-        .arg(root.join(REFERENCE_OUT).join("blocks.json"))
+        .arg(root.join(REFERENCE_DIR).join(REFERENCE_BLOCKS))
         .current_dir(root.join(PMMP.0))
         .status()
         .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;

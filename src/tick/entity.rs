@@ -86,12 +86,15 @@ use self::kind::{Cause, Character, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, K
 use self::kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};
 pub(super) use self::object::Placed;
 use self::physics::{Body, Inside, Step};
-pub(super) use self::physics::{MOTION_THRESHOLD, collisions};
+pub(super) use self::physics::{
+    Harm, INSIDE_INSET, MOTION_THRESHOLD, cells_along, collisions, liquid_depth,
+};
 pub(super) use self::pick::on_actor_pick_request;
 pub(super) use self::track::locator_life;
 use super::interact::breaking::damage as worn;
 use super::interact::drops::level as level_of;
 use super::interact::level_event;
+use super::survival::{EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH};
 use super::view::{Key, View, chunk_of};
 use super::{Phase, Player, SessionId, State, dispatch, inventory, survival};
 use crate::block::{self, Class};
@@ -146,10 +149,6 @@ const ORB_TARGET_DISTANCE: f64 = 8.0;
 const ORB_LOOK_PERIOD: u8 = 20;
 /// The orb sizes a drop of experience splits into, largest first (PMMP `ORB_SPLIT_SIZES`).
 const ORB_SPLIT_SIZES: [u16; 11] = [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1];
-/// The player's box and eye height (PMMP `Human`: 1.8 × 0.6, eyes at 1.62).
-pub(super) const PLAYER_WIDTH: f64 = 0.6;
-pub(super) const PLAYER_HEIGHT: f64 = 1.8;
-pub(super) const PLAYER_EYE_HEIGHT: f64 = 1.62;
 /// How far around a player's box it picks items up (PMMP `checkNearEntities`).
 const PICKUP_REACH: Vec3 = Vec3::new(1.0, 0.5, 1.0);
 /// How far around an item's box it looks for stacks to merge with.
@@ -166,7 +165,7 @@ const ANVILS: [&str; 3] = [
     "minecraft:damaged_anvil",
 ];
 /// The world border (as for players).
-const MAX_COORDINATE: f64 = 30_000_000.0;
+const MAX_COORDINATE: f64 = crate::world::BORDER as f64;
 /// Random streams (`crate::random`), one per purpose.
 const DROP_RANDOM: u64 = random::tag("entity-drop");
 const DEATH_RANDOM: u64 = random::tag("entity-death-drops");
@@ -259,8 +258,23 @@ struct Knock {
     vertical: f64,
 }
 
-/// PMMP `Living::DEFAULT_KNOCKBACK_FORCE` and `DEFAULT_KNOCKBACK_VERTICAL_LIMIT`.
-const KNOCKBACK: f64 = 0.4;
+/// Horizontal knockback of a hit on an entity or a player (PMMP `Living::DEFAULT_KNOCKBACK_FORCE`).
+pub(super) const KNOCKBACK: f64 = 0.4;
+/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
+pub(super) const KNOCKBACK_VERTICAL_LIMIT: f64 = 0.4;
+/// Ticks within which a weaker hit on an entity or a player does nothing (PMMP
+/// `EntityDamageEvent::$attackCooldown`).
+pub(super) const ATTACK_COOLDOWN: u8 = 10;
+/// Damage the void deals an entity or a player each tick (PMMP `Entity::entityBaseTick`).
+pub(super) const VOID_DAMAGE: f64 = 10.0;
+/// At or below this feet height the void hurts: 16 under the lowest block.
+pub(super) const VOID_Y: f64 = (MIN_Y - 16) as f64;
+/// Ticks between the damage of burning (PMMP `Entity::doOnFireTick`).
+pub(super) const FIRE_DAMAGE_TICKS: u8 = 20;
+/// Fall distance that does not hurt (PMMP `Living::calculateFallDamage`).
+pub(super) const SAFE_FALL: f64 = 3.0;
+/// Damage of a tick with the eyes inside a solid block (PMMP `Living::entityBaseTick`).
+pub(super) const SUFFOCATION_DAMAGE: f64 = 1.0;
 
 /// How a hit would hurt an entity ([`Entity::plan_hit`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -289,7 +303,7 @@ impl Taken {
         Self {
             base,
             damage: plan.previous.map_or(base, |p| base - p),
-            cooldown: npc::ATTACK_COOLDOWN,
+            cooldown: ATTACK_COOLDOWN,
         }
     }
 }
@@ -317,28 +331,6 @@ impl Blow {
     fn by(self, source: DamageSource) -> Self {
         Self { source, ..self }
     }
-
-    /// The event's cause of this damage (PMMP `CAUSE_*`).
-    fn event_cause(self) -> DamageCause {
-        match self.cause {
-            Cause::Fire => DamageCause::Fire,
-            Cause::FireTick => DamageCause::FireTick,
-            Cause::Lava => DamageCause::Lava,
-            Cause::Contact => DamageCause::Contact,
-            Cause::Void => DamageCause::Void,
-            Cause::Explosion => match self.source {
-                DamageSource::Entity(_) => DamageCause::EntityExplosion,
-                _ => DamageCause::BlockExplosion,
-            },
-            Cause::Attack => DamageCause::EntityAttack,
-            Cause::Projectile => DamageCause::Projectile,
-            Cause::Magic => DamageCause::Magic,
-            Cause::Fall => DamageCause::Fall,
-            Cause::Suffocation => DamageCause::Suffocation,
-            Cause::FallingBlock => DamageCause::FallingBlock,
-            Cause::Custom => DamageCause::Custom,
-        }
-    }
 }
 
 /// Whether a rule raises the events of what it does: the game's own actions do, the direct API
@@ -363,7 +355,7 @@ impl Knock {
             x,
             z,
             force: KNOCKBACK,
-            vertical: KNOCKBACK,
+            vertical: KNOCKBACK_VERTICAL_LIMIT,
         }
     }
 
@@ -566,7 +558,7 @@ impl Entity {
             return false;
         }
         self.fire_ticks -= 1;
-        self.fire_ticks % 20 == 0
+        self.fire_ticks % i16::from(FIRE_DAMAGE_TICKS) == 0
     }
 
     #[cfg(test)]
@@ -1643,6 +1635,14 @@ fn hash_id(h: &mut super::Fnv, id: Id) {
 }
 
 impl Watched {
+    /// Whether the armour is what `before` holds, piece by piece ([`Stack::same`]).
+    fn same_armour(&self, before: &Self) -> bool {
+        self.armour
+            .iter()
+            .zip(&before.armour)
+            .all(|(a, b)| a.same(b))
+    }
+
     #[cfg(test)]
     fn hash_into(&self, h: &mut super::Fnv) {
         let Self {
@@ -1669,10 +1669,11 @@ impl Watched {
     }
 }
 
-/// The block coordinate of a world coordinate.
+/// The block coordinate of a world coordinate (entity positions, query areas, a damage value),
+/// saturating at the `i32` range: Rust's `as` saturates and turns NaN into 0.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "invariant: entity coordinates are finite and inside the world border; `as` saturates otherwise"
+    reason = "consistency: a value past the i32 range saturates, which every caller accepts"
 )]
 fn physics_block(v: f64) -> i32 {
     v.floor() as i32
@@ -2277,32 +2278,32 @@ fn apply(
 }
 
 /// The blocks an entity is inside, the void and burning (PMMP `entityBaseTick`, `onEntityInside`,
-/// `doOnFireTick`).
+/// `doOnFireTick`). Entities never sneak nor wear boots: magma spares none that is living.
 fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
     for inside in inside {
         match inside {
-            Inside::Fire(damage, pos) => {
-                let source = DamageSource::Block(pos);
-                hurt(
-                    state,
-                    id,
-                    Blow::of(Cause::Fire, f64::from(damage)).by(source),
-                    None,
-                );
-                combust(state, id, 8, CombustSource::Block(pos));
-            }
-            Inside::Lava(pos) => {
-                hurt(
-                    state,
-                    id,
-                    Blow::of(Cause::Lava, 4.0).by(DamageSource::Block(pos)),
-                    None,
-                );
-                combust(state, id, 8, CombustSource::Block(pos));
-            }
-            Inside::Cactus(pos) => {
-                let blow = Blow::of(Cause::Contact, 1.0).by(DamageSource::Block(pos));
+            Inside::Harm(harm, pos) => {
+                let living = state
+                    .rules
+                    .entities
+                    .get(id)
+                    .is_some_and(|e| e.kind.is_living());
+                if harm.living_only() && !living {
+                    continue;
+                }
+                if harm.ends_fall() && harm.living_only() {
+                    with(state, id, |e| e.body.fall_distance = 0.0);
+                }
+                let cause = match harm.cause() {
+                    DamageCause::Lava => Cause::Lava,
+                    DamageCause::Contact => Cause::Contact,
+                    _ => Cause::Fire,
+                };
+                let blow = Blow::of(cause, harm.damage()).by(DamageSource::Block(pos));
                 hurt(state, id, blow, None);
+                if let Some(seconds) = harm.burn_secs() {
+                    combust(state, id, i16::from(seconds), CombustSource::Block(pos));
+                }
             }
             Inside::Water { cauldron } => {
                 let cause = if cauldron {
@@ -2324,9 +2325,9 @@ fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
     let Some(e) = state.rules.entities.get_mut(id) else {
         return;
     };
-    let void = e.body.position.y <= f64::from(MIN_Y - 16);
+    let void = e.body.position.y <= VOID_Y;
     if void {
-        hurt(state, id, Blow::of(Cause::Void, 10.0), None);
+        hurt(state, id, Blow::of(Cause::Void, VOID_DAMAGE), None);
     }
     let burnt = with(state, id, |e| {
         let (before, fire_proof) = (e.fire_ticks, e.kind.is_fire_proof());
@@ -2491,16 +2492,18 @@ fn damage_event(
     {
         *slot = Some(-previous);
     }
-    let (force, vertical) = knock.map_or((KNOCKBACK, KNOCKBACK), |k| (k.force, k.vertical));
+    let (force, vertical) = knock.map_or((KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT), |k| {
+        (k.force, k.vertical)
+    });
     let mut e = EntityDamage {
         entity: Actor::Entity(id),
-        cause: blow.event_cause(),
+        cause: blow.cause.event_cause(),
         source: blow.source,
         base_damage: blow.amount,
         original_base_damage: blow.amount,
         modifiers,
         original_modifiers: modifiers,
-        attack_cooldown_ticks: u32::from(npc::ATTACK_COOLDOWN),
+        attack_cooldown_ticks: u32::from(ATTACK_COOLDOWN),
         knockback: force,
         vertical_knockback_limit: vertical,
         cancelled: false,
@@ -2787,8 +2790,9 @@ fn send_motion(state: &mut State, session: SessionId, motion: Vec3) {
     state.broadcast(world, chunk, &packet, None);
 }
 
-/// The look direction of a yaw and pitch in degrees (PMMP `Entity::getDirectionVector`).
-fn direction(yaw: f64, pitch: f64) -> Vec3 {
+/// The look direction of a yaw and pitch in degrees, of an entity or a player (PMMP
+/// `Entity::getDirectionVector`).
+pub(super) fn direction(yaw: f64, pitch: f64) -> Vec3 {
     let (yaw, pitch) = (crate::math::radians(yaw), crate::math::radians(pitch));
     let xz = crate::math::cos(pitch);
     Vec3::new(
@@ -3087,7 +3091,7 @@ fn targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks) -
 
 /// A player's box (PMMP `Human`: feet at the eye position less 1.62).
 fn player_box(player: &Player) -> Aabb {
-    let feet = player.position - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+    let feet = player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     let half = PLAYER_WIDTH / 2.0;
     Aabb::new(
         Vec3::new(feet.x - half, feet.y, feet.z - half),
@@ -3119,7 +3123,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
             return;
         }
     }
-    let feet = |p: &Player| p.position - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+    let feet = |p: &Player| p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     let reach = ORB_TARGET_DISTANCE * ORB_TARGET_DISTANCE;
     let valid = |s: &SessionId| {
         state.players.get(s).filter(|p| {
@@ -3152,7 +3156,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
     let mut pull = Vec3::ZERO;
     let mut picker = None;
     if let Some(p) = target.and_then(|s| state.players.get(&s)) {
-        let aim = feet(p) + Vec3::new(0.0, PLAYER_EYE_HEIGHT / 2.0, 0.0);
+        let aim = feet(p) + Vec3::new(0.0, EYE_HEIGHT / 2.0, 0.0);
         let vector = (aim - position) * (1.0 / ORB_TARGET_DISTANCE);
         let distance = vector.length_squared();
         if distance < 1.0 {
@@ -3214,9 +3218,14 @@ fn falling_tick(state: &mut State, id: Id) {
         land(state, id, world, pos, before, result)
     } else {
         match falling.block.item() {
-            block::ItemForm::Item(t) => {
-                drop_item_with(state, world, position, Stack::new(t, 1), None, 10)
-            }
+            block::ItemForm::Item(t) => drop_item_with(
+                state,
+                world,
+                position,
+                Stack::new(t, 1),
+                None,
+                DROP_PICKUP_DELAY,
+            ),
             block::ItemForm::None | block::ItemForm::BlockEntity => true,
         }
     };
@@ -3353,21 +3362,19 @@ fn landed(state: &mut State, id: Id, fall: f64, hits: &mut Vec<(SessionId, f64)>
         return;
     }
     let rank = ANVILS.iter().position(|&n| n == falling.block.name());
-    let Some(e) = state.rules.entities.get_mut(id) else {
+    let Some(next) = rank.and_then(|i| ANVILS.get(i + 1)) else {
+        state.rules.entities.doom(id);
         return;
     };
-    match rank.and_then(|i| ANVILS.get(i + 1)) {
-        Some(next) => {
-            let properties: Vec<(&str, block::PropertyValue<'_>)> = falling
-                .block
-                .properties()
-                .map(|p| (p.name(), p.value()))
-                .collect();
-            if let Some(damaged) = block::State::find(next, &properties) {
-                e.kind = Kind::FallingBlock(Falling { block: damaged });
-            }
-        }
-        None => e.flagged = true,
+    let properties: Vec<(&str, block::PropertyValue<'_>)> = falling
+        .block
+        .properties()
+        .map(|p| (p.name(), p.value()))
+        .collect();
+    if let Some(damaged) = block::State::find(next, &properties)
+        && let Some(e) = state.rules.entities.get_mut(id)
+    {
+        e.kind = Kind::FallingBlock(Falling { block: damaged });
     }
 }
 
@@ -3558,20 +3565,9 @@ fn pickup_event(
 /// [`inventory::give`] would put in (PMMP `getAddableItemQuantity`), so that a pickup is offered
 /// before anything moves.
 fn room(player: &Player, stack: &Stack) -> u8 {
-    let max = u16::from(stack.max_count());
-    let want = u16::from(stack.count());
-    let mut room = 0u16;
-    for slot in (0..=u8::MAX).map_while(|i| player.inventory.main_stack(i)) {
-        if slot.is_empty() {
-            room = room.saturating_add(max);
-        } else if slot.can_stack_with(stack) {
-            room = room.saturating_add(max.saturating_sub(u16::from(slot.count())));
-        }
-        if room >= want {
-            break;
-        }
-    }
-    u8::try_from(room.min(want)).unwrap_or(u8::MAX)
+    player
+        .inventory(crate::inventory::Kind::Main)
+        .addable_quantity(stack)
 }
 
 /// Removes up to [`MAX_REMOVALS_PER_TICK`] flagged entities, in `Id` order, and tells their
@@ -3960,13 +3956,14 @@ fn track_players(state: &mut State) {
                 let moved = track::player_moved(now.runtime_id, now.position, yaw, pitch, ground);
                 changes.push(moved);
             }
-            if before.held != now.held || before.held_slot != now.held_slot {
+            // The copies share their data while nothing changed: `same` finds that at once.
+            if !before.held.same(&now.held) || before.held_slot != now.held_slot {
                 changes.push(track::held(now.runtime_id, &now.held, now.held_slot));
             }
-            if before.off_hand != now.off_hand {
+            if !before.off_hand.same(&now.off_hand) {
                 changes.push(track::off_hand(now.runtime_id, &now.off_hand));
             }
-            if before.armour != now.armour {
+            if !now.same_armour(before) {
                 changes.push(track::armour(now.runtime_id, &now.armour));
             }
             for s in kept {
@@ -4070,6 +4067,10 @@ pub(super) fn launch_firework(
     object::launch_firework(state, session, world, at, item, random)
 }
 
+/// The fuse of lit TNT in ticks (PMMP `TNT::ignite` default, 4 seconds), and of saved primed TNT
+/// without one (PMMP `PrimedTNT::initEntity`).
+pub(super) const TNT_FUSE: u16 = 80;
+
 /// Turns the TNT block at `pos` into primed TNT with `fuse` ticks (PMMP `TNT::ignite`). False at
 /// the entity limit (the block stays) or if the block is not TNT.
 #[doc(alias = "TNT::ignite")]
@@ -4147,7 +4148,8 @@ pub(super) fn reaches(state: &State, session: SessionId, id: Id) -> bool {
 
 /// Spawns `npc` at `pos` (feet); `None` where the API may not put an entity
 /// ([`api::is_placeable`]: not finite, outside the world border or too far above or below the
-/// world), at the entity limit, in an unloaded chunk, or for a human name over 256 bytes. NPCs
+/// world), at the entity limit, in an unloaded chunk, or for a human name over
+/// [`MAX_NAME_TAG_BYTES`](kind::MAX_NAME_TAG_BYTES) bytes. NPCs
 /// spawned here are invulnerable (only the void hurts them), except zombies (see [`npc`]).
 pub(super) fn spawn_npc(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -> Option<Id> {
     if !api::is_placeable(pos) {
@@ -5856,6 +5858,34 @@ mod tests {
         assert_ne!(flags & (1 << 35), 0, "Breathing");
         assert_eq!(add.build_platform, 7);
         assert_eq!(add.device_id, "device-1");
+    }
+
+    /// A held item is sent again only when it changes: the copy of last tick shares its data,
+    /// which is the same even when `==` finds it unequal to itself (a NaN float).
+    #[test]
+    fn an_unchanged_held_item_is_not_sent_again() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.spawn(2, standing(3.0, 3.0));
+        let extra = crate::item::Extra {
+            nbt: crate::nbt::Compound::from([("x".to_owned(), crate::nbt::Value::Float(f32::NAN))]),
+            ..crate::item::Extra::default()
+        };
+        let stick = crate::item::Stack::new(crate::item::Kind::Stick.default_type(), 1)
+            .with_extra(Some(extra))
+            .unwrap();
+        let p = h.state.players.get_mut(&SessionId::new(1)).unwrap();
+        let slot = p.inventory.held_slot();
+        super::super::inventory::set_main(p, slot, stick);
+        h.step(Vec::new());
+        h.take(2);
+        h.step(Vec::new());
+        let one = h.runtime_id(1);
+        let again = h
+            .take(2)
+            .iter()
+            .any(|p| matches!(p, Packet::MobEquipment(m) if m.entity_runtime_id == one));
+        assert!(!again);
     }
 
     /// Players see each other on the locator bar as BDS shows them (P6 `others`): with the player,

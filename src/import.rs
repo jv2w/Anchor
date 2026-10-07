@@ -29,7 +29,9 @@ pub(crate) use self::api::run;
 use self::chunk::Entries;
 use self::level_dat::WorldData;
 use self::leveldb::{Db, Files, Stamp};
+// Decoding one chunk or `level.dat` allocates within the data files' own budget.
 pub(crate) use self::upgrade::BLOCK_STATE_VERSION;
+use crate::storage::seal::DECODE_BUDGET;
 
 /// A failure to read the world being imported.
 #[derive(Debug)]
@@ -173,9 +175,6 @@ impl std::error::Error for Error {
 /// The result of reading the world being imported.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// The allocation budget for decoding one chunk or `level.dat` (the server file's own budget,
-/// `storage::seal`).
-const DECODE_BUDGET: usize = 4 * crate::storage::seal::MAX_RECORD;
 /// The largest `level.dat`: its header and the 4 MiB NBT limit.
 const MAX_LEVEL_DAT: u64 = 8 + crate::nbt::MAX_ROOT_BYTES as u64;
 /// The most overworld chunks a world may have: a square of 2,048 by 2,048 chunks (32,768 blocks

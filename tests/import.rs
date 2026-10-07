@@ -117,8 +117,8 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
     // level.dat's spawn (no height: above the highest block), shown for the settings, not taken.
     assert_eq!(report.spawn(), BlockPos::new(0, -57, 0));
 
-    // A second import is refused (opening the file still backs it up and compacts it, as every
-    // start does; the values stay, which the crate's own test checks).
+    // A second import is refused (opening the file still backs it up, as every start does; the
+    // values stay, which the crate's own test checks).
     let err = server(&data.0, 2)
         .import_world(FIXTURE, NAME)
         .expect_err("a second import");

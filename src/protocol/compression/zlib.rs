@@ -17,7 +17,8 @@ impl Encoder {
     pub(crate) fn new(level: u8) -> Self {
         #[expect(
             clippy::expect_used,
-            reason = "invariant: batch settings validate 1..=9"
+            reason = "invariant: every caller passes 1..=9: the level batch settings validated, \
+                      or a constant level"
         )]
         let level = libdeflater::CompressionLvl::new(i32::from(level)).expect("valid zlib level");
         Self(libdeflater::Compressor::new(level))

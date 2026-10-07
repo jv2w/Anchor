@@ -833,9 +833,7 @@ impl<'a> Exec<'a> {
 
     /// A new stack network ID.
     fn new_id(&mut self) -> i32 {
-        let id = self.next_id;
-        self.next_id = if id >= i32::MAX - 1 { 1 } else { id + 1 };
-        id
+        super::take_stack_id(&mut self.next_id)
     }
 
     /// Whether slot `r` takes `stack` (PMMP slot validators): armour only in its slot (a carved
@@ -846,17 +844,9 @@ impl<'a> Exec<'a> {
         };
         let ok = match r {
             SlotRef::Armor(i) => match item.armor() {
-                Some(armor) => {
-                    let slot = match armor.slot() {
-                        ArmorSlot::Head => 0,
-                        ArmorSlot::Chest => 1,
-                        ArmorSlot::Legs => 2,
-                        ArmorSlot::Feet => 3,
-                    };
-                    slot == i
-                }
+                Some(armor) => armor.slot().index() == usize::from(i),
                 None => {
-                    i == 0
+                    usize::from(i) == ArmorSlot::Head.index()
                         && item.block().is_some_and(|b| {
                             b.kind() == block::Kind::CarvedPumpkin || b.is(Class::MobHead)
                         })
@@ -1066,10 +1056,7 @@ impl<'a> Exec<'a> {
     /// window's own slots) and the waiting stacks keep the invariant of
     /// [`super::MAX_SAVED_PENDING`]: a close can turn each held stack into a waiting one.
     fn check_returnable(&self) -> Result<()> {
-        let ui = self.window.map_or(0, |w| w.ui.len());
-        let held = std::iter::once(SlotRef::Cursor)
-            .chain((0..GRID).filter_map(|i| u8::try_from(i).ok().map(SlotRef::Grid)))
-            .chain((0..ui).filter_map(|i| u8::try_from(i).ok().map(SlotRef::Ui)))
+        let held = super::held_outside(self.inv)
             .filter(|r| self.slot(*r).is_ok_and(|s| !s.stack.is_empty()))
             .count();
         if self.inv.pending.len() + held > super::MAX_SAVED_PENDING {
@@ -1191,3 +1178,4 @@ impl Inventory {
 }
 
 const _: () = assert!(GRID <= crafting::GRID_CELLS);
+const _: () = assert!(MAX_ACTIONS <= crafting::MAX_PROVIDED);

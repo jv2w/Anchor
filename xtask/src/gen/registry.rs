@@ -4,8 +4,10 @@
 use serde::Deserialize;
 use serde_json::Value as Json;
 
+use crate::dump::{REFERENCE_DIR, REFERENCE_ITEMS};
+
 use super::body::str_lit;
-use super::data::{REFERENCE_DIR, compound, read_json, static_compound};
+use super::data::{compound, read_json, static_compound};
 use super::emit::HEADER;
 
 /// The generated file, relative to the repository root.
@@ -27,7 +29,7 @@ struct Entry {
 /// Generates the file text (unformatted). Fails if the list is not in strict runtime ID order or
 /// an ID does not fit the network's int16.
 pub(crate) fn generate(root: &std::path::Path) -> Result<String, String> {
-    let entries: Vec<Entry> = read_json(root, REFERENCE_DIR, "items.json")?;
+    let entries: Vec<Entry> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
     let shield = entries
         .iter()
         .find(|e| e.name == SHIELD)

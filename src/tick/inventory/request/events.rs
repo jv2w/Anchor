@@ -7,7 +7,7 @@
 //! listener that guards every slot change also sees crafts and trades.
 
 use super::super::super::{SessionId, State, dispatch, trade};
-use super::super::{SlotRef, WindowKind, world_id};
+use super::super::{SlotRef, WindowKind};
 use super::{Error, Made, Plan, Result};
 use crate::event::{
     CraftItem, EnchantOption, Inventory, InventoryTransaction, PlayerDropItem, PlayerItemEnchant,
@@ -118,7 +118,7 @@ fn made(
             if let Some(WindowKind::Station { world, pos, .. }) = window {
                 enchant = Some(PlayerItemEnchant {
                     player,
-                    world: world_id(world),
+                    world: crate::world::Id::of(world),
                     pos,
                     option: EnchantOption {
                         required_level: choice.level,
@@ -231,7 +231,7 @@ fn place(r: SlotRef, window: Option<WindowKind>) -> Option<(Inventory, u8)> {
             };
             (
                 Inventory::Block {
-                    world: world_id(world),
+                    world: crate::world::Id::of(world),
                     pos,
                 },
                 i,

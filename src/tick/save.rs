@@ -334,6 +334,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
     let mut snapshot = Snapshot {
         start,
         identity: log.identity(),
+        deleted_worlds: super::world_api::take_deleted_worlds(state),
         new_worlds: super::world_api::take_new_worlds(state),
         backup: std::mem::take(&mut state.saving.backup),
         check: std::mem::take(&mut state.saving.check),
@@ -374,32 +375,7 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         }
     }
     if state.saving.players {
-        let sessions: Vec<_> = state
-            .players
-            .iter()
-            .filter(|(_, p)| p.data_dirty)
-            .map(|(&s, _)| s)
-            .collect();
-        for session in sessions {
-            let Some(player) = state.players.get(&session) else {
-                continue;
-            };
-            let key = storage_key(&player.key);
-            let data = data_of(state, player);
-            if let Some(player) = state.players.get_mut(&session) {
-                player.data_dirty = false;
-                super::task::player_saved(&mut player.extra, &data.extra);
-            }
-            snapshot.players.push((key.clone(), data));
-            held.players.insert(key);
-        }
-        for (key, offline) in &mut state.saving.offline {
-            if offline.snapshot.is_none() {
-                offline.snapshot = Some(start);
-                snapshot.players.push((key.clone(), offline.data.clone()));
-                held.players.insert(key.clone());
-            }
-        }
+        take_players(state, start, &mut snapshot, &mut held);
     }
     // Operators, bans and the whitelist live in memory for good, so nothing waits for their
     // commit: the snapshot carries what changed, and later changes go into later snapshots.
@@ -424,6 +400,37 @@ pub(super) fn snapshot(state: &mut State, log: &mut InputLog, last: bool) -> Opt
         dispatch::watch(state, e);
     }
     Some(Request::Commit(Box::new(snapshot)))
+}
+
+/// Moves the changed player data into the snapshot taken at `start`: online players whose data
+/// changed, and departed players no snapshot holds yet; `held` keeps their keys until the commit.
+fn take_players(state: &mut State, start: u64, snapshot: &mut Snapshot, held: &mut InFlight) {
+    let sessions: Vec<_> = state
+        .players
+        .iter()
+        .filter(|(_, p)| p.data_dirty)
+        .map(|(&s, _)| s)
+        .collect();
+    for session in sessions {
+        let Some(player) = state.players.get(&session) else {
+            continue;
+        };
+        let key = storage_key(&player.key);
+        let data = data_of(state, player);
+        if let Some(player) = state.players.get_mut(&session) {
+            player.data_dirty = false;
+            super::task::player_saved(&mut player.extra, &data.extra);
+        }
+        snapshot.players.push((key.clone(), data));
+        held.players.insert(key);
+    }
+    for (key, offline) in &mut state.saving.offline {
+        if offline.snapshot.is_none() {
+            offline.snapshot = Some(start);
+            snapshot.players.push((key.clone(), offline.data.clone()));
+            held.players.insert(key.clone());
+        }
+    }
 }
 
 /// Raises [`PlayerDataSave`] for each online player whose data the snapshot about to be taken
@@ -513,17 +520,17 @@ pub(super) fn checked(state: &mut State, found: &Checked) {
     };
     let text = match found {
         Checked::Passed { values } => {
-            format!("World file check passed: all {values} stored values are whole")
+            format!("Data file check passed: all {values} stored values are whole")
         }
         Checked::Damaged {
             values,
             damaged,
             first,
         } => format!(
-            "World file check found {damaged} damaged of {values} stored values (first: \
+            "Data file check found {damaged} damaged of {values} stored values (first: \
              {first}); the server log has the details"
         ),
-        Checked::Failed(why) => format!("World file check could not finish: {why}"),
+        Checked::Failed(why) => format!("Data file check could not finish: {why}"),
     };
     if let Err(e) = (Context { state }).send_to(sender, player::Message::Raw(text)) {
         debug!(error = %e, "the check result was not sent: the player is leaving");
@@ -540,7 +547,7 @@ pub(super) fn failed(start: u64) {
 
 /// A batch of chunks could not be read: the tick stops without saving, as for a failed commit.
 pub(super) fn load_failed() {
-    error!("the server file could not be read; stopping without saving (the last save is kept)");
+    error!("a world file could not be read; stopping without saving (the last save is kept)");
 }
 
 #[cfg(test)]

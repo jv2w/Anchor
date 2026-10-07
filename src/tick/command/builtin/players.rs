@@ -232,8 +232,6 @@ const MESSAGE_OUTGOING: Msg = Msg::client("commands.message.display.outgoing");
 const WHISPER_PREFIX: &str = "§b§o";
 /// The longest `/give` amount (PMMP `GiveCommand`).
 const MAX_GIVE: i32 = 32_767;
-/// The highest experience level (PMMP's attribute maximum).
-const MAX_XP_LEVEL: i32 = 24_791;
 /// The port `/transferserver` uses when none is given.
 const DEFAULT_PORT: i32 = 19_132;
 
@@ -658,6 +656,7 @@ fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args, what: Xp) -> Result<Ou
         return Err(usage(cx, "xp"));
     };
     let levels = what == Xp::Levels;
+    let max_level = i32::try_from(player::MAX_LEVEL).unwrap_or(i32::MAX);
     let mut results = Results::default();
     for id in targets {
         let name = player_name(cx, id);
@@ -665,8 +664,8 @@ fn xp(cx: &mut Context<'_>, sender: &Sender, args: &Args, what: Xp) -> Result<Ou
             continue;
         };
         if levels {
-            let current = i32::try_from(p.xp_level()).unwrap_or(MAX_XP_LEVEL);
-            let change = value.clamp(-current, MAX_XP_LEVEL - current);
+            let current = i32::try_from(p.xp_level()).unwrap_or(max_level);
+            let change = value.clamp(-current, max_level - current);
             if change >= 0 {
                 p.add_xp_levels(change.unsigned_abs())
                     .map_err(|e| Error::failed(e.to_string()))?;

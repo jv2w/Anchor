@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use super::super::survival::EYE_HEIGHT;
 use super::super::{Context, Phase, Player, SessionId, State, survival, view};
 use super::{
     MAX_GIVE_BACK, MAX_PENDING, Notice, StackId, Window, WindowKind, close_now, slot_packet,
@@ -41,8 +42,6 @@ use crate::world::{self, BlockPos};
 const OPEN_DELAY: u64 = 2;
 /// A menu closes when its player's eyes are farther than this from its block's centre (8 blocks).
 const MAX_DISTANCE_SQUARED: f64 = 64.0;
-/// The eye height of a player above its feet (the tick keeps the eye position).
-const EYE_HEIGHT: f64 = 1.62;
 /// `InvMenu`'s place behind the player (`getBehindPositionOffset`): the look direction times
 /// -(1 + width) horizontally and -(1 + height) vertically, from the feet (PMMP player size
 /// 0.6 × 1.8).

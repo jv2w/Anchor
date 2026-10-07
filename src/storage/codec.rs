@@ -23,7 +23,7 @@ pub(crate) const SUB_CHUNKS: usize = 24;
 pub(crate) const MIN_SUB_CHUNK: i8 = -4;
 /// Block layers in a sub-chunk: layer 0 and the waterlogging layer 1.
 pub(crate) const MAX_LAYERS: usize = 2;
-/// Longest world or generator name, in bytes.
+/// Longest name a record holds (a player's world, a ban's reason and source), in bytes.
 pub(crate) const MAX_NAME: usize = 256;
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
 /// name and the position. It holds up to 146 stacks and the user's data, more
@@ -426,9 +426,9 @@ impl Record for UserRecord<'_> {
     }
 }
 
-/// A persistent world: the `worlds` value, keyed by the world name. It holds the world's state
-/// alone, never a setting: the seed, spawn, generator, difficulty, time stop and
-/// weather come from the settings and the code at every start.
+/// A persistent world: the `worlds` value of its world file (key `world`). It holds the world's
+/// state alone, never a setting: the seed, spawn, generator, difficulty, time stop and weather
+/// come from the settings and the code at every start.
 ///
 /// The number, then the world time (i64).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

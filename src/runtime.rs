@@ -1,5 +1,5 @@
-//! Runtime and threads: the one module that creates threads. Each thread it starts takes on the
-//! console log of the thread that starts it ([`log`]).
+//! Runtime and threads: the one module that creates threads. Each thread it starts, but the
+//! console log's own, takes on the console log of the thread that starts it ([`log`]).
 
 use std::future::Future;
 use std::num::NonZeroUsize;
@@ -25,11 +25,11 @@ pub(crate) const USER_BLOCKING_THREADS: usize = 4;
 /// would let blocking work grow without bound. Blocking threads wait on I/O and are
 /// not counted in the compute thread budget.
 const MAX_BLOCKING_THREADS: usize = 4 + USER_BLOCKING_THREADS;
-/// How long stopping the runtime waits for blocking work: the authorization fetch's 10 s limit,
+/// How long stopping the runtime waits for blocking work: the authorization fetch's limit,
 /// so a fetch in progress finishes and its thread is joined. Its DNS lookups are
 /// outside that limit, bounded only by the OS resolver; user jobs still running are abandoned
 /// ([`Context::spawn_blocking`](crate::Context::spawn_blocking)).
-const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+const SHUTDOWN_GRACE: Duration = crate::auth::HTTP_TIMEOUT;
 /// The tick thread and the save thread, outside both pools.
 const FIXED_THREADS: usize = 2;
 /// The smallest thread budget, whatever the logical CPU count.
@@ -192,35 +192,35 @@ pub(crate) fn cpu_pool(threads: usize) -> Result<Pool> {
     Ok(Pool::new(pool, threads, exits))
 }
 
-/// Starts the tick thread running `run`.
+/// Starts a thread named `name` with [`STACK_BYTES`] of stack running `run` as it is: wrap `run`
+/// in [`log::logged`] for the thread to take on the console log.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the runtime module creates the tick thread"
+    reason = "off-tick: the runtime module creates threads"
 )]
+pub(crate) fn spawn_thread<T: Send + 'static>(
+    name: &str,
+    run: impl FnOnce() -> T + Send + 'static,
+) -> std::io::Result<JoinHandle<T>> {
+    std::thread::Builder::new()
+        .name(name.to_owned())
+        .stack_size(STACK_BYTES)
+        .spawn(run)
+}
+
+/// Starts the tick thread running `run`.
 pub(crate) fn spawn_tick<T: Send + 'static>(
     run: impl FnOnce() -> T + Send + 'static,
 ) -> Result<JoinHandle<T>> {
-    std::thread::Builder::new()
-        .name("anchor-tick".to_owned())
-        .stack_size(STACK_BYTES)
-        .spawn(log::logged(run))
-        .map_err(Error::Start)
+    spawn_thread("anchor-tick", log::logged(run)).map_err(Error::Start)
 }
 
 /// Starts the save thread running `run`: the one thread that reads and commits
 /// the server file.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the runtime module creates the save thread"
-)]
 pub(crate) fn spawn_save<T: Send + 'static>(
     run: impl FnOnce() -> T + Send + 'static,
 ) -> Result<JoinHandle<T>> {
-    std::thread::Builder::new()
-        .name("anchor-save".to_owned())
-        .stack_size(STACK_BYTES)
-        .spawn(log::logged(run))
-        .map_err(Error::Start)
+    spawn_thread("anchor-save", log::logged(run)).map_err(Error::Start)
 }
 
 #[cfg(test)]

@@ -141,6 +141,31 @@ fn book_edits_keep_pmmps_page_and_text_limits() {
     assert_eq!(h.held().item(), Some(ItemKind::WrittenBook.default_type()));
 }
 
+/// The edits are checked against the page count before any page is copied; pages in a list of
+/// another type are no pages, for the count as for the edit.
+#[test]
+fn a_book_with_pages_of_another_type_counts_none() {
+    let mut h = Harness::new(|_| {});
+    let extra = crate::item::Extra {
+        nbt: crate::nbt::Compound::from([("pages".to_owned(), Value::List(List::Int(vec![1, 2])))]),
+        ..crate::item::Extra::default()
+    };
+    h.hold(
+        stack(ItemKind::WritableBook)
+            .with_extra(Some(extra))
+            .unwrap(),
+    );
+    let slot = i32::from(h.player().inventory.held_slot());
+    edit(&mut h, slot, BookAction::AddPage, 0, 0, "x");
+    edit(&mut h, slot, BookAction::DeletePage, 0, 0, "");
+    assert!(matches!(
+        h.held().extra().and_then(|e| e.nbt.get("pages")),
+        Some(Value::List(List::Int(_)))
+    ));
+    edit(&mut h, slot, BookAction::ReplacePage, 0, 0, "a");
+    assert_eq!(pages(&h), ["a"]);
+}
+
 #[test]
 fn signing_makes_an_original_written_book_and_only_books_and_quills_are_edited() {
     let mut h = Harness::new(|_| {});

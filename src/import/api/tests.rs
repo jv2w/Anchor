@@ -972,7 +972,7 @@ fn measure_100k_chunk_import() {
     let closed = ms(start);
     println!(
         "{} chunks on {threads} threads: converted and written {written:.0} ms, commit \
-         {committed:.0} ms, close (compact) {closed:.0} ms; file {size} MiB, {} MiB compacted; \
+         {committed:.0} ms, close {closed:.0} ms; file {size} MiB, {} MiB closed; \
          peak memory {before:?} MiB before, {peak:?} MiB after",
         report.chunks,
         file_mib(&file)

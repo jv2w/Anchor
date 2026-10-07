@@ -34,7 +34,7 @@ use crate::console::text;
 use crate::math::{self, Vec3};
 use crate::permission::Permission;
 use crate::player::{self, Message};
-use crate::protocol::consts::TextType;
+use crate::protocol::consts::{GameType, TextType};
 use crate::protocol::packet::{Packet, Text};
 use crate::world::{MAX_Y, MIN_Y};
 
@@ -55,7 +55,8 @@ fn infallible(
     move |cx, sender, args| Ok(handler(cx, sender, args))
 }
 
-/// The largest coordinate a command takes (PMMP `VanillaCommand::MAX_COORD`).
+/// The cap PMMP's commands put on counts and amounts (PMMP `VanillaCommand::MAX_COORD`); the
+/// positions they take stop at the world border instead ([`in_world`]).
 const MAX_COORD: i32 = 30_000_000;
 
 /// A command message: a key the client translates, or Anchor's own text.
@@ -318,7 +319,7 @@ fn bounded(value: i32, min: i32, max: i32) -> Result<i32> {
 /// A position a command takes, inside the world border and height (PMMP
 /// `VanillaCommand::getRelativeDouble`'s bounds).
 fn in_world(v: Vec3) -> Vec3 {
-    let border = f64::from(MAX_COORD);
+    let border = f64::from(crate::world::BORDER);
     Vec3::new(
         math::clamp(v.x, -border, border),
         math::clamp(v.y, f64::from(MIN_Y), f64::from(MAX_Y) + 1.0),
@@ -354,13 +355,11 @@ fn game_mode_param() -> Param {
 /// The game mode a `gameMode` argument names: a name or letter, or a Bedrock game type number
 /// (0 survival, 1 creative, 2 adventure, 6 spectator); `default` (`d`, 5) gives `default`.
 fn game_mode_arg(args: &Args, default: Option<GameMode>) -> Option<GameMode> {
-    match (args.string("gameMode"), args.int("gameMode")) {
-        (Some("default" | "d"), _) | (_, Some(5)) => default,
+    let game_type = args.int("gameMode").map(GameType::try_from);
+    match (args.string("gameMode"), game_type) {
+        (Some("default" | "d"), _) | (_, Some(Ok(GameType::Default))) => default,
         (Some(name), _) => GameMode::from_name(name),
-        (_, Some(0)) => Some(GameMode::Survival),
-        (_, Some(1)) => Some(GameMode::Creative),
-        (_, Some(2)) => Some(GameMode::Adventure),
-        (_, Some(6)) => Some(GameMode::Spectator),
+        (_, Some(Ok(game_type))) => GameMode::from_game_type(game_type),
         _ => None,
     }
 }

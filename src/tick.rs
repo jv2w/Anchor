@@ -44,6 +44,7 @@ use crate::event::Listeners;
 use crate::math::Vec3;
 use crate::pool::Pool;
 use crate::protocol::Uuid;
+use crate::protocol::consts::DisconnectReason;
 use crate::protocol::packet::{Disconnect, Packet};
 use crate::random::Fnv;
 use crate::save::{Request, Response, WorldIndex};
@@ -71,12 +72,8 @@ pub(crate) const MAX_INPUTS_PER_TICK: usize = INPUT_CAPACITY / 8;
 pub(crate) const MAX_RESPONSES_PER_TICK: usize = 1024;
 /// Light work per world per tick, in blocks looked at: about 1 to 1.4 ms.
 const LIGHT_BUDGET: u32 = 16_384;
-/// `Disconnect` reason for a server shutdown (gophertunnel `DisconnectReasonShutdown`).
-const DISCONNECT_REASON_SHUTDOWN: i32 = 68;
-/// `Disconnect` reason for a duplicate login (gophertunnel `DisconnectReasonLoggedInOtherLocation`).
-const DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION: i32 = 43;
-/// The largest coordinate a client may report: the Bedrock world border (30,000,000 blocks).
-const MAX_COORDINATE: f32 = 30_000_000.0;
+/// The largest coordinate a client may report: the world border.
+const MAX_COORDINATE: i32 = crate::world::BORDER;
 
 /// The settings the tick reads, taken from [`Config`] once at start.
 #[derive(Debug, Clone)]
@@ -420,6 +417,22 @@ impl Player {
         } else {
             self.overflowed = true;
         }
+    }
+
+    /// Queues `packet`, which this player gets as a viewer of what goes on around it (an effect,
+    /// another player's action), unless its outbox is nearly full ([`Self::has_viewer_room`]).
+    pub(crate) fn send_to_viewer(&mut self, packet: Packet) {
+        if self.has_viewer_room() {
+            self.send_packet(packet);
+        }
+    }
+
+    /// Whether the outbox has room for what the player gets as a viewer: that leaves
+    /// [`world_api::EFFECT_RESERVE`] packets of room, so one client's inputs, which can make every
+    /// viewer get packets in a loop, cannot fill another player's outbox and disconnect it.
+    pub(crate) fn has_viewer_room(&self) -> bool {
+        self.outbox.len().saturating_add(self.shared_outbox.len())
+            < MAX_OUTBOX - world_api::EFFECT_RESERVE
     }
 }
 
@@ -826,7 +839,8 @@ impl State {
     }
 
     /// Queues `packet` for every player that sees chunk `chunk` of `world`, except `except`
-    /// (block effects, entity packets, another player's movement and animations).
+    /// (block effects, entity packets, another player's movement and animations), as a viewer
+    /// ([`Player::send_to_viewer`]).
     fn broadcast(
         &mut self,
         world: WorldIndex,
@@ -836,7 +850,7 @@ impl State {
     ) {
         for (&session, player) in &mut self.players {
             if Some(session) != except && player.world == world && player.view.sees(chunk) {
-                player.send_packet(packet.clone());
+                player.send_to_viewer(packet.clone());
             }
         }
     }
@@ -853,7 +867,7 @@ impl State {
             };
             debug!(session = session.get(), "closing for shutdown");
             let packet = Packet::Disconnect(Disconnect {
-                reason: DISCONNECT_REASON_SHUTDOWN,
+                reason: i32::from(DisconnectReason::Shutdown),
                 hide_disconnection_screen: false,
                 message: self.settings.shutdown_message.clone(),
                 filtered_message: String::new(),
@@ -902,8 +916,9 @@ impl Output {
 ///    physics computed on the CPU pool read-only, then applied in entity order), trades, block
 ///    entities and light.
 /// 3. Sync (serial): the deferred callbacks, the command and player changes the API marked, the
-///    sessions whose outbound queue overflowed, then the views: each follows its player, picks the
-///    chunks to send and asks for the loads it needs.
+///    players whose outbox overflowed this tick ([`drop_overflowed`]), then the views: each
+///    follows its player, picks the chunks to send and asks for the loads it needs. A session
+///    whose outbound queue is full is dropped after the step, when the output is delivered.
 /// 4. Output (parallel, read-only): the sub-chunks the answers need, encoded once each, then
 ///    every marked player's packets, built on the CPU pool in player order, so the output does
 ///    not depend on the thread count.
@@ -1177,7 +1192,7 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
             output.close(
                 p.outbound,
                 Packet::Disconnect(Disconnect {
-                    reason: 0,
+                    reason: i32::from(DisconnectReason::Unknown),
                     hide_disconnection_screen: false,
                     message: String::new(),
                     filtered_message: String::new(),

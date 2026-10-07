@@ -8,8 +8,10 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
+use crate::dump::{PMMP_DIR, PMMP_RECIPES};
+
 use super::body::str_lit;
-use super::data::{Data, PMMP_DIR, Tag, bedrock_state, read_json, static_compound};
+use super::data::{Data, Tag, bedrock_state, read_json, static_compound};
 use super::emit::HEADER;
 
 type R<T> = Result<T, String>;
@@ -114,7 +116,7 @@ struct SmithingTrimJson {
 
 /// Generates the file text (unformatted).
 pub(crate) fn generate(root: &Path, data: &Data) -> R<String> {
-    let recipes: Recipes = read_json(root, PMMP_DIR, "recipes.json")?;
+    let recipes: Recipes = read_json(root, PMMP_DIR, PMMP_RECIPES)?;
     let mut out = String::new();
     put!(
         out,

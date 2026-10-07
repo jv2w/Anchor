@@ -272,3 +272,25 @@ impl Item {
         Compound::from([("components".to_owned(), Value::Compound(components))])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_refusals_name_the_limits_they_enforce() {
+        let long: &'static str = String::leak("x".repeat(MAX_DISPLAY_NAME + 1));
+        assert_eq!(
+            Item::new("a:b", long, "i").check(),
+            Some(
+                format!("the display name is empty or longer than {MAX_DISPLAY_NAME} bytes")
+                    .as_str()
+            )
+        );
+        let long: &'static str = String::leak("x".repeat(MAX_ICON + 1));
+        assert_eq!(
+            Item::new("a:b", "n", long).check(),
+            Some(format!("the icon name is empty or longer than {MAX_ICON} bytes").as_str())
+        );
+    }
+}

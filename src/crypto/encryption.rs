@@ -14,7 +14,8 @@ use serde::Serialize;
 use super::{Error, PublicKey, RAW_STD, Result, ServerKey, fill_random, sha256, sign_jwt};
 
 const BLOCK: usize = 16;
-const CHECKSUM: usize = 8;
+/// Bytes of the checksum at the end of each encrypted packet.
+pub(crate) const CHECKSUM: usize = 8;
 
 /// The server half of the encryption handshake.
 #[derive(Debug)]

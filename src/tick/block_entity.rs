@@ -39,18 +39,23 @@ use crate::block::{self, Class, Face, Facing, PropertyValue};
 use crate::crafting::FurnaceType;
 use crate::custom::Registry;
 use crate::event::{BrewItem, BrewingFuelUse, CampfireCook, ChestPair, FurnaceBurn, FurnaceSmelt};
+use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS};
 use crate::item::{self, Stack};
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
+use crate::protocol::consts::BlockEventType;
 use crate::protocol::packet::{BlockActorData, BlockEvent, Packet};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::{BlockPos, ChunkPos, World};
 
 pub(super) use beacon::{allowed as beacon_effect_allowed, is_payment as beacon_payment};
+pub(super) use brewing::{
+    BOTTLES as BREWING_BOTTLES, FUEL as BREWING_FUEL, INGREDIENT as BREWING_INGREDIENT,
+};
 pub(super) use campfire::{cooks as campfire_cooks, kind_of as campfire_kind};
 pub(super) use decor::{BLACK_TEXT, FRAME_ROTATIONS, Plant, book_pages};
-pub(super) use furnace::OUTPUT as FURNACE_OUTPUT;
+pub(super) use furnace::{FUEL as FURNACE_FUEL, INPUT as FURNACE_INPUT, OUTPUT as FURNACE_OUTPUT};
 
 /// The most spills one chunk keeps; beyond it new spills are lost with an error (a chunk would
 /// need this many containers broken while its world is at the entity limit).
@@ -59,8 +64,6 @@ const MAX_SPILLS: usize = 1024;
 const SPILL_DROPS_PER_TICK: usize = 64;
 /// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
 const SPILL_ID: &str = "AnchorSpill";
-/// `BlockEvent` type of a chest lid (gophertunnel `BlockEventChangeChestState`).
-const BLOCK_EVENT_CHEST: i32 = 1;
 /// Slots of a chiseled bookshelf (PMMP `ChiseledBookshelfSlot`).
 pub(super) const BOOKSHELF_SLOTS: usize = 6;
 /// The random stream purpose of block entity ticks (smelting experience).
@@ -252,14 +255,14 @@ impl Kind {
         let classes = state.kind().classes();
         let is = |c: Class| classes.contains(&c);
         Some(if is(Class::Chest) {
-            (Self::Chest { pair: None }, 27)
+            (Self::Chest { pair: None }, CHEST_SLOTS)
         } else if is(Class::Barrel) {
-            (Self::Barrel, 27)
+            (Self::Barrel, CHEST_SLOTS)
         } else if is(Class::ShulkerBox) {
             // Bedrock's state has no facing; `placed` takes the clicked face.
-            (Self::ShulkerBox { facing: 1 }, 27)
+            (Self::ShulkerBox { facing: 1 }, CHEST_SLOTS)
         } else if is(Class::Hopper) {
-            (Self::Hopper, 5)
+            (Self::Hopper, HOPPER_SLOTS)
         } else if is(Class::EnderChest) {
             (Self::EnderChest, 0)
         } else if is(Class::Furnace) {
@@ -505,10 +508,10 @@ impl BlockEntity {
         nbt.remove("id");
         if kind.has_item_list() {
             let slots = match &kind {
-                Kind::Hopper => 5,
+                Kind::Hopper => HOPPER_SLOTS,
                 Kind::Furnace(_) => furnace::SLOTS,
                 Kind::BrewingStand(_) => brewing::SLOTS,
-                _ => 27,
+                _ => CHEST_SLOTS,
             };
             items = vec![Stack::EMPTY; slots];
             if let Some(Value::List(List::Compound(list))) = nbt.remove("Items") {
@@ -638,8 +641,13 @@ impl BlockEntity {
     }
 
     /// What clients get of it (PMMP `Spawnable::getSpawnCompound`): id, position, the custom
-    /// name and the kind's client keys (a chest's pair, a sign's text, a bed's colour…).
+    /// name and the kind's client keys (a chest's pair, a sign's text, a bed's colour…). A kind
+    /// Anchor does not type goes as saved: the client draws some blocks (a decorated pot, a
+    /// piston's arm, a bell) only from their block entity's keys, which Anchor cannot pick out.
     pub(super) fn spawn_nbt(&self, pos: BlockPos) -> Compound {
+        if matches!(self.kind, Kind::Other(_)) {
+            return self.write(pos);
+        }
         let mut nbt = Compound::from([
             ("id".to_owned(), Value::String(self.kind.id().to_owned())),
             ("x".to_owned(), Value::Int(pos.x)),
@@ -653,13 +661,15 @@ impl BlockEntity {
         nbt
     }
 
-    /// Whether clients get it (PMMP `Spawnable` tiles; a chiseled bookshelf and unknown kinds are
-    /// not).
+    /// Whether clients get it (PMMP `Spawnable` tiles; a chiseled bookshelf is not). A kind
+    /// Anchor does not type goes when it has an id (PMMP sends none of them: fixed, as the blocks
+    /// drawn from one show nothing without it).
     pub(super) fn is_spawnable(&self) -> bool {
-        !matches!(
-            self.kind,
-            Kind::Other(_) | Kind::ChiseledBookshelf { .. } | Kind::EnderChest
-        )
+        match &self.kind {
+            Kind::Other(_) => !self.kind.id().is_empty(),
+            Kind::ChiseledBookshelf { .. } | Kind::EnderChest => false,
+            _ => true,
+        }
     }
 
     #[cfg(test)]
@@ -742,7 +752,7 @@ impl Chunk {
                 continue;
             };
             if nbt.get("id") == Some(&Value::String(SPILL_ID.to_owned())) {
-                let mut items = vec![Stack::EMPTY; 54];
+                let mut items = vec![Stack::EMPTY; 2 * CHEST_SLOTS];
                 if let Some(Value::List(List::Compound(list))) = nbt.get("Items") {
                     read_items(&mut items, list, pos, custom);
                 }
@@ -1234,18 +1244,32 @@ fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
 
 /// The horizontal facing of a chest-like block state (`minecraft:cardinal_direction`).
 fn cardinal(state: block::State) -> Option<Facing> {
-    match state.value("minecraft:cardinal_direction")? {
-        PropertyValue::String("north") => Some(Facing::North),
-        PropertyValue::String("east") => Some(Facing::East),
-        PropertyValue::String("south") => Some(Facing::South),
-        PropertyValue::String("west") => Some(Facing::West),
-        _ => None,
-    }
+    let face = interact::props::facing_in(
+        state,
+        "minecraft:cardinal_direction",
+        interact::props::Encoding::Cardinal,
+    )?;
+    Facing::ALL.into_iter().find(|f| f.face() == face)
 }
 
 /// The block at `pos` of `world`, if loaded.
 fn block_at(state: &State, world: WorldIndex, pos: BlockPos) -> Option<block::State> {
     state.worlds.get(world)?.block(pos)
+}
+
+/// Sets slot `i` of a ticking container (a furnace, a brewing stand) and marks it in `slots` as
+/// changed, and in `kept` as keeping its stack network ID while the tick changed only its count.
+fn tick_set_slot(items: &mut [Stack], i: usize, stack: Stack, slots: &mut u8, kept: &mut u8) {
+    if let Some(slot) = items.get_mut(i) {
+        let bit = 1 << i;
+        if *slots & bit == 0 && slot.can_stack_with(&stack) {
+            *kept |= bit;
+        } else {
+            *kept &= !bit;
+        }
+        *slot = stack;
+        *slots |= bit;
+    }
 }
 
 /// The block one step toward `facing`.
@@ -1405,6 +1429,33 @@ fn create(
     true
 }
 
+/// Whether the chests at `pos` and `other` may pair into a double chest: both single chests of the
+/// same block facing the same way, `other` beside `pos` on its left or right.
+fn chests_pair(state: &State, world: WorldIndex, pos: BlockPos, other: BlockPos) -> bool {
+    let single = |at| {
+        matches!(
+            state.rules.block_entities.get(world, at).map(|e| &e.kind),
+            Some(Kind::Chest { pair: None })
+        )
+    };
+    let (Some(block), Some(other_block)) =
+        (block_at(state, world, pos), block_at(state, world, other))
+    else {
+        return false;
+    };
+    let Some(facing) = cardinal(block) else {
+        return false;
+    };
+    let beside_it = [facing.clockwise(), facing.clockwise().opposite()]
+        .into_iter()
+        .any(|side| beside(pos, side) == Some(other));
+    single(pos)
+        && single(other)
+        && beside_it
+        && other_block.kind() == block.kind()
+        && cardinal(other_block) == Some(facing)
+}
+
 /// Pairs the new chest at `pos` with a free chest of the same kind and facing beside it. After a
 /// [`ChestPair`] listener the chests must be as they were, and the hand of `session` (the player
 /// placing, whose interaction goes on with it) the same stack.
@@ -1435,23 +1486,9 @@ fn pair_chest(
             session.map(|s| inventory::held_of(state, s)) == held
                 && block_at(state, world, pos) == Some(block)
                 && block_at(state, world, other) == Some(other_block)
-                && matches!(
-                    state.rules.block_entities.get(world, pos).map(|e| &e.kind),
-                    Some(Kind::Chest { pair: None })
-                )
-                && matches!(
-                    state
-                        .rules
-                        .block_entities
-                        .get(world, other)
-                        .map(|e| &e.kind),
-                    Some(Kind::Chest { pair: None })
-                )
+                && chests_pair(state, world, pos, other)
         };
-        if other_block.kind() != block.kind()
-            || cardinal(other_block) != Some(facing)
-            || !pairable(state)
-        {
+        if !pairable(state) {
             continue;
         }
         let mut event = dispatch::heard::<ChestPair>(state).then(|| {
@@ -1461,7 +1498,7 @@ fn pair_chest(
                 (pos, other)
             };
             ChestPair {
-                world: inventory::world_id(world),
+                world: crate::world::Id::of(world),
                 left,
                 right,
                 cancelled: false,
@@ -1939,19 +1976,17 @@ fn tick_furnace(
     if !step.active {
         entities.active.remove(&(world, pos));
     }
-    if let Some(lit) = step.lit {
-        let name = lit_name(block, lit);
-        if let Some(next) = name.and_then(|n| interact::props::renamed(block, &n))
-            && let Some(w) = state.worlds.get_mut(world)
-            && w.set_block(pos, next).is_err()
-        {
-            warn!(
-                x = pos.x,
-                y = pos.y,
-                z = pos.z,
-                "could not light the furnace"
-            );
-        }
+    if let Some(lit) = step.lit
+        && let Some(next) = interact::props::with_lit(block, lit)
+        && let Some(w) = state.worlds.get_mut(world)
+        && w.set_block(pos, next).is_err()
+    {
+        warn!(
+            x = pos.x,
+            y = pos.y,
+            z = pos.z,
+            "could not light the furnace"
+        );
     }
     if let Some(fuel) = step.fuel {
         let packet = Packet::BlockActorData(BlockActorData {
@@ -1997,7 +2032,7 @@ fn furnace_fuel(
     let mut burn = Some((time, true));
     if dispatch::heard::<FurnaceBurn>(state) {
         let mut e = FurnaceBurn {
-            world: inventory::world_id(world),
+            world: crate::world::Id::of(world),
             pos,
             block,
             fuel: fuel.clone(),
@@ -2042,7 +2077,7 @@ fn furnace_smelt(
     let mut made = Some(result.clone());
     if dispatch::heard::<FurnaceSmelt>(state) {
         let mut e = FurnaceSmelt {
-            world: inventory::world_id(world),
+            world: crate::world::Id::of(world),
             pos,
             block,
             source: source.clone(),
@@ -2087,17 +2122,6 @@ fn furnace_at(
         } => Some((f, items, custom)),
         _ => None,
     }
-}
-
-/// The name of a furnace-like block lit or not (`minecraft:furnace` ↔ `minecraft:lit_furnace`).
-fn lit_name(block: block::State, lit: bool) -> Option<String> {
-    let rest = block.name().strip_prefix("minecraft:")?;
-    let base = rest.strip_prefix("lit_").unwrap_or(rest);
-    Some(if lit {
-        format!("minecraft:lit_{base}")
-    } else {
-        format!("minecraft:{base}")
-    })
 }
 
 /// A brewing stand tick.
@@ -2170,7 +2194,7 @@ fn brewing_fuel(
     let mut brews = Some(brewing::FUEL_BREWS);
     if dispatch::heard::<BrewingFuelUse>(state) {
         let mut e = BrewingFuelUse {
-            world: inventory::world_id(world),
+            world: crate::world::Id::of(world),
             pos,
             block,
             fuel_time: u32::from(brewing::FUEL_BREWS),
@@ -2216,7 +2240,7 @@ fn brewing_brew(
         let mut made = Some(result.clone());
         if dispatch::heard::<BrewItem>(state) {
             let mut e = BrewItem {
-                world: inventory::world_id(world),
+                world: crate::world::Id::of(world),
                 pos,
                 block,
                 slot: u8::try_from(slot).unwrap_or(u8::MAX),
@@ -2317,7 +2341,7 @@ fn tick_campfire(state: &mut State, world: WorldIndex, pos: BlockPos, block: blo
     let mut changed = false;
     for (k, (slot, mut result)) in done.into_iter().enumerate() {
         let mut event = inputs.get(k).map(|input| CampfireCook {
-            world: inventory::world_id(world),
+            world: crate::world::Id::of(world),
             pos,
             block,
             slot: u8::try_from(slot).unwrap_or(u8::MAX),
@@ -2443,7 +2467,7 @@ pub(super) fn animate(state: &mut State, world: WorldIndex, pos: BlockPos, viewe
     if block.is(Class::Chest) || block.is(Class::EnderChest) || block.is(Class::ShulkerBox) {
         let packet = Packet::BlockEvent(BlockEvent {
             position: [pos.x, pos.y, pos.z],
-            event_type: BLOCK_EVENT_CHEST,
+            event_type: i32::from(BlockEventType::ChangeChestState),
             event_data: i32::try_from(viewers).unwrap_or(i32::MAX),
         });
         state.broadcast(world, pos.chunk(), &packet, None);
@@ -2656,28 +2680,41 @@ pub(in crate::tick) mod tests {
     }
 
     #[test]
-    fn clients_get_the_client_keys_of_typed_block_entities_only() {
+    fn clients_get_the_client_keys_of_typed_block_entities_and_other_ones_as_saved() {
         let key = (0, ChunkPos::new(0, 0));
         let (a, b, c) = (
             BlockPos::new(1, 2, 3),
             BlockPos::new(2, 2, 3),
             BlockPos::new(3, 2, 3),
         );
+        let bare = BlockPos::new(4, 2, 3);
         let mut chunk = Chunk::default();
         chunk.entities.insert(a, chest_entity(&[], Some(b)));
         let furnace = Compound::from([("id".to_owned(), Value::String("Furnace".to_owned()))]);
         chunk
             .entities
             .insert(b, BlockEntity::read(furnace, b, &Registry::default()));
-        let unknown = Compound::from([("id".to_owned(), Value::String("Mystery".to_owned()))]);
+        // The client draws a decorated pot from its sherds alone.
+        let pot = Compound::from([
+            ("id".to_owned(), Value::String("DecoratedPot".to_owned())),
+            (
+                "sherds".to_owned(),
+                Value::List(List::String(vec!["minecraft:brick".to_owned(); 4])),
+            ),
+            ("isMovable".to_owned(), Value::Byte(1)),
+        ]);
         chunk
             .entities
-            .insert(c, BlockEntity::read(unknown, c, &Registry::default()));
+            .insert(c, BlockEntity::read(pot.clone(), c, &Registry::default()));
+        let no_id = Compound::from([("isMovable".to_owned(), Value::Byte(1))]);
+        chunk
+            .entities
+            .insert(bare, BlockEntity::read(no_id, bare, &Registry::default()));
         let mut store = BlockEntities::default();
         let world = World::new("be", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
         store.load(key, &chunk.write(), &world, &Registry::default());
         let sent = store.client_nbt(key);
-        assert_eq!(sent.len(), 2);
+        assert_eq!(sent.len(), 3);
         assert_eq!(sent[0].get("pairx"), Some(&Value::Int(2)));
         assert_eq!(
             sent[0].get("CustomName"),
@@ -2688,6 +2725,11 @@ pub(in crate::tick) mod tests {
             !sent[1].contains_key("BurnTime"),
             "PMMP sends no furnace timers"
         );
+        let mut saved_pot = pot;
+        saved_pot.insert("x".to_owned(), Value::Int(c.x));
+        saved_pot.insert("y".to_owned(), Value::Int(c.y));
+        saved_pot.insert("z".to_owned(), Value::Int(c.z));
+        assert_eq!(sent[2], saved_pot);
         let bytes = store.client_bytes(0, key.1, usize::try_from((2 + 64) >> 4).unwrap());
         let mut r = crate::protocol::Reader::new(&bytes, 1 << 20, 0);
         for want in &sent {
@@ -3067,12 +3109,8 @@ pub(in crate::tick) mod tests {
     #[test]
     fn lit_names_swap_the_prefix() {
         let furnace = block::Kind::Furnace.default_state();
-        let lit = lit_name(furnace, true).unwrap();
-        assert!(lit.starts_with("minecraft:lit_"), "{lit}");
-        let back = interact::props::renamed(furnace, &lit).unwrap();
-        assert_eq!(
-            interact::props::renamed(back, &lit_name(back, false).unwrap()),
-            Some(furnace)
-        );
+        let lit = interact::props::with_lit(furnace, true).unwrap();
+        assert!(lit.name().starts_with("minecraft:lit_"), "{lit:?}");
+        assert_eq!(interact::props::with_lit(lit, false), Some(furnace));
     }
 }

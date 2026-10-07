@@ -12,7 +12,7 @@ use crate::event::Listeners;
 use crate::permission::Default as By;
 use crate::protocol::Uuid;
 use crate::protocol::consts::{CommandArg, CommandArgType};
-use crate::protocol::packet::Packet as P;
+use crate::protocol::packet::{Packet as P, PlayStatus};
 use crate::save::Request;
 use crate::tick::log::{EntryKind, InputLog};
 use crate::tick::queue::{Input, InputKind, Outbound, outbound_queue};
@@ -542,6 +542,43 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
         commands.finish(),
         Err(Error::ConflictingPermission { .. })
     ));
+}
+
+#[test]
+fn the_overload_reasons_name_the_limits_they_enforce() {
+    let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
+    let reason = |command: &Command| match check(command) {
+        Err(Error::InvalidOverload { reason, .. }) => reason,
+        other => panic!("{other:?}"),
+    };
+    let overloads =
+        (0..=MAX_OVERLOADS).fold(Command::new("a", ""), |c, _| c.overload(&[], handler));
+    assert_eq!(
+        reason(&overloads),
+        format!("more than {MAX_OVERLOADS} overloads")
+    );
+    let mut permissions = Command::new("a", "").overload(&[], handler);
+    permissions.permissions = permission::BUILTIN
+        .iter()
+        .copied()
+        .take(MAX_PERMISSIONS + 1)
+        .collect();
+    assert_eq!(
+        reason(&permissions),
+        format!("more than {MAX_PERMISSIONS} permissions")
+    );
+    let params: Vec<Param> = (0..=MAX_PARAMS)
+        .map(|i| Param::int(i.to_string()))
+        .collect();
+    assert_eq!(
+        reason(&Command::new("a", "").overload(&params, handler)),
+        format!("more than {MAX_PARAMS} parameters")
+    );
+    let suffixed = Command::new("a", "").overload(&[Param::suffixed_int("n", "")], handler);
+    assert_eq!(
+        reason(&suffixed),
+        format!("a suffix is not one to {MAX_NAME} ASCII letters")
+    );
 }
 
 #[test]

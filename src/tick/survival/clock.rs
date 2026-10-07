@@ -18,7 +18,7 @@ use crate::protocol::consts::{AnimateAction, ClockPayloadType, LevelEvent};
 use crate::protocol::packet::{Animate, LevelEventGeneric, Packet, SyncWorldClocks};
 use crate::protocol::{SyncWorldClockStateData, TimeMarkerData, WorldClockData, Writer};
 use crate::save::WorldIndex;
-use crate::tick::{Phase, Player, SessionId, State};
+use crate::tick::{Phase, Player, SessionId, State, interact};
 use crate::world::{self, BlockPos, DAY};
 
 /// When night starts and beds work (PMMP `World::TIME_NIGHT`).
@@ -242,11 +242,12 @@ fn compound_body(data: &nbt::Compound) -> Vec<u8> {
         .unwrap_or_default()
 }
 
-/// Queues `packet` for every spawned player in `world`.
+/// Queues `packet` for every spawned player in `world`, as a viewer (`Player::send_to_viewer`):
+/// one player's beds can send it again and again.
 fn send_to_world(state: &mut State, world: WorldIndex, packet: &Packet) {
     for p in state.players.values_mut() {
         if p.world == world && p.phase == Phase::Spawned {
-            p.send_packet(packet.clone());
+            p.send_to_viewer(packet.clone());
         }
     }
 }
@@ -285,31 +286,15 @@ fn check_sleep(state: &mut State, world: WorldIndex) {
     }
 }
 
-/// The other half of a bed (PMMP `Bed::getOtherHalf`): the head lies one block along the bed's
-/// direction from the foot.
+/// The other half of a bed in `world` ([`interact::bed_other_half`]).
 fn other_half(
     state: &State,
     world: WorldIndex,
     pos: BlockPos,
     bed: block::State,
 ) -> Option<BlockPos> {
-    let Some(PropertyValue::Int(direction)) = bed.value("direction") else {
-        return None;
-    };
-    let head = matches!(bed.value("head_piece_bit"), Some(PropertyValue::Byte(1)));
-    // Bedrock bed directions: 0 south, 1 west, 2 north, 3 east.
-    let (dx, dz) = match direction {
-        0 => (0, 1),
-        1 => (-1, 0),
-        2 => (0, -1),
-        _ => (1, 0),
-    };
-    let (dx, dz) = if head { (-dx, -dz) } else { (dx, dz) };
-    let other = BlockPos::new(pos.x + dx, pos.y, pos.z + dz);
-    let b = state.worlds.get(world)?.block(other)?;
-    let other_head = matches!(b.value("head_piece_bit"), Some(PropertyValue::Byte(1)));
-    (b.is(Class::Bed) && other_head != head && b.value("direction") == bed.value("direction"))
-        .then_some(other)
+    let w = state.worlds.get(world)?;
+    interact::bed_other_half(w, pos, bed).map(|(other, _)| other)
 }
 
 /// Whether a bed block is the head half.

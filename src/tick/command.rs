@@ -21,7 +21,7 @@ use tracing::{debug, info};
 pub(crate) use self::access::Access;
 pub(crate) use self::available::{Listing, available_commands};
 use super::checkpoint::{self, Codec, Reader, Writer};
-use super::queue::{Identity, SessionId};
+use super::queue::{self, Identity, SessionId};
 use super::{Context, Phase, PlayerKey, State, chat, dispatch, spawn};
 use crate::ServerBuilder;
 use crate::command::parse::{self, Coord, Names, Raw, Target};
@@ -35,9 +35,7 @@ use crate::math::Vec3;
 use crate::permission::{self, BanEntry, Permission};
 use crate::player::{self, MAX_TEXT};
 use crate::protocol::consts::{CommandOutputType, DisconnectReason};
-use crate::protocol::packet::{
-    CommandOutput, CommandRequest, Disconnect, Packet, PlayStatus, SetDifficulty,
-};
+use crate::protocol::packet::{CommandOutput, CommandRequest, Disconnect, Packet, SetDifficulty};
 use crate::protocol::{COMMAND_DESCRIPTION_MAX_LEN, CommandOrigin, CommandOutputMessage};
 use crate::random::{self, Random};
 use crate::save::{AccessData, AccessWrite};
@@ -45,9 +43,6 @@ use crate::storage::AccessKey;
 
 /// Permissions one player may be granted or denied while online.
 const MAX_GRANTS: usize = 1024;
-/// `PlayStatus` that refuses a join because the server is full (gophertunnel
-/// `PlayStatusLoginFailedServerFull`).
-const PLAY_STATUS_SERVER_FULL: i32 = 7;
 /// The random stream of `@r`.
 const RANDOM_TARGET: u64 = random::tag("command-random-target");
 /// What the console is called in messages (PMMP `ConsoleCommandSender::getName`).
@@ -923,13 +918,11 @@ impl Refusal {
         }
     }
 
-    /// The last packet the refused session gets: `PlayStatus(LoginFailedServerFull)` for a full
-    /// server (the client shows its own text), otherwise a `Disconnect` with the message.
+    /// The last packet the refused session gets: [`queue::server_full`] for a full server,
+    /// otherwise a `Disconnect` with the message.
     pub(crate) fn packet(&self) -> Packet {
         match self {
-            Self::Full => Packet::PlayStatus(PlayStatus {
-                status: PLAY_STATUS_SERVER_FULL,
-            }),
+            Self::Full => queue::server_full(),
             _ => Packet::Disconnect(Disconnect {
                 reason: i32::from(DisconnectReason::NotAllowed),
                 hide_disconnection_screen: false,
@@ -1029,8 +1022,9 @@ impl Context<'_> {
     }
 
     /// Shows `copy` to every online player with [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN)
-    /// but `sender`. A copy of a command line's result fits what a client decodes, so a failure
-    /// only means the player is leaving.
+    /// but `sender`, as a viewer: a command on many players makes a copy for each, so one whose
+    /// outbox is nearly full is skipped. A copy of a command line's result fits what a client
+    /// decodes, so a failure only means the player is leaving.
     fn tell_admins(&mut self, sender: Sender, copy: &player::Message) {
         let admins: Vec<player::Id> = self
             .players()
@@ -1042,6 +1036,7 @@ impl Context<'_> {
             .collect();
         for id in admins {
             if let Some(p) = self.player_mut(id)
+                && p.has_viewer_room()
                 && let Err(e) = p.send(copy.clone())
             {
                 debug!(%e, "command result copy not sent");

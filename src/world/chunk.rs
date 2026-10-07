@@ -518,6 +518,12 @@ pub(crate) mod tests {
     /// value BDS sends).
     const KELP_AGE_3: u32 = 3_718_566_417;
 
+    #[test]
+    fn the_sub_chunks_span_the_world_height() {
+        assert_eq!(i32::from(LOWEST_SUB_CHUNK), MIN_Y >> 4);
+        assert_eq!(SUB_CHUNKS * 16, usize::try_from(MAX_Y - MIN_Y + 1).unwrap());
+    }
+
     /// States without neighbour rules, so setting one changes nothing else.
     pub(crate) fn plain_states() -> Vec<State> {
         State::all()

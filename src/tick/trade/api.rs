@@ -162,3 +162,26 @@ impl Context<'_> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::offers::{MAX_OFFERS, MAX_SAVED_BYTES, MAX_TIER};
+    use super::*;
+
+    /// The reason of `error`'s public form.
+    fn reason(error: Error) -> &'static str {
+        match error.public() {
+            custom::Error::Offer { reason } => reason,
+            other => panic!("not an offer error: {other:?}"),
+        }
+    }
+
+    /// The reasons restate the limits as text: a changed limit fails here until its text follows.
+    #[test]
+    fn offer_error_reasons_name_the_current_limits() {
+        assert!(reason(Error::Full).contains(&format!(" {MAX_OFFERS} ")));
+        assert_eq!(MAX_SAVED_BYTES % (1 << 20), 0, "a whole number of MiB");
+        assert!(reason(Error::TooLarge).contains(&format!(" {} MiB", MAX_SAVED_BYTES >> 20)));
+        assert!(reason(Error::Tier).ends_with(&format!(" {MAX_TIER}")));
+    }
+}

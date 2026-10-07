@@ -122,8 +122,7 @@ impl Entity {
         self.health
     }
 
-    /// The health it starts with (PMMP: 5 for items, 1 for projectiles, 20 otherwise; a custom
-    /// type's own).
+    /// The health it starts with (PMMP's per kind, `Kind::max_health`; a custom type's own).
     #[doc(alias = "Entity::getMaxHealth")]
     #[doc(alias = "Living::getMaxHealth")]
     pub fn max_health(&self) -> f64 {
@@ -630,8 +629,8 @@ impl Deref for Mut<'_> {
     fn deref(&self) -> &Entity {
         #[expect(
             clippy::expect_used,
-            reason = "invariant: a `Mut` is made for a live entity, and only the entity tick \
-                      removes entities from the store"
+            reason = "invariant: a `Mut` is made for a live entity and holds the store's only \
+                      mutable borrow, so nothing removes it while the `Mut` lives"
         )]
         self.entities
             .get(self.id)
@@ -663,8 +662,8 @@ impl Mut<'_> {
         }
         #[expect(
             clippy::expect_used,
-            reason = "invariant: a `Mut` is made for a live entity, and only the entity tick \
-                      removes entities from the store"
+            reason = "invariant: a `Mut` is made for a live entity and holds the store's only \
+                      mutable borrow, so nothing removes it while the `Mut` lives"
         )]
         self.entities
             .get_mut(self.id)

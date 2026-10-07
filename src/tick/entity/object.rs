@@ -29,6 +29,7 @@ use crate::nbt::{Compound, List, Value};
 use crate::random::Random;
 use crate::save::WorldIndex;
 use crate::tick::interact::block_vec;
+use crate::tick::interact::props::rotate_y;
 use crate::world::{BlockPos, Particle, Sound, World};
 
 /// How much of its block a painting leaves free in front: it is 1/16 thick (PMMP
@@ -73,18 +74,6 @@ pub(in crate::tick) enum Placed {
     Full,
 }
 
-/// The face a quarter turn clockwise seen from above (PMMP `Facing::rotateY($face, true)`);
-/// up and down stay.
-fn clockwise(face: Face) -> Face {
-    match face {
-        Face::North => Face::East,
-        Face::East => Face::South,
-        Face::South => Face::West,
-        Face::West => Face::North,
-        f @ (Face::Up | Face::Down) => f,
-    }
-}
-
 /// Whether a painting can face `face`: north, south, west or east.
 pub(super) fn is_horizontal(face: Face) -> bool {
     !matches!(face, Face::Up | Face::Down)
@@ -113,9 +102,9 @@ pub(super) fn painting_box(pos: BlockPos, facing: Face, motive: PaintingMotive) 
         Face::East => max.x += d,
     };
     extend(facing, -PAINTING_TRIM);
-    extend(clockwise(facing), f64::from(horizontal));
+    extend(rotate_y(facing, true), f64::from(horizontal));
     extend(
-        clockwise(facing).opposite(),
+        rotate_y(facing, true).opposite(),
         f64::from(width - 1 - horizontal),
     );
     extend(Face::Down, f64::from(vertical));
@@ -138,7 +127,7 @@ pub(super) fn fits(
         return Some(false);
     }
     let (horizontal, vertical) = starts(motive);
-    let (cx, _, cz) = clockwise(facing).offset();
+    let (cx, _, cz) = rotate_y(facing, true).offset();
     let (bx, _, bz) = facing.opposite().offset();
     let start = pos.offset(cx * horizontal, -vertical, cz * horizontal)?;
     let mut known = true;
@@ -534,7 +523,7 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
     }
     let mut players = Vec::new();
     for (&s, p) in &state.players {
-        let feet = p.position - Vec3::new(0.0, super::PLAYER_EYE_HEIGHT, 0.0);
+        let feet = p.position - Vec3::new(0.0, super::EYE_HEIGHT, 0.0);
         if targetable(state, p, world, hooks)
             && player_box(p).overlaps(area, super::EPSILON)
             && reached(feet, super::PLAYER_HEIGHT)
@@ -548,7 +537,7 @@ fn burst(state: &mut State, id: Id, hooks: Hooks) {
         hurt(
             state,
             other,
-            Blow::of(Cause::Explosion, damage).by(by),
+            Blow::of(Cause::EntityExplosion, damage).by(by),
             Some(knock),
         );
     }

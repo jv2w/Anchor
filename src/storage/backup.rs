@@ -462,7 +462,7 @@ impl Online {
     ///
     /// The copy is not compacted: `compact` is one call that took
     /// 3.7 to 4.1 s on copies of 116 and 456 MiB, which every request would wait for, and saves
-    /// 10 to 13% of the file. A backup put back as the server file is compacted by that start.
+    /// 10 to 13% of the file.
     #[expect(
         clippy::disallowed_types,
         clippy::disallowed_methods,

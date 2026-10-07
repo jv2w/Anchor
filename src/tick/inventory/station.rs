@@ -412,7 +412,11 @@ fn begin_anvil(exec: &mut Exec<'_>, filter_index: i32) -> Result<Craft> {
 fn begin_loom(exec: &mut Exec<'_>, pattern: &str, times: u8) -> Result<Craft> {
     let (banner, dye) = (ui(exec, 0)?, ui(exec, 1)?);
     let banner_type = banner.item().ok_or(Error::Recipe)?;
-    let colour = dye.item().and_then(item::dye_colour).ok_or(Error::Recipe)?;
+    let colour = dye
+        .item()
+        .and_then(item::dye_colour)
+        .and_then(crate::tile::DyeColour::from_id)
+        .ok_or(Error::Recipe)?;
     if times == 0
         || banner_type.name() != "minecraft:banner"
         || banner_type.nbt().is_some()
@@ -431,10 +435,9 @@ fn begin_loom(exec: &mut Exec<'_>, pattern: &str, times: u8) -> Result<Craft> {
     if list.len() >= MAX_LOOM_PATTERNS {
         return Err(Error::Recipe);
     }
-    // Patterns name colours by PMMP's inverted dye ID.
     list.push(Compound::from([
         ("Pattern".to_owned(), Value::String(pattern.to_owned())),
-        ("Color".to_owned(), Value::Int(15 - i32::from(colour))),
+        ("Color".to_owned(), Value::Int(colour.banner_id())),
     ]));
     tag.insert("Patterns".to_owned(), Value::List(List::Compound(list)));
     let result =
@@ -657,10 +660,7 @@ pub(super) fn apply(
             Effect::Enchanted { cost } => {
                 // PMMP: with finite resources as many of the levels as the player has.
                 let finite = state.players.get(&session).is_some_and(|p| {
-                    matches!(
-                        survival::game_mode(state, p),
-                        crate::config::GameMode::Survival | crate::config::GameMode::Adventure
-                    )
+                    survival::game_mode(state, p) != crate::config::GameMode::Creative
                 });
                 if let Some(player) = state.players.get_mut(&session) {
                     if finite {
@@ -722,7 +722,7 @@ fn refresh_options(state: &mut State, session: SessionId, world: WorldIndex, pos
     if !choices.is_empty() && dispatch::heard::<PlayerEnchantingOptionsRequest>(state) {
         let mut event = PlayerEnchantingOptionsRequest {
             player: crate::player::Id::new(session),
-            world: super::world_id(world),
+            world: crate::world::Id::of(world),
             pos,
             options: choices.iter().map(option_of).collect(),
             cancelled: false,

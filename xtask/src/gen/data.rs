@@ -11,15 +11,16 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
+use crate::dump::{
+    PMMP_BLOCKS, PMMP_DESERIALIZED, PMMP_DIR, PMMP_ITEMS, PMMP_TABLES, REFERENCE_BLOCKS,
+    REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS, read,
+};
+
 use super::body::str_lit;
 use super::info::{Break, Identity, ItemData, Physics, Tables, exact, support_codes};
+use super::upgrade::{LATEST, latest};
 
 type R<T> = Result<T, String>;
-
-/// Committed data files, relative to the repository root.
-pub(crate) const PMMP_DIR: &str = "xtask/data/pmmp";
-pub(crate) const REFERENCE_DIR: &str = "xtask/data/reference";
-const UPGRADE_PATH: &str = super::upgrade::LATEST;
 
 /// Bedrock states PMMP splits by data Anchor keeps in the block entity: the
 /// Bedrock name, the PMMP type Anchor's state takes and what the block entity holds. Only PMMP
@@ -434,7 +435,7 @@ impl Data {
             aliases,
             items: Vec::new(),
             kinds,
-            tables: read_json(root, PMMP_DIR, "tables.json")?,
+            tables: read_json(root, PMMP_DIR, PMMP_TABLES)?,
             pmmp_state_index,
             recipe_meta,
             item_index: BTreeMap::new(),
@@ -456,7 +457,7 @@ impl Data {
 
     /// Loads the PMMP item types and gives each its 1.26.50 runtime ID.
     fn load_items(&mut self, root: &Path, network: &BTreeMap<StateKey, u32>) -> R<()> {
-        let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, "items.json")?;
+        let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
         self.runtime_ids = reference
             .into_iter()
             .map(|i| {
@@ -465,7 +466,7 @@ impl Data {
                     .map_err(|_| format!("runtime ID of {} out of range", i.name))
             })
             .collect::<R<_>>()?;
-        let pmmp: Vec<PmmpItem> = read_json(root, PMMP_DIR, "items.json")?;
+        let pmmp: Vec<PmmpItem> = read_json(root, PMMP_DIR, PMMP_ITEMS)?;
         for (i, item) in pmmp.iter().enumerate() {
             let index = u16::try_from(i).map_err(|_| "more than 65,536 item types")?;
             let form = self.item_form(&item.bedrock)?;
@@ -525,7 +526,7 @@ impl Data {
     /// state may be one PMMP does not have (glazed terracotta facing down); it is only the network
     /// form, and the item still places PMMP's state.
     fn use_vanilla_item_blocks(&mut self, root: &Path, network: &BTreeMap<StateKey, u32>) -> R<()> {
-        let vanilla: Vec<ItemBlock> = read_json(root, REFERENCE_DIR, "item_blocks.json")?;
+        let vanilla: Vec<ItemBlock> = read_json(root, REFERENCE_DIR, REFERENCE_ITEM_BLOCKS)?;
         let mut block_items: BTreeMap<&str, usize> = BTreeMap::new();
         for item in self.items.iter().filter(|i| i.block.is_some()) {
             *block_items.entry(item.name.as_str()).or_default() += 1;
@@ -701,7 +702,7 @@ fn corrected_meta(name: &str, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) ->
 
 /// Reads the reference block list.
 fn read_reference(root: &Path) -> R<Reference> {
-    let reference: Vec<ReferenceBlock> = read_json(root, REFERENCE_DIR, "blocks.json")?;
+    let reference: Vec<ReferenceBlock> = read_json(root, REFERENCE_DIR, REFERENCE_BLOCKS)?;
     let mut network = BTreeMap::new();
     let mut names: BTreeMap<String, Vec<StateKey>> = BTreeMap::new();
     for b in reference {
@@ -716,15 +717,14 @@ fn read_reference(root: &Path) -> R<Reference> {
 
 /// Reads the added properties of the block upgrade schema.
 fn read_upgrade(root: &Path) -> R<BTreeMap<String, Vec<(String, Prop)>>> {
-    let path = root.join(UPGRADE_PATH);
+    let path = latest(root);
     let upgrade: Upgrade =
-        serde_json::from_slice(&read(&path)?).map_err(|e| format!("{UPGRADE_PATH}: {e}"))?;
+        serde_json::from_slice(&read(&path)?).map_err(|e| format!("{LATEST}: {e}"))?;
     let mut added = BTreeMap::new();
     for (name, props) in &upgrade.added_properties {
         let mut list = Vec::with_capacity(props.len());
         for (prop, value) in props {
-            let value =
-                prop_value(value).map_err(|e| format!("{UPGRADE_PATH}: {name} {prop}: {e}"))?;
+            let value = prop_value(value).map_err(|e| format!("{LATEST}: {name} {prop}: {e}"))?;
             list.push((prop.clone(), value));
         }
         added.insert(name.clone(), list);
@@ -744,7 +744,7 @@ fn read_aliases(
     state_index: &BTreeMap<StateKey, u16>,
     pmmp_state_index: &BTreeMap<StateKey, u16>,
 ) -> R<Vec<Alias>> {
-    let list: Vec<Deserialized> = read_json(root, PMMP_DIR, "deserialized.json")?;
+    let list: Vec<Deserialized> = read_json(root, PMMP_DIR, PMMP_DESERIALIZED)?;
     aliases(list, network, state_index, pmmp_state_index)
 }
 
@@ -817,7 +817,7 @@ type PmmpStates = (
 /// [`merge`]); also the default state and identity of each PMMP block type, which all its
 /// states must share.
 fn read_pmmp_states(root: &Path) -> R<PmmpStates> {
-    let pmmp: Vec<PmmpBlock> = read_json(root, PMMP_DIR, "blocks.json")?;
+    let pmmp: Vec<PmmpBlock> = read_json(root, PMMP_DIR, PMMP_BLOCKS)?;
     let mut groups: BTreeMap<StateKey, Vec<(Values, i32)>> = BTreeMap::new();
     let mut defaults = BTreeMap::new();
     let mut kinds: BTreeMap<String, Identity> = BTreeMap::new();
@@ -1055,7 +1055,7 @@ fn upgrade(
         .keys()
         .find(|name| !used.contains(*name) && !reference_names.contains_key(*name))
     {
-        return Err(format!("{UPGRADE_PATH}: {name} is not a 1.26.50 block"));
+        return Err(format!("{LATEST}: {name} is not a 1.26.50 block"));
     }
     Ok((states, defaults))
 }
@@ -1328,14 +1328,6 @@ pub(crate) fn hex_lit(v: u64, width: usize) -> String {
         out.push(c);
     }
     out
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn read(path: &Path) -> R<Vec<u8>> {
-    std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(test)]

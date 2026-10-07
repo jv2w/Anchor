@@ -8,7 +8,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
-use crate::protocol::packet::Packet;
+use crate::protocol::consts;
+use crate::protocol::packet::{Packet, PlayStatus};
 use crate::protocol::{self, Uuid};
 
 /// Inputs the tick queue holds. A session that finds it full disconnects.
@@ -94,7 +95,7 @@ super::checkpoint::fields!(Identity {
 /// (PMMP `PlayerInfo::getLocale`, `PlayerInfo::getExtraData`, `NetworkSession::getPort`). Every
 /// text is the client's own claim; the login checked the locale (a language tag of at most 64
 /// bytes), the game version (digits and dots) and the server address (a host and port). The
-/// default is what a replay of a log before format 9 has: empty texts and zeros.
+/// default, empty texts and zeros, is for a player made without a connection (tests).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Client {
     /// The language code, such as `en_US` (`LanguageCode`).
@@ -394,6 +395,16 @@ pub(crate) enum Outbound {
     /// The last packet to send (a `Disconnect` or a failed `PlayStatus`) before closing the
     /// connection. The tick has already forgotten the session.
     Close(Packet),
+}
+
+/// The packet that turns a player away because the server is full: `PlayStatus` with
+/// `LoginFailedServerFull`, whose text the client shows itself. The session layer sends it when
+/// too many sessions wait to join, the tick when `max-players` players are online or no entity
+/// runtime ID is left.
+pub(crate) fn server_full() -> Packet {
+    Packet::PlayStatus(PlayStatus {
+        status: i32::from(consts::PlayStatus::LoginFailedServerFull),
+    })
 }
 
 /// Why an input was not queued.

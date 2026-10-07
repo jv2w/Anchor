@@ -9,8 +9,8 @@
 
 use super::super::{Context, State, inventory};
 use super::{
-    BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon_effect_allowed, beside,
-    block_at, book_pages, broadcast_spawn, campfire_kind, cardinal, decor, set_beacon,
+    BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon_effect_allowed, block_at,
+    book_pages, broadcast_spawn, campfire_kind, chests_pair, decor, set_beacon,
 };
 use crate::block::{self, Class, Face, TypeTag};
 use crate::effect;
@@ -87,7 +87,7 @@ impl<'a> Tile<'a> {
 
     /// The world it is in.
     pub fn world(&self) -> world::Id {
-        inventory::world_id(self.world)
+        world::Id::of(self.world)
     }
 
     /// Its position.
@@ -425,17 +425,7 @@ impl Mut<'_> {
         };
         single(pos)?;
         single(other)?;
-        let (Some(block), Some(other_block)) =
-            (block_at(state, world, pos), block_at(state, world, other))
-        else {
-            return Err(Error::Invalid);
-        };
-        let facing = cardinal(block).ok_or(Error::Invalid)?;
-        let beside_it = [facing.clockwise(), facing.clockwise().opposite()]
-            .into_iter()
-            .any(|side| beside(pos, side) == Some(other));
-        if !beside_it || other_block.kind() != block.kind() || cardinal(other_block) != Some(facing)
-        {
+        if !chests_pair(state, world, pos, other) {
             return Err(Error::Invalid);
         }
         self.set_pairs([(pos, Some(other)), (other, Some(pos))]);

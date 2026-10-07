@@ -223,8 +223,8 @@ pub(super) fn clear(state: &mut State, session: SessionId) {
 }
 
 /// The active effect types, without allocating (at most one per type).
-fn active_types(state: &State, session: SessionId) -> [Option<Type>; EFFECT_TYPES] {
-    let mut out = [None; EFFECT_TYPES];
+fn active_types(state: &State, session: SessionId) -> [Option<Type>; effect::TYPE_COUNT] {
+    let mut out = [None; effect::TYPE_COUNT];
     if let Some(player) = state.players.get(&session) {
         for (slot, &effect) in out.iter_mut().zip(player.survival.effects.keys()) {
             *slot = Some(effect);
@@ -232,9 +232,6 @@ fn active_types(state: &State, session: SessionId) -> [Option<Type>; EFFECT_TYPE
     }
     out
 }
-
-/// The number of effect types.
-const EFFECT_TYPES: usize = 27;
 
 /// What an effect changes when it starts (PMMP `Effect::add`).
 fn on_add(s: &mut Survival, effect: Type, new: Active) {
@@ -357,16 +354,12 @@ fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
         Type::InstantHealth => damage::heal(
             state,
             session,
-            4.0 * doubled(active.amplifier),
+            instant_amount(effect, active.amplifier),
             RegainReason::Magic,
         ),
         Type::InstantDamage => {
-            damage::damage(
-                state,
-                session,
-                6.0 * doubled(active.amplifier),
-                Damage::Magic,
-            );
+            let amount = instant_amount(effect, active.amplifier);
+            damage::damage(state, session, amount, Damage::Magic);
         }
         Type::Hunger => {
             let amount = 0.1 * f64::from(active.level());
@@ -383,6 +376,18 @@ fn apply(state: &mut State, session: SessionId, effect: Type, active: Active) {
     }
 }
 
+/// What an instant effect at full potency heals or hurts (PMMP `InstantHealthEffect`:
+/// 4 << amplifier, `InstantDamageEffect`: 6 << amplifier), for players and entities, drunk or
+/// splashed; 0 for any other effect.
+pub(super) fn instant_amount(effect: Type, amplifier: u8) -> f64 {
+    let base = match effect {
+        Type::InstantHealth => 4.0,
+        Type::InstantDamage => 6.0,
+        _ => 0.0,
+    };
+    base * doubled(amplifier)
+}
+
 /// 2 to the power `n` (PMMP's `x << amplifier`, without the integer overflow).
 fn doubled(n: u8) -> f64 {
     (0..n).fold(1.0, |v, _| v * 2.0)
@@ -391,7 +396,7 @@ fn doubled(n: u8) -> f64 {
 /// The visible effects packed for the entity data (PMMP `Living::syncNetworkData`): up to 8
 /// effects with particles, by ID, 7 bits each (6-bit ID, ambient bit).
 pub(super) fn packed(s: &Survival) -> i64 {
-    let mut ids = [(0_u8, false); EFFECT_TYPES];
+    let mut ids = [(0_u8, false); effect::TYPE_COUNT];
     let mut n = 0;
     for (effect, active) in &s.effects {
         if let Some(slot) = ids.get_mut(n)

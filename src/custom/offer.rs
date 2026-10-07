@@ -7,7 +7,7 @@
 use crate::item::Stack;
 
 /// The price multiplier BDS gives most offers (P6, `xtask/data/p6/facts.md`).
-const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
+pub(crate) const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 
 /// One trade a villager offers: what the player pays (one or two stacks, their counts are the
 /// price) and what one trade gives, with its limits and rewards.

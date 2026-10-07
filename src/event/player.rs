@@ -1177,7 +1177,7 @@ impl PlayerLogin {
         self.address.ip()
     }
 
-    /// The player's port: always 0 in Anchor, whose login identity carries only the IP address.
+    /// The port the player connected from.
     #[doc(alias = "PlayerPreLoginEvent::getPort")]
     pub fn port(&self) -> u16 {
         self.address.port()

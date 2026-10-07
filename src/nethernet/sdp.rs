@@ -8,10 +8,11 @@ use std::str::FromStr;
 
 use serde::Deserialize;
 
-use crate::crypto::{STD, crc32};
+use crate::crypto::{STD, crc32, max_jws_text};
+use crate::login::MAX_TOKEN_PAYLOAD;
 
 /// Largest offer body. A real offer is about 2 KiB, most of it the identity token.
-const MAX_OFFER: usize = 64 * 1024;
+pub(crate) const MAX_OFFER: usize = 64 * 1024;
 /// Most non-empty lines in an offer. A real offer has about 20.
 const MAX_LINES: usize = 1024;
 /// Most usable candidates. A client offers one per interface and address family.
@@ -26,9 +27,8 @@ const MIN_MESSAGE_SIZE: u32 = 1024;
 const SCTP_PORT: &str = "5000";
 /// Largest decoded `a=identity` JSON.
 const MAX_IDENTITY_JSON: usize = 32 * 1024;
-/// Longest identity token text: the Login token's 16 KiB payload cap in base64,
-/// with room for the header and the signature.
-const MAX_TOKEN_TEXT: usize = 25 * 1024;
+/// Longest identity token text: the longest the Login token check accepts.
+const MAX_TOKEN_TEXT: usize = max_jws_text(MAX_TOKEN_PAYLOAD);
 /// Longest detached fingerprint JWS text. An ES384 one is 150 characters.
 const MAX_FINGERPRINTS_TEXT: usize = 1024;
 /// Longest identity provider domain in bytes.
@@ -971,6 +971,23 @@ a=max-message-size:262144
         let huge = format!("{{\"x\":\"{}\"}}", "a".repeat(MAX_IDENTITY_JSON));
         assert!(matches!(
             parse_offer(&offer_with_identity(&huge)),
+            Err(Error::Identity(_))
+        ));
+    }
+
+    /// The token cap is the longest token the Login check accepts, so the offer refuses no
+    /// token the login would take, and none longer.
+    #[test]
+    fn the_identity_token_cap_is_the_login_token_cap() {
+        let detached = "eyJh..c2ln";
+        let token = |len: usize| format!("eyJh.{}.c2ln", "a".repeat(len - 10));
+        let longest = max_jws_text(MAX_TOKEN_PAYLOAD);
+        let json = identity_json(detached, &token(longest), "self", "default");
+        let identity = parse_offer(&offer_with_identity(&json)).unwrap().identity;
+        assert_eq!(identity.unwrap().token.len(), longest);
+        let json = identity_json(detached, &token(longest + 1), "self", "default");
+        assert!(matches!(
+            parse_offer(&offer_with_identity(&json)),
             Err(Error::Identity(_))
         ));
     }

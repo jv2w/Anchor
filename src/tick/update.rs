@@ -36,6 +36,11 @@ mod soil;
 mod support;
 mod tree;
 
+pub(super) use liquid::{LAVA_TICK_RATE, WATER_TICK_RATE};
+pub(super) use plant::{MAX_VINE_AGE, nether_vines_age};
+pub(super) use soil::CAULDRON_FULL;
+pub(super) use support::static_support;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use tracing::warn;
@@ -44,7 +49,6 @@ use super::interact::{self, Destroy};
 use super::view::{self, Key};
 use super::{Context, Phase, State, block_entity, dispatch, entity};
 use crate::block::{self, Class, Face, Kind};
-use crate::config::Difficulty;
 use crate::event::{Actor, BlockUpdate};
 use crate::item::Stack;
 use crate::math::Vec3;
@@ -495,13 +499,20 @@ pub(super) fn trample(
 /// cost about 76 µs a tick (release), less than handing the candidate positions to the CPU pool
 /// would save, and rules change the blocks later candidates read.
 pub(super) fn tick(state: &mut State) {
+    // The players' chunks, gathered in one pass for every world rather than one pass per world,
+    // and only when random ticks run. No update moves a player or changes its world.
+    let centers = if state.settings.random_tick_speed == 0 {
+        BTreeMap::new()
+    } else {
+        player_chunks(state)
+    };
     for world in 0..state.worlds.len() {
         if !state.is_awake(world) {
             continue;
         }
         run_scheduled(state, world);
         run_neighbours(state, world);
-        run_random(state, world);
+        run_random(state, world, centers.get(&world));
     }
 }
 
@@ -594,14 +605,15 @@ fn refill(state: &mut State, world: WorldIndex) {
     }
 }
 
-/// Random ticks of `world` (PMMP `World::tickChunks`).
-fn run_random(state: &mut State, world: WorldIndex) {
+/// Random ticks of `world` (PMMP `World::tickChunks`) around `centers`, the chunks its players
+/// stand in.
+fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<ChunkPos>>) {
     let speed = state.settings.random_tick_speed;
     let radius = state.settings.view(world).tick_radius;
     if speed == 0 || radius == 0 {
         return;
     }
-    let chunks = ticking_chunks(state, world, radius);
+    let chunks = ticking_chunks(state, world, radius, centers);
     let Some(world_seed) = state.worlds.get(world).map(World::seed) else {
         return;
     };
@@ -653,17 +665,39 @@ fn random_position(chunk: ChunkPos, base_y: i32, bits: u64) -> BlockPos {
     )
 }
 
-/// The chunks of `world` that take random ticks, in order: within `radius` of a player in the
-/// world, with their 3 × 3 neighbourhood loaded and lit.
-fn ticking_chunks(state: &State, world: WorldIndex, radius: u8) -> Vec<ChunkPos> {
-    let Some(w) = state.worlds.get(world) else {
+/// The chunks the players past loading stand in, by world: the centers of [`ticking_chunks`].
+fn player_chunks(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
+    let mut centers: BTreeMap<WorldIndex, BTreeSet<ChunkPos>> = BTreeMap::new();
+    for player in state.players.values() {
+        if player.phase != Phase::Loading {
+            centers
+                .entry(player.world)
+                .or_default()
+                .insert(view::chunk_of(player.position));
+        }
+    }
+    centers
+}
+
+/// The chunks of `world` that take random ticks, in order: within `radius` of `centers`, the
+/// chunks of the players in the world ([`player_chunks`]), with their 3 × 3 neighbourhood loaded
+/// and lit. One disc serves every center: players in one chunk share it.
+fn ticking_chunks(
+    state: &State,
+    world: WorldIndex,
+    radius: u8,
+    centers: Option<&BTreeSet<ChunkPos>>,
+) -> Vec<ChunkPos> {
+    let (Some(w), Some(centers)) = (state.worlds.get(world), centers) else {
         return Vec::new();
     };
+    let disc = view::disc(ChunkPos::new(0, 0), radius);
     let mut near = BTreeSet::new();
-    for player in state.players.values() {
-        if player.world == world && player.phase != Phase::Loading {
-            near.extend(view::disc(view::chunk_of(player.position), radius));
-        }
+    for c in centers {
+        near.extend(
+            disc.iter()
+                .map(|d| ChunkPos::new(c.x.saturating_add(d.x), c.z.saturating_add(d.z))),
+        );
     }
     near.into_iter()
         .filter(|c| {
@@ -901,12 +935,7 @@ impl<'a> Cx<'a> {
 
     /// The difficulty as PMMP numbers it (peaceful 0 to hard 3).
     pub(super) fn difficulty(&self) -> u8 {
-        match super::world_api::difficulty(self.state, self.world) {
-            Difficulty::Peaceful => 0,
-            Difficulty::Easy => 1,
-            Difficulty::Normal => 2,
-            Difficulty::Hard => 3,
-        }
+        super::world_api::difficulty(self.state, self.world).id()
     }
 
     /// Whether the block takes random ticks here: PMMP's `ticksRandomly`, copper that can
@@ -1970,11 +1999,12 @@ mod tests {
         for _ in 0..40 {
             full_tick(state, Vec::new(), pool, &mut output);
         }
-        let chunks = ticking_chunks(state, 0, 4).len();
+        let centers = player_chunks(state);
+        let chunks = ticking_chunks(state, 0, 4, centers.get(&0)).len();
         let ticks = 200u32;
         let start = std::time::Instant::now();
         for _ in 0..ticks {
-            run_random(state, 0);
+            run_random(state, 0, centers.get(&0));
             state.tick += 1;
         }
         let per = start.elapsed().as_secs_f64() * 1e6 / f64::from(ticks);

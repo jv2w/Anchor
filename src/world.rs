@@ -40,6 +40,9 @@ pub(crate) use sub_chunk::{Entry, SubChunk};
 pub const MIN_Y: i32 = -64;
 /// Ticks in a day (PMMP `World::TIME_FULL`).
 pub(crate) const DAY: i64 = 24_000;
+/// The Bedrock world border: the farthest a player, an entity or a command position may be from
+/// the world's middle on an axis, in blocks.
+pub(crate) const BORDER: i32 = 30_000_000;
 /// The highest block y of the world (PMMP's `getMaxY` is one above: the first y outside).
 #[doc(alias = "World::getMaxY")]
 pub const MAX_Y: i32 = 319;

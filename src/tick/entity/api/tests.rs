@@ -1005,3 +1005,23 @@ fn owners_targets_counts_potions_and_names_change_their_kind_only() {
     h.entities();
     assert_eq!(animations_of(&h.take(1), runtime_id), vec![(69, 64.0)]);
 }
+
+/// A damaged anvil that falls far enough breaks on landing (PMMP `FallingBlock::onHitGround`):
+/// it leaves the store and its viewers, as every entity that is used up does.
+#[test]
+fn a_damaged_anvil_that_breaks_on_landing_is_removed() {
+    let mut h = harness();
+    let anvil = super::super::physics::tests::named("minecraft:damaged_anvil");
+    // 20 blocks above the ground: the chance to break is then certain.
+    let id = context(&mut h)
+        .spawn_falling_block(WORLD, at(4.5, -40.0, 0.5), anvil)
+        .unwrap();
+    h.entities();
+    let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
+    for _ in 0..80 {
+        h.entities();
+    }
+    assert!(h.live().is_empty(), "the anvil is gone");
+    assert_eq!(h.state.rules.entities.count(0), 0);
+    assert!(removes(&h.take(1)).contains(&runtime_id));
+}

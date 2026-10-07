@@ -296,22 +296,10 @@ fn find_log(cx: &Cx<'_>, pos: BlockPos, visited: &mut BTreeSet<BlockPos>, distan
     false
 }
 
-/// The lit or unlit redstone ore of `block`.
-fn redstone_ore(block: block::State, lit: bool) -> Option<block::State> {
-    let name = block.name().strip_prefix("minecraft:")?;
-    let base = name.strip_prefix("lit_").unwrap_or(name);
-    let target = if lit {
-        format!("minecraft:lit_{base}")
-    } else {
-        format!("minecraft:{base}")
-    };
-    props::plain(&target)
-}
-
 /// PMMP `RedstoneOre::onNearbyBlockChange`: lights up.
 pub(super) fn redstone_ore_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if !block.name().contains(":lit_")
-        && let Some(lit) = redstone_ore(block, true)
+        && let Some(lit) = interact::props::with_lit(block, true)
     {
         cx.set(pos, lit);
     }
@@ -320,7 +308,7 @@ pub(super) fn redstone_ore_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: bloc
 /// PMMP `RedstoneOre::onRandomTick`: goes out.
 pub(super) fn redstone_ore_on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if block.name().contains(":lit_")
-        && let Some(unlit) = redstone_ore(block, false)
+        && let Some(unlit) = interact::props::with_lit(block, false)
     {
         cx.set(pos, unlit);
     }
@@ -352,7 +340,7 @@ pub(super) fn budding_amethyst(cx: &mut Cx<'_>, pos: BlockPos) {
     let stage = if adjacent.kind() == Kind::Air {
         Some(0)
     } else if adjacent.kind() == Kind::AmethystCluster
-        && props::text(adjacent, "minecraft:block_face").and_then(props::face_name) == Some(face)
+        && props::text(adjacent, "minecraft:block_face").and_then(props::face_of) == Some(face)
     {
         AMETHYST_STAGES
             .iter()
@@ -366,7 +354,7 @@ pub(super) fn budding_amethyst(cx: &mut Cx<'_>, pos: BlockPos) {
         return;
     };
     let Some(bud) = block::State::all().find(|s| {
-        s.name() == *name && props::text(*s, "minecraft:block_face") == Some(props::name_of(face))
+        s.name() == *name && props::text(*s, "minecraft:block_face") == Some(props::face_name(face))
     }) else {
         return;
     };
@@ -447,11 +435,6 @@ pub(super) fn oxidize(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
 }
 
-/// Whether coral is dead (its name says so).
-pub(super) fn is_dead_coral(block: block::State) -> bool {
-    block.name().contains(":dead_")
-}
-
 /// PMMP `BaseCoral`/`CoralBlock::onNearbyBlockChange`: coral without support breaks; living
 /// coral checks for water in 40 to 200 ticks.
 pub(super) fn coral_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
@@ -465,14 +448,14 @@ pub(super) fn coral_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::Stat
             Some(true) => {}
         }
     }
-    if !is_dead_coral(block) {
+    if !interact::props::is_dead_coral(block) {
         cx.schedule_random(pos, 40, 200);
     }
 }
 
 /// PMMP `BaseCoral`/`CoralBlock::onScheduledUpdate`: living coral without water next to it dies.
 pub(super) fn coral_check(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    if is_dead_coral(block) {
+    if interact::props::is_dead_coral(block) {
         return;
     }
     let mut water = false;
@@ -483,10 +466,7 @@ pub(super) fn coral_check(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
             None => return,
         }
     }
-    if !water
-        && let Some(rest) = block.name().strip_prefix("minecraft:")
-        && let Some(dead) = interact::props::renamed(block, &format!("minecraft:dead_{rest}"))
-    {
+    if !water && let Some(dead) = interact::props::dead_coral(block) {
         cx.die(pos, dead);
     }
 }
@@ -507,14 +487,17 @@ pub(super) fn concrete_powder(cx: &mut Cx<'_>, pos: BlockPos, block: block::Stat
     }
 }
 
+/// PMMP `FillableCauldron::MAX_FILL_LEVEL`.
+pub(in crate::tick) const CAULDRON_FULL: i32 = 6;
+
 /// PMMP `Cauldron`/`WaterCauldron`/`PotionCauldron::onNearbyBlockChange`: water above fills it.
 /// A water cauldron's custom colour lives in its block entity (inventory rules).
 pub(super) fn cauldron_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    if props::int(block, "fill_level").is_some_and(|f| f >= 6) {
+    if props::int(block, "fill_level").is_some_and(|f| f >= CAULDRON_FULL) {
         return;
     }
     if cx.block(pos.step(Face::Up)).kind() == Kind::Water
-        && let Some(full) = props::with_int(block, "fill_level", 6)
+        && let Some(full) = props::with_int(block, "fill_level", CAULDRON_FULL)
             .and_then(|s| props::with_text(s, "cauldron_liquid", "water"))
     {
         cx.set(pos, full);
@@ -714,12 +697,12 @@ mod tests {
     fn redstone_ore_and_concrete_names_convert() {
         let ore = named("minecraft:deepslate_redstone_ore");
         assert_eq!(
-            redstone_ore(ore, true).unwrap().name(),
+            interact::props::with_lit(ore, true).unwrap().name(),
             "minecraft:lit_deepslate_redstone_ore"
         );
         let lit = named("minecraft:lit_redstone_ore");
         assert_eq!(
-            redstone_ore(lit, false).unwrap().name(),
+            interact::props::with_lit(lit, false).unwrap().name(),
             "minecraft:redstone_ore"
         );
         let powder = named("minecraft:red_concrete_powder");

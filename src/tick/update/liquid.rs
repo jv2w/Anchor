@@ -17,6 +17,10 @@ const MAX_DECAY: i32 = 7;
 /// How far from a liquid the rules read: the flow cost search goes four blocks out, one more to
 /// look down.
 const REACH: i32 = 5;
+/// Water's and lava's scheduled update delays (PMMP `Water::tickRate`, `Lava::tickRate` outside
+/// the nether).
+pub(in crate::tick) const WATER_TICK_RATE: u32 = 5;
+pub(in crate::tick) const LAVA_TICK_RATE: u32 = 30;
 
 /// A liquid block as PMMP models it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,15 +37,11 @@ impl Liquid {
         if !matches!(s.class(), Class::Water | Class::Lava) {
             return None;
         }
-        let depth = match s.value("liquid_depth")? {
-            PropertyValue::Int(d) => d,
-            PropertyValue::Byte(d) => i32::from(d),
-            PropertyValue::String(_) => return None,
-        };
+        let (decay, falling) = crate::tick::entity::liquid_depth(s)?;
         Some(Self {
             state: s,
-            decay: depth & 7,
-            falling: depth & 8 != 0,
+            decay,
+            falling,
         })
     }
 
@@ -54,9 +54,13 @@ impl Liquid {
         !self.falling && self.decay == 0
     }
 
-    /// PMMP `tickRate`: water 5, lava 30.
+    /// PMMP `tickRate`.
     fn tick_rate(self) -> u32 {
-        if self.is_water() { 5 } else { 30 }
+        if self.is_water() {
+            WATER_TICK_RATE
+        } else {
+            LAVA_TICK_RATE
+        }
     }
 
     /// PMMP `getFlowDecayPerBlock`: water 1, lava 2 (PMMP's overworld value).

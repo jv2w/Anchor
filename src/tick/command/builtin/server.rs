@@ -189,13 +189,6 @@ const DIFFICULTIES: [(&str, Difficulty); 8] = [
     ("n", Difficulty::Normal),
     ("h", Difficulty::Hard),
 ];
-/// The difficulties by ID (`/difficulty <0-3>`).
-const DIFFICULTY_IDS: [Difficulty; 4] = [
-    Difficulty::Peaceful,
-    Difficulty::Easy,
-    Difficulty::Normal,
-    Difficulty::Hard,
-];
 /// Times of day, as BDS's `TimeSpec` enum names them, and their ticks (PMMP `TimeCommand`).
 const TIME_NAMES: [(&str, i32); 6] = [
     ("day", 1000),
@@ -207,8 +200,6 @@ const TIME_NAMES: [(&str, i32); 6] = [
 ];
 /// What `/time query` reads, as BDS names it (its `TimeQuery` enum).
 const TIME_QUERIES: [&str; 3] = ["daytime", "gametime", "day"];
-/// Ticks in a Minecraft day.
-const DAY_TICKS: i64 = 24_000;
 /// PMMP's particle names (`ParticleCommand::getParticle`).
 const PARTICLE_NAMES: [&str; 35] = [
     "explode",
@@ -393,10 +384,7 @@ fn difficulty(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Outp
             .iter()
             .find(|(n, _)| *n == name)
             .map(|&(_, d)| d),
-        (_, Some(id)) => usize::try_from(id)
-            .ok()
-            .and_then(|i| DIFFICULTY_IDS.get(i))
-            .copied(),
+        (_, Some(id)) => u8::try_from(id).ok().and_then(Difficulty::from_id),
         _ => None,
     };
     let Some(chosen) = chosen else {
@@ -424,9 +412,9 @@ fn time(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output> {
         let world = sender_world(cx, *sender);
         let now = cx.world(world).map_or(0, world::World::time_ticks);
         let (msg, value) = match args.string("time").unwrap_or_default() {
-            "daytime" => (TIME_QUERY_DAYTIME, now.rem_euclid(DAY_TICKS)),
+            "daytime" => (TIME_QUERY_DAYTIME, now.rem_euclid(world::DAY)),
             "gametime" => (TIME_QUERY_GAMETIME, now),
-            _ => (TIME_QUERY_DAY, now.div_euclid(DAY_TICKS)),
+            _ => (TIME_QUERY_DAY, now.div_euclid(world::DAY)),
         };
         return Ok(msg.output(&[&value.to_string()]));
     }

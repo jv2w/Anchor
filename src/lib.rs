@@ -79,6 +79,7 @@ pub mod action;
 mod args;
 mod auth;
 pub mod block;
+mod bucket;
 mod clock;
 pub mod command;
 pub mod config;

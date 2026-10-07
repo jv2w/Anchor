@@ -14,15 +14,17 @@ use tracing::{debug, trace};
 use super::peer::{Limits, MAX_MTU, MIN_MTU, Message, Peer};
 use super::wire::{self, Cursor, FLAG_DATAGRAM, Reliability, UDP_HEADER};
 use super::{Error, Result};
+use crate::bucket::{Bucket, Rate};
 
 /// Connections between `OpenConnectionRequest2` and the session's login.
 const MAX_PRE_LOGIN: usize = 64;
 /// Such connections from one IPv4 address or IPv6 /64.
 const MAX_PRE_LOGIN_PER_IP: u8 = 4;
-/// Pings answered per second and IP once the burst is spent.
-const PING_RATE: u64 = 5;
-/// Pings answered back to back from one IP.
-const PING_BURST: u64 = 10;
+/// Pings answered back to back from one IP (`capacity`), and per second once the burst is spent.
+const PING_RATE: Rate = Rate {
+    capacity: 10,
+    per_second: 5,
+};
 /// IPs whose ping rate is tracked. When full, pings from new IPs get no reply.
 const MAX_PING_IPS: usize = 4096;
 /// A ping rate entry is dropped after this long without pings.
@@ -122,13 +124,6 @@ struct Conn {
     next_ping: Duration,
 }
 
-/// A ping token bucket, in thousandths of a ping.
-#[derive(Debug)]
-struct Bucket {
-    tokens: u64,
-    at: Duration,
-}
-
 /// The RakNet server state: every connection and the offline handshake.
 #[derive(Debug)]
 pub(super) struct Listener {
@@ -215,7 +210,7 @@ impl Listener {
     pub(super) fn update(&mut self, now: Duration, sink: &mut impl Sink) {
         if now >= self.next_sweep {
             self.pings
-                .retain(|_, bucket| now.saturating_sub(bucket.at) < PING_IDLE);
+                .retain(|_, bucket| now.saturating_sub(bucket.refilled()) < PING_IDLE);
             self.next_sweep = now.saturating_add(SWEEP_INTERVAL);
         }
         let mut doomed = std::mem::take(&mut self.doomed);
@@ -452,31 +447,16 @@ impl Listener {
     }
 
     fn allow_ping(&mut self, now: Duration, ip: u128) -> bool {
-        const PING: u64 = 1000;
-        const FULL: u64 = PING_BURST * PING;
         let tracked = self.pings.len();
         match self.pings.entry(ip) {
-            Entry::Occupied(mut entry) => {
-                let bucket = entry.get_mut();
-                // PING_RATE pings per second are PING_RATE thousandths per millisecond.
-                let refill = millis(now.saturating_sub(bucket.at)).saturating_mul(PING_RATE);
-                bucket.tokens = bucket.tokens.saturating_add(refill).min(FULL);
-                bucket.at = now;
-                let Some(tokens) = bucket.tokens.checked_sub(PING) else {
-                    return false;
-                };
-                bucket.tokens = tokens;
-                true
-            }
+            Entry::Occupied(mut entry) => entry.get_mut().take(1, PING_RATE, now),
             Entry::Vacant(entry) => {
                 if tracked >= MAX_PING_IPS {
                     return false;
                 }
-                entry.insert(Bucket {
-                    tokens: FULL - PING,
-                    at: now,
-                });
-                true
+                entry
+                    .insert(Bucket::full(PING_RATE, now))
+                    .take(1, PING_RATE, now)
             }
         }
     }
@@ -910,7 +890,7 @@ pub(super) mod tests {
         for _ in 0..11 {
             listener.receive(T, from, &Client::ping(0), &mut sink);
         }
-        assert_eq!(sink.take(from).len(), usize::try_from(PING_BURST).unwrap());
+        assert_eq!(sink.take(from).len(), PING_RATE.capacity);
         // Another port of the same IP shares the bucket.
         listener.receive(T, addr(1, 2), &Client::ping(0), &mut sink);
         assert!(sink.take(addr(1, 2)).is_empty());
@@ -921,6 +901,25 @@ pub(super) mod tests {
         let later = T + Duration::from_millis(400);
         listener.receive(later, from, &Client::ping(0), &mut sink);
         assert_eq!(sink.take(from).len(), 1);
+    }
+
+    /// Pings closer together than a millisecond still refill at the rate: each one keeps the
+    /// fraction of a ping the time since the last refill paid for.
+    #[test]
+    fn pings_just_under_a_millisecond_apart_refill_at_the_rate() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let from = addr(1, 1);
+        for _ in 0..PING_RATE.capacity {
+            listener.receive(T, from, &Client::ping(0), &mut sink);
+        }
+        sink.take(from);
+        // Over 999 ms, five per second earn four pings: at 200, 400, 600 and 800 ms.
+        for n in 1..=1000 {
+            let now = T + Duration::from_micros(999 * n);
+            listener.receive(now, from, &Client::ping(0), &mut sink);
+        }
+        assert_eq!(sink.take(from).len(), 4);
     }
 
     #[test]

@@ -12,8 +12,8 @@ use super::attributes::{
 };
 use super::effects::{self, Active};
 use super::{
-    MAX_AIR, MAX_FOOD, MAX_SATURATION, Point, Survival, appearance, broadcast_from,
-    broadcast_to_viewers, damage, food, is_survival,
+    MAX_AIR, MAX_EXHAUSTION, MAX_FIRE_TICKS, MAX_FOOD, MAX_SATURATION, Point, Survival, appearance,
+    broadcast_from, broadcast_to_viewers, damage, food, is_survival,
 };
 use crate::block::Face;
 use crate::config::GameMode;
@@ -25,11 +25,8 @@ use crate::player::{Error, Id, MAX_TEXT, Result};
 use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
 use crate::protocol::packet::{Packet, SetActorMotion, UpdatePlayerGameType};
 use crate::tick::queue::Skin;
-use crate::tick::{Context, Phase, Player, inventory};
+use crate::tick::{Context, Phase, Player, entity, inventory};
 use crate::world::BlockPos;
-
-/// The longest burn (PMMP `Entity::setFireTicks` refuses more than `0x7fff`).
-const MAX_FIRE_TICKS: u32 = 0x7fff;
 
 /// What the API sets on top of the rules (PMMP setters): entity data, abilities and the marks of
 /// work that waits for the end of the tick or the spawn. None of it is saved, as in PMMP.
@@ -309,8 +306,9 @@ impl Player {
         true
     }
 
-    /// Whether the player is in survival or adventure mode, the modes that take damage and use
-    /// up items (PMMP's default, not literal, check).
+    /// Whether the player is in survival or adventure mode, the modes that take damage (PMMP's
+    /// default, not literal, check). Items are used up in every mode but creative
+    /// ([`has_finite_resources`](Self::has_finite_resources)).
     #[doc(alias = "Player::isSurvival")]
     pub fn is_survival(&self) -> bool {
         is_survival(self.game_mode())
@@ -543,7 +541,7 @@ impl Player {
     #[doc(alias = "HungerManager::setExhaustion")]
     pub fn set_exhaustion(&mut self, exhaustion: f64) -> Result<()> {
         enabled(self.survival.switches.hunger)?;
-        within(exhaustion, 0.0..=20.0)?;
+        within(exhaustion, 0.0..=MAX_EXHAUSTION)?;
         self.survival.exhaustion = exhaustion;
         self.survival.touch(EXHAUSTION);
         self.data_dirty = true;
@@ -952,16 +950,7 @@ impl Player {
     /// The side the player faces, from its yaw: south, west, north or east.
     #[doc(alias = "Entity::getHorizontalFacing")]
     pub fn horizontal_facing(&self) -> Face {
-        let yaw = self.yaw();
-        if (45.0..135.0).contains(&yaw) {
-            Face::West
-        } else if (135.0..225.0).contains(&yaw) {
-            Face::North
-        } else if (225.0..315.0).contains(&yaw) {
-            Face::East
-        } else {
-            Face::South
-        }
+        crate::tick::interact::props::horizontal_facing(self.yaw())
     }
 
     /// Whether the player may reach `pos`: within `max_distance` of its eyes, and not more than
@@ -969,17 +958,9 @@ impl Player {
     /// position or distance that is not finite.
     #[doc(alias = "Player::canInteract")]
     pub fn can_interact(&self, pos: Vec3, max_distance: f64) -> bool {
-        /// PMMP's `M_SQRT3 / 2`.
-        const MAX_DIFF: f64 = 0.866_025_403_784_438_6;
-        if !pos.is_finite() || !max_distance.is_finite() {
-            return false;
-        }
-        let eye = self.eye_position();
-        if eye.distance_squared(pos) > max_distance * max_distance {
-            return false;
-        }
-        let d = self.direction();
-        d.dot(pos) - d.dot(eye) >= -MAX_DIFF
+        pos.is_finite()
+            && max_distance.is_finite()
+            && super::can_interact(self.eye_position(), self.direction(), pos, max_distance)
     }
 
     /// Whether the player stands on something.
@@ -1066,7 +1047,8 @@ impl Player {
     /// water around its feet, and magma does not burn it.
     #[doc(alias = "Living::getFrostWalkerLevel")]
     pub fn frost_walker_level(&self) -> u32 {
-        self.inventory.armor().get(3).map_or(0, |boots| {
+        let feet = item::ArmorSlot::Feet.index();
+        self.inventory.armor().get(feet).map_or(0, |boots| {
             damage::level_of(boots, item::Enchantment::FrostWalker)
         })
     }
@@ -1560,59 +1542,14 @@ impl Context<'_> {
 }
 
 /// Calls `visit` with the blocks a ray from `start` along the unit vector `dir` passes through
-/// within `max` blocks, in order, until it returns false (PMMP `VoxelRayTrace::inDirection`:
-/// the first block holds `start`, each next one is a face away, crossing Z, then Y, then X at a
-/// corner).
+/// within `max` blocks, in order, until it returns false (PMMP `VoxelRayTrace::inDirection`,
+/// the entity rules' [`entity::cells_along`]). A ray crosses at most one block boundary per axis
+/// per block travelled, so `max` (at most [`MAX_SIGHT`]) bounds the cells.
 fn trace(start: Vec3, dir: Vec3, max: f64, mut visit: impl FnMut(BlockPos) -> bool) {
-    let step = |d: f64| match d {
-        d if d > 0.0 => 1,
-        d if d < 0.0 => -1,
-        _ => 0,
-    };
-    // The distance along the ray to the first boundary of an axis.
-    let first = |s: f64, ds: f64| {
-        if ds == 0.0 {
-            f64::INFINITY
-        } else if ds < 0.0 {
-            if s.floor() == s {
-                0.0
-            } else {
-                (s - s.floor()) / -ds
-            }
-        } else {
-            (1.0 - (s - s.floor())) / ds
-        }
-    };
-    let delta = |ds: f64| if ds == 0.0 { 0.0 } else { 1.0 / ds.abs() };
-    let mut at = BlockPos::containing(start);
-    let (sx, sy, sz) = (step(dir.x), step(dir.y), step(dir.z));
-    let (mut tx, mut ty, mut tz) = (
-        first(start.x, dir.x),
-        first(start.y, dir.y),
-        first(start.z, dir.z),
-    );
-    let (dx, dy, dz) = (delta(dir.x), delta(dir.y), delta(dir.z));
-    while visit(at) {
-        if tx < ty && tx < tz {
-            if tx > max {
-                break;
-            }
-            at.x = at.x.saturating_add(sx);
-            tx += dx;
-        } else if ty < tz {
-            if ty > max {
-                break;
-            }
-            at.y = at.y.saturating_add(sy);
-            ty += dy;
-        } else {
-            if tz > max {
-                break;
-            }
-            at.z = at.z.saturating_add(sz);
-            tz += dz;
-        }
-    }
+    let cap = 3 * usize::try_from(MAX_SIGHT).unwrap_or(0) + 4;
+    entity::cells_along(start, dir, max, cap, |x, y, z| {
+        !visit(BlockPos::new(x, y, z))
+    });
 }
 
 /// The packet that tells `player` its new game `mode`, as BDS sends it: `UpdatePlayerGameType`
@@ -1894,6 +1831,26 @@ mod tests {
             attribute(&got, "minecraft:player.saturation").map(|a| a.0),
             Some(2.5)
         );
+    }
+
+    #[test]
+    fn an_exhaustion_the_api_set_survives_a_save_and_load() {
+        let (mut state, _rx) = two();
+        let p = player_mut(&mut state, 1);
+        assert!(p.set_game_mode(GameMode::Creative));
+        p.set_exhaustion(10.0).unwrap();
+        run(&mut state, Vec::new());
+        let p = player_mut(&mut state, 1);
+        assert_eq!(
+            p.exhaustion(),
+            10.0,
+            "a creative player does not get hungry"
+        );
+        let mut extra = Compound::new();
+        super::super::save(&p.survival, &mut extra);
+        let mut loaded = Survival::default();
+        super::super::load(&mut loaded, &extra, &crate::custom::Registry::default());
+        assert_eq!(loaded.exhaustion, 10.0);
     }
 
     // pmmp: ExperienceManager::getXpLevel, ExperienceManager::setXpLevel, ExperienceManager::addXpLevels, ExperienceManager::subtractXpLevels, ExperienceManager::getXpProgress, ExperienceManager::setXpProgress, ExperienceManager::addXp, ExperienceManager::subtractXp, ExperienceManager::getCurrentTotalXp, ExperienceManager::setCurrentTotalXp, ExperienceManager::getLifetimeTotalXp, Human::getEnchantmentSeed, Human::setEnchantmentSeed, Human::regenerateEnchantmentSeed

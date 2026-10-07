@@ -36,12 +36,9 @@ pub(super) fn break_block(
     let mut insta_break = !counted;
     let mut event = None;
     if dispatch::heard::<BlockBreak>(state) {
-        let Some(world) = crate::world::Id::new(actor.world) else {
-            return false;
-        };
         let mut e = BlockBreak {
             player: crate::player::Id::new(session),
-            world,
+            world: crate::world::Id::of(actor.world),
             pos,
             block: block::INFO_UPDATE,
             item: tool.clone(),

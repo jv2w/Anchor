@@ -13,6 +13,15 @@ const MAX_HEADER_TEXT: usize = 2048;
 /// Longest signature segment in base64 text: an RSA-4096 signature is 683 characters.
 const MAX_SIGNATURE_TEXT: usize = 1024;
 
+/// The longest token text [`parse`] accepts with `max_payload`: the header and signature caps,
+/// the two dots, and `max_payload` bytes in unpadded base64.
+pub(crate) const fn max_text(max_payload: usize) -> usize {
+    MAX_HEADER_TEXT
+        .saturating_add(max_payload.saturating_mul(4).div_ceil(3))
+        .saturating_add(MAX_SIGNATURE_TEXT)
+        .saturating_add(2)
+}
+
 /// A JWS signature algorithm. Everything but ES384 and RS256 is [`Algorithm::Other`] and is never
 /// verified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -236,6 +245,30 @@ mod tests {
             let token = format!("{header}.e30.");
             assert_eq!(parse(&token, 16).unwrap().header.alg, Algorithm::Other);
         }
+    }
+
+    #[test]
+    fn max_text_is_the_longest_token_parse_accepts() {
+        const MAX_PAYLOAD: usize = 16 * 1024;
+        // A 1,536-byte header JSON is 2,048 base64 characters; a long `kid` fills it.
+        let fill = 1536 - br#"{"alg":"ES384","kid":""}"#.len();
+        let header_json = format!(r#"{{"alg":"ES384","kid":"{}"}}"#, "k".repeat(fill));
+        let header = RAW_URL.encode(header_json.as_bytes());
+        let signature = RAW_URL.encode(&[7; 768]);
+        assert_eq!(
+            (header.len(), signature.len()),
+            (MAX_HEADER_TEXT, MAX_SIGNATURE_TEXT)
+        );
+        let payload = RAW_URL.encode(&vec![b'x'; MAX_PAYLOAD]);
+        let longest = format!("{header}.{payload}.{signature}");
+        assert_eq!(longest.len(), max_text(MAX_PAYLOAD));
+        assert_eq!(
+            parse(&longest, MAX_PAYLOAD).unwrap().payload.len(),
+            MAX_PAYLOAD
+        );
+        let payload = RAW_URL.encode(&vec![b'x'; MAX_PAYLOAD + 1]);
+        let over = format!("{header}.{payload}.{signature}");
+        assert!(matches!(parse(&over, MAX_PAYLOAD), Err(Error::TooLarge)));
     }
 
     #[test]

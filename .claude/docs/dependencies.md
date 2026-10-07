@@ -17,7 +17,7 @@
 | libdeflater (MIT) | =1.26.1(libdeflate 1.26) | zlib 압축(level 6에서 miniz_oxide보다 2~4배 빠름, 실측) | `use_rust_alloc` 기능의 메모리 부족 null 역참조 → 기본 기능만. `Decompressor`가 내부 상태로 패닉 → 금지(해제는 miniz_oxide). `Compressor::new`는 할당 실패에만 패닉(생성 때만, 외부 입력 무관) |
 | miniz_oxide (MIT/Apache-2.0/Zlib) | =0.9.1 | zlib 해제 | `decompress_to_vec*`는 상한 없음 → 금지, 상한까지만 자라는 자체 루프 |
 | serde, serde_json, toml | =1.0.229, =1.0.151, =1.1.6 | 설정, 설정 파일 갱신(`de::DeTable`의 키와 값 위치), 인증 캐시, JWT, IR 읽기 | toml은 깊이 80에서 멈춤(`unbounded` 기능은 켜지 않음). toml 오류 `Display` 안에 `expect`가 있음. `serde_json::from_reader` 금지 |
-| tracing (MIT) | =0.1.44, std만 | 로그 | `attributes` 기능을 꺼 syn 2 빌드를 뺌 |
+| tracing (MIT) | =0.1.44, std만 | 로그 | Anchor 쪽은 `attributes` 기능을 끈다. str0m과 `is`가 기본 기능을 켜 syn 2는 빌드된다(`.clippy.toml`) |
 | socket2 (MIT/Apache-2.0) | =0.6.5 | IPv6 전용 소켓, 소켓 버퍼 | 블로킹 입출력 진입점 금지 |
 | memory-stats (MIT/Apache-2.0) | =1.2.0, `always_use_statm` | `/status` 상주 메모리(Anchor는 `unsafe`를 쓰지 않아 OS 호출을 맡김) | 기본 Linux 경로가 `/proc/self/smaps` 전체를 읽음 → `always_use_statm`. 파일을 읽음 → 금지 목록. windows-sys 0.52 고정 → 중복 허용(`.clippy.toml`에 이유) |
 | redb (MIT/Apache-2.0) | =4.3.0, `vendor/redb` 사본 | 서버 데이터 저장 | 아래 사본 절 |
@@ -25,8 +25,7 @@
 | dimpl, sctp-proto | 0.7.5, 0.10.5, 사본 | DTLS 1.2, SCTP(str0m 아래) | 아래 사본 절 |
 | str0m-proto, str0m-aws-lc-rs, is (MIT/Apache-2.0) | 0.7.0, 0.6.0, 0.11.1, 사본(코드 그대로) | str0m과 dimpl 사이 | 아래 사본 절 |
 
-`.clippy.toml`의 `allowed-duplicate-crates`는 windows-sys(memory-stats와 쓰지 않는 ring), nom과 untrusted(메타데이터에만
-있고 빌드되지 않음), syn(str0m 쪽 proc-macro)만 허용한다.
+허용하는 같은 크레이트 여러 판과 그 이유는 `.clippy.toml`의 `allowed-duplicate-crates`에 있다.
 
 ## 직접 구현하는 것
 
@@ -36,7 +35,9 @@
 | Snappy | snap 크레이트는 외부 입력 경로에 `unsafe`가 있다 |
 | 시그널링 HTTP | httparse, hyper는 필요한 것보다 크고 상한을 Anchor가 정해야 한다. tokio 위의 작은 구현으로 충분하다 |
 | LevelDB 리더(가져오기) | rusty-leveldb는 열 때 원본 폴더에 쓰고(LOCK, 로그 재생, compaction) 디스크 입력 경로에 `unsafe`와 snap이 있다 |
-| 오류 타입, CRC, base64, UUID, NBT | 작고 정답 시험이 쉽다 |
+| 오류 타입, CRC, base64, UUID, NBT, JWS 압축 형식 | 작고 정답 시험이 쉽다 |
+| MD5(이름 기반 v3 UUID) | aws-lc-rs에 없고, 입력이 짧은 공개 문자열이라 속도와 충돌 저항이 상관없다 |
+| ZIP 읽기(리소스팩) | 팩이 쓰는 부분(중앙 디렉터리, 저장·DEFLATE)만 상한을 검사하며 읽는다 |
 | 결정적 수학(`sin`, `cos`, `atan2` 등) | std 삼각함수는 플랫폼마다 다를 수 있다. 사칙연산과 `sqrt`만 쓰는 근사(fdlibm 계수)를 둔다 |
 
 ## vendor 사본
@@ -122,7 +123,7 @@ Anchor 빌드에는 들지 않는다. `xtask/go/go.mod`가 판을 고정한다.
 
 | 모듈 | 고정 | 용도 | 결함과 조치 |
 |---|---|---|---|
-| sandertv/gophertunnel (MIT) | `80c811b`(v1.62.0 뒤, 프로토콜 2193) | 프로토콜 정답, 추출기, 봇 | 주석과 코드 불일치, NBT map 쓰기 순서가 무작위 → 시험 도구가 정렬해 씀. 로그인 검사가 느슨함(앵커 없는 정규식, 블로킹 DNS, 무작위 오프라인 UUID, 느슨한 base64) → Anchor는 엄격하게 고쳐 구현(`protocol.md`, `network.md`) |
+| sandertv/gophertunnel (MIT) | `protocol.md`의 고정 버전 표 | 프로토콜 정답, 추출기, 봇 | 주석과 코드 불일치, NBT map 쓰기 순서가 무작위 → 시험 도구가 정렬해 씀. 로그인 검사가 느슨함(앵커 없는 정규식, 블로킹 DNS, 무작위 오프라인 UUID, 느슨한 base64) → Anchor는 엄격하게 고쳐 구현(`protocol.md`, `network.md`) |
 | sandertv/go-raknet, df-mc/go-nethernet | gophertunnel `go.mod`가 정한 판 | 봇 | 봇 전용. go-nethernet은 후보 줄을 두 번 접두하고 채널 열림 확인 전에 보냄 → Anchor가 둘 다 받음 |
 | go-jose, go-oidc | `go.mod` 판 | 봇 토큰 | 개발 도구 |
 | df-mc/goleveldb (BSD-2) | v1.1.9 | 가져오기 리더 대조 | 압축 2(zlib 헤더)가 없고 열 때 폴더에 씀 → 사본을 열어 읽음 |

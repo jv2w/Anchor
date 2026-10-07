@@ -52,17 +52,31 @@ pub(super) use attributes::{
 pub(super) use clock::{
     Clock, clock_definition, clock_state, day_cycle_lock_time, sleeping_players,
 };
-pub(super) use damage::Damage;
+pub(super) use damage::{Damage, bds_cause};
 pub(super) use saved::{game_mode_id, load_played, save_played};
 
-/// Eye height above the feet (PMMP `Human` size 1.62).
+/// Eye height above the feet (PMMP `Human` size 1.62); a human NPC's too.
 pub(super) const EYE_HEIGHT: f64 = 1.62;
+/// The width and height of a standing player's box (PMMP `Human` size 0.6 × 1.8); a human NPC's
+/// too.
+pub(super) const PLAYER_WIDTH: f64 = 0.6;
+pub(super) const PLAYER_HEIGHT: f64 = 1.8;
+/// How far a player reaches an entity or a player (PMMP
+/// `Player::MAX_REACH_DISTANCE_ENTITY_INTERACTION`).
+pub(super) const ENTITY_REACH: f64 = 8.0;
+/// How far behind the plane its eyes look through a player reaches (PMMP `Player::canInteract`
+/// default `maxDiff`: `M_SQRT3 / 2`).
+const REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
+/// The longest burn in ticks (PMMP `Entity::setFireTicks` refuses more than `0x7fff`).
+const MAX_FIRE_TICKS: u32 = 0x7fff;
 /// The health of a player without effects (PMMP `Attribute::HEALTH` default).
 const MAX_HEALTH: f64 = 20.0;
 /// The largest food level (PMMP `Attribute::HUNGER`).
 const MAX_FOOD: f64 = 20.0;
 /// The largest saturation (PMMP `Attribute::SATURATION`).
 const MAX_SATURATION: f64 = 20.0;
+/// The largest exhaustion: BDS's `minecraft:player.exhaustion` maximum (P6; PMMP's is 5).
+const MAX_EXHAUSTION: f64 = 20.0;
 /// The saturation of a new or respawned player: BDS sends 5 (P6; PMMP starts at 20).
 const DEFAULT_SATURATION: f64 = 5.0;
 /// Air supply in ticks (PMMP `Living::DEFAULT_BREATH_TICKS`).
@@ -94,7 +108,7 @@ pub(super) struct Survival {
     food: f64,
     /// Saturation, 0 to 20.
     saturation: f64,
-    /// Exhaustion, 0 to 20; below 4 after each exhaustion.
+    /// Exhaustion, 0 to [`MAX_EXHAUSTION`]; below 4 after each exhaustion.
     exhaustion: f64,
     /// Ticks of the food cycle, 0 to 79 (PMMP `HungerManager::$foodTickTimer`).
     food_timer: u32,
@@ -737,7 +751,7 @@ pub(super) fn own_game_mode(settings: &Settings, player: &Player) -> Option<Game
 pub(super) fn health_shown(player: &Player) -> i32 {
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "invariant: health is finite and at most a few hundred"
+        reason = "consistency: health is finite; one past the i32 range (a huge maximum health) saturates"
     )]
     let health = player.survival.health.ceil() as i32;
     health
@@ -886,7 +900,7 @@ fn feet(player: &Player) -> Vec3 {
 }
 
 /// `v` as the `f32` a packet carries.
-fn f32_of(v: f64) -> f32 {
+const fn f32_of(v: f64) -> f32 {
     #[expect(
         clippy::cast_possible_truncation,
         reason = "consistency: packets carry f32, and rounding f64 to f32 is exact IEEE behaviour"
@@ -977,7 +991,12 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
     let Some(mut player) = state.players.remove(&session) else {
         return;
     };
-    let radius = player.view.radius();
+    // The radius granted, which a request of this tick may have changed before the view follows.
+    let radius = if player.view.is_open() {
+        player.chunk_radius.unwrap_or(0)
+    } else {
+        0
+    };
     super::view::close(state, &mut player);
     let difficulty = super::world_api::difficulty(state, world);
     if super::world_api::difficulty(state, player.world) != difficulty {
@@ -1054,9 +1073,18 @@ pub(super) fn rotation(player: &Player) -> (f64, f64) {
     (player.survival.motion.yaw, player.survival.motion.pitch)
 }
 
+/// Whether a player with its eyes at `eye`, looking along the unit vector `direction`, reaches
+/// `target` (PMMP `Player::canInteract`): within `max` blocks of the eyes and at most √3/2
+/// behind the plane they look through.
+pub(super) fn can_interact(eye: Vec3, direction: Vec3, target: Vec3, max: f64) -> bool {
+    eye.distance_squared(target) <= max * max
+        && direction.dot(target) - direction.dot(eye) >= -REACH_BEHIND
+}
+
 /// The unit vector the player looks along (PMMP `Entity::getDirectionVector`).
 pub(super) fn look_direction(player: &Player) -> Vec3 {
-    movement::direction(&player.survival)
+    let m = &player.survival.motion;
+    super::entity::direction(m.yaw, m.pitch)
 }
 
 /// Whether the player's eyes are under water (PMMP `Entity::isUnderwater`), for the break speed.
@@ -1093,6 +1121,12 @@ pub(super) fn eat_cake(state: &mut State, session: SessionId) -> bool {
 /// durability per point first; the rest becomes experience, with the collect or level-up sound.
 pub(super) fn pickup_experience(state: &mut State, session: SessionId, amount: u32) -> bool {
     food::pickup_experience(state, session, amount)
+}
+
+/// What an instant health or damage effect of `amplifier` heals or hurts at full potency, for
+/// players and entities alike ([`effects::instant_amount`]).
+pub(super) fn instant_amount(effect: effect::Type, amplifier: u8) -> f64 {
+    effects::instant_amount(effect, amplifier)
 }
 
 /// Heals the player by `amount` (PMMP `Entity::heal`: a splash potion of healing, weaker with
@@ -1144,6 +1178,18 @@ pub(super) struct Melee {
 /// or a spectator).
 pub(super) fn melee(state: &State, session: SessionId) -> Option<Melee> {
     damage::melee(state, session)
+}
+
+/// The attacker's side of a melee hit the player of `session` landed with `held`: `enchant`
+/// applies the weapon's Knockback force and Fire Aspect seconds to the target, then a living
+/// attacker's weapon wears and it gets hungrier (PMMP `Player::attackEntity`).
+pub(super) fn after_melee(
+    state: &mut State,
+    session: SessionId,
+    held: &Stack,
+    enchant: impl FnOnce(&mut State, Option<f64>, Option<u32>),
+) {
+    damage::after_melee(state, session, held, enchant);
 }
 
 /// The player's arm swing, for the players that see it (PMMP `ArmSwingAnimation`).
@@ -1843,6 +1889,16 @@ mod tests {
             let want = if durability { (1, 2) } else { (0, 0) };
             assert_eq!(worn, want, "durability {durability}");
         }
+    }
+
+    /// PMMP `Trident::onAttackEntity`: a melee hit wears a trident by 1.
+    #[test]
+    fn a_trident_hit_on_a_player_wears_the_trident_by_one() {
+        let mut server = duel(|_| {});
+        inventory::set_held(server.player_mut(1), stack(ItemKind::Trident, 1));
+        attack_player(&mut server.state, sid(1), sid(2));
+        assert!(server.survival(2).health < 20.0, "the hit landed");
+        assert_eq!(server.player(1).inventory.held().damage(), 1);
     }
 
     #[test]

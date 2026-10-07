@@ -11,11 +11,11 @@ use crate::block;
 use crate::custom::Registry;
 use crate::item::Stack;
 use crate::nbt::{Compound, List, Value};
+use crate::tick::interact::book::PAGES as BOOK_PAGES;
+use crate::tick::interact::sign;
 
 /// The text colour of a new sign: opaque black (PMMP `new Color(0, 0, 0)`).
 pub(in crate::tick) use crate::tile::BLACK_TEXT;
-/// The lines of a sign side (PMMP `SignText::LINE_COUNT`).
-use crate::tile::SIGN_LINES;
 /// One side of a sign (PMMP `SignText`): the public value type, stored as it is.
 pub(in crate::tick) use crate::tile::SignText as SignSide;
 /// The most patterns a banner keeps; more in saved data are left out (Bedrock's loom stops at
@@ -130,8 +130,8 @@ impl SignSide {
     /// PMMP `Sign::readTextTag` (the lighting bug resolved in a side compound).
     fn read(mut nbt: Compound) -> Self {
         let mut side = Self::default();
-        if let Some(Value::String(blob)) = nbt.remove("Text") {
-            for (slot, line) in side.lines.iter_mut().zip(blob.splitn(SIGN_LINES + 1, '\n')) {
+        if let Some(Value::String(blob)) = nbt.remove(sign::TEXT) {
+            for (slot, line) in side.lines.iter_mut().zip(sign::blob_lines(&blob)) {
                 line.clone_into(slot);
             }
         }
@@ -147,7 +147,7 @@ impl SignSide {
         let text = self.lines.join("\n");
         Value::Compound(Compound::from([
             (
-                "Text".to_owned(),
+                sign::TEXT.to_owned(),
                 Value::String(text.trim_end_matches('\n').to_owned()),
             ),
             ("SignTextColor".to_owned(), Value::Int(self.colour)),
@@ -163,16 +163,17 @@ impl SignSide {
 impl Sign {
     /// PMMP `Sign::readSaveData` (front and back compounds, or the 1.2 `Text` blob).
     pub(in crate::tick) fn read(nbt: &mut Compound, hanging: bool) -> Self {
-        let front = match take_compound(nbt, "FrontText") {
+        let front = match take_compound(nbt, sign::FRONT) {
             Some(side) => SignSide::read(side),
-            None => match nbt.remove("Text") {
-                Some(Value::String(blob)) => {
-                    SignSide::read(Compound::from([("Text".to_owned(), Value::String(blob))]))
-                }
+            None => match nbt.remove(sign::TEXT) {
+                Some(Value::String(blob)) => SignSide::read(Compound::from([(
+                    sign::TEXT.to_owned(),
+                    Value::String(blob),
+                )])),
                 _ => SignSide::default(),
             },
         };
-        let back = take_compound(nbt, "BackText").map_or_else(SignSide::default, SignSide::read);
+        let back = take_compound(nbt, sign::BACK).map_or_else(SignSide::default, SignSide::read);
         let waxed = take_byte(nbt, "IsWaxed").is_some_and(|w| w != 0);
         Self {
             front,
@@ -184,8 +185,8 @@ impl Sign {
 
     /// The saved keys (PMMP `writeSaveData`).
     pub(in crate::tick) fn write(&self, nbt: &mut Compound) {
-        nbt.insert("FrontText".to_owned(), self.front.write());
-        nbt.insert("BackText".to_owned(), self.back.write());
+        nbt.insert(sign::FRONT.to_owned(), self.front.write());
+        nbt.insert(sign::BACK.to_owned(), self.back.write());
         nbt.insert("IsWaxed".to_owned(), Value::Byte(u8::from(self.waxed)));
     }
 
@@ -370,7 +371,7 @@ pub(in crate::tick) fn read_lectern(nbt: &mut Compound, custom: &Registry) -> (S
 
 /// The pages of a writable or written book (its `pages` list).
 pub(in crate::tick) fn book_pages(book: &Stack) -> usize {
-    match book.extra().and_then(|e| e.nbt.get("pages")) {
+    match book.extra().and_then(|e| e.nbt.get(BOOK_PAGES)) {
         Some(Value::List(list)) => list.len(),
         _ => 0,
     }

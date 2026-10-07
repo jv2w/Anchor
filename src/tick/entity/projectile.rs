@@ -24,8 +24,8 @@ use super::kind::{
 };
 use super::physics::{BlockHit, Flight, intercept};
 use super::{
-    Blow, Cause, Hooks, Hurt, Knock, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, Raise, State, combust,
-    create, direction, discard, heal, hurt, is_live, level_event, level_of, npc, pickup_event,
+    Blow, Cause, EYE_HEIGHT, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust, create,
+    direction, discard, heal, hurt, is_live, level_event, level_of, npc, pickup_event,
     player_actor, player_box, push_entity, send_to, targetable, with, worn,
 };
 use crate::block::{self, Face, TypeTag};
@@ -53,7 +53,7 @@ pub(super) const CLOUD_DURATION: i32 = 600;
 pub(super) const CLOUD_REAPPLICATION: i32 = 40;
 /// A cloud's radius change per entity it affects and per tick.
 pub(super) const CLOUD_RADIUS_ON_USE: f64 = -0.5;
-pub(super) const CLOUD_RADIUS_PER_TICK: f64 = -(CLOUD_RADIUS / 600.0);
+pub(super) const CLOUD_RADIUS_PER_TICK: f64 = -(CLOUD_RADIUS / CLOUD_DURATION as f64);
 /// Ticks between a cloud's applications (PMMP `UPDATE_DELAY`).
 const CLOUD_UPDATE_DELAY: u32 = 10;
 /// The smallest radius a cloud has (PMMP `entityBaseTick`).
@@ -90,8 +90,6 @@ const HIT_PARTICLES: usize = 6;
 const BOTTLE_EXPERIENCE: (i32, i32) = (3, 11);
 /// The lingering potion item (PMMP's lingering potion is a splash potion that lingers).
 const LINGERING_POTION: &str = "minecraft:lingering_potion";
-/// The fuse of TNT lit by a burning projectile (PMMP `TNT::onProjectileHit`: `ignite()`).
-const PROJECTILE_FUSE: u32 = 80;
 /// The fewest ticks a trident is drawn to throw (PMMP `item\Trident::onReleaseUsing`), and the
 /// speed of a full draw.
 const TRIDENT_MIN_TICKS: u32 = 14;
@@ -170,7 +168,7 @@ pub(super) fn throw_with(
     if !launch(state, id, still) {
         return false;
     }
-    let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+    let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     super::play(state, world, feet, crate::world::Sound::Throw);
     true
 }
@@ -211,7 +209,7 @@ pub(super) fn release_bow_with(
         return false;
     }
     let mode = survival::game_mode(state, player);
-    let finite = matches!(mode, GameMode::Survival | GameMode::Adventure);
+    let finite = mode != GameMode::Creative;
     if finite && !(hooks.has_arrow)(player) {
         return false;
     }
@@ -263,7 +261,7 @@ pub(super) fn release_bow_with(
     if !shoot(state, session, &bow, id, force * 3.0, aim, still) || !launch(state, id, still) {
         return false;
     }
-    let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+    let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     super::play(state, world, feet, crate::world::Sound::BowShoot);
     if finite {
         let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
@@ -301,7 +299,7 @@ pub(super) fn release_trident_with(
     }
     let mode = survival::game_mode(state, player);
     let mut item = held.with_count(1);
-    if matches!(mode, GameMode::Survival | GameMode::Adventure) {
+    if mode != GameMode::Creative {
         let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
         let key = random::key(TRIDENT_RANDOM, &[session.get()]);
         item = worn(
@@ -343,7 +341,7 @@ pub(super) fn release_trident_with(
         return false;
     }
     // BDS plays it at the middle of the thrower's body (P6 `itemuse`).
-    let middle = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT - PLAYER_HEIGHT / 2.0, 0.0);
+    let middle = eye - Vec3::new(0.0, EYE_HEIGHT - PLAYER_HEIGHT / 2.0, 0.0);
     super::play(state, world, middle, crate::world::Sound::TridentThrow);
     true
 }
@@ -724,7 +722,8 @@ fn hit_block(state: &mut State, id: Id, shot: &Shot, at: Vec3, b: BlockHit, burn
             .and_then(|w| w.block(b.pos))
             .is_some_and(|s| s.is(block::Class::Tnt))
     {
-        super::explosion::light(state, world, b.pos, PROJECTILE_FUSE, Raise::Events);
+        let fuse = u32::from(super::TNT_FUSE);
+        super::explosion::light(state, world, b.pos, fuse, Raise::Events);
     }
     match shot {
         Shot::Arrow(_) => {
@@ -899,7 +898,7 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
     let origin = |state: &State| {
         let player = state.players.get(&owner)?;
         (player.world == world && player.phase == Phase::Spawned && (hooks.is_alive)(player))
-            .then(|| player.position - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0))
+            .then(|| player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0))
     };
     let Some(from) = origin(state) else {
         return;
@@ -932,12 +931,7 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
     let teleported = crate::world::Particle::EndermanTeleport;
     super::super::interact::particle(state, world, from, teleported);
     super::play(state, world, from, crate::world::Sound::EndermanTeleport);
-    (hooks.teleport)(
-        state,
-        owner,
-        to_world,
-        to + Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0),
-    );
+    (hooks.teleport)(state, owner, to_world, to + Vec3::new(0.0, EYE_HEIGHT, 0.0));
     super::play(state, to_world, to, crate::world::Sound::EndermanTeleport);
     (hooks.damage)(
         state,
@@ -1148,7 +1142,7 @@ fn feet_of(state: &State, target: Struck) -> Option<Vec3> {
         Struck::Player(s) => state
             .players
             .get(&s)
-            .map(|p| p.position - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0)),
+            .map(|p| p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0)),
         Struck::Entity(id) => state.rules.entities.get(id).map(|e| e.body.position),
         Struck::Block(_) => None,
     }
@@ -1187,8 +1181,8 @@ fn give(state: &mut State, target: Struck, effect: effect::Instance, hooks: Hook
     }
 }
 
-/// An instant effect at `potency` (PMMP `InstantHealthEffect`: heals (4 << amplifier) ×
-/// potency; `InstantDamageEffect`: (6 << amplifier) × potency magic damage from `source`).
+/// An instant effect at `potency` (PMMP `InstantHealthEffect`: heals the drunk amount ×
+/// potency; `InstantDamageEffect`: the drunk amount × potency magic damage from `source`).
 fn instant(
     state: &mut State,
     target: Struck,
@@ -1197,29 +1191,23 @@ fn instant(
     source: DamageSource,
     hooks: Hooks,
 ) {
-    let level = u32::from(effect.amplifier()).min(16);
+    let amount = survival::instant_amount(effect.effect(), effect.amplifier()) * potency;
     match effect.effect() {
-        effect::Type::InstantHealth => {
-            let amount = f64::from(4_u32 << level) * potency;
-            match target {
-                Struck::Player(s) => (hooks.heal)(state, s, amount),
-                Struck::Entity(id) => heal(state, id, amount, RegainReason::Magic),
-                Struck::Block(_) => {}
+        effect::Type::InstantHealth => match target {
+            Struck::Player(s) => (hooks.heal)(state, s, amount),
+            Struck::Entity(id) => heal(state, id, amount, RegainReason::Magic),
+            Struck::Block(_) => {}
+        },
+        effect::Type::InstantDamage => match target {
+            Struck::Player(s) => {
+                let none = DamageSource::None;
+                (hooks.damage)(state, s, amount, survival::Damage::Magic, none);
             }
-        }
-        effect::Type::InstantDamage => {
-            let amount = f64::from(6_u32 << level) * potency;
-            match target {
-                Struck::Player(s) => {
-                    let none = DamageSource::None;
-                    (hooks.damage)(state, s, amount, survival::Damage::Magic, none);
-                }
-                Struck::Entity(id) => {
-                    hurt(state, id, Blow::of(Cause::Magic, amount).by(source), None);
-                }
-                Struck::Block(_) => {}
+            Struck::Entity(id) => {
+                hurt(state, id, Blow::of(Cause::Magic, amount).by(source), None);
             }
-        }
+            Struck::Block(_) => {}
+        },
         _ => {}
     }
 }
@@ -1617,6 +1605,30 @@ mod tests {
 
     fn session(n: u64) -> SessionId {
         SessionId::new(n)
+    }
+
+    /// PMMP `InstantHealthEffect` and `InstantDamageEffect`: a splash's amount is the drunk
+    /// potion's (4 or 6 × 2^amplifier) at every amplifier, without the integer overflow.
+    #[test]
+    fn a_splash_at_amplifier_17_heals_and_hurts_what_the_drink_does() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        for effect in [effect::Type::InstantHealth, effect::Type::InstantDamage] {
+            let instance = effect::Instance::new(effect, 1, 17, true, false);
+            let none = DamageSource::None;
+            instant(
+                &mut h.state,
+                Struck::Player(session(1)),
+                instance,
+                1.0,
+                none,
+                TEST_HOOKS,
+            );
+        }
+        let doubled = f64::from(1_u32 << 17);
+        assert_eq!(calls(|c| c.heals.clone()), [(1, 4.0 * doubled)]);
+        let hurt: Vec<f64> = calls(|c| c.damage.iter().map(|d| d.1).collect());
+        assert_eq!(hurt, [6.0 * doubled]);
     }
 
     /// Moves a player's eyes to `eye` without a tick.
@@ -2027,7 +2039,7 @@ mod tests {
         assert_eq!(teleports.len(), 1);
         let (who, world, eye) = teleports[0];
         assert_eq!((who, world), (1, 0));
-        assert_eq!(eye.y, -60.0 + PLAYER_EYE_HEIGHT, "on the ground it hit");
+        assert_eq!(eye.y, -60.0 + EYE_HEIGHT, "on the ground it hit");
         assert!(eye.z > 2.0, "forward: {eye:?}");
         assert_eq!(
             calls(|c| c.damage.clone()),

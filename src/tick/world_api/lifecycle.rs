@@ -5,7 +5,7 @@
 //! Every world keeps its index, its [`world::Id`], for the run: an unloaded world stays in the
 //! state's list without chunks, holding only its settings, and loads again in the same place; a
 //! temporary world made again under its name takes the place too. A run names at most
-//! [`MAX_WORLDS`] worlds, as many as the server file holds.
+//! [`MAX_WORLDS`] worlds, as many world files as `data/world/` may hold.
 //!
 //! Every persistent world is its file `data/world/<name>.redb`. Loading a world reads nothing on
 //! the tick: the records of the world files are read when the server starts and live here after
@@ -30,7 +30,7 @@ use crate::save::{self, DeletedWorld, NewWorld, WorldIndex};
 use crate::storage::codec::WorldRecord;
 use crate::world::{self, Generators, Kind, World};
 
-/// The most worlds a run names, and the most persistent worlds the server file holds.
+/// The most worlds a run names, and the most world files `data/world/` may hold.
 pub(in crate::tick) const MAX_WORLDS: usize = crate::storage::MAX_WORLDS;
 
 /// What the tick knows of its worlds besides the [`World`]s themselves.
@@ -288,7 +288,7 @@ pub(in crate::tick) fn difficulty(state: &State, world: WorldIndex) -> Difficult
 }
 
 /// The difficulty the rules of `world` use: hard on a `hardcore` server (of `settings`),
-/// whatever the world's own says (a world made or saved with another keeps it for a server that
+/// whatever the world's own says (a world made or loaded with another keeps it for a server that
 /// is not hardcore); otherwise its own, or the server's.
 pub(in crate::tick) fn difficulty_of(settings: &Settings, world: &World) -> Difficulty {
     if settings.hardcore {
@@ -371,8 +371,9 @@ pub(in crate::tick) fn take_new_worlds(state: &mut State) -> Vec<NewWorld> {
         .collect()
 }
 
-/// The worlds deleted that the save thread must hear of, taken: for the next requests, before any
-/// world made in the same tick (one may take a deleted world's name).
+/// The worlds deleted that the save thread must hear of, taken: for the next request or the next
+/// snapshot, whichever comes first, and before the new worlds taken with them (one may take a
+/// deleted world's name).
 pub(in crate::tick) fn take_deleted_worlds(state: &mut State) -> Vec<DeletedWorld> {
     std::mem::take(&mut state.catalog.deleted)
 }

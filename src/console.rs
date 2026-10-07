@@ -31,9 +31,8 @@ pub(crate) mod text;
 )]
 pub(crate) fn start(inputs: &InputSender) -> io::Result<()> {
     let session = inputs.session(SessionId::CONSOLE);
-    std::thread::Builder::new()
-        .name("anchor-console".to_owned())
-        .spawn(log::logged(move || read(io::stdin().lock(), session)))?;
+    let read_stdin = log::logged(move || read(io::stdin().lock(), session));
+    crate::runtime::spawn_thread("anchor-console", read_stdin)?;
     info!("reading commands from the console");
     Ok(())
 }

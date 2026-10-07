@@ -1,8 +1,8 @@
 //! Events: listener priorities, the events Anchor raises, and the listener lists the tick calls.
 //!
 //! Listeners are registered with [`ServerBuilder::on`](crate::ServerBuilder::on) and monitors
-//! with [`ServerBuilder::monitor`](crate::ServerBuilder::monitor), sorted once when the server is
-//! built, and called only in the tick's serial step. Every listener sees
+//! with [`ServerBuilder::monitor`](crate::ServerBuilder::monitor), each put in its calling place
+//! as it is registered, and called only in the tick's serial step. Every listener sees
 //! the event, cancelled or not; one that should not act on a cancelled event checks
 //! `is_cancelled` (PMMP calls a listener on a cancelled event only with `@handleCancelled`).
 //!
@@ -180,8 +180,8 @@ type Listener<E> = Box<dyn FnMut(&mut E, &mut Context<'_>) + Send>;
 /// A monitor: called after the outcome is applied, with shared access only.
 type Monitor<E> = Box<dyn FnMut(&E, &Context<'_>) + Send>;
 
-/// Declares the listener table: one [`List`] per event, the sealed impls that find it, and the
-/// sort that puts every list in calling order. Every event appears here exactly once.
+/// Declares the listener table: one [`List`] per event and the sealed impls that find it. Every
+/// event appears here exactly once.
 ///
 /// [`List`]: sealed::List
 macro_rules! listeners {

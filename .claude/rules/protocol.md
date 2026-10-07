@@ -52,7 +52,7 @@ paths:
 - union의 변형 구조체와 ID 표는 생성하고, 태그를 읽고 쓰는 틀만 손으로 쓴다.
 
 ## 디코드 상한
-- 모든 디코드 상한은 `Reader::limit` 하나를 지나고, 넘으면 크기 오류(`Error::Size`)다.
+- 디코드 상한을 넘으면 크기 오류(`Error::Size`)다. 길이·개수·필드 상한은 `Reader::limit` 하나를 지나고, 목록 중첩, NBT 깊이·크기, 배치 패킷 수는 그 디코더가 따로 센다.
 - 모든 `Vec`, `String`, NBT 할당은 할당 전에 `개수 × size_of`를 Reader 예산에서 먼저 뺀다. 중첩 Reader는 같은 예산을 나눠 쓴다.
 - 필드별 상한은 Mojang bedrock-protocol-docs JSON 스키마의 `maxLength`, `maxItems`, `maxProperties`를 쓴다.
 - gen은 필드 상한을 디코더와 인코더 모두에 넣는다.
@@ -64,7 +64,6 @@ paths:
 - ordinal 없는 Event 타입은 쓰지 않고 오류로 낸다.
 - gophertunnel이 쓸 때 덮어쓰거나 읽고 버리는 값은 생성 코드에서 gophertunnel과 같게 두고, 클라이언트 패킷을 처리하는 틱 코드가 검사한다.
 - EntityMetadata 개수, NBT 깊이 계수, 부분 읽기, ItemInstance·Login 길이는 상한과 오류로 막는다.
-- Snappy 해제는 표준 Snappy만 받는다.
 
 ## 시험
 - Go 도구는 개발 때만 쓴다. 모든 시험은 `cargo test`로 돌고 `cargo xtask verify`에 들어가게 한다.

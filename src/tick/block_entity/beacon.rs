@@ -73,12 +73,14 @@ fn obstructed(world: &World, pos: BlockPos) -> bool {
 /// from 1, resistance and jump boost from 2, strength from 3, regeneration (secondary) at 4; 0
 /// is none.
 pub(in crate::tick) fn allowed(id: i32, level: u8) -> bool {
-    let need = match id {
-        0 => 0,
-        1 | 3 => 1,
-        8 | 11 => 2,
-        5 => 3,
-        10 => 4,
+    if id == 0 {
+        return true;
+    }
+    let need = match Type::from_id(id) {
+        Some(Type::Speed | Type::Haste) => 1,
+        Some(Type::Resistance | Type::JumpBoost) => 2,
+        Some(Type::Strength) => 3,
+        Some(Type::Regeneration) => 4,
         _ => return false,
     };
     level >= need

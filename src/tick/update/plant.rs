@@ -303,24 +303,14 @@ fn stem_fruit(block: block::State) -> Kind {
     }
 }
 
-/// The side a stem is attached to (`facing_direction` 0 and 1 mean up: not attached).
+/// The side a stem is attached to (up: not attached).
 fn stem_facing(block: block::State) -> Option<Face> {
-    match props::facing_direction(block)? {
-        Face::Down | Face::Up => Some(Face::Up),
-        f => Some(f),
-    }
+    interact::props::facing(block)
 }
 
-/// A stem with the facing `face` (up: not attached, Bedrock's 0).
+/// A stem with the facing `face` (up: not attached).
 fn stem_with(block: block::State, face: Face) -> Option<block::State> {
-    let v = match face {
-        Face::Down | Face::Up => 0,
-        Face::North => 2,
-        Face::South => 3,
-        Face::West => 4,
-        Face::East => 5,
-    };
-    props::with_int(block, "facing_direction", v)
+    interact::props::with_facing(block, face)
 }
 
 /// PMMP `Stem::onRandomTick`.
@@ -400,17 +390,6 @@ fn near_water(cx: &Cx<'_>, below: BlockPos) -> Option<bool> {
     Some(false)
 }
 
-/// PMMP `Sugarcane::canBeSupportedAt`.
-pub(super) fn sugarcane_supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
-    let d = side(cx, pos, Face::Down)?;
-    Some(
-        d.kind() == block.kind()
-            || d.has_type_tag(TypeTag::Mud)
-            || d.has_type_tag(TypeTag::Dirt)
-            || d.has_type_tag(TypeTag::Sand),
-    )
-}
-
 /// PMMP `Sugarcane::onNearbyBlockChange`.
 pub(super) fn sugarcane_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     let Some(below) = pos.step(Face::Down) else {
@@ -422,7 +401,7 @@ pub(super) fn sugarcane_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::
     let Some(water) = near_water(cx, below) else {
         return;
     };
-    if (down.kind() != block.kind() && !water) || sugarcane_supported(cx, pos, block) == Some(false)
+    if (down.kind() != block.kind() && !water) || support::supported(cx, pos, block) == Some(false)
     {
         cx.destroy(pos);
     }
@@ -758,8 +737,8 @@ fn torchflower_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool
     next.is_some_and(|s| cx.grow(pos, s))
 }
 
-/// The most age of cave and nether vines.
-const MAX_VINE_AGE: i32 = 25;
+/// The most age of cave and nether vines (PMMP `CaveVines::MAX_AGE`, `NetherVines::MAX_AGE`).
+pub(in crate::tick) const MAX_VINE_AGE: i32 = 25;
 
 /// The age of cave or nether vines.
 fn vine_age(block: block::State) -> Option<i32> {
@@ -774,6 +753,15 @@ pub(super) fn vine_growth(block: block::State) -> Face {
         Face::Down
     } else {
         Face::Up
+    }
+}
+
+/// The age property of nether vines: weeping or twisting.
+pub(in crate::tick) fn nether_vines_age(block: block::State) -> &'static str {
+    if vine_growth(block) == Face::Down {
+        "weeping_vines_age"
+    } else {
+        "twisting_vines_age"
     }
 }
 
@@ -859,12 +847,7 @@ fn nether_vines_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, amount
             break;
         }
         age = (age + 1).min(MAX_VINE_AGE);
-        let name = if growth == Face::Down {
-            "weeping_vines_age"
-        } else {
-            "twisting_vines_age"
-        };
-        if let Some(s) = props::with_int(tip_block, name, age) {
+        if let Some(s) = props::with_int(tip_block, nether_vines_age(block), age) {
             tx.add(next, s);
         }
         at = next;
@@ -1096,7 +1079,7 @@ fn dripleaf(kind: Kind, facing: Face) -> Option<block::State> {
     props::with_text(
         kind.default_state(),
         "minecraft:cardinal_direction",
-        props::name_of(facing),
+        props::face_name(facing),
     )
 }
 

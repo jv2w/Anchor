@@ -8,6 +8,7 @@ mod table;
 
 use crate::item::{self, Type};
 use crate::nbt::StaticCompound;
+use crate::protocol::consts::RecipeUnlockContext;
 use crate::protocol::packet::CraftingData;
 use crate::protocol::{
     DefaultItemDescriptor, InvalidItemDescriptor, ItemDescriptor, ItemDescriptorCount, ItemStack,
@@ -17,15 +18,10 @@ use crate::protocol::{
 
 /// The meta of an ingredient that matches every meta (PMMP
 /// `TypeConverter::RECIPE_INPUT_WILDCARD_META`).
-const WILDCARD_META: i32 = 0x7fff;
+pub(crate) const WILDCARD_META: i32 = 0x7fff;
 
 /// The priority PMMP's `CraftingDataCache` gives every crafting and furnace recipe.
 const PRIORITY: i32 = 50;
-
-/// gophertunnel `RecipeUnlockContextAlwaysUnlocked`.
-const UNLOCK_ALWAYS: i32 = 1;
-/// gophertunnel `RecipeUnlockContextNone`: unlocked by the listed ingredients or by the server.
-const UNLOCK_NONE: i32 = 0;
 
 /// The block name of smithing recipes, as BDS and dragonfly send it.
 const SMITHING_TABLE: &str = "smithing_table";
@@ -462,17 +458,18 @@ fn recipe_id(id: u32) -> String {
 /// "always unlocked" context; 1.26.40 wrapped the requirement in an optional.
 fn always_unlocked() -> RecipeUnlockRequirement {
     RecipeUnlockRequirement {
-        context: UNLOCK_ALWAYS,
+        context: i32::from(RecipeUnlockContext::AlwaysUnlocked),
         ingredients: Vec::new(),
     }
 }
 
 /// The requirement of a recipe the recipe book never shows (`recipe-book = false`): the context
-/// without unlocking ingredients, which BDS gives the recipes only the server unlocks (P6,
-/// `xtask/data/p6/facts.md`); Anchor never sends `UnlockedRecipes`.
+/// without unlocking ingredients (unlocked by the listed ingredients or by the server), which BDS
+/// gives the recipes only the server unlocks (P6, `xtask/data/p6/facts.md`); Anchor never sends
+/// `UnlockedRecipes`.
 pub(crate) fn locked() -> RecipeUnlockRequirement {
     RecipeUnlockRequirement {
-        context: UNLOCK_NONE,
+        context: i32::from(RecipeUnlockContext::None),
         ingredients: Vec::new(),
     }
 }

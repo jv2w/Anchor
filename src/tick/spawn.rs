@@ -11,19 +11,16 @@ mod vanilla;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use super::command;
 use super::hook::{self, StartHook};
-use super::queue::{Identity, Message, Outbound, SessionId, SharedBatches};
+use super::queue::{self, Identity, Message, Outbound, SessionId, SharedBatches};
 use super::save::storage_key;
 use super::view::{self, Changes, Encoded};
-use super::{
-    DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION, MAX_COORDINATE, Output, Phase, Player, PlayerKey,
-    Settings, State,
-};
+use super::{MAX_COORDINATE, Output, Phase, Player, PlayerKey, Settings, State};
 use super::{dispatch, extra, interact, inventory, survival};
 use crate::config::Difficulty;
 use crate::crafting;
@@ -36,7 +33,9 @@ use crate::item::SHIELD_RUNTIME_ID;
 use crate::math::Vec3;
 use crate::player::{self, Message as Text};
 use crate::pool::Pool;
-use crate::protocol::consts::DisconnectReason;
+use crate::protocol::consts::{
+    self, DisconnectReason, GameType, Generator, PermissionLevel, SpawnType,
+};
 use crate::protocol::packet::{
     self, AvailableActorIdentifiers, ChunkRadiusUpdated, CurrentStructureFeature, Disconnect,
     Packet, PlayStatus, PlayerFog, PlayerList, RequestChunkRadius, Respawn, SetActorData,
@@ -48,40 +47,25 @@ use crate::protocol::{
     EntityProperties, PLAYER_LIST_ENTRIES_MAX_LEN, PlayerListEntry, PlayerMovementSettings, Rgba,
     ServerJoinInformation, TrimMaterial, TrimPattern, VoxelCells, VoxelShape, VoxelShapeNameEntry,
 };
-use crate::save::{PlayerData, PlayerLoad, Request};
+use crate::save::{PlayerData, PlayerLoad, Request, WorldIndex};
 use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::{World, biome};
 
-/// `PlayStatus` after the spawn chunks (gophertunnel `PlayStatusPlayerSpawn`).
-const PLAY_STATUS_PLAYER_SPAWN: i32 = 3;
-/// `PlayStatus` that rejects a join (gophertunnel `PlayStatusLoginFailedServerFull`).
-const PLAY_STATUS_SERVER_FULL: i32 = 7;
-/// `Disconnect` reason without a specific meaning (gophertunnel `DisconnectReasonUnknown`).
-const DISCONNECT_REASON_UNKNOWN: i32 = 0;
 /// What a player whose saved data is damaged sees.
 const DAMAGED_DATA_MESSAGE: &str = "Your saved player data is damaged. Ask the server operator.";
 use super::survival::EYE_HEIGHT;
-/// Generator 2, flat: what BDS sends for a flat world (P6).
-const GENERATOR_FLAT: i32 = 2;
-/// `PlayerGameMode` 5: the player uses the world game mode, as BDS sends for a new player (P6).
-const PLAYER_GAME_MODE_WORLD: i32 = 5;
 /// The limited world size BDS sends (P6); the client ignores it for infinite worlds.
 const LIMITED_WORLD_SIZE: i32 = 16;
 /// BDS rewinds 40 ticks of movement history for server-authoritative movement (P6).
 const REWIND_HISTORY_SIZE: i32 = 40;
-/// Player permission 1, member.
-const PERMISSION_MEMBER: u8 = 1;
-/// Player permission 2, operator.
-const PERMISSION_OPERATOR: u8 = 2;
 /// The position BDS's `SetSpawnPosition` carries for a default spawn (P6).
 const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
 /// The dimension BDS's `SetSpawnPosition` names at join (P6).
 const SPAWN_POSITION_DIMENSION: i32 = 3;
 
-/// The start-game batches every player gets the same: the item registry, the biome definitions, the
-/// creative inventory, the recipes, the block collision shapes, the entity types, the armour trims,
-/// the jigsaw structure data, the entity property definitions and the camera presets. Each is
-/// encoded and compressed once at start; sessions only encrypt them.
+/// The start-game batches every player gets the same, the ones that skip the send hooks
+/// ([`ServerBuilder::on_send`](crate::ServerBuilder::on_send) lists them). Each is encoded and
+/// compressed once at start; sessions only encrypt them.
 #[derive(Debug, Clone)]
 pub(crate) struct Shared {
     item_registry: SharedBatches,
@@ -361,7 +345,7 @@ pub(super) fn output(
                 || !p.view.out.is_empty()
                 || !p.outbox.is_empty()
                 || !p.shared_outbox.is_empty()
-                || (!changes.is_empty() && p.view.is_open())
+                || (changes.contains_key(&p.world) && p.view.is_open())
         })
         .map(|(&s, p)| (s, p))
         .collect();
@@ -426,16 +410,30 @@ struct Window {
     /// each player's skin (up to 4 MiB). A client takes at most
     /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet, so a longer list goes in several.
     player_list: Vec<Arc<Packet>>,
-    /// Per world: the clock state, the clock definition and the sleeping counts.
-    worlds: Vec<[Packet; 3]>,
+    /// Per world of a window: the clock state, the clock definition and the sleeping counts. Only
+    /// those worlds, as each world's sleeping counts look at every player.
+    worlds: BTreeMap<WorldIndex, [Packet; 3]>,
 }
 
 impl Window {
     fn new(state: &State, marked: &[(SessionId, &Player)]) -> Self {
-        let needed = marked
-            .iter()
-            .any(|(_, p)| p.pending.start_game || p.pending.radius.is_some_and(|r| r.first));
-        if !needed {
+        let mut worlds = BTreeMap::new();
+        for (_, p) in marked {
+            if (p.pending.start_game || p.pending.radius.is_some_and(|r| r.first))
+                && !worlds.contains_key(&p.world)
+            {
+                let w = p.world;
+                worlds.insert(
+                    w,
+                    [
+                        survival::clock_state(state, w),
+                        survival::clock_definition(state, w),
+                        survival::sleeping_players(state, w),
+                    ],
+                );
+            }
+        }
+        if worlds.is_empty() {
             return Self::default();
         }
         let placed: Vec<&Player> = state
@@ -451,21 +449,13 @@ impl Window {
                     Arc::new(Packet::PlayerList(PlayerList { entries }))
                 })
                 .collect(),
-            worlds: (0..state.worlds.len())
-                .map(|w| {
-                    [
-                        survival::clock_state(state, w),
-                        survival::clock_definition(state, w),
-                        survival::sleeping_players(state, w),
-                    ]
-                })
-                .collect(),
+            worlds,
         }
     }
 
     /// The world's packet `which` (0 clock state, 1 clock definition, 2 sleeping counts).
     fn world(&self, world: usize, which: usize) -> Option<Message> {
-        let packet = self.worlds.get(world)?.get(which)?;
+        let packet = self.worlds.get(&world)?.get(which)?;
         Some(Message::Packet(packet.clone()))
     }
 
@@ -577,7 +567,7 @@ fn messages(
             health: survival::health_shown(player),
         })));
         out.push(Message::Packet(Packet::PlayStatus(PlayStatus {
-            status: PLAY_STATUS_PLAYER_SPAWN,
+            status: i32::from(consts::PlayStatus::PlayerSpawn),
         })));
     }
     out.extend(
@@ -604,7 +594,7 @@ fn spawn_window(
     let index = player.world;
     let packet = |p: Packet| Message::Packet(p);
     out.push(packet(Packet::SetSpawnPosition(SetSpawnPosition {
-        spawn_type: 0,
+        spawn_type: i32::from(SpawnType::Player),
         position: DEFAULT_SPAWN,
         dimension: SPAWN_POSITION_DIMENSION,
         spawn_position: DEFAULT_SPAWN,
@@ -807,7 +797,7 @@ fn enter(
     let Some(next) = state.next_runtime_id.checked_add(1) else {
         // 2^64 joins never happen in one process; refuse rather than reuse an ID.
         warn!(session = session.get(), "entity runtime IDs exhausted");
-        output.close(outbound, server_full());
+        output.close(outbound, queue::server_full());
         return None;
     };
     let runtime_id = state.next_runtime_id;
@@ -937,7 +927,7 @@ pub(super) fn player_loaded(
                 output.close(
                     p.outbound,
                     Packet::Disconnect(Disconnect {
-                        reason: DISCONNECT_REASON_UNKNOWN,
+                        reason: i32::from(DisconnectReason::Unknown),
                         hide_disconnection_screen: false,
                         message: DAMAGED_DATA_MESSAGE.to_owned(),
                         filtered_message: String::new(),
@@ -1006,13 +996,12 @@ fn login(state: &mut State, identity: &Identity) -> (Option<Refused>, Option<Pla
         return (refused, None);
     }
     let mut anchor = command::refusals(state, identity);
-    // The input log keeps only the address (IP bans match it), so the port is 0.
     let ip = identity
         .address
         .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
     let mut event = PlayerLogin {
         info: PlayerInfo(identity.clone()),
-        address: SocketAddr::new(ip, 0),
+        address: SocketAddr::new(ip, identity.client.port),
         kicks: Default::default(),
     };
     for (flag, refusal) in REFUSAL_FLAGS.into_iter().zip(&anchor) {
@@ -1064,16 +1053,17 @@ fn login(state: &mut State, identity: &Identity) -> (Option<Refused>, Option<Pla
 /// The packet that disconnects the losing side of a duplicate login.
 fn logged_in_other_location(message: String) -> Packet {
     Packet::Disconnect(Disconnect {
-        reason: DISCONNECT_REASON_LOGGED_IN_OTHER_LOCATION,
+        reason: i32::from(DisconnectReason::LoggedInOtherLocation),
         hide_disconnection_screen: false,
         message,
         filtered_message: String::new(),
     })
 }
 
-/// Grants a chunk radius request: the view opens or resizes, and the output phase sends the
-/// granted radius (the first time with the spawn position, the creative inventory and the
-/// recipes). Requests in one tick share one answer with the last radius.
+/// Grants a chunk radius request: the view opens at once or resizes in the view phase, and the
+/// output phase sends the granted radius (the first time with the spawn position, the creative
+/// inventory and the recipes). Requests in one tick share one answer and one resize with the last
+/// radius.
 pub(super) fn request_chunk_radius(
     state: &mut State,
     session: SessionId,
@@ -1101,7 +1091,14 @@ pub(super) fn request_chunk_radius(
         );
     } else {
         player.asked_radius = Some(asked);
-        let old = grant_radius(state, &mut player, radius);
+        // An open view follows the granted radius in the view phase ([`view::update`]), once a
+        // tick: each request resizing it would cost the whole disc, and nothing bounds how many
+        // requests a client sends.
+        let old = if player.view.is_open() {
+            answer_radius(&mut player, radius)
+        } else {
+            grant_radius(state, &mut player, radius)
+        };
         if old != Some(radius) {
             changed = Some(old);
         }
@@ -1124,6 +1121,15 @@ pub(super) fn request_chunk_radius(
 /// or resizes, and the output phase sends the radius (the first time with the spawn window).
 /// Returns the radius it had.
 pub(super) fn grant_radius(state: &mut State, player: &mut Player, radius: u8) -> Option<u8> {
+    let old = answer_radius(player, radius);
+    if player.view.radius() != radius {
+        view::set_radius(state, player, radius);
+    }
+    old
+}
+
+/// [`grant_radius`] but for the view, which follows in the view phase. Returns the radius it had.
+fn answer_radius(player: &mut Player, radius: u8) -> Option<u8> {
     let earlier = player.pending.radius.unwrap_or_default();
     player.pending.radius = Some(RadiusAnswer {
         radius,
@@ -1131,9 +1137,6 @@ pub(super) fn grant_radius(state: &mut State, player: &mut Player, radius: u8) -
     });
     let old = player.chunk_radius;
     player.chunk_radius = Some(radius);
-    if player.view.radius() != radius {
-        view::set_radius(state, player, radius);
-    }
     old
 }
 
@@ -1265,21 +1268,9 @@ pub(super) fn tell_others(state: &mut State, session: SessionId, message: Text) 
     }
 }
 
-/// The packet that rejects a join because the server is full.
-fn server_full() -> Packet {
-    Packet::PlayStatus(PlayStatus {
-        status: PLAY_STATUS_SERVER_FULL,
-    })
-}
-
-/// The protocol ID of a difficulty.
+/// The protocol ID of a difficulty ([`Difficulty::id`]) as the packets carry it.
 pub(super) fn difficulty_id(difficulty: Difficulty) -> i32 {
-    match difficulty {
-        Difficulty::Peaceful => 0,
-        Difficulty::Easy => 1,
-        Difficulty::Normal => 2,
-        Difficulty::Hard => 3,
-    }
+    i32::from(difficulty.id())
 }
 
 fn start_game(
@@ -1291,9 +1282,9 @@ fn start_game(
 ) -> StartGame {
     let game_mode = survival::game_mode_id(settings.game_mode);
     let difficulty = difficulty_id(super::world_api::difficulty_of(settings, world));
-    // BDS sends 5 (the world's mode) for a player without its own mode (P6).
+    // BDS sends the default type (the world's mode) for a player without its own mode (P6).
     let player_game_mode = survival::own_game_mode(settings, player)
-        .map_or(PLAYER_GAME_MODE_WORLD, survival::game_mode_id);
+        .map_or(i32::from(GameType::Default), survival::game_mode_id);
     let spawn = world.spawn();
     let (rain_level, lightning_level) = super::weather::levels(world.weather());
     StartGame {
@@ -1303,7 +1294,8 @@ fn start_game(
         player_game_mode,
         player_position: player.position.to_f32(),
         world_seed: world.seed(),
-        generator: GENERATOR_FLAT,
+        // What BDS sends for a flat world (P6).
+        generator: i32::from(Generator::Flat),
         world_game_mode: game_mode,
         hardcore: settings.hardcore,
         difficulty,
@@ -1314,11 +1306,11 @@ fn start_game(
         multi_player_game: true,
         lan_broadcast_enabled: true,
         commands_enabled: true,
-        player_permissions: if op {
-            PERMISSION_OPERATOR
+        player_permissions: u8::from(if op {
+            PermissionLevel::Operator
         } else {
-            PERMISSION_MEMBER
-        },
+            PermissionLevel::Member
+        }),
         server_chunk_tick_radius: i32::from(settings.view(player.world).tick_radius),
         // BDS sends "*" (P6): any base game version.
         base_game_version: "*".to_owned(),
@@ -1541,7 +1533,7 @@ mod tests {
             initialised, input, join, new_state, radius, received, settings, tick,
         };
         use super::super::super::{Context, InputKind, Output, Phase, SessionId, State};
-        use super::super::{Identity, JOINED_KEY, Outbound, PLAY_STATUS_SERVER_FULL};
+        use super::super::{Identity, JOINED_KEY, Outbound};
         use crate::event::{
             Event, KickFlag, Listeners, PlayerDuplicateLogin, PlayerJoin, PlayerLogin,
             PlayerViewDistanceChange, Priority,
@@ -1677,6 +1669,20 @@ mod tests {
             assert_eq!(state.players.len(), 2);
         }
 
+        // pmmp: PlayerPreLoginEvent::getIp, PlayerPreLoginEvent::getPort
+        #[test]
+        fn the_login_event_has_the_address_and_port_the_client_connected_from() {
+            let listener = |e: &mut PlayerLogin, _: &mut Context<'_>| {
+                log(format!("{} {}", e.ip(), e.port()));
+            };
+            let mut state = state(|_| {}, on(listener));
+            let mut who = identity("Ported", Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 7))));
+            who.client.port = 19_133;
+            let (j, _rx) = join_as(1, who);
+            run(&mut state, vec![j]);
+            assert_eq!(logged(), ["192.0.2.7 19133"]);
+        }
+
         // pmmp: PlayerPreLoginEvent
         #[test]
         fn anchors_own_refusal_left_set_ends_as_without_listeners() {
@@ -1691,7 +1697,10 @@ mod tests {
                 let Some(Packet::PlayStatus(s)) = received(&mut rx).1 else {
                     panic!("a full server answers with PlayStatus");
                 };
-                assert_eq!(s.status, PLAY_STATUS_SERVER_FULL);
+                assert_eq!(
+                    s.status,
+                    i32::from(crate::protocol::consts::PlayStatus::LoginFailedServerFull)
+                );
             }
         }
 

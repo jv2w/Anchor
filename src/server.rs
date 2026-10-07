@@ -158,7 +158,8 @@ impl Server {
     /// server data) and the file `data/world/<name>.redb` of each persistent world it starts
     /// with; the other world files there are worlds [`Context::load_world`] may load. Each is
     /// backed up into its own folder of `data/backups/` and checked as `backups` and
-    /// `integrity-check` say, and a damaged one refuses the start, left as it was. A file holding
+    /// `integrity-check` say, and a damaged one refuses the start, left as it was (unless the start
+    /// made no copy of it: `backups = false` and no check). A file holding
     /// a later save than the main file (a crash in the middle of a save) is logged as an error
     /// naming it. Then the packs load from `data/packs`. On shutdown every player sees
     /// `shutdown-message`, the last state is saved to every data file it changed (one tick's
@@ -186,8 +187,9 @@ impl Server {
             Task::UpdateConfig => args::updated(self.config.updated()),
             Task::Import { dir, world } => {
                 let world = world.unwrap_or_else(|| self.config.general.level_name.clone());
+                let file = crate::storage::Place::world(&self.data_dir, &world).file;
                 let report = self.import_world(&dir, &world)?;
-                args::imported(&world, &report)
+                args::imported(&world, &file, &report)
             }
         };
         args::say(&answer).map_err(Error::Output)
@@ -779,12 +781,6 @@ impl ServerBuilder {
             .check_world_names(|name| worlds.iter().any(|w| w.name == name))?;
         for world in &mut worlds {
             world.spawn = self.config.worlds.get(&world.name).and_then(|w| w.spawn);
-        }
-        let too_long = |name: &&str| name.len() > crate::storage::codec::MAX_NAME;
-        if let Some(name) = self.setup.generators.names().find(too_long) {
-            return Err(Error::NameTooLong {
-                name: name.to_owned(),
-            });
         }
         let (requests, shutdown_requests) = mpsc::channel(1);
         Ok(Server {

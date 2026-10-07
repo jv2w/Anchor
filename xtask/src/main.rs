@@ -35,6 +35,9 @@ const STR0M: &str = "vendor/str0m/Cargo.toml";
 const STR0M_DIMPL: &str = "patch.crates-io.dimpl.path=\"vendor/dimpl\"";
 const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto\"";
 
+/// The build directory of `verify` under `target/`; `vendor-test` builds there too.
+const VERIFY_TARGET: &str = "verify";
+
 /// The flag of the second documentation check. Its build writes the same files as the first, so
 /// in one target directory each rebuilt the other's output on every run, even with nothing
 /// changed; it gets a target directory of its own.
@@ -271,7 +274,7 @@ fn verify(out: &mut impl Write) -> io::Result<bool> {
         let target = if args.contains(&PRIVATE_DOCS) {
             "verify-private-docs"
         } else {
-            "verify"
+            VERIFY_TARGET
         };
         passed &= cargo_step(out, &cargo, args, target)?;
     }

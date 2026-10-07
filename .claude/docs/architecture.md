@@ -52,9 +52,9 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 | 저장 | `save`(저장 스레드), `storage`(redb 파일 하나), `import`(LevelDB 월드 가져오기), `replay` | 스냅샷 커밋, 로드, 백업, 재생 |
 | 블록·아이템 데이터 | `block`, `item`, `crafting`, `effect`, `nbt` | 데이터 덤프에서 생성한 표와 값 타입 |
 | 공개 API | `player`, `entity`, `world`, `event`, `action`, `command`, `permission`, `form`, `display`, `menu`, `inventory`, `tile`, `custom`, `task`, `data`, `pack`, `config`, `math`, `replay`, `import` | 사용자가 보는 타입. `anchor::Context`, `Server`, `ServerBuilder`, `ShutdownHandle`, `Config`, `Error`는 루트에서 다시 내보낸다 |
-| 기반 | `runtime`, `pool`, `clock`, `random`, `console`, `fs`, `error` | 스레드 생성, CPU 풀, 시계, 난수, 콘솔 로그, 상한 있는 파일 읽기 |
+| 기반 | `runtime`, `pool`, `clock`, `random`, `bucket`, `console`, `fs`, `error` | 스레드 생성, CPU 풀, 시계, 난수, 토큰 버킷(핑·입력 예산), 콘솔 로그, 상한 있는 파일 읽기 |
 
-- 생성 파일(`protocol.md`, `data.md`): `protocol/{packet,types,consts}.rs`, `block/{table,drops}.rs`, `block/inert/table.rs`, `item/{table,registry,creative}.rs`, `crafting/table.rs`, `effect/table.rs`, `world/biome/table.rs`, `import/upgrade/table.rs`.
+- 생성 파일의 목록은 `protocol.md`(코덱)와 `data.md`(블록·아이템 데이터)에 있다.
 - `runtime`, `clock`, `pool` 밖의 스레드 생성, 시스템 시계 읽기, rayon 병렬 API 호출은 `.clippy.toml` 금지 목록이 막는다.
 
 ## 스레드와 큐
@@ -67,8 +67,9 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 | CPU 풀(rayon, `anchor-cpu`) | `cpu-threads` | 틱의 병렬 읽기 단계, 청크 생성·직렬화, 처음 조명 계산 |
 | 블로킹 풀(tokio) | 최대 8 | 엔진 몫 4(인증 갱신, 팩·키 읽기), 사용자 `spawn_blocking` 몫 4 |
 | 콘솔 | 1 | 표준 입력 줄을 상한 큐로 넣음(`console-input`) |
+| 콘솔 로그 | 1 | Anchor 기본 콘솔 출력기가 표준 오류에 씀(`log-level`이 `off`가 아니고 `without_console_log`를 부르지 않았을 때) |
 
-- `"auto"`면 네트워크 = max(1, L/4), CPU = max(1, 예산 − 2 − 네트워크)다. L은 논리 CPU 수, 예산은 계산 스레드 합계 상한이다. 합이 예산을 넘는 설정은 시작을 거부한다.
+- `"auto"`의 스레드 수와, 계산 스레드 합계 상한을 넘는 설정의 거부는 `config.md`(`network-threads`, `cpu-threads`)에 있다.
 - 블로킹 스레드는 I/O를 기다리므로 예산에 세지 않는다.
 - 4 MiB 스택은 OS 기본값이나 `RUST_MIN_STACK`과 무관하게 NBT 512단 중첩을 버틴다.
 - 주요 큐 상한:
@@ -83,6 +84,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 | 예약 작업 / 비동기 작업 / 결과 | 65,536 / 1,024 / 1 MiB | `Err` |
 
 - rayon은 drop에서 스레드를 기다리지 않으므로, 정상 종료는 종료 핸들러로 CPU 풀 스레드를 센다.
+- 저장 스레드는 CPU 풀에 스레드 수만큼씩 차례로 일을 넣는다(`Pool::map_in_turns`). rayon 워커는 풀 밖에서 들어온 일을 훔칠 일이 없을 때만 집으므로, 청크 로드나 커밋을 한 번에 넣으면 틱의 병렬 단계가 그 일 전체 뒤에서 기다린다. 대신 항목 비용이 고르지 않으면 저장 처리량이 준다.
 
 ## 틱
 
@@ -98,11 +100,12 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 5. **경계**: 전달 뒤 저장 차례면 스냅샷 하나를 저장 스레드로 보내고, 네트워크 제어(서버 이름, IP 차단)를 넘긴다.
 
 - PlayerAuthInput은 이동 → 블록 액션·아이템 상호작용 → 스택 요청 순서로, 나머지 패킷은 그것을 소유한 규칙 모듈로 간다.
+- 한 틱의 청크 반경 요청은 응답과 시야 크기 조정이 마지막 값으로 하나다. 열린 시야는 뷰 단계에서 따라간다: 요청 수에는 상한이 없고, 요청마다 시야 원판 전체를 다시 만들면 클라이언트 하나가 틱을 붙잡는다.
 - `slow-empty-worlds`가 켜지면 플레이어 없는 월드는 100틱에 1틱만 월드 규칙을 돌리고, 월드마다 다른 틱에 돌아 몰리지 않는다.
 
 ## 결정성
 
-- **시간**: 틱이 쓰는 측정값(TPS·MSPT, 연결 수, 프로세스 값, 접속 시각)은 로그되는 입력 `Measure`로 전용 세션 ID에 실려 들어온다. 밴 기간도 엔진 틱이다.
+- **시간**: 틱이 쓰는 측정값은 로그되는 입력 `Measure`로 들어온다. TPS·MSPT, 연결 수, 프로세스 값은 전용 세션 ID에, 핑은 그 플레이어의 세션에 실린다. 접속 시각은 Join 신원에 든다. 밴 기간도 엔진 틱이다.
 - **난수**: `random`은 카운터 방식이다. `Random::new(world_seed, tick, stream)`이 SplitMix64를 세 값의 혼합으로 시작하고 상태를 저장하지 않으므로 재시작, 재생, 병렬 단계에서 같은 값이 나온다. 명령 선택자 `@r`, 그림 고르기도 이 난수다.
 - **ID**: 엔티티 `Id`는 색인 + 세대, 런타임 ID·스택 네트워크 ID·폼 ID는 엔진 카운터다. 커스텀 콘텐츠 번호는 등록 순서다.
 - **실수**: `math`는 결정적 `min`·`max`·`clamp`(±0을 정한 쪽으로)와 다항식 `sin`·`cos`·`atan2`(fdlibm 계수)를 준다. 조명 시간 보정도 `cos` 대신 표다.
@@ -127,11 +130,11 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 |---|---|
 | 연결 작업(세션, 코덱) | 그 연결만 끊는다. NetherNet 구동부는 피어 하나를 감싸는 str0m 호출을 `catch_unwind`로 막아 다른 피어를 지킨다 |
 | 틱 스레드 | `catch_unwind` 없이 끝난다. drop 가드가 `thread::panicking()`일 때 입력 로그를 메인 스레드로 넘기고, `run`이 크래시 로그를 쓰고 `Error::TickPanicked`로 끝난다. DB 커밋은 없다 |
-| 저장 스레드 | `Error::Storage`로 끝난다. 틱이 죽어 `Finish` 없이 큐가 닫히면 남은 스냅샷을 커밋하지 않고 compact도 하지 않는다 |
+| 저장 스레드 | `Error::Storage`로 끝난다. 틱이 죽어 `Finish` 없이 큐가 닫히면 남은 스냅샷을 커밋하지 않는다 |
 | 사용자 `spawn_blocking` 본문 | `task::Error::Panicked`로 끝 처리기에 간다 |
 | CPU 풀 작업 | 호출한 틱으로 전파된다 |
 
-- 커밋 실패는 핸들을 다시 열어 3번 재시도하고, 그래도 실패하면 플레이어를 내보내고 크래시 로그를 남기고 종료한다(`storage.md`).
+- 커밋이 끝내 실패할 때의 재시도와 종료는 `storage.md`에 있다.
 
 ## 공개 API 구조
 
@@ -176,9 +179,9 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 
 ## API 대응표
 
-- 대상은 `data.md` 출처 표에 고정한 커밋(`6a7cc02`)의 public, 비`@internal` API에서 범위 밖을 뺀 것이다. `xtask/php/api.php`가 PHP 리플렉션으로 `xtask/data/pmmp/api.json`(class-like와 선언된 public 메서드)을 만든다.
+- 대상은 `data.md` 출처 표에 고정한 덤프 원본 커밋의 public, 비`@internal` API에서 범위 밖을 뺀 것이다. `xtask/php/api.php`가 PHP 리플렉션으로 `xtask/data/pmmp/api.json`(class-like와 선언된 public 메서드)을 만든다.
 - `xtask/data/pmmp/status.txt`: 줄마다 `<패턴> <상태> <대상|이유>`. 상태는 `differs`(이유), `merged`(대상 alias), `skipped`(이유), `open`(아직 없고 거부하지도 않음). 패턴은 FQN, `*`(`\`·`:`를 넘지 않음), `**`(모두)다. 위에서 처음 맞는 줄이 이기고, alias가 있으면 구현함이 먼저다.
-- `cargo xtask table [--check]`가 `xtask/data/pmmp/table.md`(행마다 FQN, 상태, 위치 `파일:줄`, 시험, 이유)를 쓴다. verify가 최신 여부와 빈칸 0을 검사한다. 현재 10,217행: implemented 1,827, differs 19, merged 3,566, skipped 4,805, blank 0.
+- `cargo xtask table [--check]`가 `xtask/data/pmmp/table.md`(행마다 FQN, 상태, 위치 `파일:줄`, 시험, 이유)를 쓴다. verify가 최신 여부와 빈칸 0을 검사한다. 상태별 행 수는 `table.md` 머리에 있다.
 - 방송 채널은 `broadcast`·`send`로 합쳤다.
 - 참고한 구현에서 고쳐서 가져온 결함(대표): 전역 싱글턴, 가변 공유 `Vector3`, 복제하는 게터와 NBT 재직렬화, 문자열 키, 이벤트마다 객체 할당, AsyncTask 직렬화, 원시 패킷 이벤트, 숨은 O(n) 조회, 재진입 디스패치, 주석뿐인 MONITOR, 리스너가 바꾼 상태를 다시 검사하지 않음, 게임 로직의 벽시계와 전역 난수, 비원자 저장, 로드 순서로 바뀌는 ID, 조명 갱신(상한·경계 전파 없음), 예약 갱신을 저장하지 않음, 기본 월드 없이 남는 언로드, 덮어써 잃는 화로 결과, 모양을 검사하지 않는 shaped 레시피.
 
@@ -206,7 +209,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 - 목록 API: `trade_offers`, `set_trade_offers`, `add_trade_offer`, `replace_trade_offer`, `remove_trade_offer`, `trade_tier`, `set_trade_tier`, `set_trade_tier_experience`, `reset_trade_uses`. 오퍼는 NBT 대신 타입 있는 `custom::Offer`(`new(buy, sell, max_uses)`, `with_second_payment`, `with_any_damage`, `with_tier`, `with_price_multipliers`, `with_demand` 등)다.
 - 이벤트: `TradeOpen`(창 열기), `Trade`(거래 1회).
 - 상한: 주민당 오퍼 128개, 저장 형태 합계 2 MiB.
-- 프로토콜 값(공식 서버 대조): 창 종류 15, 오퍼 NBT 키는 공식 서버 키(`Recipes`, `netId` 등), Trade2 입력 칸 4·5, 출력 50(ItemStackRequest에서는 컨테이너 47·48·49). `netId`는 CraftingData 다음부터 서버 카운터로 처음 열 때 매기고 다시 열어도 유지한다. UpdateTrade 재전송은 등급이 오를 때만, 보상 구슬은 거래마다 3~6, Damage 32767은 아무 데미지다.
+- 프로토콜 값(공식 서버 대조): 창 종류 15, 오퍼 NBT 키는 공식 서버 키(`Recipes`, `netId` 등), Trade2 입력 칸 4·5, 출력 50(ItemStackRequest에서는 컨테이너 47·48·49). `netId`는 CraftingData 다음부터 서버 카운터로 처음 열 때 매기고 다시 열어도 유지한다. 거래 뒤에는 등급이 올라도 UpdateTrade를 다시 보내지 않고(공식 서버와 같다), API로 목록을 바꿀 때마다 다시 보낸다. 보상 구슬은 거래마다 3~6, Damage 32767은 아무 데미지다.
 - 거래 데이터는 엔티티와 같은 DB 커밋에 든다.
 
 ## 여러 월드

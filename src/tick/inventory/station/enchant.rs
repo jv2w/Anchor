@@ -189,10 +189,7 @@ pub(in crate::tick) fn enchant(
     };
     let mut extra = base.extra().cloned().unwrap_or_default();
     for &(e, level) in enchantments {
-        match extra.enchantments.iter_mut().find(|(x, _)| *x == e) {
-            Some(slot) => slot.1 = level,
-            None => extra.enchantments.push((e, level)),
-        }
+        extra.set_enchantment(e, level);
     }
     base.with_extra(Some(extra))
 }

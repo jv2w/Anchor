@@ -1391,7 +1391,7 @@ fn check_is_for_operators_one_at_a_time_and_tells_who_asked() {
     assert_eq!(
         texts,
         [(
-            "World file check found 1 damaged of 9 stored values (first: table chunks: a stored \
+            "Data file check found 1 damaged of 9 stored values (first: table chunks: a stored \
              value does not match its checksum); the server log has the details"
                 .to_owned(),
             vec![]

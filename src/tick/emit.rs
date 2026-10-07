@@ -78,7 +78,8 @@ fn viewers(state: &State, world: WorldIndex, at: Vec3) -> Vec<crate::player::Id>
         .collect()
 }
 
-/// Sends `packet` to those of `recipients` who see the chunk of `at` in `world`, once each.
+/// Sends `packet` to those of `recipients` who see the chunk of `at` in `world`, once each, as
+/// viewers.
 fn send(
     state: &mut State,
     world: WorldIndex,
@@ -95,7 +96,7 @@ fn send(
             && p.world == world
             && p.view.sees(chunk)
         {
-            p.send_packet(packet.clone());
+            p.send_to_viewer(packet.clone());
         }
     }
 }

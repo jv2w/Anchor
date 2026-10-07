@@ -838,6 +838,34 @@ mod tests {
     }
 
     #[test]
+    fn the_refusals_name_the_limits_they_enforce() {
+        let reason = |form: Form| match form.prepare() {
+            Err(Error::Invalid(reason)) => reason,
+            other => panic!("{other:?}"),
+        };
+        let elements = format!("more than {MAX_ELEMENTS} elements");
+        let menu = (0..=MAX_ELEMENTS).fold(Menu::new("M"), |m, _| m.button("b"));
+        assert_eq!(reason(Form::from(menu)), elements);
+        let custom = (0..=MAX_ELEMENTS).fold(Custom::new("C"), |c, _| c.divider());
+        assert_eq!(reason(Form::from(custom)), elements);
+        let options = format!("1 to {MAX_OPTIONS} options");
+        let dropdown = Custom::new("C").dropdown("d", vec!["x"; MAX_OPTIONS + 1], 0);
+        assert!(reason(Form::from(dropdown)).contains(&options));
+        let huge = Modal::new("x".repeat(MAX_FORM_BYTES), "", "", "");
+        assert_eq!(
+            reason(Form::from(huge)),
+            format!("the JSON is longer than {} KiB", MAX_FORM_BYTES / 1024)
+        );
+        let source = include_str!("form.rs");
+        for text in [
+            format!("fails unless there are {options}"),
+            format!("fails unless there are 1 to {MAX_OPTIONS} steps"),
+        ] {
+            assert!(source.contains(&text), "{text}");
+        }
+    }
+
+    #[test]
     fn answers_parse_by_the_shape_of_the_form() {
         let modal = shape(Modal::new("", "", "a", "b"));
         assert_eq!(modal.parse(b"true"), Some(Response::Modal(true)));

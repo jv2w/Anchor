@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::net::UdpSocket;
-use tokio::sync::{Semaphore, mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::MissedTickBehavior;
 use tracing::{debug, trace, warn};
@@ -47,7 +47,7 @@ const COMMAND_QUEUE: usize = 4096;
 /// Peers before login, in all and per IPv4 address or IPv6 /64.
 const MAX_PRE_LOGIN: usize = 64;
 const MAX_PRE_LOGIN_PER_IP: usize = 4;
-/// Tries at a peer whose 24-bit ufrag no other peer uses; a fourth collision in a row means the
+/// Tries at a peer whose 24-bit ufrag no other peer uses; a third collision in a row means the
 /// table is far beyond any real load.
 const UFRAG_TRIES: usize = 3;
 /// Source addresses one peer may be reached from: one per client candidate pair it checks, which
@@ -63,6 +63,7 @@ const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 const CLOSE_LINGER: Duration = Duration::from_secs(5);
 /// Larger than any datagram a peer accepts, so that an oversized one is seen and dropped.
 const RECV_BUFFER: usize = 2048;
+const _: () = assert!(RECV_BUFFER > peer::MAX_DATAGRAM);
 /// Signaling answer code (go-nethernet `ErrorCodeIdentityVerificationFailed`) for an offer
 /// identity that fails.
 const CODE_IDENTITY: u32 = 37;
@@ -331,8 +332,8 @@ impl Connection {
     }
 }
 
-/// The offer task: one negotiation task per offer. The signaling server's connection limit
-/// bounds how many run at once.
+/// The offer task: one negotiation task per offer. A negotiation ends once its signaling request
+/// is gone, so the signaling server's connection limit bounds how many run at once.
 struct Offers {
     identity: Arc<ServerIdentity>,
     auth: Option<Auth>,
@@ -361,19 +362,31 @@ impl Offers {
         tasks.shutdown().await;
     }
 
+    /// Negotiates `offer` until it is answered or its signaling request is gone (the client
+    /// left, or the request deadline passed), which also bounds the wait for a JWKS refresh.
     async fn answer(self: Arc<Self>, offer: Offer) {
         let Offer {
             network_id,
             sdp,
             peer,
             local,
-            reply,
+            mut reply,
         } = offer;
-        let answer = match self.negotiate(&sdp, peer.ip(), local.ip()).await {
-            Ok(answer) => Reply::Answer(answer),
-            Err(refusal) => {
+        let negotiated = tokio::select! {
+            // First, so that an offer whose request is already gone is not negotiated at all.
+            biased;
+            () = reply.closed() => None,
+            negotiated = self.negotiate(&sdp, peer.ip(), local.ip()) => Some(negotiated),
+        };
+        let answer = match negotiated {
+            Some(Ok(answer)) => Reply::Answer(answer),
+            Some(Err(refusal)) => {
                 debug!(network_id, %peer, ?refusal, "nethernet offer refused");
                 refusal
+            }
+            None => {
+                trace!(network_id, "signaling connection gone before the answer");
+                return;
             }
         };
         if reply.send(answer).is_err() {
@@ -930,9 +943,7 @@ fn accept(
     entry: &mut Entry,
     max_message: usize,
 ) -> Option<Link> {
-    // Two largest messages may wait for the session, as on RakNet.
-    let bytes = max_message.saturating_mul(2).min(Semaphore::MAX_PERMITS);
-    let (inbox, receiver) = Inbox::new(bytes);
+    let (inbox, receiver) = Inbox::new(max_message);
     let (signal, watcher) = watch::channel(Flags::default());
     let (ping, pings) = watch::channel(None);
     let connection = Connection {
@@ -1109,6 +1120,45 @@ mod tests {
             step(&mut client, &socket).await;
         }
         task.await.unwrap();
+    }
+
+    /// A negotiation ends once its signaling request is gone, whatever it waits for, so the
+    /// negotiations never outnumber the signaling connections.
+    #[test]
+    fn a_negotiation_ends_when_its_signaling_request_is_gone() {
+        run(negotiation_ends_when_its_request_is_gone());
+    }
+
+    async fn negotiation_ends_when_its_request_is_gone() {
+        let (driver, mut commands) = mpsc::channel(1);
+        let server = SocketAddr::from((Ipv4Addr::LOCALHOST, 19133));
+        let offers = Arc::new(Offers {
+            identity: Arc::new(ServerIdentity::generate().unwrap()),
+            auth: None,
+            public_ip: None,
+            udp_addrs: vec![server],
+            driver,
+        });
+        let (reply, replied) = oneshot::channel();
+        let identity = format!("{}\n", sdp::tests::identity_line());
+        let offer = Offer {
+            network_id: 1,
+            // Offline, an offer without an identity goes on to the driver.
+            sdp: sdp::tests::OFFER.replace(&identity, ""),
+            peer: SocketAddr::from((Ipv4Addr::LOCALHOST, 50_000)),
+            local: server,
+            reply,
+        };
+        let task = tokio::spawn(offers.answer(offer));
+        // The driver takes the peer request and never answers it.
+        let held = tokio::time::timeout(WAIT, commands.recv()).await.unwrap();
+        assert!(matches!(held, Some(Command::Open { .. })));
+        drop(replied);
+        let ended = tokio::time::timeout(Duration::from_secs(5), task).await;
+        ended
+            .expect("the negotiation outlived its request")
+            .unwrap();
+        drop(held);
     }
 
     #[test]

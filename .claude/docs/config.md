@@ -170,7 +170,7 @@ console-input = true
 
 모든 값은 시작 전에 검사하고, 틀리면 키 이름을 담은 `config::Error`로 시작을 거부한다.
 
-- 모르는 키는 `UnknownKey`, 모르는 최상위 표는 `UnknownTable`(`build()`에서 검사), 타입이나 모양이 틀린 값은 `Invalid`, 범위 밖 정수는 `Range`(키, 값, 최소, 최대)다.
+- 모르는 키는 `UnknownKey`, 모르는 최상위 표는 `UnknownTable`(`build()`에서 검사), 타입이나 모양이 틀린 값은 `Invalid`, 범위 밖 정수는 `Range`(키, 값, 최소, 최대)다. `compression-threshold`, `compression-level`, `max-batch-bytes`는 `batch::Settings::new`가 검사해 범위 밖 값이 `Batch`(키와 원인)다.
 - `hardcore = true`는 `difficulty = "hard"`일 때만 된다.
 - `nethernet-tls-cert`와 `nethernet-tls-key`는 둘 다 비거나 둘 다 있어야 한다.
 - `[worlds.<이름>]`은 서버가 선언한 월드(`level-name`이나 `ServerBuilder::world`)여야 한다. 아니면 `UnknownWorld`다.
@@ -209,7 +209,7 @@ console-input = true
 | `item-despawn-ticks` | 정수 | `6000` | 1~72000 | 떨어진 아이템이 남는 틱 |
 | `sprint-critical-hits` | bool | `false` | | 달리면서 친 공격도 치명타가 될 수 있는지 |
 | `break-time-check` | bool | `true` | | 블록을 부수는 데 충분한 시간이 걸렸는지 서버가 검사할지. 도달 거리와 블록 종류 검사는 늘 한다 |
-| `movement-check` | bool | `true` | | 한 입력에 15블록을 넘는 이동을 거부할지 |
+| `movement-check` | bool | `true` | | 한 입력에 15블록을 넘는 이동을 거부할지. `false`면 그런 이동의 땅 판정은 지나온 길 없이 도착 자리만 본다 |
 | `level-name` | 문자열 | `"world"` | 1~64바이트, `;`와 제어 문자 없음, 월드 이름 규칙(`storage.md`) | 기본 월드 이름. 파일은 `data/world/<이름>.redb` |
 | `level-type` | 문자열 | `"flat"` | `flat`, `void` | 기본 월드에서 저장된 적 없는 청크를 채우는 생성기 |
 | `level-seed` | 문자열 | `""` | 빈 값 또는 i64 정수 문자열 | 기본 월드 시드. 비면 월드 이름에서 만들어 시작마다 같다 |

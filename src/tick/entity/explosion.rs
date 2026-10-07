@@ -26,7 +26,7 @@
 use super::super::{SessionId, dispatch, interact};
 use super::kind::{Kind, MAX_FUSE, Tnt};
 use super::{
-    Blow, Budget, Cause, Hooks, Knock, PLAYER_EYE_HEIGHT, Raise, State, create, hurt, hurt_in,
+    Blow, Budget, Cause, EYE_HEIGHT, Hooks, Knock, Raise, State, create, hurt, hurt_in,
     is_valid_position, level_event, level_of, physics, player_box, push_entity, targetable, with,
 };
 use crate::block::{self, Class, Face, SupportType};
@@ -577,28 +577,32 @@ fn hit_entities(
         if !targetable(state, p, world, hooks) || !player_box(p).overlaps(area, super::EPSILON) {
             continue;
         }
-        let feet = p.position - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+        let feet = p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
         if let Some(impact) = impact(w, center, reach, feet, player_box(p)) {
             players.push((s, impact.0, impact.1));
         }
     }
     let by = source.damage_source();
+    // PMMP: `CAUSE_ENTITY_EXPLOSION` for an entity's, `CAUSE_BLOCK_EXPLOSION` otherwise.
+    let (entity_cause, player_cause) = match source {
+        Source::Entity(_) => (Cause::EntityExplosion, super::survival::Damage::Explosion),
+        Source::None | Source::Block { .. } => (
+            Cause::BlockExplosion,
+            super::survival::Damage::BlockExplosion,
+        ),
+    };
     for (id, impact, direction) in hits {
         let damage = damage_of(impact, reach);
         let knock = from.and_then(|f| {
             let e = state.rules.entities.get(id)?;
             Some(Knock::new(e.body.position.x - f.x, e.body.position.z - f.z))
         });
-        let blow = Blow::of(Cause::Explosion, damage).by(by);
+        let blow = Blow::of(entity_cause, damage).by(by);
         hit_entity(state, id, blow, knock, direction * impact, raise);
     }
     for (session, impact, direction) in players {
         let damage = damage_of(impact, reach);
-        // PMMP: `CAUSE_ENTITY_EXPLOSION` for an entity's, `CAUSE_BLOCK_EXPLOSION` otherwise.
-        let cause = match source {
-            Source::Entity(_) => super::survival::Damage::Explosion,
-            Source::None | Source::Block { .. } => super::survival::Damage::BlockExplosion,
-        };
+        let cause = player_cause;
         let landed = match raise {
             Raise::Events => (hooks.damage)(state, session, damage, cause, by),
             Raise::Quiet => super::survival::damage_quiet(state, session, damage, cause),
@@ -608,7 +612,7 @@ fn hit_entities(
             && let Some(f) = from
             && let Some(p) = state.players.get(&session)
         {
-            let feet = p.position - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+            let feet = p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
             let blast = p
                 .inventory
                 .armor()
@@ -622,7 +626,7 @@ fn hit_entities(
                 x: feet.x - f.x,
                 z: feet.z - f.z,
                 force,
-                vertical: super::KNOCKBACK,
+                vertical: super::KNOCKBACK_VERTICAL_LIMIT,
             };
             if let Some(m) = knock.applied_to(Vec3::ZERO) {
                 push += m;
@@ -1046,7 +1050,7 @@ mod tests {
         let e = h.state.rules.entities.get(hidden).unwrap();
         let hidden_damage = expected(&h, e.body.position, e.bounding_box());
         let p = &h.state.players[&SessionId::new(1)];
-        let feet = p.position - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+        let feet = p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
         let player_damage = expected(&h, feet, player_box(p));
         size_four(&mut h, center);
         let health = |h: &Harness, id: Id| h.state.rules.entities.get(id).unwrap().health;

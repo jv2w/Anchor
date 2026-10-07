@@ -134,16 +134,6 @@ fn rarity_cost(e: Enchantment) -> u32 {
     }
 }
 
-/// The level of an enchantment on a stack.
-fn level(stack: &Stack, e: Enchantment) -> Option<u8> {
-    stack
-        .extra()?
-        .enchantments
-        .iter()
-        .find(|(x, _)| *x == e)
-        .map(|(_, l)| *l)
-}
-
 /// Whether the item is an enchanted book.
 fn is_book(stack: &Stack) -> bool {
     stack
@@ -165,7 +155,7 @@ pub(in crate::tick) fn craft(
     let mut result = input.clone();
     let mut anvil_cost = repair_cost(input);
     if !material.is_empty() {
-        anvil_cost += repair_cost(material);
+        anvil_cost = anvil_cost.saturating_add(repair_cost(material));
     }
     let (mut action, mut rename_cost, mut repaired) = (0u32, 0u32, 0u8);
     if let Some(material_type) = material.item() {
@@ -213,7 +203,7 @@ pub(in crate::tick) fn craft(
         extra.custom_name = Some(name.to_owned()).filter(|n| !n.is_empty());
         result = result.with_extra(Some(extra)).map_err(Refused::TooLarge)?;
     }
-    let mut cost = action + anvil_cost;
+    let mut cost = action.saturating_add(anvil_cost);
     if cost == 0 {
         return Err(Refused::Nothing);
     }
@@ -281,8 +271,11 @@ fn merge(
         compatible_any = true;
         let mut level_now = material_level;
         let mut level_cost = u32::from(material_level);
-        if let Some(existing) = level(input, e) {
-            if existing > level_now || (existing == level_now && level_now == e.max_level()) {
+        if let Some(existing) = input.enchantment_level(e) {
+            // A stack holds levels up to `u8::MAX`, past the maximum when a server gave it.
+            if existing > level_now
+                || (existing == level_now && (level_now == e.max_level() || level_now == u8::MAX))
+            {
                 incompatible_any = true;
                 continue;
             } else if existing == level_now {
@@ -295,10 +288,7 @@ fn merge(
             rarity = (rarity / 2).max(1);
         }
         let mut extra = result.extra().cloned().unwrap_or_default();
-        match extra.enchantments.iter_mut().find(|(x, _)| *x == e) {
-            Some(slot) => slot.1 = level_now,
-            None => extra.enchantments.push((e, level_now)),
-        }
+        extra.set_enchantment(e, level_now);
         result = result.with_extra(Some(extra)).map_err(Refused::TooLarge)?;
         cost += rarity * level_cost;
         if input.count() > 1 {

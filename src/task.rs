@@ -97,7 +97,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooManyTasks => write!(f, "{MAX_TASKS} tasks are scheduled already"),
-            Self::TooManyJobs => write!(f, "{MAX_JOBS} blocking jobs are running already"),
+            Self::TooManyJobs => {
+                write!(f, "{MAX_JOBS} blocking jobs wait for their result already")
+            }
             Self::Panicked => f.write_str("the blocking work panicked"),
             Self::TooLarge => write!(f, "the result is larger than {MAX_RESULT_BYTES} bytes"),
             Self::Encode => f.write_str("the result does not serialize"),
@@ -128,5 +130,13 @@ mod tests {
         }
         assert_eq!(Error::from_code(0), None);
         assert_eq!(Error::from_code(7), None);
+    }
+
+    #[test]
+    fn too_many_jobs_counts_the_jobs_waiting_for_their_result() {
+        assert_eq!(
+            Error::TooManyJobs.to_string(),
+            format!("{MAX_JOBS} blocking jobs wait for their result already")
+        );
     }
 }

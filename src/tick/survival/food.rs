@@ -27,7 +27,7 @@ use crate::world::{BlockPos, Sound};
 /// Exhaustion that costs one saturation or food point (PMMP `HungerManager::exhaust`).
 const EXHAUSTION_PER_POINT: f64 = 4.0;
 /// Ticks of one food cycle (PMMP `HungerManager::tick`).
-const FOOD_CYCLE: u32 = 80;
+pub(super) const FOOD_CYCLE: u32 = 80;
 /// The most experience points a player holds (PMMP `Limits::INT32_MAX`).
 const MAX_XP: u64 = i32::MAX.cast_unsigned() as u64;
 /// Ticks an item takes to eat or drink (Bedrock: 1.6 s; dried kelp 0.8 s).
@@ -713,13 +713,9 @@ fn consumable_now(state: &State, session: SessionId, item: Type) -> Option<Stack
     let player = state.players.get(&session)?;
     let mode = player.survival.mode();
     let held = player.inventory.held();
-    let s = &player.survival;
     let ok = held.item() == Some(item)
-        && (!item.food().is_some_and(Food::requires_hunger)
-            || s.food < MAX_FOOD
-            || difficulty(state, player.world) == Difficulty::Peaceful
-            || mode == GameMode::Creative)
-        && !has_cooldown(state.tick, s, item);
+        && (!item.food().is_some_and(Food::requires_hunger) || can_eat(state, player, mode))
+        && !has_cooldown(state.tick, &player.survival, item);
     ok.then(|| held.clone())
 }
 

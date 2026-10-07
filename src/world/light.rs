@@ -25,16 +25,13 @@ use super::chunk::{COLUMNS, SUB_CHUNKS, column, split_y};
 use super::index::ChunkIndex;
 use super::paletted::{Derive, offset};
 use super::sub_chunk::Entry;
-use super::{BlockPos, Chunk, ChunkPos, MAX_Y, MIN_Y};
+use super::{BlockPos, Chunk, ChunkPos, DAY, MAX_Y, MIN_Y};
 
 use nibbles::Nibbles;
 use population::Population;
 
 /// The brightest light.
 const FULL: u8 = 15;
-
-/// The world time of one day.
-const DAY: i64 = 24_000;
 
 /// The sky light reduction from each time of day on (PMMP `World::computeSkyLightReduction` of
 /// `computeSunAnglePercentage`, which use `cos`). Each entry is the first tick of the day with

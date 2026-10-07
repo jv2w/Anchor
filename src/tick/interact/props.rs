@@ -69,7 +69,7 @@ pub(super) fn with_string(state: State, name: &str, value: &str) -> Option<State
 
 /// How a block writes a facing into an integer or string property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Encoding {
+pub(in crate::tick) enum Encoding {
     /// `minecraft:cardinal_direction`: "north", "south", "west", "east".
     Cardinal,
     /// Doors' `minecraft:cardinal_direction`, a quarter turn clockwise from the facing (PMMP
@@ -132,7 +132,7 @@ fn encoding(state: State) -> Option<(&'static str, Encoding)> {
 }
 
 /// The lowercase name of a face.
-pub(super) const fn face_name(face: Face) -> &'static str {
+pub(in crate::tick) const fn face_name(face: Face) -> &'static str {
     match face {
         Face::Down => "down",
         Face::Up => "up",
@@ -144,8 +144,33 @@ pub(super) const fn face_name(face: Face) -> &'static str {
 }
 
 /// The face of a lowercase name.
-fn face_of(name: &str) -> Option<Face> {
+pub(in crate::tick) fn face_of(name: &str) -> Option<Face> {
     Face::ALL.into_iter().find(|f| face_name(*f) == name)
+}
+
+/// The `vine_direction_bits` bit of a side (PMMP `BlockLegacyMetadata::VINE_FLAG_*`: south 1,
+/// west 2, north 4, east 8); `None` up and down.
+pub(in crate::tick) const fn vine_bit(face: Face) -> Option<i32> {
+    match face {
+        Face::South => Some(1),
+        Face::West => Some(2),
+        Face::North => Some(4),
+        Face::East => Some(8),
+        Face::Down | Face::Up => None,
+    }
+}
+
+/// The `multi_face_direction_bits` bit of a face (PMMP `MULTI_FACE_DIRECTION_FLAG_*`: down 1,
+/// up 2, south 4, west 8, north 16, east 32).
+pub(in crate::tick) const fn multi_face_bit(face: Face) -> i32 {
+    match face {
+        Face::Down => 0x01,
+        Face::Up => 0x02,
+        Face::South => 0x04,
+        Face::West => 0x08,
+        Face::North => 0x10,
+        Face::East => 0x20,
+    }
 }
 
 /// The integer values of an integer encoding, by face.
@@ -208,8 +233,14 @@ fn encode_string(encoding: Encoding, face: Face) -> Option<&'static str> {
 }
 
 /// The PMMP facing of a state (horizontal or any), whatever Bedrock property holds it.
-pub(super) fn facing(state: State) -> Option<Face> {
+pub(in crate::tick) fn facing(state: State) -> Option<Face> {
     let (name, encoding) = encoding(state)?;
+    facing_in(state, name, encoding)
+}
+
+/// The facing the property `name` of a state holds in `encoding`; `None` without the property
+/// or for a value the encoding does not have.
+pub(in crate::tick) fn facing_in(state: State, name: &str, encoding: Encoding) -> Option<Face> {
     match state.value(name)? {
         PropertyValue::Int(v) => int_table(encoding)
             .iter()
@@ -230,7 +261,7 @@ pub(super) fn facing(state: State) -> Option<Face> {
 }
 
 /// The state facing `face`; `None` if the state has no facing or cannot face that way.
-pub(super) fn with_facing(state: State, face: Face) -> Option<State> {
+pub(in crate::tick) fn with_facing(state: State, face: Face) -> Option<State> {
     let (name, encoding) = encoding(state)?;
     match state.value(name)? {
         PropertyValue::Int(_) => with_int(state, name, encode_int(encoding, face)?),
@@ -294,7 +325,7 @@ pub(super) fn float_to_i32(v: f64) -> i32 {
 
 /// The horizontal face a yaw looks toward (PMMP `Entity::getHorizontalFacing`): yaw 0 looks
 /// south, 90 west, 180 north, 270 east.
-pub(super) fn horizontal_facing(yaw: f64) -> Face {
+pub(in crate::tick) fn horizontal_facing(yaw: f64) -> Face {
     let mut angle = yaw % 360.0;
     if angle < 0.0 {
         angle += 360.0;
@@ -312,7 +343,7 @@ pub(super) fn horizontal_facing(yaw: f64) -> Face {
 
 /// The face a quarter turn from `face` seen from above (PMMP `Facing::rotateY`): clockwise north
 /// goes east. Up and down stay.
-pub(super) const fn rotate_y(face: Face, clockwise: bool) -> Face {
+pub(in crate::tick) const fn rotate_y(face: Face, clockwise: bool) -> Face {
     match (face, clockwise) {
         (Face::North, true) | (Face::South, false) => Face::East,
         (Face::East, true) | (Face::West, false) => Face::South,
@@ -334,6 +365,41 @@ pub(in crate::tick) fn renamed(state: State, name: &str) -> Option<State> {
         count += 1;
     }
     State::find(name, buffer.get(..count)?)
+}
+
+/// The lit or unlit form of a block whose lit form is named `lit_<name>` (furnaces, redstone
+/// ore), with its properties; `None` without such a form.
+pub(in crate::tick) fn with_lit(state: State, lit: bool) -> Option<State> {
+    let rest = state.name().strip_prefix("minecraft:")?;
+    let base = rest.strip_prefix("lit_").unwrap_or(rest);
+    let mut name = String::with_capacity(base.len() + 14);
+    name.push_str(if lit { "minecraft:lit_" } else { "minecraft:" });
+    name.push_str(base);
+    renamed(state, &name)
+}
+
+/// Whether coral is dead: Bedrock names the dead forms `dead_<name>`.
+pub(in crate::tick) fn is_dead_coral(state: State) -> bool {
+    state.name().contains(":dead_")
+}
+
+/// The dead form of living coral, with its properties (PMMP `setDead(true)`); `None` for dead
+/// coral or a block without a dead form.
+pub(in crate::tick) fn dead_coral(state: State) -> Option<State> {
+    if is_dead_coral(state) {
+        return None;
+    }
+    let rest = state.name().strip_prefix("minecraft:")?;
+    let mut dead = String::with_capacity(rest.len() + 15);
+    dead.push_str("minecraft:dead_");
+    dead.push_str(rest);
+    renamed(state, &dead)
+}
+
+/// Whether a slab state is a double slab: Bedrock names them `*_double_slab`, or
+/// `*double_cut_copper_slab`.
+pub(in crate::tick) fn is_double_slab(state: State) -> bool {
+    state.name().contains("double")
 }
 
 #[cfg(test)]

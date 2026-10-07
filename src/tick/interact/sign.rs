@@ -13,9 +13,15 @@ use crate::tile::{MAX_SIGN_TEXT_BYTES, SIGN_LINES, Side};
 use crate::world::BlockPos;
 
 /// PMMP `Sign::TAG_FRONT_TEXT`, `TAG_BACK_TEXT`, `TAG_TEXT_BLOB`.
-const FRONT: &str = "FrontText";
-const BACK: &str = "BackText";
-const TEXT: &str = "Text";
+pub(in crate::tick) const FRONT: &str = "FrontText";
+pub(in crate::tick) const BACK: &str = "BackText";
+pub(in crate::tick) const TEXT: &str = "Text";
+
+/// The lines of a side's text blob (PMMP `SignText::fromBlob`: split at newlines, at most
+/// [`SIGN_LINES`] lines, the rest dropped).
+pub(in crate::tick) fn blob_lines(blob: &str) -> impl Iterator<Item = &str> {
+    blob.splitn(SIGN_LINES + 1, '\n').take(SIGN_LINES)
+}
 
 impl Context<'_> {
     /// Opens the editor of the sign at `pos` in `player`'s world for the player, on its `side`
@@ -85,7 +91,7 @@ fn side(nbt: &Compound, tag: &str) -> Result<[String; SIGN_LINES], Refused> {
     };
     let mut lines: [String; SIGN_LINES] = Default::default();
     let mut total = 0usize;
-    for (slot, line) in lines.iter_mut().zip(blob.splitn(SIGN_LINES + 1, '\n')) {
+    for (slot, line) in lines.iter_mut().zip(blob_lines(blob)) {
         total = total.saturating_add(line.len());
         *slot = clean(line);
     }

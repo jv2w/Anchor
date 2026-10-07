@@ -1037,7 +1037,7 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
     let teleports = calls(|c| c.teleports.clone());
     assert_eq!(
         teleports,
-        [(1, 0, Vec3::new(5.5, -60.0 + PLAYER_EYE_HEIGHT, 5.5))],
+        [(1, 0, Vec3::new(5.5, -60.0 + EYE_HEIGHT, 5.5))],
         "the listener's place"
     );
     assert_eq!(calls(|c| c.damage.len()), 1);

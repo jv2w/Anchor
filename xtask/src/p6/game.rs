@@ -97,7 +97,7 @@ pub(crate) fn anchor_session(
     scenarios: &[&str],
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    let blocks = super::block_states(&super::read_text(&root.join(super::REFERENCE_BLOCKS))?)?;
+    let blocks = super::block_states(root)?;
     let dir = root.join(super::OUT_DIR).join("anchor-game");
     let (mut console, task) = console::console();
     let with_console = |b: anchor::ServerBuilder| b.every(console::EVERY_TICK, task);
@@ -147,7 +147,7 @@ pub(crate) fn session(
     scenarios: &[&str],
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    let blocks = super::block_states(&super::read_text(&root.join(super::REFERENCE_BLOCKS))?)?;
+    let blocks = super::block_states(root)?;
     let dir = root.join(super::OUT_DIR).join("bds-game");
     super::bds_session(exe, &dir, "raknet", "zlib", out, |addr, server, out| {
         let mut passed = run_spawn(bot, addr, &dir, out)?;
@@ -217,7 +217,7 @@ fn compare_scenarios(
     scenarios: &[&str],
     out: &mut impl Write,
 ) -> Result<bool, String> {
-    let blocks = super::block_states(&super::read_text(&root.join(super::REFERENCE_BLOCKS))?)?;
+    let blocks = super::block_states(root)?;
     let mut same = true;
     for scenario in scenarios {
         let capture = |dir: &Path| dir.join(format!("{scenario}.jsonl"));

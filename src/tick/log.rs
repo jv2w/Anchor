@@ -54,17 +54,9 @@ const COMMIT_BYTES: usize = MAX_BYTES / 4;
 const ENTRY_COST: usize = 32;
 /// The first bytes of a written log.
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
-/// The written format's version: 2 adds the start tick; 3 adds chunk checksums and player
-/// extras (f64 positions); 4 adds the joining player's device and skin; 5 adds the joining
-/// player's address and console lines; 6 adds blocking job results; 7 adds chunk load failures;
-/// 8 keeps segments with their checkpoints, the settings and registration fingerprints and a
-/// closing checksum; 9 adds the joining player's client data (locale, input mode, device,
-/// version, server address, port, join time) and the measures (tick times, pings, connection
-/// counts); 10 adds each segment's commit identity; 11 adds server file check results.
+/// The written format's version, the only one [`InputLog::decode`] reads: the data files of an
+/// older log are of a storage format this Anchor does not read, so it could not be replayed.
 const FORMAT: u32 = 11;
-/// The first format with segments and checkpoints, the oldest [`InputLog::decode`] reads: older
-/// logs have no checkpoint to replay from.
-const SEGMENTS: u32 = 8;
 /// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
 /// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
 /// their own, so a log can be larger; it is then written from its newest committed segment, or
@@ -156,7 +148,7 @@ pub(crate) struct Segment {
     /// learnt of.
     committed: bool,
     /// The commit identity of the state at `start`; `None` if unknown (a server file that has
-    /// none, a log of format 8 or 9).
+    /// none).
     identity: Option<u64>,
 }
 
@@ -810,7 +802,7 @@ impl InputLog {
     /// commit identity, checkpoint and ticks), then the CRC-32C of everything before it. Integers
     /// are little-endian; checkpoints are encoded here, on the main thread.
     pub(crate) fn encode(&self) -> Result<Vec<u8>> {
-        self.encode_in(FORMAT, 0)
+        self.encode_from(0)
     }
 
     /// The written form if it takes at most `limit` bytes; otherwise the written form from the
@@ -824,7 +816,7 @@ impl InputLog {
         drop(all);
         let from = self.newest_committed();
         if from > 0 {
-            let newest = self.encode_in(FORMAT, from)?;
+            let newest = self.encode_from(from)?;
             if newest.len() <= limit {
                 return Ok(newest);
             }
@@ -832,12 +824,11 @@ impl InputLog {
         Err(Error::TooLarge)
     }
 
-    /// The written form in `format` (11, or 8 and 9 for tests of older formats) of the segments
-    /// from the one at place `from` on.
-    fn encode_in(&self, format: u32, from: usize) -> Result<Vec<u8>> {
+    /// The written form of the segments from the one at place `from` on.
+    fn encode_from(&self, from: usize) -> Result<Vec<u8>> {
         let mut out = Vec::with_capacity(self.bytes.saturating_add(128));
         out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&format.to_le_bytes());
+        out.extend_from_slice(&FORMAT.to_le_bytes());
         out.extend_from_slice(&protocol::packet::PROTOCOL_VERSION.to_le_bytes());
         out.extend_from_slice(&self.fingerprints.settings);
         out.extend_from_slice(&self.fingerprints.registrations);
@@ -847,13 +838,11 @@ impl InputLog {
             out.extend_from_slice(&segment.start.to_le_bytes());
             out.push(u8::from(segment.committed));
             out.push(u8::from(segment.truncated));
-            if format >= 10 {
-                match segment.identity {
-                    None => out.push(0),
-                    Some(identity) => {
-                        out.push(1);
-                        out.extend_from_slice(&identity.to_le_bytes());
-                    }
+            match segment.identity {
+                None => out.push(0),
+                Some(identity) => {
+                    out.push(1);
+                    out.extend_from_slice(&identity.to_le_bytes());
                 }
             }
             match &segment.checkpoint {
@@ -869,7 +858,7 @@ impl InputLog {
             }
             put_len(&mut out, segment.ticks.len())?;
             for tick in &segment.ticks {
-                put_tick(&mut out, tick, format, &mut body)?;
+                put_tick(&mut out, tick, &mut body)?;
             }
         }
         let mut crc = Crc32c::new();
@@ -878,9 +867,9 @@ impl InputLog {
         Ok(out)
     }
 
-    /// Reads a written log of at most [`MAX_FILE_BYTES`], of format 8 or later. It is checked
-    /// against its checksum first, and every count against the bytes left before anything is
-    /// allocated for it. Segments of formats 8 and 9 have no commit identity.
+    /// Reads a written log of at most [`MAX_FILE_BYTES`], of [`FORMAT`]. It is checked against
+    /// its checksum first, and every count against the bytes left before anything is allocated
+    /// for it.
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > MAX_FILE_BYTES {
             return Err(Error::Format("larger than a log can be"));
@@ -889,8 +878,7 @@ impl InputLog {
         if r.take(MAGIC.len())? != MAGIC {
             return Err(Error::Format("magic"));
         }
-        let format = r.u32()?;
-        if !(SEGMENTS..=FORMAT).contains(&format) {
+        if r.u32()? != FORMAT {
             return Err(Error::Format("format version"));
         }
         if r.u32()?.cast_signed() != protocol::packet::PROTOCOL_VERSION {
@@ -920,7 +908,7 @@ impl InputLog {
             let start = r.u64()?;
             let committed = r.flag("committed flag")?;
             let truncated = r.flag("truncated flag")?;
-            let identity = if format >= 10 && r.flag("identity flag")? {
+            let identity = if r.flag("identity flag")? {
                 Some(r.u64()?)
             } else {
                 None
@@ -935,7 +923,7 @@ impl InputLog {
             let ticks = r.count(16)?;
             segment.ticks = Vec::with_capacity(capacity::<Tick>(ticks, r.0.len()));
             for _ in 0..ticks {
-                segment.ticks.push(r.tick(format, &mut budget)?);
+                segment.ticks.push(r.tick(&mut budget)?);
             }
             segments.push_back(segment);
         }
@@ -954,9 +942,9 @@ impl InputLog {
     }
 }
 
-/// Appends a tick in `format` (11; 8 or 9 for tests of older formats): its number, its inputs, the
-/// sessions it forgot and the answers it applied. `body` is scratch space for packet bodies.
-fn put_tick(out: &mut Vec<u8>, tick: &Tick, format: u32, body: &mut Vec<u8>) -> Result<()> {
+/// Appends a tick: its number, its inputs, the sessions it forgot and the answers it applied.
+/// `body` is scratch space for packet bodies.
+fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
     out.extend_from_slice(&tick.number.to_le_bytes());
     put_len(out, tick.inputs.len())?;
     for entry in &tick.inputs {
@@ -984,9 +972,7 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, format: u32, body: &mut Vec<u8>) -> 
                         out.extend_from_slice(&a.octets());
                     }
                 }
-                if format >= 9 {
-                    put_client(out, &identity.client)?;
-                }
+                put_client(out, &identity.client)?;
             }
             EntryKind::Packet(packet) => {
                 out.push(KIND_PACKET);
@@ -1048,7 +1034,7 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, format: u32, body: &mut Vec<u8>) -> 
     Ok(())
 }
 
-/// Appends what a join tells of the client (format 9).
+/// Appends what a join tells of the client.
 fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
     let Client {
         locale,
@@ -1247,8 +1233,8 @@ impl<'a> Read<'a> {
         }
     }
 
-    /// A tick of a log written in `format`; `budget` bounds what its packets may allocate.
-    fn tick(&mut self, format: u32, budget: &mut usize) -> Result<Tick> {
+    /// A tick of a written log; `budget` bounds what its packets may allocate.
+    fn tick(&mut self, budget: &mut usize) -> Result<Tick> {
         let number = self.u64()?;
         // An entry takes at least 17 bytes, a dropped session 8.
         let entries = self.count(17)?;
@@ -1270,11 +1256,7 @@ impl<'a> Read<'a> {
                     let skin = <protocol::Skin as protocol::Codec>::decode(&mut skin_reader)
                         .map_err(Error::Packet)?;
                     let address = self.address()?;
-                    let client = if format < 9 {
-                        Client::default()
-                    } else {
-                        self.client()?
-                    };
+                    let client = self.client()?;
                     EntryKind::Join(Identity {
                         skin: super::queue::Skin::new(skin),
                         device_os,
@@ -1299,7 +1281,7 @@ impl<'a> Read<'a> {
                 KIND_LEAVE => EntryKind::Leave,
                 KIND_CONSOLE => EntryKind::Console(self.text()?),
                 KIND_JOB => EntryKind::Job(self.job()?),
-                KIND_MEASURE if format >= 9 => EntryKind::Measure(self.measure()?),
+                KIND_MEASURE => EntryKind::Measure(self.measure()?),
                 _ => return Err(Error::Format("input kind")),
             };
             inputs.push(Entry { session, seq, kind });
@@ -1374,7 +1356,7 @@ impl<'a> Read<'a> {
         }
     }
 
-    /// What a join of format 9 tells of the client.
+    /// What a join tells of the client.
     fn client(&mut self) -> Result<Client> {
         let locale = self.text()?;
         let input_mode = crate::protocol::consts::InputMode::try_from(self.u32()?)
@@ -1717,7 +1699,7 @@ mod tests {
     }
 
     #[test]
-    fn client_data_and_measures_survive_and_format_8_logs_still_read() {
+    fn client_data_and_measures_survive_the_written_log() {
         let client = Client {
             locale: "en_GB".to_owned(),
             input_mode: crate::protocol::consts::InputMode::GamePad,
@@ -1764,27 +1746,30 @@ mod tests {
         }
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();
         assert_eq!(read.ticks(), log.ticks());
-        // Format 8: the same join without the client's data, which reads as empty.
-        let mut old = InputLog::default();
-        old.begin(0);
-        old.record(
-            SessionId::new(1),
-            0,
-            EntryKind::Join(identity(Client::default())),
-            0,
-        );
-        let read = InputLog::decode(&old.encode_in(8, 0).unwrap()).unwrap();
-        assert_eq!(read.ticks(), old.ticks());
-        // Format 8 has no measures.
-        let mut measured = InputLog::default();
-        measured.begin(0);
-        let ping = EntryKind::Measure(Measure::Ping(1));
-        measured.record(SessionId::new(1), 0, ping, 0);
-        assert!(InputLog::decode(&measured.encode_in(8, 0).unwrap()).is_err());
     }
 
     #[test]
-    fn segments_keep_their_commit_identity_and_format_9_logs_read_without_one() {
+    fn a_log_of_another_format_is_refused() {
+        let mut log = InputLog::default();
+        log.begin(0);
+        let ping = EntryKind::Measure(Measure::Ping(1));
+        log.record(SessionId::new(1), 0, ping, 0);
+        let written = log.encode().unwrap();
+        assert!(InputLog::decode(&written).is_ok());
+        let at = MAGIC.len();
+        for format in [FORMAT - 1, FORMAT + 1] {
+            let mut other = written.clone();
+            other[at..at + 4].copy_from_slice(&format.to_le_bytes());
+            reseal(&mut other);
+            assert!(matches!(
+                InputLog::decode(&other),
+                Err(Error::Format("format version"))
+            ));
+        }
+    }
+
+    #[test]
+    fn segments_keep_their_commit_identity() {
         let mut log = InputLog::from_state(0, Some(42));
         log.begin(0);
         log.record(
@@ -1803,13 +1788,9 @@ mod tests {
         let unknown = InputLog::starting_at(0);
         let read = InputLog::decode(&unknown.encode().unwrap()).unwrap();
         assert_eq!(identities(&read), [None]);
-        // Format 9: the same segments without their identities, which read as unknown.
-        let read = InputLog::decode(&log.encode_in(9, 0).unwrap()).unwrap();
-        assert_eq!(identities(&read), [None, None]);
-        assert_eq!(read.ticks(), log.ticks());
     }
 
-    /// Puts the checksum of the bytes before it at the end of a written log of format 8 or later.
+    /// Puts the checksum of the bytes before it at the end of a written log.
     fn reseal(bytes: &mut [u8]) {
         let Some(at) = bytes.len().checked_sub(4) else {
             return;

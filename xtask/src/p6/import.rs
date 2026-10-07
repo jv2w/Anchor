@@ -25,9 +25,10 @@ use serde_json::Value;
 
 use crate::r#gen::data::Data;
 
+use super::api::INTENDED;
 use super::{
-    BDS_DIR, BdsSession, OUT_DIR, REFERENCE_BLOCKS, anchor_config, bds_session_with, block_states,
-    build_bot, create_dir, field, install_log, is_file, now, pause, read_text, remove_dir,
+    BDS_DIR, BdsSession, OUT_DIR, anchor_config, bds_session_with, block_states, build_bot,
+    create_dir, field, install_log, is_file, missing_bds, now, pause, read_text, remove_dir,
     run_anchor, run_bot, say,
 };
 
@@ -37,8 +38,6 @@ pub(super) const SCENARIO: &str = "import";
 const SEED: &str = "20261004";
 /// The world's name, in BDS and in Anchor.
 const WORLD: &str = "p6-import";
-/// The intended differences, relative to the repository root.
-const INTENDED: &str = "xtask/data/p6/intended.txt";
 /// How long to wait for BDS to confirm the game rule.
 const RULE_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 /// Game rules set before the bot joins: the player spawns on the world spawn, as Anchor puts
@@ -55,13 +54,10 @@ const RULES: [(&str, &str); 4] = [
 pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
     let exe = root.join(BDS_DIR).join("bedrock_server.exe");
     if !is_file(&exe) {
-        return Err(format!(
-            "{} is missing: copy BDS 1.26.52.3 into {BDS_DIR} (never run the original)",
-            exe.display()
-        ));
+        return Err(missing_bds(&exe));
     }
     let bot = build_bot(root)?;
-    let states = block_states(&read_text(&root.join(REFERENCE_BLOCKS))?)?;
+    let states = block_states(root)?;
     let intended = intended(&read_text(&root.join(INTENDED))?)?;
     let aliases = aliases(root)?;
     let dir = |name: &str| root.join(OUT_DIR).join(name);

@@ -6,10 +6,11 @@
 //! use, and a trader killed by a stray hit would take its offers with it. An NPC whose
 //! `Invulnerable` flag is off follows PMMP `Living`: a 10-tick cooldown in which only stronger
 //! hits count the difference, knockback and the hurt animation on a cold hit, fall damage,
-//! suffocation and burning, and at 0 health the death animation and removal 25 ticks later; its
-//! drops (a zombie's; other NPCs drop nothing) come at its first tick after the death. NPCs have
-//! no lasting effects (no AI they could change); instant health and damage apply. Drowning is
-//! not counted (no air supply).
+//! suffocation, burning and the blocks that hurt a living thing inside them (the players' rule,
+//! `Harm`), and at 0 health the death animation and removal 25 ticks later; its drops (a
+//! zombie's; other NPCs drop nothing) come at its first tick after the death. NPCs have no
+//! lasting effects (no AI they could change), so a wither rose does nothing to them; instant
+//! health and damage apply. Drowning is not counted (no air supply).
 //!
 //! Melee hits on items, orbs, projectiles and clouds do nothing (PMMP kicks the player for items
 //! and arrows; a hit packet is not worth a kick). A hit on an NPC, a painting or an end crystal
@@ -24,35 +25,22 @@ use std::sync::Arc;
 
 use super::kind::{Character, Form, Kind, MAX_NAME_TAG_BYTES};
 use super::{
-    Blow, Cause, Hooks, Hurt, Knock, Npc, PLAYER_EYE_HEIGHT, State, combust, create, hurt,
-    level_of, player_actor, push_entity, send_to, with, worn,
+    Blow, Cause, EYE_HEIGHT, Hooks, Hurt, Knock, Npc, SAFE_FALL, SUFFOCATION_DAMAGE, State,
+    combust, create, hurt, player_actor, push_entity, send_to, with,
 };
 use crate::config::GameMode;
 use crate::entity::Id;
-use crate::event::{CombustSource, DamageSource, ExhaustCause};
-use crate::item::{Class, Enchantment};
+use crate::event::{CombustSource, DamageSource};
 use crate::math::Vec3;
 use crate::protocol::Uuid;
 use crate::protocol::consts::AnimateAction;
 use crate::protocol::packet::{Animate, Packet};
-use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::world::BlockPos;
 
-/// Ticks within which a weaker hit does nothing (PMMP `EntityDamageEvent::$attackCooldown`).
-pub(super) const ATTACK_COOLDOWN: u8 = 10;
-/// How far a player reaches an entity (PMMP `MAX_REACH_DISTANCE_ENTITY_INTERACTION`).
-const REACH: f64 = 8.0;
-/// How far behind the look direction a target may be (PMMP `canInteract`: √3 / 2).
-const REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
-/// The eye heights of a villager and a zombie (PMMP `EntitySizeInfo`: half the height plus 0.1)
-/// and a human.
+/// The eye height of a villager and a zombie (PMMP `EntitySizeInfo`: half the height plus 0.1);
+/// a human has a player's.
 const VILLAGER_EYE: f64 = 1.05;
-const HUMAN_EYE: f64 = 1.62;
-/// Fall distance that does not hurt (PMMP `Living::calculateFallDamage`).
-const SAFE_FALL: f64 = 3.0;
-/// Random stream of weapon wear.
-const WEAR_RANDOM: u64 = random::tag("npc-attack-wear");
 
 /// Spawns `npc` at `pos`; `None` at the entity limit, in an unloaded chunk, or for a name longer
 /// than [`MAX_NAME_TAG_BYTES`]. The NPC is invulnerable (see the module documentation), except a
@@ -102,7 +90,7 @@ pub(super) fn eye_height(kind: &Kind) -> f64 {
         Kind::Npc(Character {
             form: Form::Human { .. },
             ..
-        }) => HUMAN_EYE,
+        }) => EYE_HEIGHT,
         _ => 0.0,
     }
 }
@@ -126,12 +114,9 @@ pub(super) fn reaches(
         return None;
     }
     let (eye, at) = (player.position, e.body.position);
-    if eye.distance_squared(at) > REACH * REACH {
-        return None;
-    }
     let (yaw, pitch) = (hooks.look)(player);
     let dir = super::direction(yaw, pitch);
-    (dir.dot(at) - dir.dot(eye) >= -REACH_BEHIND).then_some((eye, at))
+    survival::can_interact(eye, dir, at, survival::ENTITY_REACH).then_some((eye, at))
 }
 
 /// `session` interacts with the entity `target` (PMMP `Player::interactEntity`): a villager NPC
@@ -187,10 +172,15 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
     let Some(melee) = survival::melee(state, session) else {
         return;
     };
+    let held = state
+        .players
+        .get(&session)
+        .map(|p| p.inventory.held().clone())
+        .unwrap_or_default();
     let reached = reaches(state, session, target, hooks);
     let result = match reached {
         Some((eye, at)) => {
-            let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+            let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
             let knock = Knock::new(at.x - feet.x, at.z - feet.z);
             let by = DamageSource::Entity(player_actor(session));
             hurt(
@@ -232,56 +222,26 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
             send_to(&mut state.players, &viewers, &packet);
         }
     }
-    let Some(player) = state.players.get(&session) else {
-        return;
-    };
-    let finite = matches!(
-        survival::game_mode(state, player),
-        GameMode::Survival | GameMode::Adventure
-    );
-    let held = player.inventory.held().clone();
-    let feet = eye - Vec3::new(0.0, PLAYER_EYE_HEIGHT, 0.0);
+    let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     let (dx, dz) = (at.x - feet.x, at.z - feet.z);
-    if living {
-        enchanted_hit(state, session, target, &held, (dx, dz));
-    }
-    let wear = held.item().map_or(0, |t| {
-        if t.is(Class::Sword) || t.is(Class::Hoe) || t.is(Class::Trident) {
-            1
-        } else if t.is(Class::Axe) || t.is(Class::Pickaxe) || t.is(Class::Shovel) {
-            2
-        } else {
-            0
+    survival::after_melee(state, session, &held, |state, knockback, fire| {
+        if living {
+            enchanted_hit(state, session, target, (knockback, fire), (dx, dz));
         }
     });
-    let seed = state
-        .players
-        .get(&session)
-        .and_then(|p| state.worlds.get(p.world))
-        .map_or(0, crate::world::World::seed);
-    let mut r = Random::new(seed, state.tick, random::key(WEAR_RANDOM, &[session.get()]));
-    if let Some(player) = state.players.get_mut(&session)
-        && finite
-        && wear > 0
-        && player.inventory.held() == &held
-    {
-        super::super::inventory::set_held(player, worn(&state.settings, &held, wear, &mut r));
-    }
-    survival::exhaust_by(state, session, 0.1, ExhaustCause::Attack);
 }
 
-/// The Knockback and Fire Aspect of the weapon `held` on a hit that landed along `(dx, dz)`.
+/// The weapon's Knockback force and Fire Aspect seconds on a hit that landed along `(dx, dz)`.
 fn enchanted_hit(
     state: &mut State,
     session: SessionId,
     target: Id,
-    held: &crate::item::Stack,
+    (knockback, fire): (Option<f64>, Option<u32>),
     (dx, dz): (f64, f64),
 ) {
-    let knockback = level_of(held, Enchantment::Knockback);
-    if knockback > 0 {
+    if let Some(force) = knockback {
         let knock = Knock {
-            force: f64::from(knockback) * 0.5,
+            force,
             ..Knock::new(dx, dz)
         };
         let motion = state
@@ -294,10 +254,14 @@ fn enchanted_hit(
             push_entity(state, target, m);
         }
     }
-    let fire = level_of(held, Enchantment::FireAspect);
-    if fire > 0 {
+    if let Some(seconds) = fire {
         let by = CombustSource::Entity(player_actor(session));
-        combust(state, target, i16::from(fire).saturating_mul(4), by);
+        combust(
+            state,
+            target,
+            i16::try_from(seconds).unwrap_or(i16::MAX),
+            by,
+        );
     }
 }
 
@@ -323,7 +287,12 @@ pub(super) fn tick(state: &mut State, id: Id, _hooks: Hooks) {
                     .any(|b| b.offset(at).intersects(bounds))
         });
     if inside {
-        hurt(state, id, Blow::of(Cause::Suffocation, 1.0), None);
+        hurt(
+            state,
+            id,
+            Blow::of(Cause::Suffocation, SUFFOCATION_DAMAGE),
+            None,
+        );
     }
     with(state, id, |e| {
         if let Kind::Npc(c) = &mut e.kind
@@ -375,6 +344,7 @@ mod tests {
 
     use super::super::tests::{Harness, TEST_HOOKS, adds, at, calls, standing};
     use super::*;
+    use crate::item::Enchantment;
     use crate::nbt::{Compound, Value};
     use crate::protocol::MetadataValue::Int32;
     use crate::protocol::consts::EntityDataKey as K;
@@ -1021,5 +991,78 @@ mod tests {
             })
             .collect();
         assert_eq!(order, ["add", "player", "remove"]);
+    }
+
+    /// The hurt event of an NPC carries the official cause number of an explosion (Mojang
+    /// `ActorDamageCause`): 10 for a block's or nothing's, 11 for an entity's.
+    #[test]
+    fn an_npc_hurt_by_an_explosion_shows_whose_explosion_it_was() {
+        use super::super::Raise;
+        use super::super::explosion::{Source, explode_with};
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let target = human(&mut h, at(3.5, -60.0, 0.5), "Target");
+        let source = human(&mut h, at(-3.5, -60.0, 0.5), "Source");
+        vulnerable(&mut h, target);
+        h.entities();
+        let runtime_id = e_runtime(&h, target);
+        let mut causes = Vec::new();
+        for by in [Source::None, Source::Entity(source)] {
+            with(&mut h.state, target, |e| e.health = 20.0);
+            h.take(1);
+            let blast = super::super::Blast::new(2.0, false);
+            let center = Vec3::new(0.5, -59.0, 0.5);
+            explode_with(
+                &mut h.state,
+                0,
+                center,
+                blast,
+                by,
+                TEST_HOOKS,
+                Raise::Events,
+            );
+            assert!(health(&h, target) > 0.0, "hurt, alive");
+            h.entities();
+            causes.extend(h.take(1).iter().filter_map(|p| match p {
+                Packet::ActorEvent(a)
+                    if a.entity_runtime_id == runtime_id
+                        && a.event_type == ActorEvent::Hurt as u8 =>
+                {
+                    Some(a.event_data)
+                }
+                _ => None,
+            }));
+            for _ in 0..10 {
+                h.entities();
+            }
+        }
+        assert_eq!(causes, [10, 11]);
+    }
+
+    /// PMMP `SweetBerryBush::onEntityInside` and `Magma::onEntityInside` hurt every living thing:
+    /// a vulnerable NPC in a bush with berries and on magma takes their damage, as a player does.
+    #[test]
+    fn a_berry_bush_and_magma_hurt_a_vulnerable_npc_inside_them() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let bush = crate::block::Kind::SweetBerryBush
+            .default_state()
+            .with("growth", crate::block::PropertyValue::Int(1))
+            .unwrap();
+        h.state.worlds[0]
+            .set_block(BlockPos::new(3, -60, 0), bush)
+            .unwrap();
+        let pricked = human(&mut h, at(3.5, -60.0, 0.5), "Pricked");
+        vulnerable(&mut h, pricked);
+        h.entities();
+        assert_eq!(health(&h, pricked), 19.0, "1 contact damage");
+        // A magma block the NPC stands in: its box reaches into the block.
+        h.state.worlds[0]
+            .set_block(BlockPos::new(-3, -60, 0), named("minecraft:magma"))
+            .unwrap();
+        let burnt = human(&mut h, at(-2.5, -59.5, 0.5), "Burnt");
+        vulnerable(&mut h, burnt);
+        h.entities();
+        assert!(health(&h, burnt) < 20.0, "fire damage");
     }
 }

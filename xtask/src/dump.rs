@@ -24,7 +24,7 @@ use serde_json::Value as Json;
 
 use crate::r#gen::biomes::{self, Biome, Colour};
 
-mod limits;
+pub(crate) mod limits;
 
 /// The pinned checkouts, relative to the repository root, and their commits.
 const PMMP: (&str, &str) = (".cache/pmmp", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
@@ -32,7 +32,7 @@ const DRAGONFLY: (&str, &str) = (
     ".cache/dragonfly",
     "4c7b5074be94fa83a1cd98e9c752083ad04a6e21",
 );
-const CLOUDBURST: (&str, &str) = (
+pub(crate) const CLOUDBURST: (&str, &str) = (
     ".cache/cloudburst-data",
     "659ce1e2eee3a67045693f4fd5515c6ccf571953",
 );
@@ -45,20 +45,29 @@ const PROTOCOL_DOCS: (&str, &str) = (
 /// lacks the extensions PMMP's registries load.
 const PHP: &str = ".cache/php-pm5/bin/php/php.exe";
 /// Output directories and their files, relative to the repository root.
-const PMMP_OUT: &str = "xtask/data/pmmp";
+pub(crate) const PMMP_DIR: &str = "xtask/data/pmmp";
+pub(crate) const PMMP_BLOCKS: &str = "blocks.json";
+pub(crate) const PMMP_DESERIALIZED: &str = "deserialized.json";
+pub(crate) const PMMP_ITEMS: &str = "items.json";
+pub(crate) const PMMP_CREATIVE: &str = "creative.json";
+pub(crate) const PMMP_RECIPES: &str = "recipes.json";
+pub(crate) const PMMP_TABLES: &str = "tables.json";
 const PMMP_FILES: &[&str] = &[
-    "blocks.json",
-    "deserialized.json",
-    "items.json",
-    "creative.json",
-    "recipes.json",
-    "tables.json",
+    PMMP_BLOCKS,
+    PMMP_DESERIALIZED,
+    PMMP_ITEMS,
+    PMMP_CREATIVE,
+    PMMP_RECIPES,
+    PMMP_TABLES,
 ];
-const REFERENCE_OUT: &str = "xtask/data/reference";
+pub(crate) const REFERENCE_DIR: &str = "xtask/data/reference";
+pub(crate) const REFERENCE_BLOCKS: &str = "blocks.json";
+pub(crate) const REFERENCE_ITEMS: &str = "items.json";
+pub(crate) const REFERENCE_ITEM_BLOCKS: &str = "item_blocks.json";
 const REFERENCE_FILES: &[&str] = &[
-    "blocks.json",
-    "items.json",
-    "item_blocks.json",
+    REFERENCE_BLOCKS,
+    REFERENCE_ITEMS,
+    REFERENCE_ITEM_BLOCKS,
     "jigsaw_structure_data.dat",
     "entity_properties.dat",
     biomes::FILE,
@@ -96,8 +105,8 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         (dir.join("pmmp"), dir.join("reference"), dir.join("upgrade"))
     } else {
         (
-            root.join(PMMP_OUT),
-            root.join(REFERENCE_OUT),
+            root.join(PMMP_DIR),
+            root.join(REFERENCE_DIR),
             root.join(upgrade::OUT),
         )
     };
@@ -122,7 +131,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         .args(["-d", "memory_limit=4G"])
         .arg(root.join("xtask").join("php").join("dump.php"))
         .arg(&pmmp_out)
-        .arg(reference_out.join("blocks.json"))
+        .arg(reference_out.join(REFERENCE_BLOCKS))
         .current_dir(root.join(PMMP.0))
         .status()
         .map_err(|e| format!("cannot run {PHP} ({e}); see .claude/rules/data.md"))?;
@@ -149,8 +158,8 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
             }
         }
         for (committed, made, files) in [
-            (PMMP_OUT, &pmmp_out, PMMP_FILES),
-            (REFERENCE_OUT, &reference_out, REFERENCE_FILES),
+            (PMMP_DIR, &pmmp_out, PMMP_FILES),
+            (REFERENCE_DIR, &reference_out, REFERENCE_FILES),
         ] {
             for file in files {
                 if read(&root.join(committed).join(file)).ok() != Some(read(&made.join(file))?) {
@@ -301,6 +310,14 @@ fn pinned(root: &Path, dir: &str, commit: &str) -> Result<(), String> {
 )]
 fn is_dir(path: &Path) -> bool {
     path.is_dir()
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: xtask is a development tool"
+)]
+pub(crate) fn is_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 /// The files in a directory, sorted.

@@ -22,8 +22,8 @@ paths:
 ## P6
 - 프로토콜 버전에 맞는 공식 서버를 `.cache/bds/<버전>/`에 복사해 쓴다.
 - 공식 서버와는 봇이 받는 패킷으로만 비교한다.
-- P6 시험 설정은 Anchor 기본값과 같은 값으로 둔다.
-- Anchor가 공식 서버와 다르면 공식 서버를 따른다. 일부러 다른 것만 이유와 함께 `xtask/data/p6/intended.txt`에 넣는다.
+- P6 시험 설정은 두 서버를 맞추는 값(Xbox 로그인 없음, 월드 이름, 시드)말고는 Anchor 기본값과 같은 값으로 둔다.
+- Anchor가 공식 서버와 다르면 공식 서버를 따른다. API와 가져오기 비교에서 일부러 다른 것만 이유와 함께 `xtask/data/p6/intended.txt`에 넣는다(게임과 스폰 비교는 이 파일을 읽지 않는다).
 - `intended.txt`는 코드 변경처럼 검토한다.
 - `fields.txt`에는 월드나 실행마다 다른 값을 넣지 않는다.
 - `facts.md`는 주제별로 정리하고, 열린 질문과 실제 클라이언트로만 확인할 것은 끝에 둔다.
@@ -35,7 +35,7 @@ paths:
 3. 시나리오가 쓰는 콘솔 명령을 Anchor가 받아야 하면 `xtask/src/p6/game/console.rs`에서 공개 API로 옮긴다.
 4. `cargo xtask p6 ... bds <이름>`을 두 번 이상 돌려 공식 서버에서 통과하고 값이 같은지 본다. 실행마다 다른 값은 비교에서 뺀다.
 5. 관찰한 값과 Anchor의 결정을 `facts.md`에 적는다.
-6. `cargo xtask p6 ... anchor <이름>`으로 Anchor를 비교한다. 다른 것은 위 규칙대로 공식 서버를 따르거나 `intended.txt`에 넣는다.
+6. `cargo xtask p6 ... anchor <이름>`으로 Anchor를 비교한다. 다른 것은 위 규칙대로 공식 서버를 따르거나, API 시나리오면 `intended.txt`에 넣는다.
 
 ## 시험 돌리기
 - NetherNet 시그널링을 쓰는 시험이나 `p6 anchor`의 NetherNet 실행이 연결 시간 초과로 실패하면 한 번 다시 돌린다. 두 번째도 실패하면 진짜 실패로 본다.

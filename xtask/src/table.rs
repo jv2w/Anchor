@@ -20,6 +20,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::dump::{read, write};
 use status::{Kind, Rule};
 
 /// The PMMP API inventory, relative to the repository root.
@@ -596,22 +597,6 @@ fn walk(root: &Path, dir: &str, out: &mut Vec<String>) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn read(path: &Path) -> Result<Vec<u8>, String> {
-    std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(test)]

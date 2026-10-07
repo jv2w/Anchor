@@ -16,10 +16,16 @@
 mod apply;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::Value as Json;
+
+use crate::dump::upgrade::{
+    BLOCK_LEGACY_IDS, BLOCK_SCHEMAS, ITEM_BLOCKS, ITEM_LEGACY_IDS, ITEM_SCHEMAS, LEGACY_TABLE,
+    OUT as DIR,
+};
+use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, read};
 
 use self::apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
 use super::body::str_lit;
@@ -30,16 +36,14 @@ type R<T> = Result<T, String>;
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/import/upgrade/table.rs";
-/// The committed data, relative to the repository root (`cargo xtask dump` writes it).
-const DIR: &str = "xtask/data/upgrade";
-const BLOCK_SCHEMAS: &str = "blocks";
-const ITEM_SCHEMAS: &str = "items";
-const BLOCK_LEGACY_IDS: &str = "block_legacy_id_map.json";
-const LEGACY_TABLE: &str = "legacy_1.12.0.jsonl";
-const ITEM_LEGACY_IDS: &str = "item_legacy_id_map.json";
-const ITEM_BLOCKS: &str = "1.12.0_item_id_to_block_id_map.json";
-/// The schema that adds the properties of the protocol version; `data` reads it too.
-pub(crate) const LATEST: &str = "xtask/data/upgrade/blocks/0351_1.26.40_to_1.26.50.json";
+/// The block schema that adds the properties of the protocol version; `data` reads it too
+/// ([`latest`]).
+pub(crate) const LATEST: &str = "0351_1.26.40_to_1.26.50.json";
+
+/// The path of [`LATEST`].
+pub(crate) fn latest(root: &Path) -> PathBuf {
+    root.join(DIR).join(BLOCK_SCHEMAS).join(LATEST)
+}
 
 /// A property value in a schema (PMMP `BlockStateUpgradeSchemaModelTag`): exactly one field.
 #[derive(Debug, Deserialize)]
@@ -389,7 +393,7 @@ fn typed_state(json: &Json) -> R<(i32, String, States)> {
 /// The reference list's block state version, which every one of its states has (the protocol
 /// version's, which Anchor writes), and its states.
 fn reference(root: &Path) -> R<(i32, BTreeSet<(String, States)>)> {
-    let path = root.join("xtask/data/reference/blocks.json");
+    let path = root.join(REFERENCE_DIR).join(REFERENCE_BLOCKS);
     let list: Vec<Json> =
         serde_json::from_slice(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut version = None;
@@ -809,14 +813,6 @@ fn rules_lit(rules: &Rules<'_>) -> String {
     }
     out.push_str("..NONE }");
     out
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn read(path: &Path) -> R<Vec<u8>> {
-    std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(test)]

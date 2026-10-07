@@ -34,13 +34,13 @@ mod registry;
 mod upgrade;
 
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
+
+use crate::dump::{REFERENCE_DIR, create_dir, limits, read, write};
 
 /// The IR, relative to the repository root.
 const IR_PATH: &str = "xtask/data/protocol.json";
-/// The per-field decode limits `dump` writes, relative to the repository root.
-const LIMITS_PATH: &str = "xtask/data/reference/protocol_limits.json";
 /// The generated files, relative to the repository root.
 const TYPES_PATH: &str = "src/protocol/types.rs";
 const PACKET_PATH: &str = "src/protocol/packet.rs";
@@ -62,8 +62,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     let ir_bytes = read(&extracted)?;
     let ir: ir::Ir =
         serde_json::from_slice(&ir_bytes).map_err(|e| format!("{}: {e}", extracted.display()))?;
-    let limits = serde_json::from_slice(&read(&root.join(LIMITS_PATH))?)
-        .map_err(|e| format!("{LIMITS_PATH}: {e}"))?;
+    let limits = data::read_json(root, REFERENCE_DIR, limits::FILE)?;
     let model = model::Model::new(&ir, limits)?;
     let output = emit::generate(&model)?;
     let data = data::Data::load(root)?;
@@ -135,7 +134,7 @@ fn finish(root: &Path, text: &str) -> Result<String, String> {
 /// Runs rustfmt (the repository's `.rustfmt.toml`) on text.
 fn rustfmt(root: &Path, text: &str) -> Result<String, String> {
     let mut child = Command::new("rustfmt")
-        .args(["--edition", "2024", "--emit", "stdout"])
+        .args(["--emit", "stdout"])
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -224,28 +223,4 @@ fn mark_long_functions(text: &str) -> String {
         out.push('\n');
     }
     out
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn read(path: &Path) -> Result<Vec<u8>, String> {
-    std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn create_dir(path: &PathBuf) -> Result<(), String> {
-    std::fs::create_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))
 }

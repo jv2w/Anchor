@@ -9,7 +9,8 @@
 use tracing::warn;
 
 use super::effects::Active;
-use super::{MAX_AIR, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, Point, Survival};
+use super::food::FOOD_CYCLE;
+use super::{MAX_AIR, MAX_EXHAUSTION, MAX_FOOD, MAX_HELD_BACK, MAX_SATURATION, Point, Survival};
 use crate::config::GameMode;
 use crate::effect::MAX_DURATION;
 use crate::effect::Type as Effect;
@@ -49,29 +50,31 @@ const EFFECT_PARTICLES: &str = "ShowParticles";
 
 /// The most falling distance kept (a longer fall kills anyway).
 const MAX_FALL: f64 = 4096.0;
-/// The most exhaustion kept (PMMP `Attribute::EXHAUSTION` maximum).
-const MAX_EXHAUSTION: f64 = 5.0;
 /// The most effects read: one per effect type.
-const MAX_EFFECTS: usize = 27;
+const MAX_EFFECTS: usize = crate::effect::TYPE_COUNT;
 
-/// The protocol's game type of a game mode (`UpdatePlayerGameType`, `StartGame`).
+/// The protocol's game type of a game mode as the packets carry it (`UpdatePlayerGameType`,
+/// `StartGame`).
 pub(in crate::tick) fn game_mode_id(mode: GameMode) -> i32 {
-    match mode {
-        GameMode::Survival => 0,
-        GameMode::Creative => 1,
-        GameMode::Adventure => 2,
-        GameMode::Spectator => 6,
-    }
+    i32::from(mode.game_type())
 }
 
-/// The saved ID of a game mode (PMMP `GameModeIdMap`).
+/// The saved IDs of the game modes (PMMP `GameModeIdMap`), for saving and loading. Spectator is 3
+/// here, unlike the protocol's game type.
+const SAVED_MODES: [(GameMode, i32); 4] = [
+    (GameMode::Survival, 0),
+    (GameMode::Creative, 1),
+    (GameMode::Adventure, 2),
+    (GameMode::Spectator, 3),
+];
+
+/// The saved ID of a game mode.
 fn saved_mode(mode: GameMode) -> i32 {
-    match mode {
-        GameMode::Survival => 0,
-        GameMode::Creative => 1,
-        GameMode::Adventure => 2,
-        GameMode::Spectator => 3,
-    }
+    // Every mode is in the table; 0 only keeps the lookup total.
+    SAVED_MODES
+        .iter()
+        .find(|&&(m, _)| m == mode)
+        .map_or(0, |&(_, id)| id)
 }
 
 fn int(extra: &Compound, key: &str) -> Option<i32> {
@@ -130,13 +133,8 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
     let s = survival;
     s.game_mode = int(extra, GAME_MODE)
         .filter(|_| !s.forced_mode)
-        .and_then(|mode| match mode {
-            0 => Some(GameMode::Survival),
-            1 => Some(GameMode::Creative),
-            2 => Some(GameMode::Adventure),
-            3 => Some(GameMode::Spectator),
-            _ => None,
-        });
+        .and_then(|id| SAVED_MODES.iter().find(|&&(_, i)| i == id))
+        .map(|&(mode, _)| mode);
     if let Some(Value::List(List::Compound(list))) = extra.get(EFFECTS) {
         for e in list.iter().take(MAX_EFFECTS) {
             if let Some((effect, active)) = load_effect(e) {
@@ -151,8 +149,11 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
     if let Some(absorption) = float(extra, ABSORPTION, 0.0, f64::from(f32::MAX)) {
         s.absorption = absorption;
     }
-    if let Some(food) = int(extra, FOOD).filter(|food| (0..=20).contains(food)) {
-        s.food = f64::from(food);
+    if let Some(food) = int(extra, FOOD)
+        .map(f64::from)
+        .filter(|food| (0.0..=MAX_FOOD).contains(food))
+    {
+        s.food = food;
     }
     if let Some(saturation) = float(extra, SATURATION, 0.0, MAX_SATURATION) {
         s.saturation = saturation;
@@ -161,7 +162,7 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
         s.exhaustion = exhaustion;
     }
     if let Some(timer) = int(extra, FOOD_TIMER).and_then(|timer| u32::try_from(timer).ok()) {
-        s.food_timer = timer % 80;
+        s.food_timer = timer % FOOD_CYCLE;
     }
     if let Some(level) = int(extra, XP_LEVEL).and_then(|level| u32::try_from(level).ok()) {
         s.xp_level = level.min(crate::player::MAX_LEVEL);
@@ -274,7 +275,7 @@ pub(super) fn save(s: &Survival, extra: &mut Compound) {
     put(ABSORPTION, Some(Value::Float(f32_of(s.absorption))));
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "invariant: the food level is a whole number from 0 to 20"
+        reason = "consistency: the food level, 0 to 20 and maybe fractional, is saved truncated as PMMP saves it"
     )]
     let food = s.food as i32;
     put(FOOD, Some(Value::Int(food)));

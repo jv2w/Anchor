@@ -11,8 +11,8 @@ use std::process::Command;
 use serde::Deserialize;
 
 use crate::dump::upgrade::{hex, sha256};
-use crate::dump::{create_dir, read, write};
-use crate::{STR0M, STR0M_DIMPL, STR0M_PROTO};
+use crate::dump::{create_dir, is_file, read, write};
+use crate::{STR0M, STR0M_DIMPL, STR0M_PROTO, VERIFY_TARGET};
 
 /// `<sha256>  <file name>` per line, the `sha256sum` format.
 const LIST: &str = "xtask/data/vendor/str0m-test-data.sha256";
@@ -103,7 +103,7 @@ fn test(root: &Path) -> Result<bool, String> {
         ])
         .current_dir(root)
         // `verify`'s target directory, which already holds the copy's dependencies.
-        .env("CARGO_TARGET_DIR", root.join("target").join("verify"))
+        .env("CARGO_TARGET_DIR", root.join("target").join(VERIFY_TARGET))
         .status()
         .map(|status| status.success())
         .map_err(|e| format!("cannot run cargo: {e}"))
@@ -128,14 +128,6 @@ fn download(url: &str, path: &Path) -> Result<(), String> {
     } else {
         Err(format!("downloading {url} failed ({status})"))
     }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn is_file(path: &Path) -> bool {
-    path.is_file()
 }
 
 #[expect(

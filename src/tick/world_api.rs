@@ -7,8 +7,8 @@
 //! Sounds, particles and packets go out at once from the call (no queue): each is one packet per
 //! player who was sent the chunk of the position, queued in the player's outbox for the end of the
 //! tick. A player whose outbox is nearly full (a loop of effects) is skipped rather than
-//! disconnected: effects are cosmetic, and the outbox keeps [`EFFECT_RESERVE`] packets for the
-//! rules.
+//! disconnected, as for everything a player gets as a viewer: effects are cosmetic, and the
+//! outbox keeps [`EFFECT_RESERVE`] packets for the player's own.
 
 mod lifecycle;
 mod recipes;
@@ -19,14 +19,15 @@ pub(super) use lifecycle::{
 };
 
 use super::view::chunk_of;
-use super::{Context, MAX_OUTBOX, Phase, State, entity, survival, weather};
+use super::{Context, Phase, State, entity, survival, weather};
 use crate::math::{Aabb, Vec3};
 use crate::player;
 use crate::protocol::packet::Packet;
 use crate::world::{self, BlockPos, ChunkPos, Lightning, Particle, Sound, Weather, World};
 
-/// Outbox room that sounds, particles and API packets leave to the rules: a player is not sent
-/// one when its outbox holds more than `MAX_OUTBOX - EFFECT_RESERVE` packets.
+/// Outbox room that what a player gets as a viewer (sounds, particles, API packets, what other
+/// players and entities do) leaves to the player's own packets: none is sent once its outbox
+/// holds `MAX_OUTBOX - EFFECT_RESERVE` packets ([`super::Player::send_to_viewer`]).
 pub(super) const EFFECT_RESERVE: usize = 1024;
 
 /// The most blocks a box of [`World::collision_boxes`] spans on each axis: at most 34 × 33 × 33
@@ -178,13 +179,7 @@ impl Context<'_> {
         if !entity::is_valid_position(pos) {
             return false;
         }
-        let chunk = chunk_of(pos);
-        let room = MAX_OUTBOX - EFFECT_RESERVE;
-        for p in self.state.players.values_mut() {
-            if p.world == w && p.view.sees(chunk) && p.outbox.len() < room {
-                p.send_packet(packet.clone());
-            }
-        }
+        self.state.broadcast(w, chunk_of(pos), packet, None);
         true
     }
 

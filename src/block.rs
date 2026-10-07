@@ -643,12 +643,9 @@ impl BreakInfo {
             if sword {
                 efficiency /= 1.5;
             }
-            let level = tool.extra().map_or(0, |e| {
-                e.enchantments
-                    .iter()
-                    .find(|(x, _)| *x == item::Enchantment::Efficiency)
-                    .map_or(0, |&(_, level)| level)
-            });
+            let level = tool
+                .enchantment_level(item::Enchantment::Efficiency)
+                .unwrap_or(0);
             if level > 0 {
                 let level = f64::from(level);
                 efficiency += level * level + 1.0;

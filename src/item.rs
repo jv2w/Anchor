@@ -490,6 +490,26 @@ pub enum ArmorSlot {
     Feet,
 }
 
+impl ArmorSlot {
+    /// The slot's index among a player's armour slots (PMMP `ArmorInventory`): head 0, chest 1,
+    /// legs 2, feet 3.
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::Head => 0,
+            Self::Chest => 1,
+            Self::Legs => 2,
+            Self::Feet => 3,
+        }
+    }
+
+    /// The slot at armour index `index`; `None` past the feet.
+    pub(crate) fn from_index(index: usize) -> Option<Self> {
+        [Self::Head, Self::Chest, Self::Legs, Self::Feet]
+            .into_iter()
+            .find(|s| s.index() == index)
+    }
+}
+
 /// What an armour item is (PMMP `ArmorTypeInfo`; defence is [`Type::defense_points`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Armor {
@@ -505,12 +525,7 @@ impl Armor {
     /// The slot it is worn in.
     #[doc(alias = "Armor::getArmorSlot")]
     pub fn slot(self) -> ArmorSlot {
-        match self.slot {
-            0 => ArmorSlot::Head,
-            1 => ArmorSlot::Chest,
-            2 => ArmorSlot::Legs,
-            _ => ArmorSlot::Feet,
-        }
+        ArmorSlot::from_index(usize::from(self.slot)).unwrap_or(ArmorSlot::Feet)
     }
 
     /// The armour toughness (PMMP keeps it but does not use it).
@@ -1118,6 +1133,21 @@ pub(crate) fn network_stack(
     count: u16,
     nbt: Option<StaticCompound>,
 ) -> protocol::ItemStack {
+    network_stack_with(
+        item,
+        meta,
+        count,
+        nbt.map(nbt::compound).unwrap_or_default(),
+    )
+}
+
+/// [`network_stack`] with the NBT as it is sent.
+fn network_stack_with(
+    item: Type,
+    meta: u16,
+    count: u16,
+    nbt_data: nbt::Compound,
+) -> protocol::ItemStack {
     protocol::ItemStack {
         item_type: ItemType {
             network_id: i32::from(item.runtime_id()),
@@ -1126,7 +1156,7 @@ pub(crate) fn network_stack(
         // The network field is the hash's bit pattern as an int32.
         block_runtime_id: item.block_network_id().cast_signed(),
         count,
-        nbt_data: nbt.map(nbt::compound).unwrap_or_default(),
+        nbt_data,
         can_be_placed_on: Vec::new(),
         can_break: Vec::new(),
         blocking_tick: 0,

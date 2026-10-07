@@ -6,7 +6,7 @@ use tokio::sync::mpsc::Receiver;
 use super::super::super::queue::{Input, Outbound};
 use super::super::super::tests::{answer, join, new_state, radius, settings};
 use super::super::super::{InputLog, Output, SessionId, boundary, deliver, step};
-use super::super::placed;
+use super::super::{beside, cardinal, placed};
 use super::*;
 use crate::effect::Type as Effect;
 use crate::event::Listeners;

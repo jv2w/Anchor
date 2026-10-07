@@ -138,6 +138,12 @@ impl ServerIdentity {
         Self::new(key)
     }
 
+    /// An identity with a new key that no file keeps.
+    #[cfg(test)]
+    pub(crate) fn generate() -> Result<Self> {
+        Self::new(ServerKey::generate().map_err(|e| Error::Sign("server key", e))?)
+    }
+
     fn new(key: ServerKey) -> Result<Self> {
         let (x, y) = key
             .public_key()

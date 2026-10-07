@@ -138,7 +138,7 @@ impl Furnace {
     fn recipe(&mut self, input: &Stack, custom: &Registry) -> Option<crafting::Furnace> {
         let one = input.with_count(1);
         let index = match &self.recipe {
-            Some((last, index)) if *last == one => *index,
+            Some((last, index)) if last.same(&one) => *index,
             _ => {
                 let index = custom.furnace_recipe(self.kind, &one);
                 self.recipe = Some((one, index));
@@ -328,18 +328,9 @@ pub(in crate::tick) struct Tick {
     out: Step,
 }
 
-/// Sets slot `i`, marking it changed (and kept if only its count changed).
+/// Sets slot `i` ([`super::tick_set_slot`]).
 fn set(items: &mut [Stack], i: usize, stack: Stack, out: &mut Step) {
-    if let Some(slot) = items.get_mut(i) {
-        let bit = 1 << i;
-        if out.slots & bit == 0 && slot.can_stack_with(&stack) {
-            out.kept |= bit;
-        } else {
-            out.kept &= !bit;
-        }
-        *slot = stack;
-        out.slots |= bit;
-    }
+    super::tick_set_slot(items, i, stack, &mut out.slots, &mut out.kept);
 }
 
 /// The experience one smelted `result` earns: the whole part, plus one with the chance of the

@@ -18,9 +18,9 @@
 //!   and remove some again; a marker block set after each step delimits the steps (`MARKER`), and
 //!   the block updates BDS sent for each step are reported with their states (`blocks.txt`). The
 //!   biome definitions and jigsaw data of each spawn capture are checked against `CloudburstMC`'s
-//!   data (`cloudburst`). Last, it runs the game session once (`game`: craft, furnace, enchant,
-//!   crops, trade into `target/p6/bds-game/`) and the API session once (`api`: commands,
-//!   particles, kick, forms into `target/p6/bds-api/`).
+//!   data (`cloudburst`). Last, it runs the game session once (`game`, every game scenario into
+//!   `target/p6/bds-game/`) and the API session once (`api`, every API scenario into
+//!   `target/p6/bds-api/`).
 //! - `p6 api bds|anchor [scenario]...`, `p6 api compare A B`: the API session alone (see `api`).
 //! - `p6 import`: a world BDS made, imported into Anchor, sends the same blocks (see `import`).
 //! - `p6 game bds [scenario]...`: the game session alone; `p6 game anchor [scenario]...`: the
@@ -56,6 +56,8 @@ use std::collections::BTreeMap;
 use compare::field;
 use serde_json::Value;
 
+use crate::dump::{CLOUDBURST, REFERENCE_BLOCKS, REFERENCE_DIR, create_dir, is_file, write};
+
 /// The BDS copy, relative to the repository root. The original download is never run.
 const BDS_DIR: &str = ".cache/bds/1.26.52.3";
 /// Captures and logs, relative to the repository root.
@@ -63,7 +65,9 @@ const OUT_DIR: &str = "target/p6";
 /// Scenarios every server must pass, over each transport.
 const SCENARIOS: &[&str] = &["spawn", "big-skin"];
 /// Test settings written into the copy's `server.properties`, besides the transport, ports and
-/// compression of each run. The world and gameplay values are Anchor's defaults, so
+/// compression of each run and the lines of [`default_settings`]. The login (offline) and the
+/// world (named `p6`, seed 1) are fixed for the comparison, and [`anchor_config`] and
+/// [`anchor_session`] give Anchor the same; the other values here are Anchor's defaults, so
 /// config-dependent fields compare equal. LAN visibility is on because BDS answers RakNet pings
 /// with empty data without it; it also binds UDP 19132 and 19133.
 const BDS_SETTINGS: &[(&str, &str)] = &[
@@ -76,12 +80,7 @@ const BDS_SETTINGS: &[(&str, &str)] = &[
     ("level-seed", "1"),
     ("gamemode", "survival"),
     ("difficulty", "normal"),
-    ("max-players", "20"),
-    ("view-distance", "16"),
-    ("compression-threshold", "256"),
 ];
-/// The block states of the reference list, relative to the repository root.
-const REFERENCE_BLOCKS: &str = "xtask/data/reference/blocks.json";
 /// The `y` of the blocks scenario: the first air layer of BDS's default flat world (bedrock at
 /// -64, two dirt layers, grass at -61). Every step uses `keep`, so a wrong height places nothing
 /// and fails the run.
@@ -172,8 +171,6 @@ const MARKER: (i32, i32) = (-4, 0);
 const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
 /// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
 const END_MARKER: &str = "diamond_block";
-/// The `CloudburstMC` Data checkout, relative to the repository root.
-const CLOUDBURST_DATA: &str = ".cache/cloudburst-data";
 /// The packets `compare::compare_chunks` checks; while any is deferred, its differences are shown
 /// without failing the comparison.
 const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
@@ -203,11 +200,11 @@ pub(crate) const USAGE: &str = "cargo xtask p6 bds [zlib|snappy]... | cargo xtas
                                 [zlib|snappy]... | cargo xtask p6 run \
                                 --addr HOST:PORT --out DIR [--transport raknet|nethernet|auto] \
                                 [--token-key PEM --kid KID --iss ISS] | cargo xtask p6 compare A B \
-                                | cargo xtask p6 game bds [craft|furnace|enchant|crops|trade]... \
-                                | cargo xtask p6 game anchor [craft|furnace|enchant|crops|trade]... \
+                                | cargo xtask p6 game bds [scenario]... \
+                                | cargo xtask p6 game anchor [scenario]... \
                                 | cargo xtask p6 game compare DIR_A DIR_B \
-                                | cargo xtask p6 api bds [commands|particles|kick|forms|script]... \
-                                | cargo xtask p6 api anchor [commands|particles|kick|forms|script]... \
+                                | cargo xtask p6 api bds [scenario]... \
+                                | cargo xtask p6 api anchor [scenario]... \
                                 | cargo xtask p6 api compare DIR_A DIR_B \
                                 | cargo xtask p6 import";
 
@@ -233,19 +230,38 @@ fn say(out: &mut impl Write, text: &str) -> Result<(), String> {
     writeln!(out, "{text}").map_err(|e| e.to_string())
 }
 
+/// The error for a missing BDS executable `exe` of the copy.
+fn missing_bds(exe: &Path) -> String {
+    let version = BDS_DIR.rsplit('/').next().unwrap_or(BDS_DIR);
+    format!(
+        "{} is missing: copy BDS {version} into {BDS_DIR} (never run the original)",
+        exe.display()
+    )
+}
+
+/// The `server.properties` lines whose values are Anchor's defaults, taken from them.
+fn default_settings() -> [(&'static str, String); 3] {
+    let config = anchor::Config::default();
+    [
+        ("max-players", config.general.max_players.to_string()),
+        ("view-distance", config.general.view_distance.to_string()),
+        (
+            "compression-threshold",
+            config.developer.compression_threshold.to_string(),
+        ),
+    ]
+}
+
 /// `p6 bds`: runs the scenarios against BDS once per compression and transport.
 fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let compressions = compressions(args)?;
     let exe = root.join(BDS_DIR).join("bedrock_server.exe");
     if !is_file(&exe) {
-        return Err(format!(
-            "{} is missing: copy BDS 1.26.52.3 into {BDS_DIR} (never run the original)",
-            exe.display()
-        ));
+        return Err(missing_bds(&exe));
     }
     let bot = build_bot(root)?;
     let deferred = load_deferred(root)?;
-    let states = block_states(&read_text(&root.join(REFERENCE_BLOCKS))?)?;
+    let states = block_states(root)?;
     let dir = |name: &str| root.join(OUT_DIR).join(name);
     let mut passed = true;
     for (i, compression) in compressions.iter().enumerate() {
@@ -307,7 +323,7 @@ fn cloudburst(root: &Path, bot: &Path, dir: &Path, out: &mut impl Write) -> Resu
         .arg("-world")
         .arg(dir.join("spawn.world.jsonl"))
         .arg("-data")
-        .arg(root.join(CLOUDBURST_DATA))
+        .arg(root.join(CLOUDBURST.0))
         .output()
         .map_err(|e| format!("cannot run the bot: {e}"))?;
     let same = match output.status.code() {
@@ -375,7 +391,9 @@ fn bds_session_with<W: Write>(
     create_dir(out_dir)?;
     let (port, port_v6) = free_ports()?;
     let (port_text, port_v6_text) = (port.to_string(), port_v6.to_string());
+    let defaults = default_settings();
     let mut settings = BDS_SETTINGS.to_vec();
+    settings.extend(defaults.iter().map(|(key, value)| (*key, value.as_str())));
     settings.extend([
         ("transport", transport),
         ("server-port", port_text.as_str()),
@@ -409,7 +427,7 @@ fn anchor(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, Stri
     let compressions = compressions(args)?;
     let bot = build_bot(root)?;
     let deferred = load_deferred(root)?;
-    let states = block_states(&read_text(&root.join(REFERENCE_BLOCKS))?)?;
+    let states = block_states(root)?;
     let dir = |name: &str| root.join(OUT_DIR).join(name);
     let mut passed = true;
     for compression in &compressions {
@@ -1036,15 +1054,16 @@ fn spawn_column(capture: &str) -> Result<(i32, i32), String> {
 }
 
 /// Reads the reference block list into network ID -> `name[property=value,...]`.
-fn block_states(text: &str) -> Result<BTreeMap<u32, String>, String> {
+fn block_states(root: &Path) -> Result<BTreeMap<u32, String>, String> {
+    let path = root.join(REFERENCE_DIR).join(REFERENCE_BLOCKS);
     let list: Vec<Value> =
-        serde_json::from_str(text).map_err(|e| format!("{REFERENCE_BLOCKS}: {e}"))?;
+        serde_json::from_str(&read_text(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut map = BTreeMap::new();
     for entry in &list {
         let id = field(entry, "network_id")
             .as_u64()
             .and_then(|id| u32::try_from(id).ok())
-            .ok_or_else(|| format!("{REFERENCE_BLOCKS}: bad network_id in {entry}"))?;
+            .ok_or_else(|| format!("{}: bad network_id in {entry}", path.display()))?;
         let name = field(entry, "name").as_str().unwrap_or_default();
         let properties: Vec<String> = field(entry, "states")
             .as_object()
@@ -1480,7 +1499,7 @@ fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Resul
         b.with_file_name("blocks.jsonl"),
     );
     if is_file(&blocks_a) && is_file(&blocks_b) {
-        let states = block_states(&read_text(&root.join(REFERENCE_BLOCKS))?)?;
+        let states = block_states(root)?;
         same &= compare_blocks(&blocks_a, &blocks_b, &states, out)?;
     }
     Ok(same)
@@ -1826,32 +1845,8 @@ fn pause() {
     clippy::disallowed_methods,
     reason = "off-tick: xtask is a development tool"
 )]
-fn is_file(path: &Path) -> bool {
-    path.is_file()
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
 fn read_text(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
-fn create_dir(path: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Removes a directory tree; a missing directory is fine.

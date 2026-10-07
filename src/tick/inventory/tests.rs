@@ -1010,7 +1010,7 @@ fn expected_change(
                 made = outputs.get(usize::from(c.results_slot)).cloned();
             }
             StackRequestAction::CraftCreative(c) => {
-                made = it::creative_stack(c.creative_item_network_id);
+                made = w.state.custom.creative_stack(0, c.creative_item_network_id);
             }
             StackRequestAction::Place(PlaceStackRequestAction {
                 transfer_stack_request_action: t,

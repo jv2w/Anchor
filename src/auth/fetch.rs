@@ -11,7 +11,7 @@ use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 use ureq::unversioned::transport::{DefaultConnector, NextTimeout, time};
 
-use super::document::{Discovery, Environment, Jwks, OpenId};
+use super::document::{Discovery, Jwks, OpenId};
 use super::{Error, MAX_DOCUMENT, Result};
 use crate::clock;
 use crate::protocol::packet::GAME_VERSION;
@@ -66,14 +66,14 @@ impl Client {
 
     /// Fetches discovery, then the OpenID configuration of its issuer, then that JWKS, all within
     /// one timeout.
-    pub(super) fn documents(&self, discovery_base: &str) -> Result<(Environment, OpenId, Jwks)> {
+    pub(super) fn documents(&self, discovery_base: &str) -> Result<(OpenId, Jwks)> {
         let deadline = clock::now() + self.timeout;
         let url = format!(
             "{}/api/v1.0/discovery/MinecraftPE/builds/{GAME_VERSION}",
             discovery_base.trim_end_matches('/')
         );
-        let auth = self.get::<Discovery>(&url, deadline)?.into_auth();
-        if auth.issuer.is_empty() {
+        let issuer = self.get::<Discovery>(&url, deadline)?.into_issuer();
+        if issuer.is_empty() {
             return Err(Error::Document {
                 url,
                 reason: "empty issuer",
@@ -81,11 +81,11 @@ impl Client {
         }
         let url = format!(
             "{}/.well-known/openid-configuration",
-            auth.issuer.trim_end_matches('/')
+            issuer.trim_end_matches('/')
         );
         let openid: OpenId = self.get(&url, deadline)?;
         let jwks = self.get(&openid.jwks_uri, deadline)?;
-        Ok((auth, openid, jwks))
+        Ok((openid, jwks))
     }
 
     pub(super) fn jwks(&self, url: &str) -> Result<Jwks> {

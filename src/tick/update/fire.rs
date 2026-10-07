@@ -12,8 +12,6 @@ use crate::world::{BlockPos, MAX_Y, MIN_Y};
 
 /// The oldest a fire gets (PMMP `Fire::MAX_AGE`).
 const MAX_AGE: i32 = 15;
-/// The fuse of TNT that fire primes (PMMP `TNT::ignite` default, 4 seconds).
-const TNT_FUSE: u32 = 80;
 
 /// Whether soul fire stays on this block (PMMP `SoulFire::canBeSupportedBy`).
 fn holds_soul_fire(s: block::State) -> bool {
@@ -138,7 +136,8 @@ fn burn(
         return;
     };
     if target.kind() == Kind::Tnt {
-        crate::tick::entity::ignite(cx.state, cx.world, pos, TNT_FUSE);
+        let fuse = u32::from(crate::tick::entity::TNT_FUSE);
+        crate::tick::entity::ignite(cx.state, cx.world, pos, fuse);
     } else {
         let mut spread = false;
         if rng.range(0, age + 9) < 5

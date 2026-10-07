@@ -1,5 +1,5 @@
 //! The authorization documents (discovery, OpenID configuration, JWKS) and the cache file that
-//! holds them.
+//! holds the last two.
 
 use std::collections::BTreeMap;
 
@@ -34,17 +34,17 @@ struct Environments {
 }
 
 impl Discovery {
-    pub(super) fn into_auth(self) -> Environment {
-        self.result.service_environments.auth.prod
+    /// The issuer of the production authorization environment, where the OpenID configuration
+    /// is published.
+    pub(super) fn into_issuer(self) -> String {
+        self.result.service_environments.auth.prod.issuer
     }
 }
 
 /// The production authorization environment.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct Environment {
-    #[serde(rename = "serviceUri")]
-    pub(super) service_uri: String,
-    pub(super) issuer: String,
+#[derive(Deserialize)]
+struct Environment {
+    issuer: String,
 }
 
 /// The OpenID configuration fields Anchor uses.
@@ -78,10 +78,10 @@ pub(super) struct Jwk {
     pub(super) e: Option<String>,
 }
 
-/// `data/auth.json`.
+/// `data/auth.json`. Unknown keys are ignored, so a cache that still holds the discovery
+/// document loads.
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct Cache {
-    pub(super) auth: Environment,
     pub(super) openid: OpenId,
     pub(super) jwks: Jwks,
     /// Unix seconds of the fetch.

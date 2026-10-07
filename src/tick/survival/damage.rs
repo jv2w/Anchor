@@ -10,8 +10,9 @@ use tracing::debug;
 use super::attributes::{self, ABSORPTION, HEALTH};
 use super::effects::{self, Active};
 use super::{
-    EYE_HEIGHT, Point, Survival, broadcast_from, broadcast_to_viewers, clock, feet, food, movement,
-    player_random, sound, world_seed,
+    ENTITY_REACH, EYE_HEIGHT, MAX_FIRE_TICKS, PLAYER_HEIGHT, Point, Survival, broadcast_from,
+    broadcast_to_viewers, can_interact, clock, feet, food, movement, player_random, sound,
+    world_seed,
 };
 use crate::config::GameMode;
 use crate::effect::Type as Effect;
@@ -30,6 +31,10 @@ use crate::protocol::packet::{
 };
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
+use crate::tick::entity::{
+    ATTACK_COOLDOWN, FIRE_DAMAGE_TICKS, KNOCKBACK, KNOCKBACK_VERTICAL_LIMIT, SAFE_FALL,
+    SUFFOCATION_DAMAGE, VOID_DAMAGE, VOID_Y,
+};
 use crate::tick::{Phase, Player, SessionId, State, dispatch, entity, interact, inventory};
 use crate::world::{self, BlockPos, Sound};
 
@@ -68,7 +73,7 @@ pub(in crate::tick) enum Damage {
     Contact,
     /// A falling block landing on the player.
     FallingBlock,
-    /// The player killed itself (`/kill`): no modifier, invulnerability or game mode spares it.
+    /// The player killed itself: no modifier, invulnerability or game mode spares it.
     Suicide,
     /// A lightning bolt (no PMMP cause: an [`EntityDamage`] names it custom).
     Lightning,
@@ -142,29 +147,12 @@ impl Damage {
         }
     }
 
-    /// BDS's damage cause number, which the hurt event carries (P6: an attack 2, a projectile 3,
-    /// drowning 9, lightning 24; the others in the same numbering, PMMP's
-    /// `EntityDamageEvent::CAUSE_*` plus one, 0 for none).
+    /// BDS's damage cause number, which the hurt event carries ([`bds_cause`]; P6: lightning 24,
+    /// which no event cause names).
     pub(in crate::tick) fn bds_cause(self) -> i32 {
         match self {
-            Self::Custom => 0,
-            Self::Contact => 1,
-            Self::Attack(_) | Self::Melee => 2,
-            Self::Entity => 3,
-            Self::Suffocation => 4,
-            Self::Fall => 5,
-            Self::Fire => 6,
-            Self::FireTick => 7,
-            Self::Lava => 8,
-            Self::Drowning => 9,
-            Self::BlockExplosion => 10,
-            Self::Explosion => 11,
-            Self::Void => 12,
-            Self::Suicide => 13,
-            Self::Magic => 14,
-            Self::Starvation => 16,
-            Self::FallingBlock => 19,
             Self::Lightning => 24,
+            _ => bds_cause(self.event_cause()),
         }
     }
 
@@ -195,30 +183,37 @@ impl Damage {
     }
 }
 
-/// Ticks a weaker hit does nothing after a hit (PMMP `EntityDamageEvent::$attackCooldown`).
-const ATTACK_COOLDOWN: u32 = 10;
+/// BDS's damage cause number of `cause`, which the hurt event of a player or an entity carries
+/// (Mojang `ActorDamageCause`; P6: an attack 2, a projectile 3, drowning 9; the others in the
+/// same numbering, PMMP's `EntityDamageEvent::CAUSE_*` plus one, 0 for none).
+pub(in crate::tick) fn bds_cause(cause: DamageCause) -> i32 {
+    match cause {
+        DamageCause::Custom => 0,
+        DamageCause::Contact => 1,
+        DamageCause::EntityAttack => 2,
+        DamageCause::Projectile => 3,
+        DamageCause::Suffocation => 4,
+        DamageCause::Fall => 5,
+        DamageCause::Fire => 6,
+        DamageCause::FireTick => 7,
+        DamageCause::Lava => 8,
+        DamageCause::Drowning => 9,
+        DamageCause::BlockExplosion => 10,
+        DamageCause::EntityExplosion => 11,
+        DamageCause::Void => 12,
+        DamageCause::Suicide => 13,
+        DamageCause::Magic => 14,
+        DamageCause::Starvation => 16,
+        DamageCause::FallingBlock => 19,
+    }
+}
+
 /// Ticks a respawned player ignores damage (PMMP `Player::actuallyRespawn`).
 const RESPAWN_INVULNERABLE_TICKS: u32 = 60;
-/// Horizontal knockback of a hit (PMMP `Living::DEFAULT_KNOCKBACK_FORCE`).
-const KNOCKBACK: f64 = 0.4;
-/// The most upward knockback (PMMP `Living::DEFAULT_KNOCKBACK_VERTICAL_LIMIT`).
-const KNOCKBACK_VERTICAL_LIMIT: f64 = 0.4;
-/// How far a player reaches to hit (PMMP `Player::MAX_REACH_DISTANCE_ENTITY_INTERACTION`).
-const MAX_REACH: f64 = 8.0;
-/// How far behind the look direction a target may be (PMMP `canInteract` `M_SQRT3 / 2`).
-const MAX_REACH_BEHIND: f64 = 0.866_025_403_784_438_6;
-/// Damage the void deals each tick (PMMP `Entity::entityBaseTick`).
-const VOID_DAMAGE: f64 = 10.0;
-/// Below this feet height the void hurts: 16 under the lowest block.
-const VOID_Y: f64 = (world::MIN_Y - 16) as f64;
-/// Ticks before burning hurts again (PMMP `Entity::doOnFireTick`).
-const FIRE_DAMAGE_TICKS: u16 = 20;
-/// The longest burn (PMMP `Limits::INT16_MAX`).
-const MAX_FIRE_TICKS: u32 = 32_767;
 /// The highest the summed protection factor counts (PMMP `applyDamageModifiers`).
 const MAX_EPF: u32 = 25;
 /// Half a player's height: hit sounds play there (PMMP `attackEntity`'s `$soundPos`).
-const HALF_HEIGHT: f64 = 0.9;
+const HALF_HEIGHT: f64 = PLAYER_HEIGHT / 2.0;
 
 const ARMOR_WEAR: u64 = random::tag("armor-wear");
 const PROTECTION: u64 = random::tag("protection");
@@ -574,7 +569,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
         modifiers,
         knockback: KNOCKBACK,
         vertical_limit: KNOCKBACK_VERTICAL_LIMIT,
-        cooldown: ATTACK_COOLDOWN,
+        cooldown: u32::from(ATTACK_COOLDOWN),
     })
 }
 
@@ -749,10 +744,7 @@ pub(super) fn armor_points(player: &Player) -> u32 {
 
 /// The level of an enchantment on a stack (PMMP `getEnchantmentLevel`), 0 if absent.
 pub(super) fn level_of(stack: &Stack, enchantment: Enchantment) -> u32 {
-    stack
-        .extra()
-        .and_then(|e| e.enchantments.iter().find(|(x, _)| *x == enchantment))
-        .map_or(0, |&(_, level)| u32::from(level))
+    u32::from(stack.enchantment_level(enchantment).unwrap_or(0))
 }
 
 /// The highest level of an enchantment on the armour worn (PMMP
@@ -1099,6 +1091,11 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
     };
     let critical = hit.1;
     let magic = hit.2;
+    let held = state
+        .players
+        .get(&attacker)
+        .map(|p| p.inventory.held().clone())
+        .unwrap_or_default();
     let landed = hurt(state, target, hit.0);
     swing(state, attacker);
     if !landed {
@@ -1121,33 +1118,45 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
             broadcast_from(state, target, &packet);
         }
     }
-    let held = state
-        .players
-        .get(&attacker)
-        .map(|p| p.inventory.held().clone())
-        .unwrap_or_default();
-    let knockback = level_of(&held, Enchantment::Knockback);
-    if knockback > 0 {
-        knock_back_from(
-            state,
-            target,
-            attacker,
-            f64::from(knockback) * 0.5,
-            KNOCKBACK_VERTICAL_LIMIT,
-        );
+    after_melee(state, attacker, &held, |state, knockback, fire| {
+        if let Some(force) = knockback {
+            knock_back_from(state, target, attacker, force, KNOCKBACK_VERTICAL_LIMIT);
+        }
+        if let Some(seconds) = fire {
+            let by = CombustSource::Entity(Actor::Player(player::Id::new(attacker)));
+            combust(state, target, seconds, by);
+        }
+    });
+}
+
+/// The attacker's side of a melee hit by the player `attacker` with `held` that landed, on a
+/// player or an entity (PMMP `Player::attackEntity` after `attack`): `enchant` applies the
+/// weapon's Knockback force (0.5 per level) and Fire Aspect burn (4 seconds per level) to the
+/// target, each `None` without the enchantment (PMMP `MeleeWeaponEnchantment::onPostAttack`);
+/// then, if the attacker is still alive (a reactive hit such as thorns may have killed it), its
+/// weapon wears and it gets hungrier.
+pub(super) fn after_melee(
+    state: &mut State,
+    attacker: SessionId,
+    held: &Stack,
+    enchant: impl FnOnce(&mut State, Option<f64>, Option<u32>),
+) {
+    let knockback = level_of(held, Enchantment::Knockback);
+    let fire = level_of(held, Enchantment::FireAspect);
+    enchant(
+        state,
+        (knockback > 0).then(|| f64::from(knockback) * 0.5),
+        (fire > 0).then(|| fire * 4),
+    );
+    let Some(player) = state.players.get_mut(&attacker) else {
+        return;
+    };
+    if player.survival.is_dead() {
+        return;
     }
-    let fire = level_of(&held, Enchantment::FireAspect);
-    if fire > 0 {
-        let by = CombustSource::Entity(Actor::Player(player::Id::new(attacker)));
-        combust(state, target, fire * 4, by);
-    }
-    wear_weapon(state, attacker);
-    if let Some(player) = state.players.get_mut(&attacker)
-        && !player.survival.is_dead()
-    {
-        player.data_dirty = true;
-        food::exhaust_as(state, attacker, 0.1, ExhaustCause::Attack);
-    }
+    player.data_dirty = true;
+    wear_weapon(state, attacker, held);
+    food::exhaust_as(state, attacker, 0.1, ExhaustCause::Attack);
 }
 
 /// A hit sound at the middle of the player `target` (PMMP `attackEntity`: `EntityAttackSound`,
@@ -1247,15 +1256,10 @@ pub(super) fn melee(state: &State, session: SessionId) -> Option<super::Melee> {
     })
 }
 
-/// Whether the player reaches a position (PMMP `Player::canInteract`): within 8 blocks of the
-/// eyes and not behind the look direction.
+/// Whether the player reaches a position to hit it ([`can_interact`] within 8 blocks).
 fn can_reach(player: &Player, pos: Vec3) -> bool {
-    let eye = player.position;
-    if eye.distance_squared(pos) > MAX_REACH * MAX_REACH {
-        return false;
-    }
-    let d = movement::direction(&player.survival);
-    d.dot(pos) - d.dot(eye) >= -MAX_REACH_BEHIND
+    let d = super::look_direction(player);
+    can_interact(player.position, d, pos, ENTITY_REACH)
 }
 
 /// The attacker's arm swing, for the players that see it (PMMP `ArmSwingAnimation`).
@@ -1268,22 +1272,23 @@ pub(super) fn swing(state: &mut State, session: SessionId) {
     broadcast_to_viewers(state, session, &packet);
 }
 
-/// The attacker's weapon wears from the hit (PMMP `onAttackEntity`): swords, tridents and hoes by
-/// 1, axes, pickaxes and shovels by 2.
-fn wear_weapon(state: &mut State, session: SessionId) {
+/// The weapon `held` that made a hit wears (PMMP `onAttackEntity`): swords, tridents and hoes by
+/// 1, axes, pickaxes and shovels by 2, with the item-break sound when it breaks. Nothing for a
+/// player without finite resources, or whose held item changed since the hit (PMMP
+/// `Player::returnItemsFromAction`).
+fn wear_weapon(state: &mut State, session: SessionId, held: &Stack) {
     let tick = state.tick;
     let seed = world_seed(state, session);
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    if player.survival.mode() == GameMode::Creative {
+    if !super::is_survival(player.survival.mode()) || player.inventory.held() != held {
         return;
     }
-    let held = player.inventory.held().clone();
     let Some(item) = held.item() else {
         return;
     };
-    let amount = if item.is(Class::Sword) || item.is(Class::Hoe) || item.name() == "trident" {
+    let amount = if item.is(Class::Sword) || item.is(Class::Hoe) || item.is(Class::Trident) {
         1
     } else if item.is(Class::Axe) || item.is(Class::Pickaxe) || item.is(Class::Shovel) {
         2
@@ -1291,7 +1296,7 @@ fn wear_weapon(state: &mut State, session: SessionId) {
         return;
     };
     let mut r = player_random(seed, tick, player, TOOL_WEAR);
-    if let Some(worn) = wear(&state.settings, &held, amount, &mut r) {
+    if let Some(worn) = wear(&state.settings, held, amount, &mut r) {
         let broke = worn.count() < held.count();
         inventory::set_held(player, worn);
         if broke {
@@ -1796,7 +1801,7 @@ pub(super) fn base_tick(state: &mut State, session: SessionId) {
     let mut out = false;
     if s.fire_ticks > 0 {
         s.fire_ticks -= 1;
-        burn = s.fire_ticks % FIRE_DAMAGE_TICKS == 0;
+        burn = s.fire_ticks % u16::from(FIRE_DAMAGE_TICKS) == 0;
         out = s.fire_ticks == 0;
         player.data_dirty = true;
     }
@@ -1859,7 +1864,7 @@ fn air_tick(state: &mut State, session: SessionId) -> bool {
         || player.survival.effects.contains_key(&Effect::ConduitPower)
         || !movement::is_underwater(state, player);
     if inside {
-        damage(state, session, 1.0, Damage::Suffocation);
+        damage(state, session, SUFFOCATION_DAMAGE, Damage::Suffocation);
     }
     let Some(player) = state.players.get_mut(&session) else {
         return false;
@@ -1905,5 +1910,5 @@ pub(super) fn fall_damage(s: &Survival, distance: f64) -> f64 {
     if s.motion.flying {
         return 0.0;
     }
-    (distance - 3.0 - f64::from(s.effect_level(Effect::JumpBoost))).ceil()
+    (distance - SAFE_FALL - f64::from(s.effect_level(Effect::JumpBoost))).ceil()
 }

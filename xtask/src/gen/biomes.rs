@@ -7,8 +7,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::dump::REFERENCE_DIR;
+
 use super::body::str_lit;
-use super::data::{REFERENCE_DIR, hex_lit, read_json};
+use super::data::{hex_lit, read_json};
 use super::emit::HEADER;
 
 /// The generated file, relative to the repository root.

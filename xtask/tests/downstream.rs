@@ -11,22 +11,35 @@ use std::process::Command;
 
 use serde_json::Value;
 
-/// The copies in `vendor/`: the fixed crates and the unchanged crates between them and Anchor.
-const COPIES: [&str; 7] = [
-    "redb",
-    "str0m",
-    "dimpl",
-    "sctp-proto",
-    "str0m-proto",
-    "str0m-aws-lc-rs",
-    "is",
-];
-
 /// The repository root.
 fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask is in the repository")
+}
+
+/// The copies in `vendor/`, one folder each named after its crate: the fixed crates and the
+/// unchanged crates between them and Anchor.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: test tooling outside the server"
+)]
+fn copies() -> Vec<String> {
+    let vendor = root().join("vendor");
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(&vendor).expect("read vendor/") {
+        let entry = entry.expect("a vendor/ entry");
+        if entry.file_type().expect("a vendor/ entry type").is_dir() {
+            names.push(
+                entry
+                    .file_name()
+                    .into_string()
+                    .expect("a UTF-8 folder name"),
+            );
+        }
+    }
+    names.sort();
+    names
 }
 
 #[expect(
@@ -92,8 +105,11 @@ fn a_user_project_resolves_every_vendored_crate_to_its_copy() {
     let metadata = user_project_metadata();
     let packages = metadata["packages"].as_array().expect("packages");
     let vendor = root().join("vendor");
-    for name in COPIES {
-        let found: Vec<&Value> = packages.iter().filter(|p| p["name"] == name).collect();
+    for name in copies() {
+        let found: Vec<&Value> = packages
+            .iter()
+            .filter(|p| p["name"] == name.as_str())
+            .collect();
         let sources: Vec<String> = found
             .iter()
             .map(|p| match p["source"].as_str() {
@@ -101,7 +117,7 @@ fn a_user_project_resolves_every_vendored_crate_to_its_copy() {
                 None => p["manifest_path"].as_str().unwrap_or_default().to_owned(),
             })
             .collect();
-        let manifest = vendor.join(name).join("Cargo.toml");
+        let manifest = vendor.join(&name).join("Cargo.toml");
         assert!(
             found.len() == 1
                 && found[0]["source"].is_null()

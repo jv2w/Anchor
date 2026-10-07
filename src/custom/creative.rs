@@ -131,7 +131,7 @@ impl Default for CreativeInventory {
 }
 
 impl CreativeInventory {
-    /// PMMP's creative inventory: 1,633 entries in 107 groups.
+    /// PMMP's creative inventory without the Education Edition items.
     pub fn vanilla() -> Self {
         Self {
             vanilla: true,

@@ -16,6 +16,7 @@ use toml::{Table, Value};
 use crate::fs::{self, Access};
 use crate::protocol::batch;
 use crate::protocol::compression::Compression;
+use crate::protocol::consts::GameType;
 
 pub use self::update::Update;
 
@@ -1085,6 +1086,26 @@ impl GameMode {
             .find(|(alias, _)| alias.eq_ignore_ascii_case(name))
             .map(|&(_, mode)| mode)
     }
+
+    /// The protocol's game type of the mode (`StartGame`, `UpdatePlayerGameType`, the server
+    /// list).
+    pub(crate) const fn game_type(self) -> GameType {
+        match self {
+            Self::Survival => GameType::Survival,
+            Self::Creative => GameType::Creative,
+            Self::Adventure => GameType::Adventure,
+            Self::Spectator => GameType::Spectator,
+        }
+    }
+
+    /// The mode of a protocol game type ([`game_type`](Self::game_type) reversed); `None` for
+    /// [`GameType::Default`], which names the world's mode.
+    pub(crate) fn from_game_type(game_type: GameType) -> Option<Self> {
+        Self::NAMES
+            .into_iter()
+            .map(|(_, mode)| mode)
+            .find(|mode| mode.game_type() == game_type)
+    }
 }
 
 /// A world difficulty.
@@ -1108,6 +1129,25 @@ impl Difficulty {
         ("normal", Self::Normal),
         ("hard", Self::Hard),
     ];
+
+    /// The protocol ID of the difficulty (`SetDifficulty`, `StartGame`), which PMMP and
+    /// `/difficulty <0-3>` use too: peaceful 0 to hard 3.
+    pub(crate) const fn id(self) -> u8 {
+        match self {
+            Self::Peaceful => 0,
+            Self::Easy => 1,
+            Self::Normal => 2,
+            Self::Hard => 3,
+        }
+    }
+
+    /// The difficulty of a protocol ID ([`id`](Self::id) reversed).
+    pub(crate) fn from_id(id: u8) -> Option<Self> {
+        Self::NAMES
+            .into_iter()
+            .map(|(_, difficulty)| difficulty)
+            .find(|difficulty| difficulty.id() == id)
+    }
 }
 
 /// The generator of a new world.

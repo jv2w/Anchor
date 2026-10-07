@@ -45,10 +45,16 @@ impl Kind {
             Self::Main => 36,
             Self::Armor | Self::Crafting => 4,
             Self::Offhand | Self::Cursor => 1,
-            Self::EnderChest => 27,
+            Self::EnderChest => CHEST_SLOTS,
         }
     }
 }
+
+/// The slots of a chest (each half of a double chest), a barrel, a shulker box and an ender
+/// chest.
+pub(crate) const CHEST_SLOTS: usize = 27;
+/// The slots of a hopper.
+pub(crate) const HOPPER_SLOTS: usize = 5;
 
 /// Why a write to an inventory did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -387,6 +387,18 @@ fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
     check_slots(&w.state);
 }
 
+// PMMP `EnchantingTransaction::execute`: levels go with finite resources, every mode but creative.
+#[test]
+fn a_spectator_enchanting_spends_the_levels() {
+    let (mut w, s, options) = enchanting(3);
+    assert!(w.player(s).set_game_mode(GameMode::Spectator));
+    let level = survival::xp_level(w.player(s));
+    let id = w.next_id(s);
+    let actions = enchant_request(&w, s, options[1].0, 1, id);
+    assert!(ok(&w.request_as(s, id, actions)));
+    assert_eq!(survival::xp_level(w.player(s)), level - 2);
+}
+
 #[test]
 fn enchanting_refuses_stale_options_short_lapis_and_a_repeat() {
     let (mut w, s, options) = enchanting(1);
@@ -502,10 +514,10 @@ fn the_anvil_renames_and_repairs_for_levels() {
 }
 
 /// Stacks a server gives with the highest enchantment level, or the highest prior work, go into
-/// the anvil: a level cannot go higher and the cost is too expensive, so both are refused and
-/// nothing changes.
+/// the anvil: the level cannot climb past the maximum and the prior-work cost does not overflow.
+/// With no rename the work is nothing or too expensive, so each is refused and nothing changes.
 #[test]
-fn the_anvil_refuses_levels_and_prior_work_at_their_limits() {
+fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
     let sword = |damage: u16, extra: Extra| {
         Stack::new(item(Kind::DiamondSword), 1)
             .with_damage(damage)
@@ -517,16 +529,15 @@ fn the_anvil_refuses_levels_and_prior_work_at_their_limits() {
         ..Extra::default()
     };
     let worked = Extra {
-        nbt: Compound::from([(
-            "RepairCost".to_owned(),
-            crate::nbt::Value::Int(i32::MAX),
-        )]),
+        nbt: Compound::from([("RepairCost".to_owned(), crate::nbt::Value::Int(i32::MAX))]),
         ..Extra::default()
     };
     for (input, material) in [
         (sword(0, highest.clone()), sword(0, highest)),
         (sword(100, worked.clone()), sword(0, worked)),
     ] {
+        // `craft` must not overflow, whatever the levels or prior work.
+        assert!(anvil::craft(&input, &material, None, false).is_err());
         let (mut w, s) = world(&[input, material]);
         w.place_block(AT, blk::Kind::Anvil.default_state());
         w.open_block(s, AT);
@@ -534,19 +545,26 @@ fn the_anvil_refuses_levels_and_prior_work_at_their_limits() {
         put(&mut w, s, 1, 1, (C::AnvilMaterial, 2));
         let before = totals(&w.state);
         let level = survival::xp_level(w.player(s));
-        let input = w.id(s, C::AnvilInput, 1);
-        let material = w.id(s, C::AnvilMaterial, 2);
+        let input_id = w.id(s, C::AnvilInput, 1);
+        let material_id = w.id(s, C::AnvilMaterial, 2);
         let id = w.next_id(s);
         let actions = vec![
             StackRequestAction::CraftRecipeOptional(CraftRecipeOptionalStackRequestAction {
                 recipe_network_id: 0,
                 filter_string_index: 0,
             }),
-            consume(1, at(C::AnvilInput, 1, input)),
-            consume(1, at(C::AnvilMaterial, 2, material)),
+            consume(1, at(C::AnvilInput, 1, input_id)),
+            consume(1, at(C::AnvilMaterial, 2, material_id)),
             place(1, created(id), at(COMBINED, 7, 0)),
         ];
-        assert!(!ok(&request_filter(&mut w, s, id, actions, "Sword")));
+        let request = ItemStackRequest {
+            request_id: id,
+            actions,
+            filter_strings: Vec::new(),
+            filter_cause: 0,
+        };
+        w.state.tick += 1;
+        on_item_stack_request(&mut w.state, s, &request);
         assert_eq!(totals(&w.state), before);
         assert_eq!(survival::xp_level(w.player(s)), level);
         check_slots(&w.state);

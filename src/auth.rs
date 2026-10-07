@@ -1,4 +1,5 @@
-//! Authorization environment: discovery, OpenID configuration and JWKS, cached in `data/auth.json`.
+//! Authorization environment: discovery leads to the OpenID configuration and JWKS, which are
+//! cached in `data/auth.json`.
 //!
 //! Start: a cache younger than an hour is used as is; otherwise the documents are
 //! fetched, falling back to the cache when that fails. With neither the server does not start. A
@@ -39,7 +40,7 @@ const REFRESH: Duration = Duration::from_secs(3600);
 const KID_COOLDOWN: Duration = Duration::from_secs(300);
 /// Limit on one fetch, shared by its requests, from connecting to the end of the last body (DNS
 /// lookups excluded: the OS bounds them).
-const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 /// Largest response body and largest cache file. The documents are a few KiB.
 const MAX_DOCUMENT: u64 = 1024 * 1024;
 
@@ -221,7 +222,8 @@ impl Auth {
 
     /// Asks for a JWKS fetch after a token named an unknown `kid`, and waits for the answer: new
     /// keys, or the current ones when the fetch failed or ran less than five minutes ago. `None`
-    /// when the refresh task is gone. Callers bound the wait with their login deadline.
+    /// when the refresh task is gone. The wait has no bound of its own: a session bounds it with
+    /// its login deadline, a NetherNet offer with its signaling request.
     pub(crate) async fn refresh_keys(&self) -> Option<Arc<Keys>> {
         let mut keys = self.keys.clone();
         keys.mark_unchanged();
@@ -326,13 +328,12 @@ async fn fetch_all(source: &Source, now: i64) -> Result<(Cache, Keys)> {
     let client = source.client();
     let discovery = source.discovery.clone();
     tokio::task::spawn_blocking(move || {
-        let (auth, openid, jwks) = client.documents(&discovery)?;
+        let (openid, jwks) = client.documents(&discovery)?;
         let keys = document::keys(&openid, &jwks).map_err(|reason| Error::Document {
             url: openid.jwks_uri.clone(),
             reason,
         })?;
         let cache = Cache {
-            auth,
             openid,
             jwks,
             fetched_at: now,
@@ -632,15 +633,31 @@ mod tests {
         }
     }
 
-    fn cache_json(fetched_at: i64, kid: &str) -> Vec<u8> {
-        let issuer = Issuer::get();
-        let cache = json!({
-            "auth": {"serviceUri": "https://auth.test", "issuer": "https://auth.test"},
+    fn cache_value(fetched_at: i64, kid: &str) -> serde_json::Value {
+        json!({
             "openid": Issuer::openid("https://issuer.test/keys"),
-            "jwks": issuer.jwks(kid),
+            "jwks": Issuer::get().jwks(kid),
             "fetched_at": fetched_at,
+        })
+    }
+
+    fn cache_json(fetched_at: i64, kid: &str) -> Vec<u8> {
+        serde_json::to_vec(&cache_value(fetched_at, kid)).unwrap()
+    }
+
+    #[test]
+    fn a_cache_with_or_without_the_discovery_document_loads() {
+        run(async {
+            let dir = TempDir::new("discovery-key");
+            let mut old = cache_value(NOW - 10, KID);
+            old["auth"] = json!({"serviceUri": "https://auth.test", "issuer": "https://auth.test"});
+            for cache in [old, cache_value(NOW - 10, KID)] {
+                dir.write(&serde_json::to_vec(&cache).unwrap());
+                let (cache, keys) = load_cache(&dir.cache()).await.unwrap().unwrap();
+                assert_eq!(cache.fetched_at, NOW - 10);
+                assert!(keys.key(KID).is_some());
+            }
         });
-        serde_json::to_vec(&cache).unwrap()
     }
 
     #[test]
@@ -686,10 +703,12 @@ mod tests {
                 hits,
                 [DISCOVERY_PATH, "/.well-known/openid-configuration", "/keys"]
             );
-            let written: Cache = serde_json::from_slice(&dir.read()).unwrap();
-            assert_eq!(written.fetched_at, NOW);
-            assert_eq!(written.auth.issuer, server.base);
-            assert_eq!(written.openid.issuer, ISSUER);
+            let written: serde_json::Value = serde_json::from_slice(&dir.read()).unwrap();
+            let mut fields: Vec<_> = written.as_object().unwrap().keys().collect();
+            fields.sort();
+            assert_eq!(fields, ["fetched_at", "jwks", "openid"]);
+            assert_eq!(written["fetched_at"], NOW);
+            assert_eq!(written["openid"]["issuer"], ISSUER);
             // A cache from the future (the clock moved back) is not fresh either.
             dir.write(&cache_json(NOW + 10, KID));
             let auth = Auth::start_from(source(&dir, &server.base), now)
@@ -736,11 +755,19 @@ mod tests {
             let mut bad_key: serde_json::Value =
                 serde_json::from_slice(&cache_json(NOW, KID)).unwrap();
             bad_key["jwks"]["keys"][1]["n"] = json!("AQAB");
+            let without = |field: &str| {
+                let mut cache = cache_value(NOW, KID);
+                cache.as_object_mut().unwrap().remove(field);
+                serde_json::to_vec(&cache).unwrap()
+            };
             let cases = [
                 b"not json".to_vec(),
                 b"{}".to_vec(),
                 br#"{"auth":{},"openid":{},"jwks":{"keys":[]},"fetched_at":1}"#.to_vec(),
                 serde_json::to_vec(&bad_key).unwrap(),
+                without("openid"),
+                without("jwks"),
+                without("fetched_at"),
                 vec![b' '; 2 * 1024 * 1024],
             ];
             for bytes in cases {

@@ -27,8 +27,9 @@ pub enum Error {
     Start(io::Error),
     /// The network ports could not be opened.
     Network(io::Error),
-    /// The NetherNet identity key `data/identity.key` exists but cannot be read; it is left as it
-    /// is, since a new key would make every player confirm the server again.
+    /// The NetherNet identity key `data/identity.key` exists but cannot be read or holds no valid
+    /// key, or is missing and a new one cannot be made or written. A file that exists is left as
+    /// it is, since a new key would make every player confirm the server again.
     IdentityKey(Box<dyn std::error::Error + Send + Sync>),
     /// `nethernet-tls-cert` or `nethernet-tls-key` cannot be read or used.
     TlsCertificate(Box<dyn std::error::Error + Send + Sync>),
@@ -42,9 +43,11 @@ pub enum Error {
     },
     /// A data file (`data/*.redb`, `data/world/*.redb`) failed its integrity check at start, or a
     /// value it holds is damaged. The server did not start, and the file is left exactly as it
-    /// was; a backup from its folder in `data/backups/` can replace it.
+    /// was (unless the start made no copy: `backups = false` and no check); a backup from its
+    /// folder in `data/backups/` can replace it.
     WorldDamaged(Box<dyn std::error::Error + Send + Sync>),
-    /// A data file was last saved by a newer Anchor; the file is left as it was.
+    /// A data file was last saved by a newer Anchor; the file is left as it was (unless the start
+    /// made no copy: `backups = false` and no check).
     WorldNewerFormat {
         /// The file's format version.
         version: u16,
@@ -56,12 +59,6 @@ pub enum Error {
     Storage(Box<dyn std::error::Error + Send + Sync>),
     /// Two worlds have the same name, or names that differ only in letter case.
     DuplicateWorld {
-        /// The name.
-        name: String,
-    },
-    /// A generator's [`name`](crate::world::Generator::name) is longer than the data files hold,
-    /// 256 bytes.
-    NameTooLong {
         /// The name.
         name: String,
     },
@@ -119,7 +116,9 @@ impl fmt::Display for Error {
                 f.write_str("could not start the runtime, a thread or the startup state")
             }
             Self::Network(_) => f.write_str("could not open the network ports"),
-            Self::IdentityKey(_) => f.write_str("the nethernet identity key is unreadable"),
+            Self::IdentityKey(_) => {
+                f.write_str("the nethernet identity key could not be read or created")
+            }
             Self::TlsCertificate(_) => f.write_str("the nethernet tls certificate is unusable"),
             Self::Auth(_) => f.write_str("authorization keys are unavailable"),
             Self::TickPanicked { message } => write!(f, "the tick thread panicked: {message}"),
@@ -133,11 +132,6 @@ impl fmt::Display for Error {
             Self::InvalidWorldName { name } => {
                 write!(f, "the world name {name:?} cannot be a file name")
             }
-            Self::NameTooLong { name } => write!(
-                f,
-                "the generator name {name:?} is longer than {} bytes",
-                storage::codec::MAX_NAME
-            ),
             Self::DuplicateGenerator { name } => {
                 write!(f, "two generator types are named {name:?}")
             }
@@ -175,7 +169,6 @@ impl std::error::Error for Error {
             | Self::TickPanicked { .. }
             | Self::WorldNewerFormat { .. }
             | Self::DuplicateWorld { .. }
-            | Self::NameTooLong { .. }
             | Self::InvalidWorldName { .. }
             | Self::DuplicateGenerator { .. }
             | Self::Usage => None,
@@ -224,6 +217,15 @@ mod tests {
         assert_eq!(
             e.to_string(),
             "could not start the runtime, a thread or the startup state"
+        );
+    }
+
+    #[test]
+    fn the_identity_key_message_covers_reading_and_creating() {
+        let e = Error::IdentityKey(Box::new(io::Error::other("no key")));
+        assert_eq!(
+            e.to_string(),
+            "the nethernet identity key could not be read or created"
         );
     }
 }

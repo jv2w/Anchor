@@ -49,6 +49,7 @@ const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 const RECV_BUFFER: usize = 1500;
 /// The largest valid datagram: one at the largest MTU.
 const MAX_DATAGRAM: usize = MAX_MTU as usize - wire::UDP_HEADER;
+const _: () = assert!(RECV_BUFFER > MAX_DATAGRAM);
 
 /// A RakNet failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,12 +111,6 @@ pub(crate) fn spawn(
         return Err(invalid("raknet max mtu out of range"));
     }
     let limits = Limits::new(settings.max_message).map_err(io::Error::other)?;
-    let inbound_bytes = settings
-        .max_message
-        .checked_add(1)
-        .and_then(|message| message.checked_mul(2))
-        .filter(|&bytes| bytes <= Semaphore::MAX_PERMITS)
-        .ok_or_else(|| invalid("raknet max message out of range"))?;
     let _guard = runtime.enter();
     let v4 = settings.v4.map(|addr| bind(addr.into())).transpose()?;
     let v6 = settings.v6.map(|addr| bind(addr.into())).transpose()?;
@@ -144,7 +139,7 @@ pub(crate) fn spawn(
             accepted,
             outbound,
             links: BTreeMap::new(),
-            inbound_bytes,
+            max_message: settings.max_message,
         },
         pong,
         start: clock::now(),
@@ -246,9 +241,12 @@ pub(crate) struct Inbox {
 }
 
 impl Inbox {
-    /// An inbox whose session may leave `bytes` received bytes untaken, and the session's end.
-    pub(crate) fn new(bytes: usize) -> (Self, mpsc::Receiver<Inbound>) {
+    /// An inbox whose session may leave two of the largest delivered messages, `max_message`
+    /// bytes each, untaken, and the session's end. The budget is cut to what a semaphore counts,
+    /// far above what any setting asks.
+    pub(crate) fn new(max_message: usize) -> (Self, mpsc::Receiver<Inbound>) {
         let (inbound, receiver) = mpsc::channel(INBOUND_QUEUE);
+        let bytes = max_message.saturating_mul(2).min(Semaphore::MAX_PERMITS);
         let budget = Arc::new(Semaphore::new(bytes));
         (Self { inbound, budget }, receiver)
     }
@@ -344,8 +342,8 @@ struct Io {
     accepted: mpsc::Sender<Connection>,
     outbound: mpsc::Sender<Outbound>,
     links: BTreeMap<u64, Link>,
-    /// Received bytes one connection's session may leave untaken: two largest messages.
-    inbound_bytes: usize,
+    /// The largest game message delivered, without the 0xfe byte ([`Inbox::new`]).
+    max_message: usize,
 }
 
 impl Sink for Io {
@@ -363,7 +361,7 @@ impl Sink for Io {
     }
 
     fn accept(&mut self, id: u64, addr: SocketAddr) -> bool {
-        let (inbox, receiver) = Inbox::new(self.inbound_bytes);
+        let (inbox, receiver) = Inbox::new(self.max_message);
         let (signal, watcher) = watch::channel(Flags::default());
         let (ping, pings) = watch::channel(None);
         let connection = Connection {
@@ -709,7 +707,7 @@ pub(crate) mod tests {
                 accepted,
                 outbound,
                 links: BTreeMap::new(),
-                inbound_bytes: 2 * (MAX_MESSAGE + 1),
+                max_message: MAX_MESSAGE,
             },
             pong,
             start: clock::now(),
@@ -839,6 +837,16 @@ pub(crate) mod tests {
         let game = remote.client.game();
         assert_eq!(game.len(), 301);
         assert_eq!(game.last(), Some(&&b"bye"[..]));
+    }
+
+    #[test]
+    fn an_inbox_holds_two_of_the_largest_messages() {
+        let (inbox, mut receiver) = Inbox::new(10);
+        assert!(inbox.deliver(vec![1; 10]));
+        assert!(inbox.deliver(vec![2; 10]));
+        assert!(!inbox.deliver(vec![3]));
+        assert_eq!(receiver.try_recv().unwrap().message, [1; 10]);
+        assert!(inbox.deliver(vec![4; 10]));
     }
 
     #[test]

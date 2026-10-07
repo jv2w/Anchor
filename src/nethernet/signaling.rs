@@ -35,7 +35,7 @@ const MAX_CONNECTIONS_PER_IP: u8 = 4;
 /// The request line and headers, the closing empty line included.
 const MAX_HEAD: usize = 8 * 1024;
 /// A request body after chunked decoding: the SDP offer limit.
-const MAX_BODY: usize = 64 * 1024;
+const MAX_BODY: usize = super::sdp::MAX_OFFER;
 /// Chunked framing (size lines, extensions, trailers), so tiny chunks cannot stretch a body read
 /// far past [`MAX_BODY`]. A client writing 4 KiB chunks spends about 8 bytes per chunk.
 const MAX_FRAMING: usize = 8 * 1024;

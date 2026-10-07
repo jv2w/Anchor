@@ -29,16 +29,20 @@ fn entity_at(state: &State, world: WorldIndex, pos: BlockPos) -> Option<&BlockEn
     state.rules.block_entities.get(world, pos)
 }
 
-/// The colour a dye-like item gives a sign (PMMP `BaseSign::onInteract`: dyes, bone meal white,
-/// lapis blue, cocoa brown; black is pure black), as signed ARGB.
+/// The dye colour of a dye-like item (PMMP: dyes, and bone meal white, lapis blue, cocoa brown).
+fn dye_like(t: item::Type) -> Option<u8> {
+    match t.kind() {
+        Some(item::Kind::BoneMeal) => Some(0),
+        Some(item::Kind::LapisLazuli) => Some(11),
+        Some(item::Kind::CocoaBeans) => Some(12),
+        _ => item::dye_colour(t),
+    }
+}
+
+/// The colour a dye-like item gives a sign (PMMP `BaseSign::onInteract`; black is pure black),
+/// as signed ARGB.
 fn sign_colour(stack: &Stack) -> Option<i32> {
-    let t = stack.item()?;
-    let colour = match t.kind() {
-        Some(item::Kind::BoneMeal) => 0,
-        Some(item::Kind::LapisLazuli) => 11,
-        Some(item::Kind::CocoaBeans) => 12,
-        _ => item::dye_colour(t)?,
-    };
+    let colour = dye_like(stack.item()?)?;
     if colour == 15 {
         return Some(block_entity::BLACK_TEXT);
     }
@@ -99,9 +103,7 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
     };
     let mut lines = None;
     if change != SignUse::Wax && dispatch::heard::<crate::event::SignChange>(state) {
-        let (Some(world_id), Some(old)) =
-            (crate::world::Id::new(world), sign_text(state, world, u.pos))
-        else {
+        let Some(old) = sign_text(state, world, u.pos) else {
             return true;
         };
         let old_text = if front {
@@ -111,7 +113,7 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
         };
         let mut e = crate::event::SignChange {
             player: crate::player::Id::new(u.actor.session),
-            world: world_id,
+            world: crate::world::Id::of(world),
             pos: u.pos,
             block: u.block,
             old_text: old_text.clone(),
@@ -550,18 +552,15 @@ pub(super) fn campfire_cook(state: &mut State, u: &mut Use) -> bool {
     true
 }
 
-/// PMMP `WaterCauldron::onInteract` with a dye: the water takes the colour, mixed with the one
-/// it has (PMMP `Color::mix`: the mean of each channel).
+/// PMMP `WaterCauldron::onInteract` with a dye (an ink sac is black): the water takes the
+/// colour, mixed with the one it has (PMMP `Color::mix`: the mean of each channel).
 pub(super) fn cauldron_dye(state: &mut State, u: &mut Use) -> bool {
     let world = u.actor.world;
     let water = props::string(u.block, "cauldron_liquid") == Some("water")
         && props::int(u.block, "fill_level").is_some_and(|l| l > 0);
     let colour = match u.item.item().and_then(|t| match t.kind() {
-        Some(item::Kind::LapisLazuli) => Some(11),
         Some(item::Kind::InkSac) => Some(15),
-        Some(item::Kind::CocoaBeans) => Some(12),
-        Some(item::Kind::BoneMeal) => Some(0),
-        _ => item::dye_colour(t),
+        _ => dye_like(t),
     }) {
         Some(c) if water => c,
         _ => return false,

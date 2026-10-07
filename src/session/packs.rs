@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use crate::pack::Offer;
 use crate::protocol::Bitset;
+use crate::protocol::consts::PackResponse;
 use crate::protocol::packet::{
     Packet, ResourcePackChunkData, ResourcePackChunkRequest, ResourcePackClientResponse,
     ResourcePackDataInfo,
@@ -28,11 +29,6 @@ pub(super) const CHUNK_INTERVAL: Duration = Duration::from_millis(200);
 const DOWNLOAD_BASE: Duration = Duration::from_secs(30);
 /// Per chunk: ten times [`CHUNK_INTERVAL`], so a client may download at 64 KiB/s.
 const CHUNK_ALLOWANCE: Duration = Duration::from_secs(2);
-/// `ResourcePackClientResponse` values (gophertunnel `PackResponse*`).
-const REFUSED: u32 = 0;
-const SEND_PACKS: u32 = 1;
-const ALL_PACKS_DOWNLOADED: u32 = 2;
-const COMPLETED: u32 = 3;
 
 /// What the session does after a pack response.
 #[derive(Debug)]
@@ -91,9 +87,9 @@ impl Transfer {
         offer: &Offer,
         response: &ResourcePackClientResponse,
     ) -> Result<Reply> {
-        match response.response {
-            SEND_PACKS => self.on_send_packs(offer, &response.packs_to_download),
-            ALL_PACKS_DOWNLOADED => {
+        match PackResponse::try_from(response.response) {
+            Ok(PackResponse::SendPacks) => self.on_send_packs(offer, &response.packs_to_download),
+            Ok(PackResponse::AllPacksDownloaded) => {
                 if self.stacked {
                     return Err(Error::Order("stack requested twice"));
                 }
@@ -103,13 +99,13 @@ impl Transfer {
                     extend: Duration::ZERO,
                 })
             }
-            COMPLETED => {
+            Ok(PackResponse::Completed) => {
                 // Chunks still queued are of no use once the client goes on.
                 self.queue = VecDeque::new();
                 Ok(Reply::Join)
             }
-            REFUSED => Ok(Reply::Refused),
-            _ => Err(Error::Order("unknown pack response")),
+            Ok(PackResponse::Refused) => Ok(Reply::Refused),
+            Err(_) => Err(Error::Order("unknown pack response")),
         }
     }
 
@@ -234,9 +230,9 @@ mod tests {
         Offer::new(vec![big, pack(OTHER, "2.0.0", 10)], true).unwrap()
     }
 
-    fn response(response: u32, packs: &[String]) -> ResourcePackClientResponse {
+    fn response(response: PackResponse, packs: &[String]) -> ResourcePackClientResponse {
         ResourcePackClientResponse {
-            response,
+            response: u32::from(response),
             packs_to_download: packs.to_vec(),
         }
     }
@@ -261,8 +257,11 @@ mod tests {
         let mut t = Transfer::default();
         let id = offer.id(0).to_owned();
         let (packets, extend) = sent(
-            t.on_response(&offer, &response(SEND_PACKS, std::slice::from_ref(&id)))
-                .unwrap(),
+            t.on_response(
+                &offer,
+                &response(PackResponse::SendPacks, std::slice::from_ref(&id)),
+            )
+            .unwrap(),
         );
         let [Packet::ResourcePackDataInfo(info)] = packets.as_slice() else {
             panic!("one data info: {packets:?}");
@@ -296,14 +295,14 @@ mod tests {
         );
 
         let (packets, _) = sent(
-            t.on_response(&offer, &response(ALL_PACKS_DOWNLOADED, &[]))
+            t.on_response(&offer, &response(PackResponse::AllPacksDownloaded, &[]))
                 .unwrap(),
         );
         assert!(
             matches!(&packets[..], [Packet::ResourcePackStack(s)] if s.texture_packs.len() == 2)
         );
         assert!(matches!(
-            t.on_response(&offer, &response(COMPLETED, &[])),
+            t.on_response(&offer, &response(PackResponse::Completed, &[])),
             Ok(Reply::Join)
         ));
     }
@@ -318,8 +317,11 @@ mod tests {
             Err(Error::Order("chunk of a pack that was not requested"))
         );
         sent(
-            t.on_response(&offer, &response(SEND_PACKS, &[UUID.to_owned()]))
-                .unwrap(),
+            t.on_response(
+                &offer,
+                &response(PackResponse::SendPacks, &[UUID.to_owned()]),
+            )
+            .unwrap(),
         );
         for (request, error) in [
             (chunk(&id, 3), "chunk index out of range"),
@@ -358,15 +360,18 @@ mod tests {
         let id = offer.id(0).to_owned();
         let mut t = Transfer::default();
         assert_eq!(
-            t.on_response(&offer, &response(SEND_PACKS, &["x".to_owned()]))
-                .unwrap_err(),
+            t.on_response(
+                &offer,
+                &response(PackResponse::SendPacks, &["x".to_owned()])
+            )
+            .unwrap_err(),
             Error::Order("requested a pack that was not offered")
         );
         let mut t = Transfer::default();
         assert_eq!(
             t.on_response(
                 &offer,
-                &response(SEND_PACKS, &[id.clone(), UUID.to_owned()])
+                &response(PackResponse::SendPacks, &[id.clone(), UUID.to_owned()])
             )
             .unwrap_err(),
             Error::Order("pack requested twice")
@@ -374,35 +379,38 @@ mod tests {
         let mut t = Transfer::default();
         let three = vec![id.clone(); 3];
         assert_eq!(
-            t.on_response(&offer, &response(SEND_PACKS, &three))
+            t.on_response(&offer, &response(PackResponse::SendPacks, &three))
                 .unwrap_err(),
             Error::Limit("more packs requested than offered")
         );
         let mut t = Transfer::default();
-        let (packets, extend) = sent(t.on_response(&offer, &response(SEND_PACKS, &[])).unwrap());
+        let (packets, extend) = sent(
+            t.on_response(&offer, &response(PackResponse::SendPacks, &[]))
+                .unwrap(),
+        );
         assert!(packets.is_empty() && extend.is_zero());
         assert_eq!(
-            t.on_response(&offer, &response(SEND_PACKS, &[]))
+            t.on_response(&offer, &response(PackResponse::SendPacks, &[]))
                 .unwrap_err(),
             Error::Order("packs requested twice")
         );
         let mut t = Transfer::default();
         sent(
-            t.on_response(&offer, &response(ALL_PACKS_DOWNLOADED, &[]))
+            t.on_response(&offer, &response(PackResponse::AllPacksDownloaded, &[]))
                 .unwrap(),
         );
         assert_eq!(
-            t.on_response(&offer, &response(ALL_PACKS_DOWNLOADED, &[]))
+            t.on_response(&offer, &response(PackResponse::AllPacksDownloaded, &[]))
                 .unwrap_err(),
             Error::Order("stack requested twice")
         );
         assert_eq!(
-            t.on_response(&offer, &response(SEND_PACKS, &[id]))
+            t.on_response(&offer, &response(PackResponse::SendPacks, &[id]))
                 .unwrap_err(),
             Error::Order("packs requested after the stack")
         );
         assert!(matches!(
-            Transfer::default().on_response(&offer, &response(REFUSED, &[])),
+            Transfer::default().on_response(&offer, &response(PackResponse::Refused, &[])),
             Ok(Reply::Refused)
         ));
     }

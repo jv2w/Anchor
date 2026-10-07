@@ -191,6 +191,10 @@ pub(crate) struct Snapshot {
     pub(crate) players: Vec<(PlayerKey, PlayerData)>,
     /// Changed extras lists of chunks of persistent worlds; an empty list deletes the value.
     pub(crate) extras: Vec<(WorldIndex, ChunkPos, ChunkKind, Vec<Compound>)>,
+    /// Worlds deleted since the last request that named them, as [`Request::DeleteWorlds`] gives
+    /// them: the commit forgets them first, as a world in `new_worlds` may take a deleted one's
+    /// name and index.
+    pub(crate) deleted_worlds: Vec<DeletedWorld>,
     /// Worlds made or loaded since the last request that named them, as [`Request::Worlds`]
     /// gives them: the commit learns them before it writes their records.
     pub(crate) new_worlds: Vec<NewWorld>,
@@ -1333,8 +1337,8 @@ fn backup_step(thread: &mut Thread) {
     }
 }
 
-/// The first `chunks` key number above every stored world's `numbers`: a new persistent world's
-/// (the world import's too).
+/// The first `chunks` key number above every stored world's `numbers`: a new persistent world's.
+/// An imported world's file holds it alone, with number 0.
 pub(crate) fn next_world_number(numbers: impl Iterator<Item = u32>) -> u32 {
     numbers.max().map_or(0, |n| n.saturating_add(1))
 }
@@ -1392,7 +1396,7 @@ fn load_chunks(
         .map(|&(w, pos)| (w, pos, read.get_mut(&w).and_then(Iterator::next)))
         .collect();
     let plans: &[Plan] = plans;
-    Ok(pool.map(&items, |(world, pos, values)| {
+    Ok(pool.map_in_turns(&items, |(world, pos, values)| {
         let mut loaded = match (plans.get(*world), values) {
             (None, _) => Loaded::Damaged,
             (Some(plan), None) => Loaded::Generated(
@@ -1542,13 +1546,14 @@ fn load_player(storage: &mut Storage, key: PlayerKey) -> Response {
 /// whitelist and server data each to its file, then the meta value to the main file, last. Each
 /// file gets its write transaction, and each written file the meta value too, so a start can tell
 /// a save that stopped between files ([`check_save`]). Files with nothing changed are not
-/// written. Every value is written in the current format. The worlds the snapshot brings are
-/// learnt first, so their records are written too.
+/// written. Every value is written in the current format. The worlds the snapshot deletes are
+/// forgotten and the worlds it brings learnt first, so their records are written too.
 #[expect(
     clippy::too_many_lines,
     reason = "consistency: one function builds every file's batch of one snapshot and commits them in order"
 )]
 fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), storage::Error> {
+    thread.delete_worlds(&snapshot.deleted_worlds);
     thread.add_worlds(&snapshot.new_worlds);
     let meta = Meta {
         tick: snapshot.start,
@@ -1566,7 +1571,7 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
                 .put(Key::World, seal(&Key::World.to_bytes(), &record)?);
         }
     }
-    let sealed = pool.map(&snapshot.chunks, |(world, pos, chunk)| {
+    let sealed = pool.map_in_turns(&snapshot.chunks, |(world, pos, chunk)| {
         let number = plans.get(*world).and_then(|p| p.number)?;
         let id = chunk_id(number, *pos);
         Some((*world, seal_terrain(id, chunk)))
@@ -1580,7 +1585,7 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
             }
         }
     }
-    let sealed = pool.map(&snapshot.extras, |(world, pos, kind, list)| {
+    let sealed = pool.map_in_turns(&snapshot.extras, |(world, pos, kind, list)| {
         let number = plans.get(*world).and_then(|p| p.number)?;
         let id = chunk_id(number, *pos);
         Some((*world, id, *kind, seal_pages(id, *kind, list)))

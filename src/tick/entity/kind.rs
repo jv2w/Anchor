@@ -7,11 +7,13 @@ use std::sync::Arc;
 
 use super::super::SessionId;
 use super::super::checkpoint::{self, Codec, Reader, Writer, fields, variants};
+use super::super::survival::{self, PLAYER_HEIGHT, PLAYER_WIDTH};
 use super::super::trade::Offers;
 use super::custom::Spec;
 use crate::block::{self, Face};
 use crate::effect::{self, Potion};
 use crate::entity::{Id, PaintingMotive, Skin, Type};
+use crate::event::DamageCause;
 use crate::item::Stack;
 use crate::nbt::Compound;
 use crate::protocol::Uuid;
@@ -627,9 +629,10 @@ const VILLAGER: Physics = Physics {
 /// PMMP `Zombie`: as a villager, 0.6 × 1.9.
 const ZOMBIE: Physics = VILLAGER;
 
-/// PMMP `Human`: 0.6 × 1.8.
+/// PMMP `Human`: a player's box.
 const HUMAN: Physics = Physics {
-    height: 1.8,
+    width: PLAYER_WIDTH,
+    height: PLAYER_HEIGHT,
     ..VILLAGER
 };
 
@@ -647,8 +650,10 @@ pub(super) enum Cause {
     Contact,
     /// Below the world.
     Void,
-    /// An explosion.
-    Explosion,
+    /// An explosion of a block or of nothing in particular.
+    BlockExplosion,
+    /// An explosion of an entity.
+    EntityExplosion,
     /// A player's hit.
     Attack,
     /// A projectile's hit.
@@ -666,24 +671,30 @@ pub(super) enum Cause {
 }
 
 impl Cause {
-    /// BDS's damage cause number, which the hurt event carries (the players' numbers,
-    /// `survival::Damage::bds_cause`; P6: a trident's hit on a villager 3).
-    pub(super) fn bds_cause(self) -> i32 {
+    /// The event's cause of this damage (PMMP `CAUSE_*`).
+    pub(super) fn event_cause(self) -> DamageCause {
         match self {
-            Self::Custom => 0,
-            Self::Contact => 1,
-            Self::Attack => 2,
-            Self::Projectile => 3,
-            Self::Suffocation => 4,
-            Self::Fall => 5,
-            Self::Fire => 6,
-            Self::FireTick => 7,
-            Self::Lava => 8,
-            Self::Explosion => 11,
-            Self::Void => 12,
-            Self::Magic => 14,
-            Self::FallingBlock => 19,
+            Self::Fire => DamageCause::Fire,
+            Self::FireTick => DamageCause::FireTick,
+            Self::Lava => DamageCause::Lava,
+            Self::Contact => DamageCause::Contact,
+            Self::Void => DamageCause::Void,
+            Self::BlockExplosion => DamageCause::BlockExplosion,
+            Self::EntityExplosion => DamageCause::EntityExplosion,
+            Self::Attack => DamageCause::EntityAttack,
+            Self::Projectile => DamageCause::Projectile,
+            Self::Magic => DamageCause::Magic,
+            Self::Fall => DamageCause::Fall,
+            Self::Suffocation => DamageCause::Suffocation,
+            Self::FallingBlock => DamageCause::FallingBlock,
+            Self::Custom => DamageCause::Custom,
         }
+    }
+
+    /// BDS's damage cause number, which the hurt event carries (the players' numbers,
+    /// [`survival::bds_cause`]; P6: a trident's hit on a villager 3).
+    pub(super) fn bds_cause(self) -> i32 {
+        survival::bds_cause(self.event_cause())
     }
 }
 

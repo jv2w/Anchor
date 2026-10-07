@@ -69,9 +69,9 @@ use crate::world::{BlockPos, ChunkPos, MAX_Y, MIN_Y};
 
 /// `Age` that means "never despawns" (PMMP).
 const AGE_NEVER: i16 = i16::MIN;
-/// The farthest a saved position may be from the world's middle, as for players: the Bedrock
-/// world border.
-const MAX_COORDINATE: f64 = 30_000_000.0;
+/// The farthest a saved position may be from the world's middle, as for players: the world
+/// border.
+const MAX_COORDINATE: f64 = crate::world::BORDER as f64;
 /// How far below and above the world height a saved position may be: entities fall out of the
 /// world and die 16 blocks under it.
 pub(super) const HEIGHT_MARGIN: f64 = 64.0;
@@ -461,7 +461,7 @@ fn load_kind(
         "minecraft:tnt" | "PrimedTNT" | "PrimedTnt" => Kind::Tnt(Tnt {
             fuse: match c.get("Fuse") {
                 Some(Value::Short(f)) => u16::try_from(*f).ok().filter(|f| *f <= MAX_FUSE)?,
-                _ => 80,
+                _ => super::TNT_FUSE,
             },
             underwater: matches!(c.get("AllowUnderwater"), Some(Value::Byte(b)) if *b != 0),
         }),

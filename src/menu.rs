@@ -35,6 +35,7 @@
 
 use std::fmt;
 
+use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS};
 use crate::item::Stack;
 
 /// The longest menu title, in bytes.
@@ -55,9 +56,9 @@ impl Kind {
     /// How many slots the menu has.
     pub const fn size(self) -> usize {
         match self {
-            Self::Chest => 27,
-            Self::DoubleChest => 54,
-            Self::Hopper => 5,
+            Self::Chest => CHEST_SLOTS,
+            Self::DoubleChest => 2 * CHEST_SLOTS,
+            Self::Hopper => HOPPER_SLOTS,
         }
     }
 }

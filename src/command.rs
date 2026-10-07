@@ -842,3 +842,26 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::COMMAND_DESCRIPTION_MAX_LEN;
+
+    #[test]
+    fn the_docs_name_the_limits_the_build_checks() {
+        let source = include_str!("command.rs");
+        let max = COMMAND_DESCRIPTION_MAX_LEN;
+        let description = format!("{},{:03} bytes", max / 1000, max % 1000);
+        for text in [
+            format!("than {description}, the server refuses to build"),
+            format!("longer than a client takes ({description})"),
+            format!("A command names at most {MAX_PERMISSIONS}."),
+            format!("/// more than {MAX_PERMISSIONS} permissions."),
+            format!("A suffix other than 1 to {MAX_NAME} ASCII letters"),
+            format!("too long ({MAX_NAME} bytes)"),
+        ] {
+            assert!(source.contains(&text), "{text}");
+        }
+    }
+}

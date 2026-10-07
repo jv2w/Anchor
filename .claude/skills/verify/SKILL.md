@@ -7,7 +7,7 @@ disable-model-invocation: true
 # 전체 검사
 
 1. 이미 도는 `cargo xtask verify`가 있으면 끝날 때까지 기다린다. 한 번에 하나만 돌린다.
-2. 백그라운드로, 낮은 우선순위로 돌리고 출력은 파일로 받는다. 10~15분 걸린다.
+2. 백그라운드로, 낮은 우선순위로 돌리고 출력은 파일로 받는다.
    - Windows: `cmd //c "start /low /b /wait cargo xtask verify" > target/verify.log 2>&1`
    - Linux: `nice -n 19 cargo xtask verify > target/verify.log 2>&1`
    - cargo가 PATH에 없으면 `$HOME/.cargo/bin`을 앞에 붙인다.

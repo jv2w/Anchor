@@ -10,6 +10,7 @@ use crate::crypto::{
     Algorithm, PublicKey, STD, Verifier, bounded_vec, is_object_or_null, parse_jws, verify_jws,
 };
 use crate::entity::MAX_SKIN_BYTES;
+use crate::protocol::consts::PieceType;
 use crate::protocol::{self, Rgba};
 
 /// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
@@ -20,36 +21,36 @@ const MAX_ANIMATIONS: usize = 32;
 const MAX_LANGUAGE_CODE: usize = 64;
 /// Longest host name in a server address (DNS limit).
 const MAX_HOST: usize = 253;
-/// The persona piece types of the login data in the protocol's order (gophertunnel
-/// `PieceType*` from 1); anything else is type 0, unknown.
-const PIECE_TYPES: [&str; 27] = [
-    "persona_skeleton",
-    "persona_body",
-    "persona_skin",
-    "persona_bottom",
-    "persona_feet",
-    "persona_dress",
-    "persona_top",
-    "persona_high_pants",
-    "persona_hand",
-    "persona_outerwear",
-    "persona_facial_hair",
-    "persona_mouth",
-    "persona_eyes",
-    "persona_hair",
-    "persona_hood",
-    "persona_back",
-    "persona_face_accessory",
-    "persona_head",
-    "persona_legs",
-    "persona_left_leg",
-    "persona_right_leg",
-    "persona_arms",
-    "persona_left_arm",
-    "persona_right_arm",
-    "persona_capes",
-    "persona_classic_skin",
-    "persona_emote",
+/// The persona piece type names of the login data and their protocol types; any other name is
+/// [`PieceType::Unknown`].
+const PIECE_TYPES: [(&str, PieceType); 27] = [
+    ("persona_skeleton", PieceType::Skeleton),
+    ("persona_body", PieceType::Body),
+    ("persona_skin", PieceType::Skin),
+    ("persona_bottom", PieceType::Bottom),
+    ("persona_feet", PieceType::Feet),
+    ("persona_dress", PieceType::Dress),
+    ("persona_top", PieceType::Top),
+    ("persona_high_pants", PieceType::HighPants),
+    ("persona_hand", PieceType::Hands),
+    ("persona_outerwear", PieceType::Outerwear),
+    ("persona_facial_hair", PieceType::FacialHair),
+    ("persona_mouth", PieceType::Mouth),
+    ("persona_eyes", PieceType::Eyes),
+    ("persona_hair", PieceType::Hair),
+    ("persona_hood", PieceType::Hood),
+    ("persona_back", PieceType::Back),
+    ("persona_face_accessory", PieceType::FaceAccessory),
+    ("persona_head", PieceType::Head),
+    ("persona_legs", PieceType::Legs),
+    ("persona_left_leg", PieceType::LeftLeg),
+    ("persona_right_leg", PieceType::RightLeg),
+    ("persona_arms", PieceType::Arms),
+    ("persona_left_arm", PieceType::LeftArm),
+    ("persona_right_arm", PieceType::RightArm),
+    ("persona_capes", PieceType::Capes),
+    ("persona_classic_skin", PieceType::ClassicSkin),
+    ("persona_emote", PieceType::Emote),
 ];
 
 /// The client data claims. JSON names are `PascalCase` as the client sends them; a missing field
@@ -369,11 +370,11 @@ fn piece_type(name: &str) -> u32 {
     } else {
         name
     };
-    PIECE_TYPES
+    let piece_type = PIECE_TYPES
         .iter()
-        .position(|t| *t == name)
-        .and_then(|i| u32::try_from(i + 1).ok())
-        .unwrap_or(0)
+        .find(|(t, _)| *t == name)
+        .map_or(PieceType::Unknown, |&(_, piece_type)| piece_type);
+    u32::from(piece_type)
 }
 
 /// A colour of the login data: `#AARRGGBB`, or `#RRGGBB` (opaque) as the skin colour is sent

@@ -21,6 +21,7 @@ use super::packs::{self, CHUNK_INTERVAL, Reply, Transfer};
 use super::transport::{self, Transport};
 use super::{Event, Shared};
 use crate::auth::Keys;
+use crate::bucket::{Bucket, Rate};
 use crate::clock;
 use crate::crypto::encryption::{Decryptor, Encryptor, Handshake};
 use crate::login::{self, Login, Mode};
@@ -54,14 +55,6 @@ const PRE_AUTH_BATCHES: usize = 8;
 const BUDGET_REFILL_DIVISOR: usize = 4;
 /// The shield's item network ID, which the item registry Anchor sends names.
 const SHIELD_ID: i32 = crate::item::SHIELD_RUNTIME_ID;
-/// `PlayStatus` values (gophertunnel `PlayStatus*`).
-const LOGIN_SUCCESS: i32 = 0;
-const LOGIN_FAILED_CLIENT: i32 = 1;
-const LOGIN_FAILED_SERVER: i32 = 2;
-/// `Disconnect` reason for a failed login (gophertunnel `DisconnectReasonNotAuthenticated`).
-const REASON_NOT_AUTHENTICATED: i32 = 46;
-/// `Disconnect` reason for refused packs (gophertunnel `DisconnectReasonResourcePackProblem`).
-const REASON_RESOURCE_PACK_PROBLEM: i32 = 58;
 /// What a player who refuses required packs sees.
 const PACKS_REFUSED_MESSAGE: &str = "This server needs its resource packs: accept them to join";
 
@@ -79,7 +72,7 @@ enum Stage {
     NetworkSettings,
     /// Waiting for `Login`, the first packet of the first compressed batch.
     Login,
-    /// Waiting for `ClientToServerHandshake`, the first encrypted packet.
+    /// Waiting for `ClientToServerHandshake`, on RakNet the first encrypted packet.
     Handshake,
     /// Waiting for the resource pack responses.
     Packs,
@@ -106,7 +99,9 @@ struct Session {
     payload: Vec<u8>,
     /// Outbound payload, reused.
     out_payload: Vec<u8>,
-    budget: Budget,
+    /// Decompressed input bytes, on the time since `started`.
+    budget: Bucket,
+    budget_rate: Rate,
     pre_auth_bytes: usize,
     identity: Option<Identity>,
     deferred: VecDeque<(Packet, usize)>,
@@ -193,6 +188,10 @@ impl Session {
     fn new(id: SessionId, conn: Transport, shared: Arc<Shared>) -> Self {
         let max = shared.batch.max_batch_bytes();
         let started = clock::now();
+        let budget_rate = Rate {
+            capacity: max,
+            per_second: max / BUDGET_REFILL_DIVISOR,
+        };
         Self {
             id,
             conn,
@@ -206,7 +205,8 @@ impl Session {
             decryptor: None,
             payload: Vec::new(),
             out_payload: Vec::new(),
-            budget: Budget::new(max, max / BUDGET_REFILL_DIVISOR, started),
+            budget: Bucket::full(budget_rate, Duration::ZERO),
+            budget_rate,
             pre_auth_bytes: 0,
             identity: None,
             deferred: VecDeque::new(),
@@ -349,12 +349,14 @@ impl Session {
         };
         if client_protocol != PROTOCOL_VERSION {
             let status = if client_protocol > PROTOCOL_VERSION {
-                LOGIN_FAILED_SERVER
+                consts::PlayStatus::LoginFailedServer
             } else {
-                LOGIN_FAILED_CLIENT
+                consts::PlayStatus::LoginFailedClient
             };
-            self.send(&[Packet::PlayStatus(PlayStatus { status })])
-                .await?;
+            self.send(&[Packet::PlayStatus(PlayStatus {
+                status: i32::from(status),
+            })])
+            .await?;
             return Err(Error::Protocol(client_protocol));
         }
         let settings = self.shared.batch;
@@ -372,9 +374,10 @@ impl Session {
 
     async fn on_payload(&mut self, payload: &[u8]) -> Result<()> {
         self.charge_pre_auth(payload.len())?;
-        self.budget
-            .take(payload.len(), clock::now())
-            .ok_or(Error::Limit("input bytes per second"))?;
+        let now = clock::now().saturating_duration_since(self.started);
+        if !self.budget.take(payload.len(), self.budget_rate, now) {
+            return Err(Error::Limit("input bytes per second"));
+        }
         // The whole batch shares one allocation budget, as in `batch::decode_packets`.
         let mut budget = self.shared.batch.max_batch_bytes().saturating_mul(2);
         for (header, bytes) in batch::split(payload).map_err(Error::Batch)? {
@@ -433,12 +436,14 @@ impl Session {
     async fn on_login(&mut self, login: packet::Login) -> Result<()> {
         if login.client_protocol != PROTOCOL_VERSION {
             let status = if login.client_protocol > PROTOCOL_VERSION {
-                LOGIN_FAILED_SERVER
+                consts::PlayStatus::LoginFailedServer
             } else {
-                LOGIN_FAILED_CLIENT
+                consts::PlayStatus::LoginFailedClient
             };
-            self.send(&[Packet::PlayStatus(PlayStatus { status })])
-                .await?;
+            self.send(&[Packet::PlayStatus(PlayStatus {
+                status: i32::from(status),
+            })])
+            .await?;
             return Err(Error::Protocol(login.client_protocol));
         }
         let verified = match self.verify(&login.connection_request).await {
@@ -456,7 +461,7 @@ impl Session {
             Ok(verified) => verified,
             Err(e) => {
                 self.send(&[Packet::Disconnect(Disconnect {
-                    reason: REASON_NOT_AUTHENTICATED,
+                    reason: i32::from(consts::DisconnectReason::NotAuthenticated),
                     message: "Login failed".to_owned(),
                     ..Disconnect::default()
                 })])
@@ -466,10 +471,7 @@ impl Session {
         };
         let Ok(waiting) = Arc::clone(&self.shared.waiting).try_acquire_owned() else {
             // PMMP also turns players away as the server is full at login.
-            self.send(&[Packet::PlayStatus(PlayStatus {
-                status: i32::from(consts::PlayStatus::LoginFailedServerFull),
-            })])
-            .await?;
+            self.send(&[queue::server_full()]).await?;
             return Err(Error::Limit("sessions waiting to join"));
         };
         self.waiting = Some(waiting);
@@ -535,7 +537,7 @@ impl Session {
         self.stage = Stage::Packs;
         self.send(&[
             Packet::PlayStatus(PlayStatus {
-                status: LOGIN_SUCCESS,
+                status: i32::from(consts::PlayStatus::LoginSuccess),
             }),
             Packet::ResourcePacksInfo(self.shared.packs.info().clone()),
         ])
@@ -581,7 +583,7 @@ impl Session {
             Reply::Join => self.join(),
             Reply::Refused => {
                 self.send(&[Packet::Disconnect(Disconnect {
-                    reason: REASON_RESOURCE_PACK_PROBLEM,
+                    reason: i32::from(consts::DisconnectReason::ResourcePackProblem),
                     message: PACKS_REFUSED_MESSAGE.to_owned(),
                     ..Disconnect::default()
                 })])
@@ -751,69 +753,4 @@ async fn next_outbound(outbound: Option<&mut mpsc::Receiver<Outbound>>) -> Optio
 
 fn deadline(at: Instant) -> tokio::time::Sleep {
     tokio::time::sleep_until(tokio::time::Instant::from_std(at))
-}
-
-/// A token bucket over decompressed input bytes.
-#[derive(Debug)]
-struct Budget {
-    tokens: usize,
-    capacity: usize,
-    per_second: usize,
-    refilled: Instant,
-}
-
-impl Budget {
-    fn new(capacity: usize, per_second: usize, now: Instant) -> Self {
-        Self {
-            tokens: capacity,
-            capacity,
-            per_second,
-            refilled: now,
-        }
-    }
-
-    /// Takes `bytes`, or `None` when the bucket holds fewer. The time a refill pays for is
-    /// moved forward exactly, so frequent calls lose no fraction of the rate.
-    fn take(&mut self, bytes: usize, now: Instant) -> Option<()> {
-        const NANOS: u128 = 1_000_000_000;
-        let rate = u128::try_from(self.per_second).unwrap_or(u128::MAX).max(1);
-        let elapsed = now.saturating_duration_since(self.refilled).as_nanos();
-        let earned = rate.saturating_mul(elapsed) / NANOS;
-        if self.tokens >= self.capacity
-            || earned >= u128::try_from(self.capacity).unwrap_or(u128::MAX)
-        {
-            self.tokens = self.capacity;
-            self.refilled = now;
-        } else if earned > 0 {
-            let paid =
-                Duration::from_nanos(u64::try_from(earned * NANOS / rate).unwrap_or(u64::MAX));
-            self.tokens = self
-                .tokens
-                .saturating_add(usize::try_from(earned).unwrap_or(usize::MAX))
-                .min(self.capacity);
-            self.refilled = self.refilled.checked_add(paid).unwrap_or(now);
-        }
-        self.tokens = self.tokens.checked_sub(bytes)?;
-        Some(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_budget_refills_at_its_rate_up_to_its_capacity() {
-        let start = clock::now();
-        let mut budget = Budget::new(1000, 250, start);
-        assert_eq!(budget.take(1000, start), Some(()));
-        assert_eq!(budget.take(1, start), None);
-        assert_eq!(budget.take(250, start + Duration::from_secs(1)), Some(()));
-        assert_eq!(budget.take(1, start + Duration::from_secs(1)), None);
-        assert_eq!(
-            budget.take(1000, start + Duration::from_secs(100)),
-            Some(())
-        );
-        assert_eq!(budget.take(1, start + Duration::from_secs(100)), None);
-    }
 }

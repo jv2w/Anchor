@@ -15,6 +15,9 @@
 // Test-only crate: its helpers are test code too (clippy `allow-*-in-tests`).
 #![cfg(test)]
 
+#[path = "support/bot.rs"]
+mod bot;
+
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -44,29 +47,6 @@ const KID: &str = "p5-key";
 /// The directory for this test binary's files.
 fn work_dir() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join("p5")
-}
-
-/// Builds the bot once per test process. Fails the test if Go is missing.
-fn bot() -> &'static Path {
-    static BOT: OnceLock<PathBuf> = OnceLock::new();
-    BOT.get_or_init(|| {
-        let dir = work_dir();
-        create_dir(&dir);
-        let exe = dir.join(format!("bot{}", std::env::consts::EXE_SUFFIX));
-        let output = Command::new("go")
-            .args(["build", "-o"])
-            .arg(&exe)
-            .arg("./bot")
-            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("go"))
-            .output()
-            .unwrap_or_else(|e| panic!("cannot run `go` (P5 needs Go on PATH): {e}"));
-        assert!(
-            output.status.success(),
-            "go build ./bot failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        exe
-    })
 }
 
 /// The addresses the starting server logs, one line per opened address (`listening …
@@ -423,7 +403,7 @@ fn config(compression: Compression) -> Config {
 /// The bot command for `scenario` against `server`, writing `<name>.jsonl`. Later flags in
 /// `extra` override the defaults.
 fn bot_command(server: &Running, scenario: &str, name: &str, extra: &[&str]) -> Command {
-    let mut command = Command::new(bot());
+    let mut command = Command::new(bot::binary(&work_dir()));
     command
         .args([
             "-addr",
@@ -520,7 +500,7 @@ fn the_jigsaw_and_biome_data_sent_equal_the_cloudburst_data() {
     let server = Running::start(name, config(Compression::Snappy), &data_dir(name));
     play(&server, "spawn", name, &[]);
     server.stop();
-    let output = Command::new(bot())
+    let output = Command::new(bot::binary(&work_dir()))
         .arg("cloudburst")
         .arg("-world")
         .arg(work_dir().join(format!("{name}.world.jsonl")))
@@ -593,7 +573,7 @@ fn a_six_mib_login_spawns() {
 #[test]
 fn a_test_issuer_token_logs_in_online() {
     let dir = data_dir("online");
-    let output = Command::new(bot())
+    let output = Command::new(bot::binary(&work_dir()))
         .args(["issuer", "-dir"])
         .arg(&dir)
         .args(["-kid", KID, "-iss", ISSUER])

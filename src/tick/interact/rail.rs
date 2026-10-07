@@ -46,6 +46,13 @@ const CURVES: [[Link; 2]; 4] = [
     [flat(Face::North), flat(Face::East)],
 ];
 
+/// The face a rail of shape `direction` (`rail_direction`) climbs toward; `None` for a flat
+/// shape.
+pub(in crate::tick) fn ascent(direction: i32) -> Option<Face> {
+    let links = STRAIGHT.get(usize::try_from(direction).ok()?)?;
+    links.iter().find(|l| l.ascend).map(|l| l.face)
+}
+
 /// Whether the rail can curve (PMMP `Rail`; powered, detector and activator rails cannot).
 fn curves(state: State) -> bool {
     state.is(Class::Rail)

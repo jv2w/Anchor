@@ -459,8 +459,8 @@ impl Player {
         self.identity.address
     }
 
-    /// The port the client connected from; 0 when unknown (a replay of an input log older than
-    /// format 9).
+    /// The port the client connected from; 0 only for a player made without a connection
+    /// (tests).
     #[doc(alias = "NetworkSession::getPort")]
     pub fn port(&self) -> u16 {
         self.identity.client.port

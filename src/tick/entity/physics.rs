@@ -14,6 +14,7 @@
 use super::EPSILON;
 use super::kind::Physics;
 use crate::block::{self, Class, Face};
+use crate::event::DamageCause;
 use crate::math::{self, Aabb, Vec3, max};
 use crate::random::Random;
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
@@ -23,7 +24,7 @@ pub(in crate::tick) const MOTION_THRESHOLD: f64 = 0.000_01;
 /// What `y_size` keeps of itself per move (PMMP `STEP_CLIP_MULTIPLIER`).
 const STEP_CLIP_MULTIPLIER: f64 = 0.4;
 /// The inset of the block cells an entity is inside (PMMP `getBlocksAroundWithEntityInsideActions`).
-const INSIDE_INSET: f64 = 0.001;
+pub(in crate::tick) const INSIDE_INSET: f64 = 0.001;
 /// The push of flowing liquid per tick (PMMP `checkBlockIntersections`).
 const CURRENT: f64 = 0.014;
 /// The largest speed component an entity keeps, in blocks per tick: falling reaches 2 (gravity
@@ -82,17 +83,104 @@ impl Body {
 /// these change health and fire, which the kind rules decide on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Inside {
-    /// Fire or soul fire at this block: damage, then burning for 8 seconds.
-    Fire(u8, BlockPos),
-    /// Lava, in a block or a cauldron at this block: 4 damage, then burning for 8 seconds.
-    Lava(BlockPos),
-    /// A cactus at this block: 1 contact damage.
-    Cactus(BlockPos),
+    /// A block at this position that hurts ([`Harm`]).
+    Harm(Harm, BlockPos),
     /// Water, in a block or (`cauldron`) a cauldron: puts the fire out.
     Water {
         /// In a water cauldron.
         cauldron: bool,
     },
+}
+
+/// How a block hurts what is inside it (PMMP `onEntityInside`): the one rule for players and
+/// entities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::tick) enum Harm {
+    /// Fire (1) or soul fire (2) fire damage, then burning.
+    Fire(u8),
+    /// Lava, in a block or (`cauldron`) a cauldron: 4 lava damage, then burning; lava in a block
+    /// ends the fall.
+    Lava {
+        /// In a lava cauldron.
+        cauldron: bool,
+    },
+    /// A lit campfire (1) or soul campfire (2): fire damage to a living thing.
+    Campfire(u8),
+    /// Magma: 1 fire damage to a living thing that neither sneaks nor wears Frost Walker.
+    Magma,
+    /// A cactus: 1 contact damage.
+    Cactus,
+    /// A sweet berry bush past its first stage: 1 contact damage to a living thing, whose fall
+    /// ends.
+    BerryBush,
+}
+
+impl Harm {
+    /// How `block` hurts what is inside it, `None` if it does not.
+    pub(in crate::tick) fn of(block: block::State) -> Option<Self> {
+        let int = |name: &str| match block.value(name) {
+            Some(block::PropertyValue::Int(v)) => v,
+            Some(block::PropertyValue::Byte(v)) => i32::from(v),
+            _ => 0,
+        };
+        if block.is(Class::BaseFire) {
+            Some(Self::Fire(if block.is(Class::SoulFire) { 2 } else { 1 }))
+        } else if block.is(Class::Lava) || block.is(Class::LavaCauldron) {
+            Some(Self::Lava {
+                cauldron: block.is(Class::LavaCauldron),
+            })
+        } else if block.is(Class::Campfire) {
+            let soul = block.is(Class::SoulCampfire);
+            (int("extinguished") == 0).then_some(Self::Campfire(if soul { 2 } else { 1 }))
+        } else if block.is(Class::Magma) {
+            Some(Self::Magma)
+        } else if block.is(Class::Cactus) {
+            Some(Self::Cactus)
+        } else if block.is(Class::SweetBerryBush) {
+            (int("growth") >= 1).then_some(Self::BerryBush)
+        } else {
+            None
+        }
+    }
+
+    /// The damage it deals.
+    pub(in crate::tick) fn damage(self) -> f64 {
+        match self {
+            Self::Fire(d) | Self::Campfire(d) => f64::from(d),
+            Self::Lava { .. } => 4.0,
+            Self::Magma | Self::Cactus | Self::BerryBush => 1.0,
+        }
+    }
+
+    /// The cause of its damage.
+    pub(in crate::tick) fn cause(self) -> DamageCause {
+        match self {
+            Self::Fire(_) | Self::Campfire(_) | Self::Magma => DamageCause::Fire,
+            Self::Lava { .. } => DamageCause::Lava,
+            Self::Cactus | Self::BerryBush => DamageCause::Contact,
+        }
+    }
+
+    /// The seconds it then sets on fire for (PMMP `EntityCombustByBlockEvent` of 8), if it does.
+    pub(in crate::tick) fn burn_secs(self) -> Option<u8> {
+        matches!(self, Self::Fire(_) | Self::Lava { .. }).then_some(8)
+    }
+
+    /// Whether only living things take it (PMMP checks `instanceof Living`); fire, lava and
+    /// cactus hurt everything.
+    pub(in crate::tick) fn living_only(self) -> bool {
+        matches!(self, Self::Campfire(_) | Self::Magma | Self::BerryBush)
+    }
+
+    /// Whether sneaking or Frost Walker spares a living thing (PMMP `Magma::onEntityInside`).
+    pub(in crate::tick) fn spared_by_sneaking(self) -> bool {
+        self == Self::Magma
+    }
+
+    /// Whether it ends the fall of what it hurts.
+    pub(in crate::tick) fn ends_fall(self) -> bool {
+        matches!(self, Self::Lava { cauldron: false } | Self::BerryBush)
+    }
 }
 
 /// The input of one entity's step.
@@ -571,15 +659,28 @@ pub(super) fn intercept(b: Aabb, from: Vec3, to: Vec3) -> Option<(Vec3, Face)> {
     best.map(|(v, f, _)| (v, f))
 }
 
-/// Visits the cells the segment `start`–`end` passes, from the cell of `start`, each one step on
-/// one axis from the last, crossing corners z, then y, then x first (PMMP
-/// `VoxelRayTrace::betweenPoints`), until `visit` returns true; at most [`MAX_RAY_CELLS`].
-pub(super) fn cells(start: Vec3, end: Vec3, mut visit: impl FnMut(i32, i32, i32) -> bool) {
+/// Visits the cells the segment `start`–`end` passes ([`cells_along`]); at most
+/// [`MAX_RAY_CELLS`].
+pub(super) fn cells(start: Vec3, end: Vec3, visit: impl FnMut(i32, i32, i32) -> bool) {
     let length = start.distance_squared(end).sqrt();
     if !(length > 0.0 && length.is_finite()) {
         return;
     }
     let d = (end - start) * (1.0 / length);
+    cells_along(start, d, length, MAX_RAY_CELLS, visit);
+}
+
+/// Visits the cells a ray from `start` along the unit vector `d` passes within `length` blocks,
+/// from the cell of `start`, each one step on one axis from the last, crossing corners z, then
+/// y, then x first (PMMP `VoxelRayTrace::betweenPoints`), until `visit` returns true; at most
+/// `cap` cells.
+pub(in crate::tick) fn cells_along(
+    start: Vec3,
+    d: Vec3,
+    length: f64,
+    cap: usize,
+    mut visit: impl FnMut(i32, i32, i32) -> bool,
+) {
     let sign = |c: f64| {
         if c > 0.0 {
             1
@@ -602,7 +703,7 @@ pub(super) fn cells(start: Vec3, end: Vec3, mut visit: impl FnMut(i32, i32, i32)
         mut y,
         mut z,
     } = BlockPos::containing(start);
-    for _ in 0..MAX_RAY_CELLS {
+    for _ in 0..cap {
         if visit(x, y, z) {
             return;
         }
@@ -682,17 +783,13 @@ fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec
                     continue;
                 }
                 let pos = BlockPos::new(x, y, z);
-                if state.is(Class::Fire) {
-                    inside.push(Inside::Fire(1, pos));
-                } else if state.is(Class::SoulFire) {
-                    inside.push(Inside::Fire(2, pos));
-                } else if state.is(Class::Lava) {
-                    inside.push(Inside::Lava(pos));
-                    body.fall_distance = 0.0;
-                } else if state.is(Class::LavaCauldron) {
-                    inside.push(Inside::Lava(pos));
-                } else if state.is(Class::Cactus) {
-                    inside.push(Inside::Cactus(pos));
+                if let Some(harm) = Harm::of(state) {
+                    inside.push(Inside::Harm(harm, pos));
+                    // What ends the fall of everything ends it here; a living thing's, in the
+                    // serial phase, which knows what is living.
+                    if harm.ends_fall() && !harm.living_only() {
+                        body.fall_distance = 0.0;
+                    }
                 } else if state.is(Class::Water) {
                     inside.push(Inside::Water { cauldron: false });
                     body.fall_distance = 0.0;
@@ -716,13 +813,20 @@ fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec
     }
 }
 
-/// A liquid state's decay and whether it falls (Bedrock `liquid_depth`: decay in the low three
-/// bits, falling in bit 3).
+/// A liquid state's decay and whether it falls (Bedrock `liquid_depth`, an int or a byte: decay
+/// in the low three bits, falling in bit 3); `None` without the property.
+pub(in crate::tick) fn liquid_depth(state: block::State) -> Option<(i32, bool)> {
+    let d = match state.value("liquid_depth")? {
+        block::PropertyValue::Int(d) => d,
+        block::PropertyValue::Byte(d) => i32::from(d),
+        block::PropertyValue::String(_) => return None,
+    };
+    Some((d & 7, d & 8 != 0))
+}
+
+/// [`liquid_depth`], a still source without the property.
 fn depth(state: block::State) -> (i32, bool) {
-    match state.value("liquid_depth") {
-        Some(block::PropertyValue::Int(d)) => (d & 7, d & 8 != 0),
-        _ => (0, false),
-    }
+    liquid_depth(state).unwrap_or((0, false))
 }
 
 /// Whether two liquid states are the same liquid (PMMP `hasSameTypeId`: still and flowing
@@ -990,13 +1094,25 @@ pub(super) mod tests {
         };
         let inside = |x: f64| step(&w, &input(at(x), item_physics()));
         let cell = |x: i32| BlockPos::new(x, -60, 0);
-        assert_eq!(inside(0.0).inside, vec![Inside::Fire(1, cell(0))]);
+        assert_eq!(
+            inside(0.0).inside,
+            vec![Inside::Harm(Harm::Fire(1), cell(0))]
+        );
         let lava = inside(2.0);
-        assert_eq!(lava.inside, vec![Inside::Lava(cell(2))]);
+        assert_eq!(
+            lava.inside,
+            vec![Inside::Harm(Harm::Lava { cauldron: false }, cell(2))]
+        );
         assert_eq!(lava.body.fall_distance, 0.0);
-        assert_eq!(inside(4.0).inside, vec![Inside::Cactus(cell(4))]);
+        assert_eq!(
+            inside(4.0).inside,
+            vec![Inside::Harm(Harm::Cactus, cell(4))]
+        );
         assert_eq!(inside(6.0).inside, vec![Inside::Water { cauldron: false }]);
-        assert_eq!(inside(8.0).inside, vec![Inside::Fire(2, cell(8))]);
+        assert_eq!(
+            inside(8.0).inside,
+            vec![Inside::Harm(Harm::Fire(2), cell(8))]
+        );
         assert!(inside(10.0).inside.is_empty());
     }
 

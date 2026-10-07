@@ -6,13 +6,13 @@
 //! registration order does).
 
 use super::ItemRef;
-use crate::crafting::{FurnaceType, ShapelessType};
+use crate::crafting::{self, FurnaceType, ShapelessType};
 use crate::item;
 
 /// The most rows and columns a shaped recipe has (the crafting table's 3x3).
-pub(crate) const MAX_SIDE: usize = 3;
+pub(crate) const MAX_SIDE: usize = crafting::GRID_CELLS.isqrt();
 /// The most ingredients a shapeless recipe has.
-pub(crate) const MAX_INGREDIENTS: usize = 9;
+pub(crate) const MAX_INGREDIENTS: usize = crafting::GRID_CELLS;
 /// The most result stacks a crafting recipe has.
 pub(crate) const MAX_RESULTS: usize = 9;
 

@@ -2,9 +2,11 @@
 //! client (active), SCTP client; the remote opens `ReliableDataChannel` and
 //! `UnreliableDataChannel`, and reliable messages travel as segments (`message`).
 //!
-//! Every call into str0m runs under `catch_unwind`: one driver task owns all peers, and a panic in
-//! str0m or its DTLS and SCTP crates must close only the peer that caused it. A
-//! peer that panicked is never touched again.
+//! Every call into str0m for a peer, from building its session on, runs under `catch_unwind`:
+//! one driver task owns all peers, and a panic in str0m or its DTLS and SCTP crates must close
+//! only the peer that caused it. Only the plain values str0m returns are read outside. A peer
+//! that panicked is never touched again. Dropping a peer needs no guard: str0m, str0m-proto,
+//! str0m-aws-lc-rs, dimpl and sctp-proto define no `Drop`, so dropping runs none of their code.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -42,7 +44,7 @@ const MAX_UNSENT: usize = 32 * 1024 * 1024;
 const PENDING_COST: usize = size_of::<Pending>();
 /// Largest datagram passed to str0m: an Ethernet MTU. Honest peers stay below it (pion sends
 /// SCTP at 1200 bytes and DTLS flights at its MTU); str0m itself reads up to 2000.
-const MAX_DATAGRAM: usize = 1500;
+pub(crate) const MAX_DATAGRAM: usize = 1500;
 /// From the peer's creation until both channels are open.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// Silence after which an open peer is dead. pion sends an ICE keepalive every 2 s and str0m
@@ -285,30 +287,32 @@ impl Peer {
             ice_pwd: ice_string::<PWD_LEN>()?,
             fingerprint: cert.fingerprint,
         };
-        let candidate = Candidate::host(local_addr, "udp").map_err(Error::Address)?;
-        let config = RtcConfig::new()
-            .set_crypto_provider(Arc::clone(&cert.provider))
-            // The default, kept explicit: DTLS 1.2 fixed.
-            .set_dtls_version(DtlsVersion::Dtls12)
-            .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER)
-            .set_stats_interval(Some(RTT_INTERVAL))
-            .set_dtls_cert(cert.dtls.clone())
-            .set_local_ice_credentials(IceCreds {
-                ufrag: local.ice_ufrag.clone(),
-                pass: local.ice_pwd.clone(),
-            });
+        let credentials = IceCreds {
+            ufrag: local.ice_ufrag.clone(),
+            pass: local.ice_pwd.clone(),
+        };
         let offer = str0m_offer(&remote);
-        let rtc = catch_unwind(AssertUnwindSafe(move || {
-            let mut rtc = config.build(now);
+        let rtc = catch_unwind(AssertUnwindSafe(move || -> Result<Rtc> {
+            let candidate = Candidate::host(local_addr, "udp").map_err(Error::Address)?;
+            let mut rtc = RtcConfig::new()
+                .set_crypto_provider(Arc::clone(&cert.provider))
+                // The default, kept explicit: DTLS 1.2 fixed.
+                .set_dtls_version(DtlsVersion::Dtls12)
+                .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER)
+                .set_stats_interval(Some(RTT_INTERVAL))
+                .set_dtls_cert(cert.dtls.clone())
+                .set_local_ice_credentials(credentials)
+                .build(now);
             rtc.add_local_candidate(candidate);
-            let offer = SdpOffer::from_sdp_string(&offer).map_err(RtcError::Sdp)?;
+            let offer =
+                SdpOffer::from_sdp_string(&offer).map_err(|e| Error::Webrtc(RtcError::Sdp(e)))?;
             // Only str0m reads its answer; the client gets the BDS-shaped one from `sdp`.
             #[expect(
                 clippy::disallowed_methods,
                 reason = "consistency: the SDP API is str0m's only way to learn the remote \
                           max-message-size; its answer is never sent"
             )]
-            let answer = rtc.sdp_api().accept_offer(offer)?;
+            let answer = rtc.sdp_api().accept_offer(offer).map_err(Error::Webrtc)?;
             drop(answer);
             for addr in remote.candidates {
                 match Candidate::host(addr, "udp") {
@@ -318,8 +322,7 @@ impl Peer {
             }
             Ok(rtc)
         }))
-        .map_err(|_| Error::Panicked)?
-        .map_err(Error::Webrtc)?;
+        .map_err(|_| Error::Panicked)??;
         Ok(Self {
             rtc,
             local,
@@ -848,6 +851,7 @@ fn ice_string<const N: usize>() -> Result<String> {
 pub(in crate::nethernet) mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
+    use str0m::change::SdpAnswer;
     use str0m::config::Fingerprint;
     use str0m::{DATAGRAM_MTU_TARGET, DATAGRAM_MTU_TARGET_MIN, DATAGRAM_MTU_WARN};
 
@@ -948,6 +952,71 @@ pub(in crate::nethernet) mod tests {
                 timeout: now,
             };
             (client, remote)
+        }
+
+        /// A client on str0m's SDP API, as a WebRTC client negotiates: its offer reaches a new
+        /// peer through [`sdp::parse_offer`], and it takes the answer [`sdp::write_answer`]
+        /// makes, so it sends messages up to the answer's `max-message-size`.
+        fn over_sdp(server: &Certificate, cert: &Certificate, now: Instant) -> (Self, Peer) {
+            let mut rtc = RtcConfig::new()
+                .set_crypto_provider(Arc::clone(&cert.provider))
+                .set_dtls_cert(cert.dtls.clone())
+                .set_sctp_max_buffered_amount(SCTP_SEND_BUFFER)
+                .build(now);
+            rtc.add_local_candidate(Candidate::host(CLIENT, "udp").unwrap());
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "consistency: the test client negotiates by SDP, as a WebRTC client does"
+            )]
+            let mut api = rtc.sdp_api();
+            let channels = vec![
+                api.add_channel_with_config(reliable()),
+                api.add_channel_with_config(unreliable()),
+            ];
+            let (offer, pending) = api.apply().unwrap();
+            let offer = offer.to_sdp_string();
+            let parsed = sdp::parse_offer(&offer).unwrap();
+            let remote = Remote {
+                ice_ufrag: parsed.ice_ufrag,
+                ice_pwd: parsed.ice_pwd,
+                fingerprint: parsed.fingerprint.bytes,
+                candidates: parsed.candidates.iter().map(|c| c.addr).collect(),
+                max_message_size: parsed.max_message_size,
+            };
+            let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE, now).unwrap();
+            let local = peer.local();
+            let answer = sdp::write_answer(&sdp::Answer {
+                session_id: 1,
+                identity: "SUQ=",
+                addr: SERVER,
+                ice_ufrag: &local.ice_ufrag,
+                ice_pwd: &local.ice_pwd,
+                fingerprint: &sdp::fingerprint_text(&local.fingerprint),
+            });
+            // str0m names its media section at random; a NetherNet client names it 0.
+            let mid = offer
+                .lines()
+                .find_map(|line| line.strip_prefix("a=mid:"))
+                .unwrap();
+            let answer = answer
+                .replace("a=group:BUNDLE 0\r\n", &format!("a=group:BUNDLE {mid}\r\n"))
+                .replace("a=mid:0\r\n", &format!("a=mid:{mid}\r\n"));
+            let answer = SdpAnswer::from_sdp_string(&answer).unwrap();
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "consistency: the test client negotiates by SDP, as a WebRTC client does"
+            )]
+            rtc.sdp_api().accept_answer(pending, answer).unwrap();
+            let client = Self {
+                rtc,
+                channels,
+                open: Vec::new(),
+                reassembler: Reassembler::new(MAX_MESSAGE),
+                received: Vec::new(),
+                outbound: VecDeque::new(),
+                timeout: now,
+            };
+            (client, peer)
         }
 
         /// Takes the peer's answer, `local` at `server`, and asks for `channels`.
@@ -1145,6 +1214,11 @@ pub(in crate::nethernet) mod tests {
             let (mut client, remote) = Client::new(client, CLIENT, client_mtu, fingerprint, now);
             let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE, now).unwrap();
             client.answer(peer.local(), CLIENT, SERVER, channels);
+            Self::joined(peer, client, now)
+        }
+
+        /// A harness for a peer and a client that already know each other's description.
+        fn joined(peer: Peer, client: Client, now: Instant) -> Self {
             Self {
                 now,
                 peer,
@@ -1534,6 +1608,28 @@ pub(in crate::nethernet) mod tests {
             h.closed
         );
         assert_eq!(h.client.received.pop().unwrap(), down);
+    }
+
+    /// The `max-message-size` the answer advertises is one str0m receives: a client that sends
+    /// a data channel message of that size is heard.
+    #[test]
+    fn a_message_of_the_advertised_max_message_size_is_received() {
+        let (server, client) = certificates();
+        let now = crate::clock::now();
+        let (client, peer) = Client::over_sdp(&server, &client, now);
+        let mut h = Harness::joined(peer, client, now);
+        h.open();
+        let size = usize::try_from(sdp::MAX_MESSAGE_SIZE).unwrap();
+        let up = pattern(size - 1, 5);
+        let mut segment = vec![0];
+        segment.extend_from_slice(&up);
+        h.client.outbound.push_back(segment);
+        assert!(
+            h.run(Duration::from_secs(10), |h| !h.received.is_empty()),
+            "a {size} byte message did not arrive: {:?}",
+            h.closed
+        );
+        assert_eq!(h.received.pop().unwrap(), up);
     }
 
     #[test]

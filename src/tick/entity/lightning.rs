@@ -28,7 +28,7 @@ use crate::protocol::{EntityMetadata, MetadataValue};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::tick::queue::SessionId;
-use crate::tick::{MAX_OUTBOX, State, survival, world_api};
+use crate::tick::{State, survival, world_api};
 use crate::world::{BlockPos, Lightning};
 
 /// The entity type of a bolt.
@@ -114,8 +114,8 @@ pub(super) fn strike(state: &mut State, world: WorldIndex, at: Vec3, lightning: 
 }
 
 /// Sends the bolt and its sounds to the players who see the chunk of `at` and keeps it for its
-/// removal. A player whose outbox is nearly full is skipped, as for sounds and particles
-/// ([`world_api::EFFECT_RESERVE`]).
+/// removal. A player whose outbox is nearly full is skipped, as for what every viewer gets
+/// (`Player::has_viewer_room`).
 fn show(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
     let position = at.to_f32();
     let unique = runtime_id.cast_signed();
@@ -148,10 +148,9 @@ fn show(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
         sound(SoundEvent::Explode),
     ];
     let chunk = chunk_of(at);
-    let room = MAX_OUTBOX - world_api::EFFECT_RESERVE;
     let mut viewers = BTreeSet::new();
     for (&session, p) in &mut state.players {
-        if p.world == world && p.view.sees(chunk) && p.outbox.len() < room {
+        if p.world == world && p.view.sees(chunk) && p.has_viewer_room() {
             for packet in &packets {
                 p.send_packet(packet.clone());
             }

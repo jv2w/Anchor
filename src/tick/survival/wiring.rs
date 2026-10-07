@@ -256,6 +256,29 @@ fn a_melee_hit_names_its_attacker_and_its_knockback_can_change() {
     assert_eq!(motion.map(|v| (v[1], v[2] > 1.9)), Some((0.4, true)));
 }
 
+/// What one client does in a tick cannot fill another player's outbox and disconnect it: the
+/// swings and hit sounds of more attacks than an outbox holds leave the target connected.
+#[test]
+fn many_attacks_in_one_tick_leave_the_target_connected() {
+    let mut game = Game::new(2, Listeners::default());
+    let attack = Packet::InventoryTransaction(p::InventoryTransaction {
+        transaction_data: crate::protocol::InventoryTransactionData::UseItemOnEntity(Box::new(
+            crate::protocol::UseItemOnEntityTransactionData {
+                target_entity_runtime_id: 2,
+                action_type: crate::protocol::consts::UseItemOnEntityAction::Attack.into(),
+                ..Default::default()
+            },
+        )),
+        ..Default::default()
+    });
+    let inputs = (0..=crate::tick::MAX_OUTBOX)
+        .map(|_| game.send(1, attack.clone()))
+        .collect();
+    game.run(inputs);
+    assert!(game.state.players.contains_key(&sid(2)));
+    assert_eq!(game.closed(2).1, None);
+}
+
 // pmmp: EntityDamageEvent
 #[test]
 fn a_listener_that_makes_the_victim_creative_cancels_the_hit() {

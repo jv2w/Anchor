@@ -172,12 +172,12 @@ gen이 규칙 해석기와 같은 코드로 스키마를 검사하므로 규칙�
 
 | 폴더 | 원본 | 고정 | 읽는 명령 |
 |---|---|---|---|
-| `pmmp` | `https://github.com/pmmp/PocketMine-MP.git` | `6a7cc02e9dff59b69241aa0bcffdb9903ce86beb` + `vendor/`(`composer.lock`) | `dump`, PHP 스크립트 전부 |
-| `dragonfly` | `https://github.com/df-mc/dragonfly.git` | `4c7b5074be94fa83a1cd98e9c752083ad04a6e21` | `dump` |
-| `cloudburst-data` | `https://github.com/CloudburstMC/Data.git` | `659ce1e2eee3a67045693f4fd5515c6ccf571953` | `dump`, `p6`(바이옴·jigsaw 대조), `xtask/tests/spawn.rs`(없으면 건너뜀) |
-| `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | `475bd72ed89036af4eb18426774ef3b953de7603` | `dump`(필드 상한) |
-| `block-upgrade-schema` | `https://github.com/pmmp/BedrockBlockUpgradeSchema.git` | `4e874a162c4d41a9db7df72980e97849d6942d5d` | `dump` |
-| `item-upgrade-schema` | `https://github.com/pmmp/BedrockItemUpgradeSchema.git` | `7f551f625fee3be0c8d33be1fee295c7ec6a277e` | `dump` |
+| `pmmp` | `https://github.com/pmmp/PocketMine-MP.git` | 출처 표의 커밋 + `vendor/`(`composer.lock`) | `dump`, PHP 스크립트 전부 |
+| `dragonfly` | `https://github.com/df-mc/dragonfly.git` | 출처 표의 커밋 | `dump` |
+| `cloudburst-data` | `https://github.com/CloudburstMC/Data.git` | 출처 표의 커밋 | `dump`, `p6`(바이옴·jigsaw 대조), `xtask/tests/spawn.rs`(없으면 건너뜀) |
+| `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | 출처 표의 커밋 | `dump`(필드 상한) |
+| `block-upgrade-schema` | `https://github.com/pmmp/BedrockBlockUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
+| `item-upgrade-schema` | `https://github.com/pmmp/BedrockItemUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
 | `php-pm5/bin/php/php.exe` | pmmp/PHP-Binaries 릴리스 php-build-524, PHP 8.4 PM5 Windows x64 | zip `cf4023b8…9be4`(위 표), `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c`(PHP 8.4.16 ZTS) | `dump`, PHP 스크립트 |
 | `bds/1.26.52.3/` | minecraft.net Bedrock Dedicated Server, Windows 1.26.52.3 | `bedrock_server.exe` `19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443` | `p6 bds`, `p6 game bds`, `p6 api bds`, `p6 import` |
 | `tools/strawberry-perl-5.42.3.1/` | StrawberryPerl GitHub 릴리스 SP_54231_64bit, portable zip | zip `6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690`, `perl/bin/perl.exe` `d4fa3a6ebe78f5f60e185cf7d7809a7dd8c541739ca4a7bc8687c75548473f42` | `verify`의 dimpl 사본 시험(OpenSSL 소스 빌드) |

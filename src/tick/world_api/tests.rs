@@ -9,7 +9,7 @@ use crate::event::Listeners;
 use crate::protocol::packet::{LevelEvent as LevelEventPacket, Packet as P};
 use crate::tick::queue::Outbound;
 use crate::tick::tests::{initialised, join, new_state, radius, received, settings, tick};
-use crate::tick::{Output, SessionId, Setup, Shared};
+use crate::tick::{MAX_OUTBOX, Output, SessionId, Setup, Shared};
 use crate::world::{BlockPos, ChunkPos, Flat, Generator, Kind};
 
 const WORLD: world::Id = world::Id::DEFAULT;

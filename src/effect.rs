@@ -60,6 +60,9 @@ impl PotionData {
 /// int).
 pub const MAX_DURATION: u32 = i32::MAX.cast_unsigned();
 
+/// The number of effect types ([`Type::all`]).
+pub(crate) const TYPE_COUNT: usize = table::TYPES.len();
+
 /// An effect with its duration and strength, as a potion or food gives it (PMMP
 /// `EffectInstance`). A `Copy` value: the `with_*` methods return a changed copy (PMMP's setters
 /// change the object in place).

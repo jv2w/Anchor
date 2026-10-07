@@ -12,7 +12,7 @@
 //! is split into a check that only reads and an apply step; its event goes between them, and the
 //! actions in [`crate::action`] run the same rules.
 
-mod book;
+pub(super) mod book;
 pub(super) mod breaking;
 mod custom;
 mod decor;
@@ -21,15 +21,17 @@ mod inert;
 mod place;
 pub(super) mod props;
 mod rail;
-mod sign;
+pub(super) mod sign;
 mod using;
 
 pub(super) use book::on_book_edit;
 pub(super) use custom::random_tick;
+pub(super) use rail::ascent as rail_ascent;
 
 use tracing::debug;
 
-use super::view::chunk_of;
+use super::survival::EYE_HEIGHT;
+use super::view::{UPDATE_FLAGS, chunk_of};
 use super::{Context, Phase, Player, SessionId, State, dispatch, entity, inventory, survival};
 use crate::action;
 use crate::block::{self, Class, Face, Kind, TypeTag};
@@ -38,7 +40,8 @@ use crate::event::{BlockBreak, ExhaustCause, InteractAction, PlayerInteract};
 use crate::item::{self, Enchantment, Stack};
 use crate::math::{self, Vec3};
 use crate::protocol::consts::{
-    LevelEvent as Event, PlayerAction, ReleaseItemAction, UseItemAction, UseItemOnEntityAction,
+    InventoryActionSource, LevelEvent as Event, PlayerAction, ReleaseItemAction, UseItemAction,
+    UseItemOnEntityAction,
 };
 use crate::protocol::packet::{
     BlockActorData, InventoryTransaction, LevelEvent, OpenSign, Packet, PlayerAuthInput,
@@ -314,9 +317,10 @@ struct Actor {
 }
 
 impl Actor {
-    /// Whether items and blocks are used up (PMMP `hasFiniteResources`: survival, adventure).
+    /// Whether items and blocks are used up (PMMP `Player::hasFiniteResources`: every mode but
+    /// creative).
     fn finite(&self) -> bool {
-        matches!(self.mode, GameMode::Survival | GameMode::Adventure)
+        self.mode != GameMode::Creative
     }
 
     /// The reach for blocks.
@@ -340,11 +344,7 @@ impl Actor {
 
     /// PMMP `Player::canInteract`: within `max` blocks of the eyes and not behind the player.
     fn can_interact(&self, target: Vec3, max: f64) -> bool {
-        if self.eye.distance_squared(target) > max * max {
-            return false;
-        }
-        let dir = self.look;
-        dir.dot(target) - dir.dot(self.eye) >= -(3.0_f64.sqrt() / 2.0)
+        survival::can_interact(self.eye, self.look, target, max)
     }
 }
 
@@ -367,9 +367,6 @@ fn actor(state: &State, session: SessionId) -> Option<Actor> {
         sneak_pressed: survival::is_sneak_pressed(player),
     })
 }
-
-/// The eye height of a player (PMMP `Human` size 1.8, eyes at 1.62).
-const EYE_HEIGHT: f64 = 1.62;
 
 /// The centre of a block.
 fn center(pos: BlockPos) -> Vec3 {
@@ -465,18 +462,19 @@ fn legacy_drop(
     session: SessionId,
     actions: &[crate::protocol::InventoryAction],
 ) {
-    /// PMMP `NetworkInventoryAction::SOURCE_CONTAINER`, `SOURCE_WORLD`, `ACTION_MAGIC_SLOT_DROP_ITEM`.
-    const SOURCE_CONTAINER: u32 = 0;
-    const SOURCE_WORLD: u32 = 2;
+    /// PMMP `NetworkInventoryAction::ACTION_MAGIC_SLOT_DROP_ITEM`.
     const DROP_SLOT: u32 = 0;
     if actor(state, session).is_none() || actions.len() != 2 {
         return;
     }
     let (mut slot, mut client, mut count) = (None, None, None);
     for a in actions {
-        if a.source_type == SOURCE_WORLD && a.inventory_slot == DROP_SLOT {
+        if a.source_type == u32::from(InventoryActionSource::World) && a.inventory_slot == DROP_SLOT
+        {
             count = u8::try_from(a.new_item.stack.count).ok().filter(|c| *c > 0);
-        } else if a.source_type == SOURCE_CONTAINER && a.window_id == Some(0) {
+        } else if a.source_type == u32::from(InventoryActionSource::Container)
+            && a.window_id == Some(0)
+        {
             slot = u8::try_from(a.inventory_slot).ok();
             client = Some(&a.old_item.stack);
         } else {
@@ -546,9 +544,7 @@ pub(super) fn on_block_actor_data(state: &mut State, session: SessionId, packet:
     };
     let mut event = None;
     if dispatch::heard::<crate::event::SignChange>(state) {
-        let Some(world) = crate::world::Id::new(actor.world) else {
-            return;
-        };
+        let world = crate::world::Id::of(actor.world);
         let old_text = if front {
             old.front.clone()
         } else {
@@ -761,9 +757,6 @@ fn resync(state: &mut State, session: SessionId, positions: &[BlockPos]) {
     }
 }
 
-/// `UpdateBlock` flags BDS sends (neighbours and network; the view sends block changes so).
-const UPDATE_FLAGS: u32 = 3;
-
 /// PMMP `syncBlocksNearby`: the blocks around a refused click or break, and around the block
 /// next to the clicked face (where a placement went).
 fn sync_nearby(state: &mut State, session: SessionId, pos: BlockPos, face: Option<Face>) {
@@ -785,13 +778,13 @@ fn sync_nearby(state: &mut State, session: SessionId, pos: BlockPos, face: Optio
 /// `SurvivalBlockBreakHandler::calculateBreakProgressPerTick`): on the ground, flying and under
 /// water as the survival rules track them, Aqua Affinity on the helmet, Haste and Mining Fatigue.
 fn conditions(state: &State, player: &Player) -> breaking::Conditions {
-    let helmet = &player.inventory.armor()[0];
+    let helmet = player.inventory.armor().get(item::ArmorSlot::Head.index());
     let level = |l: u32| u8::try_from(l).unwrap_or(u8::MAX);
     breaking::Conditions {
         on_ground: survival::is_on_ground(player),
         flying: survival::is_flying(player),
         underwater: survival::is_underwater(state, player),
-        aqua_affinity: drops::level(helmet, Enchantment::AquaAffinity) > 0,
+        aqua_affinity: helmet.is_some_and(|h| drops::level(h, Enchantment::AquaAffinity) > 0),
         haste: level(survival::haste_level(player)),
         fatigue: level(survival::mining_fatigue_level(player)),
     }
@@ -979,9 +972,7 @@ fn attack_block(state: &mut State, session: SessionId, pos: BlockPos, face: Face
     if let Hit::Block(block) = target
         && dispatch::heard::<PlayerInteract>(state)
     {
-        let Some(world) = crate::world::Id::new(actor.world) else {
-            return false;
-        };
+        let world = crate::world::Id::of(actor.world);
         let mut e = PlayerInteract {
             player: crate::player::Id::new(session),
             world,
@@ -1167,9 +1158,7 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
         stop_breaking(state, session);
         return false;
     };
-    let Some(world) = crate::world::Id::new(actor.world) else {
-        return false;
-    };
+    let world = crate::world::Id::of(actor.world);
     let mut e = BlockBreak {
         player: crate::player::Id::new(session),
         world,
@@ -1406,6 +1395,24 @@ fn return_items(state: &mut State, actor: &Actor, old: &Stack, new: Stack, retur
     }
 }
 
+/// The other half of the bed `bed` at `pos` (PMMP `Bed::getOtherHalf`): the head lies one block
+/// along the bed's facing from the foot; `None` unless a bed half of the other kind facing the
+/// same way is there.
+pub(super) fn bed_other_half(
+    world: &crate::world::World,
+    pos: BlockPos,
+    bed: block::State,
+) -> Option<(BlockPos, block::State)> {
+    let head = props::flag(bed, "head_piece_bit") == Some(true);
+    let facing = props::facing(bed)?;
+    let other = pos.step(if head { facing.opposite() } else { facing })?;
+    let state = world.block(other)?;
+    (state.is(Class::Bed)
+        && props::flag(state, "head_piece_bit") != Some(head)
+        && props::facing(state) == Some(facing))
+    .then_some((other, state))
+}
+
 /// The blocks a break takes together (PMMP `Block::getAffectedBlocks`): both halves of a bed,
 /// door, double plant or small dripleaf.
 fn affected_blocks(
@@ -1417,14 +1424,7 @@ fn affected_blocks(
     let upper = props::flag(block, "upper_block_bit") == Some(true);
     let vertical = pos.step(if upper { Face::Down } else { Face::Up });
     let second = if block.is(Class::Bed) {
-        let head = props::flag(block, "head_piece_bit") == Some(true);
-        let facing = props::facing(block);
-        let side = facing.map(|f| if head { f.opposite() } else { f });
-        other(side.and_then(|f| pos.step(f))).filter(|(_, s)| {
-            s.is(Class::Bed)
-                && props::flag(*s, "head_piece_bit") != Some(head)
-                && props::facing(*s) == facing
-        })
+        bed_other_half(world, pos, block)
     } else if block.is(Class::Door) || block.is(Class::SmallDripleaf) {
         other(vertical).filter(|(_, s)| s.kind() == block.kind())
     } else if block.is(Class::DoublePlant) {
@@ -1620,12 +1620,10 @@ fn drops_of(
     };
     match cause {
         Destroy::Player { session, tool } => {
-            let finite = state.players.get(session).is_some_and(|p| {
-                matches!(
-                    survival::game_mode(state, p),
-                    GameMode::Survival | GameMode::Adventure
-                )
-            });
+            let finite = state
+                .players
+                .get(session)
+                .is_some_and(|p| survival::game_mode(state, p) != GameMode::Creative);
             if finite {
                 let experience = state.settings.has_orbs();
                 for (p, s) in affected.iter().flatten() {

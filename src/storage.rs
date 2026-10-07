@@ -82,7 +82,7 @@ pub(crate) const RETRIES: usize = 3;
 /// redb's page cache. Loaded chunks live in the world, and the OS caches the file, so this only
 /// spares a system call for pages read again; redb's default of 1 GiB would mostly hold copies.
 const CACHE_BYTES: usize = 64 << 20;
-/// Most worlds [`Storage::worlds`] returns.
+/// Most world files `data/world/` may hold (`save::world_names` counts them).
 pub(crate) const MAX_WORLDS: usize = 1024;
 /// Most `access` values [`Storage::access`] returns: every list full.
 const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
@@ -212,7 +212,7 @@ pub(crate) enum Error {
     /// A record cannot be encoded: a field is invalid or it is larger than
     /// [`MAX_RECORD`](seal::MAX_RECORD).
     Encode(crate::protocol::Error),
-    /// [`Storage::worlds`] found more than [`MAX_WORLDS`] worlds.
+    /// `data/world/` holds more than [`MAX_WORLDS`] world files.
     TooManyWorlds,
     /// [`Storage::access`] found more values than the lists hold.
     TooManyAccessEntries,
@@ -260,7 +260,7 @@ impl fmt::Display for Error {
         match self {
             Self::Io(_) => f.write_str("data file i/o failed"),
             Self::InUse => f.write_str("another process has a data file open"),
-            Self::Database(_) => f.write_str("the world database failed"),
+            Self::Database(_) => f.write_str("a data file's database failed"),
             Self::DamagedFile(_) => f.write_str("a data file failed its integrity check"),
             Self::Checksum => f.write_str("a stored value does not match its checksum"),
             Self::Malformed(reason) => write!(f, "a stored value is malformed: {reason}"),
@@ -319,7 +319,6 @@ from_redb!(
     TableError,
     redb::StorageError,
     redb::CommitError,
-    redb::CompactionError,
     DatabaseError
 );
 
@@ -840,27 +839,26 @@ impl Replica {
         Ok(out)
     }
 
-    /// Every value of `table` (at most `max`), committed values in their place, in key order.
+    /// Every `access` value (at most `max`), committed values in their place, in key order.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: a replay reads the server file on its own thread"
     )]
-    fn all(&self, table: Table, written: usize, max: usize) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    fn access(&self, max: usize) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let txn = self.db.begin_read()?;
         let mut values = std::collections::BTreeMap::new();
-        if let Some(table) = open_read(&txn, table)? {
+        if let Some(table) = open_read(&txn, ACCESS)? {
             for entry in table.iter()?.take(max.saturating_add(1)) {
                 let (key, value) = entry?;
                 values.insert(key.value().to_vec(), value.value().to_vec());
             }
         }
-        if let Some(written) = self.overlay.get(written) {
-            for (key, value) in written {
-                match value {
-                    Some(v) => values.insert(key.clone(), v.clone()),
-                    None => values.remove(key),
-                };
-            }
+        let [_, _, _, _, written, _] = &self.overlay;
+        for (key, value) in written {
+            match value {
+                Some(v) => values.insert(key.clone(), v.clone()),
+                None => values.remove(key),
+            };
         }
         Ok(values.into_iter().collect())
     }
@@ -948,7 +946,8 @@ fn failed_start(world: &Path, backups: &Path, copy: PathBuf, start: StartBackup,
             error!(
                 backup = %copy.display(),
                 error = %restore,
-                "could not put the server file back; the backup holds its bytes"
+                file = %world.display(),
+                "could not put the data file back; the backup holds its bytes"
             );
         }
     } else {
@@ -959,7 +958,8 @@ fn failed_start(world: &Path, backups: &Path, copy: PathBuf, start: StartBackup,
         warn!(
             backup = %copy.display(),
             error = %error,
-            "server file did not open; its backup is kept"
+            file = %world.display(),
+            "a data file did not open; its backup is kept"
         );
     }
 }
@@ -1110,10 +1110,7 @@ impl Storage {
         let [meta] = <[_; 1]>::try_from(self.read(&[Key::Meta])?)
             .map_err(|_| Error::Malformed("one read gives one value"))?;
         if let Some(sealed) = meta? {
-            let version = seal::version(&sealed)?;
-            if version > FORMAT_VERSION {
-                return Err(Error::NewerFormat { version });
-            }
+            // A newer format fails as `NewerFormat` before the checksum (`seal`).
             unseal::<Meta>(META_KEY, &sealed)?;
         }
         Ok(())
@@ -1208,7 +1205,7 @@ impl Storage {
     )]
     pub(crate) fn access(&mut self) -> Result<Vec<(AccessKey, Vec<u8>)>> {
         if let Some(replica) = &self.replica {
-            let entries = replica.all(ACCESS, 4, MAX_ACCESS)?;
+            let entries = replica.access(MAX_ACCESS)?;
             if entries.len() > MAX_ACCESS {
                 return Err(Error::TooManyAccessEntries);
             }
@@ -1331,12 +1328,12 @@ impl Storage {
                 Ok(value) => return Ok(value),
                 Err(e) if failures < RETRIES => {
                     failures += 1;
-                    warn!(error = %e, retry = failures, "server file call failed; reopening the file");
+                    warn!(error = %e, retry = failures, "a data file call failed; reopening the file");
                     if let Some(backup) = self.backup.take() {
-                        error!(?backup, "backup stopped: the server file is reopened");
+                        error!(?backup, "backup stopped: a data file is reopened");
                     }
                     if let Some(check) = &mut self.check {
-                        check.stop("the server file was reopened after a failure".to_owned());
+                        check.stop("a data file was reopened after a failure".to_owned());
                     }
                     self.db = None;
                 }
@@ -3249,14 +3246,10 @@ pub(crate) mod tests {
         println!("file after every 10 of 50 commits of 1,000 rewritten chunks: {sizes:?}");
         let start = clock::now();
         storage.close().unwrap();
-        println!(
-            "close (compact): {:.1} ms, file {} bytes",
-            ms(start),
-            dir.world_len()
-        );
+        println!("close: {:.1} ms, file {} bytes", ms(start), dir.world_len());
         let start = clock::now();
         let mut storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
-        println!("open (backup, check, compact): {:.1} ms", ms(start));
+        println!("open (backup, check): {:.1} ms", ms(start));
         let start = clock::now();
         for batch in keys.chunks(64) {
             storage.read(batch).unwrap();
@@ -3301,7 +3294,7 @@ pub(crate) mod tests {
     /// Start and online backup costs by file size: `cargo test
     /// --release --lib storage::tests::measure_start_cost -- --ignored --nocapture`. Each world
     /// is terrain chunks committed by sub-chunk as the save thread writes them, 2,000 a commit,
-    /// until the file reaches the size; then it is closed (compacted) as at shutdown, and each
+    /// until the file reaches the size; then it is closed as at shutdown, and each
     /// part of the next start is timed alone, then the online backup.
     #[test]
     #[ignore = "measurement"]
@@ -3331,7 +3324,7 @@ pub(crate) mod tests {
             storage.close().unwrap();
             let size = dir.world_len();
             println!(
-                "  shutdown compact {:.0} ms, file {} MiB",
+                "  close as at shutdown {:.0} ms, file {} MiB",
                 ms(start),
                 size >> 20
             );
@@ -3373,7 +3366,7 @@ pub(crate) mod tests {
             let start = clock::now();
             let compacted = db.compact().unwrap();
             println!(
-                "  compact after a shutdown compact {:.0} ms (compacted: {compacted})",
+                "  compact (no start or stop does it) {:.0} ms (compacted: {compacted})",
                 ms(start)
             );
             drop(db);

@@ -87,12 +87,13 @@ paths:
 - 비활성 블록에는 왼쪽 클릭 `PlayerInteract`와 파티클 이벤트를 쏘지 않는다.
 - 블록 엔티티 안의 블록과 무늬도 원본을 보존한다. 모르는 화분 식물(`PlantBlock`)은 원본 그대로 두고, 비활성 블록이면 클라이언트에 그대로 보낸다. 모르는 배너 무늬 ID도 그대로 두고 보낸다.
 - 공개 API는 아는 블록과 무늬만 보인다.
+- Anchor가 타입으로 읽지 않는 블록 엔티티(`Kind::Other`)는 `id`가 있으면 저장 원본 그대로 클라이언트에 보낸다. 도자기, 피스톤 팔, 종처럼 클라이언트가 블록 엔티티로만 그리는 블록이 있다.
 - 블록 엔티티 안의 모르는 아이템은 뺀다. 뺀 것은 info 로그로 남긴다(슬롯 번호가 틀린 아이템은 warn).
 
 ## 업그레이드 스키마
 - 블록 상태 버전은 생성 상수 `BLOCK_STATE_VERSION` 하나만 쓴다.
 - 저장소 루트의 `0351`은 덤프가 따로 읽어 다른 블록 스키마 옆에 둔다.
-- 상태 버전 묶음의 첫 스키마는 이미 적용된 것으로 보고 건너뛴다. gen은 기준 상태 22,091개가 모두 그대로 돌아오는지 확인한다.
+- 상태 버전 묶음의 첫 스키마는 이미 적용된 것으로 보고 건너뛴다. gen은 기준 목록의 모든 상태가 그대로 돌아오는지 확인한다.
 - gen은 한 스키마에서 같은 ID가 이름 바꾸기와 평탄화에 함께 있는 것, 순서에 따라 결과가 달라지는 속성 이름 바꾸기, 127보다 큰 byte 값을 거부한다.
 - 모르는 레거시 meta는 원본 `{id, val}`을 알 수 없는 블록으로 보존한다.
 - 상태 버전이 가장 새 스키마보다 높으면 가장 새 버전의 상태로 보고 그 버전의 스키마를 적용한다.
@@ -101,11 +102,11 @@ paths:
 
 ## `.cache/` 다시 만들기
 - 빌드, 시험, `verify`는 커밋된 데이터만으로 돌게 한다(dimpl 사본 시험의 Perl만 예외).
-- 저장소 루트에서 이 순서로 다시 만든다. `<원본>`, `<커밋>`, sha256은 문서의 `.cache/` 표 값이다.
+- 저장소 루트에서 이 순서로 다시 만든다. `<원본>`과 sha256은 문서의 `.cache/` 표, `<커밋>`과 공식 서버 판은 출처 표 값이다.
   1. git 체크아웃 여섯 개: 폴더마다 `git init .cache/<폴더>`, `git -C .cache/<폴더> remote add origin <원본>`, `git -C .cache/<폴더> fetch --depth 1 origin <커밋>`, `git -C .cache/<폴더> checkout --detach FETCH_HEAD`.
   2. 덤프용 PHP: 릴리스 zip을 받아 sha256을 확인하고 `.cache/php-pm5/`에 푼다. `bin/php/php.exe`와 `bin/php/php.ini`가 그 자리에 있어야 한다.
   3. 덤프 원본 의존성: `.cache/pmmp`에서 덤프용 PHP로 composer를 돌려 `composer install --no-dev --ignore-platform-reqs`를 실행한다. 덤프 원본의 `composer.lock` 그대로 `.cache/pmmp/vendor`에 둔다.
-  4. 공식 서버: 받은 zip을 `.cache/bds/1.26.52.3/`에 푼다.
+  4. 공식 서버: 받은 zip을 `.cache/bds/<판>/`에 푼다.
   5. Strawberry Perl: portable zip을 받아 sha256을 확인하고 `.cache/tools/strawberry-perl-5.42.3.1/`에 푼다.
   6. str0m 캡처: `cargo xtask vendor-test str0m`으로 받는다.
   7. `cargo xtask dump --check`가 통과하는지 확인한다.

@@ -14,7 +14,7 @@ use crate::world;
 /// [`EntityDamage`](crate::event::EntityDamage) listeners decide, and a death raises
 /// [`PlayerDeath`](crate::event::PlayerDeath). A player in the source is the attacker: its
 /// Strength adds damage, the player is knocked back from it, and thorns answer a melee hit.
-/// `/kill` is [`DamageCause::Suicide`] for 1,000.
+/// `/kill` deals no damage: it calls [`Player::kill`](crate::player::Player::kill).
 #[doc(alias = "Entity::attack")]
 #[doc(alias = "Living::attack")]
 #[doc(alias = "Player::attack")]
@@ -79,7 +79,7 @@ impl Sealed for SetGameMode {
 impl Action for SetGameMode {}
 
 /// A player says something in chat as if it had typed it (PMMP `Player::chat`): the chat limits
-/// apply (2 lines a tick, 512 characters a line), a line starting with `/` runs as its command,
+/// apply (2 lines a tick, 512 bytes a line), a line starting with `/` runs as its command,
 /// and each other line raises [`PlayerChat`](crate::event::PlayerChat).
 #[doc(alias = "Player::chat")]
 #[derive(Debug, Clone, PartialEq, Eq)]

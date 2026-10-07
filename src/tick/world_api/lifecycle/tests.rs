@@ -1012,6 +1012,50 @@ fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
     assert!(pool.shutdown());
 }
 
+/// A world deleted and made again under its name by a callback after the view phase (here one
+/// an unload listener deferred, in a tick that saves) is saved like any new world.
+#[test]
+fn a_world_made_again_late_in_the_tick_of_its_deletion_is_saved() {
+    let dir = crate::save::tests::TempDir::new("world-remake");
+    let pool = crate::runtime::cpu_pool(1).unwrap();
+    let at = BlockPos::new(1, -60, 1);
+    let remake = on(|_: &mut WorldUnload, cx: &mut Context<'_>| {
+        cx.defer(|cx| {
+            cx.delete_world("lobby").unwrap();
+            cx.create_world("lobby", &Options::new()).unwrap();
+        })
+        .unwrap();
+    });
+    {
+        let (mut state, mut link, handle) = open_server(&dir, remake);
+        let lobby = cx(&mut state)
+            .create_world("lobby", &Options::new())
+            .unwrap();
+        run_saved(&mut state, &mut link, &pool, 3);
+        cx(&mut state).unload_world(lobby).unwrap();
+        run_saved(&mut state, &mut link, &pool, 3);
+        let mut c = cx(&mut state);
+        let again = c.worlds().find(|w| w.name() == "lobby").unwrap().id();
+        c.world_mut(again).unwrap().set_block(at, stone()).unwrap();
+        c.save();
+        run_saved(&mut state, &mut link, &pool, 3);
+        finish(link, handle);
+    }
+    assert_eq!(
+        crate::save::world_files(&dir.0).unwrap(),
+        ["lobby", "world"]
+    );
+    let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
+    let lobby = cx(&mut state).load_world("lobby", &Options::new()).unwrap();
+    run_saved(&mut state, &mut link, &pool, 3);
+    assert_eq!(
+        cx(&mut state).world(lobby).unwrap().block(at),
+        Some(stone())
+    );
+    finish(link, handle);
+    assert!(pool.shutdown());
+}
+
 #[test]
 fn a_world_made_by_a_load_listener_loads_its_spawn_chunks_from_the_save_thread() {
     let dir = crate::save::tests::TempDir::new("world-made-in-listener");

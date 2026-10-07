@@ -22,16 +22,13 @@ use crate::random::Random;
 use crate::save::WorldIndex;
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, Particle, Sound};
 
+use super::super::update::{CAULDRON_FULL, LAVA_TICK_RATE, WATER_TICK_RATE};
 use super::super::{SessionId, State, block_entity, dispatch, entity, inventory, survival, update};
 use super::{
     Actor, USE, adventure_allows, block_vec, breaking, center, drops, level_event, particle, place,
     props, return_items, sound, stream,
 };
 
-/// Water's and lava's scheduled update delays (PMMP `Water::tickRate`, `Lava::tickRate` outside
-/// the nether).
-const WATER_TICK_RATE: u32 = 5;
-const LAVA_TICK_RATE: u32 = 30;
 /// Ticks a pressed button stays pressed (PMMP `StoneButton`, `WoodenButton`).
 const STONE_BUTTON_TICKS: u32 = 20;
 const WOODEN_BUTTON_TICKS: u32 = 30;
@@ -40,8 +37,7 @@ const ANCHOR_RADIUS: f64 = 5.0;
 /// The grey chat line of a respawn anchor that becomes the respawn point (PMMP
 /// `KnownTranslationFactory::tile_respawn_anchor_respawnSet()->prefix(TextFormat::GRAY)`).
 const ANCHOR_SPAWN_SET: &str = "§7%tile.respawn_anchor.respawnSet";
-/// PMMP `FillableCauldron::MAX_FILL_LEVEL` and the levels a bottle holds.
-const CAULDRON_FULL: i32 = 6;
+/// The cauldron levels a bottle holds.
 const BOTTLE_LEVELS: i32 = 2;
 
 /// The result of an item's own use (PMMP `ItemUseResult`).
@@ -194,9 +190,7 @@ pub(super) fn use_item_on(
     let mut actor = *actor;
     let mut event = None;
     if dispatch::heard::<PlayerInteract>(state) {
-        let Some(world) = crate::world::Id::new(actor.world) else {
-            return false;
-        };
+        let world = crate::world::Id::of(actor.world);
         let mut e = PlayerInteract {
             player: player::Id::new(actor.session),
             world,
@@ -316,12 +310,9 @@ fn place_held(
     };
     let mut event = None;
     if dispatch::heard::<BlockPlace>(state) {
-        let Some(world_id) = crate::world::Id::new(world) else {
-            return false;
-        };
         let mut e = BlockPlace {
             player: player::Id::new(actor.session),
-            world: world_id,
+            world: crate::world::Id::of(world),
             blocks: blocks.clone(),
             block_against: pos,
             item: held.clone(),
@@ -603,20 +594,10 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                 return true;
             }
             Class::RedstoneOre => {
-                if !block.name().contains(":lit_") {
-                    let lit = block
-                        .name()
-                        .strip_prefix("minecraft:")
-                        .map(|rest| {
-                            let mut name = String::with_capacity(block.name().len() + 4);
-                            name.push_str("minecraft:lit_");
-                            name.push_str(rest);
-                            name
-                        })
-                        .and_then(|name| props::renamed(block, &name));
-                    if let Some(lit) = lit {
-                        set(state, u.actor.world, u.pos, lit);
-                    }
+                if !block.name().contains(":lit_")
+                    && let Some(lit) = props::with_lit(block, true)
+                {
+                    set(state, u.actor.world, u.pos, lit);
                 }
                 // Lighting it does not stop a placement (PMMP returns false).
                 return false;
@@ -846,12 +827,9 @@ fn respawn_anchor(state: &mut State, u: &Use) -> bool {
     let mut action = RespawnAnchorAction::Explode;
     let mut event = None;
     if dispatch::heard::<PlayerRespawnAnchorUse>(state) {
-        let Some(world) = crate::world::Id::new(u.actor.world) else {
-            return false;
-        };
         let mut e = PlayerRespawnAnchorUse {
             player: player::Id::new(u.actor.session),
-            world,
+            world: crate::world::Id::of(u.actor.world),
             pos: u.pos,
             block: u.block,
             action,
@@ -885,11 +863,8 @@ fn explode_anchor(state: &mut State, u: &Use) {
     let mut blast = entity::Blast::new(ANCHOR_RADIUS, true);
     let mut event = None;
     if dispatch::heard::<BlockPreExplode>(state) {
-        let Some(world) = crate::world::Id::new(u.actor.world) else {
-            return;
-        };
         let mut e = BlockPreExplode {
-            world,
+            world: crate::world::Id::of(u.actor.world),
             pos: u.pos,
             block: u.block,
             player: Some(player::Id::new(u.actor.session)),
@@ -1379,7 +1354,7 @@ fn item_use(state: &mut State, u: &mut Use) -> Outcome {
     }
     if u.item_kind(item::Kind::Bucket) {
         let block = u.block;
-        let source = block.is(Class::Liquid) && props::int(block, "liquid_depth") == Some(0);
+        let source = block.is(Class::Liquid) && entity::liquid_depth(block) == Some((0, false));
         if !source {
             return Outcome::None;
         }
@@ -1482,7 +1457,7 @@ fn bucket_empty(
     let world = u.actor.world;
     let mut e = PlayerBucketEmpty {
         player: player::Id::new(u.actor.session),
-        world: crate::world::Id::new(world)?,
+        world: crate::world::Id::of(world),
         block_clicked: u.pos,
         block_face: u.face,
         bucket: u.item.clone(),
@@ -1513,7 +1488,7 @@ fn bucket_fill(state: &mut State, u: &mut Use, filled: Stack) -> Option<Stack> {
     let world = u.actor.world;
     let mut e = PlayerBucketFill {
         player: player::Id::new(u.actor.session),
-        world: crate::world::Id::new(world)?,
+        world: crate::world::Id::of(world),
         block_clicked: u.pos,
         block_face: u.face,
         bucket: u.item.clone(),
@@ -1605,12 +1580,7 @@ fn click_air(state: &mut State, actor: &Actor, held: &Stack, item: item::Type) -
     };
     if let Some(armor) = item.armor() {
         // PMMP `Armor::onClickAir`: swap with what is worn there.
-        let slot = match armor.slot() {
-            item::ArmorSlot::Head => 0,
-            item::ArmorSlot::Chest => 1,
-            item::ArmorSlot::Legs => 2,
-            item::ArmorSlot::Feet => 3,
-        };
+        let slot = armor.slot().index();
         let worn = player
             .inventory
             .armor()
@@ -1791,11 +1761,8 @@ pub(super) fn teleport_dragon_egg(
         }
         let mut event = None;
         if dispatch::heard::<BlockTeleport>(state) {
-            let Some(world_id) = crate::world::Id::new(world) else {
-                return;
-            };
             let mut e = BlockTeleport {
-                world: world_id,
+                world: crate::world::Id::of(world),
                 pos,
                 block: egg,
                 to,
@@ -1832,13 +1799,10 @@ pub(super) fn teleport_dragon_egg(
     }
 }
 
-/// The fuse of lit TNT (PMMP `TNT::ignite` default, 80 ticks).
-const TNT_FUSE: u32 = 80;
-
 /// PMMP `TNT::ignite`: the block becomes a primed TNT entity (the entity rules); false at the
 /// entity limit, and the block stays.
 pub(super) fn ignite_tnt(state: &mut State, world: WorldIndex, pos: BlockPos) -> bool {
-    entity::ignite(state, world, pos, TNT_FUSE)
+    entity::ignite(state, world, pos, u32::from(entity::TNT_FUSE))
 }
 
 #[cfg(test)]

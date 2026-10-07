@@ -12,20 +12,20 @@ use super::damage::{self, Damage};
 use super::effects::{self, Active};
 use super::{Survival, attributes, f32_of, feet, food, game_mode, sound};
 
-use crate::block::{self, Class, Face, PropertyValue};
+use crate::block::{self, Class, Face};
 use crate::config::GameMode;
 use crate::effect::Type as Effect;
 use crate::event::{
-    Actor, CombustSource, EntityFrostWalker, ExhaustCause, ExtinguishCause,
+    Actor, CombustSource, DamageSource, EntityFrostWalker, ExhaustCause, ExtinguishCause,
     MAX_FROST_WALKER_RADIUS, PlayerJump, PlayerMissSwing, PlayerMove, PlayerToggleFlight,
     PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim,
 };
-use crate::math::{self, Aabb, Vec3};
+use crate::math::{Aabb, Vec3};
 use crate::player::Id;
 use crate::protocol::consts::{InputFlag, MoveMode, PlayerAction as Action, SoundEvent};
 use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput};
 use crate::protocol::{FlagSet, TeleportData};
-use crate::tick::entity::MOTION_THRESHOLD;
+use crate::tick::entity::{Harm, INSIDE_INSET, MOTION_THRESHOLD};
 use crate::tick::{MAX_COORDINATE, Phase, Player, SessionId, State, dispatch, entity, update};
 use crate::world::{BlockPos, Entry, World};
 
@@ -40,9 +40,6 @@ const MAX_MOVE_SQUARED: f64 = 225.0;
 /// How far a move after a teleport may be from the teleport target, squared (PMMP
 /// `forceMoveSync`).
 const SYNC_TOLERANCE_SQUARED: f64 = 1.0;
-/// Inset of the box that finds the blocks an entity is inside (PMMP
-/// `getBlocksAroundWithEntityInsideActions`).
-const INSIDE_INSET: f64 = 0.001;
 /// Fall damage above which landing makes the long fall sound (PMMP `Living::onHitGround`).
 const LONG_FALL_DAMAGE: f64 = 4.0;
 
@@ -644,7 +641,10 @@ fn frost_walker(state: &mut State, session: SessionId) {
 
 /// Whether the player stands on something after moving by `delta` (PMMP
 /// `Player::checkGroundState`): a box 0.2 above and below the feet, stretched back along the
-/// move, touches a block's collision box. Spectators never stand.
+/// move, touches a block's collision box. A move past the 15-block limit, which only
+/// `movement-check = false` lets through, tests the box at its end alone: stretched back along
+/// a move of millions of blocks, the box would make one input test millions of blocks.
+/// Spectators never stand.
 fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
     if game_mode(state, player) == GameMode::Spectator {
         return false;
@@ -658,6 +658,9 @@ fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
         Vec3::new(f.x - half, f.y - 0.2, f.z - half),
         Vec3::new(f.x + half, f.y + 0.2, f.z + half),
     );
+    if delta.length_squared() > MAX_MOVE_SQUARED {
+        return collides(world, bb);
+    }
     collides(world, stretch(bb, -delta))
 }
 
@@ -792,7 +795,7 @@ fn land(state: &mut State, session: SessionId) {
 }
 
 /// The blocks the player is inside act on it once a tick (PMMP `checkBlockIntersections` and the
-/// blocks' `onEntityInside`): fire and lava burn, cactus and berry bushes prick, water puts out
+/// blocks' `onEntityInside`): the blocks that hurt ([`Harm`], as for entities), water puts out
 /// fire, climbable blocks and cobwebs end a fall, wither roses wither.
 pub(super) fn block_intersections(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
@@ -828,20 +831,22 @@ pub(super) fn end_tick(player: &mut Player) {
 
 /// What one block does to a player inside it.
 fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::State) {
-    let int = |name: &str| match block.value(name) {
-        Some(PropertyValue::Int(v)) => v,
-        Some(PropertyValue::Byte(v)) => i32::from(v),
-        _ => 0,
-    };
-    if block.is(Class::BaseFire) {
-        let amount = if block.is(Class::SoulFire) { 2.0 } else { 1.0 };
-        damage::damage(state, session, amount, Damage::Fire);
-        damage::combust(state, session, 8, CombustSource::Block(pos));
-    } else if block.is(Class::Lava) || block.is(Class::LavaCauldron) {
-        damage::damage(state, session, 4.0, Damage::Lava);
-        damage::combust(state, session, 8, CombustSource::Block(pos));
-        if block.is(Class::Lava) {
+    if let Some(harm) = Harm::of(block) {
+        if harm.ends_fall() {
             reset_fall(state, session);
+        }
+        let spared = harm.spared_by_sneaking()
+            && state
+                .players
+                .get(&session)
+                .is_none_or(|p| p.survival.motion.sneaking || p.frost_walker_level() > 0);
+        if !spared {
+            let cause = Damage::of(harm.cause(), DamageSource::None);
+            damage::damage(state, session, harm.damage(), cause);
+        }
+        if let Some(seconds) = harm.burn_secs() {
+            let source = CombustSource::Block(pos);
+            damage::combust(state, session, u32::from(seconds), source);
         }
     } else if block.is(Class::Water) {
         reset_fall(state, session);
@@ -855,30 +860,6 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
         }
         if out {
             damage::extinguished(state, session, ExtinguishCause::Water);
-        }
-    } else if block.is(Class::Cactus) {
-        damage::damage(state, session, 1.0, Damage::Contact);
-    } else if block.is(Class::Magma) {
-        let hurts = state
-            .players
-            .get(&session)
-            .is_some_and(|p| !p.survival.motion.sneaking && p.frost_walker_level() == 0);
-        if hurts {
-            damage::damage(state, session, 1.0, Damage::Fire);
-        }
-    } else if block.is(Class::Campfire) {
-        if int("extinguished") == 0 {
-            let amount = if block.is(Class::SoulCampfire) {
-                2.0
-            } else {
-                1.0
-            };
-            damage::damage(state, session, amount, Damage::Fire);
-        }
-    } else if block.is(Class::SweetBerryBush) {
-        if int("growth") >= 1 {
-            reset_fall(state, session);
-            damage::damage(state, session, 1.0, Damage::Contact);
         }
     } else if block.is(Class::Ladder) {
         let inside_block = state
@@ -1033,16 +1014,6 @@ pub(super) fn teleport(state: &mut State, session: SessionId, eye: Vec3) {
     send_position(player, MoveMode::Teleport);
 }
 
-/// The look direction (PMMP `Entity::getDirectionVector`).
-pub(super) fn direction(s: &Survival) -> Vec3 {
-    let pitch = math::radians(s.motion.pitch);
-    let yaw = math::radians(s.motion.yaw);
-    let xz = math::cos(pitch);
-    let v = Vec3::new(-xz * math::sin(yaw), -math::sin(pitch), xz * math::cos(yaw));
-    let length = v.length();
-    if length > 0.0 { v * (1.0 / length) } else { v }
-}
-
 /// Whether the player's eyes are under water (PMMP `Entity::isUnderwater`): in a water block,
 /// below its surface.
 pub(super) fn is_underwater(state: &State, player: &Player) -> bool {
@@ -1054,11 +1025,10 @@ pub(super) fn is_underwater(state: &State, player: &Player) -> bool {
     if !block.is(Class::Water) {
         return false;
     }
-    let depth = match block.value("liquid_depth") {
-        Some(PropertyValue::Int(d)) => d,
+    let decay = match entity::liquid_depth(block) {
+        Some((decay, false)) => decay,
         _ => 0,
     };
-    let decay = if depth >= 8 { 0 } else { depth & 7 };
     let height = f64::from(decay + 1) / 9.0;
     eye.y < f64::from(pos.y) + 1.0 - (height - 0.111_111_1)
 }
@@ -1077,6 +1047,7 @@ pub(super) fn is_inside_solid(state: &State, player: &Player) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block::PropertyValue;
 
     thread_local! {
         /// What listeners and monitors wrote down; they run on the test's thread.
@@ -1110,13 +1081,13 @@ mod tests {
     #[test]
     fn the_look_direction_follows_pmmp() {
         let mut s = Survival::default();
-        let d = direction(&s);
+        let d = entity::direction(s.motion.yaw, s.motion.pitch);
         assert!(d.z > 0.99 && d.x.abs() < 1e-9, "yaw 0 looks south: {d:?}");
         s.motion.yaw = 90.0;
-        let d = direction(&s);
+        let d = entity::direction(s.motion.yaw, s.motion.pitch);
         assert!(d.x < -0.99, "yaw 90 looks west: {d:?}");
         s.motion.pitch = 90.0;
-        let d = direction(&s);
+        let d = entity::direction(s.motion.yaw, s.motion.pitch);
         assert!(d.y < -0.99, "pitch 90 looks down: {d:?}");
     }
 
@@ -1374,5 +1345,28 @@ mod tests {
         let s = stretch(bb, Vec3::new(-2.0, 3.0, 0.0));
         assert_eq!(s.min, Vec3::new(-2.0, 0.0, 0.0));
         assert_eq!(s.max, Vec3::new(1.0, 4.0, 1.0));
+    }
+
+    #[test]
+    fn a_move_past_fifteen_blocks_stands_only_on_what_is_under_its_end() {
+        use crate::tick::tests::{initialised, join, moved_to, new_state, radius, settings, tick};
+        let config = settings(|c| c.general.movement_check = false);
+        let mut state = new_state(config, crate::event::Listeners::default());
+        let mut output = crate::tick::Output::default();
+        let (j, _rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 4)], &mut output);
+        tick(&mut state, &mut vec![initialised(1, 2, 1)], &mut output);
+        let player = state.players.get_mut(&SessionId::new(1)).unwrap();
+        player.survival.motion.force_sync = false;
+        // Straight up from the ground: the box stretched back along the move reaches the ground.
+        let eye = player.position + Vec3::new(0.0, 30.0, 0.0);
+        tick(
+            &mut state,
+            &mut vec![moved_to(1, 10, eye.to_f32())],
+            &mut output,
+        );
+        let player = &state.players[&SessionId::new(1)];
+        assert!(player.position.y > -40.0, "the move is taken");
+        assert!(!player.survival.motion.on_ground);
     }
 }

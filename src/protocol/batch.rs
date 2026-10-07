@@ -511,8 +511,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[cfg(test)]
 mod tests {
     use super::super::compression::tests::{ROUND_TRIP_SIZES, sample};
-    use super::super::io::{MAX_LIST_DEPTH, Writer};
     use super::super::io::tests::Rng;
+    use super::super::io::{MAX_LIST_DEPTH, Writer};
     use super::super::packet::{Login, Packet, SetTime};
     use super::{
         Compression, Decoder, Encoder, Error, Header, MAX_PACKET_ID, MAX_PACKETS, SPLIT_BYTES,

@@ -27,7 +27,7 @@ const MAX_PAGE_CHARS: usize = 512;
 const MAX_TITLE_CHARS: usize = 16;
 const MAX_AUTHOR_CHARS: usize = 256;
 /// The NBT keys of a book (PMMP `WritableBookBase::TAG_*`, `WrittenBook::TAG_*`).
-const PAGES: &str = "pages";
+pub(in crate::tick) const PAGES: &str = "pages";
 const TEXT: &str = "text";
 const PHOTO: &str = "photoname";
 const GENERATION: &str = "generation";
@@ -108,35 +108,38 @@ fn writable(state: &State, session: SessionId, slot: u8) -> Option<&Stack> {
 }
 
 /// What `packet` makes of the book `old`: the action, the new book and the pages it changed;
-/// `None` for an edit PMMP refuses or cancels, or a book over the stack limits.
+/// `None` for an edit PMMP refuses or cancels, or a book over the stack limits. Every check comes
+/// before the pages are copied, so a refused edit costs nothing like the book's size.
 fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>)> {
-    let mut pages = pages(old);
-    let count = pages.len();
+    let count = page_count(old);
     // The page count the edit may reach: PMMP lets it shrink or stay, and grow up to 50.
     let room = count.max(MAX_PAGES);
     let page = usize::try_from(packet.page_number).ok();
     let number = |p: usize| u32::try_from(p).ok();
-    let (action, modified) = match Action::try_from(packet.action_type).ok()? {
+    let (action, modified, pages) = match Action::try_from(packet.action_type).ok()? {
         Action::ReplacePage => {
             let p = page.filter(|&p| p < room)?;
             let text = page_text(&packet.text)?;
+            let mut pages = pages(old);
             if p >= count {
                 pages.resize(p + 1, Page::of(String::new()));
             }
             *pages.get_mut(p)? = Page::of(text);
-            (BookAction::ReplacePage, vec![number(p)?])
+            (BookAction::ReplacePage, vec![number(p)?], pages)
         }
         Action::AddPage => {
             // PMMP: only before a page that exists.
             let p = page.filter(|&p| p < count && count < MAX_PAGES)?;
             let text = page_text(&packet.text)?;
+            let mut pages = pages(old);
             pages.insert(p, Page::of(text));
-            (BookAction::AddPage, vec![number(p)?])
+            (BookAction::AddPage, vec![number(p)?], pages)
         }
         Action::DeletePage => {
             let p = page.filter(|&p| p < count)?;
+            let mut pages = pages(old);
             pages.remove(p);
-            (BookAction::DeletePage, vec![number(p)?])
+            (BookAction::DeletePage, vec![number(p)?], pages)
         }
         Action::SwapPages => {
             let a = page?;
@@ -145,6 +148,7 @@ fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>
             if last >= room {
                 return None;
             }
+            let mut pages = pages(old);
             // The client makes pages without telling; PMMP adds them up to the last one.
             if last >= count {
                 pages.resize(last + 1, Page::of(String::new()));
@@ -153,12 +157,12 @@ fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>
             let (ta, tb) = (pages.get(a)?.text.clone(), pages.get(b)?.text.clone());
             *pages.get_mut(a)? = Page::of(tb);
             *pages.get_mut(b)? = Page::of(ta);
-            (BookAction::SwapPages, vec![number(a)?, number(b)?])
+            (BookAction::SwapPages, vec![number(a)?, number(b)?], pages)
         }
         Action::Sign => {
             let title = limited(&packet.title, MAX_TITLE_CHARS)?;
             let author = limited(&packet.author, MAX_AUTHOR_CHARS)?;
-            let book = written(&self::pages(old), author, title)?;
+            let book = written(&pages(old), author, title)?;
             return Some((BookAction::SignBook, book, Vec::new()));
         }
     };
@@ -193,6 +197,15 @@ fn pages(book: &Stack) -> Vec<Page> {
             .collect(),
         Some(Value::List(List::String(list))) => list.iter().cloned().map(Page::of).collect(),
         _ => Vec::new(),
+    }
+}
+
+/// How many [`pages`] a book has, read without copying them.
+fn page_count(book: &Stack) -> usize {
+    match book.extra().and_then(|e| e.nbt.get(PAGES)) {
+        Some(Value::List(List::Compound(list))) => list.len(),
+        Some(Value::List(List::String(list))) => list.len(),
+        _ => 0,
     }
 }
 

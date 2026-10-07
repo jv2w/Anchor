@@ -26,7 +26,7 @@ HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로
 |---|---|---|
 | 1 | `cargo xtask gen --check` | 생성된 프로토콜·데이터 코드가 생성기 출력과 같다 |
 | 2 | `cargo xtask table --check` | API 대응표(`xtask/data/pmmp/table.md`)가 최신이고 빈 행이 없다 |
-| 3 | lint reason tags | 모든 `#[expect]` 이유가 허용된 태그(`safety`, `performance`, `consistency`, `invariant`, `off-tick`)로 시작한다 |
+| 3 | lint reason tags | 모든 `#[expect]` 이유가 `CLAUDE.md` 6절의 태그로 시작한다 |
 | 4 | `cargo fmt --check` | 포맷 |
 | 5 | `cargo clippy --workspace --all-targets -- -D warnings` | lint(`[workspace.lints]`, `.clippy.toml` 금지 목록) |
 | 6 | `cargo test --workspace` | 단위·통합 시험, 프로토콜 대조, 봇 시험 |
@@ -70,8 +70,8 @@ HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로
 P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷을 비교한다.
 
 - 봇: `xtask/go/bot`(gophertunnel 기반 Go 클라이언트). 공식 클라이언트처럼 서버 권위 인벤토리, PlayerAuthInput, 블록 액션을 쓰고 받은 패킷을 모두 JSON 줄로 기록한다.
-- 공식 서버: 지금 버전은 1.26.52.3이고 사본은 `.cache/bds/1.26.52.3/`이다. 하네스가 사본의 `server.properties`를 쓰고 `worlds`를 지운 뒤 띄우고 `stop`으로 끝낸다.
-- 시험 설정: `online-mode=false`, 평지 시드 1, survival, normal. Anchor 기본값과 같아서 설정에 따른 필드도 같게 비교된다.
+- 공식 서버: `data.md` 출처 표의 판이고 사본은 `.cache/bds/<판>/`이다. 하네스가 사본의 `server.properties`를 쓰고 `worlds`를 지운 뒤 띄우고 `stop`으로 끝낸다.
+- 시험 설정: 두 서버를 Xbox 로그인 없이(`online-mode=false`, Anchor `xbox-auth = false`), 평지 월드 `p6`, 시드 1로 맞춘다. 나머지(게임 모드, 난이도, 최대 인원, 시야, 압축 문턱)는 Anchor 기본값이라 설정에 따른 필드도 같게 비교된다.
 - 캡처: 모두 `target/p6/` 아래다. `bds-<압축>/`, `bds-nethernet-<압축>/`, `bds-game/`, `bds-api/`와 Anchor 쪽 `anchor-*`. 비교 결과는 `anchor-api/compare.txt` 등에도 쓴다.
 
 ### 명령
@@ -97,11 +97,11 @@ P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷
   - `auto` 폴백, `bind-mismatch`, 이름 중복 로그인. NetherNet 실행은 응답 SDP 구조와 조각 정보도 비교한다. 바이옴 정의와 지그소 데이터는 `bot cloudburst`가 기준 목록 출처의 데이터와 대조한다.
 - 게임(`p6 game`): `craft`, `furnace`, `enchant`, `crops`, `trade`. 봇의 단계마다 명령, 요청 상태, ItemStackResponse(스택 ID는 처음 나온 순서), 단계 끝 아이템 상태, 위치별 마지막 블록 상태, 창 열기·닫기, 블록 엔티티 키, LevelEvent 종류, 엔티티 종류, 거래 창 모양과 오퍼 키를 비교한다. 소리, 채팅, 경험치 구슬, 오퍼·인챈트 내용 같은 무작위 값은 보이기만 한다. `setup` 단계는 명령만, `random` 단계는 이름·개수를 지운 모양만 비교한다. 시나리오 구역에서 4칸 밖의 변화는 보이기만 한다.
 - API(`p6 api`):
-  - `commands`(플레이어 명령과 출력, op), `particles`(사실 기록), `kick`, `forms`, `script`(봇 `-script` 동작 자체 시험, `script.txt`).
+  - `commands`(플레이어 명령과 출력, op), `particles`, `kick`, `forms`, `script`(봇 `-script` 동작 자체 시험, `script.txt`).
   - `weather`, `joinrain`, `joinstorm`(날씨 변화, 비·천둥 중 접속), `boltpeaceful`, `bolteasy`, `bolthard`(난이도별 번개).
   - `enchants`(인챈트 선택지 `Slot`), `stations`(모루, 대장장이, 신호기 요청 모양), `potions`(물약 색과 구름), `entities`(그림, 폭죽, 크리스털, 삼지창), `syntax`(문법 오류와 번역 이름), `tradeup`(거래 등급 상승), `others`와 동반 봇 `mover`(다른 플레이어의 접속, 이동, 공격, 죽음, 리스폰), `itemuse`(활, 삼지창, 물약 사용).
-  - 사실 기록만: `villagers`(직업 번호), `numbers`(공식 서버 전용 번호와 원격 측정), `rules`, `rulesjoin`(게임 규칙), `line<바이트>`, `linekorean<바이트>`(명령 줄 길이; 공식 서버는 508바이트부터 연결을 끊음). `limits`, `limitchat`(문자열 상한)은 확인 줄만 비교한다.
-  - 단계마다 `fields.txt`에 있는 패킷의 개수와 고정 필드, 봇의 출력·확인·폼 줄을 비교한다. 명령 목록은 둘 다 가진 명령만 메모로 비교한다.
+  - `villagers`(직업 번호), `numbers`(공식 서버 전용 번호와 원격 측정), `rules`, `rulesjoin`(게임 규칙), `line<바이트>`, `linekorean<바이트>`(명령 줄 길이; 공식 서버는 508바이트부터 연결을 끊음), `limits`, `limitchat`(문자열 상한).
+  - 단계마다 `fields.txt`에 있는 패킷의 개수와 고정 필드, 봇의 출력·확인·폼 줄을 비교한다. 명령 목록은 둘 다 가진 명령만 메모로 비교한다. 사실 기록만 하는 시나리오는 하네스의 `FACTS_ONLY`, 고정 필드 없이 확인 줄만 비교하는 시나리오는 `CHECKS_ONLY`(`xtask/src/p6/api.rs`)에 있다.
 - 가져오기(`p6 import`): 공식 서버 지형 월드의 모든 서브청크, 모든 층의 네트워크 ID가 같아야 한다. Anchor가 모르는 블록으로 두는 덤프에 없는 블록은 `intended.txt`의 `import | block` 줄로 넘긴다.
 
 ### 데이터 파일 (`xtask/data/p6/`)
@@ -130,7 +130,6 @@ P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷
 
 ## 열린 확인
 
-- VoxelShapes 모양 내용은 공식 서버와 하나하나 대조하지 않았다. 개수, 이름 순서, 인코드 크기만 같다.
 - `facts.md`의 "열린 질문" 목록(창 없는 인벤토리 요청, 높은 번호 입자, 플레이어 대상 tp 메시지 등).
 - Linux 검증은 하지 않았다. 설계는 OS 중립이다.
 

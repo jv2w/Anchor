@@ -63,10 +63,11 @@ Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_l
 - 선언 길이는 남은 입력 이하. 목록 개수는 1024 이하(gophertunnel `maxSliceLength`, EntityMetadata 개수 포함)이고 남은 입력 이하.
 - 할당 예산: Reader는 배치 하나마다 2 × `max-batch-bytes` 예산을 받는다. 개수 상한만으로는 중첩 목록과 큰 원소가 입력 크기의 수십 배를 할당할 수 있어서 예산을 둔다.
 - NBT는 깊이 512(루트 포함), 루트 하나 4 MiB 이하.
+- 목록 중첩은 64단 이하(패킷 자신의 목록 포함, `MAX_LIST_DEPTH`). 자기를 담는 타입(`DataStorePropertyValue`)의 디코더는 목록마다 스레드 스택에서 재귀하므로, 상한이 없으면 패킷 하나가 스택을 넘쳐 프로세스가 끝난다.
 - 필드별 상한:
   - `cargo xtask dump`가 고정 커밋의 스키마를 읽고, 스키마 항목을 gophertunnel 필드에 잇는 표(`xtask/src/dump/limits.rs`)로 `xtask/data/reference/protocol_limits.json`(필드 113개)을 쓴다. 문자열과 바이트는 바이트 수, 목록은 원소 수다. `[]`가 붙은 항목은 목록의 각 원소를 제한한다.
   - 스키마 상한이 표에 없거나 표 행이 스키마에 없으면 dump가 실패하고, 어떤 코덱에도 쓰이지 않는 상한은 gen이 실패한다. 그래서 버전업 때 생기거나 사라진 상한이 모두 드러난다.
-  - 목록 상한은 min(필드 상한, 1024)이다. 인코더도 같은 상한으로 오류를 내므로 Anchor가 클라이언트가 거부할 패킷을 보내지 않는다.
+  - 디코드의 목록 상한은 min(필드 상한, 1024)이다. 인코더는 필드 상한으로 오류를 내므로 Anchor가 스키마를 넘는 패킷을 보내지 않는다. 1024는 받는 쪽 상한이라 인코드에는 걸지 않는다(서버는 ItemRegistry, CreativeContent처럼 1024개를 넘는 목록을 보낸다).
 - 서브청크 페이로드 해제는 엄격하다: 비트 수 {0,1,2,3,4,5,6,8,16}만, 지속(persistent) 팔레트 플래그와 0x7f 거부, 팔레트 길이 ≤ 2^bits, 모든 인덱스 < 팔레트 길이.
 
 ## gophertunnel 결함

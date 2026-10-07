@@ -22,7 +22,7 @@ use crate::block;
 use crate::command::parse::{NAMESPACE, Names};
 use crate::command::{self, Command, Error, Kind, Param};
 use crate::permission::Permission;
-use crate::protocol::consts::{CommandArg, CommandArgType, ParamOption};
+use crate::protocol::consts::{CommandArg, CommandArgType, CommandPermissionLevel, ParamOption};
 use crate::protocol::packet::{AvailableCommands, Packet};
 use crate::protocol::{Command as NetCommand, CommandEnum, CommandOverload, CommandParameter};
 use crate::tick::Player;
@@ -30,8 +30,6 @@ use crate::tick::queue::SessionId;
 
 /// The alias offset of a command without aliases (PMMP and dragonfly send -1 as a u32).
 const NO_ALIASES: u32 = u32::MAX;
-/// `CommandPermissionLevelAny`: the client leaves permission checks to the server.
-const PERMISSION_ANY: u8 = 0;
 /// A table position not given yet in a player's packet.
 const UNSET: u32 = u32::MAX;
 /// The enum of every command name and alias a player may type (BDS).
@@ -255,7 +253,8 @@ pub(crate) fn available_commands(
             name: entry.name.clone(),
             description: entry.description.clone(),
             flags: 0,
-            permission_level: PERMISSION_ANY,
+            // The client leaves permission checks to the server.
+            permission_level: u8::from(CommandPermissionLevel::Any),
             aliases_offset: entry.aliases.map_or(NO_ALIASES, renumbered),
             chained_subcommand_offsets: Vec::new(),
             overloads,

@@ -154,8 +154,7 @@ pub(crate) fn start(level: LogLevel) -> io::Result<Option<Log>> {
 /// [`start`] with the log thread writing on `out`.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the log thread blocks on its writer, which no pool may do, and reports \
-              its end on a channel of one message"
+    reason = "off-tick: the log thread reports its end on a channel of one message"
 )]
 fn start_writing(level: LogLevel, out: impl Write + Send + 'static) -> io::Result<Option<Log>> {
     let max = match level {
@@ -175,15 +174,13 @@ fn start_writing(level: LogLevel, out: impl Write + Send + 'static) -> io::Resul
         dropped: Arc::clone(&dropped),
     };
     // The log thread takes on no subscriber: nothing it does is logged.
-    let thread = std::thread::Builder::new()
-        .name("anchor-log".to_owned())
-        .spawn(move || {
-            write_lines(queue, &dropped, out);
-            // The one message fits; once the end has stopped waiting, nobody needs it.
-            match end.try_send(()) {
-                Ok(()) | Err(_) => {}
-            }
-        })?;
+    let thread = crate::runtime::spawn_thread("anchor-log", move || {
+        write_lines(queue, &dropped, out);
+        // The one message fits; once the end has stopped waiting, nobody needs it.
+        match end.try_send(()) {
+            Ok(()) | Err(_) => {}
+        }
+    })?;
     Ok(Some(Log {
         dispatch: Dispatch::new(logger),
         drained: Drained(lines.downgrade()),
@@ -752,6 +749,38 @@ pub(crate) mod tests {
             .collect();
         let wanted: Vec<String> = (0..10).map(|n| format!("INFO  line (n={n})")).collect();
         assert_eq!(lines, wanted);
+    }
+
+    /// A writer that needs 3 MiB of stack: more than std gives a thread (2 MiB), less than every
+    /// thread Anchor starts has.
+    struct Deep(Gate);
+
+    impl Write for Deep {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            #[expect(
+                clippy::large_stack_arrays,
+                reason = "invariant: the test fills 3 MiB of the log thread's stack on purpose"
+            )]
+            let frame = [0_u8; 3 << 20];
+            std::hint::black_box(&frame);
+            self.0.write(buf)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The log thread has the stack of every thread Anchor starts, not std's default.
+    #[test]
+    fn the_log_thread_has_the_stack_of_every_anchor_thread() {
+        let gate = Gate::opened();
+        let log = start_writing(LogLevel::Info, Deep(gate.clone()))
+            .unwrap()
+            .unwrap();
+        dispatcher::with_default(&log.dispatch, || info!("deep"));
+        drop(log);
+        assert!(gate.text().contains("INFO  deep"));
     }
 
     /// A console that takes no writes holds up the end of the log for [`END_WAIT`] at most: the
