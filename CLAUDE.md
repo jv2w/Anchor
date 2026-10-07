@@ -53,7 +53,6 @@ rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열
 ## 5. 설정 (`.claude/rules/config.md`)
 - 설정 파일은 `anchor.toml` 하나다. `[general]`(서버를 여는 누구나)과 `[developer]`(성능·프로토콜 조정), 월드별 `[worlds.<이름>]`이다. 키는 기존 서버 설정의 이름 관례를 따른 kebab-case이고 꼭 필요한 키만 둔다.
 - 끌 수 있는 기능은 끄면 그 코드가 아예 돌지 않는다(틱 작업, 이벤트, 패킷, 메모리 0).
-- 키 이름을 바꾸면 옛 키를 쓴 파일은 새 이름을 알리는 오류로 시작을 멈춘다.
 - 정본은 기본 파일을 만드는 코드(`src/config.rs`의 `DEFAULT_FILE`)와 `.claude/docs/config.md`다. 둘을 함께 고친다(시험이 문서의 첫 toml 블록과 비교한다).
 
 ## 6. 코드 구성과 스타일
