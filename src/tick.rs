@@ -3432,6 +3432,33 @@ mod tests {
     }
 
     #[test]
+    fn the_publisher_follows_each_block_the_player_moves_to_inside_a_chunk() {
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 2)], &mut output);
+        settle(&mut state, &mut output);
+        received(&mut rx);
+        let publishers = |rx: &mut _| -> Vec<[i32; 3]> {
+            received(rx)
+                .0
+                .iter()
+                .filter_map(|p| match p {
+                    Packet::NetworkChunkPublisherUpdate(p) => Some(p.position),
+                    _ => None,
+                })
+                .collect()
+        };
+        teleported(&mut state, 1, [3.5, -58.38, 0.5]);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(publishers(&mut rx), [[3, -59, 0]]);
+        // Inside the same block: nothing new to say.
+        teleported(&mut state, 1, [3.9, -58.38, 0.9]);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert!(publishers(&mut rx).is_empty());
+    }
+
+    #[test]
     fn sub_chunk_requests_get_bds_answers() {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();

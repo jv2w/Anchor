@@ -71,6 +71,8 @@ pub(super) struct View {
     center: ChunkPos,
     /// The granted chunk radius; 0 until the client asked for one.
     radius: u8,
+    /// The block the last publisher update was centered on.
+    published: BlockPos,
     /// The chunks of the view, nearest first (then by x and z).
     order: Vec<ChunkPos>,
     /// Every chunk of `order` before it has been sent.
@@ -97,7 +99,7 @@ fn fake_key(pos: BlockPos) -> FakeKey {
 /// The chunk packets of one tick for one player.
 #[derive(Debug, Default)]
 pub(super) struct Out {
-    /// A publisher update: the view moved or changed size.
+    /// A publisher update: the view or the player's block moved, or the view changed size.
     publish: bool,
     /// Chunks to send, in order.
     chunks: Vec<ChunkPos>,
@@ -245,6 +247,7 @@ impl View {
         let Self {
             center,
             radius,
+            published,
             order: _,
             cursor,
             sent,
@@ -254,7 +257,7 @@ impl View {
             out: _,
         } = self;
         h.u64(u64::from(*radius));
-        for c in [center.x, center.z] {
+        for c in [center.x, center.z, published.x, published.y, published.z] {
             h.u64(u64::from(c.cast_unsigned()));
         }
         h.usize(*cursor);
@@ -299,6 +302,7 @@ impl View {
 super::checkpoint::fields!(View {
     center,
     radius,
+    published,
     order,
     cursor,
     sent,
@@ -1017,6 +1021,13 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
                     radius,
                 );
             }
+            // BDS sends a publisher update every tick (P6), so the client's chunk area follows the
+            // player block by block rather than a chunk at a time; repeats of a block are left out.
+            let at = BlockPos::containing(player.position);
+            if player.view.out.publish || at != player.view.published {
+                player.view.out.publish = true;
+                player.view.published = at;
+            }
             let per_tick = usize::try_from(limits.chunks_per_tick).unwrap_or(usize::MAX);
             pick(worlds, chunks, player, per_tick);
             let spawn_radius = limits.spawn_radius.min(player.view.radius);
@@ -1499,7 +1510,7 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<
             + view.out.shown.len(),
     );
     if view.out.publish {
-        let BlockPos { x, y, z } = BlockPos::containing(player.position);
+        let BlockPos { x, y, z } = view.published;
         out.push(Packet::NetworkChunkPublisherUpdate(
             NetworkChunkPublisherUpdate {
                 position: [x, y, z],
