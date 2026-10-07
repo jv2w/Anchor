@@ -1,14 +1,16 @@
 //! Updating a settings file to this Anchor ([`Config::update_file`]): the keys of the default
-//! file that it lacks are added with the comment lines above them there, and keys an older Anchor
-//! knew under another name are renamed. Each edit is made in the text, at a place the TOML parser
+//! file that it lacks are added with the comment lines above them there, keys an older Anchor
+//! knew under another name are renamed, and keys Anchor does not know are removed with the
+//! comment lines right above them. Each edit is made in the text, at a place the TOML parser
 //! reports, so every other byte of the file stays as it was.
 
 use std::io;
 use std::path::Path;
 
-use toml::de::DeTable;
+use toml::Spanned;
+use toml::de::{DeString, DeTable, DeValue};
 
-use super::{Config, DEFAULT_FILE, Error, MAX_FILE_BYTES, RENAMED_KEYS, Result};
+use super::{Config, DEFAULT_FILE, Error, Key, MAX_FILE_BYTES, RENAMED_KEYS, Result};
 use crate::fs::{self, Access};
 
 /// What [`Config::update_file`] changed in the settings file.
@@ -16,6 +18,7 @@ use crate::fs::{self, Access};
 pub struct Update {
     added: Vec<String>,
     renamed: Vec<(&'static str, &'static str)>,
+    removed: Vec<String>,
 }
 
 impl Update {
@@ -30,9 +33,14 @@ impl Update {
         &self.renamed
     }
 
+    /// The unknown keys removed, such as `general.old-key`, in file order.
+    pub fn removed(&self) -> &[String] {
+        &self.removed
+    }
+
     /// Whether nothing changed, so the file was not written.
     pub fn is_empty(&self) -> bool {
-        self.added.is_empty() && self.renamed.is_empty()
+        self.added.is_empty() && self.renamed.is_empty() && self.removed.is_empty()
     }
 }
 
@@ -88,18 +96,35 @@ pub(super) fn run(path: &Path) -> Result<Update> {
     Ok(update)
 }
 
-/// Returns `text` with the missing keys and tables added and the old keys renamed, and what
-/// changed.
+/// Returns `text` with the missing keys and tables added, the old keys renamed and the unknown
+/// keys removed, and what changed.
 fn edit(text: &str) -> Result<(String, Update)> {
     let root = DeTable::parse(text).map_err(|e| super::syntax(text, &e))?;
     let root = root.get_ref();
     let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let sections = sections();
+    let ends = value_ends(root, text);
     let mut update = Update::default();
     let mut edits = Vec::new();
+    // The unknown keys with where their removal starts, for the file order.
+    let mut removed = Vec::new();
+    let mut remove = |edits: &mut Vec<Edit>, table: &str, key: &Spanned<DeString<'_>>, value| {
+        if let Some(edit) = removal(text, &ends, key, value) {
+            removed.push((edit.start, Key::new(table, key.get_ref()).path()));
+            edits.push(edit);
+        }
+    };
+    // Unknown tables stay for the build to reject.
+    for (key, value) in root {
+        let name: &str = key.get_ref();
+        if name != "worlds" && !sections.iter().any(|s| s.name == name) {
+            remove(&mut edits, "", key, value);
+        }
+    }
     // Missing tables, put after everything else: an insertion at the end of the text belongs to
     // the table the text ends in.
     let mut appended = String::new();
-    for section in sections() {
+    for section in &sections {
         let Some(table) = root.get(section.name) else {
             if !appended.is_empty() {
                 appended.push_str(eol);
@@ -116,6 +141,19 @@ fn edit(text: &str) -> Result<(String, Update)> {
             continue;
         };
         let header = text.as_bytes().get(table.span().start) == Some(&b'[');
+        // Without a header, the lines of a key may hold more than the key.
+        if header {
+            for (key, value) in entries {
+                let name: &str = key.get_ref();
+                let known = section.keys.iter().any(|k| {
+                    k.name == name
+                        || renamed_to(section.name, k.name).is_some_and(|(old, _)| old == name)
+                });
+                if !known {
+                    remove(&mut edits, section.name, key, value);
+                }
+            }
+        }
         // A key goes after the line of the key before it in the default file.
         let mut after = line_end(text, table.span().end);
         for key in &section.keys {
@@ -151,7 +189,66 @@ fn edit(text: &str) -> Result<(String, Update)> {
     // Stable: insertions at one place keep the default file's order and come before a key
     // renamed there.
     edits.sort_by_key(|e| (e.start, e.end));
+    removed.sort();
+    update.removed = removed.into_iter().map(|(_, path)| path).collect();
     Ok((splice(text, &edits, &appended, eol), update))
+}
+
+/// The removal of the unknown key `key` with its value `value`: its lines and the comment lines
+/// right above them. `None` when it is not a `key = value` line, such as a dotted key or a table
+/// under its own header, which the load then names. `ends` is [`value_ends`] of `text`.
+fn removal(
+    text: &str,
+    ends: &[usize],
+    key: &Spanned<DeString<'_>>,
+    value: &Spanned<DeValue<'_>>,
+) -> Option<Edit> {
+    let (key, value) = (key.span(), value.span());
+    let between = text.get(key.end..value.start)?;
+    let quote = |c: char| c.is_whitespace() || c == '"' || c == '\'';
+    if between.trim_matches(quote) != "=" {
+        return None;
+    }
+    let line_start = |at: usize| {
+        let before = text.as_bytes().get(..at).unwrap_or_default();
+        before
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i + 1)
+    };
+    let mut start = line_start(key.start);
+    // A line of a multi-line string above is not a comment line.
+    let floor = ends.partition_point(|&end| end <= start);
+    let floor = floor.checked_sub(1).and_then(|i| ends.get(i)).copied();
+    while start > floor.unwrap_or(0) {
+        let above = line_start(start - 1);
+        if !text.get(above..start)?.trim_start().starts_with('#') {
+            break;
+        }
+        start = above;
+    }
+    Some(Edit {
+        start,
+        end: line_end(text, value.end),
+        text: String::new(),
+    })
+}
+
+/// The ends of the lines where the values of `root` that are not tables end, sorted.
+fn value_ends(root: &DeTable<'_>, text: &str) -> Vec<usize> {
+    let mut ends = Vec::new();
+    // A stack, not recursion: the file sets the nesting depth.
+    let mut tables = vec![root];
+    while let Some(table) = tables.pop() {
+        for value in table.values() {
+            match value.get_ref() {
+                DeValue::Table(inner) => tables.push(inner),
+                _ => ends.push(line_end(text, value.span().end)),
+            }
+        }
+    }
+    ends.sort_unstable();
+    ends
 }
 
 /// The tables of the default file, in file order.

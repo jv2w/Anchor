@@ -170,7 +170,7 @@ impl Server {
     ///
     /// The program's process arguments can ask for a command instead, which the program answers
     /// with no code of its own, writing the result to standard output: `<program> update-config`
-    /// reports what [`Config::load`] added to the settings file and renamed in it, and
+    /// reports what [`Config::load`] added to the settings file, renamed and removed in it, and
     /// `<program> import <world folder> [<world name>]` runs [`import_world`](Self::import_world)
     /// (the default world, `level-name`, without a name). Either then returns without starting
     /// the server, so it can run beside a running server. Those commands given other arguments

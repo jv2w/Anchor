@@ -1251,6 +1251,77 @@ fn update_renames_old_keys_and_keeps_their_value() {
 }
 
 #[test]
+fn update_removes_unknown_keys_with_the_comment_lines_right_above_them() {
+    let file = File::new("update_unknown");
+    let default = documented_default_file();
+    // A root key before the first comment, a key right below a header, a quoted key with a
+    // multi-line value and a comment after it, and a key at the end without a line ending, a
+    // blank line keeping the comment lines above it.
+    let text = format!("gone = 1\n{default}")
+        .replacen(
+            "[general]\n",
+            "[general]\n# Old.\n#  Gone.\nold-key = 1\n",
+            1,
+        )
+        .replacen(
+            "[developer]\n",
+            "[developer]\n  # Old.\n  \"old key\" = [\n    1,\n] # gone\n",
+            1,
+        )
+        + "\n# Old.\nlast = true";
+    write(&file.path, text.as_bytes());
+    let update = Config::update_file(&file.path).expect("updates");
+    assert_eq!(
+        update.removed(),
+        [
+            "gone",
+            "general.old-key",
+            "developer.old key",
+            "developer.last"
+        ]
+    );
+    assert!(update.added().is_empty() && update.renamed().is_empty());
+    assert_eq!(read(&file.path), format!("{default}\n"));
+    assert!(Config::update_file(&file.path).expect("again").is_empty());
+
+    // A blank line ends the comment lines of a key, and a line of a multi-line string is not a
+    // comment line; CRLF lines are removed whole.
+    let text = "[general]\r\nmotd = \"\"\"\r\n# Lobby\"\"\"\r\nold-key = 1\r\n# Kept.\r\n\r\n\
+                # Old.\r\nother = 1\r\npvp = false\r\n";
+    write(&file.path, text.as_bytes());
+    let update = Config::update_file(&file.path).expect("updates");
+    assert_eq!(update.removed(), ["general.old-key", "general.other"]);
+    let updated = read(&file.path);
+    assert!(
+        updated.contains("motd = \"\"\"\r\n# Lobby\"\"\"\r\n"),
+        "{updated}"
+    );
+    assert!(
+        updated.contains("\r\n# Kept.\r\n\r\npvp = false\r\n"),
+        "{updated}"
+    );
+    assert!(!updated.contains("# Old.") && !updated.contains("old-key"));
+
+    // A table under a known table and a world's key are left for the load to name.
+    for (text, expected) in [
+        (
+            "[general]\n[general.old]\nanswer = 1\n",
+            "unknown key `general.old`",
+        ),
+        ("[general]\nold.answer = 1\n", "unknown key `general.old`"),
+        (
+            "[worlds.lobby]\nold-key = 1\n",
+            "unknown key `worlds.lobby.old-key`",
+        ),
+    ] {
+        write(&file.path, text.as_bytes());
+        let error = Config::update_file(&file.path).expect_err(expected);
+        assert!(error.to_string().contains(expected), "{error}");
+        assert_eq!(read(&file.path), text);
+    }
+}
+
+#[test]
 fn update_refuses_a_file_it_cannot_update_and_leaves_it() {
     let file = File::new("update_refused");
     let error = Config::update_file(&file.path).expect_err("no file");
@@ -1265,7 +1336,6 @@ fn update_refuses_a_file_it_cannot_update_and_leaves_it() {
     let full = format!("{full}{}\n", "#".repeat(1024 * 1024 - full.len() - 1));
     assert_eq!(full.len(), MIB);
     for (text, expected) in [
-        ("[general]\nmotdd = 1\n", "unknown key `general.motdd`"),
         (
             "[general]\nview-distance = 1\n",
             "`general.view-distance` = 1 is outside 2..=64",

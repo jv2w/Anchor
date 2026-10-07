@@ -18,7 +18,7 @@ Anchor의 설정은 `anchor.toml` 파일 하나다. 이 문서는 모든 키의 
 
 ```toml
 # Anchor server settings. Anchor reads this file at start and writes it only to update it:
-# "<server program> update-config" adds the keys of a newer Anchor and keeps the rest.
+# "<server program> update-config" adds the keys of a newer Anchor and removes unknown keys.
 # A wrong value or an unknown key stops the start with a message naming the key.
 # A key left out keeps its default, so new Anchor versions start with an old file.
 
@@ -298,9 +298,10 @@ PMMP 설정 중 없는 것: PHP 전용(메모리, GC, async-workers, timings, �
 
 - 더하기: 기본 파일에 있고 파일에 없는 키를 기본값과, 기본 파일에서 그 키 바로 위에 붙은 주석 줄과 함께 더한다. 자리는 기본 파일에서 그 키보다 앞인 키 중 파일에 있는 가장 가까운 키의 줄 다음이고, 그런 키가 없으면 표 머리 줄 다음이다. 파일에 없는 표는 머리 위 주석과 모든 키를 파일 끝에 빈 줄 하나를 두고 더한다.
 - 이름 바꾸기: `RENAMED_KEYS`의 옛 키는 키 이름만 새 이름으로 바꾸고 값과 줄 끝 주석은 둔다. 같은 표 안의 이름 바꾸기만 한다. 새 이름이 이미 있으면 옛 키를 그대로 두어 `RenamedKey`로 멈춘다.
+- 지우기: Anchor가 모르는 `키 = 값`(최상위, 그리고 머리 줄로 적힌 `[general]`·`[developer]` 안)은 그 줄들과 바로 위에 붙은 주석 줄(`#`로 시작하는 줄, 빈 줄에서 끊김)과 함께 지운다. 여러 줄 문자열 값의 줄은 주석으로 보지 않는다. 옛 이름 키는 지우지 않고(위 이름 바꾸기), 점 키나 하위 표(`[general.x]`)는 두어 `load`가 알린다. 모르는 표와 `[worlds.<이름>]` 안의 키도 지우지 않는다.
 - 그 밖의 바이트(값, 주석, 키 순서, BOM, 줄 끝)는 그대로다. 파일이 CRLF를 쓰면 더한 줄도 CRLF다. `[worlds.<이름>]` 표는 건드리지 않는다: 거기서 빠진 키는 전역 값을 뜻한다.
 - 값은 고치지 않는다. 결과가 `load`로 읽히지 않으면(모르는 키, 범위 밖 값, 문법 오류 등) 그 오류를 돌려주고 파일을 그대로 둔다. 파일이 없으면 `Read`(NotFound), 키가 빠진 표가 머리 없이(인라인 표, 점 키) 적혀 있으면 `HeaderlessTable`, 결과가 1 MiB를 넘으면 `TooLarge`다.
-- 바뀐 것이 있을 때만 임시 파일에 쓰고 이름을 바꿔 통째로 바꾼다. 돌려주는 `config::Update`가 더한 키(`added`)와 바꾼 키(`renamed`)를 알려 준다. 다시 부르면 아무것도 바꾸지 않는다.
+- 바뀐 것이 있을 때만 임시 파일에 쓰고 이름을 바꿔 통째로 바꾼다. 돌려주는 `config::Update`가 더한 키(`added`), 바꾼 키(`renamed`), 지운 키(`removed`)를 알려 준다. 다시 부르면 아무것도 바꾸지 않는다.
 - 더한 값은 기본값이라 파일의 뜻은 그대로다(새 키의 기본값은 그 키가 없을 때의 동작이다). 다만 `load` 전에 코드에서 바꾼 값은, 그 키가 더해지면 파일 값에 덮인다. 파일이 없을 때 기본 파일을 쓰는 것과 같다.
 - 계속 읽히는 옛 값 형식(`lighting = true` 등)과 이미 있는 키의 주석은 바꾸지 않는다.
 

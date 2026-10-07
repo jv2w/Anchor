@@ -22,7 +22,7 @@ use crate::import::Report;
 pub(crate) enum Task {
     /// Run the server: no argument, or the program's own.
     Run,
-    /// `update-config`: add the missing keys to the settings file.
+    /// `update-config`: add the missing keys to the settings file and remove the unknown ones.
     UpdateConfig,
     /// `import <world folder> [<world name>]`: import a Bedrock world; without a name, as the
     /// default world (`level-name`).
@@ -75,12 +75,17 @@ pub(crate) fn updated(update: Option<&Update>) -> String {
             .to_owned();
     };
     if update.is_empty() {
-        return "the settings file already has every key".to_owned();
+        return "the settings file is already up to date".to_owned();
     }
     let added = update.added().iter().map(|key| format!("added {key}"));
     let renamed = update.renamed().iter();
     let renamed = renamed.map(|(old, new)| format!("renamed {old} to {new}"));
-    added.chain(renamed).collect::<Vec<_>>().join("\n")
+    let removed = update.removed().iter().map(|key| format!("removed {key}"));
+    added
+        .chain(renamed)
+        .chain(removed)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// What `import` writes when the world is imported as `world` into `file`.

@@ -24,7 +24,7 @@ pub use self::update::Update;
 /// loads as the default settings. [`Config::update_file`] adds a missing key with the comment
 /// lines right above it here, and a missing table with those above its header.
 const DEFAULT_FILE: &str = r#"# Anchor server settings. Anchor reads this file at start and writes it only to update it:
-# "<server program> update-config" adds the keys of a newer Anchor and keeps the rest.
+# "<server program> update-config" adds the keys of a newer Anchor and removes unknown keys.
 # A wrong value or an unknown key stops the start with a message naming the key.
 # A key left out keeps its default, so new Anchor versions start with an old file.
 
@@ -281,9 +281,11 @@ impl Config {
     /// there, or after the table's header when the file has none of those. A table the file
     /// lacks is added at its end. A key an older Anchor knew under another name gets its new name
     /// and keeps its value; with both names in the file, the old key stays and fails the load as
-    /// [`Error::RenamedKey`]. Every other byte stays as it was: values, comments, key order and
-    /// line endings. `[worlds.<name>]` tables are not touched, since a key left out there means
-    /// the global value.
+    /// [`Error::RenamedKey`]. A `key = value` that Anchor does not know, at the top or in a table
+    /// of the default file written with its header, is removed with the comment lines right
+    /// above it. Every other byte stays as it was: values, comments, key order and line endings.
+    /// Unknown tables are not touched, nor are `[worlds.<name>]` tables, since a key left out
+    /// there means the global value.
     ///
     /// The added values are the defaults, so the file means what it meant without them. A value
     /// set in code before [`Config::load`] for a key this adds is then replaced by the file's, as

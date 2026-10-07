@@ -29,7 +29,7 @@ fn main() -> anchor::Result<()> {
 Anchor로 만든 서버 프로그램은 코드 없이 두 명령을 받는다. 서버를 켜지 않고 일만 하고 끝나므로, 서버가 켜져 있어도 서버 폴더에서 그대로 돌린다.
 
 ```
-<서버>.exe update-config                        # 새 Anchor의 빠진 키를 anchor.toml에 더함
+<서버>.exe update-config                        # anchor.toml에 새 키를 더하고 모르는 키를 지움
 <서버>.exe import <Bedrock 월드 폴더> [이름]     # LevelDB 월드 → data/world/<이름>.redb (이름 없으면 level-name)
 ```
 
