@@ -2397,6 +2397,49 @@ mod tests {
         assert_eq!(sizes(&server.take(2)), [(0.6, 1.8)]);
     }
 
+    /// A player that respawns where its client has no chunks yet (another world, or far away)
+    /// still gets its own respawn data: it does not see itself through the chunks it was sent.
+    #[test]
+    fn a_player_respawning_out_of_its_view_gets_its_own_respawn_data() {
+        let mut server = Server::new(1, |_| {});
+        let spawn = BlockPos::new(0, -60, 0);
+        let other = crate::world::World::new("other", crate::world::Kind::Temporary, 3, spawn);
+        server.state.add_world(other);
+        server.survival(1).spawn = Some(Point {
+            world: "other".to_owned(),
+            pos: BlockPos::new(2, -60, 2),
+        });
+        assert!(server.hurt(1, 100.0, Damage::Magic));
+        server.idle(1);
+        server.take(1);
+        let ready = p::Respawn {
+            position: [0.0; 3],
+            state: u8::from(RespawnState::ClientReadyToSpawn),
+            entity_runtime_id: 1,
+        };
+        let action = p::PlayerAction {
+            entity_runtime_id: 1,
+            action_type: i32::from(Action::Respawn),
+            ..Default::default()
+        };
+        let inputs = vec![
+            server.send(1, Packet::Respawn(ready)),
+            server.send(1, Packet::PlayerAction(action)),
+        ];
+        server.run(inputs);
+        assert_eq!(server.player(1).world, 1);
+        let back = server.take(1);
+        assert!(back.iter().any(|p| matches!(
+            p,
+            Packet::ActorEvent(e) if e.event_type == u8::from(ActorEvent::SpawnAlive)
+        )));
+        let data = back
+            .iter()
+            .filter(|p| matches!(p, Packet::SetActorData(d) if d.entity_runtime_id == 1))
+            .count();
+        assert_eq!(data, 2, "the whole entity data and the box size");
+    }
+
     #[test]
     fn hardcore_players_come_back_as_spectators() {
         let mut server = Server::new(1, |c| {

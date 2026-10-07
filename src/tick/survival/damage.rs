@@ -1739,17 +1739,20 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
     let size = attributes::size_data(player.runtime_id, attributes::size(&player.survival));
     let now = attributes::shown(player);
+    let seen = [data, alive, size];
+    for packet in &seen {
+        broadcast_to_viewers(state, session, packet);
+    }
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    for packet in out {
+    // The player gets its own straight away: it may respawn where its client has no chunks yet
+    // (another world, far away), so it does not see itself as a viewer would.
+    for packet in out.into_iter().chain(seen) {
         player.send_packet(packet);
     }
     player.survival.dirty = 0;
     player.survival.shown = now;
-    broadcast_from(state, session, &data);
-    broadcast_from(state, session, &alive);
-    broadcast_from(state, session, &size);
     if let Some(runtime_id) = state.players.get(&session).map(|p| p.runtime_id) {
         for packet in crate::tick::entity::locator_life(runtime_id, true) {
             broadcast_to_viewers(state, session, &packet);
