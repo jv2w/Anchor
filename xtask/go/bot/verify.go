@@ -81,6 +81,9 @@ type verifyLog struct {
 	// timeline is the locator bar packets and the other entities' death and respawn events since the
 	// join, in order (consecutive repeats folded).
 	timeline []string
+	// sizes are the box sizes (entity data 53, 54) the other entities' SetActorData carried since the
+	// join: the client keeps a dead player's small box until they come.
+	sizes []string
 }
 
 // observeVerify keeps the packets of the verification scenarios; observe calls it for every packet.
@@ -111,6 +114,11 @@ func (g *game) observeVerify(pk packet.Packet) {
 		v.tier(pk.EntityRuntimeID, pk.EntityMetadata)
 	case *packet.SetActorData:
 		v.tier(pk.EntityRuntimeID, pk.EntityMetadata)
+		w, okW := pk.EntityMetadata[protocol.EntityDataKeyWidth]
+		h, okH := pk.EntityMetadata[protocol.EntityDataKeyHeight]
+		if pk.EntityRuntimeID != g.runtimeID && (okW || okH) {
+			v.sizes = append(v.sizes, fmt.Sprintf("%v %v", w, h))
+		}
 	case *packet.Event:
 		v.events = append(v.events, map[string]any{"type": fmt.Sprintf("%T", pk.Event), "event": toJSON(reflect.ValueOf(pk.Event), 0, true)})
 	}
@@ -1213,6 +1221,7 @@ func playOthers(g *game) error {
 	}
 	g.check("moves of the other player", moves)
 	g.check("locator bar, death and respawn", g.verify.timeline)
+	g.check("box sizes of the other player", g.verify.sizes)
 	g.check("hurt data", g.verify.hurts)
 	return g.settle(time.Second)
 }

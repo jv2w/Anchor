@@ -2343,6 +2343,60 @@ mod tests {
         assert_eq!(waypoints(&server.take(1)), [(3, 2, Some(true))]);
     }
 
+    /// The client shrinks a dying player's box and only the box size keys bring it back: BDS sends
+    /// 0.2 by 0.2 at the death and 0.6 by 1.8 after the respawn, to the player and its viewers (P6
+    /// `others`). Without them the others see a respawned player with a small hit box and a low
+    /// name tag.
+    #[test]
+    fn viewers_see_a_respawned_player_at_full_size() {
+        use crate::protocol::MetadataValue;
+        use crate::protocol::consts::EntityDataKey;
+        let mut server = duel(|_| {});
+        let runtime_id = server.player(2).runtime_id;
+        let sizes = |packets: &[Packet]| -> Vec<(f32, f32)> {
+            packets
+                .iter()
+                .filter_map(|p| match p {
+                    Packet::SetActorData(d) if d.entity_runtime_id == runtime_id => {
+                        let m = &d.entity_metadata;
+                        match (
+                            m.get(&EntityDataKey::Width.into()),
+                            m.get(&EntityDataKey::Height.into()),
+                        ) {
+                            (Some(MetadataValue::Float32(w)), Some(MetadataValue::Float32(h))) => {
+                                Some((*w, *h))
+                            }
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        server.hurt(2, 100.0, Damage::Magic);
+        server.idle(1);
+        assert_eq!(sizes(&server.take(1)), [(0.2, 0.2)]);
+        assert_eq!(sizes(&server.take(2)), [(0.2, 0.2)]);
+        let ready = p::Respawn {
+            position: [0.0; 3],
+            state: u8::from(RespawnState::ClientReadyToSpawn),
+            entity_runtime_id: runtime_id,
+        };
+        let action = p::PlayerAction {
+            entity_runtime_id: runtime_id,
+            action_type: i32::from(Action::Respawn),
+            ..Default::default()
+        };
+        let inputs = vec![
+            server.send(2, Packet::Respawn(ready)),
+            server.send(2, Packet::PlayerAction(action)),
+        ];
+        server.run(inputs);
+        server.idle(1);
+        assert_eq!(sizes(&server.take(1)), [(0.6, 1.8)]);
+        assert_eq!(sizes(&server.take(2)), [(0.6, 1.8)]);
+    }
+
     #[test]
     fn hardcore_players_come_back_as_spectators() {
         let mut server = Server::new(1, |c| {

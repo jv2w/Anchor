@@ -201,6 +201,7 @@
 - 위치 표시줄: 다른 플레이어가 보이게 되면 PlayerLocation{Type 0, 그 플레이어, 눈 위치}, LocatorBar 추가{Action 1, UpdateFlag 63, 색 = 그 플레이어의 목록 색, IconSize 0.2, `textures/ui/locator_bar_dot_3`, 위치 권한 서버, 보임}, 곧 갱신{Action 3, UpdateFlag 44, 위치 권한 클라이언트, IconSize 1, `locator_bar_dot_0`}. 죽으면 PlayerLocation{Type 1 숨김} + 갱신{UpdateFlag 2, Visible false}, 리스폰하면 갱신{UpdateFlag 2, Visible true}, 나가면 제거{Action 2, UpdateFlag 0}. GroupHandle은 공식 서버가 고른 UUID. Anchor도 같게 보낸다.
 - 피해 원인(ActorEvent hurt 데이터): 공격 2, 투사체 3, 익사 9, 번개 24. Anchor는 공식 서버 번호를 싣는다.
 - 리스폰한 플레이어 자신에게: Respawn(State 0, 위치 (0,32767,0)) → ActorEvent 18 → SetActorData{0 플래그(Breathing 포함), 53·54}. 리스폰 직후 Breathing은 켜져 있다. Anchor도 같다.
+- 죽고 리스폰하는 플레이어의 상자 크기(53·54): 죽을 때 SetActorData{127, 129, 53 0.2, 54 0.2}, 리스폰 때 ActorEvent 18 뒤 SetActorData{53 0.6, 54 1.8}를 본인과 보는 플레이어 모두에게 보낸다. 클라이언트는 죽은 플레이어의 작은 상자를 이 키가 올 때까지 두므로, 빠지면 보는 플레이어에게 리스폰한 플레이어의 히트박스가 작고 이름표가 낮다. Anchor도 같은 값을 보낸다(죽을 때 53·54는 127·129와 다른 SetActorData에 싣는다).
 - 그림: 블록 서쪽 면에 걸면 Direction 1, 위치는 그림 가운데(벽에서 1/32 앞, 예 `[13.96875, -58, 13]`). 공식 서버는 맞는 가장 큰 무늬 중 하나를 고른다. Anchor와 위치·방향이 같다.
 - 폭죽(폭발 없음, Flight 1): 16 `{Fireworks:{Explosions:[], Flight:1}}`, 17 Vec3 `[0,1,0]`, 18 int64 -1, 5(owner) -1. 폭발이 없어도 터질 때 ActorEvent 25(데이터 0). Anchor도 같다(Flight는 비행 시간에서 계산).
 - 엔드 크리스털(`summon ender_crystal`): 47 BlockTarget `[0,0,0]`, 플래그 FireImmune. Anchor와 47이 같다.

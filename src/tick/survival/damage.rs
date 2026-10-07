@@ -1386,6 +1386,11 @@ pub(super) fn die(
         session,
         &actor_event(runtime_id, ActorEvent::Death, 0),
     );
+    broadcast_from(
+        state,
+        session,
+        &attributes::size_data(runtime_id, attributes::DYING_SIZE),
+    );
     for packet in crate::tick::entity::locator_life(runtime_id, false) {
         broadcast_to_viewers(state, session, &packet);
     }
@@ -1732,6 +1737,7 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
         tick: 0,
     });
     let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
+    let size = attributes::size_data(player.runtime_id, attributes::size(&player.survival));
     let now = attributes::shown(player);
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -1743,6 +1749,7 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     player.survival.shown = now;
     broadcast_from(state, session, &data);
     broadcast_from(state, session, &alive);
+    broadcast_from(state, session, &size);
     if let Some(runtime_id) = state.players.get(&session).map(|p| p.runtime_id) {
         for packet in crate::tick::entity::locator_life(runtime_id, true) {
             broadcast_to_viewers(state, session, &packet);

@@ -346,6 +346,24 @@ pub(super) fn size(s: &Survival) -> [f32; 2] {
     }
 }
 
+/// The box width and height of a dying player, as BDS sends them at the death (P6 `others`).
+pub(super) const DYING_SIZE: [f32; 2] = [0.2, 0.2];
+
+/// `SetActorData` with a player's box width and height (keys 53, 54). The client keeps a dead
+/// player's small box (it hits and draws the name tag by it) until these keys come, so BDS sends
+/// them at the death and after the respawn (P6 `others`).
+pub(super) fn size_data(runtime_id: u64, [width, height]: [f32; 2]) -> Packet {
+    let mut m = EntityMetadata::new();
+    m.insert(EntityDataKey::Width.into(), MetadataValue::Float32(width));
+    m.insert(EntityDataKey::Height.into(), MetadataValue::Float32(height));
+    Packet::SetActorData(SetActorData {
+        entity_runtime_id: runtime_id,
+        entity_metadata: m,
+        entity_properties: EntityProperties::default(),
+        tick: 0,
+    })
+}
+
 /// The values of the changing keys whose value differs from `old` (all of them when `old` is
 /// `None`).
 fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) {
