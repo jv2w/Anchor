@@ -1,7 +1,6 @@
 //! Updating a settings file to this Anchor ([`Config::update_file`]): the keys of the default
-//! file that it lacks are added with the comment lines above them there, keys an older Anchor
-//! knew under another name are renamed, and keys Anchor does not know are removed with the
-//! comment lines right above them. Each edit is made in the text, at a place the TOML parser
+//! file that it lacks are added with the comment lines above them there, and keys Anchor does
+//! not know are removed with the comment lines right above them. Each edit is made in the text, at a place the TOML parser
 //! reports, so every other byte of the file stays as it was.
 
 use std::io;
@@ -10,14 +9,13 @@ use std::path::Path;
 use toml::Spanned;
 use toml::de::{DeString, DeTable, DeValue};
 
-use super::{Config, DEFAULT_FILE, Error, Key, MAX_FILE_BYTES, RENAMED_KEYS, Result};
+use super::{Config, DEFAULT_FILE, Error, Key, MAX_FILE_BYTES, Result};
 use crate::fs::{self, Access};
 
 /// What [`Config::update_file`] changed in the settings file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Update {
     added: Vec<String>,
-    renamed: Vec<(&'static str, &'static str)>,
     removed: Vec<String>,
 }
 
@@ -27,12 +25,6 @@ impl Update {
         &self.added
     }
 
-    /// The keys renamed, each as its old and its new key, such as
-    /// (`general.experience-bottles`, `general.experience-orbs`).
-    pub fn renamed(&self) -> &[(&'static str, &'static str)] {
-        &self.renamed
-    }
-
     /// The unknown keys removed, such as `general.old-key`, in file order.
     pub fn removed(&self) -> &[String] {
         &self.removed
@@ -40,7 +32,7 @@ impl Update {
 
     /// Whether nothing changed, so the file was not written.
     pub fn is_empty(&self) -> bool {
-        self.added.is_empty() && self.renamed.is_empty() && self.removed.is_empty()
+        self.added.is_empty() && self.removed.is_empty()
     }
 }
 
@@ -96,8 +88,8 @@ pub(super) fn run(path: &Path) -> Result<Update> {
     Ok(update)
 }
 
-/// Returns `text` with the missing keys and tables added, the old keys renamed and the unknown
-/// keys removed, and what changed.
+/// Returns `text` with the missing keys and tables added and the unknown keys removed, and what
+/// changed.
 fn edit(text: &str) -> Result<(String, Update)> {
     let root = DeTable::parse(text).map_err(|e| super::syntax(text, &e))?;
     let root = root.get_ref();
@@ -145,11 +137,7 @@ fn edit(text: &str) -> Result<(String, Update)> {
         if header {
             for (key, value) in entries {
                 let name: &str = key.get_ref();
-                let known = section.keys.iter().any(|k| {
-                    k.name == name
-                        || renamed_to(section.name, k.name).is_some_and(|(old, _)| old == name)
-                });
-                if !known {
+                if !section.keys.iter().any(|k| k.name == name) {
                     remove(&mut edits, section.name, key, value);
                 }
             }
@@ -158,19 +146,6 @@ fn edit(text: &str) -> Result<(String, Update)> {
         let mut after = line_end(text, table.span().end);
         for key in &section.keys {
             if let Some(value) = entries.get(key.name) {
-                after = line_end(text, value.span().end);
-                continue;
-            }
-            // With both keys, the old one stays for the load to reject.
-            if let Some((old_name, renamed)) = renamed_to(section.name, key.name)
-                && let Some((old, value)) = entries.get_key_value(old_name)
-            {
-                edits.push(Edit {
-                    start: old.span().start,
-                    end: old.span().end,
-                    text: key.name.to_owned(),
-                });
-                update.renamed.push(renamed);
                 after = line_end(text, value.span().end);
                 continue;
             }
@@ -186,8 +161,7 @@ fn edit(text: &str) -> Result<(String, Update)> {
             update.added.push(format!("{}.{}", section.name, key.name));
         }
     }
-    // Stable: insertions at one place keep the default file's order and come before a key
-    // renamed there.
+    // Stable: insertions at one place keep the default file's order.
     edits.sort_by_key(|e| (e.start, e.end));
     removed.sort();
     update.removed = removed.into_iter().map(|(_, path)| path).collect();
@@ -284,16 +258,6 @@ fn sections() -> Vec<Section> {
     sections
 }
 
-/// The old name of key `name` of table `table`, if [`RENAMED_KEYS`] renamed it within that
-/// table, and that entry.
-fn renamed_to(table: &str, name: &str) -> Option<(&'static str, (&'static str, &'static str))> {
-    let in_table = |path: &'static str| path.strip_prefix(table)?.strip_prefix('.');
-    RENAMED_KEYS.iter().find_map(|&(old, new)| {
-        let old_name = in_table(old)?;
-        (in_table(new)? == name).then_some((old_name, (old, new)))
-    })
-}
-
 /// The end of the line holding byte `at` of `text`: after its line feed, or the end of the text.
 fn line_end(text: &str, at: usize) -> usize {
     let rest = text.as_bytes().get(at..).unwrap_or_default();
@@ -341,7 +305,7 @@ fn splice(text: &str, edits: &[Edit], appended: &str, eol: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{RENAMED_KEYS, sections};
+    use super::sections;
 
     #[test]
     fn the_default_file_splits_into_its_tables_and_keys() {
@@ -368,14 +332,6 @@ mod tests {
             let line = key.lines.lines().last().expect("a line");
             assert!(line.starts_with(&format!("{} = ", key.name)), "{line}");
             assert!(key.lines.lines().rev().skip(1).all(|l| l.starts_with('#')));
-        }
-    }
-
-    #[test]
-    fn every_rename_stays_in_its_table() {
-        for (old, new) in RENAMED_KEYS {
-            let table = |path: &str| path.split_once('.').map(|(table, _)| table.to_owned());
-            assert_eq!(table(old), table(new), "{old} -> {new}");
         }
     }
 }

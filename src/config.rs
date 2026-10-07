@@ -175,11 +175,6 @@ console-input = true
 /// The largest settings file read. A real file is about 4 KiB; the cap bounds the parser's memory.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 
-/// Keys an older Anchor knew, by old path, and the key that replaced each: a file still using
-/// one fails with [`Error::RenamedKey`] naming the new key, and [`Config::update_file`] renames
-/// it when the new key is in the same table.
-const RENAMED_KEYS: [(&str, &str); 1] = [("general.experience-bottles", "general.experience-orbs")];
-
 /// Bounds the player and session tables that are sized from it.
 const MAX_PLAYERS: RangeInclusive<u32> = 1..=10_000;
 /// The `view-distance` range the settings file accepts.
@@ -279,9 +274,7 @@ impl Config {
     /// Each key of the default file that the file lacks is added with its default value and the
     /// comment lines right above it in the default file: after the line of the key before it
     /// there, or after the table's header when the file has none of those. A table the file
-    /// lacks is added at its end. A key an older Anchor knew under another name gets its new name
-    /// and keeps its value; with both names in the file, the old key stays and fails the load as
-    /// [`Error::RenamedKey`]. A `key = value` that Anchor does not know, at the top or in a table
+    /// lacks is added at its end. A `key = value` that Anchor does not know, at the top or in a table
     /// of the default file written with its header, is removed with the comment lines right
     /// above it. Every other byte stays as it was: values, comments, key order and line endings.
     /// Unknown tables are not touched, nor are `[worlds.<name>]` tables, since a key left out
@@ -1207,14 +1200,6 @@ pub enum Error {
     },
     /// A key Anchor does not know, such as `general.motdd`.
     UnknownKey(String),
-    /// A key an older Anchor knew that was renamed or merged into another, such as
-    /// `general.experience-bottles`.
-    RenamedKey {
-        /// The old key.
-        key: String,
-        /// The key that replaced it, such as `general.experience-orbs`.
-        renamed: &'static str,
-    },
     /// A top-level table Anchor does not know, such as `plugin` for `[plugin]`.
     UnknownTable(String),
     /// A table lacking a key that [`Config::update_file`] cannot add to, as it is written
@@ -1271,7 +1256,6 @@ impl fmt::Display for Error {
                 message,
             } => write!(f, "invalid toml: {message}"),
             Self::UnknownKey(key) => write!(f, "unknown key `{key}`"),
-            Self::RenamedKey { key, renamed } => write!(f, "`{key}` was renamed to `{renamed}`"),
             Self::UnknownTable(name) => write!(f, "unknown table `[{name}]`"),
             Self::HeaderlessTable(name) => write!(
                 f,
@@ -1336,14 +1320,9 @@ impl<'a> Key<'a> {
         }
     }
 
-    /// The error for a key Anchor does not read: [`Error::RenamedKey`] for an old name, else
-    /// [`Error::UnknownKey`].
+    /// The error for a key Anchor does not read.
     fn unknown(self) -> Error {
-        let key = self.path();
-        match RENAMED_KEYS.iter().find(|(old, _)| *old == key) {
-            Some(&(_, renamed)) => Error::RenamedKey { key, renamed },
-            None => Error::UnknownKey(key),
-        }
+        Error::UnknownKey(self.path())
     }
 
     fn invalid(self, expected: impl Into<String>) -> Error {
@@ -1717,22 +1696,18 @@ mod tests {
         let dir = crate::save::tests::TempDir::new("config-update");
         let path = dir.0.join("anchor.toml");
         let old = "[general]
-experience-bottles = false
+old-key = false
 ";
         std::fs::write(&path, old).unwrap();
         let error = Config::default().load_as(&path, false).unwrap_err();
-        assert!(matches!(error, Error::RenamedKey { .. }), "{error}");
+        assert!(matches!(error, Error::UnknownKey(_)), "{error}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
         assert_eq!(Config::default().updated(), None);
 
         let config = Config::default().load_as(&path, true).unwrap();
-        assert!(!config.general.experience_orbs);
         let update = config.updated().unwrap();
-        assert_eq!(
-            update.renamed(),
-            [("general.experience-bottles", "general.experience-orbs")]
-        );
-        assert_eq!(update.added().len(), 64);
+        assert_eq!(update.removed(), ["general.old-key"]);
+        assert_eq!(update.added().len(), 65);
         let again = Config::default().load_as(&path, true).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }

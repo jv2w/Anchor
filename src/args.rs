@@ -78,14 +78,8 @@ pub(crate) fn updated(update: Option<&Update>) -> String {
         return "the settings file is already up to date".to_owned();
     }
     let added = update.added().iter().map(|key| format!("added {key}"));
-    let renamed = update.renamed().iter();
-    let renamed = renamed.map(|(old, new)| format!("renamed {old} to {new}"));
     let removed = update.removed().iter().map(|key| format!("removed {key}"));
-    added
-        .chain(renamed)
-        .chain(removed)
-        .collect::<Vec<_>>()
-        .join("\n")
+    added.chain(removed).collect::<Vec<_>>().join("\n")
 }
 
 /// What `import` writes when the world is imported as `world` into `file`.

@@ -994,34 +994,6 @@ fn unknown_keys_are_rejected_by_name() {
 }
 
 #[test]
-fn renamed_keys_are_rejected_with_their_new_name() {
-    let file = File::new("renamed_keys");
-    let error = file
-        .load("[general]\nexperience-bottles = false\n")
-        .expect_err("renamed key");
-    assert!(
-        matches!(
-            error,
-            Error::RenamedKey { ref key, renamed: "general.experience-orbs" }
-                if key == "general.experience-bottles"
-        ),
-        "{error:?}"
-    );
-    assert_eq!(
-        error.to_string(),
-        "`general.experience-bottles` was renamed to `general.experience-orbs`"
-    );
-    // The old name in another table is just unknown.
-    let error = file
-        .load("[developer]\nexperience-bottles = false\n")
-        .expect_err("unknown key");
-    assert!(
-        matches!(error, Error::UnknownKey(ref k) if k == "developer.experience-bottles"),
-        "{error:?}"
-    );
-}
-
-#[test]
 fn oversized_file_is_rejected_before_parsing() {
     let file = File::new("oversized");
     let line = format!("#{}\n", "x".repeat(1022));
@@ -1129,7 +1101,6 @@ fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
         assert_ne!(text, default, "{path}");
         let (update, updated) = write_and_update(&file, &text);
         assert_eq!(update.added(), std::slice::from_ref(&path));
-        assert!(update.renamed().is_empty());
         assert_eq!(updated, default, "{path}");
     }
 }
@@ -1215,42 +1186,6 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
 }
 
 #[test]
-fn update_renames_old_keys_and_keeps_their_value() {
-    let file = File::new("update_renamed");
-    for old in ["experience-bottles", "\"experience-bottles\""] {
-        let text = format!("[general]\nhunger = false\n{old} = false # no orbs\n");
-        write(&file.path, text.as_bytes());
-        let update = Config::update_file(&file.path).expect("updates");
-        assert_eq!(
-            update.renamed(),
-            [("general.experience-bottles", "general.experience-orbs")]
-        );
-        let added = update.added();
-        assert_eq!(added.len(), 63);
-        assert!(!added.iter().any(|p| p == "general.experience-orbs"));
-        let updated = read(&file.path);
-        assert!(
-            updated.contains(
-                "hunger = false\n# Gaining experience points and levels. false also means no \
-                 experience orbs.\nexperience = true\nexperience-orbs = false # no orbs\n\
-                 fall-damage = true\n"
-            ),
-            "{updated}"
-        );
-        let config = Config::default().load(&file.path).expect("loads");
-        assert!(!config.general.experience_orbs && !config.general.hunger);
-        assert!(Config::update_file(&file.path).expect("again").is_empty());
-    }
-
-    // With both names the old key stays, and the update stops on it.
-    let text = "[general]\nexperience-bottles = false\nexperience-orbs = true\n";
-    write(&file.path, text.as_bytes());
-    let error = Config::update_file(&file.path).expect_err("both names");
-    assert!(matches!(error, Error::RenamedKey { .. }), "{error}");
-    assert_eq!(read(&file.path), text);
-}
-
-#[test]
 fn update_removes_unknown_keys_with_the_comment_lines_right_above_them() {
     let file = File::new("update_unknown");
     let default = documented_default_file();
@@ -1280,7 +1215,7 @@ fn update_removes_unknown_keys_with_the_comment_lines_right_above_them() {
             "developer.last"
         ]
     );
-    assert!(update.added().is_empty() && update.renamed().is_empty());
+    assert!(update.added().is_empty());
     assert_eq!(read(&file.path), format!("{default}\n"));
     assert!(Config::update_file(&file.path).expect("again").is_empty());
 
