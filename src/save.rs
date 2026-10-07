@@ -358,7 +358,7 @@ struct Open {
 
 /// How the save thread opens the file of a world it learns of.
 enum Opener {
-    /// `data/world/<name>.redb` of the data folder, opened as the start says.
+    /// `data/worlds/<name>.redb` of the data folder, opened as the start says.
     Live { data_dir: PathBuf, start: Start },
     /// A replay's read-only copies, by world name.
     Replay(BTreeMap<String, PathBuf>),
@@ -536,7 +536,7 @@ fn delete_worlds(plans: &mut [Plan], opener: &Opener, worlds: &[DeletedWorld]) {
 /// What the tick needs to make and load worlds while it runs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Catalog {
-    /// The persistent worlds of `data/world/` that no spec names, by name.
+    /// The persistent worlds of `data/worlds/` that no spec names, by name.
     pub(crate) stored: Vec<(String, WorldRecord)>,
     /// The `chunks` key number of the next new persistent world.
     pub(crate) next_number: u32,
@@ -572,11 +572,10 @@ impl std::fmt::Debug for Opened {
 
 /// The server's data files besides the worlds'.
 struct Files {
-    /// The save's tick and commit identity, committed last.
+    /// The save's tick and commit identity, the operators, bans and whitelist, and the user's
+    /// server data, committed last.
     main: Open,
     players: Open,
-    access: Open,
-    user: Open,
 }
 
 /// The data files a replay starts from: each opened read-only.
@@ -584,8 +583,6 @@ struct Files {
 pub(crate) struct ReplayFiles {
     pub(crate) main: PathBuf,
     pub(crate) players: PathBuf,
-    pub(crate) access: PathBuf,
-    pub(crate) user: PathBuf,
     /// The persistent worlds' files, by name.
     pub(crate) worlds: BTreeMap<String, PathBuf>,
 }
@@ -665,7 +662,7 @@ impl Thread {
         names: &[&str],
     ) -> Result<Vec<Option<Vec<u8>>>, storage::Error> {
         let keys: Vec<Key> = names.iter().map(|&n| Key::User(n.to_owned())).collect();
-        let values = self.files.user.storage.read(&keys)?;
+        let values = self.files.main.storage.read(&keys)?;
         keys.iter()
             .zip(values)
             .map(|(key, value)| {
@@ -681,17 +678,10 @@ impl Thread {
     /// The open file `name`: a server file's name ([`storage::MAIN_FILE`], ...) or a world's.
     #[cfg(test)]
     pub(crate) fn file(&mut self, name: &str) -> &mut Storage {
-        let Files {
-            main,
-            players,
-            access,
-            user,
-        } = &mut self.files;
+        let Files { main, players } = &mut self.files;
         let file = match name {
             storage::MAIN_FILE => main,
             storage::PLAYERS_FILE => players,
-            storage::ACCESS_FILE => access,
-            storage::USER_FILE => user,
             _ => self
                 .plans
                 .iter_mut()
@@ -704,13 +694,8 @@ impl Thread {
 
     /// Every open data file: the server's, then the worlds'.
     fn files(&mut self) -> impl Iterator<Item = &mut Open> {
-        let Files {
-            main,
-            players,
-            access,
-            user,
-        } = &mut self.files;
-        [main, players, access, user]
+        let Files { main, players } = &mut self.files;
+        [main, players]
             .into_iter()
             .chain(self.plans.iter_mut().filter_map(|p| p.file.as_mut()))
     }
@@ -718,8 +703,8 @@ impl Thread {
 
 /// Opens the data files (backup and integrity check as `start` says) and resolves the worlds:
 /// each gets the settings of its spec ([`new_world`]); a persistent world whose file
-/// `data/world/` holds keeps its time and number, a new one starts at time 0 with the next free
-/// number. The other world files of `data/world/` are listed for the
+/// `data/worlds/` holds keeps its time and number, a new one starts at time 0 with the next free
+/// number. The other world files of `data/worlds/` are listed for the
 /// tick to load ([`Catalog::stored`]); their record is read without writing them, unless a crash
 /// left one to repair, which opens it as a start does. Every file holding a later save than the
 /// main file is reported ([`check_save`]). Runs before the threads start.
@@ -740,15 +725,11 @@ pub(crate) fn open_with(
     let mut files = Files {
         main,
         players: open(storage::PLAYERS_FILE)?,
-        access: open(storage::ACCESS_FILE)?,
-        user: open(storage::USER_FILE)?,
     };
     let mut later = Vec::new();
-    for file in [&mut files.players, &mut files.access, &mut files.user] {
-        let meta = stored_meta(&mut file.storage)?;
-        if check_save(&saved, &file.place.file, Some(&meta)) {
-            later.push(file.place.file.clone());
-        }
+    let meta = stored_meta(&mut files.players.storage)?;
+    if check_save(&saved, &files.players.place.file, Some(&meta)) {
+        later.push(files.players.place.file.clone());
     }
     let mut stored = Vec::new();
     for name in world_names(data_dir)? {
@@ -793,7 +774,7 @@ pub(crate) fn open_with(
     resolve(files, opener, saved, later, stored, specs, None)
 }
 
-/// The names of the world files in `data/world/`, in name order: each file `<name>.redb` whose
+/// The names of the world files in `data/worlds/`, in name order: each file `<name>.redb` whose
 /// name is a world name ([`storage::is_world_file_name`]); of names that differ only in letter
 /// case, the first. Others are left out with a warning.
 #[expect(
@@ -839,12 +820,12 @@ fn world_names(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error
     Ok(names)
 }
 
-/// The names of the world files of `data/world/`, in name order ([`world_names`]).
+/// The names of the world files of `data/worlds/`, in name order ([`world_names`]).
 pub(crate) fn world_files(data_dir: &std::path::Path) -> Result<Vec<String>, storage::Error> {
     world_names(data_dir)
 }
 
-/// Whether `data/world/` holds the file of the world `name`, or of one whose name differs only in
+/// Whether `data/worlds/` holds the file of the world `name`, or of one whose name differs only in
 /// letter case.
 pub(crate) fn world_file_exists(
     data_dir: &std::path::Path,
@@ -887,8 +868,6 @@ pub(crate) fn open_replica(
     let files_open = Files {
         main,
         players: open(&files.players)?,
-        access: open(&files.access)?,
-        user: open(&files.user)?,
     };
     let mut stored = Vec::new();
     for (name, file) in &files.worlds {
@@ -931,7 +910,7 @@ fn resolve(
     specs: Vec<WorldSpec>,
     seeds: Option<&[i64]>,
 ) -> Result<Opened, crate::Error> {
-    let access = read_access(&mut files.access.storage)?;
+    let access = read_access(&mut files.main.storage)?;
     let mut plans = Vec::with_capacity(specs.len());
     for (index, spec) in specs.iter().enumerate() {
         let given = seeds.and_then(|s| s.get(index).copied());
@@ -1090,10 +1069,6 @@ fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
     clippy::disallowed_methods,
     reason = "off-tick: the save thread waits for the tick's requests and for room for its answers"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "consistency: one loop answers every request in order, then closes every file"
-)]
 pub(crate) fn run(
     mut thread: Thread,
     pool: &Pool,
@@ -1192,18 +1167,13 @@ pub(crate) fn run(
         backup_step(&mut thread);
     }
     let Thread { files, plans, .. } = thread;
-    let Files {
-        main,
-        players,
-        access,
-        user,
-    } = files;
+    let Files { main, players } = files;
     // The main file last, as in a save.
     let mut closed = Ok(());
     for file in plans
         .into_iter()
         .filter_map(|p| p.file)
-        .chain([players, access, user, main])
+        .chain([players, main])
     {
         if let Err(e) = file.storage.close() {
             error!(file = %file.place.file.display(), error = %e, "data file did not close");
@@ -1542,10 +1512,10 @@ fn load_player(storage: &mut Storage, key: PlayerKey) -> Response {
 }
 
 /// Commits a snapshot: to each world file that changed its changed chunks and extras
-/// (sealed on the CPU pool) and its record, then the changed players, operators, bans and
-/// whitelist and server data each to its file, then the meta value to the main file, last. Each
-/// file gets its write transaction, and each written file the meta value too, so a start can tell
-/// a save that stopped between files ([`check_save`]). Files with nothing changed are not
+/// (sealed on the CPU pool) and its record, then the changed players to their file, then the
+/// changed operators, bans, whitelist and server data with the meta value to the main file, last.
+/// Each file gets its write transaction, and each written file the meta value too, so a start can
+/// tell a save that stopped between files ([`check_save`]). Files with nothing changed are not
 /// written. Every value is written in the current format. The worlds the snapshot deletes are
 /// forgotten and the worlds it brings learnt first, so their records are written too.
 #[expect(
@@ -1610,12 +1580,12 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
         };
         players.put(key.clone(), seal(&key.to_bytes(), &record)?);
     }
-    let mut access = Batch::with_capacity(snapshot.access.len() + 1);
+    let mut main = Batch::with_capacity(snapshot.access.len() + snapshot.user.len() + 1);
     for (key, write) in &snapshot.access {
         let key = Key::Access(key.clone());
         match write {
-            AccessWrite::Delete => access.delete(key),
-            AccessWrite::Mark => access.put(key.clone(), seal(&key.to_bytes(), &Mark)?),
+            AccessWrite::Delete => main.delete(key),
+            AccessWrite::Mark => main.put(key.clone(), seal(&key.to_bytes(), &Mark)?),
             AccessWrite::Ban(entry) => {
                 let record = BanRecord {
                     reason: entry.reason().to_owned(),
@@ -1623,15 +1593,14 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
                     created: entry.created(),
                     expires: entry.expires(),
                 };
-                access.put(key.clone(), seal(&key.to_bytes(), &record)?);
+                main.put(key.clone(), seal(&key.to_bytes(), &record)?);
             }
         }
     }
-    let mut user = Batch::with_capacity(snapshot.user.len() + 1);
     for (name, json) in &snapshot.user {
         let key = Key::User(name.clone());
         let record = UserRecord(Cow::Borrowed(json));
-        user.put(key.clone(), seal(&key.to_bytes(), &record)?);
+        main.put(key.clone(), seal(&key.to_bytes(), &record)?);
     }
     let sealed_meta = seal(&Key::Meta.to_bytes(), &meta)?;
     for (world, mut batch) in worlds {
@@ -1649,24 +1618,15 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
         }
     }
     let Files {
-        main,
+        main: main_file,
         players: players_file,
-        access: access_file,
-        user: user_file,
     } = &mut thread.files;
-    for (file, mut batch) in [
-        (players_file, players),
-        (access_file, access),
-        (user_file, user),
-    ] {
-        if !batch.is_empty() {
-            batch.put(Key::Meta, sealed_meta.clone());
-            file.storage.commit(&batch)?;
-        }
+    if !players.is_empty() {
+        players.put(Key::Meta, sealed_meta.clone());
+        players_file.storage.commit(&players)?;
     }
-    let mut batch = Batch::with_capacity(1);
-    batch.put(Key::Meta, sealed_meta);
-    main.storage.commit(&batch)?;
+    main.put(Key::Meta, sealed_meta);
+    main_file.storage.commit(&main)?;
     thread.saved = meta;
     Ok(())
 }
@@ -1960,6 +1920,19 @@ pub(crate) mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.0).unwrap_or(());
         }
+    }
+
+    /// The names of the files (not folders) in `dir`, in name order.
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn data_files(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap())
+            .filter(|e| e.file_type().unwrap().is_file())
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+        names.sort_unstable();
+        names
     }
 
     pub(crate) fn specs() -> Vec<WorldSpec> {
@@ -2394,7 +2367,7 @@ pub(crate) mod tests {
         let key = Key::User("kills".to_owned());
         {
             let mut storage = Storage::open(
-                &Place::data(&dir.0, storage::USER_FILE),
+                &Place::data(&dir.0, storage::MAIN_FILE),
                 crate::storage::Start::checked(crate::storage::StartBackup::Make),
             )
             .unwrap();
@@ -2415,12 +2388,12 @@ pub(crate) mod tests {
         ));
         let before = opened
             .thread
-            .file(storage::USER_FILE)
+            .file(storage::MAIN_FILE)
             .read(std::slice::from_ref(&key))
             .unwrap();
         drop(opened);
         let mut opened = open(&dir.0, specs()).unwrap();
-        let storage = opened.thread.file(storage::USER_FILE);
+        let storage = opened.thread.file(storage::MAIN_FILE);
         assert_eq!(
             storage.read(&[key]).unwrap()[0].as_ref().unwrap(),
             before[0].as_ref().unwrap()
@@ -2438,7 +2411,7 @@ pub(crate) mod tests {
         ] {
             let dir = TempDir::new("access-damaged");
             let mut storage = Storage::open(
-                &Place::data(&dir.0, storage::ACCESS_FILE),
+                &Place::data(&dir.0, storage::MAIN_FILE),
                 crate::storage::Start::checked(crate::storage::StartBackup::Make),
             )
             .unwrap();
@@ -2776,8 +2749,6 @@ pub(crate) mod tests {
             files: Files {
                 main: file(),
                 players: file(),
-                access: file(),
-                user: file(),
             },
             plans: plans(storage),
             opener: Opener::Replay(BTreeMap::new()),
@@ -3260,14 +3231,14 @@ pub(crate) mod tests {
         for place in [
             Place::data(&dir.0, storage::MAIN_FILE),
             Place::data(&dir.0, storage::PLAYERS_FILE),
-            Place::data(&dir.0, storage::ACCESS_FILE),
-            Place::data(&dir.0, storage::USER_FILE),
             Place::world(&dir.0, "world"),
         ] {
             let meta = committed_meta(&place.file).unwrap();
             assert_eq!((meta.tick, meta.identity), (33, Some(7)), "{place:?}");
             assert!(storage::closed_normally(&place.file), "{place:?}");
         }
+        assert_eq!(data_files(&dir.0), ["main.redb", "players.redb"]);
+        assert_eq!(data_files(&dir.0.join("worlds")), ["world.redb"]);
         let mut opened = open(&dir.0, specs()).unwrap();
         assert!(opened.later.is_empty());
         assert_eq!(opened.access.ops, ["steve"]);
@@ -3344,7 +3315,7 @@ pub(crate) mod tests {
         assert_eq!(later, expected);
     }
 
-    /// The world files of `data/world/` are the stored worlds, declared or not; a name that is
+    /// The world files of `data/worlds/` are the stored worlds, declared or not; a name that is
     /// no world name is left out, and of names that differ only in letter case the first.
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]

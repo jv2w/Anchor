@@ -107,7 +107,7 @@ pub enum Error {
         /// The name.
         name: String,
     },
-    /// The world's file `data/world/<name>.redb` (or one whose name differs only in letter case)
+    /// The world's file `data/worlds/<name>.redb` (or one whose name differs only in letter case)
     /// is already there. An import only creates a world, so running it again changes nothing.
     WorldExists {
         /// The name.

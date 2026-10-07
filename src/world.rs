@@ -204,7 +204,7 @@ pub enum Error {
     ///
     /// [`ServerBuilder::generator`]: crate::ServerBuilder::generator
     UnknownGenerator,
-    /// The name cannot be the name of the world's file `data/world/<name>.redb` on Windows and
+    /// The name cannot be the name of the world's file `data/worlds/<name>.redb` on Windows and
     /// Linux alike: it is empty or longer than 250 bytes; holds a control character or one of
     /// `< > : " / \ | ? *` (so no path); ends in a dot or a space or starts with a space; or is a
     /// name Windows keeps for a device, in any letter case and with any extension (`CON`, `PRN`,

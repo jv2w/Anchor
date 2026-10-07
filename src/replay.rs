@@ -7,7 +7,7 @@
 //! read-only and picked by the tick and commit identity of its last commit, so a file another run
 //! committed at the same tick is not taken for it), preferring one after the log's last
 //! truncation, and applies the logged ticks in order to the end of the log or to its first
-//! truncation. Every other data file (players, access, user data, each world) is the newest of
+//! truncation. Every other data file (players, each world) is the newest of
 //! its copies (the file, then its backups) whose last commit is that save or an earlier one: a
 //! save writes only the files that changed. Chunks load from those files and the generators as
 //! they did, checked against the logged checksums; the server's own snapshots are committed to
@@ -319,7 +319,7 @@ fn copies(place: &crate::storage::Place) -> Result<Vec<(Meta, PathBuf)>> {
 /// The data files of the save `main` names, whose main file is `file`: each other file is its
 /// newest copy committed at that save or before (see the module's documentation).
 fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayFiles> {
-    use crate::storage::{ACCESS_FILE, PLAYERS_FILE, Place, USER_FILE};
+    use crate::storage::{PLAYERS_FILE, Place};
     let at_or_before = |meta: &Meta| {
         meta.tick < main.tick
             || (meta.tick == main.tick
@@ -332,9 +332,6 @@ fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayF
             .max_by_key(|(meta, _)| meta.tick)
             .map(|(_, path)| path))
     };
-    let need = |name: &str| -> Result<PathBuf> {
-        pick(&Place::data(data_dir, name))?.ok_or(Error::NoMatchingWorld)
-    };
     let mut worlds = BTreeMap::new();
     for name in save::world_files(data_dir).map_err(storage)? {
         if let Some(path) = pick(&Place::world(data_dir, &name))? {
@@ -343,9 +340,7 @@ fn files_of(data_dir: &Path, main: &Meta, file: PathBuf) -> Result<save::ReplayF
     }
     Ok(save::ReplayFiles {
         main: file,
-        players: need(PLAYERS_FILE)?,
-        access: need(ACCESS_FILE)?,
-        user: need(USER_FILE)?,
+        players: pick(&Place::data(data_dir, PLAYERS_FILE))?.ok_or(Error::NoMatchingWorld)?,
         worlds,
     })
 }

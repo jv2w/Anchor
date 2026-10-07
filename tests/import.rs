@@ -189,7 +189,7 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
     for world in [NAME, "second"] {
         server().import_world(FIXTURE, world).expect("the import");
     }
-    let mut files: Vec<String> = std::fs::read_dir(data.0.join("world"))
+    let mut files: Vec<String> = std::fs::read_dir(data.0.join("worlds"))
         .expect("the world folder")
         .map(|e| {
             e.expect("an entry")
@@ -212,7 +212,7 @@ fn each_import_writes_its_own_world_file_and_nothing_else() {
     top.sort();
     assert_eq!(
         top,
-        ["world"],
+        ["worlds"],
         "an import writes no other data file and no backup"
     );
     // A second import of a name is refused and changes nothing.
@@ -237,7 +237,7 @@ fn one_and_many_threads_write_the_same_server_file() {
         server(&data.0, cpu)
             .import_world(FIXTURE, NAME)
             .expect("the import");
-        let file = data.0.join("world").join(format!("{NAME}.redb"));
+        let file = data.0.join("worlds").join(format!("{NAME}.redb"));
         files.push(std::fs::read(file).expect("the world file"));
     }
     assert!(files[0] == files[1], "the server files differ");
@@ -276,5 +276,5 @@ fn a_folder_that_is_not_a_bedrock_world_fails_and_writes_no_world() {
         .import_world(data.0.join("missing"), NAME)
         .expect_err("not a world");
     assert!(matches!(err, Error::Import(_)), "{err:?}");
-    assert!(!data.0.join("world").join(format!("{NAME}.redb")).exists());
+    assert!(!data.0.join("worlds").join(format!("{NAME}.redb")).exists());
 }

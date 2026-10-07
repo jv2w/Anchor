@@ -216,7 +216,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 
 차원은 오버월드 하나(y −64~319, 서브청크 24개)다.
 
-- 월드는 영구(파일 `data/world/<이름>.redb`)와 임시(저장 안 함) 두 종류다. 빌드 때 `ServerBuilder::world`·`world_settings`·설정 `[worlds]`로 선언한다.
+- 월드는 영구(파일 `data/worlds/<이름>.redb`)와 임시(저장 안 함) 두 종류다. 빌드 때 `ServerBuilder::world`·`world_settings`·설정 `[worlds]`로 선언한다.
 - 실행 중 수명주기(`Context`): `create_world(name, &Options)`, `load_world(name, &Options)`(시작 때 파일이 있던 영구 월드), `unload_world`(WorldUnload 리스너가 취소 가능), `force_unload_world`, `delete_world`(언로드된 영구 월드와 그 파일만, 백업은 남김), `set_default_world`, `is_world_generated`, `is_world_loaded`. 이벤트 `WorldInit`, `WorldLoad`, `WorldUnload`는 뷰 단계에서 난다.
 - 언로드: 그 월드의 플레이어는 기본 월드 안전 스폰으로 가고, 청크는 보통 경로로 내려가며, 다음 커밋이 월드와 플레이어를 한 스냅샷으로 함께 쓴다. 언로드된 월드도 `world::Id`와 색인을 유지해 같은 자리로 다시 로드된다. 월드는 실행당 최대 1,024개다.
 - 월드 파일은 청크와 시간만 갖는다. 생성기·시드·스폰·난이도·시야 값은 다시 켤 때 설정이나 `world::Options`에서 온다. 시드가 없으면 월드 이름에서 만든다(SHA-256 앞 8바이트).

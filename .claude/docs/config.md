@@ -210,7 +210,7 @@ console-input = true
 | `sprint-critical-hits` | bool | `false` | | 달리면서 친 공격도 치명타가 될 수 있는지 |
 | `break-time-check` | bool | `true` | | 블록을 부수는 데 충분한 시간이 걸렸는지 서버가 검사할지. 도달 거리와 블록 종류 검사는 늘 한다 |
 | `movement-check` | bool | `true` | | 한 입력에 15블록을 넘는 이동을 거부할지. `false`면 그런 이동의 땅 판정은 지나온 길 없이 도착 자리만 본다 |
-| `level-name` | 문자열 | `"world"` | 1~64바이트, `;`와 제어 문자 없음, 월드 이름 규칙(`storage.md`) | 기본 월드 이름. 파일은 `data/world/<이름>.redb` |
+| `level-name` | 문자열 | `"world"` | 1~64바이트, `;`와 제어 문자 없음, 월드 이름 규칙(`storage.md`) | 기본 월드 이름. 파일은 `data/worlds/<이름>.redb` |
 | `level-type` | 문자열 | `"flat"` | `flat`, `void` | 기본 월드에서 저장된 적 없는 청크를 채우는 생성기 |
 | `level-seed` | 문자열 | `""` | 빈 값 또는 i64 정수 문자열 | 기본 월드 시드. 비면 월드 이름에서 만들어 시작마다 같다 |
 | `view-distance` | 정수 | `16` | 2~64 | 플레이어가 쓸 수 있는 최대 시야(청크) |

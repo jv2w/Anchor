@@ -118,7 +118,7 @@ fn a_generator_name_of_any_length_builds() {
 
 #[test]
 fn build_refuses_a_world_name_that_is_no_file_name() {
-    // A world name is its file's name (`data/world/<name>.redb`): at most 250 bytes.
+    // A world name is its file's name (`data/worlds/<name>.redb`): at most 250 bytes.
     let longest = "w".repeat(250);
     assert!(
         Server::builder()

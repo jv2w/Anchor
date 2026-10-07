@@ -1,7 +1,7 @@
 //! One data file: start policy, batched reads and commits. The server's data is split
-//! into such files ([`Place`]): `data/main.redb` (the save tick), `data/players.redb`,
-//! `data/access.redb` (operators, bans, whitelist), `data/user.redb` (the user's server data) and
-//! `data/world/<world>.redb` for each persistent world (its record and chunks). The save thread
+//! into such files ([`Place`]): `data/main.redb` (the save tick, operators, bans, whitelist and the
+//! user's server data), `data/players.redb` and `data/worlds/<world>.redb` for each persistent
+//! world (its record and chunks). The save thread
 //! (`save`) commits one snapshot to each file that changed, the main file last.
 //!
 //! Only the save thread, the world import before the server runs, and a replay
@@ -60,16 +60,13 @@ pub(crate) use check::Checked;
 use codec::Meta;
 use seal::{FORMAT_VERSION, unseal};
 
-/// The file of the save's tick and commit identity, committed last of a save.
+/// The file of the save's tick and commit identity, the operators, bans and whitelist, and the
+/// user's server data, committed last of a save.
 pub(crate) const MAIN_FILE: &str = "main";
 /// The file of the players' data.
 pub(crate) const PLAYERS_FILE: &str = "players";
-/// The file of the operators, bans and whitelist.
-pub(crate) const ACCESS_FILE: &str = "access";
-/// The file of the user's server data.
-pub(crate) const USER_FILE: &str = "user";
 /// The folder of the world files in the data folder.
-pub(crate) const WORLD_DIR: &str = "world";
+pub(crate) const WORLD_DIR: &str = "worlds";
 /// The extension of every data file.
 pub(crate) const EXTENSION: &str = "redb";
 /// The backup folder in the data folder.
@@ -82,7 +79,7 @@ pub(crate) const RETRIES: usize = 3;
 /// redb's page cache. Loaded chunks live in the world, and the OS caches the file, so this only
 /// spares a system call for pages read again; redb's default of 1 GiB would mostly hold copies.
 const CACHE_BYTES: usize = 64 << 20;
-/// Most world files `data/world/` may hold (`save::world_names` counts them).
+/// Most world files `data/worlds/` may hold (`save::world_names` counts them).
 pub(crate) const MAX_WORLDS: usize = 1024;
 /// Most `access` values [`Storage::access`] returns: every list full.
 const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
@@ -106,7 +103,7 @@ const WORLD_KEY: &[u8] = b"world";
 const CLOSED_KEY: &[u8] = b"closed";
 
 /// A data file and the folder of its backups: `data/<name>.redb` and `data/backups/<name>/` for
-/// the server's files, `data/world/<world>.redb` and `data/backups/world/<world>/` for a world.
+/// the server's files, `data/worlds/<world>.redb` and `data/backups/worlds/<world>/` for a world.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Place {
     /// The file.
@@ -116,8 +113,7 @@ pub(crate) struct Place {
 }
 
 impl Place {
-    /// The server's file `name` ([`MAIN_FILE`], [`PLAYERS_FILE`], [`ACCESS_FILE`],
-    /// [`USER_FILE`]) in `data_dir`.
+    /// The server's file `name` ([`MAIN_FILE`], [`PLAYERS_FILE`]) in `data_dir`.
     pub(crate) fn data(data_dir: &Path, name: &str) -> Self {
         Self {
             file: data_dir.join(format!("{name}.{EXTENSION}")),
@@ -135,7 +131,7 @@ impl Place {
 }
 
 /// Whether `name` is a world name Anchor can keep as a file name on Windows and Linux alike
-/// (`data/world/<name>.redb`): 1 to [`MAX_FILE_NAME`] bytes; no control character and none of
+/// (`data/worlds/<name>.redb`): 1 to [`MAX_FILE_NAME`] bytes; no control character and none of
 /// `< > : " / \ | ? *` (so no path); not ending in a dot or a space and not starting with a space;
 /// and not a name Windows keeps for a device, in any letter case and with any extension (`CON`,
 /// `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0` to `COM9`, `LPT0` to `LPT9`, and those with a
@@ -212,7 +208,7 @@ pub(crate) enum Error {
     /// A record cannot be encoded: a field is invalid or it is larger than
     /// [`MAX_RECORD`](seal::MAX_RECORD).
     Encode(crate::protocol::Error),
-    /// `data/world/` holds more than [`MAX_WORLDS`] world files.
+    /// `data/worlds/` holds more than [`MAX_WORLDS`] world files.
     TooManyWorlds,
     /// [`Storage::access`] found more values than the lists hold.
     TooManyAccessEntries,
@@ -2830,13 +2826,13 @@ pub(crate) mod tests {
         let place = Place::world(Path::new("data"), "Lobby");
         assert_eq!(
             place.file,
-            Path::new("data").join("world").join("Lobby.redb")
+            Path::new("data").join("worlds").join("Lobby.redb")
         );
         assert_eq!(
             place.backups,
             Path::new("data")
                 .join("backups")
-                .join("world")
+                .join("worlds")
                 .join("Lobby")
         );
     }

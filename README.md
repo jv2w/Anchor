@@ -30,7 +30,7 @@ Anchor로 만든 서버 프로그램은 코드 없이 두 명령을 받는다. �
 
 ```
 <서버>.exe update-config                        # anchor.toml에 새 키를 더하고 모르는 키를 지움
-<서버>.exe import <Bedrock 월드 폴더> [이름]     # LevelDB 월드 → data/world/<이름>.redb (이름 없으면 level-name)
+<서버>.exe import <Bedrock 월드 폴더> [이름]     # LevelDB 월드 → data/worlds/<이름>.redb (이름 없으면 level-name)
 ```
 
 그 밖의 인자는 프로그램의 것이고 서버가 평소대로 켜진다.

@@ -5,9 +5,9 @@
 //! Every world keeps its index, its [`world::Id`], for the run: an unloaded world stays in the
 //! state's list without chunks, holding only its settings, and loads again in the same place; a
 //! temporary world made again under its name takes the place too. A run names at most
-//! [`MAX_WORLDS`] worlds, as many world files as `data/world/` may hold.
+//! [`MAX_WORLDS`] worlds, as many world files as `data/worlds/` may hold.
 //!
-//! Every persistent world is its file `data/world/<name>.redb`. Loading a world reads nothing on
+//! Every persistent world is its file `data/worlds/<name>.redb`. Loading a world reads nothing on
 //! the tick: the records of the world files are read when the server starts and live here after
 //! (only the tick writes records, so memory is never older than the files), and the chunks load
 //! through the save thread as always. Unloading waits for the view phase, where [`WorldUnload`] may
@@ -30,7 +30,7 @@ use crate::save::{self, DeletedWorld, NewWorld, WorldIndex};
 use crate::storage::codec::WorldRecord;
 use crate::world::{self, Generators, Kind, World};
 
-/// The most worlds a run names, and the most world files `data/world/` may hold.
+/// The most worlds a run names, and the most world files `data/worlds/` may hold.
 pub(in crate::tick) const MAX_WORLDS: usize = crate::storage::MAX_WORLDS;
 
 /// What the tick knows of its worlds besides the [`World`]s themselves.
@@ -483,11 +483,11 @@ impl Context<'_> {
     /// a spawn they leave out is the generator's. The server file keeps the world's chunks and
     /// time, never its options: [`load_world`](Self::load_world) after a restart takes them again.
     ///
-    /// A persistent world is its file `data/world/<name>.redb`, made by the save thread.
+    /// A persistent world is its file `data/worlds/<name>.redb`, made by the save thread.
     ///
     /// Fails, making nothing, with [`world::Error::InvalidName`] for a name that cannot be a file
     /// name (the rule is there), [`WorldExists`](world::Error::WorldExists) if the server runs a
-    /// world of that name or `data/world/` holds one
+    /// world of that name or `data/worlds/` holds one
     /// ([`is_world_generated`](Self::is_world_generated)), also in another letter case,
     /// [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
     /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value of
@@ -545,7 +545,7 @@ impl Context<'_> {
         Ok(install(state, index, world, generator.as_ref(), true))
     }
 
-    /// Loads the persistent world `name` whose file `data/world/<name>.redb` was there when the
+    /// Loads the persistent world `name` whose file `data/worlds/<name>.redb` was there when the
     /// server started, declared or not (PMMP `WorldManager::loadWorld`), with the settings of
     /// `options`, as [`create_world`](Self::create_world) makes one: the file keeps its chunks and
     /// time, never its settings, so a world stored in an earlier run gets its generator, seed,
@@ -557,7 +557,7 @@ impl Context<'_> {
     /// [`WorldUnload`] listener, cancelling the event is what keeps the world.
     ///
     /// Fails with [`world::Error::NotGenerated`] if the server runs no world of that name and
-    /// `data/world/` held none at start (a temporary world unloaded is gone), and, for a stored
+    /// `data/worlds/` held none at start (a temporary world unloaded is gone), and, for a stored
     /// world,
     /// with [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
     /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value out of its range and
@@ -637,7 +637,7 @@ impl Context<'_> {
         Ok(())
     }
 
-    /// Whether a world named `name` exists: the server runs it, or its file is in `data/world/`
+    /// Whether a world named `name` exists: the server runs it, or its file is in `data/worlds/`
     /// (PMMP `WorldManager::isWorldGenerated`). A temporary world unloaded does not.
     #[doc(alias = "WorldManager::isWorldGenerated")]
     pub fn is_world_generated(&self, name: &str) -> bool {
@@ -648,13 +648,13 @@ impl Context<'_> {
         }) || state.catalog.stored.contains_key(name)
     }
 
-    /// Deletes the persistent world `name` and its file `data/world/<name>.redb`, and nothing
+    /// Deletes the persistent world `name` and its file `data/worlds/<name>.redb`, and nothing
     /// else: other worlds and the players' data stay as they are (a player saved in it joins the
     /// default world). PMMP has no such call; it is the deletion of a world's folder. The world
     /// must not be loaded ([`unload_world`](Self::unload_world) first, which saves it; its
     /// changes since are dropped). The save thread removes the file after the saves already
     /// asked for; a world of the name may be made at once. The file's backups in
-    /// `data/backups/world/<name>/` are kept.
+    /// `data/backups/worlds/<name>/` are kept.
     ///
     /// Fails with [`world::Error::WorldLoaded`] for a loaded world, and with
     /// [`NotGenerated`](world::Error::NotGenerated) if no persistent world of that name exists

@@ -189,11 +189,11 @@ fn rename(from: &Path, to: &Path) {
 
 /// The data files of the runs: the server's and the default world's.
 fn data_files(data: &Path) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = ["main", "players", "access", "user"]
+    let mut files: Vec<PathBuf> = ["main", "players"]
         .iter()
         .map(|name| data.join(format!("{name}.redb")))
         .collect();
-    files.push(data.join("world").join("world.redb"));
+    files.push(data.join("worlds").join("world.redb"));
     files
 }
 

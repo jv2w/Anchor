@@ -41,7 +41,7 @@ pub enum Error {
         /// The panic message, or a placeholder if the payload was not text.
         message: String,
     },
-    /// A data file (`data/*.redb`, `data/world/*.redb`) failed its integrity check at start, or a
+    /// A data file (`data/*.redb`, `data/worlds/*.redb`) failed its integrity check at start, or a
     /// value it holds is damaged. The server did not start, and the file is left exactly as it
     /// was (unless the start made no copy: `backups = false` and no check); a backup from its
     /// folder in `data/backups/` can replace it.
@@ -62,7 +62,7 @@ pub enum Error {
         /// The name.
         name: String,
     },
-    /// A world's name cannot be its file's name (`data/world/<name>.redb`): see
+    /// A world's name cannot be its file's name (`data/worlds/<name>.redb`): see
     /// [`world::Error::InvalidName`](crate::world::Error::InvalidName) for the rule. Names that
     /// differ only in letter case are one world.
     InvalidWorldName {

@@ -44,7 +44,7 @@ rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열
 8. 포크 금지: 사용자는 Anchor를 고치지 않고 거의 모든 것을 만든다. "Anchor를 고쳐야만 되는 일"은 결함이고 확장 지점(이벤트, 레지스트리, trait, 설정, 패킷 훅)을 더해 고친다. 내부 진입점은 공개하지 않고, 공개 API는 semver를 지킨다.
 
 ## 4. 저장 (`.claude/rules/storage.md`)
-- 저장은 redb다. `data/` 구성: `world/<월드>.redb`(월드마다), `players.redb`, `access.redb`(op·밴·화이트리스트), `user.redb`(사용자 데이터), `main.redb`(모든 월드 공통), `packs/`, `identity.key`, `auth.json`, `backups/`, `crash/`.
+- 저장은 redb다. `data/` 구성: `worlds/<월드>.redb`(월드마다), `players.redb`, `main.redb`(저장 차례, op·밴·화이트리스트, 사용자 데이터), `packs/`, `identity.key`, `auth.json`, `backups/`, `crash/`.
 - 저장 주기마다 한 틱 경계의 스냅샷 하나에서 모든 파일에 이어서 커밋한다. 이벤트마다 일부만 따로 저장하는 경로를 두지 않는다.
 - 정상 종료(Ctrl+C, stop 등)는 마지막 커밋을 모든 파일에 마쳐 복제·손실 0이다. 크래시에서는 확정적으로 복제가 나는 경로가 없고, 파일 사이 저장 차수가 어긋나면 다음 시작에서 알아챈다.
 - 설정은 데이터 파일에 저장하지 않고 늘 `anchor.toml`을 따른다. 날씨도 저장하지 않는다(서버는 맑음으로 시작하고, 순환이나 저장이 필요하면 API로 만든다).

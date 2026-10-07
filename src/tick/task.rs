@@ -325,7 +325,7 @@ impl Context<'_> {
 
     /// Saves as [`save`](Self::save) does, then copies every open data file, as that save left
     /// it, into its own backup folder (`data/backups/<file>/<unix seconds>.redb`, a world's in
-    /// `data/backups/world/<name>/`) while the server runs, keeping each file's 3 newest backups
+    /// `data/backups/worlds/<name>/`) while the server runs, keeping each file's 3 newest backups
     /// (those made at start included). The save thread copies it in steps between its
     /// other work, so players do not wait for it; what came of it is in the log, not here: a
     /// backup asked for while another is being made is not made, and a failed one leaves no

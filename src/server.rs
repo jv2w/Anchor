@@ -94,7 +94,7 @@ impl Server {
     /// Imports the Bedrock world folder `dir` (a `level.dat` and its `db` database folder, as BDS
     /// and the game write it) as the persistent world `world`, before [`run`](Self::run).
     ///
-    /// The world becomes the new file `data/world/<world>.redb`, and nothing else is
+    /// The world becomes the new file `data/worlds/<world>.redb`, and nothing else is
     /// written: several Bedrock worlds import side by side under their own names. A declared
     /// world ([`ServerBuilder::world`], or `level-name`) must be [`Kind::Persistent`]; a name not
     /// declared takes the default world's generator for its biomes, and the tick loads it with
@@ -153,9 +153,9 @@ impl Server {
     /// While it runs, Anchor's console log ([`ServerBuilder::without_console_log`]) is the calling
     /// thread's default and that of every thread Anchor starts.
     ///
-    /// It first opens the data files: `data/main.redb` (the save's tick),
-    /// `data/players.redb`, `data/access.redb` (operators, bans, whitelist), `data/user.redb` (the
-    /// server data) and the file `data/world/<name>.redb` of each persistent world it starts
+    /// It first opens the data files: `data/main.redb` (the save's tick, operators, bans,
+    /// whitelist and the server data), `data/players.redb` and the file
+    /// `data/worlds/<name>.redb` of each persistent world it starts
     /// with; the other world files there are worlds [`Context::load_world`] may load. Each is
     /// backed up into its own folder of `data/backups/` and checked as `backups` and
     /// `integrity-check` say, and a damaged one refuses the start, left as it was (unless the start
@@ -671,7 +671,7 @@ impl ServerBuilder {
     }
 
     /// Adds a world besides the default one (`level-name`), loaded from the start. A
-    /// [`Kind::Persistent`] world is saved in its file `data/world/<name>.redb`; a
+    /// [`Kind::Persistent`] world is saved in its file `data/worlds/<name>.redb`; a
     /// [`Kind::Temporary`] one is generated fresh at every start and never saved. Its seed is
     /// made from its name and its spawn is the generator's, or `spawn` of its `[worlds.<name>]`
     /// table: like every setting, they come from here at every start and are never saved.
@@ -840,9 +840,9 @@ mod tests {
         };
         // Without a name, as the default world.
         import(None).unwrap();
-        assert!(data.0.join("world").join("world.redb").exists());
+        assert!(data.0.join("worlds").join("world.redb").exists());
         import(Some("lobby")).unwrap();
-        assert!(data.0.join("world").join("lobby.redb").exists());
+        assert!(data.0.join("worlds").join("lobby.redb").exists());
         let again = import(Some("LOBBY")).unwrap_err();
         assert!(
             matches!(
