@@ -690,7 +690,7 @@ fn announce(state: &mut State, player: &Player) {
 /// were told of it.
 pub(super) fn left(state: &mut State, player: &mut Player) {
     survival::left(state, player);
-    if player.phase == Phase::Loading || player.pending.start_game {
+    if player.phase == Phase::Loading {
         return;
     }
     let packet = Packet::PlayerList(PlayerList {
@@ -700,8 +700,19 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
             ..PlayerListEntry::default()
         }],
     });
-    for p in state.players.values_mut() {
-        if p.phase != Phase::Loading && !p.pending.start_game {
+    let told = state
+        .players
+        .values_mut()
+        .filter(|p| p.phase != Phase::Loading && !p.pending.start_game);
+    if player.pending.start_game {
+        // Placed this tick: `announce` added it through the shared queue, which goes out after
+        // the packets, so the removal follows it there.
+        let packet = Arc::new(packet);
+        for p in told {
+            p.send_shared(Arc::clone(&packet));
+        }
+    } else {
+        for p in told {
             p.send_packet(packet.clone());
         }
     }
@@ -1516,6 +1527,31 @@ mod tests {
                 1
             ]
         );
+    }
+
+    #[test]
+    fn a_player_placed_and_gone_in_one_tick_leaves_the_other_lists() {
+        use super::super::tests::{join, leave, new_state, received, settings, tick};
+        use crate::event::Listeners;
+
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (first, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![first], &mut output);
+        received(&mut rx);
+        let (second, _rx2) = join(2, 0);
+        tick(&mut state, &mut vec![second, leave(2, 1)], &mut output);
+        let actions: Vec<u8> = received(&mut rx)
+            .0
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::PlayerList(l) => Some(l.entries),
+                _ => None,
+            })
+            .flatten()
+            .map(|e| e.action_type)
+            .collect();
+        assert_eq!(actions, [0, 1], "added, then removed");
     }
 
     /// The login, join, duplicate login and view distance events.
