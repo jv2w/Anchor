@@ -156,10 +156,11 @@ impl Server {
     /// It first opens the data files: `data/main.redb` (the save's tick, operators, bans,
     /// whitelist and the server data), `data/players.redb` and the file
     /// `data/worlds/<name>.redb` of each persistent world it starts
-    /// with; the other world files there are worlds [`Context::load_world`] may load. Each is
-    /// backed up into its own folder of `data/backups/` and checked as `backups` and
-    /// `integrity-check` say, and a damaged one refuses the start, left as it was (unless the start
-    /// made no copy of it: `backups = false` and no check). A file holding
+    /// with; the other world files there are worlds [`Context::load_world`] may load. They are
+    /// checked together as `integrity-check` says, without being written, before any is opened:
+    /// a damaged one, or one of a newer format, refuses the start, and every file is left as it
+    /// was. With `backups`, each file is then backed up into its own folder of `data/backups/`
+    /// while the server runs. A file holding
     /// a later save than the main file (a crash in the middle of a save) is logged as an error
     /// naming it. Then the packs load from `data/packs`. On shutdown every player sees
     /// `shutdown-message`, the last state is saved to every data file it changed (one tick's
@@ -229,7 +230,10 @@ impl Server {
         .map_err(|e| Error::Start(std::io::Error::other(e)))?;
         let mut setup = setup;
         setup.fingerprints = tick::Fingerprints::of(&tick::Settings::new(&config), &worlds, &setup);
-        let mut opened = save::open_with(&data_dir, worlds, crate::storage::Start::of(&config))?;
+        // Made first: the start checks the data files on it.
+        let pool = runtime::cpu_pool(threads.cpu)?;
+        let mut opened =
+            save::open_with(&data_dir, worlds, crate::storage::Start::of(&config), &pool)?;
         if !opened.later.is_empty() {
             warn!(
                 files = opened.later.len(),
@@ -247,7 +251,7 @@ impl Server {
         let runtime = Runtime::new(threads)?;
         // Before the tick starts, so that a stop signal from the first tick on stops normally.
         let signals = stop_signals(&runtime.handle());
-        let pool = Arc::new(runtime::cpu_pool(threads.cpu)?);
+        let pool = Arc::new(pool);
         let (inputs, input_queue) = tick::queue::input_queue();
         setup.tasks.start(runtime.handle(), &inputs);
         if config.developer.console_input {

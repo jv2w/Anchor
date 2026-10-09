@@ -10,6 +10,7 @@ use std::mem::size_of;
 use super::compression::{self, Compression, Compressor, Decompressor};
 use super::packet::Packet;
 use super::{Reader, Writer};
+use crate::crypto::encryption::CHECKSUM;
 use crate::protocol;
 
 /// The first byte of a batch body sent without compression.
@@ -131,7 +132,8 @@ impl Encoder {
     pub fn encode(&mut self, payload: &[u8], out: &mut Vec<u8>) -> Result<()> {
         out.clear();
         if payload.len() < usize::from(self.settings.threshold) {
-            out.reserve(1 + payload.len());
+            // Room for the checksum RakNet encryption appends, as the compressors' bounds leave.
+            out.reserve(1 + payload.len() + CHECKSUM);
             out.push(UNCOMPRESSED);
             out.extend_from_slice(payload);
             return Ok(());
@@ -515,8 +517,8 @@ mod tests {
     use super::super::io::{MAX_LIST_DEPTH, Writer};
     use super::super::packet::{Login, Packet, SetTime};
     use super::{
-        Compression, Decoder, Encoder, Error, Header, MAX_PACKET_ID, MAX_PACKETS, SPLIT_BYTES,
-        Settings, compression, decode_packets, encode_packets, protocol, split,
+        CHECKSUM, Compression, Decoder, Encoder, Error, Header, MAX_PACKET_ID, MAX_PACKETS,
+        SPLIT_BYTES, Settings, compression, decode_packets, encode_packets, protocol, split,
     };
 
     const MIB: usize = 1024 * 1024;
@@ -842,6 +844,10 @@ mod tests {
             encoder.encode(&[7; 255], &mut body).unwrap();
             assert_eq!(body[0], 0xff);
             assert_eq!(&body[1..], &[7; 255]);
+            // Encrypting this fresh body appends the checksum without reallocating.
+            let mut fresh = Vec::new();
+            encoder.encode(&[7; 255], &mut fresh).unwrap();
+            assert!(fresh.capacity() >= fresh.len() + CHECKSUM);
             encoder.encode(&[], &mut body).unwrap();
             assert_eq!(body, [0xff]);
             encoder.encode(&[7; 256], &mut body).unwrap();

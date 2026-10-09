@@ -1,18 +1,13 @@
 //! Copies of a data file: `<unix seconds>[-<n>].redb` in the file's own backup folder
 //! ([`Place::backups`](super::Place), such as `data/backups/players/`).
 //!
-//! A start copy is taken from the closed file, under an exclusive lock that also tells whether
-//! another process has the file open, when a start backup or the start's integrity check asks
-//! for one (`Storage::open`). An online copy ([`Online`]) is taken
-//! while the server runs, from one read transaction of the open file, in steps. A backup is never
-//! overwritten, and its name sorts after every backup already there: a second backup in the same
-//! second adds `-<n>`, and after the clock went back the name keeps the newest second found. So
-//! the newest backups are the last names. A copy is written under `<name>.tmp` and renamed when
-//! whole, except a start copy with `backups = false`, which keeps its temporary name and is
-//! removed once the file opened (or renamed by [`keep`] if a failed start keeps it); both kinds
-//! share the [`KEPT`] newest names.
+//! A copy ([`Online`]) is taken from one read transaction of the open file, in steps, while the
+//! server runs: the start's backup of its first commit, and those the backup command asks for. A
+//! backup is never overwritten, and its name sorts after every backup already there: a second
+//! backup in the same second adds `-<n>`, and after the clock went back the name keeps the newest
+//! second found. So the newest backups are the last names. A copy is written under
+//! `<name>.tmp` and renamed when whole; the [`KEPT`] newest are kept.
 
-use std::fs::TryLockError;
 use std::io;
 use std::iter::Peekable;
 use std::path::{Path, PathBuf};
@@ -21,7 +16,7 @@ use redb::backends::FileBackend;
 use redb::{Builder, Database, Durability, ReadableDatabase, TableDefinition, TableHandle};
 use tracing::warn;
 
-use super::{CACHE_BYTES, Error, Result, StartBackup};
+use super::{CACHE_BYTES, Error, Result};
 use crate::{clock, fs};
 
 /// Backups kept, of starts and online backups together.
@@ -36,95 +31,7 @@ const SUFFIX: &str = ".redb";
 /// Added to a backup's name while it is being written.
 const TEMP_SUFFIX: &str = ".tmp";
 
-/// Locks the closed server file `world` and removes the temporary files a killed process left in
-/// `dir`; returns the file, still locked, or `None` if there is none or it is empty (a new world).
-/// The lock tells whether another process has the file open ([`Error::InUse`]); it ends when the
-/// file is dropped, which must come before the file is opened as a database.
-#[expect(
-    clippy::disallowed_types,
-    reason = "off-tick: the save thread locks the server file once, before opening it"
-)]
-pub(crate) fn lock(world: &Path, dir: &Path) -> Result<Option<std::fs::File>> {
-    let source = match std::fs::File::open(world) {
-        Ok(file) => {
-            match file.try_lock() {
-                Ok(()) => {}
-                Err(TryLockError::WouldBlock) => return Err(Error::InUse),
-                Err(TryLockError::Error(e)) => return Err(Error::Io(e)),
-            }
-            Some(file)
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-        Err(e) => return Err(Error::Io(e)),
-    };
-    // No process has the file open, or there is none, so no backup is being written.
-    remove_stale(dir)?;
-    let Some(source) = source else {
-        return Ok(None);
-    };
-    if source.metadata().map_err(Error::Io)?.len() == 0 {
-        return Ok(None);
-    }
-    Ok(Some(source))
-}
-
-/// [`lock`], then [`copy`]: the start copy of `world` the tests take.
-#[cfg(test)]
-pub(crate) fn create(world: &Path, dir: &Path, start: StartBackup) -> Result<Option<PathBuf>> {
-    lock(world, dir)?
-        .map(|mut source| copy(&mut source, dir, start))
-        .transpose()
-}
-
-/// Copies `source`, the server file [`lock`] gave, into a new backup in `dir` and returns its
-/// path. The bytes go to `<backup>.tmp`, which is flushed to disk and then renamed, so a process
-/// killed mid-copy leaves no file with a backup name (it would count among the [`KEPT`] and push
-/// out a whole one); the next start removes the temporary file. The rename is flushed too. With
-/// [`StartBackup::Transient`] the copy keeps its temporary name, and its temporary path is
-/// returned: a start killed before removing it leaves no backup, and the next start removes it;
-/// a start that fails and keeps it gives it its backup name ([`keep`]).
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the save thread backs up the server file once, before opening it"
-)]
-pub(crate) fn copy(source: &mut impl io::Read, dir: &Path, start: StartBackup) -> Result<PathBuf> {
-    #[cfg(test)]
-    super::tests::STARTS.set((
-        super::tests::STARTS.get().0,
-        super::tests::STARTS.get().1 + 1,
-    ));
-    std::fs::create_dir_all(dir).map_err(Error::Io)?;
-    let (path, temp, mut target) = new_file(dir)?;
-    let copied = io::copy(source, &mut target).and_then(|_| target.sync_all());
-    // Windows cannot rename or remove a file that is still open.
-    drop(target);
-    copied.map_err(Error::Io)?;
-    match start {
-        StartBackup::Make => {
-            temp.rename(&path)?;
-            Ok(path)
-        }
-        StartBackup::Transient => Ok(temp.keep()),
-    }
-}
-
-/// Gives `copy`, a [`StartBackup::Transient`] copy that a failed start keeps, its backup name and
-/// flushes the folder, so the next start, even after a crash, does not remove it as an incomplete
-/// one; returns the new path.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: the save thread names a start copy it keeps, once"
-)]
-pub(crate) fn keep(copy: &Path) -> Result<PathBuf> {
-    // The copy's name is the backup's with `TEMP_SUFFIX`, one extension, after it.
-    let path = copy.with_extension("");
-    std::fs::rename(copy, &path).map_err(Error::Io)?;
-    fs::sync_parent(&path).map_err(Error::Io)?;
-    Ok(path)
-}
-
-/// A backup's temporary file: removed when dropped, unless renamed to its backup name or kept
-/// first.
+/// A backup's temporary file: removed when dropped, unless renamed to its backup name first.
 #[derive(Debug)]
 struct Temp {
     path: PathBuf,
@@ -142,12 +49,6 @@ impl Temp {
         std::fs::rename(&self.path, to).map_err(Error::Io)?;
         self.kept = true;
         fs::sync_parent(to).map_err(Error::Io)
-    }
-
-    /// Keeps the file under its temporary name and returns its path.
-    fn keep(mut self) -> PathBuf {
-        self.kept = true;
-        std::mem::take(&mut self.path)
     }
 }
 
@@ -168,12 +69,13 @@ impl Drop for Temp {
     }
 }
 
-/// Removes the temporary files of backups that a killed process left in `dir`, if it exists.
+/// Removes the temporary files of backups that a killed process left in `dir`, if it exists. The
+/// caller has the data file open, so no other process is writing a backup of it.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the save thread cleans the backup folder once, before backing up"
 )]
-fn remove_stale(dir: &Path) -> Result<()> {
+pub(super) fn remove_stale(dir: &Path) -> Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -240,33 +142,13 @@ fn new_file(dir: &Path) -> Result<(PathBuf, Temp, std::fs::File)> {
     )))
 }
 
-/// Writes the bytes of `backup` back over `world`, then removes `backup`. Used when a start is
-/// refused, so the server file is left exactly as it was before the start opened it.
-#[expect(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "off-tick: the save thread restores the server file once, after a refused start"
-)]
-pub(crate) fn restore(backup: &Path, world: &Path) -> Result<()> {
-    let mut source = std::fs::File::open(backup).map_err(Error::Io)?;
-    let mut target = std::fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(world)
-        .map_err(Error::Io)?;
-    io::copy(&mut source, &mut target).map_err(Error::Io)?;
-    target.sync_all().map_err(Error::Io)?;
-    drop(source);
-    std::fs::remove_file(backup).map_err(Error::Io)
-}
-
 /// Removes all but the [`KEPT`] newest backups in `dir`, never `newest` (the backup just made).
 /// Other files are left alone.
 #[expect(
     clippy::disallowed_methods,
-    reason = "off-tick: the save thread prunes backups at start and after an online backup"
+    reason = "off-tick: the save thread prunes backups after an online backup"
 )]
-pub(crate) fn prune(dir: &Path, newest: &Path) -> Result<()> {
+fn prune(dir: &Path, newest: &Path) -> Result<()> {
     let mut backups = backups(dir)?;
     backups.sort_unstable();
     let old = backups.len().saturating_sub(KEPT);
@@ -518,76 +400,26 @@ mod tests {
         assert!(order("9-1.redb") < order("10.redb"));
     }
 
-    /// A copy source whose second read never returns: the process is killed mid-copy.
-    struct Killed(bool);
-
-    impl io::Read for Killed {
-        #[expect(
-            clippy::panic_in_result_fn,
-            reason = "consistency: the panic stands in for a kill, which runs no clean-up"
-        )]
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            assert!(!self.0, "killed during the copy");
-            self.0 = true;
-            buf.fill(7);
-            Ok(buf.len())
-        }
-    }
-
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn an_interrupted_backup_is_not_kept_as_a_backup() {
+    fn what_a_killed_backup_left_is_removed_and_whole_backups_stay() {
         let dir = std::env::temp_dir().join(format!("anchor-backup-killed-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).unwrap_or(());
         std::fs::create_dir_all(&dir).unwrap();
-        // A kill runs no clean-up: the unwinding panic stands in for it.
-        let killed = std::panic::catch_unwind(|| copy(&mut Killed(false), &dir, StartBackup::Make));
-        assert!(killed.is_err());
-        assert!(
-            backups(&dir).unwrap().is_empty(),
-            "the incomplete copy has a backup name"
-        );
-        // The unwinding removed the temporary file; a kill runs no drop and leaves it.
+        // A kill runs no drop, so the temporary file stays.
         std::fs::write(dir.join("1.redb.tmp"), b"partial").unwrap();
-        // The next start removes what the killed copy left and makes a whole backup.
-        let world = dir.join("server.redb");
-        std::fs::write(&world, b"world bytes").unwrap();
-        let made = create(&world, &dir, StartBackup::Make).unwrap().unwrap();
+        std::fs::write(dir.join("2.redb"), b"whole").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"the operator's").unwrap();
+        remove_stale(&dir).unwrap();
         let mut names: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         names.sort();
-        let made_name = made.file_name().unwrap().to_str().unwrap();
-        assert_eq!(names, [made_name, "server.redb"]);
-        assert_eq!(std::fs::read(&made).unwrap(), b"world bytes");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
-    fn a_start_without_a_server_file_removes_what_a_killed_copy_left() {
-        let dir = std::env::temp_dir().join(format!("anchor-backup-gone-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).unwrap_or(());
-        let backups = dir.join("backups");
-        std::fs::create_dir_all(&backups).unwrap();
-        std::fs::write(backups.join("1.redb.tmp"), b"partial").unwrap();
-        std::fs::write(backups.join("2.redb"), b"whole").unwrap();
-        let world = dir.join("server.redb");
-        // No server file, then an empty one: neither is copied, and both clean the folder.
-        assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
-        std::fs::write(backups.join("1.redb.tmp"), b"partial").unwrap();
-        std::fs::write(&world, b"").unwrap();
-        assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
-        let names: Vec<_> = std::fs::read_dir(&backups)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        assert_eq!(names, ["2.redb"]);
+        assert_eq!(names, ["2.redb", "notes.txt"]);
         // No backup folder at all is no error.
-        std::fs::remove_dir_all(&backups).unwrap();
-        assert_eq!(create(&world, &backups, StartBackup::Make).unwrap(), None);
         std::fs::remove_dir_all(&dir).unwrap();
+        remove_stale(&dir).unwrap();
     }
 
     #[test]

@@ -33,6 +33,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::block::{PropertyValue, State};
+use crate::config::IntegrityCheck;
 use crate::custom::Registry;
 use crate::import::BLOCK_STATE_VERSION;
 use crate::nbt::{self, Compound, Value};
@@ -46,7 +47,7 @@ use crate::storage::codec::{
 use crate::storage::seal::{Crc32c, MAX_RECORD, seal, seal_encoded, stored_checksum, unseal};
 use crate::storage::{
     self, AccessKey, AccessKind, Batch, CHUNK_PREFIX, Checked, ChunkId, ChunkKey, ChunkKind,
-    ChunkPart, ChunkValues, Key, MAX_WORLDS, Place, PlayerKey, Start, Storage,
+    ChunkPart, ChunkValues, Key, MAX_WORLDS, Place, PlayerKey, Start, StartBackup, Storage,
 };
 use crate::world::{
     BlockPos, Chunk, ChunkPos, Entry, Generator, Kind, PLAINS, Paletted, SUB_CHUNKS, SubChunk,
@@ -713,19 +714,36 @@ impl Thread {
 /// Opens the data files (backup and integrity check as `start` says) and resolves the worlds:
 /// each gets the settings of its spec ([`new_world`]); a persistent world whose file
 /// `data/worlds/` holds keeps its time and number, a new one starts at time 0 with the next free
-/// number. The other world files of `data/worlds/` are listed for the
+/// number. The files of the start (main, players and each persistent world's) are checked
+/// together on `pool` first ([`check_all`]), so a damaged one refuses the start before any file
+/// is written. The other world files of `data/worlds/` are listed for the
 /// tick to load ([`Catalog::stored`]); their record is read without writing them, unless a crash
-/// left one to repair, which opens it as a start does. Every file holding a later save than the
-/// main file is reported ([`check_save`]). Runs before the threads start.
+/// left one to repair, which opens it as a start does, without a start backup (it gets one when
+/// it is loaded). Every file holding a later save than the main file is reported
+/// ([`check_save`]). Runs before the threads start.
 pub(crate) fn open_with(
     data_dir: &std::path::Path,
     specs: Vec<WorldSpec>,
     start: Start,
+    pool: &Pool,
 ) -> Result<Opened, crate::Error> {
+    let mut places = vec![
+        Place::data(data_dir, storage::MAIN_FILE),
+        Place::data(data_dir, storage::PLAYERS_FILE),
+    ];
+    for spec in specs.iter().filter(|s| s.kind == Kind::Persistent) {
+        places.push(world_place(data_dir, &spec.name)?);
+    }
+    check_all(&places, start.check, pool)?;
+    // Checked above: their opens check the format alone.
+    let checked = Start {
+        check: IntegrityCheck::Never,
+        ..start
+    };
     let open = |name: &str| -> Result<Open, storage::Error> {
         let place = Place::data(data_dir, name);
         Ok(Open {
-            storage: Storage::open(&place, start)?,
+            storage: Storage::open(&place, checked)?,
             place,
         })
     };
@@ -753,11 +771,17 @@ pub(crate) fn open_with(
         let read = match Storage::open_replica(&place.file) {
             Ok(mut storage) => world_file(&mut storage),
             // A crash left it for redb to repair, which only an open that writes does.
-            Err(e) if !e.is_damage() => Storage::open(&place, start).and_then(|mut storage| {
-                let read = world_file(&mut storage)?;
-                storage.close()?;
-                Ok(read)
-            }),
+            Err(e) if !e.is_damage() => {
+                let repair = Start {
+                    backup: StartBackup::Skip,
+                    ..start
+                };
+                Storage::open(&place, repair).and_then(|mut storage| {
+                    let read = world_file(&mut storage)?;
+                    storage.close()?;
+                    Ok(read)
+                })
+            }
             Err(e) => Err(e),
         };
         match read {
@@ -777,11 +801,31 @@ pub(crate) fn open_with(
             ),
         }
     }
-    let opener = Opener::Live {
+    let at_start = Opener::Live {
+        data_dir: data_dir.to_path_buf(),
+        start: checked,
+    };
+    let mut resolved = resolve(files, at_start, saved, later, stored, specs, None)?;
+    // Worlds opened while the server runs are checked as the start says.
+    resolved.thread.opener = Opener::Live {
         data_dir: data_dir.to_path_buf(),
         start,
     };
-    resolve(files, opener, saved, later, stored, specs, None)
+    Ok(resolved)
+}
+
+/// Checks the closed files at `places` together on `pool` ([`storage::verify`]), each in a turn
+/// of its own. Every refused file is logged; the first one refuses the start. None is written.
+fn check_all(places: &[Place], check: IntegrityCheck, pool: &Pool) -> Result<(), storage::Error> {
+    let checked = pool.map_in_turns(places, |place| storage::verify(&place.file, check));
+    let mut refused = None;
+    for (place, result) in places.iter().zip(checked) {
+        if let Err(e) = result {
+            error!(file = %place.file.display(), error = %e, "data file refused; it is left as it was");
+            refused.get_or_insert(e);
+        }
+    }
+    refused.map_or(Ok(()), Err)
 }
 
 /// The names of the world files in `data/worlds/`, in name order: each file `<name>.redb` whose
@@ -866,11 +910,18 @@ fn world_place(data_dir: &std::path::Path, name: &str) -> Result<Place, storage:
 
 /// [`open_with`] a start backup and a check, as the tests open data files.
 #[cfg(test)]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "consistency: a test helper fails by panicking when its pool does not stop"
+)]
 pub(crate) fn open(
     data_dir: &std::path::Path,
     specs: Vec<WorldSpec>,
 ) -> Result<Opened, crate::Error> {
-    open_with(data_dir, specs, Start::checked(storage::StartBackup::Make))
+    let pool = crate::runtime::cpu_pool(2).unwrap();
+    let opened = open_with(data_dir, specs, Start::checked(StartBackup::Make), &pool);
+    assert!(pool.shutdown());
+    opened
 }
 
 /// Opens the data files `files` read-only for a replay ([`Storage::open_replica`]) and resolves
@@ -3241,6 +3292,60 @@ pub(crate) mod tests {
         specs
     }
 
+    /// Damage in any one file of a start (main, players or a declared world's) refuses the start:
+    /// every file is checked before any is opened, so no file is written and none is backed up.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_damaged_file_of_the_start_refuses_it_and_every_file_stays_as_it_was() {
+        let dir = TempDir::new("start-damaged");
+        drop(open(&dir.0, specs_with_lobby()).unwrap());
+        let places = [
+            Place::data(&dir.0, storage::MAIN_FILE),
+            Place::data(&dir.0, storage::PLAYERS_FILE),
+            Place::world(&dir.0, "world"),
+            Place::world(&dir.0, "lobby"),
+        ];
+        // A value in each file whose bytes are easy to find: random letters compress little.
+        let mut rng = Rng(0x5747_0005);
+        let mut values = Vec::new();
+        for place in &places {
+            let key = Key::User("findable".to_owned());
+            let text: Vec<u8> = (0..200)
+                .map(|_| b'a' + u8::try_from(rng.below(26)).unwrap())
+                .collect();
+            let sealed = seal(&key.to_bytes(), &UserRecord(text.into())).unwrap();
+            let mut storage = Storage::open(place, Start::checked(StartBackup::Skip)).unwrap();
+            let mut batch = Batch::default();
+            batch.put(key, sealed.clone());
+            storage.commit(&batch).unwrap();
+            storage.close().unwrap();
+            values.push(sealed);
+        }
+        let read = || places.each_ref().map(|p| std::fs::read(&p.file).unwrap());
+        let whole = read();
+        for (i, place) in places.iter().enumerate() {
+            let mut damaged = whole[i].clone();
+            let body = &values[i][12..76];
+            let at = damaged.windows(body.len()).position(|w| w == body).unwrap();
+            damaged[at + 32] ^= 0x20;
+            std::fs::write(&place.file, &damaged).unwrap();
+            let before = read();
+            let refused = open(&dir.0, specs_with_lobby());
+            assert!(
+                matches!(refused, Err(crate::Error::WorldDamaged(_))),
+                "{place:?}: {:?}",
+                refused.err()
+            );
+            assert!(read() == before, "{place:?}: a file was written");
+            std::fs::write(&place.file, &whole[i]).unwrap();
+        }
+        assert!(
+            !std::fs::exists(dir.0.join(storage::BACKUP_DIR)).unwrap(),
+            "a refused start backs nothing up"
+        );
+        drop(open(&dir.0, specs_with_lobby()).unwrap());
+    }
+
     /// A normal stop commits the last snapshot to every file it changes, the main file last, and
     /// marks every file closed: nothing is doubled or lost between the files.
     #[test]
@@ -3362,7 +3467,7 @@ pub(crate) mod tests {
         for name in ["arena2", "Lobby"] {
             let mut storage = Storage::open(
                 &Place::world(&dir.0, name),
-                Start::checked(storage::StartBackup::Transient),
+                Start::checked(storage::StartBackup::Skip),
             )
             .unwrap();
             let mut batch = Batch::default();
@@ -3398,7 +3503,7 @@ pub(crate) mod tests {
         let dir = TempDir::new("declared-world-case");
         let mut storage = Storage::open(
             &Place::world(&dir.0, "lobby"),
-            Start::checked(storage::StartBackup::Transient),
+            Start::checked(storage::StartBackup::Skip),
         )
         .unwrap();
         let mut batch = Batch::default();
