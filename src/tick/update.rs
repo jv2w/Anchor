@@ -681,7 +681,7 @@ fn player_chunks(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
 
 /// The chunks of `world` that take random ticks, in order: within `radius` of `centers`, the
 /// chunks of the players in the world ([`player_chunks`]), with their 3 × 3 neighbourhood loaded
-/// and lit. One disc serves every center: players in one chunk share it.
+/// and lit. Players in one chunk share a center.
 fn ticking_chunks(
     state: &State,
     world: WorldIndex,
@@ -691,20 +691,28 @@ fn ticking_chunks(
     let (Some(w), Some(centers)) = (state.worlds.get(world), centers) else {
         return Vec::new();
     };
-    let disc = view::disc(ChunkPos::new(0, 0), radius);
+    // The offsets of `view::disc`, without the vectors and the nearest-first sort it makes every
+    // call: this runs every tick, and the set orders the chunks.
+    let r = i32::from(radius);
     let mut near = BTreeSet::new();
     for c in centers {
-        near.extend(
-            disc.iter()
-                .map(|d| ChunkPos::new(c.x.saturating_add(d.x), c.z.saturating_add(d.z))),
-        );
+        for dx in -r..=r {
+            for dz in -r..=r {
+                if dx * dx + dz * dz <= r * r {
+                    near.insert(ChunkPos::new(
+                        c.x.saturating_add(dx),
+                        c.z.saturating_add(dz),
+                    ));
+                }
+            }
+        }
     }
+    // A chunk that is not loaded is not lit.
     near.into_iter()
         .filter(|c| {
             (-1..=1).all(|dx| {
                 (-1..=1).all(|dz| {
-                    let n = ChunkPos::new(c.x.wrapping_add(dx), c.z.wrapping_add(dz));
-                    w.is_chunk_loaded(n) && w.is_chunk_lit(n)
+                    w.is_chunk_lit(ChunkPos::new(c.x.wrapping_add(dx), c.z.wrapping_add(dz)))
                 })
             })
         })
@@ -1482,6 +1490,44 @@ mod tests {
         assert_eq!(grown, grown_heard);
         let calls = std::iter::from_fn(|| growths.try_recv().ok()).count();
         assert!(calls > 0 && calls <= usize::try_from(grown).unwrap());
+    }
+
+    #[test]
+    fn ticking_chunks_are_the_view_discs_with_lit_neighbourhoods() {
+        let mut state = server();
+        // A loaded area with holes, so some disc chunks lack a loaded neighbour.
+        for x in -12..=12 {
+            for z in -12..=12 {
+                let pos = ChunkPos::new(x, z);
+                if (x * 7 + z * 3) % 11 != 0 {
+                    state.worlds[0].insert_chunk(pos, world::Chunk::generate(&world::Flat, 0, pos));
+                }
+            }
+        }
+        let centers = BTreeSet::from([ChunkPos::new(0, 0), ChunkPos::new(3, -2)]);
+        for radius in 1..=8 {
+            let w = &state.worlds[0];
+            let expected: Vec<ChunkPos> = centers
+                .iter()
+                .flat_map(|&c| view::disc(c, radius))
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .filter(|c| {
+                    (-1..=1).all(|dx| {
+                        (-1..=1).all(|dz| {
+                            let n = ChunkPos::new(c.x + dx, c.z + dz);
+                            w.is_chunk_loaded(n) && w.is_chunk_lit(n)
+                        })
+                    })
+                })
+                .collect();
+            assert!(!expected.is_empty());
+            assert_eq!(
+                ticking_chunks(&state, 0, radius, Some(&centers)),
+                expected,
+                "{radius}"
+            );
+        }
     }
 
     #[test]
