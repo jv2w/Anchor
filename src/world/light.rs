@@ -330,6 +330,7 @@ impl Spot {
 }
 
 /// The six neighbours of `pos` that are valid positions (any height).
+#[cfg(test)]
 fn neighbours(pos: BlockPos) -> impl Iterator<Item = BlockPos> {
     [
         (1, 0, 0),
@@ -944,26 +945,39 @@ impl Engine {
         let Some(spot) = Spot::of(pos) else {
             return;
         };
-        let Some(chunk) = chunks.get(spot.chunk) else {
+        let near = near(pos, spot);
+        // Neighbours in other chunks are read first, before the block's chunk is held to write;
+        // the others are read from that chunk's light without looking it up again.
+        let across = near
+            .into_iter()
+            .filter_map(|n| match n {
+                Near::Across(q) => Self::level(chunks, q, channel),
+                Near::Same(..) | Near::Out => None,
+            })
+            .max();
+        let Some(chunk) = chunks.get_mut(spot.chunk) else {
             return;
         };
         let values = chunk.light_values_at(spot.sub, spot.at);
-        let Some(light) = chunk.light() else {
+        let Some(light) = chunk.light_mut() else {
             return;
         };
         let own = source(channel, values, pos.y, light.height(spot.column));
         let old = light.get(channel, spot.sub, spot.at);
-        let brightest = neighbours(pos)
-            .filter_map(|q| Self::level(chunks, q, channel))
+        let brightest = near
+            .into_iter()
+            .filter_map(|n| match n {
+                Near::Same(_, at) => Some(light.get(channel, at.sub, at.at)),
+                Near::Across(_) | Near::Out => None,
+            })
+            .chain(across)
             .max()
             .unwrap_or(0);
         let new = own.max(brightest.saturating_sub(values.filter));
         if new == old {
             return;
         }
-        if let Some(light) = chunks.get_mut(spot.chunk).and_then(Chunk::light_mut) {
-            light.set(channel, spot.sub, spot.at, new);
-        }
+        light.set(channel, spot.sub, spot.at, new);
         if new < old {
             self.push_removal(pos, channel, old);
         }
