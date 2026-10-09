@@ -3602,13 +3602,14 @@ fn remove_flagged(state: &mut State) {
     }
 }
 
-/// The players who may see entities and other players: their view is open.
-fn watchers(state: &State) -> Vec<(SessionId, WorldIndex)> {
+/// The players who may see entities and other players (their view is open), in session order,
+/// with their world and view.
+fn watchers(state: &State) -> Vec<(SessionId, WorldIndex, &View)> {
     state
         .players
         .iter()
         .filter(|(_, p)| p.view.is_open())
-        .map(|(&s, p)| (s, p.world))
+        .map(|(&s, p)| (s, p.world, &p.view))
         .collect()
 }
 
@@ -3639,23 +3640,29 @@ fn track_entities(state: &mut State) {
             state.rules.entities.departed.push(d);
         }
     }
+    // The players of each column are worked out before anything is sent (sending changes no
+    // view); only the stale columns and those whose players changed are kept. `watchers` is in
+    // session order, as a column's players are, so comparing the sequences compares the sets.
     let watchers = watchers(state);
-    let keys: Vec<Key> = state.rules.entities.columns.keys().copied().collect();
-    for key in keys {
-        let want: BTreeSet<SessionId> = watchers
-            .iter()
-            .filter(|&&(s, w)| {
-                w == key.0 && state.players.get(&s).is_some_and(|p| p.view.sees(key.1))
-            })
-            .map(|&(s, _)| s)
-            .collect();
+    let pending: Vec<(Key, BTreeSet<SessionId>)> = state
+        .rules
+        .entities
+        .columns
+        .iter()
+        .filter_map(|(&key, column)| {
+            let want = watchers
+                .iter()
+                .filter(|&&(_, w, view)| w == key.0 && view.sees(key.1))
+                .map(|&(s, _, _)| s);
+            (column.stale || !column.viewers.iter().copied().eq(want.clone()))
+                .then(|| (key, want.collect()))
+        })
+        .collect();
+    for (key, want) in pending {
         let entities = &mut state.rules.entities;
         let Some(column) = entities.columns.get_mut(&key) else {
             continue;
         };
-        if column.viewers == want && !column.stale {
-            continue;
-        }
         column.viewers.clone_from(&want);
         column.stale = false;
         let ids: Vec<Id> = column.ids.iter().copied().collect();
@@ -3857,10 +3864,7 @@ fn commit_movement(e: &mut Entity, change: Change) {
 /// anything is sent (sending changes no view), and each watcher's view is looked up once, not
 /// once per pair.
 fn player_viewers(state: &State) -> Vec<(SessionId, BTreeSet<SessionId>)> {
-    let views: Vec<(SessionId, WorldIndex, &View)> = watchers(state)
-        .into_iter()
-        .filter_map(|(s, w)| Some((s, w, &state.players.get(&s)?.view)))
-        .collect();
+    let views = watchers(state);
     let hidden = &state.rules.entities.hidden;
     state
         .players
