@@ -1512,6 +1512,61 @@ mod tests {
         });
     }
 
+    /// The address of the next connection `listener` accepts.
+    async fn accepted(listener: &TcpListener) -> SocketAddr {
+        let accepted = tokio::time::timeout(WAIT, listener.accept()).await;
+        accepted.unwrap().unwrap().1
+    }
+
+    /// The IPv4 and the IPv6 listener share one port and each accepts only its own family.
+    #[test]
+    fn ipv4_and_ipv6_listeners_share_a_port() {
+        run(async {
+            if !crate::raknet::tests::has_ipv6_loopback() {
+                return;
+            }
+            let (ip4, ip6) = crate::raknet::tests::dual_stack_ips();
+            let v4 = bind(SocketAddr::from((ip4, 0))).unwrap();
+            let port = v4.local_addr().unwrap().port();
+            let v6 = bind(SocketAddr::from((ip6, port))).unwrap();
+            assert!(socket2::SockRef::from(&v6).only_v6().unwrap());
+            // The IPv4 client connects first: an IPv6 listener taking IPv4 connections would
+            // accept it first.
+            let client4 = TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+                .await
+                .unwrap();
+            let client6 = TcpStream::connect((Ipv6Addr::LOCALHOST, port))
+                .await
+                .unwrap();
+            assert_eq!(accepted(&v4).await, client4.local_addr().unwrap());
+            assert_eq!(accepted(&v6).await, client6.local_addr().unwrap());
+        });
+    }
+
+    /// A restarted server binds its port at once, though the connection it closed last still
+    /// holds that port in `TIME_WAIT`.
+    #[test]
+    fn a_restart_binds_the_port_its_closed_connection_holds() {
+        run(async {
+            let (offers, _received) = mpsc::channel(1);
+            let (handle, addr, _status) = server(None, offers.clone());
+            let get = b"GET /v1/join HTTP/1.1\r\n\r\n";
+            // The server closes first, so its end of the connection waits in `TIME_WAIT`.
+            assert!(send(addr, get).await.starts_with(b"HTTP/1.1 200 OK"));
+            handle.shutdown().await;
+
+            let (_status, statuses) = watch::channel(Arc::<[u8]>::from(STATUS));
+            let settings = Settings {
+                v4: Some(SocketAddrV4::new(Ipv4Addr::LOCALHOST, addr.port())),
+                v6: None,
+                tls: None,
+            };
+            let handle = spawn(settings, statuses, offers).unwrap();
+            assert!(send(addr, get).await.starts_with(b"HTTP/1.1 200 OK"));
+            handle.shutdown().await;
+        });
+    }
+
     /// Parses `bytes` fed in pieces of `piece` bytes.
     fn parse(bytes: &[u8], piece: usize) -> Result<Option<Request>, Status> {
         let mut parser = Parser::default();

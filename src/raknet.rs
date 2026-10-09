@@ -691,6 +691,83 @@ pub(crate) mod tests {
         handle.shutdown().await;
     }
 
+    /// Whether the host has the IPv6 loopback `::1`: a kernel without IPv6 refuses the address
+    /// family, one with IPv6 off on loopback refuses the address, and any other error fails the
+    /// test. Runs on a tokio runtime.
+    pub(crate) fn has_ipv6_loopback() -> bool {
+        /// EAFNOSUPPORT on Linux, WSAEAFNOSUPPORT on Windows; std gives it no `ErrorKind`.
+        const NO_ADDRESS_FAMILY: i32 = if cfg!(windows) { 10047 } else { 97 };
+        match bind(SocketAddr::from((Ipv6Addr::LOCALHOST, 0))) {
+            Ok(_) => true,
+            Err(e)
+                if e.kind() == io::ErrorKind::AddrNotAvailable
+                    || e.raw_os_error() == Some(NO_ADDRESS_FAMILY) =>
+            {
+                false
+            }
+            Err(e) => panic!("ipv6 loopback probe failed: {e}"),
+        }
+    }
+
+    /// The addresses a test of IPv4 and IPv6 on one port binds: the defaults `0.0.0.0` and `::`,
+    /// which clash on Linux (`bindv6only = 0`) unless the IPv6 socket is IPv6-only. Windows makes
+    /// IPv6 sockets IPv6-only by default and its firewall asks about every new program that binds
+    /// a wildcard address, so loopback stands in there.
+    pub(crate) fn dual_stack_ips() -> (Ipv4Addr, Ipv6Addr) {
+        if cfg!(windows) {
+            (Ipv4Addr::LOCALHOST, Ipv6Addr::LOCALHOST)
+        } else {
+            (Ipv4Addr::UNSPECIFIED, Ipv6Addr::UNSPECIFIED)
+        }
+    }
+
+    /// The next datagram on `socket` and its sender.
+    async fn receive(socket: &UdpSocket) -> (Vec<u8>, SocketAddr) {
+        let mut buf = vec![0; RECV_BUFFER];
+        let received = tokio::time::timeout(WAIT, socket.recv_from(&mut buf)).await;
+        let (len, from) = received.unwrap().unwrap();
+        buf.truncate(len);
+        (buf, from)
+    }
+
+    /// The IPv4 and the IPv6 socket (RakNet and NetherNet) share one port, each reads only its
+    /// own family's datagrams, and both bind the port again right after they close.
+    #[test]
+    fn ipv4_and_ipv6_sockets_share_a_port_and_rebind_it() {
+        run(share_a_port_and_rebind_it());
+    }
+
+    async fn share_a_port_and_rebind_it() {
+        if !has_ipv6_loopback() {
+            return;
+        }
+        let (ip4, ip6) = dual_stack_ips();
+        let v4 = bind(SocketAddr::from((ip4, 0))).unwrap();
+        let port = v4.local_addr().unwrap().port();
+        let v6 = bind(SocketAddr::from((ip6, port))).unwrap();
+        assert!(socket2::SockRef::from(&v6).only_v6().unwrap());
+
+        let client4 = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let client6 = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
+        // The IPv4 datagram goes first: an IPv6 socket taking IPv4 traffic would read it first.
+        client4
+            .send_to(b"v4", (Ipv4Addr::LOCALHOST, port))
+            .await
+            .unwrap();
+        client6
+            .send_to(b"v6", (Ipv6Addr::LOCALHOST, port))
+            .await
+            .unwrap();
+        let from4 = client4.local_addr().unwrap();
+        let from6 = client6.local_addr().unwrap();
+        assert_eq!(receive(&v4).await, (b"v4".to_vec(), from4));
+        assert_eq!(receive(&v6).await, (b"v6".to_vec(), from6));
+
+        drop((v4, v6));
+        bind(SocketAddr::from((ip4, port))).unwrap();
+        bind(SocketAddr::from((ip6, port))).unwrap();
+    }
+
     /// A driver on a loopback socket that the test runs by calling its handlers, its command
     /// queue and the connections it accepts.
     fn driver() -> (Driver, mpsc::Receiver<Outbound>, mpsc::Receiver<Connection>) {
