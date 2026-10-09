@@ -82,6 +82,18 @@ fn locate(bits: u8, offset: u16) -> (usize, u32) {
     }
 }
 
+/// The palette index of a slot (`offset` below [`SLOTS`]) in `words` packed at width `bits`.
+#[inline]
+fn index_in(bits: u8, words: &[u32], offset: u16) -> u16 {
+    if bits == 0 {
+        return 0;
+    }
+    let (word, shift) = locate(bits, offset);
+    let w = words.get(word).copied().unwrap_or(0);
+    let mask = (1u32 << bits) - 1;
+    u16::try_from((w >> shift) & mask).unwrap_or(0)
+}
+
 /// Converts a palette position, at most 4096, to an index.
 fn to_index(i: usize) -> u16 {
     u16::try_from(i).unwrap_or(u16::MAX)
@@ -165,19 +177,10 @@ impl<T: Derive> Paletted<T> {
         if palette.is_empty() || palette.len() > capacity(bits) {
             return Err(Error::Malformed("a palette size does not fit its width"));
         }
-        let stored = Self {
-            bits,
-            words: words.to_vec(),
-            palette: palette.to_vec(),
-            derived: Vec::new(),
-            counts: Vec::new(),
-            lookup: Vec::new(),
-            dead: 0,
-        };
-        if (0..SLOTS).any(|o| usize::from(stored.index(o)) >= palette.len()) {
+        if (0..SLOTS).any(|o| usize::from(index_in(bits, words, o)) >= palette.len()) {
             return Err(Error::Malformed("a slot points outside its palette"));
         }
-        Ok(stored.compacted())
+        Ok(Self::compacted(bits, words, palette))
     }
 
     /// A cube from the exact parts of a live one ([`Self::bits`], [`Self::words`],
@@ -246,21 +249,27 @@ impl<T: Derive> Paletted<T> {
     /// Compacts the cube as [`Self::from_parts`] does. Generated chunks are compacted, which
     /// gives BDS's palette order (P6).
     pub(crate) fn compact(&mut self) {
-        *self = self.compacted();
+        *self = Self::compacted(self.bits, &self.words, &self.palette);
     }
 
-    /// The cube with repeated and unused entries dropped, the others in the order of their first
-    /// slot, in the narrowest width. Needs only `bits`, `words` and `palette`, every slot's index
-    /// pointing into `palette`.
-    fn compacted(&self) -> Self {
+    /// The cube of `palette` whose slot indices `words` packs at width `bits`, every one pointing
+    /// into `palette`, with repeated and unused entries dropped, the others in the order of their
+    /// first slot, in the narrowest width.
+    fn compacted(bits: u8, words: &[u32], palette: &[T]) -> Self {
+        // A width 0 cube holds its one entry in every slot: it is compact already.
+        if bits == 0
+            && let Some(&value) = palette.first()
+        {
+            return Self::uniform(value);
+        }
         // `map` takes an old index to the new one (u16::MAX: not seen yet).
-        let mut map = vec![u16::MAX; self.palette.len()];
+        let mut map = vec![u16::MAX; palette.len()];
         let mut values: Vec<T> = Vec::new();
         let mut seen: BTreeMap<T, u16> = BTreeMap::new();
         let mut indices = Vec::with_capacity(usize::from(SLOTS));
         for offset in 0..SLOTS {
-            let i = usize::from(self.index(offset));
-            let (Some(slot), Some(&value)) = (map.get_mut(i), self.palette.get(i)) else {
+            let i = usize::from(index_in(bits, words, offset));
+            let (Some(slot), Some(&value)) = (map.get_mut(i), palette.get(i)) else {
                 indices.push(0);
                 continue;
             };
@@ -274,18 +283,19 @@ impl<T: Derive> Paletted<T> {
             }
             indices.push(*slot);
         }
-        Self::build(&values, width_for(values.len()), &indices)
+        let bits = width_for(values.len());
+        Self::build(values, bits, &indices)
     }
 
     /// A cube of `palette` (distinct entries) in width `bits` with the slot indices `indices`.
-    fn build(palette: &[T], bits: u8, indices: &[u16]) -> Self {
+    fn build(palette: Vec<T>, bits: u8, indices: &[u16]) -> Self {
         let mut out = Self {
             bits,
             words: vec![0; word_count(bits)],
-            palette: palette.to_vec(),
-            derived: derive_all(palette),
+            derived: derive_all(&palette),
             counts: vec![0; palette.len()],
-            lookup: (0..).zip(palette).map(|(i, &v)| (v, i)).collect(),
+            lookup: (0..).zip(&palette).map(|(i, &v)| (v, i)).collect(),
+            palette,
             dead: 0,
         };
         out.lookup.sort_unstable();
@@ -317,13 +327,7 @@ impl<T: Derive> Paletted<T> {
     /// The palette index of a slot (`offset` below [`SLOTS`]).
     #[inline]
     fn index(&self, offset: u16) -> u16 {
-        if self.bits == 0 {
-            return 0;
-        }
-        let (word, shift) = locate(self.bits, offset);
-        let w = self.words.get(word).copied().unwrap_or(0);
-        let mask = (1u32 << self.bits) - 1;
-        u16::try_from((w >> shift) & mask).unwrap_or(0)
+        index_in(self.bits, &self.words, offset)
     }
 
     #[inline]
@@ -496,7 +500,7 @@ impl<T: Derive> Paletted<T> {
         let indices: Vec<u16> = (0..SLOTS)
             .map(|o| map.get(usize::from(self.index(o))).copied().unwrap_or(0))
             .collect();
-        *self = Self::build(&palette, bits, &indices);
+        *self = Self::build(palette, bits, &indices);
     }
 
     /// The most bytes [`Self::encode`] writes: the header, the words, and the palette length and
