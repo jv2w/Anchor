@@ -1315,13 +1315,17 @@ impl Engine {
             let Some((p, q)) = face_pair(pos, side, i) else {
                 continue;
             };
-            for channel in [Channel::Block, Channel::Sky] {
-                let (Some(lp), Some(lq)) = (
-                    Self::level(chunks, p, channel),
-                    Self::level(chunks, q, channel),
-                ) else {
-                    continue;
-                };
+            // Both channels of a block from one lookup: relaxing one channel never changes the
+            // other.
+            let levels = |at| {
+                let spot = Spot::of(at)?;
+                let light = chunks.get(spot.chunk)?.light()?;
+                Some([Channel::Block, Channel::Sky].map(|c| (c, light.get(c, spot.sub, spot.at))))
+            };
+            let (Some(from_p), Some(from_q)) = (levels(p), levels(q)) else {
+                continue;
+            };
+            for ((channel, lp), (_, lq)) in from_p.into_iter().zip(from_q) {
                 if lp >= 2 {
                     self.relax(chunks, q, channel, lp);
                 }
