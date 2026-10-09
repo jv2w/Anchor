@@ -3913,6 +3913,8 @@ fn track_players(state: &mut State) {
             send_to(&mut state.players, &w.viewers, &bar);
         }
     }
+    let mut packets: Vec<(SessionId, Packet)> = Vec::new();
+    let mut changes = Vec::new();
     for (t, want) in player_viewers(state) {
         let Some(target) = state.players.get(&t) else {
             continue;
@@ -3932,7 +3934,6 @@ fn track_players(state: &mut State) {
         // Built only for a tick that has a new viewer.
         let mut add = None;
         let before = state.rules.entities.watched.remove(&t);
-        let mut packets: Vec<(SessionId, Packet)> = Vec::new();
         let old = before.as_ref().map(|w| &w.viewers);
         for &s in &now.viewers {
             if old.is_some_and(|v| v.contains(&s)) {
@@ -3963,8 +3964,6 @@ fn track_players(state: &mut State) {
                 packets.push((s, track::remove(now.runtime_id)));
                 packets.push((s, track::locator_removed(now.runtime_id)));
             }
-            let kept: Vec<SessionId> = before.viewers.intersection(&now.viewers).copied().collect();
-            let mut changes = Vec::new();
             if before.position != now.position || before.rotation != now.rotation {
                 let (yaw, pitch) = now.rotation;
                 let ground = survival::is_on_ground(target);
@@ -3981,11 +3980,14 @@ fn track_players(state: &mut State) {
             if !now.same_armour(before) {
                 changes.push(track::armour(now.runtime_id, &now.armour));
             }
-            for s in kept {
-                packets.extend(changes.iter().map(|p| (s, p.clone())));
+            if !changes.is_empty() {
+                for &s in before.viewers.intersection(&now.viewers) {
+                    packets.extend(changes.iter().map(|p| (s, p.clone())));
+                }
+                changes.clear();
             }
         }
-        for (s, packet) in packets {
+        for (s, packet) in packets.drain(..) {
             if let Some(p) = state.players.get_mut(&s) {
                 p.send_packet(packet);
             }
