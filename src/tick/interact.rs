@@ -40,8 +40,8 @@ use crate::event::{BlockBreak, ExhaustCause, InteractAction, PlayerInteract};
 use crate::item::{self, Enchantment, Stack};
 use crate::math::{self, Vec3};
 use crate::protocol::consts::{
-    InventoryActionSource, LevelEvent as Event, PlayerAction, ReleaseItemAction, UseItemAction,
-    UseItemOnEntityAction,
+    InventoryActionSource, LevelEvent as Event, PlayerAction, ReleaseItemAction, TriggerType,
+    UseItemAction, UseItemOnEntityAction,
 };
 use crate::protocol::packet::{
     BlockActorData, InventoryTransaction, LevelEvent, OpenSign, Packet, PlayerAuthInput,
@@ -68,6 +68,11 @@ const MAX_ACTION_DISTANCE_SQUARED: f64 = 10_000.0;
 /// An identical click within this many ticks is the client repeating itself (PMMP's 100 ms
 /// "client spam bug" filter); it is ignored, so a doubled packet places once.
 const REPEAT_TICKS: u64 = 2;
+/// A `SimulationTick` block click at most this many ticks after the last block click goes on
+/// the same held press; after a longer gap the button was let go. The official client floods
+/// repeats while the button is down, and a press that starts in the air and reaches a block sends
+/// no `PlayerInput` click (`facts.md`), so the gap is the only sign of a new press there.
+const PRESS_GAP_TICKS: u64 = 10;
 /// Food exhaustion per broken block (PMMP `Player::breakBlock`).
 const BREAK_EXHAUSTION: f64 = 0.005;
 /// Ticks between punch particles while breaking (PMMP `DEFAULT_FX_INTERVAL_TICKS`).
@@ -87,6 +92,9 @@ pub(super) struct Breaking {
     last_attacked: Option<BlockPos>,
     /// The last block click and its tick, for the repeat filter.
     last_click: Option<(u64, Click)>,
+    /// The right click the player holds or last held on blocks, for
+    /// [`PlayerInteract::is_first`].
+    press: Press,
     /// The sign this player may write (PMMP `BaseSign::$editorEntityRuntimeId`).
     sign_editor: Option<(WorldIndex, BlockPos)>,
     /// The tick the player started using a bow, trident, goat horn or spyglass (PMMP
@@ -176,7 +184,41 @@ struct Click {
     player: [u32; 3],
 }
 
+/// A right click held on blocks: the client repeats its block click while the button is down.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct Press {
+    /// The tick of its last block click.
+    last: u64,
+    /// Whether it raised a right click [`PlayerInteract`] yet.
+    raised: bool,
+}
+
+/// Where a right click on a block comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// The player's client: [`PlayerInteract::is_first`] follows the held press.
+    Client,
+    /// An [`action::UseItemOn`]: a click of its own, never a repeat.
+    Action,
+}
+
 impl Breaking {
+    /// Notes a block click at `tick`: a `SimulationTick` click (`repeated`) soon after the last
+    /// one goes on its press; any other click starts a new press.
+    fn note_click(&mut self, tick: u64, repeated: bool) {
+        let held_on = repeated && tick.saturating_sub(self.press.last) <= PRESS_GAP_TICKS;
+        self.press = Press {
+            last: tick,
+            raised: held_on && self.press.raised,
+        };
+    }
+
+    /// Whether a right click [`PlayerInteract`] raised now is the first of the held press; the
+    /// press has raised one from now on.
+    fn first_of_press(&mut self) -> bool {
+        !std::mem::replace(&mut self.press.raised, true)
+    }
+
     /// Stops drawing a bow or trident (PMMP `Player::setUsingItem(false)`): the held slot or
     /// item changed, or the player did something else with it.
     pub(super) fn stop_using(&mut self) {
@@ -195,6 +237,7 @@ impl Breaking {
             target,
             last_attacked,
             last_click,
+            press,
             sign_editor,
             using_since,
         } = self;
@@ -239,6 +282,9 @@ impl Breaking {
             }
             None => h.u64(u64::MAX),
         }
+        let Press { last, raised } = press;
+        h.u64(*last);
+        h.u64(u64::from(*raised));
         match sign_editor {
             Some((world, pos)) => {
                 h.usize(*world);
@@ -261,9 +307,11 @@ super::checkpoint::fields!(Breaking {
     target,
     last_attacked,
     last_click,
+    press,
     sign_editor,
     using_since,
 });
+super::checkpoint::fields!(Press { last, raised });
 super::checkpoint::fields!(Target {
     world,
     pos,
@@ -982,6 +1030,7 @@ fn attack_block(state: &mut State, session: SessionId, pos: BlockPos, face: Face
             item: held(state, session),
             touch_vector: Vec3::ZERO,
             action: InteractAction::LeftClickBlock,
+            first: true,
             use_item: true,
             use_block: true,
             cancelled: false,
@@ -1794,8 +1843,8 @@ fn finite(v: f32) -> f32 {
     if v.is_finite() { v } else { 0.0 }
 }
 
-/// A click on a block (PMMP `ACTION_CLICK_BLOCK`): the repeat filter, the held item check, then
-/// the interaction; a refused one sends the client the real blocks.
+/// A click on a block (PMMP `ACTION_CLICK_BLOCK`): the repeat filter, the held press, the held
+/// item check, then the interaction; a refused one sends the client the real blocks.
 fn click_block(state: &mut State, session: SessionId, data: &UseItemTransactionData) {
     let Some(face) = face_of(data.block_face) else {
         return;
@@ -1823,6 +1872,8 @@ fn click_block(state: &mut State, session: SessionId, data: &UseItemTransactionD
         return;
     }
     player.breaking.last_click = Some((tick, click));
+    let repeated = TriggerType::try_from(data.trigger_type) == Ok(TriggerType::SimulationTick);
+    player.breaking.note_click(tick, repeated);
     let clamp = |v: f32| {
         if v.is_finite() {
             math::clamp(f64::from(v), 0.0, 1.0)
@@ -1835,7 +1886,8 @@ fn click_block(state: &mut State, session: SessionId, data: &UseItemTransactionD
         clamp(data.clicked_position[1]),
         clamp(data.clicked_position[2]),
     );
-    let done = held_matches(state, session, data) && interact_block(state, session, pos, face, at);
+    let done = held_matches(state, session, data)
+        && interact_block(state, session, pos, face, at, Source::Client);
     if !done {
         // PMMP resyncs only when the client predicted a success; any refusal may have been
         // predicted, so Anchor always sends the real blocks.
@@ -1850,6 +1902,7 @@ fn interact_block(
     pos: BlockPos,
     face: Face,
     click: Vec3,
+    source: Source,
 ) -> bool {
     let Some(actor) = actor(state, session) else {
         return false;
@@ -1859,7 +1912,7 @@ fn interact_block(
         debug!(session = session.get(), "click out of reach");
         return false;
     }
-    using::use_item_on(state, &actor, pos, face, click)
+    using::use_item_on(state, &actor, pos, face, click, source)
 }
 
 /// Stops the drawing of `session` ([`Breaking::stop_using`]).
@@ -1912,7 +1965,14 @@ impl action::Sealed for action::UseItemOn {
             math::clamp(click.y, 0.0, 1.0),
             math::clamp(click.z, 0.0, 1.0),
         );
-        let _used = interact_block(cx.state, self.player.session(), self.pos, self.face, click);
+        let _used = interact_block(
+            cx.state,
+            self.player.session(),
+            self.pos,
+            self.face,
+            click,
+            Source::Action,
+        );
     }
 }
 

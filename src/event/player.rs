@@ -870,6 +870,7 @@ pub struct PlayerInteract {
     pub(crate) item: Stack,
     pub(crate) touch_vector: Vec3,
     pub(crate) action: InteractAction,
+    pub(crate) first: bool,
     pub(crate) use_item: bool,
     pub(crate) use_block: bool,
     pub(crate) cancelled: bool,
@@ -900,6 +901,14 @@ getters!(PlayerInteract {
 });
 
 impl PlayerInteract {
+    /// Whether this is the first event of the click. While the player holds the right button on
+    /// blocks, the client repeats the click and each repeat raises this event again; only the
+    /// first of the press is first, even if the player looks at other blocks meanwhile. Left
+    /// clicks and clicks of [`UseItemOn`](crate::action::UseItemOn) are always first.
+    pub fn is_first(&self) -> bool {
+        self.first
+    }
+
     /// Whether a right click runs the held item's use action. Starts true.
     #[doc(alias = "PlayerInteractEvent::useItem")]
     pub fn uses_item(&self) -> bool {
@@ -2179,6 +2188,7 @@ mod tests {
                 item: sticks(1),
                 touch_vector: AT,
                 action,
+                first: true,
                 use_item: true,
                 use_block: true,
                 cancelled: false,
@@ -2188,8 +2198,8 @@ mod tests {
                 (player(1), WORLD, POS, DIRT, Face::East)
             );
             assert_eq!(
-                (e.item(), e.touch_vector(), e.action()),
-                (&sticks(1), AT, action)
+                (e.item(), e.touch_vector(), e.action(), e.is_first()),
+                (&sticks(1), AT, action, true)
             );
             assert!(e.uses_item() && e.uses_block());
             e.set_use_item(false);

@@ -126,6 +126,14 @@ fn refused_use_on(h: &mut Harness, pos: BlockPos, face: Face) {
     h.run(vec![input]);
 }
 
+/// Only the held press tells a cancelled right click from its [`refused_use_on`] twin: the
+/// cancelled one raised its event, so its press has one. Checks that and forgets it.
+fn forget_press(h: &mut Harness, refused: bool) {
+    let press = &mut h.player_mut().breaking.press;
+    assert_eq!(press.raised, !refused);
+    press.raised = false;
+}
+
 /// A click in the air with the held item.
 fn use_in_air(h: &mut Harness) {
     let held = h.held();
@@ -378,6 +386,7 @@ fn a_cancelled_placement_changes_nothing_and_resyncs() {
         } else {
             use_on(&mut h, GROUND, Face::Up);
         }
+        forget_press(&mut h, refused);
         (
             h.state.hash(),
             updates(&h.packets()),
@@ -494,6 +503,7 @@ fn a_cancelled_right_click_uses_neither_the_block_nor_the_item() {
         } else {
             use_on(&mut h, TARGET, Face::West);
         }
+        forget_press(&mut h, refused);
         assert!(!door_open(&h));
         assert_eq!(h.block(BlockPos::new(1, -60, 0)), block::AIR);
         assert_eq!(h.held().count(), 5);
@@ -502,6 +512,52 @@ fn a_cancelled_right_click_uses_neither_the_block_nor_the_item() {
     let cancelled = run(cancel(PlayerInteract::cancel), false);
     assert_eq!(cancels(), 1);
     assert_eq!(cancelled, run(Listeners::default(), true));
+}
+
+/// A right click on the top of the ground block at `x`, claiming to hold `held`, by `trigger`.
+fn ground_click(h: &mut Harness, x: i32, trigger: TriggerType, held: &Stack) {
+    let data = UseItemTransactionData {
+        trigger_type: trigger.into(),
+        ..click(BlockPos::new(x, -61, 0), Face::Up, held)
+    };
+    let input = h.auth(Vec::new(), Some(data));
+    h.run(vec![input]);
+}
+
+#[test]
+fn only_the_first_right_click_of_a_held_press_is_first() {
+    let l = listen(|e: &mut PlayerInteract, _: &mut Context<'_>| note(SEEN, e.is_first()));
+    let mut h = Harness::with(|_| {}, l);
+    let hand = h.held();
+    let (input, held) = (TriggerType::PlayerInput, TriggerType::SimulationTick);
+    // Pressed on a block and held over others.
+    ground_click(&mut h, 1, input, &hand);
+    ground_click(&mut h, 2, held, &hand);
+    ground_click(&mut h, 3, held, &hand);
+    assert_eq!(notes(SEEN), [dbg(true), dbg(false), dbg(false)]);
+    // Let go; pressed in the air and held onto blocks: no `PlayerInput` click comes.
+    for _ in 0..PRESS_GAP_TICKS {
+        h.run(Vec::new());
+    }
+    ground_click(&mut h, 1, held, &hand);
+    ground_click(&mut h, 2, held, &hand);
+    // Pressed again at once, or with an unknown trigger: a new press each.
+    ground_click(&mut h, 3, input, &hand);
+    ground_click(&mut h, 1, TriggerType::Unknown, &hand);
+    // An action is a click of its own and leaves the held press as it was.
+    perform(
+        &mut h,
+        action::UseItemOn::new(me(), GROUND, Face::Up, Vec3::ZERO),
+    );
+    ground_click(&mut h, 3, held, &hand);
+    // A refused first click raises nothing, so the next of its press is first.
+    ground_click(&mut h, 1, input, &block_item(Kind::Stone, 7));
+    ground_click(&mut h, 2, held, &hand);
+    ground_click(&mut h, 3, held, &hand);
+    assert_eq!(
+        notes(SEEN),
+        [true, false, true, true, true, false, true, false].map(dbg)
+    );
 }
 
 // pmmp: PlayerInteractEvent

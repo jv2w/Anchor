@@ -25,8 +25,8 @@ use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, Particle, Sound};
 use super::super::update::{CAULDRON_FULL, LAVA_TICK_RATE, WATER_TICK_RATE};
 use super::super::{SessionId, State, block_entity, dispatch, entity, inventory, survival, update};
 use super::{
-    Actor, USE, adventure_allows, block_vec, breaking, center, drops, level_event, particle, place,
-    props, return_items, sound, stream,
+    Actor, Source, USE, adventure_allows, block_vec, breaking, center, drops, level_event,
+    particle, place, props, return_items, sound, stream,
 };
 
 /// Ticks a pressed button stays pressed (PMMP `StoneButton`, `WoodenButton`).
@@ -174,10 +174,17 @@ pub(super) fn use_item_on(
     pos: BlockPos,
     face: Face,
     click: Vec3,
+    source: Source,
 ) -> bool {
     let Some((clicked, held)) = right_click(state, actor, pos, face) else {
         return false;
     };
+    // Marked whether or not a listener hears the event, so that listeners change no state.
+    let first = source == Source::Action
+        || state
+            .players
+            .get_mut(&actor.session)
+            .is_some_and(|p| p.breaking.first_of_press());
     // An inert block has no use of its own; events name it as `minecraft:info_update`.
     let inert = state
         .worlds
@@ -200,6 +207,7 @@ pub(super) fn use_item_on(
             item: held.clone(),
             touch_vector: click,
             action: InteractAction::RightClickBlock,
+            first,
             use_item,
             use_block,
             cancelled: false,
