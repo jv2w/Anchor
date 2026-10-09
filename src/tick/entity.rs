@@ -2149,7 +2149,7 @@ fn given(e: &mut Entity, runtime_id: u64) {
 /// The entities that tick: in chunks within their world's `tick-radius` of a player of their
 /// world, with a runtime ID and not flagged, in `Id` order.
 fn ticking(state: &State) -> Vec<Id> {
-    let centres: Vec<(WorldIndex, ChunkPos, i64)> = state
+    let mut centres: Vec<(WorldIndex, ChunkPos, i64)> = state
         .players
         .values()
         .filter(|p| p.view.is_open())
@@ -2158,25 +2158,31 @@ fn ticking(state: &State) -> Vec<Id> {
             (p.world, chunk_of(p.position), r)
         })
         .collect();
-    if centres.is_empty() {
-        return Vec::new();
-    }
+    // By world, so only the columns of worlds with players are walked, each against its own.
+    centres.sort_unstable_by_key(|&(world, ..)| world);
     let entities = &state.rules.entities;
     let mut ids = Vec::new();
-    for (&(world, pos), column) in &entities.columns {
-        let near = centres.iter().any(|&(w, c, r)| {
-            let (dx, dz) = (
-                i64::from(pos.x) - i64::from(c.x),
-                i64::from(pos.z) - i64::from(c.z),
-            );
-            w == world && dx * dx + dz * dz <= r * r
-        });
-        if near {
-            ids.extend(column.ids.iter().copied().filter(|&id| {
-                entities
-                    .get(id)
-                    .is_some_and(|e| !e.flagged && e.runtime_id != 0)
-            }));
+    let mut rest = centres.as_slice();
+    while let Some(&(world, ..)) = rest.first() {
+        let (here, after) = rest.split_at(rest.partition_point(|&(w, ..)| w == world));
+        rest = after;
+        let all =
+            (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
+        for (&(_, pos), column) in entities.columns.range(all) {
+            let near = here.iter().any(|&(_, c, r)| {
+                let (dx, dz) = (
+                    i64::from(pos.x) - i64::from(c.x),
+                    i64::from(pos.z) - i64::from(c.z),
+                );
+                dx * dx + dz * dz <= r * r
+            });
+            if near {
+                ids.extend(column.ids.iter().copied().filter(|&id| {
+                    entities
+                        .get(id)
+                        .is_some_and(|e| !e.flagged && e.runtime_id != 0)
+                }));
+            }
         }
     }
     ids.sort_unstable();
