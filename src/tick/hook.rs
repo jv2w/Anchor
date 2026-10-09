@@ -105,12 +105,13 @@ impl ServerBuilder {
     ///
     /// Anchor then sets back the fields its game state decides, so the client and the server
     /// keep agreeing: the entity IDs, the game modes, the position, the dimension, the spawn,
-    /// the difficulty and hardcore, the time, the rain and lightning levels (the weather), the
-    /// chunk tick radius, the block and item data (`blocks`, `use_block_network_id_hashes`,
-    /// `server_block_state_checksum`, `property_data`), the server-authoritative settings
-    /// (`server_authoritative_inventory`, `server_authoritative_sound`,
-    /// `player_movement_settings`) and the versions (`game_version`, `base_game_version`). Like
-    /// send hooks, `edit` runs on the CPU pool and reaches no game state.
+    /// the difficulty and hardcore, the time and its day cycle lock, the rain and lightning levels
+    /// (the weather), the chunk tick radius, the block and item data (`blocks`,
+    /// `use_block_network_id_hashes`, `server_block_state_checksum`, `property_data`), the
+    /// server-authoritative settings (`server_authoritative_inventory`,
+    /// `server_authoritative_sound`, `player_movement_settings`) and the versions
+    /// (`game_version`, `base_game_version`). Like send hooks, `edit` runs on the CPU pool and
+    /// reaches no game state.
     #[must_use]
     pub fn start_game(mut self, edit: impl Fn(&mut StartGame) + Send + Sync + 'static) -> Self {
         self.setup.hooks.start_game.push(Box::new(edit));
@@ -203,6 +204,7 @@ pub(super) fn start_game(hooks: &[StartHook], packet: StartGame) -> StartGame {
         hardcore,
         difficulty,
         world_spawn,
+        day_cycle_lock_time,
         rain_level,
         lightning_level,
         server_chunk_tick_radius,
@@ -228,6 +230,7 @@ pub(super) fn start_game(hooks: &[StartHook], packet: StartGame) -> StartGame {
         hardcore,
         difficulty,
         world_spawn,
+        day_cycle_lock_time,
         rain_level,
         lightning_level,
         server_chunk_tick_radius,
@@ -449,6 +452,7 @@ mod tests {
                 enabled: true,
             });
             p.entity_runtime_id = 999;
+            p.day_cycle_lock_time = 1234;
             p.use_block_network_id_hashes = false;
             p.server_authoritative_inventory = false;
             "1.0".clone_into(&mut p.game_version);
@@ -467,6 +471,8 @@ mod tests {
         assert_eq!(start.experiments.len(), 1);
         let runtime_id = state.players[&SessionId::new(1)].runtime_id;
         assert_eq!(start.entity_runtime_id, runtime_id);
+        // The daylight cycle runs by default, so no time is locked.
+        assert_eq!(start.day_cycle_lock_time, 0);
         assert!(start.use_block_network_id_hashes);
         assert!(start.server_authoritative_inventory);
         assert_eq!(start.game_version, crate::protocol::packet::GAME_VERSION);
