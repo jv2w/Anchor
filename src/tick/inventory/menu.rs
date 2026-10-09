@@ -313,20 +313,18 @@ pub(in crate::tick) fn tick(state: &mut State) {
     let tick = state.tick;
     let (mut ready, mut far) = (Vec::new(), Vec::new());
     let State { players, menus, .. } = state;
-    menus.0.retain(|session, _| {
-        players
-            .get(session)
-            .is_some_and(|p| p.inventory.menu.is_some())
-    });
-    for &session in menus.0.keys() {
+    menus.0.retain(|&session, _| {
         let Some(p) = players.get(&session) else {
-            continue;
+            return false;
         };
-        let (Some(open), Some(window)) = (&p.inventory.menu, &p.inventory.window) else {
-            continue;
+        let Some(open) = &p.inventory.menu else {
+            return false;
+        };
+        let Some(window) = &p.inventory.window else {
+            return true;
         };
         let WindowKind::Menu { pos, .. } = window.kind else {
-            continue;
+            return true;
         };
         let centre = Vec3::new(
             f64::from(pos.x) + 0.5,
@@ -338,7 +336,8 @@ pub(in crate::tick) fn tick(state: &mut State) {
         } else if window.id == 0 && p.inventory.pending_close.is_none() && open.ready <= tick {
             ready.push(session);
         }
-    }
+        true
+    });
     for session in far {
         close_now(state, session, Notice::Send);
     }
