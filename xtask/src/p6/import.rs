@@ -27,9 +27,8 @@ use crate::r#gen::data::Data;
 
 use super::api::INTENDED;
 use super::{
-    BDS_DIR, BdsSession, OUT_DIR, anchor_config, bds_session_with, block_states, build_bot,
-    create_dir, field, install_log, is_file, missing_bds, now, pause, read_text, remove_dir,
-    run_anchor, run_bot, say,
+    BdsSession, OUT_DIR, anchor_config, bds_exe, bds_session_with, block_states, build_bot,
+    create_dir, field, install_log, now, pause, read_text, remove_dir, run_anchor, run_bot, say,
 };
 
 /// The scenario's name in `intended.txt`.
@@ -52,10 +51,7 @@ const RULES: [(&str, &str); 4] = [
 
 /// Runs the scenario; returns whether it passed.
 pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String> {
-    let exe = root.join(BDS_DIR).join("bedrock_server.exe");
-    if !is_file(&exe) {
-        return Err(missing_bds(&exe));
-    }
+    let exe = bds_exe(root)?;
     let bot = build_bot(root)?;
     let states = block_states(root)?;
     let intended = intended(&read_text(&root.join(INTENDED))?)?;

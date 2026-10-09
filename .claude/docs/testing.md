@@ -74,6 +74,12 @@ P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷
 - 시험 설정: 두 서버를 Xbox 로그인 없이(`online-mode=false`, Anchor `xbox-auth = false`), 평지 월드 `p6`, 시드 1로 맞춘다. 나머지(게임 모드, 난이도, 최대 인원, 시야, 압축 문턱)는 Anchor 기본값이라 설정에 따른 필드도 같게 비교된다.
 - 캡처: 모두 `target/p6/` 아래다. `bds-<압축>/`, `bds-nethernet-<압축>/`, `bds-game/`, `bds-api/`와 Anchor 쪽 `anchor-*`. 비교 결과는 `anchor-api/compare.txt` 등에도 쓴다.
 
+### Linux에서 돌리기
+
+- 공식 서버는 Linux판(`bedrock-server-<판>-linux.zip`)을 Linux 체크아웃의 `.cache/bds/<판>/`에 푼다. 폴더 이름은 Windows와 같고, OS마다 자기 `.cache`를 둔다. `unzip`으로 풀면 `bedrock_server`의 실행 권한이 남는다.
+- 하네스는 OS에 맞는 실행 파일(Windows `bedrock_server.exe`, Linux `bedrock_server`)을 찾고, 압축 안의 `bedrock_server_how_to.html`처럼 `LD_LIBRARY_PATH`를 서버 폴더로 두고 띄운다.
+- 필요한 것: Go(`PATH`), `unzip`. 공식 서버 안내는 Ubuntu 18 이상만 지원한다고 적는다.
+
 ### 명령
 
 | 명령 | 하는 일 |

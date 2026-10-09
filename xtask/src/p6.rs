@@ -3,7 +3,7 @@
 //! captures. It needs Go and, for `bds`, the BDS copy in `.cache/bds/`, so `verify` does not run it.
 //!
 //! - `p6 bds [zlib|snappy]...`: for each compression (default both), writes the test settings into
-//!   the copy's `server.properties`, deletes its `worlds` folder, starts `bedrock_server.exe` in the
+//!   the copy's `server.properties`, deletes its `worlds` folder, starts `bedrock_server` in the
 //!   copy and stops it with `stop` after each run. With `transport=raknet` it runs the scenarios
 //!   into `target/p6/bds-<compression>/`; with `transport=nethernet` (signaling on `server-port`)
 //!   into `target/p6/bds-nethernet-<compression>/`, plus big-skin with the bot sending 65,535-byte
@@ -230,13 +230,20 @@ fn say(out: &mut impl Write, text: &str) -> Result<(), String> {
     writeln!(out, "{text}").map_err(|e| e.to_string())
 }
 
-/// The error for a missing BDS executable `exe` of the copy.
-fn missing_bds(exe: &Path) -> String {
+/// The BDS executable of the copy for this OS (`bedrock_server.exe` on Windows, `bedrock_server`
+/// on Linux), or an error saying where to copy BDS when it is missing.
+fn bds_exe(root: &Path) -> Result<PathBuf, String> {
+    let exe = root
+        .join(BDS_DIR)
+        .join(format!("bedrock_server{}", std::env::consts::EXE_SUFFIX));
+    if is_file(&exe) {
+        return Ok(exe);
+    }
     let version = BDS_DIR.rsplit('/').next().unwrap_or(BDS_DIR);
-    format!(
-        "{} is missing: copy BDS {version} into {BDS_DIR} (never run the original)",
+    Err(format!(
+        "{} is missing: copy BDS {version} for this OS into {BDS_DIR} (never run the original)",
         exe.display()
-    )
+    ))
 }
 
 /// The `server.properties` lines whose values are Anchor's defaults, taken from them.
@@ -255,10 +262,7 @@ fn default_settings() -> [(&'static str, String); 3] {
 /// `p6 bds`: runs the scenarios against BDS once per compression and transport.
 fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let compressions = compressions(args)?;
-    let exe = root.join(BDS_DIR).join("bedrock_server.exe");
-    if !is_file(&exe) {
-        return Err(missing_bds(&exe));
-    }
+    let exe = bds_exe(root)?;
     let bot = build_bot(root)?;
     let deferred = load_deferred(root)?;
     let states = block_states(root)?;
@@ -1716,6 +1720,9 @@ impl Bds {
         let stderr = file.try_clone().map_err(|e| e.to_string())?;
         let mut child = Command::new(exe)
             .current_dir(dir)
+            // The Linux BDS loads the libraries in its folder, as its how-to starts it
+            // (`LD_LIBRARY_PATH=. ./bedrock_server`); Windows ignores the variable.
+            .env("LD_LIBRARY_PATH", dir)
             .stdin(Stdio::piped())
             .stdout(file)
             .stderr(stderr)

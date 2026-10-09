@@ -69,10 +69,7 @@ pub(crate) fn scenarios<'a>(args: &[&'a str]) -> Result<Vec<&'a str>, String> {
 /// `p6 game bds [scenario]...`: the game session of `session` alone.
 pub(crate) fn bds(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String> {
     let scenarios = scenarios(args)?;
-    let exe = root.join(super::BDS_DIR).join("bedrock_server.exe");
-    if !super::is_file(&exe) {
-        return Err(format!("{} is missing", exe.display()));
-    }
+    let exe = super::bds_exe(root)?;
     let bot = super::build_bot(root)?;
     let passed = session(root, &exe, &bot, &scenarios, out)?;
     super::say(out, if passed { "PASS" } else { "FAIL" })?;
