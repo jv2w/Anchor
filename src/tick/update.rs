@@ -682,9 +682,9 @@ fn ticking_chunks(
     world: WorldIndex,
     radius: u8,
     centers: Option<&BTreeSet<ChunkPos>>,
-) -> Vec<ChunkPos> {
+) -> BTreeSet<ChunkPos> {
     let (Some(w), Some(centers)) = (state.worlds.get(world), centers) else {
-        return Vec::new();
+        return BTreeSet::new();
     };
     // The offsets of `view::disc`, without the vectors and the nearest-first sort it makes every
     // call: this runs every tick, and the set orders the chunks.
@@ -703,15 +703,13 @@ fn ticking_chunks(
         }
     }
     // A chunk that is not loaded is not lit.
-    near.into_iter()
-        .filter(|c| {
-            (-1..=1).all(|dx| {
-                (-1..=1).all(|dz| {
-                    w.is_chunk_lit(ChunkPos::new(c.x.wrapping_add(dx), c.z.wrapping_add(dz)))
-                })
-            })
+    near.retain(|c| {
+        (-1..=1).all(|dx| {
+            (-1..=1)
+                .all(|dz| w.is_chunk_lit(ChunkPos::new(c.x.wrapping_add(dx), c.z.wrapping_add(dz))))
         })
-        .collect()
+    });
+    near
 }
 
 /// A scheduled update reached the block (PMMP `onScheduledUpdate`).
@@ -1502,7 +1500,7 @@ mod tests {
         let centers = BTreeSet::from([ChunkPos::new(0, 0), ChunkPos::new(3, -2)]);
         for radius in 1..=8 {
             let w = &state.worlds[0];
-            let expected: Vec<ChunkPos> = centers
+            let expected: BTreeSet<ChunkPos> = centers
                 .iter()
                 .flat_map(|&c| view::disc(c, radius))
                 .collect::<BTreeSet<_>>()
