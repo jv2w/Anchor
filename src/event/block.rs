@@ -644,7 +644,8 @@ getters!(SignChange {
     /// The four lines of the side before.
     #[doc(alias = "SignChangeEvent::getOldText")]
     old_text: &[String; 4],
-    /// The four lines of the side after, cleaned of formatting codes.
+    /// The four lines of the side after, without private-use characters and terminal escapes
+    /// (colour codes stay).
     #[doc(alias = "SignChangeEvent::getNewText")]
     new_text: &[String; 4],
     /// The side written on.
