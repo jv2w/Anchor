@@ -683,11 +683,8 @@ fn pitcher_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
 
 /// The two-block pitcher crop with `growth` (3 or 4) and half.
 fn pitcher_half(growth: i32, top: bool) -> Option<block::State> {
-    block::State::all().find(|s| {
-        s.kind() == Kind::DoublePitcherCrop
-            && age(*s) == Some(growth)
-            && props::flag(*s, "upper_block_bit") == Some(top)
-    })
+    props::with_int(Kind::DoublePitcherCrop.default_state(), GROWTH, growth)
+        .and_then(|s| props::with_flag(s, "upper_block_bit", top))
 }
 
 /// PMMP `DoublePitcherCrop::grow`.
@@ -1148,5 +1145,20 @@ mod tests {
             assert!((12..=16).contains(&h), "{x} {z} {h}");
         }
         assert_eq!(bamboo_max_height(0, 0), 12);
+    }
+
+    #[test]
+    fn pitcher_halves_are_the_double_crop_states() {
+        for growth in [3, 4] {
+            for top in [false, true] {
+                let scanned = block::State::all().find(|s| {
+                    s.kind() == Kind::DoublePitcherCrop
+                        && age(*s) == Some(growth)
+                        && props::flag(*s, "upper_block_bit") == Some(top)
+                });
+                assert!(scanned.is_some());
+                assert_eq!(pitcher_half(growth, top), scanned, "{growth} {top}");
+            }
+        }
     }
 }

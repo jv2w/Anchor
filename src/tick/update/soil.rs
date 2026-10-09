@@ -353,9 +353,8 @@ pub(super) fn budding_amethyst(cx: &mut Cx<'_>, pos: BlockPos) {
     let Some(name) = stage.and_then(|s| AMETHYST_STAGES.get(s)) else {
         return;
     };
-    let Some(bud) = block::State::all().find(|s| {
-        s.name() == *name && props::text(*s, "minecraft:block_face") == Some(props::face_name(face))
-    }) else {
+    let face_value = block::PropertyValue::String(props::face_name(face));
+    let Some(bud) = block::State::find(name, &[("minecraft:block_face", face_value)]) else {
         return;
     };
     cx.grow(at, bud);
@@ -691,6 +690,27 @@ mod tests {
         assert!(!is_oxidizable(named("minecraft:oxidized_copper")));
         assert!(is_oxidizable(named("minecraft:copper_door")));
         assert!(!is_oxidizable(named("minecraft:stone")));
+    }
+
+    #[test]
+    fn amethyst_buds_are_found_by_name_and_face() {
+        for name in AMETHYST_STAGES {
+            for face in Face::ALL {
+                let face_name = props::face_name(face);
+                let scanned = block::State::all().find(|s| {
+                    s.name() == name && props::text(*s, "minecraft:block_face") == Some(face_name)
+                });
+                assert!(scanned.is_some());
+                let found = block::State::find(
+                    name,
+                    &[(
+                        "minecraft:block_face",
+                        block::PropertyValue::String(face_name),
+                    )],
+                );
+                assert_eq!(found, scanned, "{name} {face_name}");
+            }
+        }
     }
 
     #[test]
