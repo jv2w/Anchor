@@ -676,6 +676,33 @@ fn hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot() {
     );
 }
 
+#[test]
+fn a_listener_selecting_another_hotbar_slot_keeps_its_selection() {
+    let equip = |slot: u8| MobEquipment {
+        entity_runtime_id: 1,
+        new_item: crate::protocol::ItemInstance::default(),
+        inventory_slot: slot,
+        hot_bar_slot: slot,
+        window_id: 0,
+    };
+    let (mut w, s) = world_with(
+        on(|e: &mut PlayerItemHeld, cx: &mut Context<'_>| {
+            if e.slot() == 3 {
+                cx.player_mut(e.player()).unwrap().set_held_slot(0);
+            }
+        }),
+        &[],
+    );
+    on_mob_equipment(&mut w.state, s, &equip(1));
+    assert_eq!(w.player(s).held_slot(), 1);
+    on_mob_equipment(&mut w.state, s, &equip(3));
+    assert_eq!(
+        w.player(s).held_slot(),
+        0,
+        "the slot the listener selected and told the client"
+    );
+}
+
 // pmmp: PlayerBlockPickEvent
 #[test]
 fn pick_block_raises_block_pick_and_cancelling_gives_nothing() {

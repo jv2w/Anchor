@@ -1458,6 +1458,7 @@ pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &M
         hold(player, slot);
         return;
     }
+    let before = player.inventory.held;
     let mut event = PlayerItemHeld {
         player: crate::player::Id::new(session),
         item: player.inventory.main.stack(slot).clone(),
@@ -1465,10 +1466,12 @@ pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &M
         cancelled: false,
     };
     dispatch::call(state, &mut event);
+    let listened = dispatch::listened::<PlayerItemHeld>(state);
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    if event.cancelled {
+    // A listener that selected a slot itself already told the client: its selection stands.
+    if event.cancelled || (listened && player.inventory.held != before) {
         send_held(player);
         return;
     }
