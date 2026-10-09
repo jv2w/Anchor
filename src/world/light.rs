@@ -925,11 +925,18 @@ impl Engine {
     /// spread (PMMP `LightUpdate::computeSpreadLight`).
     #[inline]
     fn relax_at(&mut self, chunk: &mut Chunk, q: BlockPos, at: Spot, channel: Channel, level: u8) {
-        let potential = level.saturating_sub(chunk.light_values_at(at.sub, at.at).filter);
-        let Some(light) = chunk.light_mut() else {
+        let Some(current) = chunk.light().map(|l| l.get(channel, at.sub, at.at)) else {
             return;
         };
-        if potential > light.get(channel, at.sub, at.at) {
+        // Every filter is at least 1 (`Entry::derive`), so a block this bright cannot be raised:
+        // its block is not looked up.
+        if current + 1 >= level {
+            return;
+        }
+        let potential = level.saturating_sub(chunk.light_values_at(at.sub, at.at).filter);
+        if potential > current
+            && let Some(light) = chunk.light_mut()
+        {
             light.set(channel, at.sub, at.at, potential);
             if potential > 1 {
                 self.push_spread(q, channel);
