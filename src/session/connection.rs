@@ -51,6 +51,10 @@ const FIRST_MESSAGE_BYTES: usize = 1024;
 const MAX_DEFERRED: usize = 32;
 /// Reassembled plus decompressed bytes before login verification, in batch limits.
 const PRE_AUTH_BATCHES: usize = 8;
+/// Capacity the reused payload buffers keep between messages: an outbound batch cut (256 KiB)
+/// plus a packet under it. A larger message (a Login or a skin of up to 4 MiB) would otherwise
+/// pin its size until the session ends.
+const KEPT_BUFFER_BYTES: usize = 512 * 1024;
 /// The input budget refills this fraction of `max-batch-bytes` per second.
 const BUDGET_REFILL_DIVISOR: usize = 4;
 /// The shield's item network ID, which the item registry Anchor sends names.
@@ -330,6 +334,8 @@ impl Session {
             Ok(()) => self.on_payload(&payload).await,
             Err(e) => Err(Error::Batch(e)),
         };
+        payload.clear();
+        payload.shrink_to(KEPT_BUFFER_BYTES);
         self.payload = payload;
         result
     }
@@ -689,7 +695,7 @@ impl Session {
             (header, packet)
         });
         let encoder = &mut self.encoder;
-        batch::encode_packets(headers, SHIELD_ID, &mut self.out_payload, |payload| {
+        let batched = batch::encode_packets(headers, SHIELD_ID, &mut self.out_payload, |payload| {
             let mut body = Vec::new();
             match encoder {
                 Some(encoder) => encoder.encode(payload, &mut body)?,
@@ -698,8 +704,11 @@ impl Session {
             }
             bodies.push(body);
             Ok(())
-        })
-        .map_err(Error::Batch)?;
+        });
+        // Cleared first: `shrink_to` never goes below the length.
+        self.out_payload.clear();
+        self.out_payload.shrink_to(KEPT_BUFFER_BYTES);
+        batched.map_err(Error::Batch)?;
         for body in bodies.drain(..) {
             self.send_body(body).await?;
         }
