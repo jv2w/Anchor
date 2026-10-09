@@ -779,16 +779,26 @@ fn set_view(
     center: ChunkPos,
     radius: u8,
 ) {
+    // `view.order` is the old disc, or empty before the view opens.
+    let had_view = !view.order.is_empty();
+    let (r, old_r) = (i32::from(radius), i32::from(view.radius));
+    // By x, then z: holding a chunk can restore its saved entities, which take ids in turn.
+    for x in -r..=r {
+        for z in -r..=r {
+            let pos = ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z));
+            let was_seen = had_view && distance(pos, view.center) <= old_r * old_r;
+            if x * x + z * z <= r * r && !was_seen {
+                hold(worlds, chunks, rules, (world, pos));
+            }
+        }
+    }
+    for &pos in &view.order {
+        if distance(pos, center) > r * r {
+            release(chunks, (world, pos));
+            view.sent.remove(&pos);
+        }
+    }
     let order = disc(center, radius);
-    let old: BTreeSet<ChunkPos> = view.order.iter().copied().collect();
-    let new: BTreeSet<ChunkPos> = order.iter().copied().collect();
-    for &pos in new.difference(&old) {
-        hold(worlds, chunks, rules, (world, pos));
-    }
-    for &pos in old.difference(&new) {
-        release(chunks, (world, pos));
-        view.sent.remove(&pos);
-    }
     view.center = center;
     view.radius = radius;
     view.order = order;
