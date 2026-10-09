@@ -27,9 +27,7 @@ fn flammable_around(cx: &Cx<'_>, pos: BlockPos) -> bool {
 
 /// PMMP `Fire::onNearbyBlockChange`.
 pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, _block: block::State) {
-    let Some(down) = pos.step(Face::Down).and_then(|p| cx.get(p)) else {
-        return;
-    };
+    let down = cx.block(pos.step(Face::Down));
     if holds_soul_fire(down) {
         cx.set(pos, Kind::SoulFire.default_state());
     } else if down.support(Face::Up) != SupportType::Full && !flammable_around(cx, pos) {
@@ -41,11 +39,7 @@ pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, _block: block::State) {
 
 /// PMMP `SoulFire::onNearbyBlockChange`: soul fire goes out off soul sand and soil.
 pub(super) fn soul_on_nearby(cx: &mut Cx<'_>, pos: BlockPos) {
-    if pos
-        .step(Face::Down)
-        .and_then(|p| cx.get(p))
-        .is_some_and(|d| !holds_soul_fire(d))
-    {
+    if !holds_soul_fire(cx.block(pos.step(Face::Down))) {
         cx.set(pos, block::AIR);
     }
 }
@@ -55,9 +49,7 @@ pub(super) fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     let Some(mut age) = props::int(block, "age") else {
         return;
     };
-    let Some(down) = pos.step(Face::Down).and_then(|p| cx.get(p)) else {
-        return;
-    };
+    let down = cx.block(pos.step(Face::Down));
     let mut rng = cx.rng();
     let mut result = None;
     if age < MAX_AGE && rng.range(0, 2) == 0 {

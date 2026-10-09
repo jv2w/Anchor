@@ -1809,6 +1809,25 @@ mod tests {
         assert_eq!(fires(&state), 0, "the fire burnt out in {ticks} ticks");
     }
 
+    /// Fire on the lowest layer stands on air outside the world (PMMP `getSide`): with nothing
+    /// that burns next to it, fire goes out, and soul fire always does.
+    #[test]
+    fn fire_on_the_lowest_layer_goes_out_over_the_world_bottom() {
+        let mut state = server();
+        let fire = BlockPos::new(5, MIN_Y, 5);
+        let soul = BlockPos::new(9, MIN_Y, 5);
+        for (pos, s) in [
+            (fire, Kind::Fire.default_state()),
+            (soul, Kind::SoulFire.default_state()),
+        ] {
+            set(&mut state, pos, block::AIR);
+            set(&mut state, pos, s);
+        }
+        advance(&mut state);
+        assert_eq!(get(&state, fire), block::AIR);
+        assert_eq!(get(&state, soul), block::AIR);
+    }
+
     /// Fire next to TNT primes it (PMMP `TNT::onIncinerate`): the block goes and primed TNT
     /// takes its place, instead of the TNT burning away.
     #[test]
