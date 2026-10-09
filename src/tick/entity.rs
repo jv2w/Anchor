@@ -3727,6 +3727,7 @@ fn send_movements(state: &mut State) {
     }
     let start = entities.cursor % n;
     let mut sent = 0;
+    let mut packets = Vec::new();
     for k in 0..n {
         let index = (start + k) % n;
         let Some(e) = state
@@ -3751,20 +3752,25 @@ fn send_movements(state: &mut State) {
                 return;
             }
             sent += 1;
-            for packet in movement(e, change) {
-                send_to(&mut state.players, &e.viewers, &packet);
+            movement(e, change, &mut packets);
+            for s in &e.viewers {
+                if let Some(p) = state.players.get_mut(s) {
+                    for packet in &packets {
+                        p.send_packet(packet.clone());
+                    }
+                }
             }
+            packets.clear();
         }
         commit_movement(e, change);
     }
     state.rules.entities.cursor = start;
 }
 
-/// The packets an entity's change since it was last sent needs (PMMP `updateMovement`): the
-/// flags (no client prediction while it rests, burning), or all its metadata after an API
-/// change, the position, the speed.
-fn movement(e: &Entity, change: Change) -> Vec<Packet> {
-    let mut packets = Vec::with_capacity(4);
+/// Puts in `packets` the packets an entity's change since it was last sent needs (PMMP
+/// `updateMovement`): the flags (no client prediction while it rests, burning), or all its
+/// metadata after an API change, the position, the speed.
+fn movement(e: &Entity, change: Change, packets: &mut Vec<Packet>) {
     if e.resend {
         packets.push(track::all_data(e, change.flags));
     } else if change.flags != e.sent.flags || change.radius.is_some() {
@@ -3781,7 +3787,6 @@ fn movement(e: &Entity, change: Change) -> Vec<Packet> {
     {
         packets.push(packet);
     }
-    packets
 }
 
 /// What changed of an entity since its viewers were last sent it.
