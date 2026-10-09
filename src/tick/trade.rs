@@ -305,14 +305,16 @@ fn open_now(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -
 
 /// The offer with network ID `net_id` of the villager `session` trades with, if it can be traded
 /// now: the ID is from the list as it is now (not an older screen, not another villager's, not
-/// a recipe's), its tier is unlocked and it has uses left.
+/// a recipe's), the villager is in the player's world (until [`tick`] closes the window), its
+/// tier is unlocked and it has uses left.
 pub(super) fn offer(state: &State, session: SessionId, net_id: u32) -> Option<Offer> {
     offer_with(state, session, net_id, HOOKS)
 }
 
 fn offer_with(state: &State, session: SessionId, net_id: u32, hooks: Hooks) -> Option<Offer> {
     let s = state.trades.sessions.get(&session)?;
-    let v = (hooks.villager)(state, s.villager)?;
+    let world = state.players.get(&session)?.world;
+    let v = (hooks.villager)(state, s.villager).filter(|v| v.world == world)?;
     let r = v.offers.tradable(v.offers.index_of(net_id)?)?;
     Some(Offer {
         buy_a: r.buy_a.clone(),

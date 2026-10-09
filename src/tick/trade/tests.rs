@@ -551,6 +551,24 @@ fn a_vanished_or_moved_villager_closes_its_traders_windows() {
 }
 
 #[test]
+fn a_villager_moved_to_another_world_trades_nothing_before_the_window_closes() {
+    let mut server = Server::new(1);
+    let v = server.villager(1, sample());
+    assert!(server.open(1, v));
+    let id = server.net_ids(1)[0];
+    assert!(server.offer(1, id).is_some());
+    server
+        .state
+        .trades
+        .fixtures
+        .villagers
+        .get_mut(&v)
+        .unwrap()
+        .world = 1;
+    assert_eq!(server.offer(1, id), None);
+}
+
+#[test]
 fn a_player_who_left_is_forgotten() {
     let mut server = Server::new(1);
     let v = server.villager(1, sample());
