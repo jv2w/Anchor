@@ -510,17 +510,16 @@ fn affected(
                     pointer += shift;
                     if (MIN_Y..=MAX_Y).contains(&pos.y) {
                         let repeat = cell.filter(|&(at, _)| at == pos);
-                        let resistance = match repeat {
-                            Some((_, resistance)) => resistance,
-                            None => {
-                                let Some(state) = w.block(pos) else {
-                                    // A chunk that is not loaded: the ray stops at the border.
-                                    break;
-                                };
-                                let resistance = state.break_info().blast_resistance();
-                                cell = Some((pos, resistance));
-                                resistance
-                            }
+                        let resistance = if let Some((_, resistance)) = repeat {
+                            resistance
+                        } else {
+                            let Some(state) = w.block(pos) else {
+                                // A chunk that is not loaded: the ray stops at the border.
+                                break;
+                            };
+                            let resistance = state.break_info().blast_resistance();
+                            cell = Some((pos, resistance));
+                            resistance
                         };
                         if resistance >= 0.0 {
                             force -= (resistance / 5.0 + 0.3) * STEP;
