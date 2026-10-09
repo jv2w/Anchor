@@ -130,7 +130,7 @@ pub(in crate::tick) fn damage(
     let amount = amount.min(u32::from(max));
     let mut taken = amount;
     if unbreaking > 0 {
-        let chance = 1.0 / f64::from(unbreaking + 1);
+        let chance = 1.0 / (f64::from(unbreaking) + 1.0);
         for _ in 0..amount {
             let spared = if armor {
                 rng.range(1, 100) > 60 && rng.unit() > chance
@@ -311,6 +311,14 @@ mod tests {
             taken += u32::from(damage(&on, &tough, 1, &mut rng).damage());
         }
         assert!((800..1_200).contains(&taken), "{taken}");
+    }
+
+    #[test]
+    fn the_highest_unbreaking_level_wears_without_overflow() {
+        let on = settings(true);
+        let tough = enchanted(I::DiamondPickaxe, Enchantment::Unbreaking, u8::MAX);
+        let mut rng = Random::new(0, 0, 0);
+        assert!(damage(&on, &tough, 1, &mut rng).damage() <= 1);
     }
 
     /// `durability = false`: nothing wears, not even an item one point from breaking, and no
