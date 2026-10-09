@@ -243,7 +243,7 @@ pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
         let mut heal = 0.0;
         if peaceful && s.food_timer % 10 == 0 {
             if s.food < MAX_FOOD {
-                set_food(s, s.food + 1.0);
+                set_food(s, math::min(s.food + 1.0, MAX_FOOD));
             }
             if s.food_timer % 20 == 0 && s.health < s.max_health() {
                 heal += 1.0;

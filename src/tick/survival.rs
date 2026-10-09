@@ -1990,6 +1990,16 @@ mod tests {
         assert_eq!(s.health, 11.0);
     }
 
+    /// Peaceful fills food up to 20, not past it (PMMP `HungerManager::addFood`).
+    #[test]
+    fn peaceful_fills_food_no_higher_than_twenty() {
+        let mut server = Server::new(1, |c| c.general.difficulty = Difficulty::Peaceful);
+        server.player_mut(1).set_food(19.5).unwrap();
+        server.survival(1).food_timer = 9;
+        server.idle(1);
+        assert_eq!(server.survival(1).food, MAX_FOOD);
+    }
+
     #[test]
     fn hunger_off_freezes_food_and_exhaustion() {
         let mut server = Server::new(1, |c| c.general.hunger = false);
