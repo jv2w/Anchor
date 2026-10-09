@@ -1791,6 +1791,18 @@ mod tests {
         assert_eq!(left, Some(speed));
     }
 
+    /// The respawn invulnerability counts down after the void and the fire hurt (PMMP
+    /// `Entity::entityBaseTick`): its last tick still keeps them off.
+    #[test]
+    fn the_last_invulnerable_tick_keeps_the_fire_off() {
+        let mut server = Server::new(1, |_| {});
+        server.survival(1).no_damage_ticks = 1;
+        server.survival(1).fire_ticks = 21;
+        damage::base_tick(&mut server.state, sid(1));
+        assert_eq!(server.survival(1).health, 20.0);
+        assert_eq!(server.survival(1).no_damage_ticks, 0);
+    }
+
     /// Puts player 2 one block south of player 1, facing it, and returns the server.
     fn duel(edit: impl FnOnce(&mut Config)) -> Server {
         let mut server = Server::new(2, edit);

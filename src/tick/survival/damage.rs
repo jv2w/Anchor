@@ -1864,9 +1864,6 @@ pub(super) fn base_tick(state: &mut State, session: SessionId) {
         out = s.fire_ticks == 0;
         player.data_dirty = true;
     }
-    if s.no_damage_ticks > 0 {
-        s.no_damage_ticks -= 1;
-    }
     if void {
         damage(state, session, VOID_DAMAGE, Damage::Void);
     }
@@ -1875,6 +1872,12 @@ pub(super) fn base_tick(state: &mut State, session: SessionId) {
     }
     if out {
         extinguished(state, session, ExtinguishCause::Ticking);
+    }
+    // After the void and the fire: the last invulnerable tick still keeps them off.
+    if let Some(player) = state.players.get_mut(&session)
+        && player.survival.no_damage_ticks > 0
+    {
+        player.survival.no_damage_ticks -= 1;
     }
     if creative
         && let Some(player) = state.players.get_mut(&session)
