@@ -970,15 +970,19 @@ impl BlockEntities {
         let Some(chunk) = self.chunks.get(&(world, pos)) else {
             return Vec::new();
         };
-        let mut w = crate::protocol::Writer::new(Vec::new(), 0);
+        let mut bytes = Vec::new();
         for (p, e) in &chunk.entities {
             let sub = usize::try_from((p.y - crate::world::MIN_Y) >> 4).unwrap_or(usize::MAX);
             if sub != index || !e.is_spawnable() {
                 continue;
             }
-            if w.nbt(&e.spawn_nbt(*p), crate::nbt::Encoding::NetworkLittleEndian)
-                .is_err()
-            {
+            let start = bytes.len();
+            let mut w = crate::protocol::Writer::new(std::mem::take(&mut bytes), 0);
+            let written = w.nbt(&e.spawn_nbt(*p), crate::nbt::Encoding::NetworkLittleEndian);
+            bytes = w.into_inner();
+            if written.is_err() {
+                // A failed write leaves part of the root: cut it so the roots after it read.
+                bytes.truncate(start);
                 warn!(
                     x = p.x,
                     y = p.y,
@@ -987,7 +991,7 @@ impl BlockEntities {
                 );
             }
         }
-        w.into_inner()
+        bytes
     }
 
     /// The `ContainerSetData` values a window on the block at `pos` opens with (BDS sends a
@@ -2739,6 +2743,34 @@ pub(in crate::tick) mod tests {
             );
         }
         assert!(store.client_bytes(0, key.1, 0).is_empty());
+    }
+
+    /// A saved block entity that fits its saved form but not the network form is left out of
+    /// what the client gets, and the ones after it still read.
+    #[test]
+    fn a_block_entity_too_large_to_send_leaves_the_others_readable() {
+        let key = (0, ChunkPos::new(0, 0));
+        let (large, chest) = (BlockPos::new(1, 2, 3), BlockPos::new(2, 2, 3));
+        // 4 bytes a value saved, 5 sent: past the root limit only in the network form.
+        let nbt = Compound::from([
+            ("id".to_owned(), Value::String("Bell".to_owned())),
+            ("big".to_owned(), Value::IntArray(vec![i32::MAX; 900_000])),
+        ]);
+        let mut chunk = Chunk::default();
+        chunk
+            .entities
+            .insert(large, BlockEntity::read(nbt, large, &Registry::default()));
+        chunk.entities.insert(chest, chest_entity(&[], None));
+        let mut store = BlockEntities::default();
+        store.chunks.insert(key, chunk);
+        let want = store.chunks[&key].entities[&chest].spawn_nbt(chest);
+        let bytes = store.client_bytes(0, key.1, usize::try_from((2 + 64) >> 4).unwrap());
+        let mut r = crate::protocol::Reader::new(&bytes, 1 << 20, 0);
+        assert!(
+            r.nbt(crate::nbt::Encoding::NetworkLittleEndian).ok() == Some(want),
+            "the chest is the first root"
+        );
+        assert!(r.nbt(crate::nbt::Encoding::NetworkLittleEndian).is_err());
     }
 
     #[test]
