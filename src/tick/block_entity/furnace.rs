@@ -86,20 +86,18 @@ impl Furnace {
         }
     }
 
-    /// PMMP `Furnace::readSaveData`: no cooking without fuel, the burn time of the fuel at least
-    /// what is left.
+    /// PMMP `Furnace::readSaveData`: the burn time of the fuel at least what is left. Unlike PMMP
+    /// a cook time without fuel stays: the tick that burns the last fuel mid-smelt leaves one for
+    /// the next fuel, and a checkpoint reads back as it was.
     pub(in crate::tick) fn read(nbt: &mut Compound, kind: FurnaceType) -> Self {
         let short = |nbt: &mut Compound, key: &str| match nbt.remove(key) {
             Some(Value::Short(v)) => u16::try_from(v).unwrap_or(0),
             _ => 0,
         };
         let burn = short(nbt, "BurnTime");
-        let mut cook = short(nbt, "CookTime");
+        let cook = short(nbt, "CookTime");
         let mut max_burn = short(nbt, "MaxTime");
         let xp = short(nbt, "StoredXPInt");
-        if burn == 0 {
-            cook = 0;
-        }
         if max_burn == 0 {
             max_burn = burn;
         }
@@ -437,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_timers_round_trip_and_follow_pmmp_on_load() {
+    fn saved_timers_round_trip_also_with_the_fuel_burnt_out() {
         let mut f = Furnace::new(FurnaceType::Smoker);
         (f.burn, f.max_burn, f.cook, f.xp) = (30, 1600, 40, 7);
         let mut nbt = Compound::new();
@@ -445,7 +443,10 @@ mod tests {
         let mut read = nbt.clone();
         assert_eq!(Furnace::read(&mut read, FurnaceType::Smoker), f);
         assert!(read.is_empty());
-        nbt.insert("BurnTime".to_owned(), Value::Short(0));
-        assert_eq!(Furnace::read(&mut nbt, FurnaceType::Smoker).cook, 0);
+        // The tick that burns the last fuel mid-smelt leaves the cook time for the next fuel.
+        (f.burn, f.max_burn, f.cook) = (0, 300, 40);
+        let mut nbt = Compound::new();
+        f.write(&mut nbt);
+        assert_eq!(Furnace::read(&mut nbt, FurnaceType::Smoker), f);
     }
 }

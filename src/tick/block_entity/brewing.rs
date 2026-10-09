@@ -71,7 +71,9 @@ pub(in crate::tick) struct Step {
 }
 
 impl Brewing {
-    /// PMMP `BrewingStand::readSaveData` (Bedrock `CookTime`, `FuelAmount`, `FuelTotal`).
+    /// PMMP `BrewingStand::readSaveData` (Bedrock `CookTime`, `FuelAmount`, `FuelTotal`). Unlike
+    /// PMMP the timers stay without fuel: the tick that begins a brew with the last fuel leaves
+    /// one, and a checkpoint reads back as it was.
     pub(in crate::tick) fn read(nbt: &mut Compound) -> Self {
         let short = |nbt: &mut Compound, key: &str| match nbt.remove(key) {
             Some(Value::Short(v)) => u16::try_from(v).unwrap_or(0),
@@ -82,9 +84,6 @@ impl Brewing {
         let mut fuel_total = short(nbt, "FuelTotal");
         if fuel_total == 0 {
             fuel_total = fuel;
-        }
-        if fuel == 0 {
-            return Self::default();
         }
         Self {
             brew,
@@ -332,5 +331,27 @@ mod tests {
         items[FUEL] = Stack::new(Kind::Coal.default_type(), 1);
         assert!(!b.step(&mut items, &Registry::default()).active);
         assert_eq!(b.fuel, 0);
+    }
+
+    #[test]
+    fn a_brew_begun_with_the_last_fuel_reads_back_unchanged() {
+        let water = Kind::Potion.default_type();
+        let mut items = vec![
+            Stack::new(named("minecraft:nether_wart"), 1),
+            Stack::new(water, 1),
+            Stack::EMPTY,
+            Stack::EMPTY,
+            Stack::EMPTY,
+        ];
+        let mut b = Brewing {
+            fuel: 1,
+            fuel_total: 20,
+            ..Brewing::default()
+        };
+        b.step(&mut items, &Registry::default());
+        assert_eq!((b.fuel, b.fuel_total, b.brew), (0, 20, 399));
+        let mut nbt = Compound::new();
+        b.write(&mut nbt);
+        assert_eq!(Brewing::read(&mut nbt), b);
     }
 }
