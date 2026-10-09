@@ -557,11 +557,7 @@ fn messages(
     if player.pending.creative && player.pending.radius.is_none_or(|a| !a.first) {
         out.extend(shared.creative(player));
     }
-    out.extend(
-        view::packets(world, player, encoded)
-            .into_iter()
-            .map(Message::Packet),
-    );
+    view::packets(world, player, encoded, &mut out);
     if player.pending.spawn_status {
         out.push(Message::Packet(Packet::SetHealth(SetHealth {
             health: survival::health_shown(player),
@@ -570,11 +566,7 @@ fn messages(
             status: i32::from(consts::PlayStatus::PlayerSpawn),
         })));
     }
-    out.extend(
-        view::block_packets(player, changes)
-            .into_iter()
-            .map(Message::Packet),
-    );
+    view::block_packets(player, changes, &mut out);
     out
 }
 

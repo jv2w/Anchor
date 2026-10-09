@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tracing::{debug, error, warn};
 
 use super::extra::Extras;
-use super::queue::SessionId;
+use super::queue::{Message, SessionId};
 use super::rules::Rules;
 use super::save::{Saving, Unsaved, keep_unloaded};
 use super::{Context, Phase, Player, State, dispatch, world_api};
@@ -1497,13 +1497,13 @@ fn target(request: &SubChunkRequest, offset: [i8; 3]) -> Option<(ChunkPos, usize
     Some((pos, index))
 }
 
-/// The chunk packets of one player this tick, in BDS's order (P6): the publisher update, the
-/// chunks, then the sub-chunk answers, each followed by the fake blocks it holds (the client
-/// forgets them with the sub-chunk it replaces); then the positions whose fake block was set or
-/// cleared this tick, with what they show now.
-pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<Packet> {
+/// Puts in `out` the chunk packets of one player this tick, in BDS's order (P6): the publisher
+/// update, the chunks, then the sub-chunk answers, each followed by the fake blocks it holds (the
+/// client forgets them with the sub-chunk it replaces); then the positions whose fake block was
+/// set or cleared this tick, with what they show now.
+pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &mut Vec<Message>) {
     let view = &player.view;
-    let mut out = Vec::with_capacity(
+    out.reserve(
         usize::from(view.out.publish)
             + view.out.chunks.len()
             + view.out.answers.len()
@@ -1511,13 +1511,13 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<
     );
     if view.out.publish {
         let BlockPos { x, y, z } = view.published;
-        out.push(Packet::NetworkChunkPublisherUpdate(
+        out.push(Message::Packet(Packet::NetworkChunkPublisherUpdate(
             NetworkChunkPublisherUpdate {
                 position: [x, y, z],
                 radius: u32::from(view.radius) << 4,
                 saved_chunks: Vec::new(),
             },
-        ));
+        )));
     }
     let mut empty = None;
     for &pos in &view.out.chunks {
@@ -1525,21 +1525,21 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<
             Some(chunk) => chunk,
             None => empty.get_or_insert_with(Chunk::new),
         };
-        out.push(Packet::LevelChunk(LevelChunk {
+        out.push(Message::Packet(Packet::LevelChunk(LevelChunk {
             position: [pos.x, pos.z],
             sub_chunk_limit: Some(i32::from(chunk.sub_chunk_limit())),
             raw_payload: chunk.level_chunk_payload(),
             ..LevelChunk::default()
-        }));
+        })));
     }
     for request in &view.out.answers {
-        out.push(Packet::SubChunk(answer(
+        out.push(Message::Packet(Packet::SubChunk(answer(
             world,
             player.world,
             view,
             request,
             encoded,
-        )));
+        ))));
         if request.dimension != 0 {
             continue;
         }
@@ -1549,7 +1549,9 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<
             {
                 let sub_y = i32::try_from(index).unwrap_or(0) + LOWEST_SUB_CHUNK;
                 if view.shows_in(pos, sub_y) {
-                    out.extend(update_packet(pos, sub_y, &view.shown_in(pos, sub_y)));
+                    out.extend(
+                        update_packet(pos, sub_y, &view.shown_in(pos, sub_y)).map(Message::Packet),
+                    );
                 }
             }
         }
@@ -1567,9 +1569,8 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<
         }
     }
     for ((chunk, sub_y), blocks) in &changed {
-        out.extend(update_packet(*chunk, *sub_y, blocks));
+        out.extend(update_packet(*chunk, *sub_y, blocks).map(Message::Packet));
     }
-    out
 }
 
 /// The packet that sets `blocks` of sub-chunk `sub_y` of `chunk` on a client: an `UpdateBlock`
@@ -1734,21 +1735,21 @@ pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
     changes
 }
 
-/// The block change packets for a player: for each changed sub-chunk of a chunk it was sent, an
-/// `UpdateBlock` for one block or an `UpdateSubChunkBlocks` for several (BDS, P6). A change where
-/// the player is shown a fake block, or where [`packets`] sends what it shows, is left out.
-pub(super) fn block_packets(player: &Player, changes: &Changes) -> Vec<Packet> {
+/// Puts in `out` the block change packets for a player: for each changed sub-chunk of a chunk it
+/// was sent, an `UpdateBlock` for one block or an `UpdateSubChunkBlocks` for several (BDS, P6). A
+/// change where the player is shown a fake block, or where [`packets`] sends what it shows, is
+/// left out.
+pub(super) fn block_packets(player: &Player, changes: &Changes, out: &mut Vec<Message>) {
     let view = &player.view;
-    let mut out = Vec::new();
     let Some(changes) = changes.get(&player.world) else {
-        return out;
+        return;
     };
     for ((pos, sub_y), blocks) in changes {
         if !view.sent.contains(pos) {
             continue;
         }
         if !view.shows_in(*pos, *sub_y) && view.out.shown.is_empty() {
-            out.extend(update_packet(*pos, *sub_y, blocks));
+            out.extend(update_packet(*pos, *sub_y, blocks).map(Message::Packet));
             continue;
         }
         let real: Vec<(BlockPos, block::State)> = blocks
@@ -1756,9 +1757,8 @@ pub(super) fn block_packets(player: &Player, changes: &Changes) -> Vec<Packet> {
             .filter(|(at, _)| view.shown(*at).is_none() && !view.out.shown.contains(at))
             .copied()
             .collect();
-        out.extend(update_packet(*pos, *sub_y, &real));
+        out.extend(update_packet(*pos, *sub_y, &real).map(Message::Packet));
     }
-    out
 }
 
 #[cfg(test)]
