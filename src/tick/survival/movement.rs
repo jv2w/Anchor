@@ -70,7 +70,8 @@ pub(super) struct Motion {
     budget: i32,
     /// After a teleport or revert, moves far from the position are old and ignored.
     pub(super) force_sync: bool,
-    /// The blocks around the player acted this tick (PMMP `checkBlockIntersectionsNextTick`).
+    /// The blocks around the player acted this tick, so the base tick leaves them (PMMP
+    /// `checkBlockIntersectionsNextTick`).
     intersected: bool,
     /// The player lay down in its bed in this session (a saved sleeper is woken on its first
     /// tick, which frees the bed).
@@ -526,7 +527,7 @@ fn move_to(state: &mut State, session: SessionId, target: Vec3) {
     let delta = target - player.position;
     player.position = target;
     player.data_dirty = true;
-    block_intersections(state, session);
+    intersect(state, session);
     let Some(player) = state.players.get(&session) else {
         return;
     };
@@ -794,14 +795,27 @@ fn land(state: &mut State, session: SessionId) {
     }
 }
 
-/// The blocks the player is inside act on it once a tick (PMMP `checkBlockIntersections` and the
-/// blocks' `onEntityInside`): the blocks that hurt ([`Harm`], as for entities), water puts out
-/// fire, climbable blocks and cobwebs end a fall, wither roses wither.
+/// The blocks the player is inside act on it in the base tick, unless a move this tick had them
+/// act (PMMP `checkBlockIntersectionsNextTick`).
 pub(super) fn block_intersections(state: &mut State, session: SessionId) {
+    if state
+        .players
+        .get(&session)
+        .is_some_and(|p| !p.survival.motion.intersected)
+    {
+        intersect(state, session);
+    }
+}
+
+/// The blocks the player is inside act on it, on every move and in the base tick (PMMP
+/// `checkBlockIntersections` and the blocks' `onEntityInside`): the blocks that hurt ([`Harm`],
+/// as for entities), water puts out fire, climbable blocks and cobwebs end a fall, wither roses
+/// wither.
+fn intersect(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    if player.survival.motion.intersected || player.survival.is_dead() {
+    if player.survival.is_dead() {
         return;
     }
     player.survival.motion.intersected = true;
@@ -824,7 +838,7 @@ pub(super) fn block_intersections(state: &mut State, session: SessionId) {
     }
 }
 
-/// Clears the per-tick intersection mark (the next tick's movement or base tick acts again).
+/// Clears the per-tick intersection mark (the next tick's base tick acts again).
 pub(super) fn end_tick(player: &mut Player) {
     player.survival.motion.intersected = false;
 }
@@ -1156,6 +1170,27 @@ mod tests {
             }
         }
         out
+    }
+
+    /// Every move lets the blocks it enters act before the landing (PMMP `Entity::move`): a fall
+    /// into water counts from the water on, even when it lands on the tick's second move.
+    #[test]
+    fn a_fall_into_water_on_the_second_move_of_a_tick_does_not_hurt() {
+        let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
+        let water = block::Kind::Water.default_state();
+        state.worlds[0]
+            .set_block(BlockPos::new(0, -60, 0), water)
+            .unwrap();
+        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + super::super::EYE_HEIGHT, 0.5);
+        let player = state.players.get_mut(&SessionId::new(1)).unwrap();
+        player.position = eye(-45.0);
+        player.survival.motion.processed = Some(Vec3::new(0.5, -45.0, 0.5));
+        let mid = crate::tick::tests::moved_to(1, 10, eye(-58.0).to_f32());
+        let down = crate::tick::tests::moved_to(1, 11, eye(-60.0).to_f32());
+        crate::tick::tests::tick(&mut state, &mut vec![mid, down], &mut output);
+        let player = &state.players[&SessionId::new(1)];
+        assert_eq!(feet(player).y, -60.0);
+        assert_eq!(player.survival.health, 20.0);
     }
 
     // pmmp: Living::getFrostWalkerLevel
