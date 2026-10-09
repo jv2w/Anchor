@@ -1503,6 +1503,27 @@ fn dying_stops_the_breaking_viewers_see() {
         if e.event_type == i32::from(Event::StopBlockCracking))));
 }
 
+#[test]
+fn a_dead_player_neither_breaks_nor_places() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::Glass.default_state());
+    assert!(h.player_mut().kill());
+    h.run(Vec::new());
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    assert!(h.player().breaking.target.is_none());
+    h.act(vec![action(
+        PlayerAction::PredictDestroyBlock,
+        TARGET,
+        Face::West,
+    )]);
+    assert_eq!(h.block(TARGET), Kind::Glass.default_state());
+    h.set(TARGET, block::AIR);
+    let planks = block_item(Kind::OakPlanks, 5);
+    h.hold(planks.clone());
+    let at = place_on_grass(&mut h, &planks);
+    assert_eq!(h.block(at), block::AIR);
+}
+
 /// The client starts the use of a bow, trident, goat horn or spyglass on its own and stops it
 /// unless the server sends the `UsingItem` entity flag (P6 `itemuse`: BDS sends it, as PMMP's
 /// `ACTION` flag for its `Releasable` items): the flag is on while in use and off once released.

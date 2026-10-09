@@ -396,11 +396,12 @@ impl Actor {
     }
 }
 
-/// The interacting player of `session`, once spawned; its rotation and sneaking are the survival
-/// rules' (they read `PlayerAuthInput` before interaction does).
+/// The interacting player of `session`, once spawned and while alive (PMMP
+/// `DeathPacketHandler`); its rotation and sneaking are the survival rules' (they read
+/// `PlayerAuthInput` before interaction does).
 fn actor(state: &State, session: SessionId) -> Option<Actor> {
     let player = state.players.get(&session)?;
-    if player.phase != Phase::Spawned {
+    if player.phase != Phase::Spawned || !survival::is_alive(player) {
         return None;
     }
     Some(Actor {
@@ -455,7 +456,7 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
     let Some(player) = state.players.get(&session) else {
         return;
     };
-    if player.phase != Phase::Spawned {
+    if player.phase != Phase::Spawned || !survival::is_alive(player) {
         return;
     }
     // The packet is one client tick: breaking in progress advances by one tick.
@@ -1860,7 +1861,7 @@ fn click_block(state: &mut State, session: SessionId, data: &UseItemTransactionD
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    if player.phase != Phase::Spawned {
+    if player.phase != Phase::Spawned || !survival::is_alive(player) {
         return;
     }
     let repeat = player
