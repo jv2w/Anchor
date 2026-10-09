@@ -290,6 +290,9 @@ impl Editor<'_> {
         if stacks.iter().any(|s| s.count() > view.max_stack_size()) {
             return Err(Error::TooMany);
         }
+        if stacks.iter().any(|s| view.refuses(s)) {
+            return Err(Error::NotAccepted);
+        }
         let size = view.size();
         for i in 0..size {
             let stack = stacks.get(i).cloned().unwrap_or_default();

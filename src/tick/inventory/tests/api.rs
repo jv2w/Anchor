@@ -361,6 +361,14 @@ fn a_shulker_box_takes_through_the_api_only_what_its_item_can_carry() {
     let most = padded(it::MAX_STORED_BYTES).unwrap();
     assert_eq!(inv.set(0, most.clone()), Ok(()));
     assert_eq!(inv.view().item(0), Some(&most));
+    assert_eq!(
+        inv.set_contents(&[sticks(3), Stack::new(box_item, 1)]),
+        Err(Error::NotAccepted)
+    );
+    assert!(
+        inv.view().item(0) == Some(&most),
+        "a refused set_contents changes nothing"
+    );
 }
 
 /// A placed shulker box item made by a plugin with a stack its slots do not take drops that

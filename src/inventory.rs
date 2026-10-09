@@ -137,7 +137,7 @@ impl<'a> Inventory<'a> {
 
     /// Whether the slots refuse `stack` whatever room they have: a shulker box or a large stack
     /// in a shulker box.
-    fn refuses(&self, stack: &Stack) -> bool {
+    pub(crate) fn refuses(&self, stack: &Stack) -> bool {
         self.shulker_box && !stack.fits_shulker_box()
     }
 
