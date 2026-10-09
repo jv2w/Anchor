@@ -80,8 +80,9 @@ getters!(PlayerBedLeave {
     bed: BlockPos,
 });
 
-/// Raised when a creative player picks a block (middle click), before the item goes to the
-/// hotbar. Cancelling gives nothing.
+/// Raised when a player picks a block (middle click), before the item goes to the hotbar: a
+/// creative player gets the block's item, others only select or swap one they carry. Cancelling
+/// gives nothing.
 #[doc(alias = "PlayerBlockPickEvent")]
 #[derive(Debug)]
 pub struct PlayerBlockPick {
