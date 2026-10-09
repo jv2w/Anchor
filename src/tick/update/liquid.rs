@@ -346,7 +346,11 @@ impl Visited {
 
 /// PMMP `MinimumCostFlowCalculator::getOptimalFlowDirections`: the horizontal sides with the
 /// shortest way to a drop, within `4 / per_block` blocks.
-fn optimal_directions(cx: &Cx<'_>, pos: BlockPos, per_block: i32) -> Vec<Face> {
+fn optimal_directions(
+    cx: &Cx<'_>,
+    pos: BlockPos,
+    per_block: i32,
+) -> impl Iterator<Item = Face> + use<> {
     let mut visited = Visited::new(pos);
     let mut costs = [1000; 4];
     let mut max_cost = 4 / per_block;
@@ -379,9 +383,8 @@ fn optimal_directions(cx: &Cx<'_>, pos: BlockPos, per_block: i32) -> Vec<Face> {
     HORIZONTAL
         .into_iter()
         .zip(costs)
-        .filter(|&(_, c)| c == min)
+        .filter(move |&(_, c)| c == min)
         .map(|(f, _)| f)
-        .collect()
 }
 
 /// Whether liquid can go to `pos`, and down from there.
