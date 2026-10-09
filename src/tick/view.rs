@@ -1519,9 +1519,12 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded) -> Vec<
             },
         ));
     }
-    let empty = Chunk::new();
+    let mut empty = None;
     for &pos in &view.out.chunks {
-        let chunk = world.chunk(pos).unwrap_or(&empty);
+        let chunk: &Chunk = match world.chunk(pos) {
+            Some(chunk) => chunk,
+            None => empty.get_or_insert_with(Chunk::new),
+        };
         out.push(Packet::LevelChunk(LevelChunk {
             position: [pos.x, pos.z],
             sub_chunk_limit: Some(i32::from(chunk.sub_chunk_limit())),
@@ -1649,9 +1652,10 @@ fn entry(
     if !view.sent.contains(&pos) {
         return failed(SubChunkResult::ChunkNotFound);
     }
-    let empty = Chunk::new();
-    let chunk = world.chunk(pos).unwrap_or(&empty);
-    let (height_map_type, height_map_data) = height_map(chunk, index);
+    let (height_map_type, height_map_data) = match world.chunk(pos) {
+        Some(chunk) => height_map(chunk, index),
+        None => height_map(&Chunk::new(), index),
+    };
     let render_height_map_type = if height_map_type == HeightMapData::HasData {
         HeightMapData::AllCopied
     } else {
