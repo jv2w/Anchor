@@ -926,6 +926,24 @@ fn a_beacon_takes_one_payment_for_effects_its_pyramid_allows() {
             secondary: 0
         }
     ));
+    // A payment swapped out for a stick within the request pays nothing.
+    put(&mut w, s, 0, 1, (C::BeaconPayment, 27));
+    w.give(s, Stack::new(item(Kind::Stick), 1));
+    let (iron_id, stick_id) = (w.id(s, C::BeaconPayment, 27), w.id(s, COMBINED, 1));
+    let r = w.request(
+        s,
+        vec![
+            payment(3, 0),
+            swap(at(C::BeaconPayment, 27, iron_id), at(COMBINED, 1, stick_id)),
+            consume(1, at(C::BeaconPayment, 27, iron_id)),
+        ],
+    );
+    assert!(!ok(&r), "a stick is no payment");
+    assert_eq!(ui_stack(&w, s, 0), Stack::new(item(Kind::IronIngot), 1));
+    assert!(matches!(
+        w.state.rules.block_entities.get(0, AT).unwrap().kind,
+        block_entity::Kind::Beacon { primary: 1, .. }
+    ));
 }
 
 #[test]

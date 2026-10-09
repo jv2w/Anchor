@@ -467,15 +467,12 @@ fn needs_pattern_item(pattern: &str) -> bool {
     )
 }
 
-/// `BeaconPayment` (dragonfly `handleBeaconPayment`; PMMP keeps only the effect IDs): the payment
-/// must be a beacon payment item and the effects allowed for the beacon's pyramid; the secondary
-/// only at level 4.
+/// `BeaconPayment` (dragonfly `handleBeaconPayment`; PMMP keeps only the effect IDs): the effects
+/// must be allowed for the beacon's pyramid, the secondary only at level 4. The payment item is
+/// checked in [`finish`], on what the request consumed.
 fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Craft> {
-    let payment = ui(exec, 0)?;
     let level = exec.ctx.beacon_level;
-    let paid = payment.item().is_some_and(block_entity::beacon_payment);
-    if !paid
-        || !block_entity::beacon_effect_allowed(primary, level)
+    if !block_entity::beacon_effect_allowed(primary, level)
         || !block_entity::beacon_effect_allowed(secondary, level)
         || (level < 4 && secondary != 0)
     {
@@ -620,7 +617,10 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
                 primary: *primary,
                 secondary: *secondary,
             });
-            only_from(exec, &[0]) && exact(exec, 0, 1, &|_| true)
+            only_from(exec, &[0])
+                && exact(exec, 0, 1, &|s| {
+                    s.item().is_some_and(block_entity::beacon_payment)
+                })
         }
         Craft::Trade {
             net_id,
