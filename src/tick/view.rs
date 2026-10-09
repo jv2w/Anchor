@@ -1723,13 +1723,15 @@ pub(super) type Changes =
 pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
     let mut changes = Changes::new();
     for (i, world) in worlds.iter_mut().enumerate() {
+        let mut by_sub_chunk: BTreeMap<_, Vec<_>> = BTreeMap::new();
         for (pos, state) in world.take_changes() {
-            changes
-                .entry(i)
-                .or_default()
+            by_sub_chunk
                 .entry((pos.chunk(), pos.y >> 4))
                 .or_default()
                 .push((pos, state));
+        }
+        if !by_sub_chunk.is_empty() {
+            changes.insert(i, by_sub_chunk);
         }
     }
     changes
