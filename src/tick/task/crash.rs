@@ -448,7 +448,10 @@ fn forced_kills_keep_user_data_with_its_tick() {
     };
     // The values each tick wrote; a later run's line for a tick replaces an earlier one's.
     let mut written: BTreeMap<u64, (Progress, Progress)> = BTreeMap::new();
+    // Whether a start found a commit in the files since they were made.
     let mut committed = false;
+    // The starts that found a commit and checked it, over all the files ever made.
+    let mut checked = 0;
     let mut advanced = 0;
     let mut last_start = 0;
     let mut splits = 0;
@@ -472,13 +475,13 @@ fn forced_kills_keep_user_data_with_its_tick() {
         let split = f["split"] == "1";
         if split {
             splits += 1;
-            committed = true;
         } else if on_server.count == 0 {
             assert!(!committed, "kill {kill}: the commit was lost: {line}");
             assert_eq!(on_player, Progress::default(), "kill {kill}: {line}");
             assert_eq!(f["golds"], "", "kill {kill}: {line}");
         } else {
             committed = true;
+            checked += 1;
             // The commit was taken before tick `start`: everything holds tick `start - 1`.
             let tick = start - 1;
             assert_eq!(on_server.tick, tick, "kill {kill}: {line}");
@@ -551,7 +554,9 @@ fn forced_kills_keep_user_data_with_its_tick() {
             wiped = true;
         }
     }
-    assert!(committed, "nothing was ever committed");
+    // A split at one of the last starts leaves new files with no commit, so this counts the
+    // checks made before them too.
+    assert!(checked > 0, "no start found a commit to check");
     assert_eq!(advanced, KILLS, "every restart finds a newer commit");
     assert!(splits < KILLS, "{splits} kills split a save");
     fresh(&data, false);
