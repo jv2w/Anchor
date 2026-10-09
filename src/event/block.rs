@@ -495,10 +495,10 @@ getters!(BrewingFuelUse {
 });
 
 impl BrewingFuelUse {
-    /// Sets how many brews the fuel lasts, at least 1 (0 counts as 1).
+    /// Sets how many brews the fuel lasts, 1 to 32,767 (0 counts as 1, more as 32,767).
     #[doc(alias = "BrewingFuelUseEvent::setFuelTime")]
     pub fn set_fuel_time(&mut self, fuel_time: u32) {
-        self.fuel_time = fuel_time.max(1);
+        self.fuel_time = fuel_time.clamp(1, super::MAX_SAVED_FUEL_TIME);
     }
 }
 
@@ -1033,6 +1033,12 @@ mod tests {
         assert_eq!(e.fuel_time(), 5);
         e.set_fuel_time(0);
         assert_eq!(e.fuel_time(), 1);
+        e.set_fuel_time(100_000);
+        assert_eq!(
+            e.fuel_time(),
+            32_767,
+            "a brewing stand saves at most a short"
+        );
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();

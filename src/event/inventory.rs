@@ -128,12 +128,16 @@ impl FurnaceBurn {
     pub fn is_burning(&self) -> bool {
         self.burning
     }
+
+    /// Sets how long the fuel burns, in ticks, at most 32,767 (more counts as 32,767); 0 burns
+    /// nothing and keeps the fuel, as if cancelled.
+    #[doc(alias = "FurnaceBurnEvent::setBurnTime")]
+    pub fn set_burn_time_ticks(&mut self, burn_time_ticks: u32) {
+        self.burn_time_ticks = burn_time_ticks.min(super::MAX_SAVED_FUEL_TIME);
+    }
 }
 
 setters!(FurnaceBurn {
-    /// Sets how long the fuel burns, in ticks.
-    #[doc(alias = "FurnaceBurnEvent::setBurnTime")]
-    set_burn_time_ticks => burn_time_ticks: u32,
     /// Sets whether the fuel item is used up (false: the furnace burns for free).
     #[doc(alias = "FurnaceBurnEvent::setBurning")]
     set_burning => burning: bool,
@@ -347,6 +351,12 @@ mod tests {
         e.set_burning(false);
         assert_eq!(e.burn_time_ticks(), 40);
         assert!(!e.is_burning());
+        e.set_burn_time_ticks(100_000);
+        assert_eq!(
+            e.burn_time_ticks(),
+            32_767,
+            "a furnace saves at most a short"
+        );
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();

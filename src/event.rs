@@ -135,6 +135,10 @@ pub use world::{
     WorldSound, WorldUnload,
 };
 
+/// The longest fuel time a furnace or brewing stand keeps across a save, which writes it as a
+/// short: a listener's longer time is cut to it, so the live and the saved stand agree.
+const MAX_SAVED_FUEL_TIME: u32 = 32_767;
+
 /// A player or another entity: what PMMP calls an entity, which includes players.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Actor {
