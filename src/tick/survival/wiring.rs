@@ -443,6 +443,26 @@ fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
     assert_eq!(game.player(1).position, spawn);
 }
 
+/// A respawn listener's change of what the respawn packets do not carry reaches the client.
+#[test]
+fn a_respawn_listener_turns_off_auto_jump() {
+    let listeners = on(|e: &mut PlayerRespawn, cx: &mut Context<'_>| {
+        cx.player_mut(e.player()).unwrap().set_auto_jump(false);
+    });
+    let mut game = Game::new(1, listeners);
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    game.idle(1);
+    game.take(1);
+    damage::respawn(&mut game.state, sid(1));
+    game.idle(1);
+    let sent = game.take(1);
+    assert!(
+        sent.iter()
+            .any(|p| matches!(p, Packet::UpdateAdventureSettings(a) if !a.auto_jump)),
+        "auto jump stays on"
+    );
+}
+
 /// A player that died swimming or gliding respawns doing neither: while dead its client's stop
 /// flags are not read, so they would stay on (a small box, the flags shown to viewers).
 #[test]

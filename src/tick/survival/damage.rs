@@ -1702,7 +1702,8 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     for packet in out.into_iter().chain(seen) {
         player.send_packet(packet);
     }
-    player.survival.dirty = 0;
+    // The packets above carry all but the adventure settings, which a listener may have changed.
+    player.survival.dirty &= attributes::ADVENTURE;
     player.survival.shown = now;
     if let Some(runtime_id) = state.players.get(&session).map(|p| p.runtime_id) {
         for packet in crate::tick::entity::locator_life(runtime_id, true) {
