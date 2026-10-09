@@ -245,6 +245,8 @@ impl Server {
             .thread
             .set_lighting(config.developer.lighting.is_calculated());
         let runtime = Runtime::new(threads)?;
+        // Before the tick starts, so that a stop signal from the first tick on stops normally.
+        let signals = stop_signals(&runtime.handle());
         let pool = Arc::new(runtime::cpu_pool(threads.cpu)?);
         let (inputs, input_queue) = tick::queue::input_queue();
         setup.tasks.start(runtime.handle(), &inputs);
@@ -296,6 +298,7 @@ impl Server {
             stop_tick,
             tick_done,
             started,
+            signals,
             log: log.as_ref().map(console::log::Installed::drained),
         };
         let served =
@@ -396,6 +399,8 @@ struct Running {
     tick_done: oneshot::Receiver<()>,
     /// When [`Server::run`] started: the uptime counts from here.
     started: Instant,
+    /// The stop signals received, by name ([`stop_signals`]).
+    signals: mpsc::Receiver<&'static str>,
     /// Anchor's console log, if it runs: a second stop signal waits for its lines.
     log: Option<console::log::Drained>,
 }
@@ -417,9 +422,10 @@ impl Running {
             stop_tick,
             mut tick_done,
             started,
+            signals,
             log,
         } = self;
-        tokio::spawn(signals(shutdown.clone(), log));
+        tokio::spawn(stop_on_signals(shutdown.clone(), signals, log));
         tokio::spawn(measure_process(inputs.session(SessionId::PROCESS), started));
         let network = match session::start(config, packs, data_dir, inputs, controls).await {
             Ok(network) => network,
@@ -489,13 +495,22 @@ fn resident_memory() -> u64 {
 /// The exit status after a second stop signal: 128 + SIGINT, what shells report for Ctrl+C.
 const INTERRUPTED_EXIT: i32 = 130;
 
-/// Turns the first stop signal into a shutdown request and ends the process at the second, as
-/// PMMP does (it drops its handlers after the first): an operator whose stop hangs can still end
-/// it, with the result of a crash (the last commit stays).
-async fn signals(shutdown: ShutdownHandle, log: Option<console::log::Drained>) {
-    let (received, mut signals) = mpsc::channel(1);
+/// Listens for the stop signals ([`listen`]) from now on, on `runtime`, and gives them by name.
+fn stop_signals(runtime: &tokio::runtime::Handle) -> mpsc::Receiver<&'static str> {
+    let (received, signals) = mpsc::channel(1);
+    let _runtime = runtime.enter();
     listen(&received);
-    drop(received);
+    signals
+}
+
+/// Turns the first stop signal of `signals` into a shutdown request and ends the process at the
+/// second, as PMMP does (it drops its handlers after the first): an operator whose stop hangs can
+/// still end it, with the result of a crash (the last commit stays).
+async fn stop_on_signals(
+    shutdown: ShutdownHandle,
+    mut signals: mpsc::Receiver<&'static str>,
+    log: Option<console::log::Drained>,
+) {
     let Some(signal) = signals.recv().await else {
         return;
     };

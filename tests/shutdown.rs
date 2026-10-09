@@ -1,9 +1,10 @@
-//! Normal shutdown: a server process that reads `stop` from its console
-//! stops cleanly. It exits with success, writes no crash log, and its final commit holds what the
-//! last tick changed, which a restart reads back.
+//! Normal shutdown: a server process that reads `stop` from its console, or on Unix gets SIGINT,
+//! SIGTERM or SIGHUP, stops cleanly. It exits with success, writes no crash log, leaves the mark
+//! of a normal stop on every data file, and its final commit holds what the last tick changed,
+//! which a restart reads back.
 //!
-//! The test runs its own test binary as the server process (`shutdown_child`) and writes to that
-//! child's standard input.
+//! The test runs its own test binary as the server process (`shutdown_child`), writes to that
+//! child's standard input and, on Unix, sends it signals with `kill`.
 
 #![cfg(test)]
 
@@ -12,9 +13,11 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use anchor::block::State;
+use anchor::config::{IntegrityCheck, LogLevel};
 use anchor::world::{BlockPos, ChunkPos};
 use anchor::{Config, Server};
 
@@ -29,6 +32,10 @@ const REPORT: &str = "ANCHOR-SHUTDOWN";
 const MARKER: BlockPos = BlockPos::new(3, -60, 3);
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
 const CHILD_TICKS: u64 = 1200;
+/// The data files a run writes.
+const FILES: [&str; 3] = ["main.redb", "players.redb", "world.redb"];
+/// The debug line of a start that found a file's normal-stop mark and so skipped its check.
+const MARKED: &str = "data file opened without its integrity check";
 
 fn gold() -> State {
     State::find("minecraft:gold_block", &[]).unwrap()
@@ -37,19 +44,22 @@ fn gold() -> State {
 /// Settings that run without the network beyond loopback, reading commands from the console.
 /// Nothing connects to the child, so port 0 lets the system pick every port at bind time: a port
 /// picked earlier and released could be taken by another process before the child binds it.
+/// A start checks only the files without the normal-stop mark and logs the others at debug level.
 fn local_config() -> Config {
     let mut config = Config::default();
     config.general.xbox_auth = false;
     config.general.enable_ipv6 = false;
     config.general.server_port = 0;
     config.general.nethernet_port = 0;
+    config.general.log_level = LogLevel::Debug;
     config.developer.console_input = true;
+    config.developer.integrity_check = IntegrityCheck::AfterUncleanShutdown;
     config
 }
 
 /// The server process the parent test starts. Without the parent's environment it does nothing.
 #[test]
-#[ignore = "the child process of a_console_stop_saves_the_last_tick_and_exits_cleanly"]
+#[ignore = "the child process of the tests that stop a server"]
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the task gets the server's shutdown handle once, after the build"
@@ -96,10 +106,12 @@ fn shutdown_child() {
     server.run().unwrap();
 }
 
-/// A started child and its report lines.
+/// A started child, its report lines and the lines of its console log.
 struct Running {
     child: Child,
     lines: mpsc::Receiver<String>,
+    /// Ends with the child's standard error, giving every line of it.
+    log: JoinHandle<Vec<String>>,
 }
 
 #[expect(
@@ -119,7 +131,7 @@ fn start(data: &Path, mode: &str) -> Running {
         .env(MODE_ENV, mode)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     let stdout = child.stdout.take().unwrap();
@@ -131,7 +143,14 @@ fn start(data: &Path, mode: &str) -> Running {
             }
         }
     });
-    Running { child, lines }
+    let stderr = child.stderr.take().unwrap();
+    let log = std::thread::spawn(move || {
+        BufReader::new(stderr)
+            .lines()
+            .map_while(Result::ok)
+            .collect()
+    });
+    Running { child, lines, log }
 }
 
 /// The text after the child's report prefix.
@@ -171,19 +190,20 @@ fn exists(path: &Path) -> bool {
     path.exists()
 }
 
-fn data_dir() -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("shutdown-{}", std::process::id()))
+/// The data folder of the test `name`: the tests of this file run at once.
+fn data_dir(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("shutdown-{name}-{}", std::process::id()))
 }
 
-#[test]
-fn a_console_stop_saves_the_last_tick_and_exits_cleanly() {
-    let data = data_dir();
+/// Starts a child that places the marker, stops it with `stop` once it has, and checks that it
+/// stopped normally: it exits with success, writes no crash log, leaves the normal-stop mark on
+/// every data file, and a restart finds the marker.
+fn stop_saves_the_last_tick(name: &str, stop: impl FnOnce(&mut Running)) {
+    let data = data_dir(name);
     fresh(&data);
     let mut server = start(&data, "place");
     assert_eq!(report(&mut server), "placed");
-    let mut stdin = server.child.stdin.take().unwrap();
-    stdin.write_all(b"stop\n").unwrap();
-    stdin.flush().unwrap();
+    stop(&mut server);
     let status = server.child.wait().unwrap();
     assert!(status.success(), "the child exited with {status}");
     assert!(
@@ -191,10 +211,56 @@ fn a_console_stop_saves_the_last_tick_and_exits_cleanly() {
         "a normal stop wrote a crash log"
     );
 
-    // Nothing saved the marker before `stop`: only the final commit holds it.
+    // Nothing saved the marker before the stop: only the final commit holds it.
     let mut server = start(&data, "check");
     assert_eq!(report(&mut server), "gold=true");
     let status = server.child.wait().unwrap();
     assert!(status.success(), "the check child exited with {status}");
+    let log = server.log.join().unwrap();
+    for file in FILES {
+        assert!(
+            log.iter()
+                .any(|line| line.contains(MARKED) && line.contains(file)),
+            "{file} has no normal-stop mark:\n{}",
+            log.join("\n")
+        );
+    }
     fresh(&data);
+}
+
+#[test]
+fn a_console_stop_saves_the_last_tick_and_exits_cleanly() {
+    stop_saves_the_last_tick("console", |server| {
+        let mut stdin = server.child.stdin.take().unwrap();
+        stdin.write_all(b"stop\n").unwrap();
+        stdin.flush().unwrap();
+    });
+}
+
+/// Sends the signal `name` (as `kill` spells it) to the child.
+#[cfg(unix)]
+fn signal(server: &Running, name: &str) {
+    let status = Command::new("kill")
+        .args([format!("-{name}"), server.child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success(), "kill -{name} exited with {status}");
+}
+
+#[test]
+#[cfg(unix)]
+fn sigint_saves_the_last_tick_and_exits_cleanly() {
+    stop_saves_the_last_tick("sigint", |server| signal(server, "INT"));
+}
+
+#[test]
+#[cfg(unix)]
+fn sigterm_saves_the_last_tick_and_exits_cleanly() {
+    stop_saves_the_last_tick("sigterm", |server| signal(server, "TERM"));
+}
+
+#[test]
+#[cfg(unix)]
+fn sighup_saves_the_last_tick_and_exits_cleanly() {
+    stop_saves_the_last_tick("sighup", |server| signal(server, "HUP"));
 }

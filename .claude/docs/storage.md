@@ -88,7 +88,7 @@ Anchor가 디스크에 무엇을 어떤 형식으로 쓰고, 언제 커밋하며
 
 ## 정상 종료와 크래시
 
-정상 종료는 Ctrl+C, 콘솔 `stop`, `ShutdownHandle`, Unix SIGTERM·SIGHUP, Windows Ctrl+Break·창 닫기·로그오프·시스템 종료로 시작한다. 종료는 바뀐 파일만 쓰고 compact하지 않아 1초 안에 끝난다. Windows 창 닫기는 OS가 약 5초만 허락한다. 두 번째 인터럽트는 즉시 끝낸다(종료 코드 130). 이때는 크래시와 같은 보장을 받는다.
+정상 종료는 Ctrl+C, 콘솔 `stop`, `ShutdownHandle`, Unix SIGTERM·SIGHUP, Windows Ctrl+Break·창 닫기·로그오프·시스템 종료로 시작한다. 종료는 바뀐 파일만 쓰고 compact하지 않아 1초 안에 끝난다. Windows 창 닫기는 OS가 약 5초만 허락한다. 두 번째 인터럽트는 즉시 끝낸다(종료 코드 130). 이때는 크래시와 같은 보장을 받는다. 신호는 첫 틱 전부터 받는다. `tests/shutdown.rs`가 Linux에서 SIGINT·SIGTERM·SIGHUP을 실제로 보내 정상 종료를 시험한다.
 
 크래시(프로세스 강제 종료, 전원 차단, 틱이나 저장 스레드 패닉):
 

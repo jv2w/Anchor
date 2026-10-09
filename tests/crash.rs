@@ -4,10 +4,11 @@
 //! find undamaged data files whose main file's last save is newer than the last restart's, and the
 //! block exactly once (it lives in one world file, whose commits are whole) where the tick of the
 //! world file's last save put it: that save's or a later one's, since a kill between the world
-//! file's commit and the main file's leaves the world file one save ahead.
+//! file's commit and the main file's leaves the world file one save ahead. A restart on a world
+//! file a save ahead logs the error naming it, and no other restart logs one.
 //!
 //! The test runs its own test binary as the server process (`crash_child`) and kills only that
-//! child, through its process handle.
+//! child, through its process handle (SIGKILL on Unix).
 
 #![cfg(test)]
 
@@ -35,6 +36,10 @@ const KILLS: u32 = 50;
 const SPAN: i32 = 48;
 /// The child gives up after this many ticks, so a lost parent leaves no process behind.
 const CHILD_TICKS: u64 = 1200;
+/// The start of the error a start logs for a data file holding a later save than the main file.
+const LATER_SAVE: &str = "data files disagree";
+/// The console log line that follows the start's file checks.
+const STARTED: &str = "server started";
 
 /// Where the block is after the task of tick `tick` moved it: a walk over the spawn chunks that
 /// changes chunk often, so commits hold different chunks together.
@@ -176,10 +181,11 @@ fn crash_child() {
     server.run().unwrap();
 }
 
-/// A started child and its report lines (the text after the prefix).
+/// A started child, its report lines (the text after the prefix) and its console log lines.
 struct Running {
     child: Child,
     lines: mpsc::Receiver<String>,
+    log: mpsc::Receiver<String>,
 }
 
 #[expect(
@@ -198,9 +204,18 @@ fn start(data: &Path, mode: &str) -> Running {
         .env(DATA_ENV, data)
         .env(MODE_ENV, mode)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let (tx, log) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
     let stdout = child.stdout.take().unwrap();
     let (tx, lines) = mpsc::channel();
     std::thread::spawn(move || {
@@ -215,7 +230,29 @@ fn start(data: &Path, mode: &str) -> Running {
             }
         }
     });
-    Running { child, lines }
+    Running { child, lines, log }
+}
+
+/// The errors the child's start logged about data files holding a later save than the main
+/// file. The log thread writes lines in order, so they are all out once the line that follows the
+/// start's checks is.
+fn later_saves(server: &mut Running) -> Vec<String> {
+    let mut found = Vec::new();
+    loop {
+        let line = server
+            .log
+            .recv_timeout(Duration::from_secs(120))
+            .unwrap_or_else(|_| {
+                let status = server.child.try_wait().unwrap();
+                panic!("the child did not log its start (exit {status:?})")
+            });
+        if line.contains(STARTED) {
+            return found;
+        }
+        if line.contains(LATER_SAVE) {
+            found.push(line);
+        }
+    }
 }
 
 /// The child's first report: the tick of the commit it started from and the gold blocks found.
@@ -289,25 +326,45 @@ fn forced_kills_never_damage_duplicate_or_lose_the_block() {
         let mode = if kill == KILLS { "check" } else { "run" };
         let mut server = start(&data, mode);
         let (start, golds) = report(&mut server);
+        let later_saves = later_saves(&mut server);
         // Exactly one block once one was committed (no duplicate, no loss), at the place the
         // tick of the world file's last save put it: the main file's save, or one after it.
-        match golds[..] {
-            [] => assert!(!placed, "kill {kill}: the block was lost (start {start})"),
+        let world_ahead = match golds[..] {
+            [] => {
+                assert!(!placed, "kill {kill}: the block was lost (start {start})");
+                false
+            }
             [(x, z)] => {
                 let at = |tick: u64| {
                     let p = path(tick - 1);
                     (p.x, p.z)
                 };
-                if at(start) != (x, z) {
-                    ahead += 1;
+                let world_ahead = at(start) != (x, z);
+                if world_ahead {
                     assert!(
                         (start..start + CHILD_TICKS).any(|t| at(t) == (x, z)),
                         "kill {kill}: start {start}, block at {x} {z}"
                     );
                 }
                 placed = true;
+                world_ahead
             }
             _ => panic!("kill {kill}: the block was duplicated: {golds:?} (start {start})"),
+        };
+        // Only the world file changes, so only it can hold a later save, and the start says so.
+        if world_ahead {
+            ahead += 1;
+            let main_tick = format!("main_save_tick={start}");
+            assert!(
+                matches!(&later_saves[..], [line] if line.contains("world.redb") && line.contains(&main_tick)),
+                "kill {kill}: the world file a save ahead was not reported (start {start}): \
+                 {later_saves:?}"
+            );
+        } else {
+            assert!(
+                later_saves.is_empty(),
+                "kill {kill}: files of one save reported as later: {later_saves:?}"
+            );
         }
         checked += 1;
         if start > last_start {
