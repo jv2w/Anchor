@@ -35,7 +35,7 @@ const CHILD_TICKS: u64 = 1200;
 /// The data files a run writes.
 const FILES: [&str; 3] = ["main.redb", "players.redb", "world.redb"];
 /// The debug line of a start that found a file's normal-stop mark and so skipped its check.
-const MARKED: &str = "data file opened without its integrity check";
+const MARKED: &str = "data file closed normally; its integrity is not checked";
 
 fn gold() -> State {
     State::find("minecraft:gold_block", &[]).unwrap()
