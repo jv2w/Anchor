@@ -1476,6 +1476,33 @@ fn switching_the_held_slot_cancels_a_drawn_bow() {
     }
 }
 
+#[test]
+fn dying_stops_a_drawn_bow() {
+    let mut h = Harness::new(|_| {});
+    let held = stack(crate::item::Kind::Bow);
+    h.hold(held.clone());
+    assert!(inventory::give(h.player_mut(), stack(crate::item::Kind::Arrow)).is_empty());
+    let draw = h.auth(Vec::new(), Some(air(&held)));
+    h.run(vec![draw]);
+    assert!(h.player().is_using_item());
+    assert!(h.player_mut().kill());
+    h.run(Vec::new());
+    assert!(!h.player().is_using_item());
+}
+
+#[test]
+fn dying_stops_the_breaking_viewers_see() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::Glass.default_state());
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    h.packets();
+    assert!(h.player_mut().kill());
+    h.run(Vec::new());
+    assert!(h.player().breaking.target.is_none());
+    assert!(h.packets().iter().any(|p| matches!(p, Packet::LevelEvent(e)
+        if e.event_type == i32::from(Event::StopBlockCracking))));
+}
+
 /// The client starts the use of a bow, trident, goat horn or spyglass on its own and stops it
 /// unless the server sends the `UsingItem` entity flag (P6 `itemuse`: BDS sends it, as PMMP's
 /// `ACTION` flag for its `Releasable` items): the flag is on while in use and off once released.

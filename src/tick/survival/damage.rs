@@ -1305,7 +1305,8 @@ fn wear_weapon(state: &mut State, session: SessionId, held: &Stack) {
     }
 }
 
-/// The player died (PMMP `Player::onDeath`): its window closes, the [`PlayerDeath`] listeners
+/// The player died (PMMP `Player::onDeath`): its window closes, its breaking and item use stop,
+/// the [`PlayerDeath`] listeners
 /// may change what drops, the experience dropped and the messages, it drops what it carries and
 /// its experience, viewers see it die and it sees the death screen with `message` (a translation
 /// key) naming the player and its `attacker`.
@@ -1323,6 +1324,7 @@ pub(super) fn die(
     attacker: Option<SessionId>,
 ) {
     inventory::close_window(state, session);
+    interact::stop_breaking(state, session);
     retry_held_back(state, session);
     let heard = dispatch::heard::<PlayerDeath>(state);
     let Some(player) = state.players.get_mut(&session) else {
@@ -1340,6 +1342,7 @@ pub(super) fn die(
         pos: BlockPos::containing(at),
     });
     player.survival.using = None;
+    player.breaking.stop_using();
     player.data_dirty = true;
     let world = player.world;
     let mut event = heard.then(|| {
