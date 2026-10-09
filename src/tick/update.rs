@@ -169,12 +169,8 @@ impl Updates {
         let (world, chunk) = key;
         let range = (world, chunk, BlockPos::new(i32::MIN, i32::MIN, i32::MIN))
             ..=(world, chunk, BlockPos::new(i32::MAX, i32::MAX, i32::MAX));
-        let gone: Vec<_> = self.pending.range(range).map(|(k, v)| (*k, *v)).collect();
-        for ((w, _, _), (due, seq)) in &gone {
-            self.queue.remove(&(*w, *due, *seq));
-        }
-        for (k, _) in gone {
-            self.pending.remove(&k);
+        for ((w, _, _), (due, seq)) in self.pending.extract_if(range, |_, _| true) {
+            self.queue.remove(&(w, due, seq));
         }
         list
     }
@@ -243,11 +239,10 @@ impl Updates {
 
     /// Takes the next update of `world` due by `tick`.
     fn pop_due(&mut self, world: WorldIndex, tick: u64) -> Option<(BlockPos, u64)> {
-        let (&(w, due, seq), &pos) = self
+        let ((_, _, seq), pos) = self
             .queue
-            .range((world, 0, 0)..=(world, tick, u64::MAX))
+            .extract_if((world, 0, 0)..=(world, tick, u64::MAX), |_, _| true)
             .next()?;
-        self.queue.remove(&(w, due, seq));
         self.pending.remove(&(world, pos.chunk(), pos));
         self.changed.insert((world, pos.chunk()));
         Some((pos, seq))
