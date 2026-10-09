@@ -1363,7 +1363,8 @@ setters!(PlayerQuit {
     set_quit_message => quit_message: String,
 });
 
-/// Raised when a dead player respawns, before the player is placed.
+/// Raised when a dead player respawns, before the player is placed. A player that joins dead (it
+/// left, or the server stopped, before it respawned) respawns as it joins, before it spawns.
 #[doc(alias = "PlayerRespawnEvent")]
 #[derive(Debug)]
 pub struct PlayerRespawn {

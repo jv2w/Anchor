@@ -1488,14 +1488,13 @@ fn valid_drops(drops: &[Stack]) -> Vec<Stack> {
         .collect()
 }
 
-/// The death message of a player that joined dead (the cause was not kept) or was killed through
-/// the API.
+/// The death message of a player killed through the API (the cause was not kept).
 pub(super) const GENERIC_DEATH: &str = "death.attack.generic";
 
 /// The death screen (PMMP `DeathPacketHandler::setUp`): the respawn position being searched and
 /// the death message (a translation key with the player's and the attacker's names), or the
 /// `screen` text a [`PlayerDeath`] listener chose.
-pub(super) fn show_death(
+fn show_death(
     state: &mut State,
     session: SessionId,
     message: &'static str,
@@ -1665,63 +1664,11 @@ pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn
 /// [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listener cancels that (PMMP
 /// bans the player instead).
 pub(super) fn respawn(state: &mut State, session: SessionId) {
-    let hardcore = state.settings.hardcore;
-    let dead = |state: &State| {
-        state
-            .players
-            .get(&session)
-            .is_some_and(|p| p.phase == Phase::Spawned && p.survival.is_dead())
-    };
-    if !dead(state) {
-        return;
-    }
-    if hardcore {
-        hardcore_spectator(state, session);
-    }
-    let (world, position) = respawn_point(state, session);
-    let feet_at = position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
-    let world_id = world::Id::of(world);
-    let Ok(event) = super::ask(
-        state,
-        || PlayerRespawn {
-            player: player::Id::new(session),
-            world: world_id,
-            position: feet_at,
-        },
-        |_| false,
-        |state, _| dead(state),
-    ) else {
+    let Some((world, position, event)) = revive(state, session, Phase::Spawned) else {
         return;
     };
-    let (world, position) = event
-        .as_ref()
-        .filter(|e| e.world != world_id || e.position != feet_at)
-        .and_then(|e| respawn_target(state, e.world, e.position))
-        .unwrap_or((world, position));
     super::teleport(state, session, world, position);
-    effects::clear(state, session);
-    let Some(player) = state.players.get_mut(&session) else {
-        return;
-    };
-    let burning = player.survival.fire_ticks > 0;
-    let s = &mut player.survival;
-    s.motion.sprinting = false;
-    s.motion.sneaking = false;
-    s.motion.flying = false;
-    s.motion.death_shown = false;
-    s.fire_ticks = 0;
-    s.air = s.custom.max_air;
-    s.breathing = true;
-    s.no_damage_ticks = RESPAWN_INVULNERABLE_TICKS;
-    s.attack_time = 0;
-    s.last_damage = None;
-    s.fall_distance = 0.0;
-    s.health = s.max_health();
-    s.food = super::MAX_FOOD;
-    s.saturation = super::DEFAULT_SATURATION;
-    s.exhaustion = 0.0;
-    s.absorption = 0.0;
-    player.data_dirty = true;
+    let burning = restore(state, session);
     let Some(player) = state.players.get(&session) else {
         return;
     };
@@ -1763,6 +1710,98 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
         extinguished(state, session, ExtinguishCause::Respawn);
     }
     super::watch(state, event.as_ref());
+}
+
+/// A player whose saved data has it dead (it left, or the server stopped, before it respawned)
+/// respawns as [`respawn`] does, but before its start-game packets, which then show it alive at
+/// its respawn point (PMMP `Player::doFirstSpawn` respawns it at its first spawn): a client that
+/// spawns dead shows no death screen and never asks to respawn, so it would stay dead. Nothing
+/// unless it is dead and joined, not yet spawned.
+pub(in crate::tick) fn respawn_joined(state: &mut State, session: SessionId) {
+    let Some((world, position, event)) = revive(state, session, Phase::Joined) else {
+        return;
+    };
+    // Its view opens once its client asks for a radius, after the start-game packets.
+    if let Some(player) = state.players.get_mut(&session) {
+        player.world = world;
+        player.position = position;
+    }
+    if restore(state, session) {
+        extinguished(state, session, ExtinguishCause::Respawn);
+    }
+    super::watch(state, event.as_ref());
+}
+
+/// Where the dead player of `session` in `phase` respawns (see [`respawn`]): the world and eye
+/// position, and the [`PlayerRespawn`] event to [`watch`](super::watch) once it respawned; a
+/// hardcore player becomes a spectator first. `None` if it is not dead in `phase`, before or
+/// after the listeners.
+fn revive(
+    state: &mut State,
+    session: SessionId,
+    phase: Phase,
+) -> Option<(WorldIndex, Vec3, Option<PlayerRespawn>)> {
+    let dead = |state: &State| {
+        state
+            .players
+            .get(&session)
+            .is_some_and(|p| p.phase == phase && p.survival.is_dead())
+    };
+    if !dead(state) {
+        return None;
+    }
+    if state.settings.hardcore {
+        hardcore_spectator(state, session);
+    }
+    let (world, position) = respawn_point(state, session);
+    let feet_at = position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+    let world_id = world::Id::of(world);
+    let event = super::ask(
+        state,
+        || PlayerRespawn {
+            player: player::Id::new(session),
+            world: world_id,
+            position: feet_at,
+        },
+        |_| false,
+        |state, _| dead(state),
+    )
+    .ok()?;
+    let (world, position) = event
+        .as_ref()
+        .filter(|e| e.world != world_id || e.position != feet_at)
+        .and_then(|e| respawn_target(state, e.world, e.position))
+        .unwrap_or((world, position));
+    Some((world, position, event))
+}
+
+/// The respawned player's state (PMMP `Player::actuallyRespawn`): no effects, full health and
+/// food, air, no fire, and a short invulnerability. Returns whether it was burning.
+fn restore(state: &mut State, session: SessionId) -> bool {
+    effects::clear(state, session);
+    let Some(player) = state.players.get_mut(&session) else {
+        return false;
+    };
+    let burning = player.survival.fire_ticks > 0;
+    let s = &mut player.survival;
+    s.motion.sprinting = false;
+    s.motion.sneaking = false;
+    s.motion.flying = false;
+    s.motion.death_shown = false;
+    s.fire_ticks = 0;
+    s.air = s.custom.max_air;
+    s.breathing = true;
+    s.no_damage_ticks = RESPAWN_INVULNERABLE_TICKS;
+    s.attack_time = 0;
+    s.last_damage = None;
+    s.fall_distance = 0.0;
+    s.health = s.max_health();
+    s.food = super::MAX_FOOD;
+    s.saturation = super::DEFAULT_SATURATION;
+    s.exhaustion = 0.0;
+    s.absorption = 0.0;
+    player.data_dirty = true;
+    burning
 }
 
 /// A hardcore player that respawns becomes a spectator, as vanilla does, unless a

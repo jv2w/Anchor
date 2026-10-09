@@ -52,7 +52,7 @@ pub(super) use attributes::{
 pub(super) use clock::{
     Clock, clock_definition, clock_state, day_cycle_lock_time, sleeping_players,
 };
-pub(super) use damage::{Damage, bds_cause};
+pub(super) use damage::{Damage, bds_cause, respawn_joined};
 pub(super) use saved::{game_mode_id, load_played, save_played};
 
 /// Eye height above the feet (PMMP `Human` size 1.62); a human NPC's too.
@@ -654,13 +654,10 @@ fn player_tick(state: &mut State, session: SessionId) {
         player.data_dirty = true;
     }
     if player.survival.is_dead() {
-        if !player.survival.motion.death_shown {
-            // Killed through the API: the death's drops come now. Joined dead: they came before.
-            if std::mem::take(&mut player.survival.custom.killed) {
-                damage::die(state, session, damage::GENERIC_DEATH, None);
-            } else {
-                damage::show_death(state, session, damage::GENERIC_DEATH, None, None);
-            }
+        // Killed through the API: the death's drops come now.
+        if !player.survival.motion.death_shown && std::mem::take(&mut player.survival.custom.killed)
+        {
+            damage::die(state, session, damage::GENERIC_DEATH, None);
         }
         return;
     }
@@ -2675,7 +2672,7 @@ mod tests {
     }
 
     #[test]
-    fn a_player_that_joins_dead_sees_the_death_screen_and_a_saved_sleeper_wakes() {
+    fn a_saved_sleeper_wakes() {
         let mut server = Server::new(1, |_| {});
         let spawn = server.state.worlds[0].spawn();
         let foot = BlockPos::new(spawn.x, spawn.y, spawn.z + 1);
@@ -2692,15 +2689,127 @@ mod tests {
         assert_eq!(server.survival(1).sleeping, None);
         assert_eq!(server.state.worlds[0].block(head), Some(bed(true, false)));
         assert_eq!(server.state.worlds[0].block(foot), Some(bed(false, false)));
-        // As loaded with no health left.
-        server.survival(1).health = 0.0;
+    }
+
+    /// The identity of `player1` ([`join`]) for a join of another session.
+    fn player1() -> crate::tick::queue::Identity {
+        crate::tick::queue::Identity {
+            name: "player1".to_owned(),
+            xuid: Some(2_535_000_001),
+            uuid: crate::protocol::Uuid::from_bytes([1; 16]),
+            skin: crate::tick::queue::Skin::default(),
+            device_os: -1,
+            address: None,
+            client: crate::tick::queue::Client::default(),
+        }
+    }
+
+    /// Joins `player1` as session `s` with saved data on (the data the stand-in save thread
+    /// answers is `data`, if any), spawns it and returns the packets it got.
+    fn join_saved(
+        server: &mut Server,
+        s: u64,
+        data: Option<&crate::save::PlayerData>,
+    ) -> Vec<Packet> {
+        let (j, rx) = join_with(s, player1());
+        server.receivers.push(rx);
+        server.run(vec![j]);
+        for answer in &mut server.output.answers {
+            if let crate::save::Response::Player { data: load, .. } = answer
+                && let Some(data) = data
+            {
+                *load = crate::save::PlayerLoad::Found(data.clone());
+            }
+        }
+        server.idle(1);
+        server.run(vec![radius(s, 1, 8)]);
+        let runtime_id = server.player(s).runtime_id;
+        server.run(vec![initialised(s, 2, runtime_id)]);
         server.idle(2);
-        let sent = server.take(1);
-        let screens = sent
-            .iter()
-            .filter(|p| matches!(p, Packet::DeathInfo(d) if d.cause == "death.attack.generic"))
-            .count();
-        assert_eq!(screens, 1, "shown once");
+        server.take(u64::try_from(server.receivers.len()).unwrap())
+    }
+
+    /// A player that comes back dead (the server stopped, or it left, before it respawned)
+    /// respawns before its start-game packets, as PMMP respawns it at its first spawn: a client
+    /// that spawns dead shows no death screen and so never asks to respawn.
+    #[test]
+    fn a_player_that_joins_dead_respawns_before_it_spawns() {
+        let saving = |c: &mut Config| c.general.save_player_data = true;
+        // The first run: the player dies away from the spawn and the server stops.
+        let mut first = Server::new(1, |_| {});
+        let away = first.player(1).position + Vec3::new(20.0, 0.0, 0.0);
+        teleport(&mut first.state, sid(1), 0, away);
+        assert!(first.hurt(1, 100.0, Damage::Magic));
+        let data = crate::tick::save::data_of(&first.state, first.player(1));
+        let home = spawn_eye(&first.state);
+        let mut server = Server {
+            state: new_state(settings(saving), Listeners::default()),
+            output: Output::default(),
+            receivers: Vec::new(),
+            seq: 10,
+        };
+        let respawned = |server: &Server, s: u64, sent: &[Packet]| {
+            let p = server.player(s);
+            assert!(is_alive(p), "alive");
+            assert_eq!(p.position, home, "at the respawn point");
+            assert!(sent.iter().any(|p| matches!(
+                p,
+                Packet::StartGame(g) if g.player_position == home.to_f32()
+            )));
+            assert!(sent.contains(&Packet::SetHealth(p::SetHealth { health: 20 })));
+            assert!(!sent.iter().any(|p| matches!(p, Packet::DeathInfo(_))));
+        };
+        // The next run: the saved data comes back.
+        let sent = join_saved(&mut server, 1, Some(&data));
+        respawned(&server, 1, &sent);
+        // Past its respawn invulnerability, it dies again and leaves; the server keeps its data
+        // until the commit.
+        server.idle(80);
+        teleport(&mut server.state, sid(1), 0, away);
+        assert!(server.hurt(1, 100.0, Damage::Magic));
+        server.run(vec![leave(1, 3)]);
+        let sent = join_saved(&mut server, 2, None);
+        respawned(&server, 2, &sent);
+    }
+
+    /// The eye position at the default world's spawn.
+    fn spawn_eye(state: &State) -> Vec3 {
+        let feet = state.worlds[0].safe_spawn(state.worlds[0].spawn());
+        Vec3::new(
+            f64::from(feet.x) + 0.5,
+            f64::from(feet.y) + EYE_HEIGHT,
+            f64::from(feet.z) + 0.5,
+        )
+    }
+
+    #[test]
+    fn a_hardcore_player_that_joins_dead_comes_back_as_a_spectator() {
+        let hardcore = |c: &mut Config| {
+            c.general.hardcore = true;
+            c.general.difficulty = Difficulty::Hard;
+        };
+        let mut first = Server::new(1, hardcore);
+        assert!(first.hurt(1, 100.0, Damage::Magic));
+        let data = crate::tick::save::data_of(&first.state, first.player(1));
+        let mut server = Server {
+            state: new_state(
+                settings(|c| {
+                    hardcore(c);
+                    c.general.save_player_data = true;
+                }),
+                Listeners::default(),
+            ),
+            output: Output::default(),
+            receivers: Vec::new(),
+            seq: 10,
+        };
+        let sent = join_saved(&mut server, 1, Some(&data));
+        assert!(is_alive(server.player(1)));
+        let spectator = saved::game_mode_id(GameMode::Spectator);
+        assert!(sent.iter().any(|p| matches!(
+            p,
+            Packet::StartGame(g) if g.player_game_mode == spectator
+        )));
     }
 
     #[test]

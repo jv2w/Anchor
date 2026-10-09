@@ -785,7 +785,8 @@ pub(super) fn join(
     request
 }
 
-/// Registers the admitted player of `session` (see [`join`]).
+/// Registers the admitted player of `session` (see [`join`]); one placed dead respawns
+/// ([`survival::respawn_joined`]).
 fn enter(
     state: &mut State,
     session: SessionId,
@@ -844,6 +845,7 @@ fn enter(
         Some(Request::Player(stored))
     };
     state.insert(session, player);
+    survival::respawn_joined(state, session);
     request
 }
 
@@ -896,8 +898,9 @@ fn spawn_position(world: Option<&World>) -> Vec3 {
     )
 }
 
-/// The saved data of a loading player arrived: it joins where it was, or at the spawn if it is
-/// new. Damaged data refuses the join and leaves the saved bytes as they are.
+/// The saved data of a loading player arrived: it joins where it was, at the spawn if it is
+/// new, or at its respawn point if it was dead ([`survival::respawn_joined`]). Damaged data
+/// refuses the join and leaves the saved bytes as they are.
 pub(super) fn player_loaded(
     state: &mut State,
     key: &StoredPlayer,
@@ -938,6 +941,7 @@ pub(super) fn player_loaded(
         }
     }
     state.players.insert(session, player);
+    survival::respawn_joined(state, session);
 }
 
 /// Raises [`PlayerDuplicateLogin`] for `connecting` against the player of `existing` and returns
