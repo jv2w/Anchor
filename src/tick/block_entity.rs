@@ -2411,7 +2411,12 @@ fn drop_spills(state: &mut State) {
         .iter()
         .copied()
         .collect();
+    // The world at its entity cap this tick: its other chunks wait too, other worlds' do not.
+    let mut full = None;
     for key in keys {
+        if full == Some(key.0) {
+            continue;
+        }
         let entities = &mut state.rules.block_entities;
         if entities
             .chunks
@@ -2434,7 +2439,8 @@ fn drop_spills(state: &mut State) {
             };
             budget -= 1;
             if !inventory::drop_stack(state, key.0, center(pos), stack) {
-                return;
+                full = Some(key.0);
+                break;
             }
             let entities = &mut state.rules.block_entities;
             if let Some(chunk) = entities.chunks.get_mut(&key) {
@@ -3107,6 +3113,30 @@ pub(in crate::tick) mod tests {
         super::tick(&mut state);
         assert!(cook(&state, 1, lone) > 0, "the awake world's furnace cooks");
         assert_eq!(cook(&state, 0, first.1), 0, "the asleep world's do not");
+    }
+
+    /// A world at its entity cap keeps its spills waiting; another world's still drop.
+    #[test]
+    fn a_full_world_holds_back_only_its_own_spills() {
+        use super::super::entity::{self, MAX_ENTITIES_PER_WORLD};
+        let (mut state, key) = slow_server(false);
+        load_chunk(&mut state, key);
+        let mut other = World::new("b", WorldKind::Temporary, 1, BlockPos::new(0, 0, 0));
+        other.insert_chunk(ChunkPos::new(0, 0), Terrain::new());
+        state.add_world(other);
+        let other = (1, ChunkPos::new(0, 0));
+        load_chunk(&mut state, other);
+        let spawn = state.worlds[0].spawn();
+        while entity::drop_item(&mut state, 0, center(spawn), food("minecraft:stick", 1)) {}
+        assert_eq!(state.rules.entities.count(0), MAX_ENTITIES_PER_WORLD);
+        let stick = vec![food("minecraft:stick", 1)];
+        let blocks = &mut state.rules.block_entities;
+        blocks.spill(0, spawn, stick.clone());
+        blocks.spill(1, BlockPos::new(1, 0, 1), stick);
+        drop_spills(&mut state);
+        let waiting = |key: Key| state.rules.block_entities.chunks[&key].spills.len();
+        assert_eq!(waiting(key), 1, "the full world keeps its spill");
+        assert_eq!(waiting(other), 0, "the other world's spill dropped");
     }
 
     /// `slow-empty-worlds`: a campfire (an interval block entity) in a world without players
