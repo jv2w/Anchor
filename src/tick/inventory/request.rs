@@ -478,7 +478,7 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
             entity::drop_experience(state, world, at, xp);
         }
     }
-    station::apply(state, session, plan.effects, enchant_input);
+    station::apply(state, session, request, plan.effects, enchant_input);
     Ok(())
 }
 

@@ -647,13 +647,14 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
     if ok { Ok(()) } else { Err(Error::Consumed) }
 }
 
-/// Applies the effects of a committed request of `session`: levels, the enchanting seed, the
+/// Applies the effects of a committed request `request` of `session`: levels, the enchanting seed, the
 /// anvil's damage, the beacon's effects, the trade's count. Then, if the request changed an
 /// enchanting table's input, its options are worked out again and sent (PMMP
 /// `EnchantInventory::onSlotChange`; BDS sends the empty list after an enchant, P6).
 pub(super) fn apply(
     state: &mut State,
     session: SessionId,
+    request: i32,
     effects: Vec<Effect>,
     input_changed: bool,
 ) {
@@ -687,7 +688,7 @@ pub(super) fn apply(
                     kind: Station::Anvil,
                 }) = window
                 {
-                    use_anvil(state, session, world, pos, finite);
+                    use_anvil(state, session, request, world, pos, finite);
                 }
             }
             Effect::Beacon { primary, secondary } => {
@@ -875,6 +876,7 @@ pub(super) fn options_packet(slot: i32, options: &[(u32, enchant::Choice)]) -> P
 fn use_anvil(
     state: &mut State,
     session: SessionId,
+    request: i32,
     world: WorldIndex,
     pos: BlockPos,
     finite: bool,
@@ -883,12 +885,8 @@ fn use_anvil(
         return;
     };
     let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
-    // A player may use the anvil in several requests of one tick: the request's place in the
-    // tick keeps each use's draw its own.
-    let request = state
-        .players
-        .get(&session)
-        .map_or(0, |p| p.inventory.budget.1);
+    // A player may use the anvil in several requests of one tick: the request ID, unique among
+    // the requests the server took, keeps each use's draw its own whatever it refused before.
     let mut rng = Random::new(
         seed,
         state.tick,
@@ -896,7 +894,7 @@ fn use_anvil(
             ANVIL,
             &[
                 session.get(),
-                u64::from(request),
+                u64::from(request.cast_unsigned()),
                 u64::from(pos.x.cast_unsigned()),
                 u64::from(pos.y.cast_unsigned()),
                 u64::from(pos.z.cast_unsigned()),

@@ -513,61 +513,81 @@ fn the_anvil_renames_and_repairs_for_levels() {
     check_slots(&w.state);
 }
 
+/// A survival player with 64 sticks at an open anvil.
+fn anvil_world() -> (World, super::super::super::SessionId) {
+    let (mut w, s) = world(&[Stack::new(item(Kind::Stick), 64)]);
+    w.place_block(AT, blk::Kind::Anvil.default_state());
+    w.open_block(s, AT);
+    (w, s)
+}
+
+/// Sends a request in the current tick, which the server takes.
+fn send_now(
+    w: &mut World,
+    s: super::super::super::SessionId,
+    id: i32,
+    actions: Vec<StackRequestAction>,
+) {
+    let request = ItemStackRequest {
+        request_id: id,
+        actions,
+        filter_strings: vec!["x".to_owned()],
+        filter_cause: 0,
+    };
+    on_item_stack_request(&mut w.state, s, &request);
+    let sent = w.sent(s);
+    assert!(sent.iter().any(|p| matches!(
+        p,
+        Packet::ItemStackResponse(r) if r.responses.iter().all(ok)
+    )));
+}
+
+/// Renames one stick into main slot 1 in the current tick; whether the anvil took damage.
+fn rename_stick(w: &mut World, s: super::super::super::SessionId) -> bool {
+    let before = w.state.worlds[0].block(AT);
+    let id = w.next_id(s);
+    let from = w.id(s, COMBINED, 0);
+    send_now(
+        w,
+        s,
+        id,
+        vec![place(1, at(COMBINED, 0, from), at(C::AnvilInput, 1, 0))],
+    );
+    let id = w.next_id(s);
+    let (input, to) = (w.id(s, C::AnvilInput, 1), w.id(s, COMBINED, 1));
+    let optional = StackRequestAction::CraftRecipeOptional(CraftRecipeOptionalStackRequestAction {
+        recipe_network_id: 0,
+        filter_string_index: 0,
+    });
+    send_now(
+        w,
+        s,
+        id,
+        vec![
+            optional,
+            consume(1, at(C::AnvilInput, 1, input)),
+            place(1, created(id), at(COMBINED, 1, to)),
+        ],
+    );
+    w.state.worlds[0].block(AT) != before
+}
+
+/// Starts the next tick with an undamaged anvil.
+fn next_tick_with_new_anvil(w: &mut World) {
+    w.state.tick += 1;
+    w.state.worlds[0]
+        .set_block(AT, blk::Kind::Anvil.default_state())
+        .unwrap();
+}
+
 /// Each use of an anvil draws its own damage chance, also several uses of one player in one tick.
 #[test]
 fn anvil_uses_in_one_tick_draw_their_damage_apart() {
-    let (mut w, s) = world(&[Stack::new(item(Kind::Stick), 64)]);
-    let anvil = blk::Kind::Anvil.default_state();
-    w.place_block(AT, anvil);
-    w.open_block(s, AT);
-    // A request in the current tick.
-    let send = |w: &mut World, id: i32, actions: Vec<StackRequestAction>| {
-        let request = ItemStackRequest {
-            request_id: id,
-            actions,
-            filter_strings: vec!["x".to_owned()],
-            filter_cause: 0,
-        };
-        on_item_stack_request(&mut w.state, s, &request);
-        let sent = w.sent(s);
-        assert!(sent.iter().any(|p| matches!(
-            p,
-            Packet::ItemStackResponse(r) if r.responses.iter().all(ok)
-        )));
-    };
-    // Renames one stick into main slot 1; whether the anvil took damage.
-    let rename = |w: &mut World| {
-        let before = w.state.worlds[0].block(AT);
-        let id = w.next_id(s);
-        let from = w.id(s, COMBINED, 0);
-        send(
-            w,
-            id,
-            vec![place(1, at(COMBINED, 0, from), at(C::AnvilInput, 1, 0))],
-        );
-        let id = w.next_id(s);
-        let (input, to) = (w.id(s, C::AnvilInput, 1), w.id(s, COMBINED, 1));
-        let optional =
-            StackRequestAction::CraftRecipeOptional(CraftRecipeOptionalStackRequestAction {
-                recipe_network_id: 0,
-                filter_string_index: 0,
-            });
-        send(
-            w,
-            id,
-            vec![
-                optional,
-                consume(1, at(C::AnvilInput, 1, input)),
-                place(1, created(id), at(COMBINED, 1, to)),
-            ],
-        );
-        w.state.worlds[0].block(AT) != before
-    };
+    let (mut w, s) = anvil_world();
     let mut apart = false;
     for _ in 0..32 {
-        w.state.tick += 1;
-        w.state.worlds[0].set_block(AT, anvil).unwrap();
-        apart |= rename(&mut w) != rename(&mut w);
+        next_tick_with_new_anvil(&mut w);
+        apart |= rename_stick(&mut w, s) != rename_stick(&mut w, s);
     }
     assert_eq!(
         w.inv(s).main.stack(1).count(),
@@ -578,6 +598,34 @@ fn anvil_uses_in_one_tick_draw_their_damage_apart() {
         apart,
         "two uses in one tick never differed: they share one draw"
     );
+}
+
+/// A refused request earlier in the tick does not change how an anvil use comes out
+/// (idempotence: a repeated request leaves the game as one).
+#[test]
+fn a_refused_repeat_does_not_change_a_later_anvil_use() {
+    let (mut once, s) = anvil_world();
+    let (mut twice, _) = anvil_world();
+    for i in 0..32 {
+        next_tick_with_new_anvil(&mut once);
+        next_tick_with_new_anvil(&mut twice);
+        if i > 0 {
+            // The first request ID of the first tick again: refused as a repeat.
+            let repeat = ItemStackRequest {
+                request_id: -1,
+                actions: Vec::new(),
+                filter_strings: Vec::new(),
+                filter_cause: 0,
+            };
+            on_item_stack_request(&mut twice.state, s, &repeat);
+            twice.sent(s);
+        }
+        assert_eq!(
+            rename_stick(&mut once, s),
+            rename_stick(&mut twice, s),
+            "tick {i}"
+        );
+    }
 }
 
 /// Stacks a server gives with the highest enchantment level, or the highest prior work, go into
