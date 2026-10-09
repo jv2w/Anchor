@@ -1267,12 +1267,7 @@ pub(super) fn pick_up(state: &mut State, session: SessionId, id: Id, hooks: Hook
     };
     let heard = dispatch::heard::<EntityItemPickup>(state);
     let arrow = if finite || heard {
-        let Some(t) =
-            item::Type::from_name("minecraft:arrow", 0, None, &crate::nbt::Compound::new())
-        else {
-            return false;
-        };
-        Stack::new(t, 1)
+        Stack::new(item::Kind::Arrow.default_type(), 1)
     } else {
         Stack::EMPTY
     };
