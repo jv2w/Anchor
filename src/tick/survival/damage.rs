@@ -610,11 +610,25 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
             player.survival.custom.killed = true;
             return;
         }
-        let attacker = match hit.cause {
-            Damage::Attack(a) => Some(a),
+        // A projectile names its shooter; one no player shot is a generic death (PMMP
+        // `PlayerDeathEvent::deriveMessage`).
+        let attacker = match (hit.cause, hit.source) {
+            (Damage::Attack(a), _) => Some(a),
+            (
+                Damage::Entity,
+                DamageSource::Child {
+                    owner: Some(Actor::Player(p)),
+                    ..
+                },
+            ) => Some(p.session()),
             _ => None,
         };
-        die(state, session, hit.cause.death_message(), attacker);
+        let message = if hit.cause == Damage::Entity && attacker.is_none() {
+            GENERIC_DEATH
+        } else {
+            hit.cause.death_message()
+        };
+        die(state, session, message, attacker);
         return;
     }
     if cold {

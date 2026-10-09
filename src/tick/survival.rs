@@ -1793,6 +1793,51 @@ mod tests {
         assert_eq!(left, Some(speed));
     }
 
+    /// A player shot dead sees who shot it; a projectile no player shot is a generic death (PMMP
+    /// `PlayerDeathEvent::deriveMessage`).
+    #[test]
+    fn a_death_by_arrow_names_the_shooter() {
+        let mut server = Server::new(2, |_| {});
+        let shot = |owner| DamageSource::Child {
+            child: crate::entity::Id::new(0, 0),
+            owner,
+        };
+        let by_two = shot(Some(crate::event::Actor::Player(Id::new(sid(2)))));
+        assert!(damage::damage_by(
+            &mut server.state,
+            sid(1),
+            100.0,
+            Damage::Entity,
+            by_two
+        ));
+        server.idle(1);
+        let shooter = server.player(2).identity.name.clone();
+        let deaths = |packets: Vec<Packet>| -> Vec<(String, Vec<String>)> {
+            packets
+                .into_iter()
+                .filter_map(|p| match p {
+                    Packet::DeathInfo(d) => Some((d.cause, d.messages)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let death = deaths(server.take(1));
+        assert_eq!(death.len(), 1);
+        assert_eq!(death[0].0, "death.attack.arrow");
+        assert_eq!(death[0].1.get(1), Some(&shooter));
+        assert!(damage::damage_by(
+            &mut server.state,
+            sid(2),
+            100.0,
+            Damage::Entity,
+            shot(None)
+        ));
+        server.idle(1);
+        let death = deaths(server.take(2));
+        assert_eq!(death.len(), 1);
+        assert_eq!(death[0].0, damage::GENERIC_DEATH);
+    }
+
     /// A player that may fly takes no fall damage, flying or not (PMMP `Player::attack`).
     #[test]
     fn a_player_that_may_fly_takes_no_fall_damage() {
