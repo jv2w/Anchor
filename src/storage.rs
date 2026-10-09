@@ -3397,4 +3397,118 @@ pub(crate) mod tests {
             storage.close().unwrap();
         }
     }
+
+    /// The start of a real data folder with `integrity-check = "always"`, each part of
+    /// [`Storage::open`] timed alone, file by file in the order the server opens them: `cargo test
+    /// --release --lib storage::tests::measure_data_folder_start -- --ignored --nocapture` with
+    /// `ANCHOR_MEASURE_DATA` naming a copy of the data folder, which the start writes to (its
+    /// header, the first commit, the backups). `ANCHOR_MEASURE_BACKUPS=false` starts as
+    /// `backups = false`; `ANCHOR_MEASURE_CACHE=file` gives the check a page cache as large as
+    /// the file; `ANCHOR_MEASURE_READ=1` instead reads each file once sequentially, the lower
+    /// bound. For a cold start, evict the files from the OS cache first; on Windows, without
+    /// administrator rights, opening each file once with `FILE_FLAG_NO_BUFFERING` does it.
+    #[test]
+    #[ignore = "measurement"]
+    #[expect(
+        clippy::print_stdout,
+        clippy::disallowed_methods,
+        clippy::disallowed_types,
+        reason = "consistency: a measurement prints its results and reads files"
+    )]
+    fn measure_data_folder_start() {
+        let data = PathBuf::from(
+            std::env::var_os("ANCHOR_MEASURE_DATA").expect("ANCHOR_MEASURE_DATA names a data copy"),
+        );
+        let flag = |name: &str| std::env::var(name).ok();
+        let backup = if flag("ANCHOR_MEASURE_BACKUPS").as_deref() == Some("false") {
+            StartBackup::Transient
+        } else {
+            StartBackup::Make
+        };
+        let whole_file_cache = flag("ANCHOR_MEASURE_CACHE").as_deref() == Some("file");
+        let mut places = vec![
+            Place::data(&data, MAIN_FILE),
+            Place::data(&data, PLAYERS_FILE),
+        ];
+        for name in crate::save::world_files(&data).unwrap() {
+            places.push(Place::world(&data, &name));
+        }
+        let mut opened = Vec::new();
+        let mut total = 0.0;
+        for place in &places {
+            let size = std::fs::metadata(&place.file).unwrap().len();
+            let name = place.file.strip_prefix(&data).unwrap().display();
+            if flag("ANCHOR_MEASURE_READ").is_some() {
+                let start = clock::now();
+                let mut file = std::fs::File::open(&place.file).unwrap();
+                let mut buffer = vec![0; 8 << 20];
+                while io::Read::read(&mut file, &mut buffer).unwrap() > 0 {}
+                let read = ms(start);
+                total += read;
+                println!("{name} ({} KiB): sequential read {read:.1} ms", size >> 10);
+                continue;
+            }
+            let start = clock::now();
+            let mut source = backup::lock(&place.file, &place.backups).unwrap().unwrap();
+            let copy = backup::copy(&mut source, &place.backups, backup).unwrap();
+            drop(source);
+            let copied = ms(start);
+            let start = clock::now();
+            let mut db = if whole_file_cache {
+                let file = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&place.file)
+                    .unwrap();
+                let mut builder = Builder::new();
+                builder.set_cache_size(usize::try_from(size).unwrap().max(CACHE_BYTES));
+                builder
+                    .create_with_backend(FileBackend::new(file).unwrap())
+                    .unwrap()
+            } else {
+                Source::File(place.file.clone()).open().unwrap()
+            };
+            let open = ms(start);
+            let start = clock::now();
+            check_integrity(&mut db).unwrap();
+            let check = ms(start);
+            let start = clock::now();
+            let storage = Storage::prepare(Source::File(place.file.clone()), db).unwrap();
+            let prepare = ms(start);
+            let start = clock::now();
+            match backup {
+                StartBackup::Make => backup::prune(&place.backups, &copy).unwrap(),
+                StartBackup::Transient => std::fs::remove_file(&copy).unwrap(),
+            }
+            let finish = ms(start);
+            let sum = copied + open + check + prepare + finish;
+            total += sum;
+            println!(
+                "{name} ({} KiB): copy {copied:.1} ms, open {open:.1} ms, check_integrity \
+                 {check:.1} ms, prepare {prepare:.1} ms, prune or remove copy {finish:.1} ms, \
+                 file {sum:.1} ms",
+                size >> 10
+            );
+            let stats = storage
+                .db
+                .as_ref()
+                .unwrap()
+                .begin_write()
+                .unwrap()
+                .stats()
+                .unwrap();
+            println!(
+                "  {} pages of {} bytes allocated: {} leaf, {} branch, tree height {}, \
+                 {} KiB stored",
+                stats.allocated_pages(),
+                stats.page_size(),
+                stats.leaf_pages(),
+                stats.branch_pages(),
+                stats.tree_height(),
+                stats.stored_bytes() >> 10
+            );
+            opened.push(storage);
+        }
+        println!("all files {total:.1} ms");
+    }
 }
