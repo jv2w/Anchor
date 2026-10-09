@@ -528,7 +528,7 @@ fn delete_worlds(plans: &mut [Plan], opener: &Opener, worlds: &[DeletedWorld]) {
                 continue;
             }
         };
-        match std::fs::remove_file(&file) {
+        match std::fs::remove_file(&file).and_then(|()| crate::fs::sync_parent(&file)) {
             Ok(()) => info!(world = world.name, file = %file.display(), "world file deleted"),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => error!(

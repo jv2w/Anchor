@@ -46,7 +46,7 @@ paths:
 - JWT 시각 검사의 벽시계는 `clock.rs`에서 받는다.
 - 모르는 `kid`에는 JWKS만, 최소 5분 간격으로 다시 받는다.
 - `data/auth.json`이 손상(JSON 아님, 필드 빠짐)이면 시작을 거부하고 파일을 남긴다.
-- `data/identity.key`와 `data/auth.json`은 임시 파일에 쓰고 동기화한 뒤 rename한다. `identity.key`는 Unix에서 소유자만 읽는 0600으로 쓴다.
+- `data/identity.key`와 `data/auth.json`은 임시 파일에 쓰고 동기화한 뒤 rename하고 폴더를 flush한다(`fs::write_atomic`). 남은 임시 파일은 지우고 새로 만든다. `identity.key`는 Unix에서 소유자만 읽는 0600으로 쓴다.
 - 온라인 로그인 시험은 자체 RSA 키로 OpenID 설정과 JWKS를 만든 시험용 발급자를 `auth.json`에 넣어 검증한다. 엔진에 시험 전용 진입점을 두지 않는다.
 
 ## NetherNet
