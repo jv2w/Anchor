@@ -162,11 +162,11 @@ fn edited(old: &Stack, packet: &BookEdit) -> Option<(BookAction, Stack, Vec<u32>
         Action::Sign => {
             let title = limited(&packet.title, MAX_TITLE_CHARS)?;
             let author = limited(&packet.author, MAX_AUTHOR_CHARS)?;
-            let book = written(&pages(old), author, title)?;
+            let book = written(pages(old), author, title)?;
             return Some((BookAction::SignBook, book, Vec::new()));
         }
     };
-    Some((action, with_pages(old, &pages)?, modified))
+    Some((action, with_pages(old, pages)?, modified))
 }
 
 /// A page's text, cleaned (PMMP `TextFormat::clean` keeping colours); `None` over 512 characters.
@@ -210,14 +210,14 @@ fn page_count(book: &Stack) -> usize {
 }
 
 /// The `pages` list of `pages` (PMMP `WritableBookBase::serializeCompoundTag`); `None` for none.
-fn pages_nbt(pages: &[Page]) -> Option<Value> {
+fn pages_nbt(pages: Vec<Page>) -> Option<Value> {
     (!pages.is_empty()).then(|| {
         let list = pages
-            .iter()
+            .into_iter()
             .map(|p| {
                 Compound::from([
-                    (TEXT.to_owned(), Value::String(p.text.clone())),
-                    (PHOTO.to_owned(), Value::String(p.photo.clone())),
+                    (TEXT.to_owned(), Value::String(p.text)),
+                    (PHOTO.to_owned(), Value::String(p.photo)),
                 ])
             })
             .collect();
@@ -226,7 +226,7 @@ fn pages_nbt(pages: &[Page]) -> Option<Value> {
 }
 
 /// `book` with `pages` and its other data as it was; `None` over the stack limits.
-fn with_pages(book: &Stack, pages: &[Page]) -> Option<Stack> {
+fn with_pages(book: &Stack, pages: Vec<Page>) -> Option<Stack> {
     let mut extra = book.extra().cloned().unwrap_or_default();
     match pages_nbt(pages) {
         Some(list) => extra.nbt.insert(PAGES.to_owned(), list),
@@ -238,7 +238,7 @@ fn with_pages(book: &Stack, pages: &[Page]) -> Option<Stack> {
 /// A new written book of `pages`, by `author`, named `title`, an original (PMMP
 /// `VanillaItems::WRITTEN_BOOK()->setPages()->setAuthor()->setTitle()->setGeneration(0)`); `None`
 /// over the stack limits.
-fn written(pages: &[Page], author: String, title: String) -> Option<Stack> {
+fn written(pages: Vec<Page>, author: String, title: String) -> Option<Stack> {
     let mut nbt = Compound::from([
         (GENERATION.to_owned(), Value::Int(0)),
         (AUTHOR.to_owned(), Value::String(author)),
