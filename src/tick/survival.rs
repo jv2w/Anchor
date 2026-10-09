@@ -1218,8 +1218,8 @@ mod tests {
     use crate::event::Listeners;
     use crate::item::{Enchantment, Extra, Kind as ItemKind, Stack};
     use crate::protocol::consts::{
-        ActorEvent, InputFlag, LevelEvent, MobEffectOperation, MoveMode, PlayerAction as Action,
-        RespawnState,
+        ActorEvent, AnimateAction, InputFlag, LevelEvent, MobEffectOperation, MoveMode,
+        PlayerAction as Action, RespawnState,
     };
     use crate::protocol::packet::{self as p, Packet};
     use crate::protocol::{FlagSet, InputFlags, MetadataValue};
@@ -1947,6 +1947,28 @@ mod tests {
         inventory::set_held(server.player_mut(1), sharp);
         attack_player(&mut server.state, sid(1), sid(2));
         assert_eq!(server.survival(2).health, 20.0 - points - 1.0);
+    }
+
+    /// The critical hit animation shows only when the critical hit added damage (PMMP
+    /// `Player::attackEntity` reads the modifier after the hit): Weakness V takes a bare hand's
+    /// point away, so half of nothing is nothing.
+    #[test]
+    fn a_critical_hit_that_adds_nothing_shows_no_animation() {
+        let mut server = duel(|_| {});
+        effects::add(
+            &mut server.state,
+            sid(1),
+            effect::Type::Weakness,
+            Active::new(100, 4),
+        );
+        server.survival(1).fall_distance = 1.0;
+        server.idle(1);
+        server.take(1);
+        attack_player(&mut server.state, sid(1), sid(2));
+        server.idle(1);
+        let critical = u8::from(AnimateAction::CriticalHit);
+        let shown = |p: &Packet| matches!(p, Packet::Animate(a) if a.action_type == critical);
+        assert!(!server.take(1).iter().any(shown));
     }
 
     /// `durability = false`: a hit wears neither the weapon nor the armour, which still

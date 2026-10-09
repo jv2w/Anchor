@@ -364,6 +364,7 @@ pub(super) fn damage_by(
             source,
         },
     )
+    .is_some()
 }
 
 /// The attacker's strength and weakness modifiers, added up and one by one (PMMP
@@ -395,11 +396,10 @@ fn attacker_modifiers(
     (extra, parts)
 }
 
-/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; false if it did not land.
-fn hurt(state: &mut State, session: SessionId, hit: Hit) -> bool {
-    let Some(landed) = assess(state, session, hit) else {
-        return false;
-    };
+/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; its modifiers as the
+/// listeners left them, `None` if it did not land.
+fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Modifiers> {
+    let landed = assess(state, session, hit)?;
     let id = player::Id::new(session);
     let Ok(event) = super::ask(
         state,
@@ -412,7 +412,7 @@ fn hurt(state: &mut State, session: SessionId, hit: Hit) -> bool {
                 .is_some_and(|p| lands(p, &landed.hit))
         },
     ) else {
-        return false;
+        return None;
     };
     let mut landed = landed;
     if let Some(e) = &event {
@@ -420,7 +420,7 @@ fn hurt(state: &mut State, session: SessionId, hit: Hit) -> bool {
     }
     apply(state, session, &landed, entity::Raise::Events);
     super::watch(state, event.as_ref());
-    true
+    Some(event.map_or(landed.modifiers, |e| e.modifiers))
 }
 
 /// Deals `amount` damage for `cause` with no source and no events, for the direct API (an explosion
@@ -1105,26 +1105,33 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         }
         return;
     };
-    let critical = hit.1;
-    let magic = hit.2;
     let held = state
         .players
         .get(&attacker)
         .map(|p| p.inventory.held().clone())
         .unwrap_or_default();
-    let landed = hurt(state, target, hit.0);
+    let landed = hurt(state, target, hit);
     swing(state, attacker);
-    if !landed {
+    let Some(modifiers) = landed else {
         hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
-    }
+    };
     hit_sound(state, target, Sound::EntityAttack);
     let target_runtime = player_runtime_id(state, target);
-    for (on, action) in [
-        (critical, AnimateAction::CriticalHit),
-        (magic, AnimateAction::MagicCriticalHit),
+    for (modifier, action) in [
+        (DamageModifier::Critical, AnimateAction::CriticalHit),
+        (
+            DamageModifier::WeaponEnchantments,
+            AnimateAction::MagicCriticalHit,
+        ),
     ] {
-        if on {
+        // As the listeners left the hit: what added nothing shows nothing.
+        if modifiers
+            .get(modifier as usize)
+            .copied()
+            .flatten()
+            .is_some_and(|v| v > 0.0)
+        {
             let packet = Packet::Animate(Animate {
                 action_type: u8::from(action),
                 entity_runtime_id: target_runtime,
@@ -1184,9 +1191,8 @@ fn hit_sound(state: &mut State, target: SessionId, sound: Sound) {
     sound::hit(state, target, at + Vec3::new(0.0, HALF_HEIGHT, 0.0), sound);
 }
 
-/// The hit of a melee attack and whether it is critical and enchanted; `None` when the attack
-/// cannot happen.
-fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<(Hit, bool, bool)> {
+/// The hit of a melee attack; `None` when the attack cannot happen.
+fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<Hit> {
     let a = state.players.get(&attacker)?;
     let t = state.players.get(&target)?;
     if a.phase != Phase::Spawned
@@ -1200,20 +1206,16 @@ fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<(H
     {
         return None;
     }
-    let (base, extra, parts, critical, magic) = melee_parts(state, attacker, a);
-    Some((
-        Hit {
-            cause: Damage::Attack(attacker),
-            base,
-            extra,
-            parts,
-            attacker: Some(attacker),
-            thorns: true,
-            source: DamageSource::Entity(Actor::Player(player::Id::new(attacker))),
-        },
-        critical,
-        magic,
-    ))
+    let (base, extra, parts, _, _) = melee_parts(state, attacker, a);
+    Some(Hit {
+        cause: Damage::Attack(attacker),
+        base,
+        extra,
+        parts,
+        attacker: Some(attacker),
+        thorns: true,
+        source: DamageSource::Entity(Actor::Player(player::Id::new(attacker))),
+    })
 }
 
 /// The attacker's side of a melee hit by `a` (PMMP `Player::attackEntity`): the held item's
