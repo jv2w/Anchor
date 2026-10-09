@@ -3052,9 +3052,9 @@ fn merge_now(state: &mut State, source: Id, target: Id) -> bool {
     ti.pickup_delay = ti.pickup_delay.max(delay);
     ti.despawn_delay = ti.despawn_delay.max(despawn);
     let packet = stack_size(t.runtime_id, count);
-    let (viewers, key) = (t.viewers.clone(), (t.world, t.chunk));
+    let key = (t.world, t.chunk);
+    send_to(&mut state.players, &t.viewers, &packet);
     entities.changed.insert(key);
-    send_to(&mut state.players, &viewers, &packet);
     true
 }
 
