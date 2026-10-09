@@ -398,11 +398,14 @@ pub(super) fn sugarcane_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::
     let Some(down) = cx.get(below) else {
         return;
     };
+    // Cane on cane always stays: it needs no water and is supported.
+    if down.kind() == block.kind() {
+        return;
+    }
     let Some(water) = near_water(cx, below) else {
         return;
     };
-    if (down.kind() != block.kind() && !water) || support::supported(cx, pos, block) == Some(false)
-    {
+    if !water || support::supported(cx, pos, block) == Some(false) {
         cx.destroy(pos);
     }
 }
