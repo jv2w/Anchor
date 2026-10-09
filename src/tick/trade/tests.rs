@@ -117,6 +117,8 @@ struct Server {
     state: State,
     /// The players' connection ends; dropping one would drop its player.
     _receivers: Vec<Receiver<Outbound>>,
+    /// The request ID of the next trade, a new one each as clients send them.
+    next_request: i32,
 }
 
 impl Server {
@@ -140,6 +142,7 @@ impl Server {
         Self {
             state,
             _receivers: receivers,
+            next_request: -1,
         }
     }
 
@@ -170,9 +173,12 @@ impl Server {
     }
 
     fn traded(&mut self, s: u64, net_id: u32, times: u32) {
+        let request = self.next_request;
+        self.next_request -= 2;
         traded_with(
             &mut self.state,
             SessionId::new(s),
+            request,
             net_id,
             times,
             TEST_HOOKS,
@@ -479,6 +485,35 @@ fn the_reward_depends_only_on_the_state() {
     let amounts: Vec<u32> = (0..16).map(amount).collect();
     assert!(amounts.iter().all(|a| (30..=60).contains(a)));
     assert!(amounts.iter().any(|&a| a != amounts[0]), "{amounts:?}");
+}
+
+/// Two trades of one player in one tick draw their rewards apart, also when the offer's uses were
+/// set back between them (a plugin that keeps a trade unlimited).
+#[test]
+fn trades_in_one_tick_draw_their_rewards_apart() {
+    let mut apart = false;
+    for tick in 0..16 {
+        let mut server = Server::new(1);
+        server.state.tick = tick;
+        let v = server.villager(1, single(16, 0, true));
+        assert!(server.open(1, v));
+        let id = server.net_ids(1)[0];
+        server.traded(1, id, 1);
+        change_offers_with(
+            &mut server.state,
+            v,
+            |o| {
+                o.reset_uses();
+                Ok(())
+            },
+            TEST_HOOKS,
+        )
+        .unwrap();
+        server.traded(1, id, 1);
+        let drops = &server.state.trades.fixtures.drops;
+        apart |= drops[0].2 != drops[1].2;
+    }
+    assert!(apart, "the two trades of a tick always got the same reward");
 }
 
 #[test]

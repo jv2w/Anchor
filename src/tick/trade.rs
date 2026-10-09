@@ -351,11 +351,18 @@ pub(super) fn is_payment(want: &Stack, damage: Damage, given: &Stack) -> bool {
 /// them and the items moved): counts the uses, gives the villager its experience (and tier)
 /// and drops the reward orbs. It cannot fail after `offer` succeeded in the same request; called
 /// otherwise, it counts at most what `offer` would allow and logs the executor's error.
-pub(super) fn traded(state: &mut State, session: SessionId, net_id: u32, times: u32) {
-    traded_with(state, session, net_id, times, HOOKS);
+pub(super) fn traded(state: &mut State, session: SessionId, request: i32, net_id: u32, times: u32) {
+    traded_with(state, session, request, net_id, times, HOOKS);
 }
 
-fn traded_with(state: &mut State, session: SessionId, net_id: u32, times: u32, hooks: Hooks) {
+fn traded_with(
+    state: &mut State,
+    session: SessionId,
+    request: i32,
+    net_id: u32,
+    times: u32,
+    hooks: Hooks,
+) {
     let Some(&Session { villager, .. }) = state.trades.sessions.get(&session) else {
         error!(
             session = session.get(),
@@ -382,7 +389,6 @@ fn traded_with(state: &mut State, session: SessionId, net_id: u32, times: u32, h
         .offers
         .tradable(index)
         .map_or(0, |r| r.uses_left().min(MAX_REPEAT));
-    let uses = v.offers.recipes().get(index).map_or(0, |r| r.uses);
     let before = (v.offers.tier(), v.offers.experience());
     if times > allowed {
         error!(
@@ -400,12 +406,13 @@ fn traded_with(state: &mut State, session: SessionId, net_id: u32, times: u32, h
     };
     if applied.reward_exp && applied.times > 0 {
         let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
-        let index = u64::try_from(index).unwrap_or(u64::MAX);
+        // The request ID, unique among the requests the server took from the player, keeps each
+        // trade's draw its own: the offer's uses can be set back within a tick.
         let parts = [
             u64::from(villager.index()),
             u64::from(villager.generation()),
-            index,
-            u64::from(uses),
+            session.get(),
+            u64::from(request.cast_unsigned()),
         ];
         let mut r = Random::new(seed, state.tick, random::key(REWARD_RANDOM, &parts));
         let amount = (0..applied.times).fold(0_u32, |sum, _| {

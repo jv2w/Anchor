@@ -647,9 +647,9 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
     if ok { Ok(()) } else { Err(Error::Consumed) }
 }
 
-/// Applies the effects of a committed request `request` of `session`: levels, the enchanting seed, the
-/// anvil's damage, the beacon's effects, the trade's count. Then, if the request changed an
-/// enchanting table's input, its options are worked out again and sent (PMMP
+/// Applies the effects of the committed request `request` of `session`: levels, the enchanting
+/// seed, the anvil's damage, the beacon's effects, the trade's count. Then, if the request
+/// changed an enchanting table's input, its options are worked out again and sent (PMMP
 /// `EnchantInventory::onSlotChange`; BDS sends the empty list after an enchant, P6).
 pub(super) fn apply(
     state: &mut State,
@@ -701,7 +701,9 @@ pub(super) fn apply(
                     block_entity::set_beacon(state, world, pos, primary, secondary);
                 }
             }
-            Effect::Traded { net_id, times } => trade::traded(state, session, net_id, times),
+            Effect::Traded { net_id, times } => {
+                trade::traded(state, session, request, net_id, times);
+            }
         }
     }
     if input_changed
