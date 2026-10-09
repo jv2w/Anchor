@@ -754,9 +754,9 @@ impl Engine {
         }
     }
 
-    /// The block at `pos` changed from `old` to `new` in a loaded chunk. Only [`Mode::Dynamic`]
-    /// follows block changes.
-    pub(crate) fn changed(&mut self, chunks: &ChunkIndex, pos: BlockPos, old: Entry, new: Entry) {
+    /// The block at `pos` of the loaded `chunk` changed from `old` to `new`. Only
+    /// [`Mode::Dynamic`] follows block changes.
+    pub(crate) fn changed(&mut self, chunk: &Chunk, pos: BlockPos, old: Entry, new: Entry) {
         if self.mode != Mode::Dynamic || old.derive() == new.derive() {
             return;
         }
@@ -764,18 +764,16 @@ impl Engine {
         if let Some(seq) = self.index.get(&(at, Kind::Populate))
             && let Some(Task::Populate(_, population)) = self.tasks.get_mut(seq)
         {
-            if !population.note(pos)
-                && let Some(chunk) = chunks.get(at)
-            {
+            if !population.note(pos) {
                 **population = Population::new(chunk.clone(), self.limits.population_changes);
             }
             return;
         }
-        if chunks.get(at).is_some_and(|c| c.light().is_some()) {
+        if chunk.light().is_some() {
             if self.changes.len() < self.limits.changes {
                 self.changes.push_back(pos);
             } else {
-                self.reset(chunks, at);
+                self.add_task(at, Kind::Reset, Task::Reset(at));
             }
         }
     }

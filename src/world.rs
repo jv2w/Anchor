@@ -954,8 +954,7 @@ impl World {
             if notify == Notify::Neighbours && self.fed.insert(pos) {
                 self.feed.push_back(pos);
             }
-            self.light
-                .changed(&self.chunks, pos, old, Entry::Known(state));
+            self.light.changed(chunk, pos, old, Entry::Known(state));
         }
         Some(old)
     }
