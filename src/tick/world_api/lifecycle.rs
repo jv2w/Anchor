@@ -7,7 +7,9 @@
 //! temporary world made again under its name takes the place too. A run names at most
 //! [`MAX_WORLDS`] worlds, as many world files as `data/worlds/` may hold.
 //!
-//! Every persistent world is its file `data/worlds/<name>.redb`. Loading a world reads nothing on
+//! Every persistent world is its file `data/worlds/<name>.redb`. Names that differ only in letter
+//! case are one world: every call here finds a world by its name in any letter case, and the file
+//! keeps the letter case of the name it was made with. Loading a world reads nothing on
 //! the tick: the records of the world files are read when the server starts and live here after
 //! (only the tick writes records, so memory is never older than the files), and the chunks load
 //! through the save thread as always. Unloading waits for the view phase, where [`WorldUnload`] may
@@ -28,6 +30,7 @@ use crate::math::Vec3;
 use crate::protocol::packet::{Packet, SetDifficulty};
 use crate::save::{self, DeletedWorld, NewWorld, WorldIndex};
 use crate::storage::codec::WorldRecord;
+use crate::storage::world_name_key;
 use crate::world::{self, Generators, Kind, World};
 
 /// The most worlds a run names, and the most world files `data/worlds/` may hold.
@@ -38,10 +41,11 @@ pub(in crate::tick) const MAX_WORLDS: usize = crate::storage::MAX_WORLDS;
 pub(in crate::tick) struct Catalog {
     /// Whether each world is loaded, by index.
     loaded: Vec<bool>,
-    /// Each world's index by name, loaded or not: derived from the worlds (a place keeps its
-    /// name), so neither saved nor hashed.
+    /// Each world's index by [`world_name_key`] of its name, loaded or not: derived from the
+    /// worlds (a place keeps its name), so neither saved nor hashed.
     names: BTreeMap<String, WorldIndex>,
-    /// The persistent worlds the server file holds that the server has not loaded, by name.
+    /// The persistent worlds the server file holds that the server has not loaded, by
+    /// [`world_name_key`] of their name.
     stored: BTreeMap<String, WorldRecord>,
     /// The `chunks` key number of the next new persistent world.
     next_number: u32,
@@ -104,16 +108,17 @@ impl Catalog {
             loaded: vec![true; worlds.len()],
             names: (0..)
                 .zip(worlds)
-                .map(|(i, w)| (w.name().to_owned(), i))
+                .map(|(i, w)| (world_name_key(w.name()), i))
                 .collect(),
             generators,
             ..Self::default()
         }
     }
 
-    /// The index of the world named `name` the server has had this run, loaded or not.
+    /// The index of the world named `name`, in any letter case, the server has had this run,
+    /// loaded or not.
     pub(in crate::tick) fn named(&self, name: &str) -> Option<WorldIndex> {
-        self.names.get(name).copied()
+        self.names.get(&world_name_key(name)).copied()
     }
 
     /// Whether the world at `index` is loaded.
@@ -173,7 +178,10 @@ impl Catalog {
     ) -> crate::tick::checkpoint::Result<()> {
         use crate::tick::checkpoint::Codec;
         self.loaded = slots.iter().map(|s| s.loaded).collect();
-        self.names = (0..).zip(slots).map(|(i, s)| (s.name.clone(), i)).collect();
+        self.names = (0..)
+            .zip(slots)
+            .map(|(i, s)| (world_name_key(&s.name), i))
+            .collect();
         self.stored = Codec::decode(r)?;
         self.next_number = Codec::decode(r)?;
         self.default = Codec::decode(r)?;
@@ -245,7 +253,10 @@ impl State {
             stored,
             next_number,
         } = catalog;
-        self.catalog.stored = stored.into_iter().collect();
+        self.catalog.stored = stored
+            .into_iter()
+            .map(|(name, record)| (world_name_key(&name), record))
+            .collect();
         self.catalog.next_number = next_number;
     }
 }
@@ -256,7 +267,9 @@ impl State {
     pub(in crate::tick) fn add_world(&mut self, mut world: World) {
         let index = self.worlds.len();
         world.set_id(world::Id::of(index));
-        self.catalog.names.insert(world.name().to_owned(), index);
+        self.catalog
+            .names
+            .insert(world_name_key(world.name()), index);
         self.worlds.push(world);
         self.catalog.loaded.push(true);
     }
@@ -320,7 +333,10 @@ fn install(
         *w = world;
         *loaded = true;
     } else {
-        state.catalog.names.insert(world.name().to_owned(), index);
+        state
+            .catalog
+            .names
+            .insert(world_name_key(world.name()), index);
         state.worlds.push(world);
         state.catalog.loaded.push(true);
     }
@@ -381,13 +397,9 @@ pub(in crate::tick) fn take_deleted_worlds(state: &mut State) -> Vec<DeletedWorl
 /// Whether a world of the run (persistent, or loaded) or a stored one has a name that differs
 /// from `name` at most in letter case: its file would be the same.
 fn name_taken(state: &State, name: &str) -> bool {
-    let key = crate::storage::world_name_key(name);
-    let same = |n: &str| crate::storage::world_name_key(n) == key;
-    state.catalog.names.iter().any(|(n, &i)| {
-        same(n)
-            && (state.catalog.is_loaded(i)
-                || state.worlds.get(i).map(World::kind) == Some(Kind::Persistent))
-    }) || state.catalog.stored.keys().any(|n| same(n))
+    named(state, name).is_some_and(|i| {
+        state.catalog.is_loaded(i) || state.worlds.get(i).map(World::kind) == Some(Kind::Persistent)
+    }) || state.catalog.stored.contains_key(&world_name_key(name))
 }
 
 /// The start of the view phase: the events of the worlds made and loaded since the last one
@@ -575,7 +587,8 @@ impl Context<'_> {
             }
             return Err(world::Error::NotGenerated);
         }
-        let Some(&record) = state.catalog.stored.get(name) else {
+        let key = world_name_key(name);
+        let Some(&record) = state.catalog.stored.get(&key) else {
             return Err(world::Error::NotGenerated);
         };
         if options.settings().check("worlds").is_err() {
@@ -599,7 +612,7 @@ impl Context<'_> {
         );
         save::resume(&mut world, record);
         world.set_difficulty(options.difficulty());
-        state.catalog.stored.remove(name);
+        state.catalog.stored.remove(&key);
         let index = state.worlds.len();
         set_view(state, index, options);
         Ok(install(state, index, world, generator.as_ref(), false))
@@ -641,11 +654,7 @@ impl Context<'_> {
     /// (PMMP `WorldManager::isWorldGenerated`). A temporary world unloaded does not.
     #[doc(alias = "WorldManager::isWorldGenerated")]
     pub fn is_world_generated(&self, name: &str) -> bool {
-        let state = &*self.state;
-        named(state, name).is_some_and(|i| {
-            state.catalog.is_loaded(i)
-                || state.worlds.get(i).map(World::kind) == Some(Kind::Persistent)
-        }) || state.catalog.stored.contains_key(name)
+        name_taken(self.state, name)
     }
 
     /// Deletes the persistent world `name` and its file `data/worlds/<name>.redb`, and nothing
@@ -664,7 +673,7 @@ impl Context<'_> {
         let index = match named(state, name) {
             Some(i) if state.catalog.is_loaded(i) => return Err(world::Error::WorldLoaded),
             Some(i) if state.worlds.get(i).map(World::kind) == Some(Kind::Persistent) => Some(i),
-            _ if state.catalog.stored.remove(name).is_some() => None,
+            _ if state.catalog.stored.remove(&world_name_key(name)).is_some() => None,
             _ => return Err(world::Error::NotGenerated),
         };
         if let Some(i) = index {

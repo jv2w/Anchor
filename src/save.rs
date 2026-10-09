@@ -255,7 +255,7 @@ impl std::fmt::Debug for NewWorld {
 /// A persistent world the tick deleted ([`Context::delete_world`](crate::Context::delete_world)).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeletedWorld {
-    /// Its name: its file's.
+    /// Its name, in the letter case the program gave; its file is [`world_place`]'s.
     pub(crate) name: String,
     /// Its index, if the tick had it this run.
     pub(crate) index: Option<WorldIndex>,
@@ -358,9 +358,9 @@ struct Open {
 
 /// How the save thread opens the file of a world it learns of.
 enum Opener {
-    /// `data/worlds/<name>.redb` of the data folder, opened as the start says.
+    /// The world's file of the data folder ([`world_place`]), opened as the start says.
     Live { data_dir: PathBuf, start: Start },
-    /// A replay's read-only copies, by world name.
+    /// A replay's read-only copies, by [`storage::world_name_key`] of the world name.
     Replay(BTreeMap<String, PathBuf>),
 }
 
@@ -369,12 +369,14 @@ impl Opener {
     fn open(&self, name: &str) -> Result<Open, storage::Error> {
         match self {
             Self::Live { data_dir, start } => {
-                let place = Place::world(data_dir, name);
+                let place = world_place(data_dir, name)?;
                 let storage = Storage::open(&place, *start)?;
                 Ok(Open { storage, place })
             }
             Self::Replay(files) => {
-                let file = files.get(name).ok_or(storage::Error::Closed)?;
+                let file = files
+                    .get(&storage::world_name_key(name))
+                    .ok_or(storage::Error::Closed)?;
                 Ok(Open {
                     storage: Storage::open_replica(file)?,
                     place: Place {
@@ -519,7 +521,13 @@ fn delete_worlds(plans: &mut [Plan], opener: &Opener, worlds: &[DeletedWorld]) {
         let Opener::Live { data_dir, .. } = opener else {
             continue;
         };
-        let file = Place::world(data_dir, &world.name).file;
+        let file = match world_place(data_dir, &world.name) {
+            Ok(place) => place.file,
+            Err(e) => {
+                error!(world = world.name, error = %e, "could not delete the world file");
+                continue;
+            }
+        };
         match std::fs::remove_file(&file) {
             Ok(()) => info!(world = world.name, file = %file.display(), "world file deleted"),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -536,7 +544,8 @@ fn delete_worlds(plans: &mut [Plan], opener: &Opener, worlds: &[DeletedWorld]) {
 /// What the tick needs to make and load worlds while it runs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Catalog {
-    /// The persistent worlds of `data/worlds/` that no spec names, by name.
+    /// The persistent worlds of `data/worlds/` that no spec names in any letter case, by their
+    /// file's name.
     pub(crate) stored: Vec<(String, WorldRecord)>,
     /// The `chunks` key number of the next new persistent world.
     pub(crate) next_number: u32,
@@ -583,7 +592,7 @@ struct Files {
 pub(crate) struct ReplayFiles {
     pub(crate) main: PathBuf,
     pub(crate) players: PathBuf,
-    /// The persistent worlds' files, by name.
+    /// The persistent worlds' files, by their file's name in `data/worlds/`.
     pub(crate) worlds: BTreeMap<String, PathBuf>,
 }
 
@@ -733,9 +742,10 @@ pub(crate) fn open_with(
     }
     let mut stored = Vec::new();
     for name in world_names(data_dir)? {
+        let key = storage::world_name_key(&name);
         if specs
             .iter()
-            .any(|s| s.kind == Kind::Persistent && s.name == name)
+            .any(|s| s.kind == Kind::Persistent && storage::world_name_key(&s.name) == key)
         {
             continue;
         }
@@ -825,16 +835,33 @@ pub(crate) fn world_files(data_dir: &std::path::Path) -> Result<Vec<String>, sto
     world_names(data_dir)
 }
 
+/// The name of the world file of `data/worlds/` that is the world `name`'s: the one whose name
+/// differs from `name` at most in letter case ([`world_names`]), if any.
+fn world_file_name(
+    data_dir: &std::path::Path,
+    name: &str,
+) -> Result<Option<String>, storage::Error> {
+    let key = storage::world_name_key(name);
+    Ok(world_names(data_dir)?
+        .into_iter()
+        .find(|n| storage::world_name_key(n) == key))
+}
+
 /// Whether `data/worlds/` holds the file of the world `name`, or of one whose name differs only in
 /// letter case.
 pub(crate) fn world_file_exists(
     data_dir: &std::path::Path,
     name: &str,
 ) -> Result<bool, storage::Error> {
-    let key = storage::world_name_key(name);
-    Ok(world_names(data_dir)?
-        .iter()
-        .any(|n| storage::world_name_key(n) == key))
+    Ok(world_file_name(data_dir, name)?.is_some())
+}
+
+/// The file of the world `name` and its backup folder: its world file's ([`world_file_name`]),
+/// else `data/worlds/<name>.redb` for a new one. A case-sensitive file system would otherwise
+/// give a name in another letter case a second file and backup folder.
+fn world_place(data_dir: &std::path::Path, name: &str) -> Result<Place, storage::Error> {
+    let file = world_file_name(data_dir, name)?;
+    Ok(Place::world(data_dir, file.as_deref().unwrap_or(name)))
 }
 
 /// [`open_with`] a start backup and a check, as the tests open data files.
@@ -875,7 +902,13 @@ pub(crate) fn open_replica(
             stored.push((name.clone(), record));
         }
     }
-    let opener = Opener::Replay(files.worlds.clone());
+    let opener = Opener::Replay(
+        files
+            .worlds
+            .iter()
+            .map(|(name, file)| (storage::world_name_key(name), file.clone()))
+            .collect(),
+    );
     resolve(
         files_open,
         opener,
@@ -960,7 +993,12 @@ fn resolve(
         world.set_generator(spec.generator.name());
         worlds.push(world);
     }
-    stored.retain(|(name, _)| !worlds.iter().any(|w| w.name() == name));
+    stored.retain(|(name, _)| {
+        let key = storage::world_name_key(name);
+        !worlds
+            .iter()
+            .any(|w| storage::world_name_key(w.name()) == key)
+    });
     Ok(Opened {
         worlds,
         catalog: Catalog {
@@ -3349,6 +3387,67 @@ pub(crate) mod tests {
         assert_eq!(world_files(&dir.0).unwrap(), ["Lobby", "arena2", "world"]);
         assert!(world_file_exists(&dir.0, "LOBBY").unwrap());
         assert!(!world_file_exists(&dir.0, "lobby2").unwrap());
+    }
+
+    /// A declared world whose file has its name in another letter case opens that file, at a
+    /// start and in a replay: its stored number and time go on, it is not a stored world as well,
+    /// and no second file or backup folder is made.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_declared_world_opens_its_file_in_another_letter_case() {
+        let dir = TempDir::new("declared-world-case");
+        let mut storage = Storage::open(
+            &Place::world(&dir.0, "lobby"),
+            Start::checked(storage::StartBackup::Transient),
+        )
+        .unwrap();
+        let mut batch = Batch::default();
+        batch.put(
+            Key::World,
+            seal(&Key::World.to_bytes(), &WorldRecord { number: 4, time: 9 }).unwrap(),
+        );
+        storage.commit(&batch).unwrap();
+        storage.close().unwrap();
+        let specs = || {
+            let mut specs = specs();
+            specs.push(WorldSpec {
+                name: "Lobby".to_owned(),
+                kind: Kind::Persistent,
+                generator: Arc::new(Flat),
+                seed: None,
+                spawn: None,
+            });
+            specs
+        };
+        let opened = open(&dir.0, specs()).unwrap();
+        assert_eq!(opened.catalog.stored, []);
+        let lobby = &opened.worlds[2];
+        assert_eq!((lobby.number(), lobby.time_ticks()), (Some(4), 9));
+        drop(opened);
+        let worlds = dir.0.join(storage::WORLD_DIR);
+        assert_eq!(data_files(&worlds), ["lobby.redb", "world.redb"]);
+        let backups: Vec<String> =
+            std::fs::read_dir(dir.0.join(storage::BACKUP_DIR).join(storage::WORLD_DIR))
+                .unwrap()
+                .map(|e| e.unwrap().file_name().into_string().unwrap())
+                .collect();
+        assert_eq!(backups, ["lobby"]);
+        let files = ReplayFiles {
+            main: Place::data(&dir.0, storage::MAIN_FILE).file,
+            players: Place::data(&dir.0, storage::PLAYERS_FILE).file,
+            worlds: ["lobby", "world"]
+                .map(|n| {
+                    (
+                        n.to_owned(),
+                        worlds.join(format!("{n}.{}", storage::EXTENSION)),
+                    )
+                })
+                .into(),
+        };
+        let replayed = open_replica(&files, specs(), &[5, 9, 0]).unwrap();
+        assert_eq!(replayed.catalog.stored, []);
+        let lobby = &replayed.worlds[2];
+        assert_eq!((lobby.number(), lobby.time_ticks()), (Some(4), 9));
     }
 
     /// Deleting a world removes its file alone, after the commits before it.

@@ -1012,6 +1012,47 @@ fn a_deleted_world_loses_its_file_alone_and_names_follow_the_file_rule() {
     assert!(pool.shutdown());
 }
 
+/// Names that differ only in letter case are one world: a stored world is generated, loads with
+/// its saved time and is deleted under any of them, and keeps its one file.
+#[test]
+fn a_world_is_found_by_its_name_in_any_letter_case() {
+    let dir = crate::save::tests::TempDir::new("world-case");
+    let pool = crate::runtime::cpu_pool(1).unwrap();
+    let files = || crate::save::world_files(&dir.0).unwrap();
+    {
+        let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
+        let id = cx(&mut state)
+            .create_world("lobby", &Options::new())
+            .unwrap();
+        run_saved(&mut state, &mut link, &pool, 3);
+        let mut c = cx(&mut state);
+        assert!(c.set_time(id, 4_000));
+        c.unload_world(id).unwrap();
+        run_saved(&mut state, &mut link, &pool, 3);
+        finish(link, handle);
+    }
+    {
+        let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
+        let mut c = cx(&mut state);
+        assert!(c.is_world_generated("LOBBY"));
+        let id = c.load_world("Lobby", &Options::new()).unwrap();
+        assert!(c.world(id).unwrap().time_ticks() >= 4_000);
+        assert_eq!(c.load_world("LOBBY", &Options::new()), Ok(id));
+        assert!(c.is_world_loaded("lobby"));
+        run_saved(&mut state, &mut link, &pool, 3);
+        cx(&mut state).unload_world(id).unwrap();
+        run_saved(&mut state, &mut link, &pool, 3);
+        finish(link, handle);
+    }
+    assert_eq!(files(), ["lobby", "world"]);
+    let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
+    cx(&mut state).delete_world("LOBBY").unwrap();
+    run_saved(&mut state, &mut link, &pool, 1);
+    finish(link, handle);
+    assert_eq!(files(), ["world"]);
+    assert!(pool.shutdown());
+}
+
 /// A world deleted and made again under its name by a callback after the view phase (here one
 /// an unload listener deferred, in a tick that saves) is saved like any new world.
 #[test]
