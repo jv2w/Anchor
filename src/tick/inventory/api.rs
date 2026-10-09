@@ -349,10 +349,15 @@ impl Editor<'_> {
             (Some(sa), Some(sb)) => (sa.clone(), sb.clone()),
             _ => return Err(Error::NoSlot),
         };
-        // Both slots hold a stack of the inventory already, so both writes fit; the cursor and
-        // grid count stays the same.
-        self.set(a, sb)?;
-        self.set(b, sa)
+        // Both slots hold a stack of the inventory already, so both writes fit. The slot that
+        // empties is written first, so the cursor and grid never hold one stack more than before.
+        if sa.is_empty() {
+            self.set(b, sa)?;
+            self.set(a, sb)
+        } else {
+            self.set(a, sb)?;
+            self.set(b, sa)
+        }
     }
 
     /// Writes planned slots; a write that fails gives its items back to `left` (added items

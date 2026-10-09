@@ -122,6 +122,15 @@ fn the_cursor_and_grid_take_no_stack_beyond_what_a_close_can_give_back() {
     assert_eq!(p.inventory_mut(Kind::Crafting).add(&coal(3)), coal(3));
     assert!(p.inventory_mut(Kind::Main).add(&coal(3)).is_empty());
     check_slots(&w.state);
+    // At the bound a swap still moves a held stack: it holds no stack more.
+    w.player(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING - 1];
+    let mut grid = w.player(s).inventory_mut(Kind::Crafting);
+    grid.set(1, coal(2)).unwrap();
+    assert_eq!(grid.swap(0, 1), Ok(()));
+    assert_eq!(grid.view().item(0), Some(&coal(2)));
+    assert!(grid.view().is_slot_empty(1));
+    assert_eq!(grid.swap(1, 0), Ok(()), "the other way round");
+    assert_eq!(grid.view().item(1), Some(&coal(2)));
 }
 
 // pmmp: PlayerInventory::getHeldItemIndex, PlayerInventory::setHeldItemIndex, PlayerInventory::getItemInHand, Player::getCurrentWindow, Player::removeCurrentWindow
