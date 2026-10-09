@@ -293,11 +293,13 @@ setters!(EntityDamage {
 });
 
 impl EntityDamage {
-    /// Sets the damage before the modifiers. A value that is not finite is ignored.
+    /// Sets the damage before the modifiers, at least 0. A value that is not finite is ignored.
     #[doc(alias = "EntityDamageEvent::setBaseDamage")]
     pub fn set_base_damage(&mut self, damage: f64) {
         if damage.is_finite() {
-            self.base_damage = damage;
+            // The base damage is remembered for the attack cooldown, where a negative one would
+            // add to the next hit; reduce the damage with a modifier instead.
+            self.base_damage = math::max(damage, 0.0);
         }
     }
 
@@ -1248,6 +1250,8 @@ mod tests {
         assert_eq!(e.final_damage(), 9.5);
         e.set_modifier(DamageModifier::Resistance, -20.0);
         assert_eq!(e.final_damage(), 0.0);
+        e.set_base_damage(-5.0);
+        assert_eq!(e.base_damage(), 0.0);
         e.set_base_damage(f64::MAX);
         e.set_modifier(DamageModifier::Resistance, f64::MAX);
         assert_eq!(e.final_damage(), f64::MAX);
