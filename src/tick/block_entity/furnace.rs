@@ -178,7 +178,8 @@ impl Furnace {
     }
 
     /// The input and what one smelt of it makes, if it can smelt now: it has a recipe and the
-    /// output has room for the result (PMMP `canSmelt`).
+    /// output has room for the whole result (PMMP `canSmelt`, which counts room for one only: a
+    /// custom result of more would burn fuel without ever smelting).
     pub(in crate::tick) fn ready(
         &mut self,
         items: &[Stack],
@@ -186,10 +187,7 @@ impl Furnace {
     ) -> Option<(Stack, Stack)> {
         let raw = items.get(INPUT).cloned().unwrap_or_default();
         let result = self.recipe(&raw, custom).and_then(|r| r.result.to_item())?;
-        let product = items.get(OUTPUT).cloned().unwrap_or_default();
-        let room = product.is_empty()
-            || (result.can_stack_with(&product) && product.count() < product.max_count());
-        (raw.count() > 0 && room).then(|| (raw.with_count(1), result))
+        (raw.count() > 0 && Self::fits(items, &result)).then(|| (raw.with_count(1), result))
     }
 
     /// The fuel that starts burning now (PMMP `checkFuel`'s condition: nothing burns, the input
@@ -371,6 +369,37 @@ mod tests {
                 step
             })
             .collect()
+    }
+
+    /// A custom recipe that makes more than one: no fuel burns while the output cannot take the
+    /// whole result.
+    #[test]
+    fn no_fuel_burns_while_the_output_cannot_take_a_whole_result() {
+        use crate::custom::{Ingredient, ItemRef, Recipe};
+        let mut custom = crate::Server::builder()
+            .recipe(Recipe::furnace(
+                FurnaceType::Furnace,
+                Ingredient::Item(ItemRef::Item(Kind::Stick.default_type())),
+                (ItemRef::Item(Kind::Coal.default_type()), 4),
+            ))
+            .setup
+            .custom;
+        custom.finish().unwrap();
+        let mut f = Furnace::new(FurnaceType::Furnace);
+        let mut items = vec![
+            stack(Kind::Stick, 1),
+            stack(Kind::Coal, 2),
+            stack(Kind::Coal, 61),
+        ];
+        let mut rng = Random::new(1, 0, 1);
+        for _ in 0..1600 {
+            assert_eq!(f.step(&mut items, false, &mut rng, &custom).lit, None);
+        }
+        assert_eq!(items[FUEL], stack(Kind::Coal, 2));
+        assert_eq!(items[INPUT], stack(Kind::Stick, 1));
+        items[OUTPUT] = stack(Kind::Coal, 60);
+        f.step(&mut items, false, &mut rng, &custom);
+        assert_eq!(items[FUEL], stack(Kind::Coal, 1), "room for 4: it burns");
     }
 
     #[test]
