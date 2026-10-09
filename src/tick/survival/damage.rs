@@ -1790,6 +1790,9 @@ fn restore(state: &mut State, session: SessionId) -> bool {
     s.motion.sprinting = false;
     s.motion.sneaking = false;
     s.motion.flying = false;
+    // While dead the client's stop flags are not read: nothing would end these.
+    s.motion.swimming = false;
+    s.motion.gliding = false;
     s.motion.death_shown = false;
     s.fire_ticks = 0;
     s.air = s.custom.max_air;

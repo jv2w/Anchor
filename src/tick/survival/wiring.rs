@@ -443,6 +443,19 @@ fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
     assert_eq!(game.player(1).position, spawn);
 }
 
+/// A player that died swimming or gliding respawns doing neither: while dead its client's stop
+/// flags are not read, so they would stay on (a small box, the flags shown to viewers).
+#[test]
+fn a_respawned_player_neither_swims_nor_glides() {
+    let mut game = Game::new(1, Listeners::default());
+    game.player_mut(1).set_swimming(true);
+    game.player_mut(1).set_gliding(true);
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    damage::respawn(&mut game.state, sid(1));
+    let motion = &game.survival(1).motion;
+    assert!(!motion.swimming && !motion.gliding);
+}
+
 /// A world unloaded since is ignored too: the player respawns at its respawn point.
 #[test]
 fn a_respawn_listener_cannot_send_the_player_to_an_unloaded_world() {
