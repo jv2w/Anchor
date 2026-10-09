@@ -180,6 +180,7 @@ gen이 규칙 해석기와 같은 코드로 스키마를 검사하므로 규칙�
 | `item-upgrade-schema` | `https://github.com/pmmp/BedrockItemUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
 | `php-pm5/bin/php/php.exe` | pmmp/PHP-Binaries 릴리스 php-build-524, PHP 8.4 PM5 Windows x64 | zip `cf4023b8…9be4`(위 표), `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c`(PHP 8.4.16 ZTS) | `dump`, PHP 스크립트 |
 | `bds/1.26.52.3/` | minecraft.net Bedrock Dedicated Server, Windows 1.26.52.3 | `bedrock_server.exe` `19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443` | `p6 bds`, `p6 game bds`, `p6 api bds`, `p6 import` |
+| `bds/1.26.52.3/`(Linux 체크아웃) | minecraft.net Bedrock Dedicated Server, Linux 1.26.52.3 (`bin-linux/bedrock-server-1.26.52.3.zip`) | zip `f6348d84fa714d04ca194f207e89453ca6bba0a1359396475271a52a150471c6`, `bedrock_server` `0a490c711d4a2ce075debcd979e8862b7eaba008373f9970f0edbb67f98f9207` | Linux의 `p6` 전부 |
 | `tools/strawberry-perl-5.42.3.1/` | StrawberryPerl GitHub 릴리스 SP_54231_64bit, portable zip | zip `6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690`, `perl/bin/perl.exe` `d4fa3a6ebe78f5f60e185cf7d7809a7dd8c541739ca4a7bc8687c75548473f42` | `verify`의 dimpl 사본 시험(OpenSSL 소스 빌드) |
 | `str0m-test-data/` | `https://raw.githubusercontent.com/algesten/str0m/<커밋>/tests/data/<파일>` | `vendor/str0m/.cargo_vcs_info.json`의 커밋, 파일마다 `xtask/data/vendor/str0m-test-data.sha256` | `vendor-test str0m`(없으면 스스로 받음) |
 

@@ -35,7 +35,7 @@ HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로
 | 9 | `cargo doc ... --document-private-items` | 비공개 문서의 링크(따로 `target/verify-private-docs`) |
 
 - 각 cargo 검사는 `target/verify/`에서 빌드한다. 실행 중인 `xtask.exe`를 다시 빌드하지 않게 하려는 것이다.
-- 필요한 도구: Go(`PATH`에 있어야 함; 봇, 오라클, Go 시험), dimpl 시험의 OpenSSL 빌드용 Strawberry Perl(`.cache/tools/`). 없으면 해당 검사가 실패한다.
+- 필요한 도구: Go(`PATH`에 있어야 함; 봇, 오라클, Go 시험), dimpl 시험의 OpenSSL 빌드용 Perl(Windows는 `.cache/tools/`의 Strawberry Perl, Linux는 시스템 `perl`과 `make`). Linux의 dimpl 시험은 개발 의존성 wolfSSL도 소스로 빌드해서 `autoconf`, `automake`, `libtool`이 필요하다. 없으면 해당 검사가 실패한다.
 - `dump --check`와 P6는 verify에 들지 않는다. `.cache/` 사본이나 공식 서버가 필요하기 때문이다(`data.md`).
 
 ## 시험 배치

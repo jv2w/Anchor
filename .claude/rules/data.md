@@ -106,8 +106,8 @@ paths:
   1. git 체크아웃 여섯 개: 폴더마다 `git init .cache/<폴더>`, `git -C .cache/<폴더> remote add origin <원본>`, `git -C .cache/<폴더> fetch --depth 1 origin <커밋>`, `git -C .cache/<폴더> checkout --detach FETCH_HEAD`.
   2. 덤프용 PHP: 릴리스 zip을 받아 sha256을 확인하고 `.cache/php-pm5/`에 푼다. `bin/php/php.exe`와 `bin/php/php.ini`가 그 자리에 있어야 한다.
   3. 덤프 원본 의존성: `.cache/pmmp`에서 덤프용 PHP로 composer를 돌려 `composer install --no-dev --ignore-platform-reqs`를 실행한다. 덤프 원본의 `composer.lock` 그대로 `.cache/pmmp/vendor`에 둔다.
-  4. 공식 서버: 받은 zip을 `.cache/bds/<판>/`에 푼다.
-  5. Strawberry Perl: portable zip을 받아 sha256을 확인하고 `.cache/tools/strawberry-perl-5.42.3.1/`에 푼다.
+  4. 공식 서버: 그 OS의 zip을 받아 sha256을 확인하고 `.cache/bds/<판>/`에 푼다(Linux는 `unzip`으로 풀어 실행 권한을 남긴다).
+  5. Perl: Windows는 Strawberry Perl portable zip을 받아 sha256을 확인하고 `.cache/tools/strawberry-perl-5.42.3.1/`에 푼다. Linux는 시스템 패키지(`perl`, `make`, `autoconf`, `automake`, `libtool`)를 쓴다.
   6. str0m 캡처: `cargo xtask vendor-test str0m`으로 받는다.
   7. `cargo xtask dump --check`가 통과하는지 확인한다.
 
