@@ -60,7 +60,10 @@ impl Campfire {
             if let Some(Value::Compound(item)) = nbt.remove(*item_key) {
                 *slot = super::decor::read_stack(&item, "campfire", custom).with_count(1);
             }
-            if let Some(Value::Int(t)) = nbt.remove(*time_key) {
+            // A slot whose item was left out keeps no time, as one emptied in play.
+            if let Some(Value::Int(t)) = nbt.remove(*time_key)
+                && !slot.is_empty()
+            {
                 *time = u16::try_from(t.max(0)).unwrap_or(u16::MAX).min(max);
             }
         }
@@ -153,5 +156,24 @@ mod tests {
         let mut back = vec![Stack::EMPTY; SLOTS];
         assert_eq!(Campfire::read(&mut nbt, &mut back, &none), c);
         assert_eq!(back, items);
+    }
+
+    #[test]
+    fn a_saved_time_without_its_item_is_not_kept() {
+        let mut nbt = Compound::from([
+            (
+                "Item1".to_owned(),
+                Value::Compound(Compound::from([(
+                    "Name".to_owned(),
+                    Value::String("minecraft:no_such_item".to_owned()),
+                )])),
+            ),
+            ("ItemTime1".to_owned(), Value::Int(590)),
+            ("ItemTime2".to_owned(), Value::Int(300)),
+        ]);
+        let mut items = vec![Stack::EMPTY; SLOTS];
+        let c = Campfire::read(&mut nbt, &mut items, &Registry::default());
+        assert!(items.iter().all(Stack::is_empty));
+        assert_eq!(c.times, [0; SLOTS], "a new item cooks from 0");
     }
 }
