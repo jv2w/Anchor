@@ -25,8 +25,8 @@ import (
 // The first BiomeDefinitionList must hold the biomes of DIR/stripped_biome_definitions.json (the definitions
 // without chunk generation data), compared by biome name with string indexes resolved, so neither the biome
 // order nor the string list order matters. The first JigsawStructureData must equal DIR/jigsaw_structure_data.nbt
-// (gzip, big-endian NBT) value for value. It prints one line per difference, then SAME or DIFFERENT, and
-// reports whether both matched.
+// (gzip, big-endian NBT) value for value, with its top-level definition lists in identifier order
+// (sortByIdentifier). It prints one line per difference, then SAME or DIFFERENT, and reports whether both matched.
 func cloudburstCommand(args []string, out io.Writer) (bool, error) {
 	fs := flag.NewFlagSet("bot cloudburst", flag.ContinueOnError)
 	world := fs.String("world", "", "the capture's .world.jsonl file")
@@ -307,11 +307,41 @@ func compareJigsaw(fields any, path string) ([]string, error) {
 		return nil, err
 	}
 	m, _ := fields.(map[string]any)
-	if got := m["StructureData"]; !reflect.DeepEqual(got, want) {
+	got := m["StructureData"]
+	sortByIdentifier(got)
+	sortByIdentifier(want)
+	if !reflect.DeepEqual(got, want) {
 		return []string{fmt.Sprintf("JigsawStructureData differs from %v (%v vs %v JSON bytes)",
 			filepath.Base(path), len(mustJSON(got)), len(b))}, nil
 	}
 	return nil, nil
+}
+
+// sortByIdentifier sorts each top-level list of a typed-JSON StructureData compound (jigsaws, processors,
+// structure_sets, template_pools) by its entries' description.identifier. Each list is a set of definitions
+// that the data refers to by identifier (start_pool, structure), and BDS's Linux build sends template_pools
+// in another order than its Windows build (xtask/data/p6/facts.md). Lists inside an entry keep their order.
+func sortByIdentifier(data any) {
+	top, _ := at(data, "compound").(map[string]any)
+	for _, list := range top {
+		entries, _ := at(list, "list").([]any)
+		sort.SliceStable(entries, func(i, j int) bool {
+			id := func(entry any) string {
+				s, _ := at(entry, "compound", "description", "compound", "identifier", "string").(string)
+				return s
+			}
+			return id(entries[i]) < id(entries[j])
+		})
+	}
+}
+
+// at follows keys through nested JSON objects; it is nil where one is missing.
+func at(v any, keys ...string) any {
+	for _, k := range keys {
+		m, _ := v.(map[string]any)
+		v = m[k]
+	}
+	return v
 }
 
 func mustJSON(v any) []byte {

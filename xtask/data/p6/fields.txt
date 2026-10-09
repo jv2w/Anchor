@@ -74,8 +74,9 @@ StartGame ServerJoinInformation
 
 ChunkRadiusUpdated ChunkRadius
 
-# The vanilla data of the spawn window: entity property definitions (CloudburstMC,
-# paired in BDS's order) and the camera presets (BDS's, xtask/data/reference/bds_camera.json).
+# The vanilla data of the spawn window: entity property definitions (CloudburstMC, paired by
+# entity type) and the camera presets (BDS's, xtask/data/reference/bds_camera.json; aim assist
+# categories and their priority lists by name). The key order is `in_key_order` in compare.rs.
 # JigsawStructureData and BiomeDefinitionList are checked against CloudburstMC by `bot cloudburst`;
 # CurrentStructureFeature is not listed: BDS repeats it ("") outside the window.
 SyncActorProperty PropertyData

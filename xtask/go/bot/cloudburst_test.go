@@ -86,6 +86,33 @@ func TestCloudburstCheckMatchesEqualContent(t *testing.T) {
 	}
 }
 
+func TestCloudburstCheckIgnoresTheOrderOfDefinitionsButNotOfTheirLists(t *testing.T) {
+	pool := func(id string, elements ...string) map[string]any {
+		list := make([]any, len(elements))
+		for i, e := range elements {
+			list[i] = map[string]any{"feature": e}
+		}
+		return map[string]any{"description": map[string]any{"identifier": id}, "elements": list}
+	}
+	data := writeCloudburst(t, map[string]any{"template_pools": []any{pool("a", "x", "y"), pool("b", "z")}})
+	var out bytes.Buffer
+	// The pools in another order, as BDS's Linux build sends them.
+	moved := map[string]any{"template_pools": []any{pool("b", "z"), pool("a", "x", "y")}}
+	world := writeWorld(t, plains(2, 0), &packet.JigsawStructureData{StructureData: moved})
+	same, err := cloudburstCommand([]string{"-world", world, "-data", data}, &out)
+	if err != nil || !same {
+		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
+	}
+	// A pool's elements in another order.
+	inner := map[string]any{"template_pools": []any{pool("a", "y", "x"), pool("b", "z")}}
+	world = writeWorld(t, plains(2, 0), &packet.JigsawStructureData{StructureData: inner})
+	out.Reset()
+	same, err = cloudburstCommand([]string{"-world", world, "-data", data}, &out)
+	if err != nil || same || !strings.Contains(out.String(), "JigsawStructureData differs") {
+		t.Fatalf("same %v, err %v:\n%v", same, err, out.String())
+	}
+}
+
 func TestCloudburstCheckFailsWithoutJigsawStructureData(t *testing.T) {
 	data := writeCloudburst(t, map[string]any{"jigsaws": []any{}})
 	var out bytes.Buffer

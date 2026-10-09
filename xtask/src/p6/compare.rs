@@ -1,11 +1,11 @@
 //! `cargo xtask p6 compare`: compares the spawn window of two bot captures. The window is every
 //! packet received before the bot sent `SetLocalPlayerAsInitialised`. Packets in the deferral table
 //! are removed from both windows; the remaining name sequences must be equal, and so must the
-//! fixed fields of each pair of same-named packets (paired in order). NetherNet captures also hold
-//! the server's answer SDP, whose line structure must be equal (see `compare_structure`). The item
-//! packets the bot writes in full (`<capture>.items.jsonl`) are compared by `compare_items`, the
-//! chunk packets of the whole captures by `compare_chunks` and the steps of two blocks captures by
-//! `compare_steps`.
+//! fixed fields of each pair of same-named packets (paired in order; `in_key_order` sorts the lists
+//! whose order means nothing). NetherNet captures also hold the server's answer SDP, whose line
+//! structure must be equal (see `compare_structure`). The item packets the bot writes in full
+//! (`<capture>.items.jsonl`) are compared by `compare_items`, the chunk packets of the whole
+//! captures by `compare_chunks` and the steps of two blocks captures by `compare_steps`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -256,9 +256,8 @@ pub(crate) fn compare(
         ));
     }
     for (name, paths) in &fields.0 {
-        let pick_a = a.iter().filter(|p| &p.name == name).map(|p| &p.fields);
-        let pick_b = b.iter().filter(|p| &p.name == name).map(|p| &p.fields);
-        for (n, (x, y)) in pick_a.zip(pick_b).enumerate() {
+        let (pick_a, pick_b) = (in_key_order(&a, name), in_key_order(&b, name));
+        for (n, (x, y)) in pick_a.iter().zip(&pick_b).enumerate() {
             for path in paths {
                 let (vx, vy) = (lookup(x, path), lookup(y, path));
                 if vx != vy {
@@ -273,6 +272,50 @@ pub(crate) fn compare(
         }
     }
     differences
+}
+
+/// The fields of a window's packets of one name, in the order `compare` pairs them. BDS sends some
+/// lists in an order that means nothing to the client and differs between its Windows and Linux
+/// builds (`xtask/data/p6/facts.md`); they are put in key order, so only their content counts:
+/// - the `SyncActorProperty` packets, one entity type each, by `PropertyData.type`. Each entity's
+///   own property list keeps its order: actor data refers to a property by its index there.
+/// - the `CameraAimAssistPresets` categories by `Name` (presets refer to them by name) and each
+///   category's priority lists by `Identifier`.
+fn in_key_order(window: &[&Received], name: &str) -> Vec<Value> {
+    let mut picked: Vec<Value> = window
+        .iter()
+        .filter(|p| p.name == name)
+        .map(|p| p.fields.clone())
+        .collect();
+    match name {
+        "SyncActorProperty" => sort_by_key(&mut picked, "/PropertyData/type"),
+        "CameraAimAssistPresets" => {
+            for fields in &mut picked {
+                let Some(categories) = fields.get_mut("Categories").and_then(Value::as_array_mut)
+                else {
+                    continue;
+                };
+                for category in categories.iter_mut() {
+                    for list in ["Entities", "Blocks", "BlockTags", "EntityTypeFamilies"] {
+                        if let Some(priorities) = category
+                            .pointer_mut(&format!("/Priorities/{list}"))
+                            .and_then(Value::as_array_mut)
+                        {
+                            sort_by_key(priorities, "/Identifier");
+                        }
+                    }
+                }
+                sort_by_key(categories, "/Name");
+            }
+        }
+        _ => {}
+    }
+    picked
+}
+
+/// Sorts JSON values by the value at a JSON pointer, then by content.
+fn sort_by_key(values: &mut [Value], key: &str) {
+    values.sort_by_cached_key(|v| (v.pointer(key).map(Value::to_string), v.to_string()));
 }
 
 /// Compares the packets of two lists whose names the fixed-field list holds: the same number of
@@ -1436,6 +1479,54 @@ mod tests {
             compare(&a, &b, &deferred, &fields),
             ["StartGame#0.GameVersion: A \"1.26.52\" != B (missing)"]
         );
+    }
+
+    #[test]
+    fn lists_without_meaningful_order_compare_by_key() {
+        let (deferred, fields) = tables(
+            "",
+            "SyncActorProperty PropertyData\nCameraAimAssistPresets Categories\n",
+        );
+        let property = |kind: &str, names: [&str; 2]| Received {
+            name: "SyncActorProperty".to_owned(),
+            fields: serde_json::json!({ "PropertyData": {
+                "type": kind,
+                "properties": names.map(|n| serde_json::json!({ "name": n })),
+            }}),
+        };
+        let aim = |categories: Value| Received {
+            name: "CameraAimAssistPresets".to_owned(),
+            fields: serde_json::json!({ "Categories": categories }),
+        };
+        let category = |name: &str, blocks: [&str; 2]| {
+            serde_json::json!({ "Name": name, "Priorities": {
+                "Blocks": blocks.map(|b| serde_json::json!({ "Identifier": b, "Priority": 60 })),
+            }})
+        };
+        let a = [
+            property("wolf", ["v", "s"]),
+            property("cat", ["v", "s"]),
+            aim(serde_json::json!([
+                category("bucket", ["lava", "water"]),
+                category("default", ["lever", "oak_button"])
+            ])),
+        ];
+        // The entity types, the categories and a priority list in another order.
+        let b = [
+            property("cat", ["v", "s"]),
+            property("wolf", ["v", "s"]),
+            aim(serde_json::json!([
+                category("default", ["oak_button", "lever"]),
+                category("bucket", ["lava", "water"])
+            ])),
+        ];
+        assert_eq!(compare(&a, &b, &deferred, &fields), Vec::<String>::new());
+        // An entity's own property list in another order differs: actor data indexes it.
+        let mut c = b;
+        c[1] = property("wolf", ["s", "v"]);
+        let differences = compare(&a, &c, &deferred, &fields);
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(differences[0].starts_with("SyncActorProperty#1.PropertyData"));
     }
 
     #[test]
