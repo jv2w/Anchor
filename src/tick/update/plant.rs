@@ -902,15 +902,18 @@ fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         }
     } else {
         let attempts = rng.range(0, if end_stone { 4 } else { 3 });
-        let mut visited = Vec::with_capacity(4);
+        // One bit per side of `HORIZONTAL`.
+        let mut visited = 0u8;
         for _ in 0..attempts {
-            let Some(face) = HORIZONTAL.get(rng.below(4) as usize).copied() else {
+            let index = rng.below(4);
+            let Some(face) = HORIZONTAL.get(index as usize).copied() else {
                 continue;
             };
-            if visited.contains(&face) {
+            let bit = 1 << index;
+            if visited & bit != 0 {
                 continue;
             }
-            visited.push(face);
+            visited |= bit;
             let Some(side_pos) = pos.step(face) else {
                 continue;
             };
