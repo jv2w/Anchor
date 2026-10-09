@@ -461,9 +461,10 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
     give_pending(player);
     for (world, pos, j) in changed_blocks {
         rules.block_entities.wake(world, pos);
-        let viewers = rules.block_entities.viewers(world, pos).to_vec();
-        for viewer in viewers.into_iter().filter(|v| *v != session) {
-            if let Some(other) = players.get_mut(&viewer) {
+        for viewer in rules.block_entities.viewers(world, pos) {
+            if *viewer != session
+                && let Some(other) = players.get_mut(viewer)
+            {
                 notify(other, &rules.block_entities, world, pos, j, Renumber::New);
             }
         }
