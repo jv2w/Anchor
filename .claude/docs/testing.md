@@ -79,6 +79,8 @@ P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷
 - 공식 서버는 Linux판(`bedrock-server-<판>-linux.zip`)을 Linux 체크아웃의 `.cache/bds/<판>/`에 푼다. 폴더 이름은 Windows와 같고, OS마다 자기 `.cache`를 둔다. `unzip`으로 풀면 `bedrock_server`의 실행 권한이 남는다.
 - 하네스는 OS에 맞는 실행 파일(Windows `bedrock_server.exe`, Linux `bedrock_server`)을 찾고, 압축 안의 `bedrock_server_how_to.html`처럼 `LD_LIBRARY_PATH`를 서버 폴더로 두고 띄운다.
 - 필요한 것: Go(`PATH`), `unzip`. 공식 서버 안내는 Ubuntu 18 이상만 지원한다고 적는다.
+- Windows PC에서는 WSL2 Ubuntu의 Linux 파일 시스템(ext4)에 작업 트리를 복사해(`target/`, `.cache/` 제외) 빌드하고 시험한다. `/mnt/c`에서는 돌리지 않는다: 파일 시스템 동작과 fsync가 진짜 Linux와 달라 검증이 되지 않는다. 고치는 곳은 Windows 저장소 하나이고 복사본은 시험에만 쓴다.
+- aarch64(`aarch64-unknown-linux-gnu`)는 교차 빌드만 확인한다(`gcc-aarch64-linux-gnu`, `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc`).
 
 ### 명령
 
@@ -137,7 +139,6 @@ P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷
 ## 열린 확인
 
 - `facts.md`의 "열린 질문" 목록(창 없는 인벤토리 요청, 높은 번호 입자, 플레이어 대상 tp 메시지 등).
-- Linux 검증은 하지 않았다. 설계는 OS 중립이다.
 
 ## 이 PC에서 알려진 흔들림
 
