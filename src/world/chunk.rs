@@ -214,11 +214,14 @@ impl Chunk {
             None => slot.insert(Arc::new(SubChunk::new())),
             Some(sub) => sub,
         };
-        let sub = Arc::make_mut(shared);
-        let old = sub.set(offset(x, ly, z), entry);
-        if old == entry {
-            return Some(old);
+        let at = offset(x, ly, z);
+        // Checked before `make_mut`, so writing the same entry never copies a sub-chunk a save
+        // snapshot or checkpoint shares.
+        if shared.get(at) == entry {
+            return Some(entry);
         }
+        let sub = Arc::make_mut(shared);
+        let old = sub.set(at, entry);
         if entry == Entry::AIR && sub.is_empty() {
             *slot = None;
         }
@@ -644,6 +647,20 @@ pub(crate) mod tests {
         assert_eq!(chunk.highest_block(3, 3), Some(-61));
         assert_eq!(chunk.biome(0, 0, 0), Some(7));
         assert!(!Arc::ptr_eq(
+            snapshot.sub_chunks[0].as_ref().unwrap(),
+            chunk.sub_chunks[0].as_ref().unwrap()
+        ));
+    }
+
+    #[test]
+    fn writing_the_same_entry_keeps_a_shared_sub_chunk() {
+        let mut chunk = Chunk::generate(&Flat, 1, ChunkPos::new(0, 0));
+        let snapshot = chunk.clone();
+        assert_eq!(
+            chunk.put(0, -64, 0, Entry::Known(block::BEDROCK)),
+            Some(Entry::Known(block::BEDROCK))
+        );
+        assert!(Arc::ptr_eq(
             snapshot.sub_chunks[0].as_ref().unwrap(),
             chunk.sub_chunks[0].as_ref().unwrap()
         ));
