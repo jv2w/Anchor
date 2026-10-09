@@ -23,7 +23,7 @@ use super::{Event, Shared};
 use crate::auth::Keys;
 use crate::bucket::{Bucket, Rate};
 use crate::clock;
-use crate::crypto::encryption::{Decryptor, Encryptor, Handshake};
+use crate::crypto::encryption::{CHECKSUM, Decryptor, Encryptor, Handshake};
 use crate::login::{self, Login, Mode};
 use crate::protocol::batch::{self, Header};
 use crate::protocol::consts;
@@ -99,6 +99,8 @@ struct Session {
     payload: Vec<u8>,
     /// Outbound payload, reused.
     out_payload: Vec<u8>,
+    /// Batch bodies of one [`Session::send`] waiting to go out, reused.
+    out_bodies: Vec<Vec<u8>>,
     /// Decompressed input bytes, on the time since `started`.
     budget: Bucket,
     budget_rate: Rate,
@@ -205,6 +207,7 @@ impl Session {
             decryptor: None,
             payload: Vec::new(),
             out_payload: Vec::new(),
+            out_bodies: Vec::new(),
             budget: Bucket::full(budget_rate, Duration::ZERO),
             budget_rate,
             pre_auth_bytes: 0,
@@ -676,9 +679,9 @@ impl Session {
     }
 
     /// Batches, compresses and encrypts `packets` and hands the messages to the connection.
-    async fn send(&mut self, packets: &[Packet]) -> Result<()> {
-        let mut bodies = Vec::new();
-        let headers = packets.iter().map(|packet| {
+    async fn send<'p>(&mut self, packets: impl IntoIterator<Item = &'p Packet>) -> Result<()> {
+        let mut bodies = mem::take(&mut self.out_bodies);
+        let headers = packets.into_iter().map(|packet| {
             let header = Header {
                 id: packet.id(),
                 ..Header::default()
@@ -697,39 +700,29 @@ impl Session {
             Ok(())
         })
         .map_err(Error::Batch)?;
-        for body in bodies {
+        for body in bodies.drain(..) {
             self.send_body(body).await?;
         }
+        self.out_bodies = bodies;
         Ok(())
     }
 
     /// Sends the tick's messages in order: runs of packets batched here, a shared packet in a
     /// batch of its own (encoded from the shared copy), shared batches as they are.
     async fn send_messages(&mut self, messages: Vec<Message>) -> Result<()> {
-        let mut run = Vec::new();
-        for message in messages {
-            match message {
-                Message::Packet(packet) => run.push(packet),
-                Message::SharedPacket(packet) => {
-                    if !run.is_empty() {
-                        self.send(&run).await?;
-                        run.clear();
-                    }
-                    self.send(std::slice::from_ref(&*packet)).await?;
-                }
-                Message::Shared(batches) => {
-                    if !run.is_empty() {
-                        self.send(&run).await?;
-                        run.clear();
-                    }
+        let same_run = |a: &Message, b: &Message| packet_of(a).is_some() && packet_of(b).is_some();
+        for group in messages.chunk_by(same_run) {
+            match group {
+                [Message::SharedPacket(packet)] => self.send([&**packet]).await?,
+                [Message::Shared(batches)] => {
                     for body in batches.iter() {
-                        self.send_body(body.clone()).await?;
+                        let mut owned = Vec::with_capacity(body.len() + CHECKSUM);
+                        owned.extend_from_slice(body);
+                        self.send_body(owned).await?;
                     }
                 }
+                run => self.send(run.iter().filter_map(packet_of)).await?,
             }
-        }
-        if !run.is_empty() {
-            self.send(&run).await?;
         }
         Ok(())
     }
@@ -740,6 +733,14 @@ impl Session {
             encryptor.encrypt(&mut body).map_err(Error::Crypto)?;
         }
         self.conn.send(body).await.map_err(Error::Transport)
+    }
+}
+
+/// The packet a [`Message::Packet`] carries.
+fn packet_of(message: &Message) -> Option<&Packet> {
+    match message {
+        Message::Packet(packet) => Some(packet),
+        Message::SharedPacket(_) | Message::Shared(_) => None,
     }
 }
 
