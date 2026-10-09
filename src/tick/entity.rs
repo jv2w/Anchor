@@ -2737,15 +2737,15 @@ fn hurt_in(
     } else {
         None
     };
-    let (runtime_id, viewers, key) = (e.runtime_id, e.viewers.clone(), (e.world, e.chunk));
+    if let Some((event, data)) = event {
+        send_to(players, &e.viewers, &actor_event(e.runtime_id, event, data));
+    }
+    let key = (e.world, e.chunk);
     if result != Hurt::Ignored {
         entities.changed.insert(key);
     }
     if result == Hurt::Died && !living && removed {
         entities.doom(id);
-    }
-    if let Some((event, data)) = event {
-        send_to(players, &viewers, &actor_event(runtime_id, event, data));
     }
     result
 }
