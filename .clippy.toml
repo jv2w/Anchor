@@ -66,11 +66,12 @@ disallowed-methods = [
     { path = "std::io::stderr", reason = "tick and async code do no blocking I/O; the console log's thread writes standard error" },
     { path = "std::io::stdout", reason = "tick and async code do no blocking I/O; standard output is the server program's" },
     { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "tick and async code do no blocking I/O" },
-    # Dependencies: DEFLATE goes through protocol::compression only.
-    { path = "miniz_oxide::inflate::decompress_to_vec", reason = "inflates without a size limit; use the bounded batch decoder" },
-    { path = "miniz_oxide::inflate::decompress_to_vec_zlib", reason = "inflates without a size limit; use the bounded batch decoder" },
-    { path = "miniz_oxide::deflate::compress_to_vec", reason = "one compressor: libdeflate through the batch encoder" },
-    { path = "miniz_oxide::deflate::compress_to_vec_zlib", reason = "one compressor: libdeflate through the batch encoder" },
+    # Dependencies: DEFLATE goes through protocol::compression only. allow-invalid: on Linux a
+    # crate without miniz_oxide resolves the name to std's private copy, which lacks these.
+    { path = "miniz_oxide::inflate::decompress_to_vec", reason = "inflates without a size limit; use the bounded batch decoder", allow-invalid = true },
+    { path = "miniz_oxide::inflate::decompress_to_vec_zlib", reason = "inflates without a size limit; use the bounded batch decoder", allow-invalid = true },
+    { path = "miniz_oxide::deflate::compress_to_vec", reason = "one compressor: libdeflate through the batch encoder", allow-invalid = true },
+    { path = "miniz_oxide::deflate::compress_to_vec_zlib", reason = "one compressor: libdeflate through the batch encoder", allow-invalid = true },
     { path = "libdeflater::Decompressor::new", reason = "one inflater: miniz_oxide's bounded loop in the batch decoder" },
     { path = "tokio::time::Instant::now", reason = "time comes from the engine clock" },
     { path = "tokio::time::Instant::elapsed", reason = "time comes from the engine clock" },
