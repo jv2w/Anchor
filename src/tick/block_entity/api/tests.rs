@@ -412,6 +412,14 @@ fn pots_frames_and_jukeboxes_hold_what_they_are_given() {
     let sent = h.actor_data(frame);
     assert_eq!(sent.len(), 3);
     assert_eq!(sent[0].get("ItemRotation"), Some(&Value::Float(135.0)));
+    let mut cx = h.cx();
+    let mut t = cx.block_entity_mut(WORLD, frame).unwrap();
+    t.set_framed_item(&Stack::EMPTY).unwrap();
+    assert_eq!(
+        t.view().frame_rotation(),
+        Some(0),
+        "an emptied frame turns back for the next item"
+    );
 
     let disc = item("minecraft:music_disc_13", 0);
     let mut cx = h.cx();

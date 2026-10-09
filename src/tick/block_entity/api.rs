@@ -635,14 +635,17 @@ impl Mut<'_> {
         })
     }
 
-    /// Puts one of `item` into an item frame (an empty stack empties it). The item before is not
-    /// dropped.
+    /// Puts one of `item` into an item frame (an empty stack empties it and turns the frame back
+    /// to rotation 0, as taking the item out does). The item before is not dropped.
     #[doc(alias = "block\\ItemFrame::setFramedItem")]
     #[doc(alias = "block\\tile\\ItemFrame::setItem")]
     pub fn set_framed_item(&mut self, item: &Stack) -> Result<()> {
         let one = item.with_count(1);
         self.edit(|e| match &mut e.kind {
             Kind::ItemFrame(f) => {
+                if one.is_empty() {
+                    f.rotation = 0;
+                }
                 f.item = one;
                 Some(Ok(()))
             }
