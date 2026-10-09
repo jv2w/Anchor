@@ -511,6 +511,34 @@ fn trading_raises_trade_open_and_trade_and_cancelling_keeps_the_payment() {
     assert!(w.inv(s).window.is_none());
 }
 
+/// Unpairing or pairing chests through the API closes the windows on them without an event: a
+/// direct call raises none.
+#[test]
+fn the_chest_pair_api_closes_windows_without_close_events() {
+    let (mut w, s) = world_with(
+        on(|e: &mut InventoryClose, _: &mut Context<'_>| {
+            log(format!("close {:?}", e.window()));
+        }),
+        &[],
+    );
+    let other = w.double_chest(AT);
+    w.open_block(s, AT);
+    let mut cx = Context {
+        state: &mut w.state,
+    };
+    let mut chest = cx.block_entity_mut(world::Id::DEFAULT, AT).unwrap();
+    chest.unpair().unwrap();
+    assert!(w.inv(s).window.is_none(), "unpairing closes the window");
+    w.open_block(s, AT);
+    let mut cx = Context {
+        state: &mut w.state,
+    };
+    let mut chest = cx.block_entity_mut(world::Id::DEFAULT, AT).unwrap();
+    chest.pair_with(other).unwrap();
+    assert!(w.inv(s).window.is_none(), "pairing closes the window");
+    assert_eq!(logged(), Vec::<String>::new());
+}
+
 // pmmp: InventoryOpenEvent, InventoryCloseEvent
 #[test]
 fn windows_raise_open_and_close_and_a_cancelled_or_broken_open_stays_closed() {

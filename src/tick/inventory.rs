@@ -2274,6 +2274,11 @@ pub(super) fn close_window(state: &mut State, session: SessionId) {
     close(state, session, Notice::Send);
 }
 
+/// [`close_window`] for a direct API call, which raises no `InventoryClose`.
+pub(super) fn close_window_without_event(state: &mut State, session: SessionId) {
+    close_now(state, session, Notice::Send);
+}
+
 /// Closes the windows open on the block at `pos` (a station block that broke).
 pub(super) fn close_viewers(state: &mut State, world: WorldIndex, pos: BlockPos) {
     let viewers = state.rules.block_entities.viewers(world, pos).to_vec();

@@ -458,7 +458,7 @@ impl Mut<'_> {
         for (at, _) in pairs {
             let viewers = self.state.rules.block_entities.viewers(world, at).to_vec();
             for session in viewers {
-                inventory::close_window(self.state, session);
+                inventory::close_window_without_event(self.state, session);
             }
         }
         for (at, with) in pairs {
