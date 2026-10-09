@@ -662,28 +662,7 @@ fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
     if delta.length_squared() > MAX_MOVE_SQUARED {
         return collides(world, bb);
     }
-    collides(world, stretch(bb, -delta))
-}
-
-/// The box extended by `d` (PMMP `AxisAlignedBB::addCoord`).
-fn stretch(bb: Aabb, d: Vec3) -> Aabb {
-    let mut out = bb;
-    if d.x < 0.0 {
-        out.min.x += d.x;
-    } else {
-        out.max.x += d.x;
-    }
-    if d.y < 0.0 {
-        out.min.y += d.y;
-    } else {
-        out.max.y += d.y;
-    }
-    if d.z < 0.0 {
-        out.min.z += d.z;
-    } else {
-        out.max.z += d.z;
-    }
-    out
+    collides(world, bb.stretch(-delta))
 }
 
 /// Whether any loaded block's collision box overlaps `bb` (PMMP `World::getCollisionBlocks`);
@@ -1395,14 +1374,6 @@ mod tests {
         assert!(e.is_cancelled());
         e.uncancel();
         assert!(!e.is_cancelled());
-    }
-
-    #[test]
-    fn boxes_stretch_along_the_move() {
-        let bb = Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0));
-        let s = stretch(bb, Vec3::new(-2.0, 3.0, 0.0));
-        assert_eq!(s.min, Vec3::new(-2.0, 0.0, 0.0));
-        assert_eq!(s.max, Vec3::new(1.0, 4.0, 1.0));
     }
 
     #[test]
