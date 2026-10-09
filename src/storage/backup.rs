@@ -22,7 +22,7 @@ use redb::{Builder, Database, Durability, ReadableDatabase, TableDefinition, Tab
 use tracing::warn;
 
 use super::{CACHE_BYTES, Error, Result, StartBackup};
-use crate::clock;
+use crate::{clock, fs};
 
 /// Backups kept, of starts and online backups together.
 pub(crate) const KEPT: usize = 3;
@@ -79,7 +79,7 @@ pub(crate) fn create(world: &Path, dir: &Path, start: StartBackup) -> Result<Opt
 /// Copies `source`, the server file [`lock`] gave, into a new backup in `dir` and returns its
 /// path. The bytes go to `<backup>.tmp`, which is flushed to disk and then renamed, so a process
 /// killed mid-copy leaves no file with a backup name (it would count among the [`KEPT`] and push
-/// out a whole one); the next start removes the temporary file. With
+/// out a whole one); the next start removes the temporary file. The rename is flushed too. With
 /// [`StartBackup::Transient`] the copy keeps its temporary name, and its temporary path is
 /// returned: a start killed before removing it leaves no backup, and the next start removes it;
 /// a start that fails and keeps it gives it its backup name ([`keep`]).
@@ -108,8 +108,9 @@ pub(crate) fn copy(source: &mut impl io::Read, dir: &Path, start: StartBackup) -
     }
 }
 
-/// Gives `copy`, a [`StartBackup::Transient`] copy that a failed start keeps, its backup name, so
-/// the next start does not remove it as an incomplete one; returns the new path.
+/// Gives `copy`, a [`StartBackup::Transient`] copy that a failed start keeps, its backup name and
+/// flushes the folder, so the next start, even after a crash, does not remove it as an incomplete
+/// one; returns the new path.
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the save thread names a start copy it keeps, once"
@@ -118,6 +119,7 @@ pub(crate) fn keep(copy: &Path) -> Result<PathBuf> {
     // The copy's name is the backup's with `TEMP_SUFFIX`, one extension, after it.
     let path = copy.with_extension("");
     std::fs::rename(copy, &path).map_err(Error::Io)?;
+    fs::sync_parent(&path).map_err(Error::Io)?;
     Ok(path)
 }
 
@@ -130,7 +132,8 @@ struct Temp {
 }
 
 impl Temp {
-    /// Gives the file its backup name `to`.
+    /// Gives the file its backup name `to` and flushes the folder, so a crash does not take the
+    /// name back.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the save thread names a whole backup"
@@ -138,7 +141,7 @@ impl Temp {
     fn rename(mut self, to: &Path) -> Result<()> {
         std::fs::rename(&self.path, to).map_err(Error::Io)?;
         self.kept = true;
-        Ok(())
+        fs::sync_parent(to).map_err(Error::Io)
     }
 
     /// Keeps the file under its temporary name and returns its path.
@@ -363,7 +366,7 @@ pub(super) fn tables(source: &Database) -> Result<Vec<Source>> {
 /// An online backup being made: every table of one read transaction of the
 /// open server file, copied in steps of at most [`STEP_BYTES`], one commit each, into a new
 /// database under `<backup>.tmp`, which is then committed durably once, closed, flushed to disk
-/// and renamed. The step commits are not flushed: only the whole copy has to reach the disk, and
+/// and renamed, and its folder flushed. The step commits are not flushed: only the whole copy has to reach the disk, and
 /// a copy cut short is a `.tmp` file, never a backup. The read transaction is a consistent view
 /// of one commit, so commits made between steps are not in the copy. Dropped before it is whole,
 /// it removes its temporary file.

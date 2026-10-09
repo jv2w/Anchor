@@ -115,5 +115,5 @@ zlib과 Snappy를 둘 다 구현하고 `compression`으로 고른다. 기본은 
 - Join 전 대기 32개가 충분한지, ClientData의 엄격한 JSON이 공식 클라이언트 출력을 모두 받는지, 핑 응답에서 서바이벌 외 모드 뒤 숫자(공식 서버는 `Survival;1`만 보낸다).
 - 비신뢰 데이터 채널의 내용 형식, 공식 클라이언트 NetherNet에서 ICE consent RTT가 들어오는지.
 - 암호화 없는 RakNet 로그인(`enable-encryption = false`)을 공식 클라이언트가 받는지.
-- `identity.key`와 `auth.json`이 쓰는 원자 쓰기 도우미(`fs::write_atomic`)는 rename 뒤 폴더를 fsync하지 않는다. Linux에서 크래시가 나면 새로 만든 키 파일이 사라져 다음 시작에 키가 다시 생길 수 있다(Linux 검증 때 확인).
+- Windows는 폴더를 flush하지 못한다(`storage.md`의 크래시). 처음 만든 `identity.key`가 전원 차단으로 사라지면 다음 시작에 키가 다시 생긴다.
 - dimpl과 sctp-proto는 `log`로 기록하므로 `tracing`만 쓰는 바이너리에서는 그 기록이 보이지 않는다. 필요하면 사용자 바이너리가 다리를 둔다.

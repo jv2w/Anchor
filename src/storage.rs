@@ -1063,7 +1063,11 @@ impl Storage {
                         debug!(%file, "data file opened");
                     }
                     (None, _) if existed => debug!(%file, "data file opened"),
-                    (None, _) => info!(%file, "data file created"),
+                    (None, _) => {
+                        // Its first commit flushed the file, not its name in the folder.
+                        crate::fs::sync_parent(world).map_err(Error::Io)?;
+                        info!(%file, "data file created");
+                    }
                 }
                 Ok(storage)
             }
