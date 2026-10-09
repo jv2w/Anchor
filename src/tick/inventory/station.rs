@@ -876,6 +876,12 @@ fn use_anvil(
         return;
     };
     let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
+    // A player may use the anvil in several requests of one tick: the request's place in the
+    // tick keeps each use's draw its own.
+    let request = state
+        .players
+        .get(&session)
+        .map_or(0, |p| p.inventory.budget.1);
     let mut rng = Random::new(
         seed,
         state.tick,
@@ -883,6 +889,7 @@ fn use_anvil(
             ANVIL,
             &[
                 session.get(),
+                u64::from(request),
                 u64::from(pos.x.cast_unsigned()),
                 u64::from(pos.y.cast_unsigned()),
                 u64::from(pos.z.cast_unsigned()),

@@ -513,6 +513,73 @@ fn the_anvil_renames_and_repairs_for_levels() {
     check_slots(&w.state);
 }
 
+/// Each use of an anvil draws its own damage chance, also several uses of one player in one tick.
+#[test]
+fn anvil_uses_in_one_tick_draw_their_damage_apart() {
+    let (mut w, s) = world(&[Stack::new(item(Kind::Stick), 64)]);
+    let anvil = blk::Kind::Anvil.default_state();
+    w.place_block(AT, anvil);
+    w.open_block(s, AT);
+    // A request in the current tick.
+    let send = |w: &mut World, id: i32, actions: Vec<StackRequestAction>| {
+        let request = ItemStackRequest {
+            request_id: id,
+            actions,
+            filter_strings: vec!["x".to_owned()],
+            filter_cause: 0,
+        };
+        on_item_stack_request(&mut w.state, s, &request);
+        let sent = w.sent(s);
+        assert!(sent.iter().any(|p| matches!(
+            p,
+            Packet::ItemStackResponse(r) if r.responses.iter().all(ok)
+        )));
+    };
+    // Renames one stick into main slot 1; whether the anvil took damage.
+    let rename = |w: &mut World| {
+        let before = w.state.worlds[0].block(AT);
+        let id = w.next_id(s);
+        let from = w.id(s, COMBINED, 0);
+        send(
+            w,
+            id,
+            vec![place(1, at(COMBINED, 0, from), at(C::AnvilInput, 1, 0))],
+        );
+        let id = w.next_id(s);
+        let (input, to) = (w.id(s, C::AnvilInput, 1), w.id(s, COMBINED, 1));
+        let optional =
+            StackRequestAction::CraftRecipeOptional(CraftRecipeOptionalStackRequestAction {
+                recipe_network_id: 0,
+                filter_string_index: 0,
+            });
+        send(
+            w,
+            id,
+            vec![
+                optional,
+                consume(1, at(C::AnvilInput, 1, input)),
+                place(1, created(id), at(COMBINED, 1, to)),
+            ],
+        );
+        w.state.worlds[0].block(AT) != before
+    };
+    let mut apart = false;
+    for _ in 0..32 {
+        w.state.tick += 1;
+        w.state.worlds[0].set_block(AT, anvil).unwrap();
+        apart |= rename(&mut w) != rename(&mut w);
+    }
+    assert_eq!(
+        w.inv(s).main.stack(1).count(),
+        64,
+        "every rename went through"
+    );
+    assert!(
+        apart,
+        "two uses in one tick never differed: they share one draw"
+    );
+}
+
 /// Stacks a server gives with the highest enchantment level, or the highest prior work, go into
 /// the anvil: the level cannot climb past the maximum and the prior-work cost does not overflow.
 /// With no rename the work is nothing or too expensive, so each is refused and nothing changes.
