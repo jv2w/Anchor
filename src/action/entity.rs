@@ -9,7 +9,9 @@ use crate::{entity, player, world};
 /// knockback, Knockback and Fire Aspect, wear and hunger, with the events of each
 /// ([`EntityDamage`](crate::event::EntityDamage), [`EntityMotion`](crate::event::EntityMotion),
 /// [`EntityCombust`](crate::event::EntityCombust), [`EntityDeath`](crate::event::EntityDeath)).
-/// Nothing happens for a target that is not a living NPC, or a player who cannot reach it.
+/// A painting or an end crystal is hit too; nothing happens for any other target that is not a
+/// living NPC. A player who cannot reach the target only swings, with the sound of a hit that did
+/// no damage.
 #[doc(alias = "Player::attackEntity")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Attack {
