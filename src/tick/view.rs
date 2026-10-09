@@ -115,6 +115,14 @@ impl Out {
     pub(super) fn is_empty(&self) -> bool {
         !self.publish && self.chunks.is_empty() && self.answers.is_empty() && self.shown.is_empty()
     }
+
+    /// Empties it after the output phase, keeping the lists' room for the next tick.
+    pub(super) fn clear(&mut self) {
+        self.publish = false;
+        self.chunks.clear();
+        self.answers.clear();
+        self.shown.clear();
+    }
 }
 
 impl View {
@@ -1046,10 +1054,9 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
                 player.phase = Phase::Spawning;
             }
         }
-        let take = player.view.requests.len().min(SUB_CHUNK_REQUESTS_PER_TICK);
-        if take > 0 {
-            player.view.out.answers = player.view.requests.drain(..take).collect();
-        }
+        let view = &mut player.view;
+        let take = view.requests.len().min(SUB_CHUNK_REQUESTS_PER_TICK);
+        view.out.answers.extend(view.requests.drain(..take));
     }
     let moved = move_spawns(worlds, chunks, rules);
     request_spawn_loads(worlds, chunks);

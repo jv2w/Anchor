@@ -397,7 +397,7 @@ pub(super) fn output(
     packets.retain(|(_, m)| !m.is_empty());
     for player in state.players.values_mut() {
         player.pending = Pending::default();
-        player.view.out = view::Out::default();
+        player.view.out.clear();
     }
     packets
 }
