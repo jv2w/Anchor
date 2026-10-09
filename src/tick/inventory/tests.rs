@@ -1597,14 +1597,29 @@ fn the_legacy_drop_takes_from_a_main_slot_only_with_room() {
     let s = w.join(1);
     w.give(s, Stack::new(item(it::Kind::Stick), 10));
     let id = w.id(s, C::HotBar, 0);
+    // A refused drop sends the slot back: the client took the items away as it sent the drop.
+    let resent = |w: &mut World| {
+        let sent = w.sent(s);
+        assert!(
+            sent.iter().any(|p| matches!(
+                p,
+                Packet::InventorySlot(i)
+                    if i.slot == 0 && i.new_item.stack.count == 10 && i.new_item.stack_network_id == id
+            )),
+            "{sent:?}"
+        );
+    };
+    w.sent(s);
     set_room(0);
     assert!(!drop_from_main(&mut w.state, s, 0, 3));
     assert_eq!(w.slot(s, C::HotBar, 0).stack.count(), 10);
+    resent(&mut w);
     set_room(1);
     assert!(
         !drop_from_main(&mut w.state, s, 0, 11),
         "more than the slot holds"
     );
+    resent(&mut w);
     assert!(drop_from_main(&mut w.state, s, 0, 3));
     let after = w.slot(s, C::HotBar, 0);
     assert_eq!(after.stack.count(), 7);

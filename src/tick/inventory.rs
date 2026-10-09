@@ -2421,13 +2421,18 @@ pub(super) fn hold_outside(player: &mut Player, cursor: Stack, grid: Stack) -> b
 
 /// Drops `count` items of main slot `slot` in front of the player (PMMP `Player::dropItem`, the
 /// legacy `InventoryTransaction` drop of the Q key): false, and nothing changes, if the slot
-/// holds fewer or the world has no room for the item entity.
+/// holds fewer or the world has no room for the item entity. A refused drop sends the slot back,
+/// as the client took the items away as it sent the drop.
 pub(super) fn drop_from_main(state: &mut State, session: SessionId, slot: u8, count: u8) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;
     };
     let have = player.inventory.main.stack(slot).clone();
-    if count == 0 || have.count() < count || player.phase == Phase::Loading {
+    if count == 0 || player.phase == Phase::Loading {
+        return false;
+    }
+    if have.count() < count {
+        resend_main(state, session, slot);
         return false;
     }
     let mut event = dispatch::heard::<PlayerDropItem>(state).then(|| PlayerDropItem {
@@ -2448,6 +2453,7 @@ pub(super) fn drop_from_main(state: &mut State, session: SessionId, slot: u8, co
         }
     }
     if !throw_stack(state, session, have.with_count(count)) {
+        resend_main(state, session, slot);
         return false;
     }
     let Some(player) = state.players.get_mut(&session) else {
