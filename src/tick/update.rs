@@ -1859,7 +1859,11 @@ mod tests {
         }
         advance(&mut state);
         assert_eq!(colour(&state), Some(-1));
-        set(&mut state, pos.step(Face::Up).unwrap(), Kind::Water.default_state());
+        set(
+            &mut state,
+            pos.step(Face::Up).unwrap(),
+            Kind::Water.default_state(),
+        );
         advance(&mut state);
         assert_eq!(get(&state, pos), full);
         assert_eq!(colour(&state), None);

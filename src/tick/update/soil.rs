@@ -497,27 +497,27 @@ pub(super) fn cauldron_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::S
     if cx.block(pos.step(Face::Up)).kind() != Kind::Water {
         return;
     }
-    if !props::int(block, "fill_level").is_some_and(|f| f >= CAULDRON_FULL)
+    if props::int(block, "fill_level").is_none_or(|f| f < CAULDRON_FULL)
         && let Some(full) = props::with_int(block, "fill_level", CAULDRON_FULL)
             .and_then(|s| props::with_text(s, "cauldron_liquid", "water"))
     {
         cx.set(pos, full);
     }
     // Read first: `get_mut` marks the block entities of the chunk changed.
-    let mixed = matches!(
+    let tinted = matches!(
         cx.state.rules.block_entities.get(cx.world, pos),
         Some(BlockEntity {
             kind: block_entity::Kind::Cauldron(c),
             ..
-        }) if *c != Default::default()
+        }) if c.colour.is_some() || c.potion != -1
     );
-    if mixed
+    if tinted
         && let Some(BlockEntity {
             kind: block_entity::Kind::Cauldron(c),
             ..
         }) = cx.state.rules.block_entities.get_mut(cx.world, pos)
     {
-        *c = Default::default();
+        std::mem::take(c);
         block_entity::broadcast_spawn(cx.state, cx.world, pos);
     }
 }
