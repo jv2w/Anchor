@@ -103,12 +103,19 @@ pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequ
         return Context::default();
     };
     let kind = player.inventory.window.as_ref().map(|w| w.kind);
+    // Only a payment reads the pyramid, which takes up to a few hundred block reads.
+    let pays = || {
+        request
+            .actions
+            .iter()
+            .any(|a| matches!(a, StackRequestAction::BeaconPayment(_)))
+    };
     let beacon_level = match kind {
         Some(WindowKind::Station {
             world,
             pos,
             kind: Station::Beacon,
-        }) => block_entity::beacon_level(state, world, pos),
+        }) if pays() => block_entity::beacon_level(state, world, pos),
         _ => 0,
     };
     let offers = if matches!(kind, Some(WindowKind::Trade { .. })) {
