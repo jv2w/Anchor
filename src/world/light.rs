@@ -1158,9 +1158,9 @@ impl Engine {
                 .unwrap_or(Facing::North);
             let i = retired.cursor % FACE_PAIRS;
             let sub = usize::try_from(i >> 8).unwrap_or(0);
-            let Some(other) = beside(retired.chunk, side)
+            let Some((other, other_light)) = beside(retired.chunk, side)
                 .and_then(|p| chunks.get(p))
-                .and_then(Chunk::light)
+                .and_then(|c| c.light().map(|l| (c, l)))
             else {
                 retired.cursor = (retired.cursor / FACE_PAIRS + 1) * FACE_PAIRS;
                 continue;
@@ -1170,7 +1170,7 @@ impl Engine {
             // are 15) or as bright throughout.
             let unrelated = |c| {
                 let had = retired.light.array(c, sub).and_then(Nibbles::uniform);
-                let has = other.array(c, sub).and_then(Nibbles::uniform);
+                let has = other_light.array(c, sub).and_then(Nibbles::uniform);
                 matches!(had, Some(0 | 1))
                     || matches!(has, Some(0 | FULL))
                     || matches!((had, has), (Some(a), Some(b)) if b >= a)
@@ -1183,37 +1183,26 @@ impl Engine {
             let Some((p, q)) = face_pair(retired.chunk, side, i) else {
                 continue;
             };
-            let Some(spot) = Spot::of(p) else {
+            let (Some(spot), Some(at)) = (Spot::of(p), Spot::of(q)) else {
                 continue;
             };
-            for channel in [Channel::Block, Channel::Sky] {
+            // Light at `q` (in `other`) that the retired block may have given is removed unless
+            // `q` is brighter, dark or lit by itself. Removing one channel never changes the
+            // other, so both are decided from this lookup.
+            let taken = [Channel::Block, Channel::Sky].map(|channel| {
                 let had = retired.light.get(channel, spot.sub, spot.at);
-                if had >= 2 {
-                    self.take_out_at(chunks, q, channel, had);
-                }
+                let current = other_light.get(channel, at.sub, at.at);
+                let own = || {
+                    let values = other.light_values_at(at.sub, at.at);
+                    source(channel, values, q.y, other_light.height(at.column))
+                };
+                (had >= 2 && current < had && current > own()).then_some((channel, had))
+            });
+            for (channel, had) in taken.into_iter().flatten() {
+                self.remove(chunks, q, channel, had);
             }
         }
         retired.cursor >= total
-    }
-
-    /// Light at `q` that a retired block with light `had` may have given: removed unless `q` is
-    /// brighter, dark or lit by itself.
-    fn take_out_at(&mut self, chunks: &mut ChunkIndex, q: BlockPos, channel: Channel, had: u8) {
-        let Some(spot) = Spot::of(q) else {
-            return;
-        };
-        let Some(chunk) = chunks.get(spot.chunk) else {
-            return;
-        };
-        let values = chunk.light_values_at(spot.sub, spot.at);
-        let Some(light) = chunk.light() else {
-            return;
-        };
-        let current = light.get(channel, spot.sub, spot.at);
-        let own = source(channel, values, q.y, light.height(spot.column));
-        if current < had && current > own {
-            self.remove(chunks, q, channel, had);
-        }
     }
 
     fn queues_empty(&self) -> bool {
