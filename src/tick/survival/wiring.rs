@@ -443,6 +443,34 @@ fn respawn_listeners_move_the_respawn_and_hardcore_asks_for_spectator() {
     assert_eq!(game.player(1).position, spawn);
 }
 
+/// A world unloaded since is ignored too: the player respawns at its respawn point.
+#[test]
+fn a_respawn_listener_cannot_send_the_player_to_an_unloaded_world() {
+    let arena = world::Id::new(1).unwrap();
+    let listeners = on(move |e: &mut PlayerRespawn, _: &mut Context<'_>| {
+        e.set_position(arena, Vec3::new(0.5, -60.0, 0.5));
+    });
+    let mut game = Game::new(1, listeners);
+    game.state.add_world(world::World::new(
+        "arena",
+        world::Kind::Temporary,
+        0,
+        BlockPos::new(0, -60, 0),
+    ));
+    Context {
+        state: &mut game.state,
+    }
+    .force_unload_world(arena)
+    .unwrap();
+    game.idle(1);
+    let spawn = game.player(1).position;
+    game.player_mut(1).position = spawn + Vec3::new(20.0, 0.0, 0.0);
+    assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+    damage::respawn(&mut game.state, sid(1));
+    assert_eq!(game.player(1).world, 0);
+    assert_eq!(game.player(1).position, spawn);
+}
+
 // pmmp: PlayerGameModeChangeEvent, Player::setGamemode
 #[test]
 fn the_game_mode_action_asks_and_the_direct_call_does_not() {

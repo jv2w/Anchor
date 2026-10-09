@@ -1831,10 +1831,12 @@ fn hardcore_spectator(state: &mut State, session: SessionId) {
 }
 
 /// Where a [`PlayerRespawn`] listener sends the player: the world's index and the eye position;
-/// `None` for a world the server does not run or a place outside the world border.
+/// `None` for a world the server does not run (or unloaded) or a place outside the world border.
 fn respawn_target(state: &State, world: world::Id, feet: Vec3) -> Option<(WorldIndex, Vec3)> {
     let index = world.index();
-    state.worlds.get(index)?;
+    if !state.catalog.is_loaded(index) {
+        return None;
+    }
     let eye = feet + Vec3::new(0.0, EYE_HEIGHT, 0.0);
     let border = f64::from(crate::tick::MAX_COORDINATE);
     (eye.is_finite() && [eye.x, eye.y, eye.z].iter().all(|c| c.abs() <= border))
