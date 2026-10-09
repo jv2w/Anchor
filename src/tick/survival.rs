@@ -1793,6 +1793,15 @@ mod tests {
         assert_eq!(left, Some(speed));
     }
 
+    /// A player that may fly takes no fall damage, flying or not (PMMP `Player::attack`).
+    #[test]
+    fn a_player_that_may_fly_takes_no_fall_damage() {
+        let mut server = Server::new(1, |_| {});
+        server.player_mut(1).set_allow_flight(true);
+        assert!(!server.hurt(1, 4.0, Damage::Fall));
+        assert!(server.hurt(1, 4.0, Damage::Contact));
+    }
+
     /// The respawn invulnerability counts down after the void and the fire hurt (PMMP
     /// `Entity::entityBaseTick`): its last tick still keeps them off.
     #[test]

@@ -454,9 +454,9 @@ pub(super) fn damage_quiet(
 
 /// Whether a hit can land on the player at all (PMMP `Player::attack`, `Living::attack`, the
 /// cooldown of `Living::applyDamageModifiers`): spawned and alive, not creative nor just
-/// respawned, a spectator only in the void, fire resistance against fire, and within the hit
-/// cooldown only a stronger hit. Nothing spares a player from [`Damage::Suicide`] but spectator
-/// mode outside it, death and fire resistance.
+/// respawned, a spectator only in the void, no fall for a player that may fly, fire resistance
+/// against fire, and within the hit cooldown only a stronger hit. Nothing spares a player from
+/// [`Damage::Suicide`] but spectator mode outside it, death and fire resistance.
 fn lands(player: &Player, hit: &Hit) -> bool {
     let s = &player.survival;
     let mode = s.mode();
@@ -465,6 +465,7 @@ fn lands(player: &Player, hit: &Hit) -> bool {
         && !s.is_dead()
         && (suicide || (mode != GameMode::Creative && s.no_damage_ticks == 0))
         && (mode != GameMode::Spectator || matches!(hit.cause, Damage::Void | Damage::Suicide))
+        && !(hit.cause == Damage::Fall && s.may_fly())
         && !(hit.cause.is_fire() && s.effects.contains_key(&Effect::FireResistance))
         && (suicide || s.attack_time == 0 || s.last_damage.is_none_or(|last| last < hit.base))
 }
