@@ -751,8 +751,11 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
         player.send_packet(packet);
     }
     if let Some(data) = data {
-        player.send_packet(data.clone());
+        // The viewers first, so the player's own copy is the packet itself, not a clone.
         broadcast_to_viewers(state, session, &data);
+        if let Some(player) = state.players.get_mut(&session) {
+            player.send_packet(data);
+        }
     }
     if let Some(health) = health {
         broadcast_to_viewers(state, session, &health);
