@@ -789,6 +789,29 @@ fn furnace(listeners: Listeners, ticks: u32) -> Vec<Stack> {
         .clone()
 }
 
+/// A `FurnaceBurn` listener that swaps the fuel cancels this burn, and the furnace burns the new
+/// fuel the next tick as after any other change of its slots.
+#[test]
+fn a_furnace_whose_fuel_a_listener_swaps_burns_it_the_next_tick() {
+    let swap_coal = || {
+        on(|e: &mut FurnaceBurn, cx: &mut Context<'_>| {
+            if e.fuel().item() == Some(item(it::Kind::Coal)) {
+                let mut inv = cx.block_inventory_mut(world::Id::DEFAULT, e.pos()).unwrap();
+                inv.set(1, Stack::new(named("minecraft:charcoal"), 1))
+                    .unwrap();
+            }
+        })
+    };
+    let charcoal = Stack::new(named("minecraft:charcoal"), 1);
+    assert_eq!(
+        furnace(swap_coal(), 1)[1],
+        charcoal,
+        "the coal's burn cancelled"
+    );
+    let fuel = furnace(swap_coal(), 2)[1].clone();
+    assert!(fuel.is_empty(), "the charcoal burns: {fuel:?}");
+}
+
 // pmmp: FurnaceBurnEvent, FurnaceSmeltEvent
 #[test]
 fn furnace_events_change_the_burn_and_the_result_and_cancelling_keeps_the_items() {

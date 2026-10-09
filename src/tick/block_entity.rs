@@ -1962,6 +1962,9 @@ fn tick_furnace(
     };
     let before = (f.burn, f.cook, f.max_burn, f.xp);
     let mut t = f.begin(lit);
+    // Out of the active set while the events run: a listener that changes the slots wakes the
+    // furnace (`set_slot`), and that wake stays whatever this tick's step says.
+    state.rules.block_entities.active.remove(&(world, pos));
     let (mut burnt, mut smelted) = (None, None);
     if furnace_fuel(state, world, pos, block, &mut t, &mut burnt).is_none()
         || furnace_smelt(state, world, pos, block, &mut rng, &mut t, &mut smelted).is_none()
@@ -1977,8 +1980,8 @@ fn tick_furnace(
     if after != before || step.slots != 0 {
         entities.changed.insert(key);
     }
-    if !step.active {
-        entities.active.remove(&(world, pos));
+    if step.active {
+        entities.active.insert((world, pos));
     }
     if let Some(lit) = step.lit
         && let Some(next) = interact::props::with_lit(block, lit)
