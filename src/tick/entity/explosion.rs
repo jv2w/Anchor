@@ -500,18 +500,31 @@ fn affected(
                 let shift = Vec3::new(x / length * STEP, y / length * STEP, z / length * STEP);
                 let mut pointer = center;
                 let mut force = size * (f64::from(random.range(700, 1300)) / 1000.0);
+                // A step is shorter than a block, so a ray stays in a cell for several steps. The
+                // cell is read, and tried for the list, only at the first: a straight ray never
+                // comes back to a cell it left, and it goes past that first step only with force
+                // left, so the cell was already tried there.
+                let mut cell: Option<(BlockPos, f64)> = None;
                 while force > 0.0 {
                     let pos = BlockPos::containing(pointer);
                     pointer += shift;
                     if (MIN_Y..=MAX_Y).contains(&pos.y) {
-                        let Some(state) = w.block(pos) else {
-                            // A chunk that is not loaded: the ray stops at the border.
-                            break;
+                        let repeat = cell.filter(|&(at, _)| at == pos);
+                        let resistance = match repeat {
+                            Some((_, resistance)) => resistance,
+                            None => {
+                                let Some(state) = w.block(pos) else {
+                                    // A chunk that is not loaded: the ray stops at the border.
+                                    break;
+                                };
+                                let resistance = state.break_info().blast_resistance();
+                                cell = Some((pos, resistance));
+                                resistance
+                            }
                         };
-                        let resistance = state.break_info().blast_resistance();
                         if resistance >= 0.0 {
                             force -= (resistance / 5.0 + 0.3) * STEP;
-                            if force > 0.0 && seen.insert(pos) {
+                            if force > 0.0 && repeat.is_none() && seen.insert(pos) {
                                 blocks.push(pos);
                                 if fire_chance > 0.0 && random.unit() <= fire_chance {
                                     ignitions.push(pos);
