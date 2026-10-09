@@ -18,6 +18,8 @@ use super::{Error, Result};
 pub(crate) const SLOTS: u16 = 4096;
 /// Bits per index Bedrock writes (dragonfly `sizes`; `crate::protocol` reads the same).
 const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
+/// The most bytes a 32-bit varint takes.
+const MAX_VARINT32_BYTES: usize = 5;
 
 /// The slot of (x, y, z) in a cube, each taken modulo 16, in Bedrock's x, z, y order.
 pub(crate) fn offset(x: u8, y: u8, z: u8) -> u16 {
@@ -495,6 +497,12 @@ impl<T: Derive> Paletted<T> {
             .map(|o| map.get(usize::from(self.index(o))).copied().unwrap_or(0))
             .collect();
         *self = Self::build(&palette, bits, &indices);
+    }
+
+    /// The most bytes [`Self::encode`] writes: the header, the words, and the palette length and
+    /// entries as varints of at most [`MAX_VARINT32_BYTES`].
+    pub(crate) fn max_encoded_bytes(&self) -> usize {
+        1 + 4 * self.words.len() + MAX_VARINT32_BYTES * (1 + self.palette.len())
     }
 
     /// Writes the network form (runtime palette): the header, the words, and the palette as

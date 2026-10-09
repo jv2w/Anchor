@@ -124,6 +124,15 @@ impl SubChunk {
         self.layers.iter().all(|l| l.is_uniform(Entry::AIR))
     }
 
+    /// The most bytes [`Self::encode`] writes: three header bytes and both layers.
+    pub(crate) fn max_encoded_bytes(&self) -> usize {
+        3 + self
+            .layers
+            .iter()
+            .map(Paletted::max_encoded_bytes)
+            .sum::<usize>()
+    }
+
     /// Writes the network form (version 9): the layers in runtime form with network IDs, inert
     /// entries as themselves, unknown ones as `minecraft:info_update`. Layer 1 is left out when it
     /// is all air, as BDS does.

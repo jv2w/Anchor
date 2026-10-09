@@ -409,7 +409,7 @@ impl Chunk {
     pub(crate) fn sub_chunk_payload(&self, index: usize) -> Option<Vec<u8>> {
         let sub = self.sub_chunk(index)?;
         let y_index = i8::try_from(index).ok()?.checked_add(LOWEST_SUB_CHUNK)?;
-        let mut w = Writer::new(Vec::with_capacity(1100), 0);
+        let mut w = Writer::new(Vec::with_capacity(sub.max_encoded_bytes()), 0);
         sub.encode(y_index, &mut w);
         Some(w.into_inner())
     }
@@ -650,6 +650,19 @@ pub(crate) mod tests {
             snapshot.sub_chunks[0].as_ref().unwrap(),
             chunk.sub_chunks[0].as_ref().unwrap()
         ));
+    }
+
+    #[test]
+    fn a_sub_chunk_payload_is_encoded_without_growing_its_buffer() {
+        let mut chunk = Chunk::generate(&Flat, 1, ChunkPos::new(0, 0));
+        // 60 states in layer 0: a 6-bit palette.
+        for (i, s) in (0u8..60).zip(State::all().step_by(97)) {
+            chunk.set_block(i % 16, -60, i / 16, s).unwrap();
+        }
+        let sub = chunk.sub_chunk(0).unwrap();
+        let payload = chunk.sub_chunk_payload(0).unwrap();
+        assert!(payload.len() <= sub.max_encoded_bytes());
+        assert_eq!(payload.capacity(), sub.max_encoded_bytes());
     }
 
     #[test]
