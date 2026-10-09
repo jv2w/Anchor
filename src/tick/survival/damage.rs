@@ -217,6 +217,7 @@ const HALF_HEIGHT: f64 = PLAYER_HEIGHT / 2.0;
 
 const ARMOR_WEAR: u64 = random::tag("armor-wear");
 const PROTECTION: u64 = random::tag("protection");
+const RESPIRATION: u64 = random::tag("respiration");
 const THORNS: u64 = random::tag("thorns");
 const TOOL_WEAR: u64 = random::tag("tool-wear");
 
@@ -1949,7 +1950,7 @@ fn air_tick(state: &mut State, session: SessionId) -> bool {
     } else {
         let loses = respiration == 0 || {
             let seed = state.worlds.get(player.world).map_or(0, world::World::seed);
-            let mut r = player_random(seed, tick, player, random::tag("respiration"));
+            let mut r = player_random(seed, tick, player, RESPIRATION);
             r.unit() <= 1.0 / f64::from(respiration + 1)
         };
         let s = &mut player.survival;
