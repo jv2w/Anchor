@@ -24,10 +24,15 @@ impl Encoder {
         Self(libdeflater::Compressor::new(level))
     }
 
+    /// The most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
+    pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
+        self.0.deflate_compress_bound(input_len)
+    }
+
     /// Appends the raw DEFLATE encoding of `input` to `out`.
     pub(crate) fn compress(&mut self, input: &[u8], out: &mut Vec<u8>) {
         let start = out.len();
-        let bound = self.0.deflate_compress_bound(input.len());
+        let bound = self.max_compressed_len(input.len());
         out.resize(start.saturating_add(bound), 0);
         #[expect(
             clippy::indexing_slicing,

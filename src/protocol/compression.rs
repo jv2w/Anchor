@@ -112,6 +112,14 @@ impl Compressor {
         }
     }
 
+    /// The most bytes [`Compressor::compress`] appends for `input_len` bytes of input.
+    pub(crate) fn max_compressed_len(&mut self, input_len: usize) -> usize {
+        match self {
+            Self::Zlib(encoder) => encoder.max_compressed_len(input_len),
+            Self::Snappy(_) => snappy::max_compressed_len(input_len),
+        }
+    }
+
     /// Appends the compressed `input` to `out`. Input longer than `limit` is a size error.
     pub(crate) fn compress(&mut self, input: &[u8], out: &mut Vec<u8>, limit: usize) -> Result<()> {
         if input.len() > limit {

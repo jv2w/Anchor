@@ -132,15 +132,23 @@ impl Encoder {
     pub fn encode(&mut self, payload: &[u8], out: &mut Vec<u8>) -> Result<()> {
         out.clear();
         if payload.len() < usize::from(self.settings.threshold) {
-            // Room for the checksum RakNet encryption appends, as the compressors' bounds leave.
+            // Room for the checksum RakNet encryption appends.
             out.reserve(1 + payload.len() + CHECKSUM);
             out.push(UNCOMPRESSED);
             out.extend_from_slice(payload);
             return Ok(());
         }
+        let limit = self.settings.max_batch_bytes;
+        if payload.len() > limit {
+            return Err(Error::Compression(compression::Error::Size { limit }));
+        }
+        // One allocation for the header, the compressor's worst case and the checksum: the zlib
+        // bound has no slack to spare.
+        let max_len = self.compressor.max_compressed_len(payload.len());
+        out.reserve(max_len.saturating_add(1 + CHECKSUM));
         out.push(self.settings.compression.header());
         self.compressor
-            .compress(payload, out, self.settings.max_batch_bytes)
+            .compress(payload, out, limit)
             .map_err(Error::Compression)
     }
 }
@@ -853,6 +861,10 @@ mod tests {
             encoder.encode(&[7; 256], &mut body).unwrap();
             assert_eq!(body[0], compression.header());
             assert!(body.len() < 256);
+            // Incompressible: zlib's stored output fills its bound.
+            let mut fresh = Vec::new();
+            encoder.encode(&sample(300, false, 1), &mut fresh).unwrap();
+            assert!(fresh.capacity() >= fresh.len() + CHECKSUM);
         }
     }
 
@@ -925,6 +937,8 @@ mod tests {
             Encoder::new(limit).encode(&vec![0; MIB + 1], &mut out),
             size
         );
+        // Refused before anything is allocated for it.
+        assert_eq!(out.capacity(), 0);
 
         for compression in [Compression::Zlib, Compression::Snappy] {
             let big = Settings::new(compression, 256, 6, 2 * MIB).unwrap();

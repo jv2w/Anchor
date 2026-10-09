@@ -31,12 +31,7 @@ impl Encoder {
 
     /// Appends the Snappy encoding of `input` to `out`. The caller keeps `input` within `u32`.
     pub(crate) fn compress(&mut self, input: &[u8], out: &mut Vec<u8>) {
-        out.reserve(
-            input
-                .len()
-                .saturating_add(input.len() / 6)
-                .saturating_add(32),
-        );
+        out.reserve(max_compressed_len(input.len()));
         let mut len = input.len();
         while len >= 0x80 {
             out.push(len.to_le_bytes()[0] | 0x80);
@@ -51,6 +46,11 @@ impl Encoder {
             }
         }
     }
+}
+
+/// The most bytes [`Encoder::compress`] appends for `input_len` bytes of input.
+pub(crate) fn max_compressed_len(input_len: usize) -> usize {
+    input_len.saturating_add(input_len / 6).saturating_add(32)
 }
 
 const fn hash(bytes: u32, shift: u32) -> usize {
