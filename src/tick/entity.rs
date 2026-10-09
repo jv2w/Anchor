@@ -1174,12 +1174,19 @@ impl Entities {
     /// up each of its chunks; a large one walks the index's columns in its x range instead, so
     /// the cost is bounded by the entities' chunks whatever the area (API callers pass any box).
     fn nearby(&self, world: WorldIndex, area: Aabb) -> Vec<Id> {
+        let mut out = Vec::new();
+        self.each_nearby(world, area, |id| out.push(id));
+        out
+    }
+
+    /// Calls `f` with each entity [`Self::nearby`] returns, in the same order, for callers that
+    /// only read the store meanwhile.
+    fn each_nearby(&self, world: WorldIndex, area: Aabb, mut f: impl FnMut(Id)) {
         let chunk = |v: f64| physics_block(v) >> 4;
         let (x0, x1) = (chunk(area.min.x - 2.0), chunk(area.max.x + 2.0));
         let (z0, z1) = (chunk(area.min.z - 2.0), chunk(area.max.z + 2.0));
-        let mut out = Vec::new();
         if x0 > x1 || z0 > z1 {
-            return out;
+            return;
         }
         let mut visit = |column: &Column| {
             for &id in &column.ids {
@@ -1187,7 +1194,7 @@ impl Entities {
                     && !e.flagged
                     && e.bounding_box().overlaps(area, EPSILON)
                 {
-                    out.push(id);
+                    f(id);
                 }
             }
         };
@@ -1208,7 +1215,6 @@ impl Entities {
                 }
             }
         }
-        out
     }
 
     /// Takes whether orbs exist ([`super::Settings::has_orbs`]; at start, before any chunk
@@ -2967,12 +2973,12 @@ fn merge(state: &mut State, id: Id, merges: &mut usize) {
     };
     let mut target = (id, item.stack.count());
     let mut mergeable = vec![id];
-    for other in entities.nearby(this.world, this.bounding_box().grow(MERGE_REACH)) {
+    entities.each_nearby(this.world, this.bounding_box().grow(MERGE_REACH), |other| {
         if other == id {
-            continue;
+            return;
         }
         let Some(o) = entities.get(other).and_then(as_item) else {
-            continue;
+            return;
         };
         if is_mergeable(o, item) {
             mergeable.push(other);
@@ -2980,7 +2986,7 @@ fn merge(state: &mut State, id: Id, merges: &mut usize) {
                 target = (other, o.stack.count());
             }
         }
-    }
+    });
     let target = target.0;
     for source in mergeable {
         if source == target || *merges >= MAX_MERGES_PER_TICK {

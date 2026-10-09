@@ -456,12 +456,12 @@ pub(super) fn hit(
             .grow(Vec3::new(1.0, 1.0, 1.0));
         let mut best = f64::MAX;
         let entities = &state.rules.entities;
-        for other in entities.nearby(world, area) {
+        entities.each_nearby(world, area, |other| {
             let Some(other_entity) = entities.get(other) else {
-                continue;
+                return;
             };
             if other == id || !super::is_projectile_target(other_entity) {
-                continue;
+                return;
             }
             let reach = other_entity
                 .bounding_box()
@@ -474,7 +474,7 @@ pub(super) fn hit(
                     struck = Some(Struck::Entity(other));
                 }
             }
-        }
+        });
         for (&session, player) in &state.players {
             if !targetable(state, player, world, hooks)
                 || !player_box(player).overlaps(area, super::EPSILON)
