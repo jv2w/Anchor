@@ -1828,6 +1828,43 @@ mod tests {
         assert_eq!(get(&state, soul), block::AIR);
     }
 
+    /// Water above a full dyed cauldron makes it plain water (PMMP
+    /// `WaterCauldron::onNearbyBlockChange` clears the custom colour).
+    #[test]
+    fn water_above_a_dyed_cauldron_clears_its_colour() {
+        let mut state = server();
+        let pos = BlockPos::new(5, -60, 5);
+        let full = find(
+            "minecraft:cauldron",
+            &[
+                ("cauldron_liquid", PropertyValue::String("water")),
+                ("fill_level", PropertyValue::Int(CAULDRON_FULL)),
+            ],
+        );
+        set(&mut state, pos, full);
+        block_entity::missing(&mut state, 0, pos);
+        let colour = |state: &State| match state.rules.block_entities.get(0, pos) {
+            Some(block_entity::BlockEntity {
+                kind: block_entity::Kind::Cauldron(c),
+                ..
+            }) => c.colour,
+            other => panic!("{other:?}"),
+        };
+        if let Some(block_entity::BlockEntity {
+            kind: block_entity::Kind::Cauldron(c),
+            ..
+        }) = state.rules.block_entities.get_mut(0, pos)
+        {
+            c.colour = Some(-1);
+        }
+        advance(&mut state);
+        assert_eq!(colour(&state), Some(-1));
+        set(&mut state, pos.step(Face::Up).unwrap(), Kind::Water.default_state());
+        advance(&mut state);
+        assert_eq!(get(&state, pos), full);
+        assert_eq!(colour(&state), None);
+    }
+
     /// Fire next to TNT primes it (PMMP `TNT::onIncinerate`): the block goes and primed TNT
     /// takes its place, instead of the TNT burning away.
     #[test]

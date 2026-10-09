@@ -12,6 +12,7 @@ use super::support::{self, side};
 use crate::block::{self, Class, CopperOxidation, Face, Kind, Trait};
 use crate::event::{Actor, EntityTrampleFarmland, FarmlandHydrationChange, LeavesDecay};
 use crate::random::Random;
+use crate::tick::block_entity::{self, BlockEntity};
 use crate::tick::interact;
 use crate::world::BlockPos;
 
@@ -489,17 +490,35 @@ pub(super) fn concrete_powder(cx: &mut Cx<'_>, pos: BlockPos, block: block::Stat
 /// PMMP `FillableCauldron::MAX_FILL_LEVEL`.
 pub(in crate::tick) const CAULDRON_FULL: i32 = 6;
 
-/// PMMP `Cauldron`/`WaterCauldron`/`PotionCauldron::onNearbyBlockChange`: water above fills it.
-/// A water cauldron's custom colour lives in its block entity (inventory rules).
+/// PMMP `Cauldron`/`WaterCauldron`/`PotionCauldron::onNearbyBlockChange`: water above fills it
+/// with plain water. A cauldron's dye and potion live in its block entity (inventory rules), so
+/// they are cleared there.
 pub(super) fn cauldron_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    if props::int(block, "fill_level").is_some_and(|f| f >= CAULDRON_FULL) {
+    if cx.block(pos.step(Face::Up)).kind() != Kind::Water {
         return;
     }
-    if cx.block(pos.step(Face::Up)).kind() == Kind::Water
+    if !props::int(block, "fill_level").is_some_and(|f| f >= CAULDRON_FULL)
         && let Some(full) = props::with_int(block, "fill_level", CAULDRON_FULL)
             .and_then(|s| props::with_text(s, "cauldron_liquid", "water"))
     {
         cx.set(pos, full);
+    }
+    // Read first: `get_mut` marks the block entities of the chunk changed.
+    let mixed = matches!(
+        cx.state.rules.block_entities.get(cx.world, pos),
+        Some(BlockEntity {
+            kind: block_entity::Kind::Cauldron(c),
+            ..
+        }) if *c != Default::default()
+    );
+    if mixed
+        && let Some(BlockEntity {
+            kind: block_entity::Kind::Cauldron(c),
+            ..
+        }) = cx.state.rules.block_entities.get_mut(cx.world, pos)
+    {
+        *c = Default::default();
+        block_entity::broadcast_spawn(cx.state, cx.world, pos);
     }
 }
 
