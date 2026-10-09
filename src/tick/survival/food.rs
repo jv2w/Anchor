@@ -224,7 +224,7 @@ pub(super) fn add_food(s: &mut Survival, food: f64, saturation: f64) {
 /// One tick of hunger (PMMP `HungerManager::tick`): peaceful refills food and heals; a full bar
 /// heals every 80 ticks for 6 exhaustion; an empty bar starves (easy down to 10 health, normal
 /// to 1, hard to death); food at 6 or below stops sprinting.
-pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
+pub(super) fn tick(state: &mut State, session: SessionId) {
     let world = state.players.get(&session).map_or(0, |p| p.world);
     let peaceful = difficulty(state, world) == Difficulty::Peaceful;
     let (peaceful_heal, full, starve) = {
@@ -232,7 +232,7 @@ pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
             return;
         };
         let s = &mut player.survival;
-        if !enabled || s.is_dead() {
+        if s.is_dead() {
             return;
         }
         player.data_dirty = true;

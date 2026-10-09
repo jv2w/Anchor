@@ -1912,7 +1912,6 @@ pub(super) fn living_tick(state: &mut State, session: SessionId) {
 /// out of air now.
 fn air_tick(state: &mut State, session: SessionId) -> bool {
     let tick = state.tick;
-    let seed = world_seed(state, session);
     let Some(player) = state.players.get(&session) else {
         return false;
     };
@@ -1949,6 +1948,7 @@ fn air_tick(state: &mut State, session: SessionId) -> bool {
         }
     } else {
         let loses = respiration == 0 || {
+            let seed = state.worlds.get(player.world).map_or(0, world::World::seed);
             let mut r = player_random(seed, tick, player, random::tag("respiration"));
             r.unit() <= 1.0 / f64::from(respiration + 1)
         };

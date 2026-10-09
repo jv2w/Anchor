@@ -636,7 +636,6 @@ pub(super) fn tick(state: &mut State) {
 /// `Living::entityBaseTick`, `Entity::entityBaseTick`).
 fn player_tick(state: &mut State, session: SessionId) {
     let tick = state.tick;
-    let seed = world_seed(state, session);
     let settings = &state.settings;
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -648,6 +647,7 @@ fn player_tick(state: &mut State, session: SessionId) {
         settings.hunger && player.survival.custom.hunger && is_survival(player.survival.mode());
     player.survival.motion.hunger = hunger;
     if player.survival.xp_seed.is_none() {
+        let seed = state.worlds.get(player.world).map_or(0, World::seed);
         let mut random = player_random(seed, tick, player, SEED);
         let [a, b, c, d, ..] = random.next_u64().to_le_bytes();
         player.survival.xp_seed = Some(i32::from_le_bytes([a, b, c, d]));
@@ -683,7 +683,9 @@ fn player_tick(state: &mut State, session: SessionId) {
         food::xp_tick(&mut player.survival);
     }
     damage::living_tick(state, session);
-    food::tick(state, session, hunger);
+    if hunger {
+        food::tick(state, session);
+    }
     food::using_tick(state, session);
     if let Some(player) = state.players.get_mut(&session) {
         movement::end_tick(player);
