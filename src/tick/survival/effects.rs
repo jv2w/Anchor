@@ -301,9 +301,16 @@ pub(super) fn all_packets(player: &Player) -> impl Iterator<Item = Packet> + '_ 
         .map(|(&effect, &active)| packet(player, effect, Some(active), MobEffectOperation::Add))
 }
 
-/// One tick of the player's effects (PMMP `EffectManager::tick`): each effect acts if its
+/// One tick of the living player's effects (PMMP `EffectManager::tick`): each effect acts if its
 /// interval divides its remaining duration, then counts down and ends at 0.
 pub(super) fn tick(state: &mut State, session: SessionId) {
+    if state
+        .players
+        .get(&session)
+        .is_none_or(|p| p.survival.is_dead())
+    {
+        return;
+    }
     for effect in active_types(state, session).into_iter().flatten() {
         let Some(active) = state
             .players

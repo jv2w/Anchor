@@ -1772,6 +1772,25 @@ mod tests {
         assert!(!damage(&mut server.state, sid(1), -1.0, Damage::Magic));
     }
 
+    /// A player the fire kills stops its effects in the same tick (PMMP `Living::entityBaseTick`
+    /// ticks them only while alive).
+    #[test]
+    fn effects_do_not_tick_on_a_player_that_just_died() {
+        let mut server = Server::new(1, |_| {});
+        let speed = Active::new(100, 0);
+        effects::add(&mut server.state, sid(1), effect::Type::Speed, speed);
+        server.survival(1).health = 1.0;
+        server.survival(1).fire_ticks = 21;
+        server.idle(1);
+        assert!(!is_alive(server.player(1)));
+        let left = server
+            .survival(1)
+            .effects
+            .get(&effect::Type::Speed)
+            .copied();
+        assert_eq!(left, Some(speed));
+    }
+
     /// Puts player 2 one block south of player 1, facing it, and returns the server.
     fn duel(edit: impl FnOnce(&mut Config)) -> Server {
         let mut server = Server::new(2, edit);
