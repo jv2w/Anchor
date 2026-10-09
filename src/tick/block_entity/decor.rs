@@ -166,10 +166,22 @@ impl Sign {
         let front = match take_compound(nbt, sign::FRONT) {
             Some(side) => SignSide::read(side),
             None => match nbt.remove(sign::TEXT) {
-                Some(Value::String(blob)) => SignSide::read(Compound::from([(
-                    sign::TEXT.to_owned(),
-                    Value::String(blob),
-                )])),
+                Some(Value::String(blob)) => {
+                    // The 1.2 format keeps the side's keys at the root, and its glow counts only
+                    // once the lighting bug was resolved (PMMP `readTextTag`).
+                    let mut side = Compound::from([(sign::TEXT.to_owned(), Value::String(blob))]);
+                    if let Some(colour) = nbt.remove("SignTextColor") {
+                        side.insert("SignTextColor".to_owned(), colour);
+                    }
+                    let resolved =
+                        take_byte(nbt, "TextIgnoreLegacyBugResolved").is_some_and(|b| b != 0);
+                    if let Some(glow) = nbt.remove("IgnoreLighting")
+                        && resolved
+                    {
+                        side.insert("IgnoreLighting".to_owned(), glow);
+                    }
+                    SignSide::read(side)
+                }
                 _ => SignSide::default(),
             },
         };
@@ -499,6 +511,25 @@ mod tests {
         let mut read = nbt.clone();
         assert_eq!(Sign::read(&mut read, false), sign);
         assert!(read.is_empty());
+    }
+
+    #[test]
+    fn a_legacy_sign_keeps_its_colour_and_its_glow_once_the_lighting_bug_was_resolved() {
+        let red = 0xffff_0000_u32.cast_signed();
+        for resolved in [false, true] {
+            let mut nbt = Compound::from([
+                ("Text".to_owned(), Value::String("a\nb".to_owned())),
+                ("SignTextColor".to_owned(), Value::Int(red)),
+                ("IgnoreLighting".to_owned(), Value::Byte(1)),
+            ]);
+            if resolved {
+                nbt.insert("TextIgnoreLegacyBugResolved".to_owned(), Value::Byte(1));
+            }
+            let sign = Sign::read(&mut nbt, false);
+            assert_eq!(sign.front.lines[..2], ["a".to_owned(), "b".to_owned()]);
+            assert_eq!((sign.front.colour, sign.front.glowing), (red, resolved));
+            assert!(nbt.is_empty(), "{nbt:?}");
+        }
     }
 
     #[test]
