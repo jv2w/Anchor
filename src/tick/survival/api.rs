@@ -1176,11 +1176,10 @@ impl Player {
     /// while it [may fly](Self::allow_flight).
     #[doc(alias = "Player::setFlying")]
     pub fn set_flying(&mut self, flying: bool) {
-        let s = &mut self.survival;
-        if s.motion.flying != flying {
-            s.motion.flying = flying;
-            s.fall_distance = 0.0;
-            s.touch(ABILITIES);
+        if self.survival.motion.flying != flying {
+            self.survival.motion.flying = flying;
+            self.reset_fall_distance();
+            self.survival.touch(ABILITIES);
         }
     }
 

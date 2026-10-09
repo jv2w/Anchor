@@ -734,7 +734,7 @@ fn fall_state(state: &mut State, session: SessionId, dy: f64, on_ground: bool) {
     }
     land(state, session);
     if let Some(player) = state.players.get_mut(&session) {
-        player.survival.fall_distance = 0.0;
+        player.reset_fall_distance();
     }
 }
 
@@ -906,7 +906,7 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
 /// Ends the player's fall.
 fn reset_fall(state: &mut State, session: SessionId) {
     if let Some(player) = state.players.get_mut(&session) {
-        player.survival.fall_distance = 0.0;
+        player.reset_fall_distance();
     }
 }
 
@@ -1023,7 +1023,7 @@ pub(super) fn teleport(state: &mut State, session: SessionId, eye: Vec3) {
     };
     player.position = eye;
     player.data_dirty = true;
-    player.survival.fall_distance = 0.0;
+    player.reset_fall_distance();
     player.survival.motion.processed = Some(feet(player));
     send_position(player, MoveMode::Teleport);
 }
@@ -1191,6 +1191,29 @@ mod tests {
         let player = &state.players[&SessionId::new(1)];
         assert_eq!(feet(player).y, -60.0);
         assert_eq!(player.survival.health, 20.0);
+    }
+
+    /// Whatever ends a fall restarts the ticks in the air (PMMP `Player::resetFallDistance`): a
+    /// player floating in water stays at none, and a teleport starts it again.
+    #[test]
+    fn what_ends_a_fall_restarts_the_ticks_in_the_air() {
+        let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
+        let water = block::Kind::Water.default_state();
+        state.worlds[0]
+            .set_block(BlockPos::new(0, -60, 0), water)
+            .unwrap();
+        let session = SessionId::new(1);
+        let player = state.players.get_mut(&session).unwrap();
+        player.position = Vec3::new(0.5, -60.0 + super::super::EYE_HEIGHT, 0.5);
+        player.survival.motion.on_ground = false;
+        for _ in 0..3 {
+            crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        assert_eq!(state.players[&session].in_air_ticks(), 0);
+        let player = state.players.get_mut(&session).unwrap();
+        player.survival.motion.in_air = 5;
+        teleport(&mut state, session, Vec3::new(0.5, -40.0, 0.5));
+        assert_eq!(state.players[&session].in_air_ticks(), 0);
     }
 
     // pmmp: Living::getFrostWalkerLevel
