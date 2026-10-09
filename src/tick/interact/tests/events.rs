@@ -989,6 +989,52 @@ fn actions_do_what_the_player_would_with_events() {
     assert!(trade_opened(&mut h));
 }
 
+/// A break elsewhere, done or refused, leaves the block the player breaks alone (PMMP
+/// `Player::stopBreakBlock` stops only the block it names).
+#[test]
+fn a_break_elsewhere_keeps_the_players_breaking() {
+    let beside = BlockPos::new(2, -60, 1);
+    let glass = Kind::Glass.default_state();
+    for cancel in [false, true] {
+        let l = if cancel {
+            listen(move |e: &mut BlockBreak, _: &mut Context<'_>| {
+                if e.pos() == beside {
+                    e.cancel();
+                }
+            })
+        } else {
+            Listeners::default()
+        };
+        let mut h = Harness::with(|_| {}, l);
+        h.set(TARGET, glass);
+        h.set(beside, glass);
+        h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+        h.packets();
+        // Nothing to break: refused.
+        perform(
+            &mut h,
+            action::BreakBlock::new(me(), BlockPos::new(3, -60, 1)),
+        );
+        perform(&mut h, action::BreakBlock::new(me(), beside));
+        assert_eq!(h.block(beside) == glass, cancel);
+        let target = h.player().breaking.target.as_ref().map(|t| t.pos);
+        assert_eq!(target, Some(TARGET), "cancelled: {cancel}");
+        assert!(
+            !h.packets().iter().any(|p| matches!(p, Packet::LevelEvent(e)
+            if e.event_type == i32::from(Event::StopBlockCracking)))
+        );
+        for _ in 0..8 {
+            h.act(Vec::new());
+        }
+        h.act(vec![action(
+            PlayerAction::PredictDestroyBlock,
+            TARGET,
+            Face::West,
+        )]);
+        assert_eq!(h.block(TARGET), block::AIR, "cancelled: {cancel}");
+    }
+}
+
 /// One of each interaction, the same every time: the state hash after it.
 fn every_interaction(listeners: Listeners) -> u64 {
     let mut h = Harness::with(|_| {}, listeners);

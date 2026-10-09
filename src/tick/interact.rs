@@ -1007,6 +1007,24 @@ pub(super) fn stop_breaking(state: &mut State, session: SessionId) {
     }
 }
 
+/// [`stop_breaking`] if the `actor` breaks the block at `pos` (PMMP `Player::stopBreakBlock`): a
+/// break elsewhere leaves the breaking alone.
+fn stop_breaking_at(state: &mut State, actor: &Actor, pos: BlockPos) {
+    let breaks = state
+        .players
+        .get(&actor.session)
+        .and_then(|p| p.breaking.target.as_ref())
+        .is_some_and(|t| breaks_at(t, actor.world, pos));
+    if breaks {
+        stop_breaking(state, actor.session);
+    }
+}
+
+/// Whether `target` is the block at `pos` in `world`.
+fn breaks_at(target: &Target, world: WorldIndex, pos: BlockPos) -> bool {
+    target.world == world && target.pos == pos
+}
+
 /// PMMP `Player::attackBlock`: a left click on a block ([`PlayerInteract`]) starts breaking it
 /// (or acts on it: fire on the clicked face goes out, a dragon egg jumps away). A click on an
 /// inert block raises no event: the event names Anchor states only.
@@ -1195,7 +1213,7 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
     if !dispatch::heard::<BlockBreak>(state) {
         if counted && !break_done(state, session, &actor, pos) {
             debug!(session = session.get(), "break before its time");
-            stop_breaking(state, session);
+            stop_breaking_at(state, &actor, pos);
             return false;
         }
         let tool = held(state, session);
@@ -1205,7 +1223,7 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
     // With listeners the break time is checked after them: `insta_break` may skip it.
     let tool = held(state, session);
     let Some(mut plan) = break_plan(state, &actor, pos, &tool) else {
-        stop_breaking(state, session);
+        stop_breaking_at(state, &actor, pos);
         return false;
     };
     let world = crate::world::Id::of(actor.world);
@@ -1222,7 +1240,7 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
     };
     dispatch::call(state, &mut e);
     if e.cancelled {
-        stop_breaking(state, session);
+        stop_breaking_at(state, &actor, pos);
         return false;
     }
     if dispatch::listened::<BlockBreak>(state) {
@@ -1235,14 +1253,14 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
                 && break_plan(state, a, pos, &tool).as_ref() == Some(&plan)
         });
         let Some(again) = again else {
-            stop_breaking(state, session);
+            stop_breaking_at(state, &actor, pos);
             return false;
         };
         actor = again;
     }
     if counted && !e.insta_break && !break_done(state, session, &actor, pos) {
         debug!(session = session.get(), "break before its time");
-        stop_breaking(state, session);
+        stop_breaking_at(state, &actor, pos);
         return false;
     }
     plan.destruction.items.clone_from(&e.drops);
@@ -1277,10 +1295,11 @@ fn finish_break_with(
     apply: impl FnOnce(&mut State) -> bool,
 ) -> bool {
     let session = actor.session;
-    let target = state
-        .players
-        .get_mut(&session)
-        .and_then(|p| p.breaking.target.take());
+    let target = state.players.get_mut(&session).and_then(|p| {
+        p.breaking
+            .target
+            .take_if(|t| breaks_at(t, actor.world, pos))
+    });
     if !apply(state) {
         // The break handler stays gone, as in PMMP; the client starts again.
         if target.is_some() {

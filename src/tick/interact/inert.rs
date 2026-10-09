@@ -5,7 +5,7 @@ use tracing::debug;
 
 use super::{
     Actor, Event, Hit, State, USE, adventure_allows, break_done, center, finish_break_with, held,
-    level_event, return_items, spawn_drops, stop_breaking, stream, tool_after_break,
+    level_event, return_items, spawn_drops, stop_breaking_at, stream, tool_after_break,
 };
 use crate::block::{self, Inert};
 use crate::config::GameMode;
@@ -30,7 +30,7 @@ pub(super) fn break_block(
     let session = actor.session;
     let tool = held(state, session);
     if !allowed(&actor, &tool, block) {
-        stop_breaking(state, session);
+        stop_breaking_at(state, &actor, pos);
         return false;
     }
     let mut insta_break = !counted;
@@ -49,7 +49,7 @@ pub(super) fn break_block(
         };
         dispatch::call(state, &mut e);
         if e.cancelled {
-            stop_breaking(state, session);
+            stop_breaking_at(state, &actor, pos);
             return false;
         }
         if dispatch::listened::<BlockBreak>(state) {
@@ -62,7 +62,7 @@ pub(super) fn break_block(
                     && allowed(a, &tool, block)
             });
             let Some(again) = again else {
-                stop_breaking(state, session);
+                stop_breaking_at(state, &actor, pos);
                 return false;
             };
             actor = again;
@@ -72,7 +72,7 @@ pub(super) fn break_block(
     }
     if counted && !insta_break && !break_done(state, session, &actor, pos) {
         debug!(session = session.get(), "break before its time");
-        stop_breaking(state, session);
+        stop_breaking_at(state, &actor, pos);
         return false;
     }
     let (drops, xp) = event
