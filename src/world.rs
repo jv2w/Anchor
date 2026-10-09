@@ -1770,6 +1770,39 @@ mod tests {
         }
     }
 
+    /// An attached line of 30 tripwire that a 31st block joins to 29 more: the whole line is now
+    /// too long, and every tripwire and hook of it is unattached, also those more than
+    /// `MAX_TRIPWIRE` blocks from the joining block.
+    #[test]
+    fn joining_an_attached_line_past_the_longest_unattaches_all_of_it() {
+        let by_text: BTreeMap<String, State> = State::all().map(|s| (render(s), s)).collect();
+        let hook = |direction: u8| {
+            by_text[&format!(
+                "minecraft:tripwire_hook[attached_bit=0,direction={direction},powered_bit=0]"
+            )]
+        };
+        let wire = by_text["minecraft:trip_wire[attached_bit=0,disarmed_bit=0,connection_east=0,connection_north=0,connection_south=0,connection_west=0,powered_bit=0,suspended_bit=0]"];
+        let mut w = world(&Flat, 4);
+        let at = |x: i32| BlockPos::new(x, -60, 2);
+        let attached = |w: &World, x: i32| prop(w.block(at(x)).unwrap(), "attached_bit");
+        // A hook facing east, tripwire, a hook facing west.
+        w.set_block(at(0), hook(3)).unwrap();
+        for x in 1..=30 {
+            w.set_block(at(x), wire).unwrap();
+        }
+        w.set_block(at(31), hook(1)).unwrap();
+        for x in 32..=60 {
+            w.set_block(at(x), wire).unwrap();
+        }
+        for x in 0..=31 {
+            assert_eq!(attached(&w, x), PropertyValue::Byte(1), "{x}");
+        }
+        w.set_block(at(31), wire).unwrap();
+        for x in 0..=60 {
+            assert_eq!(attached(&w, x), PropertyValue::Byte(0), "{x}");
+        }
+    }
+
     fn find(name: &str, props: &[(&str, PropertyValue<'_>)]) -> State {
         State::find(name, props).unwrap()
     }

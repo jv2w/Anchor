@@ -145,11 +145,13 @@ impl World {
             }
             _ => return None,
         };
-        // Walk both ways over tripwire, a bounded number of steps.
+        // Walk each way over at most MAX_TRIPWIRE tripwire: that reaches both ends of any line
+        // short enough to be attached, so none of its tripwire and hooks keeps a stale
+        // `attached_bit`, and a longer line still counts more than MAX_TRIPWIRE.
         let mut wires = vec![first];
         let mut ends = [first, first];
         for (end, f) in ends.iter_mut().zip([axis, axis.opposite()]) {
-            while wires.len() <= MAX_TRIPWIRE {
+            for _ in 0..MAX_TRIPWIRE {
                 let Some(next) = wire(end.side(f)) else {
                     break;
                 };
