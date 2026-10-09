@@ -1011,9 +1011,7 @@ impl Engine {
         let Some(old) = chunk.light().map(|l| l.height(spot.column)) else {
             return 1;
         };
-        let blocks = chunk
-            .light_values(x, pos.y, z)
-            .is_some_and(|v| v.blocks_sky);
+        let blocks = chunk.light_values_at(spot.sub, spot.at).blocks_sky;
         let (new, looked) = if blocks && pos.y >= old {
             (pos.y + 1, 0)
         } else if !blocks && pos.y + 1 == old {
