@@ -227,7 +227,7 @@ pub(super) fn add_food(s: &mut Survival, food: f64, saturation: f64) {
 pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
     let world = state.players.get(&session).map_or(0, |p| p.world);
     let peaceful = difficulty(state, world) == Difficulty::Peaceful;
-    let (heal, regen, starve) = {
+    let (peaceful_heal, full, starve) = {
         let Some(player) = state.players.get_mut(&session) else {
             return;
         };
@@ -240,40 +240,39 @@ pub(super) fn tick(state: &mut State, session: SessionId, enabled: bool) {
         if s.food_timer >= FOOD_CYCLE {
             s.food_timer = 0;
         }
-        let mut heal = 0.0;
+        let mut peaceful_heal = false;
         if peaceful && s.food_timer % 10 == 0 {
             if s.food < MAX_FOOD {
                 set_food(s, math::min(s.food + 1.0, MAX_FOOD));
             }
-            if s.food_timer % 20 == 0 && s.health < s.max_health() {
-                heal += 1.0;
-            }
+            peaceful_heal = s.food_timer % 20 == 0 && s.health < s.max_health();
         }
-        let (mut regen, mut starve) = (false, false);
+        let (mut full, mut starve) = (false, false);
         if s.food_timer == 0 {
             if s.food >= 18.0 {
-                if s.health + heal < s.max_health() {
-                    heal += 1.0;
-                    regen = true;
-                }
+                full = true;
             } else if s.food <= 0.0 {
                 starve = true;
             }
         }
-        (heal, regen, starve)
-    };
-    if regen {
-        exhaust_as(state, session, 6.0, ExhaustCause::HealthRegen);
-    }
-    if let Some(player) = state.players.get_mut(&session) {
-        let s = &mut player.survival;
         if s.food <= 6.0 && s.motion.sprinting {
             s.motion.sprinting = false;
             s.mark(super::attributes::MOVEMENT);
         }
+        (peaceful_heal, full, starve)
+    };
+    if peaceful_heal {
+        damage::heal(state, session, 1.0, RegainReason::Saturation);
     }
-    if heal > 0.0 {
-        damage::heal(state, session, heal, RegainReason::Saturation);
+    // Checked after the peaceful heal: health it filled costs no exhaustion.
+    if full
+        && state
+            .players
+            .get(&session)
+            .is_some_and(|p| p.survival.health < p.survival.max_health())
+    {
+        damage::heal(state, session, 1.0, RegainReason::Saturation);
+        exhaust_as(state, session, 6.0, ExhaustCause::HealthRegen);
     }
     if starve {
         let health = state

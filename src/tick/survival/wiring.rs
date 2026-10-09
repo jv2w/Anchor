@@ -337,6 +337,33 @@ fn regain_listeners_change_or_cancel_the_healing() {
     assert_eq!(game.survival(1).health, 16.0);
 }
 
+/// A full bar on peaceful heals twice in one tick, each a regain of its own, then exhausts (PMMP
+/// `HungerManager::tick`).
+#[test]
+fn peaceful_and_full_bar_heals_are_regains_of_their_own() {
+    let (tx, mut seen) = record();
+    let exhausted = tx.clone();
+    let mut listeners = on(move |e: &mut EntityRegainHealth, _: &mut Context<'_>| {
+        tx.try_send(format!("regain {}", e.amount())).unwrap();
+    });
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut PlayerExhaust, _: &mut Context<'_>| {
+            exhausted
+                .try_send(format!("exhaust {}", e.amount()))
+                .unwrap();
+        },
+    );
+    let mut game = Game::with(1, listeners, |c| {
+        c.general.difficulty = Difficulty::Peaceful;
+    });
+    game.survival(1).health = 10.0;
+    game.survival(1).food_timer = 79;
+    game.idle(1);
+    assert_eq!(drain(&mut seen), ["regain 1", "regain 1", "exhaust 6"]);
+    assert_eq!(game.survival(1).health, 12.0);
+}
+
 // pmmp: PlayerDeathEvent
 #[test]
 fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
