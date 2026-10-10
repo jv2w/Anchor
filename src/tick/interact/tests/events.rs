@@ -596,6 +596,33 @@ fn a_cancelled_left_click_starts_no_breaking_and_keeps_the_dragon_egg() {
     );
 }
 
+/// Starting to eat asks the item use listeners, and a cancel keeps the player from eating
+/// (PMMP `Player::useHeldItem`); finishing does not ask again.
+#[test]
+fn starting_to_eat_asks_the_item_use_listeners() {
+    let apple = stack(ItemKind::GoldenApple);
+    let mut h = Harness::with(|_| {}, cancel(PlayerItemUse::cancel));
+    h.hold(apple.clone());
+    use_in_air(&mut h);
+    assert_eq!(cancels(), 1);
+    assert!(!h.player().is_using_item());
+    let mut h = Harness::with(
+        |_| {},
+        listen(|_: &mut PlayerItemUse, _: &mut Context<'_>| {
+            note(SEEN, ());
+        }),
+    );
+    h.hold(apple);
+    use_in_air(&mut h);
+    assert!(h.player().is_using_item());
+    for _ in 0..40 {
+        h.run(Vec::new());
+    }
+    use_in_air(&mut h);
+    assert!(h.held().is_empty(), "eaten");
+    assert_eq!(notes(SEEN).len(), 1, "asked at the start only");
+}
+
 // pmmp: PlayerItemUseEvent
 #[test]
 fn an_item_use_listener_sees_the_item_and_look_and_cancelling_keeps_the_armour_in_hand() {

@@ -871,6 +871,16 @@ pub(super) fn use_consumable(state: &mut State, session: SessionId) -> bool {
     food::use_consumable(state, session)
 }
 
+/// Whether the player eats or drinks the item it holds (PMMP `Player::isUsingItem` for a
+/// consumable): a click in the air now finishes it.
+pub(super) fn is_eating_held(state: &State, session: SessionId) -> bool {
+    state.players.get(&session).is_some_and(|p| {
+        p.survival
+            .using
+            .is_some_and(|u| p.inventory.held().item() == Some(u.item))
+    })
+}
+
 /// The player lies down in the bed at `pos` (PMMP `Bed::onInteract`, `Player::sleepOn`): false if
 /// it cannot sleep now (day, not a whole bed, too far, occupied, dead).
 pub(super) fn sleep(

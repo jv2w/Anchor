@@ -1524,8 +1524,8 @@ fn flowing(liquid: Kind) -> Option<BlockState> {
     BlockState::find(name, &[("liquid_depth", block::PropertyValue::Int(0))])
 }
 
-/// PMMP `Player::useHeldItem` for items that are not consumables (those are the survival
-/// rules'): refused while the item's cooldown runs; a use that works starts the cooldown again
+/// PMMP `Player::useHeldItem`: refused while the item's cooldown runs; a consumable starts being
+/// eaten or drunk (the survival rules'); any other use that works starts the cooldown again
 /// (ender pearls, goat horns).
 pub(super) fn use_held_item(state: &mut State, actor: &Actor) -> bool {
     let Some(held) = usable(state, actor) else {
@@ -1558,10 +1558,13 @@ pub(super) fn use_held_item(state: &mut State, actor: &Actor) -> bool {
     let Some(item) = held.item() else {
         return false;
     };
-    if !click_air(state, &actor, &held, item) {
-        return false;
+    // A consumable has no air use or cooldown of its own (PMMP `setUsingItem` starts it).
+    if !survival::use_consumable(state, actor.session) {
+        if !click_air(state, &actor, &held, item) {
+            return false;
+        }
+        survival::reset_item_cooldown(state, actor.session, item);
     }
-    survival::reset_item_cooldown(state, actor.session, item);
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }

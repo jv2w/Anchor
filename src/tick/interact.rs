@@ -1830,14 +1830,16 @@ fn use_item(state: &mut State, session: SessionId, data: &UseItemTransactionData
 }
 
 /// A click in the air (PMMP `handleUseItemTransaction` `ACTION_CLICK_AIR`): drawing stops (a bow
-/// or trident starts again), eating or drinking is the survival rules', anything else
+/// or trident starts again), eating or drinking the held item finishes, anything else is
 /// [`using::use_held_item`].
 fn use_in_air(state: &mut State, session: SessionId) {
     let Some(actor) = actor(state, session) else {
         return;
     };
     stop_using(state, session);
-    if !survival::use_consumable(state, session) {
+    if survival::is_eating_held(state, session) {
+        survival::use_consumable(state, session);
+    } else {
         using::use_held_item(state, &actor);
     }
 }
