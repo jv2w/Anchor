@@ -575,13 +575,14 @@ pub(super) fn cauldron_dye(state: &mut State, u: &mut Use) -> bool {
     else {
         return false;
     };
+    // PMMP weighs the dye's own colour: a mix that keeps the colour still uses the dye.
+    if cauldron.colour == Some(new.cast_signed()) {
+        return false;
+    }
     let mixed = match cauldron.colour {
         None => new,
         Some(old) => mix(old.cast_unsigned(), new),
     };
-    if cauldron.colour == Some(mixed.cast_signed()) {
-        return false;
-    }
     cauldron.colour = Some(mixed.cast_signed());
     u.pop();
     sound(state, world, super::block_vec(u.pos), Sound::CauldronAddDye);

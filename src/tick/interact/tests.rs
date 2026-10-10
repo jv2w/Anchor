@@ -765,6 +765,46 @@ fn use_on_target(h: &mut Harness) {
     h.run(vec![input]);
 }
 
+/// The dyed water's colour: set to `colour` if given, then read.
+fn cauldron_colour(h: &mut Harness, colour: Option<i32>) -> Option<i32> {
+    match h
+        .state
+        .rules
+        .block_entities
+        .get_mut(0, TARGET)
+        .map(|e| &mut e.kind)
+    {
+        Some(super::super::block_entity::Kind::Cauldron(c)) => {
+            if colour.is_some() {
+                c.colour = colour;
+            }
+            c.colour
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A dye of another colour than the water's is used even when the mix keeps the colour; the
+/// water's own colour is refused (PMMP `WaterCauldron::onInteract` compares the dye's colour).
+#[test]
+fn a_dye_is_weighed_by_its_own_colour() {
+    let mut h = Harness::new(|_| {});
+    let water = props::with_string(Kind::Cauldron.default_state(), "cauldron_liquid", "water")
+        .and_then(|s| props::with_int(s, "fill_level", 6))
+        .unwrap();
+    set_with_entity(&mut h, water, &named("minecraft:cauldron"));
+    // Mixed with red, this colour stays itself.
+    let stalled = 0xffaf_2d25_u32.cast_signed();
+    cauldron_colour(&mut h, Some(stalled));
+    h.hold(named("minecraft:red_dye").with_count(2));
+    use_on_target(&mut h);
+    assert_eq!(h.held().count(), 1, "used");
+    assert_eq!(cauldron_colour(&mut h, None), Some(stalled));
+    cauldron_colour(&mut h, Some(0xffb0_2e26_u32.cast_signed()));
+    use_on_target(&mut h);
+    assert_eq!(h.held().count(), 1, "the water's own colour");
+}
+
 #[test]
 fn honeycomb_waxes_copper_and_an_axe_scrapes_it() {
     let mut h = Harness::new(|_| {});
