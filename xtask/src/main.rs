@@ -92,15 +92,16 @@ const CHECKS: &[&[&str]] = &[
         STR0M_PROTO,
         "--quiet",
     ],
-    // MSVC's linker: rust-lld warns about the debug info OpenSSL's build leaves out of its static
-    // library (LNK4099), and a warning fails the check.
+    // The linker warns that OpenSSL's static library names debug info its build leaves out
+    // (LNK4099), and a warning fails the check. MSVC's link.exe also reports each test binary's
+    // import library as a linker message, so rust-lld is told to ignore just that one warning.
     &[
         "test",
         "--manifest-path",
         DIMPL,
         "--tests",
         "--config",
-        "target.x86_64-pc-windows-msvc.linker=\"link.exe\"",
+        "target.x86_64-pc-windows-msvc.rustflags=[\"-Clink-arg=/ignore:4099\"]",
         "--quiet",
     ],
     &["doc", "--workspace", "--no-deps", "--quiet"],
