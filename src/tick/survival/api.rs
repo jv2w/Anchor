@@ -442,10 +442,11 @@ impl Player {
         self.survival.absorption
     }
 
-    /// Sets the absorbed health. Fails for a value that is negative or not finite.
+    /// Sets the absorbed health. Fails for a value that is negative, above `f32::MAX` (the most
+    /// the client and the save hold) or not finite.
     #[doc(alias = "Living::setAbsorption")]
     pub fn set_absorption(&mut self, absorption: f64) -> Result<()> {
-        within(absorption, 0.0..=f64::MAX)?;
+        within(absorption, 0.0..=f64::from(f32::MAX))?;
         let s = &mut self.survival;
         s.absorption = absorption;
         s.touch(ABSORPTION);
@@ -1763,6 +1764,8 @@ mod tests {
         p.heal(f64::NAN);
         assert_eq!(p.health(), 15.0);
         assert_eq!(p.set_absorption(-1.0), Err(Error::OutOfRange));
+        // The attribute and the save keep an f32: more would be infinite there.
+        assert_eq!(p.set_absorption(1e39), Err(Error::OutOfRange));
         p.set_absorption(4.0).unwrap();
         assert_eq!(p.absorption(), 4.0);
         run(&mut state, Vec::new());
