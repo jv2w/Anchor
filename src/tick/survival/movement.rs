@@ -787,8 +787,8 @@ pub(super) fn block_intersections(state: &mut State, session: SessionId) {
 
 /// The blocks the player is inside act on it, on every move and in the base tick (PMMP
 /// `checkBlockIntersections` and the blocks' `onEntityInside`): the blocks that hurt ([`Harm`],
-/// as for entities), water puts out fire, climbable blocks and cobwebs end a fall, wither roses
-/// wither.
+/// as for entities), water and water cauldrons put out fire, climbable blocks and cobwebs end a
+/// fall, wither roses wither.
 fn intersect(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -853,6 +853,27 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
         }
         if out {
             damage::extinguished(state, session, ExtinguishCause::Water);
+        }
+    } else if block.is(Class::WaterCauldron) {
+        // PMMP `WaterCauldron::onEntityInside`: a burning player is put out for a level of water
+        // (level 0 is the empty cauldron).
+        let Some(player) = state
+            .players
+            .get_mut(&session)
+            .filter(|p| p.survival.fire_ticks > 0)
+        else {
+            return;
+        };
+        player.survival.fire_ticks = 0;
+        player.data_dirty = true;
+        let world = player.world;
+        damage::extinguished(state, session, ExtinguishCause::WaterCauldron);
+        if let Some(block::PropertyValue::Int(level)) = block.value("fill_level")
+            && let Some(lower) = block.with("fill_level", block::PropertyValue::Int(level - 1))
+            && let Some(w) = state.worlds.get_mut(world)
+            && let Err(e) = w.set_block(pos, lower)
+        {
+            tracing::debug!(?pos, %e, "water cauldron could not lose a level");
         }
     } else if block.is(Class::Ladder) {
         let inside_block = state
@@ -1170,6 +1191,32 @@ mod tests {
         let player = &state.players[&SessionId::new(1)];
         assert_eq!(feet(player).y, -60.0);
         assert_eq!(player.survival.health, 20.0);
+    }
+
+    /// A burning player in a water cauldron is put out and the cauldron loses a level (PMMP
+    /// `WaterCauldron::onEntityInside`).
+    #[test]
+    fn a_water_cauldron_puts_out_a_burning_player_and_drops_a_level() {
+        let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
+        let level = |n| {
+            block::Kind::Cauldron
+                .default_state()
+                .with("cauldron_liquid", PropertyValue::String("water".into()))
+                .and_then(|s| s.with("fill_level", PropertyValue::Int(n)))
+                .unwrap()
+        };
+        let pos = BlockPos::new(0, -60, 0);
+        state.worlds[0].set_block(pos, level(6)).unwrap();
+        let session = SessionId::new(1);
+        let player = state.players.get_mut(&session).unwrap();
+        player.position = Vec3::new(0.5, -60.0 + super::super::EYE_HEIGHT, 0.5);
+        player.survival.fire_ticks = 100;
+        crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(state.players[&session].survival.fire_ticks, 0);
+        assert_eq!(state.worlds[0].block(pos), Some(level(5)));
+        // Not burning: the water stays.
+        crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(state.worlds[0].block(pos), Some(level(5)));
     }
 
     /// A player without block collision never stands (PMMP `Player::checkGroundState`), so a
