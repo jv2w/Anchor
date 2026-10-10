@@ -1877,9 +1877,7 @@ fn hardcore_spectator(state: &mut State, session: SessionId) {
         return;
     };
     if let Some(player) = state.players.get_mut(&session) {
-        player.survival.game_mode = Some(GameMode::Spectator);
-        let packet = super::api::game_type_packet(player, GameMode::Spectator);
-        player.send_packet(packet);
+        player.set_game_mode(GameMode::Spectator);
     }
     super::watch(state, change.as_ref());
 }

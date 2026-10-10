@@ -1991,11 +1991,11 @@ mod tests {
         attack_player(&mut server.state, sid(1), sid(2));
         server.idle(1);
         assert!(sounds(&server.take(1)).is_empty(), "no sound");
-        let swing = u8::from(ActorEvent::StartAttacking);
+        let attacking = u8::from(ActorEvent::StartAttacking);
         let swung = server
             .take(2)
             .iter()
-            .any(|p| matches!(p, Packet::ActorEvent(e) if e.event_type == swing));
+            .any(|p| matches!(p, Packet::ActorEvent(e) if e.event_type == attacking));
         assert!(!swung, "no swing");
     }
 
@@ -2668,6 +2668,24 @@ mod tests {
             GameMode::Spectator
         );
         assert!(!server.hurt(1, 5.0, Damage::Magic));
+    }
+
+    /// The hardcore spectator is a game mode change like any: flight and collision overrides of
+    /// the old mode end.
+    #[test]
+    fn a_hardcore_spectator_drops_the_flight_and_collision_overrides() {
+        let mut server = Server::new(1, |c| {
+            c.general.hardcore = true;
+            c.general.difficulty = Difficulty::Hard;
+        });
+        server.player_mut(1).set_allow_flight(false);
+        server.player_mut(1).set_block_collision(true);
+        server.hurt(1, 100.0, Damage::Magic);
+        damage::respawn(&mut server.state, sid(1));
+        let player = server.player(1);
+        assert_eq!(game_mode(&server.state, player), GameMode::Spectator);
+        assert!(player.allow_flight());
+        assert!(!player.has_block_collision());
     }
 
     #[test]
