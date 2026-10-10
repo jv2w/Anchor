@@ -251,7 +251,9 @@ impl Inbox {
         (Self { inbound, budget }, receiver)
     }
 
-    /// Passes a message to the session; `false` when its queue or byte budget is full.
+    /// Passes a message to the session; `false` when its queue or byte budget is full. A message
+    /// for a session that has ended is dropped: closing now would drop the packets the session
+    /// queued last (a kick's Disconnect), so its close flag closes the connection instead.
     pub(crate) fn deliver(&self, message: Vec<u8>) -> bool {
         let Ok(len) = u32::try_from(message.len()) else {
             return false;
@@ -259,12 +261,14 @@ impl Inbox {
         let Ok(budget) = Arc::clone(&self.budget).try_acquire_many_owned(len) else {
             return false;
         };
-        self.inbound
-            .try_send(Inbound {
-                message,
-                _budget: budget,
-            })
-            .is_ok()
+        let inbound = Inbound {
+            message,
+            _budget: budget,
+        };
+        match self.inbound.try_send(inbound) {
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => true,
+            Err(mpsc::error::TrySendError::Full(_)) => false,
+        }
     }
 }
 
@@ -917,6 +921,41 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_message_from_the_client_after_the_session_ended_keeps_the_close_graceful() {
+        run(message_after_session_ended_keeps_close_graceful());
+    }
+
+    async fn message_after_session_ended_keeps_close_graceful() {
+        let (mut driver, mut commands, mut connections) = driver();
+        let server = driver.io.v4.as_ref().unwrap().local_addr().unwrap();
+        let mut remote = Remote::new(server).await;
+        remote.client.start();
+        let connection = loop {
+            if let Ok(connection) = connections.try_recv() {
+                break connection;
+            }
+            step(&mut driver, &mut commands, &mut remote).await;
+        };
+        // A kicked session: its Disconnect, its close flag and its end, then the client's next
+        // input reaches the driver before the queued Disconnect does.
+        connection.send(b"bye".to_vec()).await.unwrap();
+        connection.close();
+        drop(connection);
+        let now = remote.now();
+        remote.client.send(now, wire::ID_GAME, b"input".to_vec());
+        remote.flush().await;
+        tokio::time::timeout(WAIT, readable(driver.io.v4.as_ref()))
+            .await
+            .unwrap()
+            .unwrap();
+        driver.receive(false);
+        while !remote.client.disconnected() {
+            step(&mut driver, &mut commands, &mut remote).await;
+        }
+        assert_eq!(remote.client.game(), [b"bye"]);
+    }
+
+    #[test]
     fn an_inbox_holds_two_of_the_largest_messages() {
         let (inbox, mut receiver) = Inbox::new(10);
         assert!(inbox.deliver(vec![1; 10]));
@@ -924,6 +963,8 @@ pub(crate) mod tests {
         assert!(!inbox.deliver(vec![3]));
         assert_eq!(receiver.try_recv().unwrap().message, [1; 10]);
         assert!(inbox.deliver(vec![4; 10]));
+        drop(receiver);
+        assert!(inbox.deliver(vec![5]));
     }
 
     #[test]
