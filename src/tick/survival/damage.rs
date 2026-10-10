@@ -1978,11 +1978,6 @@ fn air_tick(state: &mut State, session: SessionId) -> bool {
     let Some(player) = state.players.get_mut(&session) else {
         return false;
     };
-    let respiration = player
-        .inventory
-        .armor()
-        .first()
-        .map_or(0, |helmet| level_of(helmet, Enchantment::Respiration));
     let mut drown = false;
     if breathes {
         // BDS (P6 craft dive): breathing again at once, 4 ticks of air back each tick up to the
@@ -1995,6 +1990,11 @@ fn air_tick(state: &mut State, session: SessionId) -> bool {
             player.data_dirty = true;
         }
     } else {
+        let respiration = player
+            .inventory
+            .armor()
+            .first()
+            .map_or(0, |helmet| level_of(helmet, Enchantment::Respiration));
         let loses = respiration == 0 || {
             let seed = state.worlds.get(player.world).map_or(0, world::World::seed);
             let mut r = player_random(seed, tick, player, RESPIRATION);
