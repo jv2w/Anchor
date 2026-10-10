@@ -517,6 +517,7 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
                     if let Some(item) = drops_item(block) {
                         drop_or_return(state, u, item);
                     }
+                    sound(state, u.actor.world, center(u.pos), Sound::GlowBerriesPick);
                     if let Some(bare) = props::renamed(block, "minecraft:cave_vines") {
                         set(state, u.actor.world, u.pos, bare);
                     }

@@ -927,6 +927,29 @@ fn ripe_berries_come_off_before_bone_meal_counts() {
     assert_eq!(h.held().count(), 4);
 }
 
+/// Picking glow berries off cave vines makes the picking sound (PMMP `CaveVines::onInteract`).
+#[test]
+fn picking_glow_berries_is_heard() {
+    let mut h = Harness::new(|_| {});
+    let berries = block::State::all()
+        .find(|b| b.name() == "minecraft:cave_vines_head_with_berries")
+        .unwrap();
+    h.set(BlockPos::new(2, -59, 0), Kind::Stone.default_state());
+    h.set(TARGET, berries);
+    h.packets();
+    use_on_target(&mut h);
+    assert_eq!(h.block(TARGET).name(), "minecraft:cave_vines");
+    let sounds: Vec<String> = h
+        .packets()
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::LevelSoundEvent(e) => Some(e.sound_type),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sounds.len(), 1, "{sounds:?}");
+}
+
 /// Breaks the glass at [`TARGET`] with `ticks` client ticks between start and predicted break;
 /// whether it broke.
 fn break_glass_after(ticks: usize) -> bool {
