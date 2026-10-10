@@ -849,32 +849,8 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             damage::combust(state, session, u32::from(seconds), source);
         }
     } else if block.is(Class::Campfire) {
-        // An unlit one (a lit one is a `Harm`): a burning player lights it as flint and steel
-        // does (PMMP `Campfire::onEntityInside`).
-        let Some(world) = state
-            .players
-            .get(&session)
-            .filter(|p| p.survival.fire_ticks > 0)
-            .map(|p| p.world)
-        else {
-            return;
-        };
-        let Some(lit) = block.with("extinguished", block::PropertyValue::Byte(0)) else {
-            return;
-        };
-        if let Some(w) = state.worlds.get_mut(world)
-            && let Err(e) = w.set_block(pos, lit)
-        {
-            tracing::debug!(?pos, %e, "campfire not lit");
-            return;
-        }
-        let center = Vec3::new(
-            f64::from(pos.x) + 0.5,
-            f64::from(pos.y) + 0.5,
-            f64::from(pos.z) + 0.5,
-        );
-        crate::tick::interact::sound(state, world, center, crate::world::Sound::FlintSteel);
-        update::schedule(state, world, pos, CAMPFIRE_UPDATE_TICKS);
+        // An unlit one: a lit one is a `Harm`.
+        light_campfire(state, session, pos, block);
     } else if block.is(Class::Water) {
         reset_fall(state, session);
         let mut out = false;
@@ -935,6 +911,35 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             effects::add(state, session, Effect::Wither, Active::new(40, 0));
         }
     }
+}
+
+/// A burning player lights the unlit campfire `block` at `pos` it is in, as flint and steel does
+/// (PMMP `Campfire::onEntityInside`).
+fn light_campfire(state: &mut State, session: SessionId, pos: BlockPos, block: block::State) {
+    let Some(world) = state
+        .players
+        .get(&session)
+        .filter(|p| p.survival.fire_ticks > 0)
+        .map(|p| p.world)
+    else {
+        return;
+    };
+    let Some(lit) = block.with("extinguished", block::PropertyValue::Byte(0)) else {
+        return;
+    };
+    if let Some(w) = state.worlds.get_mut(world)
+        && let Err(e) = w.set_block(pos, lit)
+    {
+        tracing::debug!(?pos, %e, "campfire not lit");
+        return;
+    }
+    let center = Vec3::new(
+        f64::from(pos.x) + 0.5,
+        f64::from(pos.y) + 0.5,
+        f64::from(pos.z) + 0.5,
+    );
+    crate::tick::interact::sound(state, world, center, crate::world::Sound::FlintSteel);
+    update::schedule(state, world, pos, CAMPFIRE_UPDATE_TICKS);
 }
 
 /// Ends the player's fall.
@@ -1235,7 +1240,7 @@ mod tests {
         let level = |n| {
             block::Kind::Cauldron
                 .default_state()
-                .with("cauldron_liquid", PropertyValue::String("water".into()))
+                .with("cauldron_liquid", PropertyValue::String("water"))
                 .and_then(|s| s.with("fill_level", PropertyValue::Int(n)))
                 .unwrap()
         };
