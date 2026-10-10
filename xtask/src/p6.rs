@@ -171,6 +171,17 @@ const MARKER: (i32, i32) = (-4, 0);
 const STEP_MARKERS: [&str; 2] = ["gold_block", "iron_block"];
 /// The marker block that ends the scenario; the bot leaves when it sees it (`xtask/go/bot`).
 const END_MARKER: &str = "diamond_block";
+/// The console command that turns random ticks off before the first step of the blocks scenario
+/// on BDS (Anchor's steps task does the same through `Context::set_random_tick_speed`): with them
+/// on, a placed block can change on its own between steps (copper bars oxidize), so a step's states
+/// would differ between runs and servers (`xtask/data/p6/facts.md`).
+const RANDOM_TICKS_OFF: &str = "gamerule randomtickspeed 0";
+/// The BDS log line that says `RANDOM_TICKS_OFF` ran.
+const RANDOM_TICKS_OFF_DONE: &str = "Game rule randomtickspeed has been updated to 0";
+/// The BDS log line of a `setblock` that ran.
+const BLOCK_PLACED: &str = "Block placed";
+/// How long BDS may take to run one console command of the blocks scenario.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 /// The packets `compare::compare_chunks` checks; while any is deferred, its differences are shown
 /// without failing the comparison.
 const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
@@ -775,9 +786,10 @@ fn step_state(block: &str) -> Result<anchor::block::State, String> {
 }
 
 /// Anchor's side of the blocks scenario: a task for `ServerBuilder::every(STEP_TICKS, ..)` that
-/// waits for the base position, then on each call sets the next step's block or the step's marker
-/// (as `blocks` does with BDS commands), and finally the end marker. The harness sends the base
-/// position once the bot has spawned; the channel is the harness's, outside the engine.
+/// waits for the base position, turns random ticks off, then on each call sets the next step's
+/// block or the step's marker (as `blocks` does with BDS commands), and finally the end marker.
+/// The harness sends the base position once the bot has spawned; the channel is the harness's,
+/// outside the engine.
 fn anchor_steps(
     bases: std::sync::mpsc::Receiver<[i32; 3]>,
 ) -> Result<impl FnMut(&mut anchor::Context<'_>) + Send + 'static, String> {
@@ -801,7 +813,12 @@ fn anchor_steps(
     let mut action = 0_usize;
     let task = move |ctx: &mut anchor::Context<'_>| {
         if base.is_none() {
-            base = bases.try_recv().ok();
+            // Random ticks go off before the first step, as on BDS (`RANDOM_TICKS_OFF`). Speed 0
+            // is within the limit; were it refused, no step would run and the bot would fail.
+            base = bases
+                .try_recv()
+                .ok()
+                .filter(|_| ctx.set_random_tick_speed(0));
         }
         let Some([bx, by, bz]) = base else {
             return;
@@ -826,9 +843,10 @@ fn anchor_steps(
     Ok(task)
 }
 
-/// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, changes each block of
-/// `BLOCK_STEPS` and ends the step by setting the marker (`MARKER`, `STEP_MARKERS`), then places the
-/// end marker: on BDS with console commands, on Anchor with the task of [`anchor_steps`]. Reports
+/// Runs the blocks scenario into `<dir>/blocks.jsonl`: once the bot spawned, turns random ticks
+/// off (`RANDOM_TICKS_OFF`), changes each block of `BLOCK_STEPS` and ends the step by setting the
+/// marker (`MARKER`, `STEP_MARKERS`), then places the end marker: on BDS with console commands,
+/// each sent once BDS ran the one before, on Anchor with the task of [`anchor_steps`]. Reports
 /// the block changes of each step with their states (also into `<dir>/blocks.txt`). It passes if
 /// the bot passed, every step ended and every step changed a block; the comparison with BDS is
 /// `compare_with_bds`.
@@ -864,17 +882,25 @@ fn blocks(
                     .map_err(|_| "the steps task is gone".to_owned());
             }
         };
+        server.command_done(RANDOM_TICKS_OFF, RANDOM_TICKS_OFF_DONE)?;
         let [mx, my, mz] = [base[0] + MARKER.0, base[1], base[2] + MARKER.1];
         for (n, (dx, dy, dz, block)) in BLOCK_STEPS.iter().enumerate() {
             let (bx, by, bz) = (base[0] + dx, base[1] + dy, base[2] + dz);
             let mode = if *block == "air" { "replace" } else { "keep" };
-            server.command(&format!("setblock {bx} {by} {bz} {block} {mode}"))?;
-            pause();
+            server.command_done(
+                &format!("setblock {bx} {by} {bz} {block} {mode}"),
+                BLOCK_PLACED,
+            )?;
             let marker = STEP_MARKERS.get(n % 2).copied().unwrap_or_default();
-            server.command(&format!("setblock {mx} {my} {mz} {marker} replace"))?;
-            pause();
+            server.command_done(
+                &format!("setblock {mx} {my} {mz} {marker} replace"),
+                BLOCK_PLACED,
+            )?;
         }
-        server.command(&format!("setblock {mx} {my} {mz} {END_MARKER} replace"))?;
+        server.command_done(
+            &format!("setblock {mx} {my} {mz} {END_MARKER} replace"),
+            BLOCK_PLACED,
+        )?;
         Ok(())
     });
     if placed.is_err() {
@@ -1769,6 +1795,28 @@ impl Bds {
             .write_all(format!("{line}\n").as_bytes())
             .and_then(|()| stdin.flush())
             .map_err(|e| format!("BDS console: {e}"))
+    }
+
+    /// Sends one console command and waits until BDS logs `done` once more, so the next command
+    /// runs in a later tick. A pause between commands does not ensure that: BDS sometimes runs
+    /// commands that came a few hundred milliseconds apart in one tick, and then sends their block
+    /// changes grouped by sub-chunk, not in command order.
+    fn command_done(&mut self, line: &str, done: &str) -> Result<(), String> {
+        let log = self.log.clone();
+        let logged = || read_text(&log).map(|text| text.matches(done).count());
+        let before = logged()?;
+        self.command(line)?;
+        let deadline = now() + COMMAND_TIMEOUT;
+        while logged()? == before {
+            if now() > deadline {
+                return Err(format!(
+                    "BDS did not log {done:?} for `{line}` within {COMMAND_TIMEOUT:?}; see {}",
+                    self.log.display()
+                ));
+            }
+            pause();
+        }
+        Ok(())
     }
 
     /// Sends `stop` and waits for the exit; kills BDS if it does not stop in time.

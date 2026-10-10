@@ -6,6 +6,7 @@
 - 게임 시나리오: `cargo xtask p6 game bds [craft|furnace|enchant|crops|trade]...` → `target/p6/bds-game/`. RakNet, zlib, 새 평지 월드.
 - API 시나리오: `cargo xtask p6 api bds [시나리오]...` → `target/p6/bds-api/`(시나리오마다 `<시나리오>.txt` 보고). 같은 조건에 `allow-cheats=true`와 폼 스크립트 팩(`xtask/data/p6/forms-pack`)을 더한다.
 - 스폰 창: `cargo xtask p6 bds` → `target/p6/bds-<압축>/`.
+- 블록 시나리오(`p6 bds`·`p6 anchor`의 RakNet 실행, `blocks.txt`): 봇이 스폰한 뒤 첫 단계 전에 콘솔 `gamerule randomtickspeed 0`으로 랜덤 틱을 끈다(Anchor는 단계 작업이 `Context::set_random_tick_speed(0)`). 켜 두면 놓은 블록이 단계 사이에 스스로 바뀐다: Anchor(기본 3)에서 구리 창살이 `exposed_copper_bars`로 산화해 그 단계 상태가 공식 서버 캡처와 달랐다. 공식 서버도 기본 1로 랜덤 틱이 돌아 같은 일이 날 수 있다.
 - 세션 시작 때 콘솔: `gamerule domobspawning false`, `gamerule randomtickspeed 0`, `gamerule dodaylightcycle false`, `gamerule doweathercycle false`, `kill @e[type=!player]`. 난이도는 normal.
 - 시나리오마다 새 플레이어(`P6Craft` 등)가 자기 구역으로 `tp`한 뒤 논다. 좌표가 절대값이라 두 서버의 같은 평지를 그대로 비교한다.
 - 월드 준비는 콘솔 명령이다: `tp`, `give`, `setblock`, `fill`, `xp`, `summon villager`, `effect`, `kill`. Anchor 쪽은 하네스(`xtask/src/p6/game/console.rs`)가 같은 명령을 공개 API로 옮긴다.
