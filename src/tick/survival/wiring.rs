@@ -1503,6 +1503,31 @@ fn drowning_off_keeps_the_air_full_the_player_breathing_and_unhurt() {
     assert_eq!(data, 0, "no air or breathing change is sent");
 }
 
+/// The thorns answer counts the wearer's Strength, as any hit by it does (PMMP
+/// `EntityDamageByEntityEvent::addAttackerModifiers`).
+#[test]
+fn the_thorns_answer_counts_the_wearers_strength() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
+        tx.try_send(e.modifier(DamageModifier::Strength)).unwrap();
+    });
+    let mut game = Game::new(2, listeners);
+    // Thorns above 10 always answers, dealing its level less 10.
+    let chest = stack(ItemKind::DiamondChestplate, 1)
+        .with_extra(Some(crate::item::Extra {
+            enchantments: vec![(crate::item::Enchantment::Thorns, 11)],
+            ..crate::item::Extra::default()
+        }))
+        .unwrap();
+    inventory::set_armor(game.player_mut(1), 1, chest);
+    let strength = effect::Instance::new(effect::Type::Strength, 200, 1, true, false);
+    assert!(add_effect(&mut game.state, sid(1), strength));
+    assert!(damage(&mut game.state, sid(1), 1.0, Damage::Attack(sid(2))));
+    // Strength II: 1 + 1 × 0.3 × 2.
+    assert_eq!(game.survival(2).health, 20.0 - 1.6);
+    assert_eq!(drain(&mut seen).last().copied(), Some(0.6));
+}
+
 #[test]
 fn armour_off_neither_protects_nor_wears_nor_answers_with_thorns() {
     let (tx, mut seen) = record();

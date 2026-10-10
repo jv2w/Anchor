@@ -921,7 +921,8 @@ fn damage_armor(state: &mut State, session: SessionId, base: f64) {
 
 /// Thorns on the victim's armour hurts the attacker (PMMP `Living::applyPostDamageEffects`): each
 /// piece with level L answers with chance 15 % × L, dealing 1 to 4 (L - 10 above level 10) and
-/// wearing the piece by 3, else wearing it by 1. A thorns hit is not answered again: PMMP lets
+/// wearing the piece by 3, else wearing it by 1; the wearer's Strength adds to the answer as to
+/// any hit by it. A thorns hit is not answered again: PMMP lets
 /// two thorns wearers trade hits for as long as the cooldowns allow.
 fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
     let tick = state.tick;
@@ -963,14 +964,15 @@ fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
         sound::at_feet(state, victim, Sound::ItemBreak);
     }
     if dealt > 0.0 {
+        let (extra, parts) = attacker_modifiers(state, victim, dealt, Damage::Magic);
         hurt(
             state,
             attacker,
             Hit {
                 cause: Damage::Magic,
                 base: dealt,
-                extra: 0.0,
-                parts: NO_MODIFIERS,
+                extra,
+                parts,
                 attacker: Some(victim),
                 thorns: false,
                 source: DamageSource::Entity(Actor::Player(player::Id::new(victim))),
