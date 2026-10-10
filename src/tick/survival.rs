@@ -2368,6 +2368,27 @@ mod tests {
         assert!(!use_consumable(&mut server.state, sid(1)));
     }
 
+    /// A chorus fruit puts the feet on the floor it found, not the eyes.
+    #[test]
+    fn a_chorus_fruit_lands_the_feet_on_a_floor() {
+        let mut server = Server::new(1, |_| {});
+        inventory::set_held(server.player_mut(1), stack(ItemKind::ChorusFruit, 1));
+        let start = server.player(1).position;
+        assert!(use_consumable(&mut server.state, sid(1)));
+        server.idle(32);
+        assert!(use_consumable(&mut server.state, sid(1)));
+        let player = server.player(1);
+        assert_ne!(player.position, start, "teleported");
+        let at = BlockPos::containing(feet(player));
+        let world = &server.state.worlds[0];
+        let solid = |pos| world.block(pos).is_some_and(block::State::is_solid);
+        assert!(!solid(at), "the feet are not in a block");
+        assert!(
+            solid(BlockPos::new(at.x, at.y - 1, at.z)),
+            "they stand on one"
+        );
+    }
+
     #[test]
     fn death_drops_neither_lose_nor_duplicate_items() {
         let stacks: Vec<Stack> = (0..41)

@@ -7,8 +7,8 @@ use super::attributes::{EXHAUSTION, EXPERIENCE, HUNGER, LEVEL, SATURATION};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
 use super::{
-    MAX_FOOD, MAX_SATURATION, Survival, broadcast_to_viewers, difficulty, feet, game_mode,
-    movement, player_random, sound, world_seed,
+    EYE_HEIGHT, MAX_FOOD, MAX_SATURATION, Survival, broadcast_to_viewers, difficulty, feet,
+    game_mode, player_random, sound, world_seed,
 };
 use crate::config::{Difficulty, GameMode};
 use crate::effect::Type as Effect;
@@ -871,9 +871,13 @@ fn chorus_teleport(state: &mut State, session: SessionId) {
         if !free(y + 1) || !free(y + 2) {
             continue;
         }
-        let target =
-            crate::math::Vec3::new(f64::from(x) + 0.5, f64::from(y) + 1.0, f64::from(z) + 0.5);
-        movement::teleport(state, session, target);
+        // The feet stand on the block; a teleport takes the eyes.
+        let eye = crate::math::Vec3::new(
+            f64::from(x) + 0.5,
+            f64::from(y) + 1.0 + EYE_HEIGHT,
+            f64::from(z) + 0.5,
+        );
+        super::teleport(state, session, world_index, eye);
         return;
     }
 }
