@@ -1940,14 +1940,14 @@ pub(super) fn living_tick(state: &mut State, session: SessionId) {
     {
         return;
     }
-    let drown = state.settings.drowning && air_tick(state, session);
+    if state.settings.drowning && air_tick(state, session) {
+        damage(state, session, 2.0, Damage::Drowning);
+    }
+    // After the air's hits: the cooldown's last tick still weighs them against the last hit.
     if let Some(player) = state.players.get_mut(&session)
         && player.survival.attack_time > 0
     {
         player.survival.attack_time -= 1;
-    }
-    if drown {
-        damage(state, session, 2.0, Damage::Drowning);
     }
 }
 

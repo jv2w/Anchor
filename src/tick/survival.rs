@@ -1583,6 +1583,30 @@ mod tests {
         assert_eq!(own_data(&after), [&want]);
     }
 
+    /// The hit cooldown counts down after drowning hurts (PMMP `Living::entityBaseTick`): its last
+    /// tick still weighs a drowning hit against the last hit, and a drowning hit's own cooldown
+    /// starts counting the same tick.
+    #[test]
+    fn drowning_weighs_against_the_last_hit_before_the_cooldown_counts_down() {
+        let mut server = Server::new(1, |_| {});
+        let eye = BlockPos::containing(server.player(1).position);
+        server.state.worlds[0]
+            .set_block(eye, block::Kind::Water.default_state())
+            .unwrap();
+        let s = server.survival(1);
+        s.air = -19;
+        s.attack_time = 1;
+        s.last_damage = Some(7.0);
+        server.idle(1);
+        let s = server.survival(1);
+        assert_eq!((s.health, s.attack_time), (20.0, 0));
+        s.air = -19;
+        server.idle(1);
+        let s = server.survival(1);
+        let cooldown = u32::from(crate::tick::entity::ATTACK_COOLDOWN);
+        assert_eq!((s.health, s.attack_time), (18.0, cooldown - 1));
+    }
+
     #[test]
     fn under_water_the_air_drops_and_out_of_it_refills_as_bds() {
         let mut server = Server::new(1, |_| {});
