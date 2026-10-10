@@ -1381,6 +1381,7 @@ pub(super) fn die(
     });
     player.survival.using = None;
     player.breaking.stop_using();
+    player.breaking.forget_attacked();
     player.data_dirty = true;
     let world = player.world;
     let mut event = heard.then(|| {

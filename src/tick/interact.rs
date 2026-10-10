@@ -225,6 +225,12 @@ impl Breaking {
         self.using_since = None;
     }
 
+    /// Forgets the block last attacked: after a death the client starts breaking anew (PMMP: the
+    /// respawn makes a new `InGamePacketHandler`).
+    pub(super) fn forget_attacked(&mut self) {
+        self.last_attacked = None;
+    }
+
     /// Whether a bow, trident, goat horn or spyglass is in use (part of PMMP
     /// `Player::isUsingItem`).
     pub(super) fn is_using(&self) -> bool {

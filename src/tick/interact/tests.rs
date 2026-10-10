@@ -1503,6 +1503,19 @@ fn dying_stops_the_breaking_viewers_see() {
         if e.event_type == i32::from(Event::StopBlockCracking))));
 }
 
+/// After a death the client starts breaking anew: the block last attacked is forgotten (PMMP: the
+/// respawn makes a new `InGamePacketHandler`).
+#[test]
+fn dying_forgets_the_block_last_attacked() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::Glass.default_state());
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    assert_eq!(h.player().breaking.last_attacked, Some(TARGET));
+    assert!(h.player_mut().kill());
+    h.run(Vec::new());
+    assert_eq!(h.player().breaking.last_attacked, None);
+}
+
 #[test]
 fn a_dead_player_neither_breaks_nor_places() {
     let mut h = Harness::new(|_| {});
