@@ -1252,8 +1252,8 @@ fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<Hi
 /// The attacker's side of a melee hit by `a` (PMMP `Player::attackEntity`): the held item's
 /// attack points, the extra of Strength, Weakness and Sharpness (added up and one by one), a
 /// critical hit (falling, not flying, not blind, not under water, and not sprinting unless
-/// `sprint-critical-hits`) for half again; whether it is critical and whether a weapon
-/// enchantment added damage.
+/// `sprint-critical-hits`) for half again; whether the critical hit and a weapon enchantment
+/// added damage (PMMP shows their animations only then).
 fn melee_parts(
     state: &State,
     attacker: SessionId,
@@ -1279,13 +1279,14 @@ fn melee_parts(
         && s.fall_distance > 0.0
         && !s.effects.contains_key(&Effect::Blindness)
         && !movement::is_underwater(state, a);
+    let mut more = 0.0;
     if critical {
         let total = base + extra;
-        let more = if total > 0.0 { total / 2.0 } else { 0.0 };
+        more = if total > 0.0 { total / 2.0 } else { 0.0 };
         extra += more;
         set(&mut parts, DamageModifier::Critical, more);
     }
-    (base, extra, parts, critical, weapon > 0.0)
+    (base, extra, parts, more > 0.0, weapon > 0.0)
 }
 
 /// The melee hit the player of `session` makes on an entity that is not a player; `None` if it

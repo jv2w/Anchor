@@ -1188,7 +1188,7 @@ pub(super) struct Melee {
     /// critical hit.
     pub(super) damage: f64,
     /// A critical hit (falling, not flying, not blind, not under water, and not sprinting unless
-    /// `sprint-critical-hits`).
+    /// `sprint-critical-hits`) that added damage.
     pub(super) critical: bool,
     /// A weapon enchantment added damage (PMMP `MagicHitAnimation`).
     pub(super) magic: bool,
@@ -3274,6 +3274,20 @@ mod tests {
         assert!((m.damage - 1.4 * 1.5).abs() < 1e-9, "{}", m.damage);
         assert!(server.hurt(1, 100.0, Damage::Magic));
         assert_eq!(melee(&server.state, sid(1)), None, "the dead hit nothing");
+    }
+
+    /// A falling hit that Weakness brings to nothing is no critical hit: half of nothing adds
+    /// nothing (PMMP shows the animation only for a critical modifier above 0).
+    #[test]
+    fn a_critical_hit_of_nothing_is_not_critical() {
+        let mut server = Server::new(1, |_| {});
+        let s = server.survival(1);
+        s.effects
+            .insert(effect::Type::Weakness, Active::new(100, 4));
+        s.fall_distance = 1.0;
+        let m = melee(&server.state, sid(1)).unwrap();
+        assert_eq!(m.damage, 0.0);
+        assert!(!m.critical);
     }
 
     /// Healing, burning and the hit cooldown other rules reach through the contract.
