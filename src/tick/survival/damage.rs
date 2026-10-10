@@ -1461,13 +1461,16 @@ fn drop_death(
         .as_ref()
         .map_or((false, false), |(e, _)| (e.keep_inventory, e.keep_xp));
     let free = player.survival.held_back.is_empty() && !keep_inventory;
-    let stacks = if finite && free {
+    let stacks = if free {
         inventory::take_all(player)
     } else {
         Vec::new()
     };
     let replaced = match &event {
         Some((e, original)) if free && e.drops != *original => Some(valid_drops(&e.drops)),
+        // A creative player drops nothing (PMMP `Player::getDrops`), yet loses what it carries
+        // but for the items kept on death (PMMP `Player::onDeath`).
+        _ if !finite => Some(Vec::new()),
         _ => None,
     };
     let (to_drop, kept) = match replaced {

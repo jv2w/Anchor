@@ -364,6 +364,20 @@ fn peaceful_and_full_bar_heals_are_regains_of_their_own() {
     assert_eq!(game.survival(1).health, 12.0);
 }
 
+/// A creative player that dies drops nothing but still loses what it carries, but for the items
+/// kept on death (PMMP `Player::onDeath`, `Player::getDrops`).
+#[test]
+fn a_creative_player_that_dies_loses_its_inventory_and_drops_nothing() {
+    let mut game = Game::new(1, Listeners::default());
+    assert!(game.player_mut(1).set_game_mode(GameMode::Creative));
+    assert!(inventory::give(game.player_mut(1), stack(ItemKind::Bread, 5)).is_empty());
+    assert!(damage(&mut game.state, sid(1), 30.0, Damage::Suicide));
+    assert!(game.survival(1).is_dead());
+    assert_eq!(carried(game.player(1)), 0);
+    game.idle(1);
+    assert_eq!(dropped(&game.take(1)), 0);
+}
+
 // pmmp: PlayerDeathEvent
 #[test]
 fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
