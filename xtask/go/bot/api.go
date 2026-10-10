@@ -865,7 +865,7 @@ func (g *game) tradeWith(entityType string) error {
 	if g.window == nil {
 		g.window = &packet.ContainerOpen{WindowID: g.trade.WindowID, ContainerType: g.trade.WindowType}
 	}
-	o, err := g.firstOffer(offers)
+	o, err := g.firstOffer(offers, g.trade.TradeTier)
 	if err != nil {
 		return err
 	}

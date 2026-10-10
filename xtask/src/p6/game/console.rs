@@ -808,9 +808,9 @@ mod tests {
         "give P6Trade beetroot 64",
         "give P6Trade pumpkin 64",
         "give P6Trade melon_block 64",
-        "summon villager -9.5 -60 20.5 0 0 minecraft:spawn_farmer P6Farmer",
+        "summon villager -9.5 -60 20.5 0 0 minecraft:become_farmer P6Farmer",
         "summon villager -9.5 -60 20.5",
-        "summon minecraft:villager -13.5 -60 20.5",
+        "summon minecraft:villager -13.5 -60 20.5 0 0 minecraft:become_farmer",
         "effect @e[type=!player] slowness 600 255 true",
         "kill @e[type=!player]",
     ];
@@ -867,7 +867,7 @@ mod tests {
         };
         assert!(effect.is_visible());
         assert!(matches!(
-            parse("summon villager -9.5 -60 20.5 0 0 minecraft:spawn_farmer P6Farmer"),
+            parse("summon villager -9.5 -60 20.5 0 0 minecraft:become_farmer P6Farmer"),
             Ok(Command::Villager { .. })
         ));
         assert_eq!(

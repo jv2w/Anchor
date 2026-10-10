@@ -86,16 +86,17 @@ func TestInventorySlotsUseTheOpenWindowsContainers(t *testing.T) {
 	}
 }
 
-func TestFirstOfferSkipsSecondPaymentsAndWhatTheBotLacks(t *testing.T) {
+func TestFirstOfferSkipsSecondPaymentsLockedOffersAndWhatTheBotLacks(t *testing.T) {
 	g := testGame()
 	g.slots[slotRef{protocol.WindowIDInventory, 0}] = stack{item: protocol.ItemStack{ItemType: protocol.ItemType{NetworkID: 501}, Count: 10}, id: 1}
 	item := func(name string, count uint8) map[string]any { return map[string]any{"Name": name, "Count": count} }
 	offers := map[string]any{"Recipes": []any{
-		map[string]any{"buyA": item("minecraft:emerald", 1), "buyB": item("minecraft:emerald", 1), "buyCountA": int32(1), "sell": item("minecraft:bread", 6), "netId": int32(7)},
-		map[string]any{"buyA": item("minecraft:emerald", 20), "buyCountA": int32(20), "sell": item("minecraft:bread", 6), "netId": int32(8)},
-		map[string]any{"buyA": item("minecraft:emerald", 2), "buyB": item("", 0), "buyCountA": int32(2), "sell": item("minecraft:bread", 6), "netId": int32(9)},
+		map[string]any{"buyA": item("minecraft:emerald", 1), "buyB": item("minecraft:emerald", 1), "buyCountA": int32(1), "sell": item("minecraft:bread", 6), "netId": int32(7), "tier": int32(0)},
+		map[string]any{"buyA": item("minecraft:emerald", 20), "buyCountA": int32(20), "sell": item("minecraft:bread", 6), "netId": int32(8), "tier": int32(0)},
+		map[string]any{"buyA": item("minecraft:emerald", 1), "buyCountA": int32(1), "sell": item("minecraft:bread", 6), "netId": int32(10), "tier": int32(2)},
+		map[string]any{"buyA": item("minecraft:emerald", 2), "buyB": item("", 0), "buyCountA": int32(2), "sell": item("minecraft:bread", 6), "netId": int32(9), "tier": int32(1)},
 	}}
-	o, err := g.firstOffer(offers)
+	o, err := g.firstOffer(offers, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

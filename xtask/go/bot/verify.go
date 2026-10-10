@@ -799,7 +799,7 @@ func playTradeUp(g *game) error {
 	g.noSteps = true
 	defer func() { g.noSteps = false }()
 	// The trade that raised a tier, and whether an UpdateTrade came with it; a villager whose offers run
-	// out first makes way for another (BDS's professions are random), at most tradeUpVillagers.
+	// out first makes way for another, at most tradeUpVillagers.
 	var rise any
 	for attempt := 0; attempt < tradeUpVillagers && rise == nil; attempt++ {
 		rose, err := g.tradeUntilTier(at)
@@ -826,15 +826,17 @@ func playTradeUp(g *game) error {
 // inventory pays for no offer: whether an UpdateTrade came with the trade that raised the tier, nil
 // without a rise.
 func (g *game) tradeUntilTier(at protocol.BlockPos) (any, error) {
-	villager, o, err := g.trader(at, summonForms, true)
+	villager, o, err := g.trader(at, farmerSummon, true)
 	if err != nil {
 		return nil, err
 	}
-	// Each trade takes the first offer the inventory still pays for.
+	// Each trade takes the first offer the inventory still pays for at the starting tier, which holds
+	// until the tier rises and the loop ends.
 	offers, err := decodeOffers(g.trade.SerialisedOffers)
 	if err != nil {
 		return nil, err
 	}
+	unlocked := g.trade.TradeTier
 	tier := func() any { return g.verify.tiers[villager.EntityRuntimeID] }
 	startTier := tier()
 	var trades []any
@@ -857,7 +859,7 @@ func (g *game) tradeUntilTier(at protocol.BlockPos) (any, error) {
 				return nil, err
 			}
 		}
-		if o, err = g.firstOffer(offers); err != nil {
+		if o, err = g.firstOffer(offers, unlocked); err != nil {
 			return nil, nil
 		}
 	}

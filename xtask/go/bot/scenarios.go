@@ -571,9 +571,9 @@ func playTrade(g *game) error {
 	if err := g.hold(8); err != nil {
 		return err
 	}
-	// A villager's profession and offers are random: the trade steps compare by their shape.
+	// A villager's offers and experience orbs are random: the trade steps compare by their shape.
 	g.random = true
-	villager, offer, err := g.trader(at, summonForms, true)
+	villager, offer, err := g.trader(at, farmerSummon, true)
 	if err != nil {
 		return err
 	}
@@ -622,7 +622,7 @@ func playTrade(g *game) error {
 	}
 
 	// The legacy villager: what the legacy entity name spawns and whether it opens trading.
-	old, _, err := g.trader(g.offset(-2, 0, 0), legacyForms, false)
+	old, _, err := g.trader(g.offset(-2, 0, 0), legacySummon, false)
 	if err != nil {
 		g.check("legacy trading", map[string]any{"update_trade": false, "error": err.Error()})
 		return nil
@@ -663,70 +663,57 @@ func (g *game) takeOffer(o offer) error {
 	return err
 }
 
-// summonForms are the console forms tried for a villager; the first that makes one is used from then on.
-// "villager" makes a villager_v2 in BDS 1.26.52, and the spawn event does not pick the profession.
-var summonForms = []string{
-	"summon villager %v %v %v 0 0 minecraft:spawn_farmer P6Farmer",
-	"summon villager %v %v %v",
-}
+// farmerSummon summons an adult farmer villager (a villager_v2 in BDS 1.26.52). The summon event
+// replaces the random spawn event, and minecraft:become_farmer is the villager_v2 event that sets one
+// profession: minecraft:spawn_farmer picks one of five professions at random, and a fisherman's first
+// tier may hold no offer the bot can pay for.
+const farmerSummon = "summon villager %v %v %v 0 0 minecraft:become_farmer P6Farmer"
 
-// legacyForms summon the legacy villager entity (minecraft:villager, before villager_v2).
-var legacyForms = []string{"summon minecraft:villager %v %v %v"}
+// legacySummon summons the legacy villager entity name (minecraft:villager, before villager_v2) as an
+// adult farmer: without the event its spawn event makes a baby or a nitwit at times, which do not trade.
+const legacySummon = "summon minecraft:villager %v %v %v 0 0 minecraft:become_farmer"
 
-// trader summons villagers at the position with the first command form that works until one opens
-// trading (a villager's profession is random; some have no trades), with an offer the bot can pay for if
-// payable, at most four. It returns the villager and the offer, and leaves the trade window open.
-func (g *game) trader(at protocol.BlockPos, forms []string, payable bool) (*packet.AddActor, offer, error) {
-	for range 4 {
-		var villager *packet.AddActor
-		g.setup("summon a villager")
-		for _, form := range forms {
-			g.command(form, float32(at[0])+0.5, at[1], float32(at[2])+0.5)
-			pk, err := g.until("the villager", 3*time.Second, func(pk packet.Packet) bool {
-				a, ok := pk.(*packet.AddActor)
-				return ok && (a.EntityType == "minecraft:villager_v2" || a.EntityType == "minecraft:villager")
-			})
-			if err == nil {
-				villager = pk.(*packet.AddActor)
-				forms = []string{form}
-				g.check("villager", map[string]any{"command": form, "type": villager.EntityType})
-				break
-			}
-		}
-		if villager == nil {
-			return nil, offer{}, errors.New("no summon command made a villager")
-		}
-		g.command("effect @e[type=!player] slowness 600 255 true")
-		if err := g.settle(2 * time.Second); err != nil {
-			return nil, offer{}, err
-		}
-		g.trade = nil
-		if err := g.useOnEntity("open trading", villager.EntityRuntimeID, villager.Position.Add(mgl32.Vec3{0, 1, 0})); err != nil {
-			return nil, offer{}, err
-		}
-		if err := g.waitState("UpdateTrade", 5*time.Second, func() bool { return g.trade != nil }); err != nil {
-			g.check("no trading", fmt.Sprint(villager.EntityMetadata[protocol.EntityDataKeyVariant]))
-			g.command("kill @e[type=!player]")
-			continue
-		}
-		offers, err := decodeOffers(g.trade.SerialisedOffers)
-		if err != nil {
-			return nil, offer{}, fmt.Errorf("decode the offers: %w", err)
-		}
-		g.check("offers", nbtJSON(offers, 0))
-		if g.window == nil {
-			g.window = &packet.ContainerOpen{WindowID: g.trade.WindowID, ContainerType: g.trade.WindowType}
-		}
-		o, err := g.firstOffer(offers)
-		if err == nil || !payable {
-			return villager, o, nil
-		}
-		if err := g.closeWindow("close trading without a payable offer"); err != nil {
-			return nil, offer{}, err
-		}
-		g.command("kill @e[type=!player]")
+// trader summons a villager at the position with the summon command and opens trading. It returns the
+// villager and, if payable, the first offer the bot can pay for, and leaves the trade window open.
+func (g *game) trader(at protocol.BlockPos, summon string, payable bool) (*packet.AddActor, offer, error) {
+	g.setup("summon a villager")
+	g.command(summon, float32(at[0])+0.5, at[1], float32(at[2])+0.5)
+	pk, err := g.until("the villager", 3*time.Second, func(pk packet.Packet) bool {
+		a, ok := pk.(*packet.AddActor)
+		return ok && (a.EntityType == "minecraft:villager_v2" || a.EntityType == "minecraft:villager")
+	})
+	if err != nil {
+		return nil, offer{}, err
 	}
-	return nil, offer{}, errors.New("four villagers had no offer the bot can pay for")
+	villager := pk.(*packet.AddActor)
+	g.check("villager", map[string]any{"command": summon, "type": villager.EntityType})
+	g.command("effect @e[type=!player] slowness 600 255 true")
+	if err := g.settle(2 * time.Second); err != nil {
+		return nil, offer{}, err
+	}
+	g.trade = nil
+	if err := g.useOnEntity("open trading", villager.EntityRuntimeID, villager.Position.Add(mgl32.Vec3{0, 1, 0})); err != nil {
+		return nil, offer{}, err
+	}
+	if err := g.waitState("UpdateTrade", 5*time.Second, func() bool { return g.trade != nil }); err != nil {
+		return nil, offer{}, fmt.Errorf("villager variant %v: %w", villager.EntityMetadata[protocol.EntityDataKeyVariant], err)
+	}
+	offers, err := decodeOffers(g.trade.SerialisedOffers)
+	if err != nil {
+		return nil, offer{}, fmt.Errorf("decode the offers: %w", err)
+	}
+	g.check("offers", nbtJSON(offers, 0))
+	if g.window == nil {
+		g.window = &packet.ContainerOpen{WindowID: g.trade.WindowID, ContainerType: g.trade.WindowType}
+	}
+	if !payable {
+		return villager, offer{}, nil
+	}
+	o, err := g.firstOffer(offers, g.trade.TradeTier)
+	if err != nil {
+		return nil, offer{}, err
+	}
+	return villager, o, nil
 }
 
 // offer is one trade offer the bot can pay for.
@@ -739,8 +726,10 @@ type offer struct {
 	sellCount byte
 }
 
-// firstOffer is the first offer without a second payment whose first payment the inventory holds.
-func (g *game) firstOffer(offers map[string]any) (offer, error) {
+// firstOffer is the first offer unlocked at the villager's tier (UpdateTrade TradeTier), without a second
+// payment, whose first payment the inventory holds. The client cannot take a locked offer; BDS 1.26.52
+// accepts one anyway, and its trader experience raises the villager's tier.
+func (g *game) firstOffer(offers map[string]any, tier int32) (offer, error) {
 	recipes, _ := offers["Recipes"].([]any)
 	for _, r := range recipes {
 		m, ok := r.(map[string]any)
@@ -760,7 +749,8 @@ func (g *game) firstOffer(offers map[string]any) (offer, error) {
 		netID, err2 := nbtInt(m["netId"])
 		sellCount, err3 := nbtInt(sell["Count"])
 		sellID, err4 := g.itemNamed(sellName)
-		if err := errors.Join(err1, err2, err3, err4); err != nil {
+		offerTier, err5 := nbtInt(m["tier"])
+		if err := errors.Join(err1, err2, err3, err4, err5); err != nil || offerTier > int64(tier) {
 			continue
 		}
 		if buyCount <= 0 || buyCount > math.MaxUint8 || g.count(buyName) < int(buyCount) {
