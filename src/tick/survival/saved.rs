@@ -262,10 +262,14 @@ fn f32_of(v: f64) -> f32 {
 
 /// Writes the survival keys, replacing the ones read; keys of absent values are removed.
 pub(super) fn save(s: &Survival, extra: &mut Compound) {
+    // A returning player's compound holds the keys already: no key string is made for them.
     let mut put = |key: &str, value: Option<Value>| match value {
-        Some(v) => {
-            extra.insert(key.to_owned(), v);
-        }
+        Some(v) => match extra.get_mut(key) {
+            Some(slot) => *slot = v,
+            None => {
+                extra.insert(key.to_owned(), v);
+            }
+        },
         None => {
             extra.remove(key);
         }
