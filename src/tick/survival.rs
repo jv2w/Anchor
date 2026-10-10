@@ -1026,11 +1026,17 @@ fn switch_world(state: &mut State, session: SessionId, world: WorldIndex, pos: V
     } else if radius > 0 {
         super::view::set_radius(state, &mut player, radius);
     }
-    if player.phase == Phase::Spawned {
-        player.send_packet(clock_state(state, world));
-        player.send_packet(sleeping_players(state, world));
-    }
+    let spawned = player.phase == Phase::Spawned;
+    // Back in the map first: the sleeping counts include the player that arrives.
     state.players.insert(session, player);
+    if spawned {
+        let packets = [clock_state(state, world), sleeping_players(state, world)];
+        if let Some(player) = state.players.get_mut(&session) {
+            for packet in packets {
+                player.send_packet(packet);
+            }
+        }
+    }
 }
 
 /// The level of the haste effect (0 without it), for the break speed (PMMP
@@ -3574,6 +3580,29 @@ mod tests {
         assert!(bytes.windows(skin_data.len()).any(|w| w == skin_data));
         let again = crate::tick::InputLog::decode(&bytes).unwrap();
         assert_eq!(again.encode().unwrap(), bytes);
+    }
+
+    /// A player that enters another world counts itself in the sleeping counts it is sent, as the
+    /// spawn window counts it.
+    #[test]
+    fn a_player_entering_a_world_is_counted_in_its_sleeping_players() {
+        let mut server = Server::new(2, |_| {});
+        let spawn = BlockPos::new(0, -60, 0);
+        let other = World::new("other", crate::world::Kind::Temporary, 3, spawn);
+        server.state.add_world(other);
+        let there = Vec3::new(0.5, -58.38, 0.5);
+        teleport(&mut server.state, sid(2), 1, there);
+        server.idle(1);
+        server.take(1);
+        teleport(&mut server.state, sid(1), 1, there);
+        let expected = sleeping_players(&server.state, 1);
+        server.idle(1);
+        let counts: Vec<Packet> = server
+            .take(1)
+            .into_iter()
+            .filter(|p| matches!(p, Packet::LevelEventGeneric(_)))
+            .collect();
+        assert_eq!(counts, [expected]);
     }
 
     #[test]
