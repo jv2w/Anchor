@@ -10,10 +10,9 @@
 use super::attributes::{ABILITIES, MOVEMENT};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
-use super::{Survival, attributes, f32_of, feet, food, game_mode, sound};
+use super::{Survival, attributes, f32_of, feet, food, sound};
 
 use crate::block::{self, Class, Face};
-use crate::config::GameMode;
 use crate::effect::Type as Effect;
 use crate::event::{
     Actor, CombustSource, DamageSource, EntityFrostWalker, ExhaustCause, ExtinguishCause,
@@ -645,9 +644,9 @@ fn frost_walker(state: &mut State, session: SessionId) {
 /// move, touches a block's collision box. A move past the 15-block limit, which only
 /// `movement-check = false` lets through, tests the box at its end alone: stretched back along
 /// a move of millions of blocks, the box would make one input test millions of blocks.
-/// Spectators never stand.
+/// A player without block collision never stands.
 fn ground(state: &State, player: &Player, delta: Vec3) -> bool {
-    if game_mode(state, player) == GameMode::Spectator {
+    if !player.survival.collides() {
         return false;
     }
     let Some(world) = state.worlds.get(player.world) else {
@@ -1170,6 +1169,24 @@ mod tests {
         crate::tick::tests::tick(&mut state, &mut vec![mid, down], &mut output);
         let player = &state.players[&SessionId::new(1)];
         assert_eq!(feet(player).y, -60.0);
+        assert_eq!(player.survival.health, 20.0);
+    }
+
+    /// A player without block collision never stands (PMMP `Player::checkGroundState`), so a
+    /// fall through the floor does not land.
+    #[test]
+    fn a_player_without_block_collision_never_lands() {
+        let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
+        let eye = |feet_y: f64| Vec3::new(0.5, feet_y + super::super::EYE_HEIGHT, 0.5);
+        let player = state.players.get_mut(&SessionId::new(1)).unwrap();
+        player.set_block_collision(false);
+        player.position = eye(-50.0);
+        player.survival.motion.processed = Some(Vec3::new(0.5, -50.0, 0.5));
+        let mid = crate::tick::tests::moved_to(1, 10, eye(-55.0).to_f32());
+        let down = crate::tick::tests::moved_to(1, 11, eye(-60.0).to_f32());
+        crate::tick::tests::tick(&mut state, &mut vec![mid, down], &mut output);
+        let player = &state.players[&SessionId::new(1)];
+        assert!(!player.survival.motion.on_ground);
         assert_eq!(player.survival.health, 20.0);
     }
 
