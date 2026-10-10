@@ -118,30 +118,27 @@ pub(super) fn check(lines: &[String; SIGN_LINES]) -> Option<[String; SIGN_LINES]
 /// sequences, keeping colour codes.
 pub(super) fn clean(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
+    // The private-use characters go first, so a sequence they split still goes.
+    let mut chars = text
+        .chars()
+        .filter(|c| !('\u{E000}'..='\u{F8FF}').contains(c))
+        .peekable();
     while let Some(c) = chars.next() {
-        if ('\u{E000}'..='\u{F8FF}').contains(&c) {
-            continue;
-        }
         if c == '\u{1b}' {
-            // `\x1b[(\][][0-9;[(]+[Bm]`: skip a whole sequence; a lone escape goes too.
+            // `\x1b[\(\][[0-9;\[\(]+[Bm]` is one class (`(`, `]`, `[`, digits, `;`): skip a whole
+            // sequence; a lone escape goes too.
             let mut lookahead = chars.clone();
-            if lookahead
-                .next()
-                .is_some_and(|o| matches!(o, '(' | ']' | '['))
+            let mut body = 0;
+            while lookahead
+                .peek()
+                .is_some_and(|b| b.is_ascii_digit() || matches!(b, '(' | ']' | '[' | ';'))
             {
-                let mut body = 0;
-                while lookahead
-                    .peek()
-                    .is_some_and(|b| b.is_ascii_digit() || matches!(b, ';' | '[' | '('))
-                {
-                    lookahead.next();
-                    body += 1;
-                }
-                if body > 0 && lookahead.peek().is_some_and(|e| matches!(e, 'B' | 'm')) {
-                    lookahead.next();
-                    chars = lookahead;
-                }
+                lookahead.next();
+                body += 1;
+            }
+            if body > 0 && lookahead.peek().is_some_and(|e| matches!(e, 'B' | 'm')) {
+                lookahead.next();
+                chars = lookahead;
             }
             continue;
         }
@@ -189,5 +186,15 @@ mod tests {
         assert_eq!(clean("a\u{E123}b"), "ab");
         assert_eq!(clean("a\u{1b}[31mb"), "ab");
         assert_eq!(clean("a\u{1b}b"), "ab");
+    }
+
+    /// PMMP's escape pattern `\x1b[\(\][[0-9;\[\(]+[Bm]` is one character class, and the
+    /// private-use characters go before it is matched.
+    #[test]
+    fn cleaning_reads_the_escape_pattern_as_pmmp() {
+        assert_eq!(clean("a\u{1b}[mb"), "ab");
+        assert_eq!(clean("a\u{1b}1mb"), "ab");
+        assert_eq!(clean("a\u{1b}]]mb"), "ab");
+        assert_eq!(clean("a\u{1b}\u{E000}[31mb"), "ab");
     }
 }
