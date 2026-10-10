@@ -293,13 +293,14 @@ impl Player {
         s.game_mode = Some(mode);
         s.custom.allow_flight = None;
         s.custom.block_collision = None;
+        // Through `set_flying`: a change of flight forgets the fall.
         if mode == GameMode::Spectator {
-            s.motion.flying = true;
-            s.motion.on_ground = false;
+            self.survival.motion.on_ground = false;
+            self.set_flying(true);
         } else if is_survival(mode) {
-            s.motion.flying = false;
+            self.set_flying(false);
         }
-        s.touch(ABILITIES | DATA);
+        self.survival.touch(ABILITIES | DATA);
         self.data_dirty = true;
         let packet = game_type_packet(self, mode);
         self.send_packet(packet);
@@ -1666,6 +1667,22 @@ mod tests {
                 .map(|a| (a.attribute_value.value, a.attribute_value.max)),
             _ => None,
         })
+    }
+
+    /// A game mode change that starts or stops flight forgets the fall, as `set_flying` does
+    /// (PMMP `Player::setFlying`).
+    #[test]
+    fn a_game_mode_change_of_flight_forgets_the_fall() {
+        let (mut state, _rx) = two();
+        let p = player_mut(&mut state, 1);
+        assert!(p.set_game_mode(GameMode::Creative));
+        p.set_flying(true);
+        p.survival.fall_distance = 30.0;
+        assert!(p.set_game_mode(GameMode::Survival));
+        assert_eq!(p.fall_distance(), 0.0);
+        p.survival.fall_distance = 30.0;
+        assert!(p.set_game_mode(GameMode::Spectator));
+        assert_eq!(p.fall_distance(), 0.0);
     }
 
     // pmmp: Player::getGamemode, Player::setGamemode, Player::isSurvival, Player::isCreative, Player::isAdventure, Player::isSpectator, Player::hasFiniteResources
