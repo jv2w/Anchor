@@ -882,6 +882,11 @@ pub(super) fn sleep(
     clock::sleep(state, session, world, pos)
 }
 
+/// The player stops eating or drinking (the food half of PMMP `Player::setUsingItem(false)`).
+pub(super) fn stop_eating(player: &mut Player) {
+    player.survival.using = None;
+}
+
 /// The player leaves: it wakes up (the bed is free again) and stops eating (PMMP
 /// `Player::onPostDisconnect` → `stopSleep`).
 pub(super) fn left(state: &mut State, player: &mut Player) {

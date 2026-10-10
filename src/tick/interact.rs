@@ -949,13 +949,12 @@ fn apply_block_action(
     match action {
         PlayerAction::StartBreak | PlayerAction::ContinueDestroyBlock => {
             // The client sends a continue for the block it already breaks: not a new start.
-            if last == Some(pos) {
-                return;
+            if last != Some(pos) {
+                if !attack_block(state, session, pos, face) {
+                    sync_nearby(state, session, pos, Some(face));
+                }
+                set_last(state, Some(pos));
             }
-            if !attack_block(state, session, pos, face) {
-                sync_nearby(state, session, pos, Some(face));
-            }
-            set_last(state, Some(pos));
         }
         PlayerAction::CrackBreak => {
             if let Some(p) = state.players.get_mut(&session)
@@ -985,6 +984,12 @@ fn apply_block_action(
         }
         // Creative breaks come as predicted destroys too; interaction is ignored as PMMP does.
         _ => {}
+    }
+    // Every block action, an ignored repeat start too, ends the use of the held item (PMMP
+    // `handlePlayerActionFromData`: `setUsingItem(false)`).
+    if let Some(player) = state.players.get_mut(&session) {
+        player.breaking.stop_using();
+        survival::stop_eating(player);
     }
 }
 

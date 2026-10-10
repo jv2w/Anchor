@@ -1503,6 +1503,28 @@ fn dying_stops_the_breaking_viewers_see() {
         if e.event_type == i32::from(Event::StopBlockCracking))));
 }
 
+/// Every block action ends the use of the held item, an ignored repeat start too (PMMP
+/// `InGamePacketHandler::handlePlayerActionFromData`).
+#[test]
+fn a_block_action_stops_a_drawn_bow() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::Glass.default_state());
+    let held = stack(crate::item::Kind::Bow);
+    h.hold(held.clone());
+    assert!(inventory::give(h.player_mut(), stack(crate::item::Kind::Arrow)).is_empty());
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    let draw = h.auth(Vec::new(), Some(air(&held)));
+    h.run(vec![draw]);
+    assert!(h.player().is_using_item());
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    assert!(!h.player().is_using_item(), "a repeat start");
+    let draw = h.auth(Vec::new(), Some(air(&held)));
+    h.run(vec![draw]);
+    assert!(h.player().is_using_item());
+    h.act(vec![action(PlayerAction::AbortBreak, TARGET, Face::West)]);
+    assert!(!h.player().is_using_item(), "an abort");
+}
+
 /// After a death the client starts breaking anew: the block last attacked is forgotten (PMMP: the
 /// respawn makes a new `InGamePacketHandler`).
 #[test]
