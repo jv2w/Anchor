@@ -1109,16 +1109,22 @@ pub(super) fn extinguished(state: &mut State, session: SessionId, cause: Extingu
 /// `attacker` hits `target` (PMMP `Player::attackEntity`): the held item's attack points, the
 /// attacker's effects, sharpness, a critical hit (falling, not flying, blind or under water, and
 /// not sprinting unless `sprint-critical-hits`) for half again; cancelled out of reach, in
-/// spectator mode or with `pvp = false`.
+/// spectator mode or with `pvp = false`; nothing at all for a dead target or one in another world.
 pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: SessionId) {
-    if attacker == target {
+    // PMMP finds the target in the attacker's world alone and leaves a dead one at once: no
+    // swing, no sound.
+    let found = attacker != target
+        && state
+            .players
+            .get(&attacker)
+            .zip(state.players.get(&target))
+            .is_some_and(|(a, t)| a.world == t.world && !t.survival.is_dead());
+    if !found {
         return;
     }
     let Some(hit) = melee_hit(state, attacker, target) else {
-        if state.players.contains_key(&attacker) {
-            swing(state, attacker);
-            hit_sound(state, target, Sound::EntityAttackNoDamage);
-        }
+        swing(state, attacker);
+        hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
     };
     let held = state
@@ -1213,9 +1219,7 @@ fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<Hi
     let t = state.players.get(&target)?;
     if a.phase != Phase::Spawned
         || t.phase != Phase::Spawned
-        || a.world != t.world
         || a.survival.is_dead()
-        || t.survival.is_dead()
         || !state.settings.pvp
         || a.survival.mode() == GameMode::Spectator
         || !can_reach(a, feet(t))

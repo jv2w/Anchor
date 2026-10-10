@@ -1979,6 +1979,26 @@ mod tests {
         assert_eq!(server.survival(2).health, 20.0 - points - 1.0);
     }
 
+    /// An attack on a dead player does nothing: no swing, no sound (PMMP `Player::attackEntity`
+    /// returns first).
+    #[test]
+    fn attacking_a_dead_player_neither_swings_nor_sounds() {
+        let mut server = duel(|_| {});
+        assert!(server.hurt(2, 100.0, Damage::Magic));
+        server.idle(1);
+        server.take(1);
+        server.take(2);
+        attack_player(&mut server.state, sid(1), sid(2));
+        server.idle(1);
+        assert!(sounds(&server.take(1)).is_empty(), "no sound");
+        let swing = u8::from(ActorEvent::StartAttacking);
+        let swung = server
+            .take(2)
+            .iter()
+            .any(|p| matches!(p, Packet::ActorEvent(e) if e.event_type == swing));
+        assert!(!swung, "no swing");
+    }
+
     /// The critical hit animation shows only when the critical hit added damage (PMMP
     /// `Player::attackEntity` reads the modifier after the hit): Weakness V takes a bare hand's
     /// point away, so half of nothing is nothing.
