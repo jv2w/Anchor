@@ -677,6 +677,24 @@ fn toggle_listeners(tx: mpsc::Sender<&'static str>) -> Listeners {
     listeners
 }
 
+/// The client starting or stopping flight forgets the fall (PMMP `Player::toggleFlight` through
+/// `setFlying`).
+#[test]
+fn a_client_flight_toggle_forgets_the_fall() {
+    let mut game = Game::new(1, Listeners::default());
+    game.player_mut(1).set_allow_flight(true);
+    game.player_mut(1).set_flying(true);
+    game.idle(1);
+    // In the air: no landing ends the fall instead.
+    game.player_mut(1).position += Vec3::new(0.0, 10.0, 0.0);
+    game.survival(1).fall_distance = 20.0;
+    let input = game.flags(1, &[InputFlag::StopFlying]);
+    game.run(vec![input]);
+    assert!(!game.survival(1).motion.flying);
+    // What is left is the input's own rounding to f32.
+    assert!(game.survival(1).fall_distance < 0.001);
+}
+
 // pmmp: PlayerToggleSneakEvent, PlayerToggleSprintEvent, PlayerToggleSwimEvent, PlayerToggleGlideEvent, PlayerToggleFlightEvent, PlayerJumpEvent, PlayerMissSwingEvent
 #[test]
 fn toggles_ask_their_events_and_a_refused_one_resends_the_data() {

@@ -341,7 +341,11 @@ fn toggle(state: &mut State, session: SessionId, toggle: Toggle) -> bool {
             }
             Toggle::Swim(v) => s.motion.swimming = v,
             Toggle::Glide(v) => s.motion.gliding = v,
-            Toggle::Fly(v) => s.motion.flying = v,
+            // A change of flight forgets the fall (PMMP `Player::setFlying`).
+            Toggle::Fly(v) => {
+                s.motion.flying = v;
+                player.reset_fall_distance();
+            }
         }
     };
     macro_rules! ask {
