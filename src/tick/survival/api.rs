@@ -1756,6 +1756,33 @@ mod tests {
 
     // pmmp: Entity::kill, Entity::isAlive, Player::respawn
     #[test]
+    fn a_respawn_waits_for_the_api_death_to_run() {
+        let (mut state, [mut rx1, _rx2]) = two();
+        let p = player_mut(&mut state, 1);
+        let bread = Stack::new(ItemKind::Bread.default_type(), 5);
+        assert!(inventory::give(p, bread).is_empty());
+        assert!(p.kill());
+        // The client asks to respawn in the same input phase, before the death runs.
+        let session = crate::tick::SessionId::new(1);
+        damage::respawn(&mut state, session);
+        assert!(!player_mut(&mut state, 1).is_alive(), "not revived first");
+        run(&mut state, Vec::new());
+        let deaths = received(&mut rx1)
+            .0
+            .iter()
+            .filter(|p| matches!(p, Packet::DeathInfo(_)))
+            .count();
+        assert_eq!(deaths, 1);
+        let p = player_mut(&mut state, 1);
+        assert!(
+            inventory::take_all(p).iter().all(Stack::is_empty),
+            "dropped"
+        );
+        damage::respawn(&mut state, session);
+        assert!(player_mut(&mut state, 1).is_alive());
+    }
+
+    #[test]
     fn a_kill_drops_the_items_once_and_a_respawn_brings_the_player_back() {
         let (mut state, [mut rx1, _rx2]) = two();
         let p = player_mut(&mut state, 1);

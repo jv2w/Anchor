@@ -1701,6 +1701,15 @@ pub(super) fn on_respawn(state: &mut State, session: SessionId, packet: &Respawn
 /// [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listener cancels that (PMMP
 /// bans the player instead).
 pub(super) fn respawn(state: &mut State, session: SessionId) {
+    // A death the API made runs later in the tick (drops, event, death screen); the respawn waits
+    // for it.
+    if !state
+        .players
+        .get(&session)
+        .is_some_and(|p| p.survival.motion.death_shown)
+    {
+        return;
+    }
     let Some((world, position, event)) = revive(state, session, Phase::Spawned) else {
         return;
     };
