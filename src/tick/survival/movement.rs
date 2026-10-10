@@ -785,10 +785,13 @@ pub(super) fn block_intersections(state: &mut State, session: SessionId) {
     }
 }
 
+/// The delay of a campfire's next update once lit (PMMP `Campfire::UPDATE_INTERVAL_TICKS`).
+const CAMPFIRE_UPDATE_TICKS: u32 = 40;
+
 /// The blocks the player is inside act on it, on every move and in the base tick (PMMP
 /// `checkBlockIntersections` and the blocks' `onEntityInside`): the blocks that hurt ([`Harm`],
-/// as for entities), water and water cauldrons put out fire, climbable blocks and cobwebs end a
-/// fall, wither roses wither.
+/// as for entities), a burning player lights a campfire, water and water cauldrons put out fire,
+/// climbable blocks and cobwebs end a fall, wither roses wither.
 fn intersect(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -841,6 +844,33 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             let source = CombustSource::Block(pos);
             damage::combust(state, session, u32::from(seconds), source);
         }
+    } else if block.is(Class::Campfire) {
+        // An unlit one (a lit one is a `Harm`): a burning player lights it as flint and steel
+        // does (PMMP `Campfire::onEntityInside`).
+        let Some(world) = state
+            .players
+            .get(&session)
+            .filter(|p| p.survival.fire_ticks > 0)
+            .map(|p| p.world)
+        else {
+            return;
+        };
+        let Some(lit) = block.with("extinguished", block::PropertyValue::Byte(0)) else {
+            return;
+        };
+        if let Some(w) = state.worlds.get_mut(world)
+            && let Err(e) = w.set_block(pos, lit)
+        {
+            tracing::debug!(?pos, %e, "campfire not lit");
+            return;
+        }
+        let center = Vec3::new(
+            f64::from(pos.x) + 0.5,
+            f64::from(pos.y) + 0.5,
+            f64::from(pos.z) + 0.5,
+        );
+        crate::tick::interact::sound(state, world, center, crate::world::Sound::FlintSteel);
+        update::schedule(state, world, pos, CAMPFIRE_UPDATE_TICKS);
     } else if block.is(Class::Water) {
         reset_fall(state, session);
         let mut out = false;
@@ -1217,6 +1247,30 @@ mod tests {
         // Not burning: the water stays.
         crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
         assert_eq!(state.worlds[0].block(pos), Some(level(5)));
+    }
+
+    /// A burning player lights an unlit campfire it is in; one not burning leaves it out (PMMP
+    /// `Campfire::onEntityInside`).
+    #[test]
+    fn a_burning_player_lights_an_unlit_campfire() {
+        let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
+        let lit = |on: bool| {
+            block::Kind::Campfire
+                .default_state()
+                .with("extinguished", PropertyValue::Byte(u8::from(!on)))
+                .unwrap()
+        };
+        let pos = BlockPos::new(0, -60, 0);
+        state.worlds[0].set_block(pos, lit(false)).unwrap();
+        let session = SessionId::new(1);
+        let player = state.players.get_mut(&session).unwrap();
+        player.position = Vec3::new(0.5, -60.0 + super::super::EYE_HEIGHT, 0.5);
+        crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(state.worlds[0].block(pos), Some(lit(false)));
+        let player = state.players.get_mut(&session).unwrap();
+        player.survival.fire_ticks = 100;
+        crate::tick::tests::tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(state.worlds[0].block(pos), Some(lit(true)));
     }
 
     /// A player without block collision never stands (PMMP `Player::checkGroundState`), so a
