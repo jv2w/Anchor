@@ -693,6 +693,16 @@ fn normal_transactions_do_nothing() {
     assert_eq!(h.block(TARGET), block::AIR);
 }
 
+/// Frosted ice is ice: the world or a survival player breaking it leaves water (PMMP `FrostedIce`
+/// keeps `Ice::onBreak`).
+#[test]
+fn destroyed_frosted_ice_melts_like_ice() {
+    let mut h = Harness::new(|_| {});
+    h.set(TARGET, Kind::FrostedIce.default_state());
+    assert!(destroy(&mut h.state, 0, TARGET, Destroy::Rules));
+    assert_eq!(h.block(TARGET).kind(), Kind::Water);
+}
+
 #[test]
 fn destroying_for_each_cause_follows_pmmp() {
     let mut h = Harness::new(|_| {});

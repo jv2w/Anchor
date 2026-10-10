@@ -1805,11 +1805,7 @@ fn on_break(
 
 /// What a block leaves when broken (PMMP `Ice::onBreak`: water in survival without Silk Touch).
 fn on_break_result(block: block::State, survival: bool, tool: &Stack) -> block::State {
-    if block.is(Class::Ice)
-        && !block.is(Class::FrostedIce)
-        && survival
-        && drops::level(tool, Enchantment::SilkTouch) == 0
-    {
+    if block.is(Class::Ice) && survival && drops::level(tool, Enchantment::SilkTouch) == 0 {
         return Kind::Water.default_state();
     }
     block::AIR
