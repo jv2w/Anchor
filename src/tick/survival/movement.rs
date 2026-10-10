@@ -834,8 +834,9 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
                 .get(&session)
                 .is_none_or(|p| p.survival.motion.sneaking || p.frost_walker_level() > 0);
         if !spared {
-            let cause = Damage::of(harm.cause(), DamageSource::None);
-            damage::damage(state, session, harm.damage(), cause);
+            let source = DamageSource::Block(pos);
+            let cause = Damage::of(harm.cause(), source);
+            damage::damage_by(state, session, harm.damage(), cause, source);
         }
         if let Some(seconds) = harm.burn_secs() {
             let source = CombustSource::Block(pos);

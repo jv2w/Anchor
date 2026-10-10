@@ -623,10 +623,11 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
             ) => Some(p.session()),
             _ => None,
         };
-        let message = if hit.cause == Damage::Entity && attacker.is_none() {
-            GENERIC_DEATH
-        } else {
-            hit.cause.death_message()
+        let message = match hit.cause {
+            Damage::Entity if attacker.is_none() => GENERIC_DEATH,
+            // Only a cactus is named for contact (PMMP `deriveMessage`).
+            Damage::Contact if !is_cactus(state, session, hit.source) => GENERIC_DEATH,
+            cause => cause.death_message(),
         };
         die(state, session, message, attacker);
         return;
@@ -674,6 +675,19 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
             }
         }
     }
+}
+
+/// Whether `source` is a cactus in the world of the player of `session`.
+fn is_cactus(state: &State, session: SessionId, source: DamageSource) -> bool {
+    let DamageSource::Block(pos) = source else {
+        return false;
+    };
+    state
+        .players
+        .get(&session)
+        .and_then(|p| state.worlds.get(p.world))
+        .and_then(|w| w.block(pos))
+        .is_some_and(|b| b.is(crate::block::Class::Cactus))
 }
 
 /// The runtime ID of a player, 0 if it is gone.

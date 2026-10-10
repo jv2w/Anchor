@@ -3450,6 +3450,32 @@ mod tests {
         assert!(s.fire_ticks > 0);
     }
 
+    /// A contact death names the cactus only when a cactus dealt it (PMMP
+    /// `PlayerDeathEvent::deriveMessage`); a sweet berry bush is a generic death.
+    #[test]
+    fn a_contact_death_names_the_cactus_only_for_a_cactus() {
+        let bush = block::Kind::SweetBerryBush
+            .default_state()
+            .with("growth", PropertyValue::Int(3))
+            .unwrap();
+        for (block, want) in [
+            (bush, damage::GENERIC_DEATH),
+            (block::Kind::Cactus.default_state(), "death.attack.cactus"),
+        ] {
+            let mut server = Server::new(1, |_| {});
+            let at = BlockPos::containing(feet(server.player(1)));
+            server.survival(1).health = 1.0;
+            server.state.worlds[0].set_block(at, block).unwrap();
+            server.idle(1);
+            assert!(server.survival(1).is_dead(), "{want}");
+            let died = server
+                .take(1)
+                .into_iter()
+                .any(|p| matches!(p, Packet::DeathInfo(d) if d.cause == want));
+            assert!(died, "{want}");
+        }
+    }
+
     /// A join of session `s` with `identity`.
     fn join_with(
         s: u64,
