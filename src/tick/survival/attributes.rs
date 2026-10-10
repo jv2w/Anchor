@@ -722,7 +722,7 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
     let attributes = (dirty & ALL != 0).then(|| attributes_packet(player, dirty & ALL));
     let health = (dirty & HEALTH != 0).then(|| health_packet(player));
     let tags = dirty & TAGS != 0;
-    let data = (now != old || tags).then(|| {
+    let metadata = (now != old || tags).then(|| {
         let mut m = EntityMetadata::new();
         changed_metadata(&now, Some(&old), &mut m);
         if tags {
@@ -735,26 +735,31 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
                 MetadataValue::String(player.score_tag().to_owned()),
             );
         }
-        Packet::SetActorData(SetActorData {
-            entity_runtime_id: player.runtime_id,
-            entity_metadata: m,
-            entity_properties: EntityProperties::default(),
-            tick: 0,
-        })
+        m
     });
+    let runtime_id = player.runtime_id;
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     player.survival.dirty = 0;
     player.survival.shown = now;
+    let answer_tick = player.survival.motion.answer_tick.take();
     for packet in [attributes, abilities, adventure].into_iter().flatten() {
         player.send_packet(packet);
     }
-    if let Some(data) = data {
-        // The viewers first, so the player's own copy is the packet itself, not a clone.
-        broadcast_to_viewers(state, session, &data);
+    if let Some(entity_metadata) = metadata {
+        let data = |entity_metadata, tick| {
+            Packet::SetActorData(SetActorData {
+                entity_runtime_id: runtime_id,
+                entity_metadata,
+                entity_properties: EntityProperties::default(),
+                tick,
+            })
+        };
+        // The answer tick is the player's own input's: the viewers get none.
+        broadcast_to_viewers(state, session, &data(entity_metadata.clone(), 0));
         if let Some(player) = state.players.get_mut(&session) {
-            player.send_packet(data);
+            player.send_packet(data(entity_metadata, answer_tick.unwrap_or(0)));
         }
     }
     if let Some(health) = health {

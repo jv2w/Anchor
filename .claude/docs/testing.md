@@ -107,7 +107,7 @@ P6는 같은 봇 시나리오를 공식 서버와 Anchor에 돌려 받은 패킷
 - API(`p6 api`):
   - `commands`(플레이어 명령과 출력, op), `particles`, `kick`, `forms`, `script`(봇 `-script` 동작 자체 시험, `script.txt`).
   - `weather`, `joinrain`, `joinstorm`(날씨 변화, 비·천둥 중 접속), `boltpeaceful`, `bolteasy`, `bolthard`(난이도별 번개).
-  - `enchants`(인챈트 선택지 `Slot`), `stations`(모루, 대장장이, 신호기 요청 모양), `potions`(물약 색과 구름), `entities`(그림, 폭죽, 크리스털, 삼지창), `syntax`(문법 오류와 번역 이름), `tradeup`(거래 등급 상승), `others`와 동반 봇 `mover`(다른 플레이어의 접속, 이동, 공격, 죽음, 리스폰), `itemuse`(활, 삼지창, 물약 사용).
+  - `enchants`(인챈트 선택지 `Slot`), `stations`(모루, 대장장이, 신호기 요청 모양), `potions`(물약 색과 구름), `entities`(그림, 폭죽, 크리스털, 삼지창), `syntax`(문법 오류와 번역 이름), `tradeup`(거래 등급 상승), `others`와 동반 봇 `mover`(다른 플레이어의 접속, 이동, 공격, 죽음, 리스폰), `itemuse`(활, 삼지창, 물약 사용), `sneak`(웅크리기 답의 입력 틱).
   - `villagers`(직업 번호), `numbers`(공식 서버 전용 번호와 원격 측정), `rules`, `rulesjoin`(게임 규칙), `line<바이트>`, `linekorean<바이트>`(명령 줄 길이; 공식 서버는 508바이트부터 연결을 끊음), `limits`, `limitchat`(문자열 상한).
   - 단계마다 `fields.txt`에 있는 패킷의 개수와 고정 필드, 봇의 출력·확인·폼 줄을 비교한다. 명령 목록은 둘 다 가진 명령만 메모로 비교한다. 사실 기록만 하는 시나리오는 하네스의 `FACTS_ONLY`, 고정 필드 없이 확인 줄만 비교하는 시나리오는 `CHECKS_ONLY`(`xtask/src/p6/api.rs`)에 있다.
 - 가져오기(`p6 import`): 공식 서버 지형 월드의 모든 서브청크, 모든 층의 네트워크 ID가 같아야 한다. Anchor가 모르는 블록으로 두는 덤프에 없는 블록은 `intended.txt`의 `import | block` 줄로 넘긴다.

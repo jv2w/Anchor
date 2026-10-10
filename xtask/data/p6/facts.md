@@ -231,6 +231,11 @@
   - Anchor: `PlayerInteract::is_first`는 누름마다 처음 쏘는 오른쪽 클릭만 참이다. `SimulationTick`이 아닌 클릭, 또는 직전 블록 클릭에서 `PRESS_GAP_TICKS`보다 늦은 클릭이 새 누름이다.
 - 비행: 같은 겨냥에서 공식 서버 투척 물약은 3.5블록 벽 높이 1.6에 맞고 Anchor는 땅에 맞는다(던지는 각도·힘 차이로 보임). 삼지창은 1초 당겨 수평으로 공식 서버 약 24블록, Anchor 약 12블록이다. 범위 밖의 차이로 둔다.
 
+## 웅크리기
+- 재현: `cargo xtask p6 api bds sneak`(봇 `xtask/go/bot/sneak.go`). 확인 줄만 비교한다.
+- 공식 서버: PlayerAuthInput의 `StartSneaking`·`StopSneaking`마다 본인에게 SetActorData{0 플래그(Sneaking), 54 높이 1.49·1.8}와 SetActorData{92 플래그}를 보내고, 두 패킷의 `Tick`은 그 토글을 실은 입력의 `Tick`이다(다음 틱에 멈춰도 답이 둘). 서버가 스스로 바꾼 값(예 Breathing)은 `Tick` 0이다. 클라이언트는 `Tick`이 있는 답을 그 입력의 프레임으로 되감아 적용한다(bedrock-protocol-docs `PlayerMovementOverview`). `Tick` 0이면 받은 때 바로 적용해, 이미 멈춘 웅크리기를 늦게 온 답이 다시 켠다(천장 밑 점프에서 클라이언트가 잠깐 웅크렸다 펴면 저절로 쉬프트가 눌린 것처럼 보임).
+  - Anchor: 입력의 토글(받든 거절하든)에 답하는 본인 SetActorData에 그 틱의 마지막 토글 입력의 `Tick`을 싣고, 보는 플레이어에게는 0이다. 높이는 54가 아니라 130(충돌 상자)으로 보내고 플래그 두 단어를 한 패킷에 싣는다. 공식 서버는 웅크리면 92 단어의 Blocking(72)도 켠다. Anchor는 켜지 않는다.
+
 ## 물약 색
 - 투척 물약 LevelEvent 2002 색(ARGB): 야간 투시 C2FF66, 투명 F6F6F6, 점프 FDFF84, 화염 저항 FF9900, 신속 33EBFF, 느림 8BAFE0, 수중 호흡 98DAC0, 고통 A9656A, 독 87A363, 힘 FFC700, 시듦 736156, 저속 낙하 F3CFB9, 거북 도사 8D82E6(강화 8D85E6 → 저항 9146F0), 치유 F82423, 재생 CD5CAB, 나약함 484D48, 물 385DC6. 43~46(바람, 짜기, 스밈, 벌레)은 덤프에 없다.
 - Anchor: 생성기가 공식 서버 색을 쓴다. 저속 낙하 물약(40, 41)은 덤프에 효과가 없어 물 색이다(`intended.txt`).
@@ -265,4 +270,5 @@
 - 거래 때 Event EntityInteract를 보내지 않아도 클라이언트 동작에 차이가 없는지.
 - 가져온 월드에서 Anchor가 모르는 화분 식물(벚나무 묘목 등 비활성 블록)이 보이는지. BlockActorData `PlantBlock`에 공식 서버가 저장한 원본 그대로를 보낸다. 봇 시나리오로는 놓을 수 없다(Anchor에 그 아이템이 없음).
 - Anchor가 모르는 배너 무늬 ID를 BlockActorData `Patterns`로 받을 때 클라이언트가 그 층만 무시하는지.
+- 천장이 낮은 곳에서 점프할 때 쉬프트 없이 웅크리지 않는지(웅크리기 답의 `Tick`).
 - 서바이벌·크리에이티브에서 블록에 우클릭을 누르고 있을 때 `SimulationTick` 클릭 사이가 `PRESS_GAP_TICKS`(10틱)보다 벌어지는 일이 없는지(모험 모드에서만 봄).

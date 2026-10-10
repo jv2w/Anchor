@@ -80,6 +80,12 @@ pub(super) struct Motion {
     pub(super) death_shown: bool,
     /// Ticks since the player last stood on something (PMMP `inAirTicks`).
     pub(super) in_air: u32,
+    /// The client tick of the latest input this tick that toggled a movement state: the player's
+    /// own entity data at the end of the tick carries it, as BDS's does (P6 `sneak`), so the
+    /// client applies it at that input's frame and keeps what it predicted since
+    /// (bedrock-protocol-docs `PlayerMovementOverview`). Sent without it, the answer to a
+    /// sneak the client has already ended turns the sneak on again.
+    pub(super) answer_tick: Option<u64>,
 }
 
 impl Default for Motion {
@@ -105,6 +111,7 @@ impl Default for Motion {
             in_bed: false,
             death_shown: false,
             in_air: 0,
+            answer_tick: None,
         }
     }
 }
@@ -130,6 +137,7 @@ crate::tick::checkpoint::fields!(Motion {
     in_bed,
     death_shown,
     in_air,
+    answer_tick,
 });
 
 impl Motion {
@@ -156,6 +164,7 @@ impl Motion {
             in_bed,
             death_shown,
             in_air,
+            answer_tick,
         } = self;
         let bits = [
             sprinting,
@@ -193,6 +202,7 @@ impl Motion {
         }
         h.u64(u64::from(budget.cast_unsigned()));
         h.u64(u64::from(*in_air));
+        h.u64(answer_tick.unwrap_or(u64::MAX));
     }
 }
 
@@ -224,7 +234,7 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
         && flags != player.survival.motion.last_flags
     {
         player.survival.motion.last_flags = flags;
-        input_flags(state, session, flags);
+        input_flags(state, session, flags, packet.tick);
     }
     let border = f64::from(MAX_COORDINATE);
     let raw = Vec3::from_f32(packet.position);
@@ -258,8 +268,9 @@ fn on_off(flags: FlagSet<InputFlag>, start: InputFlag, stop: InputFlag) -> Optio
 /// The input flags changed: sneaking, sprinting, swimming, gliding, flying, a jump, a missed
 /// swing (PMMP `InGamePacketHandler::handlePlayerAuthInput`). Each toggle that changes something
 /// asks its event (`PlayerToggleSneak` and the others); a cancelled one leaves the state as it
-/// was and sends the player its entity data again, as a refused flight does.
-fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>) {
+/// was and sends the player its entity data again, as a refused flight does. The answer,
+/// accepted or refused, carries the input's client tick `input_tick`.
+fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>, input_tick: u64) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -278,6 +289,15 @@ fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>)
         on_off(flags, InputFlag::StartGliding, InputFlag::StopGliding).filter(|&v| v != m.gliding);
     let fly =
         on_off(flags, InputFlag::StartFlying, InputFlag::StopFlying).filter(|&v| v != m.flying);
+    let answered = mismatch
+        || sneak.is_some()
+        || sprint.is_some()
+        || swim.is_some()
+        || glide.is_some()
+        || fly.is_some();
+    if answered {
+        m.answer_tick = Some(input_tick);
+    }
     if let Some(v) = sneak {
         mismatch |= !toggle(state, session, Toggle::Sneak(v, pressed));
     }

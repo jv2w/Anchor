@@ -39,7 +39,7 @@ use super::compare::{self, Received, field};
 use super::game;
 
 /// The API scenarios, in run order.
-pub(crate) const SCENARIOS: [&str; 46] = [
+pub(crate) const SCENARIOS: [&str; 47] = [
     "commands",
     "particles",
     "kick",
@@ -86,6 +86,7 @@ pub(crate) const SCENARIOS: [&str; 46] = [
     "rulesjoin",
     "tradeup",
     "itemuse",
+    "sneak",
 ];
 /// The scenarios whose comparison is facts only: the particles scenario records what each server
 /// sends, the script scenario tests the bot's `-script` actions (`SCRIPT`), and the verification
@@ -124,9 +125,9 @@ const FACTS_ONLY: [&str; 27] = [
 ];
 /// The verification scenarios that compare their checks only, not the fixed-field packets of
 /// their steps: what each checks is its item (potion colours and cloud, another player, chat
-/// limits, item use), and the other packets differ for reasons recorded in
-/// `xtask/data/p6/facts.md` (Anchor keeps no default death message, its projectiles fly
-/// otherwise).
+/// limits, item use, the input tick of a sneak's answer), and the other packets differ for
+/// reasons recorded in `xtask/data/p6/facts.md` (Anchor keeps no default death message, its
+/// projectiles fly otherwise, it sends a sneak's box height as the collision box).
 const CHECKS_ONLY: &[&str] = &[
     "potions",
     "others",
@@ -135,6 +136,7 @@ const CHECKS_ONLY: &[&str] = &[
     "limitchat",
     "tradeup",
     "itemuse",
+    "sneak",
 ];
 /// Scenarios with a second bot (`game::run_scenarios`): the others scenario watches the mover.
 const COMPANIONS: &[(&str, &str)] = &[("others", "mover")];

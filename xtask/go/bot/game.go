@@ -1067,6 +1067,10 @@ type inputLoop struct {
 	interact *protocol.UseItemTransactionData
 	// using sets the StartUsingItem flag in the next input (itemuse.go).
 	using bool
+	// flags holds input flags for the coming inputs, one set per tick, and flagTicks the ticks of the
+	// inputs that carried them (sneak.go).
+	flags     [][]int
+	flagTicks []uint64
 	// step and steps walk the bot (verify.go): each tick moves the position by step and turns the view by
 	// turn (pitch, yaw), while steps is above zero.
 	step    mgl32.Vec3
@@ -1129,7 +1133,14 @@ func (l *inputLoop) packet() (*packet.PlayerAuthInput, bool) {
 		PlayMode: packet.PlayModeNormal, InteractionModel: packet.InteractionModelCrosshair,
 		InteractPitch: l.pitch, InteractYaw: l.yaw, Tick: l.tick, CameraOrientation: direction(l.pitch, l.yaw),
 	}
-	notable := l.ack || len(l.actions) > 0 || l.interact != nil || l.using
+	notable := l.ack || len(l.actions) > 0 || l.interact != nil || l.using || len(l.flags) > 0
+	if len(l.flags) > 0 {
+		for _, f := range l.flags[0] {
+			flags.Set(f)
+		}
+		l.flags = l.flags[1:]
+		l.flagTicks = append(l.flagTicks, l.tick)
+	}
 	if l.using {
 		flags.Set(packet.InputFlagStartUsingItem)
 		l.using = false
@@ -1190,6 +1201,21 @@ func (l *inputLoop) startUsing() {
 	l.mu.Lock()
 	l.using = true
 	l.mu.Unlock()
+}
+
+// press sets one set of input flags in each of the next inputs and forgets the ticks of earlier ones.
+func (l *inputLoop) press(sets ...[]int) {
+	l.mu.Lock()
+	l.flags = append(l.flags, sets...)
+	l.flagTicks = nil
+	l.mu.Unlock()
+}
+
+// pressedTicks returns the ticks of the inputs that carried the sets of the last press so far.
+func (l *inputLoop) pressedTicks() []uint64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.flagTicks)
 }
 
 // walk moves the bot by step and turns its view by turn (pitch, yaw in degrees) on each of the next ticks.

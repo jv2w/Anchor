@@ -747,6 +747,48 @@ fn toggles_ask_their_events_and_a_refused_one_resends_the_data() {
     assert!(!game.player(1).survival.motion.sneaking);
 }
 
+/// The answer to a sneak carries the tick of the input that toggled it, so the client applies it
+/// at that frame: one that came after the client stopped sneaking turned it on again. The viewers'
+/// copy carries none (P6 `sneak`).
+#[test]
+fn a_sneak_answer_carries_its_input_tick() {
+    let mut game = Game::new(2, Listeners::default());
+    let sneak = |game: &mut Game, flags: &[InputFlag], tick| {
+        let set: FlagSet<InputFlag> = flags.iter().copied().collect();
+        let auth = p::PlayerAuthInput {
+            position: game.player(1).position.to_f32(),
+            input_data: InputFlags::from_set(&set),
+            tick,
+            ..Default::default()
+        };
+        let input = game.send(1, Packet::PlayerAuthInput(Box::new(auth)));
+        game.run(vec![input]);
+    };
+    let answer_ticks = |packets: Vec<Packet>| -> Vec<u64> {
+        packets
+            .iter()
+            .filter_map(|p| match p {
+                Packet::SetActorData(d) if d.entity_runtime_id == 1 => Some(d.tick),
+                _ => None,
+            })
+            .collect()
+    };
+    sneak(
+        &mut game,
+        &[InputFlag::Sneaking, InputFlag::StartSneaking],
+        55,
+    );
+    assert!(game.player(1).survival.motion.sneaking);
+    assert_eq!(answer_ticks(game.take(1)), [55]);
+    assert_eq!(answer_ticks(game.take(2)), [0]);
+    sneak(&mut game, &[InputFlag::StopSneaking], 56);
+    assert_eq!(answer_ticks(game.take(1)), [56]);
+    // Entity data the input did not toggle has no input tick.
+    game.player_mut(1).survival.fire_ticks = 20;
+    game.idle(1);
+    assert_eq!(answer_ticks(game.take(1)), [0]);
+}
+
 // pmmp: PlayerExhaustEvent
 #[test]
 fn exhaust_listeners_change_or_cancel_the_exhaustion() {
