@@ -1659,6 +1659,45 @@ fn a_used_bow_trident_horn_or_spyglass_shows_the_using_item_flag() {
     }
 }
 
+/// A hit on a frame whose drop chance fails clears the item without the removal sound (PMMP
+/// `ItemFrame::onAttack` plays it with the drop).
+#[test]
+fn a_frame_hit_without_a_drop_makes_no_sound() {
+    let mut h = Harness::new(|_| {});
+    h.set(BlockPos::new(3, -60, 0), Kind::Stone.default_state());
+    let frame = block::State::all()
+        .find(|b| b.name() == "minecraft:frame")
+        .and_then(|f| props::with_facing(f, Face::West))
+        .unwrap();
+    set_with_entity(&mut h, frame, &Stack::EMPTY);
+    match h
+        .state
+        .rules
+        .block_entities
+        .get_mut(0, TARGET)
+        .map(|e| &mut e.kind)
+    {
+        Some(super::super::block_entity::Kind::ItemFrame(f)) => {
+            f.item = stack(crate::item::Kind::Stick);
+            f.drop_chance = 0.0;
+        }
+        other => panic!("{other:?}"),
+    }
+    h.run(Vec::new());
+    h.packets();
+    h.act(vec![action(PlayerAction::StartBreak, TARGET, Face::West)]);
+    match entity_at(&h) {
+        super::super::block_entity::Kind::ItemFrame(f) => assert!(f.item.is_empty()),
+        other => panic!("{other:?}"),
+    }
+    let removed = i32::from(Event::SoundItemFrameRemoveItem);
+    let sounded = h
+        .packets()
+        .iter()
+        .any(|p| matches!(p, Packet::LevelEvent(e) if e.event_type == removed));
+    assert!(!sounded);
+}
+
 /// An explosion at the world's entity limit breaks an item frame: the frame and its item wait as
 /// a spill in the chunk instead of being lost.
 #[test]

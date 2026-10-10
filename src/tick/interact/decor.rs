@@ -336,6 +336,8 @@ pub(super) fn attack(
         ),
         _ => return false,
     };
+    // PMMP sounds the removal with the drop alone: a failed drop chance clears silently.
+    let sounded = frame && dropped.is_some();
     if let Some(stack) = dropped
         && !entity::drop_item(state, world, at, stack)
     {
@@ -353,7 +355,7 @@ pub(super) fn attack(
         }
         _ => {}
     }
-    if frame {
+    if sounded {
         sound(
             state,
             world,
