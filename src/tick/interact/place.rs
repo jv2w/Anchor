@@ -145,7 +145,11 @@ fn transaction(ctx: &Context<'_>, rng: &mut Random) -> Option<Blocks> {
         if !can_be_placed_at(ctx, state) {
             continue;
         }
-        let blocks = place(ctx, state, rng)?;
+        // A form whose rules refuse leaves the next to try (PMMP
+        // `HangingSign::getPlacementTransaction`).
+        let Some(blocks) = place(ctx, state, rng) else {
+            continue;
+        };
         if blocks.iter().any(|(p, _)| !(MIN_Y..=MAX_Y).contains(&p.y)) {
             return None;
         }
@@ -1021,6 +1025,37 @@ mod tests {
             Face::East => Vec3::new(1.0, y, 0.5),
             _ => Vec3::new(0.5, y, 0.5),
         }
+    }
+
+    /// A hanging sign clicked under a block too thin for the edge form hangs from its centre
+    /// (PMMP `HangingSign::getPlacementTransaction` tries the next form when one refuses).
+    #[test]
+    fn a_hanging_sign_under_a_fence_hangs_from_its_centre() {
+        let mut w = world();
+        set(&mut w, 0, 1, 0, block::Kind::OakFence.default_state());
+        let feet = Vec3::new(0.5, 0.0, 2.5);
+        let placer = Placer {
+            feet,
+            eye: feet + Vec3::new(0.0, 1.62, 0.0),
+            yaw: 0.0,
+            sneaking: false,
+        };
+        let blocks = placement(
+            &w,
+            item::Kind::OakHangingSign.default_type(),
+            BlockPos::new(0, 1, 0),
+            Face::Down,
+            Vec3::new(0.5, 0.0, 0.5),
+            Some(&placer),
+            &mut Random::new(0, 0, 0),
+        )
+        .expect("the centre form places");
+        let [(pos, state)] = blocks.as_slice() else {
+            panic!("one block: {blocks:?}");
+        };
+        assert_eq!(*pos, BlockPos::new(0, 0, 0));
+        assert_eq!(props::flag(*state, "hanging"), Some(true));
+        assert_eq!(props::flag(*state, "attached_bit"), Some(true));
     }
 
     /// Every item PMMP places, in every scenario of the golden table (floor, wall, ceiling and
