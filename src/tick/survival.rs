@@ -1883,6 +1883,36 @@ mod tests {
         assert_eq!(death[0].0, damage::GENERIC_DEATH);
     }
 
+    /// A trident's kill names the trident, not an arrow (PMMP `PlayerDeathEvent::deriveMessage`).
+    #[test]
+    fn a_death_by_trident_says_trident() {
+        let mut server = Server::new(2, |_| {});
+        let world = crate::world::Id::DEFAULT;
+        let at = server.player(1).position + Vec3::new(0.0, 5.0, 0.0);
+        let trident = Context {
+            state: &mut server.state,
+        }
+        .spawn_trident(world, at, stack(ItemKind::Trident, 1), Vec3::ZERO)
+        .unwrap();
+        let by_two = DamageSource::Child {
+            child: trident,
+            owner: Some(crate::event::Actor::Player(Id::new(sid(2)))),
+        };
+        assert!(damage::damage_by(
+            &mut server.state,
+            sid(1),
+            100.0,
+            Damage::Entity,
+            by_two
+        ));
+        server.idle(1);
+        let died = server
+            .take(1)
+            .into_iter()
+            .any(|p| matches!(p, Packet::DeathInfo(d) if d.cause == "death.attack.trident"));
+        assert!(died);
+    }
+
     /// A player that may fly takes no fall damage, flying or not (PMMP `Player::attack`).
     #[test]
     fn a_player_that_may_fly_takes_no_fall_damage() {

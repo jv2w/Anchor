@@ -625,6 +625,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
         };
         let message = match hit.cause {
             Damage::Entity if attacker.is_none() => GENERIC_DEATH,
+            Damage::Entity if is_trident(state, hit.source) => "death.attack.trident",
             // Only a cactus is named for contact (PMMP `deriveMessage`).
             Damage::Contact if !is_cactus(state, session, hit.source) => GENERIC_DEATH,
             cause => cause.death_message(),
@@ -675,6 +676,16 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
             }
         }
     }
+}
+
+/// Whether `source` is a thrown trident.
+fn is_trident(state: &mut State, source: DamageSource) -> bool {
+    let DamageSource::Child { child, .. } = source else {
+        return false;
+    };
+    crate::tick::Context { state }
+        .entity(child)
+        .is_some_and(|e| e.entity_type() == crate::entity::Type::Trident)
 }
 
 /// Whether `source` is a cactus in the world of the player of `session`.
