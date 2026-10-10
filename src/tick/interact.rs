@@ -683,19 +683,15 @@ pub(super) fn destroy(state: &mut State, world: WorldIndex, pos: BlockPos, cause
 /// breaking player out of range stops, a change of speed is shown, and every fifth tick punch
 /// particles (PMMP `SurvivalBlockBreakHandler::update`).
 pub(super) fn tick(state: &mut State) {
-    let mut next = state.players.keys().next().copied();
-    while let Some(session) = next {
-        next = state
-            .players
-            .range((
-                std::ops::Bound::Excluded(session),
-                std::ops::Bound::Unbounded,
-            ))
-            .next()
-            .map(|(s, _)| *s);
-        let Some(player) = state.players.get(&session) else {
-            continue;
-        };
+    // Each step finds the next player and its entry in one search; the rules below may change
+    // the map, so no iterator is held across them.
+    let mut after = std::ops::Bound::Unbounded;
+    while let Some((&session, player)) = state
+        .players
+        .range((after, std::ops::Bound::Unbounded))
+        .next()
+    {
+        after = std::ops::Bound::Excluded(session);
         let Some(target) = player.breaking.target.clone() else {
             continue;
         };
