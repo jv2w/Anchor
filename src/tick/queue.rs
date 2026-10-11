@@ -91,11 +91,13 @@ super::checkpoint::fields!(Identity {
     client,
 });
 
-/// What the login's client data and the connection tell about the client besides who it is
-/// (PMMP `PlayerInfo::getLocale`, `PlayerInfo::getExtraData`, `NetworkSession::getPort`). Every
-/// text is the client's own claim; the login checked the locale (a language tag of at most 64
-/// bytes), the game version (digits and dots) and the server address (a host and port). The
-/// default, empty texts and zeros, is for a player made without a connection (tests).
+/// What the login's client data and identity token and the connection tell about the client
+/// besides who it is (PMMP `PlayerInfo::getLocale`, `PlayerInfo::getExtraData`,
+/// `NetworkSession::getPort`). Every client data text is the client's own claim; the login checked
+/// the locale (a language tag of at most 64 bytes), the game version (digits and dots), the
+/// self-signed ID (empty or a UUID) and the server address (a host and port). The token's PlayFab
+/// ID is bounded by the token's own cap ([`MAX_TOKEN_PAYLOAD`](crate::login::MAX_TOKEN_PAYLOAD)).
+/// The default, empty texts and zeros, is for a player made without a connection (tests).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Client {
     /// The language code, such as `en_US` (`LanguageCode`).
@@ -106,6 +108,13 @@ pub(crate) struct Client {
     pub(crate) device_model: String,
     /// The device ID (`DeviceId`).
     pub(crate) device_id: String,
+    /// The UUID the client made for itself (`SelfSignedId`); empty when not sent.
+    pub(crate) self_signed_id: String,
+    /// The client's random number (`ClientRandomId`); 0 when not sent.
+    pub(crate) random_id: i64,
+    /// The PlayFab master player ID of the identity token (`mid`), verified with Xbox sign-in
+    /// and the client's claim without; empty when not sent.
+    pub(crate) playfab_id: String,
     /// The client's version, such as `1.26.50` (`GameVersion`).
     pub(crate) game_version: String,
     /// The address the client was told to join (`ServerAddress`).
@@ -122,6 +131,9 @@ super::checkpoint::fields!(Client {
     input_mode,
     device_model,
     device_id,
+    self_signed_id,
+    random_id,
+    playfab_id,
     game_version,
     server_address,
     port,
@@ -135,6 +147,9 @@ impl Default for Client {
             input_mode: crate::protocol::consts::InputMode::Undefined,
             device_model: String::new(),
             device_id: String::new(),
+            self_signed_id: String::new(),
+            random_id: 0,
+            playfab_id: String::new(),
             game_version: String::new(),
             server_address: String::new(),
             port: 0,
@@ -151,6 +166,8 @@ impl Client {
             &self.locale,
             &self.device_model,
             &self.device_id,
+            &self.self_signed_id,
+            &self.playfab_id,
             &self.game_version,
             &self.server_address,
         ]
@@ -166,6 +183,9 @@ impl Client {
             input_mode,
             device_model,
             device_id,
+            self_signed_id,
+            random_id,
+            playfab_id,
             game_version,
             server_address,
             port,
@@ -175,12 +195,15 @@ impl Client {
             locale,
             device_model,
             device_id,
+            self_signed_id,
+            playfab_id,
             game_version,
             server_address,
         ] {
             h.bytes(text.as_bytes());
         }
         h.u64(u64::from(u32::from(*input_mode)));
+        h.u64(random_id.cast_unsigned());
         h.u64(u64::from(*port));
         h.u64(join_time_ms.cast_unsigned());
     }

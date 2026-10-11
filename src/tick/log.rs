@@ -56,7 +56,7 @@ const ENTRY_COST: usize = 32;
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// The written format's version, the only one [`InputLog::decode`] reads: the data files of an
 /// older log are of a storage format this Anchor does not read, so it could not be replayed.
-const FORMAT: u32 = 12;
+const FORMAT: u32 = 13;
 /// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
 /// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
 /// their own, so a log can be larger; it is then written from its newest committed segment, or
@@ -1041,6 +1041,9 @@ fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
         input_mode,
         device_model,
         device_id,
+        self_signed_id,
+        random_id,
+        playfab_id,
         game_version,
         server_address,
         port,
@@ -1048,9 +1051,17 @@ fn put_client(out: &mut Vec<u8>, client: &Client) -> Result<()> {
     } = client;
     put_bytes(out, locale.as_bytes())?;
     out.extend_from_slice(&u32::from(*input_mode).to_le_bytes());
-    for text in [device_model, device_id, game_version, server_address] {
+    for text in [
+        device_model,
+        device_id,
+        self_signed_id,
+        playfab_id,
+        game_version,
+        server_address,
+    ] {
         put_bytes(out, text.as_bytes())?;
     }
+    out.extend_from_slice(&random_id.to_le_bytes());
     out.extend_from_slice(&port.to_le_bytes());
     out.extend_from_slice(&join_time_ms.to_le_bytes());
     Ok(())
@@ -1366,8 +1377,11 @@ impl<'a> Read<'a> {
             input_mode,
             device_model: self.text()?,
             device_id: self.text()?,
+            self_signed_id: self.text()?,
+            playfab_id: self.text()?,
             game_version: self.text()?,
             server_address: self.text()?,
+            random_id: i64::from_le_bytes(self.array()?),
             port: u16::from_le_bytes(self.array()?),
             join_time_ms: i64::from_le_bytes(self.array()?),
         })
@@ -1705,6 +1719,9 @@ mod tests {
             input_mode: crate::protocol::consts::InputMode::GamePad,
             device_model: "Xbox Series X".to_owned(),
             device_id: "abc".to_owned(),
+            self_signed_id: "8f3c1a2e-5b7d-4e6f-9a0b-1c2d3e4f5a6b".to_owned(),
+            random_id: -7,
+            playfab_id: "ABCDEF0123456789".to_owned(),
             game_version: "1.26.52".to_owned(),
             server_address: "[::1]:19132".to_owned(),
             port: 61_000,

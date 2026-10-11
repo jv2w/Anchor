@@ -503,6 +503,28 @@ impl Player {
         &self.identity.client.device_id
     }
 
+    /// The UUID the client made for itself, as its login tells (`getExtraData()["SelfSignedId"]`);
+    /// empty when not sent.
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn self_signed_id(&self) -> &str {
+        &self.identity.client.self_signed_id
+    }
+
+    /// The client's random number, as its login tells (`getExtraData()["ClientRandomId"]`); 0
+    /// when not sent.
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn client_random_id(&self) -> i64 {
+        self.identity.client.random_id
+    }
+
+    /// The PlayFab master player ID of the login's identity token (`mid`); empty when not sent,
+    /// as with the legacy login chain. With Xbox sign-in (`xbox-auth`) the token is verified;
+    /// without it, the value is the client's claim.
+    #[doc(alias = "PlayerInfo::getExtraData")]
+    pub fn playfab_id(&self) -> &str {
+        &self.identity.client.playfab_id
+    }
+
     /// The client's version, such as `1.26.50`, as its login tells
     /// (`getExtraData()["GameVersion"]`).
     #[doc(alias = "PlayerInfo::getExtraData")]
@@ -1195,6 +1217,9 @@ pub(super) mod tests {
                 input_mode: InputMode::Touch,
                 device_model: "SM-S918N".to_owned(),
                 device_id: "0123456789abcdef".to_owned(),
+                self_signed_id: "8f3c1a2e-5b7d-4e6f-9a0b-1c2d3e4f5a6b".to_owned(),
+                random_id: -4_242_424_242,
+                playfab_id: "ABCDEF0123456789".to_owned(),
                 game_version: "1.26.52".to_owned(),
                 server_address: "play.example.com:19132".to_owned(),
                 port: 50_123,
@@ -1244,6 +1269,9 @@ pub(super) mod tests {
         assert_eq!(p.device_os(), DeviceOs::Ios);
         assert_eq!(p.device_model(), "SM-S918N");
         assert_eq!(p.device_id(), "0123456789abcdef");
+        assert_eq!(p.self_signed_id(), "8f3c1a2e-5b7d-4e6f-9a0b-1c2d3e4f5a6b");
+        assert_eq!(p.client_random_id(), -4_242_424_242);
+        assert_eq!(p.playfab_id(), "ABCDEF0123456789");
         assert_eq!(p.game_version(), "1.26.52");
         assert_eq!(p.server_address(), "play.example.com:19132");
         assert_eq!(p.port(), 50_123);
