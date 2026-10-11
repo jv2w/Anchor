@@ -394,6 +394,12 @@ impl Player {
         Id::new(self.session)
     }
 
+    /// The runtime ID every client knows the player by, its own included (Anchor gives each
+    /// actor one ID, so it is also the unique ID packets carry).
+    pub fn runtime_id(&self) -> u64 {
+        self.runtime_id
+    }
+
     /// The player's name: its Xbox gamertag with Xbox sign-in.
     #[doc(alias = "Player::getName")]
     pub fn name(&self) -> &str {

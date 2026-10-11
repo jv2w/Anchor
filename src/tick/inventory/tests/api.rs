@@ -166,6 +166,107 @@ fn the_hotbar_selection_and_the_window_are_the_players() {
     assert_eq!(w.inv(s).main.stack(0), &coal(2), "the cursor went back");
 }
 
+/// The `InventoryContent` packets in `packets`: (window, slot count, count of slot 0).
+fn contents(packets: &[Packet]) -> Vec<(u32, usize, u16)> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::InventoryContent(c) => Some((
+                c.window_id,
+                c.content.len(),
+                c.content.first().map_or(0, |i| i.stack.count),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+// pmmp: InventoryManager::syncSlot, InventoryManager::syncContents, InventoryManager::syncSelectedHotbarSlot
+#[test]
+fn resends_show_the_server_slots_windows_and_hotbar_and_change_nothing() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let p = w.player(s);
+    p.inventory_mut(Kind::Main).set(2, sticks(5)).unwrap();
+    p.inventory_mut(Kind::Offhand).set(0, coal(3)).unwrap();
+    p.inventory_mut(Kind::Crafting).set(1, coal(2)).unwrap();
+    assert!(p.set_held_slot(2));
+    w.sent(s);
+    let net = w.inv(s).main.ids[2].net;
+    let before = w.state.hash();
+
+    let p = w.player(s);
+    assert!(p.send_inventory_slot(Kind::Main, 2));
+    assert!(p.send_inventory_slot(Kind::Crafting, 1));
+    assert!(p.send_inventory_slot(Kind::Offhand, 0));
+    assert!(!p.send_inventory_slot(Kind::Main, 36), "past the inventory");
+    assert!(
+        !p.send_inventory_slot(Kind::EnderChest, 0),
+        "no ender chest is open"
+    );
+    let packets = w.sent(s);
+    let sent = slots(&packets);
+    assert_eq!(
+        sent.first(),
+        Some(&(0, 2, 5, net)),
+        "with its stack network ID"
+    );
+    assert_ne!(net, 0);
+    assert_eq!(sent.get(1).map(|s| (s.0, s.1, s.2)), Some((124, 29, 2)));
+    assert_eq!(sent.len(), 2);
+    assert_eq!(contents(&packets), [(119, 1, 3)]);
+
+    let p = w.player(s);
+    for kind in [Kind::Main, Kind::Armor, Kind::Cursor, Kind::Offhand] {
+        assert!(p.send_inventory(kind));
+    }
+    assert!(p.send_inventory(Kind::Crafting), "the UI window again");
+    assert!(!p.send_inventory(Kind::EnderChest));
+    p.send_hotbar();
+    p.reselect_held_slot();
+    let packets = w.sent(s);
+    assert_eq!(
+        contents(&packets),
+        [
+            (0, 36, 0),
+            (120, 5, 0),
+            (124, 54, 0),
+            (119, 1, 3),
+            (124, 54, 0)
+        ]
+    );
+    let hotbars: Vec<_> = packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::PlayerHotBar(h) => {
+                Some((h.selected_hot_bar_slot, h.select_hot_bar_slot, h.window_id))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(hotbars, [(2, false, 0), (2, true, 0)]);
+    assert_eq!(w.state.hash(), before, "a resend changes no state");
+
+    let ender = BlockPos::new(-3, -60, -3);
+    w.place_block(ender, blk::Kind::EnderChest.default_state());
+    w.player(s)
+        .inventory_mut(Kind::EnderChest)
+        .set(4, sticks(1))
+        .unwrap();
+    w.open_block(s, ender);
+    w.sent(s);
+    let window = u32::from(w.inv(s).window.as_ref().unwrap().id);
+    let p = w.player(s);
+    assert!(p.send_inventory_slot(Kind::EnderChest, 4));
+    assert!(p.send_inventory(Kind::EnderChest));
+    let packets = w.sent(s);
+    assert_eq!(
+        slots(&packets).first().map(|s| (s.0, s.1, s.2)),
+        Some((window, 4, 1))
+    );
+    assert_eq!(contents(&packets), [(window, 27, 0)]);
+}
+
 // pmmp: Container::getRealInventory, InventoryHolder::getInventory
 #[test]
 fn container_blocks_read_both_chest_halves_and_tell_every_viewer() {

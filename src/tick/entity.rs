@@ -952,7 +952,11 @@ struct Departed {
 #[derive(Debug, Clone, PartialEq)]
 struct Watched {
     runtime_id: u64,
-    viewers: BTreeSet<SessionId>,
+    /// Each viewer and the generation of the spawn it was sent
+    /// ([`crate::player::ViewGeneration`]).
+    viewers: BTreeMap<SessionId, u32>,
+    /// The generation the next spawn sent to a viewer gets.
+    next_generation: u32,
     /// The eye position sent.
     position: Vec3,
     /// The yaw and pitch sent.
@@ -1587,6 +1591,7 @@ super::checkpoint::fields!(Departed {
 super::checkpoint::fields!(Watched {
     runtime_id,
     viewers,
+    next_generation,
     position,
     rotation,
     held,
@@ -1706,6 +1711,7 @@ impl Watched {
         let Self {
             runtime_id,
             viewers,
+            next_generation,
             position,
             rotation: (yaw, pitch),
             held,
@@ -1714,9 +1720,12 @@ impl Watched {
             armour,
         } = self;
         h.u64(*runtime_id);
-        for v in viewers {
+        h.usize(viewers.len());
+        for (v, generation) in viewers {
             h.u64(v.get());
+            h.u64(u64::from(*generation));
         }
+        h.u64(u64::from(*next_generation));
         for c in [position.x, position.y, position.z, *yaw, *pitch] {
             h.u64(c.to_bits());
         }
@@ -3123,9 +3132,9 @@ fn stack_size(runtime_id: u64, count: u8) -> Packet {
 }
 
 /// Queues `packet` for every viewer still online.
-fn send_to(
+fn send_to<'a>(
     players: &mut BTreeMap<SessionId, Player>,
-    viewers: &BTreeSet<SessionId>,
+    viewers: impl IntoIterator<Item = &'a SessionId>,
     packet: &Packet,
 ) {
     for s in viewers {
@@ -3962,9 +3971,13 @@ fn track_players(state: &mut State) {
         .collect();
     for s in gone {
         if let Some(w) = state.rules.entities.watched.remove(&s) {
-            send_to(&mut state.players, &w.viewers, &track::remove(w.runtime_id));
+            send_to(
+                &mut state.players,
+                w.viewers.keys(),
+                &track::remove(w.runtime_id),
+            );
             let bar = track::locator_removed(w.runtime_id);
-            send_to(&mut state.players, &w.viewers, &bar);
+            send_to(&mut state.players, w.viewers.keys(), &bar);
         }
     }
     let mut packets: Vec<(SessionId, Packet)> = Vec::new();
@@ -3974,9 +3987,15 @@ fn track_players(state: &mut State) {
             continue;
         };
         let inv = &target.inventory;
-        let now = Watched {
-            runtime_id: target.runtime_id,
-            viewers: want,
+        let runtime_id = target.runtime_id;
+        let mut before = state.rules.entities.watched.remove(&t);
+        let mut now = Watched {
+            runtime_id,
+            viewers: before
+                .as_mut()
+                .map(|w| std::mem::take(&mut w.viewers))
+                .unwrap_or_default(),
+            next_generation: before.as_ref().map_or(0, |w| w.next_generation),
             position: target.position,
             rotation: survival::rotation(target),
             held: inv.held().clone(),
@@ -3984,15 +4003,31 @@ fn track_players(state: &mut State) {
             off_hand: inv.offhand().clone(),
             armour: inv.armor().clone(),
         };
+        // A viewer that stays keeps the spawn it was sent; the others see the player go.
+        now.viewers.retain(|&s, _| {
+            let stays = want.contains(&s);
+            if !stays {
+                packets.push((s, track::remove(runtime_id)));
+                packets.push((s, track::locator_removed(runtime_id)));
+            }
+            stays
+        });
+        if let Some(before) = &before {
+            changed_since(before, &now, target, &mut changes);
+            for &s in now.viewers.keys() {
+                packets.extend(changes.iter().map(|p| (s, p.clone())));
+            }
+            changes.clear();
+        }
         let game_mode = survival::game_mode(state, target);
         // Built only for a tick that has a new viewer.
         let mut add = None;
-        let before = state.rules.entities.watched.remove(&t);
-        let old = before.as_ref().map(|w| &w.viewers);
-        for &s in &now.viewers {
-            if old.is_some_and(|v| v.contains(&s)) {
+        for s in want {
+            if now.viewers.contains_key(&s) {
                 continue;
             }
+            now.viewers.insert(s, now.next_generation);
+            now.next_generation = now.next_generation.wrapping_add(1);
             let add = add.get_or_insert_with(|| {
                 track::add_player(track::Shown {
                     runtime_id: target.runtime_id,
@@ -4007,38 +4042,10 @@ fn track_players(state: &mut State) {
                 })
             });
             packets.push((s, add.clone()));
-            packets.push((s, track::armour(now.runtime_id, &now.armour)));
-            packets.push((s, track::off_hand(now.runtime_id, &now.off_hand)));
-            for p in track::locator_shown(now.runtime_id, target.position) {
+            packets.push((s, track::armour(runtime_id, &now.armour)));
+            packets.push((s, track::off_hand(runtime_id, &now.off_hand)));
+            for p in track::locator_shown(runtime_id, target.position) {
                 packets.push((s, p));
-            }
-        }
-        if let Some(before) = &before {
-            for &s in before.viewers.difference(&now.viewers) {
-                packets.push((s, track::remove(now.runtime_id)));
-                packets.push((s, track::locator_removed(now.runtime_id)));
-            }
-            if before.position != now.position || before.rotation != now.rotation {
-                let (yaw, pitch) = now.rotation;
-                let ground = survival::is_on_ground(target);
-                let moved = track::player_moved(now.runtime_id, now.position, yaw, pitch, ground);
-                changes.push(moved);
-            }
-            // The copies share their data while nothing changed: `same` finds that at once.
-            if !before.held.same(&now.held) || before.held_slot != now.held_slot {
-                changes.push(track::held(now.runtime_id, &now.held, now.held_slot));
-            }
-            if !before.off_hand.same(&now.off_hand) {
-                changes.push(track::off_hand(now.runtime_id, &now.off_hand));
-            }
-            if !now.same_armour(before) {
-                changes.push(track::armour(now.runtime_id, &now.armour));
-            }
-            if !changes.is_empty() {
-                for &s in before.viewers.intersection(&now.viewers) {
-                    packets.extend(changes.iter().map(|p| (s, p.clone())));
-                }
-                changes.clear();
             }
         }
         for (s, packet) in packets.drain(..) {
@@ -4048,6 +4055,46 @@ fn track_players(state: &mut State) {
         }
         state.rules.entities.watched.insert(t, now);
     }
+}
+
+/// Puts into `out` what the viewers of `target` were sent `before` and must be sent `now`: its
+/// movement and look, held item, off-hand item and armour, each only if it changed.
+fn changed_since(before: &Watched, now: &Watched, target: &Player, out: &mut Vec<Packet>) {
+    let runtime_id = now.runtime_id;
+    if before.position != now.position || before.rotation != now.rotation {
+        let (yaw, pitch) = now.rotation;
+        let ground = survival::is_on_ground(target);
+        out.push(track::player_moved(
+            runtime_id,
+            now.position,
+            yaw,
+            pitch,
+            ground,
+        ));
+    }
+    // The copies share their data while nothing changed: `same` finds that at once.
+    if !before.held.same(&now.held) || before.held_slot != now.held_slot {
+        out.push(track::held(runtime_id, &now.held, now.held_slot));
+    }
+    if !before.off_hand.same(&now.off_hand) {
+        out.push(track::off_hand(runtime_id, &now.off_hand));
+    }
+    if !now.same_armour(before) {
+        out.push(track::armour(runtime_id, &now.armour));
+    }
+}
+
+/// The players `target` was shown to at the last tracking pass, less those it was hidden from
+/// since, in session order, each with the generation of the spawn it was sent. A viewer that left
+/// since is still here: callers look it up.
+fn shown_to(entities: &Entities, target: SessionId) -> impl Iterator<Item = (SessionId, u32)> + '_ {
+    entities
+        .watched
+        .get(&target)
+        .into_iter()
+        .flat_map(|w| &w.viewers)
+        .filter(move |&(&s, _)| !entities.hidden.contains(&(s, target)))
+        .map(|(&s, &generation)| (s, generation))
 }
 
 /// The player of `session` left: its hidden pairs ([`Entities::hidden`]) go, both ways (a scan

@@ -9,10 +9,11 @@
 use super::super::{Context, Player, State, block_entity};
 use super::{
     MAX_SAVED_PENDING, Notice, PublicWindow as Window, SlotRef, block_entity_halves, close_now,
-    public_window, request, select,
+    hotbar, own_slot_packet, own_window, public_window, request, select,
 };
 use crate::inventory::{BlockSlots, Editor, Error, Inventory, Kind, MAX_STACK, Result, Target};
 use crate::item::Stack;
+use crate::protocol::packet::{Packet, PlayerHotBar};
 use crate::save::WorldIndex;
 use crate::world::{self, BlockPos};
 
@@ -92,6 +93,54 @@ impl Player {
             .as_ref()
             .and_then(|w| w.ui.get(slot))
             .map(|s| &s.stack)
+    }
+
+    /// Sends the client slot `slot` of the player's inventory `kind` as the server holds it, with
+    /// its stack network ID, undoing what the client predicted there (`InventorySlot`; the off
+    /// hand as `InventoryContent`, as the client may ignore its slot). False, sending nothing,
+    /// for a slot past the inventory's size, or the ender chest contents while no ender chest is
+    /// open.
+    #[doc(alias = "InventoryManager::syncSlot")]
+    pub fn send_inventory_slot(&mut self, kind: Kind, slot: usize) -> bool {
+        let packet = slot_ref(kind, slot).and_then(|r| {
+            let s = self.inventory.get(r)?;
+            own_slot_packet(&self.inventory, r, s.stack.to_instance(s.id.net))
+        });
+        let Some(packet) = packet else {
+            return false;
+        };
+        self.send_packet(packet);
+        true
+    }
+
+    /// Sends the client the whole window that shows the player's inventory `kind` as the server
+    /// holds it (`InventoryContent`): the inventory, armour or off hand window; the cursor and
+    /// the crafting grid both send the UI window, which holds them and the open window's own
+    /// slots. False, sending nothing, for the ender chest contents while no ender chest is open.
+    #[doc(alias = "InventoryManager::syncContents")]
+    pub fn send_inventory(&mut self, kind: Kind) -> bool {
+        let Some(packet) = own_window(&self.inventory, kind) else {
+            return false;
+        };
+        self.send_packet(packet);
+        true
+    }
+
+    /// Tells the client the held hotbar slot (`PlayerHotBar`) without asking it to select the
+    /// slot, as BDS ends its answer to an attack.
+    #[doc(alias = "InventoryManager::syncSelectedHotbarSlot")]
+    pub fn send_hotbar(&mut self) {
+        let packet = PlayerHotBar {
+            select_hot_bar_slot: false,
+            ..hotbar(self.inventory.held)
+        };
+        self.send_packet(Packet::PlayerHotBar(packet));
+    }
+
+    /// Makes the client select the held hotbar slot again (`PlayerHotBar` that selects it), as
+    /// BDS answers an attack made from another slot.
+    pub fn reselect_held_slot(&mut self) {
+        self.send_packet(Packet::PlayerHotBar(hotbar(self.inventory.held)));
     }
 }
 
@@ -393,18 +442,7 @@ enum Planned {
 
 /// Writes slot `slot` of a player's inventory `kind`.
 fn put_player(player: &mut Player, kind: Kind, slot: usize, stack: Stack) -> Result<()> {
-    let i = u8::try_from(slot)
-        .ok()
-        .filter(|&i| usize::from(i) < kind.size())
-        .ok_or(Error::NoSlot)?;
-    let r = match kind {
-        Kind::Main => SlotRef::Main(i),
-        Kind::Armor => SlotRef::Armor(i),
-        Kind::Offhand => SlotRef::Offhand,
-        Kind::Cursor => SlotRef::Cursor,
-        Kind::Crafting => SlotRef::Grid(i),
-        Kind::EnderChest => SlotRef::Ender(i),
-    };
+    let r = slot_ref(kind, slot).ok_or(Error::NoSlot)?;
     let inv = &player.inventory;
     let before = inv.get(r).map(|s| s.stack).unwrap_or_default();
     if before == stack {
@@ -416,6 +454,21 @@ fn put_player(player: &mut Player, kind: Kind, slot: usize, stack: Stack) -> Res
     }
     super::set_own(player, r, stack);
     Ok(())
+}
+
+/// Slot `slot` of a player's inventory `kind`; `None` past its size.
+fn slot_ref(kind: Kind, slot: usize) -> Option<SlotRef> {
+    let i = u8::try_from(slot)
+        .ok()
+        .filter(|&i| usize::from(i) < kind.size())?;
+    Some(match kind {
+        Kind::Main => SlotRef::Main(i),
+        Kind::Armor => SlotRef::Armor(i),
+        Kind::Offhand => SlotRef::Offhand,
+        Kind::Cursor => SlotRef::Cursor,
+        Kind::Crafting => SlotRef::Grid(i),
+        Kind::EnderChest => SlotRef::Ender(i),
+    })
 }
 
 /// Writes window slot `slot` of a container block.

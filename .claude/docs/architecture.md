@@ -141,6 +141,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 - 같은 모양의 접근자: `entity`/`entity_mut`, `world`/`world_mut`, `worlds()`, `players()`(Id 순).
 - `Player`와 `Entity`는 틱 상태 구조체 그 자체다.
 - 메시지 계열(채팅, 팁, 팝업, 타이틀, 액션바, 토스트 등)은 `Player::send(Message)` 하나로 합쳤다. 원시 패킷은 `Player::send_packet`.
+- 플레이어를 보는 쪽에 원시 패킷을 보내는 길은 `Context::send_to_viewers`다. 받는 쪽은 `player_viewers`(마지막 추적 패스에서 그 플레이어를 받은 플레이어, 그 뒤 숨긴 쪽과 나간 쪽 제외)이고, 보는 쪽마다 `ViewGeneration`이 있어 다시 스폰되면 바뀐다. 보는 쪽 몫은 `EFFECT_RESERVE`를 남기고 넘치면 건너뛰어 센다. 같은 틱의 엔진 패킷과는 큐에 넣은 순서대로 간다. 클라이언트 예측을 되돌리는 재전송은 `Player::send_inventory_slot`·`send_inventory`·`send_hotbar`·`reselect_held_slot`, 보는 쪽 손 아이템은 `Context::show_held_item`(추적 스냅샷도 바꿔 다음 패스가 다시 보내지 않음)이다.
 - 폼, 스코어보드, 보스바, 가짜 블록, 메뉴 창은 `Context` 메서드다(처리기가 `&mut Context`를 받고 표가 `State`에 있다).
 
 ## 이벤트

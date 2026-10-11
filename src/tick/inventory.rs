@@ -1114,24 +1114,31 @@ fn set_own(player: &mut Player, r: SlotRef, stack: Stack) {
 
 /// Sends a player slot as it is now.
 fn send_own(player: &mut Player, r: SlotRef, item: ItemInstance) {
+    if let Some(packet) = own_slot_packet(&player.inventory, r, item) {
+        player.send_packet(packet);
+    }
+}
+
+/// The packet that shows player slot `r` holding `item`; `None` while the client shows no window
+/// with it (the ender chest contents without an open ender chest).
+fn own_slot_packet(inv: &Inventory, r: SlotRef, item: ItemInstance) -> Option<Packet> {
     match r {
         // PMMP and BDS: the client may ignore `InventorySlot` for the off hand.
-        SlotRef::Offhand => player.send_packet(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
-        SlotRef::Ender(i) => {
-            if let Some(window) = &player.inventory.window
-                && window.id != 0
-                && matches!(window.kind, WindowKind::Ender { .. })
-            {
-                let id = u32::from(window.id);
-                player.send_packet(slot_packet(id, u32::from(i), item));
-            }
-        }
+        SlotRef::Offhand => Some(content_packet(WINDOW_ID_OFF_HAND, vec![item])),
+        SlotRef::Ender(i) => Some(slot_packet(ender_window(inv)?, u32::from(i), item)),
         r => {
-            if let Some((window, slot)) = client_slot(&player.inventory, r) {
-                player.send_packet(slot_packet(window, slot, item));
-            }
+            let (window, slot) = client_slot(inv, r)?;
+            Some(slot_packet(window, slot, item))
         }
     }
+}
+
+/// The ID of the open ender chest window, once the client has it.
+fn ender_window(inv: &Inventory) -> Option<u32> {
+    inv.window
+        .as_ref()
+        .filter(|w| w.id != 0 && matches!(w.kind, WindowKind::Ender { .. }))
+        .map(|w| u32::from(w.id))
 }
 
 /// Sends every slot of the player's own windows and of the open window (PMMP `syncAll`), at
@@ -1157,18 +1164,30 @@ fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntiti
 /// `InventoryContent` of the four windows a player always has, in BDS order: inventory,
 /// armour, UI and off hand (P6).
 fn own_windows(inv: &Inventory, out: &mut Vec<Packet>) {
-    out.push(content_packet(
-        WINDOW_ID_INVENTORY,
-        inv.main.instances().collect(),
-    ));
-    let mut armor: Vec<ItemInstance> = inv.armor.instances().collect();
-    armor.resize(ARMOR_WINDOW, ItemInstance::default());
-    out.push(content_packet(WINDOW_ID_ARMOUR, armor));
-    out.push(content_packet(WINDOW_ID_UI, ui_content(inv)));
-    out.push(content_packet(
-        WINDOW_ID_OFF_HAND,
-        inv.offhand.instances().collect(),
-    ));
+    use crate::inventory::Kind;
+    out.extend(
+        [Kind::Main, Kind::Armor, Kind::Cursor, Kind::Offhand]
+            .into_iter()
+            .filter_map(|kind| own_window(inv, kind)),
+    );
+}
+
+/// `InventoryContent` of the window that shows the player's inventory `kind` (the cursor and the
+/// 2x2 grid are both in the UI window); `None` for the ender chest contents while no ender chest
+/// is open.
+fn own_window(inv: &Inventory, kind: crate::inventory::Kind) -> Option<Packet> {
+    use crate::inventory::Kind;
+    Some(match kind {
+        Kind::Main => content_packet(WINDOW_ID_INVENTORY, inv.main.instances().collect()),
+        Kind::Armor => {
+            let mut armor: Vec<ItemInstance> = inv.armor.instances().collect();
+            armor.resize(ARMOR_WINDOW, ItemInstance::default());
+            content_packet(WINDOW_ID_ARMOUR, armor)
+        }
+        Kind::Offhand => content_packet(WINDOW_ID_OFF_HAND, inv.offhand.instances().collect()),
+        Kind::Cursor | Kind::Crafting => content_packet(WINDOW_ID_UI, ui_content(inv)),
+        Kind::EnderChest => content_packet(ender_window(inv)?, inv.ender.instances().collect()),
+    })
 }
 
 /// The UI window's slots: the cursor, the 2x2 grid and the open window's own slots.
@@ -1424,16 +1443,16 @@ pub(super) fn restore(inventory: &mut Inventory) {
 /// ×4, `PlayerHotBar`).
 pub(super) fn spawn_packets(player: &Player, out: &mut Vec<Packet>) {
     own_windows(&player.inventory, out);
-    out.push(hotbar_packet(player.inventory.held));
+    out.push(Packet::PlayerHotBar(hotbar(player.inventory.held)));
 }
 
 /// `PlayerHotBar` selecting `slot`.
-fn hotbar_packet(slot: u8) -> Packet {
-    Packet::PlayerHotBar(PlayerHotBar {
+fn hotbar(slot: u8) -> PlayerHotBar {
+    PlayerHotBar {
         selected_hot_bar_slot: u32::from(slot),
         window_id: 0,
         select_hot_bar_slot: true,
-    })
+    }
 }
 
 /// The client selected a hotbar slot (`MobEquipment`, PMMP `handleMobEquipment`): the off hand
@@ -1703,7 +1722,7 @@ fn select(player: &mut Player, slot: u8) {
     player.inventory.held = slot;
     player.data_dirty = true;
     player.breaking.stop_using();
-    player.send_packet(hotbar_packet(slot));
+    player.send_packet(Packet::PlayerHotBar(hotbar(slot)));
 }
 
 /// Swaps two main slots outside a request.
