@@ -170,12 +170,12 @@ impl Extras {
 
 /// What the rule modules keep of an online player, between [`player_loaded`] and
 /// [`player_saved`], and the user's values on it (`task::PlayerUser`: its data, saved under one
-/// key of the compound, and its extensions, never saved).
+/// key of the compound, and its state and extensions, never saved).
 #[derive(Debug, Default)]
 pub(super) struct PlayerExtra {
     /// The compound as saved; modules take their keys out of it when they own them.
     raw: Compound,
-    /// The user's data and extensions.
+    /// The user's data, state and extensions.
     pub(super) user: super::task::PlayerUser,
 }
 
