@@ -38,7 +38,7 @@ use crate::nbt::Compound;
 use crate::player::Id;
 use crate::protocol::consts::MoveMode;
 use crate::protocol::packet::{
-    Animate, Emote, Packet, PlayerAction, PlayerAuthInput, PlayerSkin, Respawn,
+    Animate, Emote, Packet, PlayerAction, PlayerAuthInput, PlayerSkin, Respawn, SetActorMotion,
 };
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
@@ -940,6 +940,23 @@ fn broadcast_to_viewers(state: &mut State, session: SessionId, packet: &Packet) 
     };
     let (world, chunk) = (player.world, super::view::chunk_of(player.position));
     state.broadcast(world, chunk, packet, Some(session));
+}
+
+/// Sends the player of `session` the motion `motion`, and every player that sees it: stamped with
+/// the tick of its last input, so its client applies it at that frame and replays what it
+/// predicted since, as BDS's motion does. The motion is the player's from now on.
+pub(super) fn send_motion(state: &mut State, session: SessionId, motion: Vec3) {
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    let m = &mut player.survival.motion;
+    m.velocity = motion;
+    let packet = Packet::SetActorMotion(SetActorMotion {
+        entity_runtime_id: player.runtime_id,
+        velocity: motion.to_f32(),
+        tick: m.input_tick,
+    });
+    broadcast_from(state, session, &packet);
 }
 
 /// The difficulty the rules of the world at `world` use: its own, or the server's.

@@ -13,7 +13,7 @@ use super::attributes::{
 use super::effects::{self, Active};
 use super::{
     MAX_AIR, MAX_EXHAUSTION, MAX_FIRE_TICKS, MAX_FOOD, MAX_SATURATION, Point, Survival, appearance,
-    broadcast_from, broadcast_to_viewers, damage, food, is_survival,
+    broadcast_to_viewers, damage, food, is_survival, send_motion,
 };
 use crate::block::Face;
 use crate::config::GameMode;
@@ -23,7 +23,7 @@ use crate::item::{self, Stack};
 use crate::math::Vec3;
 use crate::player::{Error, Id, MAX_TEXT, Result};
 use crate::protocol::consts::ABILITY_BASE_FLY_SPEED;
-use crate::protocol::packet::{Packet, SetActorMotion, UpdatePlayerGameType};
+use crate::protocol::packet::{Packet, UpdatePlayerGameType};
 use crate::tick::queue::Skin;
 use crate::tick::{Context, Phase, Player, entity, inventory};
 use crate::world::BlockPos;
@@ -1111,10 +1111,18 @@ impl Player {
         }
     }
 
+    /// The player's motion in blocks a tick, as far as the server knows: what its client reported
+    /// with its last input (where the client's own physics moves it next), or the motion sent to
+    /// it since; zero after a teleport. The server runs no physics for players.
+    #[doc(alias = "Entity::getMotion")]
+    pub fn motion(&self) -> Vec3 {
+        self.survival.motion.velocity
+    }
+
     /// Pushes the player: its client moves it by `motion` blocks a tick, and its viewers see
-    /// it, at the end of the tick (PMMP `Player::setMotion`; players have no server-side motion,
-    /// as with knockback). A second call in the tick wins. Fails for a motion that is not
-    /// finite.
+    /// it, at the end of the tick (PMMP `Player::setMotion`; the server runs no physics for
+    /// players, as with knockback). A second call in the tick wins. Fails for a motion that is
+    /// not finite.
     #[doc(alias = "Player::setMotion")]
     pub fn set_motion(&mut self, motion: Vec3) -> Result<()> {
         if !motion.is_finite() {
@@ -1610,12 +1618,7 @@ pub(in crate::tick) fn sync(
         player.survival.custom.skin = true;
     }
     if let Some(motion) = motion {
-        let packet = Packet::SetActorMotion(SetActorMotion {
-            entity_runtime_id: runtime_id,
-            velocity: motion.to_f32(),
-            tick: 0,
-        });
-        broadcast_from(state, session, &packet);
+        send_motion(state, session, motion);
     }
     if let Some(emote_id) = emote {
         let packet = appearance::emote_packet(runtime_id, emote_id);

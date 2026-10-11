@@ -685,7 +685,7 @@ fn hit_effects(state: &mut State, id: Id, at: Vec3, motion: Vec3, struck: Struck
             if let Some(d) = damage {
                 let knock = Knock::new(motion.x, motion.z);
                 let blow = Blow::of(Cause::Projectile, d).by(child_source(state, id));
-                let landed = hurt(state, target, blow, Some(knock));
+                let (landed, _) = hurt(state, target, blow, Some(knock));
                 if landed != Hurt::Ignored {
                     if burning {
                         let by = CombustSource::Entity(Actor::Entity(id));

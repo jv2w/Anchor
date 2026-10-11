@@ -256,6 +256,58 @@ fn a_melee_hit_names_its_attacker_and_its_knockback_can_change() {
     assert_eq!(motion.map(|v| (v[1], v[2] > 1.9)), Some((0.4, true)));
 }
 
+// pmmp: EntityDamageByEntityEvent, Entity::getMotion
+/// A knockback motion a listener sets pushes the player by exactly that on every melee hit it
+/// survives, within the cooldown too, the weapon's Knockback adding nothing. The motion carries
+/// the tick of the player's last input, for its viewers too, and is the player's motion until
+/// its client reports another.
+#[test]
+fn a_knockback_motion_replaces_the_knockback_of_every_hit() {
+    let motion = Vec3::new(0.25, 0.375, -0.5);
+    let listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
+        e.set_knockback_motion(motion);
+    });
+    let mut game = Game::new(2, listeners);
+    let delta = [0.125, -0.078_4, 0.0];
+    let auth = p::PlayerAuthInput {
+        position: game.player(2).position.to_f32(),
+        tick: 77,
+        delta,
+        ..Default::default()
+    };
+    let input = game.send(2, Packet::PlayerAuthInput(Box::new(auth)));
+    game.run(vec![input]);
+    assert_eq!(game.player(2).motion(), Vec3::from_f32(delta));
+    let extra = crate::item::Extra {
+        enchantments: vec![(crate::item::Enchantment::Knockback, 2)],
+        ..crate::item::Extra::default()
+    };
+    let sword = stack(ItemKind::WoodenSword, 1).with_extra(Some(extra));
+    inventory::set_held(game.player_mut(1), sword.unwrap());
+    let motions = |packets: Vec<Packet>| -> Vec<([f32; 3], u64)> {
+        packets
+            .iter()
+            .filter_map(|p| match p {
+                Packet::SetActorMotion(m) if m.entity_runtime_id == 2 => Some((m.velocity, m.tick)),
+                _ => None,
+            })
+            .collect()
+    };
+    for held in [None, Some(stack(ItemKind::DiamondSword, 1))] {
+        if let Some(stronger) = held {
+            inventory::set_held(game.player_mut(1), stronger);
+        }
+        game.take(1);
+        game.take(2);
+        attack_player(&mut game.state, sid(1), sid(2));
+        game.idle(1);
+        let want = [(motion.to_f32(), 77)];
+        assert_eq!(motions(game.take(2)), want);
+        assert_eq!(motions(game.take(1)), want, "the viewer's copy");
+        assert_eq!(game.player(2).motion(), motion);
+    }
+}
+
 /// What one client does in a tick cannot fill another player's outbox and disconnect it: the
 /// swings and hit sounds of more attacks than an outbox holds leave the target connected.
 #[test]

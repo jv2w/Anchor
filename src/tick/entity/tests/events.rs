@@ -688,6 +688,35 @@ fn a_cancelled_motion_keeps_the_npc_still() {
     assert_eq!(got(&seen).len(), 3, "listener and monitor");
 }
 
+// pmmp: EntityDamageByEntityEvent
+/// A knockback motion a damage listener sets is the NPC's motion after a hit, the weapon's
+/// Knockback adding nothing, and a stronger hit within its cooldown pushes it too.
+#[test]
+fn a_knockback_motion_pushes_the_npc_by_exactly_it() {
+    let motion = Vec3::new(0.25, 0.375, -0.5);
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntityDamage, _: &mut Context<'_>| e.set_knockback_motion(motion),
+    );
+    let mut h = Harness::with_listeners(1, listeners);
+    h.spawn(1, standing(0.0, 0.0));
+    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    let extra = crate::item::Extra {
+        enchantments: vec![(crate::item::Enchantment::Knockback, 2)],
+        ..crate::item::Extra::default()
+    };
+    let sword = stack("minecraft:wooden_sword", 1);
+    held(&mut h, 1, sword.with_extra(Some(extra)).unwrap());
+    hit(&mut h, npc);
+    let motion_of = |h: &Harness| h.state.rules.entities.get(npc).unwrap().body.motion;
+    assert_eq!(motion_of(&h), motion);
+    with(&mut h.state, npc, |e| e.body.motion = Vec3::ZERO);
+    held(&mut h, 1, stack("minecraft:diamond_sword", 1));
+    hit(&mut h, npc);
+    assert_eq!(motion_of(&h), motion, "a stronger hit within the cooldown");
+}
+
 // pmmp: EntityCombustEvent, EntityCombustByBlockEvent, EntityExtinguishEvent
 #[test]
 fn fire_sets_entities_burning_through_combust_and_water_puts_them_out() {

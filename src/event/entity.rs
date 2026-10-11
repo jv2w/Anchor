@@ -254,6 +254,7 @@ pub struct EntityDamage {
     pub(crate) attack_cooldown_ticks: u32,
     pub(crate) knockback: f64,
     pub(crate) vertical_knockback_limit: f64,
+    pub(crate) knockback_motion: Option<Vec3>,
     pub(crate) cancelled: bool,
 }
 
@@ -284,6 +285,8 @@ getters!(EntityDamage {
     /// The most a hit knocks upward. Starts at 0.4.
     #[doc(alias = "EntityDamageByEntityEvent::getVerticalKnockBackLimit")]
     vertical_knockback_limit: f64,
+    /// The motion that replaces the knockback, if a listener set one.
+    knockback_motion: Option<Vec3>,
 });
 
 setters!(EntityDamage {
@@ -381,6 +384,16 @@ impl EntityDamage {
     pub fn set_vertical_knockback_limit(&mut self, limit: f64) {
         if limit.is_finite() {
             self.vertical_knockback_limit = limit;
+        }
+    }
+
+    /// Replaces the knockback with `motion`, in blocks a tick: a hit that lands and leaves the
+    /// target alive pushes it by exactly that, within the attack cooldown too, and the weapon's
+    /// Knockback pushes no more. A knockback that keeps part of the target's own motion, as BDS's
+    /// does, is built from it. A motion that is not finite is ignored.
+    pub fn set_knockback_motion(&mut self, motion: Vec3) {
+        if motion.is_finite() {
+            self.knockback_motion = Some(motion);
         }
     }
 }
@@ -1219,6 +1232,7 @@ mod tests {
             attack_cooldown_ticks: 10,
             knockback: 0.4,
             vertical_knockback_limit: 0.4,
+            knockback_motion: None,
             cancelled: false,
         };
         assert_eq!(e.entity(), Actor::Player(player(1)));
@@ -1261,6 +1275,10 @@ mod tests {
         e.set_knockback(f64::NAN);
         assert_eq!(e.attack_cooldown_ticks(), 4);
         assert_eq!((e.knockback(), e.vertical_knockback_limit()), (0.8, 0.1));
+        assert_eq!(e.knockback_motion(), None);
+        e.set_knockback_motion(AT);
+        e.set_knockback_motion(Vec3::new(f64::NAN, 0.0, 0.0));
+        assert_eq!(e.knockback_motion(), Some(AT));
         e.cause = DamageCause::Fall;
         assert!(!e.can_be_reduced_by_armor());
         e.cancel();
@@ -1310,6 +1328,7 @@ mod tests {
                 attack_cooldown_ticks: 10,
                 knockback: 0.4,
                 vertical_knockback_limit: 0.4,
+                knockback_motion: None,
                 cancelled: false,
             };
             assert_eq!(e.can_be_reduced_by_armor(), expected, "{cause:?}");
@@ -1330,6 +1349,7 @@ mod tests {
             attack_cooldown_ticks: 10,
             knockback: 0.4,
             vertical_knockback_limit: 0.4,
+            knockback_motion: None,
             cancelled: false,
         };
         for (i, m) in DamageModifier::ALL.into_iter().enumerate() {

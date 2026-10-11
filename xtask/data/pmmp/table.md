@@ -1789,7 +1789,7 @@ implemented 158, differs 0, merged 2064, skipped 1116, blank 0 (of 3338 rows)
 | `pocketmine\block\TNT::describeBlockItemState` | skipped |  |  | PMMP's runtime state bit packing: Anchor's block states are a generated table |
 | `pocketmine\block\TNT::getFlameEncouragement` | merged | src/block.rs:1063 `flame_encouragement` | src/block.rs::gameplay_data_are_pmmp_values<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::getFlameEncouragement` |
 | `pocketmine\block\TNT::getFlammability` | merged | src/block.rs:1056 `flammability` | src/block.rs::gameplay_data_are_pmmp_values<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block::getFlammability` |
-| `pocketmine\block\TNT::ignite` | implemented | src/tick/entity.rs:4151 `ignite`<br>src/tick/entity/explosion.rs:71 `light` | src/tick/entity/explosion.rs::tnt_lights_the_tnt_it_reaches_with_ten_to_thirty_ticks |  |
+| `pocketmine\block\TNT::ignite` | implemented | src/tick/entity.rs:4147 `ignite`<br>src/tick/entity/explosion.rs:71 `light` | src/tick/entity/explosion.rs::tnt_lights_the_tnt_it_reaches_with_ten_to_thirty_ticks |  |
 | `pocketmine\block\TNT::isUnstable` | merged | src/block.rs:50 `State` | src/block.rs::gameplay_data_are_pmmp_values<br>src/block.rs::with_steps_one_property<br>tests/block.rs::every_pmmp_state_finds_its_upgraded_state_with_its_values | into `Block` |
 | `pocketmine\block\TNT::onBreak` | skipped |  |  | block rule code: listeners see BlockBreak |
 | `pocketmine\block\TNT::onIncinerate` | skipped |  |  | block rule code: listeners see BlockBurn |
@@ -4623,8 +4623,8 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getLastDamageCause` | implemented | src/tick/survival/api.rs:1060 `last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
 | `pocketmine\entity\Entity::getLocation` | implemented | src/tick/entity/api.rs:72 `position`<br>src/tick/player.rs:591 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::getMaxHealth` | implemented | src/tick/entity/api.rs:126 `max_health`<br>src/tick/survival/api.rs:374 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:90 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
-| `pocketmine\entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:169 `name_tag`<br>src/tick/survival/api.rs:1322 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::getMotion` | implemented | src/tick/entity/api.rs:90 `motion`<br>src/tick/survival/api.rs:1117 `motion` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/wiring.rs::a_knockback_motion_replaces_the_knockback_of_every_hit |  |
+| `pocketmine\entity\Entity::getNameTag` | implemented | src/tick/entity/api.rs:169 `name_tag`<br>src/tick/survival/api.rs:1330 `name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::getNetworkProperties` | skipped |  |  | protocol internals: entity metadata is sent by the engine |
 | `pocketmine\entity\Entity::getNetworkTypeId` | implemented | src/tick/entity/api.rs:57 `network_type` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `pocketmine\entity\Entity::getOffsetPosition` | skipped |  |  | protocol internals: the network position offset |
@@ -4633,7 +4633,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getPickedItem` | implemented | src/tick/entity/api.rs:304 `picked_item` | src/tick/entity/pick.rs::each_kind_gives_pmmps_picked_item |  |
 | `pocketmine\entity\Entity::getPosition` | implemented | src/tick/entity/api.rs:71 `position`<br>src/tick/player.rs:590 `position` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::getScale` | implemented | src/tick/entity/api.rs:187 `scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `pocketmine\entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:1344 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::getScoreTag` | implemented | src/tick/survival/api.rs:1352 `score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::getSize` | merged | src/tick/entity.rs:445 `bounding_box` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is | into `Entity::getBoundingBox` |
 | `pocketmine\entity\Entity::getStepHeight` | implemented | src/tick/entity/api.rs:469 `step_height` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `pocketmine\entity\Entity::getTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
@@ -4642,20 +4642,20 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::getWorld` | implemented | src/tick/entity/api.rs:64 `world`<br>src/tick/player.rs:583 `world` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick |  |
 | `pocketmine\entity\Entity::hasGravity` | implemented | src/tick/entity/api.rs:199 `has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::hasMovementUpdate` | skipped |  |  | entity rule code |
-| `pocketmine\entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:1392 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::hasNoClientPredictions` | implemented | src/tick/survival/api.rs:1400 `has_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::heal` | implemented | src/tick/entity/api.rs:862 `heal`<br>src/tick/survival/api.rs:401 `heal` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `pocketmine\entity\Entity::isAlive` | implemented | src/tick/entity/api.rs:133 `is_alive`<br>src/tick/survival/api.rs:423 `is_alive` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `pocketmine\entity\Entity::isClosed` | skipped |  |  | a removed entity's Id finds nothing (`Context::entity` is `None`) |
 | `pocketmine\entity\Entity::isFireProof` | implemented | src/tick/entity/api.rs:163 `is_fire_proof` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is |  |
 | `pocketmine\entity\Entity::isFlaggedForDespawn` | skipped |  |  | a flagged entity is gone from the API at once: `Context::entity` is `None` |
-| `pocketmine\entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1491 `is_player_inside_solid` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
-| `pocketmine\entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:193 `is_invisible`<br>src/tick/survival/api.rs:1361 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::isInsideOfSolid` | implemented | src/tick/survival/api.rs:1499 `is_player_inside_solid` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\entity\Entity::isInvisible` | implemented | src/tick/entity/api.rs:193 `is_invisible`<br>src/tick/survival/api.rs:1369 `is_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::isNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:181 `is_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::isNameTagVisible` | implemented | src/tick/entity/api.rs:175 `is_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::isOnFire` | implemented | src/tick/entity/api.rs:145 `is_on_fire`<br>src/tick/survival/api.rs:804 `is_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::isOnGround` | implemented | src/tick/entity/api.rs:151 `is_on_ground`<br>src/tick/survival/api.rs:969 `is_on_ground` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
-| `pocketmine\entity\Entity::isSilent` | implemented | src/tick/survival/api.rs:1379 `is_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `pocketmine\entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1481 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\entity\Entity::isSilent` | implemented | src/tick/survival/api.rs:1387 `is_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::isUnderwater` | implemented | src/tick/survival/api.rs:1489 `is_player_underwater` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `pocketmine\entity\Entity::kill` | implemented | src/tick/entity/api.rs:885 `kill`<br>src/tick/survival/api.rs:409 `kill` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `pocketmine\entity\Entity::nextRuntimeId` | skipped |  |  | runtime IDs are assigned by the engine |
 | `pocketmine\entity\Entity::onCollideWithPlayer` | skipped |  |  | entity rule code: listeners see EntityItemPickup |
@@ -4677,20 +4677,20 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Entity::setGravity` | skipped |  |  | an entity kind's physics are PMMP's constants per kind: `Entity::gravity` reads them and `Mut::set_has_gravity` turns gravity off |
 | `pocketmine\entity\Entity::setHasGravity` | implemented | src/tick/entity/api.rs:808 `set_has_gravity` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::setHealth` | implemented | src/tick/entity/api.rs:845 `set_health`<br>src/tick/survival/api.rs:351 `set_health` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/entity/saved.rs::an_npc_saved_without_health_loads_dying<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
-| `pocketmine\entity\Entity::setInvisible` | implemented | src/tick/entity/api.rs:802 `set_invisible`<br>src/tick/survival/api.rs:1372 `set_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setInvisible` | implemented | src/tick/entity/api.rs:802 `set_invisible`<br>src/tick/survival/api.rs:1380 `set_invisible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::setLastDamageCause` | implemented | src/tick/survival/api.rs:1067 `set_last_damage_cause` | src/tick/survival/api.rs::armour_points_and_the_last_damage_cause |  |
 | `pocketmine\entity\Entity::setMaxHealth` | implemented | src/tick/survival/api.rs:382 `set_max_health` | src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `pocketmine\entity\Entity::setMotion` | implemented | src/tick/entity/api.rs:687 `set_motion` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
-| `pocketmine\entity\Entity::setNameTag` | implemented | src/tick/entity/api.rs:766 `set_name_tag`<br>src/tick/survival/api.rs:1333 `set_name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setNameTag` | implemented | src/tick/entity/api.rs:766 `set_name_tag`<br>src/tick/survival/api.rs:1341 `set_name_tag` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved<br>src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::setNameTagAlwaysVisible` | implemented | src/tick/entity/api.rs:782 `set_name_tag_always_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
 | `pocketmine\entity\Entity::setNameTagVisible` | implemented | src/tick/entity/api.rs:776 `set_name_tag_visible` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `pocketmine\entity\Entity::setNoClientPredictions` | implemented | src/tick/survival/api.rs:1398 `set_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setNoClientPredictions` | implemented | src/tick/survival/api.rs:1406 `set_no_client_predictions` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::setOnFire` | implemented | src/tick/entity/api.rs:825 `set_on_fire`<br>src/tick/survival/api.rs:832 `set_on_fire` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events<br>src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
 | `pocketmine\entity\Entity::setOwningEntity` | implemented | src/tick/entity/api.rs:1143 `set_owning_player` | src/tick/entity/api/tests.rs::owners_targets_counts_potions_and_names_change_their_kind_only |  |
 | `pocketmine\entity\Entity::setRotation` | implemented | src/tick/entity/api.rs:701 `set_rotation` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
 | `pocketmine\entity\Entity::setScale` | implemented | src/tick/entity/api.rs:789 `set_scale` | src/tick/entity/api/tests.rs::looks_change_at_once_reach_the_viewers_and_are_saved |  |
-| `pocketmine\entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1350 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
-| `pocketmine\entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1385 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setScoreTag` | implemented | src/tick/survival/api.rs:1358 `set_score_tag` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
+| `pocketmine\entity\Entity::setSilent` | implemented | src/tick/survival/api.rs:1393 `set_silent` | src/tick/survival/api.rs::tags_and_flags_reach_the_player_and_its_viewers |  |
 | `pocketmine\entity\Entity::setStepHeight` | skipped |  |  | an entity kind's physics are PMMP's constants per kind: `Entity::step_height` reads them |
 | `pocketmine\entity\Entity::setTargetEntity` | skipped |  |  | mob AI targets and fishing hooks are out of scope |
 | `pocketmine\entity\Entity::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
@@ -4747,7 +4747,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Human::applyDamageModifiers` | skipped |  |  | damage rule code: listeners change the modifiers in EntityDamage |
 | `pocketmine\entity\Human::canEat` | skipped |  |  | hunger rule code |
 | `pocketmine\entity\Human::consumeObject` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
-| `pocketmine\entity\Human::emote` | implemented | src/tick/survival/api.rs:1130 `emote` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
+| `pocketmine\entity\Human::emote` | implemented | src/tick/survival/api.rs:1138 `emote` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `pocketmine\entity\Human::getDrops` | skipped |  |  | entity rule code: listeners see and change the drops in EntityDeath |
 | `pocketmine\entity\Human::getEnchantmentSeed` | implemented | src/tick/survival/api.rs:714 `enchantment_seed` | src/tick/survival/api.rs::experience_and_the_enchanting_seed_follow_pmmp |  |
 | `pocketmine\entity\Human::getEnderInventory` | implemented | src/tick/inventory/api.rs:26 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
@@ -4768,7 +4768,7 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Human::saveNBT` | skipped |  |  | entity NBT is internal to the chunk store |
 | `pocketmine\entity\Human::sendSkin` | skipped |  |  | protocol internals: skin changes are sent by the engine |
 | `pocketmine\entity\Human::setEnchantmentSeed` | implemented | src/tick/survival/api.rs:720 `set_enchantment_seed` | src/tick/survival/api.rs::experience_and_the_enchanting_seed_follow_pmmp |  |
-| `pocketmine\entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1142 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
+| `pocketmine\entity\Human::setSkin` | implemented | src/tick/survival/api.rs:1150 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone |  |
 | `pocketmine\entity\Human::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `pocketmine\entity\HungerManager` | merged | src/tick/survival/api.rs:458 `food` | src/tick/survival/api.rs::hunger_values_are_set_within_their_bounds | into `HungerManager::getFood` |
 | `pocketmine\entity\HungerManager::__construct` | skipped |  |  | every player has its hunger |
@@ -4806,19 +4806,19 @@ implemented 331, differs 0, merged 122, skipped 218, blank 0 (of 671 rows)
 | `pocketmine\entity\Living::getFrostWalkerLevel` | implemented | src/tick/survival/api.rs:1050 `frost_walker_level` | src/tick/survival/movement.rs::frost_walker_freezes_the_water_sources_around_the_feet_with_air_above_and_nobody_in |  |
 | `pocketmine\entity\Living::getHighestArmorEnchantmentLevel` | skipped |  |  | damage rule code |
 | `pocketmine\entity\Living::getJumpVelocity` | skipped |  |  | movement rule code |
-| `pocketmine\entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1504 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\entity\Living::getLineOfSight` | implemented | src/tick/survival/api.rs:1512 `line_of_sight` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `pocketmine\entity\Living::getMaxAirSupplyTicks` | implemented | src/tick/survival/api.rs:865 `max_air_supply_ticks` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change<br>src/tick/survival/api.rs::the_air_supply_is_set_within_its_maximum_and_refills_to_it |  |
 | `pocketmine\entity\Living::getMaxHealth` | implemented | src/tick/entity/api.rs:127 `max_health`<br>src/tick/survival/api.rs:375 `max_health` | src/tick/entity/api/tests.rs::every_kind_reads_as_what_it_is<br>src/tick/survival/api.rs::health_stays_within_its_maximum_and_the_client_hears_it |  |
 | `pocketmine\entity\Living::getMovementSpeed` | implemented | src/tick/survival/api.rs:1024 `movement_speed` | src/tick/survival/api.rs::movement_flags_and_speed_reach_the_client_and_viewers |  |
 | `pocketmine\entity\Living::getName` | merged | src/tick/player.rs:398 `name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone | into `Player::getName` |
 | `pocketmine\entity\Living::getSneakOffset` | skipped |  |  | protocol internals: the network position offset |
-| `pocketmine\entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1529 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\entity\Living::getTargetBlock` | implemented | src/tick/survival/api.rs:1537 `target_block` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `pocketmine\entity\Living::getXpDropAmount` | skipped |  |  | entity rule code: listeners see and change the experience in EntityDeath |
 | `pocketmine\entity\Living::isBreathing` | implemented | src/tick/survival/api.rs:901 `is_breathing` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `pocketmine\entity\Living::isGliding` | implemented | src/tick/survival/api.rs:1160 `is_gliding` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\entity\Living::isGliding` | implemented | src/tick/survival/api.rs:1168 `is_gliding` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\entity\Living::isSneaking` | implemented | src/tick/survival/api.rs:975 `is_sneaking` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\entity\Living::isSprinting` | implemented | src/tick/survival/api.rs:987 `is_sprinting` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
-| `pocketmine\entity\Living::isSwimming` | implemented | src/tick/survival/api.rs:1154 `is_swimming` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\entity\Living::isSwimming` | implemented | src/tick/survival/api.rs:1162 `is_swimming` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\entity\Living::jump` | skipped |  |  | movement rule code: listeners see PlayerJump |
 | `pocketmine\entity\Living::knockBack` | implemented | src/tick/entity/api.rs:909 `knock_back` | src/tick/entity/api/tests.rs::health_fire_damage_and_death_follow_pmmp_without_events |  |
 | `pocketmine\entity\Living::lookAt` | implemented | src/tick/entity/api.rs:713 `look_at` | src/tick/entity/api/tests.rs::motion_rotation_and_teleports_change_the_entity_and_its_index |  |
@@ -5430,18 +5430,18 @@ implemented 657, differs 3, merged 50, skipped 199, blank 0 (of 909 rows)
 | `pocketmine\event\block\StructureGrowEvent::uncancel` | implemented | src/event/block.rs:756 `cfg` | src/event/block.rs::structure_grow_lists_every_block_it_sets |  |
 | `pocketmine\event\entity\AreaEffectCloudApplyEvent` | implemented | src/event/entity.rs:19 `AreaEffectCloudApply` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected<br>src/tick/entity/tests/events.rs::a_cancelled_cloud_application_gives_no_effects |  |
 | `pocketmine\event\entity\AreaEffectCloudApplyEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\AreaEffectCloudApplyEvent::cancel` | implemented | src/event/entity.rs:1061 `EntityBlockChange` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
+| `pocketmine\event\entity\AreaEffectCloudApplyEvent::cancel` | implemented | src/event/entity.rs:1074 `EntityBlockChange` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
 | `pocketmine\event\entity\AreaEffectCloudApplyEvent::getAffectedEntities` | implemented | src/event/entity.rs:32 `affected` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
 | `pocketmine\event\entity\AreaEffectCloudApplyEvent::getEntity` | implemented | src/event/entity.rs:29 `entity` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
-| `pocketmine\event\entity\AreaEffectCloudApplyEvent::isCancelled` | implemented | src/event/entity.rs:1063 `EntityBlockChange` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
-| `pocketmine\event\entity\AreaEffectCloudApplyEvent::uncancel` | implemented | src/event/entity.rs:1062 `EntityBlockChange` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
+| `pocketmine\event\entity\AreaEffectCloudApplyEvent::isCancelled` | implemented | src/event/entity.rs:1076 `EntityBlockChange` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
+| `pocketmine\event\entity\AreaEffectCloudApplyEvent::uncancel` | implemented | src/event/entity.rs:1075 `EntityBlockChange` | src/event/entity.rs::area_effect_cloud_apply_lists_who_is_affected |  |
 | `pocketmine\event\entity\EntityBlockChangeEvent` | implemented | src/event/entity.rs:38 `EntityBlockChange` | src/event/entity.rs::entity_block_change_names_both_states<br>src/tick/entity/tests/events.rs::a_landing_falling_block_asks_before_it_becomes_a_block |  |
 | `pocketmine\event\entity\EntityBlockChangeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityBlockChangeEvent::cancel` | implemented | src/event/entity.rs:1065 `EntityCombust` | src/event/entity.rs::entity_block_change_names_both_states |  |
+| `pocketmine\event\entity\EntityBlockChangeEvent::cancel` | implemented | src/event/entity.rs:1078 `EntityCombust` | src/event/entity.rs::entity_block_change_names_both_states |  |
 | `pocketmine\event\entity\EntityBlockChangeEvent::getBlock` | implemented | src/event/entity.rs:57 `block` | src/event/entity.rs::entity_block_change_names_both_states |  |
 | `pocketmine\event\entity\EntityBlockChangeEvent::getTo` | implemented | src/event/entity.rs:60 `to` | src/event/entity.rs::entity_block_change_names_both_states |  |
-| `pocketmine\event\entity\EntityBlockChangeEvent::isCancelled` | implemented | src/event/entity.rs:1067 `EntityCombust` | src/event/entity.rs::entity_block_change_names_both_states |  |
-| `pocketmine\event\entity\EntityBlockChangeEvent::uncancel` | implemented | src/event/entity.rs:1066 `EntityCombust` | src/event/entity.rs::entity_block_change_names_both_states |  |
+| `pocketmine\event\entity\EntityBlockChangeEvent::isCancelled` | implemented | src/event/entity.rs:1080 `EntityCombust` | src/event/entity.rs::entity_block_change_names_both_states |  |
+| `pocketmine\event\entity\EntityBlockChangeEvent::uncancel` | implemented | src/event/entity.rs:1079 `EntityCombust` | src/event/entity.rs::entity_block_change_names_both_states |  |
 | `pocketmine\event\entity\EntityCombustByBlockEvent` | implemented | src/event/entity.rs:77 `EntityCombust` | src/event/entity.rs::entity_combust_duration_can_change<br>src/tick/entity/tests/events.rs::fire_sets_entities_burning_through_combust_and_water_puts_them_out |  |
 | `pocketmine\event\entity\EntityCombustByBlockEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `pocketmine\event\entity\EntityCombustByBlockEvent::getCombuster` | implemented | src/event/entity.rs:94 `source` | src/event/entity.rs::entity_combust_duration_can_change |  |
@@ -5450,188 +5450,188 @@ implemented 657, differs 3, merged 50, skipped 199, blank 0 (of 909 rows)
 | `pocketmine\event\entity\EntityCombustByEntityEvent::getCombuster` | implemented | src/event/entity.rs:95 `source` | src/event/entity.rs::entity_combust_duration_can_change |  |
 | `pocketmine\event\entity\EntityCombustEvent` | implemented | src/event/entity.rs:76 `EntityCombust` | src/event/entity.rs::entity_combust_duration_can_change<br>src/tick/entity/tests/events.rs::fire_sets_entities_burning_through_combust_and_water_puts_them_out<br>src/tick/survival/wiring.rs::combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end |  |
 | `pocketmine\event\entity\EntityCombustEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityCombustEvent::cancel` | implemented | src/event/entity.rs:1069 `EntityDamage` | src/event/entity.rs::entity_combust_duration_can_change |  |
+| `pocketmine\event\entity\EntityCombustEvent::cancel` | implemented | src/event/entity.rs:1082 `EntityDamage` | src/event/entity.rs::entity_combust_duration_can_change |  |
 | `pocketmine\event\entity\EntityCombustEvent::getDuration` | implemented | src/event/entity.rs:91 `duration_secs` | src/event/entity.rs::entity_combust_duration_can_change |  |
-| `pocketmine\event\entity\EntityCombustEvent::isCancelled` | implemented | src/event/entity.rs:1071 `EntityDamage` | src/event/entity.rs::entity_combust_duration_can_change |  |
+| `pocketmine\event\entity\EntityCombustEvent::isCancelled` | implemented | src/event/entity.rs:1084 `EntityDamage` | src/event/entity.rs::entity_combust_duration_can_change |  |
 | `pocketmine\event\entity\EntityCombustEvent::setDuration` | implemented | src/event/entity.rs:101 `set_duration_secs` | src/event/entity.rs::entity_combust_duration_can_change |  |
-| `pocketmine\event\entity\EntityCombustEvent::uncancel` | implemented | src/event/entity.rs:1070 `EntityDamage` | src/event/entity.rs::entity_combust_duration_can_change |  |
+| `pocketmine\event\entity\EntityCombustEvent::uncancel` | implemented | src/event/entity.rs:1083 `EntityDamage` | src/event/entity.rs::entity_combust_duration_can_change |  |
 | `pocketmine\event\entity\EntityDamageByBlockEvent` | implemented | src/event/entity.rs:242 `EntityDamage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
 | `pocketmine\event\entity\EntityDamageByBlockEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityDamageByBlockEvent::getDamager` | implemented | src/event/entity.rs:269 `source` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageByBlockEvent::getDamager` | implemented | src/event/entity.rs:270 `source` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
 | `pocketmine\event\entity\EntityDamageByChildEntityEvent` | implemented | src/event/entity.rs:244 `EntityDamage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
 | `pocketmine\event\entity\EntityDamageByChildEntityEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityDamageByChildEntityEvent::getChild` | implemented | src/event/entity.rs:270 `source` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageByEntityEvent` | implemented | src/event/entity.rs:243 `EntityDamage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers<br>src/tick/entity/tests/events.rs::an_npc_hit_raises_damage_with_its_source_and_listeners_decide<br>src/tick/survival/wiring.rs::damage_listeners_see_the_hit_and_cancel_or_change_it<br>src/tick/survival/wiring.rs::a_melee_hit_names_its_attacker_and_its_knockback_can_change |  |
+| `pocketmine\event\entity\EntityDamageByChildEntityEvent::getChild` | implemented | src/event/entity.rs:271 `source` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageByEntityEvent` | implemented | src/event/entity.rs:243 `EntityDamage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers<br>src/tick/entity/tests/events.rs::an_npc_hit_raises_damage_with_its_source_and_listeners_decide<br>src/tick/entity/tests/events.rs::a_knockback_motion_pushes_the_npc_by_exactly_it<br>src/tick/survival/wiring.rs::damage_listeners_see_the_hit_and_cancel_or_change_it<br>src/tick/survival/wiring.rs::a_melee_hit_names_its_attacker_and_its_knockback_can_change<br>src/tick/survival/wiring.rs::a_knockback_motion_replaces_the_knockback_of_every_hit |  |
 | `pocketmine\event\entity\EntityDamageByEntityEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityDamageByEntityEvent::getDamager` | implemented | src/event/entity.rs:268 `source` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageByEntityEvent::getKnockBack` | implemented | src/event/entity.rs:282 `knockback` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageByEntityEvent::getVerticalKnockBackLimit` | implemented | src/event/entity.rs:285 `vertical_knockback_limit` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageByEntityEvent::setKnockBack` | implemented | src/event/entity.rs:372 `set_knockback` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageByEntityEvent::setVerticalKnockBackLimit` | implemented | src/event/entity.rs:380 `set_vertical_knockback_limit` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageByEntityEvent::getDamager` | implemented | src/event/entity.rs:269 `source` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageByEntityEvent::getKnockBack` | implemented | src/event/entity.rs:283 `knockback` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageByEntityEvent::getVerticalKnockBackLimit` | implemented | src/event/entity.rs:286 `vertical_knockback_limit` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageByEntityEvent::setKnockBack` | implemented | src/event/entity.rs:375 `set_knockback` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageByEntityEvent::setVerticalKnockBackLimit` | implemented | src/event/entity.rs:383 `set_vertical_knockback_limit` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
 | `pocketmine\event\entity\EntityDamageEvent` | implemented | src/event/entity.rs:241 `EntityDamage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers<br>src/event/entity.rs::armor_reduces_the_causes_pmmp_lets_it_reduce<br>src/event/entity.rs::every_modifier_has_its_own_slot<br>src/tick/entity/tests/events.rs::an_npc_hit_raises_damage_with_its_source_and_listeners_decide<br>src/tick/survival/wiring.rs::damage_listeners_see_the_hit_and_cancel_or_change_it<br>src/tick/survival/wiring.rs::a_melee_hit_names_its_attacker_and_its_knockback_can_change<br>src/tick/survival/wiring.rs::a_listener_that_makes_the_victim_creative_cancels_the_hit<br>src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `pocketmine\event\entity\EntityDamageEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityDamageEvent::canBeReducedByArmor` | implemented | src/event/entity.rs:356 `can_be_reduced_by_armor` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::cancel` | implemented | src/event/entity.rs:1073 `EntityEffectAdd` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getAttackCooldown` | implemented | src/event/entity.rs:279 `attack_cooldown_ticks` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getBaseDamage` | implemented | src/event/entity.rs:273 `base_damage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getCause` | implemented | src/event/entity.rs:265 `cause` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getFinalDamage` | implemented | src/event/entity.rs:348 `final_damage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getModifier` | implemented | src/event/entity.rs:307 `modifier` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getModifiers` | implemented | src/event/entity.rs:330 `modifiers` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getOriginalBaseDamage` | implemented | src/event/entity.rs:276 `original_base_damage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getOriginalModifier` | implemented | src/event/entity.rs:336 `original_modifier` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::getOriginalModifiers` | implemented | src/event/entity.rs:342 `original_modifiers` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::isApplicable` | implemented | src/event/entity.rs:324 `is_applicable` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::isCancelled` | implemented | src/event/entity.rs:1075 `EntityEffectAdd` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::setAttackCooldown` | implemented | src/event/entity.rs:291 `set_attack_cooldown_ticks` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::setBaseDamage` | implemented | src/event/entity.rs:297 `set_base_damage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::setModifier` | implemented | src/event/entity.rs:314 `set_modifier` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDamageEvent::uncancel` | implemented | src/event/entity.rs:1074 `EntityEffectAdd` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityDeathEvent` | implemented | src/event/entity.rs:402 `EntityDeath` | src/event/entity.rs::entity_death_drops_can_change<br>src/tick/entity/tests/events.rs::a_dying_npc_drops_what_its_death_listeners_give_it |  |
+| `pocketmine\event\entity\EntityDamageEvent::canBeReducedByArmor` | implemented | src/event/entity.rs:359 `can_be_reduced_by_armor` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::cancel` | implemented | src/event/entity.rs:1086 `EntityEffectAdd` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getAttackCooldown` | implemented | src/event/entity.rs:280 `attack_cooldown_ticks` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getBaseDamage` | implemented | src/event/entity.rs:274 `base_damage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getCause` | implemented | src/event/entity.rs:266 `cause` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getFinalDamage` | implemented | src/event/entity.rs:351 `final_damage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getModifier` | implemented | src/event/entity.rs:310 `modifier` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getModifiers` | implemented | src/event/entity.rs:333 `modifiers` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getOriginalBaseDamage` | implemented | src/event/entity.rs:277 `original_base_damage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getOriginalModifier` | implemented | src/event/entity.rs:339 `original_modifier` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::getOriginalModifiers` | implemented | src/event/entity.rs:345 `original_modifiers` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::isApplicable` | implemented | src/event/entity.rs:327 `is_applicable` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::isCancelled` | implemented | src/event/entity.rs:1088 `EntityEffectAdd` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::setAttackCooldown` | implemented | src/event/entity.rs:294 `set_attack_cooldown_ticks` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::setBaseDamage` | implemented | src/event/entity.rs:300 `set_base_damage` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::setModifier` | implemented | src/event/entity.rs:317 `set_modifier` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDamageEvent::uncancel` | implemented | src/event/entity.rs:1087 `EntityEffectAdd` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityDeathEvent` | implemented | src/event/entity.rs:415 `EntityDeath` | src/event/entity.rs::entity_death_drops_can_change<br>src/tick/entity/tests/events.rs::a_dying_npc_drops_what_its_death_listeners_give_it |  |
 | `pocketmine\event\entity\EntityDeathEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityDeathEvent::getDrops` | implemented | src/event/entity.rs:415 `drops` | src/event/entity.rs::entity_death_drops_can_change<br>src/tick/entity/npc.rs::a_death_listener_sees_and_changes_a_zombies_drops |  |
-| `pocketmine\event\entity\EntityDeathEvent::getEntity` | implemented | src/event/entity.rs:412 `entity` | src/event/entity.rs::entity_death_drops_can_change |  |
-| `pocketmine\event\entity\EntityDeathEvent::getXpDropAmount` | implemented | src/event/entity.rs:418 `xp_drop_amount` | src/event/entity.rs::entity_death_drops_can_change<br>src/tick/entity/npc.rs::a_death_listener_sees_and_changes_a_zombies_drops |  |
-| `pocketmine\event\entity\EntityDeathEvent::setDrops` | implemented | src/event/entity.rs:424 `set_drops` | src/event/entity.rs::entity_death_drops_can_change<br>src/tick/entity/npc.rs::a_death_listener_sees_and_changes_a_zombies_drops |  |
-| `pocketmine\event\entity\EntityDeathEvent::setXpDropAmount` | implemented | src/event/entity.rs:427 `set_xp_drop_amount` | src/event/entity.rs::entity_death_drops_can_change |  |
-| `pocketmine\event\entity\EntityDespawnEvent` | implemented | src/event/entity.rs:432 `EntityDespawn` | src/event/entity.rs::entities_spawn_and_despawn<br>src/tick/entity/tests/events.rs::spawns_and_despawns_are_announced_once_by_the_entity_tick |  |
+| `pocketmine\event\entity\EntityDeathEvent::getDrops` | implemented | src/event/entity.rs:428 `drops` | src/event/entity.rs::entity_death_drops_can_change<br>src/tick/entity/npc.rs::a_death_listener_sees_and_changes_a_zombies_drops |  |
+| `pocketmine\event\entity\EntityDeathEvent::getEntity` | implemented | src/event/entity.rs:425 `entity` | src/event/entity.rs::entity_death_drops_can_change |  |
+| `pocketmine\event\entity\EntityDeathEvent::getXpDropAmount` | implemented | src/event/entity.rs:431 `xp_drop_amount` | src/event/entity.rs::entity_death_drops_can_change<br>src/tick/entity/npc.rs::a_death_listener_sees_and_changes_a_zombies_drops |  |
+| `pocketmine\event\entity\EntityDeathEvent::setDrops` | implemented | src/event/entity.rs:437 `set_drops` | src/event/entity.rs::entity_death_drops_can_change<br>src/tick/entity/npc.rs::a_death_listener_sees_and_changes_a_zombies_drops |  |
+| `pocketmine\event\entity\EntityDeathEvent::setXpDropAmount` | implemented | src/event/entity.rs:440 `set_xp_drop_amount` | src/event/entity.rs::entity_death_drops_can_change |  |
+| `pocketmine\event\entity\EntityDespawnEvent` | implemented | src/event/entity.rs:445 `EntityDespawn` | src/event/entity.rs::entities_spawn_and_despawn<br>src/tick/entity/tests/events.rs::spawns_and_despawns_are_announced_once_by_the_entity_tick |  |
 | `pocketmine\event\entity\EntityDespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityEffectAddEvent` | implemented | src/event/entity.rs:445 `EntityEffectAdd` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed<br>src/tick/survival/wiring.rs::effect_listeners_refuse_or_keep_effects_but_not_expired_ones |  |
+| `pocketmine\event\entity\EntityEffectAddEvent` | implemented | src/event/entity.rs:458 `EntityEffectAdd` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed<br>src/tick/survival/wiring.rs::effect_listeners_refuse_or_keep_effects_but_not_expired_ones |  |
 | `pocketmine\event\entity\EntityEffectAddEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityEffectAddEvent::getOldEffect` | implemented | src/event/entity.rs:462 `old_effect` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
-| `pocketmine\event\entity\EntityEffectAddEvent::hasOldEffect` | implemented | src/event/entity.rs:468 `has_old_effect` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
-| `pocketmine\event\entity\EntityEffectAddEvent::willModify` | implemented | src/event/entity.rs:469 `has_old_effect` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
-| `pocketmine\event\entity\EntityEffectEvent` | implemented | src/event/entity.rs:446 `EntityEffectAdd` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEffectAddEvent::getOldEffect` | implemented | src/event/entity.rs:475 `old_effect` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEffectAddEvent::hasOldEffect` | implemented | src/event/entity.rs:481 `has_old_effect` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEffectAddEvent::willModify` | implemented | src/event/entity.rs:482 `has_old_effect` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEffectEvent` | implemented | src/event/entity.rs:459 `EntityEffectAdd` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
 | `pocketmine\event\entity\EntityEffectEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityEffectEvent::cancel` | implemented | src/event/entity.rs:1077 `EntityExplode` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
-| `pocketmine\event\entity\EntityEffectEvent::getEffect` | implemented | src/event/entity.rs:459 `effect` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
-| `pocketmine\event\entity\EntityEffectEvent::isCancelled` | implemented | src/event/entity.rs:1079 `EntityExplode` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
-| `pocketmine\event\entity\EntityEffectEvent::uncancel` | implemented | src/event/entity.rs:1078 `EntityExplode` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
-| `pocketmine\event\entity\EntityEffectRemoveEvent` | implemented | src/event/entity.rs:477 `EntityEffectRemove` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed<br>src/tick/survival/wiring.rs::effect_listeners_refuse_or_keep_effects_but_not_expired_ones |  |
-| `pocketmine\event\entity\EntityEffectRemoveEvent::cancel` | implemented | src/event/entity.rs:494 `cancel` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
-| `pocketmine\event\entity\EntityEvent` | merged | src/event/entity.rs:262 `entity` | src/event/entity.rs::entity_damage_sums_base_and_modifiers | into `EntityEvent::getEntity` |
-| `pocketmine\event\entity\EntityEvent::getEntity` | implemented | src/event/entity.rs:262 `entity` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
-| `pocketmine\event\entity\EntityExplodeEvent` | implemented | src/event/entity.rs:514 `EntityExplode` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change<br>src/tick/entity/tests/events.rs::tnt_asks_before_it_explodes_and_listeners_choose_its_blocks |  |
+| `pocketmine\event\entity\EntityEffectEvent::cancel` | implemented | src/event/entity.rs:1090 `EntityExplode` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEffectEvent::getEffect` | implemented | src/event/entity.rs:472 `effect` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEffectEvent::isCancelled` | implemented | src/event/entity.rs:1092 `EntityExplode` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEffectEvent::uncancel` | implemented | src/event/entity.rs:1091 `EntityExplode` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEffectRemoveEvent` | implemented | src/event/entity.rs:490 `EntityEffectRemove` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed<br>src/tick/survival/wiring.rs::effect_listeners_refuse_or_keep_effects_but_not_expired_ones |  |
+| `pocketmine\event\entity\EntityEffectRemoveEvent::cancel` | implemented | src/event/entity.rs:507 `cancel` | src/event/entity.rs::effect_events_name_the_effects_and_keep_expired_ones_removed |  |
+| `pocketmine\event\entity\EntityEvent` | merged | src/event/entity.rs:263 `entity` | src/event/entity.rs::entity_damage_sums_base_and_modifiers | into `EntityEvent::getEntity` |
+| `pocketmine\event\entity\EntityEvent::getEntity` | implemented | src/event/entity.rs:263 `entity` | src/event/entity.rs::entity_damage_sums_base_and_modifiers |  |
+| `pocketmine\event\entity\EntityExplodeEvent` | implemented | src/event/entity.rs:527 `EntityExplode` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change<br>src/tick/entity/tests/events.rs::tnt_asks_before_it_explodes_and_listeners_choose_its_blocks |  |
 | `pocketmine\event\entity\EntityExplodeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityExplodeEvent::cancel` | implemented | src/event/entity.rs:1081 `EntityFrostWalker` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::getBlockList` | implemented | src/event/entity.rs:535 `blocks` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::getIgnitions` | implemented | src/event/entity.rs:541 `ignitions` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::getPosition` | implemented | src/event/entity.rs:532 `position` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::getYield` | implemented | src/event/entity.rs:538 `yield_percent` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::isCancelled` | implemented | src/event/entity.rs:1083 `EntityFrostWalker` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::setBlockList` | implemented | src/event/entity.rs:547 `set_blocks` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::setIgnitions` | implemented | src/event/entity.rs:550 `set_ignitions` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::setYield` | implemented | src/event/entity.rs:557 `set_yield_percent` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExplodeEvent::uncancel` | implemented | src/event/entity.rs:1082 `EntityFrostWalker` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
-| `pocketmine\event\entity\EntityExtinguishEvent` | implemented | src/event/entity.rs:652 `EntityExtinguish` | src/event/entity.rs::entity_extinguish_names_the_cause<br>src/tick/entity/tests/events.rs::fire_sets_entities_burning_through_combust_and_water_puts_them_out<br>src/tick/survival/wiring.rs::combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end |  |
+| `pocketmine\event\entity\EntityExplodeEvent::cancel` | implemented | src/event/entity.rs:1094 `EntityFrostWalker` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::getBlockList` | implemented | src/event/entity.rs:548 `blocks` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::getIgnitions` | implemented | src/event/entity.rs:554 `ignitions` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::getPosition` | implemented | src/event/entity.rs:545 `position` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::getYield` | implemented | src/event/entity.rs:551 `yield_percent` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::isCancelled` | implemented | src/event/entity.rs:1096 `EntityFrostWalker` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::setBlockList` | implemented | src/event/entity.rs:560 `set_blocks` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::setIgnitions` | implemented | src/event/entity.rs:563 `set_ignitions` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::setYield` | implemented | src/event/entity.rs:570 `set_yield_percent` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExplodeEvent::uncancel` | implemented | src/event/entity.rs:1095 `EntityFrostWalker` | src/event/entity.rs::entity_explode_blocks_and_yield_can_change |  |
+| `pocketmine\event\entity\EntityExtinguishEvent` | implemented | src/event/entity.rs:665 `EntityExtinguish` | src/event/entity.rs::entity_extinguish_names_the_cause<br>src/tick/entity/tests/events.rs::fire_sets_entities_burning_through_combust_and_water_puts_them_out<br>src/tick/survival/wiring.rs::combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end |  |
 | `pocketmine\event\entity\EntityExtinguishEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityExtinguishEvent::getCause` | implemented | src/event/entity.rs:663 `cause` | src/event/entity.rs::entity_extinguish_names_the_cause |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent` | implemented | src/event/entity.rs:571 `EntityFrostWalker` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
+| `pocketmine\event\entity\EntityExtinguishEvent::getCause` | implemented | src/event/entity.rs:676 `cause` | src/event/entity.rs::entity_extinguish_names_the_cause |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent` | implemented | src/event/entity.rs:584 `EntityFrostWalker` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
 | `pocketmine\event\entity\EntityFrostWalkerEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::cancel` | implemented | src/event/entity.rs:1085 `EntityItemPickup` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::getLiquid` | implemented | src/event/entity.rs:591 `liquid` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::getRadius` | implemented | src/event/entity.rs:588 `radius` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::getTargetBlock` | implemented | src/event/entity.rs:594 `target_block` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::isCancelled` | implemented | src/event/entity.rs:1087 `EntityItemPickup` | src/tick/survival/movement.rs::frost_walker_values_stay_in_range |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::setLiquid` | implemented | src/event/entity.rs:608 `set_liquid` | src/tick/survival/movement.rs::frost_walker_values_stay_in_range |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::setRadius` | implemented | src/event/entity.rs:600 `set_radius` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::setTargetBlock` | implemented | src/event/entity.rs:618 `set_target_block` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
-| `pocketmine\event\entity\EntityFrostWalkerEvent::uncancel` | implemented | src/event/entity.rs:1086 `EntityItemPickup` | src/tick/survival/movement.rs::frost_walker_values_stay_in_range |  |
-| `pocketmine\event\entity\EntityItemPickupEvent` | implemented | src/event/entity.rs:669 `EntityItemPickup` | src/event/entity.rs::entity_item_pickup_item_can_change<br>src/tick/entity/tests/events.rs::a_pickup_offers_what_fits_and_listeners_decide_what_moves<br>src/tick/entity/tests/events.rs::listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::cancel` | implemented | src/event/entity.rs:1098 `EntityItemPickup` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::getLiquid` | implemented | src/event/entity.rs:604 `liquid` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::getRadius` | implemented | src/event/entity.rs:601 `radius` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::getTargetBlock` | implemented | src/event/entity.rs:607 `target_block` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::isCancelled` | implemented | src/event/entity.rs:1100 `EntityItemPickup` | src/tick/survival/movement.rs::frost_walker_values_stay_in_range |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::setLiquid` | implemented | src/event/entity.rs:621 `set_liquid` | src/tick/survival/movement.rs::frost_walker_values_stay_in_range |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::setRadius` | implemented | src/event/entity.rs:613 `set_radius` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::setTargetBlock` | implemented | src/event/entity.rs:631 `set_target_block` | src/tick/survival/movement.rs::a_frost_walker_listener_sees_the_freeze_and_may_change_or_cancel_it |  |
+| `pocketmine\event\entity\EntityFrostWalkerEvent::uncancel` | implemented | src/event/entity.rs:1099 `EntityItemPickup` | src/tick/survival/movement.rs::frost_walker_values_stay_in_range |  |
+| `pocketmine\event\entity\EntityItemPickupEvent` | implemented | src/event/entity.rs:682 `EntityItemPickup` | src/event/entity.rs::entity_item_pickup_item_can_change<br>src/tick/entity/tests/events.rs::a_pickup_offers_what_fits_and_listeners_decide_what_moves<br>src/tick/entity/tests/events.rs::listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items |  |
 | `pocketmine\event\entity\EntityItemPickupEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityItemPickupEvent::cancel` | implemented | src/event/entity.rs:1089 `EntityMotion` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
+| `pocketmine\event\entity\EntityItemPickupEvent::cancel` | implemented | src/event/entity.rs:1102 `EntityMotion` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
 | `pocketmine\event\entity\EntityItemPickupEvent::getInventory` | skipped |  |  | the pickup rule puts the item into the picker's inventory; a listener changes the item (`set_item`), or cancels and gives it elsewhere through `Player::inventory_mut` |
-| `pocketmine\event\entity\EntityItemPickupEvent::getItem` | implemented | src/event/entity.rs:685 `item` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
-| `pocketmine\event\entity\EntityItemPickupEvent::getOrigin` | implemented | src/event/entity.rs:682 `origin` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
-| `pocketmine\event\entity\EntityItemPickupEvent::isCancelled` | implemented | src/event/entity.rs:1091 `EntityMotion` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
+| `pocketmine\event\entity\EntityItemPickupEvent::getItem` | implemented | src/event/entity.rs:698 `item` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
+| `pocketmine\event\entity\EntityItemPickupEvent::getOrigin` | implemented | src/event/entity.rs:695 `origin` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
+| `pocketmine\event\entity\EntityItemPickupEvent::isCancelled` | implemented | src/event/entity.rs:1104 `EntityMotion` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
 | `pocketmine\event\entity\EntityItemPickupEvent::setInventory` | skipped |  |  | the pickup rule puts the item into the picker's inventory; a listener changes the item (`set_item`), or cancels and gives it elsewhere through `Player::inventory_mut` |
-| `pocketmine\event\entity\EntityItemPickupEvent::setItem` | implemented | src/event/entity.rs:691 `set_item` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
-| `pocketmine\event\entity\EntityItemPickupEvent::uncancel` | implemented | src/event/entity.rs:1090 `EntityMotion` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
-| `pocketmine\event\entity\EntityMotionEvent` | implemented | src/event/entity.rs:697 `EntityMotion` | src/event/entity.rs::entity_motion_names_the_motion<br>src/tick/entity/tests/events.rs::a_cancelled_motion_keeps_the_npc_still |  |
+| `pocketmine\event\entity\EntityItemPickupEvent::setItem` | implemented | src/event/entity.rs:704 `set_item` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
+| `pocketmine\event\entity\EntityItemPickupEvent::uncancel` | implemented | src/event/entity.rs:1103 `EntityMotion` | src/event/entity.rs::entity_item_pickup_item_can_change |  |
+| `pocketmine\event\entity\EntityMotionEvent` | implemented | src/event/entity.rs:710 `EntityMotion` | src/event/entity.rs::entity_motion_names_the_motion<br>src/tick/entity/tests/events.rs::a_cancelled_motion_keeps_the_npc_still |  |
 | `pocketmine\event\entity\EntityMotionEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityMotionEvent::cancel` | implemented | src/event/entity.rs:1093 `EntityPreExplode` | src/event/entity.rs::entity_motion_names_the_motion |  |
-| `pocketmine\event\entity\EntityMotionEvent::getVector` | implemented | src/event/entity.rs:709 `motion` | src/event/entity.rs::entity_motion_names_the_motion |  |
-| `pocketmine\event\entity\EntityMotionEvent::isCancelled` | implemented | src/event/entity.rs:1095 `EntityPreExplode` | src/event/entity.rs::entity_motion_names_the_motion |  |
-| `pocketmine\event\entity\EntityMotionEvent::uncancel` | implemented | src/event/entity.rs:1094 `EntityPreExplode` | src/event/entity.rs::entity_motion_names_the_motion |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent` | implemented | src/event/entity.rs:715 `EntityPreExplode` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range<br>src/tick/entity/tests/events.rs::tnt_asks_before_it_explodes_and_listeners_choose_its_blocks |  |
+| `pocketmine\event\entity\EntityMotionEvent::cancel` | implemented | src/event/entity.rs:1106 `EntityPreExplode` | src/event/entity.rs::entity_motion_names_the_motion |  |
+| `pocketmine\event\entity\EntityMotionEvent::getVector` | implemented | src/event/entity.rs:722 `motion` | src/event/entity.rs::entity_motion_names_the_motion |  |
+| `pocketmine\event\entity\EntityMotionEvent::isCancelled` | implemented | src/event/entity.rs:1108 `EntityPreExplode` | src/event/entity.rs::entity_motion_names_the_motion |  |
+| `pocketmine\event\entity\EntityMotionEvent::uncancel` | implemented | src/event/entity.rs:1107 `EntityPreExplode` | src/event/entity.rs::entity_motion_names_the_motion |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent` | implemented | src/event/entity.rs:728 `EntityPreExplode` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range<br>src/tick/entity/tests/events.rs::tnt_asks_before_it_explodes_and_listeners_choose_its_blocks |  |
 | `pocketmine\event\entity\EntityPreExplodeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityPreExplodeEvent::cancel` | implemented | src/event/entity.rs:1097 `EntityRegainHealth` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::getFireChance` | implemented | src/event/entity.rs:738 `fire_chance` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::getRadius` | implemented | src/event/entity.rs:735 `radius` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::isBlockBreaking` | implemented | src/event/entity.rs:778 `is_block_breaking` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::isCancelled` | implemented | src/event/entity.rs:1099 `EntityRegainHealth` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::isIncendiary` | implemented | src/event/entity.rs:762 `is_incendiary` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::setBlockBreaking` | implemented | src/event/entity.rs:786 `set_block_breaking` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::setFireChance` | implemented | src/event/entity.rs:754 `set_fire_chance` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::setIncendiary` | implemented | src/event/entity.rs:768 `set_incendiary` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::setRadius` | implemented | src/event/entity.rs:745 `set_radius` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityPreExplodeEvent::uncancel` | implemented | src/event/entity.rs:1098 `EntityRegainHealth` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
-| `pocketmine\event\entity\EntityRegainHealthEvent` | implemented | src/event/entity.rs:811 `EntityRegainHealth` | src/event/entity.rs::entity_regain_health_amount_can_change<br>src/tick/entity/tests/events.rs::healing_an_npc_asks_its_listeners<br>src/tick/survival/wiring.rs::regain_listeners_change_or_cancel_the_healing |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::cancel` | implemented | src/event/entity.rs:1110 `EntityRegainHealth` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::getFireChance` | implemented | src/event/entity.rs:751 `fire_chance` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::getRadius` | implemented | src/event/entity.rs:748 `radius` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::isBlockBreaking` | implemented | src/event/entity.rs:791 `is_block_breaking` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::isCancelled` | implemented | src/event/entity.rs:1112 `EntityRegainHealth` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::isIncendiary` | implemented | src/event/entity.rs:775 `is_incendiary` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::setBlockBreaking` | implemented | src/event/entity.rs:799 `set_block_breaking` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::setFireChance` | implemented | src/event/entity.rs:767 `set_fire_chance` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::setIncendiary` | implemented | src/event/entity.rs:781 `set_incendiary` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::setRadius` | implemented | src/event/entity.rs:758 `set_radius` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityPreExplodeEvent::uncancel` | implemented | src/event/entity.rs:1111 `EntityRegainHealth` | src/event/entity.rs::entity_pre_explode_keeps_its_values_in_range |  |
+| `pocketmine\event\entity\EntityRegainHealthEvent` | implemented | src/event/entity.rs:824 `EntityRegainHealth` | src/event/entity.rs::entity_regain_health_amount_can_change<br>src/tick/entity/tests/events.rs::healing_an_npc_asks_its_listeners<br>src/tick/survival/wiring.rs::regain_listeners_change_or_cancel_the_healing |  |
 | `pocketmine\event\entity\EntityRegainHealthEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityRegainHealthEvent::cancel` | implemented | src/event/entity.rs:1101 `EntityShootBow` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
-| `pocketmine\event\entity\EntityRegainHealthEvent::getAmount` | implemented | src/event/entity.rs:824 `amount` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
-| `pocketmine\event\entity\EntityRegainHealthEvent::getRegainReason` | implemented | src/event/entity.rs:827 `regain_reason` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
-| `pocketmine\event\entity\EntityRegainHealthEvent::isCancelled` | implemented | src/event/entity.rs:1103 `EntityShootBow` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
-| `pocketmine\event\entity\EntityRegainHealthEvent::setAmount` | implemented | src/event/entity.rs:833 `set_amount` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
-| `pocketmine\event\entity\EntityRegainHealthEvent::uncancel` | implemented | src/event/entity.rs:1102 `EntityShootBow` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
-| `pocketmine\event\entity\EntityShootBowEvent` | implemented | src/event/entity.rs:843 `EntityShootBow` | src/event/entity.rs::entity_shoot_bow_force_can_change<br>src/tick/entity/tests/events.rs::launches_and_bow_shots_ask_their_listeners |  |
+| `pocketmine\event\entity\EntityRegainHealthEvent::cancel` | implemented | src/event/entity.rs:1114 `EntityShootBow` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
+| `pocketmine\event\entity\EntityRegainHealthEvent::getAmount` | implemented | src/event/entity.rs:837 `amount` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
+| `pocketmine\event\entity\EntityRegainHealthEvent::getRegainReason` | implemented | src/event/entity.rs:840 `regain_reason` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
+| `pocketmine\event\entity\EntityRegainHealthEvent::isCancelled` | implemented | src/event/entity.rs:1116 `EntityShootBow` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
+| `pocketmine\event\entity\EntityRegainHealthEvent::setAmount` | implemented | src/event/entity.rs:846 `set_amount` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
+| `pocketmine\event\entity\EntityRegainHealthEvent::uncancel` | implemented | src/event/entity.rs:1115 `EntityShootBow` | src/event/entity.rs::entity_regain_health_amount_can_change |  |
+| `pocketmine\event\entity\EntityShootBowEvent` | implemented | src/event/entity.rs:856 `EntityShootBow` | src/event/entity.rs::entity_shoot_bow_force_can_change<br>src/tick/entity/tests/events.rs::launches_and_bow_shots_ask_their_listeners |  |
 | `pocketmine\event\entity\EntityShootBowEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityShootBowEvent::cancel` | implemented | src/event/entity.rs:1105 `EntityTeleport` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
-| `pocketmine\event\entity\EntityShootBowEvent::getBow` | implemented | src/event/entity.rs:858 `bow` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
-| `pocketmine\event\entity\EntityShootBowEvent::getEntity` | implemented | src/event/entity.rs:855 `entity` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
-| `pocketmine\event\entity\EntityShootBowEvent::getForce` | implemented | src/event/entity.rs:864 `force` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
-| `pocketmine\event\entity\EntityShootBowEvent::getProjectile` | implemented | src/event/entity.rs:861 `projectile` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
-| `pocketmine\event\entity\EntityShootBowEvent::isCancelled` | implemented | src/event/entity.rs:1107 `EntityTeleport` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
-| `pocketmine\event\entity\EntityShootBowEvent::setForce` | implemented | src/event/entity.rs:870 `set_force` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
+| `pocketmine\event\entity\EntityShootBowEvent::cancel` | implemented | src/event/entity.rs:1118 `EntityTeleport` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
+| `pocketmine\event\entity\EntityShootBowEvent::getBow` | implemented | src/event/entity.rs:871 `bow` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
+| `pocketmine\event\entity\EntityShootBowEvent::getEntity` | implemented | src/event/entity.rs:868 `entity` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
+| `pocketmine\event\entity\EntityShootBowEvent::getForce` | implemented | src/event/entity.rs:877 `force` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
+| `pocketmine\event\entity\EntityShootBowEvent::getProjectile` | implemented | src/event/entity.rs:874 `projectile` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
+| `pocketmine\event\entity\EntityShootBowEvent::isCancelled` | implemented | src/event/entity.rs:1120 `EntityTeleport` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
+| `pocketmine\event\entity\EntityShootBowEvent::setForce` | implemented | src/event/entity.rs:883 `set_force` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
 | `pocketmine\event\entity\EntityShootBowEvent::setProjectile` | skipped |  |  | the arrow is an entity the rule has made: a listener changes it through `Context::entity_mut`, or cancels and spawns another with `Context::spawn_projectile` |
-| `pocketmine\event\entity\EntityShootBowEvent::uncancel` | implemented | src/event/entity.rs:1106 `EntityTeleport` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
-| `pocketmine\event\entity\EntitySpawnEvent` | implemented | src/event/entity.rs:879 `EntitySpawn` | src/event/entity.rs::entities_spawn_and_despawn<br>src/tick/entity/tests/events.rs::spawns_and_despawns_are_announced_once_by_the_entity_tick |  |
+| `pocketmine\event\entity\EntityShootBowEvent::uncancel` | implemented | src/event/entity.rs:1119 `EntityTeleport` | src/event/entity.rs::entity_shoot_bow_force_can_change |  |
+| `pocketmine\event\entity\EntitySpawnEvent` | implemented | src/event/entity.rs:892 `EntitySpawn` | src/event/entity.rs::entities_spawn_and_despawn<br>src/tick/entity/tests/events.rs::spawns_and_despawns_are_announced_once_by_the_entity_tick |  |
 | `pocketmine\event\entity\EntitySpawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityTeleportEvent` | implemented | src/event/entity.rs:892 `EntityTeleport` | src/event/entity.rs::entity_teleport_target_can_change<br>src/tick/entity/tests/events.rs::an_ender_pearl_landing_teleports_through_its_listeners |  |
+| `pocketmine\event\entity\EntityTeleportEvent` | implemented | src/event/entity.rs:905 `EntityTeleport` | src/event/entity.rs::entity_teleport_target_can_change<br>src/tick/entity/tests/events.rs::an_ender_pearl_landing_teleports_through_its_listeners |  |
 | `pocketmine\event\entity\EntityTeleportEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityTeleportEvent::cancel` | implemented | src/event/entity.rs:1109 `EntityTrampleFarmland` | src/event/entity.rs::entity_teleport_target_can_change |  |
-| `pocketmine\event\entity\EntityTeleportEvent::getFrom` | implemented | src/event/entity.rs:909 `origin` | src/event/entity.rs::entity_teleport_target_can_change |  |
-| `pocketmine\event\entity\EntityTeleportEvent::getTo` | implemented | src/event/entity.rs:914 `target` | src/event/entity.rs::entity_teleport_target_can_change |  |
-| `pocketmine\event\entity\EntityTeleportEvent::isCancelled` | implemented | src/event/entity.rs:1111 `EntityTrampleFarmland` | src/event/entity.rs::entity_teleport_target_can_change |  |
-| `pocketmine\event\entity\EntityTeleportEvent::setTo` | implemented | src/event/entity.rs:920 `set_target` | src/event/entity.rs::entity_teleport_target_can_change |  |
-| `pocketmine\event\entity\EntityTeleportEvent::uncancel` | implemented | src/event/entity.rs:1110 `EntityTrampleFarmland` | src/event/entity.rs::entity_teleport_target_can_change |  |
-| `pocketmine\event\entity\EntityTrampleFarmlandEvent` | implemented | src/event/entity.rs:931 `EntityTrampleFarmland` | src/event/entity.rs::entity_trample_farmland_names_the_farmland<br>src/tick/update/raise.rs::trampling_raises_entity_trample_farmland |  |
+| `pocketmine\event\entity\EntityTeleportEvent::cancel` | implemented | src/event/entity.rs:1122 `EntityTrampleFarmland` | src/event/entity.rs::entity_teleport_target_can_change |  |
+| `pocketmine\event\entity\EntityTeleportEvent::getFrom` | implemented | src/event/entity.rs:922 `origin` | src/event/entity.rs::entity_teleport_target_can_change |  |
+| `pocketmine\event\entity\EntityTeleportEvent::getTo` | implemented | src/event/entity.rs:927 `target` | src/event/entity.rs::entity_teleport_target_can_change |  |
+| `pocketmine\event\entity\EntityTeleportEvent::isCancelled` | implemented | src/event/entity.rs:1124 `EntityTrampleFarmland` | src/event/entity.rs::entity_teleport_target_can_change |  |
+| `pocketmine\event\entity\EntityTeleportEvent::setTo` | implemented | src/event/entity.rs:933 `set_target` | src/event/entity.rs::entity_teleport_target_can_change |  |
+| `pocketmine\event\entity\EntityTeleportEvent::uncancel` | implemented | src/event/entity.rs:1123 `EntityTrampleFarmland` | src/event/entity.rs::entity_teleport_target_can_change |  |
+| `pocketmine\event\entity\EntityTrampleFarmlandEvent` | implemented | src/event/entity.rs:944 `EntityTrampleFarmland` | src/event/entity.rs::entity_trample_farmland_names_the_farmland<br>src/tick/update/raise.rs::trampling_raises_entity_trample_farmland |  |
 | `pocketmine\event\entity\EntityTrampleFarmlandEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\EntityTrampleFarmlandEvent::cancel` | implemented | src/event/entity.rs:1113 `ItemDespawn` | src/event/entity.rs::entity_trample_farmland_names_the_farmland |  |
-| `pocketmine\event\entity\EntityTrampleFarmlandEvent::getBlock` | implemented | src/event/entity.rs:949 `block` | src/event/entity.rs::entity_trample_farmland_names_the_farmland |  |
-| `pocketmine\event\entity\EntityTrampleFarmlandEvent::isCancelled` | implemented | src/event/entity.rs:1115 `ItemDespawn` | src/event/entity.rs::entity_trample_farmland_names_the_farmland |  |
-| `pocketmine\event\entity\EntityTrampleFarmlandEvent::uncancel` | implemented | src/event/entity.rs:1114 `ItemDespawn` | src/event/entity.rs::entity_trample_farmland_names_the_farmland |  |
-| `pocketmine\event\entity\ItemDespawnEvent` | implemented | src/event/entity.rs:955 `ItemDespawn` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::a_cancelled_item_despawn_gives_the_whole_time_again |  |
+| `pocketmine\event\entity\EntityTrampleFarmlandEvent::cancel` | implemented | src/event/entity.rs:1126 `ItemDespawn` | src/event/entity.rs::entity_trample_farmland_names_the_farmland |  |
+| `pocketmine\event\entity\EntityTrampleFarmlandEvent::getBlock` | implemented | src/event/entity.rs:962 `block` | src/event/entity.rs::entity_trample_farmland_names_the_farmland |  |
+| `pocketmine\event\entity\EntityTrampleFarmlandEvent::isCancelled` | implemented | src/event/entity.rs:1128 `ItemDespawn` | src/event/entity.rs::entity_trample_farmland_names_the_farmland |  |
+| `pocketmine\event\entity\EntityTrampleFarmlandEvent::uncancel` | implemented | src/event/entity.rs:1127 `ItemDespawn` | src/event/entity.rs::entity_trample_farmland_names_the_farmland |  |
+| `pocketmine\event\entity\ItemDespawnEvent` | implemented | src/event/entity.rs:968 `ItemDespawn` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::a_cancelled_item_despawn_gives_the_whole_time_again |  |
 | `pocketmine\event\entity\ItemDespawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\ItemDespawnEvent::cancel` | implemented | src/event/entity.rs:1117 `ItemMerge` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ItemDespawnEvent::getEntity` | implemented | src/event/entity.rs:964 `entity` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ItemDespawnEvent::isCancelled` | implemented | src/event/entity.rs:1119 `ItemMerge` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ItemDespawnEvent::uncancel` | implemented | src/event/entity.rs:1118 `ItemMerge` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ItemMergeEvent` | implemented | src/event/entity.rs:969 `ItemMerge` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::item_merges_ask_their_listeners_and_a_changed_target_stops_them<br>src/tick/entity/tests/events.rs::listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items |  |
+| `pocketmine\event\entity\ItemDespawnEvent::cancel` | implemented | src/event/entity.rs:1130 `ItemMerge` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ItemDespawnEvent::getEntity` | implemented | src/event/entity.rs:977 `entity` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ItemDespawnEvent::isCancelled` | implemented | src/event/entity.rs:1132 `ItemMerge` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ItemDespawnEvent::uncancel` | implemented | src/event/entity.rs:1131 `ItemMerge` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ItemMergeEvent` | implemented | src/event/entity.rs:982 `ItemMerge` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::item_merges_ask_their_listeners_and_a_changed_target_stops_them<br>src/tick/entity/tests/events.rs::listeners_that_cancel_move_items_and_change_room_neither_make_nor_lose_items |  |
 | `pocketmine\event\entity\ItemMergeEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\ItemMergeEvent::cancel` | implemented | src/event/entity.rs:1121 `ProjectileLaunch` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ItemMergeEvent::getTarget` | implemented | src/event/entity.rs:981 `target` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ItemMergeEvent::isCancelled` | implemented | src/event/entity.rs:1123 `ProjectileLaunch` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ItemMergeEvent::uncancel` | implemented | src/event/entity.rs:1122 `ProjectileLaunch` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ItemSpawnEvent` | implemented | src/event/entity.rs:986 `ItemSpawn` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::spawns_and_despawns_are_announced_once_by_the_entity_tick |  |
+| `pocketmine\event\entity\ItemMergeEvent::cancel` | implemented | src/event/entity.rs:1134 `ProjectileLaunch` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ItemMergeEvent::getTarget` | implemented | src/event/entity.rs:994 `target` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ItemMergeEvent::isCancelled` | implemented | src/event/entity.rs:1136 `ProjectileLaunch` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ItemMergeEvent::uncancel` | implemented | src/event/entity.rs:1135 `ProjectileLaunch` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ItemSpawnEvent` | implemented | src/event/entity.rs:999 `ItemSpawn` | src/event/entity.rs::dropped_item_events_name_the_items<br>src/tick/entity/tests/events.rs::spawns_and_despawns_are_announced_once_by_the_entity_tick |  |
 | `pocketmine\event\entity\ItemSpawnEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\ItemSpawnEvent::getEntity` | implemented | src/event/entity.rs:994 `entity` | src/event/entity.rs::dropped_item_events_name_the_items |  |
-| `pocketmine\event\entity\ProjectileHitBlockEvent` | implemented | src/event/entity.rs:999 `ProjectileHitBlock` | src/event/entity.rs::projectile_events_name_what_was_hit<br>src/tick/entity/tests/events.rs::projectile_hits_name_what_they_hit |  |
+| `pocketmine\event\entity\ItemSpawnEvent::getEntity` | implemented | src/event/entity.rs:1007 `entity` | src/event/entity.rs::dropped_item_events_name_the_items |  |
+| `pocketmine\event\entity\ProjectileHitBlockEvent` | implemented | src/event/entity.rs:1012 `ProjectileHitBlock` | src/event/entity.rs::projectile_events_name_what_was_hit<br>src/tick/entity/tests/events.rs::projectile_hits_name_what_they_hit |  |
 | `pocketmine\event\entity\ProjectileHitBlockEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\ProjectileHitBlockEvent::getBlockHit` | implemented | src/event/entity.rs:1019 `block` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
-| `pocketmine\event\entity\ProjectileHitEntityEvent` | implemented | src/event/entity.rs:1027 `ProjectileHitEntity` | src/event/entity.rs::projectile_events_name_what_was_hit<br>src/tick/entity/tests/events.rs::projectile_hits_name_what_they_hit |  |
+| `pocketmine\event\entity\ProjectileHitBlockEvent::getBlockHit` | implemented | src/event/entity.rs:1032 `block` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileHitEntityEvent` | implemented | src/event/entity.rs:1040 `ProjectileHitEntity` | src/event/entity.rs::projectile_events_name_what_was_hit<br>src/tick/entity/tests/events.rs::projectile_hits_name_what_they_hit |  |
 | `pocketmine\event\entity\ProjectileHitEntityEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\ProjectileHitEntityEvent::getEntityHit` | implemented | src/event/entity.rs:1039 `entity_hit` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
-| `pocketmine\event\entity\ProjectileHitEvent` | implemented | src/event/entity.rs:1000 `ProjectileHitBlock` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileHitEntityEvent::getEntityHit` | implemented | src/event/entity.rs:1052 `entity_hit` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileHitEvent` | implemented | src/event/entity.rs:1013 `ProjectileHitBlock` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
 | `pocketmine\event\entity\ProjectileHitEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\ProjectileHitEvent::getEntity` | implemented | src/event/entity.rs:1012 `entity` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
-| `pocketmine\event\entity\ProjectileHitEvent::getRayTraceResult` | implemented | src/event/entity.rs:1022 `hit_position` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
-| `pocketmine\event\entity\ProjectileLaunchEvent` | implemented | src/event/entity.rs:1046 `ProjectileLaunch` | src/event/entity.rs::projectile_events_name_what_was_hit<br>src/tick/entity/tests/events.rs::launches_and_bow_shots_ask_their_listeners |  |
+| `pocketmine\event\entity\ProjectileHitEvent::getEntity` | implemented | src/event/entity.rs:1025 `entity` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileHitEvent::getRayTraceResult` | implemented | src/event/entity.rs:1035 `hit_position` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileLaunchEvent` | implemented | src/event/entity.rs:1059 `ProjectileLaunch` | src/event/entity.rs::projectile_events_name_what_was_hit<br>src/tick/entity/tests/events.rs::launches_and_bow_shots_ask_their_listeners |  |
 | `pocketmine\event\entity\ProjectileLaunchEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\entity\ProjectileLaunchEvent::cancel` | implemented | src/event/entity.rs:1125 `cfg` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
-| `pocketmine\event\entity\ProjectileLaunchEvent::getEntity` | implemented | src/event/entity.rs:1055 `entity` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
-| `pocketmine\event\entity\ProjectileLaunchEvent::isCancelled` | implemented | src/event/entity.rs:1127 `cfg` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
-| `pocketmine\event\entity\ProjectileLaunchEvent::uncancel` | implemented | src/event/entity.rs:1126 `cfg` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileLaunchEvent::cancel` | implemented | src/event/entity.rs:1138 `cfg` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileLaunchEvent::getEntity` | implemented | src/event/entity.rs:1068 `entity` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileLaunchEvent::isCancelled` | implemented | src/event/entity.rs:1140 `cfg` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
+| `pocketmine\event\entity\ProjectileLaunchEvent::uncancel` | implemented | src/event/entity.rs:1139 `cfg` | src/event/entity.rs::projectile_events_name_what_was_hit |  |
 | `pocketmine\event\inventory\CraftItemEvent` | implemented | src/event/inventory.rs:70 `CraftItem` | src/event/inventory.rs::craft_item_lists_inputs_and_outputs<br>src/tick/inventory/tests.rs::random_requests_with_random_listeners_keep_every_item_accounted_for<br>src/tick/inventory/tests/events.rs::crafting_raises_craft_item_and_cancelling_keeps_the_grid |  |
 | `pocketmine\event\inventory\CraftItemEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
 | `pocketmine\event\inventory\CraftItemEvent::cancel` | implemented | src/event/inventory.rs:283 `FurnaceBurn` | src/event/inventory.rs::craft_item_lists_inputs_and_outputs |  |
@@ -6449,7 +6449,7 @@ implemented 59, differs 0, merged 805, skipped 231, blank 0 (of 1095 rows)
 | `pocketmine\item\Bow::canStartUsingItem` | skipped |  |  | item rule code |
 | `pocketmine\item\Bow::getFuelTime` | merged | src/item.rs:1041 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\Bow::getMaxDurability` | merged | src/item.rs:974 `max_durability` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_tool_and_armour_data | into `Durable::getMaxDurability` |
-| `pocketmine\item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4102 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
+| `pocketmine\item\Bow::onReleaseUsing` | implemented | src/tick/entity.rs:4098 `release_bow` | src/tick/entity/projectile.rs::a_full_bow_shot_is_critical_hits_a_player_and_knocks_it_back |  |
 | `pocketmine\item\Bowl` | merged | src/item/stack.rs:96 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Bowl::getFuelTime` | merged | src/item.rs:1041 `fuel_time_ticks` | src/item.rs::item_data_are_pmmp_values<br>src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Item::getFuelTime` |
 | `pocketmine\item\Bread` | merged | src/item/stack.rs:96 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
@@ -6828,7 +6828,7 @@ implemented 59, differs 0, merged 805, skipped 231, blank 0 (of 1095 rows)
 | `pocketmine\item\PotionType::name` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\item\ProjectileItem` | merged | src/item/stack.rs:96 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\ProjectileItem::getThrowForce` | implemented | src/item.rs:1077 `throw_force` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_use_data |  |
-| `pocketmine\item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4094 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_pmmps_constants |  |
+| `pocketmine\item\ProjectileItem::onClickAir` | implemented | src/tick/entity.rs:4090 `throw` | src/tick/entity/projectile.rs::a_snowball_flies_with_pmmps_constants |  |
 | `pocketmine\item\Pufferfish` | merged | src/item/stack.rs:96 `Stack` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item` |
 | `pocketmine\item\Pufferfish::getAdditionalEffects` | merged | src/item.rs:597 `effects` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `Consumable::getAdditionalEffects` |
 | `pocketmine\item\Pufferfish::getFoodRestore` | merged | src/item.rs:556 `food_restore` | src/item.rs::food_fuel_and_armour_are_pmmp_values<br>src/item.rs::every_type_has_its_pmmp_food_and_fuel_data | into `FoodSource::getFoodRestore` |
@@ -8412,7 +8412,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::addAttachment` | merged | src/tick/command.rs:1109 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `pocketmine\player\Player::attack` | implemented | src/action/survival.rs:20 `Damage` | src/tick/survival/wiring.rs::the_damage_action_hurts_through_the_rules |  |
 | `pocketmine\player\Player::attackBlock` | implemented | src/action/interact.rs:16 `AttackBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
-| `pocketmine\player\Player::attackEntity` | implemented | src/action/entity.rs:15 `Attack`<br>src/tick/entity.rs:4204 `attack` | src/tick/entity/npc.rs::hits_on_npcs_follow_pmmps_living_rules<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not |  |
+| `pocketmine\player\Player::attackEntity` | implemented | src/action/entity.rs:15 `Attack`<br>src/tick/entity.rs:4200 `attack` | src/tick/entity/npc.rs::hits_on_npcs_follow_pmmps_living_rules<br>src/tick/entity/tests/events.rs::actions_raise_the_events_that_direct_calls_do_not |  |
 | `pocketmine\player\Player::breakBlock` | implemented | src/action/interact.rs:34 `BreakBlock` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events<br>src/tick/interact/tests/events.rs::direct_calls_in_a_listener_raise_no_events_and_performed_actions_raise_theirs_after_it<br>src/tick/interact/tests/events.rs::mining_raises_player_exhaust_with_the_mining_cause |  |
 | `pocketmine\player\Player::broadcastAnimation` | implemented | src/tick/entity/api.rs:1782 `play_animation` | src/tick/entity/api/tests.rs::animations_reach_the_players_who_see_the_actor_with_pmmp_values |  |
 | `pocketmine\player\Player::broadcastSound` | merged | src/tick/world_api.rs:158 `add_sound` | src/tick/interact/tests/events.rs::a_world_sound_listener_hears_what_the_game_plays_and_monitors_see_it_played<br>src/tick/world_api/tests.rs::sounds_particles_and_packets_reach_only_the_players_who_see_the_place | into `World::addSound` |
@@ -8425,7 +8425,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::canInteract` | implemented | src/tick/survival/api.rs:961 `can_interact` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `pocketmine\player\Player::canSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `pocketmine\player\Player::canSee` | implemented | src/tick/entity/api.rs:1837 `can_see` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
-| `pocketmine\player\Player::changeSkin` | merged | src/tick/survival/api.rs:1142 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
+| `pocketmine\player\Player::changeSkin` | merged | src/tick/survival/api.rs:1150 `set_skin` | src/tick/survival/api.rs::emotes_reach_the_viewers_and_skins_everyone | into `Human::setSkin` |
 | `pocketmine\player\Player::chat` | implemented | src/action/survival.rs:84 `Chat` | src/tick/survival/wiring.rs::chat_listeners_change_the_line_its_format_and_recipients |  |
 | `pocketmine\player\Player::closeAllForms` | implemented | src/tick/form.rs:161 `close_forms` | src/tick/form/tests.rs::closing_forms_sends_the_close_and_forgets_them |  |
 | `pocketmine\player\Player::consumeHeldItem` | skipped |  |  | item rule code: listeners see PlayerItemConsume |
@@ -8433,23 +8433,23 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::disconnect` | implemented | src/tick/player.rs:645 `kick` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `pocketmine\player\Player::doChunkRequests` | skipped |  |  | chunk sending is the engine's |
 | `pocketmine\player\Player::doFirstSpawn` | skipped |  |  | the spawn flow is the engine's |
-| `pocketmine\player\Player::dropItem` | implemented | src/tick/survival/api.rs:1461 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
+| `pocketmine\player\Player::dropItem` | implemented | src/tick/survival/api.rs:1469 `drop_from` | src/tick/survival/api.rs::a_player_drops_items_and_sees_the_ground_below |  |
 | `pocketmine\player\Player::emote` | skipped |  |  | player rule code: listeners see PlayerEmote |
-| `pocketmine\player\Player::getAllowFlight` | implemented | src/tick/survival/api.rs:1190 `allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::getAllowFlight` | implemented | src/tick/survival/api.rs:1198 `allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::getCraftingGrid` | implemented | src/tick/inventory/api.rs:25 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
 | `pocketmine\player\Player::getCreativeInventory` | implemented | src/tick/inventory/api.rs:169 `creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `pocketmine\player\Player::getCurrentWindow` | implemented | src/tick/inventory/api.rs:74 `window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `pocketmine\player\Player::getCursorInventory` | implemented | src/tick/inventory/api.rs:24 `inventory` | src/tick/inventory/tests/api.rs::player_writes_reach_the_client_with_new_stack_ids |  |
-| `pocketmine\player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:1292 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `pocketmine\player\Player::getDeathPosition` | implemented | src/tick/survival/api.rs:1300 `death_position` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::getDisplayName` | implemented | src/tick/player.rs:405 `display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::getDrops` | skipped |  |  | player rule code: listeners see and change the drops in PlayerDeath |
 | `pocketmine\player\Player::getEffectivePermissions` | implemented | src/tick/command.rs:1182 `effective_permissions` | src/tick/command/tests.rs::grants_are_listed_and_cleared_and_effective_permissions_follow_them |  |
 | `pocketmine\player\Player::getFirstPlayed` | differs | src/tick/player.rs:522 `first_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run | a `SystemTime` instead of Unix milliseconds; a new player's is the time the session handed it to the tick |
-| `pocketmine\player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1206 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::getFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1214 `flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::getGamemode` | implemented | src/tick/survival/api.rs:278 `game_mode` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `pocketmine\player\Player::getInAirTicks` | implemented | src/tick/survival/api.rs:931 `in_air_ticks` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
-| `pocketmine\player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1420 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
-| `pocketmine\player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1449 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `pocketmine\player\Player::getItemCooldownExpiry` | implemented | src/tick/survival/api.rs:1428 `item_cooldown_expiry` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `pocketmine\player\Player::getItemUseDuration` | implemented | src/tick/survival/api.rs:1457 `item_use_duration_ticks` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `pocketmine\player\Player::getLastPlayed` | differs | src/tick/player.rs:531 `last_played` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run<br>src/tick/player.rs::a_player_who_changed_nothing_else_is_saved_when_it_leaves | a `SystemTime`; a save dates `lastPlayed` from the join time the session read off the tick and the ticks since, 50 ms each (the tick has no wall clock) |
 | `pocketmine\player\Player::getLeaveMessage` | merged | src/event/player.rs:1363 `quit_message` | src/event/player.rs::join_and_quit_messages_can_change | into `PlayerQuitEvent::getQuitMessage` |
@@ -8461,7 +8461,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::getSaveData` | skipped |  |  | player records are internal and commit with the world; user values are `Player::data` |
 | `pocketmine\player\Player::getScreenLineHeight` | implemented | src/tick/player.rs:558 `screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
-| `pocketmine\player\Player::getSpawn` | implemented | src/tick/survival/api.rs:1263 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `pocketmine\player\Player::getSpawn` | implemented | src/tick/survival/api.rs:1271 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::getUniqueId` | implemented | src/tick/player.rs:438 `uuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::getUsedChunkStatus` | skipped |  |  | chunk sending is the engine's |
 | `pocketmine\player\Player::getUsedChunks` | skipped |  |  | chunk sending is the engine's |
@@ -8470,29 +8470,29 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::getXuid` | implemented | src/tick/player.rs:426 `xuid` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::handleMovement` | skipped |  |  | movement rule code: listeners see PlayerMove |
 | `pocketmine\player\Player::hasAutoJump` | implemented | src/tick/survival/api.rs:1099 `auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
-| `pocketmine\player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:1227 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::hasBlockCollision` | implemented | src/tick/survival/api.rs:1235 `has_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::hasFiniteResources` | implemented | src/tick/survival/api.rs:337 `has_finite_resources` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
-| `pocketmine\player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1413 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `pocketmine\player\Player::hasItemCooldown` | implemented | src/tick/survival/api.rs:1421 `has_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::hasPermission` | implemented | src/tick/command.rs:1090 `has_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\player\Player::hasPlayedBefore` | implemented | src/tick/player.rs:539 `has_played_before` | src/tick/player.rs::the_play_history_is_saved_and_read_back_by_the_next_run |  |
 | `pocketmine\player\Player::hasReceivedChunk` | skipped |  |  | chunk sending is the engine's |
-| `pocketmine\player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:1264 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `pocketmine\player\Player::hasValidCustomSpawn` | implemented | src/tick/survival/api.rs:1272 `spawn` | src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::hidePlayer` | implemented | src/tick/entity/api.rs:1804 `hide_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
 | `pocketmine\player\Player::interactBlock` | implemented | src/action/interact.rs:51 `UseItemOn` | src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
-| `pocketmine\player\Player::interactEntity` | implemented | src/action/interact.rs:91 `InteractEntity`<br>src/tick/entity.rs:4212 `interact` | src/tick/entity/npc.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
+| `pocketmine\player\Player::interactEntity` | implemented | src/action/interact.rs:91 `InteractEntity`<br>src/tick/entity.rs:4208 `interact` | src/tick/entity/npc.rs::interacting_with_a_villager_in_reach_opens_trading<br>src/tick/interact/tests/events.rs::actions_do_what_the_player_would_with_events |  |
 | `pocketmine\player\Player::isAdventure` | implemented | src/tick/survival/api.rs:325 `is_adventure` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `pocketmine\player\Player::isAuthenticated` | implemented | src/tick/player.rs:432 `is_authenticated` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
 | `pocketmine\player\Player::isConnected` | implemented | src/tick/player.rs:577 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `pocketmine\player\Player::isCreative` | implemented | src/tick/survival/api.rs:319 `is_creative` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
-| `pocketmine\player\Player::isFlying` | implemented | src/tick/survival/api.rs:1172 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::isFlying` | implemented | src/tick/survival/api.rs:1180 `is_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::isOnline` | implemented | src/tick/player.rs:576 `is_online` | src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick |  |
 | `pocketmine\player\Player::isPermissionSet` | implemented | src/tick/command.rs:1097 `is_permission_set` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
-| `pocketmine\player\Player::isSleeping` | implemented | src/tick/survival/api.rs:1244 `is_sleeping` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
+| `pocketmine\player\Player::isSleeping` | implemented | src/tick/survival/api.rs:1252 `is_sleeping` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
 | `pocketmine\player\Player::isSneakPressed` | implemented | src/tick/survival/api.rs:981 `is_sneak_pressed` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\player\Player::isSpectator` | implemented | src/tick/survival/api.rs:331 `is_spectator` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `pocketmine\player\Player::isSurvival` | implemented | src/tick/survival/api.rs:313 `is_survival` | src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities |  |
 | `pocketmine\player\Player::isUsingChunk` | skipped |  |  | chunk sending is the engine's |
-| `pocketmine\player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:1166 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
+| `pocketmine\player\Player::isUsingItem` | implemented | src/tick/survival/api.rs:1174 `is_using_item` | src/tick/survival/api.rs::movement_state_reads_what_the_client_reported |  |
 | `pocketmine\player\Player::isValidUserName` | skipped |  |  | login checks the name |
 | `pocketmine\player\Player::jump` | skipped |  |  | player rule code: listeners see PlayerJump |
 | `pocketmine\player\Player::kick` | implemented | src/action/survival.rs:145 `Kick`<br>src/tick/player.rs:644 `kick` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/player.rs::a_kick_disconnects_once_with_its_reason_at_the_end_of_the_tick<br>src/tick/survival/wiring.rs::kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows |  |
@@ -8513,7 +8513,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::removeCurrentWindow` | implemented | src/tick/inventory/api.rs:188 `close_window` | src/tick/inventory/tests/api.rs::the_hotbar_selection_and_the_window_are_the_players |  |
 | `pocketmine\player\Player::removeTitles` | implemented | src/tick/player.rs:630 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::resetFallDistance` | implemented | src/tick/survival/api.rs:924 `reset_fall_distance` | src/tick/survival/api.rs::fire_air_and_falls_read_and_change |  |
-| `pocketmine\player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1429 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
+| `pocketmine\player\Player::resetItemCooldown` | implemented | src/tick/survival/api.rs:1437 `reset_item_cooldown` | src/tick/survival/api.rs::item_cooldowns_and_the_use_time_count_engine_ticks |  |
 | `pocketmine\player\Player::resetTitles` | implemented | src/tick/player.rs:631 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::respawn` | implemented | src/tick/survival/api.rs:430 `respawn` | src/tick/survival/api.rs::a_respawn_waits_for_the_api_death_to_run |  |
 | `pocketmine\player\Player::save` | skipped |  |  | player records commit with the world |
@@ -8529,30 +8529,30 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\Player::sendTip` | implemented | src/tick/player.rs:624 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::sendTitle` | implemented | src/tick/player.rs:628 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::sendToastNotification` | implemented | src/tick/player.rs:633 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
-| `pocketmine\player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:1196 `set_allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::setAllowFlight` | implemented | src/tick/survival/api.rs:1204 `set_allow_flight` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::setAutoJump` | implemented | src/tick/survival/api.rs:1105 `set_auto_jump` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `pocketmine\player\Player::setBasePermission` | merged | src/tick/command.rs:1109 `set_permission` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants | into `PermissionAttachment::setPermission` |
 | `pocketmine\player\Player::setCanSaveWithChunk` | skipped |  |  | players are saved in player records, never with chunks |
 | `pocketmine\player\Player::setCreativeInventory` | implemented | src/tick/inventory/api.rs:147 `set_creative_inventory` | src/tick/inventory/tests/api.rs::a_player_switched_to_another_creative_inventory_is_sent_it_and_takes_from_it |  |
 | `pocketmine\player\Player::setCurrentWindow` | implemented | src/tick/inventory/menu.rs:130 `open_menu` | src/tick/inventory/tests/menu.rs::a_menu_opens_on_fake_blocks_with_its_title_then_its_window |  |
-| `pocketmine\player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:1302 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
+| `pocketmine\player\Player::setDeathPosition` | implemented | src/tick/survival/api.rs:1310 `set_death_position` | src/tick/survival/api.rs::death_position_air_ticks_facing_and_reach |  |
 | `pocketmine\player\Player::setDisplayName` | implemented | src/tick/player.rs:415 `set_display_name` | src/tick/player.rs::the_identity_reads_the_login_and_the_display_name_changes_alone |  |
-| `pocketmine\player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1213 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `pocketmine\player\Player::setFlying` | implemented | src/tick/survival/api.rs:1179 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::setFlightSpeedMultiplier` | implemented | src/tick/survival/api.rs:1221 `set_flight_speed` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::setFlying` | implemented | src/tick/survival/api.rs:1187 `set_flying` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
 | `pocketmine\player\Player::setGamemode` | implemented | src/action/survival.rs:59 `SetGameMode`<br>src/tick/survival/api.rs:287 `set_game_mode` | src/tick/command/builtin/tests.rs::builtin_kick_gamemode_teleport_and_transfer_raise_their_events<br>src/tick/survival/api.rs::game_mode_changes_tell_the_client_its_mode_and_abilities<br>src/tick/survival/wiring.rs::the_game_mode_action_asks_and_the_direct_call_does_not |  |
-| `pocketmine\player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:1234 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
-| `pocketmine\player\Player::setMotion` | implemented | src/tick/survival/api.rs:1118 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
+| `pocketmine\player\Player::setHasBlockCollision` | implemented | src/tick/survival/api.rs:1242 `set_block_collision` | src/tick/survival/api.rs::flight_and_block_collision_reach_the_ability_layers |  |
+| `pocketmine\player\Player::setMotion` | implemented | src/tick/survival/api.rs:1126 `set_motion` | src/tick/survival/api.rs::climbing_auto_jump_and_motion_reach_the_client |  |
 | `pocketmine\player\Player::setScreenLineHeight` | implemented | src/tick/player.rs:565 `set_screen_line_height` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::setSneakPressed` | skipped |  |  | the client's input sets it |
-| `pocketmine\player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1274 `set_spawn` | src/tick/interact/tests/events.rs::a_listener_may_make_the_anchor_set_the_spawn_once<br>src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
+| `pocketmine\player\Player::setSpawn` | implemented | src/tick/survival/api.rs:1282 `set_spawn` | src/tick/interact/tests/events.rs::a_listener_may_make_the_anchor_set_the_spawn_once<br>src/tick/survival/api.rs::a_set_spawn_point_is_where_the_player_respawns |  |
 | `pocketmine\player\Player::setTitleDuration` | implemented | src/tick/player.rs:632 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\player\Player::setUsingItem` | skipped |  |  | the client's input sets it |
 | `pocketmine\player\Player::setViewDistance` | implemented | src/tick/spawn.rs:1161 `set_view_distance` | src/tick/spawn.rs::the_api_sets_the_view_distance_within_the_setting_and_tells_the_client |  |
 | `pocketmine\player\Player::showPlayer` | implemented | src/tick/entity/api.rs:1826 `show_player` | src/tick/entity/api/tests.rs::hidden_players_are_removed_for_the_viewer_only_until_shown_or_gone |  |
-| `pocketmine\player\Player::sleepOn` | implemented | src/tick/survival/api.rs:1539 `sleep_on` | src/tick/survival.rs::sleep_on_lies_down_by_day_and_from_afar_without_an_event |  |
+| `pocketmine\player\Player::sleepOn` | implemented | src/tick/survival/api.rs:1547 `sleep_on` | src/tick/survival.rs::sleep_on_lies_down_by_day_and_from_afar_without_an_event |  |
 | `pocketmine\player\Player::spawnTo` | skipped |  |  | viewers follow the chunks each player sees |
 | `pocketmine\player\Player::stopBreakBlock` | skipped |  |  | block breaking rule code: listeners see BlockBreak |
-| `pocketmine\player\Player::stopSleep` | implemented | src/tick/survival/api.rs:1251 `stop_sleep` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
+| `pocketmine\player\Player::stopSleep` | implemented | src/tick/survival/api.rs:1259 `stop_sleep` | src/tick/survival.rs::stop_sleep_frees_the_bed_by_the_end_of_the_tick |  |
 | `pocketmine\player\Player::teleport` | implemented | src/action/survival.rs:113 `Teleport`<br>src/tick/player.rs:608 `teleport` | src/tick/player.rs::a_teleport_moves_the_position_at_once_and_the_client_and_viewers_by_the_end_of_the_tick<br>src/tick/survival.rs::a_player_still_waiting_for_its_spawn_chunks_hears_the_new_worlds_difficulty |  |
 | `pocketmine\player\Player::toggleFlight` | skipped |  |  | movement rule code: listeners see PlayerToggle* |
 | `pocketmine\player\Player::toggleGlide` | skipped |  |  | movement rule code: listeners see PlayerToggle* |

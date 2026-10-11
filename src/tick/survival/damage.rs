@@ -26,9 +26,7 @@ use crate::math::{self, Vec3};
 use crate::player;
 use crate::protocol::EntityProperties;
 use crate::protocol::consts::{ActorEvent, AnimateAction, RespawnState};
-use crate::protocol::packet::{
-    self, Animate, DeathInfo, Packet, Respawn, SetActorData, SetActorMotion,
-};
+use crate::protocol::packet::{self, Animate, DeathInfo, Packet, Respawn, SetActorData};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::tick::entity::{
@@ -272,6 +270,8 @@ struct Landed {
     knockback: f64,
     /// The most a cold hit knocks upward.
     vertical_limit: f64,
+    /// The motion a listener put in place of the knockback.
+    knockback_motion: Option<Vec3>,
     /// The ticks within which a weaker hit does nothing.
     cooldown: u32,
 }
@@ -290,6 +290,7 @@ impl Landed {
             attack_cooldown_ticks: self.cooldown,
             knockback: self.knockback,
             vertical_knockback_limit: self.vertical_limit,
+            knockback_motion: self.knockback_motion,
             cancelled: false,
         }
     }
@@ -309,12 +310,13 @@ impl Landed {
             self.absorption = math::min(event.modifier(DamageModifier::Absorption), 0.0);
             self.totem = event.modifier(DamageModifier::Totem) < 0.0;
         }
-        self.knockback = math::clamp(event.knockback, -MAX_KNOCKBACK, MAX_KNOCKBACK);
-        self.vertical_limit = math::clamp(
-            event.vertical_knockback_limit,
-            -MAX_KNOCKBACK,
-            MAX_KNOCKBACK,
-        );
+        self.modifiers = event.modifiers;
+        let bound = |v: f64| math::clamp(v, -MAX_KNOCKBACK, MAX_KNOCKBACK);
+        self.knockback = bound(event.knockback);
+        self.vertical_limit = bound(event.vertical_knockback_limit);
+        self.knockback_motion = event
+            .knockback_motion
+            .map(|m| Vec3::new(bound(m.x), bound(m.y), bound(m.z)));
         self.cooldown = event.attack_cooldown_ticks;
     }
 }
@@ -396,9 +398,9 @@ fn attacker_modifiers(
     (extra, parts)
 }
 
-/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; its modifiers as the
-/// listeners left them, `None` if it did not land.
-fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Modifiers> {
+/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; the hit as the listeners left
+/// it, `None` if it did not land.
+fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let landed = assess(state, session, hit)?;
     let id = player::Id::new(session);
     let Ok(event) = super::ask(
@@ -420,7 +422,7 @@ fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Modifiers> {
     }
     apply(state, session, &landed, entity::Raise::Events);
     super::watch(state, event.as_ref());
-    Some(event.map_or(landed.modifiers, |e| e.modifiers))
+    Some(landed)
 }
 
 /// Deals `amount` damage for `cause` with no source and no events, for the direct API (an explosion
@@ -571,6 +573,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
         modifiers,
         knockback: KNOCKBACK,
         vertical_limit: KNOCKBACK_VERTICAL_LIMIT,
+        knockback_motion: None,
         cooldown: u32::from(ATTACK_COOLDOWN),
     })
 }
@@ -579,7 +582,8 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
 /// cooldown, knockback, hurt animation and `applyPostDamageEffects`). A quiet hit raises no
 /// events: its death and wake wait for the player's survival sync, its exhaustion and totem
 /// effects go in directly. With `armor = false` worn armour neither wears nor answers with
-/// thorns.
+/// thorns. A knockback motion a listener set pushes the player on every hit it survives, before
+/// the hurt animation as BDS sends them.
 fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::Raise) {
     let Landed {
         hit,
@@ -589,6 +593,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
         modifiers: _,
         knockback,
         vertical_limit,
+        knockback_motion,
         cooldown,
     } = *landed;
     let Some(player) = state.players.get_mut(&session) else {
@@ -633,8 +638,13 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
         die(state, session, message, attacker);
         return;
     }
+    if let Some(motion) = knockback_motion {
+        super::send_motion(state, session, motion);
+    }
     if cold {
-        if let Some(attacker) = hit.attacker {
+        if let Some(attacker) = hit.attacker
+            && knockback_motion.is_none()
+        {
             knock_back_from(state, session, attacker, knockback, vertical_limit);
         }
         let packet = actor_event(
@@ -1051,12 +1061,7 @@ fn knock_back(
         math::min(force, vertical_limit),
         z * f * force,
     );
-    let packet = Packet::SetActorMotion(SetActorMotion {
-        entity_runtime_id: player_runtime_id(state, session),
-        velocity: motion.to_f32(),
-        tick: 0,
-    });
-    broadcast_from(state, session, &packet);
+    super::send_motion(state, session, motion);
 }
 
 /// Sets the player on fire for `seconds` (PMMP `Living::setOnFire`): fire protection shortens it
@@ -1145,7 +1150,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         .unwrap_or_default();
     let landed = hurt(state, target, hit);
     swing(state, attacker);
-    let Some(modifiers) = landed else {
+    let Some(landed) = landed else {
         hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
     };
@@ -1159,7 +1164,8 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         ),
     ] {
         // As the listeners left the hit: what added nothing shows nothing.
-        if modifiers
+        if landed
+            .modifiers
             .get(modifier as usize)
             .copied()
             .flatten()
@@ -1175,7 +1181,9 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         }
     }
     after_melee(state, attacker, &held, |state, knockback, fire| {
-        if let Some(force) = knockback {
+        if let Some(force) = knockback
+            && landed.knockback_motion.is_none()
+        {
             knock_back_from(state, target, attacker, force, KNOCKBACK_VERTICAL_LIMIT);
         }
         if let Some(seconds) = fire {

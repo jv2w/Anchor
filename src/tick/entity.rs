@@ -2438,9 +2438,10 @@ fn with<T>(state: &mut State, id: Id, f: impl FnOnce(&mut Entity) -> T) -> Optio
 /// `Living::attack`): [`EntityDamage`] before the health changes (cancelling keeps it, and no
 /// knockback follows) and [`EntityMotion`] for the knockback. An NPC hit after its cooldown is
 /// knocked back by `knock` and shows the hit, an NPC that dies shows its death (its drops follow
-/// at its next tick, [`died`]), anything else that dies is removed. Without listeners it is
-/// [`hurt_in`].
-fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
+/// at its next tick, [`died`]), anything else that dies is removed. A knockback motion a listener
+/// set pushes an NPC on every hit it survives instead, before the hit shows; the second value
+/// says whether a listener set one. Without listeners it is [`hurt_in`].
+fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, bool) {
     if !(dispatch::heard::<EntityDamage>(state) || dispatch::heard::<EntityMotion>(state)) {
         let result = hurt_in(
             &mut state.rules.entities,
@@ -2453,23 +2454,24 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
         if result == Hurt::Died {
             broken_by(state, id, blow.source);
         }
-        return result;
+        return (result, false);
     }
     let Some(plan) = plan_of(state, id, blow) else {
-        return Hurt::Ignored;
+        return (Hurt::Ignored, false);
     };
     let mut taken = Taken::of(plan, blow.amount);
     let mut knock = knock;
     let mut event = None;
     if dispatch::heard::<EntityDamage>(state) {
         let Some((t, k, e)) = damage_event(state, id, blow, plan, knock) else {
-            return Hurt::Ignored;
+            return (Hurt::Ignored, false);
         };
         (taken, knock, event) = (t, k, Some(e));
     }
+    let replaced = event.as_ref().and_then(EntityDamage::knockback_motion);
     let entities = &mut state.rules.entities;
     let Some(e) = entities.get_mut(id) else {
-        return Hurt::Ignored;
+        return (Hurt::Ignored, false);
     };
     let result = e.take_hit(plan, taken);
     let removed = e.after_hit(blow.cause, result);
@@ -2480,9 +2482,16 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
         state.rules.entities.doom(id);
         broken_by(state, id, blow.source);
     }
+    if living
+        && matches!(result, Hurt::Took { .. })
+        && let Some(m) = replaced
+    {
+        push_entity(state, id, m);
+    }
     let shown = living && matches!(result, Hurt::Took { cold: true } | Hurt::Died);
     if shown {
         let motion = knock
+            .filter(|_| replaced.is_none())
             .zip(state.rules.entities.get(id))
             .and_then(|(k, e)| k.applied_to(e.body.motion));
         if let Some(m) = motion {
@@ -2501,7 +2510,7 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
-    result
+    (result, replaced.is_some())
 }
 
 /// A painting that `source` broke drops nothing when that is a player with infinite items, or
@@ -2570,6 +2579,7 @@ fn damage_event(
         attack_cooldown_ticks: u32::from(ATTACK_COOLDOWN),
         knockback: force,
         vertical_knockback_limit: vertical,
+        knockback_motion: None,
         cancelled: false,
     };
     dispatch::call(state, &mut e);
@@ -2814,7 +2824,7 @@ fn play(state: &mut State, world: WorldIndex, at: Vec3, sound: crate::world::Sou
 }
 
 /// Pushes a player: its client is sent the motion, and so are the players who see it (PMMP
-/// `Player::setMotion`; the server keeps no motion of players). With [`Raise::Events`] it goes
+/// `Player::setMotion`; the server runs no physics for players). With [`Raise::Events`] it goes
 /// through [`EntityMotion`]: cancelling sends nothing.
 fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise) {
     let motion = physics::bounded(motion);
@@ -2834,24 +2844,10 @@ fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise
         }
         event = Some(e);
     }
-    send_motion(state, session, motion);
+    survival::send_motion(state, session, motion);
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
-}
-
-/// Sends a player's motion to it and the players who see it.
-fn send_motion(state: &mut State, session: SessionId, motion: Vec3) {
-    let Some(p) = state.players.get(&session) else {
-        return;
-    };
-    let packet = Packet::SetActorMotion(crate::protocol::packet::SetActorMotion {
-        entity_runtime_id: p.runtime_id,
-        velocity: motion.to_f32(),
-        tick: 0,
-    });
-    let (world, chunk) = (p.world, chunk_of(p.position));
-    state.broadcast(world, chunk, &packet, None);
 }
 
 /// The look direction of a yaw and pitch in degrees, of an entity or a player (PMMP

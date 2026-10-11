@@ -178,7 +178,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
         .map(|p| p.inventory.held().clone())
         .unwrap_or_default();
     let reached = reaches(state, session, target, hooks);
-    let result = match reached {
+    let (result, replaced) = match reached {
         Some((eye, at)) => {
             let feet = eye - Vec3::new(0.0, EYE_HEIGHT, 0.0);
             let knock = Knock::new(at.x - feet.x, at.z - feet.z);
@@ -190,7 +190,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
                 Some(knock),
             )
         }
-        None => Hurt::Ignored,
+        None => (Hurt::Ignored, false),
     };
     survival::swing(state, session);
     let landed = result != Hurt::Ignored;
@@ -226,6 +226,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
     let (dx, dz) = (at.x - feet.x, at.z - feet.z);
     survival::after_melee(state, session, &held, |state, knockback, fire| {
         if living {
+            let knockback = knockback.filter(|_| !replaced);
             enchanted_hit(state, session, target, (knockback, fire), (dx, dz));
         }
     });
