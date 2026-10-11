@@ -302,7 +302,9 @@ impl Landed {
     /// are the ones the hit started with, its own damage, absorption and totem stand (bit for bit
     /// what no listener gives); otherwise they follow the event (PMMP `applyPostDamageEffects`:
     /// the absorption and totem modifiers). The absorption modifier can only use absorption up,
-    /// and the knockback is kept within [`MAX_KNOCKBACK`]: listener values are external input.
+    /// the knockback force and limit are kept within [`MAX_KNOCKBACK`] and a knockback motion
+    /// within what a packet's `f32` carries (BDS's own knockback reaches 128): listener values are
+    /// external input.
     fn change(&mut self, event: &EntityDamage) {
         let bits = |m: &Modifiers| m.map(|v| v.map(f64::to_bits));
         if event.base_damage.to_bits() != self.hit.base.to_bits()
@@ -317,9 +319,10 @@ impl Landed {
         let bound = |v: f64| math::clamp(v, -MAX_KNOCKBACK, MAX_KNOCKBACK);
         self.knockback = bound(event.knockback);
         self.vertical_limit = bound(event.vertical_knockback_limit);
+        let carried = |v: f64| math::clamp(v, -f64::from(f32::MAX), f64::from(f32::MAX));
         self.knockback_motion = event
             .knockback_motion
-            .map(|(m, sends)| (Vec3::new(bound(m.x), bound(m.y), bound(m.z)), sends));
+            .map(|(m, sends)| (Vec3::new(carried(m.x), carried(m.y), carried(m.z)), sends));
         self.cooldown = event.attack_cooldown_ticks;
     }
 }

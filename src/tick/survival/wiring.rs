@@ -309,6 +309,25 @@ fn a_knockback_motion_replaces_the_knockback_of_every_hit() {
     }
 }
 
+/// A knockback motion is sent as the listener built it, beyond the bound of the knockback force:
+/// BDS's own knockback reaches 128 blocks a tick.
+#[test]
+fn a_knockback_motion_beyond_the_force_bound_is_sent_as_set() {
+    let motion = Vec3::new(100.0, 0.4, -128.0);
+    let listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
+        e.set_knockback_motion(motion, std::num::NonZeroU8::MIN);
+    });
+    let mut game = Game::new(2, listeners);
+    game.take(2);
+    attack_player(&mut game.state, sid(1), sid(2));
+    game.idle(1);
+    let sent = game.take(2).into_iter().find_map(|p| match p {
+        Packet::SetActorMotion(m) if m.entity_runtime_id == 2 => Some(m.velocity),
+        _ => None,
+    });
+    assert_eq!(sent, Some(motion.to_f32()));
+}
+
 // pmmp: EntityDamageEvent::uncancel
 /// A hit within the attack cooldown that is no stronger than the last is raised cancelled while
 /// there are damage listeners (PMMP `Living::attack`): left cancelled it changes nothing, and
