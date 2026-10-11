@@ -320,9 +320,10 @@ pub(super) struct RadiusAnswer {
     first: bool,
 }
 
-/// The output phase: the sub-chunks the answers need, encoded once each on the CPU pool; then the
-/// packets of every player with something to send, built on the CPU pool from read-only state in
-/// session order and passed through the send hooks; then the pending marks are cleared.
+/// The output phase: the sub-chunks the answers need, encoded once each with their height maps on
+/// the CPU pool; then the packets of every player with something to send, built on the CPU pool
+/// from read-only state in session order and passed through the send hooks; then the pending
+/// marks are cleared.
 pub(super) fn output(
     state: &mut State,
     pool: &Pool,

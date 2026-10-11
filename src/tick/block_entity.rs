@@ -1017,10 +1017,30 @@ impl BlockEntities {
         let Some(chunk) = self.chunks.get(&(world, pos)) else {
             return Vec::new();
         };
+        // Every block entity of the chunk lies in its x and z (`Chunk::read` checks it, `insert`
+        // keys by it) and in the world's height, so a chunk whose blocks overflow i32 or an index
+        // above the world holds none.
+        let Some(west) = pos.x.checked_mul(16) else {
+            return Vec::new();
+        };
+        let Some(bottom) = i32::try_from(index)
+            .ok()
+            .filter(|_| index < crate::world::SUB_CHUNKS)
+            .map(|sub| crate::world::MIN_Y + sub * 16)
+        else {
+            return Vec::new();
+        };
         let mut bytes = Vec::new();
-        for (p, e) in &chunk.entities {
-            let sub = usize::try_from((p.y - crate::world::MIN_Y) >> 4).unwrap_or(usize::MAX);
-            if sub != index || !e.is_spawnable() {
+        // Positions order by x, then y, then z: the sub-chunk's part of one x is one range, and
+        // walking x up sends the roots in the chunk's order.
+        let slabs = (west..=west + 15).flat_map(|x| {
+            let slab = BlockPos::new(x, bottom, i32::MIN)..=BlockPos::new(x, bottom + 15, i32::MAX);
+            chunk.entities.range(slab)
+        });
+        for (p, e) in slabs {
+            #[cfg(test)]
+            tests::count_client_entity();
+            if !e.is_spawnable() {
                 continue;
             }
             let start = bytes.len();
@@ -2839,6 +2859,86 @@ pub(in crate::tick) mod tests {
             "the chest is the first root"
         );
         assert!(r.nbt(crate::nbt::Encoding::NetworkLittleEndian).is_err());
+    }
+
+    thread_local! {
+        /// The block entities `client_bytes` looked at on this thread.
+        static CLIENT_ENTITIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    pub(super) fn count_client_entity() {
+        CLIENT_ENTITIES.set(CLIENT_ENTITIES.get() + 1);
+    }
+
+    /// What `client_bytes` gives, from a scan of the whole chunk kept to the sub-chunk.
+    fn client_bytes_of_whole_chunk(store: &BlockEntities, key: Key, index: usize) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for (p, e) in &store.chunks[&key].entities {
+            let sub = usize::try_from((p.y - crate::world::MIN_Y) >> 4).unwrap_or(usize::MAX);
+            if sub == index && e.is_spawnable() {
+                let mut w = crate::protocol::Writer::new(std::mem::take(&mut bytes), 0);
+                w.nbt(&e.spawn_nbt(*p), crate::nbt::Encoding::NetworkLittleEndian)
+                    .unwrap();
+                bytes = w.into_inner();
+            }
+        }
+        bytes
+    }
+
+    /// The client bytes of each sub-chunk look only at that sub-chunk's block entities: 32 for
+    /// the whole column, where a scan of the chunk per sub-chunk looks at 24 x 32 = 768. The
+    /// bytes are the whole chunk's scan's, roots in the same order.
+    #[test]
+    fn client_bytes_look_only_at_the_block_entities_of_their_sub_chunk() {
+        let key = (0, ChunkPos::new(0, 0));
+        let filled = [0, 5, 6, 23];
+        let mut chunk = Chunk::default();
+        for &index in &filled {
+            let bottom = crate::world::MIN_Y + i32::try_from(index).unwrap() * 16;
+            for x in [12, 3] {
+                for (dy, z) in [(15, 1), (0, 14), (0, 2), (8, 7)] {
+                    let pos = BlockPos::new(x, bottom + dy, z);
+                    chunk.entities.insert(pos, chest_entity(&[], None));
+                }
+            }
+        }
+        let mut store = BlockEntities::default();
+        store.chunks.insert(key, chunk);
+        CLIENT_ENTITIES.set(0);
+        let bytes: Vec<Vec<u8>> = (0..crate::world::SUB_CHUNKS)
+            .map(|index| store.client_bytes(0, key.1, index))
+            .collect();
+        assert_eq!(CLIENT_ENTITIES.replace(0), 32);
+        for (index, bytes) in bytes.iter().enumerate() {
+            assert_eq!(bytes, &client_bytes_of_whole_chunk(&store, key, index));
+            let mut r = crate::protocol::Reader::new(bytes, 1 << 20, 0);
+            let roots =
+                std::iter::from_fn(|| r.nbt(crate::nbt::Encoding::NetworkLittleEndian).ok())
+                    .count();
+            assert_eq!(roots, if filled.contains(&index) { 8 } else { 0 });
+        }
+    }
+
+    /// The chunks at the ends of the x axis send their block entities at their edge columns:
+    /// x = `i32::MAX` and x = `i32::MIN`.
+    #[test]
+    fn client_bytes_reach_the_edge_columns_of_the_last_chunks() {
+        for (chunk_x, edges) in [
+            (i32::MAX >> 4, [i32::MAX - 15, i32::MAX]),
+            (i32::MIN >> 4, [i32::MIN, i32::MIN + 15]),
+        ] {
+            let key = (0, ChunkPos::new(chunk_x, 0));
+            let mut chunk = Chunk::default();
+            for x in edges {
+                let pos = BlockPos::new(x, crate::world::MIN_Y + 5, 3);
+                chunk.entities.insert(pos, chest_entity(&[], None));
+            }
+            let mut store = BlockEntities::default();
+            store.chunks.insert(key, chunk);
+            let bytes = store.client_bytes(0, key.1, 0);
+            assert!(!bytes.is_empty());
+            assert_eq!(bytes, client_bytes_of_whole_chunk(&store, key, 0));
+        }
     }
 
     #[test]

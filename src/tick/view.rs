@@ -1720,9 +1720,23 @@ impl Context<'_> {
     }
 }
 
-/// The encoded sub-chunks this tick's answers need, encoded once for every player who asked: `None`
-/// for a sub-chunk of air.
-pub(super) type Encoded = BTreeMap<(WorldIndex, ChunkPos, usize), Option<Vec<u8>>>;
+/// The sub-chunks this tick's answers need, each worked out once for every player who asked:
+/// `None` when its chunk is not loaded, which an answer reads as an empty chunk, as it does a
+/// sub-chunk missing from the map.
+pub(super) type Encoded = BTreeMap<(WorldIndex, ChunkPos, usize), Option<EncodedSubChunk>>;
+
+/// One wanted sub-chunk as every answer carries it.
+#[derive(Debug)]
+pub(super) struct EncodedSubChunk {
+    /// The blocks, then the client form of the block entities; `None` for a sub-chunk of air.
+    payload: Option<Vec<u8>>,
+    /// The height map type and data ([`height_map`]).
+    height_map: (HeightMapData, Option<HeightMap>),
+}
+
+/// The height map of a sub-chunk of a chunk not loaded: every column lower, as [`height_map`]
+/// gives for a chunk with no blocks.
+const NOT_LOADED_HEIGHT_MAP: (HeightMapData, Option<HeightMap>) = (HeightMapData::TooLow, None);
 
 /// The sub-chunks the answers of this tick read, each once.
 pub(super) fn wanted_sub_chunks(state: &State) -> Vec<(WorldIndex, ChunkPos, usize)> {
@@ -1731,7 +1745,8 @@ pub(super) fn wanted_sub_chunks(state: &State) -> Vec<(WorldIndex, ChunkPos, usi
         let Some(world) = state.worlds.get(player.world) else {
             continue;
         };
-        for request in &player.view.out.answers {
+        // A request for another dimension reads no sub-chunk (`answer`).
+        for request in player.view.out.answers.iter().filter(|r| r.dimension == 0) {
             for offset in &request.offsets {
                 if let Some((pos, index)) = target(request, *offset)
                     && player.view.sent.contains(&pos)
@@ -1745,19 +1760,26 @@ pub(super) fn wanted_sub_chunks(state: &State) -> Vec<(WorldIndex, ChunkPos, usi
     keys.into_iter().collect()
 }
 
-/// Encodes one wanted sub-chunk: its blocks, then the client form of its block entities as
-/// network NBT (dragonfly `subChunkEntry`; PMMP sends them with the chunk the same way), so a
-/// sign shows its text and a chest its pair as soon as the sub-chunk arrives. `None` for an
-/// all-air sub-chunk, which holds no block entity.
+/// Works out one wanted sub-chunk: its height map, and as its payload its blocks, then the client
+/// form of its block entities as network NBT (dragonfly `subChunkEntry`; PMMP sends them with
+/// the chunk the same way), so a sign shows its text and a chest its pair as soon as the
+/// sub-chunk arrives. An all-air sub-chunk has no payload: it holds no block entity. `None` when
+/// the chunk is not loaded.
 pub(super) fn encode(
     worlds: &[World],
     blocks: &super::block_entity::BlockEntities,
     key: (WorldIndex, ChunkPos, usize),
-) -> Option<Vec<u8>> {
+) -> Option<EncodedSubChunk> {
     let (world, pos, index) = key;
-    let mut payload = worlds.get(world)?.chunk(pos)?.sub_chunk_payload(index)?;
-    payload.extend_from_slice(&blocks.client_bytes(world, pos, index));
-    Some(payload)
+    let chunk = worlds.get(world)?.chunk(pos)?;
+    let payload = chunk.sub_chunk_payload(index).map(|mut payload| {
+        payload.extend_from_slice(&blocks.client_bytes(world, pos, index));
+        payload
+    });
+    Some(EncodedSubChunk {
+        payload,
+        height_map: height_map(chunk, index),
+    })
 }
 
 /// The chunk and the sub-chunk index (0 is the lowest) a request offset names, or `None` if the
@@ -1812,7 +1834,6 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
     }
     for request in &view.out.answers {
         out.push(Message::Packet(Packet::SubChunk(answer(
-            world,
             player.world,
             view,
             request,
@@ -1890,7 +1911,6 @@ fn update_packet(
 /// The answer to one sub-chunk request: one entry per offset, in order (dragonfly
 /// `ViewSubChunks`, values from P6).
 fn answer(
-    world: &World,
     world_index: WorldIndex,
     view: &View,
     request: &SubChunkRequest,
@@ -1900,7 +1920,7 @@ fn answer(
     // A request for another dimension gets no entries (dragonfly): the overworld is the only one.
     if request.dimension == 0 {
         for &offset in &request.offsets {
-            entries.push(entry(world, world_index, view, request, offset, encoded));
+            entries.push(entry(world_index, view, request, offset, encoded));
         }
     }
     SubChunk {
@@ -1912,7 +1932,6 @@ fn answer(
 }
 
 fn entry(
-    world: &World,
     world_index: WorldIndex,
     view: &View,
     request: &SubChunkRequest,
@@ -1931,18 +1950,18 @@ fn entry(
     if !view.sent.contains(&pos) {
         return failed(SubChunkResult::ChunkNotFound);
     }
-    let (height_map_type, height_map_data) = match world.chunk(pos) {
-        Some(chunk) => height_map(chunk, index),
-        None => height_map(&Chunk::new(), index),
+    let ((height_map_type, height_map_data), payload) = match encoded
+        .get(&(world_index, pos, index))
+        .and_then(Option::as_ref)
+    {
+        Some(sub_chunk) => (sub_chunk.height_map, sub_chunk.payload.as_ref()),
+        None => (NOT_LOADED_HEIGHT_MAP, None),
     };
     let render_height_map_type = if height_map_type == HeightMapData::HasData {
         HeightMapData::AllCopied
     } else {
         height_map_type
     };
-    let payload = encoded
-        .get(&(world_index, pos, index))
-        .and_then(Option::as_ref);
     SubChunkEntry {
         offset,
         result: u8::from(if payload.is_some() {
@@ -1963,6 +1982,8 @@ fn entry(
 /// the sub-chunk's bottom, plus 1; 16 if it is in a higher sub-chunk, -1 if lower or the column
 /// is air. If every column is higher or every one lower, the type says so without data.
 fn height_map(chunk: &Chunk, index: usize) -> (HeightMapData, Option<HeightMap>) {
+    #[cfg(test)]
+    tests::count_height_map();
     let bottom = (i32::try_from(index).unwrap_or(0) + LOWEST_SUB_CHUNK) * 16;
     let mut map: HeightMap = [[0; 16]; 16];
     let (mut all_higher, mut all_lower) = (true, true);
@@ -2068,6 +2089,12 @@ mod tests {
         static POSITIONS: Cell<usize> = const { Cell::new(0) };
         /// The words of unsent bits it looked at on this thread.
         static WORDS: Cell<usize> = const { Cell::new(0) };
+        /// The sub-chunk height maps worked out on this thread.
+        static HEIGHT_MAPS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn count_height_map() {
+        HEIGHT_MAPS.set(HEIGHT_MAPS.get() + 1);
     }
 
     pub(super) fn count_position() {
@@ -2802,5 +2829,221 @@ mod tests {
         }
         // Twice the radius: about twice the cost (the perimeter), not four times (the area).
         assert!(costs[1] < costs[0] * 5 / 2, "{costs:?}");
+    }
+
+    /// An answer for a sent chunk that is not loaded has the height maps of a chunk with no
+    /// blocks, as when it worked them out from one.
+    #[test]
+    fn a_chunk_not_loaded_has_the_height_maps_of_a_chunk_with_no_blocks() {
+        for index in 0..SUB_CHUNKS {
+            assert_eq!(height_map(&Chunk::new(), index), NOT_LOADED_HEIGHT_MAP);
+        }
+    }
+
+    /// A request for the 24 sub-chunks of the spawn chunk's column, bottom to top.
+    fn column_request() -> SubChunkRequest {
+        SubChunkRequest {
+            dimension: 0,
+            offsets: (-4..=19).map(|y| [0, y, 0]).collect(),
+            position: [0, 0, 0],
+        }
+    }
+
+    /// `sessions` joined with radius 2 and sent their views; the spawn chunk holds block
+    /// entities in the ground and in the air, unordered by x, y and z.
+    fn sent_views(sessions: &[u64]) -> (State, Output, Vec<tokio::sync::mpsc::Receiver<Outbound>>) {
+        use crate::nbt::{Compound, Value};
+        let mut state = state(Listeners::default());
+        let bell = |x: i32, y: i32, z: i32| {
+            Compound::from([
+                ("id".to_owned(), Value::String("Bell".to_owned())),
+                ("x".to_owned(), Value::Int(x)),
+                ("y".to_owned(), Value::Int(y)),
+                ("z".to_owned(), Value::Int(z)),
+            ])
+        };
+        let list = [
+            bell(4, -61, 0),
+            bell(1, -63, 3),
+            bell(1, -63, 2),
+            bell(2, 0, 0),
+        ];
+        // A world without the chunk's blocks, so the one in the air is not checked against them.
+        let unchecked = World::new("blocks", Kind::Temporary, 0, BlockPos::new(0, 0, 0));
+        state.rules.block_entities.load_list(
+            (0, ChunkPos::new(0, 0)),
+            &list,
+            &unchecked,
+            &crate::custom::Registry::default(),
+        );
+        let mut output = Output::default();
+        let mut batch = Vec::new();
+        let mut receivers = Vec::new();
+        for &session in sessions {
+            let (j, rx) = join(session, 0);
+            batch.extend([j, radius(session, 1, 2)]);
+            receivers.push(rx);
+        }
+        tick(&mut state, &mut batch, &mut output);
+        for _ in 0..128 {
+            if state.players.values().all(|p| p.view.is_complete()) {
+                break;
+            }
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        assert!(state.players.values().all(|p| p.view.is_complete()));
+        for rx in &mut receivers {
+            received(rx);
+        }
+        (state, output, receivers)
+    }
+
+    /// The answer to `request` as the per-entry build made it: each entry's height map worked
+    /// out from its chunk, its payload the blocks then the sub-chunk's block entities.
+    fn old_answer(state: &State, player: &Player, request: &SubChunkRequest) -> SubChunk {
+        let world = &state.worlds[player.world];
+        let mut entries = Vec::new();
+        for &offset in request.offsets.iter().filter(|_| request.dimension == 0) {
+            let failed = |result: SubChunkResult| SubChunkEntry {
+                offset,
+                result: u8::from(result),
+                ..SubChunkEntry::default()
+            };
+            let Some((pos, index)) = target(request, offset) else {
+                entries.push(failed(SubChunkResult::IndexOutOfBounds));
+                continue;
+            };
+            if !player.view.sent.contains(&pos) {
+                entries.push(failed(SubChunkResult::ChunkNotFound));
+                continue;
+            }
+            let (height_map_type, height_map_data) = match world.chunk(pos) {
+                Some(chunk) => height_map(chunk, index),
+                None => height_map(&Chunk::new(), index),
+            };
+            let payload = world
+                .chunk(pos)
+                .and_then(|c| c.sub_chunk_payload(index))
+                .map(|mut payload| {
+                    let blocks = &state.rules.block_entities;
+                    payload.extend_from_slice(&blocks.client_bytes(player.world, pos, index));
+                    payload
+                });
+            entries.push(SubChunkEntry {
+                offset,
+                result: u8::from(if payload.is_some() {
+                    SubChunkResult::Success
+                } else {
+                    SubChunkResult::SuccessAllAir
+                }),
+                raw_payload: payload,
+                height_map_type: u8::from(height_map_type),
+                height_map_data,
+                render_height_map_type: u8::from(if height_map_type == HeightMapData::HasData {
+                    HeightMapData::AllCopied
+                } else {
+                    height_map_type
+                }),
+                render_height_map_data: None,
+                blob_hash: None,
+            });
+        }
+        SubChunk {
+            cache_enabled: false,
+            dimension: request.dimension,
+            position: request.position,
+            sub_chunk_entries: entries,
+        }
+    }
+
+    /// The `SubChunk`s among `packets`, encoded.
+    fn sub_chunk_bytes(packets: impl IntoIterator<Item = Packet>) -> Vec<Vec<u8>> {
+        packets
+            .into_iter()
+            .filter(|p| matches!(p, Packet::SubChunk(_)))
+            .map(|p| {
+                let mut bytes = Vec::new();
+                p.encode(&mut bytes, 0).unwrap();
+                bytes
+            })
+            .collect()
+    }
+
+    /// A lone marked player's packets are built on the tick thread, so its sub-chunk answers
+    /// take their height maps from the encode step on the CPU pool: none is worked out on the tick
+    /// thread, where the per-entry build worked out one per entry (24 here). The answer is byte
+    /// for byte the per-entry build's, block entities included.
+    #[test]
+    fn a_lone_players_sub_chunk_answers_work_out_no_height_map_on_the_tick_thread() {
+        let (mut state, mut output, mut receivers) = sent_views(&[1]);
+        let origin = ChunkPos::new(0, 0);
+        assert!(
+            !state
+                .rules
+                .block_entities
+                .client_bytes(0, origin, 0)
+                .is_empty()
+        );
+        let request = column_request();
+        let input = crate::tick::tests::input(
+            1,
+            2,
+            crate::tick::tests::packet(Packet::SubChunkRequest(request.clone())),
+        );
+        HEIGHT_MAPS.set(0);
+        tick(&mut state, &mut vec![input], &mut output);
+        assert_eq!(HEIGHT_MAPS.replace(0), 0);
+        let sent = sub_chunk_bytes(received(&mut receivers[0]).0);
+        let player = &state.players[&crate::tick::SessionId::new(1)];
+        let want = old_answer(&state, player, &request);
+        assert_eq!(want.sub_chunk_entries.len(), 24);
+        assert_eq!(sent, sub_chunk_bytes([Packet::SubChunk(want)]));
+    }
+
+    /// Two players asking for the same 24 sub-chunks: each height map is worked out once, in the
+    /// encode step, and none while building the players' packets (the per-entry build worked out
+    /// 48, one per player per entry). A request for another dimension adds no sub-chunk to
+    /// encode, even in a sent chunk. Every answer is byte for byte the per-entry build's.
+    #[test]
+    fn sub_chunks_two_players_ask_for_have_their_height_maps_worked_out_once() {
+        let (mut state, _output, _receivers) = sent_views(&[1, 2]);
+        let other_dimension = SubChunkRequest {
+            dimension: 1,
+            position: [1, 0, 0],
+            ..column_request()
+        };
+        for player in state.players.values_mut() {
+            assert!(player.view.sent.contains(&ChunkPos::new(1, 0)));
+            player.view.out.answers.push(column_request());
+            player.view.out.answers.push(other_dimension.clone());
+        }
+        let wanted = wanted_sub_chunks(&state);
+        assert_eq!(wanted.len(), 24);
+        assert!(wanted.iter().all(|&(_, pos, _)| pos == ChunkPos::new(0, 0)));
+        HEIGHT_MAPS.set(0);
+        let blocks = &state.rules.block_entities;
+        let encoded: Encoded = wanted
+            .iter()
+            .map(|&key| (key, encode(&state.worlds, blocks, key)))
+            .collect();
+        assert_eq!(HEIGHT_MAPS.replace(0), 24);
+        let mut built = Vec::new();
+        for player in state.players.values() {
+            let mut out = Vec::new();
+            packets(&state.worlds[player.world], player, &encoded, &mut out);
+            built.push((player, out));
+        }
+        assert_eq!(HEIGHT_MAPS.replace(0), 0);
+        for (player, out) in built {
+            let sent = sub_chunk_bytes(out.into_iter().filter_map(|m| match m {
+                super::Message::Packet(p) => Some(p),
+                _ => None,
+            }));
+            let want = [
+                Packet::SubChunk(old_answer(&state, player, &column_request())),
+                Packet::SubChunk(old_answer(&state, player, &other_dimension)),
+            ];
+            assert_eq!(sent, sub_chunk_bytes(want));
+        }
     }
 }
