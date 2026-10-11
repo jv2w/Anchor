@@ -192,8 +192,14 @@ impl UserData {
         }
         for player in players.values() {
             let user = &player.extra.user;
-            h.usize(user.extensions.len());
-            h.usize(user.data.len());
+            // `data` and `state` are hashed per registered type, through `PlayerUser::value`.
+            let PlayerUser {
+                data,
+                state: _,
+                extensions,
+            } = user;
+            h.usize(extensions.len());
+            h.usize(data.len());
             for codec in &self.players {
                 match user.value(codec) {
                     Some(value) => json(h, codec, value),
@@ -830,6 +836,7 @@ mod tests {
     #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
     struct Combo {
         hits: u32,
+        speed: f64,
     }
 
     /// [`state`] with player state `Combo` too.
@@ -854,7 +861,13 @@ mod tests {
         let p = player(&mut state);
         p.state_mut::<Combo>().unwrap().hits = 3;
         assert!(!p.data_dirty, "state is not saved");
-        assert_eq!(p.state::<Combo>(), Some(&Combo { hits: 3 }));
+        assert_eq!(
+            p.state::<Combo>(),
+            Some(&Combo {
+                hits: 3,
+                speed: 0.0
+            })
+        );
         assert_ne!(state.hash(), before, "the state hash holds the value");
         // The saved record is the one a server without the state type writes.
         player(&mut state).data_mut::<Kills>().unwrap().total = 1;
@@ -876,7 +889,12 @@ mod tests {
         let pool = crate::runtime::cpu_pool(1).unwrap();
         let mut state = with_combo();
         let _rx = join_with(&mut state, &PlayerLoad::Absent);
-        player(&mut state).state_mut::<Combo>().unwrap().hits = 7;
+        *player(&mut state).state_mut::<Combo>().unwrap() = Combo {
+            hits: 7,
+            // A float that serde_json reads back as another without `float_roundtrip`
+            // (.claude/docs/dependencies.md).
+            speed: f64::from_bits(0xbfdc_fd14_b5d3_7aac),
+        };
         assert!(crate::tick::checkpoint::tests::assert_round_trip(
             &state,
             with_combo(),
