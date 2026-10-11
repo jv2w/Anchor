@@ -79,7 +79,7 @@ paths:
 - 사용자 저장 공급자 trait은 원자 커밋을 지킬 수 있는 요구가 생길 때만 둔다.
 
 ## 들인 크레이트를 쓸 때
-- rayon의 `spawn`은 쓰지 않는다(풀은 `runtime`이 만들고, 병렬 API는 위 `pool` 규칙을 따른다).
+- rayon의 전역 `spawn`은 쓰지 않는다(풀은 `runtime`이 만들고, 병렬 API는 위 `pool` 규칙을 따른다). 예외: `Pool::map_in_turns`가 풀 자신의 `in_place_scope` 안에서 쓰는 `Scope::spawn`.
 - aws-lc-rs 난수는 crypto 모듈 한 곳에서만 쓴다.
 - rustls에는 늘 aws-lc-rs 공급자를 명시한다.
 - tokio-rustls는 요청 10초 마감 안에서만 쓴다.

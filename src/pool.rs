@@ -59,10 +59,17 @@ impl Pool {
     }
 
     /// [`map`](Self::map) for the save thread: in turns of one item per thread, each mapped after
-    /// the last ended. rayon's threads take work from outside the pool only when none is left to
-    /// steal, so a tick's map would wait behind the whole of one large map; between turns it goes
-    /// first, and waits at most about a turn. The turns cost the save thread throughput when items
-    /// differ in cost, never the tick.
+    /// the last ended, with each turn's first item run on the calling thread. rayon's threads
+    /// take work from outside the pool only when none is left to steal, so a tick's map would
+    /// wait behind a whole turn if the turn held every thread; this way one is left for it. A
+    /// tick thread waiting in a join can still pick up a turn's item it finds unclaimed, so the
+    /// tick may wait up to one item when a turn starts during a tick's parallel phase. The turns
+    /// cost the save thread throughput when items differ in cost. A panic in any item reaches the
+    /// caller after the turn's other items end, as with `map`.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: chunks are never empty and the scope ends only after every spawned item ran"
+    )]
     pub(crate) fn map_in_turns<T, R>(
         &self,
         items: &[T],
@@ -72,9 +79,28 @@ impl Pool {
         T: Sync,
         R: Send,
     {
+        let f = &f;
+        let turn_len = self.threads.max(1);
         let mut out = Vec::with_capacity(items.len());
-        for turn in items.chunks(self.threads.max(1)) {
-            out.extend(self.map(turn, &f));
+        let mut spawned: Vec<Option<R>> = Vec::with_capacity(turn_len - 1);
+        for turn in items.chunks(turn_len) {
+            let (first, rest) = turn
+                .split_first()
+                .expect("invariant: chunks are never empty");
+            spawned.resize_with(rest.len(), || None);
+            // The rest are spawned first, so they run while this thread maps the first.
+            let inline = self.inner.in_place_scope(|scope| {
+                for (slot, item) in spawned.iter_mut().zip(rest) {
+                    scope.spawn(move |_| *slot = Some(f(item)));
+                }
+                f(first)
+            });
+            out.push(inline);
+            out.extend(
+                spawned
+                    .drain(..)
+                    .map(|r| r.expect("invariant: the scope ran every spawned item")),
+            );
         }
         out
     }
@@ -104,6 +130,8 @@ impl Pool {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::runtime;
 
     #[test]
@@ -142,8 +170,93 @@ mod tests {
             pool.map(&items, |x| assert!(*x != 50, "job {x} failed"))
         }));
         assert!(result.is_err());
+        // Item 0 of a turn runs on the calling thread, item 1 on a pool thread.
+        for failing in [0, 1] {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                pool.map_in_turns(&items, |x| assert!(*x != failing, "job {x} failed"))
+            }));
+            assert!(result.is_err(), "item {failing} in turns");
+        }
         // The pool still works after a job panicked.
         assert_eq!(pool.map(&items[..3], |x| x + 1), [1, 2, 3]);
+        assert_eq!(pool.map_in_turns(&items[..3], |x| x + 1), [1, 2, 3]);
         assert!(pool.shutdown());
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_types,
+        reason = "off-tick: test barriers hold a save turn open"
+    )]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: test channel for the tick map's result"
+    )]
+    fn a_save_turn_leaves_a_thread_for_the_tick() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+        for threads in [2, 4] {
+            let pool = Arc::new(runtime::cpu_pool(threads).unwrap());
+            // Every item of the turn and this thread meet twice: once all items run, and once
+            // the tick's map has had its chance.
+            let started = Arc::new(Barrier::new(threads + 1));
+            let release = Arc::new(Barrier::new(threads + 1));
+            let save = runtime::spawn_save({
+                let pool = Arc::clone(&pool);
+                let (started, release) = (Arc::clone(&started), Arc::clone(&release));
+                move || {
+                    let items: Vec<usize> = (0..threads).collect();
+                    let on_workers = AtomicUsize::new(0);
+                    let peak_on_workers = AtomicUsize::new(0);
+                    let turn = pool.map_in_turns(&items, |&i| {
+                        let name = std::thread::current().name().map(str::to_owned);
+                        let on_worker = name.as_deref() != Some("anchor-save");
+                        if on_worker {
+                            let now = on_workers.fetch_add(1, Ordering::SeqCst) + 1;
+                            peak_on_workers.fetch_max(now, Ordering::SeqCst);
+                        }
+                        started.wait();
+                        release.wait();
+                        if on_worker {
+                            on_workers.fetch_sub(1, Ordering::SeqCst);
+                        }
+                        (i, name)
+                    });
+                    (turn, peak_on_workers.into_inner())
+                }
+            })
+            .unwrap();
+            started.wait();
+            let (done, result) = std::sync::mpsc::sync_channel(1);
+            let tick = runtime::spawn_thread("tick-map", {
+                let pool = Arc::clone(&pool);
+                move || done.send(pool.map(&[1u8, 2], |x| x + 1)).unwrap()
+            })
+            .unwrap();
+            // The timeout only bounds a failure: with every pool thread held, the map never ends.
+            let got = result.recv_timeout(Duration::from_secs(30));
+            release.wait();
+            let (turn, peak_on_workers) = save.join().unwrap();
+            tick.join().unwrap();
+            assert_eq!(
+                got.ok(),
+                Some(vec![2, 3]),
+                "{threads} threads: tick map ended"
+            );
+            assert_eq!(
+                peak_on_workers,
+                threads - 1,
+                "{threads} threads: pool threads holding save items at once"
+            );
+            let order: Vec<usize> = turn.iter().map(|(i, _)| *i).collect();
+            assert_eq!(order, (0..threads).collect::<Vec<_>>());
+            let inline: Vec<usize> = turn
+                .iter()
+                .filter(|(_, name)| name.as_deref() == Some("anchor-save"))
+                .map(|(i, _)| *i)
+                .collect();
+            assert_eq!(inline, [0], "{threads} threads: items on the save thread");
+            assert!(Arc::try_unwrap(pool).unwrap().shutdown());
+        }
     }
 }
