@@ -258,14 +258,15 @@ fn a_melee_hit_names_its_attacker_and_its_knockback_can_change() {
 
 // pmmp: EntityDamageByEntityEvent, Entity::getMotion
 /// A knockback motion a listener sets pushes the player by exactly that on every melee hit it
-/// survives, within the cooldown too, the weapon's Knockback adding nothing. The motion carries
-/// the tick of the player's last input, for its viewers too, and is the player's motion until
-/// its client reports another.
+/// survives, within the cooldown too, the weapon's Knockback adding nothing, sent as many times
+/// as the listener asked. The motion carries the tick of the player's last input, for its
+/// viewers too, and is the player's motion until its client reports another.
 #[test]
 fn a_knockback_motion_replaces_the_knockback_of_every_hit() {
     let motion = Vec3::new(0.25, 0.375, -0.5);
+    let twice = std::num::NonZeroU8::new(2).unwrap();
     let listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
-        e.set_knockback_motion(motion);
+        e.set_knockback_motion(motion, twice);
     });
     let mut game = Game::new(2, listeners);
     let delta = [0.125, -0.078_4, 0.0];
@@ -301,11 +302,44 @@ fn a_knockback_motion_replaces_the_knockback_of_every_hit() {
         game.take(2);
         attack_player(&mut game.state, sid(1), sid(2));
         game.idle(1);
-        let want = [(motion.to_f32(), 77)];
+        let want = [(motion.to_f32(), 77); 2];
         assert_eq!(motions(game.take(2)), want);
         assert_eq!(motions(game.take(1)), want, "the viewer's copy");
         assert_eq!(game.player(2).motion(), motion);
     }
+}
+
+// pmmp: EntityDamageEvent::uncancel
+/// A hit within the attack cooldown that is no stronger than the last is raised cancelled while
+/// there are damage listeners (PMMP `Living::attack`): left cancelled it changes nothing, and
+/// uncancelled it lands as a stronger hit within the cooldown does, the last damage counted off.
+#[test]
+fn a_hit_the_cooldown_refuses_is_raised_cancelled_and_lands_when_uncancelled() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut EntityDamage, _: &mut Context<'_>| {
+        let previous = e.modifier(DamageModifier::PreviousDamageCooldown);
+        tx.try_send((e.base_damage(), e.is_cancelled(), previous))
+            .unwrap();
+        if e.base_damage() == 2.0 {
+            e.uncancel();
+            e.set_base_damage(6.0);
+        }
+    });
+    let mut game = Game::new(1, listeners);
+    assert!(damage(&mut game.state, sid(1), 4.0, Damage::Contact));
+    let before = game.state.hash();
+    assert!(!damage(&mut game.state, sid(1), 3.0, Damage::Contact));
+    assert_eq!(
+        game.state.hash(),
+        before,
+        "left cancelled, it changes nothing"
+    );
+    assert!(damage(&mut game.state, sid(1), 2.0, Damage::Contact));
+    assert_eq!(game.survival(1).health, 14.0, "6 less the last 4");
+    assert_eq!(
+        drain(&mut seen),
+        [(4.0, false, 0.0), (3.0, true, -4.0), (2.0, true, -4.0)]
+    );
 }
 
 /// What one client does in a tick cannot fill another player's outbox and disconnect it: the

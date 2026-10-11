@@ -284,6 +284,9 @@ struct Plan {
     /// The base damage of the last hit within an NPC's cooldown, which this hit's damage counts
     /// less (PMMP `MODIFIER_PREVIOUS_DAMAGE_COOLDOWN`).
     previous: Option<f64>,
+    /// The hit is no stronger than the last within an NPC's cooldown: it lands only if an
+    /// [`EntityDamage`] listener uncancels its event.
+    refused_by_cooldown: bool,
 }
 
 /// What a hit takes ([`Entity::take_hit`]): the planned values, or a damage event's.
@@ -463,8 +466,8 @@ impl Entity {
 
     /// Whether a hit of `amount` for `cause` would hurt it, and how (PMMP `Entity::attack` and
     /// `Living::attack`'s cooldown for NPCs, before the event): `None` when the kind ignores the
-    /// cause, the amount is not finite or below 0, an NPC is dying, or a hit no stronger than
-    /// the last comes within an NPC's cooldown.
+    /// cause, the amount is not finite or below 0, or an NPC is dying. A hit no stronger than the
+    /// last within an NPC's cooldown is planned as [`Plan::refused_by_cooldown`].
     fn plan_hit(&self, cause: Cause, amount: f64) -> Option<Plan> {
         let dead_crystal = matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0;
         if !self.kind.takes(cause) || !amount.is_finite() || amount < 0.0 || dead_crystal {
@@ -474,18 +477,17 @@ impl Entity {
             return Some(Plan {
                 cold: false,
                 previous: None,
+                refused_by_cooldown: false,
             });
         };
         if c.dead_ticks.is_some() {
             return None;
         }
         let cold = c.attack_time == 0;
-        if !cold && c.last_damage >= amount {
-            return None;
-        }
         Some(Plan {
             cold,
             previous: (!cold).then_some(c.last_damage),
+            refused_by_cooldown: !cold && c.last_damage >= amount,
         })
     }
 
@@ -2448,8 +2450,10 @@ fn with<T>(state: &mut State, id: Id, f: impl FnOnce(&mut Entity) -> T) -> Optio
 /// knockback follows) and [`EntityMotion`] for the knockback. An NPC hit after its cooldown is
 /// knocked back by `knock` and shows the hit, an NPC that dies shows its death (its drops follow
 /// at its next tick, [`died`]), anything else that dies is removed. A knockback motion a listener
-/// set pushes an NPC on every hit it survives instead, before the hit shows; the second value
-/// says whether a listener set one. Without listeners it is [`hurt_in`].
+/// set pushes an NPC on every hit it survives instead, and its viewers are sent it as many times
+/// as the listener asked, before the hit shows; the second value says whether a listener set one.
+/// A hit the cooldown alone refuses raises [`EntityDamage`] cancelled, only while it has
+/// listeners. Without listeners it is [`hurt_in`].
 fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, bool) {
     if !(dispatch::heard::<EntityDamage>(state) || dispatch::heard::<EntityMotion>(state)) {
         let result = hurt_in(
@@ -2468,6 +2472,9 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, b
     let Some(plan) = plan_of(state, id, blow) else {
         return (Hurt::Ignored, false);
     };
+    if plan.refused_by_cooldown && !dispatch::listened::<EntityDamage>(state) {
+        return (Hurt::Ignored, false);
+    }
     let mut taken = Taken::of(plan, blow.amount);
     let mut knock = knock;
     let mut event = None;
@@ -2493,9 +2500,14 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, b
     }
     if living
         && matches!(result, Hurt::Took { .. })
-        && let Some(m) = replaced
+        && let Some((m, sends)) = replaced
+        && push_entity(state, id, m)
+        && let Some(e) = state.rules.entities.get(id)
     {
-        push_entity(state, id, m);
+        let packet = track::motion(e);
+        for _ in 0..sends.get() {
+            send_to(&mut state.players, &e.viewers, &packet);
+        }
     }
     let shown = living && matches!(result, Hurt::Took { cold: true } | Hurt::Died);
     if shown {
@@ -2559,8 +2571,8 @@ fn plan_of(state: &State, id: Id, blow: Blow) -> Option<Plan> {
 
 /// Raises [`EntityDamage`] for `blow` on the entity `id` as `plan`ned, with the knockback
 /// `knock` gives: what the hit takes and its knockback as the listeners leave them, and the
-/// event; `None` when a listener cancelled it or changed the game so that the hit no longer
-/// goes as planned.
+/// event; `None` when a listener cancelled it (a hit the cooldown refuses starts cancelled) or
+/// changed the game so that the hit no longer goes as planned.
 fn damage_event(
     state: &mut State,
     id: Id,
@@ -2589,7 +2601,7 @@ fn damage_event(
         knockback: force,
         vertical_knockback_limit: vertical,
         knockback_motion: None,
-        cancelled: false,
+        cancelled: plan.refused_by_cooldown,
     };
     dispatch::call(state, &mut e);
     if e.cancelled
@@ -2684,8 +2696,9 @@ fn zombie_drops(r: &mut Random) -> Vec<Stack> {
 }
 
 /// Sets the motion a rule gives the entity `id` (knockback, an explosion's push, a Punch arrow;
-/// PMMP `Entity::setMotion`), through [`EntityMotion`]: cancelling keeps its motion.
-fn push_entity(state: &mut State, id: Id, motion: Vec3) {
+/// PMMP `Entity::setMotion`), through [`EntityMotion`]: cancelling keeps its motion. False if
+/// the motion was not set (cancelled, or the entity is gone).
+fn push_entity(state: &mut State, id: Id, motion: Vec3) -> bool {
     let motion = physics::bounded(motion);
     let mut event = None;
     if dispatch::heard::<EntityMotion>(state) {
@@ -2696,14 +2709,15 @@ fn push_entity(state: &mut State, id: Id, motion: Vec3) {
         };
         dispatch::call(state, &mut e);
         if e.cancelled || (dispatch::listened::<EntityMotion>(state) && !is_live(state, id)) {
-            return;
+            return false;
         }
         event = Some(e);
     }
-    with(state, id, |e| e.body.motion = motion);
+    let set = with(state, id, |e| e.body.motion = motion).is_some();
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
+    set
 }
 
 /// Sets the entity `id` on fire for `seconds` as a rule does (fire, lava, a burning arrow, Fire
@@ -2796,8 +2810,8 @@ fn hurt_in(
         return Hurt::Ignored;
     };
     let result = match e.plan_hit(cause, amount) {
-        Some(plan) => e.take_hit(plan, Taken::of(plan, amount)),
-        None => Hurt::Ignored,
+        Some(plan) if !plan.refused_by_cooldown => e.take_hit(plan, Taken::of(plan, amount)),
+        _ => Hurt::Ignored,
     };
     let removed = e.after_hit(cause, result);
     let living = matches!(e.kind, Kind::Npc(_));

@@ -690,18 +690,23 @@ fn a_cancelled_motion_keeps_the_npc_still() {
 
 // pmmp: EntityDamageByEntityEvent
 /// A knockback motion a damage listener sets is the NPC's motion after a hit, the weapon's
-/// Knockback adding nothing, and a stronger hit within its cooldown pushes it too.
+/// Knockback adding nothing, sent to its viewers as many times as the listener asked, and a
+/// stronger hit within its cooldown pushes it too.
 #[test]
 fn a_knockback_motion_pushes_the_npc_by_exactly_it() {
     let motion = Vec3::new(0.25, 0.375, -0.5);
+    let twice = std::num::NonZeroU8::new(2).unwrap();
     let mut listeners = Listeners::default();
     listeners.push(
         Priority::Normal,
-        move |e: &mut EntityDamage, _: &mut Context<'_>| e.set_knockback_motion(motion),
+        move |e: &mut EntityDamage, _: &mut Context<'_>| e.set_knockback_motion(motion, twice),
     );
     let mut h = Harness::with_listeners(1, listeners);
     h.spawn(1, standing(0.0, 0.0));
     let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    h.step(Vec::new());
+    let runtime_id = h.state.rules.entities.get(npc).unwrap().runtime_id;
+    h.take(1);
     let extra = crate::item::Extra {
         enchantments: vec![(crate::item::Enchantment::Knockback, 2)],
         ..crate::item::Extra::default()
@@ -711,10 +716,57 @@ fn a_knockback_motion_pushes_the_npc_by_exactly_it() {
     hit(&mut h, npc);
     let motion_of = |h: &Harness| h.state.rules.entities.get(npc).unwrap().body.motion;
     assert_eq!(motion_of(&h), motion);
+    h.collect();
+    let sent = h
+        .take(1)
+        .into_iter()
+        .filter(|p| matches!(p, Packet::SetActorMotion(m) if m.entity_runtime_id == runtime_id))
+        .collect::<Vec<_>>();
+    let want = Packet::SetActorMotion(crate::protocol::packet::SetActorMotion {
+        entity_runtime_id: runtime_id,
+        velocity: motion.to_f32(),
+        tick: 0,
+    });
+    assert_eq!(sent, [want.clone(), want], "sent twice, at the hit");
     with(&mut h.state, npc, |e| e.body.motion = Vec3::ZERO);
     held(&mut h, 1, stack("minecraft:diamond_sword", 1));
     hit(&mut h, npc);
     assert_eq!(motion_of(&h), motion, "a stronger hit within the cooldown");
+}
+
+// pmmp: EntityDamageEvent::uncancel
+/// A hit within an NPC's cooldown that is no stronger than the last is raised cancelled while
+/// there are damage listeners: left cancelled it does nothing, uncancelled it lands as a stronger
+/// hit within the cooldown does, the last damage counted off.
+#[test]
+fn a_hit_the_npc_cooldown_refuses_is_raised_cancelled_and_lands_when_uncancelled() {
+    let switch = Mode::new();
+    let seen: Log<(f64, bool)> = log();
+    let mut listeners = Listeners::default();
+    let (sw, sink) = (switch, seen.sink());
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntityDamage, _: &mut Context<'_>| {
+            sink.push((e.base_damage(), e.is_cancelled()));
+            if mode(sw) == 1 {
+                e.uncancel();
+                e.set_base_damage(10.0);
+            }
+        },
+    );
+    let mut h = Harness::with_listeners(1, listeners);
+    h.spawn(1, standing(0.0, 0.0));
+    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    hit(&mut h, npc);
+    let first = health(&h, npc);
+    hit(&mut h, npc);
+    assert_eq!(health(&h, npc), first, "left cancelled, it does nothing");
+    set(switch, 1);
+    hit(&mut h, npc);
+    let s = got(&seen);
+    let base = s[0].0;
+    assert_eq!(s, [(base, false), (base, true), (base, true)]);
+    assert_eq!(health(&h, npc), first - (10.0 - base));
 }
 
 // pmmp: EntityCombustEvent, EntityCombustByBlockEvent, EntityExtinguishEvent

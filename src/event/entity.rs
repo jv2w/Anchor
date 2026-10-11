@@ -6,6 +6,8 @@
 //! [`DamageSource`] (PMMP `EntityDamageByEntityEvent` and the others), [`EntityCombust`] a
 //! [`CombustSource`].
 
+use std::num::NonZeroU8;
+
 use super::Actor;
 use crate::block::State;
 use crate::effect::Instance;
@@ -238,6 +240,12 @@ pub enum DamageSource {
 
 /// Raised when a player or an entity takes damage, before its health changes. Cancelling keeps
 /// the health, and no knockback follows.
+///
+/// A hit within the attack cooldown that is no stronger than the last is raised too, already
+/// cancelled, while the event has listeners (not only monitors), as PMMP's `Living::attack` does: a
+/// listener that uncancels it lets it land as a stronger hit within the cooldown lands, with the
+/// previous damage counted off ([`DamageModifier::PreviousDamageCooldown`]). Every other hit that
+/// cannot land (a dead or creative target, fire against fire resistance) raises nothing.
 #[doc(alias = "EntityDamageEvent")]
 #[doc(alias = "EntityDamageByBlockEvent")]
 #[doc(alias = "EntityDamageByEntityEvent")]
@@ -254,7 +262,7 @@ pub struct EntityDamage {
     pub(crate) attack_cooldown_ticks: u32,
     pub(crate) knockback: f64,
     pub(crate) vertical_knockback_limit: f64,
-    pub(crate) knockback_motion: Option<Vec3>,
+    pub(crate) knockback_motion: Option<(Vec3, NonZeroU8)>,
     pub(crate) cancelled: bool,
 }
 
@@ -285,8 +293,9 @@ getters!(EntityDamage {
     /// The most a hit knocks upward. Starts at 0.4.
     #[doc(alias = "EntityDamageByEntityEvent::getVerticalKnockBackLimit")]
     vertical_knockback_limit: f64,
-    /// The motion that replaces the knockback, if a listener set one.
-    knockback_motion: Option<Vec3>,
+    /// The motion that replaces the knockback and how many times it is sent, if a listener set
+    /// one.
+    knockback_motion: Option<(Vec3, NonZeroU8)>,
 });
 
 setters!(EntityDamage {
@@ -390,10 +399,12 @@ impl EntityDamage {
     /// Replaces the knockback with `motion`, in blocks a tick: a hit that lands and leaves the
     /// target alive pushes it by exactly that, within the attack cooldown too, and the weapon's
     /// Knockback pushes no more. A knockback that keeps part of the target's own motion, as BDS's
-    /// does, is built from it. A motion that is not finite is ignored.
-    pub fn set_knockback_motion(&mut self, motion: Vec3) {
+    /// does, is built from it. The target and the players that see it are sent the motion
+    /// `sends` times in a row (BDS sends a knockback with extra force twice). A motion that is not
+    /// finite is ignored.
+    pub fn set_knockback_motion(&mut self, motion: Vec3, sends: NonZeroU8) {
         if motion.is_finite() {
-            self.knockback_motion = Some(motion);
+            self.knockback_motion = Some((motion, sends));
         }
     }
 }
@@ -1276,9 +1287,10 @@ mod tests {
         assert_eq!(e.attack_cooldown_ticks(), 4);
         assert_eq!((e.knockback(), e.vertical_knockback_limit()), (0.8, 0.1));
         assert_eq!(e.knockback_motion(), None);
-        e.set_knockback_motion(AT);
-        e.set_knockback_motion(Vec3::new(f64::NAN, 0.0, 0.0));
-        assert_eq!(e.knockback_motion(), Some(AT));
+        let twice = NonZeroU8::new(2).unwrap();
+        e.set_knockback_motion(AT, twice);
+        e.set_knockback_motion(Vec3::new(f64::NAN, 0.0, 0.0), NonZeroU8::MIN);
+        assert_eq!(e.knockback_motion(), Some((AT, twice)));
         e.cause = DamageCause::Fall;
         assert!(!e.can_be_reduced_by_armor());
         e.cancel();
