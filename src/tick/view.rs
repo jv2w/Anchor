@@ -2831,6 +2831,71 @@ mod tests {
         assert!(costs[1] < costs[0] * 5 / 2, "{costs:?}");
     }
 
+    /// The most ticks a walking player waits for a chunk that came into its view, at the
+    /// default chunks per tick, as measured: a chunk crossing brings 17 chunks, sent 4 a tick
+    /// once their loads are answered.
+    const WALK_LATENCY_TICKS: u64 = 6;
+
+    /// A player sprinting across chunks (0.28 blocks a tick) with a view distance of 8 and the
+    /// default chunks per tick gets every chunk that comes into its view within
+    /// [`WALK_LATENCY_TICKS`] ticks of the tick it came in.
+    #[test]
+    fn a_walking_players_new_chunks_are_sent_within_a_few_ticks() {
+        const SPRINT: f32 = 0.28;
+        const WALK_TICKS: u16 = 240;
+        let mut state = new_state(
+            settings(|c| {
+                c.general.view_distance = 8;
+                c.developer.chunks_per_tick = crate::Config::default().developer.chunks_per_tick;
+            }),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 8)], &mut output);
+        let session = SessionId::new(1);
+        for _ in 0..200 {
+            if state.players[&session].view.is_complete() {
+                break;
+            }
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        assert!(state.players[&session].view.is_complete());
+        received(&mut rx);
+        let in_view = |state: &State| {
+            let view = &state.players[&session].view;
+            disc(view.center, view.radius)
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        };
+        let mut seen = in_view(&state);
+        // The tick each chunk not sent yet came into the view.
+        let mut came: BTreeMap<ChunkPos, u64> = BTreeMap::new();
+        let mut waits = Vec::new();
+        for t in 1..=WALK_TICKS + 20 {
+            let x = SPRINT * f32::from(t.min(WALK_TICKS));
+            teleported(&mut state, 1, [x + 0.5, -58.38, 0.5]);
+            tick(&mut state, &mut Vec::new(), &mut output);
+            let now = state.tick;
+            let view = in_view(&state);
+            for &pos in view.difference(&seen) {
+                came.insert(pos, now);
+            }
+            seen = view;
+            for p in received(&mut rx).0 {
+                if let Packet::LevelChunk(c) = p
+                    && let Some(at) = came.remove(&ChunkPos::new(c.position[0], c.position[1]))
+                {
+                    waits.push(now - at);
+                }
+            }
+        }
+        assert!(came.is_empty(), "every chunk that came into view was sent");
+        assert!(waits.len() > 50, "{} chunks came into view", waits.len());
+        let most = waits.iter().max().copied();
+        assert!(most <= Some(WALK_LATENCY_TICKS), "{most:?}");
+    }
+
     /// An answer for a sent chunk that is not loaded has the height maps of a chunk with no
     /// blocks, as when it worked them out from one.
     #[test]

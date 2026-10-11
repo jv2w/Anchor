@@ -1,7 +1,8 @@
 //! The replay tool against live runs with the real save thread on a temporary server file: a crash
 //! log replays from the state of its last commit to the same states (a task sends the state hash of
 //! every tick in both runs) and panics where the server did; a commit the tick never learnt of is
-//! where the replay starts; an opaque checkpoint and a server built otherwise are refused.
+//! where the replay starts; an opaque checkpoint and a server built otherwise are refused; a run
+//! that loads many stored chunks replays to the same states whatever the CPU pool's size.
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -15,19 +16,21 @@ use super::super::queue::{
     input_queue, outbound_queue,
 };
 use super::super::{
-    Fingerprints, InputLog, Output, SaveLink, Settings, Setup, Shared, State, Tasks, boundary,
-    deliver, run, step, write_crash_log,
+    Fingerprints, InputLog, Output, Phase, SaveLink, Settings, Setup, Shared, State, Tasks,
+    boundary, deliver, run, step, write_crash_log,
 };
 use super::packet;
 use crate::config::Config;
 use crate::event::{Command, Listeners, Priority};
+use crate::math::Vec3;
 use crate::protocol::Uuid;
 
 use crate::protocol::packet::{Packet, RequestChunkRadius, SetLocalPlayerAsInitialised};
 use crate::replay::{End, Error};
 use crate::runtime::ThreadCounts;
 use crate::save::{Request, Response, WorldSpec};
-use crate::world::{BlockPos, Flat, Kind};
+use crate::storage::ChunkKind;
+use crate::world::{BlockPos, Chunk, ChunkPos, Flat, Kind};
 
 /// The (tick, state hash) a run's task sends every tick.
 type Hashes = Vec<(u64, u64)>;
@@ -528,5 +531,301 @@ fn a_commit_the_tick_never_learnt_of_is_where_the_replay_starts() {
     assert_eq!(replay.end(), &End::Completed);
     assert_eq!((replay.last_tick(), replay.ticks()), (Some(39), 14));
     assert_eq!(replayed, from(&live, 26));
+    remove(&dir);
+}
+
+/// The chunks the tour stops at, one every [`STOP_TICKS`] ticks from [`TOUR_START`].
+const STOPS: u64 = 8;
+const TOUR_START: u64 = 13;
+const STOP_TICKS: u64 = 12;
+/// The ticks of a tour run: the tour and the loads of its last stop.
+const TOUR_TICKS: u64 = TOUR_START + STOP_TICKS * STOPS + 20;
+/// Chests in each chunk of the tour's file, along z = 1 at the height of the first air.
+const TOUR_CHESTS: u8 = 6;
+
+/// The center chunk of stop `i`: far enough from the others and the spawn that each stop loads
+/// chunks of its own.
+fn stop(i: u64) -> ChunkPos {
+    ChunkPos::new(16 * (i32::try_from(i).unwrap() + 1), 16)
+}
+
+/// The first chest of chunk `pos` in the tour's file.
+fn first_chest(pos: ChunkPos) -> BlockPos {
+    BlockPos::new(pos.x * 16, -60, pos.z * 16 + 1)
+}
+
+/// The commit that puts the tour's chunks in the file: the 3 by 3 chunks around each stop, each
+/// with chests full of sticks, a dropped stick, a pig and an orb.
+fn tour_fixture(world: &crate::world::World) -> crate::save::Snapshot {
+    use crate::nbt::{Compound, List, Value};
+    let chest = crate::block::Kind::Chest.default_state();
+    let sticks =
+        |count: u8| crate::item::Stack::new(crate::item::Kind::Stick.default_type(), count);
+    let entity = |identifier: &str, pos: [f64; 3], rest: Vec<(&str, Value)>| {
+        let mut c = Compound::from([
+            (
+                "identifier".to_owned(),
+                Value::String(identifier.to_owned()),
+            ),
+            ("Pos".to_owned(), Value::List(List::Double(pos.to_vec()))),
+            (
+                "Rotation".to_owned(),
+                Value::List(List::Float(vec![0.0, 0.0])),
+            ),
+        ]);
+        for (k, v) in rest {
+            c.insert(k.to_owned(), v);
+        }
+        c
+    };
+    let mut snapshot = crate::save::Snapshot {
+        start: 1,
+        identity: 1,
+        worlds: vec![(0, crate::save::WorldValues::of(world))],
+        ..crate::save::Snapshot::default()
+    };
+    for i in 0..STOPS {
+        for (dx, dz) in (-1..=1).flat_map(|dx| (-1..=1).map(move |dz| (dx, dz))) {
+            let center = stop(i);
+            let pos = ChunkPos::new(center.x + dx, center.z + dz);
+            let mut terrain = Chunk::generate(&Flat, world.seed(), pos);
+            let mut block_entities = Vec::new();
+            for k in 0..TOUR_CHESTS {
+                terrain.set_block(2 * k, -60, 1, chest).unwrap();
+                let first = first_chest(pos);
+                let at = BlockPos::new(first.x + 2 * i32::from(k), first.y, first.z);
+                let items = (0u8..27)
+                    .map(|slot| {
+                        let mut c = sticks(slot + 1).to_nbt();
+                        c.insert("Slot".to_owned(), Value::Byte(slot));
+                        c
+                    })
+                    .collect();
+                block_entities.push(Compound::from([
+                    ("id".to_owned(), Value::String("Chest".to_owned())),
+                    ("x".to_owned(), Value::Int(at.x)),
+                    ("y".to_owned(), Value::Int(at.y)),
+                    ("z".to_owned(), Value::Int(at.z)),
+                    ("Items".to_owned(), Value::List(List::Compound(items))),
+                ]));
+            }
+            let (x, z) = (f64::from(pos.x * 16), f64::from(pos.z * 16));
+            let entities = vec![
+                entity(
+                    "minecraft:item",
+                    [x + 4.5, -60.0, z + 8.5],
+                    vec![
+                        ("Item", Value::Compound(sticks(5).to_nbt())),
+                        ("Health", Value::Short(5)),
+                        ("Age", Value::Short(10)),
+                        ("PickupDelay", Value::Short(10)),
+                    ],
+                ),
+                entity("minecraft:pig", [x + 8.5, -60.0, z + 8.5], Vec::new()),
+                entity(
+                    "minecraft:xp_orb",
+                    [x + 12.5, -60.0, z + 8.5],
+                    vec![("Value", Value::Short(3))],
+                ),
+            ];
+            snapshot.chunks.push((0, pos, terrain));
+            snapshot
+                .extras
+                .push((0, pos, ChunkKind::BlockEntities, block_entities));
+            snapshot
+                .extras
+                .push((0, pos, ChunkKind::Entities, entities));
+        }
+    }
+    snapshot
+}
+
+/// The stops whose first chest is loaded (bit `i` for stop `i`) and the entities, each tick.
+type Seen = Vec<(u64, u32, usize)>;
+
+/// The build of a tour run: one task that sends the state hash and what is loaded of the tour,
+/// and from [`TOUR_START`] teleports the player of session 1 to the next stop every
+/// [`STOP_TICKS`] ticks.
+fn tour_setup(hashes: mpsc::Sender<(u64, u64)>, seen: mpsc::Sender<(u64, u32, usize)>) -> Setup {
+    let mut tasks = Tasks::default();
+    tasks.push(NonZeroU32::MIN, move |ctx| {
+        let tick = ctx.tick();
+        hashes.try_send((tick, ctx.state.hash())).unwrap();
+        let world = crate::world::Id::DEFAULT;
+        let chests = (0..STOPS)
+            .filter(|&i| ctx.block_entity(world, first_chest(stop(i))).is_some())
+            .fold(0u32, |bits, i| bits | 1 << i);
+        seen.try_send((tick, chests, ctx.entities(world).count()))
+            .unwrap();
+        let leg = tick.checked_sub(TOUR_START).filter(|t| t % STOP_TICKS == 0);
+        if let Some(i) = leg.map(|t| t / STOP_TICKS)
+            && i < STOPS
+            && let Some(player) = ctx.player_mut(crate::player::Id::new(SessionId::new(1)))
+        {
+            let center = stop(i);
+            let feet = Vec3::new(
+                f64::from(center.x * 16) + 8.5,
+                -60.0,
+                f64::from(center.z * 16) + 8.5,
+            );
+            player.teleport(world, feet).unwrap();
+        }
+    });
+    Setup {
+        tasks,
+        ..Setup::default()
+    }
+}
+
+/// Puts the tour's chunks in the data files in `dir`, then runs the tour for [`TOUR_TICKS`]
+/// ticks with the real save thread and a loop of its own, which plays the client's side of the
+/// join; returns the log and what the run's task sent.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the test plays the tick's side of the save thread"
+)]
+fn tour(dir: &Path) -> (PathBuf, Hashes, Seen) {
+    {
+        let mut opened = crate::save::open(dir, specs()).unwrap();
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let snapshot = tour_fixture(&opened.worlds[0]);
+        opened.thread.commit(&pool, &snapshot).unwrap();
+        assert!(pool.shutdown());
+    }
+    let config = Config::default();
+    let (hashes, mut sent) = mpsc::channel(4096);
+    let (seen, mut seen_rx) = mpsc::channel(4096);
+    let mut setup = tour_setup(hashes, seen);
+    setup.fingerprints = Fingerprints::of(&Settings::new(&config), &specs(), &setup);
+    let opened = crate::save::open(dir, specs()).unwrap();
+    let pool = crate::runtime::cpu_pool(2).unwrap();
+    let save_pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());
+    let (requests, request_queue) = mpsc::channel(crate::save::REQUEST_CAPACITY);
+    let (responder, mut responses) = mpsc::channel(crate::save::RESPONSE_CAPACITY);
+    let thread = opened.thread;
+    let worker = Arc::clone(&save_pool);
+    let save_thread = crate::runtime::spawn_save(move || {
+        crate::save::run(thread, &worker, request_queue, &responder)
+    })
+    .unwrap();
+    let mut state = State::new(
+        Settings::new(&config),
+        shared(),
+        setup,
+        opened.worlds,
+        opened.tick,
+    );
+    state.set_identity(opened.identity);
+    let (inputs, mut queue) = input_queue();
+    let (mut rx, mut session) = join(&inputs);
+    let mut log = InputLog::new(state.checkpoint(&pool), state.fingerprints, opened.identity);
+    let mut answers = Vec::new();
+    let mut output = Output::default();
+    // The loads asked for and not answered yet: each tick waits for them, so the run does not
+    // outpace the save thread.
+    let mut loads = 0usize;
+    for _ in 0..TOUR_TICKS {
+        let mut batch: Vec<Input> = std::iter::from_fn(|| queue.try_recv().ok()).collect();
+        while loads > 0 {
+            let answer = responses.blocking_recv().unwrap();
+            if matches!(answer, Response::Chunk { .. } | Response::Player { .. }) {
+                loads -= 1;
+            }
+            answers.push(answer);
+        }
+        step(
+            &mut state,
+            &mut batch,
+            &mut answers,
+            &pool,
+            &mut output,
+            &mut log,
+        );
+        deliver(&mut state, &mut output, &mut log);
+        boundary(&mut state, &mut output, &mut log);
+        if log.needs_checkpoint() {
+            log.set_checkpoint(state.checkpoint(&pool));
+        }
+        while rx.try_recv().is_ok() {}
+        // The client asks for its chunks once it has joined and says it is in once they came.
+        let phase = state
+            .players
+            .values()
+            .next()
+            .map(|p| (p.phase, p.runtime_id));
+        let reply = match phase {
+            Some((Phase::Joined, _)) => Some(Packet::RequestChunkRadius(RequestChunkRadius {
+                chunk_radius: 2,
+                max_chunk_radius: 0,
+            })),
+            Some((Phase::Spawning, entity_runtime_id)) => {
+                Some(Packet::SetLocalPlayerAsInitialised(
+                    SetLocalPlayerAsInitialised { entity_runtime_id },
+                ))
+            }
+            _ => None,
+        };
+        if let Some(p) = reply {
+            session.try_send(packet(p)).unwrap();
+        }
+        for request in output.requests.drain(..) {
+            loads += match &request {
+                Request::Chunks(keys) => keys.len(),
+                Request::Player(_) => 1,
+                _ => 0,
+            };
+            requests.blocking_send(request).unwrap();
+        }
+    }
+    drop(requests);
+    save_thread.join().unwrap().unwrap();
+    assert!(pool.shutdown());
+    let path = write_crash_log(dir, &log).unwrap();
+    let mut stops = Vec::new();
+    while let Ok(s) = seen_rx.try_recv() {
+        stops.push(s);
+    }
+    (path, drain(&mut sent), stops)
+}
+
+/// A run that loads many chunks of a persistent world with block entities and entities (the
+/// player is teleported from stop to stop) replays from its start to the same state hash every
+/// tick, with a CPU pool of 1 thread and of 4.
+#[test]
+fn a_chunk_loading_tour_replays_to_the_same_states_on_one_and_four_threads() {
+    let dir = fresh("tour");
+    let (log, live, seen) = tour(&dir);
+    let every_stop = (1u32 << STOPS) - 1;
+    let loaded = seen.iter().fold(0, |bits, &(_, stops, _)| bits | stops);
+    assert_eq!(
+        loaded, every_stop,
+        "each stop's chests loaded from the file"
+    );
+    // The dropped stick and the orb of each of a stop's 9 chunks; the pig, no entity type of
+    // the server, stays a saved compound.
+    let most = seen.iter().map(|&(_, _, entities)| entities).max();
+    assert_eq!(most, Some(9 * 2), "a stop's entities loaded from the file");
+    for cpu in [1, 4] {
+        let (hashes, mut sent) = mpsc::channel(4096);
+        let (seen_tx, mut seen_rx) = mpsc::channel(4096);
+        let result = crate::replay::run(
+            &Config::default(),
+            &dir,
+            ThreadCounts { network: 1, cpu },
+            tour_setup(hashes, seen_tx),
+            &specs(),
+            &log,
+        );
+        let replay = result.unwrap();
+        assert_eq!(replay.base_tick(), 1, "from the start, {cpu} threads");
+        assert_eq!(replay.end(), &End::Completed);
+        assert_eq!(replay.ticks(), TOUR_TICKS);
+        assert_eq!(drain(&mut sent), live, "{cpu} threads");
+        let mut replayed = Vec::new();
+        while let Ok(s) = seen_rx.try_recv() {
+            replayed.push(s);
+        }
+        assert_eq!(replayed, seen, "{cpu} threads");
+    }
     remove(&dir);
 }
