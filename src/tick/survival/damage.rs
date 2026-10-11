@@ -14,7 +14,7 @@ use super::{
     broadcast_to_viewers, can_interact, clock, feet, food, movement, player_random, sound,
     world_seed,
 };
-use crate::config::GameMode;
+use crate::config::{CriticalHits, GameMode};
 use crate::effect::Type as Effect;
 use crate::event::{
     Actor, CombustSource, DamageCause, DamageModifier, DamageSource, EntityCombust, EntityDamage,
@@ -1119,7 +1119,7 @@ pub(super) fn extinguished(state: &mut State, session: SessionId, cause: Extingu
 
 /// `attacker` hits `target` (PMMP `Player::attackEntity`): the held item's attack points, the
 /// attacker's effects, sharpness, a critical hit (falling, not flying, blind or under water, and
-/// not sprinting unless `sprint-critical-hits`) for half again; cancelled out of reach, in
+/// not sprinting under `critical-hits = "sprint"`) for half again; cancelled out of reach, in
 /// spectator mode or with `pvp = false`; nothing at all for a dead target or one in another world.
 pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: SessionId) {
     // PMMP finds the target in the attacker's world alone and leaves a dead one at once: no
@@ -1251,8 +1251,8 @@ fn melee_hit(state: &State, attacker: SessionId, target: SessionId) -> Option<Hi
 
 /// The attacker's side of a melee hit by `a` (PMMP `Player::attackEntity`): the held item's
 /// attack points, the extra of Strength, Weakness and Sharpness (added up and one by one), a
-/// critical hit (falling, not flying, not blind, not under water, and not sprinting unless
-/// `sprint-critical-hits`) for half again; whether the critical hit and a weapon enchantment
+/// critical hit (falling, not flying, not blind, not under water, and not sprinting under
+/// `critical-hits = "sprint"`) for half again; whether the critical hit and a weapon enchantment
 /// added damage (PMMP shows their animations only then).
 fn melee_parts(
     state: &State,
@@ -1274,8 +1274,11 @@ fn melee_parts(
         set(&mut parts, DamageModifier::WeaponEnchantments, weapon);
     }
     let s = &a.survival;
-    let critical = (state.settings.sprint_critical_hits || !s.motion.sprinting)
-        && !s.motion.flying
+    let critical = match state.settings.critical_hits {
+        CriticalHits::Off => false,
+        CriticalHits::Sprint => !s.motion.sprinting,
+        CriticalHits::Always => true,
+    } && !s.motion.flying
         && s.fall_distance > 0.0
         && !s.effects.contains_key(&Effect::Blindness)
         && !movement::is_underwater(state, a);

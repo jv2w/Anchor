@@ -1187,8 +1187,8 @@ pub(super) struct Melee {
     /// The damage: the held item's attack points with Strength, Weakness, Sharpness and a
     /// critical hit.
     pub(super) damage: f64,
-    /// A critical hit (falling, not flying, not blind, not under water, and not sprinting unless
-    /// `sprint-critical-hits`) that added damage.
+    /// A critical hit (falling, not flying, not blind, not under water, and not sprinting
+    /// under `critical-hits = "sprint"`) that added damage.
     pub(super) critical: bool,
     /// A weapon enchantment added damage (PMMP `MagicHitAnimation`).
     pub(super) magic: bool,

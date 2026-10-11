@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use super::*;
 use crate::action::{self, Action};
 use crate::block::{self, PropertyValue};
-use crate::config::Config;
+use crate::config::{Config, CriticalHits};
 use crate::event::{
     Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
     EntityEffectRemove, EntityExtinguish, EntityRegainHealth, ExtinguishCause, Listeners,
@@ -1721,23 +1721,29 @@ fn daylight_cycle_off_stops_the_time_and_tells_the_client_as_bds() {
 }
 
 #[test]
-fn sprinting_hits_are_critical_only_with_sprint_critical_hits() {
-    let taken = |on: bool| {
+fn critical_hits_setting_decides_critical_hits_while_sprinting() {
+    let taken = |critical_hits: CriticalHits, sprinting: bool| {
         let mut game = Game::with(2, Listeners::default(), |c| {
-            c.general.sprint_critical_hits = on;
+            c.general.critical_hits = critical_hits;
         });
         let base = game.player(1).position;
         game.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
         game.survival(1).motion.yaw = 0.0;
         game.idle(1);
         let s = game.survival(1);
-        s.motion.sprinting = true;
+        s.motion.sprinting = sprinting;
         s.fall_distance = 1.0;
         attack_player(&mut game.state, sid(1), sid(2));
         20.0 - game.survival(2).health
     };
-    assert_eq!(taken(false), 1.0, "PMMP: no critical hit while sprinting");
-    assert_eq!(taken(true), 1.5);
+    assert_eq!(taken(CriticalHits::Off, false), 1.0);
+    assert_eq!(taken(CriticalHits::Sprint, false), 1.5);
+    assert_eq!(
+        taken(CriticalHits::Sprint, true),
+        1.0,
+        "PMMP: no critical hit while sprinting"
+    );
+    assert_eq!(taken(CriticalHits::Always, true), 1.5);
 }
 
 #[test]

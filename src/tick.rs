@@ -39,7 +39,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::clock;
-use crate::config::{Config, Difficulty, GameMode, Lighting, ViewLimits};
+use crate::config::{Config, CriticalHits, Difficulty, GameMode, Lighting, ViewLimits};
 use crate::event::Listeners;
 use crate::math::Vec3;
 use crate::pool::Pool;
@@ -127,8 +127,8 @@ pub(crate) struct Settings {
     daylight_cycle: bool,
     /// Ticks a dropped item stays on the ground (`item-despawn-ticks`).
     item_despawn_ticks: u32,
-    /// Whether a hit while sprinting can be critical (`sprint-critical-hits`).
-    sprint_critical_hits: bool,
+    /// When a hit can be critical (`critical-hits`).
+    critical_hits: CriticalHits,
     /// Whether block breaking time is checked (`break-time-check`).
     break_time_check: bool,
     /// Whether moves of more than 15 blocks are refused (`movement-check`).
@@ -187,7 +187,7 @@ impl Settings {
             beds: general.beds,
             daylight_cycle: general.daylight_cycle,
             item_despawn_ticks: general.item_despawn_ticks,
-            sprint_critical_hits: general.sprint_critical_hits,
+            critical_hits: general.critical_hits,
             break_time_check: general.break_time_check,
             movement_check: general.movement_check,
             slow_empty_worlds: developer.slow_empty_worlds,
@@ -639,7 +639,7 @@ impl State {
             beds: _,
             daylight_cycle: _,
             item_despawn_ticks: _,
-            sprint_critical_hits: _,
+            critical_hits: _,
             break_time_check: _,
             movement_check: _,
             slow_empty_worlds: _,

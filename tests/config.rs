@@ -11,8 +11,8 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 
 use anchor::config::{
-    Difficulty, Error, GameMode, IntegrityCheck, LevelType, Lighting, LogLevel, Threads, Update,
-    WorldSettings,
+    CriticalHits, Difficulty, Error, GameMode, IntegrityCheck, LevelType, Lighting, LogLevel,
+    Threads, Update, WorldSettings,
 };
 use anchor::protocol::compression::Compression;
 use anchor::world::{BlockPos, Flat, Kind};
@@ -198,7 +198,7 @@ daylight-cycle = false
 recipe-book = false
 vanilla-recipes = false
 item-despawn-ticks = 1200
-sprint-critical-hits = true
+critical-hits = "always"
 break-time-check = false
 movement-check = false
 level-name = "lobby"
@@ -281,7 +281,7 @@ fn custom() -> Config {
     g.recipe_book = false;
     g.vanilla_recipes = false;
     g.item_despawn_ticks = 1200;
-    g.sprint_critical_hits = true;
+    g.critical_hits = CriticalHits::Always;
     g.break_time_check = false;
     g.movement_check = false;
     g.level_name = "lobby".to_owned();
@@ -428,7 +428,11 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&["1", "72000"]),
             s(&["0", "72001", "-1"]),
         ),
-        ("general.sprint-critical-hits", bools(), vec![]),
+        (
+            "general.critical-hits",
+            s(&[r#""off""#, r#""sprint""#, r#""always""#]),
+            s(&[r#""Sprint""#, "true", r#""""#]),
+        ),
         ("general.break-time-check", bools(), vec![]),
         ("general.movement-check", bools(), vec![]),
         (
@@ -756,7 +760,8 @@ fn new_keys_default_to_the_behaviour_before_them() {
     ] {
         assert!(on);
     }
-    assert!(!g.sprint_critical_hits && !d.slow_empty_worlds);
+    assert!(!d.slow_empty_worlds);
+    assert_eq!(g.critical_hits, CriticalHits::Sprint);
     assert_eq!(g.item_despawn_ticks, 6000);
     assert_eq!(g.log_level, LogLevel::Info);
     assert_eq!(g.shutdown_message, "The server has stopped");

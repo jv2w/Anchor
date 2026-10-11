@@ -79,8 +79,8 @@ recipe-book = true
 vanilla-recipes = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
-# true: a hit while sprinting can be critical.
-sprint-critical-hits = false
+# Critical hits: "off", "sprint" (only when not sprinting) or "always" (sprinting too).
+critical-hits = "sprint"
 # The server checks that a block took long enough to break.
 break-time-check = true
 # The server checks that a move is not too far (more than 15 blocks in one input).
@@ -567,8 +567,8 @@ pub struct General {
     pub vanilla_recipes: bool,
     /// `item-despawn-ticks`: ticks a dropped item stays on the ground.
     pub item_despawn_ticks: u32,
-    /// `sprint-critical-hits`: whether a hit while sprinting can be critical.
-    pub sprint_critical_hits: bool,
+    /// `critical-hits`: when a hit can be critical.
+    pub critical_hits: CriticalHits,
     /// `break-time-check`: whether the server checks that a block took long enough to break.
     pub break_time_check: bool,
     /// `movement-check`: whether the server refuses a move of more than 15 blocks in one input.
@@ -638,7 +638,7 @@ impl General {
                 "item-despawn-ticks" => {
                     self.item_despawn_ticks = int(value, key, ITEM_DESPAWN_TICKS)?;
                 }
-                "sprint-critical-hits" => self.sprint_critical_hits = boolean(value, key)?,
+                "critical-hits" => self.critical_hits = choice(value, key, &CriticalHits::NAMES)?,
                 "break-time-check" => self.break_time_check = boolean(value, key)?,
                 "movement-check" => self.movement_check = boolean(value, key)?,
                 "level-name" => text(value, key)?.clone_into(&mut self.level_name),
@@ -692,7 +692,7 @@ impl Default for General {
             recipe_book: true,
             vanilla_recipes: true,
             item_despawn_ticks: 6000,
-            sprint_critical_hits: false,
+            critical_hits: CriticalHits::Sprint,
             break_time_check: true,
             movement_check: true,
             level_name: "world".to_owned(),
@@ -1157,6 +1157,26 @@ pub enum LevelType {
 impl LevelType {
     /// The `level-type` values.
     const NAMES: [(&str, Self); 2] = [("flat", Self::Flat), ("void", Self::Void)];
+}
+
+/// When a melee hit can be critical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CriticalHits {
+    /// `"off"`: never.
+    Off,
+    /// `"sprint"`: only when the attacker is not sprinting.
+    Sprint,
+    /// `"always"`: sprinting or not.
+    Always,
+}
+
+impl CriticalHits {
+    /// The `critical-hits` values.
+    const NAMES: [(&str, Self); 3] = [
+        ("off", Self::Off),
+        ("sprint", Self::Sprint),
+        ("always", Self::Always),
+    ];
 }
 
 /// A thread count setting.

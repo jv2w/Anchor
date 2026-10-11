@@ -73,8 +73,8 @@ recipe-book = true
 vanilla-recipes = true
 # Ticks a dropped item stays on the ground (1 to 72000).
 item-despawn-ticks = 6000
-# true: a hit while sprinting can be critical.
-sprint-critical-hits = false
+# Critical hits: "off", "sprint" (only when not sprinting) or "always" (sprinting too).
+critical-hits = "sprint"
 # The server checks that a block took long enough to break.
 break-time-check = true
 # The server checks that a move is not too far (more than 15 blocks in one input).
@@ -207,7 +207,7 @@ console-input = true
 | `recipe-book` | bool | `true` | | 레시피 책. `false`면 숨기고 그 빠른 제작을 거부한다. 제작 칸 제작은 된다 |
 | `vanilla-recipes` | bool | `true` | | 바닐라 레시피. `false`면 서버 프로그램이 등록한 레시피만 있다 |
 | `item-despawn-ticks` | 정수 | `6000` | 1~72000 | 떨어진 아이템이 남는 틱 |
-| `sprint-critical-hits` | bool | `false` | | 달리면서 친 공격도 치명타가 될 수 있는지 |
+| `critical-hits` | 문자열 | `"sprint"` | `off`, `sprint`, `always` | 치명타. `off`는 없음, `sprint`는 달리지 않을 때만(바닐라), `always`는 달릴 때도 |
 | `break-time-check` | bool | `true` | | 블록을 부수는 데 충분한 시간이 걸렸는지 서버가 검사할지. 도달 거리와 블록 종류 검사는 늘 한다 |
 | `movement-check` | bool | `true` | | 한 입력에 15블록을 넘는 이동을 거부할지. `false`면 그런 이동의 땅 판정은 지나온 길 없이 도착 자리만 본다 |
 | `level-name` | 문자열 | `"world"` | 1~64바이트, `;`와 제어 문자 없음, 월드 이름 규칙(`storage.md`) | 기본 월드 이름. 파일은 `data/worlds/<이름>.redb` |
