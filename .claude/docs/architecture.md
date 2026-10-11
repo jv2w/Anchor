@@ -64,7 +64,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 | 틱 | 1 | 게임 상태를 바꾸는 유일한 스레드 |
 | 저장 | 1 | 청크·플레이어 로드, 스냅샷 커밋, 백업 |
 | 네트워크 워커(tokio) | `network-threads` | 전송, 세션, 코덱, 압축, 암호화, 시그널링 |
-| CPU 풀(rayon, `anchor-cpu`) | `cpu-threads` | 틱의 병렬 읽기 단계, 청크 생성·직렬화, 처음 조명 계산 |
+| CPU 풀(rayon, `anchor-cpu`) | `cpu-threads` | 틱의 병렬 읽기 단계, 청크 생성·직렬화, 처음 조명 계산, 청크 추가 데이터 읽기 |
 | 블로킹 풀(tokio) | 최대 8 | 엔진 몫 4(인증 갱신, 팩·키 읽기), 사용자 `spawn_blocking` 몫 4 |
 | 콘솔 | 1 | 표준 입력 줄을 상한 큐로 넣음(`console-input`) |
 | 콘솔 로그 | 1 | Anchor 기본 콘솔 출력기가 표준 오류에 씀(`log-level`이 `off`가 아니고 `without_console_log`를 부르지 않았을 때) |

@@ -1149,7 +1149,7 @@ fn block_entities_survive_chunk_unload_and_reload_unchanged() {
     w.state
         .rules
         .block_entities
-        .load(key, &list, &w.state.worlds[0], &w.state.custom);
+        .load_list(key, &list, &w.state.worlds[0], &w.state.custom);
     for (p, e) in before {
         assert_eq!(w.state.rules.block_entities.get(0, p).cloned(), e);
     }

@@ -114,7 +114,7 @@ impl BlockPos {
     }
 
     /// The position inside its chunk: x and z from 0 to 15.
-    fn local(self) -> (u8, u8) {
+    pub(crate) fn local(self) -> (u8, u8) {
         let local = |v: i32| u8::try_from(v & 15).unwrap_or(0);
         (local(self.x), local(self.z))
     }

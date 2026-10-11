@@ -427,7 +427,7 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
     // Loaded by a server with the type: the same entity.
     let mut again = Entities::default();
     again.set_customs(registry(types()));
-    again.load(KEY, &list, &crate::custom::Registry::default());
+    again.load_list(KEY, &list, &crate::custom::Registry::default());
     let ids: Vec<Id> = again.ids().collect();
     assert_eq!(ids.len(), 1);
     let loaded = again.get(ids[0]).unwrap();
@@ -439,7 +439,7 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
     assert_eq!(saved::save(loaded), list[0], "saved again the same");
     // Loaded by a server without it: kept as saved, written back unchanged.
     let mut bare = Entities::default();
-    bare.load(KEY, &list, &crate::custom::Registry::default());
+    bare.load_list(KEY, &list, &crate::custom::Registry::default());
     assert_eq!(bare.count(0), 0);
     assert_eq!(bare.list(KEY), list);
     assert_eq!(bare.unload(KEY), None, "nothing changed");
@@ -448,7 +448,7 @@ fn custom_entities_round_trip_with_their_data_and_unregistered_types_stay_as_sav
     big.insert(saved::DATA_KEY.to_owned(), Value::Compound(too_big()));
     let mut store = Entities::default();
     store.set_customs(registry(types()));
-    store.load(
+    store.load_list(
         KEY,
         std::slice::from_ref(&big),
         &crate::custom::Registry::default(),
@@ -481,7 +481,7 @@ fn scale_is_refused_when_the_box_would_exceed_16_blocks() {
     c.insert("Scale".to_owned(), Value::Float(64.0));
     let mut store = Entities::default();
     store.set_customs(registry(big()));
-    store.load(
+    store.load_list(
         KEY,
         std::slice::from_ref(&c),
         &crate::custom::Registry::default(),

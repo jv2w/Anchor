@@ -47,7 +47,7 @@ use crate::protocol::consts::BlockEventType;
 use crate::protocol::packet::{BlockActorData, BlockEvent, Packet};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
-use crate::world::{BlockPos, ChunkPos, World};
+use crate::world::{BlockPos, ChunkPos};
 
 pub(super) use beacon::{allowed as beacon_effect_allowed, is_payment as beacon_payment};
 pub(super) use brewing::{
@@ -432,6 +432,8 @@ impl BlockEntity {
         reason = "consistency: one arm per Bedrock block entity id, side by side with PMMP's tiles"
     )]
     fn read(mut nbt: Compound, pos: BlockPos, custom: &Registry) -> Self {
+        #[cfg(test)]
+        super::rules::reads::add(|r| r.block_entities += 1);
         for key in ["x", "y", "z"] {
             nbt.remove(key);
         }
@@ -704,6 +706,8 @@ fn read_items(slots: &mut [Stack], items: &[Compound], pos: BlockPos, custom: &R
             );
             continue;
         };
+        #[cfg(test)]
+        super::rules::reads::add(|r| r.stacks += 1);
         if let Some(stack) = Stack::from_nbt_with(entry, custom) {
             *target = stack;
         } else {
@@ -748,6 +752,8 @@ impl Chunk {
         let mut chunk = Self::default();
         for nbt in list {
             let Some(pos) = position(nbt, key) else {
+                #[cfg(test)]
+                super::rules::reads::add(|r| r.clones += 1);
                 chunk.raw.push(nbt.clone());
                 continue;
             };
@@ -761,8 +767,12 @@ impl Chunk {
                     chunk.spills.push(Spill { pos, items });
                 }
             } else if let btree_map::Entry::Vacant(free) = chunk.entities.entry(pos) {
+                #[cfg(test)]
+                super::rules::reads::add(|r| r.clones += 1);
                 free.insert(BlockEntity::read(nbt.clone(), pos, custom));
             } else {
+                #[cfg(test)]
+                super::rules::reads::add(|r| r.clones += 1);
                 chunk.raw.push(nbt.clone());
             }
         }
@@ -786,8 +796,18 @@ impl Chunk {
     }
 }
 
-impl BlockEntities {
-    /// A chunk's saved list arrived ([`mod@super::rules`]); `world` holds the chunk's blocks and
+/// A chunk's saved block entities read off the tick ([`Parsed::read`]), for
+/// [`BlockEntities::load`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct Parsed {
+    chunk: Chunk,
+    /// Whether reading took something out of the saved list, so the chunk is saved again.
+    removed: bool,
+}
+
+impl Parsed {
+    /// Reads chunk `key`'s saved list, off the tick as it needs nothing of the tick's state;
+    /// `block_of` gives the chunk's block at a position of it (`None` for one not known) and
     /// `custom` is the server's custom content (saved custom items read back through it).
     ///
     /// A block entity whose block does not take it (an older Anchor, a world edited outside) is
@@ -796,12 +816,17 @@ impl BlockEntities {
     /// lost). A furnace's stored experience goes with it. With the chunk's spills full it is kept
     /// as it is. A shulker box's stacks its slots do not take (an Anchor before the limit saved
     /// them) wait as a spill too, so the box with its items is always one stack.
-    pub(super) fn load(&mut self, key: Key, list: &[Compound], world: &World, custom: &Registry) {
+    pub(super) fn read(
+        key: Key,
+        list: &[Compound],
+        block_of: impl Fn(BlockPos) -> Option<block::State>,
+        custom: &Registry,
+    ) -> Self {
         let mut chunk = Chunk::read(key, list, custom);
         let stray: Vec<BlockPos> = chunk
             .entities
             .iter()
-            .filter(|(pos, e)| world.block(**pos).is_some_and(|b| !fits(&e.kind, b)))
+            .filter(|(pos, e)| block_of(**pos).is_some_and(|b| !fits(&e.kind, b)))
             .map(|(pos, _)| *pos)
             .collect();
         let mut removed = !stray.is_empty();
@@ -836,6 +861,15 @@ impl BlockEntities {
                 removed = true;
             }
         }
+        Self { chunk, removed }
+    }
+}
+
+impl BlockEntities {
+    /// A chunk's saved list arrived ([`mod@super::rules`]), read off the tick: its block entities
+    /// enter the store, and the chunk is saved again if reading removed any.
+    pub(super) fn load(&mut self, key: Key, parsed: Parsed) {
+        let Parsed { chunk, removed } = parsed;
         if chunk.spills.is_empty() {
             self.spilling.remove(&key);
         } else {
@@ -852,6 +886,19 @@ impl BlockEntities {
         } else {
             self.changed.remove(&key);
         }
+    }
+
+    /// [`Parsed::read`] and [`Self::load`] in one, the blocks read from `world` (none when it
+    /// does not hold the chunk, so none is checked).
+    #[cfg(test)]
+    pub(super) fn load_list(
+        &mut self,
+        key: Key,
+        list: &[Compound],
+        world: &crate::world::World,
+        custom: &Registry,
+    ) {
+        self.load(key, Parsed::read(key, list, |pos| world.block(pos), custom));
     }
 
     /// A chunk leaves: drops its state; its list if it changed since [`Self::take_changed`].
@@ -2491,7 +2538,7 @@ pub(super) fn animate(state: &mut State, world: WorldIndex, pos: BlockPos, viewe
 pub(in crate::tick) mod tests {
     use super::*;
     use crate::item::Kind as ItemKind;
-    use crate::world::{Chunk as Terrain, ChunkPos, Kind as WorldKind};
+    use crate::world::{Chunk as Terrain, ChunkPos, Kind as WorldKind, World};
 
     /// A world with the chunk at `key` loaded and empty (air).
     fn world_with(key: Key) -> World {
@@ -2545,13 +2592,13 @@ pub(in crate::tick) mod tests {
         // The chunk's blocks are not loaded: nothing is checked against them.
         let world = World::new("be", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
         let mut store = BlockEntities::default();
-        store.load(key, &list, &world, &Registry::default());
+        store.load_list(key, &list, &world, &Registry::default());
         assert_eq!(
             store.unload(key),
             None,
             "unchanged chunks hand nothing back"
         );
-        store.load(key, &list, &world, &Registry::default());
+        store.load_list(key, &list, &world, &Registry::default());
         assert!(store.get_mut(0, a).is_some());
         assert_eq!(store.take_changed(), vec![(key, list.clone())]);
         assert_eq!(store.take_changed(), vec![]);
@@ -2593,7 +2640,7 @@ pub(in crate::tick) mod tests {
             framed.write(frame),
         ];
         let mut store = BlockEntities::default();
-        store.load(key, &list, &world, &Registry::default());
+        store.load_list(key, &list, &world, &Registry::default());
         assert!(store.get(0, chest).is_none(), "air takes no chest");
         assert!(store.get(0, frame).is_none());
         assert!(store.get(0, furnace).is_some(), "a furnace keeps its own");
@@ -2617,7 +2664,7 @@ pub(in crate::tick) mod tests {
         assert_eq!(changed.len(), 1, "the chunk is saved without them");
         // Read back, the spills stay and nothing more is removed.
         let mut again = BlockEntities::default();
-        again.load(key, &changed[0].1, &world, &Registry::default());
+        again.load_list(key, &changed[0].1, &world, &Registry::default());
         assert_eq!(again.chunks[&key], store.chunks[&key]);
         assert!(again.take_changed().is_empty());
     }
@@ -2648,7 +2695,7 @@ pub(in crate::tick) mod tests {
         entity.name = Some(long.clone());
         let list = vec![entity.write(pos)];
         let mut store = BlockEntities::default();
-        store.load(key, &list, &world, &Registry::default());
+        store.load_list(key, &list, &world, &Registry::default());
         let loaded = store.get(0, pos).unwrap();
         assert_eq!(loaded.items[0], stick);
         assert!(loaded.items[1].is_empty());
@@ -2733,7 +2780,7 @@ pub(in crate::tick) mod tests {
         );
         let mut store = BlockEntities::default();
         let world = World::new("be", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
-        store.load(key, &chunk.write(), &world, &Registry::default());
+        store.load_list(key, &chunk.write(), &world, &Registry::default());
         let sent = store.client_nbt(key);
         assert_eq!(sent.len(), 4);
         assert_eq!(sent[0].get("pairx"), Some(&Value::Int(2)));
@@ -3079,7 +3126,7 @@ pub(in crate::tick) mod tests {
         state
             .rules
             .block_entities
-            .load(key, &[], world, &Registry::default());
+            .load_list(key, &[], world, &Registry::default());
     }
 
     /// Puts at `pos` a furnace with beef and coal, active.

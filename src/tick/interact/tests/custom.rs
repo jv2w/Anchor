@@ -359,19 +359,21 @@ impl Disk {
         }]
     }
 
-    /// Runs the save thread on the file for `requests` and returns its answers.
+    /// Runs the save thread on the file for `requests` of `state`, with its custom content as
+    /// the server gives it, and returns its answers.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the test stands in for the tick waiting for the save thread"
     )]
-    fn serve(&self, requests: Vec<Request>) -> Vec<Response> {
+    fn serve(&self, state: &crate::tick::State, requests: Vec<Request>) -> Vec<Response> {
         if requests.is_empty() {
             return Vec::new();
         }
         let opened = crate::save::open(&self.0.0, Self::specs()).unwrap();
         let (tx, rx) = tokio::sync::mpsc::channel(crate::save::REQUEST_CAPACITY);
         let (answer, mut answers) = tokio::sync::mpsc::channel(crate::save::RESPONSE_CAPACITY);
-        let thread = opened.thread;
+        let mut thread = opened.thread;
+        thread.set_custom(Arc::clone(state.custom()), Arc::clone(state.entity_types()));
         let handle = crate::runtime::spawn_save(move || {
             let pool = crate::runtime::cpu_pool(1).unwrap();
             let result = crate::save::run(thread, &pool, rx, &answer);
@@ -411,7 +413,7 @@ impl Harness {
         deliver(&mut self.state, &mut self.output, &mut log);
         boundary(&mut self.state, &mut self.output, &mut log);
         let requests = std::mem::take(&mut self.output.requests);
-        self.output.answers = disk.serve(requests);
+        self.output.answers = disk.serve(&self.state, requests);
     }
 
     /// Commits a snapshot of this server to `disk`, as the next tick boundary takes it.
@@ -425,7 +427,7 @@ impl Harness {
             .filter(|r| matches!(r, Request::Commit(_)))
             .collect();
         assert_eq!(commits.len(), 1, "one snapshot");
-        let answers = disk.serve(commits);
+        let answers = disk.serve(&self.state, commits);
         assert!(
             matches!(answers.as_slice(), [Response::Committed { .. }]),
             "{answers:?}"

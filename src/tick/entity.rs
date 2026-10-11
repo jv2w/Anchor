@@ -79,7 +79,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tracing::{debug, warn};
 
 pub use self::api::Mut;
-pub(crate) use self::custom::Customs;
+pub(crate) use self::custom::{Customs, EntityTypes};
 pub(super) use self::explosion::Blast;
 use self::kind::{Cause, Character, DEFAULT_DESPAWN_DELAY, Falling, Form, Item, Kind, NEVER, Orb};
 #[cfg(test)]
@@ -1022,6 +1022,41 @@ pub(super) struct Entities {
     experience: bool,
 }
 
+/// One compound of a chunk's saved entity list, read off the tick ([`read`]).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Saved(Read);
+
+/// What a saved compound is to the store.
+#[derive(Debug, Clone, PartialEq)]
+enum Read {
+    /// An entity, waiting for the store to give it a slot.
+    Entity(Box<saved::Loaded>),
+    /// Not an entity here: the store keeps the compound as saved.
+    Kept(Compound),
+}
+
+/// Reads the saved entity list of chunk `pos` for [`Entities::load`], in list order: off the
+/// tick, as it needs nothing of the tick's state. `types` are the server's custom entity types
+/// and `content` its custom content, which saved items are read through.
+pub(super) fn read(
+    pos: ChunkPos,
+    list: &[Compound],
+    types: &EntityTypes,
+    content: &crate::custom::Registry,
+) -> Vec<Saved> {
+    list.iter()
+        .map(|c| {
+            Saved(if let Some(l) = saved::load(c, pos, types, content) {
+                Read::Entity(Box::new(l))
+            } else {
+                #[cfg(test)]
+                super::rules::reads::add(|r| r.clones += 1);
+                Read::Kept(c.clone())
+            })
+        })
+        .collect()
+}
+
 impl Entities {
     /// The live entity `id` names, if it still exists.
     fn get(&self, id: Id) -> Option<&Entity> {
@@ -1223,18 +1258,21 @@ impl Entities {
         self.experience = on;
     }
 
-    /// A chunk's saved list arrived ([`mod@super::rules`]): its entities enter the store, waiting
-    /// for runtime IDs; compounds that are not entities here, and entities over the cap, are
-    /// kept as saved. Saved items are read through `content`, the server's custom content.
-    /// Without experience, saved orbs are dropped and the chunk is saved without them.
-    pub(super) fn load(&mut self, key: Key, list: &[Compound], content: &crate::custom::Registry) {
+    /// A chunk's saved list arrived ([`mod@super::rules`]), `saved` read from `list` off the
+    /// tick ([`read`]): its entities enter the store, waiting for runtime IDs; compounds that are
+    /// not entities here, and entities over the cap, are kept as saved. Without experience, saved
+    /// orbs are dropped and the chunk is saved without them.
+    pub(super) fn load(&mut self, key: Key, saved: Vec<Saved>, list: &[Compound]) {
         let mut kept = Vec::new();
         let mut over = 0usize;
         let mut dropped = false;
-        for c in list {
-            let Some(l) = saved::load(c, key.1, &self.custom, content) else {
-                kept.push(c.clone());
-                continue;
+        for (Saved(read), c) in saved.into_iter().zip(list) {
+            let l = match read {
+                Read::Entity(l) => *l,
+                Read::Kept(c) => {
+                    kept.push(c);
+                    continue;
+                }
             };
             if !self.experience && matches!(l.kind, Kind::ExperienceOrb(_)) {
                 dropped = true;
@@ -1242,6 +1280,8 @@ impl Entities {
             }
             if self.count(key.0) >= MAX_ENTITIES_PER_WORLD {
                 over += 1;
+                #[cfg(test)]
+                super::rules::reads::add(|r| r.clones += 1);
                 kept.push(c.clone());
                 continue;
             }
@@ -1292,6 +1332,18 @@ impl Entities {
             );
             self.kept.insert(key, kept);
         }
+    }
+
+    /// [`read`] with the store's custom entity types and [`Self::load`] in one.
+    #[cfg(test)]
+    pub(super) fn load_list(
+        &mut self,
+        key: Key,
+        list: &[Compound],
+        content: &crate::custom::Registry,
+    ) {
+        let saved = read(key.1, list, self.types(), content);
+        self.load(key, saved, list);
     }
 
     /// A chunk leaves: its entities leave the store (their viewers are sent the removal next
@@ -4556,7 +4608,12 @@ mod tests {
             let loaded: Vec<ChunkPos> = state.worlds[0].loaded().collect();
             for pos in loaded {
                 if let Some(extras) = state.chunks.extras.get((0, pos)).cloned() {
-                    state.rules.load((0, pos), &extras, &state.worlds[0]);
+                    let world = &state.worlds[0];
+                    let read =
+                        state
+                            .rules
+                            .read((0, pos), &extras, world.chunk(pos).unwrap(), world);
+                    state.rules.load((0, pos), read, &extras);
                 }
             }
             Self {
@@ -5198,7 +5255,7 @@ mod tests {
             h.take(1);
             let entities = &mut h.state.rules.entities;
             entities.unload(key);
-            entities.load(key, &list, &crate::custom::Registry::default());
+            entities.load_list(key, &list, &crate::custom::Registry::default());
             for _ in 0..3 {
                 h.step(Vec::new());
             }
@@ -5302,7 +5359,7 @@ mod tests {
         h.state
             .rules
             .entities
-            .load(key, &list, &crate::custom::Registry::default());
+            .load_list(key, &list, &crate::custom::Registry::default());
         assert_eq!(h.state.rules.entities.count(0), MAX_ENTITIES_PER_WORLD);
         assert_eq!(h.state.rules.entities.unload(key), None, "unchanged");
         // Not loaded or not a position: refused too.
@@ -5454,7 +5511,7 @@ mod tests {
         let kept = saved::load(
             saved[0],
             ChunkPos::new(10, 0),
-            &Customs::default(),
+            &EntityTypes::default(),
             &crate::custom::Registry::default(),
         )
         .unwrap();
@@ -5482,13 +5539,13 @@ mod tests {
         )]);
         let entities = &mut h.state.rules.entities;
         entities.unload(key);
-        entities.load(
+        entities.load_list(
             key,
             std::slice::from_ref(&pig),
             &crate::custom::Registry::default(),
         );
         assert_eq!(entities.unload(key), None, "nothing changed");
-        entities.load(
+        entities.load_list(
             key,
             std::slice::from_ref(&pig),
             &crate::custom::Registry::default(),
@@ -5505,7 +5562,7 @@ mod tests {
         h.state
             .rules
             .entities
-            .load(key, &list, &crate::custom::Registry::default());
+            .load_list(key, &list, &crate::custom::Registry::default());
         assert_eq!(h.live().len(), 1);
         assert_eq!(h.state.rules.entities.take_changed(), Vec::new());
         h.state.rules.entities.changed.insert(key);

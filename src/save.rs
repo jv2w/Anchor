@@ -3,7 +3,8 @@
 //!
 //! The tick sends [`Request`]s and gets [`Response`]s back as inputs of a later tick. Loads read
 //! a world's file in one read transaction per batch; chunks it does not hold are generated.
-//! Decoding, generating and encoding run on the CPU pool. A commit writes one snapshot, taken at
+//! Decoding, generating, reading the chunk extras into the tick's typed form ([`ChunkRules`]) and
+//! encoding run on the CPU pool. A commit writes one snapshot, taken at
 //! one tick boundary, to every data file it changes, one write transaction each, the main file
 //! last ([`commit`]); requests are handled in order, so commits land in the order they were
 //! taken. Nothing else writes a file: no event (a player leaving, a chunk unloading) saves a part
@@ -49,6 +50,7 @@ use crate::storage::{
     self, AccessKey, AccessKind, Batch, CHUNK_PREFIX, Checked, ChunkId, ChunkKey, ChunkKind,
     ChunkPart, ChunkValues, Key, MAX_WORLDS, Place, PlayerKey, Start, StartBackup, Storage,
 };
+use crate::tick::{ChunkRules, EntityTypes};
 use crate::world::{
     BlockPos, Chunk, ChunkPos, Entry, Generator, Kind, PLAINS, Paletted, SUB_CHUNKS, SubChunk,
     World,
@@ -151,6 +153,9 @@ impl ChunkExtras {
 pub(crate) struct Stored {
     /// The chunk's extras; empty when the file has none.
     pub(crate) extras: ChunkExtras,
+    /// The extras read into the rule modules' typed form on the CPU pool, so the tick only puts
+    /// them in its stores.
+    pub(crate) rules: ChunkRules,
     /// What the input log keeps of the values read: CRC-32C over the key bytes
     /// after the chunk's prefix and the seal checksum of each value found, in key order; 0 when
     /// none was found. A replay from the same file reads the same bytes and gets the same value.
@@ -609,15 +614,18 @@ pub(crate) struct Thread {
     /// The server's custom blocks, which saved unknown states are resolved against on the CPU
     /// pool as chunks load, before they are lit.
     custom: Arc<Registry>,
+    /// The server's custom entity types, which saved entities are read with on the CPU pool.
+    entity_types: Arc<EntityTypes>,
     /// The check being made over the open files (`/check`): what the files checked so far
     /// found.
     check: Option<Checked>,
 }
 
 impl Thread {
-    /// Gives the thread the server's custom content (none by default).
-    pub(crate) fn set_custom(&mut self, custom: Arc<Registry>) {
+    /// Gives the thread the server's custom content and custom entity types (none by default).
+    pub(crate) fn set_custom(&mut self, custom: Arc<Registry>, entity_types: Arc<EntityTypes>) {
         self.custom = custom;
+        self.entity_types = entity_types;
     }
 
     /// Sets whether chunks are lit as they load (`lighting`, on by default). With it off the
@@ -626,22 +634,45 @@ impl Thread {
         self.lighting = enabled;
     }
 
-    /// Loads chunks as the save thread does for a [`Request::Chunks`], lit as it lights them when
-    /// `lit` (a replay's loads after its start; the chunks a checkpoint names take their light
-    /// from it). A replay calls it on its own thread.
+    /// Loads chunks as the save thread does for a [`Request::Chunks`] (a replay's loads after its
+    /// start). A replay calls it on its own thread.
     pub(crate) fn load(
         &mut self,
         pool: &Pool,
         keys: &[(WorldIndex, ChunkPos)],
-        lit: bool,
     ) -> Result<Vec<Response>, storage::Error> {
+        let prepare = Prepare::Tick {
+            lighting: self.lighting,
+            entity_types: &self.entity_types,
+        };
+        let mut answers = Vec::with_capacity(keys.len());
+        load_chunks(&mut self.plans, pool, keys, &self.custom, prepare, |a| {
+            answers.push(a);
+            true
+        })?;
+        Ok(answers)
+    }
+
+    /// Loads chunks as they are stored: neither lit nor their extras read (a replay's start:
+    /// the chunks its checkpoint names take their light and typed state from it).
+    pub(crate) fn load_stored(
+        &mut self,
+        pool: &Pool,
+        keys: &[(WorldIndex, ChunkPos)],
+    ) -> Result<Vec<Response>, storage::Error> {
+        let mut answers = Vec::with_capacity(keys.len());
         load_chunks(
             &mut self.plans,
             pool,
             keys,
-            lit && self.lighting,
             &self.custom,
-        )
+            Prepare::Stored,
+            |a| {
+                answers.push(a);
+                true
+            },
+        )?;
+        Ok(answers)
     }
 
     /// Commits `snapshot` as the save thread does (a replay's files keep it in memory).
@@ -1067,6 +1098,7 @@ fn resolve(
             saved,
             lighting: true,
             custom: Arc::default(),
+            entity_types: Arc::default(),
             check: None,
         },
     })
@@ -1199,17 +1231,14 @@ pub(crate) fn run(
             continue;
         }
         let answers = match request {
-            Request::Chunks(keys) => {
-                let lighting = thread.lighting;
-                match load_chunks(&mut thread.plans, pool, &keys, lighting, &thread.custom) {
-                    Ok(answers) => answers,
-                    Err(e) => {
-                        error!(error = %e, "chunk read failed after its retries");
-                        failure = Some(e);
-                        vec![Response::LoadFailed]
-                    }
+            Request::Chunks(keys) => match load_requested(&mut thread, pool, &keys, responses) {
+                Ok(()) => continue,
+                Err(e) => {
+                    error!(error = %e, "chunk read failed after its retries");
+                    failure = Some(e);
+                    vec![Response::LoadFailed]
                 }
-            }
+            },
             Request::Worlds(worlds) => {
                 thread.add_worlds(&worlds);
                 continue;
@@ -1270,6 +1299,32 @@ pub(crate) fn run(
         }
     }
     closed
+}
+
+/// Loads the chunks of a [`Request::Chunks`] for the tick, sending each turn's answers as soon as
+/// the turn is done. A closed queue means the tick has ended and nothing waits for the rest.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "off-tick: the save thread waits for room for its answers"
+)]
+fn load_requested(
+    thread: &mut Thread,
+    pool: &Pool,
+    keys: &[(WorldIndex, ChunkPos)],
+    responses: &mpsc::Sender<Response>,
+) -> Result<(), storage::Error> {
+    let prepare = Prepare::Tick {
+        lighting: thread.lighting,
+        entity_types: &thread.entity_types,
+    };
+    load_chunks(
+        &mut thread.plans,
+        pool,
+        keys,
+        &thread.custom,
+        prepare,
+        |answer| responses.blocking_send(answer).is_ok(),
+    )
 }
 
 /// Whether an online backup or a check waits for its next step.
@@ -1423,18 +1478,37 @@ pub(crate) fn chunk_id(number: u32, pos: ChunkPos) -> ChunkId {
     }
 }
 
+/// What a load does on the CPU pool to the chunks it decoded or generated.
+#[derive(Clone, Copy)]
+enum Prepare<'a> {
+    /// What the tick takes: lit when `lighting`, and the extras read into the rule modules' form
+    /// ([`Stored::rules`]) with the server's custom entity types.
+    Tick {
+        lighting: bool,
+        entity_types: &'a EntityTypes,
+    },
+    /// Nothing: a replay's start takes the light and typed state from its checkpoint.
+    Stored,
+}
+
 /// Loads a batch: reads every value of the persistent worlds' chunks, in one read transaction per
 /// world file ([`Storage::read_chunks`] retries a failed read on the reopened file), then decodes
-/// or generates every chunk on the CPU pool, resolves its saved custom blocks and lights it. Only
-/// damage quarantines a chunk (and every chunk of a world whose file did not open); a read that
-/// fails after its retries fails the batch, answering none of its chunks.
+/// or generates every chunk on the CPU pool, resolves its saved custom blocks and prepares it as
+/// `prepare` says. Only damage quarantines a chunk (and every chunk of a world whose file did not
+/// open); a read that fails after its retries fails the batch, answering none of its chunks.
+///
+/// The chunks go through the pool one turn (a chunk per pool thread) at a time, and each turn's
+/// answers go to `send` in key order as soon as the turn is done, so a chunk waits only for the
+/// turns before its own. `send` returns false once nobody takes answers any more; the load then
+/// stops.
 fn load_chunks(
     plans: &mut [Plan],
     pool: &Pool,
     keys: &[(WorldIndex, ChunkPos)],
-    lighting: bool,
     custom: &Registry,
-) -> Result<Vec<Response>, storage::Error> {
+    prepare: Prepare<'_>,
+    mut send: impl FnMut(Response) -> bool,
+) -> Result<(), storage::Error> {
     let mut by_world: BTreeMap<WorldIndex, Vec<ChunkId>> = BTreeMap::new();
     for &(w, pos) in keys {
         if let Some(number) = plans.get(w).and_then(|p| p.number) {
@@ -1455,24 +1529,80 @@ fn load_chunks(
         .map(|&(w, pos)| (w, pos, read.get_mut(&w).and_then(Iterator::next)))
         .collect();
     let plans: &[Plan] = plans;
-    Ok(pool.map_in_turns(&items, |(world, pos, values)| {
-        let mut loaded = match (plans.get(*world), values) {
-            (None, _) => Loaded::Damaged,
-            (Some(plan), None) => Loaded::Generated(
-                Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, *pos)),
-                Stored::default(),
-            ),
-            (Some(plan), Some(values)) => decode_chunk(plan, *pos, values, custom),
-        };
-        if lighting && let Loaded::Generated(chunk, _) | Loaded::Disk(chunk, _) = &mut loaded {
-            chunk.populate_light();
+    for turn in items.chunks(pool.threads()) {
+        let mut answers = pool.map_in_turns(turn, |(world, pos, values)| {
+            let mut loaded = match (plans.get(*world), values) {
+                (None, _) => Loaded::Damaged,
+                (Some(plan), None) => Loaded::Generated(
+                    Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, *pos)),
+                    Stored::default(),
+                ),
+                (Some(plan), Some(values)) => decode_chunk(plan, *pos, values, custom),
+            };
+            if let Prepare::Tick { lighting: true, .. } = prepare
+                && let Loaded::Generated(chunk, _) | Loaded::Disk(chunk, _) = &mut loaded
+            {
+                chunk.populate_light();
+            }
+            Response::Chunk {
+                world: *world,
+                pos: *pos,
+                loaded,
+            }
+        });
+        if let Prepare::Tick { entity_types, .. } = prepare {
+            read_rules(pool, &mut answers, custom, entity_types);
         }
-        Response::Chunk {
-            world: *world,
-            pos: *pos,
-            loaded,
+        for answer in answers {
+            if !send(answer) {
+                return Ok(());
+            }
         }
-    }))
+    }
+    Ok(())
+}
+
+/// Reads the extras of the loaded chunks among `answers` into the rule modules' form
+/// ([`Stored::rules`]), with the server's custom content and entity types: one pool item per
+/// list that has entries, so an item costs at most one list's read (up to [`MAX_EXTRA_ENTRIES`]
+/// entries, a container's slots each), not a chunk's decode and light on top.
+fn read_rules(pool: &Pool, answers: &mut [Response], custom: &Registry, types: &EntityTypes) {
+    let jobs: Vec<_> = answers
+        .iter()
+        .enumerate()
+        .filter_map(|(i, answer)| match answer {
+            Response::Chunk {
+                world,
+                pos,
+                loaded: Loaded::Disk(chunk, stored) | Loaded::Generated(chunk, stored),
+            } => Some((i, (*world, *pos), &**chunk, &stored.extras)),
+            _ => None,
+        })
+        .flat_map(|(i, key, chunk, extras)| {
+            ChunkKind::EXTRAS
+                .into_iter()
+                .filter(|kind| !extras.get(*kind).is_empty())
+                .map(move |kind| (i, key, kind, chunk, extras))
+        })
+        .collect();
+    let parts = pool.map_in_turns(&jobs, |&(_, key, kind, chunk, extras)| {
+        ChunkRules::read_kind(key, kind, extras, chunk, custom, types)
+    });
+    // The answer each part is of; the jobs borrow the answers, which take the parts next.
+    let owners: Vec<usize> = jobs.iter().map(|job| job.0).collect();
+    drop(jobs);
+    let mut parts = owners.into_iter().zip(parts).peekable();
+    for (i, answer) in answers.iter_mut().enumerate() {
+        if let Response::Chunk {
+            loaded: Loaded::Disk(_, stored) | Loaded::Generated(_, stored),
+            ..
+        } = answer
+        {
+            while let Some((_, part)) = parts.next_if(|(j, _)| *j == i) {
+                stored.rules.add(part);
+            }
+        }
+    }
 }
 
 /// Decodes the values read for a chunk of a persistent world (in key order) and generates its
@@ -1965,7 +2095,50 @@ pub(crate) mod tests {
         Stored {
             extras,
             checksum: checksum.finish(),
+            rules: ChunkRules::default(),
         }
+    }
+
+    /// Commits `snapshot` to the world of [`plans`] in memory and loads `keys` from it as the
+    /// save thread does with the server's `custom` content and `entity_types`: the answers the
+    /// tick gets for them.
+    pub(crate) fn commit_and_load(
+        snapshot: &Snapshot,
+        keys: &[(WorldIndex, ChunkPos)],
+        custom: Arc<Registry>,
+        entity_types: Arc<EntityTypes>,
+    ) -> Vec<Response> {
+        use crate::storage::tests::{Disk, closed, memory};
+        let disk = Disk::default();
+        let pool = crate::runtime::cpu_pool(2).unwrap();
+        commit(&mut thread_on(memory(&disk)), &pool, snapshot).unwrap();
+        let mut thread = thread_on(closed(&disk));
+        thread.set_custom(custom, entity_types);
+        let answers = thread.load(&pool, keys).unwrap();
+        assert!(pool.shutdown());
+        answers
+    }
+
+    /// [`load_chunks`] for the tick, lit when `lighting`, without custom entity types: every
+    /// answer, in key order.
+    fn load_all(
+        plans: &mut [Plan],
+        pool: &Pool,
+        keys: &[(WorldIndex, ChunkPos)],
+        lighting: bool,
+        custom: &Registry,
+    ) -> Result<Vec<Response>, storage::Error> {
+        let entity_types = EntityTypes::default();
+        let prepare = Prepare::Tick {
+            lighting,
+            entity_types: &entity_types,
+        };
+        let mut answers = Vec::new();
+        load_chunks(plans, pool, keys, custom, prepare, |a| {
+            answers.push(a);
+            true
+        })?;
+        Ok(answers)
     }
 
     /// Random extras: each kind empty or a few random compounds.
@@ -2258,7 +2431,8 @@ pub(crate) mod tests {
             }
             assert_ne!(stored.checksum, 0);
         }
-        assert_eq!(*generated_stored, stored_as_read(0, only_extras, more));
+        let as_read = stored_as_read(0, only_extras, more);
+        assert_eq!(generated_stored.checksum, as_read.checksum);
         assert_eq!(*new_stored, Stored::default());
         assert_eq!(*temporary_stored, Stored::default());
         assert_eq!(*found, PlayerLoad::Found(data));
@@ -2847,6 +3021,7 @@ pub(crate) mod tests {
             },
             lighting: true,
             custom: Arc::default(),
+            entity_types: Arc::default(),
             check: None,
         }
     }
@@ -2999,7 +3174,7 @@ pub(crate) mod tests {
             ..Snapshot::default()
         };
         commit(&mut thread_on(memory(&disk)), &pool, &snapshot).unwrap();
-        let answers = load_chunks(
+        let answers = load_all(
             &mut plans(closed(&disk)),
             &pool,
             &[(0, pos)],
@@ -3038,7 +3213,7 @@ pub(crate) mod tests {
         let pos = ChunkPos::new(0, 1);
         let id = chunk_id(0, pos);
         let load = |world: &mut World| {
-            let answers = load_chunks(
+            let answers = load_all(
                 &mut plans(closed(&disk)),
                 &pool,
                 &[(0, pos)],
@@ -3120,7 +3295,7 @@ pub(crate) mod tests {
             values.into_iter().map(|v| v.0).collect::<Vec<_>>()
         };
         let load = || {
-            let answers = load_chunks(
+            let answers = load_all(
                 &mut plans(closed(&disk)),
                 &pool,
                 &[(0, pos)],
@@ -3204,7 +3379,7 @@ pub(crate) mod tests {
             let mut batch = Batch::default();
             fill(&mut batch);
             memory(&disk).commit(&batch).unwrap();
-            let answers = load_chunks(
+            let answers = load_all(
                 &mut plans(closed(&disk)),
                 &pool,
                 &[(0, pos)],
@@ -3250,7 +3425,7 @@ pub(crate) mod tests {
                 at,
             });
             let answers =
-                load_chunks(&mut plans, &pool, &[(0, pos)], false, &Registry::default()).unwrap();
+                load_all(&mut plans, &pool, &[(0, pos)], false, &Registry::default()).unwrap();
             assert!(
                 matches!(
                     &answers[..],
@@ -3264,6 +3439,41 @@ pub(crate) mod tests {
         assert!(pool.shutdown());
     }
 
+    /// A load answers turn by turn in key order, and stops once nobody takes its answers.
+    #[test]
+    fn a_load_answers_in_key_order_and_stops_when_nobody_takes_the_answers() {
+        use crate::storage::tests::{Disk, closed, memory};
+        let disk = Disk::default();
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        drop(memory(&disk));
+        let keys: Vec<_> = (0..3).map(|x| (0, ChunkPos::new(x, 0))).collect();
+        let types = EntityTypes::default();
+        let prepare = Prepare::Tick {
+            lighting: false,
+            entity_types: &types,
+        };
+        for taken in [1, 3] {
+            let mut sent = Vec::new();
+            let mut plans = plans(closed(&disk));
+            load_chunks(
+                &mut plans,
+                &pool,
+                &keys,
+                &Registry::default(),
+                prepare,
+                |a| {
+                    if let Response::Chunk { world, pos, .. } = a {
+                        sent.push((world, pos));
+                    }
+                    sent.len() < taken
+                },
+            )
+            .unwrap();
+            assert_eq!(sent, keys[..taken]);
+        }
+        assert!(pool.shutdown());
+    }
+
     #[test]
     fn a_batch_read_that_keeps_failing_fails_the_batch() {
         use crate::storage::tests::{Call, Disk, Fault, closed, memory};
@@ -3273,7 +3483,7 @@ pub(crate) mod tests {
         let mut plans = plans(closed(&disk));
         disk.arm(Fault::Every { call: Call::Read });
         let pos = ChunkPos::new(0, 1);
-        assert!(load_chunks(&mut plans, &pool, &[(0, pos)], false, &Registry::default()).is_err());
+        assert!(load_all(&mut plans, &pool, &[(0, pos)], false, &Registry::default()).is_err());
         // The first try and its three retries.
         assert!(disk.failed() >= 4, "only {} reads failed", disk.failed());
         assert!(pool.shutdown());

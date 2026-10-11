@@ -40,6 +40,11 @@ impl Pool {
         }
     }
 
+    /// The number of threads: the items of one turn of [`Self::map_in_turns`].
+    pub(crate) fn threads(&self) -> usize {
+        self.threads.max(1)
+    }
+
     /// `f` of every item, in item order, computed on the pool's threads. `f` sees shared
     /// references only, as the parallel tick phases are read-only. Fewer than two items are
     /// mapped on the calling thread, which saves the hand-off.
@@ -80,7 +85,7 @@ impl Pool {
         R: Send,
     {
         let f = &f;
-        let turn_len = self.threads.max(1);
+        let turn_len = self.threads();
         let mut out = Vec::with_capacity(items.len());
         let mut spawned: Vec<Option<R>> = Vec::with_capacity(turn_len - 1);
         for turn in items.chunks(turn_len) {

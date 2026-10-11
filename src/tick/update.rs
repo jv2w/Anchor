@@ -129,22 +129,25 @@ pub(super) enum Effect {
     Dropped(BlockPos, Stack),
 }
 
-impl Updates {
-    /// A chunk's saved list arrived ([`mod@super::rules`]): its scheduled updates are pending
-    /// again, in their saved order. Entries outside the chunk or the world height, or that repeat
-    /// a position, are left out; the list counts as unchanged until an update of the chunk
-    /// changes.
-    pub(super) fn load(&mut self, key: Key, list: &[Compound]) {
-        self.loaded.insert(key);
+/// A chunk's saved scheduled updates read off the tick ([`Parsed::read`]), for
+/// [`Updates::load`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct Parsed {
+    /// The well-formed entries in the chunk, position and due tick, in saved order.
+    entries: Vec<(BlockPos, u64)>,
+}
+
+impl Parsed {
+    /// Reads chunk `key`'s saved list, off the tick as it needs nothing of the tick's state: at
+    /// most [`BLOCKS_PER_CHUNK`] entries; those outside the chunk or the world height are left
+    /// out with a warning.
+    pub(super) fn read(key: Key, list: &[Compound]) -> Self {
         let (world, chunk) = key;
+        let mut entries = Vec::with_capacity(list.len().min(BLOCKS_PER_CHUNK));
         let mut skipped = 0usize;
         for entry in list.iter().take(BLOCKS_PER_CHUNK) {
             match parse(entry) {
-                Some((pos, due)) if pos.chunk() == chunk => {
-                    if !self.pending.contains_key(&(world, chunk, pos)) {
-                        self.insert(world, pos, due);
-                    }
-                }
+                Some((pos, due)) if pos.chunk() == chunk => entries.push((pos, due)),
                 _ => skipped += 1,
             }
         }
@@ -157,6 +160,28 @@ impl Updates {
                 "malformed scheduled block updates skipped"
             );
         }
+        Self { entries }
+    }
+}
+
+impl Updates {
+    /// A chunk's saved list arrived ([`mod@super::rules`]), read off the tick: its scheduled
+    /// updates are pending again, in their saved order. An entry that repeats a position is left
+    /// out; the list counts as unchanged until an update of the chunk changes.
+    pub(super) fn load(&mut self, key: Key, parsed: Parsed) {
+        self.loaded.insert(key);
+        let (world, chunk) = key;
+        for (pos, due) in parsed.entries {
+            if !self.pending.contains_key(&(world, chunk, pos)) {
+                self.insert(world, pos, due);
+            }
+        }
+    }
+
+    /// [`Parsed::read`] and [`Self::load`] in one.
+    #[cfg(test)]
+    pub(super) fn load_list(&mut self, key: Key, list: &[Compound]) {
+        self.load(key, Parsed::read(key, list));
     }
 
     /// A chunk leaves: drops its pending updates; its list if it changed since
@@ -368,6 +393,8 @@ impl super::checkpoint::Codec for Updates {
 
 /// A saved entry: its position and due tick, if well formed.
 fn parse(entry: &Compound) -> Option<(BlockPos, u64)> {
+    #[cfg(test)]
+    super::rules::reads::add(|r| r.updates += 1);
     let int = |key: &str| match entry.get(key)? {
         Value::Int(v) => Some(*v),
         _ => None,
@@ -1278,7 +1305,7 @@ mod tests {
                 assert!(!list.is_empty());
                 saved += list.len();
                 assert!(updates.pending.keys().all(|(_, c, _)| *c != key.1));
-                updates.load(key, &list);
+                updates.load_list(key, &list);
                 assert!(updates.take_changed().iter().all(|(k, _)| *k != key));
             }
         });
@@ -1290,7 +1317,7 @@ mod tests {
     fn saved_lists_round_trip_in_order_and_skip_malformed_entries() {
         let mut updates = Updates::default();
         let key = (0, ChunkPos::new(1, -1));
-        updates.load(key, &[]);
+        updates.load_list(key, &[]);
         let at = |x, y, z| BlockPos::new(16 + x, y, -16 + z);
         assert!(updates.schedule_at(0, at(1, 2, 3), 50));
         assert!(updates.schedule_at(0, at(4, 5, 6), 40));
@@ -1316,7 +1343,7 @@ mod tests {
         outside.insert(KEY_X.to_owned(), Value::Int(0));
         copy.push(outside);
         let mut again = Updates::default();
-        again.load(key, &copy);
+        again.load_list(key, &copy);
         let order = |u: &mut Updates| -> Vec<(BlockPos, u64)> {
             std::iter::from_fn(|| {
                 let (&(_, due, _), _) = u.queue.iter().next()?;
@@ -1353,7 +1380,7 @@ mod tests {
             assert!(state.rules.updates.loaded.is_empty());
             assert!(state.rules.updates.changed.is_empty());
             for key in keys {
-                state.rules.updates.load(key, &[]);
+                state.rules.updates.load_list(key, &[]);
             }
             assert_eq!(state.rules.updates.loaded.len(), start);
         }

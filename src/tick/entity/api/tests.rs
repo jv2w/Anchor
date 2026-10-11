@@ -4,7 +4,7 @@
 use super::super::kind::{Kind, Orb, Projectile as Thrown, Shot};
 use super::super::saved::tests::{kinds, stack};
 use super::super::tests::{Harness, adds, at, removes, standing};
-use super::super::{Customs, Entities, MAX_ENTITIES_PER_WORLD, create, saved};
+use super::super::{Entities, EntityTypes, MAX_ENTITIES_PER_WORLD, create, saved};
 use super::*;
 use crate::effect::Potion;
 use crate::entity::Projectile;
@@ -282,7 +282,7 @@ fn looks_change_at_once_reach_the_viewers_and_are_saved() {
     let loaded = saved::load(
         &saved,
         e.chunk,
-        &Customs::default(),
+        &EntityTypes::default(),
         &crate::custom::Registry::default(),
     )
     .unwrap();
@@ -703,7 +703,7 @@ fn human_npcs_show_their_skin_and_keep_it_across_a_save() {
     let loaded = saved::load(
         &saved,
         e.chunk,
-        &Customs::default(),
+        &EntityTypes::default(),
         &crate::custom::Registry::default(),
     )
     .unwrap();

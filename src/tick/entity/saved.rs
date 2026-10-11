@@ -49,7 +49,7 @@ use std::sync::Arc;
 
 use super::super::trade::Offers;
 use super::Entity;
-use super::custom::{self, Customs};
+use super::custom::{self, EntityTypes};
 use super::kind::{
     ARROW_LIFE, Arrow, Character, Cloud, Crystal, Custom, DEFAULT_DESPAWN_DELAY, Falling, Form,
     Item, Kind, MAX_CLOUD_EFFECTS, MAX_DESPAWN_DELAY, MAX_FUSE, MAX_NAME_TAG_BYTES, NEVER, Orb,
@@ -332,9 +332,11 @@ fn save_cloud(cloud: &Cloud, put: &mut impl FnMut(&str, Value)) {
 pub(super) fn load(
     c: &Compound,
     chunk: ChunkPos,
-    customs: &Customs,
+    types: &EntityTypes,
     content: &Registry,
 ) -> Option<Loaded> {
+    #[cfg(test)]
+    super::super::rules::reads::add(|r| r.entities += 1);
     let identifier = match c.get("identifier").or_else(|| c.get("id")) {
         Some(Value::String(s)) => s.as_str(),
         _ => return None,
@@ -371,7 +373,7 @@ pub(super) fn load(
         _ => 0,
     };
     let on_ground = matches!(c.get("OnGround"), Some(Value::Byte(b)) if *b != 0);
-    let mut kind = load_kind(c, identifier, customs, content)?;
+    let mut kind = load_kind(c, identifier, types, content)?;
     if let Kind::Painting(p) = kind
         && !hangs_at(c, p, position)
     {
@@ -444,7 +446,7 @@ fn load_looks(c: &Compound, kind: &Kind) -> Option<Looks> {
 fn load_kind(
     c: &Compound,
     identifier: &str,
-    customs: &Customs,
+    types: &EntityTypes,
     content: &Registry,
 ) -> Option<Kind> {
     Some(match identifier {
@@ -506,7 +508,7 @@ fn load_kind(
                 },
             },
         )),
-        _ => load_custom(c, identifier, customs)?,
+        _ => load_custom(c, identifier, types)?,
     })
 }
 
@@ -555,6 +557,8 @@ fn load_item(c: &Compound, content: &Registry) -> Option<Item> {
     let Some(Value::Compound(stack)) = c.get("Item") else {
         return None;
     };
+    #[cfg(test)]
+    super::super::rules::reads::add(|r| r.stacks += 1);
     let stack = Stack::from_nbt_with(stack, content).filter(|s| !s.is_empty())?;
     let pickup_delay = match c.get("PickupDelay") {
         Some(Value::Short(d)) => (*d).max(NEVER),
@@ -630,6 +634,8 @@ fn load_trident(c: &Compound, content: &Registry) -> Option<Trident> {
     let Some(Value::Compound(item)) = c.get("Trident") else {
         return None;
     };
+    #[cfg(test)]
+    super::super::rules::reads::add(|r| r.stacks += 1);
     let item = Stack::from_nbt_with(item, content).filter(|s| !s.is_empty())?;
     Some(Trident {
         item,
@@ -782,8 +788,8 @@ fn load_cloud(c: &Compound) -> Option<Cloud> {
 
 /// A custom entity of the registered type `identifier` (`None` for a type the server does not
 /// have, or data over [`custom::MAX_DATA_BYTES`]): an NPC's keys and its data.
-fn load_custom(c: &Compound, identifier: &str, customs: &Customs) -> Option<Kind> {
-    let spec = customs.find(identifier)?;
+fn load_custom(c: &Compound, identifier: &str, types: &EntityTypes) -> Option<Kind> {
+    let spec = types.find(identifier)?;
     let data = match c.get(DATA_KEY) {
         Some(Value::Compound(data)) if custom::fits(data) => data.clone(),
         Some(_) => return None,
@@ -1155,7 +1161,7 @@ pub(super) mod tests {
 
     /// [`load`] on a server without custom entities or custom items.
     fn vanilla_load(c: &Compound, chunk: ChunkPos) -> Option<Loaded> {
-        load(c, chunk, &Customs::default(), &Registry::default())
+        load(c, chunk, &EntityTypes::default(), &Registry::default())
     }
 
     /// The disk bytes of a compound (little-endian NBT, as chunk extras are written).
@@ -1250,7 +1256,7 @@ pub(super) mod tests {
         h.state
             .rules
             .entities
-            .load(key, &list, &Registry::default());
+            .load_list(key, &list, &Registry::default());
         h.step(Vec::new());
         let npc = |h: &Harness| {
             let entities = &h.state.rules.entities;

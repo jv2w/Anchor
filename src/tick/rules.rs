@@ -6,8 +6,11 @@
 //! typed state for the loaded chunks and offers the same three operations, which the chunk
 //! holder calls here:
 //!
-//! - `load(key, list)`: the chunk's saved list arrived (or came back from memory); build the
-//!   typed state from it (block entities also check their blocks, which the chunk holds).
+//! - `load(key, read)`: the chunk's saved list arrived (or came back from memory), already read
+//!   into the module's typed form ([`ChunkRules`]); put it in the store. The read needs nothing
+//!   of the tick's state (block entities check their blocks, which the chunk holds), so it runs
+//!   on the save thread's CPU pool as the chunk loads, one list per pool item; only a chunk that
+//!   comes back from memory is read on the tick ([`Rules::read`]).
 //! - `take_changed()`: before a save snapshot, every chunk whose typed state changed since the
 //!   last call, as the full NBT list to store; the module clears its own marks.
 //! - `unload(key)`: the chunk leaves; drop the typed state and return the list if it changed
@@ -15,13 +18,14 @@
 //!
 //! A module never touches the holder itself; this file copies lists both ways.
 
+use super::entity::EntityTypes;
 use super::extra::Extras;
 use super::view::Key;
 use super::{block_entity, entity, update};
 use crate::custom::Registry;
 use crate::save::ChunkExtras;
 use crate::storage::ChunkKind;
-use crate::world::World;
+use crate::world::{Chunk, World};
 
 /// The chunk-bound state of the rule modules.
 #[derive(Debug, Default)]
@@ -34,15 +38,88 @@ pub(super) struct Rules {
     pub(super) updates: update::Updates,
 }
 
+/// A chunk's extras read into the rule modules' typed form, for [`Rules::load`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct ChunkRules {
+    block_entities: block_entity::Parsed,
+    entities: Vec<entity::Saved>,
+    updates: update::Parsed,
+}
+
+/// One extras kind of a chunk read ([`ChunkRules::read_kind`]): one CPU pool item of a load.
+#[derive(Debug)]
+pub(crate) struct ChunkRulesPart(Part);
+
+#[derive(Debug)]
+enum Part {
+    BlockEntities(block_entity::Parsed),
+    Entities(Vec<entity::Saved>),
+    Updates(update::Parsed),
+}
+
+impl ChunkRules {
+    /// Reads every kind of `extras`, the extras of chunk `key` whose blocks are `blocks`, with the
+    /// server's custom content `custom` (saved items) and custom entity types `types`.
+    pub(crate) fn read(
+        key: Key,
+        extras: &ChunkExtras,
+        blocks: &Chunk,
+        custom: &Registry,
+        types: &EntityTypes,
+    ) -> Self {
+        let mut rules = Self::default();
+        for kind in ChunkKind::EXTRAS {
+            rules.add(Self::read_kind(key, kind, extras, blocks, custom, types));
+        }
+        rules
+    }
+
+    /// Reads the `kind` list of `extras` as [`Self::read`] does. An empty list reads as
+    /// [`ChunkRules::default`] has it, so a load reads only the lists that have entries.
+    pub(crate) fn read_kind(
+        key: Key,
+        kind: ChunkKind,
+        extras: &ChunkExtras,
+        blocks: &Chunk,
+        custom: &Registry,
+        types: &EntityTypes,
+    ) -> ChunkRulesPart {
+        let list = extras.get(kind);
+        ChunkRulesPart(match kind {
+            ChunkKind::BlockEntities => {
+                let block_of = |pos: crate::world::BlockPos| {
+                    let (x, z) = pos.local();
+                    blocks.block(x, pos.y, z)
+                };
+                Part::BlockEntities(block_entity::Parsed::read(key, list, block_of, custom))
+            }
+            ChunkKind::Entities => Part::Entities(entity::read(key.1, list, types, custom)),
+            ChunkKind::ScheduledUpdates => Part::Updates(update::Parsed::read(key, list)),
+        })
+    }
+
+    /// Takes in a kind read by [`Self::read_kind`].
+    pub(crate) fn add(&mut self, part: ChunkRulesPart) {
+        match part.0 {
+            Part::BlockEntities(read) => self.block_entities = read,
+            Part::Entities(read) => self.entities = read,
+            Part::Updates(read) => self.updates = read,
+        }
+    }
+}
+
 impl Rules {
-    /// A chunk and its extras are loaded (from the file or from memory). Saved items are read
-    /// with the world's custom content (a world without it, in tests, reads vanilla items only).
-    pub(super) fn load(&mut self, key: Key, extras: &ChunkExtras, world: &World) {
-        let Self {
-            block_entities,
-            entities,
-            updates,
-        } = self;
+    /// Reads a chunk's extras on the tick, as the save thread reads a loaded chunk's: for an
+    /// unsaved chunk that comes back from memory (and the tests' stand-ins of the save thread).
+    /// Saved items are read with `world`'s custom content (a world without it, in tests, reads
+    /// vanilla items only).
+    pub(super) fn read(
+        &self,
+        key: Key,
+        extras: &ChunkExtras,
+        blocks: &Chunk,
+        world: &World,
+    ) -> ChunkRules {
         // Built only for such a world: a registry builds the vanilla creative inventory, which
         // on every chunk load made a walking player's chunk loads cost milliseconds.
         let vanilla;
@@ -52,9 +129,24 @@ impl Rules {
             vanilla = Registry::default();
             &vanilla
         };
-        block_entities.load(key, extras.get(ChunkKind::BlockEntities), world, custom);
-        entities.load(key, extras.get(ChunkKind::Entities), custom);
-        updates.load(key, extras.get(ChunkKind::ScheduledUpdates));
+        ChunkRules::read(key, extras, blocks, custom, self.entities.types())
+    }
+
+    /// A chunk and its extras are loaded (from the file or from memory), `read` from `extras`.
+    pub(super) fn load(&mut self, key: Key, read: ChunkRules, extras: &ChunkExtras) {
+        let Self {
+            block_entities,
+            entities,
+            updates,
+        } = self;
+        let ChunkRules {
+            block_entities: read_block_entities,
+            entities: read_entities,
+            updates: read_updates,
+        } = read;
+        block_entities.load(key, read_block_entities);
+        entities.load(key, read_entities, extras.get(ChunkKind::Entities));
+        updates.load(key, read_updates);
     }
 
     /// A chunk unloads: changed typed state goes back to the holder before it lets the extras go.
@@ -136,3 +228,54 @@ impl Rules {
         updates.hash_into(h);
     }
 }
+
+/// What reading chunk extras did on the current thread (tests): the counting tests see which
+/// thread reads. Per thread, as tests run on threads side by side.
+#[cfg(test)]
+pub(super) mod reads {
+    use std::cell::Cell;
+
+    /// The reads counted since the last [`take`].
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub(in crate::tick) struct Reads {
+        /// Saved block entities read (`BlockEntity::read`).
+        pub(in crate::tick) block_entities: usize,
+        /// Saved entity compounds read (`saved::load`).
+        pub(in crate::tick) entities: usize,
+        /// Saved scheduled update entries read (`update::parse`).
+        pub(in crate::tick) updates: usize,
+        /// Saved stacks read by containers, spills and item entities (`Stack::from_nbt_with`).
+        pub(in crate::tick) stacks: usize,
+        /// Saved compounds of the extras lists cloned.
+        pub(in crate::tick) clones: usize,
+    }
+
+    thread_local! {
+        static READS: Cell<Reads> = const {
+            Cell::new(Reads {
+                block_entities: 0,
+                entities: 0,
+                updates: 0,
+                stacks: 0,
+                clones: 0,
+            })
+        };
+    }
+
+    /// Counts a read on this thread.
+    pub(in crate::tick) fn add(count: impl FnOnce(&mut Reads)) {
+        READS.with(|r| {
+            let mut reads = r.get();
+            count(&mut reads);
+            r.set(reads);
+        });
+    }
+
+    /// The reads counted on this thread since the last call.
+    pub(in crate::tick) fn take() -> Reads {
+        READS.with(Cell::take)
+    }
+}
+
+#[cfg(test)]
+mod tests;

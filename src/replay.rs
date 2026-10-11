@@ -241,7 +241,7 @@ pub(crate) fn run(
     let pool = runtime::cpu_pool(threads.cpu).map_err(start)?;
     let mut state = State::new(settings, shared, setup, opened.worlds, opened.tick);
     let mut disk = opened.thread;
-    disk.set_custom(Arc::clone(state.custom()));
+    disk.set_custom(Arc::clone(state.custom()), Arc::clone(state.entity_types()));
     let base_tick = checkpoint.tick();
     let extras = extras(&mut disk, &pool, &checkpoint)?;
     let mut receivers = BTreeMap::new();
@@ -406,7 +406,7 @@ fn extras(
 ) -> Result<BTreeMap<(usize, crate::world::ChunkPos), save::ChunkExtras>> {
     let keys: Vec<_> = checkpoint.loaded().chain(checkpoint.unsaved()).collect();
     let mut extras = BTreeMap::new();
-    for answer in disk.load(pool, &keys, false).map_err(storage)? {
+    for answer in disk.load_stored(pool, &keys).map_err(storage)? {
         let Response::Chunk { world, pos, loaded } = answer else {
             continue;
         };
@@ -573,7 +573,7 @@ impl Replayer {
             .collect();
         let mut loaded: BTreeMap<_, Loaded> = BTreeMap::new();
         if !keys.is_empty() {
-            for answer in self.disk.load(&self.pool, &keys, true).map_err(storage)? {
+            for answer in self.disk.load(&self.pool, &keys).map_err(storage)? {
                 if let Response::Chunk {
                     world,
                     pos,

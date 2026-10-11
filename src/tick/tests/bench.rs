@@ -41,7 +41,7 @@ const WALK: f64 = 0.215;
 const FEET: f64 = -60.0;
 
 /// The stand-in save thread of the measurements: chunks are generated and lit on the CPU pool
-/// (as `save::load_chunks` does), players are new, commits succeed.
+/// and their extras read (as `save::load_chunks` does), players are new, commits succeed.
 fn answer(state: &State, pool: &Pool, requests: Vec<Request>) -> Vec<Response> {
     let lighting = state.settings.lighting.is_calculated();
     let mut out = Vec::new();
@@ -60,16 +60,20 @@ fn answer(state: &State, pool: &Pool, requests: Vec<Request>) -> Vec<Response> {
         }
     }
     let seeds: Vec<i64> = state.worlds.iter().map(crate::world::World::seed).collect();
+    let (custom, types) = (&**state.custom(), &**state.entity_types());
     out.extend(pool.map(&chunks, |&(world, pos)| {
         let seed = seeds.get(world).copied().unwrap_or_default();
         let mut chunk = Box::new(Chunk::generate(&Flat, seed, pos));
         if lighting {
             chunk.populate_light();
         }
+        let mut stored = crate::tick::extra::tests::sample(world, pos);
+        stored.rules =
+            crate::tick::ChunkRules::read((world, pos), &stored.extras, &chunk, custom, types);
         Response::Chunk {
             world,
             pos,
-            loaded: Loaded::Generated(chunk, crate::tick::extra::tests::sample(world, pos)),
+            loaded: Loaded::Generated(chunk, stored),
         }
     }));
     out

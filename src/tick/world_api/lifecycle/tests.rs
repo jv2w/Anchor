@@ -13,7 +13,7 @@ use crate::event::{ChunkLoad, Event, Listeners, Priority};
 use crate::math::Vec3;
 use crate::pool::Pool;
 use crate::protocol::packet::Packet as P;
-use crate::save::{Loaded, Request, Response};
+use crate::save::{Request, Response};
 use crate::tick::queue::{Input, InputKind, Outbound, SessionId, outbound_queue};
 use crate::tick::tests::{
     answer, initialised, join, new_state, radius, received, settings, shared, tick,
@@ -1268,13 +1268,15 @@ fn replay(ticks: &[LoggedTick], pool: &Pool) -> Vec<u64> {
                 crate::tick::Answer::Chunk { world, pos, .. } => Response::Chunk {
                     world: *world,
                     pos: *pos,
-                    loaded: Loaded::Generated(
+                    loaded: crate::tick::extra::tests::sample_loaded(
+                        &state,
+                        *world,
+                        *pos,
                         Box::new(crate::world::Chunk::generate(
                             &Flat,
                             state.worlds[*world].seed(),
                             *pos,
                         )),
-                        crate::tick::extra::tests::sample(*world, *pos),
                     ),
                 },
                 crate::tick::Answer::Committed(start) => Response::Committed { start: *start },

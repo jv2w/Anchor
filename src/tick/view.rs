@@ -876,8 +876,9 @@ fn hold(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules, key: Key) 
     if let Some(Unsaved { chunk, extras, .. }) = chunks.unsaved.remove(&key)
         && let Some(world) = worlds.get_mut(key.0)
     {
+        let read = rules.read(key, extras.extras(), &chunk, world);
         world.restore_chunk(key.1, chunk);
-        rules.load(key, extras.extras(), world);
+        rules.load(key, read, extras.extras());
         chunks.extras.chunk_restored(key, extras);
         if chunks.heard.load {
             chunks.loads.entry(key).or_insert(false);
@@ -1222,7 +1223,7 @@ pub(super) fn loaded(state: &mut State, world: WorldIndex, pos: ChunkPos, loaded
     match loaded {
         Loaded::Disk(chunk, stored) | Loaded::Generated(chunk, stored) => {
             w.insert_chunk(pos, *chunk);
-            state.rules.load(key, &stored.extras, w);
+            state.rules.load(key, stored.rules, &stored.extras);
             state.chunks.extras.chunk_loaded(key, stored.extras);
             if state.chunks.heard.load {
                 state.chunks.loads.insert(key, generated);
@@ -2111,8 +2112,8 @@ mod tests {
     fn hold_loaded(state: &mut State, key: Key) {
         hold(&mut state.worlds, &mut state.chunks, &mut state.rules, key);
         let chunk = Box::new(Chunk::generate(&Flat, 0, key.1));
-        let stored = crate::tick::extra::tests::sample(key.0, key.1);
-        loaded(state, key.0, key.1, Loaded::Generated(chunk, stored));
+        let answer = crate::tick::extra::tests::sample_loaded(state, key.0, key.1, chunk);
+        loaded(state, key.0, key.1, answer);
     }
 
     fn let_go(state: &mut State, key: Key) {

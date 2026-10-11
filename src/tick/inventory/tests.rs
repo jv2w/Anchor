@@ -95,7 +95,11 @@ impl World {
                 .get((0, pos))
                 .cloned()
                 .unwrap_or_default();
-            state.rules.load((0, pos), &extras, &state.worlds[0]);
+            let world = &state.worlds[0];
+            let read = state
+                .rules
+                .read((0, pos), &extras, world.chunk(pos).unwrap(), world);
+            state.rules.load((0, pos), read, &extras);
         }
         Self {
             state,

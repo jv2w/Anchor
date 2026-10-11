@@ -63,15 +63,30 @@ pub(super) struct Spec {
     pub(super) tick_period: u32,
 }
 
+/// The custom entity types of a server without their behaviours: what reading a saved entity
+/// needs, so the save thread reads loaded chunks with them too. Fixed when the server is built.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct EntityTypes {
+    /// The types in registration order.
+    types: Vec<Arc<Spec>>,
+    /// Type index by identifier.
+    by_name: BTreeMap<String, u16>,
+}
+
+impl EntityTypes {
+    /// The type named `identifier`.
+    pub(super) fn find(&self, identifier: &str) -> Option<&Arc<Spec>> {
+        self.types.get(usize::from(*self.by_name.get(identifier)?))
+    }
+}
+
 /// The custom entity types of a server, fixed when it is built.
 #[derive(Default)]
 pub(crate) struct Customs {
-    /// The types in registration order.
-    types: Vec<Arc<Spec>>,
+    /// The types, shared with the save thread once the server is built.
+    types: Arc<EntityTypes>,
     /// The behaviour of each type (`None` without one, or while it runs).
     behaviours: Vec<Option<Box<dyn Behaviour>>>,
-    /// Type index by identifier.
-    by_name: BTreeMap<String, u16>,
     /// The first registration that was refused, reported by [`Self::finish`].
     refused: Option<Error>,
 }
@@ -79,7 +94,7 @@ pub(crate) struct Customs {
 impl fmt::Debug for Customs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Customs")
-            .field("types", &self.by_name.keys().collect::<Vec<_>>())
+            .field("types", &self.types.by_name.keys().collect::<Vec<_>>())
             .finish_non_exhaustive()
     }
 }
@@ -106,8 +121,11 @@ impl Customs {
                     tick_period,
                     behaviour,
                 } = entity;
-                self.by_name.insert(identifier.clone(), index);
-                self.types.push(Arc::new(Spec {
+                // Registration ends before the server is built, so nothing shares the types yet
+                // and this never copies them.
+                let types = Arc::make_mut(&mut self.types);
+                types.by_name.insert(identifier.clone(), index);
+                types.types.push(Arc::new(Spec {
                     index,
                     identifier,
                     summonable,
@@ -143,13 +161,14 @@ impl Customs {
                 identifier: identifier.clone(),
             });
         }
-        if self.by_name.contains_key(identifier) {
+        let types = &self.types.types;
+        if self.types.by_name.contains_key(identifier) {
             return Err(Error::DuplicateIdentifier {
                 identifier: identifier.clone(),
             });
         }
-        let index = (self.types.len() < MAX_TYPES)
-            .then(|| u16::try_from(self.types.len()).ok())
+        let index = (types.len() < MAX_TYPES)
+            .then(|| u16::try_from(types.len()).ok())
             .flatten()
             .ok_or(Error::TooManyTypes)?;
         let size = |v: f64| v > 0.0 && v <= MAX_SIZE;
@@ -184,7 +203,12 @@ impl Customs {
 
     /// The type named `identifier`.
     pub(super) fn find(&self, identifier: &str) -> Option<&Arc<Spec>> {
-        self.types.get(usize::from(*self.by_name.get(identifier)?))
+        self.types.find(identifier)
+    }
+
+    /// The types without their behaviours.
+    pub(crate) fn types(&self) -> &Arc<EntityTypes> {
+        &self.types
     }
 
     /// The `AvailableActorIdentifiers` list: `base` (the vanilla list, network NBT
@@ -192,7 +216,8 @@ impl Customs {
     /// add-on's entities (`bid` empty, `hasspawnegg`, `id`, `rid` after the largest vanilla one,
     /// `summonable`). Without types it is `base`, byte for byte.
     pub(crate) fn identifier_list(&self, base: &[u8]) -> protocol::Result<Vec<u8>> {
-        if self.types.is_empty() {
+        let types = &self.types.types;
+        if types.is_empty() {
             return Ok(base.to_vec());
         }
         let mut root = Reader::new(base, LIST_BUDGET, 0).nbt(nbt::Encoding::NetworkLittleEndian)?;
@@ -210,8 +235,8 @@ impl Customs {
             })
             .max()
             .unwrap_or(0);
-        list.reserve(self.types.len());
-        for spec in &self.types {
+        list.reserve(types.len());
+        for spec in types {
             rid = rid.saturating_add(1);
             list.push(Compound::from([
                 ("bid".to_owned(), Value::String(String::new())),
@@ -277,6 +302,11 @@ impl Entities {
     /// with them; [`Self::set_customs`] gives them back.
     pub(crate) fn take_customs(&mut self) -> Customs {
         std::mem::take(&mut self.custom)
+    }
+
+    /// The custom entity types without their behaviours: what reading saved entities needs.
+    pub(in crate::tick) fn types(&self) -> &Arc<EntityTypes> {
+        self.custom.types()
     }
 }
 

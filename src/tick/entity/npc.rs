@@ -444,7 +444,7 @@ mod tests {
         h.state
             .rules
             .entities
-            .load(key, &all, &crate::custom::Registry::default());
+            .load_list(key, &all, &crate::custom::Registry::default());
         h.state.rules.entities.changed.insert(key);
         let again = h.state.rules.entities.take_changed();
         let second = ours(&again[0].1);
@@ -868,7 +868,11 @@ mod tests {
         let loaded: Vec<ChunkPos> = fresh.worlds[0].loaded().collect();
         for pos in loaded {
             if let Some(extras) = fresh.chunks.extras.get((0, pos)).cloned() {
-                fresh.rules.load((0, pos), &extras, &fresh.worlds[0]);
+                let world = &fresh.worlds[0];
+                let read = fresh
+                    .rules
+                    .read((0, pos), &extras, world.chunk(pos).unwrap(), world);
+                fresh.rules.load((0, pos), read, &extras);
             }
         }
         assert!(crate::tick::checkpoint::tests::assert_round_trip(

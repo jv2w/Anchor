@@ -278,7 +278,9 @@ impl Server {
             config.developer.console_input,
             log.is_some(),
         ));
-        opened.thread.set_custom(Arc::clone(state.custom()));
+        opened
+            .thread
+            .set_custom(Arc::clone(state.custom()), Arc::clone(state.entity_types()));
         let save_pool = Arc::clone(&pool);
         let save_thread = runtime::spawn_save(move || {
             save::run(opened.thread, &save_pool, request_queue, &responder)

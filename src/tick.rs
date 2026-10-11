@@ -57,8 +57,10 @@ pub(crate) use self::log::{
 };
 #[cfg(test)]
 pub(crate) use entity::Customs;
+pub(crate) use entity::EntityTypes;
 pub use entity::{Entity, Mut};
 use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId};
+pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::Shared;
 pub use task::Context;
 pub(crate) use task::Tasks;
@@ -555,6 +557,11 @@ impl State {
     /// The custom content, which the save thread also resolves saved custom blocks against.
     pub(crate) fn custom(&self) -> &std::sync::Arc<crate::custom::Registry> {
         &self.custom
+    }
+
+    /// The custom entity types, which the save thread also reads saved entities with.
+    pub(crate) fn entity_types(&self) -> &std::sync::Arc<EntityTypes> {
+        self.rules.entities.types()
     }
 
     /// A hash of everything a replay must reproduce, independent of thread count, OS and the
@@ -1512,9 +1519,13 @@ mod tests {
         for x in -PRELOADED..=PRELOADED {
             for z in -PRELOADED..=PRELOADED {
                 let pos = ChunkPos::new(center.x + x, center.z + z);
-                state.worlds[0].insert_chunk(pos, Chunk::generate(&Flat, 0, pos));
+                let chunk = Chunk::generate(&Flat, 0, pos);
                 let extras = extra::tests::sample(0, pos).extras;
-                state.rules.load((0, pos), &extras, &state.worlds[0]);
+                let read = state
+                    .rules
+                    .read((0, pos), &extras, &chunk, &state.worlds[0]);
+                state.worlds[0].insert_chunk(pos, chunk);
+                state.rules.load((0, pos), read, &extras);
                 state.chunks.extras.chunk_loaded((0, pos), extras);
             }
         }
@@ -1533,7 +1544,7 @@ mod tests {
                         out.push(Response::Chunk {
                             world,
                             pos,
-                            loaded: Loaded::Generated(chunk, extra::tests::sample(world, pos)),
+                            loaded: extra::tests::sample_loaded(state, world, pos, chunk),
                         });
                     }
                 }
@@ -3045,7 +3056,7 @@ mod tests {
                                 let stored = extra::tests::sample(*world, *pos);
                                 assert_eq!(stored.checksum, *checksum);
                                 let chunk = Box::new(Chunk::generate(&Flat, seed, *pos));
-                                Loaded::Generated(chunk, stored)
+                                extra::tests::sample_loaded(&state, *world, *pos, chunk)
                             }
                         },
                     },

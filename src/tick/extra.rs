@@ -354,6 +354,22 @@ pub(super) mod tests {
         crate::save::tests::stored_as_read(u32::try_from(world).unwrap(), pos, extras)
     }
 
+    /// The answer the stand-in save thread gives for the generated `chunk` at `pos`: [`sample`],
+    /// read with the world's custom content and the server's entity types as the save thread
+    /// reads it.
+    pub(in crate::tick) fn sample_loaded(
+        state: &State,
+        world: WorldIndex,
+        pos: ChunkPos,
+        chunk: Box<crate::world::Chunk>,
+    ) -> crate::save::Loaded {
+        let mut stored = sample(world, pos);
+        stored.rules = state
+            .rules
+            .read((world, pos), &stored.extras, &chunk, &state.worlds[world]);
+        crate::save::Loaded::Generated(chunk, stored)
+    }
+
     /// Runs ticks without the network; the stand-in save thread answers loads and keeps the
     /// commits unanswered for the test to answer.
     struct Driver {
