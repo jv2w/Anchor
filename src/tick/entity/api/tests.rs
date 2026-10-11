@@ -1041,6 +1041,28 @@ fn a_held_item_shown_now_is_not_sent_again_by_the_tracking_pass() {
     assert!(equipment(&h.take(2), one).is_empty());
 }
 
+#[test]
+fn a_held_item_shown_while_a_viewer_is_hidden_reaches_it_once_shown_again() {
+    let mut h = two_players();
+    let (p1, p2) = (player_of(1), player_of(2));
+    let one = h.runtime_id(1);
+    let mut ctx = context(&mut h);
+    assert!(ctx.hide_player(p2, p1));
+    ctx.player_mut(p1)
+        .unwrap()
+        .inventory_mut(crate::inventory::Kind::Main)
+        .set(0, stack("minecraft:stick", 2))
+        .unwrap();
+    assert!(ctx.show_held_item(p1));
+    assert!(ctx.show_player(p2, p1));
+    h.step(Vec::new());
+    assert_eq!(
+        equipment(&h.take(2), one),
+        [(0, 0, 2, 0)],
+        "its client never removed the player, so the pass sends it the change"
+    );
+}
+
 /// A hit that is not a finite number is refused, so no health becomes infinite.
 #[test]
 fn infinite_damage_is_refused() {

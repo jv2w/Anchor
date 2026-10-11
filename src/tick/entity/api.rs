@@ -1902,9 +1902,10 @@ impl Context<'_> {
     /// Shows [`player_viewers`](Self::player_viewers) of `player` its held item now, as BDS
     /// answers a selection of the slot already held: `MobEquipment` of the held slot without a
     /// stack network ID, and of the off hand (window 119) when it is not empty. What was sent
-    /// becomes what the next tracking pass compares with, so it is not sent again; a viewer
-    /// skipped for a nearly full outbox leaves that as it was, so the pass still sends a change.
-    /// False if `player` is not online.
+    /// becomes what the next tracking pass compares with, so it is not sent again. A viewer
+    /// skipped for a nearly full outbox, or hidden from `player` since that pass (its client
+    /// shows `player` until the pass, and still does if it is shown again first), leaves that as
+    /// it was, so the pass still sends a change. False if `player` is not online.
     pub fn show_held_item(&mut self, player: player::Id) -> bool {
         let Some(p) = self.player(player) else {
             return false;
@@ -1917,7 +1918,9 @@ impl Context<'_> {
         let target = player.session();
         let State { players, rules, .. } = &mut *self.state;
         let mut skipped = false;
+        let mut shown = 0_usize;
         for (s, _) in shown_to(&rules.entities, target) {
+            shown = shown.saturating_add(1);
             let Some(viewer) = players.get_mut(&s) else {
                 continue;
             };
@@ -1929,7 +1932,10 @@ impl Context<'_> {
                 }
             }
         }
-        if !skipped && let Some(w) = rules.entities.watched.get_mut(&target) {
+        if let Some(w) = rules.entities.watched.get_mut(&target)
+            && !skipped
+            && shown == w.viewers.len()
+        {
             w.held = held;
             w.held_slot = slot;
             if off_hand_packet.is_some() {
