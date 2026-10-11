@@ -379,16 +379,17 @@ const READ_ON_THE_TICK_BEFORE: [Reads; 2] = [
 ];
 
 /// The outcome of the fixture with the code before the reads moved to the save thread (state
-/// hash, rules hash, client bytes, changed lists), recorded from that code.
+/// hash, rules hash, client bytes, changed lists), recorded from that code; the state hash in the
+/// form the state hash has now, which also hashes the command soft enums.
 const OUTCOME_BEFORE: [[u64; 4]; 2] = [
     [
-        0x5d93_9671_9993_009f,
+        0xc747_0349_35aa_e81f,
         0x5444_11df_ed6d_3c72,
         0xc4d0_b7b4_ec98_80fa,
         0xd918_290c_b7b6_6526,
     ],
     [
-        0xeaae_ed6b_3317_0571,
+        0x5c22_e14d_8bdd_d171,
         0xd318_1109_74c6_4664,
         0xc4d0_b7b4_ec98_80fa,
         0x4d77_8f37_abd2_cb55,
