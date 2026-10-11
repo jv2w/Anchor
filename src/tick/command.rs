@@ -34,8 +34,10 @@ use crate::console::text;
 use crate::math::Vec3;
 use crate::permission::{self, BanEntry, Permission};
 use crate::player::{self, MAX_TEXT};
-use crate::protocol::consts::{CommandOutputType, DisconnectReason};
-use crate::protocol::packet::{CommandOutput, CommandRequest, Disconnect, Packet, SetDifficulty};
+use crate::protocol::consts::{CommandOutputType, DisconnectReason, SoftEnumAction};
+use crate::protocol::packet::{
+    CommandOutput, CommandRequest, Disconnect, Packet, SetDifficulty, UpdateSoftEnum,
+};
 use crate::protocol::{COMMAND_DESCRIPTION_MAX_LEN, CommandOrigin, CommandOutputMessage};
 use crate::random::{self, Random};
 use crate::save::{AccessData, AccessWrite};
@@ -94,6 +96,10 @@ pub(crate) struct Commands {
     grants: Grants,
     /// Players whose permissions changed this tick: they get `AvailableCommands` again.
     resend: BTreeSet<SessionId>,
+    /// The values of each soft enum of the catalog ([`Context::set_soft_enum`]), not saved.
+    soft_values: Vec<Vec<String>>,
+    /// Soft enums set this tick: every player gets their values again.
+    soft_changed: BTreeSet<usize>,
     /// Commands run since start: the key of `@r`'s random stream.
     runs: u64,
     /// The operator list, the bans and the whitelist.
@@ -118,6 +124,8 @@ impl Default for Commands {
             catalog: available::Catalog::default(),
             grants: BTreeMap::new(),
             resend: BTreeSet::new(),
+            soft_values: Vec::new(),
+            soft_changed: BTreeSet::new(),
             runs: 0,
             access: Access::default(),
             auto_save: true,
@@ -194,6 +202,7 @@ impl Commands {
             return Err(e);
         }
         self.catalog = available::Catalog::new(&self.list, &self.names)?;
+        self.soft_values = vec![Vec::new(); self.catalog.soft_count()];
         Ok(())
     }
 
@@ -204,6 +213,7 @@ impl Commands {
             catalog: &self.catalog,
             grants: &self.grants,
             access: &self.access,
+            soft_values: &self.soft_values,
         }
     }
 
@@ -229,7 +239,8 @@ impl Commands {
         self.stopping
     }
 
-    /// Hashes the state (state hash): grants, pending resends, the run count, the lists and the
+    /// Hashes the state (state hash): grants, pending resends, the soft enums, the run count, the
+    /// lists and the
     /// save and stop switches. The commands and permissions are code, fixed at build; the names
     /// and the catalog are tables; the start tick belongs to the process (a replay starts its
     /// own), like the uptime it gives.
@@ -245,6 +256,8 @@ impl Commands {
             catalog: _,
             grants,
             resend,
+            soft_values,
+            soft_changed,
             runs,
             access,
             auto_save,
@@ -263,6 +276,17 @@ impl Commands {
         h.usize(resend.len());
         for session in resend {
             h.u64(session.get());
+        }
+        h.usize(soft_values.len());
+        for values in soft_values {
+            h.usize(values.len());
+            for value in values {
+                h.bytes(value.as_bytes());
+            }
+        }
+        h.usize(soft_changed.len());
+        for &index in soft_changed {
+            h.usize(index);
         }
         h.u64(*runs);
         access.hash_into(h);
@@ -285,6 +309,8 @@ impl Commands {
             catalog: _,
             grants,
             resend,
+            soft_values,
+            soft_changed,
             runs,
             access,
             auto_save,
@@ -301,6 +327,8 @@ impl Commands {
             }
         }
         resend.encode(w);
+        soft_values.encode(w);
+        soft_changed.encode(w);
         runs.encode(w);
         access.encode(w);
         auto_save.encode(w);
@@ -309,7 +337,7 @@ impl Commands {
     }
 
     /// Reads what [`Self::checkpoint`] wrote into the commands registered at build. A grant
-    /// names a registered permission.
+    /// names a registered permission, and the soft enums are the catalog's.
     pub(super) fn restore(&mut self, r: &mut Reader<'_>) -> checkpoint::Result<()> {
         let players = r.len()?;
         let mut grants = Grants::new();
@@ -329,6 +357,16 @@ impl Commands {
         }
         self.grants = grants;
         self.resend = Codec::decode(r)?;
+        let soft_values: Vec<Vec<String>> = Codec::decode(r)?;
+        if soft_values.len() != self.catalog.soft_count() {
+            return Err(checkpoint::Error::Format("soft enums"));
+        }
+        self.soft_values = soft_values;
+        let soft_changed: BTreeSet<usize> = Codec::decode(r)?;
+        if soft_changed.iter().any(|&i| i >= self.soft_values.len()) {
+            return Err(checkpoint::Error::Format("changed soft enum"));
+        }
+        self.soft_changed = soft_changed;
         self.runs = Codec::decode(r)?;
         self.access = Codec::decode(r)?;
         self.auto_save = Codec::decode(r)?;
@@ -865,9 +903,29 @@ pub(super) fn console(state: &mut State, line: &str) {
 }
 
 /// The end of the tick's serial phases: players whose permissions changed get
-/// `AvailableCommands` again (only after their spawn window, which carries the first one).
+/// `AvailableCommands` again, and every player the soft enums set this tick (only after their
+/// spawn window, which carries the first ones).
 pub(super) fn sync(state: &mut State) {
     state.commands.started.get_or_insert(state.tick);
+    for index in std::mem::take(&mut state.commands.soft_changed) {
+        let commands = &state.commands;
+        let (Some(name), Some(values)) = (
+            commands.catalog.soft_name(index),
+            commands.soft_values.get(index),
+        ) else {
+            continue;
+        };
+        let packet = Packet::UpdateSoftEnum(UpdateSoftEnum {
+            enum_type: name.to_owned(),
+            options: values.clone(),
+            action_type: u8::from(SoftEnumAction::Set),
+        });
+        for player in state.players.values_mut() {
+            if player.chunk_radius.is_some() {
+                player.send_packet(packet.clone());
+            }
+        }
+    }
     for session in std::mem::take(&mut state.commands.resend) {
         let Some(player) = state.players.get(&session) else {
             continue;
@@ -1069,6 +1127,36 @@ impl Context<'_> {
     #[doc(alias = "SimpleCommandMap::getCommands")]
     pub fn commands(&self) -> impl Iterator<Item = &Command> {
         self.state.commands.list.iter()
+    }
+
+    /// Sets the values the client suggests for the soft enum type `name` of a
+    /// [`Param::soft_enumeration`](command::Param::soft_enumeration), in order; every player's
+    /// list follows at the end of the tick. Not saved: none at start. Fails with
+    /// [`Error::InvalidSoftEnum`], changing nothing, if no registered command takes `name`, or a
+    /// value is empty or holds spaces, or there are more than 4,096.
+    pub fn set_soft_enum(&mut self, name: &str, values: &[&str]) -> command::Result<()> {
+        let commands = &mut self.state.commands;
+        let invalid = || Error::InvalidSoftEnum {
+            name: name.to_owned(),
+        };
+        let index = commands.catalog.soft_enum(name).ok_or_else(invalid)?;
+        if values.len() > MAX_ENUM_VALUES
+            || values
+                .iter()
+                .any(|v| v.is_empty() || v.chars().any(char::is_whitespace))
+        {
+            return Err(invalid());
+        }
+        let current = commands.soft_values.get_mut(index).ok_or_else(invalid)?;
+        if current
+            .iter()
+            .map(String::as_str)
+            .ne(values.iter().copied())
+        {
+            *current = values.iter().map(|v| (*v).to_owned()).collect();
+            commands.soft_changed.insert(index);
+        }
+        Ok(())
     }
 
     /// The registered permission named `name`.

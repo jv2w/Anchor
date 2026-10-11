@@ -268,7 +268,7 @@ pub(crate) fn fit(
         let raw = match &param.kind {
             Kind::Int => Raw::Value(Value::Int(text.parse().map_err(|_| bad)?)),
             Kind::Float => Raw::Value(Value::Float(number(text).ok_or(bad)?)),
-            Kind::String => Raw::Value(Value::Text(text.to_owned())),
+            Kind::String | Kind::SoftEnum { .. } => Raw::Value(Value::Text(text.to_owned())),
             Kind::Bool => Raw::Value(Value::Bool(if text.eq_ignore_ascii_case("true") {
                 true
             } else if text.eq_ignore_ascii_case("false") {

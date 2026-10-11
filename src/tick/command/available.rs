@@ -7,6 +7,9 @@
 //! their values sit in shared tables, each once. A player's packet only picks the commands it
 //! may use and renumbers the enums and values they use, in first-use order, copying their texts.
 //!
+//! Soft enums (BDS's dynamic enums) are named in the catalog; their values are the commands' state
+//! ([`Listing::soft_values`]), set while the server runs, so each packet copies them.
+//!
 //! The names take BDS's shape (P6): a command's aliases enum is `<name>CommandAliases` with the
 //! name first, and a `CommandName` enum lists every name and alias the player may type. `help` is
 //! listed there but not sent as a command: the client has its own `/help`, and neither BDS nor PMMP
@@ -24,7 +27,9 @@ use crate::command::{self, Command, Error, Kind, Param};
 use crate::permission::Permission;
 use crate::protocol::consts::{CommandArg, CommandArgType, CommandPermissionLevel, ParamOption};
 use crate::protocol::packet::{AvailableCommands, Packet};
-use crate::protocol::{Command as NetCommand, CommandEnum, CommandOverload, CommandParameter};
+use crate::protocol::{
+    Command as NetCommand, CommandEnum, CommandOverload, CommandParameter, DynamicEnum,
+};
 use crate::tick::Player;
 use crate::tick::queue::SessionId;
 
@@ -50,6 +55,8 @@ pub(crate) struct Catalog {
     commands: Vec<Entry>,
     /// The number suffixes (`/xp`'s `l`), each once; few, so every packet carries them all.
     suffixes: Vec<String>,
+    /// Every soft enum's type name once, in first-use order over all commands.
+    soft: Vec<String>,
 }
 
 /// An enum of the catalog: its type name and its values' positions in [`Catalog::values`].
@@ -76,6 +83,8 @@ struct Entry {
     /// The enums the command uses, each once, in the order a packet meets them: the aliases,
     /// then the parameters in order.
     enums: Vec<u32>,
+    /// The soft enums the command uses, each once, in parameter order.
+    soft: Vec<u32>,
 }
 
 /// A parameter of the catalog.
@@ -97,11 +106,14 @@ enum Type {
     Enum(u32),
     /// `SUFFIXED | index`, the suffix's index (BDS sets no `VALID` bit).
     Suffixed(u32),
+    /// `VALID | SOFT_ENUM | index`, the index the soft enum's in the catalog.
+    Soft(u32),
 }
 
 impl Catalog {
     /// The network form of `commands`, with the client's name enums from `names`. Fails if two
-    /// enums share a type name but not their values: the client would get only the first.
+    /// enums share a type name but not their values, or a soft enum shares one with an enum: the
+    /// client would get only the first.
     pub(crate) fn new(commands: &[Command], names: &Names) -> command::Result<Self> {
         let mut b = Builder::default();
         // A parameter may not take the name of the enum every packet builds itself.
@@ -121,6 +133,7 @@ impl Catalog {
                 index
             });
             let typed = typed.into_iter().map(|n| b.value(n)).collect();
+            let mut soft = Vec::new();
             let overloads = command
                 .overloads
                 .iter()
@@ -129,10 +142,10 @@ impl Catalog {
                         .iter()
                         .map(|p| {
                             let r#type = b.parameter(names, p);
-                            if let Type::Enum(index) = r#type
-                                && !used.contains(&index)
-                            {
-                                used.push(index);
+                            match r#type {
+                                Type::Enum(index) if !used.contains(&index) => used.push(index),
+                                Type::Soft(index) if !soft.contains(&index) => soft.push(index),
+                                _ => {}
                             }
                             let options = match p.kind {
                                 Kind::Item | Kind::Block => {
@@ -159,19 +172,46 @@ impl Catalog {
                 aliases,
                 overloads,
                 enums: used,
+                soft,
             });
+        }
+        if let Some(name) = b
+            .catalog
+            .soft
+            .iter()
+            .find(|n| b.enum_index.contains_key(*n))
+        {
+            b.error
+                .get_or_insert(Error::ConflictingEnum { name: name.clone() });
         }
         b.error.map_or(Ok(b.catalog), Err)
     }
+
+    /// The position of the soft enum of type `name` among [`Self::soft_count`].
+    pub(crate) fn soft_enum(&self, name: &str) -> Option<usize> {
+        self.soft.iter().position(|n| n == name)
+    }
+
+    /// How many soft enum types the commands use.
+    pub(crate) fn soft_count(&self) -> usize {
+        self.soft.len()
+    }
+
+    /// The type name of soft enum `index`.
+    pub(crate) fn soft_name(&self, index: usize) -> Option<&str> {
+        self.soft.get(index).map(String::as_str)
+    }
 }
 
-/// What a player's `AvailableCommands` is made from: the catalog, the permission grants and the
-/// operator list. All of it is `Sync`, unlike the commands' handlers.
+/// What a player's `AvailableCommands` is made from: the catalog, the permission grants, the
+/// operator list and the soft enums' values. All of it is `Sync`, unlike the commands' handlers.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Listing<'a> {
     pub(super) catalog: &'a Catalog,
     pub(super) grants: &'a Grants,
     pub(super) access: &'a Access,
+    /// The values of each soft enum of the catalog, by its position.
+    pub(super) soft_values: &'a [Vec<String>],
 }
 
 /// The `AvailableCommands` packet for `player` (of `session`): every command whose permission it
@@ -185,9 +225,12 @@ pub(crate) fn available_commands(
         catalog,
         grants,
         access,
+        soft_values,
     } = listing;
     let op = access.is_op(&player.identity.name);
     let mut enum_at = vec![UNSET; catalog.enums.len()];
+    let mut soft_at = vec![UNSET; catalog.soft.len()];
+    let mut dynamic_enums = Vec::new();
     let mut value_at = vec![UNSET; catalog.values.len()];
     let mut values = Vec::new();
     let mut enums = Vec::new();
@@ -210,21 +253,28 @@ pub(crate) fn available_commands(
             ) else {
                 continue;
             };
-            if *at != UNSET {
-                continue;
+            if *at == UNSET {
+                *at = index_of(enums.len());
+                let value_indices = e
+                    .values
+                    .iter()
+                    .map(|&v| value_of(catalog, &mut value_at, &mut values, v))
+                    .collect();
+                enums.push(CommandEnum {
+                    r#type: e.name.clone(),
+                    value_indices,
+                });
             }
-            *at = index_of(enums.len());
-            let value_indices = e
-                .values
-                .iter()
-                .map(|&v| value_of(catalog, &mut value_at, &mut values, v))
-                .collect();
-            enums.push(CommandEnum {
-                r#type: e.name.clone(),
-                value_indices,
-            });
         }
-        let renumbered = |index: u32| enum_at.get(position(index)).copied().unwrap_or(UNSET);
+        for &index in &entry.soft {
+            soft_enum_of(
+                catalog,
+                soft_values,
+                &mut soft_at,
+                &mut dynamic_enums,
+                index,
+            );
+        }
         let overloads = entry
             .overloads
             .iter()
@@ -234,15 +284,7 @@ pub(crate) fn available_commands(
                     .iter()
                     .map(|p| CommandParameter {
                         name: p.name.clone(),
-                        r#type: match p.r#type {
-                            Type::Basic(t) => u32::from(CommandArg::Valid) | u32::from(t),
-                            Type::Enum(index) => {
-                                u32::from(CommandArg::Valid)
-                                    | u32::from(CommandArg::Enum)
-                                    | renumbered(index)
-                            }
-                            Type::Suffixed(index) => u32::from(CommandArg::Suffixed) | index,
-                        },
+                        r#type: wire_type(p.r#type, &enum_at, &soft_at),
                         optional: p.optional,
                         options: p.options,
                     })
@@ -255,7 +297,9 @@ pub(crate) fn available_commands(
             flags: 0,
             // The client leaves permission checks to the server.
             permission_level: u8::from(CommandPermissionLevel::Any),
-            aliases_offset: entry.aliases.map_or(NO_ALIASES, renumbered),
+            aliases_offset: entry
+                .aliases
+                .map_or(NO_ALIASES, |index| renumbered(&enum_at, index)),
             chained_subcommand_offsets: Vec::new(),
             overloads,
         });
@@ -275,9 +319,54 @@ pub(crate) fn available_commands(
         enums,
         chained_subcommands: Vec::new(),
         commands,
-        dynamic_enums: Vec::new(),
+        dynamic_enums,
         constraints: Vec::new(),
     }))
+}
+
+/// A parameter's packet type, its enum renumbered by `enum_at` or `soft_at`.
+fn wire_type(r#type: Type, enum_at: &[u32], soft_at: &[u32]) -> u32 {
+    match r#type {
+        Type::Basic(t) => u32::from(CommandArg::Valid) | u32::from(t),
+        Type::Enum(index) => {
+            u32::from(CommandArg::Valid) | u32::from(CommandArg::Enum) | renumbered(enum_at, index)
+        }
+        Type::Suffixed(index) => u32::from(CommandArg::Suffixed) | index,
+        Type::Soft(index) => {
+            u32::from(CommandArg::Valid)
+                | u32::from(CommandArg::SoftEnum)
+                | renumbered(soft_at, index)
+        }
+    }
+}
+
+/// The packet position `at` gives catalog position `index`.
+fn renumbered(at: &[u32], index: u32) -> u32 {
+    at.get(position(index)).copied().unwrap_or(UNSET)
+}
+
+/// Copies catalog soft enum `index` with its values into `dynamic_enums` on first use.
+fn soft_enum_of(
+    catalog: &Catalog,
+    soft_values: &[Vec<String>],
+    soft_at: &mut [u32],
+    dynamic_enums: &mut Vec<DynamicEnum>,
+    index: u32,
+) {
+    let (Some(at), Some(name)) = (slot(soft_at, index), catalog.soft.get(position(index))) else {
+        return;
+    };
+    if *at != UNSET {
+        return;
+    }
+    *at = index_of(dynamic_enums.len());
+    dynamic_enums.push(DynamicEnum {
+        r#type: name.clone(),
+        values: soft_values
+            .get(position(index))
+            .cloned()
+            .unwrap_or_default(),
+    });
 }
 
 /// The packet position of catalog value `v`, copied into `values` on first use.
@@ -310,6 +399,8 @@ struct Builder {
     value_index: BTreeMap<String, u32>,
     /// Enums by type name.
     enum_index: BTreeMap<String, u32>,
+    /// Soft enums by type name.
+    soft_index: BTreeMap<String, u32>,
     /// The first enum whose type name an enum of other values has.
     error: Option<Error>,
 }
@@ -362,6 +453,17 @@ impl Builder {
         index_of(suffixes.len() - 1)
     }
 
+    /// The index of the soft enum `name`, added on first use.
+    fn soft(&mut self, name: &str) -> u32 {
+        if let Some(&index) = self.soft_index.get(name) {
+            return index;
+        }
+        let index = index_of(self.catalog.soft.len());
+        self.catalog.soft.push(name.to_owned());
+        self.soft_index.insert(name.to_owned(), index);
+        index
+    }
+
     /// The network type of `param` as BDS sends it (P6): a basic type, an enum (`VALID | type` or
     /// `VALID | ENUM | index`, as PMMP's assembler) or a suffixed number. Item and block names come
     /// with and without `minecraft:`.
@@ -391,6 +493,7 @@ impl Builder {
             }
             Kind::Effect => Type::Enum(self.enumeration("Effect", names.effect_names())),
             Kind::Enchantment => Type::Enum(self.enumeration("Enchant", names.enchantment_names())),
+            Kind::SoftEnum { name } => Type::Soft(self.soft(name)),
         }
     }
 }

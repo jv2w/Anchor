@@ -10,9 +10,9 @@ use super::*;
 use crate::command::Param;
 use crate::event::Listeners;
 use crate::permission::Default as By;
-use crate::protocol::Uuid;
 use crate::protocol::consts::{CommandArg, CommandArgType};
 use crate::protocol::packet::{Packet as P, PlayStatus};
+use crate::protocol::{DynamicEnum, Uuid};
 use crate::save::Request;
 use crate::tick::log::{EntryKind, InputLog};
 use crate::tick::queue::{Input, InputKind, Outbound, outbound_queue};
@@ -1556,6 +1556,95 @@ fn a_parameter_may_not_take_the_command_name_enum() {
         commands.finish(),
         Err(Error::ConflictingEnum {
             name: "CommandName".to_owned()
+        })
+    );
+}
+
+#[test]
+fn soft_enums_take_any_word_and_send_the_values_set_while_running() {
+    let (mut state, mut rx) = server(vec![echo(
+        "tag",
+        &[Param::soft_enumeration("name", "Tags")],
+    )]);
+    let mut output = TickOutput::default();
+    // Player 1 got its spawn window; player 2 has not asked for a chunk radius yet.
+    tick(&mut state, &mut vec![radius(1, 1, 4)], &mut output);
+    received(&mut rx[0]);
+    assert_eq!(
+        lines(execute(&mut state, Sender::Console, "tag anything")),
+        ["text anything"],
+        "a word the client does not suggest"
+    );
+    let s1 = SessionId::new(1);
+    let listed = |state: &State| {
+        let packet = available_commands(state.commands.listing(), s1, &state.players[&s1]);
+        let Packet::AvailableCommands(p) = packet else {
+            panic!();
+        };
+        let tag = p.commands.iter().find(|c| c.name == "tag").unwrap();
+        (tag.overloads[0].parameters[0].r#type, p.dynamic_enums)
+    };
+    let (r#type, dynamic) = listed(&state);
+    assert_eq!(
+        r#type,
+        u32::from(CommandArg::Valid) | u32::from(CommandArg::SoftEnum)
+    );
+    assert_eq!(
+        dynamic,
+        [DynamicEnum {
+            r#type: "Tags".to_owned(),
+            values: Vec::new(),
+        }]
+    );
+    let mut cx = Context { state: &mut state };
+    let invalid = |name: &str| {
+        Err(Error::InvalidSoftEnum {
+            name: name.to_owned(),
+        })
+    };
+    assert_eq!(cx.set_soft_enum("Other", &["vip"]), invalid("Other"));
+    assert_eq!(cx.set_soft_enum("Tags", &["a b"]), invalid("Tags"));
+    assert_eq!(cx.set_soft_enum("Tags", &[""]), invalid("Tags"));
+    cx.set_soft_enum("Tags", &["vip", "red"]).unwrap();
+    cx.set_soft_enum("Tags", &["vip", "red"]).unwrap();
+    tick(&mut state, &mut vec![], &mut output);
+    let updates = |rx: &mut mpsc::Receiver<Outbound>| {
+        received(rx)
+            .0
+            .into_iter()
+            .filter(|p| matches!(p, P::UpdateSoftEnum(_)))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        updates(&mut rx[0]),
+        [P::UpdateSoftEnum(UpdateSoftEnum {
+            enum_type: "Tags".to_owned(),
+            options: vec!["vip".to_owned(), "red".to_owned()],
+            action_type: u8::from(SoftEnumAction::Set),
+        })],
+        "set twice, sent once"
+    );
+    assert!(
+        updates(&mut rx[1]).is_empty(),
+        "its spawn window will carry them"
+    );
+    assert_eq!(listed(&state).1[0].values, ["vip", "red"]);
+    tick(&mut state, &mut vec![], &mut output);
+    assert!(updates(&mut rx[0]).is_empty());
+}
+
+#[test]
+fn a_soft_enum_may_not_take_an_enum_type_name() {
+    let handler = |_: &mut Context<'_>, _: &Sender, _: &Args| Ok(Output::new());
+    let mut commands = Commands::default();
+    commands.register(
+        Command::new("a", "").overload(&[Param::soft_enumeration("x", "Boolean")], handler),
+        Origin::User,
+    );
+    assert_eq!(
+        commands.finish(),
+        Err(Error::ConflictingEnum {
+            name: "Boolean".to_owned()
         })
     );
 }

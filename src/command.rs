@@ -251,6 +251,8 @@ pub(crate) enum Kind {
     Json,
     /// One of fixed words; `name` is the type the client shows.
     Enum { name: String, values: Vec<String> },
+    /// Any word; the client suggests the values the server last set for the type `name`.
+    SoftEnum { name: String },
     /// An item name.
     Item,
     /// A block name.
@@ -362,6 +364,21 @@ impl Param {
         )
     }
 
+    /// One word, or words in double quotes, as typed ([`Args::string`]); the client suggests the
+    /// values [`Context::set_soft_enum`] last set for the enum type `type_name`, none at first
+    /// (a BDS soft enum, as `/scoreboard` objectives). The handler checks the word: the client
+    /// sends words it does not suggest. `type_name` may not be the type name of an
+    /// [`enumeration`](Self::enumeration), or [`build`](crate::ServerBuilder::build) fails with
+    /// [`Error::ConflictingEnum`].
+    pub fn soft_enumeration(name: impl Into<String>, type_name: impl Into<String>) -> Self {
+        Self::new(
+            name,
+            Kind::SoftEnum {
+                name: type_name.into(),
+            },
+        )
+    }
+
     /// The word `word` itself, as in `/whitelist add <player>`: an enum of one value named
     /// after it.
     pub fn literal(word: &str) -> Self {
@@ -431,7 +448,7 @@ impl Param {
                 out.push_str(&self.name);
                 return;
             }
-            Kind::Enum { name, .. } => name,
+            Kind::Enum { name, .. } | Kind::SoftEnum { name } => name,
             Kind::Item => "Item",
             Kind::Block => "Block",
             Kind::Effect => "Effect",
@@ -725,6 +742,12 @@ pub enum Error {
         /// The enum's type name.
         name: String,
     },
+    /// [`Context::set_soft_enum`] named no soft enum type of a registered command, or values
+    /// that are empty, hold spaces, or number more than 4,096.
+    InvalidSoftEnum {
+        /// The enum's type name.
+        name: String,
+    },
 }
 
 /// A result with the command [`enum@Error`].
@@ -794,7 +817,8 @@ impl Error {
             | Self::InvalidOverload { .. }
             | Self::DescriptionTooLong { .. }
             | Self::ConflictingPermission { .. }
-            | Self::ConflictingEnum { .. } => self.to_string(),
+            | Self::ConflictingEnum { .. }
+            | Self::InvalidSoftEnum { .. } => self.to_string(),
         };
         Line {
             text,
@@ -836,6 +860,9 @@ impl fmt::Display for Error {
             }
             Self::ConflictingEnum { name } => {
                 write!(f, "enum type {name:?} is registered with two value lists")
+            }
+            Self::InvalidSoftEnum { name } => {
+                write!(f, "no soft enum type {name:?} takes these values")
             }
         }
     }
