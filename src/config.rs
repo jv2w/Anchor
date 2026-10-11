@@ -178,7 +178,7 @@ const MAX_FILE_BYTES: u64 = 1024 * 1024;
 /// Bounds the player and session tables that are sized from it.
 const MAX_PLAYERS: RangeInclusive<u32> = 1..=10_000;
 /// The `view-distance` range the settings file accepts.
-const VIEW_DISTANCE: RangeInclusive<u8> = 2..=64;
+pub(crate) const VIEW_DISTANCE: RangeInclusive<u8> = 2..=64;
 /// The effective radius is at most `view-distance`, so a larger value means nothing.
 const RADIUS: RangeInclusive<u8> = 1..=*VIEW_DISTANCE.end();
 /// 0 would never send a chunk; 256 sends the largest view in about 3 seconds.

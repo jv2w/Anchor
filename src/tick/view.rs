@@ -73,10 +73,13 @@ pub(super) struct View {
     radius: u8,
     /// The block the last publisher update was centered on.
     published: BlockPos,
-    /// The chunks of the view, nearest first (then by x and z).
-    order: Vec<ChunkPos>,
-    /// Every chunk of `order` before it has been sent.
-    cursor: usize,
+    /// Bit k of word k / 64: the chunk of rank k of the [`Disc`] around the center is not sent
+    /// yet. One bit for each chunk of the view, none while it is closed.
+    unsent: Vec<u64>,
+    /// No word of `unsent` below this one has a bit set.
+    first_word: usize,
+    /// The words `unsent` had before the view last moved, kept for their room.
+    spare: Vec<u64>,
     /// The chunks the client was sent and still sees.
     sent: BTreeSet<ChunkPos>,
     /// Sub-chunk requests waiting for an answer, oldest first.
@@ -144,7 +147,15 @@ impl View {
     /// Whether every chunk of the view was sent (tests).
     #[cfg(test)]
     pub(super) fn is_complete(&self) -> bool {
-        self.sent.len() == self.order.len()
+        self.first_unsent().is_none()
+    }
+
+    /// The chunks not sent yet, in sending order (tests).
+    #[cfg(test)]
+    pub(super) fn unsent_chunks(&self, disc: &Disc) -> Vec<ChunkPos> {
+        set_bits(&self.unsent, 0)
+            .map(|rank| at(self.center, disc.offset(rank)))
+            .collect()
     }
 
     /// The fake block the player is shown at `pos`, if any: the open menu's, else the user's.
@@ -229,35 +240,29 @@ impl View {
         self.fakes.len()
     }
 
-    /// Moves the cursor past the chunks already sent.
-    fn advance(&mut self) {
-        while self
-            .order
-            .get(self.cursor)
-            .is_some_and(|p| self.sent.contains(p))
-        {
-            self.cursor = self.cursor.saturating_add(1);
-        }
+    /// The rank of the nearest chunk not sent yet, if any.
+    fn first_unsent(&self) -> Option<usize> {
+        set_bits(&self.unsent, self.first_word).next()
     }
 
     /// Whether every chunk within `radius` of the center was sent.
-    fn has_sent_within(&self, radius: u8) -> bool {
-        let r = i32::from(radius);
-        self.order
-            .get(self.cursor)
-            .is_none_or(|p| distance(*p, self.center) > r * r)
+    fn has_sent_within(&self, radius: u8, disc: &Disc) -> bool {
+        self.first_unsent()
+            .is_none_or(|rank| rank >= disc.size(radius))
     }
 
     /// A hash of what the view decides, for the state hash of tests.
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
-        // The order follows from the center and radius; the output is empty between ticks.
+        // The unsent chunks follow from the center, the radius and the sent chunks, and the spare
+        // words are room only; the output is empty between ticks.
         let Self {
             center,
             radius,
             published,
-            order: _,
-            cursor,
+            unsent: _,
+            first_word: _,
+            spare: _,
             sent,
             requests,
             fakes,
@@ -268,7 +273,6 @@ impl View {
         for c in [center.x, center.z, published.x, published.y, published.z] {
             h.u64(u64::from(c.cast_unsigned()));
         }
-        h.usize(*cursor);
         h.usize(sent.len());
         for p in sent {
             h.u64(u64::from(p.x.cast_unsigned()));
@@ -307,18 +311,77 @@ impl View {
     }
 }
 
-super::checkpoint::fields!(View {
-    center,
-    radius,
-    published,
-    order,
-    cursor,
-    sent,
-    requests,
-    fakes,
-    menu;
-    out
-});
+impl super::checkpoint::Codec for View {
+    fn encode(&self, w: &mut super::checkpoint::Writer) {
+        // The unsent chunks follow from the center, the radius and the sent chunks, and the spare
+        // words are room only; the output is empty between ticks.
+        let Self {
+            center,
+            radius,
+            published,
+            unsent: _,
+            first_word: _,
+            spare: _,
+            sent,
+            requests,
+            fakes,
+            menu,
+            out: _,
+        } = self;
+        center.encode(w);
+        radius.encode(w);
+        published.encode(w);
+        sent.encode(w);
+        requests.encode(w);
+        fakes.encode(w);
+        menu.encode(w);
+    }
+
+    fn decode(r: &mut super::checkpoint::Reader<'_>) -> super::checkpoint::Result<Self> {
+        use super::checkpoint::{Codec, Error};
+        let center = ChunkPos::decode(r)?;
+        let radius = u8::decode(r)?;
+        let published = Codec::decode(r)?;
+        let sent: BTreeSet<ChunkPos> = Codec::decode(r)?;
+        let requests = Codec::decode(r)?;
+        let fakes = Codec::decode(r)?;
+        let menu = Codec::decode(r)?;
+        if radius > MAX_RADIUS {
+            return Err(Error::Format("view radius"));
+        }
+        // A closed view (radius 0) has no chunks, sent or not.
+        let r2 = i32::from(radius) * i32::from(radius);
+        if sent
+            .iter()
+            .any(|&pos| radius == 0 || distance(pos, center) > r2)
+        {
+            return Err(Error::Format("sent chunk outside the view"));
+        }
+        let mut unsent = Vec::new();
+        if radius > 0 {
+            let chunks = disc(center, radius);
+            unsent.resize(chunks.len().div_ceil(WORD_BITS), 0);
+            for (rank, pos) in chunks.iter().enumerate() {
+                if !sent.contains(pos) {
+                    set_bit(&mut unsent, rank);
+                }
+            }
+        }
+        Ok(Self {
+            center,
+            radius,
+            published,
+            unsent,
+            first_word: 0,
+            spare: Vec::new(),
+            sent,
+            requests,
+            fakes,
+            menu,
+            out: Out::default(),
+        })
+    }
+}
 super::checkpoint::fields!(SubChunkRequest {
     dimension,
     position,
@@ -343,6 +406,147 @@ pub(super) fn disc(center: ChunkPos, radius: u8) -> Vec<ChunkPos> {
         .into_iter()
         .map(|(x, z)| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
         .collect()
+}
+
+/// The largest view radius: the largest `view-distance`.
+const MAX_RADIUS: u8 = *crate::config::VIEW_DISTANCE.end();
+/// The bits of a word of [`View::unsent`].
+const WORD_BITS: usize = u64::BITS as usize;
+
+/// The chunk offsets of the largest view in sending order ([`disc`] around the origin). A view of
+/// any radius is a prefix, as the first sort key is the distance, so a view keeps its unsent
+/// chunks as bits by rank here. Built once with the server.
+#[derive(Debug)]
+pub(super) struct Disc {
+    /// The offset of each rank.
+    offsets: Vec<ChunkPos>,
+    /// The rank of each offset within [`MAX_RADIUS`] on both axes, by x then z ([`cell`]);
+    /// `u16::MAX` outside the disc.
+    ranks: Vec<u16>,
+}
+
+impl Default for Disc {
+    fn default() -> Self {
+        let offsets = disc(ChunkPos::new(0, 0), MAX_RADIUS);
+        let side = 2 * usize::from(MAX_RADIUS) + 1;
+        let mut ranks = vec![u16::MAX; side * side];
+        for (rank, &offset) in offsets.iter().enumerate() {
+            #[expect(
+                clippy::expect_used,
+                reason = "invariant: the largest view has fewer than u16::MAX chunks, each within \
+                          MAX_RADIUS on both axes"
+            )]
+            let (slot, rank) = cell(offset)
+                .and_then(|i| ranks.get_mut(i))
+                .zip(u16::try_from(rank).ok())
+                .expect("a disc offset has a cell and a u16 rank");
+            *slot = rank;
+        }
+        Self { offsets, ranks }
+    }
+}
+
+impl Disc {
+    /// How many chunks the view of `radius` has: the ranks below it.
+    fn size(&self, radius: u8) -> usize {
+        let r = i32::from(radius);
+        self.offsets
+            .partition_point(|o| o.x * o.x + o.z * o.z <= r * r)
+    }
+
+    /// The offset of `rank`.
+    fn offset(&self, rank: usize) -> ChunkPos {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: a view sets bits only below the size of its radius, at most \
+                      MAX_RADIUS"
+        )]
+        *self.offsets.get(rank).expect("a rank of the largest view")
+    }
+
+    /// The rank of `offset`, if it is within the largest view.
+    fn rank(&self, offset: ChunkPos) -> Option<usize> {
+        let rank = *self.ranks.get(cell(offset)?)?;
+        (rank != u16::MAX).then_some(usize::from(rank))
+    }
+}
+
+/// The index of `offset` in [`Disc::ranks`], if it is within [`MAX_RADIUS`] on both axes.
+fn cell(offset: ChunkPos) -> Option<usize> {
+    let max = i32::from(MAX_RADIUS);
+    let side = 2 * usize::from(MAX_RADIUS) + 1;
+    let x = usize::try_from(offset.x.checked_add(max)?).ok()?;
+    let z = usize::try_from(offset.z.checked_add(max)?).ok()?;
+    (x < side && z < side).then(|| x * side + z)
+}
+
+/// The chunk at `offset` from `center`.
+fn at(center: ChunkPos, offset: ChunkPos) -> ChunkPos {
+    ChunkPos::new(
+        center.x.saturating_add(offset.x),
+        center.z.saturating_add(offset.z),
+    )
+}
+
+/// Sets bit `rank` of `bits`.
+fn set_bit(bits: &mut [u64], rank: usize) {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a view's words hold every rank of its disc"
+    )]
+    let word = bits.get_mut(rank / WORD_BITS).expect("a rank of the view");
+    *word |= 1 << (rank % WORD_BITS);
+}
+
+/// The ranks of the set bits of `bits` from word `from` on, in order.
+fn set_bits(bits: &[u64], from: usize) -> impl Iterator<Item = usize> + '_ {
+    bits.iter().enumerate().skip(from).flat_map(|(i, &word)| {
+        #[cfg(test)]
+        tests::count_word();
+        std::iter::successors((word != 0).then_some(word), |w| {
+            let rest = w & (w - 1);
+            (rest != 0).then_some(rest)
+        })
+        .map(move |w| i * WORD_BITS + w.trailing_zeros() as usize)
+    })
+}
+
+/// How far on z the disc of `radius` reaches in its column `x`, if it reaches that column.
+fn half_width(radius: u8, x: i32) -> Option<i32> {
+    let r = i32::from(radius);
+    let rest = r * r - x * x;
+    (rest >= 0).then(|| rest.isqrt())
+}
+
+/// Calls `f` with the offset from `center` of each chunk within `radius` of it that is not within
+/// the disc `other` (none: every chunk), by x then z.
+fn for_each_outside(
+    center: ChunkPos,
+    radius: u8,
+    other: Option<(ChunkPos, u8)>,
+    mut f: impl FnMut(ChunkPos),
+) {
+    // The other center from this one; a disc too far to overlap leaves out nothing.
+    let reach = 2 * u32::from(MAX_RADIUS);
+    let other = other.and_then(|(c, other_radius)| {
+        let (dx, dz) = (c.x.saturating_sub(center.x), c.z.saturating_sub(center.z));
+        (dx.unsigned_abs() <= reach && dz.unsigned_abs() <= reach).then_some((dx, dz, other_radius))
+    });
+    let r = i32::from(radius);
+    for x in -r..=r {
+        let h = (r * r - x * x).isqrt();
+        // The z range the other disc covers in this column; none: one past this column's end.
+        let (low, high) = other
+            .and_then(|(dx, dz, other_radius)| {
+                half_width(other_radius, x - dx).map(|oh| (dz - oh, dz + oh))
+            })
+            .unwrap_or((h + 1, h));
+        for z in (-h..=h.min(low - 1)).chain((high + 1).max(-h)..=h) {
+            #[cfg(test)]
+            tests::count_position();
+            f(ChunkPos::new(x, z));
+        }
+    }
 }
 
 /// The chunk an eye position is in. Positions are finite (checked when they arrive).
@@ -397,6 +601,8 @@ pub(super) struct Chunks {
     /// answers come first (the save thread answers in order) and are dropped, so a world made
     /// again never gets a chunk of the world before it.
     pub(super) stale: BTreeMap<Key, u32>,
+    /// The order of the views' chunks, fixed with the server.
+    disc: Disc,
 }
 
 /// The chunks a ticket holds: the square of `radius` chunks around `center` in `world`.
@@ -451,7 +657,7 @@ struct Heard {
 
 impl Chunks {
     /// Writes what lasts between ticks; the batch, the loads and the sent chunks are empty then,
-    /// and the events heard are fixed at build.
+    /// and the events heard and the view order are fixed at build.
     pub(super) fn checkpoint(&self, w: &mut super::checkpoint::Writer) {
         use super::checkpoint::Codec;
         let Self {
@@ -471,6 +677,7 @@ impl Chunks {
             by_chunk: _,
             waiting,
             stale,
+            disc: _,
         } = self;
         interest.encode(w);
         requested.encode(w);
@@ -490,7 +697,8 @@ impl Chunks {
     }
 
     /// Reads what [`Self::checkpoint`] wrote into the chunks of a new state (which keeps the
-    /// events it heard); `ground` gives what the server file or the generator has.
+    /// events it heard and its view order); `ground` gives what the server file or the generator
+    /// has.
     pub(super) fn restore(
         &mut self,
         r: &mut super::checkpoint::Reader<'_>,
@@ -528,6 +736,11 @@ impl Chunks {
             by_chunk: BTreeSet::new(),
             waiting: Codec::decode(r)?,
             stale: Codec::decode(r)?,
+            // Moved over rather than built again.
+            disc: Disc {
+                offsets: std::mem::take(&mut self.disc.offsets),
+                ranks: std::mem::take(&mut self.disc.ranks),
+            },
         };
         for (&n, ticket) in &self.tickets {
             self.by_chunk
@@ -575,7 +788,7 @@ impl Chunks {
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::Fnv) {
         // The batch, the loads and the sent chunks are empty between ticks; the events heard
-        // are fixed.
+        // and the view order are fixed.
         let Self {
             interest,
             requested,
@@ -593,6 +806,7 @@ impl Chunks {
             by_chunk: _,
             waiting,
             stale,
+            disc: _,
         } = self;
         let key = |h: &mut super::Fnv, &(w, p): &Key| {
             h.usize(w);
@@ -787,38 +1001,62 @@ fn set_view(
     center: ChunkPos,
     radius: u8,
 ) {
-    // `view.order` is the old disc, or empty before the view opens.
-    let had_view = !view.order.is_empty();
-    let (r, old_r) = (i32::from(radius), i32::from(view.radius));
-    // By x, then z: holding a chunk can restore its saved entities, which take ids in turn.
-    for x in -r..=r {
-        for z in -r..=r {
-            let pos = ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z));
-            let was_seen = had_view && distance(pos, view.center) <= old_r * old_r;
-            if x * x + z * z <= r * r && !was_seen {
-                hold(worlds, chunks, rules, (world, pos));
+    let old = view.is_open().then_some((view.center, view.radius));
+    let size = chunks.disc.size(radius);
+    let from = view.first_word;
+    std::mem::swap(&mut view.unsent, &mut view.spare);
+    view.unsent.clear();
+    view.unsent.resize(size.div_ceil(WORD_BITS), 0);
+    // The rank of the nearest chunk marked unsent, so picking starts at its word.
+    let mut nearest = size;
+    if let Some((old_center, _)) = old {
+        // The unsent chunks the view keeps, at their rank around the new center.
+        let shift = ChunkPos::new(
+            old_center.x.saturating_sub(center.x),
+            old_center.z.saturating_sub(center.z),
+        );
+        for rank in set_bits(&view.spare, from) {
+            #[cfg(test)]
+            tests::count_position();
+            if let Some(kept) = chunks.disc.rank(at(shift, chunks.disc.offset(rank)))
+                && kept < size
+            {
+                set_bit(&mut view.unsent, kept);
+                nearest = nearest.min(kept);
             }
         }
     }
-    for &pos in &view.order {
-        if distance(pos, center) > r * r {
+    // By x, then z: holding a chunk can restore its saved entities, which take ids in turn.
+    for_each_outside(center, radius, old, |offset| {
+        hold(worlds, chunks, rules, (world, at(center, offset)));
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: an offset within the radius, at most MAX_RADIUS, has a rank"
+        )]
+        let rank = chunks.disc.rank(offset).expect("an offset of the view");
+        set_bit(&mut view.unsent, rank);
+        nearest = nearest.min(rank);
+    });
+    view.first_word = nearest / WORD_BITS;
+    if let Some((old_center, old_radius)) = old {
+        for_each_outside(old_center, old_radius, Some((center, radius)), |offset| {
+            let pos = at(old_center, offset);
             release(chunks, (world, pos));
             view.sent.remove(&pos);
-        }
+        });
     }
-    let order = disc(center, radius);
     view.center = center;
     view.radius = radius;
-    view.order = order;
-    view.cursor = 0;
     view.out.publish = true;
 }
 
 /// Releases every chunk a leaving player held.
 pub(super) fn close(state: &mut State, player: &mut Player) {
-    let world = player.world;
-    for &pos in &player.view.order {
-        release(&mut state.chunks, (world, pos));
+    let (world, view) = (player.world, &player.view);
+    if view.is_open() {
+        for_each_outside(view.center, view.radius, None, |offset| {
+            release(&mut state.chunks, (world, at(view.center, offset)));
+        });
     }
     player.view = View::default();
 }
@@ -1049,7 +1287,9 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
             let per_tick = usize::try_from(limits.chunks_per_tick).unwrap_or(usize::MAX);
             pick(worlds, chunks, player, per_tick);
             let spawn_radius = limits.spawn_radius.min(player.view.radius);
-            if player.phase == Phase::Joined && player.view.has_sent_within(spawn_radius) {
+            if player.phase == Phase::Joined
+                && player.view.has_sent_within(spawn_radius, &chunks.disc)
+            {
                 player.pending.spawn_status = true;
                 player.phase = Phase::Spawning;
             }
@@ -1215,33 +1455,53 @@ fn unload_now(state: &mut State, key: Key) {
 /// Picks up to `per_tick` loaded chunks of the view to send, nearest first, and asks for loads
 /// of the unloaded ones it passes.
 fn pick(worlds: &[World], chunks: &mut Chunks, player: &mut Player, per_tick: usize) {
-    let view = &mut player.view;
-    view.advance();
-    let Some(world) = worlds.get(player.world) else {
+    let (world_index, session) = (player.world, player.session);
+    let Some(world) = worlds.get(world_index) else {
         return;
     };
+    let View {
+        center,
+        unsent,
+        first_word,
+        sent,
+        out,
+        ..
+    } = &mut player.view;
     // Looking past what can be sent this tick finds the next loads early, within a bound.
     let window = per_tick.saturating_mul(4);
     let mut seen = 0;
-    for &pos in view.order.get(view.cursor..).unwrap_or_default() {
-        if seen >= window || view.out.chunks.len() >= per_tick {
-            break;
-        }
-        if view.sent.contains(&pos) {
-            continue;
-        }
-        seen += 1;
-        if world.is_chunk_loaded(pos) || world.is_quarantined(pos) {
-            view.out.chunks.push(pos);
-            view.sent.insert(pos);
-            if chunks.heard.sent {
-                chunks.sent.push((player.session, pos));
+    'words: for (i, word) in unsent.iter_mut().enumerate().skip(*first_word) {
+        #[cfg(test)]
+        tests::count_word();
+        let mut bits = *word;
+        while bits != 0 {
+            if seen >= window || out.chunks.len() >= per_tick {
+                break 'words;
             }
-        } else {
-            want(chunks, (player.world, pos));
+            let bit = bits.trailing_zeros();
+            bits &= bits - 1;
+            seen += 1;
+            #[cfg(test)]
+            tests::count_position();
+            let pos = at(*center, chunks.disc.offset(i * WORD_BITS + bit as usize));
+            if world.is_chunk_loaded(pos) || world.is_quarantined(pos) {
+                out.chunks.push(pos);
+                sent.insert(pos);
+                *word &= !(1 << bit);
+                if chunks.heard.sent {
+                    chunks.sent.push((session, pos));
+                }
+            } else {
+                want(chunks, (world_index, pos));
+            }
         }
     }
-    view.advance();
+    // The words below the nearest unsent chunk stay empty until the view moves.
+    while unsent.get(*first_word) == Some(&0) {
+        #[cfg(test)]
+        tests::count_word();
+        *first_word += 1;
+    }
 }
 
 /// Asks for a load of `key` this tick unless it is in flight or the bounds are reached.
@@ -1792,7 +2052,10 @@ mod tests {
     use crate::player::Message;
     use crate::protocol::packet::Packet;
     use crate::tick::Output;
-    use crate::tick::tests::{join, leave, new_state, radius, received, settings, tick};
+    use crate::tick::queue::Outbound;
+    use crate::tick::tests::{
+        join, leave, new_state, radius, received, settings, teleported, tick,
+    };
     use crate::world::Flat;
 
     thread_local! {
@@ -1800,6 +2063,23 @@ mod tests {
         static LOG: Cell<Vec<String>> = const { Cell::new(Vec::new()) };
         /// Whether the unload listener cancels.
         static KEEP: Cell<bool> = const { Cell::new(true) };
+        /// The chunk positions the view bookkeeping looked at on this thread.
+        static POSITIONS: Cell<usize> = const { Cell::new(0) };
+        /// The words of unsent bits it looked at on this thread.
+        static WORDS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn count_position() {
+        POSITIONS.set(POSITIONS.get() + 1);
+    }
+
+    pub(super) fn count_word() {
+        WORDS.set(WORDS.get() + 1);
+    }
+
+    /// The positions and words looked at since the last call.
+    fn counted() -> (usize, usize) {
+        (POSITIONS.replace(0), WORDS.replace(0))
     }
 
     fn log(line: String) {
@@ -2178,5 +2458,348 @@ mod tests {
             own.settings.view(1),
             "other worlds: global"
         );
+    }
+
+    /// The view bookkeeping before the unsent bits, kept as the reference they must agree with:
+    /// the disc in sending order, sorted again at every move, and a cursor past the sent chunks.
+    #[derive(Default)]
+    struct OldView {
+        center: ChunkPos,
+        radius: u8,
+        order: Vec<ChunkPos>,
+        cursor: usize,
+        sent: BTreeSet<ChunkPos>,
+    }
+
+    impl OldView {
+        /// Moves the view; returns the chunks it holds, in order, and those it releases.
+        fn set_view(&mut self, center: ChunkPos, radius: u8) -> (Vec<ChunkPos>, Vec<ChunkPos>) {
+            let had_view = !self.order.is_empty();
+            let (r, old_r) = (i32::from(radius), i32::from(self.radius));
+            let mut held = Vec::new();
+            for x in -r..=r {
+                for z in -r..=r {
+                    let pos = ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z));
+                    let was_seen = had_view && distance(pos, self.center) <= old_r * old_r;
+                    if x * x + z * z <= r * r && !was_seen {
+                        held.push(pos);
+                    }
+                }
+            }
+            let mut released = Vec::new();
+            for &pos in &self.order {
+                if distance(pos, center) > r * r {
+                    released.push(pos);
+                    self.sent.remove(&pos);
+                }
+            }
+            self.order = disc(center, radius);
+            self.center = center;
+            self.radius = radius;
+            self.cursor = 0;
+            (held, released)
+        }
+
+        fn advance(&mut self) {
+            while self
+                .order
+                .get(self.cursor)
+                .is_some_and(|p| self.sent.contains(p))
+            {
+                self.cursor += 1;
+            }
+        }
+
+        /// Returns the chunks it sends and the loads it wants, in order.
+        fn pick(&mut self, world: &World, per_tick: usize) -> (Vec<ChunkPos>, Vec<ChunkPos>) {
+            self.advance();
+            let (mut picked, mut wanted) = (Vec::new(), Vec::new());
+            let mut seen = 0;
+            for &pos in &self.order[self.cursor..] {
+                if seen >= per_tick * 4 || picked.len() >= per_tick {
+                    break;
+                }
+                if self.sent.contains(&pos) {
+                    continue;
+                }
+                seen += 1;
+                if world.is_chunk_loaded(pos) || world.is_quarantined(pos) {
+                    picked.push(pos);
+                    self.sent.insert(pos);
+                } else {
+                    wanted.push(pos);
+                }
+            }
+            self.advance();
+            (picked, wanted)
+        }
+
+        fn has_sent_within(&self, radius: u8) -> bool {
+            let r = i32::from(radius);
+            self.order
+                .get(self.cursor)
+                .is_none_or(|p| distance(*p, self.center) > r * r)
+        }
+    }
+
+    /// The chunks within `radius` of `center` and not within `other`'s disc.
+    fn outside(center: ChunkPos, radius: u8, other: Option<(ChunkPos, u8)>) -> Vec<ChunkPos> {
+        let mut out = Vec::new();
+        for_each_outside(center, radius, other, |o| out.push(at(center, o)));
+        out
+    }
+
+    /// Over crossings, teleports, radius changes and loads answered in part, some damaged, the
+    /// unsent bits hold, pick, ask for and release exactly what the sorted disc with a cursor
+    /// did, tick by tick and in the same order.
+    #[test]
+    fn the_unsent_bits_pick_the_same_chunks_in_the_same_order_as_the_sorted_disc() {
+        let mut state = state(Listeners::default());
+        let mut output = Output::default();
+        let (j, _rx) = join(1, 0);
+        tick(&mut state, &mut vec![j], &mut output);
+        let session = crate::tick::SessionId::new(1);
+        let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut random = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            i32::try_from(seed % n).unwrap()
+        };
+        let mut old = OldView::default();
+        let (mut center, mut radius) = (ChunkPos::new(0, 0), 0);
+        let mut moves = 0;
+        for step in 0..500 {
+            let (to, r) = match random(16) {
+                _ if radius == 0 => (center, 8),
+                _ if step % 150 == 75 => (center, MAX_RADIUS),
+                0..=5 => {
+                    let (dx, dz) =
+                        [(1, 0), (-1, 0), (0, 1), (0, -1)][usize::try_from(random(4)).unwrap()];
+                    (ChunkPos::new(center.x + dx, center.z + dz), radius)
+                }
+                6 => (
+                    ChunkPos::new(center.x + random(81) - 40, center.z + random(81) - 40),
+                    radius,
+                ),
+                7 => (center, u8::try_from(random(24) + 1).unwrap()),
+                8 => (
+                    ChunkPos::new(center.x + 1, center.z - 1),
+                    u8::try_from(random(24) + 1).unwrap(),
+                ),
+                _ => (center, radius),
+            };
+            let per_tick = usize::try_from(random(8) + 1).unwrap();
+            let State {
+                players,
+                worlds,
+                chunks,
+                rules,
+                ..
+            } = &mut state;
+            let player = players.get_mut(&session).unwrap();
+            if (to, r) != (center, radius) {
+                let before = (radius > 0).then_some((center, radius));
+                let (held, mut released) = old.set_view(to, r);
+                assert_eq!(outside(to, r, before), held, "held in the same order");
+                let mut lost = before.map_or(Vec::new(), |(c, r0)| outside(c, r0, Some((to, r))));
+                lost.sort_unstable();
+                released.sort_unstable();
+                assert_eq!(lost, released);
+                set_view(worlds, chunks, rules, 0, &mut player.view, to, r);
+                (center, radius) = (to, r);
+                moves += 1;
+            }
+            let asked = chunks.requested.clone();
+            pick(worlds, chunks, player, per_tick);
+            let (picked, wanted) = old.pick(&worlds[0], per_tick);
+            let view = &mut player.view;
+            assert_eq!(view.out.chunks, picked, "step {step}");
+            let wanted: Vec<Key> = wanted
+                .into_iter()
+                .map(|p| (0, p))
+                .filter(|k| !asked.contains(k))
+                .collect();
+            assert_eq!(chunks.batch, wanted, "step {step}");
+            assert_eq!(view.sent, old.sent);
+            let left: Vec<ChunkPos> = old.order[old.cursor..]
+                .iter()
+                .copied()
+                .filter(|p| !old.sent.contains(p))
+                .collect();
+            assert_eq!(view.unsent_chunks(&chunks.disc), left);
+            for r in 0..=radius {
+                assert_eq!(
+                    view.has_sent_within(r, &chunks.disc),
+                    old.has_sent_within(r)
+                );
+            }
+            view.out.clear();
+            chunks.batch.clear();
+            // About half the loads in flight are answered; one in eight is damaged.
+            let answered: Vec<Key> = chunks
+                .requested
+                .iter()
+                .copied()
+                .filter(|_| random(2) == 0)
+                .collect();
+            for (_, pos) in answered {
+                chunks.requested.remove(&(0, pos));
+                if random(8) == 0 {
+                    worlds[0].quarantine(pos);
+                } else {
+                    worlds[0].insert_chunk(pos, Chunk::new());
+                }
+            }
+            // No load was left out for the bounds, which the reference does not model.
+            assert!(chunks.in_flight() + 4 * 8 < MAX_LOADS_IN_FLIGHT);
+        }
+        assert!(moves > 200);
+    }
+
+    /// A view read back from a checkpoint has the same chunks left to send; a radius past the
+    /// largest view, or a sent chunk outside the view (any for a closed one), is not a checkpoint.
+    #[test]
+    fn a_view_from_a_checkpoint_has_the_same_unsent_chunks_and_a_damaged_one_is_refused() {
+        use crate::tick::checkpoint::{Codec, Reader, Writer};
+        let read = |view: &View| {
+            let mut w = Writer::default();
+            view.encode(&mut w);
+            let (bytes, _) = w.into_parts();
+            let custom = crate::custom::Registry::default();
+            let entities = crate::tick::entity::Customs::default();
+            View::decode(&mut Reader::new(&bytes, &custom, &entities))
+        };
+        let table = Disc::default();
+        let center = ChunkPos::new(3, -2);
+        let mut view = View {
+            center,
+            radius: 4,
+            ..View::default()
+        };
+        view.sent.extend(disc(center, 4).into_iter().step_by(3));
+        let left: Vec<ChunkPos> = disc(center, 4)
+            .into_iter()
+            .filter(|p| !view.sent.contains(p))
+            .collect();
+        assert_eq!(read(&view).unwrap().unsent_chunks(&table), left);
+        view.radius = MAX_RADIUS + 1;
+        assert!(read(&view).is_err());
+        view.radius = 4;
+        view.sent.insert(ChunkPos::new(30, 30));
+        assert!(read(&view).is_err());
+        let closed = read(&View::default()).unwrap();
+        assert!(closed.unsent.is_empty() && closed.is_complete());
+        let mut closed = View::default();
+        closed.sent.insert(ChunkPos::new(0, 0));
+        assert!(read(&closed).is_err());
+    }
+
+    /// The disc around chunk `x` on the x axis.
+    fn disc_at(x: i32, radius: u8) -> BTreeSet<ChunkPos> {
+        disc(ChunkPos::new(x, 0), radius).into_iter().collect()
+    }
+
+    /// The (address, room) of the view's two word buffers, in either order.
+    fn buffers(view: &View) -> [(*const u64, usize); 2] {
+        let mut b = [
+            (view.unsent.as_ptr(), view.unsent.capacity()),
+            (view.spare.as_ptr(), view.spare.capacity()),
+        ];
+        b.sort_unstable();
+        b
+    }
+
+    /// Runs an empty tick and drops what it sent, so the outbound queue never fills.
+    fn step(
+        state: &mut State,
+        output: &mut Output,
+        rx: &mut tokio::sync::mpsc::Receiver<Outbound>,
+    ) {
+        tick(state, &mut Vec::new(), output);
+        while rx.try_recv().is_ok() {}
+    }
+
+    /// A one-chunk move looks at the chunks it gains and loses and the chunks it picks, not the
+    /// whole view (the sorted disc looked at (2r + 1)² + |disc| chunks and sorted the disc again
+    /// at every move), allocates nothing, and a complete view costs nothing per tick. A move
+    /// before the view is complete looks at the chunks still to send as well.
+    #[test]
+    fn a_chunk_crossing_looks_at_the_chunks_it_gains_and_loses_not_the_whole_view() {
+        let mut costs = Vec::new();
+        for r in [16, 32] {
+            let mut state = new_state(
+                settings(|c| {
+                    c.general.view_distance = 32;
+                    c.developer.chunks_per_tick = 64;
+                }),
+                Listeners::default(),
+            );
+            let mut output = Output::default();
+            let (j, mut rx) = join(1, 0);
+            tick(&mut state, &mut vec![j, radius(1, 1, r)], &mut output);
+            let session = crate::tick::SessionId::new(1);
+            let r = u8::try_from(r).unwrap();
+            let window = 64 * 4;
+            let to_chunk = |state: &mut State, x: i32| {
+                let x = f32::from(u8::try_from(x).unwrap());
+                teleported(state, 1, [x * 16.0 + 0.5, -58.38, 0.5]);
+            };
+            // The largest view takes about 3209 / 64 ticks, plus a tick for each load.
+            let settle = |state: &mut State,
+                          output: &mut Output,
+                          rx: &mut tokio::sync::mpsc::Receiver<Outbound>| {
+                for _ in 0..200 {
+                    step(state, output, rx);
+                    if state.players[&session].view.is_complete() {
+                        return;
+                    }
+                }
+                panic!("the view did not complete");
+            };
+            settle(&mut state, &mut output, &mut rx);
+            // The first move gives the spare words their room.
+            to_chunk(&mut state, 1);
+            settle(&mut state, &mut output, &mut rx);
+            let room = buffers(&state.players[&session].view);
+            counted();
+            step(&mut state, &mut output, &mut rx);
+            assert_eq!(counted(), (0, 0), "a complete view costs nothing");
+
+            to_chunk(&mut state, 2);
+            step(&mut state, &mut output, &mut rx);
+            let (positions, words) = counted();
+            let gained = disc_at(2, r).difference(&disc_at(1, r)).count();
+            let lost = disc_at(1, r).difference(&disc_at(2, r)).count();
+            assert!(gained < window);
+            // None of the gained chunks is loaded yet, so each is looked at once more to ask.
+            assert_eq!(positions, gained + lost + gained);
+            // Picking starts at the word of the nearest gained chunk, not at the view's first.
+            assert!(words <= (gained + lost).div_ceil(WORD_BITS) + 2, "{words}");
+            let square = (2 * usize::from(r) + 1).pow(2);
+            assert!((positions + words) * 8 < square + disc_at(0, r).len());
+            assert_eq!(buffers(&state.players[&session].view), room);
+            costs.push(positions + words);
+
+            // Moves before the view is complete carry the chunks not sent yet over.
+            for x in 3..8 {
+                let backlog = state.players[&session]
+                    .view
+                    .unsent_chunks(&state.chunks.disc)
+                    .len();
+                assert!(backlog > 0);
+                counted();
+                to_chunk(&mut state, x);
+                step(&mut state, &mut output, &mut rx);
+                let (positions, _) = counted();
+                let gained = disc_at(x, r).difference(&disc_at(x - 1, r)).count();
+                let lost = disc_at(x - 1, r).difference(&disc_at(x, r)).count();
+                let moved = gained + lost + backlog;
+                assert!(moved <= positions && positions <= moved + window);
+            }
+            assert_eq!(buffers(&state.players[&session].view), room);
+        }
+        // Twice the radius: about twice the cost (the perimeter), not four times (the area).
+        assert!(costs[1] < costs[0] * 5 / 2, "{costs:?}");
     }
 }
