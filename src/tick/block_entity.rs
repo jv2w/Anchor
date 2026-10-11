@@ -667,7 +667,7 @@ impl BlockEntity {
     pub(super) fn is_spawnable(&self) -> bool {
         match &self.kind {
             Kind::Other(_) => !self.kind.id().is_empty(),
-            Kind::ChiseledBookshelf { .. } | Kind::EnderChest => false,
+            Kind::ChiseledBookshelf { .. } => false,
             _ => true,
         }
     }
@@ -2701,6 +2701,7 @@ pub(in crate::tick) mod tests {
             BlockPos::new(3, 2, 3),
         );
         let bare = BlockPos::new(4, 2, 3);
+        let ender = BlockPos::new(5, 2, 3);
         let mut chunk = Chunk::default();
         chunk.entities.insert(a, chest_entity(&[], Some(b)));
         let furnace = Compound::from([("id".to_owned(), Value::String("Furnace".to_owned()))]);
@@ -2723,11 +2724,18 @@ pub(in crate::tick) mod tests {
         chunk
             .entities
             .insert(bare, BlockEntity::read(no_id, bare, &Registry::default()));
+        // The client draws an ender chest only with its block entity.
+        let ender_chest =
+            Compound::from([("id".to_owned(), Value::String("EnderChest".to_owned()))]);
+        chunk.entities.insert(
+            ender,
+            BlockEntity::read(ender_chest, ender, &Registry::default()),
+        );
         let mut store = BlockEntities::default();
         let world = World::new("be", WorldKind::Temporary, 0, BlockPos::new(0, 0, 0));
         store.load(key, &chunk.write(), &world, &Registry::default());
         let sent = store.client_nbt(key);
-        assert_eq!(sent.len(), 3);
+        assert_eq!(sent.len(), 4);
         assert_eq!(sent[0].get("pairx"), Some(&Value::Int(2)));
         assert_eq!(
             sent[0].get("CustomName"),
@@ -2743,6 +2751,10 @@ pub(in crate::tick) mod tests {
         saved_pot.insert("y".to_owned(), Value::Int(c.y));
         saved_pot.insert("z".to_owned(), Value::Int(c.z));
         assert_eq!(sent[2], saved_pot);
+        assert_eq!(
+            sent[3].get("id"),
+            Some(&Value::String("EnderChest".to_owned()))
+        );
         let bytes = store.client_bytes(0, key.1, usize::try_from((2 + 64) >> 4).unwrap());
         let mut r = crate::protocol::Reader::new(&bytes, 1 << 20, 0);
         for want in &sent {
