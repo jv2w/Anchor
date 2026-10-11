@@ -159,7 +159,7 @@ console-input = true
 
 # Per-world values, by world name. They override view-distance, chunks-per-tick,
 # spawn-radius and tick-radius for that world, and spawn = [x, y, z] sets where players
-# appear (default: the generator's spawn), for example:
+# appear in a new world (default: the generator's spawn), for example:
 # [worlds.lobby]
 # view-distance = 8
 # chunks-per-tick = 8
@@ -267,9 +267,9 @@ console-input = true
 | `chunks-per-tick` | 정수 | 1~256 | 그 월드의 틱당 청크 수 |
 | `spawn-radius` | 정수 | 1~64 | 그 월드의 스폰 전 청크 반경. 그 월드 시야 이하로 잘린다 |
 | `tick-radius` | 정수 | 1~64 | 그 월드의 틱 반경. 그 월드 시야 이하로 잘린다 |
-| `spawn` | 정수 셋 `[x, y, z]` | 각각 i32 | 그 월드에서 플레이어가 나타나는 곳. 없으면 생성기의 스폰 |
+| `spawn` | 정수 셋 `[x, y, z]` | 각각 i32 | 새 월드에서 플레이어가 나타나는 곳. 없으면 생성기의 스폰 |
 
-`spawn`은 매 시작에 적용되고 저장하지 않는다. 실행 중 옮긴 스폰은 다시 켜면 이 값으로 돌아간다. 실행 중 `create_world`로 만든 영구 월드는 다음 실행에서 `Context::load_world(이름, &world::Options)`로 설정을 다시 받는다. 가져온 월드의 원래 스폰은 `import::Report::spawn`이 알려 주므로 여기에 옮겨 적는다.
+`spawn`은 월드 파일에 기록이 없는 새 월드에만 적용된다. 그 뒤 스폰은 월드 상태로 월드 파일에 저장되어, 실행 중 옮긴 스폰(`/setworldspawn`)도 다시 켜면 그대로이고 이 값을 바꿔도 있던 월드에는 쓰지 않는다. 실행 중 `create_world`로 만든 영구 월드는 다음 실행에서 `Context::load_world(이름, &world::Options)`로 설정을 다시 받는다(스폰은 파일의 것). 가져온 월드는 `level.dat`의 스폰을 가진다.
 
 ## 다른 서버와 이름이 다른 키
 
@@ -306,4 +306,4 @@ PMMP 설정 중 없는 것: PHP 전용(메모리, GC, async-workers, timings, �
 
 ## 저장하지 않음
 
-설정은 데이터 파일에 저장하지 않는다. 매 시작에 `anchor.toml`과 코드에서만 온다. 실행 중 API로 바꾼 난이도, 월드 스폰, 시간 정지, 날씨, 게임 규칙은 다시 켜면 설정 값으로 돌아간다. 이유는 `storage.md`에 있다.
+설정은 데이터 파일에 저장하지 않는다. 매 시작에 `anchor.toml`과 코드에서만 온다. 실행 중 API로 바꾼 난이도, 시간 정지, 날씨, 게임 규칙은 다시 켜면 설정 값으로 돌아간다. 월드 스폰은 설정이 아니라 월드 상태로 저장된다. 이유는 `storage.md`에 있다.

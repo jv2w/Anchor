@@ -160,11 +160,10 @@ impl Report {
         self.placeholder_blocks
     }
 
-    /// The vanilla world's spawn, from `level.dat`; a spawn without a height stands on the
-    /// highest block of its column (the generator's height if the column is empty). Anchor does
-    /// not take it, nor any other setting of `level.dat` (seed, game mode, difficulty, game
-    /// rules): the world runs with the settings of the server. To keep the spawn,
-    /// write it as `spawn = [x, y, z]` in the world's `[worlds.<name>]` table.
+    /// The vanilla world's spawn, from `level.dat`, which the imported world keeps as its spawn; a
+    /// spawn without a height stands on the highest block of its column (the generator's height
+    /// if the column is empty). Anchor takes no setting of `level.dat` (seed, game mode,
+    /// difficulty, game rules): the world runs with the settings of the server.
     pub fn spawn(&self) -> BlockPos {
         self.spawn
     }
@@ -379,11 +378,12 @@ fn prepare<E: Sync>(
         (Some(_), None) => spec.generator.spawn(seed).y,
     };
     report.spawn = BlockPos::new(x, spawn_y, z);
-    // The world's state alone: its time. Its settings come from the server's.
+    // The world's state alone: its time and spawn. Its settings come from the server's.
     let key = Key::World;
     let record = WorldRecord {
         number: target.number,
         time: world.time,
+        spawn: report.spawn,
     };
     let mut batch = Batch::with_capacity(1);
     batch.put(key.clone(), seal(&key.to_bytes(), &record)?);

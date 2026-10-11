@@ -218,11 +218,13 @@ pub(crate) struct Snapshot {
 }
 
 /// What a world record keeps of the tick's world (`World`): its state. Its settings (seed,
-/// spawn, generator, difficulty, time stop, weather) are not saved.
+/// generator, difficulty, time stop, weather) are not saved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldValues {
     /// `World::time_ticks`.
     pub(crate) time: i64,
+    /// `World::spawn`.
+    pub(crate) spawn: BlockPos,
 }
 
 impl WorldValues {
@@ -230,6 +232,7 @@ impl WorldValues {
     pub(crate) fn of(world: &World) -> Self {
         Self {
             time: world.time_ticks(),
+            spawn: world.spawn(),
         }
     }
 }
@@ -322,7 +325,8 @@ pub(crate) fn default_seed(name: &str) -> i64 {
 }
 
 /// A world the server runs, as its settings make it: `seed`, else [`default_seed`]; `spawn`,
-/// else the generator's. A stored world goes on from its saved state ([`resume`]).
+/// else the generator's. A stored world goes on from its saved state ([`resume`]), its spawn
+/// among it.
 pub(crate) fn new_world(
     name: &str,
     kind: Kind,
@@ -335,10 +339,11 @@ pub(crate) fn new_world(
     World::new(name, kind, seed, spawn)
 }
 
-/// Gives `world` the state its stored `record` keeps: its number and time.
+/// Gives `world` the state its stored `record` keeps: its number, time and spawn.
 pub(crate) fn resume(world: &mut World, record: WorldRecord) {
     world.set_number(Some(record.number));
     world.set_time(record.time);
+    world.set_spawn(record.spawn);
 }
 
 /// A world as the save thread sees it.
@@ -352,8 +357,8 @@ struct Plan {
     /// The open file of a persistent world; `None` for a temporary one, and for a persistent one
     /// whose file failed to open (its chunks load damaged, so nothing of it changes or is saved).
     file: Option<Open>,
-    /// The time the world's record in its file holds, once read or written.
-    time: Option<i64>,
+    /// What the world's record in its file holds, once read or written.
+    values: Option<WorldValues>,
 }
 
 /// An open data file and where it is.
@@ -396,8 +401,8 @@ impl Opener {
 }
 
 /// The plan of a world named `name`: a persistent one (with `number`, the tick's) opens its
-/// file, whose record gives its number and time, and whose last save is checked against the main
-/// file's (`saved`; a file holding a later one is added to `later`).
+/// file, whose record gives its number, time and spawn, and whose last save is checked against
+/// the main file's (`saved`; a file holding a later one is added to `later`).
 fn plan(
     opener: &Opener,
     saved: &Meta,
@@ -413,7 +418,7 @@ fn plan(
         seed,
         generator,
         file: None,
-        time: None,
+        values: None,
     };
     if number.is_none() {
         return plan;
@@ -426,7 +431,10 @@ fn plan(
         Ok((open, record, meta)) => {
             if let Some(record) = record {
                 plan.number = Some(record.number);
-                plan.time = Some(record.time);
+                plan.values = Some(WorldValues {
+                    time: record.time,
+                    spawn: record.spawn,
+                });
             }
             if check_save(saved, &open.place.file, meta.as_ref()) {
                 later.push(open.place.file.clone());
@@ -1046,7 +1054,7 @@ fn resolve(
     let numbers = stored.iter().map(|(_, r)| r.number).chain(
         plans
             .iter()
-            .filter(|p| p.time.is_some())
+            .filter(|p| p.values.is_some())
             .filter_map(|p| p.number),
     );
     let mut next_number = next_world_number(numbers);
@@ -1060,9 +1068,16 @@ fn resolve(
             given.or(spec.seed),
             spec.spawn,
         );
-        let new = plan.time.is_none();
-        match (plan.number, plan.time) {
-            (Some(number), Some(time)) => resume(&mut world, WorldRecord { number, time }),
+        let new = plan.values.is_none();
+        match (plan.number, plan.values) {
+            (Some(number), Some(WorldValues { time, spawn })) => resume(
+                &mut world,
+                WorldRecord {
+                    number,
+                    time,
+                    spawn,
+                },
+            ),
             (Some(_), None) => {
                 // A new file: its keys carry the next free number.
                 plan.number = Some(next_number);
@@ -1833,7 +1848,7 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
         batch.put(Key::Meta, sealed_meta.clone());
         file.storage.commit(&batch)?;
         if let Some(&(_, values)) = snapshot.worlds.iter().find(|(w, _)| *w == world) {
-            plan.time = Some(values.time);
+            plan.values = Some(values);
         }
     }
     let Files {
@@ -1853,13 +1868,14 @@ fn commit(thread: &mut Thread, pool: &Pool, snapshot: &Snapshot) -> Result<(), s
 /// The record of a world with `values`, if `plan` is of a persistent world and its file does not
 /// hold these values already.
 fn world_record(plan: &Plan, values: WorldValues) -> Option<WorldRecord> {
-    let WorldValues { time } = values;
-    if plan.time == Some(time) {
+    if plan.values == Some(values) {
         return None;
     }
+    let WorldValues { time, spawn } = values;
     Some(WorldRecord {
         number: plan.number?,
         time,
+        spawn,
     })
 }
 
@@ -2230,10 +2246,9 @@ pub(crate) mod tests {
         world
     }
 
-    /// Asserts that `world` has the settings of its spec, whatever a run changed: spawn `spawn`,
-    /// the time running, no difficulty of its own, clear.
-    fn assert_settings_of_spec(world: &World, spawn: BlockPos) {
-        assert_eq!(world.spawn(), spawn);
+    /// Asserts that `world` has the settings of its spec, whatever a run changed: the time
+    /// running, no difficulty of its own, clear.
+    fn assert_settings_of_spec(world: &World) {
         assert!(!world.is_time_stopped());
         assert_eq!(world.difficulty(), None);
         assert_eq!(world.weather(), Weather::Clear);
@@ -2377,9 +2392,10 @@ pub(crate) mod tests {
         let opened = open(&dir.0, specs()).unwrap();
         assert_eq!((opened.tick, opened.worlds[0].seed()), (77, 5));
         let w = &opened.worlds[0];
+        // The state comes back, the spawn moved while it ran (not the spec's) with the time.
         assert_eq!(WorldValues::of(w), WorldValues::of(&stopped_hard_world()));
         // The settings changed while it ran are not saved: the spec's come back.
-        assert_settings_of_spec(w, BlockPos::new(0, -60, 0));
+        assert_settings_of_spec(w);
         assert_eq!(
             opened.worlds[1].time_ticks(),
             0,
@@ -2526,6 +2542,36 @@ pub(crate) mod tests {
             kind,
             name: name.to_owned(),
         }
+    }
+
+    #[test]
+    fn a_world_record_is_written_once_its_time_or_spawn_changes() {
+        let values = WorldValues {
+            time: 9,
+            spawn: BlockPos::new(1, 2, 3),
+        };
+        let plan = Plan {
+            name: "world".to_owned(),
+            number: Some(4),
+            seed: 5,
+            generator: Arc::new(Flat),
+            file: None,
+            values: Some(values),
+        };
+        assert_eq!(world_record(&plan, values), None, "the file holds them");
+        // The time stands still: the spawn alone moved.
+        let moved = WorldValues {
+            spawn: BlockPos::new(-7, 70, 8),
+            ..values
+        };
+        assert_eq!(
+            world_record(&plan, moved),
+            Some(WorldRecord {
+                number: 4,
+                time: 9,
+                spawn: BlockPos::new(-7, 70, 8),
+            })
+        );
     }
 
     #[test]
@@ -2999,7 +3045,7 @@ pub(crate) mod tests {
             seed: 5,
             generator: Arc::new(Flat),
             file: Some(open_at(storage)),
-            time: None,
+            values: None,
         }]
     }
 
@@ -3573,7 +3619,13 @@ pub(crate) mod tests {
             identity: 7,
             chunks: vec![(0, pos, changed_chunk(pos))],
             players: vec![(player.clone(), data.clone())],
-            worlds: vec![(0, WorldValues { time: 600 })],
+            worlds: vec![(
+                0,
+                WorldValues {
+                    time: 600,
+                    spawn: BlockPos::new(3, -60, 3),
+                },
+            )],
             access: vec![(access_key(AccessKind::Op, "steve"), AccessWrite::Mark)],
             user: vec![("round".to_owned(), b"3".to_vec())],
             ..Snapshot::default()
@@ -3596,6 +3648,7 @@ pub(crate) mod tests {
         assert!(opened.later.is_empty());
         assert_eq!(opened.access.ops, ["steve"]);
         assert_eq!(opened.worlds[0].time_ticks(), 600);
+        assert_eq!(opened.worlds[0].spawn(), BlockPos::new(3, -60, 3));
         assert_eq!(
             opened.thread.read_user(&["round"]).unwrap(),
             [Some(b"3".to_vec())]
@@ -3683,7 +3736,15 @@ pub(crate) mod tests {
             let mut batch = Batch::default();
             batch.put(
                 Key::World,
-                seal(&Key::World.to_bytes(), &WorldRecord { number: 4, time: 9 }).unwrap(),
+                seal(
+                    &Key::World.to_bytes(),
+                    &WorldRecord {
+                        number: 4,
+                        time: 9,
+                        spawn: BlockPos::new(1, 2, 3),
+                    },
+                )
+                .unwrap(),
             );
             storage.commit(&batch).unwrap();
             storage.close().unwrap();
@@ -3719,7 +3780,15 @@ pub(crate) mod tests {
         let mut batch = Batch::default();
         batch.put(
             Key::World,
-            seal(&Key::World.to_bytes(), &WorldRecord { number: 4, time: 9 }).unwrap(),
+            seal(
+                &Key::World.to_bytes(),
+                &WorldRecord {
+                    number: 4,
+                    time: 9,
+                    spawn: BlockPos::new(1, 2, 3),
+                },
+            )
+            .unwrap(),
         );
         storage.commit(&batch).unwrap();
         storage.close().unwrap();

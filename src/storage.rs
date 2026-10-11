@@ -2043,7 +2043,11 @@ pub(crate) mod tests {
         let mut storage = memory(&disk);
         let mut rng = Rng(11);
         let sub_chunk = random_chunk(&mut rng).sub_chunks[5].clone();
-        let world = WorldRecord { number: 3, time: 0 };
+        let world = WorldRecord {
+            number: 3,
+            time: 0,
+            spawn: crate::world::BlockPos::new(0, -60, 0),
+        };
         let keys = [
             chunk_key(-1, 1),
             Key::World,

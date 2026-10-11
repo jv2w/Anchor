@@ -15,9 +15,9 @@ use anchor::{Config, Error, Server, import};
 
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/xtask/data/import/flat");
 const NAME: &str = "imported";
-/// What the server task saw of the imported world: its seed and the spawn column's lowest
-/// block names.
-type Seen = (i64, Vec<String>);
+/// What the server task saw of the imported world: its seed, its spawn and the spawn column's
+/// lowest block names.
+type Seen = (i64, BlockPos, Vec<String>);
 
 /// A folder in Cargo's test temporary folder, unique to this process and test, removed when
 /// dropped.
@@ -114,7 +114,7 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
         (0, 0, 0)
     );
     assert!(snapshot(Path::new(FIXTURE)) == before, "the source changed");
-    // level.dat's spawn (no height: above the highest block), shown for the settings, not taken.
+    // level.dat's spawn (no height: above the highest block), which the world keeps.
     assert_eq!(report.spawn(), BlockPos::new(0, -57, 0));
 
     // A second import is refused (opening the file still backs it up, as every start does; the
@@ -127,8 +127,8 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
         "{err:?}"
     );
 
-    // The server runs the world with its own settings (not level.dat's seed 7 or spawn): its
-    // spawn chunks loaded with BDS's flat layers at the bottom.
+    // The server runs the world with its own settings (not level.dat's seed 7) and the imported
+    // spawn: its spawn chunks loaded with BDS's flat layers at the bottom.
     let seen: Arc<std::sync::Mutex<Option<Seen>>> = Arc::default();
     let out = Arc::clone(&seen);
     let server = Server::builder()
@@ -152,18 +152,19 @@ fn a_bds_world_imports_once_and_the_server_loads_it() {
                         .map_or("?".to_owned(), |s| s.name().to_owned())
                 })
                 .collect();
-            *out.lock().expect("not poisoned") = Some((World::seed(world), column));
+            *out.lock().expect("not poisoned") = Some((World::seed(world), spawn, column));
             cx.shutdown();
         })
         .build()
         .expect("the server builds");
     server.run().expect("the server runs");
-    let (world_seed, column) = seen
+    let (world_seed, spawn, column) = seen
         .lock()
         .expect("not poisoned")
         .take()
         .expect("the spawn chunk loaded");
     assert_ne!(world_seed, 7, "level.dat's seed is a setting, not imported");
+    assert_eq!(spawn, report.spawn(), "the imported spawn");
     assert_eq!(
         column,
         ["minecraft:bedrock", "minecraft:dirt", "minecraft:dirt",]

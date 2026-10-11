@@ -323,8 +323,8 @@ impl Options {
         self
     }
 
-    /// The spawn, or `None` for the generator's ([`Generator::spawn`]): the `spawn` of
-    /// [`settings`](Self::settings).
+    /// The spawn of a new world, or `None` for the generator's ([`Generator::spawn`]): the
+    /// `spawn` of [`settings`](Self::settings). A world its file stores keeps its own spawn.
     #[doc(alias = "WorldCreationOptions::getSpawnPosition")]
     pub fn spawn(&self) -> Option<BlockPos> {
         self.settings.spawn
@@ -356,7 +356,8 @@ impl Options {
 
     /// The world's own view values and spawn: each view value set replaces the global one in
     /// this world, as a `[worlds.<name>]` table does for the worlds the server is built with.
-    /// They last while the server runs: a later run loads the world with the options of its load.
+    /// They last while the server runs: a later run loads the world with the options of its load,
+    /// and the world keeps the spawn its file stores.
     pub fn settings(&self) -> crate::config::WorldSettings {
         self.settings
     }
@@ -589,7 +590,7 @@ impl World {
         self.spawn
     }
 
-    /// Moves the spawn until the server stops: a restart takes the spawn of the settings again.
+    /// Moves the spawn. A persistent world saves it with its state, so it stays after a restart.
     /// The 3 × 3 spawn chunks the server keeps loaded move
     /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
     /// sees them (PMMP keeps the old ones held and does not hold the new ones).

@@ -80,7 +80,11 @@ crate::tick::checkpoint::variants!(Kind {
     0 => Persistent,
     1 => Temporary,
 });
-crate::tick::checkpoint::fields!(WorldRecord { number, time });
+crate::tick::checkpoint::fields!(WorldRecord {
+    number,
+    time,
+    spawn
+});
 crate::tick::checkpoint::fields!(DeletedWorld { name, index });
 
 /// A world of the list as a checkpoint keeps it, before the state that holds it is made: a
@@ -492,8 +496,9 @@ impl Context<'_> {
     /// `WorldManager::generateWorld`): its spawn chunks load from the next view phase on, where
     /// [`WorldInit`] and [`WorldLoad`] are raised. A persistent world is saved from the next
     /// commit on; a temporary one never. A seed the options leave out is made from the name, and
-    /// a spawn they leave out is the generator's. The server file keeps the world's chunks and
-    /// time, never its options: [`load_world`](Self::load_world) after a restart takes them again.
+    /// a spawn they leave out is the generator's. The server file keeps the world's chunks, time
+    /// and spawn, never its options: [`load_world`](Self::load_world) after a restart takes them
+    /// again.
     ///
     /// A persistent world is its file `data/worlds/<name>.redb`, made by the save thread.
     ///
@@ -559,10 +564,10 @@ impl Context<'_> {
 
     /// Loads the persistent world `name` whose file `data/worlds/<name>.redb` was there when the
     /// server started, declared or not (PMMP `WorldManager::loadWorld`), with the settings of
-    /// `options`, as [`create_world`](Self::create_world) makes one: the file keeps its chunks and
-    /// time, never its settings, so a world stored in an earlier run gets its generator, seed,
-    /// spawn, difficulty and view values from here (its kind is persistent whatever the options
-    /// say). Its spawn chunks load from the next view phase on, where [`WorldLoad`] is raised. A
+    /// `options`, as [`create_world`](Self::create_world) makes one: the file keeps its chunks,
+    /// time and spawn, never its settings, so a world stored in an earlier run gets its generator,
+    /// seed, difficulty and view values from here (its kind is persistent whatever the options
+    /// say, and their spawn is not used). Its spawn chunks load from the next view phase on, where [`WorldLoad`] is raised. A
     /// world the server already has this run keeps the settings it has and the options are not
     /// used: a loaded one is its `Id` as it is, and an unload asked for it before the next view
     /// phase is dropped (the later call wins; no [`WorldUnload`] is raised for it). Inside a

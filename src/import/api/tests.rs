@@ -338,14 +338,15 @@ fn a_chunk_imports_with_its_blocks_upgraded_unknown_blocks_kept_and_its_block_en
     let raws = BTreeMap::from([((7, -2), full_raw())]);
     let report = imported(&mut storage, 2, &raws, [10, 70, -20]);
 
-    // The record keeps the state alone: the number (the file holds the world alone) and the
-    // time, no setting of level.dat.
+    // The record keeps the state alone: the number (the file holds the world alone), the time
+    // and the spawn, no setting of level.dat.
     let record = world_record(&mut storage).unwrap();
     assert_eq!(
         record,
         WorldRecord {
             number: 0,
-            time: 5678
+            time: 5678,
+            spawn: report.spawn(),
         }
     );
     let (chunk, [block_entities, entities, updates]) = read_chunk(&mut storage, 0, 7, -2);

@@ -15,6 +15,7 @@ use std::mem::size_of;
 use super::seal::{DECODE_BUDGET, MAX_RECORD};
 use crate::nbt::{Compound, Encoding, MAX_ROOT_BYTES};
 use crate::protocol::{Error, Reader, Result, Writer, length};
+use crate::world::BlockPos;
 
 /// Sub-chunks in a chunk column, from index -4 (y -64) to 19 (y 304..=319).
 pub(crate) const SUB_CHUNKS: usize = 24;
@@ -427,30 +428,40 @@ impl Record for UserRecord<'_> {
 }
 
 /// A persistent world: the `worlds` value of its world file (key `world`). It holds the world's
-/// state alone, never a setting: the seed, spawn, generator, difficulty, time stop and weather
-/// come from the settings and the code at every start.
+/// state alone, never a setting: the seed, generator, difficulty, time stop and weather come from
+/// the settings and the code at every start.
 ///
-/// The number, then the world time (i64).
+/// The number, then the world time (i64), then the spawn (i32 x, y, z).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorldRecord {
     /// The number that `chunks` keys carry for this world.
     pub(crate) number: u32,
     /// The world time in ticks at the commit (`World::time_ticks`): the day cycle goes on from it.
     pub(crate) time: i64,
+    /// Where players appear (`World::spawn`): the settings' spawn only places a new world's.
+    pub(crate) spawn: BlockPos,
 }
 
 impl Record for WorldRecord {
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.uint32(self.number);
         w.int64(self.time);
+        w.int32(self.spawn.x);
+        w.int32(self.spawn.y);
+        w.int32(self.spawn.z);
         Ok(())
     }
 
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let number = r.uint32()?;
         let time = r.int64()?;
+        let spawn = BlockPos::new(r.int32()?, r.int32()?, r.int32()?);
         end(r)?;
-        Ok(Self { number, time })
+        Ok(Self {
+            number,
+            time,
+            spawn,
+        })
     }
 }
 
@@ -896,6 +907,11 @@ pub(crate) mod tests {
             let world = WorldRecord {
                 number: u32::try_from(rng.below(1 << 20)).unwrap(),
                 time: rng.next().cast_signed(),
+                spawn: BlockPos::new(
+                    u32::try_from(rng.next() >> 32).unwrap().cast_signed(),
+                    u32::try_from(rng.next() >> 32).unwrap().cast_signed(),
+                    u32::try_from(rng.next() >> 32).unwrap().cast_signed(),
+                ),
             };
             assert_eq!(decode::<WorldRecord>(&encode(&world)).unwrap(), world);
             let meta = Meta {
@@ -1047,15 +1063,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn world_records_hold_the_number_and_time() {
+    fn world_records_hold_the_number_time_and_spawn() {
         let world = WorldRecord {
             number: 7,
             time: 123_456_789,
+            spawn: BlockPos::new(-30_000_000, -64, 29_999_999),
         };
         let bytes = encode(&world);
-        assert_eq!(bytes.len(), 12, "the number and the time alone");
+        assert_eq!(bytes.len(), 24, "the number, the time and the spawn alone");
         assert_eq!(decode::<WorldRecord>(&bytes).unwrap(), world);
-        assert!(decode::<WorldRecord>(&bytes[..8]).is_err());
+        assert!(decode::<WorldRecord>(&bytes[..20]).is_err());
+        assert!(decode::<WorldRecord>(&[bytes.as_slice(), &[0]].concat()).is_err());
     }
 
     #[test]

@@ -3182,7 +3182,7 @@ mod tests {
         clippy::disallowed_methods,
         reason = "off-tick: the test stands in for the tick handing a snapshot to the save thread"
     )]
-    fn world_time_survives_a_save_and_restart_to_the_tick() {
+    fn world_time_and_spawn_survive_a_save_and_restart_to_the_tick() {
         use crate::save::{self, Request, Response, WorldSpec};
         let specs = || {
             vec![WorldSpec {
@@ -3193,10 +3193,13 @@ mod tests {
                 spawn: None,
             }]
         };
-        // A world 23,990 ticks old, run 5 ticks, then saved at the tick boundary.
+        // A world 23,990 ticks old with its spawn moved (`/setworldspawn`), run 5 ticks, then
+        // saved at the tick boundary.
+        let moved = crate::world::BlockPos::new(8, -59, -8);
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut output = Output::default();
         state.worlds[0].set_time(23_990);
+        state.worlds[0].set_spawn(moved);
         for _ in 0..5 {
             tick(&mut state, &mut Vec::new(), &mut output);
         }
@@ -3210,8 +3213,14 @@ mod tests {
         assert_eq!(snapshot.start, state.tick);
         assert_eq!(
             snapshot.worlds,
-            [(0, save::WorldValues { time: 23_995 })],
-            "the snapshot carries the time"
+            [(
+                0,
+                save::WorldValues {
+                    time: 23_995,
+                    spawn: moved
+                }
+            )],
+            "the snapshot carries the time and the spawn"
         );
         let dir = TempDir::new("time");
         let opened = save::open(&dir.0, specs()).unwrap();
@@ -3234,11 +3243,12 @@ mod tests {
             Ok(Response::Committed { start }) if start == state.tick
         ));
 
-        // The restart takes the engine tick and the time from the file; both runs go on alike
-        // through the night's end into the next day.
+        // The restart takes the engine tick, the time and the spawn from the file, not the
+        // generator's spawn; both runs go on alike through the night's end into the next day.
         let reopened = save::open(&dir.0, specs()).unwrap();
         assert_eq!(reopened.tick, state.tick);
         assert_eq!(reopened.worlds[0].time_ticks(), 23_995);
+        assert_eq!(reopened.worlds[0].spawn(), moved);
         let mut restarted = State::new(
             settings(|_| {}),
             crate::tick::Shared::new(

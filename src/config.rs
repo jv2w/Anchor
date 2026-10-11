@@ -165,7 +165,7 @@ console-input = true
 
 # Per-world values, by world name. They override view-distance, chunks-per-tick,
 # spawn-radius and tick-radius for that world, and spawn = [x, y, z] sets where players
-# appear (default: the generator's spawn), for example:
+# appear in a new world (default: the generator's spawn), for example:
 # [worlds.lobby]
 # view-distance = 8
 # chunks-per-tick = 8
@@ -209,7 +209,8 @@ const ITEM_PICKUP_INTERVAL: RangeInclusive<u8> = 1..=20;
 ///
 /// The server file saves none of them: every start takes the settings from the
 /// config it is built with, so a value changed while the server runs (the difficulty, a world's
-/// spawn, difficulty, weather or time stop, a game rule) is back to its setting after a restart.
+/// difficulty, weather or time stop, a game rule) is back to its setting after a restart. A
+/// world's spawn is its state, not a setting: the world's file keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Config {
     /// Settings for anyone opening a server (`[general]`).
@@ -872,9 +873,9 @@ pub struct WorldSettings {
     /// `tick-radius`: the chunk radius around players where the world's blocks and entities are
     /// ticked.
     pub tick_radius: Option<u8>,
-    /// `spawn = [x, y, z]`: where players appear in the world, at every start; `None` is the
-    /// generator's spawn. Not saved: a spawn moved while the server runs is back to this after a
-    /// restart.
+    /// `spawn = [x, y, z]`: where players appear in the world when it is new; `None` is the
+    /// generator's spawn. The world's file then keeps its spawn, moved or not, and a later start
+    /// does not use this.
     pub spawn: Option<crate::world::BlockPos>,
 }
 

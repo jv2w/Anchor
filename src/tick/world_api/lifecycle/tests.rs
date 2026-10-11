@@ -543,10 +543,14 @@ fn a_hardcore_server_plays_every_world_on_hard() {
     let calm = cx(&mut state)
         .create_world("calm", &arena(1).with_difficulty(Difficulty::Peaceful))
         .unwrap();
-    state
-        .catalog
-        .stored
-        .insert("old".to_owned(), WorldRecord { number: 7, time: 0 });
+    state.catalog.stored.insert(
+        "old".to_owned(),
+        WorldRecord {
+            number: 7,
+            time: 0,
+            spawn: BlockPos::new(0, -60, 0),
+        },
+    );
     let old = cx(&mut state)
         .load_world("old", &Options::new().with_difficulty(Difficulty::Easy))
         .unwrap();
@@ -926,9 +930,11 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     let opened = crate::save::open(&dir.0, Vec::new()).unwrap();
     let stored = &opened.catalog.stored;
     assert_eq!(stored.len(), 2, "{stored:?}");
-    // The record keeps the state alone: none of the settings the run changed.
+    // The record keeps the state alone, the moved spawn among it: none of the settings the run
+    // changed.
     let (_, lobby) = stored.iter().find(|(n, _)| n == "lobby").unwrap();
     assert!((4_000..4_010).contains(&lobby.time), "{lobby:?}");
+    assert_eq!(lobby.spawn, BlockPos::new(9, -60, 9));
     drop(opened);
     let (mut state, mut link, handle) = open_server(&dir, Listeners::default());
     let mut c = cx(&mut state);
@@ -937,11 +943,11 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
         c.create_world("lobby", &Options::new()),
         Err(world::Error::WorldExists)
     );
-    // The settings come from the load: its options, else the defaults.
-    let spawn = BlockPos::new(2, -60, 3);
+    // The settings come from the load: its options, else the defaults. The options' spawn only
+    // places a new world's: the stored one stays.
     let options = Options::new()
         .with_seed(6)
-        .with_spawn(spawn)
+        .with_spawn(BlockPos::new(2, -60, 3))
         .with_difficulty(Difficulty::Hard);
     let id = c.load_world("lobby", &options).unwrap();
     run_saved(&mut state, &mut link, &pool, 3);
@@ -949,7 +955,7 @@ fn an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back() {
     let lobby = c.world(id).unwrap();
     assert_eq!(lobby.block(at), Some(stone()), "the unload's commit");
     assert!(lobby.time_ticks() >= 4_000, "the saved time goes on");
-    assert_eq!((lobby.seed(), lobby.spawn()), (6, spawn));
+    assert_eq!((lobby.seed(), lobby.spawn()), (6, BlockPos::new(9, -60, 9)));
     assert!(!lobby.is_time_stopped());
     assert_eq!(lobby.difficulty(), Some(Difficulty::Hard));
     assert_eq!(lobby.weather(), Weather::Clear);

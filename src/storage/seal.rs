@@ -19,8 +19,9 @@ use super::{Error, Result};
 /// The format version this Anchor writes and the only one it reads. Its layouts are in `codec`;
 /// the terrain is one value per sub-chunk, none for an empty sub-chunk of plains
 /// (`save::seal_terrain`), and extras lists are in pages. The main file holds the operators,
-/// bans, whitelist and the user's server data; the players have a file of their own.
-pub(crate) const FORMAT_VERSION: u16 = 10;
+/// bans, whitelist and the user's server data; the players have a file of their own. A world
+/// record holds the world's spawn after its number and time.
+pub(crate) const FORMAT_VERSION: u16 = 11;
 /// The largest record, in bytes before compression. The largest sub-chunk value takes about
 /// 0.92 MB with the 4096 vanilla states of the longest NBT in a layer (238 bytes at most, 222.5
 /// on average) and about 9.4 MB with 4096 custom states of the longest NBT (2,293 bytes); a
