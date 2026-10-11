@@ -758,7 +758,7 @@ fn toggles_ask_their_events_and_a_refused_one_resends_the_data() {
     let input = game.flags(
         1,
         &[
-            InputFlag::Sneaking,
+            InputFlag::SneakDown,
             InputFlag::StartSneaking,
             InputFlag::StartSprinting,
             InputFlag::StartSwimming,
@@ -827,7 +827,7 @@ fn a_sneak_answer_carries_its_input_tick() {
     };
     sneak(
         &mut game,
-        &[InputFlag::Sneaking, InputFlag::StartSneaking],
+        &[InputFlag::SneakDown, InputFlag::StartSneaking],
         55,
     );
     assert!(game.player(1).survival.motion.sneaking);
@@ -839,6 +839,40 @@ fn a_sneak_answer_carries_its_input_tick() {
     game.player_mut(1).survival.fire_ticks = 20;
     game.idle(1);
     assert_eq!(answer_ticks(game.take(1)), [0]);
+}
+
+/// A start of sneaking without the sneak key is the client crouching by itself, as when a jump
+/// nears a ceiling: refused (with the data again) while the player can stand, accepted where it
+/// cannot (P6 `sneak`).
+#[test]
+fn a_sneak_without_the_key_needs_a_low_ceiling() {
+    let mut game = Game::new(1, Listeners::default());
+    let floor = BlockPos::containing(feet(game.player(1)));
+    let stone = block::Kind::Stone.default_state();
+    let crouch = |game: &mut Game| {
+        let input = game.flags(1, &[InputFlag::Sneaking, InputFlag::StartSneaking]);
+        game.run(vec![input]);
+    };
+    // Two blocks of room: the player can stand under the ceiling.
+    game.state.worlds[0]
+        .set_block(BlockPos::new(floor.x, floor.y + 2, floor.z), stone)
+        .unwrap();
+    game.take(1);
+    crouch(&mut game);
+    assert!(!game.player(1).survival.motion.sneaking);
+    assert!(
+        game.take(1)
+            .iter()
+            .any(|p| matches!(p, Packet::SetActorData(d) if d.entity_runtime_id == 1))
+    );
+    // One block of room: standing does not fit.
+    game.state.worlds[0]
+        .set_block(BlockPos::new(floor.x, floor.y + 1, floor.z), stone)
+        .unwrap();
+    let input = game.flags(1, &[]);
+    game.run(vec![input]);
+    crouch(&mut game);
+    assert!(game.player(1).survival.motion.sneaking);
 }
 
 // pmmp: PlayerExhaustEvent

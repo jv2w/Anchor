@@ -898,9 +898,9 @@ fn sneaking_places_instead_of_opening() {
     h.hold(planks.clone());
     let input = {
         let data = click(TARGET, Face::West, &planks);
-        // Sneaking stays pressed for this packet.
+        // The sneak key stays down for this packet.
         let mut flags = FlagSet::<InputFlag>::new();
-        flags.insert(InputFlag::Sneaking);
+        flags.insert(InputFlag::SneakDown);
         flags.insert(InputFlag::PerformItemInteraction);
         let p = PlayerAuthInput {
             yaw: EAST,
