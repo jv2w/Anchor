@@ -42,7 +42,9 @@ pub enum Verdict {
     /// The packet waits, without later hooks seeing it, with its player: Anchor applies it when
     /// the player's next `PlayerAuthInput` arrives (before that input's receive hooks, movement
     /// and flags), after the packets deferred before it, as BDS applies an attack when the
-    /// attacker's next input takes effect. Only `InventoryTransaction`, `MobEquipment`,
+    /// attacker's next input takes effect. With input passes (`input-pass-us`) it applies when
+    /// that input is handled, or, for the player's second or later input of a pass, just before
+    /// that input's round. Only `InventoryTransaction`, `MobEquipment`,
     /// `Interact`, `PlayerAction`, `Animate` and `ItemStackRequest` can wait; another packet, or
     /// one past the 1,024 a player may have waiting, is dropped. A player's waiting packets go
     /// when it leaves.
@@ -239,15 +241,18 @@ pub(super) fn defer(state: &mut State, session: SessionId, packet: Packet) {
     player.deferred_packets.push_back(Arc::new(packet));
 }
 
-/// Applies the packets the receive hooks of `session` deferred, in the order they arrived, each
-/// followed by the callbacks it deferred, as the input phase applies a packet: the player's
-/// `PlayerAuthInput` comes next. `runs` counts the deferred callbacks of the tick.
-pub(super) fn apply_deferred(state: &mut State, session: SessionId, runs: &mut u32) {
-    while let Some(packet) = state
-        .players
-        .get_mut(&session)
-        .and_then(|p| p.deferred_packets.pop_front())
-    {
+/// Applies the first `max` packets the receive hooks of `session` deferred, in the order they
+/// arrived, each followed by the callbacks it deferred, as the input phase applies a packet: the
+/// player's `PlayerAuthInput` comes next. `runs` counts the deferred callbacks of the tick.
+pub(super) fn apply_deferred(state: &mut State, session: SessionId, max: usize, runs: &mut u32) {
+    for _ in 0..max {
+        let Some(packet) = state
+            .players
+            .get_mut(&session)
+            .and_then(|p| p.deferred_packets.pop_front())
+        else {
+            return;
+        };
         super::apply_packet(state, session, &packet);
         dispatch::run_deferred(state, runs);
     }

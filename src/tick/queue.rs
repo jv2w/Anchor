@@ -4,6 +4,7 @@
 use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -316,6 +317,9 @@ pub(crate) struct Input {
     pub(crate) session: SessionId,
     /// Its position among the session's inputs, from 0.
     pub(crate) seq: u64,
+    /// When it was queued, with input passes (`input-pass-us`): which pass it belongs to.
+    /// `None` without them.
+    pub(crate) arrived: Option<Instant>,
     /// What happened.
     pub(crate) kind: InputKind,
 }
@@ -457,7 +461,11 @@ impl std::error::Error for Error {}
 /// The tick input queue: the sending side for the session layer and the tick's receiver.
 pub(crate) fn input_queue() -> (InputSender, mpsc::Receiver<Input>) {
     let (tx, rx) = mpsc::channel(INPUT_CAPACITY);
-    (InputSender(tx), rx)
+    let sender = InputSender {
+        queue: tx,
+        stamps: false,
+    };
+    (sender, rx)
 }
 
 /// A session's outbound queue; the sender goes to the tick in [`InputKind::Join`].
@@ -472,18 +480,28 @@ pub(crate) fn control_queue() -> (mpsc::Sender<Control>, mpsc::Receiver<Control>
 
 /// The sending side of the tick input queue, shared by every session.
 #[derive(Debug, Clone)]
-pub(crate) struct InputSender(mpsc::Sender<Input>);
+pub(crate) struct InputSender {
+    queue: mpsc::Sender<Input>,
+    /// Whether inputs are stamped with when they were queued ([`Input::arrived`]).
+    stamps: bool,
+}
 
 impl InputSender {
+    /// Stamps every input queued from now on with when it was queued, for input passes.
+    pub(crate) fn stamp_arrivals(&mut self) {
+        self.stamps = true;
+    }
+
     /// Queues the result of job `id`, waiting for room so that the job's callback always runs.
     /// Fails only if the tick has stopped.
     pub(crate) async fn job(&self, id: u64, outcome: JobOutcome) -> Result<()> {
         let input = Input {
             session: SessionId::JOBS,
             seq: id,
+            arrived: arrival(self.stamps),
             kind: InputKind::Job(outcome),
         };
-        self.0.send(input).await.map_err(|_| Error::Closed)
+        self.queue.send(input).await.map_err(|_| Error::Closed)
     }
 
     /// A sender that stamps the inputs of session `id` with its sequence numbers.
@@ -491,7 +509,8 @@ impl InputSender {
         SessionInputs {
             session: id,
             next_seq: 0,
-            queue: self.0.clone(),
+            queue: self.queue.clone(),
+            stamps: self.stamps,
         }
     }
 }
@@ -502,6 +521,7 @@ pub(crate) struct SessionInputs {
     session: SessionId,
     next_seq: u64,
     queue: mpsc::Sender<Input>,
+    stamps: bool,
 }
 
 impl SessionInputs {
@@ -511,6 +531,7 @@ impl SessionInputs {
         let input = Input {
             session: self.session,
             seq: self.next_seq,
+            arrived: arrival(self.stamps),
             kind,
         };
         match self.queue.try_send(input) {
@@ -530,6 +551,7 @@ impl SessionInputs {
         let input = Input {
             session: self.session,
             seq: self.next_seq,
+            arrived: arrival(self.stamps),
             kind: InputKind::Leave,
         };
         // A closed queue means the tick has stopped and forgets every session anyway.
@@ -537,6 +559,11 @@ impl SessionInputs {
             tracing::debug!(session = self.session.get(), "tick stopped before leave");
         }
     }
+}
+
+/// Now, if inputs are stamped.
+fn arrival(stamps: bool) -> Option<Instant> {
+    stamps.then(crate::clock::now)
 }
 
 #[cfg(test)]
@@ -560,7 +587,11 @@ mod tests {
     #[test]
     fn a_full_queue_and_a_stopped_tick_are_reported() {
         let (tx, rx) = mpsc::channel(1);
-        let mut s = InputSender(tx).session(SessionId::new(1));
+        let mut s = InputSender {
+            queue: tx,
+            stamps: false,
+        }
+        .session(SessionId::new(1));
         s.try_send(InputKind::Leave).unwrap();
         assert_eq!(s.try_send(InputKind::Leave), Err(Error::Full));
         drop(rx);

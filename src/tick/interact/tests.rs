@@ -88,6 +88,7 @@ impl Harness {
         Input {
             session: SessionId::new(1),
             seq: self.seq,
+            arrived: None,
             kind: InputKind::Packet {
                 packet,
                 size: bytes.len(),

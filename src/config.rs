@@ -159,6 +159,10 @@ hook-player-input = true
 # timing) or "arrival" (as they reached the server, across players, as the official server
 # applies them).
 input-order = "session"
+# Microseconds of an input pass (0 to 50000; needs input-order = "arrival"). 0: inputs apply
+# each tick. Otherwise a PlayerAuthInput takes effect at the end of the pass it arrived in,
+# as the official server's loop does (15625 on Windows); other packets apply as they come.
+input-pass-us = 0
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
 # When the data files are checked at start: "always", "after-unclean-shutdown" or "never".
@@ -191,6 +195,8 @@ const CHUNKS_PER_TICK: RangeInclusive<u32> = 1..=256;
 pub(crate) const RANDOM_TICK_SPEED: RangeInclusive<u32> = 0..=4096;
 /// go-raknet's dialer probes 1492, 1200 and 576.
 const MAX_MTU_SIZE: RangeInclusive<u16> = 576..=1492;
+/// Off, or at most one tick: a longer pass would hold inputs past the tick after them.
+const INPUT_PASS_US: RangeInclusive<u32> = 0..=50_000;
 /// One minute to one day.
 const SAVE_INTERVAL_MINUTES: RangeInclusive<u16> = 1..=1440;
 /// A fixed thread count; the runtime checks the total against the logical CPUs.
@@ -495,6 +501,11 @@ impl Config {
             d.item_pickup_interval,
             ITEM_PICKUP_INTERVAL,
         )?;
+        // A pass applies the inputs that arrived in it in the order they arrived.
+        if d.input_pass_us > 0 && d.input_order != InputOrder::Arrival {
+            return Err(Key::developer("input-pass-us")
+                .invalid("0 unless `developer.input-order` is \"arrival\""));
+        }
         range(
             Key::developer("save-interval-minutes"),
             d.save_interval_minutes,
@@ -764,6 +775,8 @@ pub struct Developer {
     pub hook_player_input: bool,
     /// `input-order`: the order in which a tick applies the inputs of the players.
     pub input_order: InputOrder,
+    /// `input-pass-us`: the length of an input pass in microseconds; 0 applies inputs each tick.
+    pub input_pass_us: u32,
     /// `save-interval-minutes`: minutes between whole-state saves.
     pub save_interval_minutes: u16,
     /// `integrity-check`: when the data files are checked at start.
@@ -821,6 +834,7 @@ impl Developer {
                 "hook-movement-packets" => self.hook_movement_packets = boolean(value, key)?,
                 "hook-player-input" => self.hook_player_input = boolean(value, key)?,
                 "input-order" => self.input_order = choice(value, key, &InputOrder::NAMES)?,
+                "input-pass-us" => self.input_pass_us = int(value, key, INPUT_PASS_US)?,
                 "save-interval-minutes" => {
                     self.save_interval_minutes = int(value, key, SAVE_INTERVAL_MINUTES)?;
                 }
@@ -861,6 +875,7 @@ impl Default for Developer {
             hook_movement_packets: true,
             hook_player_input: true,
             input_order: InputOrder::Session,
+            input_pass_us: 0,
             save_interval_minutes: 10,
             integrity_check: IntegrityCheck::Always,
             console_input: true,
@@ -1753,7 +1768,7 @@ old-key = false
         let config = Config::default().load_as(&path, true).unwrap();
         let update = config.updated().unwrap();
         assert_eq!(update.removed(), ["general.old-key"]);
-        assert_eq!(update.added().len(), 66);
+        assert_eq!(update.added().len(), 67);
         let again = Config::default().load_as(&path, true).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }

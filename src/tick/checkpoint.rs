@@ -1192,6 +1192,8 @@ fn encode_player(p: &Player, data: &UserData, w: &mut Writer) {
         marks,
         presence,
         deferred_packets: _,
+        // Zero between steps.
+        pass_pending: _,
     } = p;
     runtime_id.encode(w);
     identity.encode(w);
@@ -1244,6 +1246,7 @@ fn decode_player(
         marks: Codec::decode(r)?,
         presence: Codec::decode(r)?,
         deferred_packets: VecDeque::new(),
+        pass_pending: super::pass::Pending::default(),
     })
 }
 
@@ -1284,6 +1287,10 @@ impl State {
             identity: _,
             network,
             awake: _,
+            // Empty between steps.
+            staged: _,
+            // The tick thread's clock, fixed at start.
+            passes: _,
         } = self;
         let mut w = Writer::default();
         settings.game_mode.encode(&mut w);

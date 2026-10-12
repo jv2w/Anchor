@@ -689,6 +689,7 @@ mod tests {
             let mut inputs = vec![crate::tick::queue::Input {
                 session: SessionId::new(1),
                 seq,
+                arrived: None,
                 kind: crate::tick::queue::InputKind::Packet {
                     packet,
                     size: 1 << 20,

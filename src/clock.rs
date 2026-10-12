@@ -90,6 +90,52 @@ impl Pacer {
     }
 }
 
+/// The input passes (`input-pass-us`): periods of a fixed length from an epoch, numbered from 0.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Passes {
+    epoch: Instant,
+    period_us: std::num::NonZeroU64,
+}
+
+impl Passes {
+    /// Passes of `period_us` microseconds from `epoch`.
+    pub(crate) fn new(epoch: Instant, period_us: std::num::NonZeroU32) -> Self {
+        Self {
+            epoch,
+            period_us: period_us.into(),
+        }
+    }
+
+    /// When the passes start.
+    pub(crate) fn epoch(&self) -> Instant {
+        self.epoch
+    }
+
+    /// Microseconds from the epoch to `at`; 0 before it.
+    pub(crate) fn micros(&self, at: Instant) -> u64 {
+        let since = at.saturating_duration_since(self.epoch).as_micros();
+        u64::try_from(since).unwrap_or(u64::MAX)
+    }
+
+    /// The pass `at` falls in; also how many passes have ended by `at`.
+    pub(crate) fn pass_of(&self, at: Instant) -> u64 {
+        self.pass_at(self.micros(at))
+    }
+
+    /// The pass the instant `micros` microseconds from the epoch falls in.
+    pub(crate) fn pass_at(&self, micros: u64) -> u64 {
+        micros / self.period_us
+    }
+
+    /// When pass `pass` ends: the instant the next one starts.
+    pub(crate) fn end(&self, pass: u64) -> Instant {
+        let micros = pass.saturating_add(1).saturating_mul(self.period_us.get());
+        self.epoch
+            .checked_add(Duration::from_micros(micros))
+            .unwrap_or(self.epoch)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +185,19 @@ mod tests {
             assert!(start <= end, "a late tick starts at once");
             assert!(end.saturating_duration_since(start) < PERIOD);
         }
+    }
+
+    #[test]
+    fn a_pass_ends_where_the_next_begins() {
+        let base = now();
+        let passes = Passes::new(base, std::num::NonZeroU32::new(15_625).unwrap());
+        let us = Duration::from_micros;
+        assert_eq!(passes.pass_of(base), 0);
+        assert_eq!(passes.pass_of(base + us(15_624)), 0);
+        assert_eq!(passes.pass_of(base + us(15_625)), 1);
+        assert_eq!(passes.end(0), base + us(15_625));
+        assert_eq!(passes.end(3), base + us(62_500));
+        assert_eq!(passes.pass_of(passes.end(3)), 4);
     }
 
     #[test]

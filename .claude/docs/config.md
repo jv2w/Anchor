@@ -153,6 +153,10 @@ hook-player-input = true
 # timing) or "arrival" (as they reached the server, across players, as the official server
 # applies them).
 input-order = "session"
+# Microseconds of an input pass (0 to 50000; needs input-order = "arrival"). 0: inputs apply
+# each tick. Otherwise a PlayerAuthInput takes effect at the end of the pass it arrived in,
+# as the official server's loop does (15625 on Windows); other packets apply as they come.
+input-pass-us = 0
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
 # When the data files are checked at start: "always", "after-unclean-shutdown" or "never".
@@ -254,6 +258,7 @@ console-input = true
 | `hook-movement-packets` | bool | `true` | | 서버가 보내는 이동 패킷이 송신 훅을 거칠지 |
 | `hook-player-input` | bool | `true` | | `PlayerAuthInput` 패킷이 수신 훅을 거칠지 |
 | `input-order` | 문자열 | `"session"` | `session`, `arrival` | 한 틱의 입력을 적용하는 순서. `session`은 세션 ID 순(세션 안은 도착 순)이라 네트워크에서 섞인 순서와 무관하다. `arrival`은 모든 세션을 통틀어 입력 큐에 도착한 순서로, 공식 서버처럼 먼저 온 입력이 먼저 적용된다. 어느 쪽이든 입력 로그가 그 순서를 담아 재생이 같다 |
+| `input-pass-us` | 정수 | `0` | 0~50000, 0이 아니면 `input-order = "arrival"` | 입력 패스 길이(µs). 0이면 입력을 틱마다 적용한다. 0이 아니면 서버 시작 시각부터 이 주기로 나눈 패스마다, 그 패스에 도착한 `PlayerAuthInput`이 패스 끝에 라운드로 적용된다(라운드 r = 각 플레이어의 r번째 입력, 플레이어는 도착 순). 다른 패킷은 도착 순서대로 앞 패스의 입력이 적용된 뒤 처리된다. 플레이어의 미룬 패킷은 그 패스의 첫 입력을 처리할 때, 2번째 이후 입력이면 그 라운드 직전에 적용된다. 패스에서 나온 출력은 그 패스 끝에 보낸다. 50ms 틱(규칙, 작업, `Context::tick`)은 그대로다. 공식 서버(Windows)의 루프는 15625다 |
 | `save-interval-minutes` | 정수 | `10` | 1~1440 | 전체 상태 저장 간격(분) |
 | `integrity-check` | 문자열 | `"always"` | `always`, `after-unclean-shutdown`, `never` | 시작에서 데이터 파일을 검사하는 때. 실행 중에는 `check` 명령이 검사한다 |
 | `console-input` | bool | `true` | | 표준 입력에서 명령을 읽을지 |

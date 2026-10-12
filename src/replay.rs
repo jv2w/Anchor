@@ -477,7 +477,21 @@ impl Replayer {
                 if t.number != tick::tick_of(&self.state) {
                     return Err(Error::Diverged { tick: t.number });
                 }
-                let mut inputs = self.inputs(t);
+                // Shared by the tick's passes, as the live passes shared it.
+                let mut runs = 0;
+                for pass in &t.passes {
+                    let inputs = self.inputs(&pass.inputs);
+                    let requests = tick::replay_pass(
+                        &mut self.state,
+                        pass.number,
+                        inputs,
+                        &pass.dropped,
+                        &mut runs,
+                        &mut self.own,
+                    );
+                    self.requests(requests)?;
+                }
+                let mut inputs = self.inputs(&t.inputs).into_iter().map(|(i, _)| i).collect();
                 let mut responses = self.responses(t)?;
                 self.progress.ticks += 1;
                 let requests = tick::replay_tick(
@@ -491,16 +505,7 @@ impl Replayer {
                 for rx in self.receivers.values_mut() {
                     while rx.try_recv().is_ok() {}
                 }
-                for request in requests {
-                    match request {
-                        Request::Commit(snapshot) => {
-                            self.disk.commit(&self.pool, &snapshot).map_err(storage)?;
-                        }
-                        Request::Worlds(worlds) => self.disk.add_worlds(&worlds),
-                        Request::DeleteWorlds(worlds) => self.disk.delete_worlds(&worlds),
-                        Request::Chunks(_) | Request::Player(_) | Request::Finish => {}
-                    }
-                }
+                self.requests(requests)?;
             }
             if segment.is_truncated() {
                 return Ok(End::Truncated);
@@ -525,9 +530,26 @@ impl Replayer {
         }
     }
 
-    /// The logged inputs of tick `t` as the sessions gave them; a join gets a new outbound queue.
-    fn inputs(&mut self, t: &tick::LoggedTick) -> Vec<Input> {
-        t.inputs
+    /// Applies the replay's requests for the save thread, in order: its commits and world
+    /// changes; the loads it asks for come from the log's answers.
+    fn requests(&mut self, requests: Vec<Request>) -> Result<()> {
+        for request in requests {
+            match request {
+                Request::Commit(snapshot) => {
+                    self.disk.commit(&self.pool, &snapshot).map_err(storage)?;
+                }
+                Request::Worlds(worlds) => self.disk.add_worlds(&worlds),
+                Request::DeleteWorlds(worlds) => self.disk.delete_worlds(&worlds),
+                Request::Chunks(_) | Request::Player(_) | Request::Finish => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// The logged `entries` as the sessions gave them, each with its arrival; a join gets a new
+    /// outbound queue.
+    fn inputs(&mut self, entries: &[tick::LoggedEntry]) -> Vec<(Input, u64)> {
+        entries
             .iter()
             .map(|e| {
                 let kind = match &e.kind {
@@ -549,11 +571,13 @@ impl Replayer {
                     EntryKind::Job(outcome) => InputKind::Job(outcome.clone()),
                     EntryKind::Measure(measure) => InputKind::Measure(*measure),
                 };
-                Input {
+                let input = Input {
                     session: e.session,
                     seq: e.seq,
+                    arrived: None,
                     kind,
-                }
+                };
+                (input, e.arrival_us)
             })
             .collect()
     }

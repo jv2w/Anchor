@@ -18,6 +18,7 @@ mod interact;
 mod inventory;
 mod log;
 mod network;
+mod pass;
 mod player;
 pub(crate) mod queue;
 mod rule;
@@ -53,8 +54,8 @@ use crate::storage::PlayerKey as StoredPlayer;
 use crate::world::World;
 
 pub(crate) use self::log::{
-    Answer, EntryKind, Fingerprints, InputLog, MAX_FILE_BYTES as MAX_LOG_FILE_BYTES, Origin,
-    Segment, Tick as LoggedTick, write_crash_log,
+    Answer, Entry as LoggedEntry, EntryKind, Fingerprints, InputLog,
+    MAX_FILE_BYTES as MAX_LOG_FILE_BYTES, Origin, Segment, Tick as LoggedTick, write_crash_log,
 };
 #[cfg(test)]
 pub(crate) use entity::Customs;
@@ -149,6 +150,8 @@ pub(crate) struct Settings {
     hook_player_input: bool,
     /// The order of each tick's inputs (`input-order`).
     input_order: InputOrder,
+    /// Microseconds of an input pass, 0 without passes (`input-pass-us`).
+    input_pass_us: u32,
     /// Whether players always get the default game mode (`force-gamemode`).
     force_game_mode: bool,
     /// Random block ticks per sub-chunk per tick (`random-tick-speed`).
@@ -205,6 +208,7 @@ impl Settings {
             hook_movement_packets: developer.hook_movement_packets,
             hook_player_input: developer.hook_player_input,
             input_order: developer.input_order,
+            input_pass_us: developer.input_pass_us,
             force_game_mode: general.force_gamemode,
             random_tick_speed: developer.random_tick_speed,
             no_random_ticks: update::untickable(&developer.disable_block_ticking),
@@ -335,6 +339,12 @@ pub(crate) struct State {
     /// worlds without players back ([`State::is_awake`]); empty when every world runs. Worked
     /// out at the start of the rules from `players`, its buffer kept from tick to tick.
     awake: Vec<Pace>,
+    /// The `PlayerAuthInput`s the input pass being applied handled, waiting for its end
+    /// ([`pass::apply`]); empty between steps. Allocated at start with input passes.
+    staged: Vec<pass::Staged>,
+    /// When the input passes run, with `input-pass-us` ([`State::set_passes`]): what the tick
+    /// thread wakes at, never what the tick reads.
+    passes: Option<clock::Passes>,
 }
 
 /// What makes two logins the same player: the XUID with Xbox sign-in, otherwise the name in ASCII
@@ -407,6 +417,8 @@ pub struct Player {
     /// order: at most [`hook::MAX_DEFERRED_PACKETS`]. Shared, so a checkpoint keeps them without
     /// a copy.
     deferred_packets: VecDeque<std::sync::Arc<Packet>>,
+    /// The player's inputs the input pass being applied handled ([`pass::stage`]).
+    pass_pending: pass::Pending,
 }
 
 /// The most packets the serial phases may queue for one player in one tick; more means a runaway
@@ -539,7 +551,12 @@ impl State {
             identity: None,
             network: network::Network::default(),
             awake: Vec::new(),
+            staged: Vec::new(),
+            passes: None,
         };
+        if state.settings.input_pass_us > 0 {
+            state.staged.reserve(MAX_INPUTS_PER_TICK);
+        }
         state.rules.entities.set_customs(custom_entities);
         state
             .rules
@@ -547,6 +564,11 @@ impl State {
             .set_experience(state.settings.has_orbs());
         view::hold_spawns(&mut state);
         state
+    }
+
+    /// Runs input `passes` from now on (`input-pass-us`): [`run`] applies each when it ends.
+    pub(crate) fn set_passes(&mut self, passes: clock::Passes) {
+        self.passes = Some(passes);
     }
 
     /// Sends what the API asks of the networking ([`queue::Control`]) to `link` from now on.
@@ -634,6 +656,10 @@ impl State {
             network,
             // Worked out from the players at the start of each tick's rules.
             awake: _,
+            // Empty between steps.
+            staged: _,
+            // The tick thread's clock, fixed at start.
+            passes: _,
         } = self;
         let mut h = Fnv::new();
         // The settings the API changes; the others are fixed at start.
@@ -672,6 +698,7 @@ impl State {
             hook_movement_packets: _,
             hook_player_input: _,
             input_order: _,
+            input_pass_us: _,
             force_game_mode: _,
             random_tick_speed,
             no_random_ticks: _,
@@ -722,6 +749,8 @@ impl State {
                 marks,
                 presence,
                 deferred_packets,
+                // Zero between steps.
+                pass_pending: _,
             } = p;
             h.u64(session.get());
             h.u64(*runtime_id);
@@ -962,7 +991,9 @@ impl Output {
 ///    every marked player's packets, built on the CPU pool in player order, so the output does
 ///    not depend on the thread count.
 ///
-/// After the output is delivered, [`boundary`] takes a save snapshot if one is due.
+/// After the output is delivered, [`boundary`] takes a save snapshot if one is due. With input
+/// passes (`input-pass-us`) the passes that ended since the last tick ([`pass`]) come before the
+/// step, and the step's inputs are the engine's own.
 pub(crate) fn step(
     state: &mut State,
     inputs: &mut Vec<Input>,
@@ -1013,57 +1044,16 @@ fn step_marked(
     if state.settings.input_order == InputOrder::Session {
         inputs.sort_unstable_by_key(|i| (i.session, i.seq));
     }
-    // Each input is logged before it applies, so the log of a tick that panics in a user callback
-    // holds the input that raised it.
     for input in inputs.drain(..) {
-        let (session, seq) = (input.session, input.seq);
-        let entry = match input.kind {
-            InputKind::Join { identity, outbound } => {
-                log.record(
-                    session,
-                    seq,
-                    EntryKind::Join(identity.clone()),
-                    identity.size(),
-                );
-                if let Some(request) = spawn::join(state, session, identity, outbound, output) {
-                    output.requests.push(request);
-                }
-                continue;
-            }
-            InputKind::Packet { packet, size } => {
-                log.record(session, seq, EntryKind::Packet(packet), size)
-            }
-            InputKind::Leave => log.record(session, seq, EntryKind::Leave, 0),
-            InputKind::Console(line) => {
-                let size = line.len();
-                log.record(session, seq, EntryKind::Console(line), size)
-            }
-            InputKind::Job(outcome) => {
-                let size = outcome.as_ref().map_or(0, Vec::len);
-                log.record(session, seq, EntryKind::Job(outcome), size)
-            }
-            InputKind::Measure(measure) => log.record(session, seq, EntryKind::Measure(measure), 0),
-        };
-        match &*entry {
-            EntryKind::Packet(packet) => {
-                // Before the input's own receive hooks, which then see what the deferred packets did.
-                if matches!(packet, Packet::PlayerAuthInput(_)) {
-                    hook::apply_deferred(state, session, &mut deferred_runs);
-                }
-                match hook::receive(state, session, packet) {
-                    hook::Received::Apply(packet) => apply_packet(state, session, &packet),
-                    hook::Received::Defer(packet) => hook::defer(state, session, packet),
-                    hook::Received::Drop => {}
-                }
-            }
-            EntryKind::Leave => state.leave(session, "client disconnect"),
-            EntryKind::Console(line) => command::console(state, line),
-            EntryKind::Job(outcome) => task::finish(state, seq, outcome),
-            EntryKind::Measure(measure) => network::apply(state, session, *measure),
-            // A join applied above: its outbound queue is not part of the log.
-            EntryKind::Join(_) => {}
-        }
-        dispatch::run_deferred(state, &mut deferred_runs);
+        handle(
+            state,
+            input,
+            0,
+            Handling::Apply,
+            output,
+            log,
+            &mut deferred_runs,
+        );
     }
     Tasks::run(state);
     dispatch::run_deferred(state, &mut deferred_runs);
@@ -1080,6 +1070,90 @@ fn step_marked(
     output.packets = spawn::output(state, pool, &changes);
     state.tick = state.tick.saturating_add(1);
     mark(Part::Output);
+}
+
+/// How [`handle`] treats a `PlayerAuthInput`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Handling {
+    /// Applied at once, as a tick applies its inputs.
+    Apply,
+    /// Staged until the end of the input pass ([`pass::stage`]).
+    Pass,
+}
+
+/// Records `input`, which arrived at `arrival_us` ([`log::Entry::arrival_us`]), and applies it,
+/// followed by the callbacks it deferred. It is logged before it applies, so the log of a tick
+/// that panics in a user callback holds the input that raised it. `runs` counts the deferred
+/// callbacks of the tick.
+fn handle(
+    state: &mut State,
+    input: Input,
+    arrival_us: u64,
+    handling: Handling,
+    output: &mut Output,
+    log: &mut InputLog,
+    runs: &mut u32,
+) {
+    let (session, seq) = (input.session, input.seq);
+    let entry = match input.kind {
+        InputKind::Join { identity, outbound } => {
+            log.record(
+                session,
+                seq,
+                arrival_us,
+                EntryKind::Join(identity.clone()),
+                identity.size(),
+            );
+            if let Some(request) = spawn::join(state, session, identity, outbound, output) {
+                output.requests.push(request);
+            }
+            return;
+        }
+        InputKind::Packet { packet, size } => {
+            log.record(session, seq, arrival_us, EntryKind::Packet(packet), size)
+        }
+        InputKind::Leave => log.record(session, seq, arrival_us, EntryKind::Leave, 0),
+        InputKind::Console(line) => {
+            let size = line.len();
+            log.record(session, seq, arrival_us, EntryKind::Console(line), size)
+        }
+        InputKind::Job(outcome) => {
+            let size = outcome.as_ref().map_or(0, Vec::len);
+            log.record(session, seq, arrival_us, EntryKind::Job(outcome), size)
+        }
+        InputKind::Measure(measure) => {
+            log.record(session, seq, arrival_us, EntryKind::Measure(measure), 0)
+        }
+    };
+    match &*entry {
+        EntryKind::Packet(packet @ Packet::PlayerAuthInput(_)) => match handling {
+            Handling::Apply => {
+                // Before the input's own receive hooks, which then see what the deferred packets
+                // did.
+                hook::apply_deferred(state, session, usize::MAX, runs);
+                apply_received(state, session, packet);
+            }
+            Handling::Pass => pass::stage(state, session, packet, runs),
+        },
+        EntryKind::Packet(packet) => apply_received(state, session, packet),
+        EntryKind::Leave => state.leave(session, "client disconnect"),
+        EntryKind::Console(line) => command::console(state, line),
+        EntryKind::Job(outcome) => task::finish(state, seq, outcome),
+        EntryKind::Measure(measure) => network::apply(state, session, *measure),
+        // A join applied above: its outbound queue is not part of the log.
+        EntryKind::Join(_) => {}
+    }
+    dispatch::run_deferred(state, runs);
+}
+
+/// Runs the receive hooks on `packet` of `session`, then applies, defers or drops it as they
+/// decide.
+fn apply_received(state: &mut State, session: SessionId, packet: &Packet) {
+    match hook::receive(state, session, packet) {
+        hook::Received::Apply(packet) => apply_packet(state, session, &packet),
+        hook::Received::Defer(packet) => hook::defer(state, session, packet),
+        hook::Received::Drop => {}
+    }
 }
 
 /// The tick boundary after a step and its delivery: a save snapshot for the save thread if one is
@@ -1320,10 +1394,108 @@ pub(crate) enum End {
     SaveFailed(InputLog),
 }
 
+/// The input passes of [`run`] (`input-pass-us`): the inputs taken from the queue that wait for
+/// the end of their pass, and the next pass to end.
+struct Passing {
+    passes: clock::Passes,
+    /// Inputs in queue order, with when they arrived in microseconds from the epoch: at most
+    /// [`MAX_INPUTS_PER_TICK`].
+    waiting: VecDeque<(Input, u64)>,
+    /// The next pass to end: the passes before it are applied.
+    next: u64,
+    /// The inputs the passes since the last tick handled: at most [`MAX_INPUTS_PER_TICK`], as
+    /// a tick applies.
+    handled: usize,
+    /// The deferred callbacks the passes since the last tick ran.
+    runs: u32,
+}
+
+impl Passing {
+    fn new(passes: clock::Passes) -> Self {
+        Self {
+            passes,
+            waiting: VecDeque::with_capacity(MAX_INPUTS_PER_TICK),
+            next: 0,
+            handled: 0,
+            runs: 0,
+        }
+    }
+
+    /// Applies every pass that has ended, each with the inputs that arrived by its end, and
+    /// delivers its output. An input the session did not stamp counts as arriving now.
+    fn run_ended(
+        &mut self,
+        state: &mut State,
+        inputs: &mut mpsc::Receiver<Input>,
+        output: &mut Output,
+        log: &mut InputLog,
+    ) {
+        let now = clock::now();
+        while self.waiting.len() < MAX_INPUTS_PER_TICK {
+            // Disconnected: every sender is gone (networking stopped).
+            let Ok(input) = inputs.try_recv() else { break };
+            let arrival_us = self.passes.micros(input.arrived.unwrap_or(now));
+            self.waiting.push_back((input, arrival_us));
+        }
+        let ended = self.passes.pass_of(now);
+        while self.next < ended {
+            let number = self.next;
+            let room = MAX_INPUTS_PER_TICK.saturating_sub(self.handled);
+            let due = self
+                .waiting
+                .iter()
+                .take(room)
+                .take_while(|(_, us)| self.passes.pass_at(*us) <= number)
+                .count();
+            if due > 0 {
+                self.handled = self.handled.saturating_add(due);
+                pass(
+                    state,
+                    number,
+                    self.waiting.drain(..due),
+                    &mut self.runs,
+                    output,
+                    log,
+                );
+                deliver(state, output, log);
+                log.end_pass();
+            }
+            // A pass without inputs changes nothing: the next one to apply is the first with
+            // some, or the one running now.
+            let first = self
+                .waiting
+                .front()
+                .map_or(ended, |(_, us)| self.passes.pass_at(*us));
+            self.next = first.min(ended).max(number.saturating_add(1));
+        }
+    }
+
+    /// Waits until `deadline`, applying each pass that ends before it when it ends.
+    fn wait_until(
+        &mut self,
+        deadline: std::time::Instant,
+        state: &mut State,
+        inputs: &mut mpsc::Receiver<Input>,
+        output: &mut Output,
+        log: &mut InputLog,
+    ) {
+        loop {
+            let end = self.passes.end(self.next);
+            if end >= deadline {
+                break;
+            }
+            clock::sleep_until(end);
+            self.run_ended(state, inputs, output, log);
+        }
+        clock::sleep_until(deadline);
+    }
+}
+
 /// The tick thread: runs ticks every [`TICK`] until `stop` receives or closes or a commit fails,
 /// then disconnects every player, hands the final snapshot to the save thread (unless a commit
-/// failed) and returns. `_done` drops when the thread ends, normally or by
-/// panic; on a panic the input log goes to `crash` first.
+/// failed) and returns. With input passes ([`State::set_passes`]) the ticks start at their epoch,
+/// and the thread also wakes at the end of each pass to apply it ([`Passing`]). `_done` drops
+/// when the thread ends, normally or by panic; on a panic the input log goes to `crash` first.
 pub(crate) fn run(
     mut state: State,
     pool: &Pool,
@@ -1341,7 +1513,9 @@ pub(crate) fn run(
     let mut answers = Vec::with_capacity(MAX_RESPONSES_PER_TICK);
     let mut waiting = VecDeque::new();
     let mut output = Output::default();
-    let mut pacer = clock::Pacer::new(TICK, clock::now());
+    let passes = state.passes;
+    let mut pacer = clock::Pacer::new(TICK, passes.map_or_else(clock::now, |p| p.epoch()));
+    let mut passing = passes.map(Passing::new);
     info!(tick = state.tick, "tick started");
     let mut failed = false;
     // How long the previous tick took, which the next one reads as a logged input so a replay sees
@@ -1356,10 +1530,14 @@ pub(crate) fn run(
             batch.push(Input {
                 session: SessionId::ENGINE,
                 seq: state.tick,
+                arrived: None,
                 kind: InputKind::Measure(queue::Measure::TickTime(micros)),
             });
         }
-        drain(&mut inputs, &mut batch, MAX_INPUTS_PER_TICK);
+        match &mut passing {
+            None => drain(&mut inputs, &mut batch, MAX_INPUTS_PER_TICK),
+            Some(p) => p.run_ended(&mut state, &mut inputs, &mut output, &mut guard.log),
+        }
         drain(&mut save.responses, &mut answers, MAX_RESPONSES_PER_TICK);
         if answers.is_empty() && save.responses.is_closed() {
             // The save thread ended (it panicked): nothing could be saved any more.
@@ -1380,6 +1558,10 @@ pub(crate) fn run(
         if guard.log.needs_checkpoint() {
             guard.log.set_checkpoint(state.checkpoint(pool));
         }
+        if let Some(p) = &mut passing {
+            p.handled = 0;
+            p.runs = 0;
+        }
         waiting.extend(output.requests.drain(..));
         send_requests(&save.requests, &mut waiting);
         if output.save_failed {
@@ -1392,7 +1574,11 @@ pub(crate) fn run(
         let now = clock::now();
         let micros = now.saturating_duration_since(started).as_micros();
         took = Some(u32::try_from(micros).unwrap_or(u32::MAX));
-        clock::sleep_until(pacer.schedule(now));
+        let next = pacer.schedule(now);
+        match &mut passing {
+            None => clock::sleep_until(next),
+            Some(p) => p.wait_until(next, &mut state, &mut inputs, &mut output, &mut guard.log),
+        }
     }
     // No boundary follows: the controls the shutdown's quit listeners ask for are dropped with
     // the networking, which stops.
@@ -1437,6 +1623,51 @@ pub(crate) fn replay_tick(
     if log.needs_checkpoint() {
         log.set_checkpoint(state.checkpoint(pool));
     }
+    std::mem::take(&mut output.requests)
+}
+
+/// Applies input pass `number` (`input-pass-us`) before the next tick's [`step`], and records it
+/// in `log`: handles `inputs` in order, each with its arrival ([`log::Entry::arrival_us`]), as
+/// the tick's input phase does but for `PlayerAuthInput`s, which take effect in rounds once all
+/// are handled ([`pass`]); then sets `output.packets` to what the pass queued for the players,
+/// through the send hooks. The caller delivers the output and then ends the pass in the log.
+/// `runs` counts the deferred callbacks of the tick.
+fn pass(
+    state: &mut State,
+    number: u64,
+    inputs: impl IntoIterator<Item = (Input, u64)>,
+    runs: &mut u32,
+    output: &mut Output,
+    log: &mut InputLog,
+) {
+    log.begin(state.tick);
+    log.begin_pass(number);
+    for (input, arrival_us) in inputs {
+        handle(state, input, arrival_us, Handling::Pass, output, log, runs);
+    }
+    pass::apply(state, runs);
+    output.packets = spawn::pass_output(state);
+}
+
+/// One input pass of a replay, as [`run`] applies it: the [`pass`] with its logged `inputs`, its
+/// delivery, and the sessions the live pass forgot after its output (`dropped`, in order).
+/// `runs` counts the deferred callbacks of the tick. Returns the requests for the save thread, in
+/// order.
+pub(crate) fn replay_pass(
+    state: &mut State,
+    number: u64,
+    inputs: Vec<(Input, u64)>,
+    dropped: &[SessionId],
+    runs: &mut u32,
+    log: &mut InputLog,
+) -> Vec<Request> {
+    let mut output = Output::default();
+    pass(state, number, inputs, runs, &mut output, log);
+    deliver(state, &mut output, log);
+    for &session in dropped {
+        self::dropped(state, log, session);
+    }
+    log.end_pass();
     std::mem::take(&mut output.requests)
 }
 
@@ -1668,6 +1899,7 @@ mod tests {
         Input {
             session: SessionId::new(session),
             seq,
+            arrived: None,
             kind,
         }
     }
@@ -2813,6 +3045,7 @@ mod tests {
                 batch.push(Input {
                     session: SessionId::ENGINE,
                     seq: tick,
+                    arrived: None,
                     kind: InputKind::Measure(queue::Measure::TickTime(micros)),
                 });
             }
@@ -2822,6 +3055,7 @@ mod tests {
                 batch.push(Input {
                     session: SessionId::NETWORK,
                     seq: self.network_seq,
+                    arrived: None,
                     kind: InputKind::Measure(queue::Measure::Connections {
                         all: joined + 3,
                         logged_in: joined,
@@ -3081,6 +3315,7 @@ mod tests {
                     Input {
                         session: e.session,
                         seq: e.seq,
+                        arrived: None,
                         kind,
                     }
                 })
@@ -3342,14 +3577,26 @@ mod tests {
     fn the_log_stops_at_its_bound_without_the_partial_tick() {
         let mut log = InputLog::default();
         log.begin(0);
-        log.record(SessionId::new(1), 1, EntryKind::Leave, log::MAX_BYTES / 2);
+        log.record(
+            SessionId::new(1),
+            1,
+            0,
+            EntryKind::Leave,
+            log::MAX_BYTES / 2,
+        );
         log.begin(1);
-        log.record(SessionId::new(1), 2, EntryKind::Leave, 0);
-        log.record(SessionId::new(2), 1, EntryKind::Leave, log::MAX_BYTES / 2);
+        log.record(SessionId::new(1), 2, 0, EntryKind::Leave, 0);
+        log.record(
+            SessionId::new(2),
+            1,
+            0,
+            EntryKind::Leave,
+            log::MAX_BYTES / 2,
+        );
         assert!(log.is_truncated());
         assert_eq!(log.ticks().len(), 1, "tick 1 is incomplete and left out");
         log.begin(2);
-        log.record(SessionId::new(3), 1, EntryKind::Leave, 0);
+        log.record(SessionId::new(3), 1, 0, EntryKind::Leave, 0);
         log.dropped(SessionId::new(3));
         assert_eq!(log.ticks().len(), 1);
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();

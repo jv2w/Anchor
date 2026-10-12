@@ -3826,6 +3826,7 @@ mod tests {
         log.record(
             SessionId::new(2),
             0,
+            0,
             crate::tick::log::EntryKind::Join(identity),
             size,
         );

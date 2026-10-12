@@ -236,6 +236,7 @@ item-pickup-interval = 4
 hook-movement-packets = false
 hook-player-input = false
 input-order = "arrival"
+input-pass-us = 15625
 save-interval-minutes = 5
 integrity-check = "never"
 console-input = false
@@ -319,6 +320,7 @@ fn custom() -> Config {
     d.hook_movement_packets = false;
     d.hook_player_input = false;
     d.input_order = InputOrder::Arrival;
+    d.input_pass_us = 15_625;
     d.save_interval_minutes = 5;
     d.integrity_check = IntegrityCheck::Never;
     d.console_input = false;
@@ -599,6 +601,12 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
             s(&[r#""session""#, r#""arrival""#]),
             s(&[r#""Arrival""#, r#""""#, "true"]),
         ),
+        // Above 0 needs `input-order = "arrival"`; see `input_passes_need_arrival_order`.
+        (
+            "developer.input-pass-us",
+            s(&["0"]),
+            s(&["-1", "1", "50001"]),
+        ),
         (
             "developer.save-interval-minutes",
             s(&["1", "1440"]),
@@ -648,7 +656,7 @@ fn every_key_left_out_keeps_the_previous_value() {
     let file = File::new("every_key_left_out");
     let default = documented_default_file();
     let keys = key_lines(&default);
-    assert_eq!(keys.len(), 66, "the default file has 66 keys");
+    assert_eq!(keys.len(), 67, "the default file has 67 keys");
     for (_, key, value) in &keys {
         let line = format!("{key} = {value}\n");
         let text = default.replacen(&line, "", 1);
@@ -777,6 +785,7 @@ fn new_keys_default_to_the_behaviour_before_them() {
     assert_eq!(d.item_pickup_interval, 1);
     assert_eq!(d.integrity_check, IntegrityCheck::Always);
     assert_eq!(d.input_order, InputOrder::Session);
+    assert_eq!(d.input_pass_us, 0);
     assert!(config.worlds.is_empty());
 }
 
@@ -959,6 +968,27 @@ fn hardcore_needs_hard_difficulty() {
 }
 
 #[test]
+fn input_passes_need_arrival_order() {
+    let file = File::new("input_passes");
+    for us in ["1", "15625", "50000"] {
+        let text = format!(
+            "[developer]
+input-order = \"arrival\"
+input-pass-us = {us}
+"
+        );
+        file.load(text).expect(us);
+        let text = format!(
+            "[developer]
+input-pass-us = {us}
+"
+        );
+        let error = file.load(text).expect_err(us);
+        assert!(error.to_string().contains("`developer.input-pass-us`"));
+    }
+}
+
+#[test]
 fn tls_cert_and_key_go_together() {
     let file = File::new("tls");
     let both = "[developer]\nnethernet-tls-cert = \"c.pem\"\nnethernet-tls-key = \"k.pem\"\n";
@@ -1108,7 +1138,7 @@ fn update_puts_each_missing_key_back_where_the_default_file_has_it() {
         .into_iter()
         .filter(|(path, _)| !path.starts_with('['))
         .collect();
-    assert_eq!(keys.len(), 66);
+    assert_eq!(keys.len(), 67);
     for (path, block) in keys {
         let text = default.replacen(&block, "", 1);
         assert_ne!(text, default, "{path}");
@@ -1156,12 +1186,12 @@ fn update_adds_missing_tables_at_the_end() {
         updated,
         format!("[general]\nmotd = \"x\"\n{rest}\n{developer}")
     );
-    assert_eq!(update.added().len(), 65);
+    assert_eq!(update.added().len(), 66);
 
     let (update, updated) = write_and_update(&file, "[developer]\nraknet = false\n");
     assert!(updated.starts_with("[developer]\n"));
     assert!(updated.ends_with(&format!("\nconsole-input = true\n\n{general}")));
-    assert_eq!(update.added().len(), 65);
+    assert_eq!(update.added().len(), 66);
 }
 
 #[test]
@@ -1175,7 +1205,7 @@ fn update_keeps_the_rest_of_the_file_byte_for_byte() {
                 disable-block-ticking = [\r\n    \"minecraft:grass_block\",\r\n]\r\n\r\n\
                 [worlds.lobby]\r\nview-distance = 6\r\n[plugin]\r\nanswer = 42";
     let (update, updated) = write_and_update(&file, text);
-    assert_eq!(update.added().len(), 63);
+    assert_eq!(update.added().len(), 64);
     for kept in [
         "general.motd",
         "general.shutdown-message",

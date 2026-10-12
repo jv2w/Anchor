@@ -406,6 +406,14 @@ impl Player {
         self.deferred_packets.len()
     }
 
+    /// Whether a `PlayerAuthInput` of the player was handled in the input pass being applied
+    /// but has not taken effect yet (`input-pass-us`): a packet that arrives after it belongs to
+    /// the player's next input, as the official server queues it with the input. Always `false`
+    /// without input passes.
+    pub fn has_unapplied_input(&self) -> bool {
+        self.pass_pending.has_input()
+    }
+
     /// The player's name: its Xbox gamertag with Xbox sign-in.
     #[doc(alias = "Player::getName")]
     pub fn name(&self) -> &str {
@@ -1245,6 +1253,7 @@ pub(super) mod tests {
         let input = Input {
             session: SessionId::new(session),
             seq: 0,
+            arrived: None,
             kind: InputKind::Join { identity, outbound },
         };
         (input, rx)
@@ -1254,6 +1263,7 @@ pub(super) mod tests {
         Input {
             session: SessionId::new(session),
             seq,
+            arrived: None,
             kind: InputKind::Measure(Measure::Ping(millis)),
         }
     }
@@ -1317,6 +1327,7 @@ pub(super) mod tests {
                     EntryKind::Measure(m) => Input {
                         session: e.session,
                         seq: e.seq,
+                        arrived: None,
                         kind: InputKind::Measure(*m),
                     },
                     other => panic!("{other:?}"),
@@ -1409,6 +1420,7 @@ pub(super) mod tests {
         let leave = Input {
             session: SessionId::new(1),
             seq: 1,
+            arrived: None,
             kind: InputKind::Leave,
         };
         tick(&mut state, &mut vec![leave], &mut output);

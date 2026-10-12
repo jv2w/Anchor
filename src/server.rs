@@ -252,7 +252,12 @@ impl Server {
         // Before the tick starts, so that a stop signal from the first tick on stops normally.
         let signals = stop_signals(&runtime.handle());
         let pool = Arc::new(pool);
-        let (inputs, input_queue) = tick::queue::input_queue();
+        let (mut inputs, input_queue) = tick::queue::input_queue();
+        let passes = NonZeroU32::new(config.developer.input_pass_us)
+            .map(|period| clock::Passes::new(clock::now(), period));
+        if passes.is_some() {
+            inputs.stamp_arrivals();
+        }
         setup.tasks.start(runtime.handle(), &inputs);
         if config.developer.console_input {
             crate::console::start(&inputs).map_err(Error::Start)?;
@@ -270,6 +275,9 @@ impl Server {
             opened.tick,
         );
         state.open_worlds(opened.catalog);
+        if let Some(passes) = passes {
+            state.set_passes(passes);
+        }
         state.set_identity(opened.identity);
         let (controls, control_queue) = tick::queue::control_queue();
         state.connect_network(controls);

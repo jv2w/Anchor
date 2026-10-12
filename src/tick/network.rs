@@ -230,6 +230,7 @@ mod tests {
         Input {
             session,
             seq,
+            arrived: None,
             kind: InputKind::Measure(measure),
         }
     }

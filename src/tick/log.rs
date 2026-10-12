@@ -56,7 +56,7 @@ const ENTRY_COST: usize = 32;
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// The written format's version, the only one [`InputLog::decode`] reads: the data files of an
 /// older log are of a storage format this Anchor does not read, so it could not be replayed.
-const FORMAT: u32 = 14;
+const FORMAT: u32 = 15;
 /// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
 /// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
 /// their own, so a log can be larger; it is then written from its newest committed segment, or
@@ -83,6 +83,7 @@ const CHAIN_TICK: u8 = b'T';
 const CHAIN_INPUT: u8 = b'I';
 const CHAIN_DROPPED: u8 = b'D';
 const CHAIN_ANSWER: u8 = b'A';
+const CHAIN_PASS: u8 = b'P';
 
 /// The input log.
 #[derive(Debug)]
@@ -105,6 +106,10 @@ pub(crate) struct InputLog {
     planned: Option<std::collections::BTreeSet<u64>>,
     /// The commit identity of the state after the inputs chained so far ([`Self::identity`]).
     chain: super::Fnv,
+    /// The tick begun last ([`Self::begin`]), which the inputs go to.
+    open: Option<u64>,
+    /// Whether the inputs go to the last pass of the tick ([`Self::begin_pass`]).
+    in_pass: bool,
 }
 
 /// What a replay must have in common with the run that wrote the log: SHA-256 of the tick settings
@@ -231,6 +236,9 @@ impl Default for InputLog {
 pub(crate) struct Tick {
     /// The engine time (tick number) the inputs were applied at.
     pub(crate) number: u64,
+    /// The input passes (`input-pass-us`) that ended since the tick before, in order, each
+    /// applied before the tick's own inputs; empty without passes.
+    pub(crate) passes: Vec<Pass>,
     /// The inputs in the order the tick applied them.
     pub(crate) inputs: Vec<Entry>,
     /// Sessions the tick forgot after its output because their queue was full or closed, in
@@ -238,6 +246,18 @@ pub(crate) struct Tick {
     pub(crate) dropped: Vec<SessionId>,
     /// The save thread's answers the tick applied, in order, before the session inputs.
     pub(crate) responses: Vec<Answer>,
+}
+
+/// What one input pass applied: the inputs it handled, in order (the rounds of its
+/// `PlayerAuthInput`s follow from them), and the sessions its output dropped.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Pass {
+    /// The pass number: passes of `input-pass-us` counted from the start of the run.
+    pub(crate) number: u64,
+    /// The inputs in the order the pass handled them.
+    pub(crate) inputs: Vec<Entry>,
+    /// Sessions forgot after the pass's output because their queue was full or closed, in order.
+    pub(crate) dropped: Vec<SessionId>,
 }
 
 /// A save thread answer as the log keeps it: what arrived and where from, not the chunk itself,
@@ -388,6 +408,8 @@ impl Answer {
 pub(crate) struct Entry {
     pub(crate) session: SessionId,
     pub(crate) seq: u64,
+    /// When it arrived, in microseconds from the start of the input passes; 0 without passes.
+    pub(crate) arrival_us: u64,
     pub(crate) kind: EntryKind,
 }
 
@@ -467,6 +489,8 @@ impl InputLog {
             fingerprints: Fingerprints::default(),
             planned: None,
             chain: super::Fnv(identity.unwrap_or(super::Fnv::OFFSET)),
+            open: None,
+            in_pass: false,
         }
     }
 
@@ -606,9 +630,15 @@ impl InputLog {
         }
     }
 
-    /// Starts the record of tick `number`; every tick counts against the bound, even an empty
-    /// one. Nothing is recorded in a truncated segment.
+    /// Starts the record of tick `number`, unless its first input pass began it already; every
+    /// tick counts against the bound, even an empty one. Nothing is recorded in a truncated
+    /// segment.
     pub(crate) fn begin(&mut self, number: u64) {
+        if self.open == Some(number) {
+            return;
+        }
+        self.open = Some(number);
+        self.in_pass = false;
         self.chain.raw(&[CHAIN_TICK]);
         self.chain.u64(number);
         if self.charge(0) == Charge::Fits
@@ -616,6 +646,7 @@ impl InputLog {
         {
             segment.ticks.push(Tick {
                 number,
+                passes: Vec::new(),
                 inputs: Vec::new(),
                 dropped: Vec::new(),
                 responses: Vec::new(),
@@ -623,33 +654,65 @@ impl InputLog {
         }
     }
 
-    /// Records an input of `size` bytes on the wire (0 for joins and leaves) before the tick
-    /// applies it, and gives it back for the tick to apply: the logged entry, or the input itself
-    /// when the log no longer records.
+    /// Starts the record of input pass `number` in the tick begun last: the inputs and the
+    /// dropped sessions recorded until [`Self::end_pass`] are the pass's.
+    pub(crate) fn begin_pass(&mut self, number: u64) {
+        self.chain.raw(&[CHAIN_PASS]);
+        self.chain.u64(number);
+        self.in_pass = true;
+        if self.charge_entry(0)
+            && let Some(tick) = self.last_tick()
+        {
+            tick.passes.push(Pass {
+                number,
+                inputs: Vec::new(),
+                dropped: Vec::new(),
+            });
+        }
+    }
+
+    /// Ends the record of the input pass begun last: what follows is the tick's own.
+    pub(crate) fn end_pass(&mut self) {
+        self.in_pass = false;
+    }
+
+    /// Records an input of `size` bytes on the wire (0 for joins and leaves) that arrived at
+    /// `arrival_us` before the tick applies it, and gives it back for the tick to apply: the
+    /// logged entry, or the input itself when the log no longer records.
     pub(crate) fn record(
         &mut self,
         session: SessionId,
         seq: u64,
+        arrival_us: u64,
         kind: EntryKind,
         size: usize,
     ) -> Cow<'_, EntryKind> {
-        self.chain_input(session, seq, &kind);
+        self.chain_input(session, seq, arrival_us, &kind);
         if !self.charge_entry(size) {
             return Cow::Owned(kind);
         }
-        match self.last_tick() {
-            Some(tick) => Cow::Borrowed(&tick.inputs.push_mut(Entry { session, seq, kind }).kind),
+        match self.last_lists() {
+            Some((inputs, _)) => {
+                let entry = Entry {
+                    session,
+                    seq,
+                    arrival_us,
+                    kind,
+                };
+                Cow::Borrowed(&inputs.push_mut(entry).kind)
+            }
             None => Cow::Owned(kind),
         }
     }
 
-    /// Chains an input into the commit identity: its place, its kind, a packet's id and the
-    /// values a measure holds.
-    fn chain_input(&mut self, session: SessionId, seq: u64, kind: &EntryKind) {
+    /// Chains an input into the commit identity: its place, its arrival, its kind, a packet's
+    /// id and the values a measure holds.
+    fn chain_input(&mut self, session: SessionId, seq: u64, arrival_us: u64, kind: &EntryKind) {
         let chain = &mut self.chain;
         chain.raw(&[CHAIN_INPUT]);
         chain.u64(session.get());
         chain.u64(seq);
+        chain.u64(arrival_us);
         match kind {
             EntryKind::Join(_) => chain.raw(&[KIND_JOIN]),
             EntryKind::Packet(packet) => {
@@ -676,14 +739,15 @@ impl InputLog {
         }
     }
 
-    /// Records that the tick forgot `session` after its output.
+    /// Records that the tick, or the input pass being recorded, forgot `session` after its
+    /// output.
     pub(crate) fn dropped(&mut self, session: SessionId) {
         self.chain.raw(&[CHAIN_DROPPED]);
         self.chain.u64(session.get());
         if self.charge_entry(0)
-            && let Some(tick) = self.last_tick()
+            && let Some((_, dropped)) = self.last_lists()
         {
-            tick.dropped.push(session);
+            dropped.push(session);
         }
     }
 
@@ -726,6 +790,19 @@ impl InputLog {
     /// The tick being recorded.
     fn last_tick(&mut self) -> Option<&mut Tick> {
         self.segments.back_mut()?.ticks.last_mut()
+    }
+
+    /// The inputs and the dropped sessions being recorded: the input pass's while one is, else
+    /// the tick's.
+    fn last_lists(&mut self) -> Option<(&mut Vec<Entry>, &mut Vec<SessionId>)> {
+        let in_pass = self.in_pass;
+        let tick = self.last_tick()?;
+        if in_pass {
+            let pass = tick.passes.last_mut()?;
+            Some((&mut pass.inputs, &mut pass.dropped))
+        } else {
+            Some((&mut tick.inputs, &mut tick.dropped))
+        }
     }
 
     /// Whether a replay of this log stops before its last tick: a kept segment stopped at the
@@ -938,6 +1015,8 @@ impl InputLog {
             fingerprints,
             planned: None,
             chain: super::Fnv(super::Fnv::OFFSET),
+            open: None,
+            in_pass: false,
         })
     }
 }
@@ -946,10 +1025,37 @@ impl InputLog {
 /// `body` is scratch space for packet bodies.
 fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
     out.extend_from_slice(&tick.number.to_le_bytes());
-    put_len(out, tick.inputs.len())?;
-    for entry in &tick.inputs {
+    put_len(out, tick.passes.len())?;
+    for pass in &tick.passes {
+        out.extend_from_slice(&pass.number.to_le_bytes());
+        put_entries(out, &pass.inputs, body)?;
+        put_dropped(out, &pass.dropped)?;
+    }
+    put_entries(out, &tick.inputs, body)?;
+    put_dropped(out, &tick.dropped)?;
+    put_len(out, tick.responses.len())?;
+    for answer in &tick.responses {
+        put_answer(out, answer)?;
+    }
+    Ok(())
+}
+
+/// Appends the sessions an output forgot.
+fn put_dropped(out: &mut Vec<u8>, dropped: &[SessionId]) -> Result<()> {
+    put_len(out, dropped.len())?;
+    for session in dropped {
+        out.extend_from_slice(&session.get().to_le_bytes());
+    }
+    Ok(())
+}
+
+/// Appends inputs. `body` is scratch space for packet bodies.
+fn put_entries(out: &mut Vec<u8>, entries: &[Entry], body: &mut Vec<u8>) -> Result<()> {
+    put_len(out, entries.len())?;
+    for entry in entries {
         out.extend_from_slice(&entry.session.get().to_le_bytes());
         out.extend_from_slice(&entry.seq.to_le_bytes());
+        out.extend_from_slice(&entry.arrival_us.to_le_bytes());
         match &entry.kind {
             EntryKind::Join(identity) => {
                 out.push(KIND_JOIN);
@@ -1022,14 +1128,6 @@ fn put_tick(out: &mut Vec<u8>, tick: &Tick, body: &mut Vec<u8>) -> Result<()> {
                 }
             }
         }
-    }
-    put_len(out, tick.dropped.len())?;
-    for session in &tick.dropped {
-        out.extend_from_slice(&session.get().to_le_bytes());
-    }
-    put_len(out, tick.responses.len())?;
-    for answer in &tick.responses {
-        put_answer(out, answer)?;
     }
     Ok(())
 }
@@ -1247,12 +1345,56 @@ impl<'a> Read<'a> {
     /// A tick of a written log; `budget` bounds what its packets may allocate.
     fn tick(&mut self, budget: &mut usize) -> Result<Tick> {
         let number = self.u64()?;
-        // An entry takes at least 17 bytes, a dropped session 8.
-        let entries = self.count(17)?;
+        // A pass takes at least 16 bytes: its number and two empty counts.
+        let pass_count = self.count(16)?;
+        let mut passes = Vec::with_capacity(capacity::<Pass>(pass_count, self.0.len()));
+        for _ in 0..pass_count {
+            let number = self.u64()?;
+            let inputs = self.entries(budget)?;
+            let dropped = self.dropped()?;
+            passes.push(Pass {
+                number,
+                inputs,
+                dropped,
+            });
+        }
+        let inputs = self.entries(budget)?;
+        let dropped = self.dropped()?;
+        // An answer takes at least 1 byte (a load failure).
+        let answer_count = self.count(1)?;
+        let mut responses = Vec::with_capacity(capacity::<Answer>(answer_count, self.0.len()));
+        for _ in 0..answer_count {
+            responses.push(self.answer()?);
+        }
+        Ok(Tick {
+            number,
+            passes,
+            inputs,
+            dropped,
+            responses,
+        })
+    }
+
+    /// The sessions an output forgot.
+    fn dropped(&mut self) -> Result<Vec<SessionId>> {
+        // A dropped session takes 8 bytes.
+        let count = self.count(8)?;
+        let mut dropped = Vec::with_capacity(capacity::<SessionId>(count, self.0.len()));
+        for _ in 0..count {
+            dropped.push(SessionId::new(self.u64()?));
+        }
+        Ok(dropped)
+    }
+
+    /// Inputs; `budget` bounds what their packets may allocate.
+    fn entries(&mut self, budget: &mut usize) -> Result<Vec<Entry>> {
+        // An entry takes at least 25 bytes.
+        let entries = self.count(25)?;
         let mut inputs = Vec::with_capacity(capacity::<Entry>(entries, self.0.len()));
         for _ in 0..entries {
             let session = SessionId::new(self.u64()?);
             let seq = self.u64()?;
+            let arrival_us = self.u64()?;
             let kind = match self.u8()? {
                 KIND_JOIN => {
                     let name = String::from_utf8(self.bytes()?.to_vec())
@@ -1295,25 +1437,14 @@ impl<'a> Read<'a> {
                 KIND_MEASURE => EntryKind::Measure(self.measure()?),
                 _ => return Err(Error::Format("input kind")),
             };
-            inputs.push(Entry { session, seq, kind });
+            inputs.push(Entry {
+                session,
+                seq,
+                arrival_us,
+                kind,
+            });
         }
-        let dropped_count = self.count(8)?;
-        let mut dropped = Vec::with_capacity(capacity::<SessionId>(dropped_count, self.0.len()));
-        for _ in 0..dropped_count {
-            dropped.push(SessionId::new(self.u64()?));
-        }
-        // An answer takes at least 1 byte (a load failure).
-        let answer_count = self.count(1)?;
-        let mut responses = Vec::with_capacity(capacity::<Answer>(answer_count, self.0.len()));
-        for _ in 0..answer_count {
-            responses.push(self.answer()?);
-        }
-        Ok(Tick {
-            number,
-            inputs,
-            dropped,
-            responses,
-        })
+        Ok(inputs)
     }
 
     fn u32(&mut self) -> Result<u32> {
@@ -1527,6 +1658,7 @@ mod tests {
         log.record(
             SessionId::new(1),
             0,
+            0,
             EntryKind::Leave,
             MAX_BYTES - 4 * ENTRY_COST,
         );
@@ -1539,7 +1671,7 @@ mod tests {
             "dropped ticks free their bytes"
         );
         // With no committed segment to drop, the input that does not fit truncates.
-        log.record(SessionId::new(1), 1, EntryKind::Leave, 8 * ENTRY_COST);
+        log.record(SessionId::new(1), 1, 0, EntryKind::Leave, 8 * ENTRY_COST);
         assert!(log.is_truncated());
         assert_eq!(starts(&log), [2, 3]);
         // After the next commit, the segment before it goes once the bound needs room.
@@ -1547,7 +1679,7 @@ mod tests {
         assert_eq!(starts(&log), [2, 3]);
         log.snapshot(4);
         log.begin(4);
-        log.record(SessionId::new(1), 2, EntryKind::Leave, 0);
+        log.record(SessionId::new(1), 2, 0, EntryKind::Leave, 0);
         assert_eq!(starts(&log), [3, 4]);
         assert!(!log.last_segment().is_some_and(Segment::is_truncated));
         // The same snapshot twice starts one segment.
@@ -1559,7 +1691,7 @@ mod tests {
     fn recording_resumes_after_a_truncated_segment_and_room_drops_it() {
         let mut log = InputLog::default();
         log.begin(0);
-        log.record(SessionId::new(1), 0, EntryKind::Leave, MAX_BYTES);
+        log.record(SessionId::new(1), 0, 0, EntryKind::Leave, MAX_BYTES);
         assert!(log.is_truncated());
         log.snapshot(1);
         log.begin(1);
@@ -1574,6 +1706,7 @@ mod tests {
         log.record(
             SessionId::new(1),
             1,
+            0,
             EntryKind::Leave,
             MAX_BYTES - 2 * ENTRY_COST,
         );
@@ -1585,12 +1718,12 @@ mod tests {
     fn a_quarter_of_the_bound_since_the_last_commit_asks_for_a_commit() {
         let mut log = InputLog::default();
         log.begin(0);
-        log.record(SessionId::new(1), 0, EntryKind::Leave, COMMIT_BYTES / 2);
+        log.record(SessionId::new(1), 0, 0, EntryKind::Leave, COMMIT_BYTES / 2);
         log.snapshot(1);
         log.begin(1);
         assert!(!log.wants_commit(1));
         // The bytes since the newest committed state count, across segments.
-        log.record(SessionId::new(1), 1, EntryKind::Leave, COMMIT_BYTES / 2);
+        log.record(SessionId::new(1), 1, 0, EntryKind::Leave, COMMIT_BYTES / 2);
         assert!(log.wants_commit(2));
         log.committed(1);
         assert!(!log.wants_commit(2), "only segment 1 counts now");
@@ -1681,9 +1814,10 @@ mod tests {
         let run = |tick_time: u32, size: usize| {
             let mut log = InputLog::from_state(0, Some(3));
             log.begin(0);
-            log.record(SessionId::new(1), 0, EntryKind::Leave, size);
+            log.record(SessionId::new(1), 0, 0, EntryKind::Leave, size);
             log.record(
                 SessionId::ENGINE,
+                0,
                 0,
                 EntryKind::Measure(Measure::TickTime(tick_time)),
                 0,
@@ -1738,7 +1872,13 @@ mod tests {
         };
         let mut log = InputLog::default();
         log.begin(0);
-        log.record(SessionId::new(1), 0, EntryKind::Join(identity(client)), 0);
+        log.record(
+            SessionId::new(1),
+            0,
+            0,
+            EntryKind::Join(identity(client)),
+            0,
+        );
         for (session, seq, measure) in [
             (SessionId::new(1), 1, Measure::Ping(37)),
             (
@@ -1759,7 +1899,7 @@ mod tests {
                 },
             ),
         ] {
-            log.record(session, seq, EntryKind::Measure(measure), 0);
+            log.record(session, seq, 0, EntryKind::Measure(measure), 0);
         }
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();
         assert_eq!(read.ticks(), log.ticks());
@@ -1770,7 +1910,7 @@ mod tests {
         let mut log = InputLog::default();
         log.begin(0);
         let ping = EntryKind::Measure(Measure::Ping(1));
-        log.record(SessionId::new(1), 0, ping, 0);
+        log.record(SessionId::new(1), 0, 0, ping, 0);
         let written = log.encode().unwrap();
         assert!(InputLog::decode(&written).is_ok());
         let at = MAGIC.len();
@@ -1791,6 +1931,7 @@ mod tests {
         log.begin(0);
         log.record(
             SessionId::ENGINE,
+            0,
             0,
             EntryKind::Measure(Measure::TickTime(9)),
             0,
@@ -1831,15 +1972,23 @@ mod tests {
         let mut log = InputLog::default();
         log.begin(0);
         let v6: IpAddr = "2001:db8::7".parse().unwrap();
-        log.record(SessionId::new(1), 0, EntryKind::Join(identity(Some(v6))), 0);
+        log.record(
+            SessionId::new(1),
+            0,
+            0,
+            EntryKind::Join(identity(Some(v6))),
+            0,
+        );
         log.record(
             SessionId::new(2),
+            0,
             0,
             EntryKind::Join(identity(Some(IpAddr::from([1, 2, 3, 4])))),
             0,
         );
         log.record(
             SessionId::CONSOLE,
+            0,
             0,
             EntryKind::Console("op steve".to_owned()),
             8,
@@ -1861,7 +2010,7 @@ mod tests {
         ];
         for (id, outcome) in (0..).zip(results) {
             let size = outcome.as_ref().map_or(0, Vec::len);
-            log.record(SessionId::JOBS, id, EntryKind::Job(outcome), size);
+            log.record(SessionId::JOBS, id, 0, EntryKind::Job(outcome), size);
         }
         let bytes = log.encode().unwrap();
         let read = InputLog::decode(&bytes).unwrap();
@@ -1872,6 +2021,7 @@ mod tests {
         bad.begin(0);
         bad.record(
             SessionId::JOBS,
+            0,
             0,
             EntryKind::Job(Err(crate::task::Error::Encode)),
             0,
@@ -2031,7 +2181,7 @@ mod tests {
         log.begin(1);
         log.segments[1].checkpoint = Some(Point::Written(vec![1, 2, 3]));
         log.snapshot(2);
-        log.record(SessionId::new(1), 0, EntryKind::Leave, MAX_BYTES);
+        log.record(SessionId::new(1), 0, 0, EntryKind::Leave, MAX_BYTES);
         log.committed(1);
         let read = InputLog::decode(&log.encode().unwrap()).unwrap();
         assert_eq!(read.fingerprints(), fingerprints);
