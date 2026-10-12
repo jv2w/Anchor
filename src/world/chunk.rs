@@ -203,6 +203,16 @@ impl Chunk {
         })
     }
 
+    /// The layer 1 entry at local (x, y, z), or `None` outside the chunk.
+    #[inline]
+    pub(crate) fn extra_entry(&self, x: u8, y: i32, z: u8) -> Option<Entry> {
+        let (index, y) = split_y(y).filter(|_| x < 16 && z < 16)?;
+        Some(match self.sub_chunks.get(index)? {
+            Some(sub) => sub.get_extra(offset(x, y, z)),
+            None => Entry::AIR,
+        })
+    }
+
     /// Sets the layer 0 entry at local (x, y, z) and returns the old one, or `None` (changing
     /// nothing) outside the chunk. Keeps the column height and drops a sub-chunk that becomes
     /// air.

@@ -6090,7 +6090,7 @@ implemented 657, differs 3, merged 50, skipped 199, blank 0 (of 909 rows)
 | `pocketmine\event\server\UpdateNotifyEvent::getUpdater` | skipped |  |  | PMMP update checker |
 | `pocketmine\event\world\ChunkEvent` | merged | src/event/world.rs:73 `chunk` | src/event/world.rs::chunk_events_name_the_chunk | into `ChunkEvent::getChunkX` |
 | `pocketmine\event\world\ChunkEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\world\ChunkEvent::getChunk` | merged | src/world.rs:981 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
+| `pocketmine\event\world\ChunkEvent::getChunk` | merged | src/world.rs:993 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
 | `pocketmine\event\world\ChunkEvent::getChunkX` | implemented | src/event/world.rs:73 `chunk` | src/event/world.rs::chunk_events_name_the_chunk |  |
 | `pocketmine\event\world\ChunkEvent::getChunkZ` | implemented | src/event/world.rs:74 `chunk` | src/event/world.rs::chunk_events_name_the_chunk |  |
 | `pocketmine\event\world\ChunkLoadEvent` | implemented | src/event/world.rs:60 `ChunkLoad` | src/event/world.rs::chunk_events_name_the_chunk<br>src/tick/view.rs::chunk_loads_name_new_and_restored_chunks_once<br>src/tick/view.rs::join_and_leave_cycles_with_chunk_listeners_return_the_tables_to_their_start |  |
@@ -9425,16 +9425,16 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::doChunkGarbageCollection` | skipped |  |  | chunk store internals |
 | `pocketmine\world\World::dropExperience` | implemented | src/tick/entity/api.rs:1532 `drop_experience` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
 | `pocketmine\world\World::dropItem` | implemented | src/tick/entity/api.rs:1509 `drop_item` | src/tick/entity/api/tests.rs::spawning_and_despawning_through_the_api_leaves_every_table_at_its_start |  |
-| `pocketmine\world\World::getAdjacentChunks` | merged | src/world.rs:981 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
+| `pocketmine\world\World::getAdjacentChunks` | merged | src/world.rs:993 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away | into `World::getChunk` |
 | `pocketmine\world\World::getAutoSave` | merged | src/tick/command.rs:1490 `auto_save_enabled` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::getAutoSave` |
-| `pocketmine\world\World::getBiome` | implemented | src/world.rs:835 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `pocketmine\world\World::getBiomeId` | implemented | src/world.rs:834 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `pocketmine\world\World::getBiome` | implemented | src/world.rs:847 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `pocketmine\world\World::getBiomeId` | implemented | src/world.rs:846 `biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::getBlock` | implemented | src/world.rs:714 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `pocketmine\world\World::getBlockAt` | implemented | src/world.rs:713 `block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `pocketmine\world\World::getBlockCollisionBoxes` | implemented | src/tick/world_api.rs:243 `collision_boxes` | src/tick/world_api/tests.rs::collision_boxes_are_the_blocks_boxes_in_the_world |  |
-| `pocketmine\world\World::getBlockLightAt` | implemented | src/world.rs:874 `block_light` | src/world/light.rs::block_light_follows_pmmp_rules |  |
+| `pocketmine\world\World::getBlockLightAt` | implemented | src/world.rs:886 `block_light` | src/world/light.rs::block_light_follows_pmmp_rules |  |
 | `pocketmine\world\World::getBlockXYZ` | skipped |  |  | chunk store internals |
-| `pocketmine\world\World::getChunk` | implemented | src/world.rs:981 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
+| `pocketmine\world\World::getChunk` | implemented | src/world.rs:993 `chunk` | src/world.rs::loaded_chunks_read_through_the_world_and_sides_are_one_block_away |  |
 | `pocketmine\world\World::getChunkEntities` | implemented | src/tick/entity/api.rs:1441 `chunk_entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `pocketmine\world\World::getChunkListeners` | skipped |  |  | chunk listeners: world changes are events |
 | `pocketmine\world\World::getChunkLoaders` | implemented | src/tick/view.rs:1707 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
@@ -9449,16 +9449,16 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::getEntities` | implemented | src/tick/entity/api.rs:1434 `entities` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `pocketmine\world\World::getEntity` | implemented | src/tick/entity/api.rs:1426 `find_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `pocketmine\world\World::getFolderName` | implemented | src/world.rs:571 `name` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `pocketmine\world\World::getFullLight` | merged | src/world.rs:897 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
-| `pocketmine\world\World::getFullLightAt` | implemented | src/world.rs:897 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
+| `pocketmine\world\World::getFullLight` | merged | src/world.rs:909 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `pocketmine\world\World::getFullLightAt` | implemented | src/world.rs:909 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
 | `pocketmine\world\World::getHighestAdjacentBlockLight` | skipped |  |  | light rule code |
 | `pocketmine\world\World::getHighestAdjacentFullLightAt` | skipped |  |  | light rule code |
 | `pocketmine\world\World::getHighestAdjacentPotentialBlockSkyLight` | skipped |  |  | light rule code |
 | `pocketmine\world\World::getHighestAdjacentPotentialLightAt` | skipped |  |  | light rule code |
 | `pocketmine\world\World::getHighestAdjacentRealBlockSkyLight` | skipped |  |  | light rule code |
-| `pocketmine\world\World::getHighestBlockAt` | implemented | src/world.rs:813 `highest_block` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `pocketmine\world\World::getHighestBlockAt` | implemented | src/world.rs:825 `highest_block` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::getId` | implemented | src/world.rs:559 `id` | src/tick/world_api/tests.rs::worlds_are_found_by_their_id_in_list_order |  |
-| `pocketmine\world\World::getLoadedChunks` | implemented | src/world.rs:827 `loaded_chunks` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `pocketmine\world\World::getLoadedChunks` | implemented | src/world.rs:839 `loaded_chunks` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::getLogger` | skipped |  |  | Anchor logs with `tracing` |
 | `pocketmine\world\World::getMaxY` | implemented | src/world.rs:48 `MAX_Y` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::getMinY` | implemented | src/world.rs:40 `MIN_Y` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
@@ -9466,12 +9466,12 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::getNearestEntity` | implemented | src/tick/entity/api.rs:1474 `nearest_entity` | src/tick/entity/api/tests.rs::queries_go_through_the_chunk_index_whatever_the_area |  |
 | `pocketmine\world\World::getOrLoadChunkAtPosition` | skipped |  |  | chunks load off the tick and arrive as a later tick's input: a block of a chunk that is not loaded reads as `None` |
 | `pocketmine\world\World::getPlayers` | implemented | src/tick/world_api.rs:81 `players_in` | src/tick/world_api/tests.rs::setting_the_time_tells_the_players_of_the_world_at_once |  |
-| `pocketmine\world\World::getPotentialBlockSkyLightAt` | implemented | src/world.rs:882 `sky_light` | src/world/light.rs::sky_light_follows_pmmp_rules |  |
-| `pocketmine\world\World::getPotentialLight` | merged | src/world.rs:897 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
-| `pocketmine\world\World::getPotentialLightAt` | merged | src/world.rs:897 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `pocketmine\world\World::getPotentialBlockSkyLightAt` | implemented | src/world.rs:894 `sky_light` | src/world/light.rs::sky_light_follows_pmmp_rules |  |
+| `pocketmine\world\World::getPotentialLight` | merged | src/world.rs:909 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
+| `pocketmine\world\World::getPotentialLightAt` | merged | src/world.rs:909 `full_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere | into `World::getFullLightAt` |
 | `pocketmine\world\World::getProvider` | skipped |  |  | Bedrock LevelDB and region formats: Anchor stores worlds in redb |
 | `pocketmine\world\World::getRandomTickedBlocks` | skipped |  |  | which states tick randomly is fixed by the block table (`State::ticks_randomly`) |
-| `pocketmine\world\World::getRealBlockSkyLightAt` | implemented | src/world.rs:889 `real_sky_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
+| `pocketmine\world\World::getRealBlockSkyLightAt` | implemented | src/world.rs:901 `real_sky_light` | src/world/light.rs::lighting_off_sees_an_open_sky_everywhere |  |
 | `pocketmine\world\World::getSafeSpawn` | implemented | src/tick/world_api.rs:225 `safe_spawn` | src/tick/world_api/tests.rs::the_safe_spawn_is_the_first_two_free_blocks_up_the_column |  |
 | `pocketmine\world\World::getSeed` | implemented | src/world.rs:583 `seed` | src/world.rs::the_seed_and_the_day_cycle_are_the_worlds |  |
 | `pocketmine\world\World::getServer` | skipped |  |  | global singleton: callbacks get `&mut Context` |
@@ -9490,17 +9490,17 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::getXZ` | skipped |  |  | chunk store internals |
 | `pocketmine\world\World::isChunkGenerated` | skipped |  |  | chunk loading is the engine's |
 | `pocketmine\world\World::isChunkInUse` | differs | src/tick/view.rs:1708 `chunk_tickets` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | `Context::chunk_tickets` names the tickets that hold a chunk; players' views and the spawn hold chunks too |
-| `pocketmine\world\World::isChunkLoaded` | implemented | src/world.rs:806 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `pocketmine\world\World::isChunkLoaded` | implemented | src/world.rs:818 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::isChunkLocked` | skipped |  |  | chunk loading is the engine's |
 | `pocketmine\world\World::isChunkPopulated` | skipped |  |  | chunk loading is the engine's |
 | `pocketmine\world\World::isDoingTick` | skipped |  |  | callbacks run only in the tick's serial step |
-| `pocketmine\world\World::isInLoadedTerrain` | merged | src/world.rs:806 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only | into `World::isChunkLoaded` |
-| `pocketmine\world\World::isInWorld` | implemented | src/world.rs:821 `is_in_world` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `pocketmine\world\World::isInLoadedTerrain` | merged | src/world.rs:818 `is_chunk_loaded` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only | into `World::isChunkLoaded` |
+| `pocketmine\world\World::isInWorld` | implemented | src/world.rs:833 `is_in_world` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
 | `pocketmine\world\World::isLoaded` | implemented | src/tick/world_api/lifecycle.rs:702 `is_world_loaded` | src/tick/world_api/lifecycle/tests.rs::a_made_world_raises_init_then_load_and_loads_its_spawn_chunks |  |
 | `pocketmine\world\World::isSpawnChunk` | implemented | src/world.rs:604 `is_spawn_chunk` | src/tick/world_api/tests.rs::moving_the_spawn_moves_the_held_spawn_chunks |  |
 | `pocketmine\world\World::loadChunk` | differs | src/tick/view.rs:1648 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunk loaded: it loads from the next view phase as every chunk does and `ChunkLoad` says when (the tick never reads the disk) |
 | `pocketmine\world\World::lockChunk` | skipped |  |  | chunk loading is the engine's |
-| `pocketmine\world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:744 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
+| `pocketmine\world\World::notifyNeighbourBlockUpdate` | merged | src/world.rs:756 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array | into `World::setBlock` |
 | `pocketmine\world\World::orderChunkPopulation` | differs | src/tick/view.rs:1650 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released | a ticket (`Context::hold_chunks`) holds the chunks: they load or generate from the next view phase and `ChunkLoad` says when, instead of a promise |
 | `pocketmine\world\World::registerChunkListener` | skipped |  |  | chunk listeners: world changes are events |
 | `pocketmine\world\World::registerChunkLoader` | implemented | src/tick/view.rs:1647 `hold_chunks` | src/tick/world_api/lifecycle/tests.rs::a_ticket_keeps_its_chunks_loaded_without_players_until_it_is_released |  |
@@ -9514,9 +9514,9 @@ implemented 253, differs 5, merged 231, skipped 584, blank 0 (of 1073 rows)
 | `pocketmine\world\World::saveChunks` | skipped |  |  | saving commits the whole state at the save interval |
 | `pocketmine\world\World::scheduleDelayedBlockUpdate` | implemented | src/tick/update.rs:440 `schedule_block_update` | src/tick/update.rs::the_api_schedules_one_update_per_position_and_it_runs_when_due |  |
 | `pocketmine\world\World::setAutoSave` | merged | src/tick/command.rs:1481 `set_auto_save` | src/tick/command/builtin/tests.rs::save_off_skips_the_periodic_save_but_not_save_all | into `WorldManager::setAutoSave` |
-| `pocketmine\world\World::setBiomeId` | implemented | src/world.rs:843 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
-| `pocketmine\world\World::setBlock` | implemented | src/world.rs:744 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
-| `pocketmine\world\World::setBlockAt` | implemented | src/world.rs:743 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `pocketmine\world\World::setBiomeId` | implemented | src/world.rs:855 `set_biome` | src/world.rs::heights_loaded_chunks_and_biomes_answer_for_loaded_chunks_only |  |
+| `pocketmine\world\World::setBlock` | implemented | src/world.rs:756 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
+| `pocketmine\world\World::setBlockAt` | implemented | src/world.rs:755 `set_block` | src/world.rs::random_sets_over_chunks_match_an_array |  |
 | `pocketmine\world\World::setChunk` | skipped |  |  | the engine loads, generates and replaces chunks, and their light, block entities, entities and players' views follow; blocks change through `World::set_block` |
 | `pocketmine\world\World::setChunkTickRadius` | skipped |  |  | chunk ticking is the engine's |
 | `pocketmine\world\World::setDifficulty` | implemented | src/tick/world_api/lifecycle.rs:751 `set_world_difficulty` | src/tick/world_api/lifecycle/tests.rs::a_world_follows_the_server_difficulty_until_it_has_its_own<br>src/tick/world_api/lifecycle/tests.rs::a_player_waiting_for_its_spawn_chunks_hears_of_time_and_difficulty_changes<br>src/tick/world_api/lifecycle/tests.rs::an_unloaded_world_is_in_the_server_file_after_a_restart_and_loads_back |  |

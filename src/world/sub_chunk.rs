@@ -101,6 +101,13 @@ impl SubChunk {
         blocks.get(offset)
     }
 
+    /// The layer 1 entry of a slot: the water a waterlogged block holds, or air.
+    #[inline]
+    pub(crate) fn get_extra(&self, offset: u16) -> Entry {
+        let [_, extra] = &self.layers;
+        extra.get(offset)
+    }
+
     /// The light values of the layer 0 block of a slot, kept by its palette.
     #[inline]
     pub(crate) fn light_values(&self, offset: u16) -> super::light::Values {

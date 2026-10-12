@@ -720,6 +720,18 @@ impl World {
         }
     }
 
+    /// The block of the second layer at `pos`: the water a waterlogged block, kelp or seagrass
+    /// stands in, else air. `None` if the chunk is not loaded (or quarantined), `pos` is outside
+    /// the world height, or the state is one Anchor does not know.
+    #[inline]
+    pub fn extra_block(&self, pos: BlockPos) -> Option<State> {
+        let (x, z) = pos.local();
+        match self.chunks.get(pos.chunk())?.extra_entry(x, pos.y, z)? {
+            Entry::Known(state) => Some(state),
+            Entry::Unknown(_) | Entry::Inert(..) => None,
+        }
+    }
+
     /// The block-local collision boxes clients collide with at `pos`: those of the block, a state
     /// Anchor does not know but clients do included ([`block`](Self::block) leaves those out),
     /// and a full cube for one neither knows (clients are sent `minecraft:info_update`). `None`
@@ -1271,6 +1283,32 @@ mod tests {
             }
         }
         w
+    }
+
+    /// The second layer: the water a waterlogged block holds is there, the first layer's block
+    /// is not; air elsewhere, nothing for a chunk not loaded.
+    #[test]
+    fn extra_block_reads_the_second_layer() {
+        use crate::world::paletted::{Paletted, offset};
+        use crate::world::sub_chunk::{Entry, SubChunk};
+        let water = block::Kind::Water.default_state();
+        let stone = block::Kind::Stone.default_state();
+        let mut layers = [Paletted::uniform(Entry::AIR), Paletted::uniform(Entry::AIR)];
+        let [first, second] = &mut layers;
+        first.set(offset(1, 2, 3), Entry::Known(stone));
+        second.set(offset(1, 2, 3), Entry::Known(water));
+        let mut subs: [Option<SubChunk>; chunk::SUB_CHUNKS] = std::array::from_fn(|_| None);
+        subs[4] = Some(SubChunk::from_layers(layers));
+        let biomes = std::array::from_fn(|_| Paletted::uniform(0));
+        let mut w = world(&Void, 0);
+        w.insert_chunk(
+            ChunkPos::new(0, 0),
+            Chunk::from_parts(subs, biomes, Vec::new()).unwrap(),
+        );
+        assert_eq!(w.block(BlockPos::new(1, 2, 3)), Some(stone));
+        assert_eq!(w.extra_block(BlockPos::new(1, 2, 3)), Some(water));
+        assert_eq!(w.extra_block(BlockPos::new(1, 3, 3)), Some(block::AIR));
+        assert_eq!(w.extra_block(BlockPos::new(64, 2, 3)), None);
     }
 
     /// The boxes clients collide with: a known block's, an inert block's own (which `block` does
