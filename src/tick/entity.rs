@@ -2485,6 +2485,11 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, b
         (taken, knock, event) = (t, k, Some(e));
     }
     let replaced = event.as_ref().and_then(EntityDamage::knockback_motion);
+    let restarts = event.as_ref().is_some_and(EntityDamage::restarts_cooldown);
+    let plan = Plan {
+        cold: plan.cold || restarts,
+        ..plan
+    };
     let entities = &mut state.rules.entities;
     let Some(e) = entities.get_mut(id) else {
         return (Hurt::Ignored, false);
@@ -2601,6 +2606,8 @@ fn damage_event(
         knockback: force,
         vertical_knockback_limit: vertical,
         knockback_motion: None,
+        restarts_cooldown: false,
+        dealt: None,
         cancelled: plan.refused_by_cooldown,
     };
     dispatch::call(state, &mut e);
@@ -2611,7 +2618,7 @@ fn damage_event(
     }
     let taken = Taken {
         base: e.base_damage,
-        damage: e.final_damage(),
+        damage: e.dealt.unwrap_or_else(|| e.final_damage()),
         cooldown: u8::try_from(e.attack_cooldown_ticks).unwrap_or(u8::MAX),
     };
     let knock = knock.map(|k| Knock {

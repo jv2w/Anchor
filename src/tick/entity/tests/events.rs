@@ -735,6 +735,47 @@ fn a_knockback_motion_pushes_the_npc_by_exactly_it() {
 }
 
 // pmmp: EntityDamageEvent::uncancel
+/// A listener can make a hit within an NPC's cooldown act as one after it (it starts the cooldown
+/// again and shows the hurt animation) and set the health it takes outright.
+#[test]
+fn a_hit_on_an_npc_can_restart_the_cooldown_and_take_set_health() {
+    let mut listeners = Listeners::default();
+    listeners.push(
+        Priority::Normal,
+        |e: &mut EntityDamage, _: &mut Context<'_>| {
+            e.uncancel();
+            e.set_restarts_cooldown(true);
+            e.set_dealt(1.5);
+        },
+    );
+    let mut h = Harness::with_listeners(1, listeners);
+    h.spawn(1, standing(0.0, 0.0));
+    let npc = npc_at(&mut h, at(0.5, -60.0, 2.5));
+    h.step(Vec::new());
+    let runtime_id = h.state.rules.entities.get(npc).unwrap().runtime_id;
+    hit(&mut h, npc);
+    let attack_time = |h: &Harness| match &h.state.rules.entities.get(npc).unwrap().kind {
+        Kind::Npc(c) => c.attack_time,
+        _ => panic!("an NPC"),
+    };
+    with(&mut h.state, npc, |e| {
+        if let Kind::Npc(c) = &mut e.kind {
+            c.attack_time = 5;
+        }
+    });
+    h.take(1);
+    hit(&mut h, npc);
+    assert_eq!(health(&h, npc), 17.0, "1.5 a hit, within the cooldown too");
+    assert_eq!(attack_time(&h), 10, "the cooldown starts again");
+    h.collect();
+    let hurt = h.take(1).into_iter().any(|p| {
+        matches!(p, Packet::ActorEvent(a) if a.entity_runtime_id == runtime_id
+            && a.event_type == u8::from(ActorEvent::Hurt))
+    });
+    assert!(hurt, "the hurt animation shows again");
+}
+
+// pmmp: EntityDamageEvent::uncancel
 /// A hit within an NPC's cooldown that is no stronger than the last is raised cancelled while
 /// there are damage listeners: left cancelled it does nothing, uncancelled it lands as a stronger
 /// hit within the cooldown does, the last damage counted off.

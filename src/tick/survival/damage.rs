@@ -274,6 +274,8 @@ struct Landed {
     vertical_limit: f64,
     /// The motion a listener put in place of the knockback, and how many times it is sent.
     knockback_motion: Option<(Vec3, NonZeroU8)>,
+    /// Whether the hit starts the cooldown again even within it.
+    restarts_cooldown: bool,
     /// The ticks within which a weaker hit does nothing.
     cooldown: u32,
 }
@@ -294,6 +296,8 @@ impl Landed {
             knockback: self.knockback,
             vertical_knockback_limit: self.vertical_limit,
             knockback_motion: self.knockback_motion,
+            restarts_cooldown: self.restarts_cooldown,
+            dealt: None,
             cancelled,
         }
     }
@@ -324,7 +328,30 @@ impl Landed {
             .knockback_motion
             .map(|(m, sends)| (Vec3::new(carried(m.x), carried(m.y), carried(m.z)), sends));
         self.cooldown = event.attack_cooldown_ticks;
+        self.restarts_cooldown = event.restarts_cooldown;
     }
+
+    /// Makes the hit take `dealt` health before absorption ([`EntityDamage::set_dealt`]), the
+    /// absorption and a held totem working on it as [`assess`] has them work.
+    fn deal(&mut self, player: &Player, dealt: f64) {
+        self.absorption = absorbed(player, dealt);
+        let left = dealt + self.absorption;
+        let compensation = totem_compensation(player, self.hit.cause, left);
+        self.totem = compensation.is_some();
+        self.final_damage = left + compensation.unwrap_or(0.0);
+    }
+}
+
+/// The absorption (0 or negative) a hit of `damage` uses up.
+fn absorbed(player: &Player, damage: f64) -> f64 {
+    -math::min(player.survival.absorption, damage)
+}
+
+/// What a held totem adds to a hit of `damage` that would kill (PMMP
+/// `Human::applyDamageModifiers`): the player is left with 1 health. `None` when no totem saves it.
+fn totem_compensation(player: &Player, cause: Damage, damage: f64) -> Option<f64> {
+    let compensation = player.survival.health - damage - 1.0;
+    (cause != Damage::Void && holds_totem(player) && compensation <= -1.0).then_some(compensation)
 }
 
 /// Deals `amount` damage for `cause`; false if no damage was taken. A melee hit names its player
@@ -433,6 +460,11 @@ fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let mut landed = landed;
     if let Some(e) = &event {
         landed.change(e);
+        if let Some(dealt) = e.dealt
+            && let Some(p) = state.players.get(&session)
+        {
+            landed.deal(p, dealt);
+        }
     }
     apply(state, session, &landed, entity::Raise::Events);
     super::watch(state, event.as_ref());
@@ -569,8 +601,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
             sum -= d;
             set(&mut modifiers, DamageModifier::ArmorEnchantments, -d);
         }
-        let s = &player.survival;
-        absorption = -math::min(s.absorption, total(sum));
+        absorption = absorbed(player, total(sum));
         sum += absorption;
         set(&mut modifiers, DamageModifier::Absorption, absorption);
         let helmet = || {
@@ -585,13 +616,10 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
             sum -= d;
             set(&mut modifiers, DamageModifier::ArmorHelmet, -d);
         }
-        if hit.cause != Damage::Void && holds_totem(player) {
-            let compensation = s.health - total(sum) - 1.0;
-            if compensation <= -1.0 {
-                sum += compensation;
-                totem = true;
-                set(&mut modifiers, DamageModifier::Totem, compensation);
-            }
+        if let Some(compensation) = totem_compensation(player, hit.cause, total(sum)) {
+            sum += compensation;
+            totem = true;
+            set(&mut modifiers, DamageModifier::Totem, compensation);
         }
     }
     Some(Landed {
@@ -603,6 +631,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
         knockback: KNOCKBACK,
         vertical_limit: KNOCKBACK_VERTICAL_LIMIT,
         knockback_motion: None,
+        restarts_cooldown: false,
         cooldown: u32::from(ATTACK_COOLDOWN),
     })
 }
@@ -623,6 +652,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
         knockback,
         vertical_limit,
         knockback_motion,
+        restarts_cooldown,
         cooldown,
     } = *landed;
     let Some(player) = state.players.get_mut(&session) else {
@@ -635,7 +665,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
     s.health = if health > 0.0 { health } else { 0.0 };
     s.mark(HEALTH);
     player.data_dirty = true;
-    let cold = s.attack_time == 0;
+    let cold = s.attack_time == 0 || restarts_cooldown;
     if cold {
         s.attack_time = cooldown;
     }
@@ -644,27 +674,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
             player.survival.custom.killed = true;
             return;
         }
-        // A projectile names its shooter; one no player shot is a generic death (PMMP
-        // `PlayerDeathEvent::deriveMessage`).
-        let attacker = match (hit.cause, hit.source) {
-            (Damage::Attack(a), _) => Some(a),
-            (
-                Damage::Entity,
-                DamageSource::Child {
-                    owner: Some(Actor::Player(p)),
-                    ..
-                },
-            ) => Some(p.session()),
-            _ => None,
-        };
-        let message = match hit.cause {
-            Damage::Entity if attacker.is_none() => GENERIC_DEATH,
-            Damage::Entity if is_trident(state, hit.source) => "death.attack.trident",
-            // Only a cactus is named for contact (PMMP `deriveMessage`).
-            Damage::Contact if !is_cactus(state, session, hit.source) => GENERIC_DEATH,
-            cause => cause.death_message(),
-        };
-        die(state, session, message, attacker);
+        died_of(state, session, &hit);
         return;
     }
     if let Some((motion, sends)) = knockback_motion {
@@ -717,6 +727,31 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
             }
         }
     }
+}
+
+/// The player of `session` died of `hit`, which names its killer and the death message.
+fn died_of(state: &mut State, session: SessionId, hit: &Hit) {
+    // A projectile names its shooter; one no player shot is a generic death (PMMP
+    // `PlayerDeathEvent::deriveMessage`).
+    let attacker = match (hit.cause, hit.source) {
+        (Damage::Attack(a), _) => Some(a),
+        (
+            Damage::Entity,
+            DamageSource::Child {
+                owner: Some(Actor::Player(p)),
+                ..
+            },
+        ) => Some(p.session()),
+        _ => None,
+    };
+    let message = match hit.cause {
+        Damage::Entity if attacker.is_none() => GENERIC_DEATH,
+        Damage::Entity if is_trident(state, hit.source) => "death.attack.trident",
+        // Only a cactus is named for contact (PMMP `deriveMessage`).
+        Damage::Contact if !is_cactus(state, session, hit.source) => GENERIC_DEATH,
+        cause => cause.death_message(),
+    };
+    die(state, session, message, attacker);
 }
 
 /// Whether `source` is a thrown trident.

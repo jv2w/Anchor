@@ -361,6 +361,47 @@ fn a_hit_the_cooldown_refuses_is_raised_cancelled_and_lands_when_uncancelled() {
     );
 }
 
+// pmmp: EntityDamageEvent::uncancel
+/// A listener can make a hit within the attack cooldown act as one after it: it starts the
+/// cooldown again and shows the hurt animation. The health it takes can be set outright, before
+/// absorption, whatever the modifiers say.
+#[test]
+fn a_hit_can_restart_the_cooldown_and_take_set_health() {
+    let listeners = on(|e: &mut EntityDamage, _: &mut Context<'_>| {
+        e.uncancel();
+        e.set_restarts_cooldown(true);
+        e.set_dealt(e.base_damage() / 2.0);
+    });
+    let mut game = Game::new(2, listeners);
+    let hurts = |packets: Vec<Packet>| {
+        packets
+            .iter()
+            .filter(|p| {
+                matches!(p, Packet::ActorEvent(a) if a.entity_runtime_id == 1
+                    && a.event_type == u8::from(crate::protocol::consts::ActorEvent::Hurt))
+            })
+            .count()
+    };
+    game.survival(1).absorption = 1.0;
+    assert!(damage(&mut game.state, sid(1), 4.0, Damage::Contact));
+    assert_eq!(game.survival(1).health, 19.0, "2 dealt, 1 absorbed");
+    game.idle(3);
+    game.take(2);
+    assert!(damage(&mut game.state, sid(1), 3.0, Damage::Contact));
+    assert_eq!(
+        game.survival(1).health,
+        17.5,
+        "within the cooldown, 1.5 dealt"
+    );
+    assert_eq!(
+        game.survival(1).attack_time,
+        10,
+        "the cooldown starts again"
+    );
+    game.idle(1);
+    assert_eq!(hurts(game.take(2)), 1, "the hurt animation shows again");
+}
+
 /// What one client does in a tick cannot fill another player's outbox and disconnect it: the
 /// swings and hit sounds of more attacks than an outbox holds leave the target connected.
 #[test]
