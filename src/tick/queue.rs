@@ -32,20 +32,20 @@ impl SessionId {
     pub(crate) const CONSOLE: Self = Self(u64::MAX);
 
     /// The results of blocking jobs ([`InputKind::Job`]): a session of its own whose sequence
-    /// number is the job's id, so results applied in one tick are ordered by job, after every
-    /// connection's inputs and before the console's.
+    /// number is the job's id, so in session order (`input-order`) results applied in one tick
+    /// are ordered by job, after every connection's inputs and before the console's.
     pub(crate) const JOBS: Self = Self(u64::MAX - 1);
 
-    /// The networking's reports ([`Measure::Connections`]): a session of its own, ordered after
-    /// every connection's inputs.
+    /// The networking's reports ([`Measure::Connections`]): a session of its own, in session
+    /// order after every connection's inputs.
     pub(crate) const NETWORK: Self = Self(u64::MAX - 2);
 
     /// The tick loop's own reports ([`Measure::TickTime`]): a session of its own whose sequence
     /// number is the tick that reports.
     pub(crate) const ENGINE: Self = Self(u64::MAX - 3);
 
-    /// The process measures ([`Measure::Process`]): a session of its own, ordered after every
-    /// connection's inputs.
+    /// The process measures ([`Measure::Process`]): a session of its own, in session order after
+    /// every connection's inputs.
     pub(crate) const PROCESS: Self = Self(u64::MAX - 4);
 
     /// The session numbered `id`.
@@ -308,7 +308,8 @@ impl Default for Skin {
     }
 }
 
-/// One input for the tick, ordered by (`session`, `seq`) before it is applied.
+/// One input for the tick, ordered by (`session`, `seq`) before it is applied unless the tick
+/// applies inputs in arrival order (`input-order`).
 #[derive(Debug, Clone)]
 pub(crate) struct Input {
     /// The session it came from.

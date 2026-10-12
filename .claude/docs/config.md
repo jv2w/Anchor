@@ -149,6 +149,10 @@ item-pickup-interval = 1
 hook-movement-packets = true
 # false: PlayerAuthInput packets skip the receive hooks.
 hook-player-input = true
+# Order of each tick's player inputs: "session" (player by player, whatever the network
+# timing) or "arrival" (as they reached the server, across players, as the official server
+# applies them).
+input-order = "session"
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
 # When the data files are checked at start: "always", "after-unclean-shutdown" or "never".
@@ -249,6 +253,7 @@ console-input = true
 | `item-pickup-interval` | 정수 | `1` | 1~20 | 플레이어가 주울 아이템을 찾는 간격(틱) |
 | `hook-movement-packets` | bool | `true` | | 서버가 보내는 이동 패킷이 송신 훅을 거칠지 |
 | `hook-player-input` | bool | `true` | | `PlayerAuthInput` 패킷이 수신 훅을 거칠지 |
+| `input-order` | 문자열 | `"session"` | `session`, `arrival` | 한 틱의 입력을 적용하는 순서. `session`은 세션 ID 순(세션 안은 도착 순)이라 네트워크에서 섞인 순서와 무관하다. `arrival`은 모든 세션을 통틀어 입력 큐에 도착한 순서로, 공식 서버처럼 먼저 온 입력이 먼저 적용된다. 어느 쪽이든 입력 로그가 그 순서를 담아 재생이 같다 |
 | `save-interval-minutes` | 정수 | `10` | 1~1440 | 전체 상태 저장 간격(분) |
 | `integrity-check` | 문자열 | `"always"` | `always`, `after-unclean-shutdown`, `never` | 시작에서 데이터 파일을 검사하는 때. 실행 중에는 `check` 명령이 검사한다 |
 | `console-input` | bool | `true` | | 표준 입력에서 명령을 읽을지 |

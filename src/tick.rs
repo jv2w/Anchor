@@ -39,7 +39,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::clock;
-use crate::config::{Config, CriticalHits, Difficulty, GameMode, Lighting, ViewLimits};
+use crate::config::{Config, CriticalHits, Difficulty, GameMode, InputOrder, Lighting, ViewLimits};
 use crate::event::Listeners;
 use crate::math::Vec3;
 use crate::pool::Pool;
@@ -143,6 +143,8 @@ pub(crate) struct Settings {
     hook_movement_packets: bool,
     /// Whether `PlayerAuthInput` packets pass the receive hooks (`hook-player-input`).
     hook_player_input: bool,
+    /// The order of each tick's inputs (`input-order`).
+    input_order: InputOrder,
     /// Whether players always get the default game mode (`force-gamemode`).
     force_game_mode: bool,
     /// Random block ticks per sub-chunk per tick (`random-tick-speed`).
@@ -196,6 +198,7 @@ impl Settings {
             item_pickup_interval: developer.item_pickup_interval,
             hook_movement_packets: developer.hook_movement_packets,
             hook_player_input: developer.hook_player_input,
+            input_order: developer.input_order,
             force_game_mode: general.force_gamemode,
             random_tick_speed: developer.random_tick_speed,
             no_random_ticks: update::untickable(&developer.disable_block_ticking),
@@ -653,6 +656,7 @@ impl State {
             item_pickup_interval: _,
             hook_movement_packets: _,
             hook_player_input: _,
+            input_order: _,
             force_game_mode: _,
             random_tick_speed,
             no_random_ticks: _,
@@ -916,9 +920,10 @@ impl Output {
 /// in `log`.
 ///
 /// 1. Input (serial): the save thread's answers in arrival order (loaded chunks and player data,
-///    commits), then the session inputs in (session, seq) order, so the result does not depend
-///    on how sessions interleaved in the queue, each followed by the callbacks it deferred. Then
-///    the scheduled tasks.
+///    commits), then the session inputs, each followed by the callbacks it deferred: in
+///    (session, seq) order, so the result does not depend on how sessions interleaved in the
+///    queue, or with `input-order = "arrival"` in the order of `inputs`, the order they reached
+///    the queue. Then the scheduled tasks.
 /// 2. Rules ([`rules()`]): survival and the world clocks, breaking, block updates, entities (their
 ///    physics computed on the CPU pool read-only, then applied in entity order), trades, block
 ///    entities and light.
@@ -976,7 +981,11 @@ fn step_marked(
     }
     let mut deferred_runs = 0;
     // Keys are unique per input, so the unstable sort is deterministic and allocates nothing.
-    inputs.sort_unstable_by_key(|i| (i.session, i.seq));
+    // Arrival order is the order of `inputs`: the one queue every session shares is FIFO, each
+    // session queues its own in order, and a replay passes them in the order the log recorded.
+    if state.settings.input_order == InputOrder::Session {
+        inputs.sort_unstable_by_key(|i| (i.session, i.seq));
+    }
     // Each input is logged before it applies, so the log of a tick that panics in a user callback
     // holds the input that raised it.
     for input in inputs.drain(..) {
@@ -3006,7 +3015,11 @@ mod tests {
     /// the replay records itself. Sessions the live run forgot after its output are forgotten at
     /// the same point.
     fn replay(ticks: &[log::Tick], listeners: Listeners, pool: &Pool) -> (Vec<u64>, InputLog) {
-        let mut state = script_state(listeners);
+        replay_from(script_state(listeners), ticks, pool)
+    }
+
+    /// [`replay`] from `state`.
+    fn replay_from(mut state: State, ticks: &[log::Tick], pool: &Pool) -> (Vec<u64>, InputLog) {
         let mut output = Output::default();
         let mut log = InputLog::default();
         let mut receivers = BTreeMap::new();
@@ -3182,6 +3195,96 @@ mod tests {
                 reached.get(what).is_some_and(|n| *n > 0),
                 "the scripts never reached {what}: {reached:?}"
             );
+        }
+    }
+
+    thread_local! {
+        /// The sessions whose `Text` packets the receive hook of [`ordered_run`] saw, in order
+        /// (hooks run on the tick's thread).
+        static TEXTS: std::cell::Cell<Vec<u64>> = const { std::cell::Cell::new(Vec::new()) };
+    }
+
+    /// A server with `input-order = order` whose receive hook notes the session of every `Text`
+    /// packet in [`TEXTS`].
+    fn ordered_state(order: InputOrder) -> State {
+        let mut state = new_state(
+            settings(|c| c.developer.input_order = order),
+            Listeners::default(),
+        );
+        state.hooks = crate::Server::builder()
+            .on_receive(|_, player, packet| {
+                if matches!(packet, Packet::Text(_)) {
+                    TEXTS.with(|t| {
+                        let mut seen = t.take();
+                        seen.push(player.session().get());
+                        t.set(seen);
+                    });
+                }
+                true
+            })
+            .setup
+            .hooks;
+        state
+    }
+
+    /// Two players join, then one tick queues text from sessions 2, 1 and 2, in that order:
+    /// the sessions in the order the hook saw them, the state hash after each tick and the log.
+    fn ordered_run(order: InputOrder) -> (Vec<u64>, Vec<u64>, InputLog) {
+        let text = |session, seq| {
+            let p = crate::protocol::packet::Text {
+                message: "hi".to_owned(),
+                ..Default::default()
+            };
+            input(session, seq, packet(Packet::Text(Box::new(p))))
+        };
+        let (j1, _rx1) = join(1, 0);
+        let (j2, _rx2) = join(2, 0);
+        let batches = vec![
+            vec![j1, j2],
+            vec![text(2, 1), text(1, 1), text(2, 2)],
+            Vec::new(),
+        ];
+        TEXTS.with(std::cell::Cell::take);
+        let mut state = ordered_state(order);
+        let mut output = Output::default();
+        let mut log = InputLog::default();
+        let mut hashes = Vec::new();
+        for mut batch in batches {
+            let mut answers = std::mem::take(&mut output.answers);
+            POOL.with(|pool| {
+                step(
+                    &mut state,
+                    &mut batch,
+                    &mut answers,
+                    pool,
+                    &mut output,
+                    &mut log,
+                );
+            });
+            deliver(&mut state, &mut output, &mut log);
+            boundary(&mut state, &mut output, &mut log);
+            let requests = std::mem::take(&mut output.requests);
+            output.answers = answer(&state, requests);
+            hashes.push(state.hash());
+        }
+        (TEXTS.with(std::cell::Cell::take), hashes, log)
+    }
+
+    /// `input-order`: "session" applies a tick's inputs session by session, "arrival" in the
+    /// order they were queued, across sessions; either way the log replays them in that order.
+    #[test]
+    fn inputs_apply_in_session_or_arrival_order_and_replay_so() {
+        for (order, want) in [
+            (InputOrder::Session, [1, 2, 2]),
+            (InputOrder::Arrival, [2, 1, 2]),
+        ] {
+            let (seen, hashes, log) = ordered_run(order);
+            assert_eq!(seen, want, "{order:?}");
+            let read = InputLog::decode(&log.encode().unwrap()).unwrap();
+            let replayed = POOL.with(|pool| replay_from(ordered_state(order), &read.ticks(), pool));
+            assert_eq!(replayed.0, hashes, "{order:?}: replay");
+            assert_eq!(TEXTS.with(std::cell::Cell::take), want, "{order:?}: replay");
+            assert_eq!(replayed.1.encode().unwrap(), log.encode().unwrap());
         }
     }
 

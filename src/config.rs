@@ -155,6 +155,10 @@ item-pickup-interval = 1
 hook-movement-packets = true
 # false: PlayerAuthInput packets skip the receive hooks.
 hook-player-input = true
+# Order of each tick's player inputs: "session" (player by player, whatever the network
+# timing) or "arrival" (as they reached the server, across players, as the official server
+# applies them).
+input-order = "session"
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
 # When the data files are checked at start: "always", "after-unclean-shutdown" or "never".
@@ -758,6 +762,8 @@ pub struct Developer {
     pub hook_movement_packets: bool,
     /// `hook-player-input`: whether `PlayerAuthInput` packets pass the receive hooks.
     pub hook_player_input: bool,
+    /// `input-order`: the order in which a tick applies the inputs of the players.
+    pub input_order: InputOrder,
     /// `save-interval-minutes`: minutes between whole-state saves.
     pub save_interval_minutes: u16,
     /// `integrity-check`: when the data files are checked at start.
@@ -814,6 +820,7 @@ impl Developer {
                 }
                 "hook-movement-packets" => self.hook_movement_packets = boolean(value, key)?,
                 "hook-player-input" => self.hook_player_input = boolean(value, key)?,
+                "input-order" => self.input_order = choice(value, key, &InputOrder::NAMES)?,
                 "save-interval-minutes" => {
                     self.save_interval_minutes = int(value, key, SAVE_INTERVAL_MINUTES)?;
                 }
@@ -853,6 +860,7 @@ impl Default for Developer {
             item_pickup_interval: 1,
             hook_movement_packets: true,
             hook_player_input: true,
+            input_order: InputOrder::Session,
             save_interval_minutes: 10,
             integrity_check: IntegrityCheck::Always,
             console_input: true,
@@ -994,6 +1002,23 @@ impl IntegrityCheck {
         ("after-unclean-shutdown", Self::AfterUncleanShutdown),
         ("never", Self::Never),
     ];
+}
+
+/// The order in which a tick applies the inputs of the players (`input-order`). Either way a
+/// replay of the input log applies them in the same order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InputOrder {
+    /// `"session"`: session by session in connection order, each session's inputs in the order
+    /// they arrived, so how the sessions' packets interleaved on the network changes nothing.
+    Session,
+    /// `"arrival"`: in the order they reached the tick's input queue, across sessions, as BDS
+    /// applies them: an input that arrived first acts first, whichever player sent it.
+    Arrival,
+}
+
+impl InputOrder {
+    /// The `input-order` values.
+    const NAMES: [(&str, Self); 2] = [("session", Self::Session), ("arrival", Self::Arrival)];
 }
 
 /// The console log detail (`log-level`).
@@ -1728,7 +1753,7 @@ old-key = false
         let config = Config::default().load_as(&path, true).unwrap();
         let update = config.updated().unwrap();
         assert_eq!(update.removed(), ["general.old-key"]);
-        assert_eq!(update.added().len(), 65);
+        assert_eq!(update.added().len(), 66);
         let again = Config::default().load_as(&path, true).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }

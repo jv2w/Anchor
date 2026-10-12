@@ -70,8 +70,8 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::getGamemode` | implemented | src/tick/task.rs:173 `default_game_mode` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
 | `pocketmine\Server::getIPBans` | implemented | src/tick/command.rs:1411 `ip_bans` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
 | `pocketmine\Server::getInstance` | skipped |  |  | global singleton: Anchor has no global state; registries are fixed at `build()` |
-| `pocketmine\Server::getIp` | implemented | src/config.rs:512 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `pocketmine\Server::getIpV6` | implemented | src/config.rs:515 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getIp` | implemented | src/config.rs:516 `server_ip` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getIpV6` | implemented | src/config.rs:519 `server_ipv6` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getLanguage` | skipped |  |  | server-side translation: Anchor sends translation keys and the client translates |
 | `pocketmine\Server::getLoader` | skipped |  |  | PHP class loader |
 | `pocketmine\Server::getLogger` | skipped |  |  | Anchor logs with `tracing` |
@@ -83,7 +83,7 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::getNetwork` | skipped |  |  | protocol internals |
 | `pocketmine\Server::getOfflinePlayer` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O and writes only whole-state commits; online players are `Context::players` |
 | `pocketmine\Server::getOfflinePlayerData` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O and writes only whole-state commits; online players are `Context::players` |
-| `pocketmine\Server::getOnlineMode` | implemented | src/config.rs:532 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getOnlineMode` | implemented | src/config.rs:536 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getOnlinePlayers` | implemented | src/tick/task.rs:206 `players` | src/tick/task.rs::players_are_lent_in_id_order_while_online |  |
 | `pocketmine\Server::getOps` | implemented | src/tick/command.rs:1348 `ops` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants |  |
 | `pocketmine\Server::getPlayerByPrefix` | implemented | src/tick/task.rs:246 `player_by_prefix` | src/tick/task.rs::the_shortest_name_with_the_prefix_wins |  |
@@ -94,8 +94,8 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::getPluginManager` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::getPluginPath` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\Server::getPocketMineVersion` | implemented | src/tick/task.rs:66 `ANCHOR_VERSION` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
-| `pocketmine\Server::getPort` | implemented | src/config.rs:521 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
-| `pocketmine\Server::getPortV6` | implemented | src/config.rs:522 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getPort` | implemented | src/config.rs:525 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::getPortV6` | implemented | src/config.rs:526 `server_port` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::getQueryInformation` | skipped |  |  | GameSpy query protocol: Anchor opens no other protocol |
 | `pocketmine\Server::getResourcePackManager` | merged | src/pack.rs:210 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `pocketmine\Server::getResourcePath` | skipped |  |  | a library has no install paths: the server folder is anchor.toml and data/ |
@@ -122,7 +122,7 @@ implemented 42, differs 2, merged 8, skipped 77, blank 0 (of 129 rows)
 | `pocketmine\Server::removeOnlinePlayer` | skipped |  |  | players join through the login flow |
 | `pocketmine\Server::removeOp` | implemented | src/tick/command.rs:1331 `deop` | src/tick/command/tests.rs::permissions_follow_defaults_operators_and_grants<br>src/tick/command/tests.rs::op_and_deop_send_the_abilities_bds_sends |  |
 | `pocketmine\Server::removeWhitelist` | implemented | src/tick/command.rs:1426 `remove_from_whitelist` | src/tick/command/tests.rs::list_changes_are_idempotent_and_go_into_the_next_snapshot |  |
-| `pocketmine\Server::requiresAuthentication` | implemented | src/config.rs:533 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
+| `pocketmine\Server::requiresAuthentication` | implemented | src/config.rs:537 `xbox_auth` | src/config.rs::addresses_port_and_sign_in_come_from_the_general_table |  |
 | `pocketmine\Server::saveOfflinePlayerData` | skipped |  |  | saved player data is in the server file the save thread owns: the tick does no blocking I/O and writes only whole-state commits; online players are `Context::players` |
 | `pocketmine\Server::sendUsage` | skipped |  |  | PMMP usage statistics reporting |
 | `pocketmine\Server::shouldSavePlayerData` | implemented | src/tick/task.rs:199 `should_save_player_data` | src/tick/task.rs::the_server_reads_its_settings_and_a_lower_player_limit_refuses_joins |  |
@@ -5969,8 +5969,8 @@ implemented 657, differs 3, merged 50, skipped 199, blank 0 (of 909 rows)
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::getEncryptionKeys` | merged | src/pack.rs:171 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file | into `ResourcePackManager::getPackEncryptionKey` |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::getPlayerInfo` | merged | src/pack.rs:210 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::getResourcePacks` | merged | src/pack.rs:210 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:598 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
-| `pocketmine\event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:598 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::mustAccept` | merged | src/config.rs:602 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
+| `pocketmine\event\player\PlayerResourcePackOfferEvent::setMustAccept` | merged | src/config.rs:602 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer | into `ResourcePackManager::resourcePacksRequired` |
 | `pocketmine\event\player\PlayerResourcePackOfferEvent::setResourcePacks` | merged | src/pack.rs:210 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
 | `pocketmine\event\player\PlayerRespawnAnchorUseEvent` | implemented | src/event/player.rs:1421 `PlayerRespawnAnchorUse` | src/event/player.rs::respawn_anchor_use_names_the_anchor_and_its_action<br>src/tick/interact/tests/events.rs::glowstone_charges_a_respawn_anchor_and_a_charged_one_explodes_in_any_world<br>src/tick/interact/tests/events.rs::an_anchor_explosion_is_the_same_on_every_run<br>src/tick/interact/tests/events.rs::anchor_listeners_see_the_use_the_coming_explosion_and_its_blocks_and_monitors_the_outcome |  |
 | `pocketmine\event\player\PlayerRespawnAnchorUseEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
@@ -7674,7 +7674,7 @@ implemented 15, differs 4, merged 19, skipped 725, blank 0 (of 763 rows)
 | `pocketmine\network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:661 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
 | `pocketmine\network\mcpe\NetworkSession::prepareClientTranslatableMessage` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::queueCompressed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:405 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:408 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\network\mcpe\NetworkSession::sendDataPacketWithReceipt` | skipped |  |  | transport acknowledgements are internal to RakNet and NetherNet |
 | `pocketmine\network\mcpe\NetworkSession::setHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::startUsingChunk` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8383,11 +8383,11 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\DatFilePlayerDataProvider::hasData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
 | `pocketmine\player\DatFilePlayerDataProvider::loadData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
 | `pocketmine\player\DatFilePlayerDataProvider::saveData` | skipped |  |  | PMMP player .dat files: Anchor keeps players in redb |
-| `pocketmine\player\GameMode` | implemented | src/config.rs:1036 `GameMode` | src/config.rs::game_modes_parse_pmmps_names_letters_and_numbers<br>tests/config.rs::every_key_reaches_its_field |  |
+| `pocketmine\player\GameMode` | implemented | src/config.rs:1061 `GameMode` | src/config.rs::game_modes_parse_pmmps_names_letters_and_numbers<br>tests/config.rs::every_key_reaches_its_field |  |
 | `pocketmine\player\GameMode::__callStatic` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\player\GameMode::cases` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\player\GameMode::equals` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
-| `pocketmine\player\GameMode::fromString` | implemented | src/config.rs:1078 `from_name` | src/config.rs::game_modes_parse_pmmps_names_letters_and_numbers |  |
+| `pocketmine\player\GameMode::fromString` | implemented | src/config.rs:1103 `from_name` | src/config.rs::game_modes_parse_pmmps_names_letters_and_numbers |  |
 | `pocketmine\player\GameMode::getAliases` | skipped |  |  | the settings take one name per game mode |
 | `pocketmine\player\GameMode::getAll` | skipped |  |  | PHP enum plumbing: Anchor's closed sets are Rust enums |
 | `pocketmine\player\GameMode::getEnglishName` | skipped |  |  | English names are client-side translations (Anchor sends translation keys) |
@@ -8405,7 +8405,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\OfflinePlayer::getLastPlayed` | skipped |  |  | no offline player objects: operator, ban and whitelist calls take names; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `pocketmine\player\OfflinePlayer::getName` | skipped |  |  | no offline player objects: operator, ban and whitelist calls take names; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `pocketmine\player\OfflinePlayer::hasPlayedBefore` | skipped |  |  | no offline player objects: operator, ban and whitelist calls take names; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
-| `pocketmine\player\Player` | implemented | src/tick.rs:348 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `pocketmine\player\Player` | implemented | src/tick.rs:351 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::__construct` | skipped |  |  | players join through the login flow |
 | `pocketmine\player\Player::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `pocketmine\player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
@@ -8776,15 +8776,15 @@ implemented 22, differs 0, merged 6, skipped 6, blank 0 (of 34 rows)
 | `pocketmine\resourcepacks\ResourcePack::getSha256` | implemented | src/pack.rs:157 `sha256` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
 | `pocketmine\resourcepacks\ResourcePackException` | implemented | src/pack.rs:386 `Error` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `pocketmine\resourcepacks\ResourcePackManager` | merged | src/pack.rs:210 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files | into `ResourcePackManager::setResourceStack` |
-| `pocketmine\resourcepacks\ResourcePackManager::__construct` | implemented | src/config.rs:595 `resource_packs` | src/config.rs::pack_paths_resolve_against_the_data_pack_folder |  |
+| `pocketmine\resourcepacks\ResourcePackManager::__construct` | implemented | src/config.rs:599 `resource_packs` | src/config.rs::pack_paths_resolve_against_the_data_pack_folder |  |
 | `pocketmine\resourcepacks\ResourcePackManager::getPackById` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `pocketmine\resourcepacks\ResourcePackManager::getPackEncryptionKey` | implemented | src/pack.rs:171 `content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
 | `pocketmine\resourcepacks\ResourcePackManager::getPackIdList` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
 | `pocketmine\resourcepacks\ResourcePackManager::getPath` | skipped |  |  | a pack is read once at build; Anchor keeps no path |
 | `pocketmine\resourcepacks\ResourcePackManager::getResourceStack` | skipped |  |  | the packs are fixed when the server is built and offered by the sessions before the tick: the code that builds the server holds them (`resource-packs`, `Pack::load`, `ServerBuilder::resource_pack`) |
-| `pocketmine\resourcepacks\ResourcePackManager::resourcePacksRequired` | implemented | src/config.rs:598 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
+| `pocketmine\resourcepacks\ResourcePackManager::resourcePacksRequired` | implemented | src/config.rs:602 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
 | `pocketmine\resourcepacks\ResourcePackManager::setPackEncryptionKey` | implemented | src/pack.rs:118 `with_content_key` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
-| `pocketmine\resourcepacks\ResourcePackManager::setResourcePacksRequired` | implemented | src/config.rs:599 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
+| `pocketmine\resourcepacks\ResourcePackManager::setResourcePacksRequired` | implemented | src/config.rs:603 `force_resources` | src/config.rs::force_resources_reaches_the_pack_offer |  |
 | `pocketmine\resourcepacks\ResourcePackManager::setResourceStack` | implemented | src/pack.rs:210 `resource_pack` | src/pack.rs::packs_given_in_code_follow_the_configured_files |  |
 | `pocketmine\resourcepacks\ZippedResourcePack` | implemented | src/pack.rs:50 `Pack` | src/pack.rs::a_pack_reads_its_manifest_and_hashes_its_bytes |  |
 | `pocketmine\resourcepacks\ZippedResourcePack::__construct` | implemented | src/pack.rs:86 `load` | src/pack.rs::a_pack_file_loads_with_its_key_file |  |
