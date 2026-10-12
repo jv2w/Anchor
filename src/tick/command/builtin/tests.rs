@@ -1786,3 +1786,35 @@ fn bds_forms_of_the_shared_commands_run() {
         "a name, not a selector"
     );
 }
+
+/// `run_command` runs a line as the player (`@s` is it) with every permission, sends nobody the
+/// result, not even the operators their copy, and leaves the player's own permissions as they
+/// were. What the command tells those it acts on is part of what it does, and still goes.
+#[test]
+fn run_command_runs_as_the_player_with_every_permission_and_tells_nobody() {
+    let (mut state, mut rx) = with_op();
+    let two = crate::player::Id::new(SessionId::new(2));
+    assert!(is_refused(&run(&mut state, id(2), "give @s stone 2")));
+    let out = Context { state: &mut state }.run_command(two, "give @s stone 2");
+    assert_eq!(lines(out), ["commands.give.success"]);
+    let given = player(&state, 2).inventory.main_stack(0).unwrap();
+    assert_eq!(given.count(), 2);
+    let (to_op, _) = chat(&mut state, &mut rx[0]);
+    assert_eq!(to_op, [], "no copy for the operator");
+    let (to_two, _) = chat(&mut state, &mut rx[1]);
+    assert!(
+        to_two
+            .iter()
+            .all(|(text, _)| text.contains("commands.give.successRecipient")),
+        "no result for the player: {to_two:?}"
+    );
+    assert!(
+        is_refused(&run(&mut state, id(2), "give @s stone 2")),
+        "the player's own permissions stay"
+    );
+    let gone = crate::player::Id::new(SessionId::new(9));
+    assert_eq!(
+        Context { state: &mut state }.run_command(gone, "give @s stone 2"),
+        Err(Error::NoTargets)
+    );
+}

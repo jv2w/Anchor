@@ -184,8 +184,12 @@ fn announce(cx: &mut Context<'_>, sender: Sender, msg: Msg, params: &[&str]) -> 
 /// A copy of `sender`'s result `msg` for every other player with
 /// [`BROADCAST_ADMIN`](crate::permission::BROADCAST_ADMIN), and for the log when a player sent
 /// the command (the console logs its own results):
-/// [`Context::broadcast_command_message`] for a text, a translation for a client key.
+/// [`Context::broadcast_command_message`] for a text, a translation for a client key. Nothing
+/// during a [`Context::run_command`].
 fn notify(cx: &mut Context<'_>, sender: Sender, msg: Msg, params: &[&str]) {
+    if cx.is_unrestricted_run() {
+        return;
+    }
     let Some(text) = msg.render(params) else {
         let source = name_of(cx, sender);
         // The client translates the key inside the text with its parameters. The brackets are

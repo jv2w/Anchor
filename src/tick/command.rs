@@ -110,6 +110,9 @@ pub(crate) struct Commands {
     stopping: bool,
     /// The tick of the first tick boundary: where the server's uptime counts from.
     started: Option<u64>,
+    /// The player a [`Context::run_command`] runs as, while it runs: it has every permission,
+    /// and its results are copied to nobody. `None` between callbacks.
+    unrestricted: Option<player::Id>,
 }
 
 impl Default for Commands {
@@ -131,6 +134,7 @@ impl Default for Commands {
             auto_save: true,
             stopping: false,
             started: None,
+            unrestricted: None,
         }
     }
 }
@@ -263,6 +267,8 @@ impl Commands {
             auto_save,
             stopping,
             started: _,
+            // None between callbacks, where hashes are taken.
+            unrestricted: _,
         } = self;
         h.usize(grants.len());
         for (session, grants) in grants {
@@ -316,6 +322,8 @@ impl Commands {
             auto_save,
             stopping,
             started,
+            // None between callbacks, where checkpoints are taken.
+            unrestricted: _,
         } = self;
         w.len(grants.len());
         for (session, grants) in grants {
@@ -503,10 +511,12 @@ fn allowed(permissions: &[Permission], has: impl Fn(Permission) -> bool) -> bool
     permissions.is_empty() || permissions.iter().any(|&p| has(p))
 }
 
-/// Whether `sender` has `permission`; a player who has left has none.
+/// Whether `sender` has `permission`; a player who has left has none, and the player a
+/// [`Context::run_command`] runs as has every one.
 fn has_permission(state: &State, sender: Sender, permission: Permission) -> bool {
     match sender {
         Sender::Console => permission.granted_by_default(true),
+        Sender::Player(id) if state.commands.unrestricted == Some(id) => true,
         Sender::Player(id) => state.players.get(&id.session()).is_some_and(|p| {
             let op = state.commands.access.is_op(&p.identity.name);
             has_permission_of(&state.commands.grants, Some(id.session()), op, permission)
@@ -1036,6 +1046,21 @@ impl Context<'_> {
         execute(self.state, sender, line)
     }
 
+    /// Runs `line` (without `/`) as `player` would type it (`@s` and relative positions are the
+    /// player's), but as if it had every permission, and returns what it would see; nothing is
+    /// sent, and no operator gets a copy of the result (the Script API's `Player::runCommand`).
+    /// A player who has left runs nothing: [`Error::NoTargets`], as there is nobody to run it
+    /// as. A command cannot run itself again while it runs: that fails.
+    pub fn run_command(&mut self, player: player::Id, line: &str) -> command::Result<Output> {
+        if !self.state.players.contains_key(&player.session()) {
+            return Err(Error::NoTargets);
+        }
+        let outer = self.state.commands.unrestricted.replace(player);
+        let result = execute(self.state, Sender::Player(player), line);
+        self.state.commands.unrestricted = outer;
+        result
+    }
+
     /// The name of `sender`: the player's name, or `Console`; `None` for a player who has left.
     #[doc(alias = "CommandSender::getName")]
     #[doc(alias = "ConsoleCommandSender::getName")]
@@ -1065,9 +1090,13 @@ impl Context<'_> {
     /// Shows what `sender`'s command did, `message`, to every other online player with
     /// [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN), as the client's `[sender: message]`
     /// (`chat.type.admin`) in grey italics, and logs it when a player sent the command (the
-    /// console logs its own results). The sender itself sees what its handler returns.
+    /// console logs its own results). The sender itself sees what its handler returns. Nothing
+    /// during a [`Self::run_command`].
     #[doc(alias = "Command::broadcastCommandMessage")]
     pub fn broadcast_command_message(&mut self, sender: Sender, message: &str) {
+        if self.is_unrestricted_run() {
+            return;
+        }
         let source = self.sender_name(sender).unwrap_or_default().to_owned();
         let copy = player::Message::Translation {
             key: format!("{ADMIN_PREFIX}%{ADMIN_KEY}"),
@@ -1077,6 +1106,11 @@ impl Context<'_> {
         if let Sender::Player(_) = sender {
             info!(%source, message, "command result");
         }
+    }
+
+    /// Whether a [`Self::run_command`] is running, whose results are copied to nobody.
+    pub(crate) fn is_unrestricted_run(&self) -> bool {
+        self.state.commands.unrestricted.is_some()
     }
 
     /// Shows `copy` to every online player with [`BROADCAST_ADMIN`](permission::BROADCAST_ADMIN)
