@@ -949,8 +949,8 @@ impl Output {
 ///    commits), then the session inputs, each followed by the callbacks it deferred: in
 ///    (session, seq) order, so the result does not depend on how sessions interleaved in the
 ///    queue, or with `input-order = "arrival"` in the order of `inputs`, the order they reached
-///    the queue. The packets a player's receive hooks deferred apply right before its next
-///    `PlayerAuthInput`. Then the scheduled tasks.
+///    the queue. The packets a player's receive hooks deferred apply when its next
+///    `PlayerAuthInput` arrives, before that input's own receive hooks. Then the scheduled tasks.
 /// 2. Rules ([`rules()`]): survival and the world clocks, breaking, block updates, entities (their
 ///    physics computed on the CPU pool read-only, then applied in entity order), trades, block
 ///    entities and light.
@@ -1045,16 +1045,17 @@ fn step_marked(
             InputKind::Measure(measure) => log.record(session, seq, EntryKind::Measure(measure), 0),
         };
         match &*entry {
-            EntryKind::Packet(packet) => match hook::receive(state, session, packet) {
-                hook::Received::Apply(packet) => {
-                    if matches!(*packet, Packet::PlayerAuthInput(_)) {
-                        hook::apply_deferred(state, session, &mut deferred_runs);
-                    }
-                    apply_packet(state, session, &packet);
+            EntryKind::Packet(packet) => {
+                // Before the input's own receive hooks, which then see what the deferred packets did.
+                if matches!(packet, Packet::PlayerAuthInput(_)) {
+                    hook::apply_deferred(state, session, &mut deferred_runs);
                 }
-                hook::Received::Defer(packet) => hook::defer(state, session, packet),
-                hook::Received::Drop => {}
-            },
+                match hook::receive(state, session, packet) {
+                    hook::Received::Apply(packet) => apply_packet(state, session, &packet),
+                    hook::Received::Defer(packet) => hook::defer(state, session, packet),
+                    hook::Received::Drop => {}
+                }
+            }
             EntryKind::Leave => state.leave(session, "client disconnect"),
             EntryKind::Console(line) => command::console(state, line),
             EntryKind::Job(outcome) => task::finish(state, seq, outcome),

@@ -39,9 +39,9 @@ pub enum Verdict {
     Apply,
     /// The packet is dropped; later hooks do not see it.
     Drop,
-    /// The packet waits, without later hooks seeing it, with its player: Anchor applies it right
-    /// before it applies the player's next `PlayerAuthInput` (before that input's movement and
-    /// flags), after the packets deferred before it, as BDS applies an attack when the
+    /// The packet waits, without later hooks seeing it, with its player: Anchor applies it when
+    /// the player's next `PlayerAuthInput` arrives (before that input's receive hooks, movement
+    /// and flags), after the packets deferred before it, as BDS applies an attack when the
     /// attacker's next input takes effect. Only `InventoryTransaction`, `MobEquipment`,
     /// `Interact`, `PlayerAction`, `Animate` and `ItemStackRequest` can wait; another packet, or
     /// one past the 1,024 a player may have waiting, is dropped. A player's waiting packets go
@@ -644,8 +644,13 @@ mod tests {
         Output,
         tokio::sync::mpsc::Receiver<super::super::queue::Outbound>,
     ) {
-        let builder = Server::builder().on_receive(|_, _, packet| match packet {
+        let builder = Server::builder().on_receive(|cx, id, packet| match packet {
             Packet::MobEquipment(_) | Packet::Text(_) => Verdict::Defer,
+            Packet::PlayerAuthInput(_) => {
+                let slot = cx.player(id).map(super::super::Player::held_slot);
+                hear(format!("input sees {slot:?}"));
+                Verdict::Apply
+            }
             _ => Verdict::Apply,
         });
         let mut listeners = Listeners::default();
@@ -700,9 +705,9 @@ mod tests {
         state.players[&SessionId::new(1)].inventory.held_slot()
     }
 
-    /// A deferred packet waits for the player's next `PlayerAuthInput` and applies right before
-    /// it, before its flags, in the order the deferred packets arrived; a packet that cannot
-    /// wait is dropped.
+    /// A deferred packet waits for the player's next `PlayerAuthInput` and applies when it
+    /// arrives, before its receive hooks and flags, in the order the deferred packets arrived; a
+    /// packet that cannot wait is dropped.
     #[test]
     fn deferred_packets_apply_in_order_right_before_the_next_input() {
         let (mut state, mut output, _rx) = deferring();
@@ -725,7 +730,7 @@ mod tests {
         assert_eq!(held_slot(&state), 5);
         assert_eq!(
             HEARD.with(std::cell::Cell::take),
-            ["held 3", "held 5", "jump"]
+            ["held 3", "held 5", "input sees Some(5)", "jump"]
         );
     }
 
