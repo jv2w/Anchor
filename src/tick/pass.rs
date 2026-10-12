@@ -321,7 +321,7 @@ mod tests {
         assert_eq!(attacker.deferred_len(), 1);
         assert!(state.staged.is_empty());
         // What the pass queued for the victim left at its end, without waiting for a tick.
-        let Ok(Outbound::Send(messages)) = rx[1].try_recv() else {
+        let Ok(Outbound::Send { pass: 0, messages }) = rx[1].try_recv() else {
             panic!("the pass's output was not delivered");
         };
         assert!(
@@ -434,10 +434,15 @@ mod tests {
         ] {
             tx.try_send(input).unwrap();
         }
-        let mut passing = super::super::Passing::new(passes);
+        let release = std::sync::Arc::new(crate::session::Release::new(passes, 10_000));
+        let mut passing = super::super::Passing::new(passes, Some(std::sync::Arc::clone(&release)));
         let mut log = InputLog::starting_at(state.tick);
         passing.run_ended(&mut state, &mut queue, &mut output, &mut log);
         assert!(passing.next >= 10);
+        // Every pass that ended is reported finished: a datagram releases them all.
+        let released = release.subscribe();
+        release.datagram();
+        assert_eq!(*released.borrow(), passing.next);
         assert_eq!(
             passing.waiting.len(),
             1,
@@ -455,7 +460,7 @@ mod tests {
         for input in [in_pass(2, walk(VICTIM, 3)), in_pass(2, walk(ATTACKER, 3))] {
             tx.try_send(input).unwrap();
         }
-        let mut passing = super::super::Passing::new(passes);
+        let mut passing = super::super::Passing::new(passes, None);
         passing.handled = super::super::MAX_INPUTS_PER_TICK - 1;
         let mut log = InputLog::starting_at(state.tick);
         passing.run_ended(&mut state, &mut queue, &mut output, &mut log);

@@ -14,10 +14,12 @@ use std::mem;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::{OwnedSemaphorePermit, mpsc};
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::{OwnedSemaphorePermit, mpsc, watch};
 use tracing::{debug, warn};
 
 use super::packs::{self, CHUNK_INTERVAL, Reply, Transfer};
+use super::release::Held;
 use super::transport::{self, Transport};
 use super::{Event, Shared};
 use crate::auth::Keys;
@@ -33,7 +35,8 @@ use crate::protocol::packet::{
     RequestNetworkSettings, ResourcePackClientResponse, ServerToClientHandshake,
 };
 use crate::tick::queue::{
-    self, Client, Identity, InputKind, Measure, Message, Outbound, SessionId, SessionInputs, Skin,
+    self, Client, Identity, InputKind, Measure, Message, Outbound, SessionId, SessionInputs,
+    SharedBatches, Skin,
 };
 
 /// From connection to verified login.
@@ -113,6 +116,10 @@ struct Session {
     deferred: VecDeque<(Packet, usize)>,
     inputs: Option<SessionInputs>,
     outbound: Option<mpsc::Receiver<Outbound>>,
+    /// With `send-release = "after-pass"`, once joined: how many input passes may be sent, and
+    /// the tick's messages held until their pass may.
+    released: Option<watch::Receiver<u64>>,
+    held: Held,
     /// The place among the sessions waiting to join, held from login to the join.
     waiting: Option<OwnedSemaphorePermit>,
     spawned: bool,
@@ -219,6 +226,8 @@ impl Session {
             deferred: VecDeque::new(),
             inputs: None,
             outbound: None,
+            released: None,
+            held: Held::default(),
             waiting: None,
             spawned: false,
             logged_in: false,
@@ -258,20 +267,26 @@ impl Session {
                     }
                     pace.as_mut().reset(tokio::time::Instant::from_std(clock::now() + CHUNK_INTERVAL));
                 }
-                outbound = next_outbound(self.outbound.as_mut()) => match outbound {
-                    Some(Outbound::Send(messages)) => {
-                        if let Err(e) = self.send_messages(messages).await {
-                            return End::Failed(e);
+                outbound = next_outbound(self.outbound.as_mut()), if !self.held.is_full() => {
+                    match outbound {
+                        Some(Outbound::Send { pass, messages }) => {
+                            if self.released.is_some() {
+                                self.held.push(pass, messages);
+                            } else if let Err(e) = self.send_messages(messages).await {
+                                return End::Failed(e);
+                            }
                         }
+                        Some(Outbound::Close(packet)) => return self.close_with(packet).await,
+                        None => return End::TickStopped,
                     }
-                    Some(Outbound::Close(packet)) => {
-                        if let Err(e) = self.send(&[packet]).await {
-                            return End::Failed(e);
-                        }
-                        return End::Kicked;
+                }
+                released = next_release(self.released.as_mut()) => {
+                    match self.release(released).await {
+                        Ok(None) => {}
+                        Ok(Some(packet)) => return self.close_with(packet).await,
+                        Err(e) => return End::Failed(e),
                     }
-                    None => return End::TickStopped,
-                },
+                }
                 () = &mut login_deadline, if self.identity.is_none() && !self.logged_in => {
                     return End::Timeout("login");
                 }
@@ -630,6 +645,10 @@ impl Session {
         self.waiting = None;
         self.inputs = Some(inputs);
         self.outbound = Some(receiver);
+        if let Some(release) = &self.shared.release {
+            self.released = Some(release.subscribe());
+            self.held = Held::new();
+        }
         self.stage = Stage::Joined;
         while let Some((packet, size)) = self.deferred.pop_front() {
             if matches!(packet, Packet::SetLocalPlayerAsInitialised(_)) {
@@ -726,15 +745,69 @@ impl Session {
         for group in messages.chunk_by(same_run) {
             match group {
                 [Message::SharedPacket(packet)] => self.send([&**packet]).await?,
-                [Message::Shared(batches)] => {
-                    for body in batches.iter() {
-                        let mut owned = Vec::with_capacity(body.len() + CHECKSUM);
-                        owned.extend_from_slice(body);
-                        self.send_body(owned).await?;
-                    }
-                }
+                [Message::Shared(batches)] => self.send_shared(batches).await?,
                 run => self.send(run.iter().filter_map(packet_of)).await?,
             }
+        }
+        Ok(())
+    }
+
+    /// Sends the held messages of the input passes before `released`, after taking what the
+    /// tick has queued since: in one batch, as the official server sends all it queued for a
+    /// connection in one update, but for shared batches, which go as they are. Returns the final
+    /// packet if the tick closed the session meanwhile.
+    async fn release(&mut self, released: u64) -> Result<Option<Packet>> {
+        let mut closing = None;
+        if let Some(outbound) = &mut self.outbound {
+            while !self.held.is_full() {
+                match outbound.try_recv() {
+                    Ok(Outbound::Send { pass, messages }) => self.held.push(pass, messages),
+                    Ok(Outbound::Close(packet)) => {
+                        closing = Some(packet);
+                        break;
+                    }
+                    // Disconnected: the serve loop sees the end at its next receive.
+                    Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+                }
+            }
+        }
+        let messages = self.held.take(released);
+        self.send_batch(messages).await?;
+        Ok(closing)
+    }
+
+    /// Sends what is held, then `packet`, the last one, and ends the session.
+    async fn close_with(&mut self, packet: Packet) -> End {
+        let held = self.held.take_all();
+        if let Err(e) = self.send_batch(held).await {
+            return End::Failed(e);
+        }
+        match self.send(&[packet]).await {
+            Ok(()) => End::Kicked,
+            Err(e) => End::Failed(e),
+        }
+    }
+
+    /// Sends `messages` in order in one batch, cut where the batch limit cuts it, but for shared
+    /// batches, which go as they are.
+    async fn send_batch(&mut self, messages: Vec<Message>) -> Result<()> {
+        let not_shared = |m: &Message| !matches!(m, Message::Shared(_));
+        let same_run = |a: &Message, b: &Message| not_shared(a) && not_shared(b);
+        for group in messages.chunk_by(same_run) {
+            match group {
+                [Message::Shared(batches)] => self.send_shared(batches).await?,
+                run => self.send(run.iter().filter_map(any_packet)).await?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Sends batches every session shares as they are.
+    async fn send_shared(&mut self, batches: &SharedBatches) -> Result<()> {
+        for body in batches.iter() {
+            let mut owned = Vec::with_capacity(body.len() + CHECKSUM);
+            owned.extend_from_slice(body);
+            self.send_body(owned).await?;
         }
         Ok(())
     }
@@ -753,6 +826,28 @@ fn packet_of(message: &Message) -> Option<&Packet> {
     match message {
         Message::Packet(packet) => Some(packet),
         Message::SharedPacket(_) | Message::Shared(_) => None,
+    }
+}
+
+/// The packet a [`Message::Packet`] or a [`Message::SharedPacket`] carries.
+fn any_packet(message: &Message) -> Option<&Packet> {
+    match message {
+        Message::Packet(packet) => Some(packet),
+        Message::SharedPacket(packet) => Some(packet),
+        Message::Shared(_) => None,
+    }
+}
+
+/// The next count of input passes the session may send; never without
+/// `send-release = "after-pass"`, or once the networking stopped counting.
+async fn next_release(released: Option<&mut watch::Receiver<u64>>) -> u64 {
+    match released {
+        Some(released) => match released.changed().await {
+            Ok(()) => *released.borrow_and_update(),
+            // The networking is stopping: the tick closes the session.
+            Err(_) => std::future::pending().await,
+        },
+        None => std::future::pending().await,
     }
 }
 

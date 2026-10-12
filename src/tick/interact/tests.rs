@@ -158,7 +158,7 @@ impl Harness {
         let mut out = Vec::new();
         let queued = std::mem::take(&mut self.player_mut().outbox);
         while let Ok(o) = self.rx.try_recv() {
-            if let Outbound::Send(messages) = o {
+            if let Outbound::Send { messages, .. } = o {
                 for m in messages {
                     if let Message::Packet(p) = m {
                         out.push(p);

@@ -4736,7 +4736,7 @@ mod tests {
             for (session, rx) in &mut self.receivers {
                 let seen = self.seen.entry(*session).or_default();
                 while let Ok(out) = rx.try_recv() {
-                    if let Outbound::Send(messages) = out {
+                    if let Outbound::Send { messages, .. } = out {
                         seen.extend(messages.into_iter().filter_map(|m| match m {
                             Message::Packet(p) => Some(p),
                             Message::SharedPacket(p) => Some((*p).clone()),

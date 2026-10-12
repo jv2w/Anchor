@@ -1289,8 +1289,9 @@ impl State {
             awake: _,
             // Empty between steps.
             staged: _,
-            // The tick thread's clock, fixed at start.
+            // The tick thread's clock and its link to the networking, fixed at start.
             passes: _,
+            release: _,
         } = self;
         let mut w = Writer::default();
         settings.game_mode.encode(&mut w);

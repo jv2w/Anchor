@@ -129,10 +129,28 @@ impl Passes {
 
     /// When pass `pass` ends: the instant the next one starts.
     pub(crate) fn end(&self, pass: u64) -> Instant {
-        let micros = pass.saturating_add(1).saturating_mul(self.period_us.get());
+        self.at(pass.saturating_add(1).saturating_mul(self.period_us.get()))
+    }
+
+    /// The instant `micros` microseconds from the epoch.
+    pub(crate) fn at(&self, micros: u64) -> Instant {
         self.epoch
             .checked_add(Duration::from_micros(micros))
             .unwrap_or(self.epoch)
+    }
+
+    /// The first pass end at or after `micros` microseconds from the epoch, in microseconds
+    /// from the epoch.
+    pub(crate) fn end_from(&self, micros: u64) -> u64 {
+        micros
+            .div_ceil(self.period_us.get())
+            .saturating_mul(self.period_us.get())
+    }
+
+    /// How many passes ended before `micros` microseconds from the epoch: a pass that ends right
+    /// then is not counted.
+    pub(crate) fn ended_before(&self, micros: u64) -> u64 {
+        micros.div_ceil(self.period_us.get()).saturating_sub(1)
     }
 }
 

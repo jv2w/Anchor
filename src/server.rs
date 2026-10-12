@@ -12,7 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::args::{self, Task};
 use crate::clock;
-use crate::config::{Config, LevelType};
+use crate::config::{Config, LevelType, SendRelease};
 use crate::console;
 use crate::error::{Error, Result};
 use crate::event::{self, Priority};
@@ -258,6 +258,14 @@ impl Server {
         if passes.is_some() {
             inputs.stamp_arrivals();
         }
+        // The config allows "after-pass" only with passes.
+        let release = match (config.developer.send_release, passes) {
+            (SendRelease::AfterPass, Some(passes)) => Some(Arc::new(session::Release::new(
+                passes,
+                config.developer.send_release_wait_us,
+            ))),
+            _ => None,
+        };
         setup.tasks.start(runtime.handle(), &inputs);
         if config.developer.console_input {
             crate::console::start(&inputs).map_err(Error::Start)?;
@@ -276,7 +284,7 @@ impl Server {
         );
         state.open_worlds(opened.catalog);
         if let Some(passes) = passes {
-            state.set_passes(passes);
+            state.set_passes(passes, release.clone());
         }
         state.set_identity(opened.identity);
         let (controls, control_queue) = tick::queue::control_queue();
@@ -314,6 +322,7 @@ impl Server {
             started,
             signals,
             log: log.as_ref().map(console::log::Installed::drained),
+            release,
         };
         let served =
             runtime.block_on(running.serve(config, packs, &data_dir, inputs, control_queue));
@@ -417,6 +426,8 @@ struct Running {
     signals: mpsc::Receiver<&'static str>,
     /// Anchor's console log, if it runs: a second stop signal waits for its lines.
     log: Option<console::log::Drained>,
+    /// When sessions send, with `send-release = "after-pass"`.
+    release: Option<Arc<session::Release>>,
 }
 
 impl Running {
@@ -438,10 +449,12 @@ impl Running {
             started,
             signals,
             log,
+            release,
         } = self;
         tokio::spawn(stop_on_signals(shutdown.clone(), signals, log));
         tokio::spawn(measure_process(inputs.session(SessionId::PROCESS), started));
-        let network = match session::start(config, packs, data_dir, inputs, controls).await {
+        let network = match session::start(config, packs, data_dir, inputs, controls, release).await
+        {
             Ok(network) => network,
             Err(e) => {
                 stop(&stop_tick, tick_done).await;

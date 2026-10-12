@@ -345,6 +345,9 @@ pub(crate) struct State {
     /// When the input passes run, with `input-pass-us` ([`State::set_passes`]): what the tick
     /// thread wakes at, never what the tick reads.
     passes: Option<clock::Passes>,
+    /// Where the tick thread reports the passes whose output it delivered, with
+    /// `send-release = "after-pass"`.
+    release: Option<std::sync::Arc<crate::session::Release>>,
 }
 
 /// What makes two logins the same player: the XUID with Xbox sign-in, otherwise the name in ASCII
@@ -553,6 +556,7 @@ impl State {
             awake: Vec::new(),
             staged: Vec::new(),
             passes: None,
+            release: None,
         };
         if state.settings.input_pass_us > 0 {
             state.staged.reserve(MAX_INPUTS_PER_TICK);
@@ -566,9 +570,15 @@ impl State {
         state
     }
 
-    /// Runs input `passes` from now on (`input-pass-us`): [`run`] applies each when it ends.
-    pub(crate) fn set_passes(&mut self, passes: clock::Passes) {
+    /// Runs input `passes` from now on (`input-pass-us`): [`run`] applies each when it ends,
+    /// and tells `release`, if any, when it has delivered a pass's output.
+    pub(crate) fn set_passes(
+        &mut self,
+        passes: clock::Passes,
+        release: Option<std::sync::Arc<crate::session::Release>>,
+    ) {
         self.passes = Some(passes);
+        self.release = release;
     }
 
     /// Sends what the API asks of the networking ([`queue::Control`]) to `link` from now on.
@@ -658,8 +668,9 @@ impl State {
             awake: _,
             // Empty between steps.
             staged: _,
-            // The tick thread's clock, fixed at start.
+            // The tick thread's clock and its link to the networking, fixed at start.
             passes: _,
+            release: _,
         } = self;
         let mut h = Fnv::new();
         // The settings the API changes; the others are fixed at start.
@@ -955,6 +966,9 @@ pub(crate) struct Output {
     requests: Vec<Request>,
     /// A commit or a chunk load failed: the server stops without saving.
     save_failed: bool,
+    /// The input pass the packets were made in ([`Outbound::Send`]): the pass applied, or the
+    /// one running during a tick; 0 without passes.
+    pass: u64,
     /// Tests: the answers of a stand-in save thread, applied by the next tick.
     #[cfg(test)]
     answers: Vec<Response>,
@@ -1332,7 +1346,11 @@ fn deliver(state: &mut State, output: &mut Output, log: &mut InputLog) {
         let Some(player) = state.players.get(&session) else {
             continue;
         };
-        match player.outbound.try_send(Outbound::Send(packets)) {
+        let send = Outbound::Send {
+            pass: output.pass,
+            messages: packets,
+        };
+        match player.outbound.try_send(send) {
             Ok(()) => continue,
             Err(TrySendError::Full(_)) => {
                 warn!(
@@ -1408,16 +1426,22 @@ struct Passing {
     handled: usize,
     /// The deferred callbacks the passes since the last tick ran.
     runs: u32,
+    /// Told each pass whose output is delivered (`send-release = "after-pass"`).
+    release: Option<std::sync::Arc<crate::session::Release>>,
 }
 
 impl Passing {
-    fn new(passes: clock::Passes) -> Self {
+    fn new(
+        passes: clock::Passes,
+        release: Option<std::sync::Arc<crate::session::Release>>,
+    ) -> Self {
         Self {
             passes,
             waiting: VecDeque::with_capacity(MAX_INPUTS_PER_TICK),
             next: 0,
             handled: 0,
             runs: 0,
+            release,
         }
     }
 
@@ -1467,6 +1491,9 @@ impl Passing {
                 .front()
                 .map_or(ended, |(_, us)| self.passes.pass_at(*us));
             self.next = first.min(ended).max(number.saturating_add(1));
+            if let Some(release) = &self.release {
+                release.finish(self.next);
+            }
         }
     }
 
@@ -1515,7 +1542,7 @@ pub(crate) fn run(
     let mut output = Output::default();
     let passes = state.passes;
     let mut pacer = clock::Pacer::new(TICK, passes.map_or_else(clock::now, |p| p.epoch()));
-    let mut passing = passes.map(Passing::new);
+    let mut passing = passes.map(|p| Passing::new(p, state.release.clone()));
     info!(tick = state.tick, "tick started");
     let mut failed = false;
     // How long the previous tick took, which the next one reads as a logged input so a replay sees
@@ -1553,6 +1580,8 @@ pub(crate) fn run(
             &mut output,
             &mut guard.log,
         );
+        // The tick's output belongs to the pass running now.
+        output.pass = passing.as_ref().map_or(0, |p| p.next);
         deliver(&mut state, &mut output, &mut guard.log);
         boundary(&mut state, &mut output, &mut guard.log);
         if guard.log.needs_checkpoint() {
@@ -1642,6 +1671,7 @@ fn pass(
 ) {
     log.begin(state.tick);
     log.begin_pass(number);
+    output.pass = number;
     for (input, arrival_us) in inputs {
         handle(state, input, arrival_us, Handling::Pass, output, log, runs);
     }
@@ -1961,7 +1991,7 @@ mod tests {
             crate::protocol::batch::Decoder::new(crate::protocol::batch::Settings::default());
         while let Ok(out) = rx.try_recv() {
             match out {
-                Outbound::Send(messages) => {
+                Outbound::Send { messages, .. } => {
                     for m in messages {
                         match m {
                             Message::Packet(p) => {
@@ -2396,7 +2426,7 @@ mod tests {
     /// The `PlayerList` packets shared among the messages queued on `rx`.
     fn shared_lists(rx: &mut mpsc::Receiver<Outbound>) -> Vec<std::sync::Arc<Packet>> {
         let mut lists = Vec::new();
-        while let Ok(Outbound::Send(messages)) = rx.try_recv() {
+        while let Ok(Outbound::Send { messages, .. }) = rx.try_recv() {
             for m in messages {
                 if let Message::SharedPacket(p) = m
                     && matches!(*p, Packet::PlayerList(_))

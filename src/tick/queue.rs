@@ -17,7 +17,7 @@ use crate::protocol::{self, Uuid};
 pub(crate) const INPUT_CAPACITY: usize = 65_536;
 /// Messages a session's outbound queue holds. The tick drops a session whose queue is full instead
 /// of waiting.
-const OUTBOUND_CAPACITY: usize = 1_024;
+pub(crate) const OUTBOUND_CAPACITY: usize = 1_024;
 /// [`Control`]s one tick may ask for; a call past it changes nothing.
 pub(crate) const MAX_CONTROLS_PER_TICK: usize = 256;
 
@@ -419,7 +419,13 @@ pub(crate) enum Message {
 #[derive(Debug)]
 pub(crate) enum Outbound {
     /// Messages to send, in order.
-    Send(Vec<Message>),
+    Send {
+        /// The input pass the messages were made in (`input-pass-us`): with
+        /// `send-release = "after-pass"` the session holds them until it may send that pass.
+        /// 0 without passes.
+        pass: u64,
+        messages: Vec<Message>,
+    },
     /// The last packet to send (a `Disconnect` or a failed `PlayStatus`) before closing the
     /// connection. The tick has already forgotten the session.
     Close(Packet),
