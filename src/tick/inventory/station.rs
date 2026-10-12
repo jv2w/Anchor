@@ -3,10 +3,12 @@
 //!
 //! The executor hands a station everything it does not do itself: [`takes_craft_recipe`] says
 //! whether a `CraftRecipe` belongs to the open station (an enchanting option, a stonecutter or
-//! smithing recipe, a trade offer), [`action`] runs such actions and the station-only ones
-//! (`CraftRecipeOptional`, `CraftLoomRecipe`, `BeaconPayment`) with the executor's slot
-//! operations, [`crafting()`] lets consume actions through, and [`finish`] checks at the end of the
-//! request that exactly the craft's inputs were consumed, from the station's own slots.
+//! smithing recipe, a trade offer) and [`takes_auto_craft`] whether a `CraftRecipeAuto` does (a
+//! quick trade), [`action`] runs such actions and the station-only ones (`CraftRecipeOptional`,
+//! `CraftLoomRecipe`, `BeaconPayment`) with the executor's slot operations, [`crafting()`] lets
+//! consume actions through, and [`finish`] checks at the end of the request that exactly the
+//! craft's inputs were consumed, from the station's own slots (a quick trade's also from the main
+//! inventory).
 //!
 //! A station craft computes its result from the window's slots as the request has left them and
 //! puts it into the created output; what it does outside the slots (levels spent, a new
@@ -89,7 +91,7 @@ pub(super) struct Context {
     filter: Vec<String>,
     /// The pyramid levels of the open beacon.
     beacon_level: u8,
-    /// The trade offers the request's `CraftRecipe` actions name.
+    /// The trade offers the request's `CraftRecipe` and `CraftRecipeAuto` actions name.
     offers: Vec<(u32, trade::Offer)>,
     /// The server's custom content: its recipes and creative items.
     pub(super) custom: std::sync::Arc<crate::custom::Registry>,
@@ -124,6 +126,7 @@ pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequ
             .iter()
             .filter_map(|a| match a {
                 StackRequestAction::CraftRecipe(c) => Some(c.recipe_network_id),
+                StackRequestAction::AutoCraftRecipe(c) => Some(c.recipe_network_id),
                 _ => None,
             })
             .take(super::request::MAX_ACTIONS)
@@ -184,7 +187,18 @@ pub(super) enum Craft {
         net_id: u32,
         offer: trade::Offer,
         times: u8,
+        payments: Payments,
     },
+}
+
+/// Where a trade's payments come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Payments {
+    /// `CraftRecipe`: the two payment slots, the first payment from the first.
+    Slots,
+    /// `CraftRecipeAuto` (the quick trade: the trade button, a right click on the arrow): the
+    /// payment slots and the main inventory, in any mix.
+    Anywhere,
 }
 
 /// What a committed station craft does besides moving items.
@@ -212,6 +226,11 @@ fn station(exec: &Exec<'_>) -> Option<Station> {
 fn trading(exec: &Exec<'_>) -> bool {
     exec.window
         .is_some_and(|w| matches!(w.kind, WindowKind::Trade { .. }))
+}
+
+/// Whether the open window's station handles `CraftRecipeAuto` itself (a quick trade).
+pub(super) fn takes_auto_craft(exec: &Exec<'_>) -> bool {
+    trading(exec)
 }
 
 /// Whether the open window's station handles `CraftRecipe` itself (enchanting options, trade
@@ -250,9 +269,19 @@ pub(super) fn action(exec: &mut Exec<'_>, action: &StackRequestAction) -> Result
         (StackRequestAction::CraftRecipe(a), Some(Station::Smithing)) => {
             begin_smithing(exec, a.recipe_network_id)?
         }
-        (StackRequestAction::CraftRecipe(a), None) if trading(exec) => {
-            begin_trade(exec, a.recipe_network_id, a.number_of_crafts)?
-        }
+        (StackRequestAction::CraftRecipe(a), None) if trading(exec) => begin_trade(
+            exec,
+            a.recipe_network_id,
+            a.number_of_crafts,
+            Payments::Slots,
+        )?,
+        // The client's ingredient list is not used: the consumes are checked against the offer.
+        (StackRequestAction::AutoCraftRecipe(a), None) if trading(exec) => begin_trade(
+            exec,
+            a.recipe_network_id,
+            a.number_of_crafts,
+            Payments::Anywhere,
+        )?,
         (StackRequestAction::CraftRecipeOptional(a), Some(Station::Anvil)) => {
             begin_anvil(exec, a.filter_string_index)?
         }
@@ -481,9 +510,9 @@ fn begin_beacon(exec: &mut Exec<'_>, primary: i32, secondary: i32) -> Result<Cra
     Ok(Craft::Beacon { primary, secondary })
 }
 
-/// `CraftRecipe` in a trade window (BDS, P6): the offer with that network ID, `times` times; its
-/// payments come from the two payment slots.
-fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8) -> Result<Craft> {
+/// `CraftRecipe` (BDS, P6) or `CraftRecipeAuto` in a trade window: the offer with that network
+/// ID, `times` times; its payments come from where `payments` says.
+fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8, payments: Payments) -> Result<Craft> {
     let offer = exec
         .ctx
         .offers
@@ -511,6 +540,7 @@ fn begin_trade(exec: &mut Exec<'_>, net_id: u32, times: u8) -> Result<Craft> {
         net_id,
         offer,
         times,
+        payments,
     })
 }
 
@@ -555,6 +585,35 @@ fn same(want: &Stack) -> impl Fn(&Stack) -> bool + '_ {
 /// Whether a trade payment `stack` is the offer's `want` ([`trade::is_payment`]).
 fn pays(want: &Stack, damage: trade::Damage) -> impl Fn(&Stack) -> bool + '_ {
     move |s: &Stack| trade::is_payment(want, damage, s)
+}
+
+/// Whether the consume actions of a quick trade took exactly `times` of the offer's payments,
+/// from the payment slots and the main inventory. A stack that pays both payments (the same item
+/// twice) counts towards whichever still needs it.
+fn paid_anywhere(exec: &Exec<'_>, offer: &trade::Offer, times: u32) -> bool {
+    let want_a = u32::from(offer.buy_a.count()) * times;
+    let want_b = u32::from(offer.buy_b.count()) * times;
+    let (pays_a, pays_b) = (
+        pays(&offer.buy_a, offer.damage_a),
+        pays(&offer.buy_b, offer.damage_b),
+    );
+    let (mut only_a, mut only_b, mut either) = (0u32, 0u32, 0u32);
+    for (r, stack) in &exec.consumed {
+        if !matches!(r, Some(SlotRef::Ui(0 | 1) | SlotRef::Main(_))) {
+            return false;
+        }
+        let count = u32::from(stack.count());
+        let total = match (pays_a(stack), want_b > 0 && pays_b(stack)) {
+            (true, true) => &mut either,
+            (true, false) => &mut only_a,
+            (false, true) => &mut only_b,
+            (false, false) => return false,
+        };
+        *total = total.saturating_add(count);
+    }
+    only_a <= want_a
+        && only_b <= want_b
+        && only_a.saturating_add(only_b).saturating_add(either) == want_a + want_b
 }
 
 /// The station's end-of-request checks: the craft consumed exactly its inputs; its effect waits
@@ -626,6 +685,7 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
             net_id,
             offer,
             times,
+            payments,
         } => {
             let times = u32::from(*times);
             exec.effects.push(Effect::Traded {
@@ -633,15 +693,20 @@ pub(super) fn finish(exec: &mut Exec<'_>) -> Result<()> {
                 times,
             });
             let b = u32::from(offer.buy_b.count()) * times;
-            only_from(exec, &[0, 1])
-                && exact(
-                    exec,
-                    0,
-                    u32::from(offer.buy_a.count()) * times,
-                    &pays(&offer.buy_a, offer.damage_a),
-                )
-                && (b == 0 || exact(exec, 1, b, &pays(&offer.buy_b, offer.damage_b)))
-                && (b != 0 || taken_from(exec, 1, |_| true).0 == 0)
+            match payments {
+                Payments::Slots => {
+                    only_from(exec, &[0, 1])
+                        && exact(
+                            exec,
+                            0,
+                            u32::from(offer.buy_a.count()) * times,
+                            &pays(&offer.buy_a, offer.damage_a),
+                        )
+                        && (b == 0 || exact(exec, 1, b, &pays(&offer.buy_b, offer.damage_b)))
+                        && (b != 0 || taken_from(exec, 1, |_| true).0 == 0)
+                }
+                Payments::Anywhere => paid_anywhere(exec, offer, times),
+            }
         }
     };
     if ok { Ok(()) } else { Err(Error::Consumed) }

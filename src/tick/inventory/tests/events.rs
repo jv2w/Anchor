@@ -511,6 +511,67 @@ fn trading_raises_trade_open_and_trade_and_cancelling_keeps_the_payment() {
     assert!(w.inv(s).window.is_none());
 }
 
+/// A quick trade (`CraftRecipeAuto`: the trade button, a right click on the arrow) pays from the
+/// main inventory, the payment slots or both, exactly the price.
+#[test]
+fn a_quick_trade_pays_from_the_inventory_and_the_payment_slots() {
+    let (mut w, s) = world_with(
+        Listeners::default(),
+        &[Stack::new(item(it::Kind::Apple), 10)],
+    );
+    let v = villager(&mut w);
+    assert!(trade::open(&mut w.state, s, v));
+    let net = (1..)
+        .take(1 << 21)
+        .find(|id| trade::offer(&w.state, s, *id).is_some())
+        .unwrap();
+    let bread = |n| Stack::new(item(it::Kind::Bread), n);
+    let to_bread =
+        |w: &World, n: u8, id: i32| place(n, created(id), at(COMBINED, 5, w.id(s, COMBINED, 5)));
+
+    let id = w.next_id(s);
+    let apples = w.id(s, COMBINED, 0);
+    let paid = w.request_as(
+        s,
+        id,
+        vec![
+            auto(net, 2),
+            consume(4, at(COMBINED, 0, apples)),
+            to_bread(&w, 2, id),
+        ],
+    );
+    assert!(ok(&paid));
+    assert_eq!(w.inv(s).main.stack(0).count(), 6);
+    assert_eq!(w.inv(s).main.stack(5), &bread(2));
+
+    put(&mut w, s, 0, 1, (C::TradeTwoIngredientOne, 4));
+    let id = w.next_id(s);
+    let (apples, slot) = (w.id(s, COMBINED, 0), w.id(s, C::TradeTwoIngredientOne, 4));
+    let mixed = vec![
+        auto(net, 1),
+        consume(1, at(C::TradeTwoIngredientOne, 4, slot)),
+        consume(1, at(COMBINED, 0, apples)),
+        to_bread(&w, 1, id),
+    ];
+    assert!(ok(&w.request_as(s, id, mixed)));
+    assert_eq!(w.inv(s).main.stack(0).count(), 4);
+    assert_eq!(w.inv(s).main.stack(5), &bread(3));
+
+    let before = totals(&w.state);
+    let id = w.next_id(s);
+    let apples = w.id(s, COMBINED, 0);
+    let overpaid = vec![
+        auto(net, 1),
+        consume(3, at(COMBINED, 0, apples)),
+        to_bread(&w, 1, id),
+    ];
+    assert!(
+        !ok(&w.request_as(s, id, overpaid)),
+        "one trade takes two apples"
+    );
+    assert_eq!(totals(&w.state), before);
+}
+
 /// Unpairing or pairing chests through the API closes the windows on them without an event: a
 /// direct call raises none.
 #[test]

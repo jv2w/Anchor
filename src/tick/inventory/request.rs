@@ -16,8 +16,9 @@
 //! shapeless: exactly the ingredients), and the request must consume exactly the crafted count from
 //! every occupied cell and nothing else. `CraftRecipeAuto` (the recipe book) ignores the client's
 //! ingredient list: what the request consumes, from the inventory and the grid, must be exactly the
-//! recipe's ingredients for the crafted count. `CraftResultsDeprecated` is ignored (BDS does not
-//! check it either).
+//! recipe's ingredients for the crafted count; in a trade window it is the quick trade, which the
+//! station checks against the offer. `CraftResultsDeprecated` is ignored (BDS does not check it
+//! either).
 
 mod events;
 
@@ -741,6 +742,9 @@ impl<'a> Exec<'a> {
             }
             StackRequestAction::CraftRecipe(a) if !super::station::takes_craft_recipe(self) => {
                 self.begin_craft(a.recipe_network_id, a.number_of_crafts, false)
+            }
+            StackRequestAction::AutoCraftRecipe(_) if super::station::takes_auto_craft(self) => {
+                super::station::action(self, action)
             }
             StackRequestAction::AutoCraftRecipe(_) if !self.ctx.custom.has_recipe_book() => {
                 Err(Error::Recipe)
