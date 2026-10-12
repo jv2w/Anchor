@@ -5967,6 +5967,50 @@ mod tests {
         assert_eq!(turn.flags, u8::from(MoveFlag::OnGround));
     }
 
+    /// A human NPC, which clients know as a player, turns as a player does: `MoveActorAbsolute`
+    /// at its eyes with its whole position, never a `MoveActorDelta` that leaves axes out.
+    #[test]
+    fn a_human_npc_turns_by_a_players_move() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let npc = Npc::Human {
+            name: "Guide".to_owned(),
+            skin: None,
+        };
+        let id = spawn_npc(&mut h.state, 0, at(3.5, -60.0, 0.5), npc).unwrap();
+        for _ in 0..4 {
+            h.step(Vec::new());
+        }
+        h.take(1);
+        with(&mut h.state, id, |e| e.yaw = 90.0);
+        h.step(Vec::new());
+        let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
+        let sent = h.take(1);
+        assert!(
+            !sent.iter().any(
+                |p| matches!(p, Packet::MoveActorDelta(m) if m.entity_runtime_id == runtime_id)
+            ),
+            "no MoveActorDelta for a human NPC"
+        );
+        let moves: Vec<_> = sent
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::MoveActorAbsolute(m) if m.entity_runtime_id == runtime_id => Some(m),
+                _ => None,
+            })
+            .collect();
+        let [turn] = moves.as_slice() else {
+            panic!("one move: {moves:?}");
+        };
+        assert_eq!(
+            turn.position,
+            [3.5, track_f32(-60.0 + 1.621), 0.5],
+            "at the eyes"
+        );
+        assert_eq!(turn.rotation, [0.0, 90.0, 90.0], "pitch, yaw, head yaw");
+        assert_eq!(turn.flags, u8::from(MoveFlag::OnGround));
+    }
+
     /// Another player is shown as BDS shows it (P6 `others`): its own whole entity data (its
     /// Breathing flag now) with BDS's seven additions, its device ID and build platform.
     #[test]

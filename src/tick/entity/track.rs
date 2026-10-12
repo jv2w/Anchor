@@ -1,8 +1,8 @@
 //! What players are sent of entities and of each other: the spawn packets (`AddItemActor`,
 //! `AddActor`, `AddPlayer` with their metadata, `AddPainting`; a human NPC also goes through the
 //! player list, as PMMP `Human::sendSpawnPacket` does), movement (`MoveActorDelta` as BDS sends it,
-//! `SetActorMotion`; `MoveActorAbsolute` for players, as PMMP sends it), `SetActorData` when the
-//! flags or a cloud's radius change, equipment, and `RemoveActor`.
+//! `SetActorMotion`; `MoveActorAbsolute` for players and human NPCs, as PMMP sends it),
+//! `SetActorData` when the flags or a cloud's radius change, equipment, and `RemoveActor`.
 
 use super::kind::{Character, Cloud, Form, Kind, Painting, Projectile, Shot};
 use super::object;
@@ -540,8 +540,24 @@ pub(super) fn has_moved(entity: &Entity) -> bool {
 }
 
 /// The movement of an entity since `sent` as BDS sends it: only the axes and angles that
-/// changed.
+/// changed. A human NPC, which clients know as a player (`AddPlayer`), moves as a player does
+/// ([`player_moved`]): BDS never sends a player `MoveActorDelta` (P6 `game`), and a client draws
+/// a player that gets one in the wrong place.
 pub(super) fn movement(entity: &Entity) -> Packet {
+    if let Kind::Npc(Character {
+        form: Form::Human { .. },
+        ..
+    }) = &entity.kind
+    {
+        let eye = entity.body.position + Vec3::new(0.0, entity.kind.network_offset(), 0.0);
+        return player_moved(
+            entity.runtime_id,
+            eye,
+            entity.yaw,
+            entity.pitch,
+            entity.body.on_ground,
+        );
+    }
     let now = shown_at(entity);
     let before = shown_before(entity);
     let axis = |i: usize| {
