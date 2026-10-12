@@ -4,24 +4,66 @@
 //!
 //! Receive hooks run in the tick's serial input phase with a [`Context`], in registration order,
 //! before Anchor applies the packet; the input log keeps the packet as it arrived, so a replay
-//! runs the hooks again the same way. Send hooks run in the parallel output phase and reach no
+//! runs the hooks again the same way. A packet a hook defers waits with its player for the
+//! player's next `PlayerAuthInput`. Send hooks run in the parallel output phase and reach no
 //! game state: they get the player and the packet only.
 
 use std::borrow::Cow;
 use std::fmt;
+use std::sync::Arc;
+
+use tracing::debug;
 
 use super::queue::{Message, SessionId};
-use super::{Context, Settings, State};
+use super::{Context, Settings, State, dispatch};
 use crate::ServerBuilder;
 use crate::player;
 use crate::protocol::packet::{Packet, StartGame};
 
-/// A receive hook: `false` drops the packet.
-type ReceiveHook = Box<dyn FnMut(&mut Context<'_>, player::Id, &mut Packet) -> bool + Send>;
+/// A receive hook.
+type ReceiveHook = Box<dyn FnMut(&mut Context<'_>, player::Id, &mut Packet) -> Verdict + Send>;
 /// A send hook: `false` drops the packet.
 pub(super) type SendHook = Box<dyn Fn(player::Id, &mut Packet) -> bool + Send + Sync>;
 /// A start-game hook.
 pub(super) type StartHook = Box<dyn Fn(&mut StartGame) + Send + Sync>;
+
+/// The packets a player's receive hooks may hold for its next input ([`Verdict::Defer`]); one
+/// more is dropped.
+pub(crate) const MAX_DEFERRED_PACKETS: usize = 1024;
+
+/// What a receive hook ([`ServerBuilder::on_receive`]) decides for a packet. A hook that returns
+/// `bool` decides [`Apply`](Self::Apply) with `true` and [`Drop`](Self::Drop) with `false`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Verdict {
+    /// Later hooks see the packet, then Anchor applies it.
+    Apply,
+    /// The packet is dropped; later hooks do not see it.
+    Drop,
+    /// The packet waits, without later hooks seeing it, with its player: Anchor applies it right
+    /// before it applies the player's next `PlayerAuthInput` (before that input's movement and
+    /// flags), after the packets deferred before it, as BDS applies an attack when the
+    /// attacker's next input takes effect. Only `InventoryTransaction`, `MobEquipment`,
+    /// `Interact`, `PlayerAction`, `Animate` and `ItemStackRequest` can wait; another packet, or
+    /// one past the 1,024 a player may have waiting, is dropped. A player's waiting packets go
+    /// when it leaves.
+    Defer,
+}
+
+impl From<bool> for Verdict {
+    fn from(apply: bool) -> Self {
+        if apply { Self::Apply } else { Self::Drop }
+    }
+}
+
+/// What the receive hooks made of a packet ([`receive`]).
+#[derive(Debug)]
+pub(super) enum Received<'a> {
+    /// Apply it now, changed or not.
+    Apply(Cow<'a, Packet>),
+    /// Hold it for the player's next input ([`defer`]).
+    Defer(Packet),
+    Drop,
+}
 
 /// The registered packet hooks, fixed when the server is built.
 #[derive(Default)]
@@ -55,8 +97,9 @@ impl fmt::Debug for Hooks {
 
 impl ServerBuilder {
     /// Calls `hook` on every packet a joined player sends, before Anchor handles it, in the
-    /// tick's serial input phase and in registration order. The hook may change the packet; when
-    /// it returns `false` the packet is dropped and later hooks do not see it.
+    /// tick's serial input phase and in registration order. The hook may change the packet, and
+    /// its [`Verdict`] (or `bool`: `true` applies, `false` drops) says whether the packet goes
+    /// on to the later hooks and Anchor, is dropped, or waits for the player's next input.
     ///
     /// Hooks see the packets from the join on: the login and resource pack sequence is the
     /// session's and never reaches them. With `hook-player-input = false`, `PlayerAuthInput`
@@ -67,11 +110,16 @@ impl ServerBuilder {
     #[doc(alias = "DataPacketReceiveEvent")]
     #[doc(alias = "DataPacketDecodeEvent")]
     #[must_use]
-    pub fn on_receive(
+    pub fn on_receive<V: Into<Verdict>>(
         mut self,
-        hook: impl FnMut(&mut Context<'_>, player::Id, &mut Packet) -> bool + Send + 'static,
+        mut hook: impl FnMut(&mut Context<'_>, player::Id, &mut Packet) -> V + Send + 'static,
     ) -> Self {
-        self.setup.hooks.receive.push(Box::new(hook));
+        self.setup
+            .hooks
+            .receive
+            .push(Box::new(move |cx, player, packet| {
+                hook(cx, player, packet).into()
+            }));
         self
     }
 
@@ -119,30 +167,90 @@ impl ServerBuilder {
     }
 }
 
-/// Runs the receive hooks on a packet of `session`: the packet to apply, changed or not, or
-/// `None` when a hook dropped it. Without hooks, for a session that is not a player, and for
-/// `PlayerAuthInput` with `hook-player-input = false`, the packet passes as it is, without a
-/// copy.
+/// Runs the receive hooks on a packet of `session` until one does not apply it. Without hooks,
+/// for a session that is not a player, and for `PlayerAuthInput` with
+/// `hook-player-input = false`, the packet passes as it is, without a copy.
 pub(super) fn receive<'a>(
     state: &mut State,
     session: SessionId,
     packet: &'a Packet,
-) -> Option<Cow<'a, Packet>> {
+) -> Received<'a> {
     if state.hooks.receive.is_empty()
         || !state.players.contains_key(&session)
         || (!state.settings.hook_player_input && matches!(packet, Packet::PlayerAuthInput(_)))
     {
-        return Some(Cow::Borrowed(packet));
+        return Received::Apply(Cow::Borrowed(packet));
     }
     // Taken out while they run, so each hook's context can lend the whole state.
     let mut hooks = std::mem::take(&mut state.hooks.receive);
     let mut packet = packet.clone();
     let id = player::Id::new(session);
-    let keep = hooks
+    let verdict = hooks
         .iter_mut()
-        .all(|hook| hook(&mut Context { state }, id, &mut packet));
+        .map(|hook| hook(&mut Context { state }, id, &mut packet))
+        .find(|&v| v != Verdict::Apply)
+        .unwrap_or(Verdict::Apply);
     state.hooks.receive = hooks;
-    keep.then_some(Cow::Owned(packet))
+    match verdict {
+        Verdict::Apply => Received::Apply(Cow::Owned(packet)),
+        Verdict::Drop => Received::Drop,
+        Verdict::Defer => Received::Defer(packet),
+    }
+}
+
+/// Whether `packet` may wait for its player's next input ([`Verdict::Defer`]): what a client
+/// sends between two inputs to act, which BDS applies with the next one.
+fn may_defer(packet: &Packet) -> bool {
+    matches!(
+        packet,
+        Packet::InventoryTransaction(_)
+            | Packet::MobEquipment(_)
+            | Packet::Interact(_)
+            | Packet::PlayerAction(_)
+            | Packet::Animate(_)
+            | Packet::ItemStackRequest(_)
+    )
+}
+
+/// Holds `packet`, which a receive hook of `session` deferred, for the player's next
+/// `PlayerAuthInput` ([`apply_deferred`]); a packet that may not wait, or one past
+/// [`MAX_DEFERRED_PACKETS`], is dropped.
+pub(super) fn defer(state: &mut State, session: SessionId, packet: Packet) {
+    if !may_defer(&packet) {
+        debug!(
+            session = session.get(),
+            id = packet.id(),
+            "a receive hook deferred a packet that cannot wait; dropped"
+        );
+        return;
+    }
+    // A hook may have made the player leave.
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    if player.deferred_packets.len() >= MAX_DEFERRED_PACKETS {
+        debug!(
+            session = session.get(),
+            id = packet.id(),
+            "too many deferred packets; dropped"
+        );
+        return;
+    }
+    player.deferred_packets.push_back(Arc::new(packet));
+}
+
+/// Applies the packets the receive hooks of `session` deferred, in the order they arrived, each
+/// followed by the callbacks it deferred, as the input phase applies a packet: the player's
+/// `PlayerAuthInput` comes next. `runs` counts the deferred callbacks of the tick.
+pub(super) fn apply_deferred(state: &mut State, session: SessionId, runs: &mut u32) {
+    while let Some(packet) = state
+        .players
+        .get_mut(&session)
+        .and_then(|p| p.deferred_packets.pop_front())
+    {
+        super::apply_packet(state, session, &packet);
+        dispatch::run_deferred(state, runs);
+    }
 }
 
 /// Runs the send hooks on the packets of `messages` for `session`, removing those a hook drops.
@@ -513,6 +621,141 @@ mod tests {
         let once = hooked_run(hooks());
         assert_eq!(once, hooked_run(hooks()));
         assert_ne!(once, hooked_run(Server::builder()));
+    }
+
+    thread_local! {
+        /// What the listeners of [`deferring`] heard, in order (they run on the tick's thread).
+        static HEARD: std::cell::Cell<Vec<String>> = const { std::cell::Cell::new(Vec::new()) };
+    }
+
+    fn hear(what: String) {
+        HEARD.with(|h| {
+            let mut heard = h.take();
+            heard.push(what);
+            h.set(heard);
+        });
+    }
+
+    /// A server whose receive hook defers every `MobEquipment` and `Text`, and whose listeners
+    /// note the held slots and the jumps, with session 1 spawned: the server, the next sequence
+    /// number of session 1 and its outbound queue.
+    fn deferring() -> (
+        State,
+        Output,
+        tokio::sync::mpsc::Receiver<super::super::queue::Outbound>,
+    ) {
+        let builder = Server::builder().on_receive(|_, _, packet| match packet {
+            Packet::MobEquipment(_) | Packet::Text(_) => Verdict::Defer,
+            _ => Verdict::Apply,
+        });
+        let mut listeners = Listeners::default();
+        listeners.push(
+            crate::event::Priority::Normal,
+            |e: &mut crate::event::PlayerItemHeld, _: &mut Context<'_>| {
+                hear(format!("held {}", e.slot()));
+            },
+        );
+        listeners.push(
+            crate::event::Priority::Normal,
+            |_: &mut crate::event::PlayerJump, _: &mut Context<'_>| hear("jump".to_owned()),
+        );
+        let mut state = new_state(settings(|_| {}), listeners);
+        state.hooks = builder.setup.hooks;
+        let mut output = Output::default();
+        let (j, rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 4)], &mut output);
+        tick(&mut state, &mut vec![initialised(1, 2, 1)], &mut output);
+        HEARD.with(std::cell::Cell::take);
+        (state, output, rx)
+    }
+
+    fn equip(seq: u64, slot: u8) -> crate::tick::queue::Input {
+        let p = crate::protocol::packet::MobEquipment {
+            entity_runtime_id: 1,
+            inventory_slot: slot,
+            hot_bar_slot: slot,
+            ..Default::default()
+        };
+        crate::tick::tests::input(
+            1,
+            seq,
+            crate::tick::tests::packet(Packet::MobEquipment(Box::new(p))),
+        )
+    }
+
+    fn jump(seq: u64) -> crate::tick::queue::Input {
+        let flags: crate::protocol::FlagSet<crate::protocol::consts::InputFlag> =
+            [crate::protocol::consts::InputFlag::StartJumping]
+                .into_iter()
+                .collect();
+        let p = crate::protocol::packet::PlayerAuthInput {
+            input_data: crate::protocol::InputFlags::from_set(&flags),
+            ..Default::default()
+        };
+        let packet = Packet::PlayerAuthInput(Box::new(p));
+        crate::tick::tests::input(1, seq, crate::tick::tests::packet(packet))
+    }
+
+    fn held_slot(state: &State) -> u8 {
+        state.players[&SessionId::new(1)].inventory.held_slot()
+    }
+
+    /// A deferred packet waits for the player's next `PlayerAuthInput` and applies right before
+    /// it, before its flags, in the order the deferred packets arrived; a packet that cannot
+    /// wait is dropped.
+    #[test]
+    fn deferred_packets_apply_in_order_right_before_the_next_input() {
+        let (mut state, mut output, _rx) = deferring();
+        let text = crate::protocol::packet::Text {
+            message: "hi".to_owned(),
+            ..Default::default()
+        };
+        let text = crate::tick::tests::packet(Packet::Text(Box::new(text)));
+        let mut batch = vec![
+            equip(3, 3),
+            equip(4, 5),
+            crate::tick::tests::input(1, 5, text),
+        ];
+        tick(&mut state, &mut batch, &mut output);
+        assert_eq!(state.players[&SessionId::new(1)].deferred_len(), 2);
+        assert_eq!(held_slot(&state), 0);
+        assert!(HEARD.with(std::cell::Cell::take).is_empty());
+        tick(&mut state, &mut vec![jump(6)], &mut output);
+        assert_eq!(state.players[&SessionId::new(1)].deferred_len(), 0);
+        assert_eq!(held_slot(&state), 5);
+        assert_eq!(
+            HEARD.with(std::cell::Cell::take),
+            ["held 3", "held 5", "jump"]
+        );
+    }
+
+    /// A player holds at most [`MAX_DEFERRED_PACKETS`]; the ones past it are dropped.
+    #[test]
+    fn deferred_packets_are_bounded() {
+        let (mut state, mut output, _rx) = deferring();
+        let over = u64::try_from(MAX_DEFERRED_PACKETS).unwrap() + 1;
+        let mut batch = (0..over).map(|i| equip(3 + i, 1)).collect();
+        tick(&mut state, &mut batch, &mut output);
+        assert_eq!(
+            state.players[&SessionId::new(1)].deferred_len(),
+            MAX_DEFERRED_PACKETS
+        );
+    }
+
+    /// Deferred packets are in the state hash and come back from a checkpoint.
+    #[test]
+    fn deferred_packets_are_hashed_and_checkpointed() {
+        let (mut state, mut output, _rx) = deferring();
+        tick(&mut state, &mut vec![equip(3, 3)], &mut output);
+        let (mut without, mut idle, _idle_rx) = deferring();
+        tick(&mut without, &mut Vec::new(), &mut idle);
+        assert_ne!(state.hash(), without.hash());
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let fresh = new_state(settings(|_| {}), Listeners::default());
+        assert!(super::super::checkpoint::tests::assert_round_trip(
+            &state, fresh, &pool
+        ));
+        assert!(pool.shutdown());
     }
 
     #[test]

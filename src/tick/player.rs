@@ -400,6 +400,12 @@ impl Player {
         self.runtime_id
     }
 
+    /// How many of the player's packets wait for its next `PlayerAuthInput`
+    /// ([`Verdict::Defer`](crate::Verdict::Defer)).
+    pub fn deferred_len(&self) -> usize {
+        self.deferred_packets.len()
+    }
+
     /// The player's name: its Xbox gamertag with Xbox sign-in.
     #[doc(alias = "Player::getName")]
     pub fn name(&self) -> &str {

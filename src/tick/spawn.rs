@@ -832,6 +832,7 @@ fn enter(
         overflowed: false,
         marks: super::player::Marks::default(),
         presence: super::player::Presence::default(),
+        deferred_packets: std::collections::VecDeque::new(),
     };
     let op = super::Context { state: &mut *state }.is_op(&player.identity.name);
     player.survival.set_operator(op);

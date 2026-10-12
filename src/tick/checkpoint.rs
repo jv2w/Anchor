@@ -27,10 +27,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::custom::Registry;
+use crate::item::SHIELD_RUNTIME_ID;
 use crate::math::Vec3;
 use crate::nbt::{self, Compound};
 use crate::pool::Pool;
 use crate::protocol::Uuid;
+use crate::protocol::packet::Packet;
 use crate::save::ChunkExtras;
 use crate::world::{self, BlockPos, Chunk, ChunkPos, World};
 
@@ -840,6 +842,30 @@ impl Codec for IpAddr {
     }
 }
 
+/// A packet a client sent: its ID and its body, encoded only when the checkpoint is written.
+impl Codec for Packet {
+    fn encode(&self, w: &mut Writer) {
+        let mut body = Vec::new();
+        if self.encode(&mut body, SHIELD_RUNTIME_ID).is_ok() {
+            self.id().encode(w);
+            w.bytes(&body);
+        } else {
+            w.opaque("packet that does not encode", 1);
+            self.id().encode(w);
+            w.len(0);
+        }
+    }
+
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        // What the packet may allocate: twice the bytes left, as the input log allows its
+        // packets.
+        let mut budget = r.bytes.len().saturating_mul(2);
+        let id = u32::decode(r)?;
+        let body = r.bytes()?;
+        Self::decode(id, body, &mut budget, SHIELD_RUNTIME_ID).map_err(|_| Error::Format("packet"))
+    }
+}
+
 /// A skin in its protocol form.
 impl Codec for Skin {
     fn encode(&self, w: &mut Writer) {
@@ -1044,6 +1070,9 @@ pub(crate) struct Checkpoint {
     /// is written.
     kept: Vec<world::Kept>,
     unsaved: Vec<(Key, Chunk)>,
+    /// The packets each player's receive hooks deferred, of the players that have any: shared
+    /// with the state, encoded when a crash log is written.
+    deferred_packets: Vec<(SessionId, Vec<Arc<Packet>>)>,
     /// What has no checkpoint form, if anything: a replay refuses the checkpoint then.
     opaque: Option<String>,
 }
@@ -1055,8 +1084,13 @@ fields!(Checkpoint {
     body,
     kept,
     unsaved,
+    deferred_packets,
     opaque,
 });
+
+/// About the bytes one deferred packet encodes to, which [`Checkpoint::size`] counts without
+/// encoding it: an inventory transaction with an item.
+const DEFERRED_PACKET_BYTES: usize = 256;
 
 impl Checkpoint {
     /// The engine tick of the state.
@@ -1100,11 +1134,13 @@ impl Checkpoint {
             .iter()
             .map(|(_, c)| usize::from(c.sub_chunk_limit()).saturating_mul(4 << 10))
             .fold(0, usize::saturating_add);
+        let deferred: usize = self.deferred_packets.iter().map(|(_, p)| p.len()).sum();
         self.body
             .len()
             .saturating_add(kept)
             .saturating_add(unsaved)
             .saturating_add(positions.saturating_mul(16))
+            .saturating_add(deferred.saturating_mul(DEFERRED_PACKET_BYTES))
     }
 
     /// The checkpoint's written form.
@@ -1128,8 +1164,9 @@ impl Checkpoint {
 }
 
 /// A player as the body keeps it: every field but the session (the map's key), the key (its
-/// identity's again), the outbound queue (a replay gives a new one) and what is empty between
-/// ticks (the output, the outboxes and the overflow mark, whose player is gone by then).
+/// identity's again), the outbound queue (a replay gives a new one), what is empty between
+/// ticks (the output, the outboxes and the overflow mark, whose player is gone by then) and the
+/// deferred packets ([`Checkpoint`] keeps them apart, so they are not encoded on the tick).
 fn encode_player(p: &Player, data: &UserData, w: &mut Writer) {
     let Player {
         session: _,
@@ -1154,6 +1191,7 @@ fn encode_player(p: &Player, data: &UserData, w: &mut Writer) {
         overflowed: _,
         marks,
         presence,
+        deferred_packets: _,
     } = p;
     runtime_id.encode(w);
     identity.encode(w);
@@ -1205,6 +1243,7 @@ fn decode_player(
         overflowed: false,
         marks: Codec::decode(r)?,
         presence: Codec::decode(r)?,
+        deferred_packets: VecDeque::new(),
     })
 }
 
@@ -1295,6 +1334,11 @@ impl State {
                 .iter()
                 .map(|(&key, u)| (key, u.chunk.clone()))
                 .collect(),
+            deferred_packets: players
+                .iter()
+                .filter(|(_, p)| !p.deferred_packets.is_empty())
+                .map(|(&s, p)| (s, p.deferred_packets.iter().map(Arc::clone).collect()))
+                .collect(),
             opaque,
         }
     }
@@ -1316,6 +1360,7 @@ impl State {
             body,
             kept,
             unsaved,
+            deferred_packets,
             opaque,
         } = checkpoint;
         if opaque.is_some() {
@@ -1350,6 +1395,19 @@ impl State {
         );
         self.rules.entities.set_customs(entities);
         result?;
+        for (session, packets) in deferred_packets {
+            let player = self
+                .players
+                .get_mut(session)
+                .ok_or(Error::Format("deferred packets of no player"))?;
+            if packets.is_empty()
+                || packets.len() > super::hook::MAX_DEFERRED_PACKETS
+                || !player.deferred_packets.is_empty()
+            {
+                return Err(Error::Format("deferred packets"));
+            }
+            player.deferred_packets = packets.iter().map(Arc::clone).collect();
+        }
         for ((world, saved), kept) in self.worlds.iter_mut().zip(saved).zip(kept) {
             world
                 .restore(saved.clone(), kept.clone())

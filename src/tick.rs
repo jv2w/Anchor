@@ -59,6 +59,7 @@ pub(crate) use self::log::{
 pub(crate) use entity::Customs;
 pub(crate) use entity::EntityTypes;
 pub use entity::{Entity, Mut};
+pub use hook::Verdict;
 use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId};
 pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::Shared;
@@ -394,6 +395,10 @@ pub struct Player {
     marks: player::Marks,
     /// The latest ping and the play history.
     presence: player::Presence,
+    /// The packets the receive hooks deferred to the player's next `PlayerAuthInput`, in arrival
+    /// order: at most [`hook::MAX_DEFERRED_PACKETS`]. Shared, so a checkpoint keeps them without
+    /// a copy.
+    deferred_packets: VecDeque<std::sync::Arc<Packet>>,
 }
 
 /// The most packets the serial phases may queue for one player in one tick; more means a runaway
@@ -705,6 +710,7 @@ impl State {
                 overflowed: _,
                 marks,
                 presence,
+                deferred_packets,
             } = p;
             h.u64(session.get());
             h.u64(*runtime_id);
@@ -729,6 +735,15 @@ impl State {
             breaking.hash_into(&mut h);
             marks.hash_into(&mut h);
             presence.hash_into(&mut h);
+            // No count: a player without deferred packets hashes as before they existed.
+            for packet in deferred_packets {
+                h.u64(u64::from(packet.id()));
+                let mut body = Vec::new();
+                match packet.encode(&mut body, crate::item::SHIELD_RUNTIME_ID) {
+                    Ok(()) => h.bytes(&body),
+                    Err(_) => h.u64(u64::MAX),
+                }
+            }
         }
         catalog.hash_into(&mut h);
         for world in worlds {
@@ -923,7 +938,8 @@ impl Output {
 ///    commits), then the session inputs, each followed by the callbacks it deferred: in
 ///    (session, seq) order, so the result does not depend on how sessions interleaved in the
 ///    queue, or with `input-order = "arrival"` in the order of `inputs`, the order they reached
-///    the queue. Then the scheduled tasks.
+///    the queue. The packets a player's receive hooks deferred apply right before its next
+///    `PlayerAuthInput`. Then the scheduled tasks.
 /// 2. Rules ([`rules()`]): survival and the world clocks, breaking, block updates, entities (their
 ///    physics computed on the CPU pool read-only, then applied in entity order), trades, block
 ///    entities and light.
@@ -1018,11 +1034,16 @@ fn step_marked(
             InputKind::Measure(measure) => log.record(session, seq, EntryKind::Measure(measure), 0),
         };
         match &*entry {
-            EntryKind::Packet(packet) => {
-                if let Some(packet) = hook::receive(state, session, packet) {
+            EntryKind::Packet(packet) => match hook::receive(state, session, packet) {
+                hook::Received::Apply(packet) => {
+                    if matches!(*packet, Packet::PlayerAuthInput(_)) {
+                        hook::apply_deferred(state, session, &mut deferred_runs);
+                    }
                     apply_packet(state, session, &packet);
                 }
-            }
+                hook::Received::Defer(packet) => hook::defer(state, session, packet),
+                hook::Received::Drop => {}
+            },
             EntryKind::Leave => state.leave(session, "client disconnect"),
             EntryKind::Console(line) => command::console(state, line),
             EntryKind::Job(outcome) => task::finish(state, seq, outcome),
