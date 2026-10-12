@@ -378,9 +378,12 @@ impl Knock {
 }
 
 impl Entity {
-    /// A new entity at `body` (not yet in the store).
+    /// A new entity at `body` (not yet in the store). One at rest is still from the start: PMMP
+    /// sets `noClientPredictions` only when the motion changes, so an entity that never moves
+    /// would be left to the client, which pushes it where the server never put it.
     fn new(world: WorldIndex, body: Body, yaw: f64, pitch: f64, kind: Kind) -> Self {
         let health = kind.max_health();
+        let still = body.motion.length_squared() == 0.0;
         let radius = match &kind {
             Kind::Cloud(c) => c.radius,
             _ => 0.0,
@@ -406,7 +409,7 @@ impl Entity {
             gravity: true,
             resend: false,
             flagged: false,
-            still: false,
+            still,
             viewers: BTreeSet::new(),
             sent: Sent {
                 position: body.position,
@@ -418,7 +421,7 @@ impl Entity {
                 health,
             },
         };
-        e.sent.flags = track::flags(&e, false);
+        e.sent.flags = track::flags(&e, still);
         e
     }
 
@@ -1303,7 +1306,7 @@ impl Entities {
             e.scale = scale;
             e.invisible = invisible;
             e.gravity = gravity;
-            e.sent.flags = track::flags(&e, false);
+            e.sent.flags = track::flags(&e, e.still);
             let id = self.insert(e);
             self.unassigned.push(id);
         }
@@ -5894,6 +5897,37 @@ mod tests {
         assert_eq!(turn.position, walk.position);
         assert_eq!(turn.rotation, [30.0, 90.0, 90.0], "pitch, yaw, head yaw");
         assert_eq!(turn.flags, u8::from(MoveFlag::OnGround));
+    }
+
+    /// An entity made at rest is shown still from the start (`NoAi`), so that a client does not
+    /// move it on its own (pushing a human NPC a player walks into) where the server never does.
+    #[test]
+    fn an_entity_made_at_rest_is_shown_still_from_the_start() {
+        use crate::protocol::consts::{EntityDataFlag, EntityDataKey};
+        use crate::protocol::{FlagSet, MetadataValue};
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let npc = Npc::Human {
+            name: "Guide".to_owned(),
+            skin: None,
+        };
+        let id = spawn_npc(&mut h.state, 0, at(3.5, -60.0, 0.5), npc).unwrap();
+        h.step(Vec::new());
+        let runtime_id = h.state.rules.entities.get(id).unwrap().runtime_id;
+        let sent = h.take(1);
+        let Some(add) = sent.iter().find_map(|p| match p {
+            Packet::AddPlayer(a) if a.entity_runtime_id == runtime_id => Some(a),
+            _ => None,
+        }) else {
+            panic!("no AddPlayer: {sent:?}");
+        };
+        let Some(MetadataValue::Int64(flags)) =
+            add.entity_metadata.get(&(EntityDataKey::Flags as u32))
+        else {
+            panic!("no flags: {:?}", add.entity_metadata);
+        };
+        let shown = FlagSet::<EntityDataFlag>::from_words(&[flags.cast_unsigned()]).unwrap();
+        assert!(shown.contains(EntityDataFlag::NoAi));
     }
 
     /// A human NPC, which clients know as a player, turns as a player does: `MoveActorAbsolute`
