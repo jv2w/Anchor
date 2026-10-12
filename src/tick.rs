@@ -20,6 +20,7 @@ mod log;
 mod network;
 mod player;
 pub(crate) mod queue;
+mod rule;
 mod rules;
 mod save;
 mod spawn;
@@ -61,6 +62,8 @@ pub(crate) use entity::EntityTypes;
 pub use entity::{Entity, Mut};
 pub use hook::Verdict;
 use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId};
+pub use rule::Rule;
+pub(crate) use rule::RuleSet;
 pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::Shared;
 pub use task::Context;
@@ -152,6 +155,8 @@ pub(crate) struct Settings {
     random_tick_speed: u32,
     /// The block kinds that never take random ticks (`disable-block-ticking`), sorted.
     no_random_ticks: Vec<crate::block::Kind>,
+    /// Anchor's own behaviours that are on (fixed at build).
+    rules: RuleSet,
 }
 
 impl Settings {
@@ -203,6 +208,7 @@ impl Settings {
             force_game_mode: general.force_gamemode,
             random_tick_speed: developer.random_tick_speed,
             no_random_ticks: update::untickable(&developer.disable_block_ticking),
+            rules: RuleSet::default(),
         }
     }
 
@@ -255,6 +261,8 @@ pub(crate) struct Setup {
     pub(crate) generators: crate::world::Generators,
     /// What the server was built with, for the input log.
     pub(crate) fingerprints: log::Fingerprints,
+    /// Anchor's own behaviours the server turned off ([`ServerBuilder::without`](crate::ServerBuilder::without)).
+    pub(crate) rules: RuleSet,
 }
 
 /// The game state.
@@ -480,7 +488,9 @@ impl State {
             custom,
             generators,
             fingerprints,
+            rules,
         } = setup;
+        settings.rules = rules;
         let custom = std::sync::Arc::new(custom);
         settings.world_views = worlds
             .iter()
@@ -665,6 +675,7 @@ impl State {
             force_game_mode: _,
             random_tick_speed,
             no_random_ticks: _,
+            rules: _,
         } = settings;
         h.u64(u64::from(
             survival::game_mode_id(*game_mode).cast_unsigned(),

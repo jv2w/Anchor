@@ -610,7 +610,7 @@ fn spawn_window(
     out.push(Message::Shared(Arc::clone(&shared.actor_identifiers)));
     out.push(packet(Packet::PlayerFog(PlayerFog { stack: Vec::new() })));
     out.push(Message::Shared(Arc::clone(&shared.camera)));
-    let attributes = survival::all_attributes(player);
+    let attributes = survival::all_attributes(settings, player);
     out.push(packet(attributes.clone()));
     out.extend(shared.creative(player));
     out.push(Message::Shared(Arc::clone(&shared.trim_data)));

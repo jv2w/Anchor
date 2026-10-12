@@ -4034,7 +4034,7 @@ fn track_players(state: &mut State) {
             stays
         });
         if let Some(before) = &before {
-            changed_since(before, &now, target, &mut changes);
+            changed_since(&state.settings, before, &now, target, &mut changes);
             for &s in now.viewers.keys() {
                 packets.extend(changes.iter().map(|p| (s, p.clone())));
             }
@@ -4080,9 +4080,16 @@ fn track_players(state: &mut State) {
 
 /// Puts into `out` what the viewers of `target` were sent `before` and must be sent `now`: its
 /// movement and look, held item, off-hand item and armour, each only if it changed.
-fn changed_since(before: &Watched, now: &Watched, target: &Player, out: &mut Vec<Packet>) {
+fn changed_since(
+    settings: &super::Settings,
+    before: &Watched,
+    now: &Watched,
+    target: &Player,
+    out: &mut Vec<Packet>,
+) {
     let runtime_id = now.runtime_id;
-    if before.position != now.position || before.rotation != now.rotation {
+    let moved = before.position != now.position || before.rotation != now.rotation;
+    if moved && settings.rules.is_on(super::Rule::PlayerMovementBroadcast) {
         let (yaw, pitch) = now.rotation;
         let ground = survival::is_on_ground(target);
         out.push(track::player_moved(

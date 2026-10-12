@@ -1205,7 +1205,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         return;
     }
     let Some(hit) = melee_hit(state, attacker, target) else {
-        swing(state, attacker);
+        attack_swing(state, attacker);
         hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
     };
@@ -1215,7 +1215,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         .map(|p| p.inventory.held().clone())
         .unwrap_or_default();
     let landed = hurt(state, target, hit);
-    swing(state, attacker);
+    attack_swing(state, attacker);
     let Some(landed) = landed else {
         hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
@@ -1397,6 +1397,15 @@ pub(super) fn swing(state: &mut State, session: SessionId) {
         0,
     );
     broadcast_to_viewers(state, session, &packet);
+}
+
+/// The arm swing of an attack or a swing at nothing, unless [`Rule::ServerSwing`] is off.
+///
+/// [`Rule::ServerSwing`]: crate::Rule::ServerSwing
+pub(super) fn attack_swing(state: &mut State, session: SessionId) {
+    if state.settings.rules.is_on(crate::Rule::ServerSwing) {
+        swing(state, session);
+    }
 }
 
 /// The weapon `held` that made a hit wears (PMMP `onAttackEntity`): swords, tridents and hoes by
@@ -1816,7 +1825,7 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
         return;
     };
     let mut out = vec![
-        attributes::all_attributes(player),
+        attributes::all_attributes(&state.settings, player),
         attributes::update_abilities(&state.settings, player),
     ];
     inventory::spawn_packets(player, &mut out);
@@ -1828,7 +1837,7 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     });
     let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
     let size = attributes::size_data(player.runtime_id, attributes::size(&player.survival));
-    let health = attributes::health_packet(player);
+    let health = attributes::health_packet(&state.settings, player);
     let now = attributes::shown(player);
     let seen = [data, alive, size];
     for packet in seen.iter().chain([&health]) {

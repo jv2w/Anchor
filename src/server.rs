@@ -726,6 +726,14 @@ impl ServerBuilder {
         self
     }
 
+    /// Turns off `rule`, one of Anchor's own behaviours, so the server can send what it needs
+    /// itself; every rule is on otherwise.
+    #[must_use]
+    pub fn without(mut self, rule: crate::Rule) -> Self {
+        self.setup.rules.turn_off(rule);
+        self
+    }
+
     /// Registers `generator` under its [`name`](Generator::name), for the worlds
     /// [`Context::create_world`] makes and the stored worlds [`Context::load_world`] loads (PMMP
     /// `GeneratorManager::addGenerator`). The built-in `flat` and `void` are always registered.

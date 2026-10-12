@@ -192,7 +192,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
         }
         None => (Hurt::Ignored, false),
     };
-    survival::swing(state, session);
+    survival::attack_swing(state, session);
     let landed = result != Hurt::Ignored;
     let sound = if landed {
         crate::world::Sound::EntityAttack

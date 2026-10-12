@@ -500,7 +500,7 @@ fn miss_swing(state: &mut State, session: SessionId) {
             crate::world::Sound::EntityAttackNoDamage,
         );
     }
-    damage::swing(state, session);
+    damage::attack_swing(state, session);
     super::watch(state, event.as_ref());
 }
 

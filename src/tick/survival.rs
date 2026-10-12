@@ -1234,6 +1234,11 @@ pub(super) fn swing(state: &mut State, session: SessionId) {
     damage::swing(state, session);
 }
 
+/// The player's arm swing of an attack, unless `Rule::ServerSwing` is off.
+pub(super) fn attack_swing(state: &mut State, session: SessionId) {
+    damage::attack_swing(state, session);
+}
+
 /// A melee hit's sound at `at` in the world of `session` (PMMP `EntityAttackSound`,
 /// `EntityAttackNoDamageSound`).
 pub(super) fn hit_sound(
@@ -1689,7 +1694,7 @@ mod tests {
         let server = Server::new(1, |_| {});
         let settings = &server.state.settings;
         assert_eq!(size(&game_rules(settings)), 749);
-        assert_eq!(size(&all_attributes(server.player(1))), 840);
+        assert_eq!(size(&all_attributes(settings, server.player(1))), 840);
         assert_eq!(size(&adventure_settings()), 5);
         assert_eq!(size(&sleeping_players(&server.state, 0)), 63);
         let mut state = server.state;
@@ -2059,6 +2064,60 @@ mod tests {
             .iter()
             .any(|p| matches!(p, Packet::ActorEvent(e) if e.event_type == attacking));
         assert!(!swung, "no swing");
+    }
+
+    /// What session 2 sees of player 1 in a duel with `rule` on or off: whether an attack shows
+    /// the swing, whether a step shows the move, and the health attribute after a hit of 2.5.
+    fn duel_seen(rule: crate::Rule, on: bool) -> (bool, bool, Vec<f32>) {
+        let mut server = duel(|_| {});
+        if !on {
+            server.state.settings.rules.turn_off(rule);
+        }
+        attack_player(&mut server.state, sid(1), sid(2));
+        server.player_mut(1).position.x += 0.5;
+        server.idle(1);
+        let seen = server.take(2);
+        let attacking = u8::from(ActorEvent::StartAttacking);
+        let swung = seen
+            .iter()
+            .any(|p| matches!(p, Packet::ActorEvent(e) if e.event_type == attacking));
+        let moved = seen
+            .iter()
+            .any(|p| matches!(p, Packet::MoveActorAbsolute(m) if m.entity_runtime_id == 1));
+        server.survival(2).health = 17.5;
+        server.survival(2).mark(attributes::HEALTH);
+        server.idle(1);
+        let health = server
+            .take(2)
+            .iter()
+            .filter_map(|p| match p {
+                Packet::UpdateAttributes(u) if u.entity_runtime_id == 2 => Some(u),
+                _ => None,
+            })
+            .flat_map(|u| &u.attributes)
+            .filter(|a| a.attribute_value.name == "minecraft:health")
+            .map(|a| a.attribute_value.value)
+            .collect();
+        (swung, moved, health)
+    }
+
+    /// `ServerBuilder::without`: each rule off stops only its own packets.
+    #[test]
+    fn rules_turned_off_stop_their_packets() {
+        use crate::Rule;
+        assert_eq!(duel_seen(Rule::ServerSwing, true), (true, true, vec![18.0]));
+        assert_eq!(
+            duel_seen(Rule::ServerSwing, false),
+            (false, true, vec![18.0])
+        );
+        assert_eq!(
+            duel_seen(Rule::PlayerMovementBroadcast, false),
+            (true, false, vec![18.0])
+        );
+        assert_eq!(
+            duel_seen(Rule::RoundedHealth, false),
+            (true, true, vec![17.5])
+        );
     }
 
     /// The critical hit animation shows only when the critical hit added damage (PMMP
