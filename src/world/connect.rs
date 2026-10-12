@@ -182,7 +182,7 @@ impl World {
             && let Some(new) = state.with("attached_bit", PropertyValue::Byte(u8::from(attached)))
             && new != state
         {
-            self.write(pos, new);
+            self.write(pos, Entry::Known(new));
         }
     }
 
@@ -196,7 +196,7 @@ impl World {
         if new == state {
             return None;
         }
-        self.write(pos, new)?;
+        self.write(pos, Entry::Known(new))?;
         Some((state, new))
     }
 

@@ -217,7 +217,8 @@ pub enum Error {
     /// `[worlds.<name>]` key allows.
     InvalidSettings,
     /// A limit is reached: 1,024 worlds a run names (or the server file holds), 1,024 chunk
-    /// tickets or 4,096 chunks they hold, or a ticket radius over 8.
+    /// tickets or 4,096 chunks they hold, a ticket radius over 8, or the unknown states a chunk
+    /// can hold.
     Full,
 }
 
@@ -391,6 +392,48 @@ impl Ticket {
     }
 }
 
+/// A block as a world holds it ([`World::stored_block`]), to put elsewhere with
+/// [`World::set_stored_block`].
+#[derive(Debug, Clone)]
+pub enum StoredBlock {
+    /// A state Anchor knows.
+    Known(State),
+    /// A state Anchor does not know, which [`World::block`] reads as `None`.
+    Unknown(UnknownBlock),
+}
+
+/// A block state Anchor does not know, kept as the server file stored it.
+#[derive(Clone)]
+pub struct UnknownBlock {
+    /// The unknown states of the chunk it was read from, shared so a read copies no NBT.
+    list: std::sync::Arc<[crate::nbt::Compound]>,
+    /// Its place in `list`.
+    index: usize,
+}
+
+impl UnknownBlock {
+    /// Its stored NBT: `{name, states, version}`.
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "invariant: Chunk::stored_block makes it only from an index inside the list"
+    )]
+    pub fn nbt(&self) -> &crate::nbt::Compound {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: Chunk::stored_block makes it only from an index inside the list"
+        )]
+        self.list
+            .get(self.index)
+            .expect("an unknown block indexes past its list")
+    }
+}
+
+impl fmt::Debug for UnknownBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("UnknownBlock").field(self.nbt()).finish()
+    }
+}
+
 /// The weather of a world ([`World::weather`]). It stays as set: there is no natural cycle and
 /// no duration. Clients draw rain as snow where their biome is cold. BDS strikes lightning at
 /// random during thunder; Anchor strikes only where
@@ -495,7 +538,7 @@ pub struct World {
     /// Positions whose saved chunk is damaged: shown empty, never changed or saved.
     quarantined: BTreeSet<ChunkPos>,
     /// The last state of each block changed since the tick last took them.
-    changes: BTreeMap<BlockPos, State>,
+    changes: BTreeMap<BlockPos, Entry>,
     /// Every block changed since the block updates last took it, oldest first, each at most once
     /// ([`Self::next_changed`]): bounded by the loaded blocks.
     feed: VecDeque<BlockPos>,
@@ -755,19 +798,58 @@ impl World {
     #[doc(alias = "World::setBlockAt")]
     #[doc(alias = "World::setBlock")]
     pub fn set_block(&mut self, pos: BlockPos, state: State) -> Result<()> {
-        if !(MIN_Y..=MAX_Y).contains(&pos.y) {
-            return Err(Error::OutOfRange);
-        }
-        let Some(old) = self.write(pos, state) else {
-            return Err(if self.quarantined.contains(&pos.chunk()) {
-                Error::Quarantined
-            } else {
-                Error::NotLoaded
-            });
+        self.set_entry(pos, Entry::Known(state))
+    }
+
+    /// The block at `pos` as the world holds it, to put elsewhere with
+    /// [`Self::set_stored_block`]: unlike [`Self::block`], a state Anchor does not know is kept,
+    /// as its stored NBT. `None` if the chunk is not loaded (or quarantined) or `pos` is outside
+    /// the world height.
+    pub fn stored_block(&self, pos: BlockPos) -> Option<StoredBlock> {
+        let (x, z) = pos.local();
+        self.chunks.get(pos.chunk())?.stored_block(x, pos.y, z)
+    }
+
+    /// Sets the block at `pos` as [`Self::set_block`] does, a state Anchor does not know included:
+    /// that one is kept as stored and sent to clients as a chunk read from the server file sends
+    /// it. Fails with [`Error::Full`] too when the chunk holds the most unknown states it can.
+    pub fn set_stored_block(&mut self, pos: BlockPos, block: &StoredBlock) -> Result<()> {
+        let entry = match block {
+            StoredBlock::Known(state) => Entry::Known(*state),
+            StoredBlock::Unknown(unknown) => {
+                // Checked before the chunk lists the state, so a failed write adds nothing.
+                let Some(chunk) = self
+                    .chunks
+                    .get_mut(pos.chunk())
+                    .filter(|_| (MIN_Y..=MAX_Y).contains(&pos.y))
+                else {
+                    return Err(self.unwritable(pos));
+                };
+                chunk.unknown_entry(unknown)?
+            }
+        };
+        self.set_entry(pos, entry)
+    }
+
+    /// Writes `entry` at `pos` and works out the connections around it.
+    fn set_entry(&mut self, pos: BlockPos, entry: Entry) -> Result<()> {
+        let Some(old) = self.write(pos, entry) else {
+            return Err(self.unwritable(pos));
         };
         self.connect_around(pos, old);
         self.attach_tripwire(pos, old);
         Ok(())
+    }
+
+    /// Why a block cannot be written at `pos`.
+    fn unwritable(&self, pos: BlockPos) -> Error {
+        if !(MIN_Y..=MAX_Y).contains(&pos.y) {
+            Error::OutOfRange
+        } else if self.quarantined.contains(&pos.chunk()) {
+            Error::Quarantined
+        } else {
+            Error::NotLoaded
+        }
     }
 
     /// Sets the block at `pos` without notifying the block update rules and without working out
@@ -775,7 +857,8 @@ impl World {
     /// properties no neighbour reads, such as a crop's age or a leaf's decay check. False if the
     /// chunk is not loaded or `pos` is outside the world height.
     pub(crate) fn set_block_quietly(&mut self, pos: BlockPos, state: State) -> bool {
-        self.write_with(pos, state, Notify::Quiet).is_some()
+        self.write_with(pos, Entry::Known(state), Notify::Quiet)
+            .is_some()
     }
 
     /// Takes the oldest block changed since the block update rules last took it: every change
@@ -964,25 +1047,25 @@ impl World {
         self.chunks.get(pos.chunk())?.entry(x, pos.y, z)
     }
 
-    /// Writes a state at `pos` of a loaded chunk; a change marks the chunk dirty and records the
+    /// Writes an entry at `pos` of a loaded chunk; a change marks the chunk dirty and records the
     /// block in the change list. Returns the old entry, or `None` if nothing was written (the
     /// chunk is not loaded or `pos` is outside the world height).
-    fn write(&mut self, pos: BlockPos, state: State) -> Option<Entry> {
-        self.write_with(pos, state, Notify::Neighbours)
+    fn write(&mut self, pos: BlockPos, entry: Entry) -> Option<Entry> {
+        self.write_with(pos, entry, Notify::Neighbours)
     }
 
     /// [`Self::write`] that notifies the block update rules or not.
-    fn write_with(&mut self, pos: BlockPos, state: State, notify: Notify) -> Option<Entry> {
+    fn write_with(&mut self, pos: BlockPos, entry: Entry, notify: Notify) -> Option<Entry> {
         let (x, z) = pos.local();
         let chunk = self.chunks.get_mut(pos.chunk())?;
-        let old = chunk.put(x, pos.y, z, Entry::Known(state))?;
-        if old != Entry::Known(state) {
+        let old = chunk.put(x, pos.y, z, entry)?;
+        if old != entry {
             chunk.mark_dirty(pos.y);
-            self.changes.insert(pos, state);
+            self.changes.insert(pos, entry);
             if notify == Notify::Neighbours && self.fed.insert(pos) {
                 self.feed.push_back(pos);
             }
-            self.light.changed(chunk, pos, old, Entry::Known(state));
+            self.light.changed(chunk, pos, old, entry);
         }
         Some(old)
     }
@@ -1039,8 +1122,9 @@ impl World {
         self.quarantined.insert(pos);
     }
 
-    /// Whether `pos` is quarantined.
-    pub(crate) fn is_quarantined(&self, pos: ChunkPos) -> bool {
+    /// Whether the chunk at `pos` is quarantined: its saved data is damaged, so it never loads
+    /// until the position unloads (no player or ticket holds it).
+    pub fn is_quarantined(&self, pos: ChunkPos) -> bool {
         self.quarantined.contains(&pos)
     }
 
@@ -1066,7 +1150,7 @@ impl World {
 
     /// Takes the blocks changed since the last call, with their last state: what the tick sends
     /// to the players who see them. The tick takes them every tick.
-    pub(crate) fn take_changes(&mut self) -> BTreeMap<BlockPos, State> {
+    pub(crate) fn take_changes(&mut self) -> BTreeMap<BlockPos, Entry> {
         std::mem::take(&mut self.changes)
     }
 
@@ -1128,7 +1212,7 @@ pub(crate) struct Saved {
     /// The loaded chunks, in order.
     pub(crate) loaded: BTreeSet<ChunkPos>,
     quarantined: BTreeSet<ChunkPos>,
-    changes: BTreeMap<BlockPos, State>,
+    changes: BTreeMap<BlockPos, Entry>,
     feed: VecDeque<BlockPos>,
 }
 
@@ -1347,6 +1431,50 @@ mod tests {
         assert_eq!(w.collision_boxes_at(BlockPos::new(64, -60, 0)), None);
     }
 
+    /// A stored block copies a state Anchor does not know to another chunk with its NBT, listed
+    /// once there however often it is set, and its clients are sent it as the chunk sends it.
+    #[test]
+    fn a_stored_unknown_block_copies_to_another_chunk_listed_once() {
+        use crate::nbt::{Compound, Value};
+        let nbt = Compound::from([
+            (
+                "name".to_owned(),
+                Value::String("minecraft:no_such_block".to_owned()),
+            ),
+            ("states".to_owned(), Value::Compound(Compound::new())),
+            ("version".to_owned(), Value::Int(18_168_865)),
+        ]);
+        let mut w = world(&Void, 1);
+        let from = BlockPos::new(0, -60, 0);
+        let entry = w.put_unknown(from, nbt.clone()).unwrap();
+        let Some(StoredBlock::Unknown(read)) = w.stored_block(from) else {
+            panic!("an unknown block reads as stored");
+        };
+        assert_eq!(read.nbt(), &nbt);
+        let other = |x| BlockPos::new(x, -60, 0);
+        w.take_changes();
+        for x in [16, 17] {
+            w.set_stored_block(other(x), &StoredBlock::Unknown(read.clone()))
+                .unwrap();
+        }
+        let chunk = w.chunk(ChunkPos::new(1, 0)).unwrap();
+        assert_eq!(chunk.unknown(), std::slice::from_ref(&nbt));
+        assert_eq!(w.block(other(16)), None);
+        let changes = w.take_changes();
+        assert_eq!(
+            changes.get(&other(17)).map(|e| e.network_id()),
+            Some(entry.network_id())
+        );
+        // Set back in its own chunk, the block reuses its entry.
+        w.set_stored_block(other(1), &StoredBlock::Unknown(read))
+            .unwrap();
+        assert_eq!(w.chunk(ChunkPos::new(0, 0)).unwrap().unknown().len(), 1);
+        assert_eq!(
+            w.set_stored_block(BlockPos::new(64, -60, 0), &StoredBlock::Known(block::AIR)),
+            Err(Error::NotLoaded)
+        );
+    }
+
     #[test]
     fn a_point_is_in_the_block_its_coordinates_round_down_to() {
         use crate::math::Vec3;
@@ -1400,7 +1528,11 @@ mod tests {
             assert_eq!(w.block(pos), Some(state));
         }
         let changes = w.take_changes();
-        assert!(changes.iter().all(|(p, s)| model.get(p) == Some(s)));
+        assert!(
+            changes
+                .iter()
+                .all(|(p, e)| model.get(p).map(|&s| Entry::Known(s)) == Some(*e))
+        );
         assert!(w.take_changes().is_empty());
     }
 
@@ -1854,7 +1986,7 @@ mod tests {
             let positions: BTreeSet<BlockPos> = changes.keys().copied().collect();
             assert_eq!(positions, want_changed, "step {n}: changed positions");
             for (pos, state) in &changes {
-                assert_eq!(w.block(*pos), Some(*state), "step {n}: last state");
+                assert_eq!(w.entry(*pos), Some(*state), "step {n}: last state");
             }
         }
     }

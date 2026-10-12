@@ -14,7 +14,7 @@ use crate::protocol::Writer;
 use super::light::{self, ChunkLight};
 use super::paletted::{Derive, Paletted, offset};
 use super::sub_chunk::{Entry, SubChunk};
-use super::{ChunkPos, Error, Generator, MAX_Y, MIN_Y, Result};
+use super::{ChunkPos, Error, Generator, MAX_Y, MIN_Y, Result, StoredBlock, UnknownBlock};
 
 /// Sub-chunks in a column: y -64 to 319.
 pub(crate) const SUB_CHUNKS: usize = 24;
@@ -191,6 +191,57 @@ impl Chunk {
         }
         let h = *self.heights.get(column(x, z))?;
         (h != NO_HEIGHT).then_some(i32::from(h))
+    }
+
+    /// The block at local (x, y, z) as the chunk holds it, or `None` outside the chunk.
+    pub(super) fn stored_block(&self, x: u8, y: i32, z: u8) -> Option<StoredBlock> {
+        Some(match self.entry(x, y, z)? {
+            Entry::Known(state) => StoredBlock::Known(state),
+            Entry::Unknown(i) | Entry::Inert(_, i) => {
+                let index = usize::try_from(i).ok().filter(|&i| i < self.unknown.len());
+                #[expect(
+                    clippy::expect_used,
+                    reason = "invariant: from_parts and the checkpoint check every entry indexes inside the list"
+                )]
+                let index = index.expect("a chunk entry indexes past its unknown states");
+                StoredBlock::Unknown(UnknownBlock {
+                    list: Arc::clone(&self.unknown),
+                    index,
+                })
+            }
+        })
+    }
+
+    /// The entry of `block` in this chunk: its index here if it was read from this chunk's list,
+    /// else that of an equal stored state, else a new one at the end. Fails with
+    /// [`Error::Full`] when the list holds [`MAX_UNKNOWN`] states.
+    pub(super) fn unknown_entry(&mut self, block: &UnknownBlock) -> Result<Entry> {
+        let nbt = block.nbt();
+        let found = if Arc::ptr_eq(&block.list, &self.unknown) {
+            Some(block.index)
+        } else {
+            // The list is short: one state per unknown palette entry the chunk was read with,
+            // and each state written here once.
+            self.unknown.iter().position(|n| n == nbt)
+        };
+        let index = if let Some(index) = found {
+            index
+        } else {
+            if self.unknown.len() >= MAX_UNKNOWN {
+                return Err(Error::Full);
+            }
+            let mut list = Vec::with_capacity(self.unknown.len().saturating_add(1));
+            list.extend_from_slice(&self.unknown);
+            list.push(nbt.clone());
+            self.unknown = Arc::from(list);
+            self.unknown.len().saturating_sub(1)
+        };
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: the list holds at most MAX_UNKNOWN states, far below u32::MAX"
+        )]
+        let index = u32::try_from(index).expect("an unknown state index past u32");
+        Ok(Entry::unknown(index, nbt))
     }
 
     /// The layer 0 entry at local (x, y, z), or `None` outside the chunk.

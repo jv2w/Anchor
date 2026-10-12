@@ -407,7 +407,7 @@ mod tests {
         assert!(!used);
         let (p, _) = calls[0].2[calls[0].2.len() / 2];
         assert_eq!(changes.len(), 1, "only the listener's block changed");
-        assert_eq!(changes.get(&p), Some(&stone()));
+        assert_eq!(changes.get(&p), Some(&crate::world::Entry::Known(stone())));
         assert!(seen.is_empty());
     }
 

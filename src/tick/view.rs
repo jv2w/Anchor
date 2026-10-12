@@ -36,7 +36,7 @@ use crate::protocol::packet::{
 };
 use crate::protocol::{BlockChangeEntry, HeightMap, SubChunkEntry};
 use crate::save::{Loaded, Request, WorldIndex};
-use crate::world::{BlockPos, Chunk, ChunkPos, Kind, NO_HEIGHT, SUB_CHUNKS, World};
+use crate::world::{BlockPos, Chunk, ChunkPos, Entry, Kind, NO_HEIGHT, SUB_CHUNKS, World};
 
 /// Chunk loads the save thread may have in flight at once.
 pub(super) const MAX_LOADS_IN_FLIGHT: usize = 1024;
@@ -191,9 +191,13 @@ impl View {
                 .any(|(p, _)| fake_key(*p).0 == chunk && p.y >> 4 == sub_y)
     }
 
-    /// The fake blocks the player is shown in sub-chunk `sub_y` of `chunk`, in position order.
-    fn shown_in(&self, chunk: ChunkPos, sub_y: i32) -> Vec<(BlockPos, block::State)> {
-        let mut out: Vec<(BlockPos, block::State)> = self.fakes_in(chunk, sub_y).collect();
+    /// The fake blocks the player is shown in sub-chunk `sub_y` of `chunk` with their network
+    /// IDs, in position order.
+    fn shown_in(&self, chunk: ChunkPos, sub_y: i32) -> Vec<(BlockPos, u32)> {
+        let mut out: Vec<(BlockPos, u32)> = self
+            .fakes_in(chunk, sub_y)
+            .map(|(pos, b)| (pos, b.network_id()))
+            .collect();
         for &(pos, b) in self.menu.iter().flatten() {
             if pos.chunk() != chunk || pos.y >> 4 != sub_y {
                 continue;
@@ -201,10 +205,10 @@ impl View {
             match out.binary_search_by_key(&pos, |(p, _)| *p) {
                 Ok(i) => {
                     if let Some(e) = out.get_mut(i) {
-                        e.1 = b;
+                        e.1 = b.network_id();
                     }
                 }
-                Err(i) => out.insert(i, (pos, b)),
+                Err(i) => out.insert(i, (pos, b.network_id())),
             }
         }
         out
@@ -1855,12 +1859,16 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
             }
         }
     }
-    let mut changed: BTreeMap<(ChunkPos, i32), Vec<(BlockPos, block::State)>> = BTreeMap::new();
+    let mut changed: BTreeMap<(ChunkPos, i32), Vec<(BlockPos, u32)>> = BTreeMap::new();
     for &pos in &view.out.shown {
         if !view.sent.contains(&pos.chunk()) {
             continue;
         }
-        if let Some(block) = view.shown(pos).or_else(|| world.block(pos)) {
+        if let Some(block) = view
+            .shown(pos)
+            .map(block::State::network_id)
+            .or_else(|| world.entry(pos).map(Entry::network_id))
+        {
             changed
                 .entry((pos.chunk(), pos.y >> 4))
                 .or_default()
@@ -1872,18 +1880,15 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
     }
 }
 
-/// The packet that sets `blocks` of sub-chunk `sub_y` of `chunk` on a client: an `UpdateBlock`
-/// for one block, an `UpdateSubChunkBlocks` for several (BDS, P6); none for none.
-fn update_packet(
-    chunk: ChunkPos,
-    sub_y: i32,
-    blocks: &[(BlockPos, block::State)],
-) -> Option<Packet> {
+/// The packet that sets `blocks` (with their network IDs) of sub-chunk `sub_y` of `chunk` on a
+/// client: an `UpdateBlock` for one block, an `UpdateSubChunkBlocks` for several (BDS, P6); none
+/// for none.
+fn update_packet(chunk: ChunkPos, sub_y: i32, blocks: &[(BlockPos, u32)]) -> Option<Packet> {
     match blocks {
         [] => None,
-        [(at, state)] => Some(Packet::UpdateBlock(UpdateBlock {
+        [(at, id)] => Some(Packet::UpdateBlock(UpdateBlock {
             position: [at.x, at.y, at.z],
-            new_block_runtime_id: state.network_id(),
+            new_block_runtime_id: *id,
             flags: UPDATE_FLAGS,
             layer: 0,
         })),
@@ -1895,9 +1900,9 @@ fn update_packet(
             ],
             blocks: blocks
                 .iter()
-                .map(|(at, state)| BlockChangeEntry {
+                .map(|(at, id)| BlockChangeEntry {
                     block_pos: [at.x, at.y, at.z],
-                    block_runtime_id: state.network_id(),
+                    block_runtime_id: *id,
                     flags: UPDATE_FLAGS,
                     synced_update_entity_unique_id: u64::MAX,
                     synced_update_type: 0,
@@ -2013,21 +2018,20 @@ fn height_map(chunk: &Chunk, index: usize) -> (HeightMapData, Option<HeightMap>)
 }
 
 /// The block changes of a tick by world, each world's grouped by sub-chunk: (chunk, sub-chunk y)
-/// to the changed blocks with their state, in position order. Only worlds with changes are in
+/// to the changed blocks with their network IDs, in position order. Only worlds with changes are in
 /// it, so each player reads its own world's alone.
-pub(super) type Changes =
-    BTreeMap<WorldIndex, BTreeMap<(ChunkPos, i32), Vec<(BlockPos, block::State)>>>;
+pub(super) type Changes = BTreeMap<WorldIndex, BTreeMap<(ChunkPos, i32), Vec<(BlockPos, u32)>>>;
 
 /// Takes the block changes of every world.
 pub(super) fn take_changes(worlds: &mut [World]) -> Changes {
     let mut changes = Changes::new();
     for (i, world) in worlds.iter_mut().enumerate() {
         let mut by_sub_chunk: BTreeMap<_, Vec<_>> = BTreeMap::new();
-        for (pos, state) in world.take_changes() {
+        for (pos, entry) in world.take_changes() {
             by_sub_chunk
                 .entry((pos.chunk(), pos.y >> 4))
                 .or_default()
-                .push((pos, state));
+                .push((pos, entry.network_id()));
         }
         if !by_sub_chunk.is_empty() {
             changes.insert(i, by_sub_chunk);
@@ -2053,7 +2057,7 @@ pub(super) fn block_packets(player: &Player, changes: &Changes, out: &mut Vec<Me
             out.extend(update_packet(*pos, *sub_y, blocks).map(Message::Packet));
             continue;
         }
-        let real: Vec<(BlockPos, block::State)> = blocks
+        let real: Vec<(BlockPos, u32)> = blocks
             .iter()
             .filter(|(at, _)| view.shown(*at).is_none() && !view.out.shown.contains(at))
             .copied()
