@@ -1,5 +1,5 @@
 //! User data on the tick side ([`crate::data`]): the registered types and the server's values, each
-//! player's data values, state values and extensions, and how they reach a save.
+//! player's values and extensions, and how they reach a save.
 //!
 //! A player's data values are saved in its record's extra compound, under [`DATA_KEY`]: a
 //! compound of one byte array (the JSON) per registered name. So they ride the same record, the
@@ -48,7 +48,7 @@ struct Server {
 /// The registered data types and the server's values, fixed at build.
 #[derive(Default)]
 pub(crate) struct UserData {
-    /// Player data and player state types, in registration order.
+    /// Player data types, in registration order.
     players: Vec<Codec>,
     /// Server values, in registration order.
     servers: Vec<Server>,
@@ -59,25 +59,26 @@ pub(crate) struct UserData {
 }
 
 impl UserData {
-    /// Registers a player data or player state type: they share the names, the types and
-    /// [`MAX_PLAYER_TYPES`].
-    fn register_player(&mut self, codec: Codec) {
+    /// Registers `T` as player data under `name`.
+    fn register_player<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
+        name: String,
+    ) {
         let check = || {
-            let name = &codec.name;
-            check_name(name)?;
+            check_name(&name)?;
             if self.players.len() >= MAX_PLAYER_TYPES {
                 return Err(Error::TooManyTypes);
             }
-            if self.players.iter().any(|c| c.name == *name) {
+            if self.players.iter().any(|c| c.name == name) {
                 return Err(Error::DuplicateName { name: name.clone() });
             }
-            if self.players.iter().any(|c| c.type_id == codec.type_id) {
+            if self.players.iter().any(|c| c.type_id == TypeId::of::<T>()) {
                 return Err(Error::DuplicateType { name: name.clone() });
             }
             Ok(())
         };
         match check() {
-            Ok(()) => self.players.push(codec),
+            Ok(()) => self.players.push(Codec::of::<T>(name)),
             Err(e) => {
                 self.error.get_or_insert(e);
             }
@@ -171,8 +172,8 @@ impl UserData {
         out
     }
 
-    /// Hashes the server values and every player's data and state values by their JSON, and how
-    /// many extensions each player holds (state hash; extensions are not serializable).
+    /// Hashes the server values and every player's data values by their JSON, and how many
+    /// extensions each player holds (state hash; extensions are not serializable).
     #[cfg(test)]
     pub(in crate::tick) fn hash_into(
         &self,
@@ -192,16 +193,10 @@ impl UserData {
         }
         for player in players.values() {
             let user = &player.extra.user;
-            // `data` and `state` are hashed per registered type, through `PlayerUser::value`.
-            let PlayerUser {
-                data,
-                state: _,
-                extensions,
-            } = user;
-            h.usize(extensions.len());
-            h.usize(data.len());
+            h.usize(user.extensions.len());
+            h.usize(user.data.len());
             for codec in &self.players {
-                match user.value(codec) {
+                match user.data.get(&codec.type_id) {
                     Some(value) => json(h, codec, value),
                     None => h.u64(0),
                 }
@@ -234,19 +229,14 @@ impl UserData {
         Ok(())
     }
 
-    /// Writes a player's data and state values by their JSON, one per registered player type
-    /// that has a value. An extension has no checkpoint form (it is not serializable): it makes
-    /// the checkpoint opaque.
+    /// Writes a player's data values by their JSON, one per registered player type that has a
+    /// value. An extension has no checkpoint form (it is not serializable): it makes the
+    /// checkpoint opaque.
     pub(in crate::tick) fn checkpoint_player(&self, user: &PlayerUser, w: &mut Writer) {
-        // `data` and `state` are written per registered type, through `PlayerUser::value`.
-        let PlayerUser {
-            data: _,
-            state: _,
-            extensions,
-        } = user;
+        let PlayerUser { data, extensions } = user;
         w.opaque("player extensions", extensions.len());
         for codec in &self.players {
-            match user.value(codec) {
+            match data.get(&codec.type_id) {
                 Some(v) => {
                     w.u8(1);
                     json(w, codec, v);
@@ -262,16 +252,13 @@ impl UserData {
         r: &mut Reader<'_>,
     ) -> checkpoint::Result<PlayerUser> {
         let mut data = BTreeMap::new();
-        let mut state = BTreeMap::new();
         for codec in &self.players {
             if bool::decode(r)? {
-                let values = if codec.saved { &mut data } else { &mut state };
-                values.insert(codec.type_id, value(r, codec)?);
+                data.insert(codec.type_id, value(r, codec)?);
             }
         }
         Ok(PlayerUser {
             data,
-            state,
             extensions: BTreeMap::new(),
         })
     }
@@ -308,34 +295,19 @@ impl fmt::Debug for UserData {
     }
 }
 
-/// The user's part of an online player: its data values (one per registered data type that has
-/// a value; a saved value that does not deserialize has none and stays as saved), its state
-/// values (one per registered state type) and its extensions.
+/// The user's part of an online player: its data values (one per registered type that has a
+/// value; a saved value that does not deserialize has none and stays as saved) and its
+/// extensions.
 #[derive(Default)]
 pub(in crate::tick) struct PlayerUser {
     data: BTreeMap<TypeId, Value>,
-    state: BTreeMap<TypeId, Value>,
     extensions: BTreeMap<TypeId, Value>,
-}
-
-impl PlayerUser {
-    /// The player's value of a registered player type: from `data` for a saved type, from
-    /// `state` for the others.
-    fn value(&self, codec: &Codec) -> Option<&Value> {
-        let Self {
-            data,
-            state,
-            extensions: _,
-        } = self;
-        if codec.saved { data } else { state }.get(&codec.type_id)
-    }
 }
 
 impl fmt::Debug for PlayerUser {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PlayerUser")
             .field("data", &self.data.len())
-            .field("state", &self.state.len())
             .field("extensions", &self.extensions.len())
             .finish()
     }
@@ -351,20 +323,14 @@ fn saved_values(extra: &Compound) -> Option<&Compound> {
 }
 
 /// A player is placed in the game (a new player, or its saved data arrived): its data values
-/// come from its saved extra, or are their types' defaults, and its state values are their
-/// types' defaults. A saved value that does not deserialize into its type is left as saved and
-/// reads as `None`.
+/// come from its saved extra, or are their types' defaults. A saved value that does not
+/// deserialize into its type is left as saved and reads as `None`.
 pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
     let mut values = BTreeMap::new();
-    let mut state = BTreeMap::new();
     let raw = extra.raw();
     let foreign = raw.contains_key(DATA_KEY) && saved_values(raw).is_none();
     let saved = saved_values(raw);
     for codec in &data.players {
-        if !codec.saved {
-            state.insert(codec.type_id, codec.default_value());
-            continue;
-        }
         let value = match saved.and_then(|c| c.get(&codec.name)) {
             None if !foreign => Some(codec.default_value()),
             Some(nbt::Value::ByteArray(json)) => codec.decode(json),
@@ -380,7 +346,6 @@ pub(in crate::tick) fn placed(data: &UserData, extra: &mut PlayerExtra) {
         }
     }
     extra.user.data = values;
-    extra.user.state = state;
 }
 
 /// Writes the player's data values into `out`, the extra compound a save writes (it starts as
@@ -483,27 +448,6 @@ impl Player {
         let value = self.extra.user.extensions.remove(&TypeId::of::<T>())?;
         value.downcast().ok().map(|v| *v)
     }
-
-    /// The player's value of the registered player state type `T`
-    /// ([`ServerBuilder::player_state`]): its [`Default`] at join, never saved, gone when the
-    /// player leaves. `None` if `T` is not registered as player state, or while the player is
-    /// still loading.
-    pub fn state<T: Any>(&self) -> Option<&T> {
-        self.extra
-            .user
-            .state
-            .get(&TypeId::of::<T>())
-            .and_then(|v| v.downcast_ref())
-    }
-
-    /// [`Self::state`] to change.
-    pub fn state_mut<T: Any>(&mut self) -> Option<&mut T> {
-        self.extra
-            .user
-            .state
-            .get_mut(&TypeId::of::<T>())
-            .and_then(|v| v.downcast_mut())
-    }
 }
 
 impl Context<'_> {
@@ -529,29 +473,13 @@ impl ServerBuilder {
     /// Gives every player a value of `T`, saved under `name` with the player's other data in
     /// the same commit ([`Player::data`], [`crate::data`]). A new player starts at
     /// `T::default()`. `name` is 1 to 64 bytes of `a-z`, `0-9`, `_`, `-`, `.`, `:`; at most 16
-    /// types with [`Self::player_state`]'s. [`build`](Self::build) fails on a bad or repeated
-    /// name or type.
+    /// types. [`build`](Self::build) fails on a bad or repeated name or type.
     #[must_use]
     pub fn player_data<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
         mut self,
         name: impl Into<String>,
     ) -> Self {
-        self.setup.data.register_player(Codec::of::<T>(name.into()));
-        self
-    }
-
-    /// Gives every player a value of `T` made with `T::default()` when it joins and dropped
-    /// when it leaves ([`Player::state`], [`crate::data`]). It is never saved, but it is game
-    /// state: checkpoints keep its JSON, so a replay restores it. Names, types and the limit of
-    /// 16 are shared with [`Self::player_data`]; [`build`](Self::build) fails the same way.
-    #[must_use]
-    pub fn player_state<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
-        mut self,
-        name: impl Into<String>,
-    ) -> Self {
-        self.setup
-            .data
-            .register_player(Codec::unsaved::<T>(name.into()));
+        self.setup.data.register_player::<T>(name.into());
         self
     }
 
@@ -577,7 +505,7 @@ where
     S: Default + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let mut data = UserData::default();
-    data.register_player(Codec::of::<T>(name.to_owned()));
+    data.register_player::<T>(name.to_owned());
     data.register_server::<S>(server.to_owned());
     data
 }
@@ -833,107 +761,23 @@ mod tests {
         );
     }
 
-    #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-    struct Combo {
-        hits: u32,
-        speed: f64,
-    }
-
-    /// [`state`] with player state `Combo` too.
-    fn with_combo() -> State {
-        let mut state = state();
-        state
-            .data
-            .register_player(Codec::unsaved::<Combo>("combo".to_owned()));
-        assert_eq!(state.data.finish(), Ok(()));
-        state
-    }
-
-    #[test]
-    fn player_state_starts_at_its_default_is_never_saved_and_goes_when_the_player_leaves() {
-        let mut state = with_combo();
-        let _rx = join_with(&mut state, &PlayerLoad::Absent);
-        let p = player(&mut state);
-        assert_eq!(p.state::<Combo>(), Some(&Combo::default()));
-        assert_eq!(p.data::<Combo>(), None, "state is not data");
-        assert_eq!(p.state::<Kills>(), None, "data is not state");
-        let before = state.hash();
-        let p = player(&mut state);
-        p.state_mut::<Combo>().unwrap().hits = 3;
-        assert!(!p.data_dirty, "state is not saved");
-        assert_eq!(
-            p.state::<Combo>(),
-            Some(&Combo {
-                hits: 3,
-                speed: 0.0
-            })
-        );
-        assert_ne!(state.hash(), before, "the state hash holds the value");
-        // The saved record is the one a server without the state type writes.
-        player(&mut state).data_mut::<Kills>().unwrap().total = 1;
-        let saved = snapshot(&mut state);
-        let mut plain = self::state();
-        let _plain_rx = join_with(&mut plain, &PlayerLoad::Absent);
-        player(&mut plain).data_mut::<Kills>().unwrap().total = 1;
-        let expected = snapshot(&mut plain);
-        assert_eq!(saved.players[0].1.extra, expected.players[0].1.extra);
-        // Gone with the player: a new join starts at the default again.
-        tick(&mut state, &mut vec![leave(1, 1)], &mut Output::default());
-        assert!(state.players.is_empty());
-        let _rx = join_with(&mut state, &PlayerLoad::Absent);
-        assert_eq!(player(&mut state).state::<Combo>(), Some(&Combo::default()));
-    }
-
-    #[test]
-    fn player_state_survives_a_checkpoint_round_trip() {
-        let pool = crate::runtime::cpu_pool(1).unwrap();
-        let mut state = with_combo();
-        let _rx = join_with(&mut state, &PlayerLoad::Absent);
-        *player(&mut state).state_mut::<Combo>().unwrap() = Combo {
-            hits: 7,
-            // A float that serde_json reads back as another without `float_roundtrip`
-            // (.claude/docs/dependencies.md).
-            speed: f64::from_bits(0xbfdc_fd14_b5d3_7aac),
-        };
-        assert!(crate::tick::checkpoint::tests::assert_round_trip(
-            &state,
-            with_combo(),
-            &pool
-        ));
-        // A different value reads back as a different state.
-        let mut other = with_combo();
-        let _other_rx = join_with(&mut other, &PlayerLoad::Absent);
-        player(&mut other).state_mut::<Combo>().unwrap().hits = 8;
-        assert_ne!(other.hash(), state.hash());
-        assert!(pool.shutdown());
-    }
-
     #[test]
     fn registration_errors_are_kept_for_the_build() {
         let ok = || UserData::default();
         let mut data = ok();
-        data.register_player(Codec::of::<Kills>("Kills".to_owned()));
+        data.register_player::<Kills>("Kills".to_owned());
         assert!(matches!(data.finish(), Err(Error::InvalidName { .. })));
         let mut data = ok();
-        data.register_player(Codec::of::<Kills>("a".to_owned()));
-        data.register_player(Codec::of::<Round>("a".to_owned()));
+        data.register_player::<Kills>("a".to_owned());
+        data.register_player::<Round>("a".to_owned());
         assert!(matches!(data.finish(), Err(Error::DuplicateName { .. })));
         let mut data = ok();
         data.register_server::<Kills>("a".to_owned());
         data.register_server::<Kills>("b".to_owned());
         assert!(matches!(data.finish(), Err(Error::DuplicateType { .. })));
-        // Player data and player state share the names and the types.
-        let mut data = ok();
-        data.register_player(Codec::of::<Kills>("a".to_owned()));
-        data.register_player(Codec::unsaved::<Round>("a".to_owned()));
-        assert!(matches!(data.finish(), Err(Error::DuplicateName { .. })));
-        let mut data = ok();
-        data.register_player(Codec::unsaved::<Kills>("a".to_owned()));
-        data.register_player(Codec::of::<Kills>("b".to_owned()));
-        assert!(matches!(data.finish(), Err(Error::DuplicateType { .. })));
         // The same type and name as player and as server data are two values.
         let mut data = ok();
-        data.register_player(Codec::of::<Kills>("a".to_owned()));
+        data.register_player::<Kills>("a".to_owned());
         data.register_server::<Kills>("a".to_owned());
         assert_eq!(data.finish(), Ok(()));
         let mut data = ok();
@@ -942,14 +786,13 @@ mod tests {
                 {
                     #[derive(Default, Serialize, Deserialize)]
                     struct T;
-                    data.register_player(Codec::of::<T>(format!("t{}", $n)));
+                    data.register_player::<T>(format!("t{}", $n));
                 }
             )*};
         }
         many!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15);
         assert_eq!(data.finish(), Ok(()));
-        // The limit counts player data and player state together.
-        data.register_player(Codec::unsaved::<Kills>("one-more".to_owned()));
+        data.register_player::<Kills>("one-more".to_owned());
         assert_eq!(data.finish(), Err(Error::TooManyTypes));
         assert!(format!("{data:?}").contains("t15"));
         // The builder keeps the first error for `build`.
@@ -959,13 +802,6 @@ mod tests {
         assert!(matches!(
             builder.setup.data.finish(),
             Err(Error::InvalidName { .. })
-        ));
-        let builder = crate::Server::builder()
-            .player_data::<Kills>("kills")
-            .player_state::<Kills>("combo");
-        assert!(matches!(
-            builder.setup.data.finish(),
-            Err(Error::DuplicateType { .. })
         ));
     }
 

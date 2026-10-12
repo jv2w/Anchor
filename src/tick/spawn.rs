@@ -403,33 +403,6 @@ pub(super) fn output(
     packets
 }
 
-/// The output of an input pass: the packets the pass queued for each player
-/// ([`Player::send_packet`]), through the send hooks, in session order. The outboxes keep their
-/// capacity.
-pub(super) fn pass_output(state: &mut State) -> Vec<(SessionId, Vec<Message>)> {
-    let sends = state.hooks.send();
-    let settings = &state.settings;
-    let mut packets = Vec::new();
-    for (&session, player) in &mut state.players {
-        if player.outbox.is_empty() && player.shared_outbox.is_empty() {
-            continue;
-        }
-        let mut out = Vec::with_capacity(
-            player
-                .outbox
-                .len()
-                .saturating_add(player.shared_outbox.len()),
-        );
-        out.extend(player.outbox.drain(..).map(Message::Packet));
-        out.extend(player.shared_outbox.drain(..).map(Message::SharedPacket));
-        hook::send(sends, settings, session, &mut out);
-        if !out.is_empty() {
-            packets.push((session, out));
-        }
-    }
-    packets
-}
-
 /// What the spawn windows of a tick share: the player list and each world's clock and sleeping
 /// packets. Built only when a player needs a window this tick.
 #[derive(Debug, Default)]
@@ -637,7 +610,7 @@ fn spawn_window(
     out.push(Message::Shared(Arc::clone(&shared.actor_identifiers)));
     out.push(packet(Packet::PlayerFog(PlayerFog { stack: Vec::new() })));
     out.push(Message::Shared(Arc::clone(&shared.camera)));
-    let attributes = survival::all_attributes(settings, player);
+    let attributes = survival::all_attributes(player);
     out.push(packet(attributes.clone()));
     out.extend(shared.creative(player));
     out.push(Message::Shared(Arc::clone(&shared.trim_data)));
@@ -859,8 +832,6 @@ fn enter(
         overflowed: false,
         marks: super::player::Marks::default(),
         presence: super::player::Presence::default(),
-        deferred_packets: std::collections::VecDeque::new(),
-        pass_pending: super::pass::Pending::default(),
     };
     let op = super::Context { state: &mut *state }.is_op(&player.identity.name);
     player.survival.set_operator(op);

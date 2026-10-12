@@ -30,36 +30,6 @@ impl Id {
     }
 }
 
-/// Which spawn of a player a viewer's client shows ([`Context::player_viewers`]): a viewer that
-/// was sent the player again after it was taken away has a new generation, so a value kept per
-/// viewer and generation (what that client was last sent) starts over. The generations of one
-/// player wrap after 2^32 spawns. It is serde so that [`player_state`] can keep it.
-///
-/// [`Context::player_viewers`]: crate::Context::player_viewers
-/// [`player_state`]: crate::ServerBuilder::player_state
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
-pub struct ViewGeneration(pub(crate) u32);
-
-/// Who [`Context::send_to_viewers`](crate::Context::send_to_viewers) sends to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Audience {
-    /// The players that see the player.
-    Viewers,
-    /// The players that see the player, and the player itself.
-    ViewersAndSelf,
-}
-
-/// What [`Context::send_to_viewers`](crate::Context::send_to_viewers) queued.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Sent {
-    /// The players the packet was queued for.
-    pub delivered: u32,
-    /// The viewers left out because their outbox was nearly full this tick.
-    pub skipped: u32,
-}
-
 /// Why a player call changed nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {

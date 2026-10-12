@@ -14,7 +14,6 @@
 
 mod connection;
 mod packs;
-mod release;
 mod transport;
 
 use std::collections::BTreeMap;
@@ -40,7 +39,6 @@ use crate::protocol::packet::{GAME_VERSION, PROTOCOL_VERSION};
 use crate::raknet;
 use crate::tick::queue::{Control, InputKind, InputSender, Measure, SessionId, SessionInputs};
 
-pub(crate) use release::Release;
 use transport::Transport;
 
 /// New connections waiting for the accept task, per transport; when full, the transport closes
@@ -65,8 +63,6 @@ pub(crate) struct Network {
     nethernet: nethernet::Handle,
     stop: oneshot::Sender<()>,
     accept: JoinHandle<()>,
-    /// The timeouts of `send-release = "after-pass"` ([`Release::run`]).
-    release: Option<JoinHandle<()>>,
 }
 
 /// What every session shares, read-only.
@@ -88,8 +84,6 @@ struct Shared {
     /// Logged-in sessions have left the pre-login limit, and the tick counts players only
     /// at the join.
     waiting: Arc<Semaphore>,
-    /// When joined sessions may send, with `send-release = "after-pass"`; `None` sends at once.
-    release: Option<Arc<Release>>,
 }
 
 /// A session's report to the accept task.
@@ -101,9 +95,7 @@ enum Event {
     Ended,
 }
 
-/// Starts networking on the current runtime; sessions queue their inputs on `inputs`. With
-/// `release`, joined sessions send when it lets them, and every datagram either transport reads
-/// lets them.
+/// Starts networking on the current runtime; sessions queue their inputs on `inputs`.
 ///
 /// The resource packs load first: the `resource-packs` files from `data_dir/packs`, then `packs`
 /// given in code; a pack that cannot be offered stops the start. With `xbox-auth = true` the
@@ -120,7 +112,6 @@ pub(crate) async fn start(
     data_dir: &Path,
     inputs: InputSender,
     controls: mpsc::Receiver<Control>,
-    release: Option<Arc<Release>>,
 ) -> Result<Network> {
     let batch = config.batch_settings()?;
     let paths = config.resource_pack_paths(&data_dir.join(pack::FOLDER));
@@ -183,7 +174,6 @@ pub(crate) async fn start(
         json_rx,
         auth.clone(),
         nethernet_tx,
-        release.clone(),
     )
     .await?;
     for addr in nethernet.signaling_addrs() {
@@ -193,7 +183,7 @@ pub(crate) async fn start(
         info!(%addr, "listening for NetherNet game data on UDP");
     }
     let (raknet_tx, raknet_rx) = mpsc::channel(ACCEPT_QUEUE);
-    let raknet = match raknet::spawn(settings, pong_rx, raknet_tx, release.clone()) {
+    let raknet = match raknet::spawn(settings, pong_rx, raknet_tx) {
         Ok(raknet) => raknet,
         Err(e) => {
             nethernet.shutdown().await;
@@ -224,7 +214,6 @@ pub(crate) async fn start(
         waiting: Arc::new(Semaphore::new(
             usize::try_from(config.general.max_players).unwrap_or(usize::MAX),
         )),
-        release: release.clone(),
     });
     let (stop_tx, stop_rx) = oneshot::channel();
     let accept = Accept {
@@ -250,7 +239,6 @@ pub(crate) async fn start(
         nethernet,
         stop: stop_tx,
         accept,
-        release: release.map(|r| tokio::spawn(r.run())),
     })
 }
 
@@ -264,10 +252,6 @@ impl Network {
         }
         if let Err(e) = self.accept.await {
             warn!(error = %e, "accept task failed");
-        }
-        // The sessions have sent what they hold; nothing waits for a timeout any more.
-        if let Some(release) = self.release {
-            release.abort();
         }
         // Each transport lingers for its peers' last messages; together the wait is the longer.
         tokio::join!(self.raknet.shutdown(), self.nethernet.shutdown());
@@ -671,16 +655,9 @@ mod tests {
         crate::raknet::tests::run(async {
             let (inputs, mut queue) = input_queue();
             let (controls, control_queue) = control_queue();
-            let network = start(
-                Arc::new(config),
-                Vec::new(),
-                &dir,
-                inputs,
-                control_queue,
-                None,
-            )
-            .await
-            .unwrap();
+            let network = start(Arc::new(config), Vec::new(), &dir, inputs, control_queue)
+                .await
+                .unwrap();
             let raknet: SocketAddr = network.raknet.local_addrs()[0];
             let signaling: SocketAddr = network.nethernet.signaling_addrs()[0];
             let socket = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))

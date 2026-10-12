@@ -149,21 +149,6 @@ item-pickup-interval = 1
 hook-movement-packets = true
 # false: PlayerAuthInput packets skip the receive hooks.
 hook-player-input = true
-# Order of each tick's player inputs: "session" (player by player, whatever the network
-# timing) or "arrival" (as they reached the server, across players, as the official server
-# applies them).
-input-order = "session"
-# Microseconds of an input pass (0 to 50000; needs input-order = "arrival"). 0: inputs apply
-# each tick. Otherwise a PlayerAuthInput takes effect at the end of the pass it arrived in,
-# as the official server's loop does (15625 on Windows); other packets apply as they come.
-input-pass-us = 0
-# When the server sends what a tick or an input pass made: "immediate" (at once) or
-# "after-pass" (needs input-pass-us above 0): all connections send together when any
-# datagram arrives, or send-release-wait-us after the last time they did, at a pass end, as
-# the official server's network thread does.
-send-release = "immediate"
-# Microseconds of that wait with send-release = "after-pass" (0 to 1000000).
-send-release-wait-us = 10000
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
 # When the data files are checked at start: "always", "after-unclean-shutdown" or "never".
@@ -264,10 +249,6 @@ console-input = true
 | `item-pickup-interval` | 정수 | `1` | 1~20 | 플레이어가 주울 아이템을 찾는 간격(틱) |
 | `hook-movement-packets` | bool | `true` | | 서버가 보내는 이동 패킷이 송신 훅을 거칠지 |
 | `hook-player-input` | bool | `true` | | `PlayerAuthInput` 패킷이 수신 훅을 거칠지 |
-| `input-order` | 문자열 | `"session"` | `session`, `arrival` | 한 틱의 입력을 적용하는 순서. `session`은 세션 ID 순(세션 안은 도착 순)이라 네트워크에서 섞인 순서와 무관하다. `arrival`은 모든 세션을 통틀어 입력 큐에 도착한 순서로, 공식 서버처럼 먼저 온 입력이 먼저 적용된다. 어느 쪽이든 입력 로그가 그 순서를 담아 재생이 같다 |
-| `input-pass-us` | 정수 | `0` | 0~50000, 0이 아니면 `input-order = "arrival"` | 입력 패스 길이(µs). 0이면 입력을 틱마다 적용한다. 0이 아니면 서버 시작 시각부터 이 주기로 나눈 패스마다, 그 패스에 도착한 `PlayerAuthInput`이 패스 끝에 라운드로 적용된다(라운드 r = 각 플레이어의 r번째 입력, 플레이어는 도착 순). 다른 패킷은 도착 순서대로 앞 패스의 입력이 적용된 뒤 처리된다. 플레이어의 미룬 패킷은 그 패스의 첫 입력을 처리할 때, 2번째 이후 입력이면 그 라운드 직전에 적용된다. 패스에서 나온 출력은 그 패스 끝에 보낸다. 50ms 틱(규칙, 작업, `Context::tick`)은 그대로다. 공식 서버(Windows)의 루프는 15625다 |
-| `send-release` | 문자열 | `"immediate"` | `immediate`, `after-pass`(`input-pass-us` > 0 필요) | 틱과 입력 패스의 출력을 보내는 때. `immediate`는 받는 즉시 보낸다. `after-pass`는 공식 서버의 RakNet 갱신 스레드처럼, 출력에 그것을 만든 패스 번호를 붙이고, 끝난 패스까지의 출력을 모든 연결이 한꺼번에 큐 순서대로 배치 하나로 보낸다. 보내는 때는 어느 연결이든 데이터그램이 도착할 때(RakNet과 NetherNet)와, 마지막으로 보낸 때부터 `send-release-wait-us` 뒤 이후의 첫 패스 경계다. 경계에서는 그 경계보다 먼저 끝난 패스까지만 보낸다(그 경계에서 끝나는 패스는 아직 적용 중). 틱 출력은 진행 중인 패스의 것이다 |
-| `send-release-wait-us` | 정수 | `10000` | 0~1000000 | `after-pass`에서 데이터그램 없이 기다리는 시간(µs). 공식 서버는 10 ms를 기다리고 Windows 타이머 해상도 때문에 15.625 ms 경계에서 깨어난다 |
 | `save-interval-minutes` | 정수 | `10` | 1~1440 | 전체 상태 저장 간격(분) |
 | `integrity-check` | 문자열 | `"always"` | `always`, `after-unclean-shutdown`, `never` | 시작에서 데이터 파일을 검사하는 때. 실행 중에는 `check` 명령이 검사한다 |
 | `console-input` | bool | `true` | | 표준 입력에서 명령을 읽을지 |

@@ -284,9 +284,6 @@ struct Plan {
     /// The base damage of the last hit within an NPC's cooldown, which this hit's damage counts
     /// less (PMMP `MODIFIER_PREVIOUS_DAMAGE_COOLDOWN`).
     previous: Option<f64>,
-    /// The hit is no stronger than the last within an NPC's cooldown: it lands only if an
-    /// [`EntityDamage`] listener uncancels its event.
-    refused_by_cooldown: bool,
 }
 
 /// What a hit takes ([`Entity::take_hit`]): the planned values, or a damage event's.
@@ -466,8 +463,8 @@ impl Entity {
 
     /// Whether a hit of `amount` for `cause` would hurt it, and how (PMMP `Entity::attack` and
     /// `Living::attack`'s cooldown for NPCs, before the event): `None` when the kind ignores the
-    /// cause, the amount is not finite or below 0, or an NPC is dying. A hit no stronger than the
-    /// last within an NPC's cooldown is planned as [`Plan::refused_by_cooldown`].
+    /// cause, the amount is not finite or below 0, an NPC is dying, or a hit no stronger than
+    /// the last comes within an NPC's cooldown.
     fn plan_hit(&self, cause: Cause, amount: f64) -> Option<Plan> {
         let dead_crystal = matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0;
         if !self.kind.takes(cause) || !amount.is_finite() || amount < 0.0 || dead_crystal {
@@ -477,17 +474,18 @@ impl Entity {
             return Some(Plan {
                 cold: false,
                 previous: None,
-                refused_by_cooldown: false,
             });
         };
         if c.dead_ticks.is_some() {
             return None;
         }
         let cold = c.attack_time == 0;
+        if !cold && c.last_damage >= amount {
+            return None;
+        }
         Some(Plan {
             cold,
             previous: (!cold).then_some(c.last_damage),
-            refused_by_cooldown: !cold && c.last_damage >= amount,
         })
     }
 
@@ -954,11 +952,7 @@ struct Departed {
 #[derive(Debug, Clone, PartialEq)]
 struct Watched {
     runtime_id: u64,
-    /// Each viewer and the generation of the spawn it was sent
-    /// ([`crate::player::ViewGeneration`]).
-    viewers: BTreeMap<SessionId, u32>,
-    /// The generation the next spawn sent to a viewer gets.
-    next_generation: u32,
+    viewers: BTreeSet<SessionId>,
     /// The eye position sent.
     position: Vec3,
     /// The yaw and pitch sent.
@@ -1593,7 +1587,6 @@ super::checkpoint::fields!(Departed {
 super::checkpoint::fields!(Watched {
     runtime_id,
     viewers,
-    next_generation,
     position,
     rotation,
     held,
@@ -1713,7 +1706,6 @@ impl Watched {
         let Self {
             runtime_id,
             viewers,
-            next_generation,
             position,
             rotation: (yaw, pitch),
             held,
@@ -1722,12 +1714,9 @@ impl Watched {
             armour,
         } = self;
         h.u64(*runtime_id);
-        h.usize(viewers.len());
-        for (v, generation) in viewers {
+        for v in viewers {
             h.u64(v.get());
-            h.u64(u64::from(*generation));
         }
-        h.u64(u64::from(*next_generation));
         for c in [position.x, position.y, position.z, *yaw, *pitch] {
             h.u64(c.to_bits());
         }
@@ -2449,12 +2438,9 @@ fn with<T>(state: &mut State, id: Id, f: impl FnOnce(&mut Entity) -> T) -> Optio
 /// `Living::attack`): [`EntityDamage`] before the health changes (cancelling keeps it, and no
 /// knockback follows) and [`EntityMotion`] for the knockback. An NPC hit after its cooldown is
 /// knocked back by `knock` and shows the hit, an NPC that dies shows its death (its drops follow
-/// at its next tick, [`died`]), anything else that dies is removed. A knockback motion a listener
-/// set pushes an NPC on every hit it survives instead, and its viewers are sent it as many times
-/// as the listener asked, before the hit shows; the second value says whether a listener set one.
-/// A hit the cooldown alone refuses raises [`EntityDamage`] cancelled, only while it has
-/// listeners. Without listeners it is [`hurt_in`].
-fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, bool) {
+/// at its next tick, [`died`]), anything else that dies is removed. Without listeners it is
+/// [`hurt_in`].
+fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> Hurt {
     if !(dispatch::heard::<EntityDamage>(state) || dispatch::heard::<EntityMotion>(state)) {
         let result = hurt_in(
             &mut state.rules.entities,
@@ -2467,32 +2453,23 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, b
         if result == Hurt::Died {
             broken_by(state, id, blow.source);
         }
-        return (result, false);
+        return result;
     }
     let Some(plan) = plan_of(state, id, blow) else {
-        return (Hurt::Ignored, false);
+        return Hurt::Ignored;
     };
-    if plan.refused_by_cooldown && !dispatch::listened::<EntityDamage>(state) {
-        return (Hurt::Ignored, false);
-    }
     let mut taken = Taken::of(plan, blow.amount);
     let mut knock = knock;
     let mut event = None;
     if dispatch::heard::<EntityDamage>(state) {
         let Some((t, k, e)) = damage_event(state, id, blow, plan, knock) else {
-            return (Hurt::Ignored, false);
+            return Hurt::Ignored;
         };
         (taken, knock, event) = (t, k, Some(e));
     }
-    let replaced = event.as_ref().and_then(EntityDamage::knockback_motion);
-    let restarts = event.as_ref().is_some_and(EntityDamage::restarts_cooldown);
-    let plan = Plan {
-        cold: plan.cold || restarts,
-        ..plan
-    };
     let entities = &mut state.rules.entities;
     let Some(e) = entities.get_mut(id) else {
-        return (Hurt::Ignored, false);
+        return Hurt::Ignored;
     };
     let result = e.take_hit(plan, taken);
     let removed = e.after_hit(blow.cause, result);
@@ -2503,21 +2480,9 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, b
         state.rules.entities.doom(id);
         broken_by(state, id, blow.source);
     }
-    if living
-        && matches!(result, Hurt::Took { .. })
-        && let Some((m, sends)) = replaced
-        && push_entity(state, id, m)
-        && let Some(e) = state.rules.entities.get(id)
-    {
-        let packet = track::motion(e);
-        for _ in 0..sends.get() {
-            send_to(&mut state.players, &e.viewers, &packet);
-        }
-    }
     let shown = living && matches!(result, Hurt::Took { cold: true } | Hurt::Died);
     if shown {
         let motion = knock
-            .filter(|_| replaced.is_none())
             .zip(state.rules.entities.get(id))
             .and_then(|(k, e)| k.applied_to(e.body.motion));
         if let Some(m) = motion {
@@ -2536,7 +2501,7 @@ fn hurt(state: &mut State, id: Id, blow: Blow, knock: Option<Knock>) -> (Hurt, b
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
-    (result, replaced.is_some())
+    result
 }
 
 /// A painting that `source` broke drops nothing when that is a player with infinite items, or
@@ -2576,8 +2541,8 @@ fn plan_of(state: &State, id: Id, blow: Blow) -> Option<Plan> {
 
 /// Raises [`EntityDamage`] for `blow` on the entity `id` as `plan`ned, with the knockback
 /// `knock` gives: what the hit takes and its knockback as the listeners leave them, and the
-/// event; `None` when a listener cancelled it (a hit the cooldown refuses starts cancelled) or
-/// changed the game so that the hit no longer goes as planned.
+/// event; `None` when a listener cancelled it or changed the game so that the hit no longer
+/// goes as planned.
 fn damage_event(
     state: &mut State,
     id: Id,
@@ -2605,10 +2570,7 @@ fn damage_event(
         attack_cooldown_ticks: u32::from(ATTACK_COOLDOWN),
         knockback: force,
         vertical_knockback_limit: vertical,
-        knockback_motion: None,
-        restarts_cooldown: false,
-        dealt: None,
-        cancelled: plan.refused_by_cooldown,
+        cancelled: false,
     };
     dispatch::call(state, &mut e);
     if e.cancelled
@@ -2618,7 +2580,7 @@ fn damage_event(
     }
     let taken = Taken {
         base: e.base_damage,
-        damage: e.dealt.unwrap_or_else(|| e.final_damage()),
+        damage: e.final_damage(),
         cooldown: u8::try_from(e.attack_cooldown_ticks).unwrap_or(u8::MAX),
     };
     let knock = knock.map(|k| Knock {
@@ -2703,9 +2665,8 @@ fn zombie_drops(r: &mut Random) -> Vec<Stack> {
 }
 
 /// Sets the motion a rule gives the entity `id` (knockback, an explosion's push, a Punch arrow;
-/// PMMP `Entity::setMotion`), through [`EntityMotion`]: cancelling keeps its motion. False if
-/// the motion was not set (cancelled, or the entity is gone).
-fn push_entity(state: &mut State, id: Id, motion: Vec3) -> bool {
+/// PMMP `Entity::setMotion`), through [`EntityMotion`]: cancelling keeps its motion.
+fn push_entity(state: &mut State, id: Id, motion: Vec3) {
     let motion = physics::bounded(motion);
     let mut event = None;
     if dispatch::heard::<EntityMotion>(state) {
@@ -2716,15 +2677,14 @@ fn push_entity(state: &mut State, id: Id, motion: Vec3) -> bool {
         };
         dispatch::call(state, &mut e);
         if e.cancelled || (dispatch::listened::<EntityMotion>(state) && !is_live(state, id)) {
-            return false;
+            return;
         }
         event = Some(e);
     }
-    let set = with(state, id, |e| e.body.motion = motion).is_some();
+    with(state, id, |e| e.body.motion = motion);
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
-    set
 }
 
 /// Sets the entity `id` on fire for `seconds` as a rule does (fire, lava, a burning arrow, Fire
@@ -2817,8 +2777,8 @@ fn hurt_in(
         return Hurt::Ignored;
     };
     let result = match e.plan_hit(cause, amount) {
-        Some(plan) if !plan.refused_by_cooldown => e.take_hit(plan, Taken::of(plan, amount)),
-        _ => Hurt::Ignored,
+        Some(plan) => e.take_hit(plan, Taken::of(plan, amount)),
+        None => Hurt::Ignored,
     };
     let removed = e.after_hit(cause, result);
     let living = matches!(e.kind, Kind::Npc(_));
@@ -2854,7 +2814,7 @@ fn play(state: &mut State, world: WorldIndex, at: Vec3, sound: crate::world::Sou
 }
 
 /// Pushes a player: its client is sent the motion, and so are the players who see it (PMMP
-/// `Player::setMotion`; the server runs no physics for players). With [`Raise::Events`] it goes
+/// `Player::setMotion`; the server keeps no motion of players). With [`Raise::Events`] it goes
 /// through [`EntityMotion`]: cancelling sends nothing.
 fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise) {
     let motion = physics::bounded(motion);
@@ -2874,10 +2834,24 @@ fn push_player(state: &mut State, session: SessionId, motion: Vec3, raise: Raise
         }
         event = Some(e);
     }
-    survival::send_motion(state, session, motion);
+    send_motion(state, session, motion);
     if let Some(e) = event {
         dispatch::watch(state, &e);
     }
+}
+
+/// Sends a player's motion to it and the players who see it.
+fn send_motion(state: &mut State, session: SessionId, motion: Vec3) {
+    let Some(p) = state.players.get(&session) else {
+        return;
+    };
+    let packet = Packet::SetActorMotion(crate::protocol::packet::SetActorMotion {
+        entity_runtime_id: p.runtime_id,
+        velocity: motion.to_f32(),
+        tick: 0,
+    });
+    let (world, chunk) = (p.world, chunk_of(p.position));
+    state.broadcast(world, chunk, &packet, None);
 }
 
 /// The look direction of a yaw and pitch in degrees, of an entity or a player (PMMP
@@ -3153,9 +3127,9 @@ fn stack_size(runtime_id: u64, count: u8) -> Packet {
 }
 
 /// Queues `packet` for every viewer still online.
-fn send_to<'a>(
+fn send_to(
     players: &mut BTreeMap<SessionId, Player>,
-    viewers: impl IntoIterator<Item = &'a SessionId>,
+    viewers: &BTreeSet<SessionId>,
     packet: &Packet,
 ) {
     for s in viewers {
@@ -3992,13 +3966,9 @@ fn track_players(state: &mut State) {
         .collect();
     for s in gone {
         if let Some(w) = state.rules.entities.watched.remove(&s) {
-            send_to(
-                &mut state.players,
-                w.viewers.keys(),
-                &track::remove(w.runtime_id),
-            );
+            send_to(&mut state.players, &w.viewers, &track::remove(w.runtime_id));
             let bar = track::locator_removed(w.runtime_id);
-            send_to(&mut state.players, w.viewers.keys(), &bar);
+            send_to(&mut state.players, &w.viewers, &bar);
         }
     }
     let mut packets: Vec<(SessionId, Packet)> = Vec::new();
@@ -4008,15 +3978,9 @@ fn track_players(state: &mut State) {
             continue;
         };
         let inv = &target.inventory;
-        let runtime_id = target.runtime_id;
-        let mut before = state.rules.entities.watched.remove(&t);
-        let mut now = Watched {
-            runtime_id,
-            viewers: before
-                .as_mut()
-                .map(|w| std::mem::take(&mut w.viewers))
-                .unwrap_or_default(),
-            next_generation: before.as_ref().map_or(0, |w| w.next_generation),
+        let now = Watched {
+            runtime_id: target.runtime_id,
+            viewers: want,
             position: target.position,
             rotation: survival::rotation(target),
             held: inv.held().clone(),
@@ -4024,31 +3988,15 @@ fn track_players(state: &mut State) {
             off_hand: inv.offhand().clone(),
             armour: inv.armor().clone(),
         };
-        // A viewer that stays keeps the spawn it was sent; the others see the player go.
-        now.viewers.retain(|&s, _| {
-            let stays = want.contains(&s);
-            if !stays {
-                packets.push((s, track::remove(runtime_id)));
-                packets.push((s, track::locator_removed(runtime_id)));
-            }
-            stays
-        });
-        if let Some(before) = &before {
-            changed_since(&state.settings, before, &now, target, &mut changes);
-            for &s in now.viewers.keys() {
-                packets.extend(changes.iter().map(|p| (s, p.clone())));
-            }
-            changes.clear();
-        }
         let game_mode = survival::game_mode(state, target);
         // Built only for a tick that has a new viewer.
         let mut add = None;
-        for s in want {
-            if now.viewers.contains_key(&s) {
+        let before = state.rules.entities.watched.remove(&t);
+        let old = before.as_ref().map(|w| &w.viewers);
+        for &s in &now.viewers {
+            if old.is_some_and(|v| v.contains(&s)) {
                 continue;
             }
-            now.viewers.insert(s, now.next_generation);
-            now.next_generation = now.next_generation.wrapping_add(1);
             let add = add.get_or_insert_with(|| {
                 track::add_player(track::Shown {
                     runtime_id: target.runtime_id,
@@ -4063,10 +4011,38 @@ fn track_players(state: &mut State) {
                 })
             });
             packets.push((s, add.clone()));
-            packets.push((s, track::armour(runtime_id, &now.armour)));
-            packets.push((s, track::off_hand(runtime_id, &now.off_hand)));
-            for p in track::locator_shown(runtime_id, target.position) {
+            packets.push((s, track::armour(now.runtime_id, &now.armour)));
+            packets.push((s, track::off_hand(now.runtime_id, &now.off_hand)));
+            for p in track::locator_shown(now.runtime_id, target.position) {
                 packets.push((s, p));
+            }
+        }
+        if let Some(before) = &before {
+            for &s in before.viewers.difference(&now.viewers) {
+                packets.push((s, track::remove(now.runtime_id)));
+                packets.push((s, track::locator_removed(now.runtime_id)));
+            }
+            if before.position != now.position || before.rotation != now.rotation {
+                let (yaw, pitch) = now.rotation;
+                let ground = survival::is_on_ground(target);
+                let moved = track::player_moved(now.runtime_id, now.position, yaw, pitch, ground);
+                changes.push(moved);
+            }
+            // The copies share their data while nothing changed: `same` finds that at once.
+            if !before.held.same(&now.held) || before.held_slot != now.held_slot {
+                changes.push(track::held(now.runtime_id, &now.held, now.held_slot));
+            }
+            if !before.off_hand.same(&now.off_hand) {
+                changes.push(track::off_hand(now.runtime_id, &now.off_hand));
+            }
+            if !now.same_armour(before) {
+                changes.push(track::armour(now.runtime_id, &now.armour));
+            }
+            if !changes.is_empty() {
+                for &s in before.viewers.intersection(&now.viewers) {
+                    packets.extend(changes.iter().map(|p| (s, p.clone())));
+                }
+                changes.clear();
             }
         }
         for (s, packet) in packets.drain(..) {
@@ -4076,53 +4052,6 @@ fn track_players(state: &mut State) {
         }
         state.rules.entities.watched.insert(t, now);
     }
-}
-
-/// Puts into `out` what the viewers of `target` were sent `before` and must be sent `now`: its
-/// movement and look, held item, off-hand item and armour, each only if it changed.
-fn changed_since(
-    settings: &super::Settings,
-    before: &Watched,
-    now: &Watched,
-    target: &Player,
-    out: &mut Vec<Packet>,
-) {
-    let runtime_id = now.runtime_id;
-    let moved = before.position != now.position || before.rotation != now.rotation;
-    if moved && settings.rules.is_on(super::Rule::PlayerMovementBroadcast) {
-        let (yaw, pitch) = now.rotation;
-        let ground = survival::is_on_ground(target);
-        out.push(track::player_moved(
-            runtime_id,
-            now.position,
-            yaw,
-            pitch,
-            ground,
-        ));
-    }
-    // The copies share their data while nothing changed: `same` finds that at once.
-    if !before.held.same(&now.held) || before.held_slot != now.held_slot {
-        out.push(track::held(runtime_id, &now.held, now.held_slot));
-    }
-    if !before.off_hand.same(&now.off_hand) {
-        out.push(track::off_hand(runtime_id, &now.off_hand));
-    }
-    if !now.same_armour(before) {
-        out.push(track::armour(runtime_id, &now.armour));
-    }
-}
-
-/// The players `target` was shown to at the last tracking pass, less those it was hidden from
-/// since, in session order, each with the generation of the spawn it was sent. A viewer that left
-/// since is still here: callers look it up.
-fn shown_to(entities: &Entities, target: SessionId) -> impl Iterator<Item = (SessionId, u32)> + '_ {
-    entities
-        .watched
-        .get(&target)
-        .into_iter()
-        .flat_map(|w| &w.viewers)
-        .filter(move |&(&s, _)| !entities.hidden.contains(&(s, target)))
-        .map(|(&s, &generation)| (s, generation))
 }
 
 /// The player of `session` left: its hidden pairs ([`Entities::hidden`]) go, both ways (a scan
@@ -4736,7 +4665,7 @@ mod tests {
             for (session, rx) in &mut self.receivers {
                 let seen = self.seen.entry(*session).or_default();
                 while let Ok(out) = rx.try_recv() {
-                    if let Outbound::Send { messages, .. } = out {
+                    if let Outbound::Send(messages) = out {
                         seen.extend(messages.into_iter().filter_map(|m| match m {
                             Message::Packet(p) => Some(p),
                             Message::SharedPacket(p) => Some((*p).clone()),

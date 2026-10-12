@@ -1177,7 +1177,6 @@ fn console_lines_run_in_the_tick_and_replay_from_the_input_log() {
                     Input {
                         session: e.session,
                         seq: e.seq,
-                        arrived: None,
                         kind,
                     }
                 })

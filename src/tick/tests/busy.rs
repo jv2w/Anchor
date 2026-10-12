@@ -104,7 +104,6 @@ pub(super) fn job_results(rng: &mut Rng, state: &State) -> Vec<Input> {
         out.push(Input {
             session: SessionId::JOBS,
             seq: id,
-            arrived: None,
             kind: InputKind::Job(outcome),
         });
     }

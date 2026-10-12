@@ -20,7 +20,6 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 use crate::block::{Facing, State};
-use crate::math::Aabb;
 
 pub use chunk::Chunk;
 pub use generator::{Flat, Generator, Void};
@@ -763,32 +762,6 @@ impl World {
         }
     }
 
-    /// The block of the second layer at `pos`: the water a waterlogged block, kelp or seagrass
-    /// stands in, else air. `None` if the chunk is not loaded (or quarantined), `pos` is outside
-    /// the world height, or the state is one Anchor does not know.
-    #[inline]
-    pub fn extra_block(&self, pos: BlockPos) -> Option<State> {
-        let (x, z) = pos.local();
-        match self.chunks.get(pos.chunk())?.extra_entry(x, pos.y, z)? {
-            Entry::Known(state) => Some(state),
-            Entry::Unknown(_) | Entry::Inert(..) => None,
-        }
-    }
-
-    /// The block-local collision boxes clients collide with at `pos`: those of the block, a state
-    /// Anchor does not know but clients do included ([`block`](Self::block) leaves those out),
-    /// and a full cube for one neither knows (clients are sent `minecraft:info_update`). `None`
-    /// if the chunk is not loaded (or quarantined) or `pos` is outside the world height.
-    #[inline]
-    pub fn collision_boxes_at(&self, pos: BlockPos) -> Option<&'static [Aabb]> {
-        let entry = self.entry(pos)?;
-        Some(
-            entry
-                .collision_boxes()
-                .unwrap_or_else(|| crate::block::INFO_UPDATE.collision_boxes()),
-        )
-    }
-
     /// Sets the block at `pos`.
     ///
     /// The neighbour rules then work out the connection properties of the block and of its
@@ -1367,68 +1340,6 @@ mod tests {
             }
         }
         w
-    }
-
-    /// The second layer: the water a waterlogged block holds is there, the first layer's block
-    /// is not; air elsewhere, nothing for a chunk not loaded.
-    #[test]
-    fn extra_block_reads_the_second_layer() {
-        use crate::world::paletted::{Paletted, offset};
-        use crate::world::sub_chunk::{Entry, SubChunk};
-        let water = block::Kind::Water.default_state();
-        let stone = block::Kind::Stone.default_state();
-        let mut layers = [Paletted::uniform(Entry::AIR), Paletted::uniform(Entry::AIR)];
-        let [first, second] = &mut layers;
-        first.set(offset(1, 2, 3), Entry::Known(stone));
-        second.set(offset(1, 2, 3), Entry::Known(water));
-        let mut subs: [Option<SubChunk>; chunk::SUB_CHUNKS] = std::array::from_fn(|_| None);
-        subs[4] = Some(SubChunk::from_layers(layers));
-        let biomes = std::array::from_fn(|_| Paletted::uniform(0));
-        let mut w = world(&Void, 0);
-        w.insert_chunk(
-            ChunkPos::new(0, 0),
-            Chunk::from_parts(subs, biomes, Vec::new()).unwrap(),
-        );
-        assert_eq!(w.block(BlockPos::new(1, 2, 3)), Some(stone));
-        assert_eq!(w.extra_block(BlockPos::new(1, 2, 3)), Some(water));
-        assert_eq!(w.extra_block(BlockPos::new(1, 3, 3)), Some(block::AIR));
-        assert_eq!(w.extra_block(BlockPos::new(64, 2, 3)), None);
-    }
-
-    /// The boxes clients collide with: a known block's, an inert block's own (which `block` does
-    /// not show), `info_update`'s full cube for a state no one knows, none for a chunk not loaded.
-    #[test]
-    fn collision_boxes_at_include_blocks_only_clients_know() {
-        use crate::nbt::{Compound, Value};
-        let stored = |name: &str| {
-            Compound::from([
-                ("name".to_owned(), Value::String(name.to_owned())),
-                ("states".to_owned(), Value::Compound(Compound::new())),
-                ("version".to_owned(), Value::Int(18_168_865)),
-            ])
-        };
-        let mut w = world(&Void, 0);
-        let (stone, inert, unknown) = (
-            BlockPos::new(0, -60, 0),
-            BlockPos::new(1, -60, 0),
-            BlockPos::new(2, -60, 0),
-        );
-        w.set_block(stone, block::Kind::Stone.default_state())
-            .unwrap();
-        w.put_unknown(inert, stored("minecraft:dripstone_block"))
-            .unwrap();
-        w.put_unknown(unknown, stored("minecraft:no_such_block"))
-            .unwrap();
-        let full = block::Kind::Stone.default_state().collision_boxes();
-        assert_eq!(w.collision_boxes_at(stone), Some(full));
-        assert_eq!(w.block(inert), None);
-        assert_eq!(w.collision_boxes_at(inert), Some(full));
-        assert_eq!(w.collision_boxes_at(unknown), Some(full));
-        assert_eq!(
-            w.collision_boxes_at(BlockPos::new(0, -59, 0)),
-            Some(&[][..])
-        );
-        assert_eq!(w.collision_boxes_at(BlockPos::new(64, -60, 0)), None);
     }
 
     /// A stored block copies a state Anchor does not know to another chunk with its NBT, listed

@@ -21,7 +21,7 @@ use crate::protocol::{
     AbilityData, AbilityLayer, Attribute, AttributeValue, EntityMetadata, EntityProperties,
     FlagSet, GameRule, GameRuleValue, MetadataValue,
 };
-use crate::tick::{Phase, Player, Rule, SessionId, Settings, State};
+use crate::tick::{Phase, Player, SessionId, Settings, State};
 
 /// Health changed.
 pub(super) const HEALTH: u16 = 1;
@@ -141,21 +141,14 @@ pub(super) fn movement_speed(s: &Survival) -> f64 {
 }
 
 /// One attribute with its current value.
-fn attribute(def: &Def, s: &Survival, settings: &Settings) -> Attribute {
+fn attribute(def: &Def, s: &Survival) -> Attribute {
     let (value, max) = match def.bit {
         HUNGER => (f32_of(s.food), def.max),
         SATURATION => (f32_of(s.saturation), def.max),
         EXHAUSTION => (f32_of(s.exhaustion), def.max),
         LEVEL => (f32_of(f64::from(s.xp_level)), def.max),
         EXPERIENCE => (f32_of(s.xp_progress), def.max),
-        HEALTH => {
-            let health = if settings.rules.is_on(Rule::RoundedHealth) {
-                s.health.ceil()
-            } else {
-                s.health
-            };
-            (f32_of(health), f32_of(s.max_health()))
-        }
+        HEALTH => (f32_of(s.health.ceil()), f32_of(s.max_health())),
         MOVEMENT => (f32_of(movement_speed(s)), def.max),
         ABSORPTION => {
             let value = f32_of(s.absorption);
@@ -179,7 +172,7 @@ fn attribute(def: &Def, s: &Survival, settings: &Settings) -> Attribute {
 
 /// Every attribute of the player (spawn and respawn) but those of a system the settings turn off
 /// (`hunger`, `experience`): the client shows their defaults, and the server never changes them.
-pub(in crate::tick) fn all_attributes(settings: &Settings, player: &Player) -> Packet {
+pub(in crate::tick) fn all_attributes(player: &Player) -> Packet {
     let on = player.survival.switches;
     let hunger = if on.hunger {
         0
@@ -187,23 +180,23 @@ pub(in crate::tick) fn all_attributes(settings: &Settings, player: &Player) -> P
         HUNGER | SATURATION | EXHAUSTION
     };
     let experience = if on.experience { 0 } else { LEVEL | EXPERIENCE };
-    attributes_of(settings, player, |d| d.bit & (hunger | experience) == 0)
+    attributes_of(player, |d| d.bit & (hunger | experience) == 0)
 }
 
 /// The attributes whose bits are set in `bits`, in BDS order.
-fn attributes_packet(settings: &Settings, player: &Player, bits: u16) -> Packet {
-    attributes_of(settings, player, |d| d.bit & bits != 0)
+fn attributes_packet(player: &Player, bits: u16) -> Packet {
+    attributes_of(player, |d| d.bit & bits != 0)
 }
 
 /// The attributes `keep` keeps, in BDS order.
-fn attributes_of(settings: &Settings, player: &Player, keep: impl Fn(&Def) -> bool) -> Packet {
+fn attributes_of(player: &Player, keep: impl Fn(&Def) -> bool) -> Packet {
     let s = &player.survival;
     Packet::UpdateAttributes(UpdateAttributes {
         entity_runtime_id: player.runtime_id,
         attributes: DEFS
             .iter()
             .filter(|d| keep(d))
-            .map(|d| attribute(d, s, settings))
+            .map(|d| attribute(d, s))
             .collect(),
         tick: 0,
     })
@@ -726,9 +719,8 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
     let abilities = (dirty & ABILITIES != 0).then(|| update_abilities(&state.settings, player));
     let adventure =
         (dirty & ADVENTURE != 0).then(|| adventure_packet(player.survival.custom.auto_jump));
-    let attributes =
-        (dirty & ALL != 0).then(|| attributes_packet(&state.settings, player, dirty & ALL));
-    let health = (dirty & HEALTH != 0).then(|| health_packet(&state.settings, player));
+    let attributes = (dirty & ALL != 0).then(|| attributes_packet(player, dirty & ALL));
+    let health = (dirty & HEALTH != 0).then(|| health_packet(player));
     let tags = dirty & TAGS != 0;
     let metadata = (now != old || tags).then(|| {
         let mut m = EntityMetadata::new();
@@ -778,8 +770,8 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
 /// The player's health for those who see it, as BDS tells them at a hit, a death and a respawn
 /// (P6 `others`). BDS sends viewers the player's food and exhaustion too, which the client shows
 /// nobody but the player: left out, they would cost a packet per viewer each time they move.
-pub(super) fn health_packet(settings: &Settings, player: &Player) -> Packet {
-    attributes_packet(settings, player, HEALTH)
+pub(super) fn health_packet(player: &Player) -> Packet {
+    attributes_packet(player, HEALTH)
 }
 
 /// Marks the player's current entity data as known to the client (its spawn window held it).

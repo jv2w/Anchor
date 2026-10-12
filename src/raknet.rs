@@ -25,7 +25,6 @@ use tokio::time::MissedTickBehavior;
 use tracing::{debug, error, trace};
 
 use crate::clock;
-use crate::session::Release;
 
 pub(crate) use listener::ip_key;
 use listener::{Config, Listener, Sink};
@@ -100,12 +99,11 @@ pub(crate) struct Settings {
 
 /// Binds the sockets and spawns the socket task on the current tokio runtime. `pong` is the
 /// whole pong payload; `accepted` receives connections that finished the handshake (when it is
-/// full, the new connection is closed); `release`, if any, hears of every datagram read.
+/// full, the new connection is closed).
 pub(crate) fn spawn(
     settings: Settings,
     pong: watch::Receiver<Arc<[u8]>>,
     accepted: mpsc::Sender<Connection>,
-    release: Option<Arc<Release>>,
 ) -> io::Result<Handle> {
     let invalid = |what: &str| io::Error::new(io::ErrorKind::InvalidInput, what);
     let runtime = tokio::runtime::Handle::try_current().map_err(io::Error::other)?;
@@ -147,7 +145,6 @@ pub(crate) fn spawn(
         start: clock::now(),
         buf: vec![0; RECV_BUFFER],
         signals: Vec::new(),
-        release,
     };
     let task = runtime.spawn(driver.run(commands, stopped));
     Ok(Handle {
@@ -419,8 +416,6 @@ struct Driver {
     start: Instant,
     buf: Vec<u8>,
     signals: Vec<(SocketAddr, u64, Flags)>,
-    /// Hears of every datagram read (`send-release = "after-pass"`).
-    release: Option<Arc<Release>>,
 }
 
 impl Driver {
@@ -470,22 +465,12 @@ impl Driver {
     fn receive(&mut self, v6: bool) {
         let now = self.now();
         self.refresh_pong();
-        // The datagrams of one batch were read at once: the first releases for them all.
-        let mut woke = false;
         for _ in 0..RECV_BATCH {
             let socket = if v6 { &self.io.v6 } else { &self.io.v4 };
             let Some(socket) = socket else {
                 return;
             };
-            let received = socket.try_recv_from(&mut self.buf);
-            if received.is_ok()
-                && !woke
-                && let Some(release) = &self.release
-            {
-                woke = true;
-                release.datagram();
-            }
-            match received {
+            match socket.try_recv_from(&mut self.buf) {
                 Ok((len, from)) => match self.buf.get(..len) {
                     Some(data) if len <= MAX_DATAGRAM => {
                         self.listener.receive(now, from, data, &mut self.io);
@@ -666,18 +651,12 @@ pub(crate) mod tests {
         let (accepted, mut connections) = mpsc::channel(1);
         // Find a free port, then bind it for IPv4 and IPv6 at once.
         let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-        let probe = spawn(
-            settings(localhost, None),
-            pongs.clone(),
-            accepted.clone(),
-            None,
-        )
-        .unwrap();
+        let probe = spawn(settings(localhost, None), pongs.clone(), accepted.clone()).unwrap();
         let port = probe.local_addrs()[0].port();
         probe.shutdown().await;
         let v4 = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
         let v6 = SocketAddrV6::new(Ipv6Addr::LOCALHOST, port, 0, 0);
-        let handle = spawn(settings(v4, Some(v6)), pongs, accepted, None).unwrap();
+        let handle = spawn(settings(v4, Some(v6)), pongs, accepted).unwrap();
         assert_eq!(handle.local_addrs(), [v4.into(), v6.into()]);
 
         let socket = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
@@ -815,7 +794,6 @@ pub(crate) mod tests {
             start: clock::now(),
             buf: vec![0; RECV_BUFFER],
             signals: Vec::new(),
-            release: None,
         };
         (driver, commands, connections)
     }
@@ -996,7 +974,7 @@ pub(crate) mod tests {
         let (_, pongs) = watch::channel(Arc::<[u8]>::from(&b""[..]));
         let (accepted, _) = mpsc::channel(1);
         let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
-        assert!(spawn(settings(localhost, None), pongs, accepted, None).is_err());
+        assert!(spawn(settings(localhost, None), pongs, accepted).is_err());
     }
 
     fn refuse_bad_settings() {
@@ -1005,12 +983,12 @@ pub(crate) mod tests {
         let localhost = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
         let mut bad = settings(localhost, None);
         bad.max_mtu = MIN_MTU - 1;
-        assert!(spawn(bad, pongs.clone(), accepted.clone(), None).is_err());
+        assert!(spawn(bad, pongs.clone(), accepted.clone()).is_err());
         let mut bad = settings(localhost, None);
         bad.max_message = usize::MAX;
-        assert!(spawn(bad, pongs.clone(), accepted.clone(), None).is_err());
+        assert!(spawn(bad, pongs.clone(), accepted.clone()).is_err());
         let mut bad = settings(localhost, None);
         bad.v4 = None;
-        assert!(spawn(bad, pongs, accepted, None).is_err());
+        assert!(spawn(bad, pongs, accepted).is_err());
     }
 }

@@ -86,12 +86,6 @@ pub(super) struct Motion {
     /// (bedrock-protocol-docs `PlayerMovementOverview`). Sent without it, the answer to a
     /// sneak the client has already ended turns the sneak on again.
     pub(super) answer_tick: Option<u64>,
-    /// The client tick of the last input: the motion sent to the player carries it, so the
-    /// client applies the motion at that input's frame, as BDS's does.
-    pub(super) input_tick: u64,
-    /// The player's motion as far as the server knows: what the last input reported (BDS's
-    /// `posDelta`, where the client's own physics moves it next), or the motion sent since.
-    pub(super) velocity: Vec3,
 }
 
 impl Default for Motion {
@@ -118,8 +112,6 @@ impl Default for Motion {
             death_shown: false,
             in_air: 0,
             answer_tick: None,
-            input_tick: 0,
-            velocity: Vec3::ZERO,
         }
     }
 }
@@ -146,8 +138,6 @@ crate::tick::checkpoint::fields!(Motion {
     death_shown,
     in_air,
     answer_tick,
-    input_tick,
-    velocity,
 });
 
 impl Motion {
@@ -175,8 +165,6 @@ impl Motion {
             death_shown,
             in_air,
             answer_tick,
-            input_tick,
-            velocity,
         } = self;
         let bits = [
             sprinting,
@@ -215,10 +203,6 @@ impl Motion {
         h.u64(u64::from(budget.cast_unsigned()));
         h.u64(u64::from(*in_air));
         h.u64(answer_tick.unwrap_or(u64::MAX));
-        h.u64(*input_tick);
-        for c in [velocity.x, velocity.y, velocity.z] {
-            h.u64(c.to_bits());
-        }
     }
 }
 
@@ -239,10 +223,6 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
         return;
     }
     let m = &mut player.survival.motion;
-    m.input_tick = packet.tick;
-    if packet.delta.iter().all(|c| c.is_finite()) {
-        m.velocity = Vec3::from_f32(packet.delta);
-    }
     let rotation = [packet.yaw.to_bits(), packet.pitch.to_bits()];
     if rotation != m.last_rotation {
         m.last_rotation = rotation;
@@ -500,7 +480,7 @@ fn miss_swing(state: &mut State, session: SessionId) {
             crate::world::Sound::EntityAttackNoDamage,
         );
     }
-    damage::attack_swing(state, session);
+    damage::swing(state, session);
     super::watch(state, event.as_ref());
 }
 
@@ -1121,8 +1101,6 @@ pub(super) fn teleport(state: &mut State, session: SessionId, eye: Vec3) {
     player.data_dirty = true;
     player.reset_fall_distance();
     player.survival.motion.processed = Some(feet(player));
-    // A teleported player stands still until its client reports a motion (BDS).
-    player.survival.motion.velocity = Vec3::ZERO;
     send_position(player, MoveMode::Teleport);
 }
 

@@ -24,7 +24,7 @@ use super::saved::{HEIGHT_MARGIN, MAX_CLOUD_AGE, MAX_CLOUD_RADIUS, MAX_PROJECTIL
 use super::{
     Cause, Entities, Entity, Hurt, Knock, MAX_ENTITIES_PER_WORLD, MAX_HIDDEN_PER_PLAYER, Npc,
     Raise, SessionId, State, actor_event, chunk_of, create, drop_stack, hurt_in, is_valid_position,
-    is_valid_scale, npc, object, physics, projectile, send_to, shown_to, to_f32, track,
+    is_valid_scale, npc, object, physics, projectile, send_to, to_f32,
 };
 use crate::action;
 use crate::block::{self, Face};
@@ -36,7 +36,6 @@ use crate::math::{self, Aabb, Vec3};
 use crate::nbt::Compound;
 use crate::player;
 use crate::protocol::consts::ActorEvent;
-use crate::protocol::packet::Packet;
 use crate::tick::world_api::index;
 use crate::tick::{Context, Phase, Player};
 use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
@@ -1843,106 +1842,6 @@ impl Context<'_> {
             .entities
             .hidden
             .contains(&(viewer.session(), target.session()))
-    }
-
-    /// The players whose clients show the player `of` now, in `Id` order, each with the
-    /// generation of the spawn it was sent: those it was sent to at the last tracking pass, less
-    /// those it was hidden from since and those that left. `of` is not among them; none if `of`
-    /// is not online.
-    pub fn player_viewers(
-        &self,
-        of: player::Id,
-    ) -> impl Iterator<Item = (player::Id, player::ViewGeneration)> + '_ {
-        let players = &self.state.players;
-        let online = self.player(of).is_some();
-        shown_to(&self.state.rules.entities, of.session())
-            .filter(move |(s, _)| online && players.contains_key(s))
-            .map(|(s, generation)| (player::Id::new(s), player::ViewGeneration(generation)))
-    }
-
-    /// Queues `packet` for [`player_viewers`](Self::player_viewers) of `of`, and `of` itself
-    /// with [`Audience::ViewersAndSelf`](player::Audience::ViewersAndSelf), after what each was
-    /// queued before this call (Anchor's own packets of the tick included). A viewer whose outbox
-    /// this tick leaves less than the room kept for its own packets is skipped and counted, never
-    /// disconnected; `of`'s own copy is queued as [`Player::send_packet`] queues one. `None` if
-    /// `of` is not online.
-    pub fn send_to_viewers(
-        &mut self,
-        of: player::Id,
-        audience: player::Audience,
-        packet: &Packet,
-    ) -> Option<player::Sent> {
-        self.player(of)?;
-        let target = of.session();
-        let State { players, rules, .. } = &mut *self.state;
-        let mut sent = player::Sent {
-            delivered: 0,
-            skipped: 0,
-        };
-        if audience == player::Audience::ViewersAndSelf
-            && let Some(own) = players.get_mut(&target)
-        {
-            own.send_packet(packet.clone());
-            sent.delivered = 1;
-        }
-        for (s, _) in shown_to(&rules.entities, target) {
-            let Some(viewer) = players.get_mut(&s) else {
-                continue;
-            };
-            if viewer.has_viewer_room() {
-                viewer.send_packet(packet.clone());
-                sent.delivered = sent.delivered.saturating_add(1);
-            } else {
-                sent.skipped = sent.skipped.saturating_add(1);
-            }
-        }
-        Some(sent)
-    }
-
-    /// Shows [`player_viewers`](Self::player_viewers) of `player` its held item now, as BDS
-    /// answers a selection of the slot already held: `MobEquipment` of the held slot without a
-    /// stack network ID, and of the off hand (window 119) when it is not empty. What was sent
-    /// becomes what the next tracking pass compares with, so it is not sent again. A viewer
-    /// skipped for a nearly full outbox, or hidden from `player` since that pass (its client
-    /// shows `player` until the pass, and still does if it is shown again first), leaves that as
-    /// it was, so the pass still sends a change. False if `player` is not online.
-    pub fn show_held_item(&mut self, player: player::Id) -> bool {
-        let Some(p) = self.player(player) else {
-            return false;
-        };
-        let inv = &p.inventory;
-        let (held, slot, off_hand) = (inv.held().clone(), inv.held_slot(), inv.offhand().clone());
-        let held_packet = track::held(p.runtime_id, &held, slot);
-        let off_hand_packet =
-            (!off_hand.is_empty()).then(|| track::off_hand(p.runtime_id, &off_hand));
-        let target = player.session();
-        let State { players, rules, .. } = &mut *self.state;
-        let mut skipped = false;
-        let mut shown = 0_usize;
-        for (s, _) in shown_to(&rules.entities, target) {
-            shown = shown.saturating_add(1);
-            let Some(viewer) = players.get_mut(&s) else {
-                continue;
-            };
-            for packet in std::iter::once(&held_packet).chain(&off_hand_packet) {
-                if viewer.has_viewer_room() {
-                    viewer.send_packet(packet.clone());
-                } else {
-                    skipped = true;
-                }
-            }
-        }
-        if let Some(w) = rules.entities.watched.get_mut(&target)
-            && !skipped
-            && shown == w.viewers.len()
-        {
-            w.held = held;
-            w.held_slot = slot;
-            if off_hand_packet.is_some() {
-                w.off_hand = off_hand;
-            }
-        }
-        true
     }
 
     /// Creates an entity of `kind` at `pos` in `world` with `motion` and no rotation.

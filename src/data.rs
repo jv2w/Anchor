@@ -10,11 +10,6 @@
 //! - **Server data**: a serde type registered with
 //!   [`ServerBuilder::server_data`](crate::ServerBuilder::server_data): one value for the server
 //!   ([`Context::data`](crate::Context::data)), loaded at start and saved in the same commit.
-//! - **Player state**: a serde type registered with
-//!   [`ServerBuilder::player_state`](crate::ServerBuilder::player_state). Every player has one
-//!   value of it ([`Player::state`](crate::player::Player::state), its [`Default`] at join),
-//!   never saved and gone when the player leaves; unlike an extension it is game state, so a
-//!   checkpoint keeps it (its JSON) and a replay restores it.
 //!
 //! Every value is `Send + Sync`: the tick's output phase reads the players in parallel.
 //!
@@ -30,8 +25,7 @@ use std::fmt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-/// The most player data and player state types together (16 values of up to 64 KiB keep a
-/// player's record small).
+/// The most player data types (16 values of up to 64 KiB keep a player's record small).
 pub const MAX_PLAYER_TYPES: usize = 16;
 /// The most server data types.
 pub const MAX_SERVER_TYPES: usize = 64;
@@ -54,18 +48,17 @@ pub enum Error {
         /// The name.
         name: String,
     },
-    /// Two player types (data or state) or two server data types have the same name.
+    /// Two player data types or two server data types have the same name.
     DuplicateName {
         /// The name.
         name: String,
     },
-    /// A type is registered twice as a player type (data or state) or twice as server data.
+    /// A type is registered twice as player data or twice as server data.
     DuplicateType {
         /// The second name it was registered under.
         name: String,
     },
-    /// More than [`MAX_PLAYER_TYPES`] player types (data and state) or [`MAX_SERVER_TYPES`]
-    /// server data types.
+    /// More than [`MAX_PLAYER_TYPES`] player data types or [`MAX_SERVER_TYPES`] server data types.
     TooManyTypes,
     /// The player holds [`MAX_EXTENSIONS`] extension types already.
     TooManyExtensions,
@@ -174,8 +167,6 @@ pub(crate) struct Codec {
     pub(crate) name: String,
     /// The registered type.
     pub(crate) type_id: TypeId,
-    /// Whether a save writes it: false for player state, which only checkpoints keep.
-    pub(crate) saved: bool,
     default: fn() -> Value,
     encode: fn(&Value, usize) -> std::result::Result<Vec<u8>, JsonError>,
     decode: fn(&[u8]) -> Option<Value>,
@@ -189,7 +180,6 @@ impl Codec {
         Self {
             name,
             type_id: TypeId::of::<T>(),
-            saved: true,
             default: || Box::new(T::default()),
             encode: |value, limit| {
                 let value = value.downcast_ref::<T>().ok_or(JsonError::Encode)?;
@@ -200,16 +190,6 @@ impl Codec {
                     .ok()
                     .map(|v| Box::new(v) as Value)
             },
-        }
-    }
-
-    /// The codec of `T` under `name` that no save writes.
-    pub(crate) fn unsaved<T: Default + Serialize + DeserializeOwned + Send + Sync + 'static>(
-        name: String,
-    ) -> Self {
-        Self {
-            saved: false,
-            ..Self::of::<T>(name)
         }
     }
 
@@ -237,7 +217,6 @@ impl fmt::Debug for Codec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Codec")
             .field("name", &self.name)
-            .field("saved", &self.saved)
             .finish_non_exhaustive()
     }
 }

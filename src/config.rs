@@ -155,21 +155,6 @@ item-pickup-interval = 1
 hook-movement-packets = true
 # false: PlayerAuthInput packets skip the receive hooks.
 hook-player-input = true
-# Order of each tick's player inputs: "session" (player by player, whatever the network
-# timing) or "arrival" (as they reached the server, across players, as the official server
-# applies them).
-input-order = "session"
-# Microseconds of an input pass (0 to 50000; needs input-order = "arrival"). 0: inputs apply
-# each tick. Otherwise a PlayerAuthInput takes effect at the end of the pass it arrived in,
-# as the official server's loop does (15625 on Windows); other packets apply as they come.
-input-pass-us = 0
-# When the server sends what a tick or an input pass made: "immediate" (at once) or
-# "after-pass" (needs input-pass-us above 0): all connections send together when any
-# datagram arrives, or send-release-wait-us after the last time they did, at a pass end, as
-# the official server's network thread does.
-send-release = "immediate"
-# Microseconds of that wait with send-release = "after-pass" (0 to 1000000).
-send-release-wait-us = 10000
 # Minutes between whole-state saves (1 to 1440).
 save-interval-minutes = 10
 # When the data files are checked at start: "always", "after-unclean-shutdown" or "never".
@@ -202,10 +187,6 @@ const CHUNKS_PER_TICK: RangeInclusive<u32> = 1..=256;
 pub(crate) const RANDOM_TICK_SPEED: RangeInclusive<u32> = 0..=4096;
 /// go-raknet's dialer probes 1492, 1200 and 576.
 const MAX_MTU_SIZE: RangeInclusive<u16> = 576..=1492;
-/// Off, or at most one tick: a longer pass would hold inputs past the tick after them.
-const INPUT_PASS_US: RangeInclusive<u32> = 0..=50_000;
-/// Up to a second: the official server waits 10 ms.
-const SEND_RELEASE_WAIT_US: RangeInclusive<u32> = 0..=1_000_000;
 /// One minute to one day.
 const SAVE_INTERVAL_MINUTES: RangeInclusive<u16> = 1..=1440;
 /// A fixed thread count; the runtime checks the total against the logical CPUs.
@@ -510,16 +491,6 @@ impl Config {
             d.item_pickup_interval,
             ITEM_PICKUP_INTERVAL,
         )?;
-        // A pass applies the inputs that arrived in it in the order they arrived.
-        if d.input_pass_us > 0 && d.input_order != InputOrder::Arrival {
-            return Err(Key::developer("input-pass-us")
-                .invalid("0 unless `developer.input-order` is \"arrival\""));
-        }
-        // The output waits for the end of the pass it belongs to.
-        if d.send_release == SendRelease::AfterPass && d.input_pass_us == 0 {
-            return Err(Key::developer("send-release")
-                .invalid("\"immediate\" unless `developer.input-pass-us` is above 0"));
-        }
         range(
             Key::developer("save-interval-minutes"),
             d.save_interval_minutes,
@@ -787,15 +758,6 @@ pub struct Developer {
     pub hook_movement_packets: bool,
     /// `hook-player-input`: whether `PlayerAuthInput` packets pass the receive hooks.
     pub hook_player_input: bool,
-    /// `input-order`: the order in which a tick applies the inputs of the players.
-    pub input_order: InputOrder,
-    /// `input-pass-us`: the length of an input pass in microseconds; 0 applies inputs each tick.
-    pub input_pass_us: u32,
-    /// `send-release`: when the server sends what a tick or an input pass made.
-    pub send_release: SendRelease,
-    /// `send-release-wait-us`: how long the network waits for a datagram before it sends, with
-    /// [`SendRelease::AfterPass`].
-    pub send_release_wait_us: u32,
     /// `save-interval-minutes`: minutes between whole-state saves.
     pub save_interval_minutes: u16,
     /// `integrity-check`: when the data files are checked at start.
@@ -852,12 +814,6 @@ impl Developer {
                 }
                 "hook-movement-packets" => self.hook_movement_packets = boolean(value, key)?,
                 "hook-player-input" => self.hook_player_input = boolean(value, key)?,
-                "input-order" => self.input_order = choice(value, key, &InputOrder::NAMES)?,
-                "input-pass-us" => self.input_pass_us = int(value, key, INPUT_PASS_US)?,
-                "send-release" => self.send_release = choice(value, key, &SendRelease::NAMES)?,
-                "send-release-wait-us" => {
-                    self.send_release_wait_us = int(value, key, SEND_RELEASE_WAIT_US)?;
-                }
                 "save-interval-minutes" => {
                     self.save_interval_minutes = int(value, key, SAVE_INTERVAL_MINUTES)?;
                 }
@@ -897,10 +853,6 @@ impl Default for Developer {
             item_pickup_interval: 1,
             hook_movement_packets: true,
             hook_player_input: true,
-            input_order: InputOrder::Session,
-            input_pass_us: 0,
-            send_release: SendRelease::Immediate,
-            send_release_wait_us: 10_000,
             save_interval_minutes: 10,
             integrity_check: IntegrityCheck::Always,
             console_input: true,
@@ -1041,44 +993,6 @@ impl IntegrityCheck {
         ("always", Self::Always),
         ("after-unclean-shutdown", Self::AfterUncleanShutdown),
         ("never", Self::Never),
-    ];
-}
-
-/// The order in which a tick applies the inputs of the players (`input-order`). Either way a
-/// replay of the input log applies them in the same order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum InputOrder {
-    /// `"session"`: session by session in connection order, each session's inputs in the order
-    /// they arrived, so how the sessions' packets interleaved on the network changes nothing.
-    Session,
-    /// `"arrival"`: in the order they reached the tick's input queue, across sessions, as BDS
-    /// applies them: an input that arrived first acts first, whichever player sent it.
-    Arrival,
-}
-
-impl InputOrder {
-    /// The `input-order` values.
-    const NAMES: [(&str, Self); 2] = [("session", Self::Session), ("arrival", Self::Arrival)];
-}
-
-/// When the server sends what a tick or an input pass made (`send-release`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SendRelease {
-    /// `"immediate"`: each connection sends as soon as it has the output.
-    Immediate,
-    /// `"after-pass"`: as the official server's network thread sends. Output waits until the
-    /// input pass it was made in has ended; then every connection sends all it holds of the
-    /// ended passes, in order, in one batch, when any datagram arrives on any connection, or
-    /// else at the first pass end `send-release-wait-us` or more after the last time it sent,
-    /// with the passes that ended before that pass end.
-    AfterPass,
-}
-
-impl SendRelease {
-    /// The `send-release` values.
-    const NAMES: [(&str, Self); 2] = [
-        ("immediate", Self::Immediate),
-        ("after-pass", Self::AfterPass),
     ];
 }
 
@@ -1814,7 +1728,7 @@ old-key = false
         let config = Config::default().load_as(&path, true).unwrap();
         let update = config.updated().unwrap();
         assert_eq!(update.removed(), ["general.old-key"]);
-        assert_eq!(update.added().len(), 69);
+        assert_eq!(update.added().len(), 65);
         let again = Config::default().load_as(&path, true).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }

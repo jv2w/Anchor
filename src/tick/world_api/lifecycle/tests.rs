@@ -1250,7 +1250,6 @@ fn replay(ticks: &[LoggedTick], pool: &Pool) -> Vec<u64> {
             .map(|e| Input {
                 session: e.session,
                 seq: e.seq,
-                arrived: None,
                 kind: match &e.kind {
                     EntryKind::Join(identity) => {
                         let (tx, rx) = outbound_queue();

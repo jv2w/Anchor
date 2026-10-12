@@ -5,8 +5,6 @@
 //! A hit is worked out in two steps, so events can sit between them: [`assess`] checks
 //! whether the hit lands and computes its modifiers, [`apply`] changes the state.
 
-use std::num::NonZeroU8;
-
 use tracing::debug;
 
 use super::attributes::{self, ABSORPTION, HEALTH};
@@ -28,7 +26,9 @@ use crate::math::{self, Vec3};
 use crate::player;
 use crate::protocol::EntityProperties;
 use crate::protocol::consts::{ActorEvent, AnimateAction, RespawnState};
-use crate::protocol::packet::{self, Animate, DeathInfo, Packet, Respawn, SetActorData};
+use crate::protocol::packet::{
+    self, Animate, DeathInfo, Packet, Respawn, SetActorData, SetActorMotion,
+};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::tick::entity::{
@@ -272,18 +272,13 @@ struct Landed {
     knockback: f64,
     /// The most a cold hit knocks upward.
     vertical_limit: f64,
-    /// The motion a listener put in place of the knockback, and how many times it is sent.
-    knockback_motion: Option<(Vec3, NonZeroU8)>,
-    /// Whether the hit starts the cooldown again even within it.
-    restarts_cooldown: bool,
     /// The ticks within which a weaker hit does nothing.
     cooldown: u32,
 }
 
 impl Landed {
-    /// The event that announces the hit on `player`, `cancelled` from the start for a hit the
-    /// attack cooldown refuses.
-    fn event(&self, player: player::Id, cancelled: bool) -> EntityDamage {
+    /// The event that announces the hit on `player`.
+    fn event(&self, player: player::Id) -> EntityDamage {
         EntityDamage {
             entity: Actor::Player(player),
             cause: self.hit.cause.event_cause(),
@@ -295,10 +290,7 @@ impl Landed {
             attack_cooldown_ticks: self.cooldown,
             knockback: self.knockback,
             vertical_knockback_limit: self.vertical_limit,
-            knockback_motion: self.knockback_motion,
-            restarts_cooldown: self.restarts_cooldown,
-            dealt: None,
-            cancelled,
+            cancelled: false,
         }
     }
 
@@ -306,9 +298,7 @@ impl Landed {
     /// are the ones the hit started with, its own damage, absorption and totem stand (bit for bit
     /// what no listener gives); otherwise they follow the event (PMMP `applyPostDamageEffects`:
     /// the absorption and totem modifiers). The absorption modifier can only use absorption up,
-    /// the knockback force and limit are kept within [`MAX_KNOCKBACK`] and a knockback motion
-    /// within what a packet's `f32` carries (BDS's own knockback reaches 128): listener values are
-    /// external input.
+    /// and the knockback is kept within [`MAX_KNOCKBACK`]: listener values are external input.
     fn change(&mut self, event: &EntityDamage) {
         let bits = |m: &Modifiers| m.map(|v| v.map(f64::to_bits));
         if event.base_damage.to_bits() != self.hit.base.to_bits()
@@ -319,39 +309,14 @@ impl Landed {
             self.absorption = math::min(event.modifier(DamageModifier::Absorption), 0.0);
             self.totem = event.modifier(DamageModifier::Totem) < 0.0;
         }
-        self.modifiers = event.modifiers;
-        let bound = |v: f64| math::clamp(v, -MAX_KNOCKBACK, MAX_KNOCKBACK);
-        self.knockback = bound(event.knockback);
-        self.vertical_limit = bound(event.vertical_knockback_limit);
-        let carried = |v: f64| math::clamp(v, -f64::from(f32::MAX), f64::from(f32::MAX));
-        self.knockback_motion = event
-            .knockback_motion
-            .map(|(m, sends)| (Vec3::new(carried(m.x), carried(m.y), carried(m.z)), sends));
+        self.knockback = math::clamp(event.knockback, -MAX_KNOCKBACK, MAX_KNOCKBACK);
+        self.vertical_limit = math::clamp(
+            event.vertical_knockback_limit,
+            -MAX_KNOCKBACK,
+            MAX_KNOCKBACK,
+        );
         self.cooldown = event.attack_cooldown_ticks;
-        self.restarts_cooldown = event.restarts_cooldown;
     }
-
-    /// Makes the hit take `dealt` health before absorption ([`EntityDamage::set_dealt`]), the
-    /// absorption and a held totem working on it as [`assess`] has them work.
-    fn deal(&mut self, player: &Player, dealt: f64) {
-        self.absorption = absorbed(player, dealt);
-        let left = dealt + self.absorption;
-        let compensation = totem_compensation(player, self.hit.cause, left);
-        self.totem = compensation.is_some();
-        self.final_damage = left + compensation.unwrap_or(0.0);
-    }
-}
-
-/// The absorption (0 or negative) a hit of `damage` uses up.
-fn absorbed(player: &Player, damage: f64) -> f64 {
-    -math::min(player.survival.absorption, damage)
-}
-
-/// What a held totem adds to a hit of `damage` that would kill (PMMP
-/// `Human::applyDamageModifiers`): the player is left with 1 health. `None` when no totem saves it.
-fn totem_compensation(player: &Player, cause: Damage, damage: f64) -> Option<f64> {
-    let compensation = player.survival.health - damage - 1.0;
-    (cause != Damage::Void && holds_totem(player) && compensation <= -1.0).then_some(compensation)
 }
 
 /// Deals `amount` damage for `cause`; false if no damage was taken. A melee hit names its player
@@ -431,28 +396,20 @@ fn attacker_modifiers(
     (extra, parts)
 }
 
-/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; the hit as the listeners left
-/// it, `None` if it did not land. A hit the attack cooldown alone refuses is asked about cancelled
-/// while there are listeners (PMMP `Living::attack` cancels it and still raises the event): one
-/// that uncancels it lets it land, and the check after the listeners leaves the cooldown out.
-fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
-    let refused = state
-        .players
-        .get(&session)
-        .is_some_and(|p| !cooldown_allows(p, &hit));
-    if refused && !dispatch::listened::<EntityDamage>(state) {
-        return None;
-    }
+/// Checks a hit, asks the [`EntityDamage`] listeners and applies it; its modifiers as the
+/// listeners left them, `None` if it did not land.
+fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Modifiers> {
     let landed = assess(state, session, hit)?;
     let id = player::Id::new(session);
     let Ok(event) = super::ask(
         state,
-        || landed.event(id, refused),
+        || landed.event(id),
         EntityDamage::is_cancelled,
         |state, _| {
-            state.players.get(&session).is_some_and(|p| {
-                can_take(p, &landed.hit) && (refused || cooldown_allows(p, &landed.hit))
-            })
+            state
+                .players
+                .get(&session)
+                .is_some_and(|p| lands(p, &landed.hit))
         },
     ) else {
         return None;
@@ -460,15 +417,10 @@ fn hurt(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let mut landed = landed;
     if let Some(e) = &event {
         landed.change(e);
-        if let Some(dealt) = e.dealt
-            && let Some(p) = state.players.get(&session)
-        {
-            landed.deal(p, dealt);
-        }
     }
     apply(state, session, &landed, entity::Raise::Events);
     super::watch(state, event.as_ref());
-    Some(landed)
+    Some(event.map_or(landed.modifiers, |e| e.modifiers))
 }
 
 /// Deals `amount` damage for `cause` with no source and no events, for the direct API (an explosion
@@ -493,13 +445,6 @@ pub(super) fn damage_quiet(
         thorns: false,
         source: DamageSource::None,
     };
-    if !state
-        .players
-        .get(&session)
-        .is_some_and(|p| cooldown_allows(p, &hit))
-    {
-        return false;
-    }
     let Some(landed) = assess(state, session, hit) else {
         return false;
     };
@@ -507,11 +452,12 @@ pub(super) fn damage_quiet(
     true
 }
 
-/// Whether a hit can land on the player, the attack cooldown aside (PMMP `Player::attack`,
-/// `Living::attack`): spawned and alive, not creative nor just respawned, a spectator only in the
-/// void, no fall for a player that may fly, fire resistance against fire. Nothing spares a player
-/// from [`Damage::Suicide`] but spectator mode outside it, death and fire resistance.
-fn can_take(player: &Player, hit: &Hit) -> bool {
+/// Whether a hit can land on the player at all (PMMP `Player::attack`, `Living::attack`, the
+/// cooldown of `Living::applyDamageModifiers`): spawned and alive, not creative nor just
+/// respawned, a spectator only in the void, no fall for a player that may fly, fire resistance
+/// against fire, and within the hit cooldown only a stronger hit. Nothing spares a player from
+/// [`Damage::Suicide`] but spectator mode outside it, death and fire resistance.
+fn lands(player: &Player, hit: &Hit) -> bool {
     let s = &player.survival;
     let mode = s.mode();
     let suicide = hit.cause == Damage::Suicide;
@@ -521,20 +467,11 @@ fn can_take(player: &Player, hit: &Hit) -> bool {
         && (mode != GameMode::Spectator || matches!(hit.cause, Damage::Void | Damage::Suicide))
         && !(hit.cause == Damage::Fall && s.may_fly())
         && !(hit.cause.is_fire() && s.effects.contains_key(&Effect::FireResistance))
+        && (suicide || s.attack_time == 0 || s.last_damage.is_none_or(|last| last < hit.base))
 }
 
-/// Whether the attack cooldown lets a hit land (PMMP `Living::attack`): outside it, or stronger
-/// than the last hit within it; a suicide always.
-fn cooldown_allows(player: &Player, hit: &Hit) -> bool {
-    let s = &player.survival;
-    hit.cause == Damage::Suicide
-        || s.attack_time == 0
-        || s.last_damage.is_none_or(|last| last < hit.base)
-}
-
-/// Whether a hit lands, the attack cooldown aside ([`cooldown_allows`]), and how much it deals
-/// (PMMP `Player::attack`, `Living::attack`, `Living::applyDamageModifiers`,
-/// `Human::applyDamageModifiers`); `None` if it is cancelled.
+/// Whether a hit lands and how much it deals (PMMP `Player::attack`, `Living::attack`,
+/// `Living::applyDamageModifiers`, `Human::applyDamageModifiers`); `None` if it is cancelled.
 /// Each modifier is kept for the event as well as added up, in PMMP's order. A system the
 /// settings turn off hurts no one, whatever deals the hit (`fall-damage`: an ender pearl's fall
 /// too; `drowning`), and with `armor = false` worn armour reduces nothing.
@@ -552,7 +489,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     }
     let armor = settings.armor;
     let player = state.players.get_mut(&session)?;
-    if !can_take(player, &hit) {
+    if !lands(player, &hit) {
         return None;
     }
     let base = hit.base;
@@ -601,7 +538,8 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
             sum -= d;
             set(&mut modifiers, DamageModifier::ArmorEnchantments, -d);
         }
-        absorption = absorbed(player, total(sum));
+        let s = &player.survival;
+        absorption = -math::min(s.absorption, total(sum));
         sum += absorption;
         set(&mut modifiers, DamageModifier::Absorption, absorption);
         let helmet = || {
@@ -616,10 +554,13 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
             sum -= d;
             set(&mut modifiers, DamageModifier::ArmorHelmet, -d);
         }
-        if let Some(compensation) = totem_compensation(player, hit.cause, total(sum)) {
-            sum += compensation;
-            totem = true;
-            set(&mut modifiers, DamageModifier::Totem, compensation);
+        if hit.cause != Damage::Void && holds_totem(player) {
+            let compensation = s.health - total(sum) - 1.0;
+            if compensation <= -1.0 {
+                sum += compensation;
+                totem = true;
+                set(&mut modifiers, DamageModifier::Totem, compensation);
+            }
         }
     }
     Some(Landed {
@@ -630,8 +571,6 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
         modifiers,
         knockback: KNOCKBACK,
         vertical_limit: KNOCKBACK_VERTICAL_LIMIT,
-        knockback_motion: None,
-        restarts_cooldown: false,
         cooldown: u32::from(ATTACK_COOLDOWN),
     })
 }
@@ -640,8 +579,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
 /// cooldown, knockback, hurt animation and `applyPostDamageEffects`). A quiet hit raises no
 /// events: its death and wake wait for the player's survival sync, its exhaustion and totem
 /// effects go in directly. With `armor = false` worn armour neither wears nor answers with
-/// thorns. A knockback motion a listener set pushes the player on every hit it survives, sent as
-/// many times as the listener asked, before the hurt animation as BDS sends them.
+/// thorns.
 fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::Raise) {
     let Landed {
         hit,
@@ -651,8 +589,6 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
         modifiers: _,
         knockback,
         vertical_limit,
-        knockback_motion,
-        restarts_cooldown,
         cooldown,
     } = *landed;
     let Some(player) = state.players.get_mut(&session) else {
@@ -665,7 +601,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
     s.health = if health > 0.0 { health } else { 0.0 };
     s.mark(HEALTH);
     player.data_dirty = true;
-    let cold = s.attack_time == 0 || restarts_cooldown;
+    let cold = s.attack_time == 0;
     if cold {
         s.attack_time = cooldown;
     }
@@ -674,18 +610,31 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
             player.survival.custom.killed = true;
             return;
         }
-        died_of(state, session, &hit);
+        // A projectile names its shooter; one no player shot is a generic death (PMMP
+        // `PlayerDeathEvent::deriveMessage`).
+        let attacker = match (hit.cause, hit.source) {
+            (Damage::Attack(a), _) => Some(a),
+            (
+                Damage::Entity,
+                DamageSource::Child {
+                    owner: Some(Actor::Player(p)),
+                    ..
+                },
+            ) => Some(p.session()),
+            _ => None,
+        };
+        let message = match hit.cause {
+            Damage::Entity if attacker.is_none() => GENERIC_DEATH,
+            Damage::Entity if is_trident(state, hit.source) => "death.attack.trident",
+            // Only a cactus is named for contact (PMMP `deriveMessage`).
+            Damage::Contact if !is_cactus(state, session, hit.source) => GENERIC_DEATH,
+            cause => cause.death_message(),
+        };
+        die(state, session, message, attacker);
         return;
     }
-    if let Some((motion, sends)) = knockback_motion {
-        for _ in 0..sends.get() {
-            super::send_motion(state, session, motion);
-        }
-    }
     if cold {
-        if let Some(attacker) = hit.attacker
-            && knockback_motion.is_none()
-        {
+        if let Some(attacker) = hit.attacker {
             knock_back_from(state, session, attacker, knockback, vertical_limit);
         }
         let packet = actor_event(
@@ -727,31 +676,6 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
             }
         }
     }
-}
-
-/// The player of `session` died of `hit`, which names its killer and the death message.
-fn died_of(state: &mut State, session: SessionId, hit: &Hit) {
-    // A projectile names its shooter; one no player shot is a generic death (PMMP
-    // `PlayerDeathEvent::deriveMessage`).
-    let attacker = match (hit.cause, hit.source) {
-        (Damage::Attack(a), _) => Some(a),
-        (
-            Damage::Entity,
-            DamageSource::Child {
-                owner: Some(Actor::Player(p)),
-                ..
-            },
-        ) => Some(p.session()),
-        _ => None,
-    };
-    let message = match hit.cause {
-        Damage::Entity if attacker.is_none() => GENERIC_DEATH,
-        Damage::Entity if is_trident(state, hit.source) => "death.attack.trident",
-        // Only a cactus is named for contact (PMMP `deriveMessage`).
-        Damage::Contact if !is_cactus(state, session, hit.source) => GENERIC_DEATH,
-        cause => cause.death_message(),
-    };
-    die(state, session, message, attacker);
 }
 
 /// Whether `source` is a thrown trident.
@@ -1127,7 +1051,12 @@ fn knock_back(
         math::min(force, vertical_limit),
         z * f * force,
     );
-    super::send_motion(state, session, motion);
+    let packet = Packet::SetActorMotion(SetActorMotion {
+        entity_runtime_id: player_runtime_id(state, session),
+        velocity: motion.to_f32(),
+        tick: 0,
+    });
+    broadcast_from(state, session, &packet);
 }
 
 /// Sets the player on fire for `seconds` (PMMP `Living::setOnFire`): fire protection shortens it
@@ -1205,7 +1134,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         return;
     }
     let Some(hit) = melee_hit(state, attacker, target) else {
-        attack_swing(state, attacker);
+        swing(state, attacker);
         hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
     };
@@ -1215,8 +1144,8 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         .map(|p| p.inventory.held().clone())
         .unwrap_or_default();
     let landed = hurt(state, target, hit);
-    attack_swing(state, attacker);
-    let Some(landed) = landed else {
+    swing(state, attacker);
+    let Some(modifiers) = landed else {
         hit_sound(state, target, Sound::EntityAttackNoDamage);
         return;
     };
@@ -1230,8 +1159,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         ),
     ] {
         // As the listeners left the hit: what added nothing shows nothing.
-        if landed
-            .modifiers
+        if modifiers
             .get(modifier as usize)
             .copied()
             .flatten()
@@ -1247,9 +1175,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
         }
     }
     after_melee(state, attacker, &held, |state, knockback, fire| {
-        if let Some(force) = knockback
-            && landed.knockback_motion.is_none()
-        {
+        if let Some(force) = knockback {
             knock_back_from(state, target, attacker, force, KNOCKBACK_VERTICAL_LIMIT);
         }
         if let Some(seconds) = fire {
@@ -1397,15 +1323,6 @@ pub(super) fn swing(state: &mut State, session: SessionId) {
         0,
     );
     broadcast_to_viewers(state, session, &packet);
-}
-
-/// The arm swing of an attack or a swing at nothing, unless [`Rule::ServerSwing`] is off.
-///
-/// [`Rule::ServerSwing`]: crate::Rule::ServerSwing
-pub(super) fn attack_swing(state: &mut State, session: SessionId) {
-    if state.settings.rules.is_on(crate::Rule::ServerSwing) {
-        swing(state, session);
-    }
 }
 
 /// The weapon `held` that made a hit wears (PMMP `onAttackEntity`): swords, tridents and hoes by
@@ -1825,7 +1742,7 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
         return;
     };
     let mut out = vec![
-        attributes::all_attributes(&state.settings, player),
+        attributes::all_attributes(player),
         attributes::update_abilities(&state.settings, player),
     ];
     inventory::spawn_packets(player, &mut out);
@@ -1837,7 +1754,7 @@ pub(super) fn respawn(state: &mut State, session: SessionId) {
     });
     let alive = actor_event(player.runtime_id, ActorEvent::SpawnAlive, 0);
     let size = attributes::size_data(player.runtime_id, attributes::size(&player.survival));
-    let health = attributes::health_packet(&state.settings, player);
+    let health = attributes::health_packet(player);
     let now = attributes::shown(player);
     let seen = [data, alive, size];
     for packet in seen.iter().chain([&health]) {

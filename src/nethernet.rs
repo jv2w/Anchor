@@ -32,7 +32,6 @@ use crate::clock;
 use crate::crypto::{self, PublicKey};
 use crate::login::{self, Mode};
 use crate::raknet::{Flags, Inbound, Inbox, bind, ip_key, readable};
-use crate::session::Release;
 
 use identity::ServerIdentity;
 use peer::{Certificate, Peer};
@@ -151,15 +150,13 @@ impl std::error::Error for Error {}
 /// Loads the identity key and the TLS certificate, binds the sockets and spawns the signaling
 /// server, the offer task and the driver on the current runtime. `status` is the `GET /v1/join`
 /// body; `auth` verifies online offers; `accepted` receives connections whose channels opened
-/// (when it is full, the new connection is closed); `release`, if any, hears of every datagram
-/// read.
+/// (when it is full, the new connection is closed).
 pub(crate) async fn start(
     settings: Settings,
     data_dir: &Path,
     status: watch::Receiver<Arc<[u8]>>,
     auth: Option<Auth>,
     accepted: mpsc::Sender<Connection>,
-    release: Option<Arc<Release>>,
 ) -> std::result::Result<Handle, StartError> {
     let path = data_dir.join(IDENTITY_FILE);
     let identity = tokio::task::spawn_blocking(move || ServerIdentity::load_or_create(&path))
@@ -206,7 +203,6 @@ pub(crate) async fn start(
         settings.max_message,
         accepted,
         commands_tx.clone(),
-        release,
     );
     let driver = tokio::spawn(driver.run(commands_rx, stopped));
     let offers = Offers {
@@ -548,8 +544,6 @@ struct Driver {
     /// Set once the driver is stopping: new offers are refused, and it ends when the last
     /// peer is gone.
     stopping: bool,
-    /// Hears of every datagram read (`send-release = "after-pass"`).
-    release: Option<Arc<Release>>,
 }
 
 impl Driver {
@@ -560,7 +554,6 @@ impl Driver {
         max_message: usize,
         accepted: mpsc::Sender<Connection>,
         commands: mpsc::Sender<Command>,
-        release: Option<Arc<Release>>,
     ) -> Self {
         Self {
             v4,
@@ -578,7 +571,6 @@ impl Driver {
             buf: vec![0; RECV_BUFFER],
             doomed: Vec::new(),
             stopping: false,
-            release,
         }
     }
 
@@ -646,20 +638,10 @@ impl Driver {
 
     fn receive(&mut self, v6: bool) {
         let now = clock::now();
-        // The datagrams of one batch were read at once: the first releases for them all.
-        let mut woke = false;
         for _ in 0..RECV_BATCH {
             let socket = if v6 { &self.v6 } else { &self.v4 };
             let Some(socket) = socket else { return };
-            let received = socket.try_recv_from(&mut self.buf);
-            if received.is_ok()
-                && !woke
-                && let Some(release) = &self.release
-            {
-                woke = true;
-                release.datagram();
-            }
-            let (len, from) = match received {
+            let (len, from) = match socket.try_recv_from(&mut self.buf) {
                 Ok(received) => received,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => return,
                 // Windows reports ICMP port unreachable as WSAECONNRESET on the next receive
@@ -1082,7 +1064,6 @@ mod tests {
             MAX_MESSAGE,
             accepted,
             commands.clone(),
-            None,
         );
         let task = tokio::spawn(driver.run(receiver, stopped));
 

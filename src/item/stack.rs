@@ -437,26 +437,6 @@ impl Stack {
         }
     }
 
-    /// Whether a client's `sent` item is this stack as the server sends it: the same item type
-    /// and meta, count and NBT (the damage of an item that wears is in it), as Dragonfly's
-    /// `VerifySlot` compares a client's held item. The stack network ID, the block runtime ID
-    /// (a client may send another for an item without a block form), the adventure-mode lists
-    /// and a shield's blocking tick are not compared.
-    pub fn matches_instance(&self, sent: &protocol::ItemInstance) -> bool {
-        let protocol::ItemStack {
-            item_type,
-            block_runtime_id: _,
-            count,
-            nbt_data,
-            can_be_placed_on: _,
-            can_break: _,
-            blocking_tick: _,
-        } = self.to_network();
-        sent.stack.item_type == item_type
-            && sent.stack.count == count
-            && sent.stack.nbt_data == nbt_data
-    }
-
     /// The stack a client sent in network form, or `None` if Anchor does not know the item or
     /// the count is above the item's stack size. The block a block item is sent with only tells
     /// apart types of the same runtime ID and meta; a client's different block runtime ID for an
@@ -694,41 +674,6 @@ mod tests {
             .unwrap();
         assert_ne!(nan, nan.clone());
         assert!(nan.same(&nan.clone()));
-    }
-
-    #[test]
-    fn a_sent_item_matches_by_type_meta_count_nbt_and_damage_only() {
-        let sword = Stack::new(kind(Kind::DiamondSword), 1);
-        let sent = |s: &Stack| s.to_instance(7);
-        assert!(sword.matches_instance(&sent(&sword)));
-        assert!(Stack::EMPTY.matches_instance(&protocol::ItemInstance::default()));
-        assert!(!Stack::EMPTY.matches_instance(&sent(&sword)));
-        assert!(!sword.matches_instance(&protocol::ItemInstance::default()));
-        let worn = sword.with_damage(3);
-        assert!(!sword.matches_instance(&sent(&worn)), "the damage");
-        assert!(worn.matches_instance(&sent(&worn)));
-        assert!(
-            !sword.matches_instance(&sent(&named(&sword, "a"))),
-            "the NBT"
-        );
-        let sticks = Stack::new(kind(Kind::Stick), 5);
-        assert!(
-            !sticks.matches_instance(&sent(&sticks.with_count(4))),
-            "the count"
-        );
-        assert!(!sticks.matches_instance(&sent(&Stack::new(kind(Kind::Coal), 5))));
-        assert!(
-            !sticks.matches_instance(&sent(&sticks.with_damage(1))),
-            "the meta"
-        );
-        let mut other = sent(&sticks);
-        other.stack_network_id = 99;
-        other.stack.block_runtime_id = 12345;
-        other.stack.blocking_tick = 3;
-        assert!(
-            sticks.matches_instance(&other),
-            "IDs and the shield tick are not compared"
-        );
     }
 
     #[test]

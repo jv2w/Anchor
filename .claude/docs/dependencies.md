@@ -16,7 +16,7 @@
 | ureq (MIT/Apache-2.0) | =3.4.2 | 인증 문서 받기(블로킹 풀에서) | 시간 상한을 켜면 DNS마다 분리 스레드 → 인라인 resolver(DNS는 OS 상한). 본문 상한이 상한과 같은 크기를 거부 → 상한을 1 MiB 미만으로. 블로킹 호출과 상한 없는 본문 읽기 금지 |
 | libdeflater (MIT) | =1.26.1(libdeflate 1.26) | zlib 압축(level 6에서 miniz_oxide보다 2~4배 빠름, 실측) | `use_rust_alloc` 기능의 메모리 부족 null 역참조 → 기본 기능만. `Decompressor`가 내부 상태로 패닉 → 금지(해제는 miniz_oxide). `Compressor::new`는 할당 실패에만 패닉(생성 때만, 외부 입력 무관) |
 | miniz_oxide (MIT/Apache-2.0/Zlib) | =0.9.1 | zlib 해제 | `decompress_to_vec*`는 상한 없음 → 금지, 상한까지만 자라는 자체 루프 |
-| serde, serde_json, toml | =1.0.229, =1.0.151(`float_roundtrip`), =1.1.6 | 설정, 설정 파일 갱신(`de::DeTable`의 키와 값 위치), 인증 캐시, JWT, IR 읽기, 사용자 데이터·상태 JSON | toml은 깊이 80에서 멈춤(`unbounded` 기능은 켜지 않음). toml 오류 `Display` 안에 `expect`가 있음. `serde_json::from_reader` 금지. serde_json 기본 실수 해석은 쓴 f64를 다른 값으로 읽음(실측: 무작위 비트 100만 개 중 약 43%, 물리 값 같은 수열 약 6%) → 체크포인트를 되읽은 사용자 값이 달라 재생이 갈라지므로 `float_roundtrip`을 켬(새 크레이트 없음, 실수 해석만 느려짐) |
+| serde, serde_json, toml | =1.0.229, =1.0.151, =1.1.6 | 설정, 설정 파일 갱신(`de::DeTable`의 키와 값 위치), 인증 캐시, JWT, IR 읽기 | toml은 깊이 80에서 멈춤(`unbounded` 기능은 켜지 않음). toml 오류 `Display` 안에 `expect`가 있음. `serde_json::from_reader` 금지 |
 | tracing (MIT) | =0.1.44, std만 | 로그 | Anchor 쪽은 `attributes` 기능을 끈다. str0m과 `is`가 기본 기능을 켜 syn 2는 빌드된다(`.clippy.toml`) |
 | socket2 (MIT/Apache-2.0) | =0.6.5 | IPv6 전용 소켓, 소켓 버퍼 | 블로킹 입출력 진입점 금지 |
 | memory-stats (MIT/Apache-2.0) | =1.2.0, `always_use_statm` | `/status` 상주 메모리(Anchor는 `unsafe`를 쓰지 않아 OS 호출을 맡김) | 기본 Linux 경로가 `/proc/self/smaps` 전체를 읽음 → `always_use_statm`. 파일을 읽음 → 금지 목록. windows-sys 0.52 고정 → 중복 허용(`.clippy.toml`에 이유) |

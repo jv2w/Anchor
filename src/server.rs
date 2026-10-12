@@ -12,7 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::args::{self, Task};
 use crate::clock;
-use crate::config::{Config, LevelType, SendRelease};
+use crate::config::{Config, LevelType};
 use crate::console;
 use crate::error::{Error, Result};
 use crate::event::{self, Priority};
@@ -252,20 +252,7 @@ impl Server {
         // Before the tick starts, so that a stop signal from the first tick on stops normally.
         let signals = stop_signals(&runtime.handle());
         let pool = Arc::new(pool);
-        let (mut inputs, input_queue) = tick::queue::input_queue();
-        let passes = NonZeroU32::new(config.developer.input_pass_us)
-            .map(|period| clock::Passes::new(clock::now(), period));
-        if passes.is_some() {
-            inputs.stamp_arrivals();
-        }
-        // The config allows "after-pass" only with passes.
-        let release = match (config.developer.send_release, passes) {
-            (SendRelease::AfterPass, Some(passes)) => Some(Arc::new(session::Release::new(
-                passes,
-                config.developer.send_release_wait_us,
-            ))),
-            _ => None,
-        };
+        let (inputs, input_queue) = tick::queue::input_queue();
         setup.tasks.start(runtime.handle(), &inputs);
         if config.developer.console_input {
             crate::console::start(&inputs).map_err(Error::Start)?;
@@ -283,9 +270,6 @@ impl Server {
             opened.tick,
         );
         state.open_worlds(opened.catalog);
-        if let Some(passes) = passes {
-            state.set_passes(passes, release.clone());
-        }
         state.set_identity(opened.identity);
         let (controls, control_queue) = tick::queue::control_queue();
         state.connect_network(controls);
@@ -322,7 +306,6 @@ impl Server {
             started,
             signals,
             log: log.as_ref().map(console::log::Installed::drained),
-            release,
         };
         let served =
             runtime.block_on(running.serve(config, packs, &data_dir, inputs, control_queue));
@@ -426,8 +409,6 @@ struct Running {
     signals: mpsc::Receiver<&'static str>,
     /// Anchor's console log, if it runs: a second stop signal waits for its lines.
     log: Option<console::log::Drained>,
-    /// When sessions send, with `send-release = "after-pass"`.
-    release: Option<Arc<session::Release>>,
 }
 
 impl Running {
@@ -449,12 +430,10 @@ impl Running {
             started,
             signals,
             log,
-            release,
         } = self;
         tokio::spawn(stop_on_signals(shutdown.clone(), signals, log));
         tokio::spawn(measure_process(inputs.session(SessionId::PROCESS), started));
-        let network = match session::start(config, packs, data_dir, inputs, controls, release).await
-        {
+        let network = match session::start(config, packs, data_dir, inputs, controls).await {
             Ok(network) => network,
             Err(e) => {
                 stop(&stop_tick, tick_done).await;
@@ -744,14 +723,6 @@ impl ServerBuilder {
         settings: crate::config::WorldSettings,
     ) -> Self {
         self.config.worlds.insert(name.into(), settings);
-        self
-    }
-
-    /// Turns off `rule`, one of Anchor's own behaviours, so the server can send what it needs
-    /// itself; every rule is on otherwise.
-    #[must_use]
-    pub fn without(mut self, rule: crate::Rule) -> Self {
-        self.setup.rules.turn_off(rule);
         self
     }
 

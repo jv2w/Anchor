@@ -124,4 +124,4 @@ pub mod world;
 pub use config::Config;
 pub use error::{Error, Result};
 pub use server::{Server, ServerBuilder, ShutdownHandle};
-pub use tick::{Context, Rule, Verdict};
+pub use tick::Context;

@@ -334,7 +334,6 @@ mod tests {
         let mut batch = vec![Input {
             session: SessionId::JOBS,
             seq: 4,
-            arrived: None,
             kind: InputKind::Job(Ok(b"12".to_vec())),
         }];
         tick(&mut state, &mut batch, &mut Output::default());
@@ -440,7 +439,6 @@ mod tests {
                     super::super::super::log::EntryKind::Job(outcome) => Input {
                         session: e.session,
                         seq: e.seq,
-                        arrived: None,
                         kind: InputKind::Job(outcome.clone()),
                     },
                     other => panic!("{other:?}"),

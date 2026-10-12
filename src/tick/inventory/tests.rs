@@ -141,7 +141,7 @@ impl World {
         for rx in &mut self.receivers {
             let mut packets = Vec::new();
             while let Ok(o) = rx.try_recv() {
-                if let Outbound::Send { messages, .. } = o {
+                if let Outbound::Send(messages) = o {
                     packets.extend(messages.into_iter().filter_map(|m| match m {
                         Message::Packet(p) => Some(p),
                         Message::SharedPacket(p) => Some((*p).clone()),
