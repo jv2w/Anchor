@@ -1084,9 +1084,11 @@ pub(super) fn process(state: &mut State, session: SessionId) {
 }
 
 /// Sends the player its own position (PMMP `Player::sendPosition`); moves far from it are
-/// ignored until one arrives near it.
+/// ignored until one arrives near it. The last raw position is forgotten: the client's next
+/// input may report the position it had before, now a move back from where it was sent.
 fn send_position(player: &mut Player, mode: MoveMode) {
     player.survival.motion.force_sync = true;
+    player.survival.motion.last_position = None;
     let packet = position_packet(player, mode);
     player.send_packet(packet);
 }
@@ -1559,6 +1561,25 @@ mod tests {
         assert!(e.is_cancelled());
         e.uncancel();
         assert!(!e.is_cancelled());
+    }
+
+    /// A teleport forgets the last position the client reported: an input that reports it again
+    /// after the teleport, near the target, moves the player back there.
+    #[test]
+    fn an_input_at_the_position_before_a_teleport_is_applied_after_it() {
+        let (mut state, mut output, _rx) = walker(crate::event::Listeners::default());
+        let session = SessionId::new(1);
+        // Positions a client can report: f32.
+        let eye = |x: f64| Vec3::from_f32(Vec3::new(x, -58.0, 0.5).to_f32());
+        let before = crate::tick::tests::moved_to(1, 10, eye(0.5).to_f32());
+        crate::tick::tests::tick(&mut state, &mut vec![before], &mut output);
+        assert_eq!(state.players[&session].position, eye(0.5));
+        teleport(&mut state, session, eye(1.0));
+        let again = crate::tick::tests::moved_to(1, 11, eye(0.5).to_f32());
+        crate::tick::tests::tick(&mut state, &mut vec![again], &mut output);
+        let player = &state.players[&session];
+        assert_eq!(player.position, eye(0.5));
+        assert!(!player.survival.motion.force_sync);
     }
 
     #[test]
