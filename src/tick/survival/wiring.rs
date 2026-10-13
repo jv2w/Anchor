@@ -790,7 +790,8 @@ fn a_sneak_answer_carries_its_input_tick() {
 }
 
 /// A sneak's box goes in the height (54), as BDS and PMMP send it; the collision box (130) stays
-/// the standing one, which the client takes as the box it stands up to.
+/// the standing one (P6 `sneak`). Sent as the collision box, a sneak made the client crouch by
+/// itself when a jump met a ceiling.
 #[test]
 fn a_sneak_answer_sends_the_height_not_the_collision_box() {
     use crate::protocol::MetadataValue;
