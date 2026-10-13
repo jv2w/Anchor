@@ -653,10 +653,14 @@ pub(super) struct Shown<'a> {
 /// the box's width and height, seat offset and index, arrow shooter.
 pub(super) fn add_player(p: Shown<'_>) -> Packet {
     let mut m = p.data;
-    let (width, height) = match m.get(&(EntityDataKey::CollisionBox as u32)) {
-        Some(MetadataValue::Vec3([w, h, _])) => (*w, *h),
-        _ => (to_f32(PLAYER_WIDTH), to_f32(PLAYER_HEIGHT)),
+    let side = |key: EntityDataKey, standing: f64| match m.get(&(key as u32)) {
+        Some(MetadataValue::Float32(v)) => *v,
+        _ => to_f32(standing),
     };
+    let (width, height) = (
+        side(EntityDataKey::Width, PLAYER_WIDTH),
+        side(EntityDataKey::Height, PLAYER_HEIGHT),
+    );
     for (k, v) in [
         (EntityDataKey::JumpDuration, MetadataValue::Byte(0)),
         (EntityDataKey::Scale, MetadataValue::Float32(1.0)),

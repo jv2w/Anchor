@@ -789,6 +789,45 @@ fn a_sneak_answer_carries_its_input_tick() {
     assert_eq!(answer_ticks(game.take(1)), [0]);
 }
 
+/// A sneak's box goes in the height (54), as BDS and PMMP send it; the collision box (130) stays
+/// the standing one, which the client takes as the box it stands up to.
+#[test]
+fn a_sneak_answer_sends_the_height_not_the_collision_box() {
+    use crate::protocol::MetadataValue;
+    use crate::protocol::consts::EntityDataKey;
+    let mut game = Game::new(1, Listeners::default());
+    let heights = |game: &mut Game, flags: &[InputFlag]| -> Vec<Option<MetadataValue>> {
+        let input = game.flags(1, flags);
+        game.run(vec![input]);
+        game.take(1)
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::SetActorData(d) if d.entity_runtime_id == 1 => {
+                    assert!(
+                        !d.entity_metadata
+                            .contains_key(&(EntityDataKey::CollisionBox as u32))
+                    );
+                    Some(
+                        d.entity_metadata
+                            .get(&(EntityDataKey::Height as u32))
+                            .cloned(),
+                    )
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    game.take(1);
+    assert_eq!(
+        heights(&mut game, &[InputFlag::SneakDown, InputFlag::StartSneaking]),
+        [Some(MetadataValue::Float32(1.49))]
+    );
+    assert_eq!(
+        heights(&mut game, &[InputFlag::StopSneaking]),
+        [Some(MetadataValue::Float32(1.8))]
+    );
+}
+
 /// A start of sneaking without the sneak key is the client crouching by itself, as when a jump
 /// nears a ceiling: refused (with the data again) while the player can stand, accepted where it
 /// cannot (P6 `sneak`).

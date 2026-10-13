@@ -127,7 +127,7 @@ const FACTS_ONLY: [&str; 27] = [
 /// their steps: what each checks is its item (potion colours and cloud, another player, chat
 /// limits, item use, the input tick of a sneak's answer), and the other packets differ for
 /// reasons recorded in `xtask/data/p6/facts.md` (Anchor keeps no default death message, its
-/// projectiles fly otherwise, it sends a sneak's box height as the collision box).
+/// projectiles fly otherwise).
 const CHECKS_ONLY: &[&str] = &[
     "potions",
     "others",

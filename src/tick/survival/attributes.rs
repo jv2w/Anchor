@@ -202,7 +202,7 @@ fn attributes_of(player: &Player, keep: impl Fn(&Def) -> bool) -> Packet {
     })
 }
 
-/// The entity data of a player that changes (keys 0, 7, 26, 28, 42, 92, 127, 129, 130, 131).
+/// The entity data of a player that changes (keys 0, 7, 26, 28, 42, 53, 54, 92, 127, 129, 131).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(super) struct Shown {
     /// Entity flags, keys 0 and 92.
@@ -218,7 +218,7 @@ pub(super) struct Shown {
     /// Whether the player has died, key 129, and where, key 127.
     died: bool,
     death: [i32; 3],
-    /// The collision box width and height, key 130.
+    /// The box width and height, keys 53 and 54.
     size: [f32; 2],
     /// The packed visible effects, key 131.
     effects: i64,
@@ -416,10 +416,26 @@ fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) 
             MetadataValue::Byte(u8::from(new.died)),
         );
     }
-    if old.is_none_or(|o| o.size != new.size) {
+    // The collision box (130) is the standing box, sent once at spawn; the pose's box goes in the
+    // width and height (53, 54), as BDS and PMMP answer a sneak (P6 `sneak`).
+    let standing = [f32_of(PLAYER_WIDTH), f32_of(PLAYER_HEIGHT)];
+    if old.is_none() {
         out.insert(
             EntityDataKey::CollisionBox.into(),
-            MetadataValue::Vec3([new.size[0], new.size[1], 0.0]),
+            MetadataValue::Vec3([standing[0], standing[1], 0.0]),
+        );
+    }
+    let [old_width, old_height] = old.map_or(standing, |o| o.size);
+    if new.size[0] != old_width {
+        out.insert(
+            EntityDataKey::Width.into(),
+            MetadataValue::Float32(new.size[0]),
+        );
+    }
+    if new.size[1] != old_height {
+        out.insert(
+            EntityDataKey::Height.into(),
+            MetadataValue::Float32(new.size[1]),
         );
     }
     if old.is_none_or(|o| o.effects != new.effects) {
