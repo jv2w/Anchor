@@ -236,8 +236,6 @@
 - 재현: `cargo xtask p6 api bds sneak`(봇 `xtask/go/bot/sneak.go`). 확인 줄만 비교한다.
 - 공식 서버: PlayerAuthInput의 `StartSneaking`·`StopSneaking`마다 본인에게 SetActorData{0 플래그(Sneaking), 54 높이 1.49·1.8}와 SetActorData{92 플래그}를 보내고, 두 패킷의 `Tick`은 그 토글을 실은 입력의 `Tick`이다(다음 틱에 멈춰도 답이 둘). 서버가 스스로 바꾼 값(예 Breathing)은 `Tick` 0이다. 클라이언트는 `Tick`이 있는 답을 그 입력의 프레임으로 되감아 적용한다(bedrock-protocol-docs `PlayerMovementOverview`). `Tick` 0이면 받은 때 바로 적용해, 이미 멈춘 웅크리기를 늦게 온 답이 다시 켠다(천장 밑 점프에서 클라이언트가 잠깐 웅크렸다 펴면 저절로 쉬프트가 눌린 것처럼 보임).
   - Anchor: 입력의 토글(받든 거절하든)에 답하는 본인 SetActorData에 그 틱의 마지막 토글 입력의 `Tick`을 싣고, 보는 플레이어에게는 0이다. 높이는 공식 서버처럼 54로 보내고 130(충돌 상자)은 스폰 때의 서 있는 상자 [0.6, 1.8, 0] 그대로 둔다. 플래그 두 단어는 한 패킷에 싣는다. 공식 서버는 웅크리면 92 단어의 Blocking(72)도 켠다. Anchor는 켜지 않는다.
-- 공식 서버는 웅크림을 스스로 정한다: 쉬프트 키는 `SneakDown`이고(`Sneaking`, `PersistSneak`, `SneakToggleDown`, `Sneak*Raw`만으로는 웅크리지 않음), 키 없는 `StartSneaking`은 서 있을 공간이 있으면 거절한다(트인 곳, 2칸 천장 밑). 1.5칸 공간에서는 입력 없이도 웅크림을 켜고 `StopSneaking`을 거절한다. 클라이언트는 천장 밑 점프에서 키 없이 `StartSneaking`을 보내므로, 받아 주면 쉬프트가 저절로 눌린 것처럼 보인다.
-  - Anchor: 키(`SneakDown`) 없는 `StartSneaking`을 서 있는 상자(0.6×1.8)가 블록에 막히지 않으면 거절하고 데이터를 다시 보낸다. 입력 없이 서버가 스스로 웅크림을 켜는 것과 `StopSneaking` 거절은 하지 않는다.
 
 ## 물약 색
 - 투척 물약 LevelEvent 2002 색(ARGB): 야간 투시 C2FF66, 투명 F6F6F6, 점프 FDFF84, 화염 저항 FF9900, 신속 33EBFF, 느림 8BAFE0, 수중 호흡 98DAC0, 고통 A9656A, 독 87A363, 힘 FFC700, 시듦 736156, 저속 낙하 F3CFB9, 거북 도사 8D82E6(강화 8D85E6 → 저항 9146F0), 치유 F82423, 재생 CD5CAB, 나약함 484D48, 물 385DC6. 43~46(바람, 짜기, 스밈, 벌레)은 덤프에 없다.

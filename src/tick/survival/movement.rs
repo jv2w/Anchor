@@ -10,7 +10,7 @@
 use super::attributes::{ABILITIES, MOVEMENT};
 use super::damage::{self, Damage};
 use super::effects::{self, Active};
-use super::{PLAYER_HEIGHT, PLAYER_WIDTH, Survival, attributes, f32_of, feet, food, sound};
+use super::{Survival, attributes, f32_of, feet, food, sound};
 
 use crate::block::{self, Class, Face};
 use crate::effect::Type as Effect;
@@ -275,26 +275,11 @@ fn input_flags(state: &mut State, session: SessionId, flags: FlagSet<InputFlag>,
         return;
     };
     let may_fly = player.survival.may_fly();
-    let f = feet(player);
-    let half = PLAYER_WIDTH / 2.0;
-    let standing = Aabb::new(
-        Vec3::new(f.x - half, f.y, f.z - half),
-        Vec3::new(f.x + half, f.y + PLAYER_HEIGHT, f.z + half),
-    );
-    let can_stand = state
-        .worlds
-        .get(player.world)
-        .is_some_and(|w| !collides(w, standing));
     let m = &mut player.survival.motion;
-    // The sneak key is `SneakDown`: `Sneaking` alone does not sneak on BDS. A start without the
-    // key is the client crouching by itself, as it does when a jump nears a ceiling; BDS refuses
-    // it while the player can stand where it is (P6 `sneak`).
-    let pressed = flags.contains(InputFlag::SneakDown);
-    let requested = on_off(flags, InputFlag::StartSneaking, InputFlag::StopSneaking)
+    let pressed = flags.contains(InputFlag::Sneaking);
+    let sneak = on_off(flags, InputFlag::StartSneaking, InputFlag::StopSneaking)
         .filter(|&v| v != m.sneaking);
-    let refused = requested == Some(true) && !pressed && can_stand;
-    let sneak = requested.filter(|_| !refused);
-    let mut mismatch = refused || (sneak.is_none() && pressed != m.sneak_pressed);
+    let mut mismatch = sneak.is_none() && pressed != m.sneak_pressed;
     m.sneak_pressed = pressed;
     let sprint = on_off(flags, InputFlag::StartSprinting, InputFlag::StopSprinting)
         .filter(|&v| v != m.sprinting);
