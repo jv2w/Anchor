@@ -12,7 +12,7 @@ use crate::storage::codec::ExtraRecord;
 use crate::storage::seal::unseal;
 use crate::storage::tests::{Disk, Fault, memory};
 use crate::storage::{ChunkId, ChunkKey, ChunkPart, StartBackup};
-use crate::world::{Flat, Generator, Void};
+use crate::world::{Flat, Generator, Kind, Void};
 
 const NAME: &str = "imported";
 

@@ -14,9 +14,9 @@
 //! block states and items (`upgrade`), and returns a [`Report`].
 
 mod api;
-mod chunk;
-mod level_dat;
-mod leveldb;
+pub(crate) mod chunk;
+pub(crate) mod level_dat;
+pub(crate) mod leveldb;
 mod upgrade;
 
 use std::fmt;
@@ -178,8 +178,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// The largest `level.dat`: its header and the 4 MiB NBT limit.
 const MAX_LEVEL_DAT: u64 = 8 + crate::nbt::MAX_ROOT_BYTES as u64;
 /// The most overworld chunks a world may have: a square of 2,048 by 2,048 chunks (32,768 blocks
-/// across). A list of positions this long takes 32 MiB.
-const MAX_CHUNKS: usize = 1 << 22;
+/// across). A list of positions this long takes 32 MiB. The export lists at most as many.
+pub(crate) const MAX_CHUNKS: usize = 1 << 22;
 
 /// Reads at most `limit` bytes of the file at `path`; a longer file is [`Error::TooLarge`],
 /// found before anything is allocated.

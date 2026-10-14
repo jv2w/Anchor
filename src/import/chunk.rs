@@ -44,10 +44,10 @@ use crate::storage::codec::{
 };
 
 /// Chunk tags.
-const VERSION: u8 = 0x2c;
-const SUB_CHUNK: u8 = 0x2f;
+pub(crate) const VERSION: u8 = 0x2c;
+pub(crate) const SUB_CHUNK: u8 = 0x2f;
 const LEGACY_TERRAIN: u8 = 0x30;
-const BLOCK_ENTITIES: u8 = 0x31;
+pub(crate) const BLOCK_ENTITIES: u8 = 0x31;
 const LEGACY_EXTRA: u8 = 0x34;
 const OLD_VERSION: u8 = 0x76;
 /// The tags whose values are kept for decoding, with their names in Mojang's LevelDB
@@ -62,9 +62,9 @@ const READ_TAGS: [(u8, &str); 5] = [
 /// The name of [`SUB_CHUNK`] keys, as [`READ_TAGS`] names the others.
 const SUB_CHUNK_NAME: &str = "SubChunkPrefix";
 /// The newest chunk version read (PMMP `ChunkVersion::v1_21_120`).
-const MAX_CHUNK_VERSION: u8 = 42;
+pub(crate) const MAX_CHUNK_VERSION: u8 = 42;
 /// The newest sub-chunk version read.
-const MAX_SUB_CHUNK_VERSION: u8 = 9;
+pub(crate) const MAX_SUB_CHUNK_VERSION: u8 = 9;
 /// The sub-chunks imported: Anchor's world height, y -64 to 319.
 const MIN_Y: i8 = -4;
 const MAX_Y: i8 = 19;

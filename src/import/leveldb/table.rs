@@ -27,10 +27,10 @@ use crate::protocol::compression::zlib::{Decoder, Framing};
 use crate::protocol::compression::{Compression, Decompressor};
 
 /// The footer at the end of every table.
-const FOOTER: usize = 48;
-const MAGIC: u64 = 0xdb47_7524_8b80_fb57;
+pub(crate) const FOOTER: usize = 48;
+pub(crate) const MAGIC: u64 = 0xdb47_7524_8b80_fb57;
 /// The compression byte and checksum after each block.
-const TRAILER: usize = 5;
+pub(crate) const TRAILER: usize = 5;
 /// The largest block, stored or decompressed. Anchor's own record cap.
 pub(super) const MAX_BLOCK: usize = 16 << 20;
 /// Decompressed blocks kept for later reads, in bytes.
@@ -41,10 +41,10 @@ pub(super) const MAX_OPEN: usize = 64;
 const MAX_INTERNAL_KEY: usize = MAX_KEY + TAG;
 
 /// Block compression ids.
-const NONE: u8 = 0;
+pub(crate) const NONE: u8 = 0;
 const SNAPPY: u8 = 1;
 const ZLIB: u8 = 2;
-const RAW_DEFLATE: u8 = 4;
+pub(crate) const RAW_DEFLATE: u8 = 4;
 
 /// A table of the current version, from the `MANIFEST`.
 #[derive(Debug, Clone, PartialEq, Eq)]

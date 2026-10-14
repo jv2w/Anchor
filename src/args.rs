@@ -1,12 +1,13 @@
 //! The commands every server program answers from its process arguments instead of running the
-//! server, with no code of its own: `<program> update-config` and
-//! `<program> import <world folder> [<world name>]`. Other arguments are the program's own and
+//! server, with no code of its own: `<program> update-config`,
+//! `<program> import <world folder> [<world name>]` and
+//! `<program> export <world folder> [<world name>]`. Other arguments are the program's own and
 //! start the server as usual.
 //!
 //! `update-config` is done by [`Config::load`](crate::Config::load), before it reads the file,
 //! since an old file may not load until it is updated; [`Server::run`](crate::Server::run) then
-//! returns. `import` is done by `run`, with the worlds, generators and custom content the program
-//! registered.
+//! returns. `import` and `export` are done by `run`, with the worlds, generators and custom
+//! content the program registered.
 
 use std::env;
 use std::ffi::OsString;
@@ -15,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Update;
 use crate::error::{Error, Result};
-use crate::import::Report;
+use crate::{export, import};
 
 /// What the process arguments ask.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,10 +28,13 @@ pub(crate) enum Task {
     /// `import <world folder> [<world name>]`: import a Bedrock world; without a name, as the
     /// default world (`level-name`).
     Import { dir: PathBuf, world: Option<String> },
+    /// `export <world folder> [<world name>]`: export a world as a Bedrock world; without a
+    /// name, the default world (`level-name`).
+    Export { dir: PathBuf, world: Option<String> },
 }
 
-/// The task this process's arguments ask; [`Error::Usage`] for `update-config` or `import`
-/// given the wrong arguments.
+/// The task this process's arguments ask; [`Error::Usage`] for `update-config`, `import` or
+/// `export` given the wrong arguments.
 pub(crate) fn current() -> Result<Task> {
     parse(env::args_os().skip(1).collect())
 }
@@ -48,19 +52,15 @@ fn parse(args: Vec<OsString>) -> Result<Task> {
             _ => Err(Error::Usage),
         };
     }
-    if first != "import" {
-        return Ok(Task::Run);
-    }
+    let task: fn(PathBuf, Option<String>) -> Task = match first.to_str() {
+        Some("import") => |dir, world| Task::Import { dir, world },
+        Some("export") => |dir, world| Task::Export { dir, world },
+        _ => return Ok(Task::Run),
+    };
     match rest.as_slice() {
-        [dir] => Ok(Task::Import {
-            dir: dir.into(),
-            world: None,
-        }),
+        [dir] => Ok(task(dir.into(), None)),
         [dir, world] => match world.to_str() {
-            Some(world) => Ok(Task::Import {
-                dir: dir.into(),
-                world: Some(world.to_owned()),
-            }),
+            Some(world) => Ok(task(dir.into(), Some(world.to_owned()))),
             None => Err(Error::Usage),
         },
         _ => Err(Error::Usage),
@@ -83,7 +83,7 @@ pub(crate) fn updated(update: Option<&Update>) -> String {
 }
 
 /// What `import` writes when the world is imported as `world` into `file`.
-pub(crate) fn imported(world: &str, file: &Path, report: &Report) -> String {
+pub(crate) fn imported(world: &str, file: &Path, report: &import::Report) -> String {
     let spawn = report.spawn();
     let unknown = report.unknown_blocks().values().copied();
     let unknown = unknown.fold(report.unlisted_unknown_blocks(), u64::saturating_add);
@@ -111,6 +111,20 @@ a running server sees the world after its next start",
         x = spawn.x,
         y = spawn.y,
         z = spawn.z,
+    )
+}
+
+/// What `export` writes when the world `world` is exported into the folder `dir`.
+pub(crate) fn exported(world: &str, dir: &Path, report: &export::Report) -> String {
+    format!(
+        "exported the world {world:?} to {}: {} chunks, {} block entities
+left out: {} entities, {} scheduled block updates
+chunks the world never saved are made by the Bedrock world's flat generator",
+        dir.display(),
+        report.chunks(),
+        report.block_entities(),
+        report.entities(),
+        report.scheduled_updates(),
     )
 }
 
@@ -154,6 +168,7 @@ mod tests {
             &[][..],
             &["--port", "1"],
             &["Import"],
+            &["Export"],
             &["update"],
             &["x", "import"],
         ] {
@@ -178,10 +193,26 @@ mod tests {
                 world: Some("my world".to_owned())
             }
         );
+        assert_eq!(
+            task(&["export", "C:/bds/worlds/lobby"]).expect("ok"),
+            Task::Export {
+                dir: "C:/bds/worlds/lobby".into(),
+                world: None
+            }
+        );
+        assert_eq!(
+            task(&["export", "out", "my world"]).expect("ok"),
+            Task::Export {
+                dir: "out".into(),
+                world: Some("my world".to_owned())
+            }
+        );
         for args in [
             &["update-config", "x"][..],
             &["import"],
             &["import", "w", "a", "b"],
+            &["export"],
+            &["export", "w", "a", "b"],
         ] {
             assert!(matches!(task(args), Err(Error::Usage)), "{args:?}");
         }

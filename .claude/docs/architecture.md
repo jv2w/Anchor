@@ -36,7 +36,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 ```
 
 - 크레이트는 `anchor`와 `xtask` 둘이다.
-- 서버 프로그램은 코드 없이 실행 인자 명령 `update-config`(`config.md`)와 `import <월드 폴더> [이름]`(`storage.md`)을 받는다(`args` 모듈). `Config::load`와 `Server::run`이 인자를 보고 서버를 켜지 않은 채 일만 하고 끝낸다. 그 밖의 인자는 프로그램의 것이다.
+- 서버 프로그램은 코드 없이 실행 인자 명령 `update-config`(`config.md`), `import <월드 폴더> [이름]`, `export <월드 폴더> [이름]`(`storage.md`)을 받는다(`args` 모듈). `Config::load`와 `Server::run`이 인자를 보고 서버를 켜지 않은 채 일만 하고 끝낸다. 그 밖의 인자는 프로그램의 것이다.
 - 도구 설정을 점 이름으로 두면 상위 폴더와 홈의 설정이 섞이지 않는다. `rust-toolchain.toml`과 `Cargo.lock`은 점 이름을 쓸 수 없다.
 - `.cache/`는 git에서 제외한다.
 
@@ -49,9 +49,9 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 | 프로토콜 | `protocol`(`packet`, `types`, `consts` 생성, `io`, `batch`, `compression`) | 패킷 코덱, 배치, 압축 |
 | 틱 규칙 | `tick` 아래 `survival`, `interact`, `inventory`, `update`, `entity`, `trade`, `block_entity`, `view`, `spawn`, `command`, `form`, `chat`, `weather`, `world_api`, `dispatch`, `hook`, `task`, `log`, `checkpoint`, `queue` | 게임 상태 `State`와 그것을 바꾸는 유일한 코드 |
 | 월드 | `world`(`chunk`, `sub_chunk`, `paletted`, `light`, `generator`, `connect`, `tree`, `biome`) | 청크, 팔레트, 조명, 생성기, 이웃 연결 속성 |
-| 저장 | `save`(저장 스레드), `storage`(redb 파일 하나), `import`(LevelDB 월드 가져오기), `replay` | 스냅샷 커밋, 로드, 백업, 재생 |
+| 저장 | `save`(저장 스레드), `storage`(redb 파일 하나), `import`(LevelDB 월드 가져오기), `export`(LevelDB 월드로 내보내기), `replay` | 스냅샷 커밋, 로드, 백업, 재생 |
 | 블록·아이템 데이터 | `block`, `item`, `crafting`, `effect`, `nbt` | 데이터 덤프에서 생성한 표와 값 타입 |
-| 공개 API | `player`, `entity`, `world`, `event`, `action`, `command`, `permission`, `form`, `display`, `menu`, `inventory`, `tile`, `custom`, `task`, `data`, `pack`, `config`, `math`, `replay`, `import` | 사용자가 보는 타입. `anchor::Context`, `Server`, `ServerBuilder`, `ShutdownHandle`, `Config`, `Error`는 루트에서 다시 내보낸다 |
+| 공개 API | `player`, `entity`, `world`, `event`, `action`, `command`, `permission`, `form`, `display`, `menu`, `inventory`, `tile`, `custom`, `task`, `data`, `pack`, `config`, `math`, `replay`, `import`, `export` | 사용자가 보는 타입. `anchor::Context`, `Server`, `ServerBuilder`, `ShutdownHandle`, `Config`, `Error`는 루트에서 다시 내보낸다 |
 | 기반 | `runtime`, `pool`, `clock`, `random`, `bucket`, `console`, `fs`, `error` | 스레드 생성, CPU 풀, 시계, 난수, 토큰 버킷(핑·입력 예산), 콘솔 로그, 상한 있는 파일 읽기 |
 
 - 생성 파일의 목록은 `protocol.md`(코덱)와 `data.md`(블록·아이템 데이터)에 있다.

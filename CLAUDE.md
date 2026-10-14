@@ -56,7 +56,7 @@ rules는 frontmatter `paths`에 맞는 파일을 Read·Edit·Write 도구로 열
 - 정본은 기본 파일을 만드는 코드(`src/config.rs`의 `DEFAULT_FILE`)와 `.claude/docs/config.md`다. 둘을 함께 고친다(시험이 문서의 첫 toml 블록과 비교한다).
 
 ## 6. 코드 구성과 스타일
-- 모듈 배치(자세히는 `.claude/docs/architecture.md`): 전송 `raknet`, `nethernet` / 세션 `session`, `login`, `auth`, `crypto` / 프로토콜 `protocol` / 틱 규칙 `tick/` 아래 / 월드 `world` / 저장 `save`, `storage`, `import`, `replay` / 블록·아이템 데이터 `block`, `item`, `crafting`, `effect` / 공개 API `player`, `entity`, `event`, `command`, `form` 등 크레이트 루트에서 닿는 모듈 / 기반 `runtime`, `pool`, `clock`, `random`, `console`, `fs`. 개발 도구는 `xtask/`, 고친 의존성 사본은 `vendor/`다.
+- 모듈 배치(자세히는 `.claude/docs/architecture.md`): 전송 `raknet`, `nethernet` / 세션 `session`, `login`, `auth`, `crypto` / 프로토콜 `protocol` / 틱 규칙 `tick/` 아래 / 월드 `world` / 저장 `save`, `storage`, `import`, `export`, `replay` / 블록·아이템 데이터 `block`, `item`, `crafting`, `effect` / 공개 API `player`, `entity`, `event`, `command`, `form` 등 크레이트 루트에서 닿는 모듈 / 기반 `runtime`, `pool`, `clock`, `random`, `console`, `fs`. 개발 도구는 `xtask/`, 고친 의존성 사본은 `vendor/`다.
 - 모듈은 `foo.rs`와 `foo/bar.rs`다(`mod.rs` 금지). 틱 코드와 틱 밖 코드는 모듈로 나눈다. 모듈 첫 줄 `//!`에 책임을 적는다.
 - 공개 범위는 기본 비공개, 안에서 나눌 때 `pub(crate)`, 크레이트 루트에서 닿는 API만 `pub`이다. 공개 항목은 `///` 문서와 `Debug` 구현이 필수다.
 - 오류: 실패하는 모듈마다 손으로 쓴 `Error` enum과 `Result` 별칭. 공개 오류는 `std::error::Error + Send + Sync`. variant에 `Error`를 붙이지 않고, 원인은 `source()`로만 준다. 메시지는 소문자로 시작하고 마침표가 없다.

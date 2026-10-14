@@ -324,6 +324,25 @@ pub(crate) fn default_seed(name: &str) -> i64 {
     i64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7])
 }
 
+/// The settings the world file of the world `name` is read or written with when the server does
+/// not run (an import, an export): a declared world's, else the generator of the default world
+/// (the first of `worlds`) and no seed of its own. `None` for a world declared temporary,
+/// which has no file.
+pub(crate) fn file_world(worlds: &[WorldSpec], name: &str) -> Option<WorldSpec> {
+    let declared = worlds.iter().find(|w| w.name == name);
+    if declared.is_some_and(|w| w.kind != Kind::Persistent) {
+        return None;
+    }
+    let base = declared.or(worlds.first())?;
+    Some(WorldSpec {
+        name: name.to_owned(),
+        kind: Kind::Persistent,
+        generator: Arc::clone(&base.generator),
+        seed: declared.and_then(|w| w.seed),
+        spawn: None,
+    })
+}
+
 /// A world the server runs, as its settings make it: `seed`, else [`default_seed`]; `spawn`,
 /// else the generator's. A stored world goes on from its saved state ([`resume`]), its spawn
 /// among it.
@@ -920,7 +939,7 @@ pub(crate) fn world_files(data_dir: &std::path::Path) -> Result<Vec<String>, sto
 
 /// The name of the world file of `data/worlds/` that is the world `name`'s: the one whose name
 /// differs from `name` at most in letter case ([`world_names`]), if any.
-fn world_file_name(
+pub(crate) fn world_file_name(
     data_dir: &std::path::Path,
     name: &str,
 ) -> Result<Option<String>, storage::Error> {
@@ -1620,10 +1639,11 @@ fn read_rules(pool: &Pool, answers: &mut [Response], custom: &Registry, types: &
     }
 }
 
+/// The sub-chunk records of a chunk's terrain values, `None` for a sub-chunk without a value.
+pub(crate) type Terrain = [Option<SubChunkRecord>; SUB_CHUNKS];
+
 /// Decodes the values read for a chunk of a persistent world (in key order) and generates its
-/// terrain if none was saved. The terrain is its sub-chunk values, a sub-chunk without one empty;
-/// an extras list is its pages from 0 on without a gap, at most
-/// [`MAX_EXTRA_ENTRIES`] entries. Anything else, or any damaged value, makes the chunk damaged.
+/// terrain if none was saved ([`read_values`]); any damaged value makes the chunk damaged.
 fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Registry) -> Loaded {
     let damaged = |part: Option<ChunkPart>, e: &dyn std::fmt::Display| {
         warn!(world = plan.name, x = pos.x, z = pos.z, ?part, error = %e, "chunk value damaged");
@@ -1636,10 +1656,38 @@ fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Regis
         Ok(values) => values,
         Err(e) => return damaged(None, e),
     };
-    let chunk = chunk_id(number, pos);
+    let (sub_chunks, stored) = match read_values(chunk_id(number, pos), values) {
+        Ok(read) => read,
+        Err((part, e)) => return damaged(Some(part), &e),
+    };
+    if sub_chunks.iter().all(Option::is_none) {
+        return Loaded::Generated(
+            Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, pos)),
+            stored,
+        );
+    }
+    let record = ChunkRecord {
+        sub_chunks: Box::new(sub_chunks.map(|s| s.unwrap_or_else(empty_sub_chunk))),
+    };
+    match to_chunk(record, custom) {
+        Some(mut chunk) => {
+            chunk.set_split();
+            Loaded::Disk(Box::new(chunk), stored)
+        }
+        None => damaged(None, &"the terrain values are not a valid chunk"),
+    }
+}
+
+/// Reads the values of `chunk` (in key order): its terrain, a sub-chunk record per value, and
+/// its extras, each list its pages from 0 on without a gap, at most [`MAX_EXTRA_ENTRIES`]
+/// entries. Fails with the part at fault on the first damaged value.
+pub(crate) fn read_values(
+    chunk: ChunkId,
+    values: &[(ChunkPart, Vec<u8>)],
+) -> Result<(Terrain, Stored), (ChunkPart, storage::Error)> {
     let mut stored = Stored::default();
     let mut checksum = Crc32c::new();
-    let mut sub_chunks: [Option<SubChunkRecord>; SUB_CHUNKS] = Default::default();
+    let mut sub_chunks: Terrain = Default::default();
     // The page each extras list expects next.
     let mut next_pages = [0u16; 3];
     for (part, sealed) in values {
@@ -1659,29 +1707,12 @@ fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Regis
                 sealed,
             ),
         };
-        if let Err(e) = read {
-            return damaged(Some(*part), &e);
-        }
+        read.map_err(|e| (*part, e))?;
         checksum.update(key.get(CHUNK_PREFIX..).unwrap_or_default());
         checksum.update(&stored_checksum(sealed).to_le_bytes());
     }
     stored.checksum = checksum.finish();
-    if sub_chunks.iter().all(Option::is_none) {
-        return Loaded::Generated(
-            Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, pos)),
-            stored,
-        );
-    }
-    let record = ChunkRecord {
-        sub_chunks: Box::new(sub_chunks.map(|s| s.unwrap_or_else(empty_sub_chunk))),
-    };
-    match to_chunk(record, custom) {
-        Some(mut chunk) => {
-            chunk.set_split();
-            Loaded::Disk(Box::new(chunk), stored)
-        }
-        None => damaged(None, &"the terrain values are not a valid chunk"),
-    }
+    Ok((sub_chunks, stored))
 }
 
 /// Adds page `page` of a chunk's `kind` list, the next one `next_pages` expects, to `extras`.
@@ -1938,7 +1969,6 @@ pub(crate) fn seal_pages(
 
 /// The stored form of a chunk: block states as name, states and version, unknown
 /// states as they were read.
-#[cfg(test)]
 pub(crate) fn to_record(chunk: &Chunk) -> ChunkRecord {
     ChunkRecord {
         sub_chunks: Box::new(std::array::from_fn(|i| sub_chunk_record(chunk, i))),

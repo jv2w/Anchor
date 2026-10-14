@@ -26,11 +26,12 @@ fn main() -> anchor::Result<()> {
 
 ## 실행 인자 명령
 
-Anchor로 만든 서버 프로그램은 코드 없이 두 명령을 받는다. 서버를 켜지 않고 일만 하고 끝나므로, 서버가 켜져 있어도 서버 폴더에서 그대로 돌린다.
+Anchor로 만든 서버 프로그램은 코드 없이 세 명령을 받는다. 서버를 켜지 않고 일만 하고 끝나므로, 서버가 켜져 있어도 서버 폴더에서 그대로 돌린다(내보내기는 켜진 서버가 연 월드를 거부한다).
 
 ```
 <서버> update-config                        # anchor.toml에 새 키를 더하고 모르는 키를 지움
 <서버> import <Bedrock 월드 폴더> [이름]     # LevelDB 월드 → data/worlds/<이름>.redb (이름 없으면 level-name)
+<서버> export <Bedrock 월드 폴더> [이름]     # data/worlds/<이름>.redb → 새 LevelDB 월드 폴더 (이름 없으면 level-name)
 ```
 
 그 밖의 인자는 프로그램의 것이고 서버가 평소대로 켜진다.

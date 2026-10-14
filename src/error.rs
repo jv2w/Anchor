@@ -3,7 +3,7 @@
 use std::fmt;
 use std::io;
 
-use crate::{command, config, data, entity, import, pack, storage};
+use crate::{command, config, data, entity, export, import, pack, storage};
 
 /// A failure to build or run a [`Server`](crate::Server).
 #[derive(Debug)]
@@ -88,8 +88,12 @@ pub enum Error {
     /// [`Server::import_world`](crate::Server::import_world) could not import the world; the
     /// source says why. The server file is left as it was.
     Import(import::Error),
-    /// The program was started with `update-config` or `import` but not the arguments the
-    /// command takes: `update-config` alone, or `import <world folder> [<world name>]`.
+    /// [`Server::export_world`](crate::Server::export_world) could not export the world; the
+    /// source says why. No world folder is left.
+    Export(export::Error),
+    /// The program was started with `update-config`, `import` or `export` but not the arguments
+    /// the command takes: `update-config` alone, `import <world folder> [<world name>]` or
+    /// `export <world folder> [<world name>]`.
     Usage,
     /// The answer to a command of the process arguments could not be written to standard
     /// output.
@@ -141,9 +145,11 @@ impl fmt::Display for Error {
             Self::Data(_) => f.write_str("a registered data type is invalid"),
             Self::Pack(_) => f.write_str("a resource pack is invalid"),
             Self::Import(_) => f.write_str("the world could not be imported"),
+            Self::Export(_) => f.write_str("the world could not be exported"),
             Self::Output(_) => f.write_str("could not write to standard output"),
             Self::Usage => f.write_str(
-                "usage: <program> update-config, or <program> import <world folder> [<world name>]",
+                "usage: <program> update-config, <program> import <world folder> [<world name>], \
+                 or <program> export <world folder> [<world name>]",
             ),
         }
     }
@@ -160,6 +166,7 @@ impl std::error::Error for Error {
             Self::Data(e) => Some(e),
             Self::Pack(e) => Some(e),
             Self::Import(e) => Some(e),
+            Self::Export(e) => Some(e),
             Self::Auth(e)
             | Self::IdentityKey(e)
             | Self::TlsCertificate(e)
@@ -191,6 +198,12 @@ impl From<pack::Error> for Error {
 impl From<import::Error> for Error {
     fn from(e: import::Error) -> Self {
         Self::Import(e)
+    }
+}
+
+impl From<export::Error> for Error {
+    fn from(e: export::Error) -> Self {
+        Self::Export(e)
     }
 }
 

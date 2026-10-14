@@ -20,7 +20,6 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
 
 use tracing::{info, warn};
 
@@ -35,7 +34,7 @@ use crate::storage::codec::{
 };
 use crate::storage::seal::{MAX_RECORD, seal};
 use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
-use crate::world::{BlockPos, Chunk, ChunkPos, Entry, Kind, MIN_Y, Paletted, SLOTS, SUB_CHUNKS};
+use crate::world::{BlockPos, Chunk, ChunkPos, Entry, MIN_Y, Paletted, SLOTS, SUB_CHUNKS};
 
 /// Most chunks read, then converted, per step: bounds the chunk data held at once.
 const STEP: usize = 256;
@@ -208,24 +207,9 @@ pub(crate) fn run(
     dir: &Path,
     name: &str,
 ) -> crate::Result<Report> {
-    // A declared world's settings; any other name takes the default world's generator.
-    let declared = worlds.iter().find(|w| w.name == name);
-    let base = match declared.or(worlds.first()) {
-        Some(w) if declared.is_none_or(|w| w.kind == Kind::Persistent) => w,
-        _ => {
-            return Err(Error::UnknownWorld {
-                name: name.to_owned(),
-            }
-            .into());
-        }
-    };
-    let spec = WorldSpec {
+    let spec = save::file_world(worlds, name).ok_or_else(|| Error::UnknownWorld {
         name: name.to_owned(),
-        kind: Kind::Persistent,
-        generator: Arc::clone(&base.generator),
-        seed: declared.and_then(|w| w.seed),
-        spawn: None,
-    };
+    })?;
     if !crate::storage::is_world_file_name(name) {
         return Err(crate::Error::InvalidWorldName {
             name: name.to_owned(),

@@ -141,6 +141,51 @@ impl Server {
         )
     }
 
+    /// Exports the persistent world `world` as the Bedrock world folder `dir` (a `level.dat` and
+    /// its `db` database folder, which BDS and the game open), the reverse of
+    /// [`import_world`](Self::import_world).
+    ///
+    /// It reads the world's file `data/worlds/<world>.redb` (the name in any letter case)
+    /// read-only, at its last save, and writes nothing in the data folder. A file a running
+    /// server has open is refused ([`Error::Storage`]); a world the server has not loaded can be
+    /// exported while it runs. `dir` must not be there yet
+    /// ([`export::Error::FolderExists`](crate::export::Error::FolderExists)): the world is
+    /// written into `<dir>.tmp` and renamed to `dir` once whole, so on any failure no folder is
+    /// left, and the error names the chunk at fault
+    /// ([`export::Error::Chunk`](crate::export::Error::Chunk)).
+    ///
+    /// Every chunk the file holds is written with its blocks, biomes and block entities. A
+    /// chunk whose terrain was never saved (only its entities or block entities were) gets what
+    /// the world's generator makes, as when it loads: a declared world's generator and seed, or
+    /// for another name the default world's generator with the seed of the name. Entities and
+    /// scheduled block updates are left out and counted in the
+    /// [`export::Report`](crate::export::Report): they are saved in Anchor's own form, and so
+    /// are players, who are not in the world's file. Chunks the file does not hold (generated and never changed) are not written: the
+    /// Bedrock world's flat generator makes them, as BDS's default flat world for a world of
+    /// [`Flat`] (the same terrain) and as air for any other generator. `level.dat` holds the
+    /// world's name, spawn and time and no setting (game mode, difficulty, game rules): a world
+    /// runs with the settings of the server that opens it.
+    ///
+    /// A program started as `<program> export <world folder> [<world name>]` runs this from
+    /// [`run`](Self::run), the default world without a name.
+    ///
+    /// It blocks the calling thread and uses a CPU pool of `cpu-threads` that it joins before
+    /// returning. The same world file gives the same files whatever the thread count.
+    pub fn export_world(
+        &self,
+        world: &str,
+        dir: impl AsRef<Path>,
+    ) -> Result<crate::export::Report> {
+        let _log = self.console_log().map_err(Error::Start)?;
+        crate::export::run(
+            &self.data_dir,
+            &self.worlds,
+            self.threads.cpu,
+            world,
+            dir.as_ref(),
+        )
+    }
+
     /// Runs the server until a [`ShutdownHandle`] or a stop signal stops it, blocking the calling
     /// thread.
     ///
@@ -171,11 +216,13 @@ impl Server {
     ///
     /// The program's process arguments can ask for a command instead, which the program answers
     /// with no code of its own, writing the result to standard output: `<program> update-config`
-    /// reports what [`Config::load`] added to the settings file, renamed and removed in it, and
+    /// reports what [`Config::load`] added to the settings file, renamed and removed in it,
     /// `<program> import <world folder> [<world name>]` runs [`import_world`](Self::import_world)
-    /// (the default world, `level-name`, without a name). Either then returns without starting
-    /// the server, so it can run beside a running server. Those commands given other arguments
-    /// fail with [`Error::Usage`]; any other arguments are the program's own.
+    /// and `<program> export <world folder> [<world name>]` runs
+    /// [`export_world`](Self::export_world) (the default world, `level-name`, without a name).
+    /// Each then returns without starting the server, so it can run beside a running server.
+    /// Those commands given other arguments fail with [`Error::Usage`]; any other arguments are
+    /// the program's own.
     pub fn run(self) -> Result<()> {
         let task = args::current()?;
         self.run_task(task)
@@ -191,6 +238,11 @@ impl Server {
                 let file = crate::storage::Place::world(&self.data_dir, &world).file;
                 let report = self.import_world(&dir, &world)?;
                 args::imported(&world, &file, &report)
+            }
+            Task::Export { dir, world } => {
+                let world = world.unwrap_or_else(|| self.config.general.level_name.clone());
+                let report = self.export_world(&world, &dir)?;
+                args::exported(&world, &dir, &report)
             }
         };
         args::say(&answer).map_err(Error::Output)
@@ -869,6 +921,27 @@ mod tests {
             matches!(
                 again,
                 Error::Import(crate::import::Error::WorldExists { .. })
+            ),
+            "{again:?}"
+        );
+
+        let out = data.0.join("exported");
+        let export = |world: Option<&str>, dir: PathBuf| {
+            server().run_task(Task::Export {
+                dir,
+                world: world.map(str::to_owned),
+            })
+        };
+        // Without a name, the default world.
+        export(None, out.join("world")).unwrap();
+        assert!(out.join("world").join("level.dat").exists());
+        export(Some("LOBBY"), out.join("lobby")).unwrap();
+        assert!(out.join("lobby").join("db").join("CURRENT").exists());
+        let again = export(Some("lobby"), out.join("lobby")).unwrap_err();
+        assert!(
+            matches!(
+                again,
+                Error::Export(crate::export::Error::FolderExists { .. })
             ),
             "{again:?}"
         );

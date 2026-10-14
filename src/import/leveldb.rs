@@ -17,8 +17,8 @@
 //! the folder, a block 16 MiB stored or decompressed, a user key 1 KiB, 256 MiB of blocks held by
 //! one scan (and 64 MiB of cached blocks).
 
-mod log;
-mod table;
+pub(crate) mod log;
+pub(crate) mod table;
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, btree_map};
@@ -42,21 +42,21 @@ const MAX_FILES: usize = 65_536;
 /// Decompressed blocks one scan may hold at once.
 const MAX_HELD: usize = 256 << 20;
 /// Levels in a LevelDB version.
-const LEVELS: usize = 7;
+pub(crate) const LEVELS: usize = 7;
 /// The sequence and kind after the user key in an internal key.
-const TAG: usize = 8;
+pub(crate) const TAG: usize = 8;
 /// The largest sequence number: 56 bits.
 const MAX_SEQUENCE: u64 = (1 << 56) - 1;
 /// Key kinds.
 const DELETION: u8 = 0;
-const VALUE: u8 = 1;
+pub(crate) const VALUE: u8 = 1;
 /// The only key order the reader knows: bytewise.
-const COMPARATOR: &[u8] = b"leveldb.BytewiseComparator";
+pub(crate) const COMPARATOR: &[u8] = b"leveldb.BytewiseComparator";
 /// The masked CRC-32C (google/leveldb `util/crc32c.h`) adds this after rotating right by 15.
 const MASK_DELTA: u32 = 0xa282_ead8;
 
 /// The masked CRC-32C of `parts` put together, as LevelDB stores checksums.
-fn masked_crc(parts: &[&[u8]]) -> u32 {
+pub(crate) fn masked_crc(parts: &[&[u8]]) -> u32 {
     let mut crc = Crc32c::new();
     for part in parts {
         crc.update(part);

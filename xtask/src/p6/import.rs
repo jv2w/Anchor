@@ -16,6 +16,12 @@
 //! that Anchor sends as the state PMMP reads it as is intended too: PMMP ignores some vanilla
 //! properties, such as a pumpkin's facing (`xtask/data/pmmp/deserialized.json`). Every other
 //! difference fails, printed as the pair of states with how many blocks and where.
+//!
+//! Then the export: Anchor's world is written back as a Bedrock world with
+//! `Server::export_world` (`target/p6/export-world/`), BDS starts on a copy of it with the same
+//! game rules, the bot records what BDS sends (`export-bds/spawn.world.jsonl`), and that is
+//! compared with what BDS sent of its own world in the same way: BDS loads the export as the
+//! world it saved, except where Anchor stores a block as PMMP reads it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -59,37 +65,9 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
     let dir = |name: &str| root.join(OUT_DIR).join(name);
     let (bds_dir, world_dir, anchor_dir) =
         (dir("import-bds"), dir("import-world"), dir("import-anchor"));
+    let (export_dir, export_bds_dir) = (dir("export-world"), dir("export-bds"));
 
-    let session = BdsSession {
-        transport: "raknet",
-        compression: "snappy",
-        settings: &[
-            ("level-type", "DEFAULT"),
-            ("level-seed", SEED),
-            ("level-name", WORLD),
-        ],
-    };
-    let mut passed = bds_session_with(
-        &exe,
-        &bds_dir,
-        &session,
-        |_| Ok(()),
-        out,
-        |addr, bds, out| {
-            let log = bds_dir.join("bds.log");
-            for (rule, value) in RULES {
-                bds.command(&format!("gamerule {rule} {value}"))?;
-                let deadline = now() + RULE_WAIT;
-                while !read_text(&log)?.contains(rule) {
-                    if now() > deadline {
-                        return Err(format!("BDS did not confirm `gamerule {rule} {value}`"));
-                    }
-                    pause();
-                }
-            }
-            spawn_bot(&bot, addr, &bds_dir, "BDS", out)
-        },
-    )?;
+    let mut passed = bds_run(&exe, &bot, &bds_dir, |_| Ok(()), out)?;
     let saved = exe
         .parent()
         .ok_or("the BDS copy has no folder")?
@@ -109,10 +87,64 @@ pub(super) fn command(root: &Path, out: &mut impl Write) -> Result<bool, String>
         &states,
         &intended,
         &aliases,
+        ["BDS", "Anchor"],
+        out,
+    )?;
+
+    remove_dir(&export_dir)?;
+    export(&anchor_dir, &export_dir, out)?;
+    passed &= bds_run(
+        &exe,
+        &bot,
+        &export_bds_dir,
+        |bds| copy_dir(&export_dir, &bds.join("worlds").join(WORLD)),
+        out,
+    )?;
+    passed &= compare(
+        &read(&bds_dir)?,
+        &read(&export_bds_dir)?,
+        &states,
+        &intended,
+        &aliases,
+        ["BDS", "BDS on the export"],
         out,
     )?;
     say(out, if passed { "PASS" } else { "FAIL" })?;
     Ok(passed)
+}
+
+/// Starts BDS on the world [`WORLD`] (a new one of seed [`SEED`], or the one `prepare` puts in
+/// the copy's folder), sets the [`RULES`] and runs the spawn bot into `<out_dir>/spawn.jsonl`.
+fn bds_run(
+    exe: &Path,
+    bot: &Path,
+    out_dir: &Path,
+    prepare: impl FnOnce(&Path) -> Result<(), String>,
+    out: &mut impl Write,
+) -> Result<bool, String> {
+    let session = BdsSession {
+        transport: "raknet",
+        compression: "snappy",
+        settings: &[
+            ("level-type", "DEFAULT"),
+            ("level-seed", SEED),
+            ("level-name", WORLD),
+        ],
+    };
+    bds_session_with(exe, out_dir, &session, prepare, out, |addr, bds, out| {
+        let log = out_dir.join("bds.log");
+        for (rule, value) in RULES {
+            bds.command(&format!("gamerule {rule} {value}"))?;
+            let deadline = now() + RULE_WAIT;
+            while !read_text(&log)?.contains(rule) {
+                if now() > deadline {
+                    return Err(format!("BDS did not confirm `gamerule {rule} {value}`"));
+                }
+                pause();
+            }
+        }
+        spawn_bot(bot, addr, out_dir, "BDS", out)
+    })
 }
 
 /// The network ID of each reference state that is not an Anchor state but that PMMP reads as
@@ -161,15 +193,7 @@ fn anchor_session(
     let data_dir = out_dir.join("data");
     remove_dir(&data_dir)?;
     create_dir(&data_dir)?;
-    let mut config = anchor_config();
-    WORLD.clone_into(&mut config.general.level_name);
-    config.general.level_type = anchor::config::LevelType::Void;
-    let server = anchor::Server::builder()
-        .config(config)
-        .data_dir(&data_dir)
-        .without_console_log()
-        .build()
-        .map_err(|e| format!("build Anchor: {e}"))?;
+    let server = server(&data_dir)?;
     install_log()?;
     let report = server
         .import_world(world, WORLD)
@@ -180,6 +204,28 @@ fn anchor_session(
         spawn_bot(bot, &addr, out_dir, "Anchor", out)
     })?;
     Ok(passed && report.chunks() > 0)
+}
+
+/// An Anchor server of the data folder `data_dir` whose default world is [`WORLD`], a Void
+/// world.
+fn server(data_dir: &Path) -> Result<anchor::Server, String> {
+    let mut config = anchor_config();
+    WORLD.clone_into(&mut config.general.level_name);
+    config.general.level_type = anchor::config::LevelType::Void;
+    anchor::Server::builder()
+        .config(config)
+        .data_dir(data_dir)
+        .without_console_log()
+        .build()
+        .map_err(|e| format!("build Anchor: {e}"))
+}
+
+/// Exports the world of the Anchor session in `anchor_dir` into the new folder `folder`.
+fn export(anchor_dir: &Path, folder: &Path, out: &mut impl Write) -> Result<(), String> {
+    let report = server(&anchor_dir.join("data"))?
+        .export_world(WORLD, folder)
+        .map_err(|e| format!("export: {e} ({:?})", std::error::Error::source(&e)))?;
+    say(out, &format!("export: {report:?}"))
 }
 
 /// Blocks in a sub-chunk layer.
@@ -342,17 +388,20 @@ fn state_name(states: &BTreeMap<u32, String>, id: u32) -> String {
         .unwrap_or_else(|| format!("network id {id}"))
 }
 
-/// Compares, block by block, the sub-chunks both captures hold and prints the result: each pair
-/// of differing states with how many blocks and the first positions. Where Anchor sends
-/// `info_update` (an unknown block), or a stored block of an intended name BDS changed after
-/// loading, the difference is excused as [`excuse`] says. Where Anchor sends the
-/// state PMMP reads BDS's as (`aliases`), the block is excused too.
+/// Compares, block by block, the sub-chunks both captures hold and prints the result, naming
+/// the two sides `sides`: each pair of differing states with how many blocks and the first
+/// positions. `bds` is what BDS sent of its own world, `anchor` what was sent of Anchor's world
+/// (by Anchor, or by BDS from its export). Where Anchor sends `info_update` (an unknown block),
+/// or a stored block of an intended name BDS changed after loading, the difference is excused as
+/// [`excuse`] says. Where Anchor's world has the state PMMP reads BDS's as (`aliases`), the
+/// block is excused too.
 fn compare(
     bds: &BTreeMap<[i64; 3], Layers>,
     anchor: &BTreeMap<[i64; 3], Layers>,
     states: &BTreeMap<u32, String>,
     intended: &BTreeSet<String>,
     aliases: &BTreeMap<u32, u32>,
+    [first, second]: [&str; 2],
     out: &mut impl Write,
 ) -> Result<bool, String> {
     let id_of = |name: &str| {
@@ -420,7 +469,7 @@ fn compare(
         say(
             out,
             &format!(
-                "DIFFERENT {SCENARIO}: {count} blocks BDS {} Anchor {}, at (x, y, z, layer) \
+                "DIFFERENT {SCENARIO}: {count} blocks {first} {} {second} {}, at (x, y, z, layer) \
                  {examples:?}",
                 state_name(states, *x),
                 state_name(states, *y)
@@ -430,9 +479,9 @@ fn compare(
     say(
         out,
         &format!(
-            "{SCENARIO}: {compared} sub-chunks both servers sent ({} only BDS sent, {} only Anchor \
-             sent); intended blocks (unknown blocks Anchor sends as info_update, and blocks Anchor \
-             sends as PMMP reads them): {excused:?}",
+            "{SCENARIO}: {compared} sub-chunks {first} and {second} sent ({} only {first} sent, {} \
+             only {second} sent); intended blocks (unknown blocks Anchor sends as info_update, \
+             and blocks Anchor keeps as PMMP reads them): {excused:?}",
             bds.keys().filter(|k| !anchor.contains_key(*k)).count(),
             anchor.keys().filter(|k| !bds.contains_key(*k)).count(),
         ),

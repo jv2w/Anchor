@@ -18,20 +18,20 @@ use super::{Bytes, DELETION, MAX_KEY, VALUE, masked_crc};
 use crate::import::{Error, Result};
 
 /// Log files are cut into blocks of this many bytes.
-pub(super) const BLOCK: usize = 32 * 1024;
+pub(crate) const BLOCK: usize = 32 * 1024;
 /// The physical record header: checksum, length, type.
-pub(super) const HEADER: usize = 7;
+pub(crate) const HEADER: usize = 7;
 /// Physical record types.
-pub(super) const FULL: u8 = 1;
-pub(super) const FIRST: u8 = 2;
-pub(super) const MIDDLE: u8 = 3;
-pub(super) const LAST: u8 = 4;
+pub(crate) const FULL: u8 = 1;
+pub(crate) const FIRST: u8 = 2;
+pub(crate) const MIDDLE: u8 = 3;
+pub(crate) const LAST: u8 = 4;
 const ZERO: u8 = 0;
 /// A write batch header: sequence number and count.
 const BATCH_HEADER: usize = 12;
 
 /// Calls `f` with each whole record of the log `data`, in order.
-pub(super) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<()> {
+pub(crate) fn records(data: &[u8], mut f: impl FnMut(&[u8]) -> Result<()>) -> Result<()> {
     let mut assembled: Vec<u8> = Vec::new();
     let mut fragmented = false;
     let mut at = 0;

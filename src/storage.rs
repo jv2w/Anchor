@@ -4,8 +4,9 @@
 //! world (its record and chunks). The save thread
 //! (`save`) commits one snapshot to each file that changed, the main file last.
 //!
-//! Only the save thread, the world import before the server runs, and a replay
-//! ([`Storage::open_replica`]) use this module; every call blocks on file I/O. Tables map raw keys
+//! Only the save thread, the world import before the server runs, a replay
+//! ([`Storage::open_replica`]) and the world export ([`Snapshot`]) use this module; every call
+//! blocks on file I/O. Tables map raw keys
 //! to sealed values ([`seal`](seal::seal)): `meta` (one [`Meta`]: the save it last committed),
 //! `worlds` (in a world file, [`WORLD_KEY`] → [`WorldRecord`](codec::WorldRecord)), `chunks`
 //! ([`ChunkKey`] → the record its [`ChunkPart`] names), `players` ([`PlayerKey`] →
@@ -210,6 +211,11 @@ pub(crate) enum Error {
     TooManyWorlds,
     /// [`Storage::access`] found more values than the lists hold.
     TooManyAccessEntries,
+    /// [`Snapshot::chunk_ids`] found more chunks than it lists.
+    TooManyChunks {
+        /// The most it lists.
+        limit: usize,
+    },
     /// The world's data file is not open: it failed to open, or a replay has no copy of it.
     Closed,
 }
@@ -273,6 +279,9 @@ impl fmt::Display for Error {
                     "more than {MAX_ACCESS} operator, ban and whitelist entries are stored"
                 )
             }
+            Self::TooManyChunks { limit } => {
+                write!(f, "a world file holds more than {limit} chunks")
+            }
         }
     }
 }
@@ -291,6 +300,7 @@ impl std::error::Error for Error {
             | Self::NewerFormat { .. }
             | Self::TooManyWorlds
             | Self::TooManyAccessEntries
+            | Self::TooManyChunks { .. }
             | Self::Closed => None,
         }
     }
@@ -359,6 +369,18 @@ impl ChunkId {
         let [x0, x1, x2, x3] = flip(self.x);
         let [z0, z1, z2, z3] = flip(self.z);
         [w0, w1, w2, w3, x0, x1, x2, x3, z0, z1, z2, z3]
+    }
+
+    /// The chunk whose prefix `key` starts with; `None` for a key shorter than a prefix.
+    fn from_key(key: &[u8]) -> Option<Self> {
+        let [w0, w1, w2, w3, x0, x1, x2, x3, z0, z1, z2, z3] =
+            *key.first_chunk::<CHUNK_PREFIX>()?;
+        let unflip = |c: [u8; 4]| (u32::from_be_bytes(c) ^ 0x8000_0000).cast_signed();
+        Some(Self {
+            world: u32::from_be_bytes([w0, w1, w2, w3]),
+            x: unflip([x0, x1, x2, x3]),
+            z: unflip([z0, z1, z2, z3]),
+        })
     }
 
     /// The key of this chunk's `part`.
@@ -1276,6 +1298,87 @@ impl Import {
     pub(crate) fn commit(self) -> Result<()> {
         self.0.commit()?;
         Ok(())
+    }
+}
+
+/// A world file opened read-only for an export: every read is of one read transaction, so of
+/// one commit. Nothing is written, checked or backed up. A file another process has open is
+/// refused ([`Error::InUse`]), and no server can open it for writing while this is open.
+pub(crate) struct Snapshot {
+    /// A transaction of `_db`, so declared first to drop first.
+    txn: ReadTransaction,
+    _db: redb::ReadOnlyDatabase,
+}
+
+impl fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Snapshot").finish_non_exhaustive()
+    }
+}
+
+impl Snapshot {
+    /// Opens the world file `path`. Fails if it is missing, in use, damaged, or left by a crash
+    /// for redb to repair (a start of the server repairs it).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "off-tick: the export reads a world file instead of running the server"
+    )]
+    pub(crate) fn open(path: &Path) -> Result<Self> {
+        let mut builder = Builder::new();
+        builder.set_cache_size(CACHE_BYTES);
+        let db = builder.open_read_only(path).map_err(Error::from_open)?;
+        let txn = db.begin_read()?;
+        Ok(Self { txn, _db: db })
+    }
+
+    /// The sealed world record, `None` if the file holds none.
+    pub(crate) fn world(&self) -> Result<Option<Vec<u8>>> {
+        let Some(table) = open_read(&self.txn, WORLDS)? else {
+            return Ok(None);
+        };
+        Ok(table.get(WORLD_KEY)?.map(|v| v.value().to_vec()))
+    }
+
+    /// The chunks that hold values of the world numbered `world`, in key order;
+    /// [`Error::TooManyChunks`] past `max`. A key too short for a chunk is damage.
+    pub(crate) fn chunk_ids(&self, world: u32, max: usize) -> Result<Vec<ChunkId>> {
+        let Some(table) = open_read(&self.txn, CHUNKS)? else {
+            return Ok(Vec::new());
+        };
+        let first = ChunkId {
+            world,
+            x: i32::MIN,
+            z: i32::MIN,
+        };
+        let last = ChunkId {
+            world,
+            x: i32::MAX,
+            z: i32::MAX,
+        };
+        let (first, _) = chunk_range(first);
+        let (_, last) = chunk_range(last);
+        let mut ids: Vec<ChunkId> = Vec::new();
+        for entry in table.range::<&[u8]>(&*first..=&*last)? {
+            let (key, _) = entry?;
+            let id = ChunkId::from_key(key.value())
+                .ok_or(Error::Malformed("a chunk key no anchor writes"))?;
+            if ids.last() == Some(&id) {
+                continue;
+            }
+            if ids.len() == max {
+                return Err(Error::TooManyChunks { limit: max });
+            }
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
+    /// Every value of `chunk`, in key order, as [`Storage::read_chunks`] gives them.
+    pub(crate) fn read_chunk(&self, chunk: ChunkId) -> ChunkValues {
+        match open_read(&self.txn, CHUNKS)? {
+            Some(table) => read_chunk(&table, chunk),
+            None => Ok(Vec::new()),
+        }
     }
 }
 
