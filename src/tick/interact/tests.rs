@@ -1359,6 +1359,27 @@ fn with_beds_off_a_bed_is_a_plain_block() {
     assert_eq!(click_bed_at_night(false), (false, false, Kind::OakPlanks));
 }
 
+/// PMMP `Bed::onInteract`: a foot whose head block faces another way is an incomplete bed, so a
+/// click at night lays the player in neither it nor the bed that head belongs to.
+#[test]
+fn clicking_a_bed_foot_whose_head_faces_another_way_does_not_sleep() {
+    let mut h = Harness::new(|_| {});
+    h.state.worlds[0].set_time(13_000);
+    let bed = |face: Face, head: bool| {
+        let s = props::with_facing(Kind::Bed.default_state(), face).unwrap();
+        props::with_flag(s, "head_piece_bit", head).unwrap()
+    };
+    let east_head = TARGET.step(Face::North).unwrap();
+    h.set(TARGET, bed(Face::North, false));
+    h.set(east_head, bed(Face::East, true));
+    h.set(east_head.step(Face::West).unwrap(), bed(Face::East, false));
+    h.hold(Stack::EMPTY);
+    let input = h.auth(Vec::new(), Some(click(TARGET, Face::Up, &Stack::EMPTY)));
+    h.run(vec![input]);
+    assert!(!h.player().is_sleeping());
+    assert_eq!(props::flag(h.block(east_head), "occupied_bit"), Some(false));
+}
+
 /// Breaking reads the survival rules' effects (PMMP `calculateBreakProgressPerTick`): with
 /// Haste II glass breaks after 3 client ticks instead of 7; and the block's own break time
 /// counts (PMMP: shears break leaves at once).

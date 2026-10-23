@@ -804,27 +804,10 @@ fn item_type(block: BlockState) -> Option<item::Type> {
     }
 }
 
-/// PMMP `Bed::onInteract`: lie down in the head half (the survival rules check night, distance
-/// and whether it is taken).
+/// PMMP `Bed::onInteract`: the survival rules find the clicked bed's other half (none for an
+/// incomplete bed), pick its head and check night, distance and whether it is taken.
 fn bed(state: &mut State, u: &Use) -> bool {
-    let block = u.block;
-    let head = props::flag(block, "head_piece_bit") == Some(true);
-    let head_pos = if head {
-        Some(u.pos)
-    } else {
-        props::facing(block).and_then(|f| u.pos.step(f))
-    };
-    let Some(head_pos) = head_pos else {
-        return true;
-    };
-    let other = get(state, u.actor.world, Some(head_pos));
-    if head_pos != u.pos
-        && !(other.is(Class::Bed) && props::flag(other, "head_piece_bit") == Some(true))
-    {
-        // An incomplete bed (PMMP tells the player).
-        return true;
-    }
-    let _ = survival::sleep(state, u.actor.session, u.actor.world, head_pos);
+    let _ = survival::sleep(state, u.actor.session, u.actor.world, u.pos);
     true
 }
 
