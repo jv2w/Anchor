@@ -685,6 +685,12 @@ impl Inventory {
         take_stack_id(&mut self.next_id)
     }
 
+    /// Whether a window may open: few enough stacks wait for room that what it holds can go back
+    /// ([`MAX_PENDING`]).
+    fn has_room_to_open(&self) -> bool {
+        self.pending.len() + MAX_GIVE_BACK <= MAX_PENDING
+    }
+
     /// The player's slot `r` (not a block container slot).
     fn get(&self, r: SlotRef) -> Option<Slot> {
         match r {
@@ -1561,9 +1567,10 @@ pub(super) fn held_of(state: &State, session: SessionId) -> Option<(u8, Slot)> {
 /// Whether `session` may open a window now: it is joined and loaded, and it waits with few
 /// enough stacks for room that a window's items can go back.
 fn may_open(state: &State, session: SessionId) -> bool {
-    state.players.get(&session).is_some_and(|p| {
-        p.phase != Phase::Loading && p.inventory.pending.len() + MAX_GIVE_BACK <= MAX_PENDING
-    })
+    state
+        .players
+        .get(&session)
+        .is_some_and(|p| p.phase != Phase::Loading && p.inventory.has_room_to_open())
 }
 
 /// Opens the window `check` finds for `session` now (none: nothing opens), with [`InventoryOpen`]:
@@ -2312,7 +2319,7 @@ pub(super) fn open_trade(
     if player.phase == Phase::Loading
         || inv.window.is_some()
         || inv.pending_close.is_some()
-        || inv.pending.len() + MAX_GIVE_BACK > MAX_PENDING
+        || !inv.has_room_to_open()
     {
         return None;
     }

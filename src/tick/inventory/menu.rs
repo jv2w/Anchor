@@ -19,9 +19,7 @@ use std::fmt;
 
 use super::super::survival::EYE_HEIGHT;
 use super::super::{Context, Phase, Player, SessionId, State, survival, view};
-use super::{
-    MAX_GIVE_BACK, MAX_PENDING, Notice, StackId, Window, WindowKind, close_now, slot_packet,
-};
+use super::{Notice, StackId, Window, WindowKind, close_now, slot_packet};
 use crate::block;
 use crate::item::Stack;
 use crate::math::Vec3;
@@ -139,7 +137,7 @@ impl Context<'_> {
         let tick = self.state.tick;
         let p = in_game(self.state, player).ok_or(Error::Offline)?;
         // The old menu's two positions and the new menu's two.
-        if p.inventory.pending.len() + MAX_GIVE_BACK > MAX_PENDING || !p.view.has_room_to_show(4) {
+        if !p.inventory.has_room_to_open() || !p.view.has_room_to_show(4) {
             return Err(Error::Busy);
         }
         let n = u32::try_from(p.inventory.next_menu).map_err(|_| Error::Exhausted)?;
