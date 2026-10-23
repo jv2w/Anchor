@@ -775,7 +775,8 @@ impl Thread {
 /// `data/worlds/` holds keeps its time and number, a new one starts at time 0 with the next free
 /// number. The files of the start (main, players and each persistent world's) are checked
 /// together on `pool` first ([`check_all`]), so a damaged one refuses the start before any file
-/// is written. The other world files of `data/worlds/` are listed for the
+/// is written; so is a start whose new world files would make `data/worlds/` hold more than
+/// [`MAX_WORLDS`]. The other world files of `data/worlds/` are listed for the
 /// tick to load ([`Catalog::stored`]); their record is read without writing them, unless a crash
 /// left one to repair, which opens it as a start does, without a start backup (it gets one when
 /// it is loaded). Every file holding a later save than the main file is reported
@@ -790,8 +791,17 @@ pub(crate) fn open_with(
         Place::data(data_dir, storage::MAIN_FILE),
         Place::data(data_dir, storage::PLAYERS_FILE),
     ];
+    let names = world_names(data_dir)?;
+    let mut new_files = 0;
     for spec in specs.iter().filter(|s| s.kind == Kind::Persistent) {
-        places.push(world_place(data_dir, &spec.name)?);
+        let file = file_of(&names, &spec.name);
+        new_files += usize::from(file.is_none());
+        places.push(Place::world(data_dir, file.unwrap_or(&spec.name)));
+    }
+    // Counted together before any is made: each world's open checks only the files made before
+    // it, so a later one would fail after the earlier ones are made.
+    if names.len() + new_files > MAX_WORLDS {
+        return Err(storage::Error::TooManyWorlds.into());
     }
     check_all(&places, start.check, pool)?;
     // Checked above: their opens check the format alone.
@@ -818,7 +828,7 @@ pub(crate) fn open_with(
         later.push(files.players.place.file.clone());
     }
     let mut stored = Vec::new();
-    for name in world_names(data_dir)? {
+    for name in names {
         let key = storage::world_name_key(&name);
         if specs
             .iter()
@@ -3829,6 +3839,40 @@ pub(crate) mod tests {
         );
         assert!(!Place::world(&dir.0, "world").file.exists());
         assert_eq!(world_files(&dir.0).unwrap().len(), MAX_WORLDS);
+    }
+
+    /// A start whose declared worlds would together make more world files than `data/worlds/`
+    /// may hold is refused before it makes any of them, though each alone would fit.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_start_makes_no_world_files_that_together_pass_the_most_the_folder_holds() {
+        let dir = TempDir::new("world-limit-two");
+        let worlds = dir.0.join(storage::WORLD_DIR);
+        std::fs::create_dir_all(&worlds).unwrap();
+        // Empty files are damaged ones: left out of the stored worlds, but world files still.
+        for i in 1..MAX_WORLDS {
+            std::fs::write(worlds.join(format!("w{i:04}.{}", storage::EXTENSION)), b"").unwrap();
+        }
+        let mut specs = specs();
+        specs.push(WorldSpec {
+            name: "lobby".to_owned(),
+            kind: Kind::Persistent,
+            generator: Arc::new(Flat),
+            seed: None,
+            spawn: None,
+        });
+        let refused = open(&dir.0, specs).err();
+        assert!(
+            matches!(
+                &refused,
+                Some(crate::Error::Storage(e))
+                    if matches!(e.downcast_ref(), Some(storage::Error::TooManyWorlds))
+            ),
+            "{refused:?}"
+        );
+        assert!(!Place::world(&dir.0, "world").file.exists());
+        assert!(!Place::world(&dir.0, "lobby").file.exists());
+        assert_eq!(world_files(&dir.0).unwrap().len(), MAX_WORLDS - 1);
     }
 
     /// A world the tick makes while `data/worlds/` holds the most world files (the tick does not
