@@ -12,7 +12,7 @@
 //! positions that may have some ([`BlockEntities::active`]), and [`tick`] runs only those. A
 //! furnace or brewing stand leaves the set when it has nothing to do (PMMP `onUpdate` returning
 //! false) and comes back when its slots change (PMMP schedules an update on every inventory
-//! change); campfires stay while they hold items, beacons while they are loaded.
+//! change); campfires stay while they hold items, beacons while an effect is chosen.
 //!
 //! Items that cannot be dropped when a container breaks (the world's entity limit) wait in the
 //! chunk as spills ([`Spill`], saved with the chunk) and drop on later ticks: nothing is lost.
