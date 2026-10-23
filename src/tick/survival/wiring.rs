@@ -1175,6 +1175,29 @@ fn the_damage_action_hurts_through_the_rules() {
     assert_eq!(drain(&mut seen), [pid(1)]);
 }
 
+/// A finite hit too big for the modifiers to add up still kills: the sums saturate at
+/// `f64::MAX` instead of cancelling out as infinities into no damage.
+#[test]
+fn a_huge_hit_from_a_strong_player_kills_an_armoured_target() {
+    for (amplifier, amount) in [(0, f64::MAX), (255, 1e307)] {
+        let mut game = Game::new(2, Listeners::default());
+        inventory::set_armor(game.player_mut(2), 1, stack(ItemKind::IronChestplate, 1));
+        for effect in [effect::Type::Strength, effect::Type::Weakness] {
+            effects::add(
+                &mut game.state,
+                sid(1),
+                effect,
+                effects::Active::new(200, amplifier),
+            );
+        }
+        let by = DamageSource::Entity(Actor::Player(pid(1)));
+        game.perform(
+            action::Damage::new(pid(2), amount, DamageCause::EntityAttack).with_source(by),
+        );
+        assert!(!game.player(2).is_alive(), "amplifier {amplifier}");
+    }
+}
+
 /// An emote packet of session `s`.
 fn emote(game: &mut Game, s: u64, id: &str) -> Input {
     let e = p::Emote {
