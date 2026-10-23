@@ -87,19 +87,11 @@ pub(crate) fn imported(world: &str, file: &Path, report: &import::Report) -> Str
     let spawn = report.spawn();
     let unknown = report.unknown_blocks().values().copied();
     let unknown = unknown.fold(report.unlisted_unknown_blocks(), u64::saturating_add);
-    let bare = world
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    let table = if bare {
-        format!("[worlds.{world}]")
-    } else {
-        format!("[worlds.{world:?}]")
-    };
     format!(
         "imported the world {world:?} as {}: {} chunks, {} block entities
 left out: {} entities, {} Nether chunks, {} End chunks, {} players
 unknown blocks, kept as they are: {unknown}
-its spawn in level.dat is {x} {y} {z}; to use it, set spawn = [{x}, {y}, {z}] under {table}
+its spawn is kept from level.dat: {x} {y} {z}
 a running server sees the world after its next start",
         file.display(),
         report.chunks(),

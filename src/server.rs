@@ -108,11 +108,11 @@ impl Server {
     /// time; a chunk's biomes are those the world's generator gives it. Biomes,
     /// entities and pending block updates of the source are left out and counted, as are the
     /// Nether, the End and the players (Bedrock files players by device, not by Xbox user ID).
-    /// The [`import::Report`](crate::import::Report) counts what was imported and left out. No
-    /// setting of `level.dat` is imported (seed, spawn, game mode, difficulty, game rules): the
-    /// world runs with the server's settings, and the report gives its spawn
-    /// ([`import::Report::spawn`](crate::import::Report::spawn)) to copy into the world's
-    /// `[worlds.<name>]` table.
+    /// The [`import::Report`](crate::import::Report) counts what was imported and left out. The
+    /// world keeps the spawn of `level.dat`
+    /// ([`import::Report::spawn`](crate::import::Report::spawn)) as its own, but no setting of
+    /// `level.dat` is imported (seed, game mode, difficulty, game rules): the world runs with the
+    /// server's settings.
     ///
     /// A program started as `<program> import <world folder> [<world name>]` runs this from
     /// [`run`](Self::run), the default world without a name.
@@ -756,8 +756,8 @@ impl ServerBuilder {
     /// Adds a world besides the default one (`level-name`), loaded from the start. A
     /// [`Kind::Persistent`] world is saved in its file `data/worlds/<name>.redb`; a
     /// [`Kind::Temporary`] one is generated fresh at every start and never saved. Its seed is
-    /// made from its name and its spawn is the generator's, or `spawn` of its `[worlds.<name>]`
-    /// table: like every setting, they come from here at every start and are never saved.
+    /// made from its name at every start. When the world is new, its spawn is the generator's,
+    /// or `spawn` of its `[worlds.<name>]` table; a persistent world's file then keeps its spawn.
     /// Players join the default world. Its generator is registered as
     /// [`generator`](Self::generator) registers one.
     #[doc(alias = "WorldManager::generateWorld")]
