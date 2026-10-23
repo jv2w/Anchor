@@ -165,9 +165,28 @@ impl ClientData {
     /// the skin ID and the cape ID together (PMMP draws a random UUID; BDS's value is not
     /// confirmed). Fails if a field does not decode, an image dimension or animation number is
     /// out of range, a frame count is not finite, or the skin holds more than
-    /// [`MAX_SKIN_BYTES`].
+    /// [`MAX_SKIN_BYTES`], its texts included.
     pub(crate) fn skin(&self) -> Result<protocol::Skin> {
-        let mut budget = MAX_SKIN_BYTES;
+        // The skin and cape IDs are held twice: alone and in the full ID.
+        let texts = [
+            self.skin_id.len(),
+            self.skin_id.len(),
+            self.cape_id.len(),
+            self.cape_id.len(),
+            self.playfab_id.len(),
+            self.profile_hash.len(),
+        ]
+        .into_iter()
+        .chain(
+            self.persona_pieces
+                .iter()
+                .flat_map(|p| [p.piece_id.len(), p.product_id.len()]),
+        )
+        .chain(self.piece_tint_colours.iter().map(|t| t.piece_type.len()))
+        .fold(0_usize, usize::saturating_add);
+        let mut budget = MAX_SKIN_BYTES
+            .checked_sub(texts)
+            .ok_or(Error::ClientData("Skin"))?;
         let mut decode = |text: &str| {
             let bytes = STD
                 .decode(text, budget)

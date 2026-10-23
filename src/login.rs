@@ -950,6 +950,24 @@ mod tests {
     }
 
     #[test]
+    fn skin_texts_count_toward_the_skin_bound() {
+        // The skin ID and cape ID are held twice (alone and in the full ID): the texts alone
+        // take twice the bound while every image is empty.
+        let half = crate::entity::MAX_SKIN_BYTES / 2;
+        let mut data = client_data_json();
+        data["SkinId"] = json!("a".repeat(half));
+        data["CapeId"] = json!("b".repeat(half));
+        data["SkinData"] = json!("");
+        data["SkinImageWidth"] = json!(0);
+        data["SkinImageHeight"] = json!(0);
+        data["SkinResourcePatch"] = json!(STD.encode(b"null"));
+        data["AnimatedImageData"] = json!([]);
+        let request = online_request(&Issuer::get().token(&claims()), &data, player());
+        let err = verify(&request, Mode::Online(&Issuer::get().keys()), NOW).err();
+        assert!(matches!(err, Some(Error::ClientData("Skin"))), "{err:?}");
+    }
+
+    #[test]
     fn valid_client_data_variants_pass() {
         let cases = [
             ("ServerAddress", json!("[::1]:19132")),
