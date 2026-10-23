@@ -198,9 +198,6 @@ pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::cu
         },
         _ => None,
     };
-    if s.food > MAX_FOOD {
-        s.food = MAX_FOOD;
-    }
     s.held_back = match extra.get(HELD_BACK) {
         Some(Value::List(List::Compound(list))) => list
             .iter()
