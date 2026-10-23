@@ -225,8 +225,17 @@ pub(crate) fn run(
     let catalog = source.catalog()?;
     let world = *source.world();
     let place = Place::world(data_dir, name);
-    let mut storage = Storage::open(&place, start)?;
+    // Started before the world file is made, so a pool that fails to start leaves no file.
     let pool = crate::runtime::cpu_pool(cpu)?;
+    let mut storage = match Storage::open(&place, start) {
+        Ok(storage) => storage,
+        Err(e) => {
+            if !pool.shutdown() {
+                warn!("the import's CPU pool threads did not all end");
+            }
+            return Err(e.into());
+        }
+    };
     let imported = (|| {
         let (import, report) = prepare(
             &mut storage,

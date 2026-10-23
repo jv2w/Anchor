@@ -190,14 +190,24 @@ pub(crate) fn run(
     let mut ids = snapshot.chunk_ids(record.number, MAX_CHUNKS)?;
     ids.sort_unstable_by_key(|id| crate::import::chunk::prefix(id.x, id.z));
 
-    if let Some(parent) = temp.parent() {
-        std::fs::create_dir_all(parent).map_err(written(parent))?;
-    }
-    std::fs::create_dir(&temp).map_err(|e| match e.kind() {
-        io::ErrorKind::AlreadyExists => Error::FolderExists { path: temp.clone() },
-        _ => written(&temp)(e),
-    })?;
+    // Started before the temporary folder is made, so a pool that fails to start leaves no folder.
     let pool = crate::runtime::cpu_pool(cpu)?;
+    let made = (|| {
+        if let Some(parent) = temp.parent() {
+            std::fs::create_dir_all(parent).map_err(written(parent))?;
+        }
+        std::fs::create_dir(&temp).map_err(|e| match e.kind() {
+            io::ErrorKind::AlreadyExists => Error::FolderExists { path: temp.clone() },
+            _ => written(&temp)(e),
+        })
+    })();
+    if let Err(e) = made {
+        // Not removed: the folder is not the export's own when it could not be made.
+        if !pool.shutdown() {
+            warn!("the export's CPU pool threads did not all end");
+        }
+        return Err(e.into());
+    }
     let exported = write(&temp, &snapshot, &pool, &spec, &record, &ids);
     if !pool.shutdown() {
         warn!("the export's CPU pool threads did not all end");
