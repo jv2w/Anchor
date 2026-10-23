@@ -2299,7 +2299,8 @@ pub(super) fn close_viewers(state: &mut State, world: WorldIndex, pos: BlockPos)
 }
 
 /// Opens the trade window with the villager NPC `villager` for `session` (window type 15; input
-/// slots 4 and 5, output 50; request containers 47, 48, 49; BDS, P6) and returns its window
+/// slots 4 and 5, output 50; request containers 47 and 48, the sale taken from the created output
+/// 60:50; BDS, P6) and returns its window
 /// ID; `None` if a window cannot open now (another window is open or closing, the player is not
 /// spawned or has stacks waiting for room). BDS sends no `ContainerOpen` for it: the caller's
 /// `UpdateTrade` opens it on the client. An open trade window is closed first (its payments go
