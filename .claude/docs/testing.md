@@ -14,10 +14,11 @@ HEAD와 다른 파일(바뀐 것, 지운 것, 새 파일)만 보고 순서대로
    - `src/`의 파일: 그 모듈의 단위 시험(`cargo test -p anchor --lib -- <모듈>::`). 하위 모듈이 있는 파일은 자기 모듈, 없는 파일은 그 폴더를 가진 모듈이다(`foo/bar.rs`, `foo/tests.rs` → `foo::`). `src/lib.rs`나 빌드 파일(`Cargo.toml`, `Cargo.lock`, `.clippy.toml`, `.rustfmt.toml`, `rust-toolchain.toml`, `.cargo/`)이 바뀌면 모든 단위 시험.
    - `tests/<이름>.rs`, `xtask/tests/<이름>.rs`: 그 시험 파일. 하위 폴더의 공용 파일이 바뀌면 그 패키지의 모든 통합 시험.
    - `xtask/src/`: xtask 단위 시험.
+   - Rust 소스가 끌어 쓰는 파일(`#[path = "…"]` 모듈의 파일, 경로가 문자열인 `include_str!`·`include_bytes!`, 크레이트 폴더 기준 `concat!(env!("CARGO_MANIFEST_DIR"), "/…")`): 그 소스가 바뀐 것으로 보고 위 규칙대로 그 소스의 시험(그 소스의 크레이트)을 돈다.
 
-- 코드가 아닌 파일만 바뀌었으면 바로 통과한다. `examples/`는 clippy가 빌드하고, vendor 사본의 시험은 verify가 돈다.
+- 그 밖에 소스도 빌드 파일도 아니고 끌어 쓰이지도 않는 파일만 바뀌었으면 바로 통과한다. `examples/`는 clippy가 빌드하고, vendor 사본의 시험은 verify가 돈다.
 - 빌드는 `target/check/`에서 한다. 도는 verify를 기다리지 않고 실행 중인 `xtask.exe`를 다시 빌드하지 않게 하려는 것이다.
-- 통과하면 HEAD와 바뀐 파일 내용의 도장을 `target/check/pass`에 남긴다. 그대로인 트리는 바로 통과한다.
+- 통과하면 HEAD와 빌드가 읽는 바뀐 파일(위 세 종류) 내용의 도장을 `target/check/pass`에 남긴다. 그대로인 트리는 바로 통과한다.
 ## `cargo xtask verify`
 
 검사는 순서대로 돌고, 각 줄은 `ok  ` 또는 `FAIL`로 시작한다. 마지막 줄은 전체 결과 `PASS` 또는 `FAIL`이다. 하나라도 실패하거나 경고를 내면 전체가 `FAIL`이다. 이 PC에서 10~15분 걸린다.
