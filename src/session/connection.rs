@@ -356,18 +356,7 @@ impl Session {
         else {
             return Err(Error::Order("first packet is not RequestNetworkSettings"));
         };
-        if client_protocol != PROTOCOL_VERSION {
-            let status = if client_protocol > PROTOCOL_VERSION {
-                consts::PlayStatus::LoginFailedServer
-            } else {
-                consts::PlayStatus::LoginFailedClient
-            };
-            self.send(&[Packet::PlayStatus(PlayStatus {
-                status: i32::from(status),
-            })])
-            .await?;
-            return Err(Error::Protocol(client_protocol));
-        }
+        self.check_protocol(client_protocol).await?;
         let settings = self.shared.batch;
         self.send(&[Packet::NetworkSettings(NetworkSettings {
             compression_threshold: settings.threshold(),
@@ -442,19 +431,26 @@ impl Session {
         }
     }
 
-    async fn on_login(&mut self, login: packet::Login) -> Result<()> {
-        if login.client_protocol != PROTOCOL_VERSION {
-            let status = if login.client_protocol > PROTOCOL_VERSION {
-                consts::PlayStatus::LoginFailedServer
-            } else {
-                consts::PlayStatus::LoginFailedClient
-            };
-            self.send(&[Packet::PlayStatus(PlayStatus {
-                status: i32::from(status),
-            })])
-            .await?;
-            return Err(Error::Protocol(login.client_protocol));
+    /// Refuses a client of another protocol version, telling it which side is outdated. Both
+    /// `RequestNetworkSettings` and `Login` carry the version.
+    async fn check_protocol(&mut self, client_protocol: i32) -> Result<()> {
+        if client_protocol == PROTOCOL_VERSION {
+            return Ok(());
         }
+        let status = if client_protocol > PROTOCOL_VERSION {
+            consts::PlayStatus::LoginFailedServer
+        } else {
+            consts::PlayStatus::LoginFailedClient
+        };
+        self.send(&[Packet::PlayStatus(PlayStatus {
+            status: i32::from(status),
+        })])
+        .await?;
+        Err(Error::Protocol(client_protocol))
+    }
+
+    async fn on_login(&mut self, login: packet::Login) -> Result<()> {
+        self.check_protocol(login.client_protocol).await?;
         let verified = match self.verify(&login.connection_request).await {
             Ok(verified)
                 if self
