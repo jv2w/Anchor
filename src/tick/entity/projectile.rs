@@ -24,8 +24,8 @@ use super::kind::{
 };
 use super::physics::{BlockHit, Flight, intercept};
 use super::{
-    Blow, Cause, EYE_HEIGHT, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust, create,
-    direction, discard, heal, hurt, is_live, level_event, level_of, npc, pickup_event,
+    Blow, Cause, EYE_HEIGHT, Entity, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust,
+    create, direction, discard, heal, hurt, is_live, level_event, level_of, pickup_event,
     player_actor, player_box, push_entity, send_to, targetable, with, worn,
 };
 use crate::block::{self, Face, TypeTag};
@@ -1099,10 +1099,7 @@ fn living_in(state: &State, world: usize, area: Aabb, except: Id, hooks: Hooks) 
 fn eye_of(state: &State, target: Struck) -> Option<Vec3> {
     match target {
         Struck::Player(s) => state.players.get(&s).map(|p| p.position),
-        Struck::Entity(id) => {
-            let e = state.rules.entities.get(id)?;
-            Some(e.body.position + Vec3::new(0.0, npc::eye_height(&e.kind), 0.0))
-        }
+        Struck::Entity(id) => state.rules.entities.get(id).map(Entity::eye_position),
         Struck::Block(_) => None,
     }
 }

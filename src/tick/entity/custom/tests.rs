@@ -656,3 +656,17 @@ fn custom_entities_tick_the_same_on_one_or_many_threads() {
     }
     assert_eq!(hashes[0], hashes[1]);
 }
+
+// pmmp: Entity::isInsideOfSolid
+/// A custom entity suffocates when its eyes, not its feet, are in a solid block.
+#[test]
+fn a_custom_entity_suffocates_with_its_eyes_in_a_solid_block() {
+    let mut h = harness(1, vec![ghost()]);
+    let stone = super::super::physics::tests::named("minecraft:stone");
+    h.state.worlds[0]
+        .set_block(world::BlockPos::new(3, -59, 3), stone)
+        .unwrap();
+    let id = spawn(&mut h, "test:ghost", at(3.5, -60.0, 3.5));
+    h.entities();
+    assert_eq!(context(&mut h).entity(id).unwrap().health(), 29.0);
+}

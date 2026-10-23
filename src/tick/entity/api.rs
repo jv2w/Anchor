@@ -22,9 +22,9 @@ use super::kind::{
 };
 use super::saved::{HEIGHT_MARGIN, MAX_CLOUD_AGE, MAX_CLOUD_RADIUS, MAX_PROJECTILE_DAMAGE};
 use super::{
-    Cause, Entities, Entity, Hurt, Knock, MAX_ENTITIES_PER_WORLD, MAX_HIDDEN_PER_PLAYER, Npc,
-    Raise, SessionId, State, actor_event, chunk_of, create, drop_stack, hurt_in, is_valid_position,
-    is_valid_scale, npc, object, physics, projectile, send_to, to_f32,
+    Cause, EYE_HEIGHT, Entities, Entity, Hurt, Knock, MAX_ENTITIES_PER_WORLD,
+    MAX_HIDDEN_PER_PLAYER, Npc, Raise, SessionId, State, actor_event, chunk_of, create, drop_stack,
+    hurt_in, is_valid_position, is_valid_scale, object, physics, projectile, send_to, to_f32,
 };
 use crate::action;
 use crate::block::{self, Face};
@@ -92,13 +92,16 @@ impl Entity {
         self.body.motion
     }
 
-    /// The height of its eyes above its position (PMMP `EntitySizeInfo`: an NPC's own, else half
-    /// its height plus 0.1, at most its height), times its scale.
+    /// The height of its eyes above its position (PMMP `EntitySizeInfo`: a human NPC's is a
+    /// player's, else half its height plus 0.1, at most its height), times its scale.
     #[doc(alias = "Entity::getEyeHeight")]
     pub fn eye_height(&self) -> f64 {
-        let npc = npc::eye_height(&self.kind);
-        if npc > 0.0 {
-            return npc * self.scale;
+        if let Kind::Npc(Character {
+            form: Form::Human { .. },
+            ..
+        }) = self.kind
+        {
+            return EYE_HEIGHT * self.scale;
         }
         let (_, height) = self.size();
         math::min(height / 2.0 + 0.1, height)

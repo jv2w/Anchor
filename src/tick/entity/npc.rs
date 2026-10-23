@@ -38,10 +38,6 @@ use crate::protocol::packet::{Animate, Packet};
 use crate::save::WorldIndex;
 use crate::world::BlockPos;
 
-/// The eye height of a villager and a zombie (PMMP `EntitySizeInfo`: half the height plus 0.1);
-/// a human has a player's.
-const VILLAGER_EYE: f64 = 1.05;
-
 /// Spawns `npc` at `pos`; `None` at the entity limit, in an unloaded chunk, or for a name longer
 /// than [`MAX_NAME_TAG_BYTES`]. The NPC is invulnerable (see the module documentation), except a
 /// zombie.
@@ -78,21 +74,6 @@ pub(super) fn spawn(state: &mut State, world: WorldIndex, pos: Vec3, npc: Npc) -
     let id = create(state, world, pos, kind, |_| (Vec3::ZERO, 0.0, 0.0))?;
     with(state, id, |e| e.name_tag = name);
     Some(id)
-}
-
-/// The eye height of a kind (NPCs; 0 for others).
-pub(super) fn eye_height(kind: &Kind) -> f64 {
-    match kind {
-        Kind::Npc(Character {
-            form: Form::Villager { .. } | Form::Zombie { .. },
-            ..
-        }) => VILLAGER_EYE,
-        Kind::Npc(Character {
-            form: Form::Human { .. },
-            ..
-        }) => EYE_HEIGHT,
-        _ => 0.0,
-    }
 }
 
 /// The player `session` if it can act on the entity `target`: spawned, alive, not a spectator,
@@ -271,7 +252,7 @@ pub(super) fn tick(state: &mut State, id: Id, _hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
     };
-    let eye = e.body.position + Vec3::new(0.0, eye_height(&e.kind), 0.0);
+    let eye = e.eye_position();
     let bounds = e.bounding_box();
     let cell = BlockPos::containing(eye);
     let inside = state
@@ -1068,5 +1049,23 @@ mod tests {
         vulnerable(&mut h, burnt);
         h.entities();
         assert!(health(&h, burnt) < 20.0, "fire damage");
+    }
+
+    // pmmp: Entity::isInsideOfSolid
+    /// A zombie twice its size suffocates in a block at its scaled eye height.
+    #[test]
+    fn a_scaled_zombie_suffocates_at_its_scaled_eyes() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        h.state.worlds[0]
+            .set_block(BlockPos::new(3, -58, 0), named("minecraft:stone"))
+            .unwrap();
+        let z = zombie(&mut h, at(3.5, -60.0, 0.5));
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        assert!(cx.entity_mut(z).unwrap().set_scale(2.0));
+        h.entities();
+        assert_eq!(health(&h, z), 19.0);
     }
 }
