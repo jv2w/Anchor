@@ -2114,6 +2114,37 @@ fn blocks_go_on_inert_blocks_beside_them_and_torches_need_a_solid_one() {
     }
 }
 
+/// A block whose second cell holds a state nobody knows (kept as stored) is not placed: the
+/// unknown block stays and the item is kept. A door's top, a bed's head (toward the player's
+/// east facing), a tall plant's top and a small dripleaf's top.
+#[test]
+fn a_second_cell_does_not_replace_an_unknown_block() {
+    let ground = BlockPos::new(2, -61, 0);
+    let above = BlockPos::new(2, -59, 0);
+    let bed = crate::item::Type::from_name("minecraft:bed", 0, None, &crate::nbt::Compound::new())
+        .unwrap();
+    let cases = [
+        (block_item(Kind::OakDoor, 2), above, Kind::Grass),
+        (Stack::new(bed, 1), BlockPos::new(3, -60, 0), Kind::Grass),
+        (block_item(Kind::Sunflower, 2), above, Kind::Grass),
+        (block_item(Kind::SmallDripleaf, 2), above, Kind::Clay),
+    ];
+    for (item, second, below) in cases {
+        let mut h = Harness::new(|_| {});
+        h.set(ground, below.default_state());
+        let unknown = h.state.worlds[0]
+            .put_unknown(second, stored("minecraft:not_a_block"))
+            .unwrap();
+        assert!(matches!(unknown, Entry::Unknown(_)), "{unknown:?}");
+        h.hold(item.clone());
+        let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &item)));
+        h.run(vec![input]);
+        assert_eq!(h.state.worlds[0].entry(second), Some(unknown), "{item:?}");
+        assert_eq!(h.block(TARGET), block::AIR, "{item:?}");
+        assert_eq!(h.held(), item);
+    }
+}
+
 mod book;
 mod custom;
 mod events;

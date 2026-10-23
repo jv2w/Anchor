@@ -37,11 +37,17 @@ impl Placer {
     }
 }
 
-/// The block at `pos`, air where nothing is known (an unloaded chunk, outside the world), so the
+/// The block at `pos`, air where there is none (an unloaded chunk, outside the world), so the
 /// neighbour rules never load a chunk. An inert block reads as its stand-in
-/// ([`block::Inert::stand_in`]), which no placement replaces.
+/// ([`block::Inert::stand_in`]) and an unknown state as bedrock (solid, full and unchanged, as
+/// the neighbour updates read it), neither of which a placement replaces.
 pub(super) fn block_at(world: &World, pos: Option<BlockPos>) -> State {
-    pos.and_then(|p| placed_on(world, p)).unwrap_or(block::AIR)
+    match pos.and_then(|p| world.entry(p)) {
+        None => block::AIR,
+        Some(Entry::Known(s)) => s,
+        Some(Entry::Inert(s, _)) => s.stand_in(),
+        Some(Entry::Unknown(_)) => block::BEDROCK,
+    }
 }
 
 /// The block at `pos` as placements see it: an inert block as its stand-in; `None` if the chunk
