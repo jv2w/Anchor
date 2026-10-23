@@ -5,8 +5,9 @@
 //! Tasks run in the tick's serial step, after the tick's inputs: first the build-time tasks of
 //! [`ServerBuilder::every`](crate::ServerBuilder::every) in registration order, then every
 //! scheduled task that is due, by due tick and then in the order they were scheduled. A task
-//! scheduled while the tasks run waits for the next tick at the earliest, so a task that keeps
-//! scheduling itself cannot hold the tick. Scheduled tasks are code, so they are not saved: a
+//! scheduled while the scheduled tasks run waits for the next tick at the earliest, so a task
+//! that keeps scheduling itself cannot hold the tick; one a build-time task schedules with no
+//! delay runs in the same tick. Scheduled tasks are code, so they are not saved: a
 //! restart starts with none (as in PMMP).
 //!
 //! Blocking work runs off the tick on a bounded pool and never touches the game; its result comes
