@@ -44,6 +44,23 @@ pub(super) fn column(x: u8, z: u8) -> usize {
     (usize::from(z & 15) << 4) | usize::from(x & 15)
 }
 
+/// Whether `unknown_len` unknown states fit the slots ([`MAX_UNKNOWN`]) and every palette entry
+/// of `sub_chunks` indexes inside them, as [`Chunk::stored_block`] relies on.
+fn unknown_indexes_fit<'a>(
+    mut sub_chunks: impl Iterator<Item = &'a SubChunk>,
+    unknown_len: usize,
+) -> bool {
+    unknown_len <= MAX_UNKNOWN
+        && sub_chunks.all(|s| {
+            s.layers().iter().all(|l| {
+                l.palette().iter().all(|e| {
+                    e.unknown_index()
+                        .is_none_or(|i| usize::try_from(i).is_ok_and(|i| i < unknown_len))
+                })
+            })
+        })
+}
+
 /// A 16×16 column of blocks from y -64 to 319, with biomes.
 ///
 /// A [`Generator`] fills an empty one: all air, with plains biomes. Coordinates are local: x and
@@ -110,19 +127,10 @@ impl Chunk {
         biomes: [Paletted<u32>; SUB_CHUNKS],
         unknown: Vec<nbt::Compound>,
     ) -> Result<Self> {
-        if unknown.len() > MAX_UNKNOWN {
-            return Err(Error::Malformed("more unknown block states than slots"));
-        }
-        let known = |e: &Entry| {
-            e.unknown_index()
-                .is_none_or(|i| usize::try_from(i).is_ok_and(|i| i < unknown.len()))
-        };
-        for sub in sub_chunks.iter().flatten() {
-            if !sub.layers().iter().all(|l| l.palette().iter().all(known)) {
-                return Err(Error::Malformed(
-                    "a palette entry indexes past the unknown states",
-                ));
-            }
+        if !unknown_indexes_fit(sub_chunks.iter().flatten(), unknown.len()) {
+            return Err(Error::Malformed(
+                "more unknown block states than slots, or a palette entry indexes past them",
+            ));
         }
         let mut chunk = Self {
             sub_chunks: sub_chunks.map(|s| s.filter(|s| !s.is_empty()).map(Arc::new)),
@@ -133,15 +141,20 @@ impl Chunk {
             split: false,
             light: None,
         };
+        chunk.fill_heights();
+        Ok(chunk)
+    }
+
+    /// Works out the height of every column from the blocks.
+    fn fill_heights(&mut self) {
         for x in 0..16 {
             for z in 0..16 {
-                let top = chunk.scan_down(x, z, MAX_Y);
-                if let Some(h) = chunk.heights.get_mut(column(x, z)) {
+                let top = self.scan_down(x, z, MAX_Y);
+                if let Some(h) = self.heights.get_mut(column(x, z)) {
                     *h = top;
                 }
             }
         }
-        Ok(chunk)
     }
 
     /// The block at local (x, y, z), or `None` if the position is outside the chunk or the
@@ -201,7 +214,7 @@ impl Chunk {
                 let index = usize::try_from(i).ok().filter(|&i| i < self.unknown.len());
                 #[expect(
                     clippy::expect_used,
-                    reason = "invariant: from_parts and the checkpoint check every entry indexes inside the list"
+                    reason = "invariant: from_parts and the checkpoint read only chunks that pass unknown_indexes_fit"
                 )]
                 let index = index.expect("a chunk entry indexes past its unknown states");
                 StoredBlock::Unknown(UnknownBlock {
@@ -515,16 +528,7 @@ impl crate::tick::checkpoint::Codec for Chunk {
         let sub_chunks: [Option<Arc<SubChunk>>; SUB_CHUNKS] = Codec::decode(r)?;
         let biomes = Codec::decode(r)?;
         let unknown: Vec<nbt::Compound> = Codec::decode(r)?;
-        let known = |e: &Entry| {
-            e.unknown_index()
-                .is_none_or(|i| usize::try_from(i).is_ok_and(|i| i < unknown.len()))
-        };
-        if unknown.len() > MAX_UNKNOWN
-            || !sub_chunks
-                .iter()
-                .flatten()
-                .all(|s| s.layers().iter().all(|l| l.palette().iter().all(known)))
-        {
+        if !unknown_indexes_fit(sub_chunks.iter().flatten().map(Arc::as_ref), unknown.len()) {
             return Err(Error::Format("chunk unknown states"));
         }
         let mut chunk = Self {
@@ -536,14 +540,7 @@ impl crate::tick::checkpoint::Codec for Chunk {
             split: Codec::decode(r)?,
             light: Codec::decode(r)?,
         };
-        for x in 0..16 {
-            for z in 0..16 {
-                let top = chunk.scan_down(x, z, MAX_Y);
-                if let Some(h) = chunk.heights.get_mut(column(x, z)) {
-                    *h = top;
-                }
-            }
-        }
+        chunk.fill_heights();
         Ok(chunk)
     }
 }
