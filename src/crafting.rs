@@ -284,21 +284,10 @@ pub(crate) fn crafting_data() -> CraftingData {
     let mut shapeless_recipes: Vec<ShapelessRecipe> =
         Vec::with_capacity(table::SHAPELESS.len() + table::FURNACE.len());
     for r in &table::SHAPELESS {
-        shapeless_recipes.push(shapeless(
-            next_id(),
-            r.ingredients.iter().map(|i| descriptor(Some(i))).collect(),
-            r.results.iter().map(Stack::network).collect(),
-            r.kind.block_name(),
-        ));
+        shapeless_recipes.push(r.network(next_id()));
     }
-    // PMMP sends furnace recipes as shapeless recipes of the furnace block.
     for r in &table::FURNACE {
-        shapeless_recipes.push(shapeless(
-            next_id(),
-            vec![descriptor(Some(&r.input))],
-            vec![r.result.network()],
-            r.kind.block_name(),
-        ));
+        shapeless_recipes.push(r.network(next_id()));
     }
     let smithing_transform_recipes = table::SMITHING_TRANSFORM
         .iter()
@@ -342,6 +331,33 @@ impl Shaped<'_> {
             unlock_requirement: Some(always_unlocked()),
             recipe_network_id: id,
         }
+    }
+}
+
+impl Shapeless<'_> {
+    /// The network form, as PMMP's `CraftingDataCache` writes it.
+    pub(crate) fn network(&self, id: u32) -> ShapelessRecipe {
+        shapeless(
+            id,
+            self.ingredients
+                .iter()
+                .map(|i| descriptor(Some(i)))
+                .collect(),
+            self.results.iter().map(Stack::network).collect(),
+            self.kind.block_name(),
+        )
+    }
+}
+
+impl Furnace {
+    /// The network form: PMMP sends furnace recipes as shapeless recipes of the furnace block.
+    pub(crate) fn network(&self, id: u32) -> ShapelessRecipe {
+        shapeless(
+            id,
+            vec![descriptor(Some(&self.input))],
+            vec![self.result.network()],
+            self.kind.block_name(),
+        )
     }
 }
 
@@ -430,7 +446,7 @@ pub(crate) fn potion_container_change_recipe(
 }
 
 /// A shapeless recipe entry as PMMP writes one.
-pub(crate) fn shapeless(
+fn shapeless(
     id: u32,
     input: Vec<ItemDescriptorCount>,
     output: Vec<ItemStack>,
@@ -477,7 +493,7 @@ pub(crate) fn locked() -> RecipeUnlockRequirement {
 /// The network form of an ingredient (PMMP `TypeConverter::coreRecipeIngredientToNet`): an empty
 /// cell is the invalid descriptor with count 0, everything else has count 1. Since 1.26.40 the
 /// default descriptor names the item instead of giving its runtime ID.
-pub(crate) fn descriptor(ingredient: Option<&Ingredient>) -> ItemDescriptorCount {
+fn descriptor(ingredient: Option<&Ingredient>) -> ItemDescriptorCount {
     let default = |name: &str, meta: i32| {
         ItemDescriptor::Default(DefaultItemDescriptor {
             name: name.to_owned(),

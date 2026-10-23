@@ -693,9 +693,8 @@ impl Registry {
     }
 
     /// The `CraftingData` packet: PMMP's recipes (unless left out), then the custom ones with
-    /// the network IDs after them (furnace recipes as shapeless recipes of their block, as PMMP
-    /// sends them), and the custom brewing recipes after PMMP's. With the recipe book hidden
-    /// every recipe is locked.
+    /// the network IDs after them in the same network forms as PMMP's, and the custom brewing
+    /// recipes after PMMP's. With the recipe book hidden every recipe is locked.
     pub(crate) fn crafting_data(&self) -> packet::CraftingData {
         let mut data = if self.without_vanilla {
             packet::CraftingData {
@@ -721,15 +720,12 @@ impl Registry {
                 }
                 Numbered::Shapeless(i) => {
                     if let Some(r) = self.shapeless.get(i) {
-                        data.shapeless_recipes.push(crafting::shapeless(
-                            id,
-                            r.ingredients
-                                .iter()
-                                .map(|i| crafting::descriptor(Some(i)))
-                                .collect(),
-                            r.results.iter().map(crafting::Stack::network).collect(),
-                            r.kind.block_name(),
-                        ));
+                        let view = crafting::Shapeless {
+                            kind: r.kind,
+                            ingredients: &r.ingredients,
+                            results: &r.results,
+                        };
+                        data.shapeless_recipes.push(view.network(id));
                     }
                 }
                 Numbered::SmithingTransform(i) => {
@@ -739,12 +735,7 @@ impl Registry {
                 }
                 Numbered::Furnace(i) => {
                     if let Some(r) = self.furnace.get(i) {
-                        data.shapeless_recipes.push(crafting::shapeless(
-                            id,
-                            vec![crafting::descriptor(Some(&r.input))],
-                            vec![r.result.network()],
-                            r.kind.block_name(),
-                        ));
+                        data.shapeless_recipes.push(r.network(id));
                     }
                 }
             }
