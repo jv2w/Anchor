@@ -818,11 +818,11 @@ setters!(PlayerExperienceChange {
 
 impl PlayerExperienceChange {
     /// Sets the progress after, limited to 0 to 1; `None` keeps the progress. A value that is not
-    /// a number is ignored.
+    /// finite is ignored.
     #[doc(alias = "PlayerExperienceChangeEvent::setNewProgress")]
     pub fn set_new_progress(&mut self, progress: Option<f64>) {
         match progress {
-            Some(p) if p.is_nan() => {}
+            Some(p) if !p.is_finite() => {}
             Some(p) => self.new_progress = Some(math::clamp(p, 0.0, 1.0)),
             None => self.new_progress = None,
         }
@@ -2147,6 +2147,10 @@ mod tests {
         assert_eq!((e.new_level(), e.new_progress()), (None, Some(1.0)));
         e.set_new_progress(Some(f64::NAN));
         assert_eq!(e.new_progress(), Some(1.0));
+        e.set_new_progress(Some(0.5));
+        e.set_new_progress(Some(f64::INFINITY));
+        e.set_new_progress(Some(f64::NEG_INFINITY));
+        assert_eq!(e.new_progress(), Some(0.5));
         e.set_new_progress(None);
         assert_eq!(e.new_progress(), None);
         e.cancel();

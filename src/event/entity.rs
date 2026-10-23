@@ -553,10 +553,10 @@ setters!(EntityExplode {
 
 impl EntityExplode {
     /// Sets the chance in percent that a broken block drops its items, limited to 0 to 100. A
-    /// value that is not a number is ignored.
+    /// value that is not finite is ignored.
     #[doc(alias = "EntityExplodeEvent::setYield")]
     pub fn set_yield_percent(&mut self, percent: f64) {
-        if !percent.is_nan() {
+        if percent.is_finite() {
             self.yield_percent = math::clamp(percent, 0.0, 100.0);
         }
     }
@@ -749,11 +749,11 @@ impl EntityPreExplode {
         }
     }
 
-    /// Sets the chance that a block catches fire, limited to 0 to 1. A value that is not a number
+    /// Sets the chance that a block catches fire, limited to 0 to 1. A value that is not finite
     /// is ignored.
     #[doc(alias = "EntityPreExplodeEvent::setFireChance")]
     pub fn set_fire_chance(&mut self, chance: f64) {
-        if !chance.is_nan() {
+        if chance.is_finite() {
             self.fire_chance = math::clamp(chance, 0.0, 1.0);
         }
     }
@@ -1429,6 +1429,10 @@ mod tests {
         assert_eq!(e.yield_percent(), 100.0);
         e.set_yield_percent(-1.0);
         assert_eq!(e.yield_percent(), 0.0);
+        e.set_yield_percent(50.0);
+        e.set_yield_percent(f64::INFINITY);
+        e.set_yield_percent(f64::NEG_INFINITY);
+        assert_eq!(e.yield_percent(), 50.0);
         e.cancel();
         assert!(e.is_cancelled());
         e.uncancel();
@@ -1523,6 +1527,10 @@ mod tests {
         assert_eq!(e.fire_chance(), 1.0);
         e.set_fire_chance(f64::NAN);
         assert_eq!(e.fire_chance(), 1.0);
+        e.set_fire_chance(0.5);
+        e.set_fire_chance(f64::INFINITY);
+        e.set_fire_chance(f64::NEG_INFINITY);
+        assert_eq!(e.fire_chance(), 0.5);
         e.set_incendiary(false);
         assert!(!e.is_incendiary());
         e.set_block_breaking(false);
