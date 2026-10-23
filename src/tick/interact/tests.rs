@@ -2117,3 +2117,26 @@ fn blocks_go_on_inert_blocks_beside_them_and_torches_need_a_solid_one() {
 mod book;
 mod custom;
 mod events;
+
+/// A hotbar slot selected through the API or by a pick stops eating like the client's selection,
+/// even with the same food in the new slot.
+#[test]
+fn selecting_a_slot_through_the_api_or_a_pick_stops_eating() {
+    let apple = stack(crate::item::Kind::GoldenApple);
+    let mut h = Harness::new(|_| {});
+    h.hold(apple.clone());
+    inventory::set_main(h.player_mut(), 1, apple.clone());
+    let eat = h.auth(Vec::new(), Some(air(&apple)));
+    h.run(vec![eat]);
+    assert!(h.player().is_using_item());
+    assert!(h.player_mut().set_held_slot(1));
+    assert!(!h.player().is_using_item(), "an API hotbar switch");
+    let mut click = air(&apple);
+    click.hot_bar_slot = 1;
+    let eat = h.auth(Vec::new(), Some(click));
+    h.run(vec![eat]);
+    assert!(h.player().is_using_item());
+    inventory::equip_or_add(h.player_mut(), apple);
+    assert_eq!(h.player().inventory.held_slot(), 0);
+    assert!(!h.player().is_using_item(), "a pick");
+}

@@ -1698,11 +1698,11 @@ fn pick(
     Some((world, block, picked))
 }
 
-/// Selects hotbar slot `slot` and tells the client.
+/// Selects hotbar slot `slot`, stopping the item in use, and tells the client.
 fn select(player: &mut Player, slot: u8) {
     player.inventory.held = slot;
     player.data_dirty = true;
-    player.breaking.stop_using();
+    super::survival::stop_using_item(player);
     player.send_packet(hotbar_packet(slot));
 }
 

@@ -50,8 +50,8 @@ impl Player {
         self.inventory.held
     }
 
-    /// Selects hotbar slot `slot` (0 to 8) and tells the client; false, changing nothing, for
-    /// another slot.
+    /// Selects hotbar slot `slot` (0 to 8), stopping the item in use (a drawn bow, eating or
+    /// drinking), and tells the client; false, changing nothing, for another slot.
     #[doc(alias = "PlayerInventory::setHeldItemIndex")]
     pub fn set_held_slot(&mut self, slot: u8) -> bool {
         if slot >= super::HOTBAR {
