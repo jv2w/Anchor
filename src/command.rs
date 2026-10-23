@@ -683,8 +683,8 @@ pub enum Error {
         /// Up to 10 characters after the word.
         after: String,
     },
-    /// A command's handler found the arguments wrong after they fitted its overload: the
-    /// command's usage.
+    /// The arguments fitted an overload but cannot be used: a relative position is not finite,
+    /// or the command's handler found them wrong. Carries the command's usage.
     Usage {
         /// The command's usage text ([`Command::usage_text`]).
         usage: String,
@@ -698,7 +698,10 @@ pub enum Error {
         /// The name typed.
         name: String,
     },
-    /// A target selector matched nobody (`@s` and `@p` from the console, or nobody online).
+    /// A target selector matched nobody playing (a player still loading counts as nobody): `@s`
+    /// from the console, `@p` with nobody in the sender's world (the default world for the
+    /// console), or `@a` and `@r` with nobody online. Also
+    /// [`Context::run_command`](crate::Context::run_command) for a player who has left.
     NoTargets,
     /// The handler failed, with a message for the sender: text, or a translation key and its
     /// parameters.
