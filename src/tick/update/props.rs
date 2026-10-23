@@ -51,7 +51,7 @@ pub(super) fn with_text(s: State, name: &str, v: &str) -> Option<State> {
     s.with(name, PropertyValue::String(v))
 }
 
-/// The default state of the block named `name`, if it has no properties or they are all zero.
+/// The state of the block named `name`, which has no properties; `None` if it has any.
 pub(super) fn plain(name: &str) -> Option<State> {
     State::find(name, &[])
 }
