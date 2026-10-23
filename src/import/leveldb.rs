@@ -618,10 +618,14 @@ impl Db {
             entries: memory,
             at: memory.partition_point(|e| e.key.as_slice() < start),
         });
+        // Checked as each source opens, so the next one is not read once the bound is passed.
+        let mut held = 0_usize;
         let [first_level, deeper_levels @ ..] = levels;
         for file in first_level {
             if split(&file.largest).0 >= start && before_end(file) {
                 let cursor = Cursor::open(tables, file, Some(&target))?;
+                held = held.saturating_add(cursor.held());
+                check_held(held)?;
                 sources.push(Source::Table { file, cursor });
             }
         }
@@ -633,18 +637,17 @@ impl Db {
                 cursor: None,
             };
             source.settle(tables, Some(&target), end)?;
+            held = held.saturating_add(source.held());
+            check_held(held)?;
             sources.push(source);
         }
 
-        let mut held = 0_usize;
         let mut heap = BinaryHeap::with_capacity(sources.len());
         for (i, source) in sources.iter().enumerate() {
-            held = held.saturating_add(source.held());
             if let Some((user, tag, _)) = source.entry() {
                 heap.push(Reverse((user.to_vec(), Reverse(tag), i)));
             }
         }
-        check_held(held)?;
         let mut last: Option<Vec<u8>> = None;
         while let Some(Reverse((user, Reverse(tag), i))) = heap.pop() {
             if end.is_some_and(|end| user.as_slice() >= end) {

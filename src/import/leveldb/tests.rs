@@ -691,6 +691,49 @@ fn held_blocks_are_bounded() {
 }
 
 #[test]
+fn held_blocks_are_bounded_while_level_0_tables_open() {
+    // Each table holds one data block of almost 16 MiB that compresses to a few KiB, so the
+    // first 17 overlapping level 0 tables hold more than 256 MiB together.
+    let entry = (internal(b"k", 1, VALUE), vec![0; table::MAX_BLOCK - 64]);
+    let mut kinds = || table::RAW_DEFLATE;
+    let bytes = encode_table(&[entry], table::MAX_BLOCK, 1, &mut kinds);
+    let over = MAX_HELD / table::MAX_BLOCK + 1;
+    let mut w = Writer::new();
+    for i in 0..=over {
+        let number = w.number();
+        let mut table = bytes.clone();
+        if i == over {
+            // Opened last: a scan that checks what it holds only after opening every table
+            // fails here instead.
+            table[0] ^= 1;
+        }
+        let file = TableFile {
+            number,
+            size: table.len() as u64,
+            smallest: internal(b"k", 1, VALUE),
+            largest: internal(b"k", 1, VALUE),
+        };
+        w.files.insert(format!("{number:06}.ldb"), table);
+        w.edits.push(Writer::add(0, &file));
+    }
+    w.edits.push(log_number(w.next + 1));
+    let mut db = Db::open(w.finish()).unwrap();
+    let error = db
+        .scan(&[], None, |_, _| Ok(ControlFlow::Continue(())))
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::TooLarge {
+                what: "blocks held by one scan",
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn varints_are_bounded() {
     assert_eq!(
         Bytes(&[0xff, 0xff, 0xff, 0xff, 0x0f]).varint32().unwrap(),
