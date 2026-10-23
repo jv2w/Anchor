@@ -10,8 +10,9 @@
 //! back, which [`Console::settle`] prints after each scenario.
 //!
 //! Where Anchor has no counterpart, the command is accepted with a note: villager NPCs have no AI
-//! (`effect` on them changes nothing), Anchor spawns no mobs and its weather has no cycle
-//! (`domobspawning`, `doweathercycle`), and its clock has no stop (`dodaylightcycle`).
+//! (`effect` on them changes nothing), and Anchor spawns no mobs and its weather has no cycle
+//! (`domobspawning`, `doweathercycle`). `dodaylightcycle` is accepted with a note too: the harness
+//! leaves Anchor's clock running.
 
 use std::collections::VecDeque;
 use std::io::Write;
