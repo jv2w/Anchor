@@ -685,6 +685,13 @@ impl Inventory {
         take_stack_id(&mut self.next_id)
     }
 
+    /// The ID of a window opening now ([`WINDOW_FIRST`]); every window, a trade window too,
+    /// counts on the same `last_window`.
+    fn next_window_id(&mut self) -> u8 {
+        self.last_window = (self.last_window.wrapping_add(1) % WINDOW_LAST).max(WINDOW_FIRST);
+        self.last_window
+    }
+
     /// Whether a window may open: few enough stacks wait for room that what it holds can go back
     /// ([`MAX_PENDING`]).
     fn has_room_to_open(&self) -> bool {
@@ -2086,8 +2093,7 @@ fn announce(state: &mut State, session: SessionId) {
     let Some(kind) = inv.window.as_ref().filter(|w| w.id == 0).map(|w| w.kind) else {
         return;
     };
-    let id = (inv.last_window.wrapping_add(1) % WINDOW_LAST).max(WINDOW_FIRST);
-    inv.last_window = id;
+    let id = inv.next_window_id();
     let stacks = match (kind, &inv.menu) {
         (WindowKind::Menu { .. }, Some(m)) => m.stacks.clone(),
         _ => block_stacks(kind, blocks),
@@ -2323,8 +2329,7 @@ pub(super) fn open_trade(
     {
         return None;
     }
-    let id = (inv.last_window.wrapping_add(1) % WINDOW_LAST).max(WINDOW_FIRST);
-    inv.last_window = id;
+    let id = inv.next_window_id();
     let kind = WindowKind::Trade { villager };
     inv.window = Some(Window {
         id,
