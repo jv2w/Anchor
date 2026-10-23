@@ -15,7 +15,7 @@ use std::net::IpAddr;
 use std::ops::Bound;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use tracing::{debug, info};
+use tracing::info;
 
 use super::queue::SessionId;
 use super::{Context, MAX_COORDINATE, Output, Phase, Player, State, dispatch, survival};
@@ -349,18 +349,7 @@ pub(super) fn quit(state: &mut State, session: SessionId, reason: &str, quit_mes
         } else {
             Message::Raw(message)
         };
-        match message.into_packets() {
-            Ok(packets) => {
-                for (&s, p) in &mut state.players {
-                    if s != session && p.phase != Phase::Loading && p.is_online() {
-                        for packet in packets.iter().flatten() {
-                            p.send_packet(packet.clone());
-                        }
-                    }
-                }
-            }
-            Err(e) => debug!(session = session.get(), error = %e, "quit message not sent"),
-        }
+        super::spawn::tell_others(state, session, message);
     }
     if let Some(e) = &event {
         dispatch::watch(state, e);
