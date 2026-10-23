@@ -2976,14 +2976,15 @@ fn item_tick(state: &mut State, id: Id, merges: &mut usize) {
     let Kind::Item(item) = &mut e.kind else {
         return;
     };
-    if item.despawn_delay != i32::from(NEVER) {
+    // Counting stops at 0, so the time being up never reads as NEVER (-1).
+    if item.despawn_delay > 0 {
         item.despawn_delay -= 1;
-        if item.despawn_delay <= 0 {
-            if heard {
-                despawn_item(state, id);
-            } else {
-                e.flagged = true;
-            }
+    }
+    if item.despawn_delay == 0 {
+        if heard {
+            despawn_item(state, id);
+        } else {
+            e.flagged = true;
         }
     }
 }
@@ -2997,7 +2998,7 @@ fn despawn_item(state: &mut State, id: Id) {
             .entities
             .get(id)
             .and_then(as_item)
-            .is_some_and(|i| i.despawn_delay != i32::from(NEVER) && i.despawn_delay <= 0)
+            .is_some_and(|i| i.despawn_delay == 0)
     };
     let mut e = ItemDespawn {
         entity: id,

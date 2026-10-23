@@ -317,6 +317,51 @@ fn a_cancelled_item_despawn_gives_the_whole_time_again() {
     assert_eq!(got(&watched), [true], "the monitor sees it gone");
 }
 
+/// An item set to no time left goes on its next tick with or without a listener that hears it,
+/// and a cancelling listener gives it the whole time again.
+#[test]
+fn an_item_set_to_despawn_now_goes_with_or_without_a_listener() {
+    let run = |listeners: Listeners| {
+        let mut h = Harness::with_listeners(1, listeners);
+        h.spawn(1, standing(8.0, 8.0));
+        assert!(drop_item(
+            &mut h.state,
+            0,
+            at(0.5, -59.0, 0.5),
+            stack("minecraft:stick", 1)
+        ));
+        let id = newest(&h);
+        let mut cx = Context {
+            state: &mut h.state,
+        };
+        assert!(cx.entity_mut(id).unwrap().set_despawn_delay_ticks(0));
+        h.entities();
+        let left = h
+            .state
+            .rules
+            .entities
+            .get(id)
+            .filter(|e| !e.flagged)
+            .and_then(Entity::despawn_delay_ticks);
+        (left, h.state.hash())
+    };
+    let (quiet_left, quiet_hash) = run(Listeners::default());
+    let mut listening = Listeners::default();
+    listening.push(
+        Priority::Normal,
+        |_: &mut ItemDespawn, _: &mut Context<'_>| {},
+    );
+    let (heard_left, heard_hash) = run(listening);
+    assert_eq!((quiet_left, heard_left), (None, None), "despawned");
+    assert_eq!(quiet_hash, heard_hash);
+    let mut cancelling = Listeners::default();
+    cancelling.push(
+        Priority::Normal,
+        |e: &mut ItemDespawn, _: &mut Context<'_>| e.cancel(),
+    );
+    assert_eq!(run(cancelling).0, Some(DEFAULT_DESPAWN_DELAY));
+}
+
 // pmmp: ItemMergeEvent
 #[test]
 fn item_merges_ask_their_listeners_and_a_changed_target_stops_them() {
