@@ -52,6 +52,11 @@ const KEEP_TICKS: u64 = 600;
 const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 256;
 /// Sub-chunk requests answered per player per tick; the rest wait for the next tick.
 const SUB_CHUNK_REQUESTS_PER_TICK: usize = 64;
+/// Sub-chunk request offsets, each an answer entry with its own copy of the sub-chunk, answered
+/// per player per tick; the requests past it wait for the next tick. The most one request holds
+/// (the Mojang limit), so every request fits a tick, and more than the 256 × 24 sub-chunks of the
+/// most chunks `chunks-per-tick` sends a tick.
+const SUB_CHUNK_OFFSETS_PER_TICK: usize = 8192;
 /// The lowest sub-chunk y index (`SubChunkRequest` positions are absolute indices).
 const LOWEST_SUB_CHUNK: i32 = crate::world::MIN_Y >> 4;
 /// `UpdateBlock` flags BDS sends (P6): neighbours and network.
@@ -1309,7 +1314,16 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
             }
         }
         let view = &mut player.view;
-        let take = view.requests.len().min(SUB_CHUNK_REQUESTS_PER_TICK);
+        let mut offsets = 0_usize;
+        let take = view
+            .requests
+            .iter()
+            .take(SUB_CHUNK_REQUESTS_PER_TICK)
+            .take_while(|r| {
+                offsets = offsets.saturating_add(r.offsets.len());
+                offsets <= SUB_CHUNK_OFFSETS_PER_TICK
+            })
+            .count();
         view.out.answers.extend(view.requests.drain(..take));
     }
     let moved = move_spawns(worlds, chunks, rules);
@@ -3123,5 +3137,45 @@ mod tests {
             ];
             assert_eq!(sent, sub_chunk_bytes(want));
         }
+    }
+
+    /// A client that names one sub-chunk 1024 times in each of 64 requests gets at most
+    /// [`SUB_CHUNK_OFFSETS_PER_TICK`] answer entries a tick, as each entry is work and a copy of
+    /// the sub-chunk; the rest are answered in the next ticks.
+    #[test]
+    fn repeated_sub_chunk_offsets_do_not_multiply_one_ticks_answers() {
+        let (mut state, mut output, mut receivers) = sent_views(&[1]);
+        let request = SubChunkRequest {
+            dimension: 0,
+            position: [0, 0, 0],
+            offsets: vec![[0, -4, 0]; 1024],
+        };
+        let mut inputs: Vec<_> = (0..64)
+            .map(|seq| {
+                crate::tick::tests::input(
+                    1,
+                    2 + seq,
+                    crate::tick::tests::packet(Packet::SubChunkRequest(request.clone())),
+                )
+            })
+            .collect();
+        let mut per_tick = Vec::new();
+        for _ in 0..16 {
+            tick(&mut state, &mut inputs, &mut output);
+            let entries: usize = received(&mut receivers[0])
+                .0
+                .iter()
+                .map(|p| match p {
+                    Packet::SubChunk(s) => s.sub_chunk_entries.len(),
+                    _ => 0,
+                })
+                .sum();
+            per_tick.push(entries);
+        }
+        assert!(
+            per_tick.iter().all(|&n| n <= SUB_CHUNK_OFFSETS_PER_TICK),
+            "{per_tick:?}"
+        );
+        assert_eq!(per_tick.iter().sum::<usize>(), 64 * 1024);
     }
 }
