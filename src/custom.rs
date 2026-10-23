@@ -98,8 +98,8 @@ pub enum ItemRef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
-    /// An identifier is not `namespace:name` (lowercase letters, digits, `_`, `-`, `.`; at most
-    /// 128 bytes) or is in the `minecraft` namespace.
+    /// An identifier is not `namespace:name` (lowercase letters, digits, `_`, `-`, `.`, and `/`
+    /// in the name; at most 128 bytes) or is in the `minecraft` namespace.
     Identifier {
         /// The identifier.
         identifier: &'static str,
