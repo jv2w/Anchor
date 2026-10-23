@@ -1123,10 +1123,10 @@ fn equal_range<T>(sorted: &[T], cmp: impl Fn(&T) -> std::cmp::Ordering) -> &[T] 
     rest.get(..len).unwrap_or_default()
 }
 
-/// The network form of a stack of `item` with meta `meta` and stack NBT `nbt`, as PMMP's
-/// `TypeConverter` writes it: the runtime ID and meta, the network ID of the block a block item
-/// places, and the NBT. The meta is the stack's, which differs from the type's where PMMP reads
-/// meta as stack state (a firework star's colour).
+/// The network form of a stack of `item` with meta `meta` and stack NBT `nbt`: the runtime ID
+/// and meta and the NBT, as PMMP's `TypeConverter` writes them, and the network ID of the block
+/// state a block item is sent with ([`Type::block_network_id`]). The meta is the stack's, which
+/// differs from the type's where PMMP reads meta as stack state (a firework star's colour).
 pub(crate) fn network_stack(
     item: Type,
     meta: u16,
