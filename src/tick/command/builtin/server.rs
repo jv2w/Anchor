@@ -583,8 +583,7 @@ fn backup(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Result<Output> {
 }
 
 /// `/save-off` (PMMP `SaveOffCommand`): turns the periodic save off until the server stops or
-/// `/save-on`; `/save-all`, the memory bounds, a quarter of the input log's bound recorded since
-/// the last save and shutdown still save.
+/// `/save-on` ([`Context::set_auto_save`] says what still saves).
 fn save_off(cx: &mut Context<'_>, sender: &Sender, _: &Args) -> Output {
     cx.set_auto_save(false);
     announce(cx, *sender, SAVE_DISABLED, &[])

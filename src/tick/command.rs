@@ -1528,8 +1528,9 @@ impl Context<'_> {
 
     /// Turns the periodic save (every `save-interval-minutes`) off or on until the server
     /// stops. While it is off, the state is saved only when asked ([`save`](Self::save)), when
-    /// memory waiting for a save passes its bound, and at shutdown; a crash then replays from the
-    /// last save, so the input log holds more ticks (up to its 64 MiB bound).
+    /// memory waiting for a save passes its bound, when the input recorded since the last save
+    /// reaches a quarter of the input log's bound, and at shutdown; a crash replays from the last
+    /// save.
     #[doc(alias = "WorldManager::setAutoSave")]
     pub fn set_auto_save(&mut self, enabled: bool) {
         if self.state.commands.auto_save != enabled {
