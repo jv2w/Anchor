@@ -57,6 +57,8 @@ pub(crate) struct Catalog {
     suffixes: Vec<String>,
     /// Every soft enum's type name once, in first-use order over all commands.
     soft: Vec<String>,
+    /// Soft enums by type name.
+    soft_index: BTreeMap<String, u32>,
 }
 
 /// An enum of the catalog: its type name and its values' positions in [`Catalog::values`].
@@ -189,7 +191,7 @@ impl Catalog {
 
     /// The position of the soft enum of type `name` among [`Self::soft_count`].
     pub(crate) fn soft_enum(&self, name: &str) -> Option<usize> {
-        self.soft.iter().position(|n| n == name)
+        self.soft_index.get(name).map(|&index| position(index))
     }
 
     /// How many soft enum types the commands use.
@@ -399,8 +401,6 @@ struct Builder {
     value_index: BTreeMap<String, u32>,
     /// Enums by type name.
     enum_index: BTreeMap<String, u32>,
-    /// Soft enums by type name.
-    soft_index: BTreeMap<String, u32>,
     /// The first enum whose type name an enum of other values has.
     error: Option<Error>,
 }
@@ -455,12 +455,12 @@ impl Builder {
 
     /// The index of the soft enum `name`, added on first use.
     fn soft(&mut self, name: &str) -> u32 {
-        if let Some(&index) = self.soft_index.get(name) {
+        if let Some(&index) = self.catalog.soft_index.get(name) {
             return index;
         }
         let index = index_of(self.catalog.soft.len());
         self.catalog.soft.push(name.to_owned());
-        self.soft_index.insert(name.to_owned(), index);
+        self.catalog.soft_index.insert(name.to_owned(), index);
         index
     }
 

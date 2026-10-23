@@ -458,6 +458,15 @@ impl Disc {
             .partition_point(|o| o.x * o.x + o.z * o.z <= r * r)
     }
 
+    /// The chunks of the view of `radius` (at most [`MAX_RADIUS`]) around `center`, in sending
+    /// order.
+    pub(super) fn around(&self, center: ChunkPos, radius: u8) -> impl Iterator<Item = ChunkPos> {
+        self.offsets
+            .iter()
+            .take(self.size(radius))
+            .map(move |&offset| at(center, offset))
+    }
+
     /// The offset of `rank`.
     fn offset(&self, rank: usize) -> ChunkPos {
         #[expect(
@@ -606,7 +615,7 @@ pub(super) struct Chunks {
     /// again never gets a chunk of the world before it.
     pub(super) stale: BTreeMap<Key, u32>,
     /// The order of the views' chunks, fixed with the server.
-    disc: Disc,
+    pub(super) disc: Disc,
 }
 
 /// The chunks a ticket holds: the square of `radius` chunks around `center` in `world`.

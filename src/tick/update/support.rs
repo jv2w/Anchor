@@ -9,14 +9,14 @@ use crate::block::{self, Class, Face, Kind, SupportType, Trait, TypeTag};
 use crate::world::BlockPos;
 
 /// The support the block on the `face` side of `pos` gives toward `pos` (PMMP
-/// `getAdjacentSupportType`), or `None` if it is not loaded.
+/// `getAdjacentSupportType`), or `None` if it is not loaded ([`Cx::loaded_block`]).
 pub(super) fn adjacent(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<SupportType> {
-    Some(cx.get(pos.step(face)?)?.support(face.opposite()))
+    Some(side(cx, pos, face)?.support(face.opposite()))
 }
 
-/// The block on the `face` side of `pos`, or `None` if it is not loaded.
+/// The block on the `face` side of `pos`, or `None` if it is not loaded ([`Cx::loaded_block`]).
 pub(super) fn side(cx: &Cx<'_>, pos: BlockPos, face: Face) -> Option<block::State> {
-    cx.get(pos.step(face)?)
+    cx.loaded_block(pos.step(face)?)
 }
 
 /// Whether the block has the dirt or mud tag (PMMP `BlockTypeTags::DIRT`, `MUD`).
@@ -177,7 +177,7 @@ pub(in crate::tick) fn static_support(
     reason = "consistency: one table of PMMP's support rules, a short arm per class"
 )]
 pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
-    if let Some(stands) = static_support(block, pos, |p| cx.get(p)) {
+    if let Some(stands) = static_support(block, pos, |p| cx.loaded_block(p)) {
         return Some(stands);
     }
     let down = || side(cx, pos, Face::Down);

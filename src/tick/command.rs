@@ -15,6 +15,7 @@ mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use tracing::{debug, info};
 
@@ -443,6 +444,11 @@ fn check(command: &Command) -> command::Result<()> {
                         .any(|v| v.is_empty() || v.chars().any(char::is_whitespace)))
             {
                 return invalid("an enum has no type name, no values or a value with spaces");
+            }
+            if let Kind::SoftEnum { name } = &param.kind
+                && name.is_empty()
+            {
+                return invalid("a soft enum has no type name");
             }
             if let Kind::Suffixed { suffix } = &param.kind
                 && (suffix.is_empty()
@@ -925,14 +931,14 @@ pub(super) fn sync(state: &mut State) {
         ) else {
             continue;
         };
-        let packet = Packet::UpdateSoftEnum(UpdateSoftEnum {
+        let packet = Arc::new(Packet::UpdateSoftEnum(UpdateSoftEnum {
             enum_type: name.to_owned(),
             options: values.clone(),
             action_type: u8::from(SoftEnumAction::Set),
-        });
+        }));
         for player in state.players.values_mut() {
             if player.chunk_radius.is_some() {
-                player.send_packet(packet.clone());
+                player.send_shared(Arc::clone(&packet));
             }
         }
     }
@@ -1167,7 +1173,8 @@ impl Context<'_> {
     /// [`Param::soft_enumeration`](command::Param::soft_enumeration), in order; every player's
     /// list follows at the end of the tick. Not saved: none at start. Fails with
     /// [`Error::InvalidSoftEnum`], changing nothing, if no registered command takes `name`, or a
-    /// value is empty or holds spaces, or there are more than 4,096.
+    /// value is empty or holds spaces, or there are more than 4,096 or more than 65,536 bytes of
+    /// them in all.
     pub fn set_soft_enum(&mut self, name: &str, values: &[&str]) -> command::Result<()> {
         let commands = &mut self.state.commands;
         let invalid = || Error::InvalidSoftEnum {
@@ -1175,6 +1182,11 @@ impl Context<'_> {
         };
         let index = commands.catalog.soft_enum(name).ok_or_else(invalid)?;
         if values.len() > MAX_ENUM_VALUES
+            || values
+                .iter()
+                .map(|v| v.len())
+                .fold(0, usize::saturating_add)
+                > MAX_TEXT
             || values
                 .iter()
                 .any(|v| v.is_empty() || v.chars().any(char::is_whitespace))

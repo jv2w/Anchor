@@ -392,7 +392,9 @@ impl Kind {
     /// Whether the tick may have work for it.
     fn ticks(&self, items: &[Stack]) -> bool {
         match self {
-            Self::Furnace(_) | Self::BrewingStand(_) | Self::Beacon { .. } => true,
+            Self::Furnace(_) | Self::BrewingStand(_) => true,
+            // A beacon without a chosen effect gives none.
+            Self::Beacon { primary, .. } => *primary != 0,
             Self::Campfire(_) => items.iter().any(|s| !s.is_empty()),
             _ => false,
         }
@@ -1012,24 +1014,20 @@ impl BlockEntities {
 
     /// The client form of the block entities in sub-chunk `index` (0 is the lowest) of a loaded
     /// chunk, as network little-endian NBT roots one after another: what a sub-chunk answer
-    /// carries after the blocks (dragonfly `subChunkEntry`). Empty when there are none.
+    /// carries after the blocks (dragonfly `subChunkEntry`). Empty when there are none. `pos` is
+    /// within the world border and `index` below [`crate::world::SUB_CHUNKS`] (a sub-chunk a
+    /// player asks for, `view::encode`).
     pub(super) fn client_bytes(&self, world: WorldIndex, pos: ChunkPos, index: usize) -> Vec<u8> {
         let Some(chunk) = self.chunks.get(&(world, pos)) else {
             return Vec::new();
         };
-        // Every block entity of the chunk lies in its x and z (`Chunk::read` checks it, `insert`
-        // keys by it) and in the world's height, so a chunk whose blocks overflow i32 or an index
-        // above the world holds none.
-        let Some(west) = pos.x.checked_mul(16) else {
-            return Vec::new();
-        };
-        let Some(bottom) = i32::try_from(index)
-            .ok()
-            .filter(|_| index < crate::world::SUB_CHUNKS)
-            .map(|sub| crate::world::MIN_Y + sub * 16)
-        else {
-            return Vec::new();
-        };
+        let west = pos.x * 16;
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: index is below SUB_CHUNKS (24)"
+        )]
+        let bottom =
+            crate::world::MIN_Y + i32::try_from(index).expect("a sub-chunk index fits i32") * 16;
         let mut bytes = Vec::new();
         // Positions order by x, then y, then z: the sub-chunk's part of one x is one range, and
         // walking x up sends the roots in the chunk's order.
@@ -1842,15 +1840,21 @@ pub(super) fn set_beacon(
     primary: i32,
     secondary: i32,
 ) {
+    let entities = &mut state.rules.block_entities;
     if let Some(BlockEntity {
         kind: Kind::Beacon {
             primary: p,
             secondary: s,
         },
         ..
-    }) = state.rules.block_entities.get_mut(world, pos)
+    }) = entities.get_mut(world, pos)
     {
         (*p, *s) = (primary, secondary);
+        if primary == 0 {
+            entities.active.remove(&(world, pos));
+        } else {
+            entities.active.insert((world, pos));
+        }
         broadcast_spawn(state, world, pos);
     }
 }
@@ -2029,9 +2033,13 @@ fn tick_furnace(
     };
     let before = (f.burn, f.cook, f.max_burn, f.xp);
     let mut t = f.begin(lit);
-    // Out of the active set while the events run: a listener that changes the slots wakes the
+    // Out of the active set while listeners run: a listener that changes the slots wakes the
     // furnace (`set_slot`), and that wake stays whatever this tick's step says.
-    state.rules.block_entities.active.remove(&(world, pos));
+    let listened =
+        dispatch::listened::<FurnaceBurn>(state) || dispatch::listened::<FurnaceSmelt>(state);
+    if listened {
+        state.rules.block_entities.active.remove(&(world, pos));
+    }
     let (mut burnt, mut smelted) = (None, None);
     if furnace_fuel(state, world, pos, block, &mut t, &mut burnt).is_none()
         || furnace_smelt(state, world, pos, block, &mut rng, &mut t, &mut smelted).is_none()
@@ -2047,8 +2055,10 @@ fn tick_furnace(
     if after != before || step.slots != 0 {
         entities.changed.insert(key);
     }
-    if step.active {
+    if listened && step.active {
         entities.active.insert((world, pos));
+    } else if !listened && !step.active {
+        entities.active.remove(&(world, pos));
     }
     if let Some(lit) = step.lit
         && let Some(next) = interact::props::with_lit(block, lit)
@@ -2916,28 +2926,6 @@ pub(in crate::tick) mod tests {
                 std::iter::from_fn(|| r.nbt(crate::nbt::Encoding::NetworkLittleEndian).ok())
                     .count();
             assert_eq!(roots, if filled.contains(&index) { 8 } else { 0 });
-        }
-    }
-
-    /// The chunks at the ends of the x axis send their block entities at their edge columns:
-    /// x = `i32::MAX` and x = `i32::MIN`.
-    #[test]
-    fn client_bytes_reach_the_edge_columns_of_the_last_chunks() {
-        for (chunk_x, edges) in [
-            (i32::MAX >> 4, [i32::MAX - 15, i32::MAX]),
-            (i32::MIN >> 4, [i32::MIN, i32::MIN + 15]),
-        ] {
-            let key = (0, ChunkPos::new(chunk_x, 0));
-            let mut chunk = Chunk::default();
-            for x in edges {
-                let pos = BlockPos::new(x, crate::world::MIN_Y + 5, 3);
-                chunk.entities.insert(pos, chest_entity(&[], None));
-            }
-            let mut store = BlockEntities::default();
-            store.chunks.insert(key, chunk);
-            let bytes = store.client_bytes(0, key.1, 0);
-            assert!(!bytes.is_empty());
-            assert_eq!(bytes, client_bytes_of_whole_chunk(&store, key, 0));
         }
     }
 

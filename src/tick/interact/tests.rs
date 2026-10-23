@@ -1549,6 +1549,49 @@ fn switching_the_held_slot_cancels_a_drawn_bow() {
     }
 }
 
+/// Selecting another hotbar slot (PMMP `Player::selectHotbarSlot`), moving items (PMMP
+/// `executeInventoryTransaction`) or a change of the held stack (PMMP: the held slot listener)
+/// stops eating, even when the held slot then holds the same food.
+#[test]
+fn switching_the_held_slot_or_moving_items_stops_eating() {
+    let apple = stack(crate::item::Kind::GoldenApple);
+    let mut h = Harness::new(|_| {});
+    h.hold(apple.clone());
+    inventory::set_main(h.player_mut(), 1, apple.clone());
+    let eat = h.auth(Vec::new(), Some(air(&apple)));
+    h.run(vec![eat]);
+    assert!(h.player().is_using_item());
+    let away = h.input(Packet::MobEquipment(Box::new(
+        crate::protocol::packet::MobEquipment {
+            entity_runtime_id: 1,
+            new_item: crate::protocol::ItemInstance::default(),
+            inventory_slot: 1,
+            hot_bar_slot: 1,
+            window_id: 0,
+        },
+    )));
+    h.run(vec![away]);
+    assert_eq!(h.player().inventory.held_slot(), 1);
+    assert!(!h.player().is_using_item(), "a hotbar switch");
+    let mut click = air(&apple);
+    click.hot_bar_slot = 1;
+    let eat = h.auth(Vec::new(), Some(click.clone()));
+    h.run(vec![eat]);
+    assert!(h.player().is_using_item());
+    let request = h.input(Packet::ItemStackRequest(
+        crate::protocol::packet::ItemStackRequest {
+            requests: vec![crate::protocol::ItemStackRequest::default()],
+        },
+    ));
+    h.run(vec![request]);
+    assert!(!h.player().is_using_item(), "an item stack request");
+    let eat = h.auth(Vec::new(), Some(click));
+    h.run(vec![eat]);
+    assert!(h.player().is_using_item());
+    h.hold(apple);
+    assert!(!h.player().is_using_item(), "a held stack change");
+}
+
 #[test]
 fn dying_stops_a_drawn_bow() {
     let mut h = Harness::new(|_| {});

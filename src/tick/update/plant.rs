@@ -382,7 +382,7 @@ fn seek(cx: &Cx<'_>, pos: BlockPos, block: block::State, face: Face) -> Option<B
 /// Whether water or frosted ice is beside the block under sugar cane.
 fn near_water(cx: &Cx<'_>, below: BlockPos) -> Option<bool> {
     for face in HORIZONTAL {
-        let s = cx.get(below.step(face)?)?;
+        let s = cx.loaded_block(below.step(face)?)?;
         if matches!(s.kind(), Kind::Water | Kind::FrostedIce) {
             return Some(true);
         }
@@ -395,7 +395,7 @@ pub(super) fn sugarcane_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::
     let Some(below) = pos.step(Face::Down) else {
         return;
     };
-    let Some(down) = cx.get(below) else {
+    let Some(down) = cx.loaded_block(below) else {
         return;
     };
     // Cane on cane always stays: it needs no water and is supported.
@@ -415,7 +415,7 @@ fn sugarcane(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     let Some(below) = pos.step(Face::Down) else {
         return;
     };
-    let Some(down) = cx.get(below) else {
+    let Some(down) = cx.loaded_block(below) else {
         return;
     };
     if down.kind() == block.kind() {

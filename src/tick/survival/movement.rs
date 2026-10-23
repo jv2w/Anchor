@@ -25,7 +25,9 @@ use crate::protocol::consts::{InputFlag, MoveMode, PlayerAction as Action, Sound
 use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput};
 use crate::protocol::{FlagSet, TeleportData};
 use crate::tick::entity::{Harm, INSIDE_INSET, MOTION_THRESHOLD};
-use crate::tick::{MAX_COORDINATE, Phase, Player, SessionId, State, dispatch, entity, update};
+use crate::tick::{
+    MAX_COORDINATE, Phase, Player, SessionId, State, dispatch, entity, interact, update,
+};
 use crate::world::{BlockPos, Entry, World};
 
 /// Moves the reserve gains each tick (PMMP `Player::MOVES_PER_TICK`).
@@ -809,9 +811,6 @@ pub(super) fn block_intersections(state: &mut State, session: SessionId) {
     }
 }
 
-/// The delay of a campfire's next update once lit (PMMP `Campfire::UPDATE_INTERVAL_TICKS`).
-const CAMPFIRE_UPDATE_TICKS: u32 = 40;
-
 /// The blocks the player is inside act on it, on every move and in the base tick (PMMP
 /// `checkBlockIntersections` and the blocks' `onEntityInside`): the blocks that hurt ([`Harm`],
 /// as for entities), a burning player lights a campfire, water and water cauldrons put out fire,
@@ -870,7 +869,14 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
         }
     } else if block.is(Class::Campfire) {
         // An unlit one: a lit one is a `Harm`.
-        light_campfire(state, session, pos, block);
+        if let Some(player) = state
+            .players
+            .get(&session)
+            .filter(|p| p.survival.fire_ticks > 0)
+        {
+            let world = player.world;
+            interact::light_campfire(state, world, pos, block);
+        }
     } else if block.is(Class::Water) {
         reset_fall(state, session);
         let mut out = false;
@@ -885,8 +891,6 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             damage::extinguished(state, session, ExtinguishCause::Water);
         }
     } else if block.is(Class::WaterCauldron) {
-        // PMMP `WaterCauldron::onEntityInside`: a burning player is put out for a level of water
-        // (level 0 is the empty cauldron).
         let Some(player) = state
             .players
             .get_mut(&session)
@@ -898,13 +902,7 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
         player.data_dirty = true;
         let world = player.world;
         damage::extinguished(state, session, ExtinguishCause::WaterCauldron);
-        if let Some(block::PropertyValue::Int(level)) = block.value("fill_level")
-            && let Some(lower) = block.with("fill_level", block::PropertyValue::Int(level - 1))
-            && let Some(w) = state.worlds.get_mut(world)
-            && let Err(e) = w.set_block(pos, lower)
-        {
-            tracing::debug!(?pos, %e, "water cauldron could not lose a level");
-        }
+        interact::lower_water_cauldron(state, world, pos, block);
     } else if block.is(Class::Ladder) {
         let inside_block = state
             .players
@@ -931,35 +929,6 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             effects::add(state, session, Effect::Wither, Active::new(40, 0));
         }
     }
-}
-
-/// A burning player lights the unlit campfire `block` at `pos` it is in, as flint and steel does
-/// (PMMP `Campfire::onEntityInside`).
-fn light_campfire(state: &mut State, session: SessionId, pos: BlockPos, block: block::State) {
-    let Some(world) = state
-        .players
-        .get(&session)
-        .filter(|p| p.survival.fire_ticks > 0)
-        .map(|p| p.world)
-    else {
-        return;
-    };
-    let Some(lit) = block.with("extinguished", block::PropertyValue::Byte(0)) else {
-        return;
-    };
-    if let Some(w) = state.worlds.get_mut(world)
-        && let Err(e) = w.set_block(pos, lit)
-    {
-        tracing::debug!(?pos, %e, "campfire not lit");
-        return;
-    }
-    let center = Vec3::new(
-        f64::from(pos.x) + 0.5,
-        f64::from(pos.y) + 0.5,
-        f64::from(pos.z) + 0.5,
-    );
-    crate::tick::interact::sound(state, world, center, crate::world::Sound::FlintSteel);
-    update::schedule(state, world, pos, CAMPFIRE_UPDATE_TICKS);
 }
 
 /// Ends the player's fall.

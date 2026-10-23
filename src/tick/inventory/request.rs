@@ -259,8 +259,8 @@ pub(in crate::tick) fn on_item_stack_request(
     if player.phase == Phase::Loading {
         return;
     }
-    // PMMP `executeInventoryTransaction`: moving items stops drawing a bow.
-    player.breaking.stop_using();
+    // PMMP `executeInventoryTransaction`: moving items stops using the held item.
+    survival::stop_using_item(player);
     let inv = &mut player.inventory;
     if inv.budget.0 != tick {
         inv.budget = (tick, 0);

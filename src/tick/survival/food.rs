@@ -580,10 +580,41 @@ pub(super) fn start_cooldown(tick: u64, player: &mut Player, item: Type, ticks: 
     ));
 }
 
-/// The player uses its held item in the air (PMMP `InGamePacketHandler` click-air): the first
-/// use starts eating or drinking, the next finishes it once the eating time has passed. True when
-/// the held item is a consumable.
-pub(super) fn use_consumable(state: &mut State, session: SessionId) -> bool {
+/// The player clicks in the air while it eats or drinks the item it holds (PMMP
+/// `InGamePacketHandler` click-air while `Player::isUsingItem`): it finishes once the eating time
+/// has passed, and stops either way. False, changing nothing, if it does not eat the held item.
+pub(super) fn finish_eating(state: &mut State, session: SessionId) -> bool {
+    let Some(player) = state.players.get(&session) else {
+        return false;
+    };
+    let Some(using) = player.survival.using else {
+        return false;
+    };
+    let item = using.item;
+    if player.inventory.held().item() != Some(item) {
+        return false;
+    }
+    if player.survival.is_dead() || game_mode(state, player) == GameMode::Spectator {
+        return true;
+    }
+    let elapsed = state.tick.saturating_sub(using.since);
+    let need = consume_ticks(item);
+    if elapsed >= need - need / CONSUME_TOLERANCE_DIVISOR {
+        consume(state, session, item);
+    }
+    if let Some(player) = state.players.get_mut(&session) {
+        let s = &mut player.survival;
+        s.using = None;
+        if s.switches.hunger {
+            s.mark(HUNGER);
+        }
+    }
+    true
+}
+
+/// The player starts eating or drinking the item it holds (PMMP `Player::useHeldItem`:
+/// `setUsingItem`), if it may now. True when the held item is a consumable.
+pub(super) fn start_eating(state: &mut State, session: SessionId) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;
     };
@@ -597,33 +628,13 @@ pub(super) fn use_consumable(state: &mut State, session: SessionId) -> bool {
     if player.survival.is_dead() || mode == GameMode::Spectator {
         return true;
     }
-    let using = player.survival.using;
-    match using {
-        Some(using) if using.item == item => {
-            let elapsed = state.tick.saturating_sub(using.since);
-            let need = consume_ticks(item);
-            if elapsed >= need - need / CONSUME_TOLERANCE_DIVISOR {
-                consume(state, session, item);
-            }
-            if let Some(player) = state.players.get_mut(&session) {
-                let s = &mut player.survival;
-                s.using = None;
-                if s.switches.hunger {
-                    s.mark(HUNGER);
-                }
-            }
-        }
-        _ => {
-            let s = &player.survival;
-            let start = !has_cooldown(state.tick, s, item)
-                && (!item.food().is_some_and(Food::requires_hunger)
-                    || can_eat(state, player, mode))
-                && medicine_cure(item).is_none_or(|cured| s.effects.contains_key(&cured));
-            let tick = state.tick;
-            if let Some(player) = state.players.get_mut(&session) {
-                player.survival.using = start.then_some(Using { since: tick, item });
-            }
-        }
+    let s = &player.survival;
+    let start = !has_cooldown(state.tick, s, item)
+        && (!item.food().is_some_and(Food::requires_hunger) || can_eat(state, player, mode))
+        && medicine_cure(item).is_none_or(|cured| s.effects.contains_key(&cured));
+    let tick = state.tick;
+    if let Some(player) = state.players.get_mut(&session) {
+        player.survival.using = start.then_some(Using { since: tick, item });
     }
     true
 }

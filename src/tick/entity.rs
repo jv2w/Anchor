@@ -2372,19 +2372,25 @@ fn base_tick(state: &mut State, id: Id, inside: Vec<Inside>) {
                     combust(state, id, i16::from(seconds), CombustSource::Block(pos));
                 }
             }
-            Inside::Water { cauldron } => {
-                let cause = if cauldron {
-                    ExtinguishCause::WaterCauldron
-                } else {
-                    ExtinguishCause::Water
-                };
-                let burning = with(state, id, |e| {
-                    let burning = e.fire_ticks > 0;
-                    e.fire_ticks = 0;
-                    burning
-                });
-                if burning == Some(true) {
-                    extinguished(state, id, cause);
+            Inside::Water => {
+                put_out(state, id, ExtinguishCause::Water);
+            }
+            // The block as it is now: an entity before this one may have changed it.
+            Inside::WaterCauldron(pos) => {
+                if let Some((world, block)) = block_at(state, id, pos)
+                    && block.is(Class::WaterCauldron)
+                    && put_out(state, id, ExtinguishCause::WaterCauldron)
+                {
+                    super::interact::lower_water_cauldron(state, world, pos, block);
+                }
+            }
+            Inside::Campfire(pos) => {
+                if with(state, id, |e| e.fire_ticks > 0) == Some(true)
+                    && let Some((world, block)) = block_at(state, id, pos)
+                    && block.is(Class::Campfire)
+                    && Harm::of(block).is_none()
+                {
+                    super::interact::light_campfire(state, world, pos, block);
                 }
             }
         }
@@ -2733,6 +2739,25 @@ fn extinguished(state: &mut State, id: Id, cause: ExtinguishCause) {
         dispatch::call(state, &mut e);
         dispatch::watch(state, &e);
     }
+}
+
+/// Puts the entity `id` out for `cause`; true if it was burning.
+fn put_out(state: &mut State, id: Id, cause: ExtinguishCause) -> bool {
+    let burning = with(state, id, |e| {
+        let burning = e.fire_ticks > 0;
+        e.fire_ticks = 0;
+        burning
+    }) == Some(true);
+    if burning {
+        extinguished(state, id, cause);
+    }
+    burning
+}
+
+/// The world of the entity `id` and its block at `pos`.
+fn block_at(state: &State, id: Id, pos: BlockPos) -> Option<(WorldIndex, block::State)> {
+    let world = state.rules.entities.get(id)?.world;
+    Some((world, state.worlds.get(world)?.block(pos)?))
 }
 
 /// Heals the entity `id` by `amount` as a rule does (instant health; PMMP `Entity::heal`),
@@ -5124,6 +5149,65 @@ mod tests {
         assert!(
             matches!(&left[0].kind, Kind::Item(i) if i.stack.item().unwrap().name() == "minecraft:netherite_ingot")
         );
+    }
+
+    /// A burning item in a water cauldron is put out and the cauldron loses a level (PMMP
+    /// `WaterCauldron::onEntityInside`).
+    #[test]
+    fn a_water_cauldron_puts_out_a_burning_item_and_drops_a_level() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(8.0, 8.0));
+        let level = |n| {
+            named("minecraft:cauldron")
+                .with("cauldron_liquid", block::PropertyValue::String("water"))
+                .and_then(|s| s.with("fill_level", block::PropertyValue::Int(n)))
+                .unwrap()
+        };
+        let pos = BlockPos::new(0, -60, 0);
+        h.state.worlds[0].set_block(pos, level(3)).unwrap();
+        let stick = stack("minecraft:stick", 1);
+        let spot = at(0.5, -59.9, 0.5);
+        assert!(drop_item_with(
+            &mut h.state,
+            0,
+            spot,
+            stick,
+            Some(Vec3::ZERO),
+            10
+        ));
+        let id = h.state.rules.entities.ids().next().unwrap();
+        with(&mut h.state, id, |e| e.fire_ticks = 100);
+        h.entities();
+        assert_eq!(h.state.rules.entities.get(id).unwrap().fire_ticks, 0);
+        assert_eq!(h.state.worlds[0].block(pos), Some(level(2)));
+    }
+
+    /// A burning item lights an unlit campfire it is in (PMMP `Campfire::onEntityInside`).
+    #[test]
+    fn a_burning_item_lights_an_unlit_campfire() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(8.0, 8.0));
+        let lit = |on: bool| {
+            named("minecraft:campfire")
+                .with("extinguished", block::PropertyValue::Byte(u8::from(!on)))
+                .unwrap()
+        };
+        let pos = BlockPos::new(0, -60, 0);
+        h.state.worlds[0].set_block(pos, lit(false)).unwrap();
+        let stick = stack("minecraft:stick", 1);
+        let spot = at(0.5, -59.9, 0.5);
+        assert!(drop_item_with(
+            &mut h.state,
+            0,
+            spot,
+            stick,
+            Some(Vec3::ZERO),
+            10
+        ));
+        let id = h.state.rules.entities.ids().next().unwrap();
+        with(&mut h.state, id, |e| e.fire_ticks = 100);
+        h.entities();
+        assert_eq!(h.state.worlds[0].block(pos), Some(lit(true)));
     }
 
     // pmmp: FallingBlock

@@ -820,7 +820,7 @@ fn a_sneak_answer_sends_the_height_not_the_collision_box() {
     };
     game.take(1);
     assert_eq!(
-        heights(&mut game, &[InputFlag::SneakDown, InputFlag::StartSneaking]),
+        heights(&mut game, &[InputFlag::Sneaking, InputFlag::StartSneaking]),
         [Some(MetadataValue::Float32(1.49))]
     );
     assert_eq!(
@@ -900,9 +900,9 @@ fn consume_listeners_cancel_the_meal_or_replace_its_residue() {
     game.survival(1).food = 10.0;
     inventory::set_held(game.player_mut(1), stack(ItemKind::MushroomStew, 1));
     let eat = |game: &mut Game| {
-        assert!(use_consumable(&mut game.state, sid(1)));
+        assert!(start_eating(&mut game.state, sid(1)));
         game.idle(32);
-        assert!(use_consumable(&mut game.state, sid(1)));
+        assert!(finish_eating(&mut game.state, sid(1)));
     };
     eat(&mut game);
     assert_eq!(game.survival(1).food, 10.0, "cancelled");
@@ -1447,9 +1447,9 @@ fn hunger_off_spends_and_gains_no_food_raises_no_event_and_sends_no_hunger_attri
     assert_eq!(p.exhaust(30.0), off);
     // A golden apple (eaten with a full bar), a sprint jump, a hit, the saturation effect.
     inventory::set_held(game.player_mut(1), stack(ItemKind::GoldenApple, 1));
-    assert!(use_consumable(&mut game.state, sid(1)));
+    assert!(start_eating(&mut game.state, sid(1)));
     game.idle(32);
-    assert!(use_consumable(&mut game.state, sid(1)));
+    assert!(finish_eating(&mut game.state, sid(1)));
     let input = game.flags(1, &[InputFlag::StartSprinting, InputFlag::StartJumping]);
     game.run(vec![input]);
     assert!(damage(&mut game.state, sid(1), 1.0, Damage::Contact));

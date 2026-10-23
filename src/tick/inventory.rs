@@ -1483,7 +1483,7 @@ pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &M
 fn hold(player: &mut Player, slot: u8) {
     player.inventory.held = slot;
     player.data_dirty = true;
-    player.breaking.stop_using();
+    super::survival::stop_using_item(player);
 }
 
 /// Tells the client which hotbar slot is selected and what it holds (a selection the server did
@@ -1719,7 +1719,7 @@ pub(super) fn set_held(player: &mut Player, stack: Stack) {
     let held = player.inventory.held;
     set_own(player, SlotRef::Main(held), stack);
     give_pending(player);
-    player.breaking.stop_using();
+    super::survival::stop_using_item(player);
 }
 
 /// Replaces an armour piece (0 helmet … 3 boots: damage, breaking) and tells the client.

@@ -333,8 +333,9 @@ pub(super) fn shown(player: &Player) -> Shown {
     }
 }
 
-/// The collision box width and height (PMMP `Living::recalculateSize`): 0.6 by 1.8, 1.49 high
-/// sneaking, as high as wide swimming or gliding.
+/// The box width and height of the player's pose, sent as entity data 53 and 54 (PMMP
+/// `Living::recalculateSize`): 0.6 by 1.8, 1.49 high sneaking, as high as wide swimming or
+/// gliding.
 pub(super) fn size(s: &Survival) -> [f32; 2] {
     let width = f32_of(PLAYER_WIDTH);
     if s.motion.swimming || s.motion.gliding {
@@ -364,8 +365,9 @@ pub(super) fn size_data(runtime_id: u64, [width, height]: [f32; 2]) -> Packet {
     })
 }
 
-/// The values of the changing keys whose value differs from `old` (all of them when `old` is
-/// `None`).
+/// The values of the changing keys whose value differs from `old`. When `old` is `None`: all of
+/// them and the standing collision box (130), but width and height (53, 54) only where the pose's
+/// box differs from the standing one.
 fn changed_metadata(new: &Shown, old: Option<&Shown>, out: &mut EntityMetadata) {
     // Each flag word only when it changed, as BDS (P6: `{0: ...}` alone when Breathing changes).
     if old.is_none_or(|o| o.flags[0] != new.flags[0]) {
@@ -773,9 +775,11 @@ pub(super) fn flush_one(state: &mut State, session: SessionId) {
             })
         };
         // The answer tick is the player's own input's: the viewers get none.
-        broadcast_to_viewers(state, session, &data(entity_metadata.clone(), 0));
+        let own = answer_tick.map(|tick| data(entity_metadata.clone(), tick));
+        let viewed = data(entity_metadata, 0);
+        broadcast_to_viewers(state, session, &viewed);
         if let Some(player) = state.players.get_mut(&session) {
-            player.send_packet(data(entity_metadata, answer_tick.unwrap_or(0)));
+            player.send_packet(own.unwrap_or(viewed));
         }
     }
     if let Some(health) = health {

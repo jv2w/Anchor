@@ -27,6 +27,7 @@ mod using;
 pub(super) use book::on_book_edit;
 pub(super) use custom::random_tick;
 pub(super) use rail::ascent as rail_ascent;
+pub(super) use using::{light_campfire, lower_water_cauldron};
 
 use tracing::debug;
 
@@ -219,8 +220,8 @@ impl Breaking {
         !std::mem::replace(&mut self.press.raised, true)
     }
 
-    /// Stops drawing a bow or trident (PMMP `Player::setUsingItem(false)`): the held slot or
-    /// item changed, or the player did something else with it.
+    /// Stops drawing a bow or trident (the drawing half of PMMP `Player::setUsingItem(false)`):
+    /// the held slot or item changed, or the player did something else with it.
     pub(super) fn stop_using(&mut self) {
         self.using_since = None;
     }
@@ -984,8 +985,7 @@ fn apply_block_action(
     // Every block action, an ignored repeat start too, ends the use of the held item (PMMP
     // `handlePlayerActionFromData`: `setUsingItem(false)`).
     if let Some(player) = state.players.get_mut(&session) {
-        player.breaking.stop_using();
-        survival::stop_eating(player);
+        survival::stop_using_item(player);
     }
 }
 
@@ -1837,9 +1837,7 @@ fn use_in_air(state: &mut State, session: SessionId) {
         return;
     };
     stop_using(state, session);
-    if survival::is_eating_held(state, session) {
-        survival::use_consumable(state, session);
-    } else {
+    if !survival::finish_eating(state, session) {
         using::use_held_item(state, &actor);
     }
 }

@@ -102,6 +102,10 @@ pub(super) struct Updates {
     neighbours: Vec<Neighbours>,
     /// Random streams opened so far: each rule run gets a stream of its own.
     draws: u64,
+    /// The chunks [`ticking_chunks`] gave the last world, kept so random ticks do not allocate
+    /// every tick: at most the players' discs of the largest `tick-radius`. Neither saved nor
+    /// hashed.
+    ticking: Vec<ChunkPos>,
     /// What the rules asked other modules for, so tests see it whatever those modules do.
     #[cfg(test)]
     effects: Vec<Effect>,
@@ -309,6 +313,7 @@ impl Updates {
             next_seq,
             neighbours,
             draws,
+            ticking: _,
             // A test-only record of what the rules asked other modules for: what those requests
             // did (blocks destroyed, falling blocks, dropped items) is in the hashed state of the
             // world and the other modules.
@@ -352,7 +357,8 @@ fn hash_pos(h: &mut super::Fnv, pos: BlockPos) {
 
 super::checkpoint::fields!(Neighbours { fifo, queued });
 
-/// Every field but the test-only record of what the rules asked other modules for.
+/// Every field but the reused chunk list and the test-only record of what the rules asked other
+/// modules for.
 impl super::checkpoint::Codec for Updates {
     fn encode(&self, w: &mut super::checkpoint::Writer) {
         let Self {
@@ -363,6 +369,7 @@ impl super::checkpoint::Codec for Updates {
             next_seq,
             neighbours,
             draws,
+            ticking: _,
             #[cfg(test)]
                 effects: _,
         } = self;
@@ -385,6 +392,7 @@ impl super::checkpoint::Codec for Updates {
             next_seq: Codec::decode(r)?,
             neighbours: Codec::decode(r)?,
             draws: Codec::decode(r)?,
+            ticking: Vec::new(),
             #[cfg(test)]
             effects: Vec::new(),
         })
@@ -635,11 +643,12 @@ fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<Ch
     if speed == 0 || radius == 0 {
         return;
     }
-    let chunks = ticking_chunks(state, world, radius, centers);
     let Some(world_seed) = state.worlds.get(world).map(World::seed) else {
         return;
     };
-    for chunk in chunks {
+    let mut chunks = std::mem::take(&mut state.rules.updates.ticking);
+    ticking_chunks(state, world, radius, centers, &mut chunks);
+    for &chunk in &chunks {
         let k = random::key(
             RANDOM_TICK,
             &[
@@ -675,6 +684,7 @@ fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<Ch
             }
         }
     }
+    state.rules.updates.ticking = chunks;
 }
 
 /// The position 12 random bits pick in a sub-chunk: x, then y, then z, 4 bits each (PMMP).
@@ -701,42 +711,33 @@ fn player_chunks(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
     centers
 }
 
-/// The chunks of `world` that take random ticks, in order: within `radius` of `centers`, the
-/// chunks of the players in the world ([`player_chunks`]), with their 3 × 3 neighbourhood loaded
-/// and lit. Players in one chunk share a center.
+/// Fills `chunks` with the chunks of `world` that take random ticks, in order: within `radius`
+/// of `centers` ([`view::Disc::around`]), the chunks of the players in the world
+/// ([`player_chunks`]), with their 3 × 3 neighbourhood loaded and lit. Players in one chunk share
+/// a center.
 fn ticking_chunks(
     state: &State,
     world: WorldIndex,
     radius: u8,
     centers: Option<&BTreeSet<ChunkPos>>,
-) -> BTreeSet<ChunkPos> {
+    chunks: &mut Vec<ChunkPos>,
+) {
+    chunks.clear();
     let (Some(w), Some(centers)) = (state.worlds.get(world), centers) else {
-        return BTreeSet::new();
+        return;
     };
-    // The offsets of `view::disc`, without the vectors and the nearest-first sort it makes every
-    // call: this runs every tick, and the set orders the chunks.
-    let r = i32::from(radius);
-    let mut near = BTreeSet::new();
-    for c in centers {
-        for dx in -r..=r {
-            for dz in -r..=r {
-                if dx * dx + dz * dz <= r * r {
-                    near.insert(ChunkPos::new(
-                        c.x.saturating_add(dx),
-                        c.z.saturating_add(dz),
-                    ));
-                }
-            }
-        }
+    for &c in centers {
+        chunks.extend(state.chunks.disc.around(c, radius));
     }
+    chunks.sort_unstable();
+    chunks.dedup();
     // A chunk that is not loaded is not lit.
-    near.retain(|c| {
+    chunks.retain(|c| {
         (-1..=1).all(|dx| {
             (-1..=1)
                 .all(|dz| w.is_chunk_lit(ChunkPos::new(c.x.wrapping_add(dx), c.z.wrapping_add(dz))))
         })
     });
-    near
 }
 
 /// A scheduled update reached the block (PMMP `onScheduledUpdate`).
@@ -840,6 +841,18 @@ impl<'a> Cx<'a> {
         match self.w()?.entry(pos)? {
             Entry::Known(s) => Some(s),
             Entry::Unknown(_) | Entry::Inert(..) => Some(block::BEDROCK),
+        }
+    }
+
+    /// The block at `pos`, air outside the world height (PMMP `getBlockAt`), or `None` if its
+    /// chunk is not loaded: for rules that read the blocks around a block, which may stand at the
+    /// world's top or bottom.
+    #[inline]
+    pub(super) fn loaded_block(&self, pos: BlockPos) -> Option<block::State> {
+        if (MIN_Y..=MAX_Y).contains(&pos.y) {
+            self.get(pos)
+        } else {
+            Some(block::AIR)
         }
     }
 
@@ -1525,9 +1538,11 @@ mod tests {
             }
         }
         let centers = BTreeSet::from([ChunkPos::new(0, 0), ChunkPos::new(3, -2)]);
+        // One list for every radius, as the tick reuses it.
+        let mut chunks = Vec::new();
         for radius in 1..=8 {
             let w = &state.worlds[0];
-            let expected: BTreeSet<ChunkPos> = centers
+            let expected: Vec<ChunkPos> = centers
                 .iter()
                 .flat_map(|&c| view::disc(c, radius))
                 .collect::<BTreeSet<_>>()
@@ -1542,11 +1557,8 @@ mod tests {
                 })
                 .collect();
             assert!(!expected.is_empty());
-            assert_eq!(
-                ticking_chunks(&state, 0, radius, Some(&centers)),
-                expected,
-                "{radius}"
-            );
+            ticking_chunks(&state, 0, radius, Some(&centers), &mut chunks);
+            assert_eq!(chunks, expected, "{radius}");
         }
     }
 
@@ -1848,6 +1860,19 @@ mod tests {
         assert_eq!(get(&state, soul), block::AIR);
     }
 
+    /// A flower on the lowest layer stands on air outside the world (PMMP `getSide`), not on
+    /// soil: its neighbour update breaks it.
+    #[test]
+    fn a_flower_on_the_lowest_layer_breaks_over_the_world_bottom() {
+        let mut state = server();
+        let pos = BlockPos::new(3, MIN_Y, 3);
+        set(&mut state, pos, named("minecraft:poppy"));
+        advance(&mut state);
+        let effects = std::mem::take(&mut state.rules.updates.effects);
+        assert!(effects.contains(&Effect::Destroyed(pos)), "{effects:?}");
+        assert_eq!(get(&state, pos), block::AIR);
+    }
+
     /// Water above a full dyed cauldron makes it plain water (PMMP
     /// `WaterCauldron::onNearbyBlockChange` clears the custom colour).
     #[test]
@@ -2126,7 +2151,9 @@ mod tests {
             full_tick(state, Vec::new(), pool, &mut output);
         }
         let centers = player_chunks(state);
-        let chunks = ticking_chunks(state, 0, 4, centers.get(&0)).len();
+        let mut chunks = Vec::new();
+        ticking_chunks(state, 0, 4, centers.get(&0), &mut chunks);
+        let chunks = chunks.len();
         let ticks = 200u32;
         let start = std::time::Instant::now();
         for _ in 0..ticks {

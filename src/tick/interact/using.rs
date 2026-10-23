@@ -1010,16 +1010,11 @@ fn campfire(state: &mut State, u: &mut Use) -> bool {
                 set(state, world, u.pos, s);
             }
             sound(state, world, block_vec(u.pos), Sound::BlazeShoot);
-            update::schedule(state, world, u.pos, 40);
             return true;
         }
         if u.lights() {
             u.wear(&state.settings, 1);
-            if let Some(s) = props::with_flag(u.block, "extinguished", false) {
-                set(state, world, u.pos, s);
-            }
-            sound(state, world, center(u.pos), Sound::FlintSteel);
-            update::schedule(state, world, u.pos, 40);
+            light_campfire(state, world, u.pos, u.block);
             return true;
         }
     } else if u.item_is(item::Class::Shovel) {
@@ -1031,6 +1026,35 @@ fn campfire(state: &mut State, u: &mut Use) -> bool {
         return true;
     }
     false
+}
+
+/// PMMP `Campfire::ignite`: lights the unlit campfire `block` at `pos` (flint and steel, or a
+/// burning entity inside it, PMMP `Campfire::onEntityInside`).
+pub(in crate::tick) fn light_campfire(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    block: BlockState,
+) {
+    if let Some(s) = props::with_flag(block, "extinguished", false) {
+        set(state, world, pos, s);
+    }
+    sound(state, world, center(pos), Sound::FlintSteel);
+}
+
+/// PMMP `WaterCauldron::onEntityInside`: the water cauldron `block` at `pos` loses a level for
+/// putting out a burning entity (level 0 is the empty cauldron).
+pub(in crate::tick) fn lower_water_cauldron(
+    state: &mut State,
+    world: WorldIndex,
+    pos: BlockPos,
+    block: BlockState,
+) {
+    if let Some(lower) =
+        props::int(block, "fill_level").and_then(|l| props::with_int(block, "fill_level", l - 1))
+    {
+        set(state, world, pos, lower);
+    }
 }
 
 /// PMMP `CandleTrait::onInteract`: lit by fire, put out by an empty hand.
@@ -1560,7 +1584,7 @@ pub(super) fn use_held_item(state: &mut State, actor: &Actor) -> bool {
         return false;
     };
     // A consumable has no air use or cooldown of its own (PMMP `setUsingItem` starts it).
-    if !survival::use_consumable(state, actor.session) {
+    if !survival::start_eating(state, actor.session) {
         if !click_air(state, &actor, &held, item) {
             return false;
         }

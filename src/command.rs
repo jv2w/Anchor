@@ -369,7 +369,7 @@ impl Param {
     /// (a BDS soft enum, as `/scoreboard` objectives). The handler checks the word: the client
     /// sends words it does not suggest. `type_name` may not be the type name of an
     /// [`enumeration`](Self::enumeration), or [`build`](crate::ServerBuilder::build) fails with
-    /// [`Error::ConflictingEnum`].
+    /// [`Error::ConflictingEnum`]; an empty one refuses the build ([`Error::InvalidOverload`]).
     pub fn soft_enumeration(name: impl Into<String>, type_name: impl Into<String>) -> Self {
         Self::new(
             name,
@@ -743,7 +743,7 @@ pub enum Error {
         name: String,
     },
     /// [`Context::set_soft_enum`] named no soft enum type of a registered command, or values
-    /// that are empty, hold spaces, or number more than 4,096.
+    /// that are empty, hold spaces, number more than 4,096 or pass 65,536 bytes in all.
     InvalidSoftEnum {
         /// The enum's type name.
         name: String,

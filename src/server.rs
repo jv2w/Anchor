@@ -284,23 +284,33 @@ impl Server {
         setup.fingerprints = tick::Fingerprints::of(&tick::Settings::new(&config), &worlds, &setup);
         // Made first: the start checks the data files on it.
         let pool = runtime::cpu_pool(threads.cpu)?;
-        let mut opened =
-            save::open_with(&data_dir, worlds, crate::storage::Start::of(&config), &pool)?;
-        if !opened.later.is_empty() {
-            warn!(
-                files = opened.later.len(),
-                "the server starts on data files of different saves; see the errors above"
+        let ready = (|| {
+            let mut opened =
+                save::open_with(&data_dir, worlds, crate::storage::Start::of(&config), &pool)?;
+            if !opened.later.is_empty() {
+                warn!(
+                    files = opened.later.len(),
+                    "the server starts on data files of different saves; see the errors above"
+                );
+            }
+            setup.data.load(&mut opened.thread)?;
+            setup.commands.start(
+                std::mem::take(&mut opened.access),
+                config.general.white_list,
             );
-        }
-        setup.data.load(&mut opened.thread)?;
-        setup.commands.start(
-            std::mem::take(&mut opened.access),
-            config.general.white_list,
-        );
-        opened
-            .thread
-            .set_lighting(config.developer.lighting.is_calculated());
-        let runtime = Runtime::new(threads)?;
+            opened
+                .thread
+                .set_lighting(config.developer.lighting.is_calculated());
+            Ok::<_, Error>((opened, Runtime::new(threads)?))
+        })();
+        let (mut opened, runtime) = match ready {
+            Ok(ready) => ready,
+            Err(e) => {
+                // Dropping the pool would not wait for its threads (`Pool::shutdown`).
+                pool.shutdown();
+                return Err(e);
+            }
+        };
         // Before the tick starts, so that a stop signal from the first tick on stops normally.
         let signals = stop_signals(&runtime.handle());
         let pool = Arc::new(pool);

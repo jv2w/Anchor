@@ -85,11 +85,12 @@ impl Body {
 pub(super) enum Inside {
     /// A block at this position that hurts ([`Harm`]).
     Harm(Harm, BlockPos),
-    /// Water, in a block or (`cauldron`) a cauldron: puts the fire out.
-    Water {
-        /// In a water cauldron.
-        cauldron: bool,
-    },
+    /// Water: puts the fire out.
+    Water,
+    /// A water cauldron at this position: puts the fire out for a level of its water.
+    WaterCauldron(BlockPos),
+    /// An unlit campfire at this position: a burning entity lights it.
+    Campfire(BlockPos),
 }
 
 /// How a block hurts what is inside it (PMMP `onEntityInside`): the one rule for players and
@@ -790,11 +791,14 @@ fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec
                     if harm.ends_fall() && !harm.living_only() {
                         body.fall_distance = 0.0;
                     }
+                } else if state.is(Class::Campfire) {
+                    // An unlit one: a lit one is a `Harm`.
+                    inside.push(Inside::Campfire(pos));
                 } else if state.is(Class::Water) {
-                    inside.push(Inside::Water { cauldron: false });
+                    inside.push(Inside::Water);
                     body.fall_distance = 0.0;
                 } else if state.is(Class::WaterCauldron) {
-                    inside.push(Inside::Water { cauldron: true });
+                    inside.push(Inside::WaterCauldron(pos));
                 } else if state.is(Class::Cobweb)
                     || state.is(Class::Vine)
                     || state.is(Class::CaveVines)
@@ -1108,7 +1112,7 @@ pub(super) mod tests {
             inside(4.0).inside,
             vec![Inside::Harm(Harm::Cactus, cell(4))]
         );
-        assert_eq!(inside(6.0).inside, vec![Inside::Water { cauldron: false }]);
+        assert_eq!(inside(6.0).inside, vec![Inside::Water]);
         assert_eq!(
             inside(8.0).inside,
             vec![Inside::Harm(Harm::Fire(2), cell(8))]

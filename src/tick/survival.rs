@@ -865,20 +865,16 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
     damage::attack_player(state, attacker, target);
 }
 
-/// The player starts or finishes using its held item in the air (eating, drinking): PMMP
-/// `Player::useHeldItem`/`consumeHeldItem`. True when the item is a consumable it handled.
-pub(super) fn use_consumable(state: &mut State, session: SessionId) -> bool {
-    food::use_consumable(state, session)
+/// The player clicks in the air while it eats or drinks the item it holds: PMMP
+/// `Player::consumeHeldItem`. False, changing nothing, if it does not eat the held item.
+pub(super) fn finish_eating(state: &mut State, session: SessionId) -> bool {
+    food::finish_eating(state, session)
 }
 
-/// Whether the player eats or drinks the item it holds (PMMP `Player::isUsingItem` for a
-/// consumable): a click in the air now finishes it.
-pub(super) fn is_eating_held(state: &State, session: SessionId) -> bool {
-    state.players.get(&session).is_some_and(|p| {
-        p.survival
-            .using
-            .is_some_and(|u| p.inventory.held().item() == Some(u.item))
-    })
+/// The player starts eating or drinking the item it holds: PMMP `Player::useHeldItem`. True when
+/// the item is a consumable it handled.
+pub(super) fn start_eating(state: &mut State, session: SessionId) -> bool {
+    food::start_eating(state, session)
 }
 
 /// The player lies down in the bed at `pos` (PMMP `Bed::onInteract`, `Player::sleepOn`): false if
@@ -892,8 +888,10 @@ pub(super) fn sleep(
     clock::sleep(state, session, world, pos)
 }
 
-/// The player stops eating or drinking (the food half of PMMP `Player::setUsingItem(false)`).
-pub(super) fn stop_eating(player: &mut Player) {
+/// The player stops using its held item: drawing a bow or trident, eating or drinking (PMMP
+/// `Player::setUsingItem(false)`).
+pub(super) fn stop_using_item(player: &mut Player) {
+    player.breaking.stop_using();
     player.survival.using = None;
 }
 
@@ -2394,14 +2392,14 @@ mod tests {
         server.survival(1).food = 10.0;
         server.survival(1).saturation = 0.0;
         inventory::set_held(server.player_mut(1), stack(ItemKind::Bread, 3));
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(start_eating(&mut server.state, sid(1)));
         assert!(server.survival(1).using.is_some());
         server.idle(5);
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(finish_eating(&mut server.state, sid(1)));
         assert_eq!(server.survival(1).food, 10.0, "too early: nothing eaten");
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(start_eating(&mut server.state, sid(1)));
         server.idle(32);
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(finish_eating(&mut server.state, sid(1)));
         let bread = ItemKind::Bread.default_type().food().unwrap();
         assert_eq!(
             server.survival(1).food,
@@ -2410,7 +2408,7 @@ mod tests {
         assert_eq!(server.survival(1).saturation, bread.saturation_restore());
         assert_eq!(server.player(1).inventory.held().count(), 2);
         inventory::set_held(server.player_mut(1), stack(ItemKind::DiamondSword, 1));
-        assert!(!use_consumable(&mut server.state, sid(1)));
+        assert!(!start_eating(&mut server.state, sid(1)));
     }
 
     /// A chorus fruit puts the feet on the floor it found, not the eyes.
@@ -2419,9 +2417,9 @@ mod tests {
         let mut server = Server::new(1, |_| {});
         inventory::set_held(server.player_mut(1), stack(ItemKind::ChorusFruit, 1));
         let start = server.player(1).position;
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(start_eating(&mut server.state, sid(1)));
         server.idle(32);
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(finish_eating(&mut server.state, sid(1)));
         let player = server.player(1);
         assert_ne!(player.position, start, "teleported");
         let at = BlockPos::containing(feet(player));
@@ -2751,6 +2749,7 @@ mod tests {
         let player = server.player(1);
         assert_eq!(game_mode(&server.state, player), GameMode::Spectator);
         assert!(player.allow_flight());
+        assert!(player.is_flying());
         assert!(!player.has_block_collision());
     }
 
@@ -3521,7 +3520,7 @@ mod tests {
         let antidote =
             crate::item::Type::from_name("minecraft:medicine", 2, None, &Compound::new()).unwrap();
         inventory::set_held(server.player_mut(1), Stack::new(antidote, 1));
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(start_eating(&mut server.state, sid(1)));
         assert!(
             server.survival(1).using.is_none(),
             "not poisoned: nothing to drink"
@@ -3538,9 +3537,9 @@ mod tests {
             effect::Type::Blindness,
             Active::new(1000, 0),
         );
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(start_eating(&mut server.state, sid(1)));
         server.idle(32);
-        assert!(use_consumable(&mut server.state, sid(1)));
+        assert!(finish_eating(&mut server.state, sid(1)));
         let s = server.survival(1);
         assert!(!s.effects.contains_key(&effect::Type::Poison));
         assert!(s.effects.contains_key(&effect::Type::Blindness));

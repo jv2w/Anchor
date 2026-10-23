@@ -1394,8 +1394,7 @@ pub(super) fn die(
         world: world_name,
         pos: BlockPos::containing(at),
     });
-    player.survival.using = None;
-    player.breaking.stop_using();
+    super::stop_using_item(player);
     player.breaking.forget_attacked();
     player.data_dirty = true;
     let world = player.world;
@@ -1856,7 +1855,8 @@ fn restore(state: &mut State, session: SessionId) -> bool {
     let s = &mut player.survival;
     s.motion.sprinting = false;
     s.motion.sneaking = false;
-    s.motion.flying = false;
+    // A spectator (a hardcore one included) flies, as `set_game_mode` made it.
+    s.motion.flying = s.mode() == GameMode::Spectator;
     // While dead the client's stop flags are not read: nothing would end these.
     s.motion.swimming = false;
     s.motion.gliding = false;
@@ -1880,31 +1880,13 @@ fn restore(state: &mut State, session: SessionId) -> bool {
 /// A hardcore player that respawns becomes a spectator, as vanilla does, unless a
 /// [`PlayerGameModeChange`](crate::event::PlayerGameModeChange) listener cancels that.
 fn hardcore_spectator(state: &mut State, session: SessionId) {
-    let spectator = state
-        .players
-        .get(&session)
-        .is_some_and(|p| p.survival.mode() == GameMode::Spectator);
-    let change = if spectator {
-        Ok(None)
-    } else {
-        super::ask_game_mode(state, session, GameMode::Spectator)
-    };
-    let Ok(change) = change else {
-        return;
-    };
-    if let Some(player) = state.players.get_mut(&session) {
-        player.set_game_mode(GameMode::Spectator);
-    }
-    super::watch(state, change.as_ref());
+    crate::tick::Context { state }.change_game_mode(player::Id::new(session), GameMode::Spectator);
 }
 
 /// Where a [`PlayerRespawn`] listener sends the player: the world's index and the eye position;
 /// `None` for a world the server does not run (or unloaded) or a place outside the world border.
 fn respawn_target(state: &State, world: world::Id, feet: Vec3) -> Option<(WorldIndex, Vec3)> {
-    let index = world.index();
-    if !state.catalog.is_loaded(index) {
-        return None;
-    }
+    let index = crate::tick::world_api::index(state, world)?;
     let eye = feet + Vec3::new(0.0, EYE_HEIGHT, 0.0);
     let border = f64::from(crate::tick::MAX_COORDINATE);
     (eye.is_finite() && [eye.x, eye.y, eye.z].iter().all(|c| c.abs() <= border))

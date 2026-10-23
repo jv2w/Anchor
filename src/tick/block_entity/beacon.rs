@@ -117,8 +117,7 @@ pub(in crate::tick) fn effects(level: u8, primary: i32, secondary: i32) -> Vec<I
 }
 
 /// One beacon update at `pos`: the level is counted again, and the effects go to the players
-/// within 10 + 10 × level blocks across (any height) when the beam is open. A beacon without a
-/// chosen effect gives none, so its pyramid and beam are not looked at.
+/// within 10 + 10 × level blocks across (any height) when the beam is open.
 pub(in crate::tick) fn update(
     state: &mut State,
     world: WorldIndex,
@@ -126,9 +125,6 @@ pub(in crate::tick) fn update(
     primary: i32,
     secondary: i32,
 ) {
-    if primary == 0 {
-        return;
-    }
     let Some(w) = state.worlds.get(world) else {
         return;
     };

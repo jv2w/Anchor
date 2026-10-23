@@ -56,7 +56,7 @@ const ENTRY_COST: usize = 32;
 const MAGIC: &[u8; 16] = b"ANCHOR-INPUT-LOG";
 /// The written format's version, the only one [`InputLog::decode`] reads: the data files of an
 /// older log are of a storage format this Anchor does not read, so it could not be replayed.
-const FORMAT: u32 = 13;
+const FORMAT: u32 = 16;
 /// The largest written log: [`write_crash_log`] writes no more ([`InputLog::encode_within`]) and
 /// [`InputLog::decode`] reads no more. Checkpoints hold every loaded chunk and have no bound of
 /// their own, so a log can be larger; it is then written from its newest committed segment, or

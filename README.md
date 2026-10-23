@@ -55,3 +55,9 @@ Windows와 Linux(x86_64, aarch64)를 지원한다. 실행 폴더와 설정은 �
 ## AI 도구로 개발할 때
 
 서버 프로젝트에서 `cargo vendor`를 돌려 Anchor와 의존성 소스를 프로젝트 안에 두면, AI 도구가 Anchor의 코드와 rustdoc을 바로 읽을 수 있다.
+
+## 라이선스
+
+[MIT](LICENSE-MIT) 또는 [Apache-2.0](LICENSE-APACHE) 가운데 골라 쓴다. 다른 프로젝트에서 온 코드와 데이터의 출처와 고지는 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)에 있다.
+
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.

@@ -133,6 +133,24 @@ fn the_cursor_and_grid_take_no_stack_beyond_what_a_close_can_give_back() {
     assert_eq!(grid.view().item(1), Some(&coal(2)));
 }
 
+#[test]
+fn set_contents_on_the_grid_checks_the_held_stacks_it_ends_with() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.player(s).inventory.pending = vec![sticks(1); MAX_SAVED_PENDING - 1];
+    let mut grid = w.player(s).inventory_mut(Kind::Crafting);
+    assert_eq!(grid.set_contents(&[coal(1), coal(1)]), Err(Error::Full));
+    assert!(
+        grid.view().is_slot_empty(0),
+        "a refused set_contents changes nothing"
+    );
+    // At the bound, moving the held stack to another slot holds no stack more.
+    grid.set(1, coal(2)).unwrap();
+    assert_eq!(grid.set_contents(&[sticks(1)]), Ok(()));
+    assert_eq!(grid.view().item(0), Some(&sticks(1)));
+    assert!(grid.view().is_slot_empty(1));
+}
+
 // pmmp: PlayerInventory::getHeldItemIndex, PlayerInventory::setHeldItemIndex, PlayerInventory::getItemInHand, Player::getCurrentWindow, Player::removeCurrentWindow
 #[test]
 fn the_hotbar_selection_and_the_window_are_the_players() {

@@ -974,8 +974,9 @@ impl Storage {
     /// Starts on the data file at `place`: checks the closed file as `start.check` says without
     /// writing to it ([`verify`]), so a damaged file or a newer format is refused with its bytes
     /// as they were; then opens it and, with [`StartBackup::Make`], begins an online backup of
-    /// its first commit ([`Storage::begin_backup`]), which the caller steps to its end. A missing
-    /// or empty file starts empty. Nothing is compacted.
+    /// its first commit ([`Storage::begin_backup`]), which the caller steps to its end; a backup
+    /// that cannot begin is logged and not made. A missing or empty file starts empty. Nothing is
+    /// compacted.
     #[expect(
         clippy::disallowed_methods,
         reason = "off-tick: the save thread creates the data folder and opens a data file"
@@ -995,16 +996,24 @@ impl Storage {
         let source = Source::File(world.clone());
         let db = source.open()?;
         let mut storage = Self::prepare(source, db)?;
-        // redb's lock keeps other processes out, so none is writing a backup of the file.
-        backup::remove_stale(backups)?;
         let file = world.display();
+        // redb's lock keeps other processes out, so none is writing a backup of the file. A
+        // backup folder that fails costs only backups, as at run time: a stale name left is
+        // skipped by the next backup.
+        if let Err(e) = backup::remove_stale(backups) {
+            error!(%file, error = %e, "incomplete backups were not removed");
+        }
         if !existed {
             // Its first commit flushed the file, not its name in the folder.
             crate::fs::sync_parent(world).map_err(Error::Io)?;
             info!(%file, "data file created");
         } else if start.backup == StartBackup::Make {
-            storage.begin_backup(backups)?;
-            debug!(%file, "data file opened; its start backup began");
+            match storage.begin_backup(backups) {
+                Ok(_) => debug!(%file, "data file opened; its start backup began"),
+                Err(e) => {
+                    error!(%file, error = %e, "start backup failed; no backup file is left");
+                }
+            }
         } else {
             debug!(%file, "data file opened");
         }
@@ -1019,11 +1028,10 @@ impl Storage {
         Self::prepare(source, db)
     }
 
-    /// Prepares `db`, the database just opened at `source`: refuses a newer format, then its
-    /// first commit creates the tables a new file lacks and removes the mark of a normal stop
-    /// ([`CLOSED_KEY`]), so a stop that does not reach [`close`](Self::close) leaves none.
+    /// Prepares `db`, the database just opened at `source`: its first commit creates the tables a
+    /// new file lacks and removes the mark of a normal stop ([`CLOSED_KEY`]), so a stop that does
+    /// not reach [`close`](Self::close) leaves none.
     fn prepare(source: Source, db: Database) -> Result<Self> {
-        check_format(&db)?;
         let mut storage = Self {
             backup: None,
             check: None,
@@ -2508,6 +2516,20 @@ pub(crate) mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_backup_folder_that_fails_costs_only_the_start_backup() {
+        let dir = TempDir::new("backup-folder-fails");
+        start_whole(&dir, StartBackup::Skip).close().unwrap();
+        let backups = dir.place().backups;
+        // A file where the folder should be fails both cleaning it and backing up into it.
+        std::fs::create_dir_all(backups.parent().unwrap()).unwrap();
+        std::fs::write(&backups, b"not a folder").unwrap();
+        let storage = Storage::open(&dir.place(), Start::checked(StartBackup::Make)).unwrap();
+        assert!(!storage.is_backing_up());
+        storage.close().unwrap();
     }
 
     #[test]

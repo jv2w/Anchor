@@ -762,6 +762,27 @@ mod tests {
     }
 
     #[test]
+    fn a_float_survives_a_checkpoint_round_trip() {
+        let pool = crate::runtime::cpu_pool(1).unwrap();
+        let with_speed = || {
+            let mut state = new_state(settings(|_| {}), Listeners::default());
+            state.data = registered::<Kills, f64>("kills", "speed");
+            state
+        };
+        let mut state = with_speed();
+        // A float that serde_json reads back as another without `float_roundtrip`
+        // (.claude/docs/dependencies.md).
+        *Context { state: &mut state }.data_mut::<f64>().unwrap() =
+            f64::from_bits(0xbfdc_fd14_b5d3_7aac);
+        assert!(crate::tick::checkpoint::tests::assert_round_trip(
+            &state,
+            with_speed(),
+            &pool
+        ));
+        assert!(pool.shutdown());
+    }
+
+    #[test]
     fn registration_errors_are_kept_for_the_build() {
         let ok = || UserData::default();
         let mut data = ok();

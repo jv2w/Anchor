@@ -279,7 +279,8 @@ impl Editor<'_> {
     }
 
     /// Puts `stacks` into the first slots in order and empties the rest. Fails, changing
-    /// nothing, with more stacks than slots or a stack a slot cannot take.
+    /// nothing, with more stacks than slots, a stack a slot cannot take, or more stacks than the
+    /// cursor or grid may hold ([`Error::Full`]).
     #[doc(alias = "Inventory::setContents")]
     #[doc(alias = "BaseInventory::setContents")]
     pub fn set_contents(&mut self, stacks: &[Stack]) -> Result<()> {
@@ -293,10 +294,24 @@ impl Editor<'_> {
         if stacks.iter().any(|s| view.refuses(s)) {
             return Err(Error::NotAccepted);
         }
+        if let Target::Player(p, Kind::Cursor | Kind::Crafting) = &self.target {
+            let inv = &p.inventory;
+            let now = view.iter().filter(|s| !s.is_empty()).count();
+            let after = stacks.iter().filter(|s| !s.is_empty()).count();
+            if inv.pending.len() + held_outside(inv) - now + after > MAX_SAVED_PENDING {
+                return Err(Error::Full);
+            }
+        }
+        // The slots that empty are written first, so the cursor and grid never hold more stacks
+        // than at the end, which the check above allows.
         let size = view.size();
-        for i in 0..size {
-            let stack = stacks.get(i).cloned().unwrap_or_default();
-            self.set(i, stack)?;
+        for empties in [true, false] {
+            for i in 0..size {
+                let stack = stacks.get(i).cloned().unwrap_or_default();
+                if stack.is_empty() == empties {
+                    self.set(i, stack)?;
+                }
+            }
         }
         Ok(())
     }

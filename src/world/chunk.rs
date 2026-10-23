@@ -220,8 +220,8 @@ impl Chunk {
         let found = if Arc::ptr_eq(&block.list, &self.unknown) {
             Some(block.index)
         } else {
-            // The list is short: one state per unknown palette entry the chunk was read with,
-            // and each state written here once.
+            // A linear scan: the list holds one state per unknown palette entry the chunk was read
+            // with (a state in several palettes once for each), and each state written here once.
             self.unknown.iter().position(|n| n == nbt)
         };
         let index = if let Some(index) = found {

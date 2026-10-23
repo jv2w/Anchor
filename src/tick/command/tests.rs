@@ -516,6 +516,7 @@ fn registration_keeps_user_commands_first_and_checks_the_rules() {
         vec![Param::int("a"), Param::int("a")],
         vec![Param::enumeration("e", "E", &[])],
         vec![Param::enumeration("e", "E", &["a b"])],
+        vec![Param::soft_enumeration("s", "")],
         vec![Param::int(""); 1],
         (0..33).map(|i| Param::int(i.to_string())).collect(),
     ] {
@@ -1627,6 +1628,13 @@ fn soft_enums_take_any_word_and_send_the_values_set_while_running() {
     assert!(
         updates(&mut rx[1]).is_empty(),
         "its spawn window will carry them"
+    );
+    assert_eq!(listed(&state).1[0].values, ["vip", "red"]);
+    // Values over one client text in all are refused, changing nothing.
+    let half = "x".repeat(MAX_TEXT / 2 + 1);
+    assert_eq!(
+        Context { state: &mut state }.set_soft_enum("Tags", &[&half, &half]),
+        invalid("Tags")
     );
     assert_eq!(listed(&state).1[0].values, ["vip", "red"]);
     tick(&mut state, &mut vec![], &mut output);
