@@ -256,6 +256,9 @@ pub(super) struct Inventory {
     budget: (u64, u16),
     /// The tick of the last full resend after a refused request (once a tick at most).
     resent: Option<u64>,
+    /// The last answer to a hotbar selection the server did not take: its tick, the selected
+    /// slot and that slot as sent ([`send_held`]).
+    held_answer: Option<(u64, u8, Slot)>,
     /// Stacks waiting for room in the inventory, at most [`MAX_SAVED_PENDING`] with what is held
     /// outside the slots (its invariant).
     pending: Vec<Stack>,
@@ -288,6 +291,7 @@ impl Default for Inventory {
             recent_set: BTreeSet::new(),
             budget: (0, 0),
             resent: None,
+            held_answer: None,
             pending: Vec::new(),
             next_option_id: 0,
             menu: None,
@@ -844,6 +848,7 @@ impl Inventory {
             // a refused repeat leaves the state it would have had (idempotence).
             budget: _,
             resent: _,
+            held_answer: _,
             pending,
             next_option_id,
             menu,
@@ -957,7 +962,8 @@ impl<const N: usize> Codec for Slots<N> {
     }
 }
 
-/// Every field but the set of recent request IDs, which is `recent` again.
+/// Every field but the set of recent request IDs, which is `recent` again, and the held answer,
+/// which only counts in its own tick: a checkpoint is taken after its tick.
 impl Codec for Inventory {
     fn encode(&self, w: &mut Writer) {
         let Self {
@@ -976,6 +982,7 @@ impl Codec for Inventory {
             recent_set: _,
             budget,
             resent,
+            held_answer: _,
             pending,
             next_option_id,
             menu,
@@ -1033,6 +1040,7 @@ impl Codec for Inventory {
             recent_set,
             budget: Codec::decode(r)?,
             resent: Codec::decode(r)?,
+            held_answer: None,
             pending: Codec::decode(r)?,
             next_option_id: Codec::decode(r)?,
             menu: Codec::decode(r)?,
@@ -1451,6 +1459,7 @@ fn hotbar_packet(slot: u8) -> Packet {
 /// window is ignored; a slot outside the hotbar is answered with the selected one.
 pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &MobEquipment) {
     let heard = dispatch::heard::<PlayerItemHeld>(state);
+    let tick = state.tick;
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -1459,7 +1468,7 @@ pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &M
     }
     let slot = packet.hot_bar_slot;
     if slot >= HOTBAR {
-        send_held(player);
+        send_held(player, tick);
         return;
     }
     if player.inventory.held == slot {
@@ -1483,7 +1492,7 @@ pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &M
     };
     // A listener that selected a slot itself already told the client: its selection stands.
     if event.cancelled || (listened && player.inventory.held != before) {
-        send_held(player);
+        send_held(player, tick);
         return;
     }
     hold(player, slot);
@@ -1498,10 +1507,21 @@ fn hold(player: &mut Player, slot: u8) {
 }
 
 /// Tells the client which hotbar slot is selected and what it holds (a selection the server did
-/// not take).
-fn send_held(player: &mut Player) {
+/// not take), at engine tick `tick`. The same answer is not sent twice in a tick: the tick's
+/// packets reach the client together, so a repeat changes nothing, and each answer copies the
+/// stack's NBT. The stack counts as the same only if it shares its extra data with the one sent,
+/// so the check never walks that NBT.
+fn send_held(player: &mut Player, tick: u64) {
     let held = player.inventory.held;
     let slot = player.inventory.main.get(held).unwrap_or_default();
+    if let Some((at, answered, sent)) = &player.inventory.held_answer
+        && (*at, *answered, sent.id) == (tick, held, slot.id)
+        && (sent.stack.item(), sent.stack.count(), sent.stack.damage())
+            == (slot.stack.item(), slot.stack.count(), slot.stack.damage())
+        && sent.stack.extra().map(std::ptr::from_ref) == slot.stack.extra().map(std::ptr::from_ref)
+    {
+        return;
+    }
     let runtime_id = player.runtime_id;
     player.send_packet(Packet::MobEquipment(Box::new(MobEquipment {
         entity_runtime_id: runtime_id,
@@ -1510,6 +1530,7 @@ fn send_held(player: &mut Player) {
         hot_bar_slot: held,
         window_id: 0,
     })));
+    player.inventory.held_answer = Some((tick, held, slot));
 }
 
 /// The client closed a window (PMMP `onClientRemoveWindow`): the window's items go back and the

@@ -2150,6 +2150,50 @@ fn hotbar_selection_and_pick_block_follow_pmmp() {
 }
 
 #[test]
+fn a_slot_outside_the_hotbar_is_answered_once_a_tick_while_the_hand_stays() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.give(s, Stack::new(item(it::Kind::Stick), 1));
+    let equip = |w: &mut World, slot: u8| {
+        on_mob_equipment(
+            &mut w.state,
+            s,
+            &MobEquipment {
+                entity_runtime_id: 1,
+                new_item: ItemInstance::default(),
+                inventory_slot: slot,
+                hot_bar_slot: slot,
+                window_id: 0,
+            },
+        );
+    };
+    let answers = |w: &mut World| {
+        w.sent(s)
+            .iter()
+            .filter(|p| matches!(p, Packet::MobEquipment(_)))
+            .count()
+    };
+    for _ in 0..3 {
+        equip(&mut w, 9);
+    }
+    assert_eq!(answers(&mut w), 1, "the same hand is answered once");
+    equip(&mut w, 3);
+    equip(&mut w, 9);
+    assert_eq!(answers(&mut w), 1, "another slot is answered again");
+    set_own(
+        w.player(s),
+        SlotRef::Main(3),
+        Stack::new(item(it::Kind::Stick), 2),
+    );
+    w.sent(s);
+    equip(&mut w, 9);
+    assert_eq!(answers(&mut w), 1, "another stack is answered again");
+    w.state.tick += 1;
+    equip(&mut w, 9);
+    assert_eq!(answers(&mut w), 1, "the next tick is answered again");
+}
+
+#[test]
 fn spawn_packets_are_the_four_windows_and_the_hotbar() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
