@@ -7385,7 +7385,7 @@ impl Codec for StackResponseSlotInfo {
         x.custom_name = r.string()?;
         x.filtered_custom_name = if r.bool()? { Some(r.string()?) } else { None };
         x.durability_correction = r.varint32()?;
-        if (x.durability_correction < (-32_768)) || (x.durability_correction > 32_767) {
+        if (x.durability_correction < (-32768)) || (x.durability_correction > 32767) {
             return Err(Error::InvalidValue {
                 field: "durability correction",
                 reason: "must fit in an int16",
@@ -7412,7 +7412,7 @@ impl Codec for StackResponseSlotInfo {
             w.string(v)?;
         }
         w.varint32(self.durability_correction);
-        if (self.durability_correction < (-32_768)) || (self.durability_correction > 32_767) {
+        if (self.durability_correction < (-32768)) || (self.durability_correction > 32767) {
             return Err(Error::InvalidValue {
                 field: "durability correction",
                 reason: "must fit in an int16",
@@ -9057,7 +9057,7 @@ pub(crate) const BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN: usize = 256;
 pub(crate) const PLAYER_LIST_ENTRIES_MAX_LEN: usize = 1000;
 
 /// The most bytes or elements of gophertunnel `packet.Text.Message` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
-pub(crate) const TEXT_MESSAGE_MAX_LEN: usize = 65_536;
+pub(crate) const TEXT_MESSAGE_MAX_LEN: usize = 65536;
 
 /// The most bytes or elements of gophertunnel `packet.Text.Parameters` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
 pub(crate) const TEXT_PARAMETERS_MAX_LEN: usize = 4;

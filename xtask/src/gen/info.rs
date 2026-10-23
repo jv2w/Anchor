@@ -5,7 +5,7 @@
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-use super::data::int_lit;
+use super::body::int_lit;
 
 type R<T> = Result<T, String>;
 
@@ -157,13 +157,7 @@ pub(crate) fn exact(v: f64) -> R<f64> {
 pub(crate) fn f64_lit(v: f64) -> String {
     let text = format!("{v:?}");
     let (int, rest) = text.split_at(text.find(['.', 'e']).unwrap_or(text.len()));
-    let sign = if int.starts_with('-') { "-" } else { "" };
-    let digits = int.trim_start_matches('-');
-    let int = if digits.len() > 5 {
-        int_lit(digits.parse::<i64>().unwrap_or(0))
-    } else {
-        digits.to_owned()
-    };
+    let int = int_lit(int);
     let (fraction, exponent) = match rest.strip_prefix('.') {
         Some(r) => r.split_at(r.find('e').unwrap_or(r.len())),
         None => ("", rest),
@@ -176,7 +170,7 @@ pub(crate) fn f64_lit(v: f64) -> String {
         grouped.push(c);
     }
     let point = if rest.starts_with('.') { "." } else { "" };
-    format!("{sign}{int}{point}{grouped}{exponent}")
+    format!("{int}{point}{grouped}{exponent}")
 }
 
 /// An upper camel case Rust name of a snake case or PMMP name (`oak_planks` → `OakPlanks`), with

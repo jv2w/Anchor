@@ -28,8 +28,7 @@ use crate::dump::upgrade::{
 use crate::dump::{REFERENCE_BLOCKS, REFERENCE_DIR, read};
 
 use self::apply::{Flatten, Kind, NewName, Remap, Rules, Schema, States, Tag, Value};
-use super::body::str_lit;
-use super::data::int_lit;
+use super::body::{int_lit, str_lit};
 use super::emit::HEADER;
 
 type R<T> = Result<T, String>;
@@ -587,7 +586,7 @@ pub(crate) fn generate(root: &Path) -> R<String> {
          Schema, Tag}};\n\n/// The `version` of every block state Anchor writes and every \
          upgraded one: the reference\n/// list's, which the newest block schema has.\n\
          pub(crate) const BLOCK_STATE_VERSION: i32 = {};\n\n",
-        int_lit(i64::from(version))
+        int_lit(&version.to_string())
     );
     out.push_str(
         "/// A block with no rules of a kind: the fields a rule leaves out.\nconst NONE: Rules<'static> = \
@@ -603,7 +602,7 @@ pub(crate) fn generate(root: &Path) -> R<String> {
         put!(
             out,
             "Schema {{ version: {}, blocks: &[",
-            int_lit(i64::from(s.version))
+            int_lit(&s.version.to_string())
         );
         for (name, rules) in s.blocks {
             put!(out, "({}, {}),", str_lit(name), rules_lit(rules));
@@ -716,7 +715,7 @@ fn id_table(out: &mut String, name: &str, doc: &str, ids: &BTreeMap<i16, String>
 fn tag_lit(tag: Tag<'_>) -> String {
     match tag {
         Tag::Byte(b) => format!("Tag::Byte({b})"),
-        Tag::Int(i) => format!("Tag::Int({})", int_lit(i64::from(i))),
+        Tag::Int(i) => format!("Tag::Int({})", int_lit(&i.to_string())),
         Tag::String(s) => format!("Tag::String({})", str_lit(s)),
     }
 }
@@ -724,7 +723,7 @@ fn tag_lit(tag: Tag<'_>) -> String {
 fn value_lit(value: &Value) -> String {
     match value {
         Value::Byte(b) => format!("Tag::Byte({b})"),
-        Value::Int(i) => format!("Tag::Int({})", int_lit(i64::from(*i))),
+        Value::Int(i) => format!("Tag::Int({})", int_lit(&i.to_string())),
         Value::String(s) => format!("Tag::String({})", str_lit(s)),
     }
 }

@@ -2,8 +2,8 @@
 //! (`tables.json`).
 
 use super::blocks::{by_id, enumeration, pmmp_enumeration, strings, variants};
-use super::body::str_lit;
-use super::data::{Data, int_lit};
+use super::body::{int_lit, str_lit};
+use super::data::Data;
 use super::emit::HEADER;
 use super::items::effect_instance;
 
@@ -91,7 +91,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
             a,
             e.bad,
             e.instant,
-            int_lit(i64::from(e.default_duration)),
+            int_lit(&e.default_duration.to_string()),
             e.bubbles
         );
     }

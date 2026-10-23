@@ -481,10 +481,11 @@ fn bits(prim: &str) -> u32 {
     }
 }
 
-/// A Rust integer literal from a decimal string, grouped as `clippy::unreadable_literal` wants.
+/// A Rust integer literal from a decimal string, digits grouped by three when
+/// `clippy::unreadable_literal` calls it long (more than five digits).
 pub(crate) fn int_lit(value: &str) -> String {
     let (sign, digits) = value.strip_prefix('-').map_or(("", value), |d| ("-", d));
-    if digits.len() < 5 {
+    if digits.len() <= 5 {
         return value.to_owned();
     }
     let mut out = String::new();

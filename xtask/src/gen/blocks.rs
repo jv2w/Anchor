@@ -2,8 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::body::str_lit;
-use super::data::{Connect, Data, FACES, Prop, StateItem, StateKey, hex_lit, int_lit};
+use super::body::{int_lit, str_lit};
+use super::data::{Connect, Data, FACES, Prop, StateItem, StateKey, hex_lit};
 use super::emit::HEADER;
 use super::info::{camel, f64_lit};
 
@@ -33,7 +33,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
             state_properties.push(*pairs.get(&(k.as_str(), v)).ok_or("pair not interned")?);
         }
         let name = *names.get(key.name.as_str()).ok_or("name not interned")?;
-        let start = int_lit(i64::try_from(start).map_err(|_| "too many properties")?);
+        let start = int_lit(&start.to_string());
         Ok((name, start, key.properties.len()))
     };
     let mut states = String::new();
@@ -136,7 +136,7 @@ fn interned<'a>(out: &mut String, data: &'a Data) -> Interned<'a> {
     for (name, value) in pairs.keys() {
         let value = match value {
             Prop::Byte(b) => format!("PropertyValue::Byte({b})"),
-            Prop::Int(i) => format!("PropertyValue::Int({})", int_lit(i64::from(*i))),
+            Prop::Int(i) => format!("PropertyValue::Int({})", int_lit(&i.to_string())),
             Prop::String(s) => format!("PropertyValue::String({})", str_lit(s)),
         };
         put!(out, "Property::new({}, {value}),", str_lit(name));

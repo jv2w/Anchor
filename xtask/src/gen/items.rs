@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value as Json;
 
 use super::blocks::{by_id, enumeration, pmmp_enumeration, strings, variants};
-use super::body::str_lit;
-use super::data::{Data, hex_lit, int_lit, static_compound};
+use super::body::{int_lit, str_lit};
+use super::data::{Data, hex_lit, static_compound};
 use super::emit::HEADER;
 use super::info::{EffectJson, bit_set, camel, f64_lit};
 
@@ -494,7 +494,7 @@ pub(crate) fn effect_instance(e: &EffectJson, path: &str) -> String {
     format!(
         "{path}Instance::new({path}Type::{}, {}, {}, {}, {})",
         camel(&e.effect),
-        int_lit(i64::from(e.duration)),
+        int_lit(&e.duration.to_string()),
         e.amplifier,
         e.visible,
         e.ambient
@@ -536,7 +536,7 @@ fn network_index(data: &Data, out: &mut String) -> Result<(), String> {
         put!(
             out,
             "({runtime_id}, {}, {meta}, {i}),",
-            int_lit(i64::from(block))
+            int_lit(&block.to_string())
         );
     }
     out.push_str("];\n");

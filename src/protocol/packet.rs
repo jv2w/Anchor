@@ -1686,18 +1686,18 @@ impl Codec for ClientBoundMapItemData {
             locked_map: r.bool()?,
             origin: r.block_pos()?,
             maps_included_in: if r.bool()? {
-                Some(r.list_varuint32_max(65_535, Reader::varint64)?)
+                Some(r.list_varuint32_max(65535, Reader::varint64)?)
             } else {
                 None
             },
             scale: if r.bool()? { Some(r.uint8()?) } else { None },
             tracked_objects: if r.bool()? {
-                Some(r.list_varuint32_max(65_535, MapTrackedObject::decode)?)
+                Some(r.list_varuint32_max(65535, MapTrackedObject::decode)?)
             } else {
                 None
             },
             decorations: if r.bool()? {
-                Some(r.list_varuint32_max(65_535, MapDecoration::decode)?)
+                Some(r.list_varuint32_max(65535, MapDecoration::decode)?)
             } else {
                 None
             },
@@ -1706,7 +1706,7 @@ impl Codec for ClientBoundMapItemData {
             x_offset: if r.bool()? { Some(r.varint32()?) } else { None },
             y_offset: if r.bool()? { Some(r.varint32()?) } else { None },
             pixels: if r.bool()? {
-                Some(r.list_varuint32_max(16_384, Reader::be_argb)?)
+                Some(r.list_varuint32_max(16384, Reader::be_argb)?)
             } else {
                 None
             },
@@ -1720,7 +1720,7 @@ impl Codec for ClientBoundMapItemData {
         w.block_pos(self.origin);
         w.bool(self.maps_included_in.is_some());
         if let Some(x) = &self.maps_included_in {
-            w.varuint32(length_max(x.len(), 65_535)?);
+            w.varuint32(length_max(x.len(), 65535)?);
             for &v in x {
                 w.varint64(v);
             }
@@ -1731,14 +1731,14 @@ impl Codec for ClientBoundMapItemData {
         }
         w.bool(self.tracked_objects.is_some());
         if let Some(x) = &self.tracked_objects {
-            w.varuint32(length_max(x.len(), 65_535)?);
+            w.varuint32(length_max(x.len(), 65535)?);
             for v in x {
                 v.encode(w)?;
             }
         }
         w.bool(self.decorations.is_some());
         if let Some(x) = &self.decorations {
-            w.varuint32(length_max(x.len(), 65_535)?);
+            w.varuint32(length_max(x.len(), 65535)?);
             for v in x {
                 v.encode(w)?;
             }
@@ -1761,7 +1761,7 @@ impl Codec for ClientBoundMapItemData {
         }
         w.bool(self.pixels.is_some());
         if let Some(x) = &self.pixels {
-            w.varuint32(length_max(x.len(), 16_384)?);
+            w.varuint32(length_max(x.len(), 16384)?);
             for &v in x {
                 w.be_argb(v);
             }
@@ -3806,12 +3806,12 @@ pub struct LocatorBar {
 impl Codec for LocatorBar {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            waypoints: r.list_varuint32_max(40_000, LocatorBarWaypoint::decode)?,
+            waypoints: r.list_varuint32_max(40000, LocatorBarWaypoint::decode)?,
         })
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length_max(self.waypoints.len(), 40_000)?);
+        w.varuint32(length_max(self.waypoints.len(), 40000)?);
         for v in &self.waypoints {
             v.encode(w)?;
         }
@@ -3880,13 +3880,13 @@ impl Codec for MapInfoRequest {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             map_id: r.varint64()?,
-            client_pixels: r.list_uint32_max(16_384, PixelRequest::decode)?,
+            client_pixels: r.list_uint32_max(16384, PixelRequest::decode)?,
         })
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.varint64(self.map_id);
-        w.uint32(length_max(self.client_pixels.len(), 16_384)?);
+        w.uint32(length_max(self.client_pixels.len(), 16384)?);
         for v in &self.client_pixels {
             v.encode(w)?;
         }
@@ -5445,12 +5445,12 @@ pub struct PurchaseReceipt {
 impl Codec for PurchaseReceipt {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
-            receipts: r.list_varuint32_max(10_000, Reader::string)?,
+            receipts: r.list_varuint32_max(10000, Reader::string)?,
         })
     }
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        w.varuint32(length_max(self.receipts.len(), 10_000)?);
+        w.varuint32(length_max(self.receipts.len(), 10000)?);
         for v in &self.receipts {
             w.string(v)?;
         }
@@ -5736,7 +5736,7 @@ impl Codec for ResourcePackClientResponse {
         }
         r.string()?;
         if pk.response == 1 {
-            pk.packs_to_download = r.list_varuint32_max(65_535, Reader::string)?;
+            pk.packs_to_download = r.list_varuint32_max(65535, Reader::string)?;
         }
         Ok(pk)
     }
@@ -5752,7 +5752,7 @@ impl Codec for ResourcePackClientResponse {
         }
         w.string(name)?;
         if self.response == 1 {
-            w.varuint32(length_max(self.packs_to_download.len(), 65_535)?);
+            w.varuint32(length_max(self.packs_to_download.len(), 65535)?);
             for v in &self.packs_to_download {
                 w.string(v)?;
             }
@@ -5826,7 +5826,7 @@ impl Codec for ResourcePackStack {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             texture_pack_required: r.bool()?,
-            texture_packs: r.list_varuint32_max(65_535, StackResourcePack::decode)?,
+            texture_packs: r.list_varuint32_max(65535, StackResourcePack::decode)?,
             base_game_version: r.string()?,
             experiments: r.list_uint32(ExperimentData::decode)?,
             experiments_previously_toggled: r.bool()?,
@@ -5836,7 +5836,7 @@ impl Codec for ResourcePackStack {
 
     fn encode(&self, w: &mut Writer) -> Result<()> {
         w.bool(self.texture_pack_required);
-        w.varuint32(length_max(self.texture_packs.len(), 65_535)?);
+        w.varuint32(length_max(self.texture_packs.len(), 65535)?);
         for v in &self.texture_packs {
             v.encode(w)?;
         }
@@ -5879,7 +5879,7 @@ impl Codec for ResourcePacksInfo {
             force_disable_vibrant_visuals: r.bool()?,
             world_template_uuid: r.uuid()?,
             world_template_version: r.string()?,
-            texture_packs: r.list_varuint32_max(65_535, TexturePackInfo::decode)?,
+            texture_packs: r.list_varuint32_max(65535, TexturePackInfo::decode)?,
         })
     }
 
@@ -5890,7 +5890,7 @@ impl Codec for ResourcePacksInfo {
         w.bool(self.force_disable_vibrant_visuals);
         w.uuid(self.world_template_uuid);
         w.string(&self.world_template_version)?;
-        w.varuint32(length_max(self.texture_packs.len(), 65_535)?);
+        w.varuint32(length_max(self.texture_packs.len(), 65535)?);
         for v in &self.texture_packs {
             v.encode(w)?;
         }
@@ -7841,13 +7841,13 @@ impl Codec for Text {
                         reason: "string too long",
                     });
                 }
-                pk.message = r.string_max(65_536)?;
+                pk.message = r.string_max(65536)?;
             }
             0 | 5 | 6 | 9..=11 => {
-                pk.message = r.string_max(65_536)?;
+                pk.message = r.string_max(65536)?;
             }
             2..=4 => {
-                pk.message = r.string_max(65_536)?;
+                pk.message = r.string_max(65536)?;
                 pk.parameters = r.list_varuint32_max(4, Reader::string)?;
                 if pk.parameters.len() > 4 {
                     return Err(Error::InvalidValue {
@@ -7864,7 +7864,7 @@ impl Codec for Text {
                 reason: "string cannot be empty",
             });
         }
-        if pk.message.len() > 65_536 {
+        if pk.message.len() > 65536 {
             return Err(Error::InvalidValue {
                 field: "message",
                 reason: "string too long",
@@ -7885,12 +7885,12 @@ impl Codec for Text {
             });
         }
         pk.filtered_message = if r.bool()? {
-            Some(r.string_max(65_536)?)
+            Some(r.string_max(65536)?)
         } else {
             None
         };
         if let Some(filtered_message) = &pk.filtered_message
-            && filtered_message.len() > 65_536
+            && filtered_message.len() > 65536
         {
             return Err(Error::InvalidValue {
                 field: "filtered message",
@@ -7918,13 +7918,13 @@ impl Codec for Text {
                         reason: "string too long",
                     });
                 }
-                w.string_max(&self.message, 65_536)?;
+                w.string_max(&self.message, 65536)?;
             }
             0 | 5 | 6 | 9..=11 => {
-                w.string_max(&self.message, 65_536)?;
+                w.string_max(&self.message, 65536)?;
             }
             2..=4 => {
-                w.string_max(&self.message, 65_536)?;
+                w.string_max(&self.message, 65536)?;
                 w.varuint32(length_max(self.parameters.len(), 4)?);
                 for v in &self.parameters {
                     w.string(v)?;
@@ -7944,7 +7944,7 @@ impl Codec for Text {
                 reason: "string cannot be empty",
             });
         }
-        if self.message.len() > 65_536 {
+        if self.message.len() > 65536 {
             return Err(Error::InvalidValue {
                 field: "message",
                 reason: "string too long",
@@ -7966,10 +7966,10 @@ impl Codec for Text {
         }
         w.bool(self.filtered_message.is_some());
         if let Some(v) = &self.filtered_message {
-            w.string_max(v, 65_536)?;
+            w.string_max(v, 65536)?;
         }
         if let Some(filtered_message) = &self.filtered_message
-            && filtered_message.len() > 65_536
+            && filtered_message.len() > 65536
         {
             return Err(Error::InvalidValue {
                 field: "filtered message",

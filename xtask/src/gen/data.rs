@@ -16,7 +16,7 @@ use crate::dump::{
     REFERENCE_DIR, REFERENCE_ITEM_BLOCKS, REFERENCE_ITEMS, read,
 };
 
-use super::body::str_lit;
+use super::body::{int_lit, str_lit};
 use super::info::{Break, Identity, ItemData, Physics, Tables, exact, support_codes};
 use super::upgrade::{LATEST, latest};
 
@@ -1262,8 +1262,8 @@ pub(crate) fn static_compound(c: &BTreeMap<String, Tag>) -> String {
 fn static_value(t: &Tag) -> String {
     match t {
         Tag::Byte(x) => format!("crate::nbt::Static::Byte({x})"),
-        Tag::Short(x) => format!("crate::nbt::Static::Short({})", int_lit(i64::from(*x))),
-        Tag::Int(x) => format!("crate::nbt::Static::Int({})", int_lit(i64::from(*x))),
+        Tag::Short(x) => format!("crate::nbt::Static::Short({})", int_lit(&x.to_string())),
+        Tag::Int(x) => format!("crate::nbt::Static::Int({})", int_lit(&x.to_string())),
         Tag::Float(x) => format!("crate::nbt::Static::Float({})", float_lit(*x)),
         Tag::ByteArray(x) => format!("crate::nbt::Static::ByteArray(&{x:?})"),
         Tag::String(x) => format!("crate::nbt::Static::String({})", str_lit(x)),
@@ -1279,7 +1279,7 @@ fn static_list(l: &List) -> String {
         List::End => "crate::nbt::StaticList::End".to_owned(),
         List::Int(x) => format!(
             "crate::nbt::StaticList::Int(&[{}])",
-            join(x.iter().map(|v| int_lit(i64::from(*v))).collect())
+            join(x.iter().map(|v| int_lit(&v.to_string())).collect())
         ),
         List::Float(x) => format!(
             "crate::nbt::StaticList::Float(&[{}])",
@@ -1299,22 +1299,6 @@ fn static_list(l: &List) -> String {
 /// A float from its bit pattern, so the value is exact.
 fn float_lit(bits: u32) -> String {
     format!("f32::from_bits({})", hex_lit(u64::from(bits), 8))
-}
-
-/// A decimal literal, digits grouped by three when clippy calls it long (more than five digits).
-pub(crate) fn int_lit(v: i64) -> String {
-    let digits = v.unsigned_abs().to_string();
-    if digits.len() <= 5 {
-        return v.to_string();
-    }
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push('_');
-        }
-        out.push(c);
-    }
-    if v < 0 { format!("-{out}") } else { out }
 }
 
 /// A hex literal of `width` digits, grouped by four.

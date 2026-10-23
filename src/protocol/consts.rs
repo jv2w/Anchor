@@ -39,11 +39,11 @@ pub enum Ability {
     /// gophertunnel `AbilityFlySpeed`.
     FlySpeed = 8192,
     /// gophertunnel `AbilityWalkSpeed`.
-    WalkSpeed = 16_384,
+    WalkSpeed = 16384,
     /// gophertunnel `AbilityMuted`.
-    Muted = 32_768,
+    Muted = 32768,
     /// gophertunnel `AbilityWorldBuilder`.
-    WorldBuilder = 65_536,
+    WorldBuilder = 65536,
     /// gophertunnel `AbilityNoClip`.
     NoClip = 131_072,
     /// gophertunnel `AbilityPrivilegedBuilder`.
@@ -97,9 +97,9 @@ impl TryFrom<u32> for Ability {
             2048 => Ok(Self::InstantBuild),
             4096 => Ok(Self::Lightning),
             8192 => Ok(Self::FlySpeed),
-            16_384 => Ok(Self::WalkSpeed),
-            32_768 => Ok(Self::Muted),
-            65_536 => Ok(Self::WorldBuilder),
+            16384 => Ok(Self::WalkSpeed),
+            32768 => Ok(Self::Muted),
+            65536 => Ok(Self::WorldBuilder),
             131_072 => Ok(Self::NoClip),
             262_144 => Ok(Self::PrivilegedBuilder),
             524_288 => Ok(Self::VerticalFlySpeed),
@@ -4505,21 +4505,21 @@ impl From<EntityDataType> for u32 {
 #[repr(u16)]
 pub enum CopperBlockId {
     /// gophertunnel `WaxNotOxidised`.
-    WaxNotOxidised = 42_505,
+    WaxNotOxidised = 42505,
     /// gophertunnel `WaxExposed`.
-    WaxExposed = 43_017,
+    WaxExposed = 43017,
     /// gophertunnel `WaxWeathered`.
-    WaxWeathered = 43_529,
+    WaxWeathered = 43529,
     /// gophertunnel `WaxOxidised`.
-    WaxOxidised = 44_041,
+    WaxOxidised = 44041,
     /// gophertunnel `UnWaxNotOxidised`.
-    UnWaxNotOxidised = 44_553,
+    UnWaxNotOxidised = 44553,
     /// gophertunnel `UnWaxExposed`.
-    UnWaxExposed = 45_065,
+    UnWaxExposed = 45065,
     /// gophertunnel `UnWaxWeathered`.
-    UnWaxWeathered = 45_577,
+    UnWaxWeathered = 45577,
     /// gophertunnel `UnWaxOxidised`.
-    UnWaxOxidised = 64_010,
+    UnWaxOxidised = 64010,
 }
 
 impl CopperBlockId {
@@ -4541,14 +4541,14 @@ impl TryFrom<u16> for CopperBlockId {
 
     fn try_from(value: u16) -> Result<Self> {
         match value {
-            42_505 => Ok(Self::WaxNotOxidised),
-            43_017 => Ok(Self::WaxExposed),
-            43_529 => Ok(Self::WaxWeathered),
-            44_041 => Ok(Self::WaxOxidised),
-            44_553 => Ok(Self::UnWaxNotOxidised),
-            45_065 => Ok(Self::UnWaxExposed),
-            45_577 => Ok(Self::UnWaxWeathered),
-            64_010 => Ok(Self::UnWaxOxidised),
+            42505 => Ok(Self::WaxNotOxidised),
+            43017 => Ok(Self::WaxExposed),
+            43529 => Ok(Self::WaxWeathered),
+            44041 => Ok(Self::WaxOxidised),
+            44553 => Ok(Self::UnWaxNotOxidised),
+            45065 => Ok(Self::UnWaxExposed),
+            45577 => Ok(Self::UnWaxWeathered),
+            64010 => Ok(Self::UnWaxOxidised),
             _ => Err(Error::UnknownEnum {
                 name: "copper block id",
                 value: value.into(),
@@ -4907,7 +4907,7 @@ pub enum InventoryActionSource {
     /// gophertunnel `InventoryActionSourceCreative`.
     Creative = 3,
     /// gophertunnel `InventoryActionSourceTODO`.
-    Todo = 99_999,
+    Todo = 99999,
 }
 
 impl InventoryActionSource {
@@ -4923,7 +4923,7 @@ impl TryFrom<u32> for InventoryActionSource {
             0 => Ok(Self::Container),
             2 => Ok(Self::World),
             3 => Ok(Self::Creative),
-            99_999 => Ok(Self::Todo),
+            99999 => Ok(Self::Todo),
             _ => Err(Error::UnknownEnum {
                 name: "inventory action source",
                 value: value.into(),
@@ -10979,7 +10979,7 @@ pub enum LevelEvent {
     /// gophertunnel `LevelEventParticleCreakingHeartTrail`.
     ParticleCreakingHeartTrail = 9816,
     /// gophertunnel `LevelEventParticleLegacyEvent`.
-    ParticleLegacyEvent = 16_384,
+    ParticleLegacyEvent = 16384,
 }
 
 impl LevelEvent {
@@ -11256,7 +11256,7 @@ impl TryFrom<i32> for LevelEvent {
             9814 => Ok(Self::AnimationSpawnCobweb),
             9815 => Ok(Self::ParticleSmashAttackGroundDust),
             9816 => Ok(Self::ParticleCreakingHeartTrail),
-            16_384 => Ok(Self::ParticleLegacyEvent),
+            16384 => Ok(Self::ParticleLegacyEvent),
             _ => Err(Error::UnknownEnum {
                 name: "level event",
                 value: value.into(),
@@ -14795,7 +14795,7 @@ pub enum CompressionAlgorithm {
     /// gophertunnel `CompressionAlgorithmSnappy`.
     Snappy = 1,
     /// gophertunnel `CompressionAlgorithmNone`.
-    None = 65_535,
+    None = 65535,
 }
 
 impl CompressionAlgorithm {
@@ -14810,7 +14810,7 @@ impl TryFrom<u16> for CompressionAlgorithm {
         match value {
             0 => Ok(Self::Flate),
             1 => Ok(Self::Snappy),
-            65_535 => Ok(Self::None),
+            65535 => Ok(Self::None),
             _ => Err(Error::UnknownEnum {
                 name: "compression algorithm",
                 value: value.into(),
@@ -22415,7 +22415,7 @@ mod tests {
         flag(&EntityDataFlag::ALL);
         int_enum(&EntityDataFlag::ALL, Some(131_u32));
         int_enum(&EntityDataType::ALL, Some(9_u32));
-        int_enum(&CopperBlockId::ALL, Some(64_011_u16));
+        int_enum(&CopperBlockId::ALL, Some(64011_u16));
         int_enum(&FurnaceLayout::ALL, Some(3_i32));
         int_enum(&FurnaceLeftTab::ALL, Some(6_i32));
         int_enum(&GraphicsOverrideParameterType::ALL, Some(52_u8));
@@ -22495,7 +22495,7 @@ mod tests {
         int_enum(&LabTableAction::ALL, Some(3_u8));
         int_enum(&LessonAction::ALL, Some(3_i32));
         int_enum(&ParticleType::ALL, Some(105_i32));
-        int_enum(&LevelEvent::ALL, Some(16_385_i32));
+        int_enum(&LevelEvent::ALL, Some(16385_i32));
         str_enum(&SoundEvent::ALL, SoundEvent::as_str);
         int_enum(&MobEffectOperation::ALL, Some(4_u8));
         int_enum(&Effect::ALL, Some(28_i32));
