@@ -35,6 +35,9 @@ const STR0M: &str = "vendor/str0m/Cargo.toml";
 const STR0M_DIMPL: &str = "patch.crates-io.dimpl.path=\"vendor/dimpl\"";
 const STR0M_PROTO: &str = "patch.crates-io.str0m-proto.path=\"vendor/str0m-proto\"";
 
+/// The folders of the repository's Rust sources (the vendor copies aside).
+const SOURCE_DIRS: &[&str] = &["src", "tests", "examples", "xtask/src", "xtask/tests"];
+
 /// The build directory of `verify` under `target/`; `vendor-test` builds there too.
 const VERIFY_TARGET: &str = "verify";
 

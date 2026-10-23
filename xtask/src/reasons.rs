@@ -1,13 +1,12 @@
-//! `verify`'s check of lint exceptions: the reason of every `#[expect]` in
-//! `src/`, `tests/`, `examples/`, `xtask/src/` and `xtask/tests/` starts with a tag. Comments and string literals are skipped,
+//! `verify`'s check of lint exceptions: the reason of every `#[expect]` in the repository's Rust
+//! sources ([`SOURCE_DIRS`]) starts with a tag. Comments and string literals are skipped,
 //! so test data that spells an attribute is not taken for one.
 
 use std::path::Path;
 
+use crate::SOURCE_DIRS;
 use crate::table::sources;
 
-/// Where lint exceptions are checked.
-const DIRS: &[&str] = &["src", "tests", "examples", "xtask/src", "xtask/tests"];
 /// The tags a reason starts with, each followed by `: `.
 const TAGS: &[&str] = &[
     "safety",
@@ -20,7 +19,7 @@ const TAGS: &[&str] = &[
 /// `path:line: message` for every lint reason without a tag.
 pub(crate) fn check(root: &Path) -> Result<Vec<String>, String> {
     let mut errors = Vec::new();
-    for (path, text) in sources(root, DIRS)? {
+    for (path, text) in sources(root, SOURCE_DIRS)? {
         for (line, reason) in reasons(&text) {
             if !tagged(reason) {
                 errors.push(format!(

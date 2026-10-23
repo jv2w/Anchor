@@ -4,9 +4,8 @@
 //! `foo/tests.rs` run `foo::`), every library test when `src/lib.rs` or a build file changed, and
 //! each changed integration test file.
 //!
-//! A changed file that a Rust source under `src/`, `tests/`, `examples/`, `xtask/src/` or
-//! `xtask/tests/` pulls in counts as a change of that source too, so it also runs that source's
-//! tests (in the source's own crate). A source pulls in the file of a `#[path = "…"]` module and
+//! A changed file that a Rust source of the repository ([`SOURCE_DIRS`]) pulls in counts as a
+//! change of that source too, so it also runs that source's tests (in the source's own crate). A source pulls in the file of a `#[path = "…"]` module and
 //! the file of an `include_bytes!` or `include_str!` whose path is a string literal, both from the
 //! source's folder, or `concat!(env!("CARGO_MANIFEST_DIR"), "/…")`, from the source's crate
 //! folder (`xtask/` for the files under it, else the repository root). Any other changed file that
@@ -23,7 +22,8 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
-use crate::{CLIPPY, FMT, cargo_step};
+use crate::table::sources;
+use crate::{CLIPPY, FMT, SOURCE_DIRS, cargo_step};
 
 /// Files other than Rust sources whose change can break the build or the lints.
 const BUILD_FILES: &[&str] = &[
@@ -33,8 +33,6 @@ const BUILD_FILES: &[&str] = &[
     ".rustfmt.toml",
     "rust-toolchain.toml",
 ];
-/// The folders of the Rust sources whose pulled-in files the check follows.
-const SOURCE_DIRS: &[&str] = &["src", "tests", "examples", "xtask/src", "xtask/tests"];
 /// The macros that include a file, each followed by its path.
 const INCLUDE_MACROS: [&str; 2] = ["include_bytes!(", "include_str!("];
 /// The tokens of an include path from the crate folder, before its `"/…"` literal.
@@ -198,30 +196,11 @@ fn is_code(file: &str) -> bool {
 }
 
 /// The files the Rust sources under [`SOURCE_DIRS`] pull in.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "off-tick: xtask is a development tool"
-)]
 fn includes(root: &Path) -> io::Result<Includes> {
     let mut includes = Includes::new();
-    let mut dirs: Vec<String> = SOURCE_DIRS.iter().map(|d| (*d).to_owned()).collect();
-    while let Some(dir) = dirs.pop() {
-        let entries = match std::fs::read_dir(root.join(&dir)) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let file = format!("{dir}/{}", entry.file_name().to_string_lossy());
-            if entry.file_type()?.is_dir() {
-                dirs.push(file);
-            } else if is_rust(&file) {
-                let text = std::fs::read(entry.path())?;
-                for path in included(&file, &String::from_utf8_lossy(&text)) {
-                    includes.entry(path).or_default().insert(file.clone());
-                }
-            }
+    for (file, text) in sources(root, SOURCE_DIRS).map_err(io::Error::other)? {
+        for path in included(&file, &text) {
+            includes.entry(path).or_default().insert(file.clone());
         }
     }
     Ok(includes)
