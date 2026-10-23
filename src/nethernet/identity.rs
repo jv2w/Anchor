@@ -485,7 +485,6 @@ mod tests {
             );
         let offer = parse_offer(&offer).unwrap();
         let assertion = offer.identity.unwrap();
-        assert_eq!(assertion.domain, "self");
         let key = verify_offer(&assertion, &offer.fingerprint, Mode::Offline, NOW).unwrap();
         assert_eq!(key.spki(), x5u.spki());
         // The detached signature covers the digest as written, so another case fails.
@@ -628,7 +627,6 @@ mod tests {
         sdp::Assertion {
             token,
             fingerprints: sign_detached(key, signed.as_bytes()).unwrap(),
-            domain: "https://authorization.franchise.minecraft-services.net".to_owned(),
         }
     }
 
@@ -906,7 +904,6 @@ mod tests {
             let offer = sdp::Assertion {
                 token,
                 fingerprints: fingerprints.clone(),
-                domain: "self".to_owned(),
             };
             verify_offer(&offer, &fp, Mode::Offline, NOW)
                 .map(|_| ())

@@ -980,7 +980,7 @@ pub(in crate::nethernet) mod tests {
                 ice_ufrag: parsed.ice_ufrag,
                 ice_pwd: parsed.ice_pwd,
                 fingerprint: parsed.fingerprint.bytes,
-                candidates: parsed.candidates.iter().map(|c| c.addr).collect(),
+                candidates: parsed.candidates,
                 max_message_size: parsed.max_message_size,
             };
             let peer = Peer::new(remote, SERVER, server, MAX_MESSAGE, now).unwrap();

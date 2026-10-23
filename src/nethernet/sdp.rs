@@ -107,7 +107,7 @@ pub(crate) struct Offer {
     /// Largest message the client receives.
     pub(crate) max_message_size: u32,
     /// Usable candidates in offer order: UDP, component 1, IP literal addresses.
-    pub(crate) candidates: Vec<Candidate>,
+    pub(crate) candidates: Vec<SocketAddr>,
     /// The session-level `a=identity`, shape-checked but not verified.
     pub(crate) identity: Option<Assertion>,
 }
@@ -123,15 +123,6 @@ pub(crate) struct Fingerprint {
     pub(crate) bytes: [u8; FINGERPRINT_LEN],
 }
 
-/// A remote ICE candidate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Candidate {
-    /// Where the client receives.
-    pub(crate) addr: SocketAddr,
-    /// The ICE priority the client gave it.
-    pub(crate) priority: u32,
-}
-
 /// The `a=identity` assertion (go-nethernet `identityData`), shape-checked but not verified.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Assertion {
@@ -139,8 +130,6 @@ pub(crate) struct Assertion {
     pub(crate) token: String,
     /// A detached JWS (`header..signature`) over the fingerprint JSON.
     pub(crate) fingerprints: String,
-    /// The identity provider domain, which the client may show to players.
-    pub(crate) domain: String,
 }
 
 /// Attributes collected while reading an offer.
@@ -152,7 +141,7 @@ struct Attributes<'a> {
     setup: Option<()>,
     max_message_size: Option<u32>,
     sctp_port: Option<()>,
-    candidates: Vec<Candidate>,
+    candidates: Vec<SocketAddr>,
     identity: Option<Assertion>,
 }
 
@@ -360,9 +349,9 @@ fn parse_digest(digest: &str) -> Option<[u8; FINGERPRINT_LEN]> {
 }
 
 /// A candidate value (RFC 8839 5.1), with the `candidate:` prefix once or twice (go-nethernet
-/// writes it twice). `None` for a candidate Anchor cannot use: not UDP, not component 1, or an
-/// address that is not an IP literal (such as an mDNS `.local` name).
-fn candidate(value: Option<&str>) -> Result<Option<Candidate>> {
+/// writes it twice), as its address. `None` for a candidate Anchor cannot use: not UDP, not
+/// component 1, or an address that is not an IP literal (such as an mDNS `.local` name).
+fn candidate(value: Option<&str>) -> Result<Option<SocketAddr>> {
     let text = value.ok_or(Error::Invalid("candidate"))?;
     let text = text.strip_prefix("candidate:").unwrap_or(text);
     let mut fields = text.split(' ');
@@ -374,7 +363,7 @@ fn candidate(value: Option<&str>) -> Result<Option<Candidate>> {
     };
     let (foundation, component, transport, priority) = (next()?, next()?, next()?, next()?);
     let (address, port, typ, kind) = (next()?, next()?, next()?, next()?);
-    let (Some(component), Some(priority), Some(port)) = (
+    let (Some(component), Some(_), Some(port)) = (
         decimal::<u32>(component),
         decimal::<u32>(priority),
         decimal::<u16>(port),
@@ -391,10 +380,10 @@ fn candidate(value: Option<&str>) -> Result<Option<Candidate>> {
     if component != 1 || !transport.eq_ignore_ascii_case("udp") {
         return Ok(None);
     }
-    Ok(address.parse::<IpAddr>().ok().map(|ip| Candidate {
-        addr: SocketAddr::new(ip, port),
-        priority,
-    }))
+    Ok(address
+        .parse::<IpAddr>()
+        .ok()
+        .map(|ip| SocketAddr::new(ip, port)))
 }
 
 #[derive(Deserialize)]
@@ -429,7 +418,7 @@ fn identity(value: Option<&str>) -> Result<Assertion> {
     if outer.idp.protocol != "default" {
         return Err(Error::Identity("protocol is not default"));
     }
-    let domain = outer.idp.domain;
+    let domain = &outer.idp.domain;
     if domain.is_empty() || domain.len() > MAX_DOMAIN || domain.chars().any(char::is_control) {
         return Err(Error::Identity("domain must be 1 to 256 bytes of text"));
     }
@@ -444,7 +433,6 @@ fn identity(value: Option<&str>) -> Result<Assertion> {
     Ok(Assertion {
         token: inner.token,
         fingerprints: inner.fingerprints,
-        domain,
     })
 }
 
@@ -604,13 +592,9 @@ a=max-message-size:262144
             assert_eq!(offer.max_message_size, 262_144);
             assert_eq!(
                 offer.candidates,
-                [Candidate {
-                    addr: "172.25.96.1:63448".parse().unwrap(),
-                    priority: 2_130_706_431,
-                }]
+                ["172.25.96.1:63448".parse::<SocketAddr>().unwrap()]
             );
             let identity = offer.identity.unwrap();
-            assert_eq!(identity.domain, "https://example.invalid/");
             assert!(
                 identity
                     .token
@@ -671,10 +655,7 @@ a=max-message-size:262144
         assert_eq!(offer.candidates.len(), 2);
         assert_eq!(
             offer.candidates[1],
-            Candidate {
-                addr: "[2001:db8::1]:5000".parse().unwrap(),
-                priority: 7,
-            }
+            "[2001:db8::1]:5000".parse::<SocketAddr>().unwrap()
         );
     }
 
@@ -939,7 +920,6 @@ a=max-message-size:262144
             Assertion {
                 token: token.to_owned(),
                 fingerprints: detached.to_owned(),
-                domain: "self".to_owned(),
             }
         );
         let long_token = format!("eyJh.{}.c2ln", "a".repeat(MAX_TOKEN_TEXT));
@@ -1057,13 +1037,7 @@ a=max-message-size:262144\r
             answer().fingerprint
         );
         assert_eq!(offer.max_message_size, MAX_MESSAGE_SIZE);
-        assert_eq!(
-            offer.candidates,
-            [Candidate {
-                addr: answer().addr,
-                priority: HOST_PRIORITY,
-            }]
-        );
+        assert_eq!(offer.candidates, [answer().addr]);
     }
 
     #[test]

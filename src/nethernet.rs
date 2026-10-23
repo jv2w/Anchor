@@ -412,7 +412,7 @@ impl Offers {
             ice_ufrag: offer.ice_ufrag,
             ice_pwd: offer.ice_pwd,
             fingerprint: offer.fingerprint.bytes,
-            candidates: offer.candidates.iter().map(|c| c.addr).collect(),
+            candidates: offer.candidates,
             max_message_size: offer.max_message_size,
         };
         let (reply, answer) = oneshot::channel();
