@@ -893,15 +893,7 @@ impl Replica {
                         .insert(key.to_bytes().into_owned(), None);
                 }
                 &Write::DeletePages(chunk, kind, first) => {
-                    let first = chunk
-                        .key(ChunkPart::Extras(kind, first))
-                        .to_bytes()
-                        .into_owned();
-                    let last = ChunkKey {
-                        chunk,
-                        part: ChunkPart::Extras(kind, u16::MAX),
-                    }
-                    .to_bytes();
+                    let (first, last) = pages_range(chunk, kind, first);
                     let txn = self.db.begin_read()?;
                     let [_, _, written, _, _, _] = &mut self.overlay;
                     if let Some(table) = open_read(&txn, CHUNKS)? {
@@ -928,6 +920,18 @@ fn chunk_range(chunk: ChunkId) -> (Vec<u8>, Vec<u8>) {
     let mut last = prefix.to_vec();
     last.extend_from_slice(&[0xff; 3]);
     (first, last)
+}
+
+/// The first and last key bytes of `chunk`'s extras pages of `kind` from page `first` on.
+fn pages_range(chunk: ChunkId, kind: ChunkKind, first: u16) -> (Vec<u8>, Vec<u8>) {
+    let page = |page| {
+        ChunkKey {
+            chunk,
+            part: ChunkPart::Extras(kind, page),
+        }
+        .to_bytes()
+    };
+    (page(first), page(u16::MAX))
 }
 
 /// The copies of the data file at `place` a replay may start from: the file, then its backups
@@ -1406,11 +1410,7 @@ pub(crate) type ChunkValues = Result<Vec<(ChunkPart, Vec<u8>)>>;
 
 /// The values of one chunk, in key order.
 fn read_chunk(table: &ReadOnlyTable<&'static [u8], &'static [u8]>, chunk: ChunkId) -> ChunkValues {
-    let prefix = chunk.prefix();
-    let mut first = prefix.to_vec();
-    first.push(0);
-    let mut last = prefix.to_vec();
-    last.extend_from_slice(&[0xff; 3]);
+    let (first, last) = chunk_range(chunk);
     let mut values = Vec::new();
     for entry in table.range::<&[u8]>(&*first..=&*last)? {
         let (key, value) = entry?;
@@ -1552,12 +1552,7 @@ fn apply(txn: &WriteTransaction, batch: &Batch) -> Result<()> {
             }
             &Write::DeletePages(chunk, kind, first) => {
                 let key = chunk.key(ChunkPart::Extras(kind, first));
-                let first = key.to_bytes();
-                let last = ChunkKey {
-                    chunk,
-                    part: ChunkPart::Extras(kind, u16::MAX),
-                }
-                .to_bytes();
+                let (first, last) = pages_range(chunk, kind, first);
                 key.pick_mut(&mut tables)
                     .retain_in::<&[u8], _>(&*first..=&*last, |_, _| false)?;
             }
