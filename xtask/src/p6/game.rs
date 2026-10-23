@@ -35,9 +35,9 @@ pub(crate) const SESSION_SETUP: &[&str] = &[
     "kill @e[type=!player]",
 ];
 /// The bot's time limit for one game scenario (the furnace smelts for 20 seconds).
-const BOT_TIMEOUT: &str = "150s";
+const BOT_TIMEOUT: Duration = Duration::from_secs(150);
 /// How long the harness waits for a bot past its own time limit before killing it.
-const BOT_GRACE: Duration = Duration::from_secs(180);
+const BOT_GRACE: Duration = Duration::from_secs(30);
 
 /// The player name of a scenario's bot: one new player each, so no inventory carries over.
 pub(crate) fn player(scenario: &str) -> String {
@@ -303,13 +303,14 @@ impl Running {
         let capture = dir.join(format!("{scenario}.jsonl"));
         super::remove_file(&capture)?;
         let name = player(scenario);
+        let timeout = format!("{}s", BOT_TIMEOUT.as_secs());
         let mut command = Command::new(bot);
         if let Some(script) = script {
             command.arg("-script").arg(script);
         }
         let child = command
             .args(["-addr", addr, "-transport", "raknet", "-scenario", scenario])
-            .args(["-name", &name, "-timeout", BOT_TIMEOUT, "-out"])
+            .args(["-name", &name, "-timeout", &timeout, "-out"])
             .arg(&capture)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -396,7 +397,7 @@ pub(crate) fn run_scenarios(
 ) -> Result<bool, String> {
     let mut main = Running::start(bot, addr, dir, scenario, script)?;
     let mut second: Option<Running> = None;
-    let deadline = super::now() + BOT_GRACE;
+    let deadline = super::now() + BOT_TIMEOUT + BOT_GRACE;
     let relay = loop {
         if let (Some(c), None) = (companion, &second)
             && main.stepped()
