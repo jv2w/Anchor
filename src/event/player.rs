@@ -1054,14 +1054,14 @@ getters!(PlayerJoin {
     /// The player.
     #[doc(alias = "PlayerEvent::getPlayer")]
     player: player::Id,
-    /// The message every player sees. Starts as `"§e%multiplayer.player.joined"`: left so, the
-    /// client shows its own "joined the game" line with the player's name.
+    /// The message every other player sees. Starts as `"§e%multiplayer.player.joined"`: left so,
+    /// the client shows its own "joined the game" line with the player's name.
     #[doc(alias = "PlayerJoinEvent::getJoinMessage")]
     join_message: &str,
 });
 
 setters!(PlayerJoin {
-    /// Replaces the message every player sees; an empty one shows nothing.
+    /// Replaces the message every other player sees; an empty one shows nothing.
     #[doc(alias = "PlayerJoinEvent::setJoinMessage")]
     set_join_message => join_message: String,
 });
