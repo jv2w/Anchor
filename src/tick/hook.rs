@@ -84,9 +84,9 @@ impl ServerBuilder {
     /// skip the hooks: the start-game data every player gets the same (item registry, recipes,
     /// creative inventory, biomes, entity types, block shapes, armour trims, jigsaw structure
     /// data, entity property definitions, camera presets), which is encoded once at start and
-    /// shared; the last packet of a session the server closes (its
-    /// `Disconnect`); and the login and resource pack sequence, which the session sends. With
-    /// `hook-movement-packets = false` the movement packets skip them too: `MovePlayer`,
+    /// shared; the last packet of a session the server closes (a `Disconnect`, a transfer's
+    /// `Transfer` or a refused join's `PlayStatus`); and the login and resource pack sequence,
+    /// which the session sends. With `hook-movement-packets = false` the movement packets skip them too: `MovePlayer`,
     /// `MoveActorDelta`, `MoveActorAbsolute` and `SetActorMotion`.
     #[doc(alias = "DataPacketSendEvent")]
     #[must_use]

@@ -415,8 +415,8 @@ pub(crate) enum Message {
 pub(crate) enum Outbound {
     /// Messages to send, in order.
     Send(Vec<Message>),
-    /// The last packet to send (a `Disconnect` or a failed `PlayStatus`) before closing the
-    /// connection. The tick has already forgotten the session.
+    /// The last packet to send (a `Disconnect`, a `Transfer` or a failed `PlayStatus`) before
+    /// closing the connection. The tick has already forgotten the session.
     Close(Packet),
 }
 
