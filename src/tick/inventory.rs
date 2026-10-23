@@ -1509,7 +1509,8 @@ pub(super) fn on_mob_equipment(state: &mut State, session: SessionId, packet: &M
     dispatch::watch(state, &event);
 }
 
-/// The client selected hotbar slot `slot`, which the server takes as it is.
+/// Selects hotbar slot `slot`, stopping the item in use, without telling the client: the client
+/// selected it, or [`select`] tells it.
 fn hold(player: &mut Player, slot: u8) {
     player.inventory.held = slot;
     player.data_dirty = true;
@@ -1756,9 +1757,7 @@ fn pick(
 
 /// Selects hotbar slot `slot`, stopping the item in use, and tells the client.
 fn select(player: &mut Player, slot: u8) {
-    player.inventory.held = slot;
-    player.data_dirty = true;
-    super::survival::stop_using_item(player);
+    hold(player, slot);
     player.send_packet(hotbar_packet(slot));
 }
 
