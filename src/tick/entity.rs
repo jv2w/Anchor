@@ -4988,6 +4988,43 @@ mod tests {
         }));
     }
 
+    /// Above the world height a chunk that is not loaded is a wall too: an item moving there
+    /// stays in a loaded chunk, so a save keeps it.
+    #[test]
+    fn items_above_the_world_never_enter_an_unloaded_chunk() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let edge = (0..64)
+            .find(|&x| !h.state.worlds[0].is_chunk_loaded(ChunkPos::new(x, 0)))
+            .unwrap();
+        let tick_radius = h.state.settings.view(0).tick_radius;
+        assert!(edge - 1 <= i32::from(tick_radius), "the item starts ticked");
+        let id = crate::tick::Context {
+            state: &mut h.state,
+        }
+        .drop_item(
+            world::Id::DEFAULT,
+            at(f64::from(edge * 16) - 0.5, 330.0, 0.5),
+            stack("minecraft:stick", 1),
+            Some(Vec3::new(1.0, 0.0, 0.0)),
+        )
+        .unwrap();
+        for _ in 0..5 {
+            h.step(Vec::new());
+        }
+        let chunk = h.state.rules.entities.get(id).unwrap().chunk;
+        assert!(h.state.worlds[0].is_chunk_loaded(chunk), "{chunk:?}");
+        h.state.rules.flush(&mut h.state.chunks.extras);
+        let item = crate::nbt::Value::String("minecraft:item".to_owned());
+        let saved = h.state.worlds[0]
+            .loaded()
+            .filter_map(|pos| h.state.chunks.extras.get((0, pos)))
+            .flat_map(|extras| extras.get(crate::storage::ChunkKind::Entities))
+            .filter(|c| c.get("identifier") == Some(&item))
+            .count();
+        assert_eq!(saved, 1);
+    }
+
     #[test]
     fn what_does_not_fit_stays_on_the_ground_as_the_same_entity() {
         let mut h = Harness::new(1);

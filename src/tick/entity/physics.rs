@@ -5,7 +5,8 @@
 //!
 //! Blocks of chunks that are not loaded, and states Anchor does not know, are full cubes: an
 //! entity never moves into a chunk that is not loaded (a projectile sticks at its border).
-//! Positions above or below the world height are air, so entities fall out of the world.
+//! Positions of loaded chunks above or below the world height are air, so entities fall out of
+//! the world.
 //!
 //! Projectiles move along a ray that stops at the first block it meets (PMMP `Projectile::move`,
 //! `VoxelRayTrace`, `AxisAlignedBB::calculateIntercept`); the entities on the ray are found in the
@@ -289,7 +290,7 @@ pub(super) fn step(world: &World, input: &Input) -> Step {
 /// What occupies a block cell, for collisions.
 #[derive(Debug, Clone, Copy)]
 enum Cell {
-    /// Above or below the world: nothing.
+    /// Above or below the world in a loaded chunk: nothing.
     Outside,
     /// A known block.
     Block(block::State),
@@ -313,7 +314,12 @@ impl Cell {
 /// What occupies the cell (x, y, z).
 fn cell(world: &World, x: i32, y: i32, z: i32) -> Cell {
     if !(MIN_Y..=MAX_Y).contains(&y) {
-        return Cell::Outside;
+        let pos = BlockPos::new(x, y, z);
+        return if world.is_chunk_loaded(pos.chunk()) {
+            Cell::Outside
+        } else {
+            Cell::Wall
+        };
     }
     match world.entry(BlockPos::new(x, y, z)) {
         Some(Entry::Known(state)) => Cell::Block(state),
