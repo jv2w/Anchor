@@ -575,6 +575,18 @@ fn the_overload_reasons_name_the_limits_they_enforce() {
         reason(&Command::new("a", "").overload(&params, handler)),
         format!("more than {MAX_PARAMS} parameters")
     );
+    let values: Vec<String> = (0..=MAX_ENUM_VALUES).map(|i| format!("v{i}")).collect();
+    let values: Vec<&str> = values.iter().map(String::as_str).collect();
+    let many = Command::new("a", "").overload(&[Param::enumeration("e", "E", &values)], handler);
+    assert_eq!(
+        reason(&many),
+        format!("more than {MAX_ENUM_VALUES} enum values")
+    );
+    let empty = Command::new("a", "").overload(&[Param::enumeration("e", "E", &[""])], handler);
+    assert_eq!(
+        reason(&empty),
+        "an enum has no type name, no values, an empty value or a value with spaces"
+    );
     let suffixed = Command::new("a", "").overload(&[Param::suffixed_int("n", "")], handler);
     assert_eq!(
         reason(&suffixed),

@@ -435,15 +435,21 @@ fn check(command: &Command) -> command::Result<()> {
             if param.takes_rest() && i + 1 != params.len() {
                 return invalid("a message or raw text parameter is not the last");
             }
+            if let Kind::Enum { values, .. } = &param.kind
+                && values.len() > MAX_ENUM_VALUES
+            {
+                return invalid("more than 4096 enum values");
+            }
             if let Kind::Enum { name, values } = &param.kind
                 && (name.is_empty()
                     || values.is_empty()
-                    || values.len() > MAX_ENUM_VALUES
                     || values
                         .iter()
                         .any(|v| v.is_empty() || v.chars().any(char::is_whitespace)))
             {
-                return invalid("an enum has no type name, no values or a value with spaces");
+                return invalid(
+                    "an enum has no type name, no values, an empty value or a value with spaces",
+                );
             }
             if let Kind::SoftEnum { name } = &param.kind
                 && name.is_empty()
