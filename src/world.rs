@@ -910,17 +910,13 @@ impl World {
     /// chunk again (as in PMMP).
     #[doc(alias = "World::setBiomeId")]
     pub fn set_biome(&mut self, pos: BlockPos, biome: u32) -> Result<()> {
-        if !Self::is_in_world(pos) {
-            return Err(Error::OutOfRange);
-        }
         let (x, z) = pos.local();
-        let quarantined = self.quarantined.contains(&pos.chunk());
-        let Some(chunk) = self.chunks.get_mut(pos.chunk()) else {
-            return Err(if quarantined {
-                Error::Quarantined
-            } else {
-                Error::NotLoaded
-            });
+        let Some(chunk) = self
+            .chunks
+            .get_mut(pos.chunk())
+            .filter(|_| Self::is_in_world(pos))
+        else {
+            return Err(self.unwritable(pos));
         };
         if chunk.biome(x, pos.y, z) != Some(biome) {
             chunk.set_biome(x, pos.y, z, biome)?;
