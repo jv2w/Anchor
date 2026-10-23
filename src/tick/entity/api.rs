@@ -1871,9 +1871,7 @@ impl action::Sealed for action::Explode {
         let Some(w) = index(cx.state, world) else {
             return;
         };
-        if is_valid_position(center) && size.is_finite() && size > 0.0 {
-            super::explode(cx.state, w, center, size, fire, Raise::Events);
-        }
+        super::explode(cx.state, w, center, size, fire, Raise::Events);
     }
 }
 

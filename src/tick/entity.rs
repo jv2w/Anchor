@@ -1745,6 +1745,12 @@ pub(super) fn is_valid_position(v: Vec3) -> bool {
     v.is_finite() && v.x.abs() <= MAX_COORDINATE && v.z.abs() <= MAX_COORDINATE
 }
 
+/// Whether an explosion of `size` at `center` happens: a valid position and a finite size above
+/// 0.
+pub(super) fn is_valid_explosion(center: Vec3, size: f64) -> bool {
+    is_valid_position(center) && size.is_finite() && size > 0.0
+}
+
 /// Whether `scale` may be the scale of an entity of `kind`: above 0 (PMMP), and its scaled box
 /// at most [`custom::MAX_SIZE`] blocks on a side (physics walks every block the box covers), so
 /// finite.

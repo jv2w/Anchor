@@ -27,7 +27,7 @@ use super::super::{SessionId, dispatch, interact};
 use super::kind::{Kind, MAX_FUSE, Tnt};
 use super::{
     Blow, Budget, Cause, EYE_HEIGHT, Hooks, Knock, Raise, State, create, hurt, hurt_in,
-    is_valid_position, level_event, level_of, physics, player_box, push_entity, targetable, with,
+    is_valid_explosion, level_event, level_of, physics, player_box, push_entity, targetable, with,
 };
 use crate::block::{self, Class, Face, SupportType};
 use crate::entity::Id;
@@ -278,7 +278,7 @@ pub(super) fn explode_with(
         return 0;
     };
     let size = blast.size;
-    if !is_valid_position(center) || size.is_nan() || size <= 0.0 || !size.is_finite() {
+    if !is_valid_explosion(center, size) {
         return 0;
     }
     let size = math::min(size, MAX_SIZE);
