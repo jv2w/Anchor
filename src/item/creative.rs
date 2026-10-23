@@ -2,11 +2,12 @@
 //! The creative inventory generated from the PMMP dump: 107 groups, 1633 items.
 
 use super::{CreativeGroup, CreativeItem, StaticStack, Type};
+use crate::protocol::consts::CreativeCategory;
 
 /// The groups in PMMP's order: (category, name, icon).
 pub(super) static GROUPS: [CreativeGroup; 107] = [
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.planks",
         Some(StaticStack::new(
             Type::from_index(1027),
@@ -15,7 +16,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.walls",
         Some(StaticStack::new(
             Type::from_index(253),
@@ -24,7 +25,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.fence",
         Some(StaticStack::new(
             Type::from_index(1023),
@@ -33,7 +34,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.fenceGate",
         Some(StaticStack::new(
             Type::from_index(610),
@@ -42,7 +43,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.stairs",
         Some(StaticStack::new(
             Type::from_index(1405),
@@ -51,7 +52,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.door",
         Some(StaticStack::new(
             Type::from_index(1591),
@@ -60,7 +61,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.trapdoor",
         Some(StaticStack::new(
             Type::from_index(1456),
@@ -69,7 +70,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.bars",
         Some(StaticStack::new(
             Type::from_index(761),
@@ -78,7 +79,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.glass",
         Some(StaticStack::new(
             Type::from_index(633),
@@ -87,7 +88,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.glassPane",
         Some(StaticStack::new(
             Type::from_index(635),
@@ -95,9 +96,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(9))]),
         )),
     ),
-    CreativeGroup::new(1, "", None),
+    CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.slab",
         Some(StaticStack::new(
             Type::from_index(1317),
@@ -106,7 +107,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.stoneBrick",
         Some(StaticStack::new(
             Type::from_index(1399),
@@ -114,9 +115,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(12))]),
         )),
     ),
-    CreativeGroup::new(1, "", None),
+    CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.sandstone",
         Some(StaticStack::new(
             Type::from_index(1284),
@@ -124,9 +125,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(14))]),
         )),
     ),
-    CreativeGroup::new(1, "", None),
+    CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.copper",
         Some(StaticStack::new(
             Type::from_index(311),
@@ -134,9 +135,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(16))]),
         )),
     ),
-    CreativeGroup::new(1, "", None),
+    CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.wool",
         Some(StaticStack::new(
             Type::from_index(1585),
@@ -145,7 +146,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.woolCarpet",
         Some(StaticStack::new(
             Type::from_index(1575),
@@ -154,7 +155,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.concretePowder",
         Some(StaticStack::new(
             Type::from_index(1577),
@@ -163,7 +164,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.concrete",
         Some(StaticStack::new(
             Type::from_index(1576),
@@ -172,7 +173,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.stainedClay",
         Some(StaticStack::new(
             Type::from_index(735),
@@ -181,7 +182,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.glazedTerracotta",
         Some(StaticStack::new(
             Type::from_index(1579),
@@ -189,9 +190,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(23))]),
         )),
     ),
-    CreativeGroup::new(1, "", None),
+    CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
-        1,
+        CreativeCategory::Construction as u8,
         "itemGroup.name.element",
         Some(StaticStack::new(
             Type::from_index(458),
@@ -199,9 +200,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(25))]),
         )),
     ),
-    CreativeGroup::new(2, "", None),
+    CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.ore",
         Some(StaticStack::new(
             Type::from_index(772),
@@ -210,7 +211,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.stone",
         Some(StaticStack::new(
             Type::from_index(1394),
@@ -218,9 +219,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(28))]),
         )),
     ),
-    CreativeGroup::new(2, "", None),
+    CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.log",
         Some(StaticStack::new(
             Type::from_index(1026),
@@ -229,7 +230,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.wood",
         Some(StaticStack::new(
             Type::from_index(1032),
@@ -238,7 +239,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.leaves",
         Some(StaticStack::new(
             Type::from_index(1025),
@@ -247,7 +248,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.sapling",
         Some(StaticStack::new(
             Type::from_index(1028),
@@ -256,7 +257,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.seed",
         Some(StaticStack::new(
             Type::from_index(1572),
@@ -265,7 +266,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.crop",
         Some(StaticStack::new(
             Type::from_index(1571),
@@ -273,9 +274,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(35))]),
         )),
     ),
-    CreativeGroup::new(2, "", None),
+    CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.grass",
         Some(StaticStack::new(
             Type::from_index(612),
@@ -284,7 +285,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.coral_decorations",
         Some(StaticStack::new(
             Type::from_index(615),
@@ -293,7 +294,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.flower",
         Some(StaticStack::new(
             Type::from_index(375),
@@ -302,7 +303,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.dye",
         Some(StaticStack::new(
             Type::from_index(1604),
@@ -310,9 +311,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(40))]),
         )),
     ),
-    CreativeGroup::new(2, "", None),
+    CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.rawFood",
         Some(StaticStack::new(
             Type::from_index(222),
@@ -321,7 +322,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.mushroom",
         Some(StaticStack::new(
             Type::from_index(168),
@@ -329,9 +330,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(43))]),
         )),
     ),
-    CreativeGroup::new(2, "", None),
+    CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.monsterStoneEgg",
         Some(StaticStack::new(
             Type::from_index(754),
@@ -339,9 +340,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(45))]),
         )),
     ),
-    CreativeGroup::new(2, "", None),
+    CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.coral",
         Some(StaticStack::new(
             Type::from_index(1462),
@@ -350,7 +351,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        2,
+        CreativeCategory::Nature as u8,
         "itemGroup.name.sculk",
         Some(StaticStack::new(
             Type::from_index(1288),
@@ -358,9 +359,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(48))]),
         )),
     ),
-    CreativeGroup::new(2, "", None),
+    CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.helmet",
         Some(StaticStack::new(
             Type::from_index(806),
@@ -369,7 +370,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.chestplate",
         Some(StaticStack::new(
             Type::from_index(805),
@@ -378,7 +379,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.leggings",
         Some(StaticStack::new(
             Type::from_index(807),
@@ -387,7 +388,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.boots",
         Some(StaticStack::new(
             Type::from_index(804),
@@ -396,7 +397,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.sword",
         Some(StaticStack::new(
             Type::from_index(1596),
@@ -405,7 +406,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.axe",
         Some(StaticStack::new(
             Type::from_index(1589),
@@ -414,7 +415,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.pickaxe",
         Some(StaticStack::new(
             Type::from_index(1593),
@@ -423,7 +424,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.shovel",
         Some(StaticStack::new(
             Type::from_index(1595),
@@ -432,7 +433,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.hoe",
         Some(StaticStack::new(
             Type::from_index(1592),
@@ -440,9 +441,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(58))]),
         )),
     ),
-    CreativeGroup::new(3, "", None),
+    CreativeGroup::new(CreativeCategory::Equipment as u8, "", None),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.arrow",
         Some(StaticStack::new(
             Type::from_index(28),
@@ -451,7 +452,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.cookedFood",
         Some(StaticStack::new(
             Type::from_index(302),
@@ -460,7 +461,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.miscFood",
         Some(StaticStack::new(
             Type::from_index(154),
@@ -468,9 +469,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(62))]),
         )),
     ),
-    CreativeGroup::new(3, "", None),
+    CreativeGroup::new(CreativeCategory::Equipment as u8, "", None),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.goatHorn",
         Some(StaticStack::new(
             Type::from_index(644),
@@ -478,9 +479,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(64))]),
         )),
     ),
-    CreativeGroup::new(3, "", None),
+    CreativeGroup::new(CreativeCategory::Equipment as u8, "", None),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.potion",
         Some(StaticStack::new(
             Type::from_index(1137),
@@ -489,7 +490,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.splashPotion",
         Some(StaticStack::new(
             Type::from_index(1330),
@@ -498,7 +499,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        3,
+        CreativeCategory::Equipment as u8,
         "itemGroup.name.lingeringPotion",
         Some(StaticStack::new(
             Type::from_index(865),
@@ -506,10 +507,10 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(68))]),
         )),
     ),
-    CreativeGroup::new(3, "", None),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Equipment as u8, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.bed",
         Some(StaticStack::new(
             Type::from_index(71),
@@ -517,9 +518,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(71))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.lanterns",
         Some(StaticStack::new(
             Type::from_index(796),
@@ -528,7 +529,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.candles",
         Some(StaticStack::new(
             Type::from_index(195),
@@ -536,9 +537,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(74))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.anvil",
         Some(StaticStack::new(
             Type::from_index(26),
@@ -546,9 +547,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(76))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.chest",
         Some(StaticStack::new(
             Type::from_index(221),
@@ -556,9 +557,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(78))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.shulkerBox",
         Some(StaticStack::new(
             Type::from_index(1477),
@@ -566,9 +567,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(80))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.record",
         Some(StaticStack::new(
             Type::from_index(970),
@@ -576,9 +577,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(82))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.sign",
         Some(StaticStack::new(
             Type::from_index(1029),
@@ -587,7 +588,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.hanging_sign",
         Some(StaticStack::new(
             Type::from_index(1024),
@@ -595,9 +596,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(85))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.skull",
         Some(StaticStack::new(
             Type::from_index(337),
@@ -606,7 +607,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.lightning_rod",
         Some(StaticStack::new(
             Type::from_index(850),
@@ -614,9 +615,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(88))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.enchantedBook",
         Some(StaticStack::new(
             Type::from_index(580),
@@ -634,7 +635,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.boat",
         Some(StaticStack::new(
             Type::from_index(1022),
@@ -643,7 +644,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.rail",
         Some(StaticStack::new(
             Type::from_index(1220),
@@ -652,7 +653,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.minecart",
         Some(StaticStack::new(
             Type::from_index(950),
@@ -660,9 +661,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(93))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.buttons",
         Some(StaticStack::new(
             Type::from_index(1590),
@@ -670,9 +671,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(95))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.pressurePlate",
         Some(StaticStack::new(
             Type::from_index(1594),
@@ -680,9 +681,9 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(97))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.banner",
         Some(StaticStack::new(
             Type::from_index(51),
@@ -691,7 +692,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.smithing_templates",
         Some(StaticStack::new(
             Type::from_index(1016),
@@ -700,7 +701,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.firework",
         Some(StaticStack::new(
             Type::from_index(618),
@@ -721,7 +722,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.fireworkStars",
         Some(StaticStack::new(
             Type::from_index(619),
@@ -743,7 +744,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.chains",
         Some(StaticStack::new(
             Type::from_index(764),
@@ -752,7 +753,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.chemistrytable",
         Some(StaticStack::new(
             Type::from_index(794),
@@ -761,7 +762,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         )),
     ),
     CreativeGroup::new(
-        4,
+        CreativeCategory::Items as u8,
         "itemGroup.name.compounds",
         Some(StaticStack::new(
             Type::from_index(262),
@@ -769,7 +770,7 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
             Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(105))]),
         )),
     ),
-    CreativeGroup::new(4, "", None),
+    CreativeGroup::new(CreativeCategory::Items as u8, "", None),
 ];
 
 /// The items in PMMP's order, so an item's index is its creative item network ID: (group index, stack).

@@ -32,11 +32,11 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
     // are consecutive, so a run of entries with the same category and group is one object.
     // Entries without a group share one anonymous group per category until an entry with a group
     // in that category starts a new anonymous group.
-    let mut groups: Vec<(u8, Option<&Json>)> = Vec::new();
-    let mut group_index: BTreeMap<(u8, usize), usize> = BTreeMap::new();
+    let mut groups: Vec<(&str, Option<&Json>)> = Vec::new();
+    let mut group_index: BTreeMap<(&str, usize), usize> = BTreeMap::new();
     let mut items = Vec::with_capacity(entries.len());
     let mut run = 0;
-    let mut previous: Option<(u8, &Json)> = None;
+    let mut previous: Option<(&str, &Json)> = None;
     for entry in &entries {
         let item = entry.get("item").ok_or("entry without item")?;
         if is_lost_enchanted_book(item) {
@@ -72,7 +72,8 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
         out,
         "{HEADER}\n//! The creative inventory generated from the PMMP dump: {} \
          groups, {} items.\n\n\
-         use super::{{CreativeGroup, CreativeItem, StaticStack, Type}};\n\n\
+         use super::{{CreativeGroup, CreativeItem, StaticStack, Type}};\n\
+         use crate::protocol::consts::CreativeCategory;\n\n\
          /// The groups in PMMP's order: (category, name, icon).\n\
          pub(super) static GROUPS: [CreativeGroup; {}] = [",
         groups.len(),
@@ -81,7 +82,10 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
     );
     for (i, (category, group)) in groups.iter().enumerate() {
         let Some(g) = group else {
-            put!(out, "CreativeGroup::new({category}, \"\", None),");
+            put!(
+                out,
+                "CreativeGroup::new(CreativeCategory::{category} as u8, \"\", None),"
+            );
             continue;
         };
         let name = g
@@ -98,7 +102,7 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
         nbt.insert(GROUP_WORKAROUND_KEY.to_owned(), Tag::Int(marker));
         put!(
             out,
-            "CreativeGroup::new({category}, {}, Some({})),",
+            "CreativeGroup::new(CreativeCategory::{category} as u8, {}, Some({})),",
             str_lit(name),
             stack(item, meta, Some(&nbt))
         );
@@ -120,13 +124,13 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
     Ok(out)
 }
 
-/// The `CreativeContentPacket` category of a dumped category name.
-fn category(json: Option<&Json>) -> Result<u8, String> {
+/// The `CreativeCategory` variant of a dumped category name; its number comes from the IR.
+fn category(json: Option<&Json>) -> Result<&'static str, String> {
     match json.and_then(Json::as_str) {
-        Some("construction") => Ok(1),
-        Some("nature") => Ok(2),
-        Some("equipment") => Ok(3),
-        Some("items") => Ok(4),
+        Some("construction") => Ok("Construction"),
+        Some("nature") => Ok("Nature"),
+        Some("equipment") => Ok("Equipment"),
+        Some("items") => Ok("Items"),
         other => Err(format!("unknown creative category {other:?}")),
     }
 }
