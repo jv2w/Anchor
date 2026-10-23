@@ -37,10 +37,10 @@ pub(crate) const BLOCKS: usize = 4096;
 // The same packing as `protocol::block_storage`.
 pub(crate) const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
-/// Most compounds in one [`ExtraRecord`]: one per block of a chunk column (16 × 16 × 384). Block
+/// Most compounds in one [`ExtraRecord`]: one per block of a chunk column. Block
 /// entities and scheduled updates have at most one per block; entities are bounded by the world's
 /// entity cap long before.
-pub(crate) const MAX_EXTRA_ENTRIES: usize = 16 * 16 * 384;
+pub(crate) const MAX_EXTRA_ENTRIES: usize = SUB_CHUNKS * BLOCKS;
 
 /// A value that has a sealed form in one storage table.
 pub(crate) trait Record: Sized {
