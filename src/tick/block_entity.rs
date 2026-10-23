@@ -511,7 +511,11 @@ impl BlockEntity {
                     }
                 }
                 let last = match nbt.remove("LastInteractedSlot") {
-                    Some(Value::Int(l)) if (0..=6).contains(&l) => l,
+                    Some(Value::Int(l))
+                        if usize::try_from(l).is_ok_and(|slot| slot <= BOOKSHELF_SLOTS) =>
+                    {
+                        l
+                    }
                     _ => 0,
                 };
                 Kind::ChiseledBookshelf { last }

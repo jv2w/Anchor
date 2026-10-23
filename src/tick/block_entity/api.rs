@@ -9,8 +9,8 @@
 
 use super::super::{Context, State, inventory};
 use super::{
-    BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon_effect_allowed, block_at,
-    book_pages, broadcast_spawn, campfire_kind, chests_pair, decor, set_beacon,
+    BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon, beacon_effect_allowed,
+    block_at, book_pages, broadcast_spawn, campfire_kind, chests_pair, decor, set_beacon,
 };
 use crate::block::{self, Class, Face, TypeTag};
 use crate::effect;
@@ -513,7 +513,9 @@ impl Mut<'_> {
         if !matches!(self.view().kind(), Some(Kind::Beacon { .. })) {
             return Err(Error::WrongKind);
         }
-        if !beacon_effect_allowed(primary, 4) || !beacon_effect_allowed(secondary, 4) {
+        if !beacon_effect_allowed(primary, beacon::MAX_LEVEL)
+            || !beacon_effect_allowed(secondary, beacon::MAX_LEVEL)
+        {
             return Err(Error::Invalid);
         }
         set_beacon(self.state, self.world, self.pos, primary, secondary);

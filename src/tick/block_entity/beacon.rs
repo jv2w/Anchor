@@ -12,7 +12,7 @@ use crate::world::{BlockPos, MAX_Y, World};
 /// Ticks between beacon updates (dragonfly: 80).
 pub(in crate::tick) const INTERVAL: u64 = 80;
 /// The most pyramid levels.
-const MAX_LEVEL: u8 = 4;
+pub(super) const MAX_LEVEL: u8 = 4;
 
 /// Whether a block counts in a beacon pyramid (vanilla's `beacon_base_blocks`).
 fn powers(state: block::State) -> bool {

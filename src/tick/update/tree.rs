@@ -617,7 +617,9 @@ fn weeping_vines(
         if !can_override(tx.fetch(cx, Some(p))) {
             break;
         }
-        if let Some(s) = props::with_int(vine, "weeping_vines_age", (23 + v).min(25)) {
+        if let Some(s) =
+            props::with_int(vine, "weeping_vines_age", (23 + v).min(super::MAX_VINE_AGE))
+        {
             tx.add(p, s);
         }
     }
