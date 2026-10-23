@@ -1341,7 +1341,7 @@ fn wear_weapon(state: &mut State, session: SessionId, held: &Stack) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    if !super::is_survival(player.survival.mode()) || player.inventory.held() != held {
+    if !super::has_finite_resources(player.survival.mode()) || player.inventory.held() != held {
         return;
     }
     let Some(item) = held.item() else {
@@ -1389,7 +1389,7 @@ pub(super) fn die(
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    let finite = player.survival.mode() != GameMode::Creative;
+    let finite = super::has_finite_resources(player.survival.mode());
     let world_name = state
         .worlds
         .get(player.world)

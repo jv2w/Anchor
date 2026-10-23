@@ -256,6 +256,27 @@ fn a_melee_hit_names_its_attacker_and_its_knockback_can_change() {
     assert_eq!(motion.map(|v| (v[1], v[2] > 1.9)), Some((0.4, true)));
 }
 
+// pmmp: Player::attackEntity, Player::hasFiniteResources
+/// The weapon wears after the hit for an attacker with finite resources: a listener that makes
+/// the attacker a spectator does not spare it.
+#[test]
+fn an_attacker_made_a_spectator_by_a_listener_still_wears_its_weapon() {
+    let listeners = on(|e: &mut EntityDamage, cx: &mut Context<'_>| {
+        if let DamageSource::Entity(Actor::Player(attacker)) = e.source() {
+            cx.player_mut(attacker)
+                .unwrap()
+                .set_game_mode(GameMode::Spectator);
+        }
+    });
+    let mut game = Game::new(2, listeners);
+    let base = game.player(1).position;
+    game.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
+    inventory::set_held(game.player_mut(1), stack(ItemKind::DiamondSword, 1));
+    attack_player(&mut game.state, sid(1), sid(2));
+    assert!(game.survival(2).health < 20.0, "the hit landed");
+    assert_eq!(game.player(1).inventory.held().damage(), 1);
+}
+
 /// What one client does in a tick cannot fill another player's outbox and disconnect it: the
 /// swings and hit sounds of more attacks than an outbox holds leave the target connected.
 #[test]

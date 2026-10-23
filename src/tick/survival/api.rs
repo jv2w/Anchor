@@ -13,7 +13,7 @@ use super::attributes::{
 use super::effects::{self, Active};
 use super::{
     MAX_AIR, MAX_EXHAUSTION, MAX_FIRE_TICKS, MAX_FOOD, MAX_SATURATION, Point, Survival, appearance,
-    broadcast_from, broadcast_to_viewers, damage, food, is_survival,
+    broadcast_from, broadcast_to_viewers, damage, food, has_finite_resources, is_survival,
 };
 use crate::block::Face;
 use crate::config::GameMode;
@@ -336,7 +336,7 @@ impl Player {
     /// Whether placing and using items uses them up: every mode but creative.
     #[doc(alias = "Player::hasFiniteResources")]
     pub fn has_finite_resources(&self) -> bool {
-        self.game_mode() != GameMode::Creative
+        has_finite_resources(self.game_mode())
     }
 
     /// The health in half hearts, 0 when dead.

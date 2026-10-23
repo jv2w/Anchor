@@ -767,10 +767,16 @@ pub(super) fn spawned(_settings: &Settings, player: &mut Player) {
     }
 }
 
-/// Whether the game mode loses items and takes damage (PMMP `Player::isSurvival`: survival or
+/// Whether the game mode takes damage and gets hungry (PMMP `Player::isSurvival`: survival or
 /// adventure).
 fn is_survival(mode: GameMode) -> bool {
     matches!(mode, GameMode::Survival | GameMode::Adventure)
+}
+
+/// Whether the game mode uses items up: placing, eating, shooting and hitting wear them, and a
+/// death drops them (PMMP `Player::hasFiniteResources`: every mode but creative).
+fn has_finite_resources(mode: GameMode) -> bool {
+    mode != GameMode::Creative
 }
 
 /// [`damage_by`] with the source of `cause` (a melee hit's player, otherwise none); the rules
