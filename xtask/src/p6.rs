@@ -182,9 +182,6 @@ const RANDOM_TICKS_OFF_DONE: &str = "Game rule randomtickspeed has been updated 
 const BLOCK_PLACED: &str = "Block placed";
 /// How long BDS may take to run one console command of the blocks scenario.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
-/// The packets `compare::compare_chunks` checks; while any is deferred, its differences are shown
-/// without failing the comparison.
-const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
 /// How long the blocks bot may stay spawned; it leaves on the end marker.
 const BLOCKS_STAY: &str = "90s";
 /// The address Anchor advertises in the fallback run: an IPv6 documentation address (RFC 3849)
@@ -1465,8 +1462,8 @@ fn run(root: &Path, args: &[&str], out: &mut impl Write) -> Result<bool, String>
 
 /// `p6 compare`: compares the spawn windows of two captures, their answer SDP structures when
 /// either has one, their full item packets when both have them, their chunk packets (only shown
-/// while the deferral table holds one of `CHUNK_PACKETS`) and the blocks captures next to them
-/// when both exist; prints the notes.
+/// while the deferral table holds one of `compare::CHUNK_PACKETS`) and the blocks captures next
+/// to them when both exist; prints the notes.
 fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Result<bool, String> {
     let deferred = load_deferred(root)?;
     let fields = compare::parse_fields(&read_text(&root.join(compare::FIELDS_PATH))?, &deferred)?;
@@ -1511,7 +1508,7 @@ fn compare_files(root: &Path, a: &Path, b: &Path, out: &mut impl Write) -> Resul
     for note in &chunk_notes {
         say(out, &format!("note: {note}"))?;
     }
-    if CHUNK_PACKETS.iter().any(|p| deferred.contains(p)) {
+    if compare::CHUNK_PACKETS.iter().any(|p| deferred.contains(p)) {
         for difference in &chunk_differences {
             say(out, &format!("deferred chunk difference: {difference}"))?;
         }

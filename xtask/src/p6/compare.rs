@@ -357,7 +357,8 @@ pub(crate) fn compare_listed(a: &[Received], b: &[Received], fields: &Fields) ->
 /// The chunk packets: they interleave with the spawn window by timing (a server sends them as
 /// chunks load, BDS from before the radius answer), so the window leaves them out and
 /// [`compare_chunks`] compares them by their own rules.
-const CHUNK_PACKETS: [&str; 3] = ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
+pub(crate) const CHUNK_PACKETS: [&str; 3] =
+    ["LevelChunk", "SubChunk", "NetworkChunkPublisherUpdate"];
 
 /// Entity packets that also carry other entities' data: BDS sends them for the flat world's
 /// mobs that come into view during the spawn window (P6, `xtask/data/p6/facts.md`), Anchor never
