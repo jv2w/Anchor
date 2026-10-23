@@ -109,7 +109,7 @@ pub(super) fn drops(state: State, tool: &Stack, rng: &mut Random) -> Drops {
         )),
         Class::GlowLichen | Class::Vine => Some(Rule::ShearsOnly),
         Class::NetherPortal => Some(Rule::Nothing),
-        // Lectern adds its book, which its block entity holds (block_entity::removed drops it).
+        // Lectern adds its book, which its block entity holds (block_entity::drops adds it to a broken block's drops).
         Class::Block => Some(Rule::Base),
         _ => None,
     })
