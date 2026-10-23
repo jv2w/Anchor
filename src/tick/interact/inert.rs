@@ -88,7 +88,7 @@ pub(super) fn break_block(
 
 /// The block becomes air with its block entity gone, the viewers see it break, the listener's
 /// drops fall and the tool wears. False (nothing changes) if the drops find no room for
-/// entities or the block cannot be set.
+/// entities.
 fn destroy(
     state: &mut State,
     actor: &Actor,
