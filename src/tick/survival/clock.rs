@@ -132,12 +132,13 @@ fn packet_time(time: i64) -> i32 {
 }
 
 /// One tick of every loaded world's clock (PMMP `World::actuallyDoTick`): time advances unless it
-/// is stopped, clients are corrected now and then, and a pending sleep check runs. With
+/// is stopped, a pending sleep check runs, and clients are corrected now and then. With
 /// `daylight-cycle = false` no time passes anywhere; clients are still corrected, as BDS does.
 pub(super) fn tick(state: &mut State) {
     let count = state.worlds.len();
     let daylight = state.settings.daylight_cycle;
     state.clock.worlds.resize(count, WorldClock::default());
+    let mut any_corrected = false;
     for world in 0..count {
         if !state.catalog.is_loaded(world) || !state.is_awake(world) {
             continue;
@@ -160,13 +161,41 @@ pub(super) fn tick(state: &mut State) {
             c.sleep_ticks -= 1;
             c.sleep_ticks == 0
         };
-        if sync {
-            send_to_world(state, world, &clock_state(state, world));
-        }
+        any_corrected |= sync;
         if check {
             check_sleep(state, world);
         }
     }
+    if any_corrected {
+        correct_clients(state);
+    }
+}
+
+/// Queues the clock correction for every spawned player whose world is corrected this tick: one
+/// pass over the players however many worlds are corrected, as worlds made together correct
+/// together.
+fn correct_clients(state: &mut State) {
+    // Taken out so the worlds can be read while the players are written; nothing in between
+    // reads the player map.
+    let mut players = std::mem::take(&mut state.players);
+    for p in players.values_mut() {
+        if p.phase == Phase::Spawned && is_corrected(state, p.world) {
+            p.send_to_viewer(clock_state(state, p.world));
+        }
+    }
+    state.players = players;
+}
+
+/// Whether `world`'s clients are corrected this tick: its clock ran and its correction timer
+/// just started over.
+fn is_corrected(state: &State, world: WorldIndex) -> bool {
+    state.catalog.is_loaded(world)
+        && state.is_awake(world)
+        && state
+            .clock
+            .worlds
+            .get(world)
+            .is_some_and(|c| c.sync_in == SYNC_TICKS - 1)
 }
 
 /// `SyncWorldClocks` with the world's time (payload 0, as BDS sends before `StartGame` and to
