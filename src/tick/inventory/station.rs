@@ -983,7 +983,7 @@ fn use_anvil(
     } else {
         crate::world::Sound::AnvilUse
     };
-    interact::sound(state, world, block_vec(pos), used);
+    interact::sound(state, world, interact::block_vec(pos), used);
     if let Some(next) = next {
         if let Some(w) = state.worlds.get_mut(world)
             && w.set_block(pos, next).is_err()
@@ -999,9 +999,4 @@ fn use_anvil(
             super::close_viewers(state, world, pos);
         }
     }
-}
-
-/// A block position as a packet vector (the corner).
-fn block_vec(pos: BlockPos) -> crate::math::Vec3 {
-    crate::math::Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z))
 }
