@@ -14,7 +14,7 @@ Anchor의 설정은 `anchor.toml` 파일 하나다. 이 문서는 모든 키의 
 
 ## 기본 파일
 
-`Config::load`가 쓰는 기본 파일(`src/config.rs`의 `DEFAULT_FILE`)이다. 키 66개가 모두 들어 있다.
+`Config::load`가 쓰는 기본 파일(`src/config.rs`의 `DEFAULT_FILE`)이다. 모든 키가 들어 있다.
 
 ```toml
 # Anchor server settings. Anchor reads this file at start and writes it only to update it:
