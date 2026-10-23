@@ -65,9 +65,9 @@ const SUB_CHUNK_NAME: &str = "SubChunkPrefix";
 pub(crate) const MAX_CHUNK_VERSION: u8 = 42;
 /// The newest sub-chunk version read.
 pub(crate) const MAX_SUB_CHUNK_VERSION: u8 = 9;
-/// The sub-chunks imported: Anchor's world height, y -64 to 319.
-const MIN_Y: i8 = -4;
-const MAX_Y: i8 = 19;
+/// The sub-chunks imported: Anchor's world height.
+const MIN_Y: i32 = crate::world::MIN_Y >> 4;
+const MAX_Y: i32 = crate::world::MAX_Y >> 4;
 /// How far chunk versions 24 to 26 shift the sub-chunk y in keys.
 const CAVES_CLIFFS_OFFSET: i8 = 4;
 /// The most value bytes kept for one chunk.
@@ -215,7 +215,7 @@ impl Entries {
             }
             &[SUB_CHUNK, y] => {
                 let y = i8::from_le_bytes([y]);
-                if (MIN_Y..=MAX_Y + CAVES_CLIFFS_OFFSET).contains(&y) {
+                if (MIN_Y..=MAX_Y + i32::from(CAVES_CLIFFS_OFFSET)).contains(&i32::from(y)) {
                     self.count(value.len())?;
                     self.sub_chunks.insert(y, value.to_vec());
                 } else {
@@ -261,7 +261,7 @@ impl Entries {
 pub(crate) struct Raw {
     /// The chunk version.
     pub(crate) version: u8,
-    /// The stored sub-chunks from y -4 to 19, by ascending y; the others hold only air.
+    /// The stored sub-chunks in the world height, by ascending y; the others hold only air.
     pub(crate) sections: Vec<Section>,
     /// Block entity compounds.
     pub(crate) block_entities: Vec<Compound>,
@@ -415,7 +415,7 @@ fn terrain(
     let mut sections = Vec::with_capacity(entries.sub_chunks.len());
     for (&key_y, value) in &entries.sub_chunks {
         let y = key_y - offset;
-        if (MIN_Y..=MAX_Y).contains(&y) {
+        if (MIN_Y..=MAX_Y).contains(&i32::from(y)) {
             let section = section(value, key_y, y, budget)
                 .map_err(|e| entries.at_key(&[SUB_CHUNK, key_y.to_le_bytes()[0]], e))?;
             sections.push(section);
