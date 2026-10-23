@@ -554,8 +554,9 @@ fn delete_worlds(plans: &mut [Plan], opener: &Opener, worlds: &[DeletedWorld]) {
         let Opener::Live { data_dir, .. } = opener else {
             continue;
         };
-        let file = match world_place(data_dir, &world.name) {
-            Ok(place) => place.file,
+        let file = match world_file_name(data_dir, &world.name) {
+            Ok(Some(name)) => Place::world(data_dir, &name).file,
+            Ok(None) => continue,
             Err(e) => {
                 error!(world = world.name, error = %e, "could not delete the world file");
                 continue;
@@ -943,10 +944,14 @@ pub(crate) fn world_file_name(
     data_dir: &std::path::Path,
     name: &str,
 ) -> Result<Option<String>, storage::Error> {
+    Ok(file_of(&world_names(data_dir)?, name).cloned())
+}
+
+/// Of the world file names `names`, the one whose name differs from `name` at most in letter
+/// case, if any.
+fn file_of<'a>(names: &'a [String], name: &str) -> Option<&'a String> {
     let key = storage::world_name_key(name);
-    Ok(world_names(data_dir)?
-        .into_iter()
-        .find(|n| storage::world_name_key(n) == key))
+    names.iter().find(|n| storage::world_name_key(n) == key)
 }
 
 /// Whether `data/worlds/` holds the file of the world `name`, or of one whose name differs only in
@@ -960,10 +965,16 @@ pub(crate) fn world_file_exists(
 
 /// The file of the world `name` and its backup folder: its world file's ([`world_file_name`]),
 /// else `data/worlds/<name>.redb` for a new one. A case-sensitive file system would otherwise
-/// give a name in another letter case a second file and backup folder.
+/// give a name in another letter case a second file and backup folder. A new one is refused
+/// while the folder holds [`MAX_WORLDS`] world files, as [`world_names`] refuses a folder holding
+/// more.
 fn world_place(data_dir: &std::path::Path, name: &str) -> Result<Place, storage::Error> {
-    let file = world_file_name(data_dir, name)?;
-    Ok(Place::world(data_dir, file.as_deref().unwrap_or(name)))
+    let names = world_names(data_dir)?;
+    match file_of(&names, name) {
+        Some(file) => Ok(Place::world(data_dir, file)),
+        None if names.len() < MAX_WORLDS => Ok(Place::world(data_dir, name)),
+        None => Err(storage::Error::TooManyWorlds),
+    }
 }
 
 /// [`open_with`] a start backup and a check, as the tests open data files.
@@ -3793,6 +3804,68 @@ pub(crate) mod tests {
         assert_eq!(world_files(&dir.0).unwrap(), ["Lobby", "arena2", "world"]);
         assert!(world_file_exists(&dir.0, "LOBBY").unwrap());
         assert!(!world_file_exists(&dir.0, "lobby2").unwrap());
+    }
+
+    /// A start whose declared world would be the world file past the most `data/worlds/` may
+    /// hold is refused before it makes the file, so the next start still reads the folder.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_start_makes_no_world_file_past_the_most_the_folder_holds() {
+        let dir = TempDir::new("world-limit");
+        let worlds = dir.0.join(storage::WORLD_DIR);
+        std::fs::create_dir_all(&worlds).unwrap();
+        // Empty files are damaged ones: left out of the stored worlds, but world files still.
+        for i in 0..MAX_WORLDS {
+            std::fs::write(worlds.join(format!("w{i:04}.{}", storage::EXTENSION)), b"").unwrap();
+        }
+        let refused = open(&dir.0, specs()).err();
+        assert!(
+            matches!(
+                &refused,
+                Some(crate::Error::Storage(e))
+                    if matches!(e.downcast_ref(), Some(storage::Error::TooManyWorlds))
+            ),
+            "{refused:?}"
+        );
+        assert!(!Place::world(&dir.0, "world").file.exists());
+        assert_eq!(world_files(&dir.0).unwrap().len(), MAX_WORLDS);
+    }
+
+    /// A world the tick makes while `data/worlds/` holds the most world files (the tick does not
+    /// count the files a start left out) gets no file, so the next start still reads the folder.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+    fn a_world_made_at_the_most_world_files_makes_no_file() {
+        let dir = TempDir::new("world-limit-run");
+        let worlds = dir.0.join(storage::WORLD_DIR);
+        std::fs::create_dir_all(&worlds).unwrap();
+        // Damaged files the start leaves out; with the declared world's, the folder is full.
+        for i in 1..MAX_WORLDS {
+            std::fs::write(worlds.join(format!("w{i:04}.{}", storage::EXTENSION)), b"").unwrap();
+        }
+        let (tx, rx) = mpsc::channel(REQUEST_CAPACITY);
+        let (answer, _answers) = mpsc::channel(RESPONSE_CAPACITY);
+        tx.try_send(Request::Worlds(vec![NewWorld {
+            index: 2,
+            name: "extra".to_owned(),
+            number: Some(1),
+            seed: 0,
+            generator: Arc::new(Flat),
+        }]))
+        .unwrap();
+        tx.try_send(Request::Finish).unwrap();
+        drop(tx);
+        let thread = open(&dir.0, specs()).unwrap().thread;
+        let handle = crate::runtime::spawn_save(move || {
+            let pool = crate::runtime::cpu_pool(1).unwrap();
+            let result = run(thread, &pool, rx, &answer);
+            assert!(pool.shutdown());
+            result
+        })
+        .unwrap();
+        handle.join().unwrap().unwrap();
+        assert!(!Place::world(&dir.0, "extra").file.exists());
+        assert_eq!(world_files(&dir.0).unwrap().len(), MAX_WORLDS);
     }
 
     /// A declared world whose file has its name in another letter case opens that file, at a

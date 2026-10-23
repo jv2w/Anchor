@@ -78,7 +78,8 @@ pub(crate) const RETRIES: usize = 3;
 /// redb's page cache. Loaded chunks live in the world, and the OS caches the file, so this only
 /// spares a system call for pages read again; redb's default of 1 GiB would mostly hold copies.
 const CACHE_BYTES: usize = 64 << 20;
-/// Most world files `data/worlds/` may hold (`save::world_names` counts them).
+/// Most world files `data/worlds/` may hold (`save::world_names` counts them, and
+/// `save::world_place` gives no place for a new one past them).
 pub(crate) const MAX_WORLDS: usize = 1024;
 /// Most `access` values [`Storage::access`] returns: every list full.
 const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
@@ -206,7 +207,7 @@ pub(crate) enum Error {
     /// A record cannot be encoded: a field is invalid or it is larger than
     /// [`MAX_RECORD`](seal::MAX_RECORD).
     Encode(crate::protocol::Error),
-    /// `data/worlds/` holds more than [`MAX_WORLDS`] world files.
+    /// `data/worlds/` holds more than [`MAX_WORLDS`] world files, or a new one would make it.
     TooManyWorlds,
     /// [`Storage::access`] found more values than the lists hold.
     TooManyAccessEntries,
@@ -270,7 +271,9 @@ impl fmt::Display for Error {
                 "a stored value has format {version}, newer than {FORMAT_VERSION}"
             ),
             Self::Encode(_) => f.write_str("a record cannot be encoded"),
-            Self::TooManyWorlds => write!(f, "more than {MAX_WORLDS} worlds are stored"),
+            Self::TooManyWorlds => {
+                write!(f, "more than {MAX_WORLDS} worlds are or would be stored")
+            }
             Self::Closed => f.write_str("the world's data file is not open"),
             Self::TooManyAccessEntries => {
                 write!(
