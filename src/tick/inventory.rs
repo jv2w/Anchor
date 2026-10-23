@@ -1357,9 +1357,7 @@ pub(super) fn load(inventory: &mut Inventory, extra: &Compound, custom: &crate::
             let net = if stack.is_empty() {
                 0
             } else {
-                let net = *next_id;
-                *next_id = next_id.saturating_add(1);
-                net
+                take_stack_id(next_id)
             };
             *id = StackId { net, request: None };
         }
