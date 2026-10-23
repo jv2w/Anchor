@@ -3433,11 +3433,7 @@ fn landed(state: &mut State, id: Id, fall: f64, hits: &mut Vec<(SessionId, f64)>
     if fallen > 0.0 {
         let damage = crate::math::min(fallen * ANVIL_DAMAGE_PER_BLOCK, ANVIL_MAX_DAMAGE);
         for (&s, p) in &state.players {
-            if p.world == world
-                && p.phase == Phase::Spawned
-                && (hooks.is_alive)(p)
-                && player_box(p).overlaps(bounds, EPSILON)
-            {
+            if targetable(state, p, world, hooks) && player_box(p).overlaps(bounds, EPSILON) {
                 hits.push((s, damage));
             }
         }
