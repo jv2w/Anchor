@@ -394,17 +394,7 @@ impl Mut<'_> {
             return Err(Error::TooLong);
         }
         self.edit(|e| {
-            matches!(
-                e.kind,
-                Kind::Chest { .. }
-                    | Kind::Barrel
-                    | Kind::ShulkerBox { .. }
-                    | Kind::Hopper
-                    | Kind::Furnace(_)
-                    | Kind::BrewingStand(_)
-                    | Kind::EnchantTable
-            )
-            .then(|| {
+            e.kind.is_nameable().then(|| {
                 e.name = name.map(str::to_owned);
                 Ok(())
             })

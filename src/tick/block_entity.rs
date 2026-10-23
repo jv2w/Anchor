@@ -130,7 +130,7 @@ pub(super) struct BlockEntity {
     pub(super) kind: Kind,
     /// The slots (27 for a chest, 3 for a furnace…), empty for kinds without slots.
     pub(super) items: Vec<Stack>,
-    /// `CustomName`.
+    /// `CustomName`, of a kind that takes one ([`Kind::is_nameable`]).
     pub(super) name: Option<String>,
     /// The other saved keys (`Lock`, `isMovable`…), written back unchanged.
     rest: Compound,
@@ -389,6 +389,20 @@ impl Kind {
         )
     }
 
+    /// Whether it takes a custom name (PMMP `NameableTrait` tiles).
+    fn is_nameable(&self) -> bool {
+        matches!(
+            self,
+            Self::Chest { .. }
+                | Self::Barrel
+                | Self::ShulkerBox { .. }
+                | Self::Hopper
+                | Self::Furnace(_)
+                | Self::BrewingStand(_)
+                | Self::EnchantTable
+        )
+    }
+
     /// Whether the tick may have work for it.
     fn ticks(&self, items: &[Stack]) -> bool {
         match self {
@@ -524,9 +538,11 @@ impl BlockEntity {
         }
         let mut entity = Self::new(kind, 0);
         entity.items = items;
-        // A name over the limit (only an Anchor before the limit saved one) stays as saved and is
-        // not shown, so every name is one a stack may carry ([`with_block_data`]).
-        if let Some(Value::String(name)) = nbt.get("CustomName")
+        // A name over the limit (only an Anchor before the limit saved one), or on a kind without
+        // one, stays as saved and is not shown, so every name is one a stack may carry
+        // ([`with_block_data`]).
+        if entity.kind.is_nameable()
+            && let Some(Value::String(name)) = nbt.get("CustomName")
             && !name.is_empty()
             && name.len() <= crate::tile::MAX_NAME_BYTES
         {
@@ -1381,10 +1397,10 @@ pub(super) fn broadcast_spawn(state: &mut State, world: WorldIndex, pos: BlockPo
 /// The block at `pos` was placed by `session` (or by the world when `None`) from `item` against
 /// `face` (the clicked face): creates its block entity if the block has one.
 ///
-/// The new entity takes the item's custom name and the data its item carries (PMMP
-/// `Tile::copyDataFromItem` and each block's `place`): a shulker box's items and the face it opens
-/// toward, a bed's colour, a banner's colour and patterns, a floor mob head's rotation from the
-/// player's yaw. A chest pairs with a chest of the same kind and facing beside it that is not
+/// The new entity takes the item's custom name if its kind has one and the data its item carries
+/// (PMMP `Tile::copyDataFromItem` and each block's `place`): a shulker box's items and the face it
+/// opens toward, a bed's colour, a banner's colour and patterns, a floor mob head's rotation from
+/// the player's yaw. A chest pairs with a chest of the same kind and facing beside it that is not
 /// paired yet, trying the counter-clockwise side first (PMMP `Chest::onPostPlace`). A block entity
 /// already at `pos` (one nothing removed) is replaced, everything it held dropped first
 /// ([`discard`]). The players who see the chunk get its client data.
@@ -1432,7 +1448,9 @@ fn create(
         .and_then(|s| state.players.get(&s))
         .map(|p| survival::rotation(p).0);
     let mut entity = BlockEntity::new(kind, slots);
-    entity.name = Some(item.custom_name().to_owned()).filter(|n| !n.is_empty());
+    if entity.kind.is_nameable() {
+        entity.name = Some(item.custom_name().to_owned()).filter(|n| !n.is_empty());
+    }
     let tag = item.tag();
     let mut unfit = Vec::new();
     match &mut entity.kind {
@@ -3316,6 +3334,23 @@ pub(in crate::tick) mod tests {
             }
             assert_eq!(cook(&state, 0, pos), cooked, "slow {slow}");
         }
+    }
+
+    /// A saved name on a kind without one (PMMP `NameableTrait`) is kept as saved and not shown.
+    #[test]
+    fn a_saved_name_stays_off_kinds_without_one() {
+        let pos = BlockPos::new(1, 2, 3);
+        let saved = Compound::from([
+            ("id".to_owned(), Value::String("Sign".to_owned())),
+            ("CustomName".to_owned(), Value::String("x".to_owned())),
+        ]);
+        let sign = BlockEntity::read(saved, pos, &Registry::default());
+        assert_eq!(sign.name, None);
+        assert!(!sign.spawn_nbt(pos).contains_key("CustomName"));
+        assert_eq!(
+            sign.write(pos).get("CustomName"),
+            Some(&Value::String("x".to_owned()))
+        );
     }
 
     #[test]

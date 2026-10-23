@@ -619,3 +619,47 @@ fn block_entities_are_counted_per_world_across_chunks() {
     assert_eq!(h.state.rules.block_entities.count(0), 3);
     assert_eq!(h.state.rules.block_entities.count(1), 0);
 }
+
+/// A renamed item's name goes to the block entity only for the kinds that have one (PMMP
+/// `NameableTrait::copyDataFromItem`), the kinds `set_name` takes.
+#[test]
+fn only_containers_take_a_placed_items_name() {
+    let mut h = Harness::new();
+    let named = |stack: Stack| {
+        stack
+            .with_extra(Some(item::Extra {
+                custom_name: Some("x".to_owned()),
+                ..item::Extra::default()
+            }))
+            .unwrap()
+    };
+    let chest = item::Type::from_name(
+        "minecraft:chest",
+        0,
+        Some(block::Kind::Chest.default_state()),
+        &Compound::new(),
+    )
+    .unwrap();
+    for (dx, block, stack, name) in [
+        (1, block::Kind::OakSign, item("minecraft:oak_sign", 0), None),
+        (3, block::Kind::Chest, Stack::new(chest, 1), Some("x")),
+    ] {
+        let pos = h.spot(dx);
+        h.state.worlds[0]
+            .set_block(pos, block.default_state())
+            .unwrap();
+        placed(&mut h.state, 0, pos, None, &named(stack), Face::Up);
+        let sent = h.actor_data(pos);
+        assert_eq!(
+            sent[0].get("CustomName"),
+            name.map(|n| Value::String(n.to_owned())).as_ref(),
+            "{block:?}"
+        );
+        let cx = h.cx();
+        assert_eq!(
+            cx.block_entity(WORLD, pos).unwrap().name(),
+            name,
+            "{block:?}"
+        );
+    }
+}
