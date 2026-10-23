@@ -228,7 +228,7 @@ const TITLE_SUCCESS: Msg = Msg::client("commands.title.success");
 const MESSAGE_SAME_TARGET: Msg = Msg::client("commands.message.sameTarget");
 const MESSAGE_INCOMING: Msg = Msg::client("commands.message.display.incoming");
 const MESSAGE_OUTGOING: Msg = Msg::client("commands.message.display.outgoing");
-/// How whispers look (PMMP: gray, italic).
+/// How whispers look: aqua, italic.
 const WHISPER_PREFIX: &str = "§b§o";
 /// The longest `/give` amount (PMMP `GiveCommand`).
 const MAX_GIVE: i32 = 32_767;
