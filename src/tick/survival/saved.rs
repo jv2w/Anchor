@@ -4,7 +4,9 @@
 //! Bedrock item compounds), which PMMP does not keep.
 //!
 //! The extra comes from the server file, so every value is checked on load: a wrong type or a
-//! value out of range keeps the default; nothing here panics.
+//! value out of range keeps the default, except that the health is cut to the maximum health, the
+//! air to -20..=[`MAX_AIR`], the experience level to [`MAX_LEVEL`](crate::player::MAX_LEVEL), and
+//! the food timer wraps at [`FOOD_CYCLE`]; nothing here panics.
 
 use tracing::warn;
 
@@ -126,8 +128,9 @@ fn point(extra: &Compound, world: &str, keys: [&str; 3]) -> Option<Point> {
     })
 }
 
-/// Reads the survival keys; each missing or bad key keeps its default. With `force-gamemode` the
-/// saved game mode is not loaded: the player joins in the server's mode (PMMP). Held-back items
+/// Reads the survival keys; each missing or bad key keeps its default, but for the few the module
+/// documentation names, which are cut into range. With `force-gamemode` the saved game mode is
+/// not loaded: the player joins in the server's mode (PMMP). Held-back items
 /// read with the server's `custom` items and blocks, so a custom item is not lost.
 pub(super) fn load(survival: &mut Survival, extra: &Compound, custom: &crate::custom::Registry) {
     let s = survival;
@@ -459,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn bad_saved_values_keep_the_defaults() {
+    fn bad_saved_values_keep_the_defaults_or_are_cut_into_range() {
         let mut extra = Compound::new();
         extra.insert(HEALTH.to_owned(), Value::Float(f32::NAN));
         extra.insert(FOOD.to_owned(), Value::Int(99));
