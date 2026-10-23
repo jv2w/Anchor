@@ -105,7 +105,7 @@ setters!(EntityCombust {
 /// Why a player or an entity takes damage (PMMP `EntityDamageEvent::CAUSE_*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DamageCause {
-    /// Touching a block that hurts: cactus, berry bush, magma.
+    /// Touching a block that hurts: cactus, a berry bush with berries.
     #[doc(alias = "EntityDamageEvent::CAUSE_CONTACT")]
     Contact,
     /// A melee hit.
@@ -120,7 +120,7 @@ pub enum DamageCause {
     /// A fall.
     #[doc(alias = "EntityDamageEvent::CAUSE_FALL")]
     Fall,
-    /// Standing in fire.
+    /// Standing in fire, on magma or in a lit campfire.
     #[doc(alias = "EntityDamageEvent::CAUSE_FIRE")]
     Fire,
     /// Burning after leaving fire.
@@ -141,7 +141,8 @@ pub enum DamageCause {
     /// Below the world.
     #[doc(alias = "EntityDamageEvent::CAUSE_VOID")]
     Void,
-    /// The player killed itself (`kill` on oneself).
+    /// Damage an [`action::Damage`](crate::action::Damage) gives as the player's own; `/kill`
+    /// raises none (it calls [`Player::kill`](crate::player::Player::kill)).
     #[doc(alias = "EntityDamageEvent::CAUSE_SUICIDE")]
     Suicide,
     /// An effect or a potion: poison, harming.
