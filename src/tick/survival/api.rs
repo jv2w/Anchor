@@ -497,7 +497,8 @@ impl Player {
         self.survival.motion.hunger &= enabled;
     }
 
-    /// Whether the player can eat: its food is below 20.
+    /// Whether the player's food is below 20. Food that needs hunger is also eaten at 20 in
+    /// peaceful and creative.
     #[doc(alias = "HungerManager::isHungry")]
     pub fn is_hungry(&self) -> bool {
         self.survival.food < MAX_FOOD
