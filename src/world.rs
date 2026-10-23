@@ -236,7 +236,7 @@ impl fmt::Display for Error {
             Self::UnknownGenerator => f.write_str("no generator of that name is registered"),
             Self::InvalidName => f.write_str("world name cannot be a file name"),
             Self::InvalidSettings => f.write_str("world view value is out of range"),
-            Self::Full => f.write_str("world or chunk ticket limit reached"),
+            Self::Full => f.write_str("world, chunk ticket or chunk unknown state limit reached"),
         }
     }
 }
@@ -1550,6 +1550,14 @@ mod tests {
         assert_eq!(w.spawn(), BlockPos::new(0, -60, 0));
         assert_eq!(Error::NotLoaded.to_string(), "chunk is not loaded");
         assert_eq!(Error::Malformed("x").to_string(), "malformed chunk data: x");
+    }
+
+    #[test]
+    fn the_full_error_names_every_limit_it_stands_for() {
+        assert_eq!(
+            Error::Full.to_string(),
+            "world, chunk ticket or chunk unknown state limit reached"
+        );
     }
 
     #[test]
