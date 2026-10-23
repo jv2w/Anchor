@@ -37,13 +37,21 @@ impl Update {
 }
 
 /// A table of the default file.
-struct Section {
+pub(super) struct Section {
     /// The table's name, such as `general`.
-    name: &'static str,
+    pub(super) name: &'static str,
     /// The comment lines right above the table's header, and the header line.
     header: &'static str,
     /// The table's keys, in file order.
     keys: Vec<Entry>,
+}
+
+impl Section {
+    /// Whether the default file holds the key `name` in this table: the one list of the keys
+    /// Anchor knows, which loading and updating a settings file both follow.
+    pub(super) fn has_key(&self, name: &str) -> bool {
+        self.keys.iter().any(|k| k.name == name)
+    }
 }
 
 /// A key of the default file.
@@ -137,7 +145,7 @@ fn edit(text: &str) -> Result<(String, Update)> {
         if header {
             for (key, value) in entries {
                 let name: &str = key.get_ref();
-                if !section.keys.iter().any(|k| k.name == name) {
+                if !section.has_key(name) {
                     remove(&mut edits, section.name, key, value);
                 }
             }
@@ -230,7 +238,7 @@ fn value_ends(root: &DeTable<'_>, text: &str) -> Vec<usize> {
     clippy::string_slice,
     reason = "invariant: the bounds are line starts and ends of the text"
 )]
-fn sections() -> Vec<Section> {
+pub(super) fn sections() -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
     // The start of the comment lines right above the current line.
     let mut comment = None;

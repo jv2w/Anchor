@@ -382,7 +382,17 @@ impl Config {
     fn apply(mut self, bytes: &[u8]) -> Result<Self> {
         let text = utf8(bytes)?;
         let table = text.parse::<Table>().map_err(|e| syntax(text, &e))?;
+        let sections = update::sections();
         for (name, value) in &table {
+            // A key the default file lacks is unknown here as it is to `update-config`, which
+            // removes it.
+            if let Some(section) = sections.iter().find(|s| s.name == name)
+                && let Some(key) = table_of(value, Key::top(name))?
+                    .keys()
+                    .find(|key| !section.has_key(key))
+            {
+                return Err(Key::new(name, key).unknown());
+            }
             match name.as_str() {
                 "general" => self.general.merge(table_of(value, Key::top(name))?)?,
                 "developer" => self.developer.merge(table_of(value, Key::top(name))?)?,
