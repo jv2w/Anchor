@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ServerBuilder;
 use crate::protocol::Uuid;
+use crate::protocol::consts::ResourcePackType;
 use crate::protocol::packet::{ResourcePackStack, ResourcePacksInfo};
 use crate::protocol::{StackResourcePack, TexturePackInfo};
 
@@ -38,12 +39,6 @@ const MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
 const KEY_LEN: usize = 32;
 /// The largest key file read: a key and a line break, with room to spare.
 const MAX_KEY_FILE_BYTES: u64 = 64;
-/// `ResourcePackDataInfo` pack types (gophertunnel `ResourcePackType*`).
-const TYPE_ADDON: u8 = 1;
-const TYPE_BEHAVIOUR: u8 = 4;
-const TYPE_RESOURCES: u8 = 6;
-const TYPE_SKINS: u8 = 7;
-const TYPE_WORLD_TEMPLATE: u8 = 8;
 
 /// A resource pack: a zip archive with a valid `manifest.json`, held in memory.
 #[doc(alias = "ResourcePack")]
@@ -177,17 +172,17 @@ impl Pack {
     pub(crate) fn pack_type(&self) -> u8 {
         let m = &self.manifest;
         let code = m.behaviours || m.scripts;
-        if m.world_template {
-            TYPE_WORLD_TEMPLATE
+        u8::from(if m.world_template {
+            ResourcePackType::WorldTemplate
         } else if m.textures && code {
-            TYPE_ADDON
+            ResourcePackType::Addon
         } else if code {
-            TYPE_BEHAVIOUR
+            ResourcePackType::Behaviour
         } else if m.textures {
-            TYPE_RESOURCES
+            ResourcePackType::Resources
         } else {
-            TYPE_SKINS
-        }
+            ResourcePackType::Skins
+        })
     }
 }
 
@@ -554,7 +549,7 @@ pub(crate) mod tests {
         assert_eq!(pack.size(), u64::try_from(bytes.len()).unwrap());
         assert_eq!(pack.sha256(), &crate::crypto::sha256(&[&bytes]));
         assert_eq!(pack.bytes(), bytes.as_slice());
-        assert_eq!(pack.pack_type(), TYPE_RESOURCES);
+        assert_eq!(pack.pack_type(), u8::from(ResourcePackType::Resources));
         assert_eq!(pack.content_key(), None);
         let debug = format!("{pack:?}");
         assert!(debug.contains(UUID) && debug.contains("encrypted: false"));
@@ -674,15 +669,15 @@ pub(crate) mod tests {
     #[test]
     fn pack_types_follow_gophertunnel() {
         let mut p = pack(UUID, "1.0.0", 1);
-        assert_eq!(p.pack_type(), TYPE_RESOURCES);
+        assert_eq!(p.pack_type(), u8::from(ResourcePackType::Resources));
         p.manifest.behaviours = true;
-        assert_eq!(p.pack_type(), TYPE_ADDON);
+        assert_eq!(p.pack_type(), u8::from(ResourcePackType::Addon));
         p.manifest.textures = false;
-        assert_eq!(p.pack_type(), TYPE_BEHAVIOUR);
+        assert_eq!(p.pack_type(), u8::from(ResourcePackType::Behaviour));
         p.manifest.behaviours = false;
-        assert_eq!(p.pack_type(), TYPE_SKINS);
+        assert_eq!(p.pack_type(), u8::from(ResourcePackType::Skins));
         p.manifest.world_template = true;
-        assert_eq!(p.pack_type(), TYPE_WORLD_TEMPLATE);
+        assert_eq!(p.pack_type(), u8::from(ResourcePackType::WorldTemplate));
     }
 
     #[test]
