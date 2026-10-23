@@ -1331,17 +1331,10 @@ struct BreakPlan {
     destruction: Destruction,
 }
 
-/// PMMP `World::useBreakOn`'s checks for a player (PMMP cancels the `BlockBreakEvent` for
-/// these: air, a spectator, an unbreakable block with finite resources, adventure mode without
-/// `CanDestroy`) and the drops and experience the break gives.
+/// Not air and [`player_may_break`], and the drops and experience the break gives.
 fn break_plan(state: &State, actor: &Actor, pos: BlockPos, tool: &Stack) -> Option<BreakPlan> {
     let target = state.worlds.get(actor.world)?.block(pos)?;
-    if target == block::AIR
-        || actor.mode == GameMode::Spectator
-        || (actor.finite() && !target.break_info().is_breakable())
-        || (actor.mode == GameMode::Adventure
-            && !adventure_allows(tool, "CanDestroy", target.name()))
-    {
+    if target == block::AIR || !player_may_break(actor, tool, target.name(), target.break_info()) {
         return None;
     }
     let cause = Destroy::Player {
@@ -1371,11 +1364,41 @@ fn use_break_on(
     if !apply_destruction(state, actor.world, pos, &cause, plan.destruction, true) {
         return false;
     }
-    let mut rng = stream(state, actor.world, USE, pos);
-    let instant = plan.block.break_info().breaks_instantly();
-    let worn = tool_after_break(&state.settings, tool, instant, &mut rng);
-    return_items(state, actor, tool, worn, Vec::new());
+    wear_after_break(state, actor, pos, tool, plan.block.break_info());
     true
+}
+
+/// PMMP `World::useBreakOn`'s checks for a player breaking the block `name` (PMMP cancels the
+/// `BlockBreakEvent` for these): not a spectator, a breakable block with finite resources, and
+/// `CanDestroy` in adventure mode.
+fn player_may_break(actor: &Actor, tool: &Stack, name: &str, info: block::BreakInfo) -> bool {
+    actor.mode != GameMode::Spectator
+        && (!actor.finite() || info.is_breakable())
+        && (actor.mode != GameMode::Adventure || adventure_allows(tool, "CanDestroy", name))
+}
+
+/// Whether a player's break has room for its `count` drops as entities; a break without it is
+/// refused.
+fn drops_fit(state: &State, world: WorldIndex, count: usize) -> bool {
+    let fit = entity::has_room(state, world, count);
+    if !fit {
+        debug!("break refused: no room for the drops");
+    }
+    fit
+}
+
+/// The player's tool wears from breaking a block with `info` at `pos` (PMMP
+/// `Item::onDestroyBlock`) and goes back to it.
+fn wear_after_break(
+    state: &mut State,
+    actor: &Actor,
+    pos: BlockPos,
+    tool: &Stack,
+    info: block::BreakInfo,
+) {
+    let mut rng = stream(state, actor.world, USE, pos);
+    let worn = tool_after_break(&state.settings, tool, info.breaks_instantly(), &mut rng);
+    return_items(state, actor, tool, worn, Vec::new());
 }
 
 /// The tool after breaking a block that breaks at once or not (PMMP `Item::onDestroyBlock`):
@@ -1634,8 +1657,7 @@ fn apply_destruction(
         items,
         xp,
     } = plan;
-    if matches!(cause, Destroy::Player { .. }) && !entity::has_room(state, world, items.len()) {
-        debug!("break refused: no room for the drops");
+    if matches!(cause, Destroy::Player { .. }) && !drops_fit(state, world, items.len()) {
         return false;
     }
     for (p, s) in affected.into_iter().flatten() {

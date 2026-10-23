@@ -4,14 +4,13 @@
 use tracing::debug;
 
 use super::{
-    Actor, Event, Hit, State, USE, adventure_allows, break_done, center, finish_break_with, held,
-    level_event, return_items, spawn_drops, stop_breaking_at, stream, tool_after_break,
+    Actor, Event, Hit, State, break_done, center, drops_fit, finish_break_with, held, level_event,
+    player_may_break, spawn_drops, stop_breaking_at, wear_after_break,
 };
 use crate::block::{self, Inert};
-use crate::config::GameMode;
 use crate::event::BlockBreak;
 use crate::item::Stack;
-use crate::tick::{dispatch, entity};
+use crate::tick::dispatch;
 use crate::world::BlockPos;
 
 /// The client says it broke the inert block `block` at `pos`, in reach. False (the caller
@@ -29,7 +28,7 @@ pub(super) fn break_block(
 ) -> bool {
     let session = actor.session;
     let tool = held(state, session);
-    if !allowed(&actor, &tool, block) {
+    if !player_may_break(&actor, &tool, block.name(), block.break_info()) {
         stop_breaking_at(state, &actor, pos);
         return false;
     }
@@ -59,7 +58,7 @@ pub(super) fn break_block(
                     && a.can_interact(center(pos), a.reach())
                     && held(state, session) == tool
                     && Hit::at(state, a.world, pos) == Some(Hit::Inert(block))
-                    && allowed(a, &tool, block)
+                    && player_may_break(a, &tool, block.name(), block.break_info())
             });
             let Some(again) = again else {
                 stop_breaking_at(state, &actor, pos);
@@ -87,14 +86,6 @@ pub(super) fn break_block(
     broke
 }
 
-/// PMMP `World::useBreakOn`'s checks for a player: not a spectator, `CanDestroy` in adventure
-/// mode, and a breakable block with finite resources.
-fn allowed(actor: &Actor, tool: &Stack, block: Inert) -> bool {
-    actor.mode != GameMode::Spectator
-        && (actor.mode != GameMode::Adventure || adventure_allows(tool, "CanDestroy", block.name()))
-        && (!actor.finite() || block.break_info().is_breakable())
-}
-
 /// The block becomes air with its block entity gone, the viewers see it break, the listener's
 /// drops fall and the tool wears. False (nothing changes) if the drops find no room for
 /// entities or the block cannot be set.
@@ -107,8 +98,7 @@ fn destroy(
     drops: Vec<Stack>,
     xp: u32,
 ) -> bool {
-    if !entity::has_room(state, actor.world, drops.len()) {
-        debug!("break refused: no room for the drops");
+    if !drops_fit(state, actor.world, drops.len()) {
         return false;
     }
     // No particle event: `Particle` names Anchor states only.
@@ -127,9 +117,6 @@ fn destroy(
         debug!(?pos, %e, "broken block not set");
     }
     spawn_drops(state, actor.world, pos, drops, xp);
-    let mut rng = stream(state, actor.world, USE, pos);
-    let instant = block.break_info().breaks_instantly();
-    let worn = tool_after_break(&state.settings, tool, instant, &mut rng);
-    return_items(state, actor, tool, worn, Vec::new());
+    wear_after_break(state, actor, pos, tool, block.break_info());
     true
 }
