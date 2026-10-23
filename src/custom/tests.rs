@@ -815,8 +815,7 @@ fn recipe_refusals_name_the_limits_they_enforce() {
     let out = [(vanilla(item::Kind::DiamondHoe), 1)];
     let too_many = [(vanilla(item::Kind::Stick), 1); MAX_RESULTS + 1];
     let wide = "D".repeat(MAX_SIDE + 1);
-    let results =
-        format!("no result, more than {MAX_RESULTS}, or a result count outside its stack size");
+    let results = format!("no result or more than {MAX_RESULTS}");
     let cases = [
         (
             Recipe::shapeless(&[diamond; MAX_INGREDIENTS + 1], &out),
@@ -839,6 +838,49 @@ fn recipe_refusals_name_the_limits_they_enforce() {
         };
         assert_eq!(reason, expected);
     }
+}
+
+static AIR_DROP: Block = Block::new("test:air_drop", "x")
+    .with_drops(Drops::Items(&[(ItemRef::Block(block::Kind::Air), 1)]));
+
+#[test]
+fn results_and_drops_naming_no_item_say_so() {
+    let diamond = Ingredient::Item(vanilla(item::Kind::Diamond));
+    for result in [
+        (ItemRef::Custom(&RUBY), 1),
+        (ItemRef::Block(block::Kind::Air), 1),
+    ] {
+        for recipe in [
+            Recipe::shapeless(&[diamond], &[result]),
+            Recipe::shaped(&["D"], &[('D', diamond)], &[result]),
+            Recipe::stonecutter(diamond, result),
+            Recipe::furnace(FurnaceType::Furnace, diamond, result),
+        ] {
+            assert_eq!(
+                finish(|r| r.add_recipe(recipe)),
+                Err(Error::Recipe {
+                    index: 0,
+                    reason: "a result names an unknown or unregistered item",
+                })
+            );
+        }
+    }
+    assert_eq!(
+        finish(|r| r.add_recipe(Recipe::furnace(
+            FurnaceType::Furnace,
+            diamond,
+            (vanilla(item::Kind::Stick), 0),
+        ))),
+        Err(Error::Recipe {
+            index: 0,
+            reason: "a result count outside its stack size",
+        })
+    );
+    let e = finish(|r| r.add_block(&AIR_DROP)).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        "`test:air_drop` drops an unknown or unregistered item"
+    );
 }
 
 fn grid(cells: &[Option<item::Type>]) -> Vec<Stack> {

@@ -85,7 +85,8 @@ impl Creative {
 pub enum ItemRef {
     /// A vanilla item type, such as `item::Kind::Diamond.default_type()`.
     Item(crate::item::Type),
-    /// The item of a vanilla block kind's default state.
+    /// The item of a vanilla block kind's default state; a kind with no item of its own (air,
+    /// a bed: [`ItemForm`](crate::block::ItemForm) other than `Item`) is refused.
     Block(crate::block::Kind),
     /// A custom item; it must be registered too.
     Custom(&'static Item),
@@ -122,7 +123,8 @@ pub enum Error {
         /// The block.
         identifier: &'static str,
     },
-    /// A block's drops name a custom item or block that is not registered.
+    /// A block's drops name a vanilla block kind with no item of its own, or a custom item or
+    /// block that is not registered.
     Unregistered {
         /// The block.
         identifier: &'static str,
@@ -172,10 +174,9 @@ impl fmt::Display for Error {
                 f,
                 "a state of `{identifier}` has the network ID of another state; rename it"
             ),
-            Self::Unregistered { identifier } => write!(
-                f,
-                "`{identifier}` drops a custom item or block that is not registered"
-            ),
+            Self::Unregistered { identifier } => {
+                write!(f, "`{identifier}` drops an unknown or unregistered item")
+            }
             Self::Recipe { index, reason } => write!(f, "recipe {index}: {reason}"),
             Self::TooMany { what, limit } => write!(f, "more than {limit} {what}"),
             Self::NotVillager => f.write_str("the entity is not a villager"),

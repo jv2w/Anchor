@@ -28,8 +28,6 @@ const MAX_ALL_STATES: usize = 65_536;
 const MAX_IDENTIFIER: usize = 128;
 /// The first block ID of custom blocks (dragonfly: 10,000 plus the block's index).
 const FIRST_BLOCK_ID: i32 = 10_000;
-/// Why crafting recipe results are refused ([`Registry::results`]).
-const RESULTS_REFUSAL: &str = "no result, more than 9, or a result count outside its stack size";
 
 /// One registration.
 #[derive(Debug, Clone, Copy)]
@@ -381,7 +379,8 @@ impl Registry {
         Ok(())
     }
 
-    /// The item type an [`ItemRef`] names, `None` for a custom item or block that is not
+    /// The item type an [`ItemRef`] names, `None` for a vanilla block kind with no item of its
+    /// own ([`block::ItemForm`] other than `Item`) or a custom item or block that is not
     /// registered (or before [`Self::finish`]).
     pub(crate) fn resolve(&self, item: ItemRef) -> Option<Type> {
         match item {
@@ -793,7 +792,7 @@ impl Registry {
                     .map(|i| self.ingredient(*i))
                     .collect::<Option<Vec<_>>>()
                     .ok_or(fail("an ingredient names an unknown or unregistered item"))?;
-                let results = self.results(results).ok_or(fail(RESULTS_REFUSAL))?;
+                let results = self.results(results).map_err(fail)?;
                 self.shapeless.push(Shapeless {
                     kind: *kind,
                     ingredients,
@@ -835,10 +834,7 @@ impl Registry {
                 let input = self
                     .ingredient(*input)
                     .ok_or(fail("the input names an unknown or unregistered item"))?;
-                let result = self
-                    .results(std::slice::from_ref(result))
-                    .and_then(|r| r.into_iter().next())
-                    .ok_or(fail("the result count is outside its stack size"))?;
+                let result = self.result(*result).map_err(fail)?;
                 Numbered::Furnace(self.add_furnace(crafting::Furnace {
                     kind: *kind,
                     input,
@@ -887,7 +883,7 @@ impl Registry {
         if grid.iter().all(Option::is_none) {
             return Err(fail("the shape has no ingredient"));
         }
-        let results = self.results(results).ok_or_else(|| fail(RESULTS_REFUSAL))?;
+        let results = self.results(results).map_err(&fail)?;
         Ok(Shaped {
             width: u8::try_from(width).map_err(|_| fail("the shape is too wide"))?,
             height: u8::try_from(height).map_err(|_| fail("the shape is too high"))?,
@@ -1014,27 +1010,32 @@ impl Registry {
 
     /// The table form of a one-item result.
     fn one(&self, item: ItemRef) -> Option<crafting::Stack> {
-        self.results(&[(item, 1)])?.into_iter().next()
+        self.result((item, 1)).ok()
     }
 
-    /// The table form of recipe results: 1 to [`MAX_RESULTS`] stacks, each count within its stack
-    /// size.
-    fn results(&self, results: &[(ItemRef, u8)]) -> Option<Vec<crafting::Stack>> {
+    /// The table form of recipe results: 1 to [`MAX_RESULTS`] stacks, or why they are refused.
+    fn results(&self, results: &[(ItemRef, u8)]) -> Result<Vec<crafting::Stack>, &'static str> {
         if results.is_empty() || results.len() > MAX_RESULTS {
-            return None;
+            return Err("no result or more than 9");
         }
-        results
-            .iter()
-            .map(|&(r, count)| {
-                let t = self.resolve(r)?;
-                (count > 0 && count <= t.max_stack_size()).then_some(crafting::Stack {
-                    item: t,
-                    meta: t.meta(),
-                    count: u16::from(count),
-                    nbt: None,
-                })
-            })
-            .collect()
+        results.iter().map(|&r| self.result(r)).collect()
+    }
+
+    /// The table form of one recipe result, its count within its stack size, or why it is
+    /// refused.
+    fn result(&self, (item, count): (ItemRef, u8)) -> Result<crafting::Stack, &'static str> {
+        let t = self
+            .resolve(item)
+            .ok_or("a result names an unknown or unregistered item")?;
+        if count == 0 || count > t.max_stack_size() {
+            return Err("a result count outside its stack size");
+        }
+        Ok(crafting::Stack {
+            item: t,
+            meta: t.meta(),
+            count: u16::from(count),
+            nbt: None,
+        })
     }
 }
 
