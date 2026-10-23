@@ -1075,8 +1075,9 @@ fn candle(state: &mut State, u: &mut Use) -> bool {
 }
 
 /// PMMP `Cauldron`, `WaterCauldron` and `LavaCauldron` `onInteract`: filling with buckets and
-/// water bottles, emptying with buckets and bottles, mixing liquids. Dyed water, potions and
-/// washing items need the cauldron's block entity (the block entity rules).
+/// water bottles, emptying with buckets and bottles, mixing liquids. A dye is
+/// [`super::decor::cauldron_dye`]'s; putting a potion in or taking it out (PMMP
+/// `PotionCauldron::onInteract`) and washing items are not handled.
 fn cauldron(state: &mut State, u: &mut Use) -> bool {
     let level = props::int(u.block, "fill_level").unwrap_or(0);
     let lava = props::string(u.block, "cauldron_liquid") == Some("lava");
