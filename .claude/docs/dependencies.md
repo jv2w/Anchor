@@ -50,8 +50,9 @@
 - 사본은 작업 공간 멤버가 아니라 포맷과 lint 대상이 아니다. `verify`가 사본 자체 시험을 따로 돌린다: sctp-proto
   `--lib`, redb `--tests`, str0m `--lib`(Anchor 기능), dimpl `--tests`.
 - dimpl 시험은 OpenSSL을 소스로 빌드하므로 Windows에서 Strawberry Perl(`.cache/tools`, `data.md`)을 그 명령에만
-  `OPENSSL_SRC_PERL`로 넘기고 MSVC 링커를 쓴다(rust-lld는 OpenSSL 정적 라이브러리의 디버그 정보에 경고를 내고, 경고는
-  `verify` 실패다). wolfssl 시험은 Windows가 아닐 때만 돈다.
+  `OPENSSL_SRC_PERL`로 넘긴다. 링크는 저장소 설정의 rust-lld로 하되, OpenSSL 정적 라이브러리가 빠진 디버그 정보를
+  가리켜 나는 경고(LNK4099) 하나만 `/ignore:4099`로 끈다(경고는 `verify` 실패다. MSVC 링커는 시험 바이너리마다 import
+  library 메시지를 내서 쓰지 않는다). wolfssl 시험은 Windows가 아닐 때만 돈다.
 - str0m 통합 시험은 공개 크레이트에 없는 캡처 파일 7개가 필요하다. `cargo xtask vendor-test str0m`이 그 파일을 상류
   커밋에서 받아 sha256을 확인하고 시험을 돌린다.
 
