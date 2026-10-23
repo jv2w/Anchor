@@ -144,8 +144,8 @@ impl Context<'_> {
     /// Grows a tree of `kind` from `pos` in `world`, as a sapling (or an azalea, a fungus) there
     /// would (PMMP `TreeFactory::get`, then `Tree::getBlockTransaction` and its `apply`): the
     /// same generators, with the engine's random numbers for that position and tick. Nothing
-    /// changes, and the result is false, where the tree does not fit, a block it needs is in a
-    /// chunk that is not loaded, for [`TreeType::DarkOak`] (PMMP has no generator) or a world the
+    /// changes, and the result is false, where the tree does not fit, `pos` is outside the world
+    /// height or a block it needs is in a chunk that is not loaded, for [`TreeType::DarkOak`] (PMMP has no generator) or a world the
     /// server does not have. Like every direct call it raises no event (a sapling's growth raises
     /// [`StructureGrow`](crate::event::StructureGrow)).
     #[doc(alias = "TreeFactory")]
@@ -155,6 +155,11 @@ impl Context<'_> {
             return false;
         };
         let mut cx = Cx::new(self.state, w, pos);
+        // The generators add to the origin without checks: a loaded origin is inside the world
+        // border and height, where a tree's extent cannot overflow.
+        if !cx.is_loaded(pos) {
+            return false;
+        }
         let mut rng = cx.rng();
         generate(&cx, pos, kind, &mut rng).is_some_and(|tx| tx.apply_quietly(&mut cx))
     }
@@ -724,5 +729,32 @@ mod tests {
             state.hash()
         };
         assert_eq!(grow(), grow());
+    }
+
+    #[test]
+    fn the_api_grows_nothing_far_outside_the_world() {
+        let mut state = server(heard);
+        let mut cx = Context { state: &mut state };
+        for pos in [
+            BlockPos::new(0, i32::MAX, 0),
+            BlockPos::new(i32::MAX, -60, 0),
+            BlockPos::new(0, -60, i32::MAX),
+        ] {
+            for kind in [
+                TreeType::Oak,
+                TreeType::Spruce,
+                TreeType::Birch,
+                TreeType::Jungle,
+                TreeType::Acacia,
+                TreeType::Azalea,
+                TreeType::Crimson,
+                TreeType::Warped,
+            ] {
+                assert!(
+                    !cx.grow_tree(world::Id::DEFAULT, pos, kind),
+                    "{kind:?} at {pos:?}"
+                );
+            }
+        }
     }
 }
