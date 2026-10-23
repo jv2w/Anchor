@@ -66,8 +66,8 @@ const RESTEP_REACH: f64 = physics::MAX_SPEED + 1.0;
 const RAYS_RANDOM: u64 = random::tag("explosion-rays");
 
 /// Turns the TNT block at `pos` into primed TNT with `fuse` ticks (PMMP `TNT::ignite`), its
-/// fuse sound with [`WorldSound`](crate::event::WorldSound) if `raise` says so. False at the
-/// entity limit (the block stays) or if the block is not TNT.
+/// fuse sound with [`WorldSound`](crate::event::WorldSound) if `raise` says so. False, with the
+/// block left as it is, when [`can_create`](super::can_create) refuses or the block is not TNT.
 #[doc(alias = "TNT::ignite")]
 pub(super) fn light(
     state: &mut State,
@@ -79,7 +79,12 @@ pub(super) fn light(
     let Some(block) = state.worlds.get(world).and_then(|w| w.block(pos)) else {
         return false;
     };
-    if !block.is(Class::Tnt) || !super::has_room(state, world, 1) {
+    let at = Vec3::new(
+        f64::from(pos.x) + 0.5,
+        f64::from(pos.y),
+        f64::from(pos.z) + 0.5,
+    );
+    if !block.is(Class::Tnt) || !super::can_create(state, world, at) {
         return false;
     }
     let tnt = Tnt {
@@ -92,25 +97,17 @@ pub(super) fn light(
     if w.set_block(pos, block::AIR).is_err() {
         return false;
     }
-    let at = Vec3::new(
-        f64::from(pos.x) + 0.5,
-        f64::from(pos.y),
-        f64::from(pos.z) + 0.5,
-    );
-    let made = create(state, world, at, Kind::Tnt(tnt), |r| {
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: `can_create` allowed it and setting a block changes neither the \
+                  entities nor the runtime IDs"
+    )]
+    create(state, world, at, Kind::Tnt(tnt), |r| {
         let turn = (r.unit() * 2.0 - 1.0) * std::f64::consts::PI * 2.0;
         let motion = Vec3::new(-math::sin(turn) * 0.02, 0.2, -math::cos(turn) * 0.02);
         (motion, 0.0, 0.0)
-    });
-    if made.is_none() {
-        // Runtime IDs ran out: the block comes back.
-        if let Some(w) = state.worlds.get_mut(world)
-            && let Err(e) = w.set_block(pos, block)
-        {
-            tracing::warn!(?e, "TNT could not be put back");
-        }
-        return false;
-    }
+    })
+    .expect("the entity is made");
     let fused = crate::world::Sound::Ignite;
     super::super::emit::sound_as(state, world, at, fused, raise);
     true

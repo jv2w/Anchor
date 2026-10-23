@@ -1806,9 +1806,20 @@ const HOOKS: Hooks = Hooks {
     take_arrow: inventory::take_arrow,
 };
 
+/// Whether [`create`] makes an entity at `position` in `world`: the world exists, the position
+/// is valid and loaded, the world is below its cap and runtime IDs remain. A caller that changes
+/// the world for the entity asks first, so a refusal leaves the world as it was.
+fn can_create(state: &State, world: WorldIndex, position: Vec3) -> bool {
+    state
+        .worlds
+        .get(world)
+        .is_some_and(|w| is_valid_position(position) && w.is_chunk_loaded(chunk_of(position)))
+        && state.rules.entities.count(world) < MAX_ENTITIES_PER_WORLD
+        && state.next_runtime_id.checked_add(1).is_some()
+}
+
 /// Creates an entity of `kind` at `position` with the motion and rotation (yaw, pitch) `motion`
-/// gives once it has its runtime ID; `None` when the world does not exist, the position is
-/// invalid or not loaded, the world is at its cap or runtime IDs ran out.
+/// gives once it has its runtime ID; `None` when [`can_create`] refuses.
 fn create(
     state: &mut State,
     world: WorldIndex,
@@ -1816,13 +1827,10 @@ fn create(
     kind: Kind,
     motion: impl FnOnce(&mut Random) -> (Vec3, f64, f64),
 ) -> Option<Id> {
-    let w = state.worlds.get(world)?;
-    if !is_valid_position(position)
-        || !w.is_chunk_loaded(chunk_of(position))
-        || state.rules.entities.count(world) >= MAX_ENTITIES_PER_WORLD
-    {
+    if !can_create(state, world, position) {
         return None;
     }
+    let w = state.worlds.get(world)?;
     let runtime_id = state.next_runtime_id;
     let next = runtime_id.checked_add(1)?;
     let mut random = Random::new(
@@ -2008,8 +2016,8 @@ fn drop_orbs(state: &mut State, world: WorldIndex, pos: Vec3, amount: u32) -> u3
 
 /// Turns the block at `pos` into a falling block entity (sand, gravel, anvils…): the block
 /// becomes air and the entity starts at the bottom centre of its cell (PMMP `FallableTrait`).
-/// False, with the block left as it is, when the entity limit is reached or `pos` is not
-/// loaded.
+/// False, with the block left as it is, when [`can_create`] refuses or `pos` is outside the
+/// world height.
 pub(super) fn fall(
     state: &mut State,
     world: WorldIndex,
@@ -2021,15 +2029,7 @@ pub(super) fn fall(
         f64::from(pos.y),
         f64::from(pos.z) + 0.5,
     );
-    let Some(w) = state.worlds.get(world) else {
-        return false;
-    };
-    if !(MIN_Y..=MAX_Y).contains(&pos.y)
-        || !is_valid_position(at)
-        || !w.is_chunk_loaded(pos.chunk())
-        || state.rules.entities.count(world) >= MAX_ENTITIES_PER_WORLD
-        || state.next_runtime_id == u64::MAX
-    {
+    if !can_create(state, world, at) {
         return false;
     }
     let Some(w) = state.worlds.get_mut(world) else {
@@ -2039,7 +2039,13 @@ pub(super) fn fall(
         return false;
     }
     let kind = Kind::FallingBlock(Falling { block });
-    create(state, world, at, kind, |_| (Vec3::ZERO, 0.0, 0.0)).is_some()
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: `can_create` allowed it and setting a block changes neither the \
+                  entities nor the runtime IDs"
+    )]
+    create(state, world, at, kind, |_| (Vec3::ZERO, 0.0, 0.0)).expect("the entity is made");
+    true
 }
 
 /// The entity with runtime ID `runtime_id`, for packets that name one (attacks and interactions).
