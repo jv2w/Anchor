@@ -56,6 +56,7 @@ use crate::nbt::{Compound, Value};
 use crate::player;
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
+use crate::storage::codec::MAX_EXTRA_ENTRIES;
 use crate::world::{self, BlockPos, ChunkPos, Entry, MAX_Y, MIN_Y, SUB_CHUNKS, World};
 
 /// The most scheduled updates a world runs in one tick; the rest run in the next ticks, in
@@ -68,10 +69,6 @@ const MAX_NEIGHBOUR_UPDATES_PER_TICK: usize = 16_384;
 /// The most positions a world's neighbour queue holds; more changed blocks wait in the world's
 /// change feed. A change queues at most seven positions.
 const MAX_NEIGHBOUR_QUEUE: usize = 1 << 18;
-
-/// Blocks in a chunk: the most scheduled updates one chunk can hold (one per position), and the
-/// most entries its saved list may have.
-const BLOCKS_PER_CHUNK: usize = 16 * 16 * 384;
 
 /// The saved list keys (Bedrock `PendingTicks` entry names): the position and the engine tick
 /// the update is due at.
@@ -143,13 +140,13 @@ pub(super) struct Parsed {
 
 impl Parsed {
     /// Reads chunk `key`'s saved list, off the tick as it needs nothing of the tick's state: at
-    /// most [`BLOCKS_PER_CHUNK`] entries; those outside the chunk or the world height are left
+    /// most [`MAX_EXTRA_ENTRIES`] entries; those outside the chunk or the world height are left
     /// out with a warning.
     pub(super) fn read(key: Key, list: &[Compound]) -> Self {
         let (world, chunk) = key;
-        let mut entries = Vec::with_capacity(list.len().min(BLOCKS_PER_CHUNK));
+        let mut entries = Vec::with_capacity(list.len().min(MAX_EXTRA_ENTRIES));
         let mut skipped = 0usize;
-        for entry in list.iter().take(BLOCKS_PER_CHUNK) {
+        for entry in list.iter().take(MAX_EXTRA_ENTRIES) {
             match parse(entry) {
                 Some((pos, due)) if pos.chunk() == chunk => entries.push((pos, due)),
                 _ => skipped += 1,
@@ -667,7 +664,7 @@ fn run_random(state: &mut State, world: WorldIndex, centers: Option<&BTreeSet<Ch
             if !filled {
                 continue;
             }
-            let base_y = (i32::try_from(index).unwrap_or(0) - 4) * 16;
+            let base_y = MIN_Y + i32::try_from(index).unwrap_or(0) * 16;
             let mut bits = 0;
             for i in 0..speed {
                 if i % 5 == 0 {
