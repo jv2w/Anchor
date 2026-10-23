@@ -135,6 +135,10 @@ const DROP_BELOW_EYE: f64 = 0.32;
 const THROW_SPEED: f64 = 0.4;
 /// Ticks before anyone picks up a thrown item (PMMP `Player::dropItem`).
 const THROW_PICKUP_DELAY: i16 = 40;
+/// Block picks a player may make in one tick; more do nothing (PMMP has no limit). A pick is a
+/// key press, far below one a tick, but one costs up to a shulker box's NBT built, checked and
+/// compared, whatever the few bytes of its packet.
+const MAX_PICKS_PER_TICK: u8 = 4;
 
 /// The stack network ID of a slot as one player's client knows it, and the request that last
 /// changed the slot (PMMP `ItemStackInfo`).
@@ -259,6 +263,8 @@ pub(super) struct Inventory {
     /// The last answer to a hotbar selection the server did not take: its tick, the selected
     /// slot and that slot as sent ([`send_held`]).
     held_answer: Option<(u64, u8, Slot)>,
+    /// Block picks in a tick: (tick, count), at most [`MAX_PICKS_PER_TICK`].
+    picks: (u64, u8),
     /// Stacks waiting for room in the inventory, at most [`MAX_SAVED_PENDING`] with what is held
     /// outside the slots (its invariant).
     pending: Vec<Stack>,
@@ -292,6 +298,7 @@ impl Default for Inventory {
             budget: (0, 0),
             resent: None,
             held_answer: None,
+            picks: (0, 0),
             pending: Vec::new(),
             next_option_id: 0,
             menu: None,
@@ -849,6 +856,7 @@ impl Inventory {
             budget: _,
             resent: _,
             held_answer: _,
+            picks: _,
             pending,
             next_option_id,
             menu,
@@ -962,8 +970,8 @@ impl<const N: usize> Codec for Slots<N> {
     }
 }
 
-/// Every field but the set of recent request IDs, which is `recent` again, and the held answer,
-/// which only counts in its own tick: a checkpoint is taken after its tick.
+/// Every field but the set of recent request IDs, which is `recent` again, and the held answer
+/// and the block picks, which only count in their own tick: a checkpoint is taken after its tick.
 impl Codec for Inventory {
     fn encode(&self, w: &mut Writer) {
         let Self {
@@ -983,6 +991,7 @@ impl Codec for Inventory {
             budget,
             resent,
             held_answer: _,
+            picks: _,
             pending,
             next_option_id,
             menu,
@@ -1041,6 +1050,7 @@ impl Codec for Inventory {
             budget: Codec::decode(r)?,
             resent: Codec::decode(r)?,
             held_answer: None,
+            picks: (0, 0),
             pending: Codec::decode(r)?,
             next_option_id: Codec::decode(r)?,
             menu: Codec::decode(r)?,
@@ -1633,12 +1643,25 @@ fn open_checked(
 /// Creative pick block (PMMP `Player::pickBlock`): the block's item (with its block entity data
 /// when asked) is selected if the inventory has it, else put into the first empty slot (selected
 /// if in the hotbar, else swapped with the held slot), else into the held slot. Players with
-/// finite resources only select or swap items they have.
+/// finite resources only select or swap items they have. At most [`MAX_PICKS_PER_TICK`] picks a
+/// tick are handled.
 pub(super) fn on_block_pick_request(
     state: &mut State,
     session: SessionId,
     packet: &BlockPickRequest,
 ) {
+    let tick = state.tick;
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    let picks = &mut player.inventory.picks;
+    if picks.0 != tick {
+        *picks = (tick, 0);
+    }
+    if picks.1 >= MAX_PICKS_PER_TICK {
+        return;
+    }
+    picks.1 = picks.1.saturating_add(1);
     let [x, y, z] = packet.position;
     let pos = BlockPos::new(x, y, z);
     let add_data = packet.add_block_nbt;

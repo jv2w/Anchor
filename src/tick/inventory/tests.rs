@@ -2194,6 +2194,37 @@ fn a_slot_outside_the_hotbar_is_answered_once_a_tick_while_the_hand_stays() {
 }
 
 #[test]
+fn block_picks_past_the_tick_limit_do_nothing_until_the_next_tick() {
+    let mut w = World::new(GameMode::Creative);
+    let s = w.join(1);
+    let pos = BlockPos::new(3, -60, 3);
+    let shulker = blk::State::all()
+        .find(|b| b.is(blk::Class::ShulkerBox))
+        .unwrap();
+    w.place_block(pos, shulker);
+    let pick = BlockPickRequest {
+        position: [3, -60, 3],
+        add_block_nbt: true,
+        hot_bar_slot: 0,
+    };
+    let picks = |w: &mut World, n: u8| {
+        for _ in 0..n {
+            on_block_pick_request(&mut w.state, s, &pick);
+        }
+        w.sent(s)
+            .iter()
+            .filter(|p| matches!(p, Packet::PlayerHotBar(_)))
+            .count()
+    };
+    assert_eq!(
+        picks(&mut w, MAX_PICKS_PER_TICK + 5),
+        usize::from(MAX_PICKS_PER_TICK)
+    );
+    w.state.tick += 1;
+    assert_eq!(picks(&mut w, 1), 1);
+}
+
+#[test]
 fn spawn_packets_are_the_four_windows_and_the_hotbar() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
