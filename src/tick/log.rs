@@ -623,7 +623,8 @@ impl InputLog {
         }
     }
 
-    /// Records an input of `size` bytes on the wire (0 for joins and leaves) before the tick
+    /// Records an input of `size` bytes (a packet's on the wire, a join's
+    /// [`Identity::size`](super::queue::Identity::size), 0 for a leave) before the tick
     /// applies it, and gives it back for the tick to apply: the logged entry, or the input itself
     /// when the log no longer records.
     pub(crate) fn record(
