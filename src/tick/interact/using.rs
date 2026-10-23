@@ -1724,13 +1724,15 @@ pub(super) fn on_entity(
 }
 
 /// PMMP `Player::interactEntity`: when the entity is within reach, [`PlayerEntityInteract`], then
-/// the entity rules' interaction (which check the reach again). False if nothing happened.
+/// the entity rules' interaction (which check the reach again). False if nothing happened. Each
+/// part of `click` that is not a finite number counts as 0.
 pub(super) fn interact_entity(
     state: &mut State,
     session: SessionId,
     target: crate::entity::Id,
     click: Vec3,
 ) -> bool {
+    let click = super::finite_vec(click);
     let mut event = None;
     if dispatch::heard::<PlayerEntityInteract>(state) {
         // Out of reach or gone: nothing happens, so the event is not raised.

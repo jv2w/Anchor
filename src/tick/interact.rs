@@ -490,7 +490,7 @@ pub(super) fn on_inventory_transaction(
                 return;
             }
             if let Ok(action) = UseItemOnEntityAction::try_from(data.action_type) {
-                let [x, y, z] = data.clicked_position.map(|v| f64::from(finite(v)));
+                let [x, y, z] = data.clicked_position.map(f64::from);
                 let click = Vec3::new(x, y, z);
                 using::on_entity(state, session, data.target_entity_runtime_id, action, click);
             }
@@ -1897,18 +1897,8 @@ fn click_block(state: &mut State, session: SessionId, data: &UseItemTransactionD
     player.breaking.last_click = Some((tick, click));
     let repeated = TriggerType::try_from(data.trigger_type) == Ok(TriggerType::SimulationTick);
     player.breaking.note_click(tick, repeated);
-    let clamp = |v: f32| {
-        if v.is_finite() {
-            math::clamp(f64::from(v), 0.0, 1.0)
-        } else {
-            0.0
-        }
-    };
-    let at = Vec3::new(
-        clamp(data.clicked_position[0]),
-        clamp(data.clicked_position[1]),
-        clamp(data.clicked_position[2]),
-    );
+    let [x, y, z] = data.clicked_position.map(f64::from);
+    let at = Vec3::new(x, y, z);
     let done = held_matches(state, session, data)
         && interact_block(state, session, pos, face, at, Source::Client);
     if !done {
@@ -1919,6 +1909,8 @@ fn click_block(state: &mut State, session: SessionId, data: &UseItemTransactionD
 }
 
 /// PMMP `Player::interactBlock`: drawing stops; within reach, use the held item on the block.
+/// Each part of `click` that is not a finite number counts as 0 and the others are clamped to
+/// the face, 0 to 1.
 fn interact_block(
     state: &mut State,
     session: SessionId,
@@ -1935,6 +1927,12 @@ fn interact_block(
         debug!(session = session.get(), "click out of reach");
         return false;
     }
+    let click = finite_vec(click);
+    let click = Vec3::new(
+        math::clamp(click.x, 0.0, 1.0),
+        math::clamp(click.y, 0.0, 1.0),
+        math::clamp(click.z, 0.0, 1.0),
+    );
     using::use_item_on(state, &actor, pos, face, click, source)
 }
 
@@ -1962,7 +1960,7 @@ fn open_sign_editor(
     }
 }
 
-/// A point an action gives: each part that is not a finite number counts as 0.
+/// A click point from a client or an action: each part that is not a finite number counts as 0.
 fn finite_vec(v: Vec3) -> Vec3 {
     let part = |c: f64| if c.is_finite() { c } else { 0.0 };
     Vec3::new(part(v.x), part(v.y), part(v.z))
@@ -1982,18 +1980,12 @@ impl action::Sealed for action::BreakBlock {
 
 impl action::Sealed for action::UseItemOn {
     fn perform(self, cx: &mut Context<'_>) {
-        let click = finite_vec(self.click);
-        let click = Vec3::new(
-            math::clamp(click.x, 0.0, 1.0),
-            math::clamp(click.y, 0.0, 1.0),
-            math::clamp(click.z, 0.0, 1.0),
-        );
         let _used = interact_block(
             cx.state,
             self.player.session(),
             self.pos,
             self.face,
-            click,
+            self.click,
             Source::Action,
         );
     }
@@ -2009,8 +2001,7 @@ impl action::Sealed for action::InteractEntity {
     fn perform(self, cx: &mut Context<'_>) {
         let session = self.player.session();
         if actor(cx.state, session).is_some() {
-            let click = finite_vec(self.click);
-            let _used = using::interact_entity(cx.state, session, self.entity, click);
+            let _used = using::interact_entity(cx.state, session, self.entity, self.click);
         }
     }
 }
