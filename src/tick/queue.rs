@@ -140,6 +140,7 @@ super::checkpoint::fields!(Client {
     join_time_ms,
 });
 
+#[cfg(test)]
 impl Default for Client {
     fn default() -> Self {
         Self {
@@ -245,7 +246,7 @@ impl Identity {
 /// A player's skin as the client sent it at login (bounded and checked there: image sizes match
 /// their dimensions, at most 4 MiB in all, animation frame counts finite).
 /// Every copy of the identity shares it. The default is a transparent 64 × 32 skin on the
-/// standard model, for identities without a login (tests, replays of old logs).
+/// standard model, for identities without a login (tests).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Skin(Arc<protocol::Skin>);
 
@@ -292,6 +293,7 @@ impl Skin {
     }
 }
 
+#[cfg(test)]
 impl Default for Skin {
     fn default() -> Self {
         Self::new(protocol::Skin {
