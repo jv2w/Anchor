@@ -56,7 +56,8 @@ getters!(WorldUnload {
     world: world::Id,
 });
 
-/// Raised once a chunk is in the world, whether it was read from disk or made by the generator.
+/// Raised once a chunk is in the world, whether it was read from disk, made by the generator or
+/// brought back from memory (unloaded with changes still waiting for a save).
 #[doc(alias = "ChunkLoadEvent")]
 #[doc(alias = "ChunkPopulateEvent")]
 #[derive(Debug)]
@@ -83,8 +84,11 @@ impl ChunkLoad {
     }
 }
 
-/// Raised when a chunk no player needs is about to be unloaded. Cancelling keeps it loaded until
-/// the next check.
+/// Raised when a chunk no player needs is about to be unloaded. Cancelling keeps it loaded for a
+/// while, then the listeners are asked again; once the listeners keep too many chunks, a cancel
+/// is ignored and the chunk unloads with a warning
+/// ([`Context::hold_chunks`](crate::Context::hold_chunks) keeps chunks until released). A world's
+/// unload ([`WorldUnload`]) unloads its chunks without this event.
 #[doc(alias = "ChunkUnloadEvent")]
 #[derive(Debug)]
 pub struct ChunkUnload {
