@@ -1656,3 +1656,19 @@ fn a_soft_enum_may_not_take_an_enum_type_name() {
         })
     );
 }
+
+#[test]
+fn the_api_docs_name_the_limits_they_enforce() {
+    let source = include_str!("../command.rs");
+    let thousands = |n: usize| format!("{},{:03}", n / 1000, n % 1000);
+    for text in [
+        format!(
+            "more than {} or more than {} bytes of",
+            thousands(MAX_ENUM_VALUES),
+            thousands(MAX_TEXT)
+        ),
+        format!("has {} grants.", thousands(MAX_GRANTS)),
+    ] {
+        assert!(source.contains(&text), "{text}");
+    }
+}
