@@ -28,6 +28,8 @@ const MAX_ALL_STATES: usize = 65_536;
 const MAX_IDENTIFIER: usize = 128;
 /// The first block ID of custom blocks (dragonfly: 10,000 plus the block's index).
 const FIRST_BLOCK_ID: i32 = 10_000;
+/// Why crafting recipe results are refused ([`Registry::results`]).
+const RESULTS_REFUSAL: &str = "no result, more than 9, or a result count outside its stack size";
 
 /// One registration.
 #[derive(Debug, Clone, Copy)]
@@ -791,9 +793,7 @@ impl Registry {
                     .map(|i| self.ingredient(*i))
                     .collect::<Option<Vec<_>>>()
                     .ok_or(fail("an ingredient names an unknown or unregistered item"))?;
-                let results = self.results(results).ok_or(fail(
-                    "no result, more than 9, or a result count outside its stack size",
-                ))?;
+                let results = self.results(results).ok_or(fail(RESULTS_REFUSAL))?;
                 self.shapeless.push(Shapeless {
                     kind: *kind,
                     ingredients,
@@ -887,9 +887,7 @@ impl Registry {
         if grid.iter().all(Option::is_none) {
             return Err(fail("the shape has no ingredient"));
         }
-        let results = self.results(results).ok_or_else(|| {
-            fail("no result, more than 9, or a result count outside its stack size")
-        })?;
+        let results = self.results(results).ok_or_else(|| fail(RESULTS_REFUSAL))?;
         Ok(Shaped {
             width: u8::try_from(width).map_err(|_| fail("the shape is too wide"))?,
             height: u8::try_from(height).map_err(|_| fail("the shape is too high"))?,
@@ -1019,7 +1017,8 @@ impl Registry {
         self.results(&[(item, 1)])?.into_iter().next()
     }
 
-    /// The table form of recipe results: 1 to 9 stacks, each count within its stack size.
+    /// The table form of recipe results: 1 to [`MAX_RESULTS`] stacks, each count within its stack
+    /// size.
     fn results(&self, results: &[(ItemRef, u8)]) -> Option<Vec<crafting::Stack>> {
         if results.is_empty() || results.len() > MAX_RESULTS {
             return None;

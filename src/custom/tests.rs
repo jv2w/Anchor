@@ -808,6 +808,39 @@ fn invalid_recipes_refuse_the_build() {
     }
 }
 
+#[test]
+fn recipe_refusals_name_the_limits_they_enforce() {
+    use super::recipe::{MAX_INGREDIENTS, MAX_RESULTS, MAX_SIDE};
+    let diamond = Ingredient::Item(vanilla(item::Kind::Diamond));
+    let out = [(vanilla(item::Kind::DiamondHoe), 1)];
+    let too_many = [(vanilla(item::Kind::Stick), 1); MAX_RESULTS + 1];
+    let wide = "D".repeat(MAX_SIDE + 1);
+    let results =
+        format!("no result, more than {MAX_RESULTS}, or a result count outside its stack size");
+    let cases = [
+        (
+            Recipe::shapeless(&[diamond; MAX_INGREDIENTS + 1], &out),
+            format!("no ingredient or more than {MAX_INGREDIENTS}"),
+        ),
+        (
+            Recipe::shaped(&[&wide], &[('D', diamond)], &out),
+            format!("the shape is empty or larger than {MAX_SIDE} by {MAX_SIDE}"),
+        ),
+        (Recipe::shapeless(&[diamond], &too_many), results.clone()),
+        (
+            Recipe::shaped(&["D"], &[('D', diamond)], &too_many),
+            results,
+        ),
+    ];
+    for (recipe, expected) in cases {
+        let e = finish(|r| r.add_recipe(recipe)).unwrap_err();
+        let Error::Recipe { reason, .. } = e else {
+            panic!("{e}");
+        };
+        assert_eq!(reason, expected);
+    }
+}
+
 fn grid(cells: &[Option<item::Type>]) -> Vec<Stack> {
     cells
         .iter()
