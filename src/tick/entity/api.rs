@@ -103,8 +103,8 @@ impl Entity {
         {
             return EYE_HEIGHT * self.scale;
         }
-        let (_, height) = self.size();
-        math::min(height / 2.0 + 0.1, height)
+        let (_, height) = self.kind.size();
+        math::min(height / 2.0 + 0.1, height) * self.scale
     }
 
     /// Where its eyes are.

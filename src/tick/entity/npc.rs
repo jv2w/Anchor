@@ -1068,4 +1068,21 @@ mod tests {
         h.entities();
         assert_eq!(health(&h, z), 19.0);
     }
+
+    // pmmp: EntitySizeInfo::scale
+    /// The scale multiplies the whole eye height, the 0.1 above half the height included.
+    #[test]
+    fn a_scaled_zombie_has_its_whole_eye_height_scaled() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(0.0, 0.0));
+        let z = zombie(&mut h, at(3.5, -60.0, 0.5));
+        let mut cx = crate::tick::Context {
+            state: &mut h.state,
+        };
+        for (scale, eye) in [(2.0, 2.1), (0.5, 0.525)] {
+            assert!(cx.entity_mut(z).unwrap().set_scale(scale));
+            let got = cx.entity(z).unwrap().eye_height();
+            assert!((got - eye).abs() < 1e-9, "scale {scale}: {got}");
+        }
+    }
 }
