@@ -248,4 +248,16 @@ let reason = "a variable";
         assert!(!tagged("Safety: why"));
         assert!(!tagged("off-tick:why"));
     }
+
+    /// `CLAUDE.md` sets the tags; this list follows it.
+    #[test]
+    fn the_tags_are_those_claude_md_sets() {
+        let doc = include_str!("../../CLAUDE.md");
+        let (_, sentence) = doc.split_once("태그는 ").expect("the tag sentence");
+        let (list, _) = sentence
+            .split_once("이다")
+            .expect("the end of the tag sentence");
+        let names: Vec<&str> = list.split('`').skip(1).step_by(2).collect();
+        assert_eq!(names, TAGS);
+    }
 }
