@@ -189,17 +189,13 @@ fn command(state: &mut State, session: SessionId, line: &str) {
     }
 }
 
-/// Sends one chat line of the player of `session`. Without [`PlayerChat`] listeners it goes to
-/// every online player in the standard format. A listener may change the speaker, the message,
-/// the recipients and the format; what it leaves is checked again: the speaker must still be
-/// online, a recipient that left or is listed twice is skipped, and a line a client would not
-/// decode (over 65,536 bytes) is not sent.
+/// Sends one chat line of the player of `session`, if it is online. Without [`PlayerChat`]
+/// listeners it goes to every online player in the standard format. A listener may change the
+/// speaker, the message, the recipients and the format; what it leaves is checked again: the
+/// speaker must still be online, a recipient that left or is listed twice is skipped, and a line
+/// a client would not decode (over 65,536 bytes) is not sent.
 fn say(state: &mut State, session: SessionId, line: String) {
-    let Some(name) = state
-        .players
-        .get(&session)
-        .map(|p| p.display_name().to_owned())
-    else {
+    let Some(name) = online(state, Id::new(session)).map(|p| p.display_name().to_owned()) else {
         return;
     };
     if !dispatch::heard::<PlayerChat>(state) {
@@ -375,7 +371,12 @@ mod tests {
 
     /// Players 1 and 2 spawned, and their outbound queues emptied.
     fn server() -> (State, [mpsc::Receiver<Outbound>; 2]) {
-        let mut state = new_state(settings(|_| {}), Listeners::default());
+        server_with(Listeners::default())
+    }
+
+    /// [`server`] with `listeners`.
+    fn server_with(listeners: Listeners) -> (State, [mpsc::Receiver<Outbound>; 2]) {
+        let mut state = new_state(settings(|_| {}), listeners);
         let mut output = Output::default();
         let (j1, mut rx1) = join(1, 0);
         let (j2, mut rx2) = join(2, 0);
@@ -627,5 +628,27 @@ mod tests {
         run(&mut state, vec![chat(1, 10, &message)]);
         assert!(lines(&mut rx2).is_empty());
         assert_eq!(state.players[&SessionId::new(1)].marks.chat.1, 0);
+    }
+
+    #[test]
+    fn a_kicked_speaker_says_nothing_with_or_without_chat_listeners() {
+        for idle in [false, true] {
+            let mut listeners = Listeners::default();
+            if idle {
+                listeners.push(
+                    crate::event::Priority::Normal,
+                    |_: &mut PlayerChat, _: &mut Context<'_>| {},
+                );
+            }
+            let (mut state, [_rx1, mut rx2]) = server_with(listeners);
+            state
+                .players
+                .get_mut(&SessionId::new(1))
+                .unwrap()
+                .kick("bye")
+                .unwrap();
+            run(&mut state, vec![chat(1, 10, "hi")]);
+            assert!(lines(&mut rx2).is_empty(), "idle listener: {idle}");
+        }
     }
 }
