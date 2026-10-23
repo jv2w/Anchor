@@ -89,6 +89,11 @@ impl Settings {
     pub fn max_batch_bytes(&self) -> usize {
         self.max_batch_bytes
     }
+
+    /// Returns the allocation budget, in bytes, that decoding one batch payload shares.
+    pub(crate) fn decode_budget(&self) -> usize {
+        self.max_batch_bytes.saturating_mul(2)
+    }
 }
 
 impl Default for Settings {
@@ -372,8 +377,7 @@ fn decode_into(
         .checked_mul(size_of::<(Header, Packet)>())
         .ok_or(size)?;
     let mut budget = settings
-        .max_batch_bytes
-        .saturating_mul(2)
+        .decode_budget()
         .checked_sub(list_bytes)
         .ok_or(size)?;
     out.reserve(packets.len());
