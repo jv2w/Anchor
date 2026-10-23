@@ -89,8 +89,7 @@ const WORLDS: Table = TableDefinition::new("worlds");
 const CHUNKS: Table = TableDefinition::new("chunks");
 const PLAYERS: Table = TableDefinition::new("players");
 const ACCESS: Table = TableDefinition::new("access");
-/// The user's server data: one value per registered name. A file without the table
-/// (written before the table existed) reads as having no values; an older Anchor ignores it.
+/// The user's server data: one value per registered name.
 const USER: Table = TableDefinition::new("user");
 /// The key of the `meta` value.
 const META_KEY: &[u8] = b"meta";
