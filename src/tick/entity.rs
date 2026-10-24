@@ -2768,15 +2768,22 @@ fn block_at(state: &State, id: Id, pos: BlockPos) -> Option<(WorldIndex, block::
 }
 
 /// Heals the entity `id` by `amount` as a rule does (instant health; PMMP `Entity::heal`),
-/// through [`EntityRegainHealth`]: listeners may change the amount (below 0 counts as 0) or
-/// cancel it.
+/// through [`EntityRegainHealth`] as a player heals: nothing happens, and no event is raised,
+/// unless the amount [`survival::heals`] it; listeners may change the amount or cancel it, and
+/// an amount they leave that does not heal it cancels it.
 fn heal(state: &mut State, id: Id, amount: f64, reason: RegainReason) {
+    let heals_now = |state: &State, amount: f64| {
+        state.rules.entities.get(id).is_some_and(|e| {
+            let alive = !e.flagged && e.is_alive();
+            survival::heals(alive, e.health, e.kind.max_health(), amount)
+        })
+    };
+    if !heals_now(state, amount) {
+        return;
+    }
     let mut amount = amount;
     let mut event = None;
     if dispatch::heard::<EntityRegainHealth>(state) {
-        if !is_live(state, id) {
-            return;
-        }
         let mut e = EntityRegainHealth {
             entity: Actor::Entity(id),
             amount,
@@ -2784,10 +2791,12 @@ fn heal(state: &mut State, id: Id, amount: f64, reason: RegainReason) {
             cancelled: false,
         };
         dispatch::call(state, &mut e);
-        if e.cancelled || (dispatch::listened::<EntityRegainHealth>(state) && !is_live(state, id)) {
+        if e.cancelled
+            || (dispatch::listened::<EntityRegainHealth>(state) && !heals_now(state, e.amount))
+        {
             return;
         }
-        amount = crate::math::max(e.amount, 0.0);
+        amount = e.amount;
         event = Some(e);
     }
     with(state, id, |e| {

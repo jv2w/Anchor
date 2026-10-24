@@ -1277,6 +1277,36 @@ fn healing_an_npc_asks_its_listeners() {
     assert_eq!(health(&h, npc), 11.0, "the listener's amount");
 }
 
+/// Healing an NPC follows the players' rule: nothing is asked at full health, and an amount a
+/// listener leaves that does not heal cancels it.
+#[test]
+fn healing_an_npc_asks_only_below_full_health_and_an_amount_that_does_not_heal_cancels_it() {
+    let (asked, watched) = (log(), log());
+    let mut listeners = Listeners::default();
+    let sink = asked.sink();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntityRegainHealth, _: &mut Context<'_>| {
+            sink.push(e.amount());
+            e.set_amount(0.0);
+        },
+    );
+    let sink = watched.sink();
+    listeners.push_monitor(move |e: &EntityRegainHealth, _: &Context<'_>| sink.push(e.amount()));
+    let mut h = Harness::with_listeners(1, listeners);
+    h.spawn(1, standing(8.0, 8.0));
+    let npc = npc_at(&mut h, at(0.5, -60.0, 0.5));
+    let full = health(&h, npc);
+    super::super::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
+    assert!(got(&asked).is_empty(), "full health");
+    with(&mut h.state, npc, |e| e.health = 10.0);
+    super::super::heal(&mut h.state, npc, 4.0, RegainReason::Magic);
+    assert_eq!(got(&asked), [4.0]);
+    assert!(got(&watched).is_empty(), "cancelled");
+    assert_eq!(health(&h, npc), 10.0);
+    assert!(full > 10.0);
+}
+
 /// A listener that moves an entity while the steps apply: the entity moves on from where the
 /// listener put it, not by the step computed before (which would undo the move).
 #[test]

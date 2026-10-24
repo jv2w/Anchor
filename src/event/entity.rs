@@ -824,7 +824,9 @@ pub enum RegainReason {
     Saturation,
 }
 
-/// Raised when a player or an entity heals. Cancelling keeps its health.
+/// Raised when a player or an entity heals: only while it is alive and below its maximum health,
+/// for a positive amount. Cancelling keeps its health, and so does an amount the listeners leave
+/// that is not positive.
 #[doc(alias = "EntityRegainHealthEvent")]
 #[derive(Debug)]
 pub struct EntityRegainHealth {

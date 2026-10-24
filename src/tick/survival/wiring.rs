@@ -396,6 +396,29 @@ fn regain_listeners_change_or_cancel_the_healing() {
     assert_eq!(game.survival(1).health, 16.0);
 }
 
+/// Healing a player follows the same rule as an NPC: nothing is asked at full health, and an
+/// amount a listener leaves that does not heal cancels it.
+#[test]
+fn healing_asks_only_below_full_health_and_an_amount_that_does_not_heal_cancels_it() {
+    let (tx, mut asked) = record();
+    let (watch, mut watched) = record();
+    let mut listeners = on(move |e: &mut EntityRegainHealth, _: &mut Context<'_>| {
+        tx.try_send(e.amount()).unwrap();
+        e.set_amount(0.0);
+    });
+    listeners.push_monitor(move |e: &EntityRegainHealth, _: &Context<'_>| {
+        watch.try_send(e.amount()).unwrap();
+    });
+    let mut game = Game::new(1, listeners);
+    heal(&mut game.state, sid(1), 4.0);
+    assert!(drain(&mut asked).is_empty(), "full health");
+    game.survival(1).health = 10.0;
+    heal(&mut game.state, sid(1), 4.0);
+    assert_eq!(drain(&mut asked), [4.0]);
+    assert!(drain(&mut watched).is_empty(), "cancelled");
+    assert_eq!(game.survival(1).health, 10.0);
+}
+
 /// A full bar on peaceful heals twice in one tick, each a regain of its own, then exhausts (PMMP
 /// `HungerManager::tick`).
 #[test]

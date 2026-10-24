@@ -1153,6 +1153,12 @@ pub(super) fn pickup_experience(state: &mut State, session: SessionId, amount: u
     food::pickup_experience(state, session, amount)
 }
 
+/// Whether `amount` heals a player or an entity at `health` of `max_health`
+/// ([`damage::heals`]).
+pub(super) fn heals(alive: bool, health: f64, max_health: f64, amount: f64) -> bool {
+    damage::heals(alive, health, max_health, amount)
+}
+
 /// What an instant health or damage effect of `amplifier` heals or hurts at full potency, for
 /// players and entities alike ([`effects::instant_amount`]).
 pub(super) fn instant_amount(effect: effect::Type, amplifier: u8) -> f64 {

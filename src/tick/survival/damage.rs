@@ -700,14 +700,13 @@ fn actor_event(runtime_id: u64, event: ActorEvent, data: i32) -> Packet {
 }
 
 /// Heals a player for `reason` (PMMP `Entity::heal` with its `EntityRegainHealthEvent`): health
-/// up to its maximum. Nothing happens, and no event is raised, for a dead player, a player at
-/// full health or an amount that is not positive.
+/// up to its maximum. Nothing happens, and no event is raised, unless the amount [`heals`] it.
 pub(super) fn heal(state: &mut State, session: SessionId, amount: f64, reason: RegainReason) {
     let heals_now = |state: &State, amount: f64| {
-        state
-            .players
-            .get(&session)
-            .is_some_and(|p| heals(p, amount))
+        state.players.get(&session).is_some_and(|p| {
+            let s = &p.survival;
+            heals(!s.is_dead(), s.health, s.max_health(), amount)
+        })
     };
     if !heals_now(state, amount) {
         return;
@@ -733,11 +732,11 @@ pub(super) fn heal(state: &mut State, session: SessionId, amount: f64, reason: R
     super::watch(state, event.as_ref());
 }
 
-/// Whether `amount` heals the player: it is alive and below its maximum, and the amount is
-/// positive.
-fn heals(player: &Player, amount: f64) -> bool {
-    let s = &player.survival;
-    !s.is_dead() && amount > 0.0 && s.health < s.max_health()
+/// Whether `amount` heals a player or an entity at `health` of `max_health`, the check before
+/// [`EntityRegainHealth`] and again after its listeners: it is alive and below its maximum (PMMP
+/// heals only then), and the amount is positive.
+pub(super) fn heals(alive: bool, health: f64, max_health: f64, amount: f64) -> bool {
+    alive && amount > 0.0 && health < max_health
 }
 
 /// Heals a player that is alive.
