@@ -33,7 +33,6 @@ use super::{
     WindowKind, block_slot, give_pending, menu, resend_all, station, throw_stack, window_slot_of,
 };
 use crate::block::{self, Class};
-use crate::config::GameMode;
 use crate::crafting::{self, Recipe, ShapelessType};
 use crate::item::{ArmorSlot, Stack};
 use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
@@ -354,12 +353,13 @@ pub(super) fn dry_run(state: &State, session: SessionId, request: &ItemStackRequ
     check(state, session, request, false).map(|_| ())
 }
 
-/// Whether the player is in creative mode (destroying and creating items).
+/// Whether the player's items are not used up, as in creative mode (destroying and creating
+/// items).
 fn player_creative(state: &State, session: SessionId) -> bool {
     state
         .players
         .get(&session)
-        .is_some_and(|p| survival::game_mode(state, p) == GameMode::Creative)
+        .is_some_and(|p| !survival::has_finite_resources(survival::game_mode(state, p)))
 }
 
 /// Answers a refused request: an error response, then the whole inventory again (PMMP

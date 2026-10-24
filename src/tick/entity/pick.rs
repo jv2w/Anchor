@@ -7,7 +7,6 @@ use super::super::{Phase, SessionId, State, dispatch, inventory, survival};
 use super::find;
 use super::kind::{Character, Form, Kind};
 use crate::block;
-use crate::config::GameMode;
 use crate::event::PlayerEntityPick;
 use crate::item::{self, Stack};
 use crate::protocol::packet::ActorPickRequest;
@@ -107,8 +106,8 @@ fn pick(state: &State, session: SessionId, runtime_id: u64) -> Option<(crate::en
         .get(id)
         .filter(|e| !e.flagged && e.world == player.world)?;
     let picked = picked_item(&e.kind)?;
-    let creative = survival::game_mode(state, player) == GameMode::Creative;
-    (creative || inventory::has(player, &picked)).then_some((id, picked))
+    let finite = survival::has_finite_resources(survival::game_mode(state, player));
+    (!finite || inventory::has(player, &picked)).then_some((id, picked))
 }
 
 #[cfg(test)]
@@ -117,6 +116,7 @@ mod tests {
     use super::super::tests::{Harness, at, standing};
     use super::*;
     use crate::block::Face;
+    use crate::config::GameMode;
     use crate::entity::{Id, PaintingMotive};
     use crate::event::{Listeners, Priority};
     use crate::protocol::packet::Packet;
