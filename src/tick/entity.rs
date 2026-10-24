@@ -1359,12 +1359,15 @@ impl Entities {
             .map(|c| c.ids.iter().copied().collect())
             .unwrap_or_default();
         let mut list = Vec::with_capacity(ids.len());
+        // Only an entity waiting for its runtime ID is in `unassigned`.
+        let mut took_unassigned = false;
         for id in ids {
             // An entity whose spawn was not announced yet leaves unannounced.
             let announced = !self.spawned.contains(&id);
             let Some(e) = self.take(id) else {
                 continue;
             };
+            took_unassigned |= e.runtime_id == 0;
             if announced && self.despawn_heard && e.runtime_id != 0 {
                 self.left.push(id);
             }
@@ -1378,7 +1381,7 @@ impl Entities {
                 });
             }
         }
-        if !self.unassigned.is_empty() {
+        if took_unassigned {
             let slots = &self.slots;
             self.unassigned.retain(|&id| {
                 usize::try_from(id.index())
