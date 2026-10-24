@@ -479,20 +479,24 @@ impl Builder {
             Kind::Message => Type::Basic(CommandArgType::MessageRoot),
             Kind::RawText => Type::Basic(CommandArgType::RawText),
             Kind::Json => Type::Basic(CommandArgType::Json),
-            Kind::Bool => Type::Enum(self.enumeration("Boolean", ["true", "false"])),
+            Kind::Bool => Type::Enum(self.enumeration(command::BOOLEAN_ENUM, ["true", "false"])),
             Kind::Enum { name, values } => {
                 Type::Enum(self.enumeration(name, values.iter().map(String::as_str)))
             }
             Kind::Item => {
                 let values = namespaced(names.item_names().iter().copied());
-                Type::Enum(self.enumeration("Item", values.iter().map(String::as_str)))
+                Type::Enum(self.enumeration(command::ITEM_ENUM, values.iter().map(String::as_str)))
             }
             Kind::Block => {
                 let values = namespaced(block::Kind::all().iter().map(|k| k.name()));
-                Type::Enum(self.enumeration("Block", values.iter().map(String::as_str)))
+                Type::Enum(self.enumeration(command::BLOCK_ENUM, values.iter().map(String::as_str)))
             }
-            Kind::Effect => Type::Enum(self.enumeration("Effect", names.effect_names())),
-            Kind::Enchantment => Type::Enum(self.enumeration("Enchant", names.enchantment_names())),
+            Kind::Effect => {
+                Type::Enum(self.enumeration(command::EFFECT_ENUM, names.effect_names()))
+            }
+            Kind::Enchantment => {
+                Type::Enum(self.enumeration(command::ENCHANT_ENUM, names.enchantment_names()))
+            }
             Kind::SoftEnum { name } => Type::Soft(self.soft(name)),
         }
     }

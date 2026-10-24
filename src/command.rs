@@ -64,6 +64,13 @@ const SYNTAX: &str = "commands.generic.syntax";
 const PLAYER_NOT_FOUND: &str = "commands.generic.player.notFound";
 /// The client's "no targets matched" text.
 const NO_TARGETS: &str = "commands.generic.noTargetMatch";
+/// The enum type names of [`Param::bool`], [`Param::item`], [`Param::block`],
+/// [`Param::effect`] and [`Param::enchantment`]: what the client shows and the usage writes (BDS).
+pub(crate) const BOOLEAN_ENUM: &str = "Boolean";
+pub(crate) const ITEM_ENUM: &str = "Item";
+pub(crate) const BLOCK_ENUM: &str = "Block";
+pub(crate) const EFFECT_ENUM: &str = "Effect";
+pub(crate) const ENCHANT_ENUM: &str = "Enchant";
 
 /// What runs a command: it gets the game, who sent the command and the parsed arguments, and
 /// returns what the sender sees.
@@ -438,7 +445,7 @@ impl Param {
             }
             Kind::Float => "float",
             Kind::String => "string",
-            Kind::Bool => "Boolean",
+            Kind::Bool => BOOLEAN_ENUM,
             Kind::Target | Kind::Name => "target",
             Kind::Position => "x y z",
             Kind::Message => "message",
@@ -449,10 +456,10 @@ impl Param {
                 return;
             }
             Kind::Enum { name, .. } | Kind::SoftEnum { name } => name,
-            Kind::Item => "Item",
-            Kind::Block => "Block",
-            Kind::Effect => "Effect",
-            Kind::Enchantment => "Enchant",
+            Kind::Item => ITEM_ENUM,
+            Kind::Block => BLOCK_ENUM,
+            Kind::Effect => EFFECT_ENUM,
+            Kind::Enchantment => ENCHANT_ENUM,
         };
         let (open, close) = if self.optional {
             ('[', ']')
