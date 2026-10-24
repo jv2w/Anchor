@@ -27,7 +27,7 @@ const MAX_CHANGES: usize = 65_536;
 /// The most alternative creative inventories.
 pub(crate) const MAX_ALTERNATIVES: usize = 64;
 /// The longest creative group or inventory name, in bytes.
-pub(crate) const MAX_NAME: usize = 128;
+const MAX_NAME: usize = 128;
 
 /// What a creative entry or a group's icon shows: an item named before the server numbers the
 /// custom items, or a whole stack with its NBT (an enchanted book's enchantments). Its count
@@ -274,9 +274,14 @@ fn too_many_entries() -> Error {
     }
 }
 
-/// `name` if it can name a creative group or inventory: not empty, at most [`MAX_NAME`] bytes.
+/// Whether `name` can name a creative group or inventory: not empty, at most [`MAX_NAME`] bytes.
+pub(crate) fn is_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_NAME
+}
+
+/// `name` if it can name a creative group or inventory ([`is_name`]).
 pub(crate) fn checked_name(name: &'static str) -> Result<&'static str, Error> {
-    if name.is_empty() || name.len() > MAX_NAME {
+    if !is_name(name) {
         return Err(Error::Creative {
             reason: "a creative group or inventory name that is empty or too long",
         });

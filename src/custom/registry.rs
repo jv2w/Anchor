@@ -232,7 +232,7 @@ impl Registry {
             if let Some(Creative {
                 group: Some(group), ..
             }) = entry.creative()
-                && (group.is_empty() || group.len() > creative::MAX_NAME)
+                && !creative::is_name(group)
             {
                 return Err(Error::Definition {
                     identifier,
