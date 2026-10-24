@@ -1317,3 +1317,42 @@ fn a_script_that_makes_and_unloads_worlds_replays_to_the_same_states() {
     assert_eq!(replay(&read.ticks(), &one), hashes);
     assert!(one.shutdown() && many.shutdown());
 }
+
+/// The world files a start left out (damaged, without a record) count toward the most
+/// `data/worlds/` holds: past them a persistent world is refused, also after a restore from a
+/// checkpoint, while a temporary one, which has no file, is made.
+#[test]
+#[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+fn a_persistent_world_past_the_files_a_start_left_out_is_full() {
+    let dir = crate::save::tests::TempDir::new("world-limit-tick");
+    let worlds = dir.0.join(crate::storage::WORLD_DIR);
+    std::fs::create_dir_all(&worlds).unwrap();
+    // Empty files are damaged ones; with the declared world's, the folder is full.
+    for i in 1..MAX_WORLDS {
+        let file = worlds.join(format!("w{i:04}.{}", crate::storage::EXTENSION));
+        std::fs::write(file, b"").unwrap();
+    }
+    let (mut state, link, handle) = open_server(&dir, Listeners::default());
+    let pool = crate::runtime::cpu_pool(1).unwrap();
+    let bytes = state.checkpoint(&pool).to_bytes();
+    let mut restored = fresh_like(&state);
+    let custom = Arc::clone(&restored.custom);
+    let entities = restored.rules.entities.take_customs();
+    let read = checkpoint::Checkpoint::read(&bytes, &custom, &entities).unwrap();
+    restored.rules.entities.set_customs(entities);
+    restored
+        .restore(&read, checkpoint::tests::extras_of(&state), |_| {
+            outbound_queue().0
+        })
+        .unwrap();
+    for s in [&mut state, &mut restored] {
+        let mut c = cx(s);
+        assert_eq!(
+            c.create_world("extra", &Options::new()),
+            Err(world::Error::Full)
+        );
+        c.create_world("arena", &arena(1)).unwrap();
+    }
+    finish(link, handle);
+    assert!(pool.shutdown());
+}

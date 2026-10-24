@@ -586,6 +586,10 @@ pub(crate) struct Catalog {
     pub(crate) stored: Vec<(String, WorldRecord)>,
     /// The `chunks` key number of the next new persistent world.
     pub(crate) next_number: u32,
+    /// The world files of `data/worlds/` at start that are neither stored nor a spec's world's
+    /// (damaged, without a world record, or named as a temporary world): no world of the run
+    /// is theirs, but they count toward [`MAX_WORLDS`].
+    pub(crate) left_out: usize,
 }
 
 /// The data files and the worlds, ready to run.
@@ -795,10 +799,13 @@ pub(crate) fn open_with(
         Place::data(data_dir, storage::PLAYERS_FILE),
     ];
     let names = world_names(data_dir)?;
+    let files_at_start = names.len();
     let mut new_files = 0;
+    let mut declared_files = 0;
     for spec in specs.iter().filter(|s| s.kind == Kind::Persistent) {
         let file = file_of(&names, &spec.name);
         new_files += usize::from(file.is_none());
+        declared_files += usize::from(file.is_some());
         places.push(Place::world(data_dir, file.unwrap_or(&spec.name)));
     }
     // Counted together before any is made: each world's open checks only the files made before
@@ -878,6 +885,8 @@ pub(crate) fn open_with(
         start: checked,
     };
     let mut resolved = resolve(files, at_start, saved, later, stored, specs, None)?;
+    // The stored worlds are files of other names than the declared worlds', so this is the rest.
+    resolved.catalog.left_out = files_at_start - declared_files - resolved.catalog.stored.len();
     // Worlds opened while the server runs are checked as the start says.
     resolved.thread.opener = Opener::Live {
         data_dir: data_dir.to_path_buf(),
@@ -1159,6 +1168,8 @@ fn resolve(
         catalog: Catalog {
             stored,
             next_number,
+            // `open_with` counts them; a replay's catalog is the checkpoint's.
+            left_out: 0,
         },
         tick: saved.tick,
         identity: saved.identity,
@@ -3914,7 +3925,8 @@ pub(crate) mod tests {
     }
 
     /// A world the tick makes while `data/worlds/` holds the most world files (the tick does not
-    /// count the files a start left out) gets no file, so the next start still reads the folder.
+    /// count a file put there while the server runs) gets no file, so the next start still reads
+    /// the folder.
     #[test]
     #[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
     fn a_world_made_at_the_most_world_files_makes_no_file() {

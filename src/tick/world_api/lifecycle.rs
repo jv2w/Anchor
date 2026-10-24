@@ -47,6 +47,9 @@ pub(in crate::tick) struct Catalog {
     /// The persistent worlds the server file holds that the server has not loaded, by
     /// [`world_name_key`] of their name.
     stored: BTreeMap<String, WorldRecord>,
+    /// The world files the server file held at start that are no world of the run
+    /// ([`save::Catalog::left_out`]): they count toward [`MAX_WORLDS`].
+    left_out: usize,
     /// The `chunks` key number of the next new persistent world.
     next_number: u32,
     /// The world players join.
@@ -157,6 +160,7 @@ impl Catalog {
             loaded: _,
             names: _,
             stored,
+            left_out,
             next_number,
             default,
             pending,
@@ -166,6 +170,7 @@ impl Catalog {
             generators: _,
         } = self;
         stored.encode(w);
+        left_out.encode(w);
         next_number.encode(w);
         default.encode(w);
         pending.encode(w);
@@ -187,6 +192,7 @@ impl Catalog {
             .map(|(i, s)| (world_name_key(&s.name), i))
             .collect();
         self.stored = Codec::decode(r)?;
+        self.left_out = Codec::decode(r)?;
         self.next_number = Codec::decode(r)?;
         self.default = Codec::decode(r)?;
         self.pending = Codec::decode(r)?;
@@ -205,6 +211,7 @@ impl Catalog {
             loaded,
             names: _,
             stored,
+            left_out,
             next_number,
             default,
             pending,
@@ -222,6 +229,7 @@ impl Catalog {
             h.bytes(name.as_bytes());
             h.bytes(format!("{record:?}").as_bytes());
         }
+        h.usize(*left_out);
         h.u64(u64::from(*next_number));
         h.usize(*default);
         h.usize(pending.len());
@@ -251,17 +259,19 @@ impl Catalog {
 
 impl State {
     /// Gives the state what the server file says of the worlds it does not start with: the
-    /// persistent worlds it may load, and the next world number.
+    /// persistent worlds it may load, the world files it left out, and the next world number.
     pub(crate) fn open_worlds(&mut self, catalog: save::Catalog) {
         let save::Catalog {
             stored,
             next_number,
+            left_out,
         } = catalog;
         self.catalog.stored = stored
             .into_iter()
             .map(|(name, record)| (world_name_key(&name), record))
             .collect();
         self.catalog.next_number = next_number;
+        self.catalog.left_out = left_out;
     }
 }
 
@@ -284,7 +294,8 @@ fn named(state: &State, name: &str) -> Option<WorldIndex> {
     state.catalog.named(name)
 }
 
-/// The persistent worlds the server has or the server file holds.
+/// The world files the server has or makes: of its persistent worlds, the stored ones and those
+/// it left out at start.
 fn persistent_count(state: &State) -> usize {
     let had = state
         .worlds
@@ -292,6 +303,7 @@ fn persistent_count(state: &State) -> usize {
         .filter(|w| w.kind() == Kind::Persistent)
         .count();
     had.saturating_add(state.catalog.stored.len())
+        .saturating_add(state.catalog.left_out)
 }
 
 /// The difficulty the rules of the world at `world` use ([`difficulty_of`]).
@@ -509,7 +521,11 @@ impl Context<'_> {
     /// [`UnknownGenerator`](world::Error::UnknownGenerator) for a generator not registered,
     /// [`InvalidSettings`](world::Error::InvalidSettings) for a view value of
     /// [`Options::settings`](world::Options::settings) out of its range, and
-    /// [`Full`](world::Error::Full) past 1,024 worlds named this run or held by the server file.
+    /// [`Full`](world::Error::Full) past 1,024 worlds named this run, or, for a persistent world,
+    /// past 1,024 world files: those of the run's persistent worlds and those `data/worlds/` held
+    /// at start, damaged ones too. A file put there while the server runs (an import) is not
+    /// counted: past the most, the save thread makes no file for the world, which then runs with
+    /// its chunks held as damaged and is not saved.
     ///
     /// The world keeps the difficulty of [`Options::difficulty`](world::Options::difficulty) as
     /// its own, but a `hardcore` server plays every world on hard.
