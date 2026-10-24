@@ -393,8 +393,14 @@ impl Session {
         // The whole batch shares one allocation budget, as in `batch::decode_packets`.
         let mut budget = self.shared.batch.decode_budget();
         for (header, bytes) in packets {
+            let left = budget;
             match Packet::decode(header.id, bytes, &mut budget, SHIELD_ID) {
-                Ok(packet) => self.on_packet(packet, bytes.len()).await?,
+                // The input log holds the decoded packet and writes its bytes, so it counts the
+                // larger of the two.
+                Ok(packet) => {
+                    let size = bytes.len().max(left - budget);
+                    self.on_packet(packet, size).await?;
+                }
                 // After the spawn one bad packet is dropped; the batch length
                 // prefixes keep the other packets intact.
                 Err(e) if self.spawned => {
@@ -406,7 +412,7 @@ impl Session {
         Ok(())
     }
 
-    /// Handles one decoded packet of `size` bytes on the wire.
+    /// Handles one decoded packet that the input log counts as `size` bytes.
     async fn on_packet(&mut self, packet: Packet, size: usize) -> Result<()> {
         match (self.stage, packet) {
             (Stage::Login, Packet::Login(login)) => self.on_login(login).await,
@@ -961,6 +967,48 @@ mod tests {
                     .expect("the requests are queued");
                 while queue.try_recv().is_ok() {}
             }
+        });
+    }
+
+    /// A packet that decodes into far more than its bytes reaches the tick with what decoding
+    /// it allocated, which the input log counts.
+    #[test]
+    fn a_packet_reaches_the_tick_with_what_decoding_it_allocated() {
+        crate::raknet::tests::run(async {
+            let (inputs, mut queue) = input_queue(1);
+            let shared = shared(inputs);
+            let mut player = joined(0, &shared).await;
+            let packet = Packet::InventoryTransaction(packet::InventoryTransaction {
+                actions: vec![
+                    crate::protocol::InventoryAction::default();
+                    crate::protocol::MAX_LIST_LEN
+                ],
+                ..packet::InventoryTransaction::default()
+            });
+            let mut body = Vec::new();
+            packet.encode(&mut body, SHIELD_ID).unwrap();
+            let mut budget = usize::MAX;
+            Packet::decode(packet.id(), &body, &mut budget, SHIELD_ID).unwrap();
+            let allocated = usize::MAX - budget;
+            let mut message = vec![0xff];
+            let header = Header {
+                id: packet.id(),
+                ..Header::default()
+            };
+            batch::encode_packets([(header, &packet)], SHIELD_ID, &mut Vec::new(), |p| {
+                message.extend_from_slice(p);
+                Ok(())
+            })
+            .unwrap();
+            player.on_message(message).await.unwrap();
+            let mut sizes = Vec::new();
+            while let Ok(input) = queue.try_recv() {
+                if let InputKind::Packet { size, .. } = input.kind {
+                    sizes.push(size);
+                }
+            }
+            assert!(allocated > body.len());
+            assert_eq!(sizes, [allocated]);
         });
     }
 }

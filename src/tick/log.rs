@@ -9,12 +9,13 @@
 //! ([`super::checkpoint`]), which a replay starts from with the server file of the same tick.
 //!
 //! Committed segments are kept while there is room: the oldest go only when the bound needs
-//! room ([`MAX_BYTES`], inputs counted by their size on the wire, and the checkpoints of the
-//! segments that may go), never the newest committed one, which the crash log needs. Past the
-//! bound the segment being recorded stops and is marked truncated, and a replay ends there; the
-//! next snapshot starts a new segment. A quarter of the bound recorded since the last commit asks
-//! for a snapshot ([`InputLog::wants_commit`]), so the rest covers the commit's time and a
-//! segment is not truncated in normal running.
+//! room ([`MAX_BYTES`], inputs counted by their size on the wire or, for a packet, what decoding
+//! it allocated if that is larger, and the checkpoints of the segments that may go), never the
+//! newest committed one, which the crash log needs. Past the bound the segment being recorded
+//! stops and is marked truncated, and a replay ends there; the next snapshot starts a new
+//! segment. A quarter of the bound recorded since the last commit asks for a snapshot
+//! ([`InputLog::wants_commit`]), so the rest covers the commit's time and a segment is not
+//! truncated in normal running.
 //!
 //! The log chains every input the tick applies, recorded or not, into a commit identity
 //! ([`InputLog::identity`]), from the identity of the state the server file held at the start. A
@@ -40,7 +41,7 @@ use super::queue::{Client, Identity, JobOutcome, Measure, SessionId};
 use crate::clock;
 use crate::item::SHIELD_RUNTIME_ID;
 use crate::nbt::Encoding;
-use crate::protocol::{self, Writer, batch, packet::Packet};
+use crate::protocol::{self, Writer, packet::Packet};
 use crate::save::{Loaded, PlayerData, PlayerLoad, Response, WorldIndex};
 use crate::storage::Checked;
 use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
@@ -625,7 +626,8 @@ impl InputLog {
         }
     }
 
-    /// Records an input of `size` bytes (a packet's on the wire, a join's
+    /// Records an input of `size` bytes (a packet's
+    /// [`InputKind::Packet`](super::queue::InputKind::Packet) size, a join's
     /// [`Identity::size`](super::queue::Identity::size), 0 for a leave) before the tick
     /// applies it, and gives it back for the tick to apply: the logged entry, or the input itself
     /// when the log no longer records.
@@ -870,9 +872,9 @@ impl InputLog {
         Ok(out)
     }
 
-    /// Reads a written log of at most [`MAX_FILE_BYTES`], of [`FORMAT`]. It is checked against
-    /// its checksum first, and every count against the bytes left before anything is allocated
-    /// for it.
+    /// Reads a written log of at most [`MAX_FILE_BYTES`], of [`FORMAT`], whose packets together
+    /// decode within [`MAX_BYTES`]. It is checked against its checksum first, and every count
+    /// against the bytes left before anything is allocated for it.
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() > MAX_FILE_BYTES {
             return Err(Error::Format("larger than a log can be"));
@@ -906,6 +908,10 @@ impl InputLog {
             return Err(Error::Format("no segment"));
         }
         let mut segments = VecDeque::with_capacity(capacity::<Segment>(count, r.0.len()));
+        // The log counted each packet as at least what decoding it allocated, within the bound
+        // for all of them (`InputLog::record`): an item's NBT takes a reader far more than its
+        // bytes.
+        let mut packet_budget = MAX_BYTES;
         for _ in 0..count {
             let start = r.u64()?;
             let committed = r.flag("committed flag")?;
@@ -925,7 +931,7 @@ impl InputLog {
             let ticks = r.count(16)?;
             segment.ticks = Vec::with_capacity(capacity::<Tick>(ticks, r.0.len()));
             for _ in 0..ticks {
-                segment.ticks.push(r.tick()?);
+                segment.ticks.push(r.tick(&mut packet_budget)?);
             }
             segments.push_back(segment);
         }
@@ -1246,8 +1252,9 @@ impl<'a> Read<'a> {
         }
     }
 
-    /// A tick of a written log.
-    fn tick(&mut self) -> Result<Tick> {
+    /// A tick of a written log, whose packets take what decoding them allocates from
+    /// `packet_budget`.
+    fn tick(&mut self, packet_budget: &mut usize) -> Result<Tick> {
         let number = self.u64()?;
         // An entry takes at least 17 bytes, a dropped session 8.
         let entries = self.count(17)?;
@@ -1287,10 +1294,7 @@ impl<'a> Read<'a> {
                 KIND_PACKET => {
                     let id = self.u32()?;
                     let payload = self.bytes()?;
-                    // Each packet within what its batch could take when a session read it: an
-                    // item's NBT takes a reader far more than its bytes.
-                    let mut budget = batch::MAX_DECODE_BUDGET;
-                    let packet = Packet::decode(id, payload, &mut budget, SHIELD_RUNTIME_ID)
+                    let packet = Packet::decode(id, payload, packet_budget, SHIELD_RUNTIME_ID)
                         .map_err(Error::Packet)?;
                     EntryKind::Packet(packet)
                 }
@@ -1899,6 +1903,44 @@ mod tests {
         let bytes = log.encode().unwrap();
         let read = InputLog::decode(&bytes).expect("the log reads back");
         assert_eq!(read.ticks(), log.ticks());
+    }
+
+    /// A written log whose packets together take a reader more than the live log holds is
+    /// refused, though each packet alone fits a batch.
+    #[test]
+    fn a_log_whose_packets_decode_past_the_bound_is_refused() {
+        use crate::protocol::InventoryAction;
+        use crate::protocol::packet::InventoryTransaction;
+        // Each default action takes a few bytes on the wire and far more decoded.
+        let packet = Packet::InventoryTransaction(InventoryTransaction {
+            actions: vec![InventoryAction::default(); protocol::MAX_LIST_LEN],
+            ..InventoryTransaction::default()
+        });
+        let mut payload = Vec::new();
+        packet.encode(&mut payload, SHIELD_RUNTIME_ID).unwrap();
+        let mut budget = usize::MAX;
+        Packet::decode(packet.id(), &payload, &mut budget, SHIELD_RUNTIME_ID).unwrap();
+        let copies = MAX_BYTES / (usize::MAX - budget) + 1;
+        let mut log = InputLog::default();
+        log.begin(0);
+        log.record(SessionId::new(1), 0, EntryKind::Packet(packet), 0);
+        let one = log.encode().unwrap();
+        // The tick's one entry (session, seq, kind, id, length, payload) follows its count and
+        // is followed by the dropped and answer counts and the checksum.
+        let end = one.len() - 12;
+        let start = end - (25 + payload.len());
+        let mut crafted = one[..start - 4].to_vec();
+        crafted.extend_from_slice(&u32::try_from(copies).unwrap().to_le_bytes());
+        for _ in 0..copies {
+            crafted.extend_from_slice(&one[start..end]);
+        }
+        crafted.extend_from_slice(&one[end..]);
+        reseal(&mut crafted);
+        let read = InputLog::decode(&crafted).map(|_| ());
+        assert!(
+            matches!(read, Err(Error::Packet(protocol::Error::Size))),
+            "{read:?}"
+        );
     }
 
     #[test]

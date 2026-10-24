@@ -395,8 +395,8 @@ pub(crate) enum InputKind {
         /// Where the tick sends this session's packets (from [`outbound_queue`]).
         outbound: mpsc::Sender<Outbound>,
     },
-    /// An in-game packet (after `StartGame`) and its size on the wire, which the input log
-    /// counts against its bound.
+    /// An in-game packet (after `StartGame`) and the bytes the input log counts for it against
+    /// its bound: the larger of its size on the wire and what decoding it allocated.
     Packet { packet: Packet, size: usize },
     /// The connection closed.
     Leave,
