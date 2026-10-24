@@ -60,6 +60,8 @@ pub(super) use furnace::{FUEL as FURNACE_FUEL, INPUT as FURNACE_INPUT, OUTPUT as
 
 /// The most spilled stacks dropped per tick, over every world.
 const SPILL_DROPS_PER_TICK: usize = 64;
+/// The most stacks a saved spill takes: its slots when read ([`Chunk::read`]).
+const SPILL_SLOTS: usize = 2 * CHEST_SLOTS;
 /// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
 const SPILL_ID: &str = "AnchorSpill";
 /// Slots of a chiseled bookshelf (PMMP `ChiseledBookshelfSlot`).
@@ -790,7 +792,7 @@ impl Chunk {
                 super::rules::reads::add(|r| r.clones += 1);
                 chunk.raw.push(nbt.clone());
             } else if spill {
-                let mut items = vec![Stack::EMPTY; 2 * CHEST_SLOTS];
+                let mut items = vec![Stack::EMPTY; SPILL_SLOTS];
                 if let Some(Value::List(List::Compound(list))) = nbt.get("Items") {
                     read_items(&mut items, list, pos, custom);
                 }
@@ -847,8 +849,7 @@ impl Parsed {
     /// waits as a spill and drops in the next ticks (PMMP drops nothing: fixed, no item is
     /// lost). A furnace's stored experience goes with it. With the chunk's spills full it is kept
     /// as it is. A shulker box's stacks its slots do not take (an Anchor before the limit saved
-    /// them) wait as a spill too, so the box with its items is always one stack; with the
-    /// spills full the box keeps them.
+    /// them) wait as a spill too, so the box with its items is always one stack ([`spill_unfit`]).
     ///
     /// `None` for a damaged list: one keeping more raw entries than a chunk may ([`Chunk::read`]).
     pub(super) fn read(
@@ -887,20 +888,40 @@ impl Parsed {
             }
         }
         for (pos, entity) in &mut chunk.entities {
-            if chunk.spills.len() >= MAX_SPILLS {
-                break;
-            }
             let unfit = entity.take_unfit();
             if !unfit.is_empty() {
-                chunk.spills.push(Spill {
-                    pos: *pos,
-                    items: unfit,
-                });
+                spill_unfit(&mut chunk.spills, *pos, unfit);
                 removed = true;
             }
         }
         Some(Self { chunk, removed })
     }
+}
+
+/// Keeps `items`, the stacks a loaded shulker box at `pos` does not take, in `spills`: as a spill
+/// of their own, or with the spills full in the slots the waiting spills have free (dropped where
+/// those wait), so the list stays within what it holds. What finds no slot is lost with an
+/// error, as [`BlockEntities::spill`] loses a broken container's items.
+fn spill_unfit(spills: &mut Vec<Spill>, pos: BlockPos, mut items: Vec<Stack>) {
+    if spills.len() < MAX_SPILLS {
+        spills.push(Spill { pos, items });
+        return;
+    }
+    for spill in spills.iter_mut() {
+        // A spill made at run time may hold more stacks than a saved one takes.
+        let free = SPILL_SLOTS.saturating_sub(spill.items.len());
+        spill.items.extend(items.drain(..free.min(items.len())));
+        if items.is_empty() {
+            return;
+        }
+    }
+    error!(
+        x = pos.x,
+        y = pos.y,
+        z = pos.z,
+        lost = items.len(),
+        "container items lost: too many spills waiting"
+    );
 }
 
 impl BlockEntities {
@@ -2802,16 +2823,17 @@ pub(in crate::tick) mod tests {
         );
     }
 
-    /// With the chunk's spills full, a loaded shulker box keeps the stacks its slots do not take.
+    /// With the chunk's spills full, the stacks a loaded shulker box's slots do not take join a
+    /// waiting spill: the box holds only what fits (so its item when broken is one stack), no
+    /// item is lost, and the list reads back the same.
     #[test]
-    fn a_loaded_shulker_box_keeps_what_it_cannot_spill_with_the_spills_full() {
-        let key = (0, ChunkPos::new(0, 0));
-        let mut world = world_with(key);
-        let pos = BlockPos::new(1, 2, 3);
+    fn a_loaded_shulker_box_spills_what_it_cannot_take_with_the_spills_full() {
+        let (mut state, key) = slow_server(false);
+        let pos = state.worlds[0].spawn();
         let shulker = block::State::all()
             .find(|b| b.is(Class::ShulkerBox))
             .unwrap();
-        world.set_block(pos, shulker).unwrap();
+        state.worlds[0].set_block(pos, shulker).unwrap();
         let stick = Stack::new(ItemKind::Stick.default_type(), 5);
         let big = stick
             .with_extra(Some(item::Extra {
@@ -2820,7 +2842,7 @@ pub(in crate::tick) mod tests {
             }))
             .unwrap();
         let mut entity = BlockEntity::new(Kind::ShulkerBox { facing: 1 }, 27);
-        entity.items[1] = big.clone();
+        entity.items[1] = big;
         let mut list = vec![entity.write(pos)];
         let spill = Spill {
             pos,
@@ -2831,13 +2853,40 @@ pub(in crate::tick) mod tests {
             ..Chunk::default()
         };
         list.extend(spills.write());
-        let mut store = BlockEntities::default();
-        store.load_list(key, &list, &world, &Registry::default());
-        assert!(
-            store.get(0, pos).unwrap().items[1] == big,
-            "the box keeps it"
+        let count = |state: &State| -> usize {
+            state
+                .rules
+                .block_entities
+                .all_items()
+                .map(|s| usize::from(s.count()))
+                .sum()
+        };
+        let all = 5 * (MAX_SPILLS + 1);
+        let blocks = &mut state.rules.block_entities;
+        blocks.load_list(key, &list, &state.worlds[0], &Registry::default());
+        let entity = state.rules.block_entities.get(0, pos).unwrap();
+        assert!(entity.items.iter().all(Stack::fits_shulker_box));
+        assert_eq!(
+            state.rules.block_entities.chunks[&key].spills.len(),
+            MAX_SPILLS
         );
-        assert_eq!(store.chunks[&key].spills.len(), MAX_SPILLS);
+        assert_eq!(count(&state), all);
+        let block::ItemForm::Item(box_item) = shulker.item() else {
+            panic!("a shulker box item");
+        };
+        let broken = with_block_data(&state, 0, pos, Stack::new(box_item, 1));
+        assert!(
+            broken.tag().is_none_or(|t| !t.contains_key("Items")),
+            "the box is empty"
+        );
+        let list = state
+            .rules
+            .block_entities
+            .unload(key)
+            .expect("the chunk changed");
+        let blocks = &mut state.rules.block_entities;
+        blocks.load_list(key, &list, &state.worlds[0], &Registry::default());
+        assert_eq!(count(&state), all, "the list reads back the same");
     }
 
     /// A list keeping more raw entries than a chunk may is damaged; saved spills past the most a
