@@ -912,7 +912,7 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
 /// The player's feet position (the tick keeps the eye position), rounded to 4 decimals as PMMP
 /// keeps it (`InGamePacketHandler`: `round(4)` of the eye - 1.62). Unrounded, the `f32` eye of a
 /// player on a block is a hair below it and its feet floor to the block under that.
-fn feet(player: &Player) -> Vec3 {
+pub(super) fn feet(player: &Player) -> Vec3 {
     let round = |v: f64| (v * 10_000.0).round() / 10_000.0;
     let f = player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
     Vec3::new(round(f.x), round(f.y), round(f.z))

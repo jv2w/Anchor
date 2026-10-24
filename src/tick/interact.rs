@@ -31,7 +31,6 @@ pub(super) use using::{light_campfire, lower_water_cauldron};
 
 use tracing::debug;
 
-use super::survival::EYE_HEIGHT;
 use super::view::{UPDATE_FLAGS, chunk_of};
 use super::{Context, Phase, Player, SessionId, State, dispatch, entity, inventory, survival};
 use crate::action;
@@ -414,7 +413,7 @@ fn actor(state: &State, session: SessionId) -> Option<Actor> {
         session,
         world: player.world,
         eye: player.position,
-        feet: player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0),
+        feet: survival::feet(player),
         yaw: survival::rotation(player).0,
         look: survival::look_direction(player),
         mode: survival::game_mode(state, player),
@@ -695,7 +694,7 @@ pub(super) fn tick(state: &mut State) {
         let Some(target) = player.breaking.target.clone() else {
             continue;
         };
-        let feet = player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
+        let feet = survival::feet(player);
         if target.world != player.world
             || feet.distance_squared(center(target.pos)) > MAX_BREAK_DISTANCE * MAX_BREAK_DISTANCE
         {

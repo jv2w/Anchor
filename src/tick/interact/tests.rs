@@ -3,6 +3,7 @@
 use tokio::sync::mpsc;
 
 use super::super::queue::{Input, InputKind, Message, Outbound, SessionId};
+use super::super::survival::EYE_HEIGHT;
 use super::super::tests::{answer, join, leave, new_state, radius, settings};
 use super::super::{InputLog, Output, Phase, State, boundary, deliver, inventory, step};
 use super::*;
@@ -2143,6 +2144,16 @@ fn a_second_cell_does_not_replace_an_unknown_block() {
         assert_eq!(h.block(TARGET), block::AIR, "{item:?}");
         assert_eq!(h.held(), item);
     }
+}
+
+/// The feet the interaction rules use are the survival rules' rounded feet: a player standing on
+/// the ground (its `f32` eyes a hair below 1.62 above it) has its feet in the block above the
+/// ground, not in the ground.
+#[test]
+fn a_player_on_the_ground_has_its_feet_above_the_ground() {
+    let h = Harness::new(|_| {});
+    let actor = actor(&h.state, SessionId::new(1)).unwrap();
+    assert_eq!(BlockPos::containing(actor.feet), BlockPos::new(0, -60, 0));
 }
 
 mod book;
