@@ -30,10 +30,6 @@ const EXHAUSTION_PER_POINT: f64 = 4.0;
 pub(super) const FOOD_CYCLE: u32 = 80;
 /// The most experience points a player holds (PMMP `Limits::INT32_MAX`).
 const MAX_XP: u64 = i32::MAX.cast_unsigned() as u64;
-/// Ticks an item takes to eat or drink (Bedrock: 1.6 s; dried kelp 0.8 s).
-const CONSUME_TICKS: u64 = 32;
-/// Ticks dried kelp takes to eat.
-const DRIED_KELP_TICKS: u64 = 16;
 /// The share of the eating time that must pass between the start and the end packets: the two
 /// packets arrive with network jitter, so a quarter of the time is forgiven. PMMP checks no time
 /// at all, so a client could eat instantly.
@@ -521,15 +517,6 @@ fn can_eat(state: &State, player: &Player, mode: GameMode) -> bool {
         || mode == GameMode::Creative
 }
 
-/// Ticks eating `item` takes.
-fn consume_ticks(item: Type) -> u64 {
-    if item.is(Class::DriedKelp) {
-        DRIED_KELP_TICKS
-    } else {
-        CONSUME_TICKS
-    }
-}
-
 /// Whether the item is eaten or drunk by holding use (PMMP `ConsumableItem` and `Releasable`).
 fn is_consumable(item: Type) -> bool {
     item.food().is_some() || item.consumable().is_some()
@@ -598,7 +585,7 @@ pub(super) fn finish_eating(state: &mut State, session: SessionId) -> bool {
         return true;
     }
     let elapsed = state.tick.saturating_sub(using.since);
-    let need = consume_ticks(item);
+    let need = u64::from(item.use_ticks());
     if elapsed >= need - need / CONSUME_TOLERANCE_DIVISOR {
         consume(state, session, item);
     }

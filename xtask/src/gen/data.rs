@@ -22,6 +22,10 @@ use super::upgrade::{LATEST, latest};
 
 type R<T> = Result<T, String>;
 
+/// The ticks the client takes to drink a consumable it is sent without item data (potion, milk
+/// bucket, medicine): the client's own 1.6 s for them.
+const LEGACY_USE_TICKS: u16 = 32;
+
 /// Bedrock states PMMP splits by data Anchor keeps in the block entity: the
 /// Bedrock name, the PMMP type Anchor's state takes and what the block entity holds. Only PMMP
 /// states of these names may differ in PMMP type, class, item form or drops; where their item
@@ -199,6 +203,8 @@ pub(crate) struct Item {
     pub(crate) fuel_residue: Option<u16>,
     /// The item type left after consuming one (PMMP `ConsumableItem::getResidue`).
     pub(crate) consume_residue: Option<u16>,
+    /// The ticks the client takes to eat or drink one ([`use_ticks`]); 0 for items not consumed.
+    pub(crate) use_ticks: u16,
     /// The state index placing the item puts down, and the one against a side where that
     /// differs (PMMP `Item::getBlock`).
     pub(crate) places: (Option<u16>, Option<u16>),
@@ -316,8 +322,7 @@ struct ReferenceItem {
     _component_based: bool,
     #[serde(rename = "version")]
     _version: i32,
-    #[serde(rename = "data")]
-    _data: Json,
+    data: Json,
 }
 
 /// An entry of the reference `item_blocks.json`.
@@ -459,18 +464,31 @@ impl Data {
     fn load_items(&mut self, root: &Path, network: &BTreeMap<StateKey, u32>) -> R<()> {
         let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
         self.runtime_ids = reference
-            .into_iter()
+            .iter()
             .map(|i| {
                 i16::try_from(i.runtime_id)
                     .map(|id| (i.name.clone(), id))
                     .map_err(|_| format!("runtime ID of {} out of range", i.name))
             })
             .collect::<R<_>>()?;
+        let reference_data: BTreeMap<&str, &Json> = reference
+            .iter()
+            .map(|i| (i.name.as_str(), &i.data))
+            .collect();
         let pmmp: Vec<PmmpItem> = read_json(root, PMMP_DIR, PMMP_ITEMS)?;
         for (i, item) in pmmp.iter().enumerate() {
             let index = u16::try_from(i).map_err(|_| "more than 65,536 item types")?;
             let form = self.item_form(&item.bedrock)?;
             let runtime_id = self.runtime_id(&form.0)?;
+            let consumed = item.data.food.is_some() || item.data.consumable.is_some();
+            let use_ticks = if consumed {
+                let data = reference_data
+                    .get(form.0.as_str())
+                    .ok_or_else(|| format!("item {} is not in the reference list", form.0))?;
+                use_ticks(&form.0, data)?
+            } else {
+                0
+            };
             self.item_index
                 .entry((form.0.clone(), form.2))
                 .or_default()
@@ -486,6 +504,7 @@ impl Data {
                 data: item.data.clone(),
                 fuel_residue: None,
                 consume_residue: None,
+                use_ticks,
                 places: (
                     self.placed(item.data.places.as_ref())?,
                     self.placed(item.data.places_on_wall.as_ref())?,
@@ -698,6 +717,36 @@ fn corrected_meta(name: &str, meta: u16, nbt: Option<&BTreeMap<String, Tag>>) ->
     } else {
         meta
     }
+}
+
+/// The ticks the client takes to eat or drink the item `name`, from its reference `data` (the
+/// item data the client is sent): the `minecraft:use_duration` component, or the `use_duration`
+/// of a component-based item's `item_properties`, both in ticks. An item sent without data
+/// (potion, milk bucket, medicine) takes [`LEGACY_USE_TICKS`]. Fails for an item with data but
+/// no such value, or a value that is not 1 to 65,535 ticks.
+fn use_ticks(name: &str, data: &Json) -> R<u16> {
+    let data = compound(data).map_err(|e| format!("{name}: {e}"))?;
+    if data.is_empty() {
+        return Ok(LEGACY_USE_TICKS);
+    }
+    let Some(Tag::Compound(components)) = data.get("components") else {
+        return Err(format!("{name}: data without components"));
+    };
+    let ticks = match (
+        components.get("minecraft:use_duration"),
+        components.get("item_properties"),
+    ) {
+        (Some(Tag::Int(ticks)), _) => *ticks,
+        (None, Some(Tag::Compound(properties))) => match properties.get("use_duration") {
+            Some(Tag::Int(ticks)) => *ticks,
+            _ => return Err(format!("{name}: item_properties without use_duration")),
+        },
+        _ => return Err(format!("{name}: consumed but no use_duration")),
+    };
+    u16::try_from(ticks)
+        .ok()
+        .filter(|&t| t > 0)
+        .ok_or_else(|| format!("{name}: use_duration {ticks} out of range"))
 }
 
 /// Reads the reference block list.

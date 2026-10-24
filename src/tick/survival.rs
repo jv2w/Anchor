@@ -2423,6 +2423,26 @@ mod tests {
         assert!(!start_eating(&mut server.state, sid(1)));
     }
 
+    /// The client drinks a honey bottle for 40 ticks (its item data's `use_duration`), not the 32
+    /// of most food; a quarter of that is forgiven.
+    #[test]
+    fn a_honey_bottle_needs_the_clients_drinking_time() {
+        let mut server = Server::new(1, |_| {});
+        server.survival(1).food = 10.0;
+        inventory::set_held(server.player_mut(1), stack(ItemKind::HoneyBottle, 1));
+        assert!(start_eating(&mut server.state, sid(1)));
+        server.idle(25);
+        assert!(finish_eating(&mut server.state, sid(1)));
+        assert_eq!(server.survival(1).food, 10.0, "too early: nothing drunk");
+        assert_eq!(server.player(1).inventory.held().count(), 1);
+        assert!(start_eating(&mut server.state, sid(1)));
+        server.idle(30);
+        assert!(finish_eating(&mut server.state, sid(1)));
+        assert!(server.survival(1).food > 10.0);
+        let glass_bottle = ItemKind::GlassBottle.default_type();
+        assert_eq!(server.player(1).inventory.held().item(), Some(glass_bottle));
+    }
+
     /// A chorus fruit puts the feet on the floor it found, not the eyes.
     #[test]
     fn a_chorus_fruit_lands_the_feet_on_a_floor() {

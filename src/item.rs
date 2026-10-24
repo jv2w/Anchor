@@ -368,6 +368,10 @@ impl Hash for Type {
 /// The data of a custom block's item: a plain block item of 64.
 static CUSTOM_BLOCK_ITEM: Info = Info::custom(64, 0, 1, None);
 
+/// The ticks eating a custom food takes (dragonfly's default consume duration, 1.6 seconds); its
+/// clients are sent it as the item's `use_duration`.
+const CUSTOM_EAT_TICKS: u16 = 32;
+
 /// [`Trait`] bits of every PMMP item (`ItemEnchantmentHandling`).
 const TRAITS_ITEM: u32 = 1 << Trait::ItemEnchantmentHandling as u32;
 /// [`Trait`] bits of a PMMP food item (`Food`: consumable, food source, releasable).
@@ -400,6 +404,9 @@ pub(crate) struct Info {
     armor: Option<Armor>,
     food: Option<Food>,
     consumable: Option<Consumable>,
+    /// The ticks the client takes to eat or drink one: the `use_duration` of the item data it is
+    /// sent; 0 for items not consumed.
+    use_ticks: u16,
     fuel_time: u16,
     fuel_residue: Option<Type>,
     enchantability: u8,
@@ -441,6 +448,7 @@ impl Info {
             } else {
                 None
             },
+            use_ticks: if edible { CUSTOM_EAT_TICKS } else { 0 },
             fuel_time: 0,
             fuel_residue: None,
             enchantability: 1,
@@ -466,6 +474,11 @@ impl Info {
     /// What eating restores.
     pub(crate) const fn food(&self) -> Option<Food> {
         self.food
+    }
+
+    /// The ticks eating or drinking one takes; 0 for items not consumed.
+    pub(crate) const fn use_ticks(&self) -> u16 {
+        self.use_ticks
     }
 
     /// The damage of a hit.
@@ -1035,6 +1048,12 @@ impl Type {
     /// What consuming the item leaves and does.
     pub fn consumable(self) -> Option<Consumable> {
         self.info().consumable
+    }
+
+    /// The ticks the client takes to eat or drink one (the `use_duration` of the item data it
+    /// is sent); 0 for items not consumed.
+    pub(crate) fn use_ticks(self) -> u16 {
+        self.info().use_ticks
     }
 
     /// The ticks one item burns as fuel; 0 if it is not fuel.

@@ -327,7 +327,7 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
             "Info {{ kind: {}, class: ({}, {}), traits: {}, max_stack: {}, max_durability: {}, \
              fire_proof: {}, attack_points: {}, defense_points: {}, tool_type: ToolType::from_bits({}), \
              harvest_level: {}, efficiency: {}, tier: {tier}, armor: {}, food: {}, consumable: \
-             {consumable}, fuel_time: {}, fuel_residue: {}, enchantability: {}, \
+             {consumable}, use_ticks: {}, fuel_time: {}, fuel_residue: {}, enchantability: {}, \
              primary_enchantments: EnchantmentSet({}), enchantments: EnchantmentSet({}), cooldown: \
              {}, throw_force: {}, potion: {} }},",
             opt(d.kind.as_deref().map(|k| format!("Kind::{}", camel(k)))),
@@ -352,6 +352,7 @@ fn info(data: &Data, tags: &[u128], out: &mut String) -> R<()> {
                 f64_lit(f.saturation),
                 f.requires_hunger
             ))),
+            item.use_ticks,
             d.fuel.time,
             opt(item.fuel_residue.map(|r| format!("Type::from_index({r})"))),
             d.enchantability,

@@ -5,8 +5,6 @@ use super::{Category, Creative};
 use crate::item::{self, Class, Food};
 use crate::nbt::{Compound, Value};
 
-/// The ticks eating a custom food takes (dragonfly's default consume duration, 1.6 seconds).
-const EAT_TICKS: i32 = 32;
 /// `use_animation` of eating (dragonfly: 1 eat, 2 drink).
 const EAT_ANIMATION: i32 = 1;
 /// The longest display name, in bytes.
@@ -258,7 +256,8 @@ impl Item {
             );
         }
         if let Some(food) = self.info.food() {
-            properties.insert("use_duration".to_owned(), Value::Int(EAT_TICKS));
+            let ticks = i32::from(self.info.use_ticks());
+            properties.insert("use_duration".to_owned(), Value::Int(ticks));
             properties.insert("use_animation".to_owned(), Value::Int(EAT_ANIMATION));
             components.insert(
                 "minecraft:food".to_owned(),
