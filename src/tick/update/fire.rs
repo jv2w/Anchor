@@ -4,7 +4,7 @@
 //! a fixed box of 3 × 6 × 3 blocks, so one update is bounded.
 
 use super::Cx;
-use super::props::{self, HORIZONTAL};
+use super::props;
 use crate::block::{self, Face, Kind, SupportType};
 use crate::event::BlockBurn;
 use crate::random::Random;
@@ -79,7 +79,7 @@ pub(super) fn on_random(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         let Some(fire) = props::with_int(block, "age", age) else {
             return;
         };
-        for face in HORIZONTAL {
+        for face in Face::HORIZONTAL {
             burn(cx, &mut rng, (pos, fire, age), pos.step(face), 300);
         }
         burn(cx, &mut rng, (pos, fire, age), pos.step(Face::Up), 350);

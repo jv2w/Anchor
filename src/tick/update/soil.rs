@@ -341,7 +341,7 @@ pub(super) fn budding_amethyst(cx: &mut Cx<'_>, pos: BlockPos) {
     let stage = if adjacent.kind() == Kind::Air {
         Some(0)
     } else if adjacent.kind() == Kind::AmethystCluster
-        && props::text(adjacent, "minecraft:block_face").and_then(props::face_of) == Some(face)
+        && props::string(adjacent, "minecraft:block_face").and_then(props::face_of) == Some(face)
     {
         AMETHYST_STAGES
             .iter()
@@ -499,7 +499,7 @@ pub(super) fn cauldron_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::S
     }
     if props::int(block, "fill_level").is_none_or(|f| f < CAULDRON_FULL)
         && let Some(full) = props::with_int(block, "fill_level", CAULDRON_FULL)
-            .and_then(|s| props::with_text(s, "cauldron_liquid", "water"))
+            .and_then(|s| props::with_string(s, "cauldron_liquid", "water"))
     {
         cx.set(pos, full);
     }
@@ -717,7 +717,7 @@ mod tests {
             for face in Face::ALL {
                 let face_name = props::face_name(face);
                 let scanned = block::State::all().find(|s| {
-                    s.name() == name && props::text(*s, "minecraft:block_face") == Some(face_name)
+                    s.name() == name && props::string(*s, "minecraft:block_face") == Some(face_name)
                 });
                 assert!(scanned.is_some());
                 let found = block::State::find(

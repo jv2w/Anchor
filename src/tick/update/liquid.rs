@@ -7,7 +7,6 @@
 //! again (PMMP reads air there).
 
 use super::Cx;
-use super::props::HORIZONTAL;
 use crate::block::{self, Class, Face, Kind, PropertyValue};
 use crate::event::BlockSpread;
 use crate::world::{BlockPos, MAX_Y, MIN_Y};
@@ -354,7 +353,7 @@ fn optimal_directions(
     let mut visited = Visited::new(pos);
     let mut costs = [1000; 4];
     let mut max_cost = 4 / per_block;
-    for (i, face) in HORIZONTAL.into_iter().enumerate() {
+    for (i, face) in Face::HORIZONTAL.into_iter().enumerate() {
         let (dx, _, dz) = face.offset();
         let side = BlockPos::new(pos.x + dx, pos.y, pos.z + dz);
         let status = status_of(cx, side);
@@ -380,7 +379,7 @@ fn optimal_directions(
         }
     }
     let min = costs.iter().copied().min().unwrap_or(1000);
-    HORIZONTAL
+    Face::HORIZONTAL
         .into_iter()
         .zip(costs)
         .filter(move |&(_, c)| c == min)
@@ -409,7 +408,7 @@ fn flow_cost(
     last_opposite: Face,
 ) -> i32 {
     let mut best = 1000;
-    for face in HORIZONTAL {
+    for face in Face::HORIZONTAL {
         if face == origin_opposite || face == last_opposite {
             continue;
         }

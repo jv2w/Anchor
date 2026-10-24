@@ -28,42 +28,48 @@ pub(super) const ROTATION: &str = "ground_sign_direction";
 /// `pillar_axis`.
 const PILLAR_AXIS: &str = "pillar_axis";
 
-/// The integer property `name`.
-pub(super) fn int(state: State, name: &str) -> Option<i32> {
+/// The integer or flag (byte) property `name` as a number.
+#[inline]
+pub(in crate::tick) fn int(state: State, name: &str) -> Option<i32> {
     match state.value(name)? {
+        PropertyValue::Byte(v) => Some(i32::from(v)),
         PropertyValue::Int(v) => Some(v),
-        _ => None,
+        PropertyValue::String(_) => None,
     }
 }
 
-/// The flag (byte) property `name`.
-pub(super) fn flag(state: State, name: &str) -> Option<bool> {
-    match state.value(name)? {
-        PropertyValue::Byte(v) => Some(v != 0),
-        _ => None,
-    }
+/// The flag property `name`.
+#[inline]
+pub(in crate::tick) fn flag(state: State, name: &str) -> Option<bool> {
+    int(state, name).map(|v| v != 0)
 }
 
 /// The string property `name`.
-pub(super) fn string(state: State, name: &str) -> Option<&'static str> {
+pub(in crate::tick) fn string(state: State, name: &str) -> Option<&'static str> {
     match state.value(name)? {
         PropertyValue::String(v) => Some(v),
-        _ => None,
+        PropertyValue::Byte(_) | PropertyValue::Int(_) => None,
     }
 }
 
-/// The state with the integer property `name` set to `value`.
-pub(super) fn with_int(state: State, name: &str, value: i32) -> Option<State> {
-    state.with(name, PropertyValue::Int(value))
+/// The state with the integer or flag property `name` set to `value`, keeping its NBT type;
+/// `None` if the state has no such property or value.
+pub(in crate::tick) fn with_int(state: State, name: &str, value: i32) -> Option<State> {
+    let value = match state.value(name)? {
+        PropertyValue::Byte(_) => PropertyValue::Byte(u8::try_from(value).ok()?),
+        PropertyValue::Int(_) => PropertyValue::Int(value),
+        PropertyValue::String(_) => return None,
+    };
+    state.with(name, value)
 }
 
 /// The state with the flag property `name` set to `value`.
-pub(super) fn with_flag(state: State, name: &str, value: bool) -> Option<State> {
-    state.with(name, PropertyValue::Byte(u8::from(value)))
+pub(in crate::tick) fn with_flag(state: State, name: &str, value: bool) -> Option<State> {
+    with_int(state, name, i32::from(value))
 }
 
 /// The state with the string property `name` set to `value`.
-pub(super) fn with_string(state: State, name: &str, value: &str) -> Option<State> {
+pub(in crate::tick) fn with_string(state: State, name: &str, value: &str) -> Option<State> {
     state.with(name, PropertyValue::String(value))
 }
 
@@ -272,7 +278,7 @@ pub(in crate::tick) fn with_facing(state: State, face: Face) -> Option<State> {
 
 /// A pillar axis (PMMP `Axis`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Axis {
+pub(in crate::tick) enum Axis {
     /// East-west.
     X,
     /// Up-down.
@@ -283,7 +289,7 @@ pub(super) enum Axis {
 
 impl Axis {
     /// The axis of a face (PMMP `Facing::axis`).
-    pub(super) const fn of(face: Face) -> Self {
+    pub(in crate::tick) const fn of(face: Face) -> Self {
         match face {
             Face::Down | Face::Up => Self::Y,
             Face::North | Face::South => Self::Z,

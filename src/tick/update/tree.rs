@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 
 use super::Cx;
-use super::props::{self, HORIZONTAL};
+use super::props;
 use crate::block::{self, Class, Face, Kind, TypeTag};
 use crate::random::Random;
 use crate::tick::Context;
@@ -395,7 +395,7 @@ impl Tree {
         ) {
             tx.add(below_pos, rooted);
         }
-        let direction = HORIZONTAL
+        let direction = Face::HORIZONTAL
             .get(usize::try_from(rng.range(0, 3)).unwrap_or(0))
             .copied()
             .unwrap_or(Face::North);
@@ -452,7 +452,7 @@ impl Tree {
 
 /// A random horizontal facing (PMMP `Facing::HORIZONTAL[array_rand(...)]`).
 fn pick(rng: &mut Random) -> Face {
-    HORIZONTAL
+    Face::HORIZONTAL
         .get(rng.below(4) as usize)
         .copied()
         .unwrap_or(Face::North)

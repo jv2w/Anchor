@@ -4,7 +4,7 @@
 //! azalea and fungi).
 
 use super::Cx;
-use super::props::{self, HORIZONTAL};
+use super::props;
 use super::support::{self, side};
 use super::tree::{self, Tx};
 use crate::block::{self, Class, Face, ItemForm, Kind, TypeTag};
@@ -323,14 +323,14 @@ fn stem(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         return;
     }
     let fruit = stem_fruit(block);
-    for face in HORIZONTAL {
+    for face in Face::HORIZONTAL {
         match side(cx, pos, face) {
             Some(s) if s.kind() == fruit => return,
             Some(_) => {}
             None => return,
         }
     }
-    let Some(face) = HORIZONTAL.get(cx.rng().below(4) as usize).copied() else {
+    let Some(face) = Face::HORIZONTAL.get(cx.rng().below(4) as usize).copied() else {
         return;
     };
     let Some(at) = pos.step(face) else {
@@ -381,7 +381,7 @@ fn seek(cx: &Cx<'_>, pos: BlockPos, block: block::State, face: Face) -> Option<B
 
 /// Whether water or frosted ice is beside the block under sugar cane.
 fn near_water(cx: &Cx<'_>, below: BlockPos) -> Option<bool> {
-    for face in HORIZONTAL {
+    for face in Face::HORIZONTAL {
         let s = cx.loaded_block(below.step(face)?)?;
         if matches!(s.kind(), Kind::Water | Kind::FrostedIce) {
             return Some(true);
@@ -481,7 +481,7 @@ fn cactus(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     };
     if age == 9 {
         let mut flower = true;
-        for face in HORIZONTAL {
+        for face in Face::HORIZONTAL {
             if up_pos
                 .step(face)
                 .and_then(|p| cx.get(p))
@@ -584,15 +584,15 @@ fn bamboo_grow(cx: &mut Cx<'_>, pos: BlockPos, block: block::State, max: i32, am
         }
     }
     let new_height = height + amount;
-    let leaves = |s: block::State, size: &str| props::with_text(s, "bamboo_leaf_size", size);
+    let leaves = |s: block::State, size: &str| props::with_string(s, "bamboo_leaf_size", size);
     let Some(mut stem) =
         props::with_flag(block, "age_bit", false).and_then(|s| leaves(s, "no_leaves"))
     else {
         return false;
     };
     if new_height >= 4
-        && props::text(stem, "bamboo_stalk_thickness") == Some("thin")
-        && let Some(thick) = props::with_text(stem, "bamboo_stalk_thickness", "thick")
+        && props::string(stem, "bamboo_stalk_thickness") == Some("thin")
+        && let Some(thick) = props::with_string(stem, "bamboo_stalk_thickness", "thick")
     {
         stem = thick;
     }
@@ -652,7 +652,7 @@ fn bamboo_sapling_grow(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
         return false;
     }
     let bamboo = Kind::Bamboo.default_state();
-    let Some(small) = props::with_text(bamboo, "bamboo_leaf_size", "small_leaves") else {
+    let Some(small) = props::with_string(bamboo, "bamboo_leaf_size", "small_leaves") else {
         return false;
     };
     let mut tx = Tx::default();
@@ -865,7 +865,7 @@ fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
             .is_some_and(|s| s.kind() == Kind::Air)
     };
     let all_empty = |cx: &Cx<'_>, p: BlockPos, except: Option<Face>| {
-        HORIZONTAL
+        Face::HORIZONTAL
             .into_iter()
             .filter(|f| Some(*f) != except)
             .all(|f| air(cx, p.step(f)))
@@ -905,11 +905,11 @@ fn chorus_flower(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
         }
     } else {
         let attempts = rng.range(0, if end_stone { 4 } else { 3 });
-        // One bit per side of `HORIZONTAL`.
+        // One bit per side of `Face::HORIZONTAL`.
         let mut visited = 0u8;
         for _ in 0..attempts {
             let index = rng.below(4);
-            let Some(face) = HORIZONTAL.get(index as usize).copied() else {
+            let Some(face) = Face::HORIZONTAL.get(index as usize).copied() else {
                 continue;
             };
             let bit = 1 << index;
@@ -985,7 +985,7 @@ fn glow_lichen(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
         for &method in &methods {
             let mut spread_faces: Vec<Face> = Face::ALL
                 .into_iter()
-                .filter(|f| !props::same_axis(*f, source))
+                .filter(|f| props::Axis::of(*f) != props::Axis::of(source))
                 .collect();
             shuffle(&mut rng, &mut spread_faces);
             let done = spread_faces.into_iter().any(|spread| {
@@ -1079,7 +1079,7 @@ fn small_dripleaf(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) -> bool {
 
 /// A big dripleaf part facing `facing`, stable.
 fn dripleaf(kind: Kind, facing: Face) -> Option<block::State> {
-    props::with_text(
+    props::with_string(
         kind.default_state(),
         "minecraft:cardinal_direction",
         props::face_name(facing),
@@ -1125,13 +1125,13 @@ fn big_dripleaf(cx: &mut Cx<'_>, pos: BlockPos) -> bool {
 
 /// PMMP `BigDripleafHead::onScheduledUpdate`: a tilted leaf tilts further, then comes back.
 pub(super) fn dripleaf_tilt(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
-    let next = match props::text(block, "big_dripleaf_tilt") {
+    let next = match props::string(block, "big_dripleaf_tilt") {
         Some("full_tilt") => ("none", None),
         Some("unstable") => ("partial_tilt", Some(10)),
         Some("partial_tilt") => ("full_tilt", Some(100)),
         _ => return,
     };
-    if let Some(s) = props::with_text(block, "big_dripleaf_tilt", next.0)
+    if let Some(s) = props::with_string(block, "big_dripleaf_tilt", next.0)
         && cx.set(pos, s)
         && let Some(delay) = next.1
     {

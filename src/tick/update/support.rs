@@ -3,7 +3,7 @@
 //! neighbour changes, a block that lost its support is destroyed with its drops, and a block
 //! with nothing under it falls.
 
-use super::props::{self, HORIZONTAL};
+use super::props;
 use super::{Cx, interact, plant};
 use crate::block::{self, Class, Face, Kind, SupportType, Trait, TypeTag};
 use crate::world::BlockPos;
@@ -116,7 +116,7 @@ pub(in crate::tick) fn static_support(
             if d.kind() != block.kind() && !d.has_type_tag(TypeTag::Sand) {
                 return Some(false);
             }
-            for face in HORIZONTAL {
+            for face in Face::HORIZONTAL {
                 if side(face)?.is_solid() {
                     return Some(false);
                 }
@@ -218,7 +218,8 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
                 || (matches!(
                     u.class(),
                     Class::WallHangingSign | Class::CeilingEdgesHangingSign
-                ) && props::facing_direction(u).is_some_and(|f| props::same_axis(f, facing)))
+                ) && props::facing_direction(u)
+                    .is_some_and(|f| props::Axis::of(f) == props::Axis::of(facing)))
         }
         Class::FloorSign => down()?.kind() != Kind::Air,
         Class::WallSign => {
@@ -239,7 +240,7 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
         }
         Class::Lever => attached(props::lever_facing(block)?.opposite())?,
         Class::AmethystCluster => {
-            attached(props::face_of(props::text(block, "minecraft:block_face")?)?.opposite())?
+            attached(props::face_of(props::string(block, "minecraft:block_face")?)?.opposite())?
         }
         Class::WallCoralFan => attached(props::coral_facing(block)?.opposite())?,
         Class::Lantern | Class::CopperLantern => {
@@ -252,7 +253,7 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
         }
         Class::Bell => {
             let facing = props::direction_swne(block)?;
-            let faces: &[Face] = match props::text(block, "attachment")? {
+            let faces: &[Face] = match props::string(block, "attachment")? {
                 "hanging" => &[Face::Up],
                 "standing" => &[Face::Down],
                 "side" => &[facing.opposite()],
@@ -319,7 +320,7 @@ fn chorus_flower(side: &impl Fn(Face) -> Option<block::State>) -> Option<bool> {
         return Some(true);
     }
     let mut plant_adjacent = false;
-    for face in HORIZONTAL {
+    for face in Face::HORIZONTAL {
         let s = side(face)?;
         if s.kind() == Kind::ChorusPlant {
             if plant_adjacent {
@@ -339,7 +340,7 @@ fn chorus_plant(pos: BlockPos, get: &impl Fn(BlockPos) -> Option<block::State>) 
     let side = |face: Face| get(pos.step(face)?);
     let down = side(Face::Down)?;
     let vertical_air = down.kind() == Kind::Air || side(Face::Up)?.kind() == Kind::Air;
-    for face in HORIZONTAL {
+    for face in Face::HORIZONTAL {
         let s = side(face)?;
         if s.kind() == Kind::ChorusPlant {
             if !vertical_air {
