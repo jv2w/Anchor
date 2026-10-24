@@ -1149,7 +1149,7 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
         match self.dir {
             Dir::Decode => {
-                let call = self.marshal_call(&s.ty)?;
+                let call = self.marshal_call(&s.ty, Some(place))?;
                 self.store(place, E::new(format!("{call}?")).effect(), out)
             }
             Dir::Encode => {
@@ -1164,10 +1164,18 @@ impl<'m, 'a> Lower<'m, 'a> {
         }
     }
 
-    /// Decode: `T::decode(r)`.
-    fn marshal_call(&mut self, go: &str) -> R<String> {
+    /// Decode: `T::decode(r)`, or `<Arc<T>>::decode(r)` into a shared field.
+    fn marshal_call(&mut self, go: &str, place: Option<&Expr>) -> R<String> {
         self.fallible = true;
         let name = self.m.named(go, self.module)?;
+        let shared = place.is_some_and(|p| {
+            p.kind == "field"
+                && p.x
+                    .as_deref()
+                    .and_then(|x| x.ty.as_ref())
+                    .is_some_and(|t| t.kind == "named" && model::is_shared(&t.name, &p.name))
+        });
+        let name = if shared { format!("Arc<{name}>") } else { name };
         Ok(format!("{}::decode(r)", type_path(&name)))
     }
 
@@ -1187,7 +1195,7 @@ impl<'m, 'a> Lower<'m, 'a> {
                 Some((E::new(self.io_read_call(s)?), true))
             }
             "marshal" if !s.dynamic && self.m.has_codec(&s.ty) => {
-                Some((E::new(self.marshal_call(&s.ty)?), true))
+                Some((E::new(self.marshal_call(&s.ty, None)?), true))
             }
             "slice" => Some((self.list_call(s)?, true)),
             "optional" => Some((self.option_value(s)?, false)),

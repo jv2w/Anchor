@@ -1323,11 +1323,11 @@ fn skin(id: &str) -> crate::protocol::Skin {
 fn skin_input(game: &mut Game, s: u64, skin: crate::protocol::Skin) -> Input {
     let packet = p::PlayerSkin {
         uuid: crate::protocol::Uuid::default(),
-        skin,
+        skin: std::sync::Arc::new(skin),
         new_skin_name: String::new(),
         old_skin_name: String::new(),
     };
-    game.send(s, Packet::PlayerSkin(Box::new(packet)))
+    game.send(s, Packet::PlayerSkin(packet))
 }
 
 /// The full skin IDs of the `PlayerSkin` packets in `packets`.
@@ -1370,7 +1370,7 @@ fn skin_changes_reach_everyone_or_go_back_to_the_player() {
     bad.skin_data.pop();
     let packet = p::PlayerSkin {
         uuid: crate::protocol::Uuid::default(),
-        skin: bad,
+        skin: std::sync::Arc::new(bad),
         new_skin_name: String::new(),
         old_skin_name: String::new(),
     };

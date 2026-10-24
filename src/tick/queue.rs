@@ -255,12 +255,17 @@ impl Eq for Skin {}
 
 impl Skin {
     /// Wraps a checked skin.
-    pub(crate) fn new(skin: protocol::Skin) -> Self {
-        Self(Arc::new(skin))
+    pub(crate) fn new(skin: Arc<protocol::Skin>) -> Self {
+        Self(skin)
     }
 
     /// The skin as the protocol carries it.
     pub(crate) fn get(&self) -> &protocol::Skin {
+        &self.0
+    }
+
+    /// The skin as the packets that carry it share it, without a copy.
+    pub(crate) fn shared(&self) -> &Arc<protocol::Skin> {
         &self.0
     }
 
@@ -322,7 +327,7 @@ impl Skin {
 #[cfg(test)]
 impl Default for Skin {
     fn default() -> Self {
-        Self::new(protocol::Skin {
+        Self::new(Arc::new(protocol::Skin {
             skin_id: "Standard_Custom".to_owned(),
             full_id: "Standard_Custom".to_owned(),
             skin_resource_patch: br#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.to_vec(),
@@ -332,7 +337,7 @@ impl Default for Skin {
             geometry_data_engine_version: b"0.0.0".to_vec(),
             arm_size: 1,
             ..protocol::Skin::default()
-        })
+        }))
     }
 }
 

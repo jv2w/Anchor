@@ -970,7 +970,7 @@ pub(super) mod tests {
                 .0
                 .into_iter()
                 .filter_map(|p| match p {
-                    Packet::PlayerSkin(s) => Some(s.skin.skin_id),
+                    Packet::PlayerSkin(s) => Some(s.skin.skin_id.clone()),
                     _ => None,
                 })
                 .collect();

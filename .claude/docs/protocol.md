@@ -49,6 +49,7 @@ Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_l
 - 생성 struct가 Go 구조체와 1:1이라 P3 판정과 버전업 비교가 단순하다.
 - `Optional` → `Option`, 슬라이스 → `Vec`, 인터페이스 → enum, `mgl32.Vec3` → `[f32; 3]`, `uuid.UUID` → `Uuid`, NBT 컴파운드 → `BTreeMap<String, nbt::Value>`(바이트 순으로 쓰고 같은 키는 뒤가 이긴다: Go map과 같다), EntityMetadata → `BTreeMap<u32, _>`(gophertunnel도 키를 정렬해 쓴다).
 - 문자열은 `String`이다. gophertunnel은 UTF-8을 검사하지 않는다.
+- 서버가 같은 값을 여러 플레이어에게 보내는 필드(`PlayerListEntry.skin`, `PlayerSkin.skin`: 생성기의 `SHARED_FIELDS`)는 `Arc<T>`다. 틱이 최대 4 MiB인 스킨을 패킷마다 복사하지 않고 나눈다. 디코드는 이 할당도 예산에서 뺀다.
 - NBT 목록이 빈 목록에도 원소 타입을 지니므로 모든 목록이 같은 바이트로 다시 쓰인다(gophertunnel은 빈 Int·Long 목록만 타입을 지키고 나머지는 End로 다시 쓴다). NBT 중첩이 힙 스택에 있어 깊이와 무관하게 스레드 스택이 평평하다.
 - `anchor::protocol`을 공개하는 이유: 패킷 훅이 패킷 값을 다루고 xtask 시험이 이 층을 부른다. NBT는 저장에서도 쓴다.
 

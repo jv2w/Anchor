@@ -1142,7 +1142,7 @@ impl Player {
     /// sizes that do not match their data, more than 4 MiB).
     #[doc(alias = "Human::setSkin")]
     pub fn set_skin(&mut self, skin: crate::protocol::Skin) -> Result<()> {
-        let skin = Skin::new(skin);
+        let skin = Skin::new(std::sync::Arc::new(skin));
         if !skin.is_acceptable() {
             return Err(Error::OutOfRange);
         }

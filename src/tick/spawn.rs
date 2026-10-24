@@ -661,7 +661,7 @@ fn list_entry(player: &Player) -> PlayerListEntry {
         platform_chat_id: String::new(),
         // BDS sends the login's device (PMMP the unknown device, -1).
         build_platform: player.identity.device_os,
-        skin: player.identity.skin.get().clone(),
+        skin: Arc::clone(player.identity.skin.shared()),
         teacher: false,
         host: false,
         sub_client: false,

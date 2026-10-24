@@ -21,6 +21,7 @@
 use std::fmt;
 use std::mem::size_of;
 use std::str;
+use std::sync::Arc;
 
 /// The largest element count of a protocol list (gophertunnel `maxSliceLength`).
 pub(crate) const MAX_LIST_LEN: usize = 1024;
@@ -86,6 +87,19 @@ pub(crate) trait Codec: Sized {
     fn decode(r: &mut Reader<'_>) -> Result<Self>;
     /// Writes the value.
     fn encode(&self, w: &mut Writer) -> Result<()>;
+}
+
+/// A value many packets share (a skin). Decoding allocates it on its own, so it takes that
+/// allocation (the value and the two reference counts) from the budget like a list element.
+impl<T: Codec> Codec for Arc<T> {
+    fn decode(r: &mut Reader<'_>) -> Result<Self> {
+        r.limit(1, 1, size_of::<([usize; 2], T)>())?;
+        T::decode(r).map(Arc::new)
+    }
+
+    fn encode(&self, w: &mut Writer) -> Result<()> {
+        T::encode(self, w)
+    }
 }
 
 /// Converts a length into its wire prefix type, failing with [`Error::Size`] if it does not fit.

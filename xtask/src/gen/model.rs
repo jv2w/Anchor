@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::ir::{Enum, Function, Ir, Stmt, Type, TypeDef, Union};
+use super::ir::{Enum, Field, Function, Ir, Stmt, Type, TypeDef, Union};
 use super::names;
 
 /// Go types with a hand-written Rust type (`src/protocol/*.rs`): Go name, Rust name, and
@@ -45,6 +45,11 @@ const EXTERNAL_TYPES: &[(&str, &str, bool)] = &[
     ("uuid.UUID", "Uuid", true),
     ("color.RGBA", "Rgba", true),
 ];
+
+/// Struct fields (`<Go type>.<field>`) held as `Arc<T>`: the server sends one value of them
+/// to many players (a skin of up to 4 MiB in the player list and skin broadcasts), so every
+/// packet shares it instead of copying it.
+const SHARED_FIELDS: &[&str] = &["protocol.PlayerListEntry.Skin", "packet.PlayerSkin.Skin"];
 
 /// Functions written by hand in `src/protocol/union_frame.rs` as `Reader`/`Writer` methods,
 /// with the method name. A Go union value is a pointer, so a body that copies one into a local
@@ -295,6 +300,17 @@ impl<'a> Model<'a> {
         };
         model.collect_unions()?;
         model.collect_names()?;
+        for key in SHARED_FIELDS {
+            let (go, field) = key.rsplit_once('.').ok_or("shared field without a type")?;
+            let ty = model
+                .struct_def(go)
+                .and_then(|d| d.fields.iter().find(|f| f.name == field))
+                .map(|f| &f.ty)
+                .ok_or_else(|| format!("SHARED_FIELDS lists {key}, which the IR does not have"))?;
+            if ty.kind != "named" || !model.has_codec(&ty.name) {
+                return Err(format!("shared field {key} is not a type with a Codec"));
+            }
+        }
         for t in &ir.types {
             if let Some(body) = &t.marshal {
                 collect_ability_fields(
@@ -565,14 +581,30 @@ impl<'a> Model<'a> {
     }
 
     fn struct_size(&self, d: &TypeDef) -> u64 {
-        let sum: u64 = d.fields.iter().map(|f| self.size(&f.ty)).sum();
+        let sum: u64 = d.fields.iter().map(|f| self.field_size(d, f)).sum();
         sum.div_ceil(8) * 8
+    }
+
+    /// The size estimate of a field of `d`: a pointer for a shared field.
+    pub(crate) fn field_size(&self, d: &TypeDef, f: &Field) -> u64 {
+        if is_shared(&d.name, &f.name) {
+            8
+        } else {
+            self.size(&f.ty)
+        }
     }
 }
 
 /// Union variants and packets larger than this many bytes (estimated) are boxed, so the enums
 /// stay small to move and `clippy::large_enum_variant` holds.
 pub(crate) const BOX_OVER: u64 = 128;
+
+/// Whether field `field` of Go type `go` is held as `Arc<T>` ([`SHARED_FIELDS`]).
+pub(crate) fn is_shared(go: &str, field: &str) -> bool {
+    SHARED_FIELDS
+        .iter()
+        .any(|k| k.strip_prefix(go).and_then(|f| f.strip_prefix('.')) == Some(field))
+}
 
 /// The Rust names of the hand-written types.
 pub(crate) fn hand_names() -> impl Iterator<Item = &'static str> {

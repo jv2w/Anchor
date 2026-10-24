@@ -861,7 +861,7 @@ impl Codec for Skin {
         if !reader.remaining().is_empty() {
             return Err(Error::Format("bytes after a skin"));
         }
-        Ok(Self::new(skin))
+        Ok(Self::new(Arc::new(skin)))
     }
 }
 

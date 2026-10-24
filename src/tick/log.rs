@@ -29,6 +29,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tracing::warn;
 
@@ -1270,7 +1271,7 @@ impl<'a> Read<'a> {
                     let address = self.address()?;
                     let client = self.client()?;
                     EntryKind::Join(Identity {
-                        skin: super::queue::Skin::new(skin),
+                        skin: super::queue::Skin::new(Arc::new(skin)),
                         device_os,
                         address,
                         client,

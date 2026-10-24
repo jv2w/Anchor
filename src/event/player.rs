@@ -4,6 +4,7 @@
 //! Messages (join, quit, death, kick) are plain text; an empty message shows nothing.
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 
 use crate::block::{Face, State};
 use crate::config::GameMode;
@@ -215,7 +216,7 @@ impl PlayerChangeSkin {
     /// all); a skin that fails cancels the change.
     #[doc(alias = "PlayerChangeSkinEvent::setNewSkin")]
     pub fn set_new_skin(&mut self, skin: protocol::Skin) {
-        self.new_skin = Skin::new(skin);
+        self.new_skin = Skin::new(Arc::new(skin));
     }
 }
 

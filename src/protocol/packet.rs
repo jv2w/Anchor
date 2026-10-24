@@ -27,6 +27,7 @@ use super::{
     WorldClockData, Writer, length, length_max,
 };
 use crate::nbt;
+use std::sync::Arc;
 
 /// The protocol version these packets implement.
 pub const PROTOCOL_VERSION: i32 = 2193;
@@ -5183,8 +5184,8 @@ impl Codec for PlayerLocation {
 pub struct PlayerSkin {
     /// The UUID. Wire form: `UUID`.
     pub uuid: Uuid,
-    /// The skin.
-    pub skin: Skin,
+    /// The skin. Shared by every packet the server sends it in: change it with [`Arc::make_mut`], which copies it only while others share it.
+    pub skin: Arc<Skin>,
     /// The new skin name. Wire form: `String`.
     pub new_skin_name: String,
     /// The old skin name. Wire form: `String`.
@@ -5195,7 +5196,7 @@ impl Codec for PlayerSkin {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             uuid: r.uuid()?,
-            skin: Skin::decode(r)?,
+            skin: <Arc<Skin>>::decode(r)?,
             new_skin_name: r.string()?,
             old_skin_name: r.string()?,
         })
@@ -8823,7 +8824,7 @@ pub enum Packet {
     /// The [`PurchaseReceipt`] packet (ID 92).
     PurchaseReceipt(PurchaseReceipt),
     /// The [`PlayerSkin`] packet (ID 93).
-    PlayerSkin(Box<PlayerSkin>),
+    PlayerSkin(PlayerSkin),
     /// The [`SubClientLogin`] packet (ID 94).
     SubClientLogin(SubClientLogin),
     /// The [`AutomationClientConnect`] packet (ID 95).
@@ -9465,7 +9466,7 @@ impl Packet {
             90 => Self::StructureBlockUpdate(Box::default()),
             91 => Self::ShowStoreOffer(ShowStoreOffer::default()),
             92 => Self::PurchaseReceipt(PurchaseReceipt::default()),
-            93 => Self::PlayerSkin(Box::default()),
+            93 => Self::PlayerSkin(PlayerSkin::default()),
             94 => Self::SubClientLogin(SubClientLogin::default()),
             95 => Self::AutomationClientConnect(AutomationClientConnect::default()),
             96 => Self::SetLastHurtBy(SetLastHurtBy::default()),
@@ -9750,7 +9751,7 @@ impl Packet {
             90 => Self::StructureBlockUpdate(Box::new(StructureBlockUpdate::decode(r)?)),
             91 => Self::ShowStoreOffer(ShowStoreOffer::decode(r)?),
             92 => Self::PurchaseReceipt(PurchaseReceipt::decode(r)?),
-            93 => Self::PlayerSkin(Box::new(PlayerSkin::decode(r)?)),
+            93 => Self::PlayerSkin(PlayerSkin::decode(r)?),
             94 => Self::SubClientLogin(SubClientLogin::decode(r)?),
             95 => Self::AutomationClientConnect(AutomationClientConnect::decode(r)?),
             96 => Self::SetLastHurtBy(SetLastHurtBy::decode(r)?),

@@ -3725,7 +3725,7 @@ mod tests {
             name: "Alex".to_owned(),
             xuid: None,
             uuid: crate::protocol::Uuid::from_bytes([9; 16]),
-            skin: crate::tick::queue::Skin::new(skin.clone()),
+            skin: crate::tick::queue::Skin::new(std::sync::Arc::new(skin.clone())),
             device_os: 7,
             address: None,
             client: crate::tick::queue::Client::default(),
@@ -3749,7 +3749,7 @@ mod tests {
             .collect();
         assert_eq!(shown.len(), 3);
         for entry in shown {
-            assert_eq!(entry.skin, skin);
+            assert_eq!(*entry.skin, skin);
             assert_eq!(skin_bytes(&entry.skin), skin_bytes(&skin));
             assert_eq!(entry.build_platform, 7);
         }

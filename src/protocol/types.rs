@@ -6,6 +6,7 @@ use super::{
     Writer, length, length_max,
 };
 use crate::nbt;
+use std::sync::Arc;
 
 impl Reader<'_> {
     /// A list with a varuint32 count, under the list limits.
@@ -5889,8 +5890,8 @@ pub struct PlayerListEntry {
     pub platform_chat_id: String,
     /// The build platform. Wire form: `Int32`.
     pub build_platform: i32,
-    /// The skin.
-    pub skin: Skin,
+    /// The skin. Shared by every packet the server sends it in: change it with [`Arc::make_mut`], which copies it only while others share it.
+    pub skin: Arc<Skin>,
     /// The teacher. Wire form: `Bool`.
     pub teacher: bool,
     /// The host. Wire form: `Bool`.
@@ -5914,7 +5915,7 @@ impl Codec for PlayerListEntry {
         x.xuid = r.string()?;
         x.platform_chat_id = r.string()?;
         x.build_platform = r.int32()?;
-        x.skin = Skin::decode(r)?;
+        x.skin = <Arc<Skin>>::decode(r)?;
         x.teacher = r.bool()?;
         x.host = r.bool()?;
         x.sub_client = r.bool()?;

@@ -146,7 +146,7 @@ pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin
         debug!(session = session.get(), "skin changes too fast; ignored");
         return;
     }
-    let new = Skin::new(packet.skin.clone());
+    let new = Skin::new(Arc::clone(&packet.skin));
     if !new.is_acceptable() {
         debug!(session = session.get(), "invalid skin ignored");
         return;
@@ -205,10 +205,10 @@ pub(super) fn send_skin(state: &mut State, session: SessionId, budget: &mut usiz
 
 /// The `PlayerSkin` packet that shows `skin` on the player with `uuid` (PMMP `Human::sendSkin`).
 fn skin_packet(uuid: protocol::Uuid, skin: &Skin) -> Packet {
-    Packet::PlayerSkin(Box::new(PlayerSkin {
+    Packet::PlayerSkin(PlayerSkin {
         uuid,
-        skin: skin.get().clone(),
+        skin: Arc::clone(skin.shared()),
         new_skin_name: String::new(),
         old_skin_name: String::new(),
-    }))
+    })
 }

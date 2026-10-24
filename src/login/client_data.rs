@@ -2,6 +2,7 @@
 //! settings. Signed by the client's own key, so every value is the client's claim.
 
 use std::net::Ipv6Addr;
+use std::sync::Arc;
 
 use serde::Deserialize;
 
@@ -194,7 +195,7 @@ impl ClientData {
                 expression_type: dimension(a.animation_expression)?,
             });
         }
-        let skin = Skin::new(protocol::Skin {
+        let skin = Skin::new(Arc::new(protocol::Skin {
             skin_id: self.skin_id.clone(),
             playfab_id: self.playfab_id.clone(),
             skin_resource_patch: decode(&self.skin_resource_patch)?,
@@ -239,7 +240,7 @@ impl ClientData {
             trusted: self.trusted_skin,
             override_appearance: self.override_skin,
             profile_hash: self.profile_hash.clone(),
-        });
+        }));
         if !skin.is_acceptable() {
             return Err(Error::ClientData("Skin"));
         }

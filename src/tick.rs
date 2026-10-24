@@ -2159,6 +2159,22 @@ mod tests {
             assert_eq!(lists.len(), 2);
             assert!(lists.iter().all(|l| std::sync::Arc::ptr_eq(l, &roster)));
         }
+        // Each entry holds its player's own skin, not a copy.
+        let Packet::PlayerList(list) = &*roster else {
+            panic!("not a player list");
+        };
+        assert_eq!(list.entries.len(), 3);
+        for entry in &list.entries {
+            let player = state
+                .players
+                .values()
+                .find(|p| p.identity.uuid == entry.uuid)
+                .expect("a listed player");
+            assert!(std::sync::Arc::ptr_eq(
+                &entry.skin,
+                player.identity.skin.shared()
+            ));
+        }
         // A later join is announced to the others with one shared entry.
         let (j, _rx4) = join(4, 0);
         tick(&mut state, &mut vec![j], &mut output);

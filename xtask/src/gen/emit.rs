@@ -128,6 +128,9 @@ fn imports(m: &Model<'_>, text: &str, module: Module) -> String {
         .filter(|c| mentions(&code, c))
         .collect();
     let mut out = format!("use super::{{{}}};\n", used.join(", "));
+    if mentions(&code, "Arc") {
+        out.push_str("use std::sync::Arc;\n");
+    }
     if code.contains("nbt::") {
         out.push_str("use crate::nbt;\n");
     }
@@ -428,6 +431,12 @@ fn field_doc(
     if let Some(max) = m.limits.get(&format!("{}.{}[]", t.name, f.name)) {
         put!(text, " Mojang limit per element: {max} bytes.");
     }
+    if model::is_shared(&t.name, &f.name) {
+        text.push_str(
+            " Shared by every packet the server sends it in: change it with [`Arc::make_mut`], \
+             which copies it only while others share it.",
+        );
+    }
     doc(&text, "    ")
 }
 
@@ -536,6 +545,8 @@ fn type_items(
                             ));
                         }
                         "AbilityValue".to_owned()
+                    } else if model::is_shared(&t.name, &f.name) {
+                        format!("Arc<{}>", m.rust_type(&f.ty, module)?)
                     } else {
                         m.rust_type(&f.ty, module)?
                     };
@@ -702,9 +713,9 @@ fn union_items(m: &Model<'_>, t: &TypeDef, out: &mut String) -> R<()> {
     let variant_type = |go: &str| m.named(go, Module::Types);
     let boxed = |go: &str| {
         m.variant_size(go) == 8
-            && m.types
-                .get(go)
-                .is_some_and(|d| d.fields.iter().map(|f| m.size(&f.ty)).sum::<u64>() > BOX_OVER)
+            && m.types.get(go).is_some_and(|d| {
+                d.fields.iter().map(|f| m.field_size(d, f)).sum::<u64>() > BOX_OVER
+            })
     };
     out.push_str(&doc(&format!("gophertunnel `{}`.", t.name), ""));
     out.push_str("#[derive(Debug, Clone, PartialEq)]\n");
@@ -1089,10 +1100,9 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> R<()> {
     let mut rows = Vec::new();
     for p in &m.ir.packets {
         let rust = m.named(&p.ty, Module::Packet)?;
-        let size = m
-            .types
-            .get(p.ty.as_str())
-            .map_or(0, |d| d.fields.iter().map(|f| m.size(&f.ty)).sum::<u64>());
+        let size = m.types.get(p.ty.as_str()).map_or(0, |d| {
+            d.fields.iter().map(|f| m.field_size(d, f)).sum::<u64>()
+        });
         rows.push((p, rust, size > BOX_OVER));
     }
     out.push_str(

@@ -354,7 +354,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
                 entity_unique_id: super::unique_id(entity.runtime_id),
                 username: name.clone(),
                 build_platform: -1,
-                skin: skin.as_ref().map_or_else(npc_skin, |s| s.to_protocol()),
+                skin: std::sync::Arc::new(skin.as_ref().map_or_else(npc_skin, |s| s.to_protocol())),
                 player_colour: Rgba {
                     r: 237,
                     g: 237,
