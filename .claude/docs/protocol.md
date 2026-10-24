@@ -17,7 +17,7 @@
 | github.com/sandertv/gophertunnel | `v1.62.1-0.20260928233358-80c811b61860`(커밋 `80c811b6186016b3860c358368cfa47e507f26e9`, v1.62.0 뒤 19커밋, 프로토콜 2193, 1.26.50) |
 | github.com/sandertv/go-raknet | `v1.15.2-0.20260705184311-0d1fd09e2cf6` |
 | github.com/df-mc/go-nethernet | `v1.0.20-0.20260818142457-6fc1eb6f907c` |
-| Mojang bedrock-protocol-docs(필드 상한) | 커밋 `475bd72ed89036af4eb18426774ef3b953de7603`(v1.26.50 릴리스, 프로토콜 2193) |
+| Mojang bedrock-protocol-docs(필드 상한) | `data.md`의 출처 표 |
 
 - 지금 고정한 커밋은 v1.62.0 뒤의 형식 수정 ClientBoundDebugRenderer(`98c3d1f`), NBT 고정 길이 배열 검사(`398154f`), 문자열 `ReadFull`(`a705cae`)을 포함한다.
 - 기준 서버는 같은 프로토콜의 공식 서버 1.26.52.3이다. 공식 서버의 빌드 번호는 1.26.52이고 Anchor는 프로토콜 출처의 1.26.50을 알리지만 둘 다 2193이다.
