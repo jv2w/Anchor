@@ -1047,3 +1047,62 @@ fn a_tridents_launch_and_pickup_ask_their_listeners() {
     assert!(h.state.rules.entities.get(id).is_none_or(|e| e.flagged));
     assert_eq!(carried(&h, item::Kind::Trident), 1);
 }
+
+thread_local! {
+    /// The particles a `WorldParticle` listener saw, and whether it cancels them.
+    static PARTICLES: Cell<Vec<(Vec3, Particle)>> = const { Cell::new(Vec::new()) };
+    static CANCEL_PARTICLE: Cell<bool> = const { Cell::new(false) };
+}
+
+#[test]
+fn a_breaking_painting_shows_its_planks_through_world_particle() {
+    let listeners = || {
+        let mut listeners = Listeners::default();
+        listeners.push(
+            Priority::Normal,
+            |e: &mut crate::event::WorldParticle, _: &mut Context<'_>| {
+                PARTICLES.with(|p| {
+                    let mut seen = p.take();
+                    seen.push((e.position(), e.particle()));
+                    p.set(seen);
+                });
+                if CANCEL_PARTICLE.with(Cell::get) {
+                    e.cancel();
+                }
+            },
+        );
+        listeners
+    };
+    let planks_shown = |packets: &[Packet]| {
+        packets
+            .iter()
+            .filter(|p| {
+                matches!(p, Packet::LevelEvent(e)
+                    if e.event_type == i32::from(LevelEvent::ParticlesDestroyBlock))
+            })
+            .count()
+    };
+    let planks = Particle::BlockBreak(BlockKind::OakPlanks.default_state());
+    for cancel in [false, true] {
+        CANCEL_PARTICLE.with(|c| c.set(cancel));
+        PARTICLES.with(Cell::take);
+        let mut h = Harness::with_listeners(1, listeners());
+        h.spawn(1, standing(0.0, 0.0));
+        wall(&mut h);
+        let pos = BlockPos::new(2, -59, 0);
+        let id = context(&mut h)
+            .spawn_painting(WORLD, pos, Face::West, PaintingMotive::Kebab)
+            .unwrap();
+        h.step(Vec::new());
+        let hung = entity(&h, id).body.position;
+        h.take(1);
+        set(&mut h, BlockPos::new(3, -59, 0), block::AIR);
+        h.step(Vec::new());
+        h.step(Vec::new());
+        assert!(h.state.rules.entities.get(id).is_none(), "fell");
+        let seen = PARTICLES.with(Cell::take);
+        assert_eq!(seen, [(hung + Vec3::new(0.5, 0.5, 0.5), planks)]);
+        let shown = planks_shown(&h.take(1));
+        assert_eq!(shown, usize::from(!cancel), "cancelled: {cancel}");
+    }
+}

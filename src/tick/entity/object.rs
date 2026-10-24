@@ -17,7 +17,7 @@
 
 use super::kind::{Crystal, Firework, Kind, MAX_EXPLOSIONS, Painting};
 use super::{
-    Blow, Cause, Hooks, Knock, Raise, SessionId, State, chunk_of, create, drop_item, hurt, physics,
+    Blow, Cause, Hooks, Knock, Raise, SessionId, State, create, drop_item, hurt, physics,
     player_box, push_player, send_to, survival, targetable, with,
 };
 use crate::block::{self, Face};
@@ -297,7 +297,7 @@ pub(super) fn painting_broke(state: &mut State, world: WorldIndex, at: Vec3, pai
     }
     let centre = at + Vec3::new(0.5, 0.5, 0.5);
     let planks = Particle::BlockBreak(block::Kind::OakPlanks.default_state());
-    state.broadcast(world, chunk_of(centre), &planks.packet(centre), None);
+    super::super::emit::particle(state, world, centre, planks);
 }
 
 /// A new end crystal's kind.
