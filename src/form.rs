@@ -40,6 +40,7 @@ use std::fmt;
 
 use serde_json::{Value as Json, json};
 
+use crate::data::{JsonError, to_json};
 use crate::math;
 
 /// The most forms one player has waiting for an answer.
@@ -487,10 +488,10 @@ impl Form {
             Self::Menu(m) => menu(m)?,
             Self::Custom(c) => custom(c)?,
         };
-        let bytes = serde_json::to_vec(&json).map_err(|_| Error::Invalid("not serializable"))?;
-        if bytes.len() > MAX_FORM_BYTES {
-            return Err(Error::Invalid("the JSON is longer than 256 KiB"));
-        }
+        let bytes = to_json(&json, MAX_FORM_BYTES).map_err(|e| match e {
+            JsonError::TooLarge => Error::Invalid("the JSON is longer than 256 KiB"),
+            JsonError::Encode => Error::Invalid("not serializable"),
+        })?;
         Ok((bytes, shape))
     }
 }
