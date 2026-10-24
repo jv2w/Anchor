@@ -739,6 +739,15 @@ impl Session {
     /// Sends the tick's messages in order: runs of packets batched here, a shared packet in a
     /// batch of its own (encoded from the shared copy), shared batches as they are.
     async fn send_messages(&mut self, messages: Vec<Message>) -> Result<()> {
+        // A client answers each chunk sent in sub-chunk request mode with a request, which the
+        // server asked for: it gives its packet back to the budget.
+        let asked = messages
+            .iter()
+            .filter(|m| {
+                matches!(m, Message::Packet(Packet::LevelChunk(c)) if c.sub_chunk_limit.is_some())
+            })
+            .count();
+        self.packets.give(asked, PACKET_RATE);
         let same_run = |a: &Message, b: &Message| packet_of(a).is_some() && packet_of(b).is_some();
         for group in messages.chunk_by(same_run) {
             match group {
@@ -901,6 +910,57 @@ mod tests {
                 .on_message(batch(1))
                 .await
                 .expect("the other player's packet is queued");
+        });
+    }
+
+    /// A client that answers each chunk sent in sub-chunk request mode with a request keeps its
+    /// packet budget, at the most `chunks-per-tick` for as long as the chunks come.
+    #[test]
+    fn sub_chunk_requests_for_the_chunks_sent_take_no_packet_budget() {
+        const MOST: i32 = 256;
+        crate::raknet::tests::run(async {
+            let (inputs, mut queue) = input_queue(1);
+            let shared = shared(inputs);
+            let mut player = joined(0, &shared).await;
+            let chunks = || {
+                (0..MOST)
+                    .map(|x| {
+                        Message::Packet(Packet::LevelChunk(packet::LevelChunk {
+                            position: [x, 0],
+                            sub_chunk_limit: Some(0),
+                            ..packet::LevelChunk::default()
+                        }))
+                    })
+                    .collect()
+            };
+            let request = Packet::SubChunkRequest(packet::SubChunkRequest::default());
+            let headers = std::iter::repeat_n(&request, usize::try_from(MOST).unwrap()).map(|p| {
+                (
+                    Header {
+                        id: p.id(),
+                        ..Header::default()
+                    },
+                    p,
+                )
+            });
+            let mut requests = vec![0xff];
+            batch::encode_packets(headers, SHIELD_ID, &mut Vec::new(), |payload| {
+                requests.extend_from_slice(payload);
+                Ok(())
+            })
+            .unwrap();
+            // A second of ticks; the tick takes every input between two.
+            for _ in 0..20 {
+                assert!(
+                    player.send_messages(chunks()).await.is_err(),
+                    "a detached connection sends nowhere"
+                );
+                player
+                    .on_message(requests.clone())
+                    .await
+                    .expect("the requests are queued");
+                while queue.try_recv().is_ok() {}
+            }
         });
     }
 }

@@ -48,10 +48,13 @@ const MAX_KEPT_CHUNKS: usize = 1024;
 /// How long a chunk a listener kept stays loaded before the listeners are asked again: 30
 /// seconds, PMMP's unload delay.
 const KEEP_TICKS: u64 = 600;
-/// Unanswered sub-chunk requests a player may have queued; more are dropped.
-const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 256;
-/// Sub-chunk requests answered per player per tick; the rest wait for the next tick.
-const SUB_CHUNK_REQUESTS_PER_TICK: usize = 64;
+/// Unanswered sub-chunk requests a player may have queued; more are dropped. Two ticks of
+/// answers, for the requests of two ticks that arrive together.
+const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 2 * SUB_CHUNK_REQUESTS_PER_TICK;
+/// Sub-chunk requests answered per player per tick; the rest wait for the next tick. A client
+/// asks for each chunk it gets, so the answers keep up with the most chunks `chunks-per-tick`
+/// sends a tick.
+const SUB_CHUNK_REQUESTS_PER_TICK: usize = *crate::config::CHUNKS_PER_TICK.end() as usize;
 /// Sub-chunk request offsets, each an answer entry with its own copy of the sub-chunk, answered
 /// per player per tick; the requests past it wait for the next tick. The most one answer holds
 /// (the Mojang limit), which the generator checks is no less than what one request holds, so

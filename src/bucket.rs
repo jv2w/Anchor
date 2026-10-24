@@ -62,6 +62,11 @@ impl Bucket {
         }
     }
 
+    /// Gives `amount` tokens back, up to the capacity.
+    pub(crate) fn give(&mut self, amount: usize, rate: Rate) {
+        self.tokens = self.tokens.saturating_add(amount).min(rate.capacity);
+    }
+
     /// The time the refills have paid for: at most one token's time before the last
     /// [`take`](Self::take), so a table can drop buckets left alone for long.
     pub(crate) fn refilled(&self) -> Duration {

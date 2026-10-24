@@ -3613,6 +3613,34 @@ mod tests {
         assert!(publishers(&mut rx).is_empty());
     }
 
+    /// At the most `chunks-per-tick`, a client that asks for each chunk it gets with a request of
+    /// its own has every request of a tick answered in that tick: none waits, none is dropped.
+    #[test]
+    fn a_request_for_each_chunk_at_the_most_chunks_per_tick_is_answered_in_its_tick() {
+        const MOST: u32 = 256;
+        let settings = settings(|c| c.developer.chunks_per_tick = MOST);
+        let mut state = new_state(settings, Listeners::default());
+        let mut output = Output::default();
+        let (j, mut rx) = join(1, 0);
+        tick(&mut state, &mut vec![j, radius(1, 1, 2)], &mut output);
+        let mut seq = 1;
+        for _ in 0..4 {
+            let mut requests: Vec<_> = (0..MOST)
+                .map(|_| {
+                    seq += 1;
+                    sub_chunks(1, seq, [0, 0, 0], vec![[0, 0, 0]])
+                })
+                .collect();
+            tick(&mut state, &mut requests, &mut output);
+            let answers = received(&mut rx)
+                .0
+                .iter()
+                .filter(|p| matches!(p, Packet::SubChunk(_)))
+                .count();
+            assert_eq!(answers, usize::try_from(MOST).unwrap());
+        }
+    }
+
     #[test]
     fn sub_chunk_requests_get_bds_answers() {
         let mut state = new_state(settings(|_| {}), Listeners::default());

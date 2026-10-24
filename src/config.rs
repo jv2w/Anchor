@@ -183,7 +183,7 @@ pub(crate) const VIEW_DISTANCE: RangeInclusive<u8> = 2..=64;
 /// The effective radius is at most `view-distance`, so a larger value means nothing.
 const RADIUS: RangeInclusive<u8> = 1..=*VIEW_DISTANCE.end();
 /// 0 would never send a chunk; 256 sends the largest view in about 3 seconds.
-const CHUNKS_PER_TICK: RangeInclusive<u32> = 1..=256;
+pub(crate) const CHUNKS_PER_TICK: RangeInclusive<u32> = 1..=256;
 /// A sub-chunk holds 4096 blocks; more ticks than blocks add only cost.
 pub(crate) const RANDOM_TICK_SPEED: RangeInclusive<u32> = 0..=4096;
 /// go-raknet's dialer probes 1492, 1200 and 576.
