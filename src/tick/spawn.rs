@@ -758,7 +758,7 @@ pub(super) fn join(
         super::player::quit(
             state,
             existing,
-            PlayerDuplicateLogin::DEFAULT_REASON,
+            &outcome.reason,
             super::player::LEFT.to_owned(),
         );
         if let Some(old) = state.remove(existing) {
@@ -1564,7 +1564,7 @@ mod tests {
         use super::super::super::{Context, InputKind, Output, Phase, SessionId, State};
         use super::super::{Identity, JOINED_KEY, Outbound};
         use crate::event::{
-            Event, KickFlag, Listeners, PlayerDuplicateLogin, PlayerJoin, PlayerLogin,
+            Event, KickFlag, Listeners, PlayerDuplicateLogin, PlayerJoin, PlayerLogin, PlayerQuit,
             PlayerViewDistanceChange, Priority,
         };
         use crate::permission::BanEntry;
@@ -1872,6 +1872,35 @@ mod tests {
             run(&mut state, vec![b]);
             assert_eq!(logged(), ["false []"]);
             assert_eq!(state.players.len(), 1);
+        }
+
+        // pmmp: PlayerDuplicateLoginEvent::setDisconnectReason, PlayerQuitEvent::getQuitReason
+        #[test]
+        fn the_replaced_player_quits_with_the_reason_a_listener_gave() {
+            for (screen, shown) in [(None, "moved"), (Some("bye"), "bye")] {
+                let mut listeners = on(move |e: &mut PlayerDuplicateLogin, _: &mut Context<'_>| {
+                    e.set_disconnect_reason("moved");
+                    e.set_disconnect_screen_message(screen.map(str::to_owned));
+                });
+                listeners.push(
+                    Priority::Normal,
+                    |e: &mut PlayerQuit, _: &mut Context<'_>| {
+                        log(e.quit_reason().to_owned());
+                    },
+                );
+                let mut state = state(|_| {}, listeners);
+                let (a, mut rx1) = join_as(1, identity("Alex", None));
+                run(&mut state, vec![a]);
+                run(&mut state, Vec::new());
+                let (b, _rx2) = join_as(2, identity("alex", None));
+                run(&mut state, vec![b]);
+                assert_eq!(logged(), ["moved"], "{screen:?}");
+                let (_, close, _) = received(&mut rx1);
+                assert!(
+                    matches!(close, Some(Packet::Disconnect(d)) if d.message == shown),
+                    "{screen:?}"
+                );
+            }
         }
 
         // pmmp: PlayerViewDistanceChangeEvent

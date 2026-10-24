@@ -422,7 +422,8 @@ impl PlayerDuplicateLogin {
     pub(crate) fn into_outcome(self) -> (Identity, DuplicateOutcome) {
         let outcome = DuplicateOutcome {
             cancelled: self.cancelled,
-            message: self.screen_message.unwrap_or(self.reason),
+            message: self.screen_message.unwrap_or_else(|| self.reason.clone()),
+            reason: self.reason,
         };
         (self.connecting.0, outcome)
     }
@@ -494,6 +495,8 @@ pub(crate) struct DuplicateOutcome {
     pub(crate) cancelled: bool,
     /// The text of the `Disconnect` the disconnected player gets.
     pub(crate) message: String,
+    /// Why the disconnected player left, for [`PlayerQuit`]: the reason, never the screen message.
+    pub(crate) reason: String,
 }
 
 impl DuplicateOutcome {
@@ -502,6 +505,7 @@ impl DuplicateOutcome {
         Self {
             cancelled: false,
             message: PlayerDuplicateLogin::DEFAULT_REASON.to_owned(),
+            reason: PlayerDuplicateLogin::DEFAULT_REASON.to_owned(),
         }
     }
 }
