@@ -121,7 +121,6 @@ pub(super) fn save(entity: &Entity) -> Compound {
         motion,
         on_ground,
         fall_distance,
-        y_size: _,
     } = entity.body;
     put(
         "identifier",
@@ -400,7 +399,6 @@ pub(super) fn load(
             motion,
             on_ground,
             fall_distance,
-            y_size: 0.0,
         },
         yaw,
         pitch,
@@ -903,7 +901,6 @@ pub(super) mod tests {
             motion: Vec3::new(0.125, -0.25, 0.0625),
             on_ground: true,
             fall_distance: 1.5,
-            y_size: 0.0,
         };
         let mut e = Entity::new(0, body, 90.5, -12.25, kind);
         e.fire_ticks = 37;

@@ -458,10 +458,9 @@ impl Entity {
         let (width, height) = self.size();
         let half = width / 2.0;
         let p = self.body.position;
-        let y = p.y + self.body.y_size;
         Aabb::new(
-            Vec3::new(p.x - half, y, p.z - half),
-            Vec3::new(p.x + half, y + height, p.z + half),
+            Vec3::new(p.x - half, p.y, p.z - half),
+            Vec3::new(p.x + half, p.y + height, p.z + half),
         )
     }
 
@@ -605,7 +604,6 @@ impl Entity {
             motion,
             on_ground,
             fall_distance,
-            y_size,
         } = body;
         for v in [*position, *motion] {
             for c in [v.x, v.y, v.z] {
@@ -614,7 +612,6 @@ impl Entity {
         }
         h.u64(u64::from(*on_ground));
         h.u64(fall_distance.to_bits());
-        h.u64(y_size.to_bits());
         h.u64(u64::from(*forced));
         h.u64(yaw.to_bits());
         h.u64(pitch.to_bits());

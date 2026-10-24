@@ -135,7 +135,6 @@ impl Customs {
                         gravity,
                         drag,
                         drag_before_gravity: false,
-                        step_height: 0.0,
                         unstuck: false,
                         currents: true,
                         ray: false,

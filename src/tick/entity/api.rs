@@ -470,8 +470,12 @@ impl Entity {
 
     /// How high it steps up blocks while moving (0 for every kind Anchor has, as in PMMP).
     #[doc(alias = "Entity::getStepHeight")]
+    #[expect(
+        clippy::unused_self,
+        reason = "consistency: an entity's value, read like its other physics getters"
+    )]
     pub fn step_height(&self) -> f64 {
-        self.kind.physics().step_height
+        STEP_HEIGHT
     }
 
     /// A thrown potion's effects (PMMP: the potion type's, none for water).
@@ -597,6 +601,10 @@ impl Entity {
         self.cloud().map(|c| c.radius_per_tick)
     }
 }
+
+/// How high an entity steps up blocks: PMMP's `Entity::$stepHeight` default, which none of its
+/// kinds that Anchor has changes.
+const STEP_HEIGHT: f64 = 0.0;
 
 /// Whether the API may put an entity at `pos`: finite, inside the world border, and at most 64
 /// blocks above or below the world height (as the saved form reads it back).
@@ -753,7 +761,6 @@ impl Mut<'_> {
         e.body.position = pos;
         e.body.motion = Vec3::ZERO;
         e.body.fall_distance = 0.0;
-        e.body.y_size = 0.0;
         e.forced = true;
         if let Kind::Projectile(p) = &mut e.kind {
             p.stuck = None;

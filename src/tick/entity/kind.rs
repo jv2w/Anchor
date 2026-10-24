@@ -466,8 +466,6 @@ pub(super) struct Physics {
     pub(super) drag: f64,
     /// Whether drag applies before gravity (PMMP `applyDragBeforeGravity`: items, projectiles).
     pub(super) drag_before_gravity: bool,
-    /// How high it steps up blocks (0 for every kind so far).
-    pub(super) step_height: f64,
     /// Whether it pushes itself out of solid blocks (PMMP `checkObstruction`: items, orbs).
     pub(super) unstuck: bool,
     /// Whether flowing liquids push it (PMMP `canBeMovedByCurrents`).
@@ -487,7 +485,6 @@ pub(super) const ITEM: Physics = Physics {
     gravity: 0.04,
     drag: 0.02,
     drag_before_gravity: true,
-    step_height: 0.0,
     unstuck: true,
     currents: true,
     ray: false,
@@ -507,7 +504,6 @@ const FALLING: Physics = Physics {
     gravity: 0.04,
     drag: 0.02,
     drag_before_gravity: false,
-    step_height: 0.0,
     unstuck: false,
     currents: false,
     ray: false,
@@ -527,7 +523,6 @@ const ARROW: Physics = Physics {
     gravity: 0.05,
     drag: 0.01,
     drag_before_gravity: true,
-    step_height: 0.0,
     unstuck: false,
     currents: true,
     ray: true,
@@ -575,7 +570,6 @@ const PAINTING: Physics = Physics {
     gravity: 0.0,
     drag: 1.0,
     drag_before_gravity: false,
-    step_height: 0.0,
     unstuck: false,
     currents: false,
     ray: false,
@@ -605,7 +599,6 @@ const CLOUD: Physics = Physics {
     gravity: 0.0,
     drag: 0.0,
     drag_before_gravity: false,
-    step_height: 0.0,
     unstuck: false,
     currents: false,
     ray: false,
@@ -619,7 +612,6 @@ const VILLAGER: Physics = Physics {
     gravity: 0.08,
     drag: 0.02,
     drag_before_gravity: false,
-    step_height: 0.0,
     unstuck: false,
     currents: true,
     ray: false,

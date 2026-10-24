@@ -23,8 +23,6 @@ use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, World};
 
 /// A motion component at or below this counts as zero (PMMP `Entity::MOTION_THRESHOLD`).
 pub(in crate::tick) const MOTION_THRESHOLD: f64 = 0.000_01;
-/// What `y_size` keeps of itself per move (PMMP `STEP_CLIP_MULTIPLIER`).
-const STEP_CLIP_MULTIPLIER: f64 = 0.4;
 /// The inset of the block cells an entity is inside (PMMP `getBlocksAroundWithEntityInsideActions`).
 pub(in crate::tick) const INSIDE_INSET: f64 = 0.001;
 /// The push of flowing liquid per tick (PMMP `checkBlockIntersections`).
@@ -52,8 +50,6 @@ pub(super) struct Body {
     pub(super) on_ground: bool,
     /// Blocks fallen since it last stood on something.
     pub(super) fall_distance: f64,
-    /// PMMP `ySize`: the box's lift after stepping up, shrinking each move.
-    pub(super) y_size: f64,
 }
 
 crate::tick::checkpoint::fields!(Body {
@@ -61,7 +57,6 @@ crate::tick::checkpoint::fields!(Body {
     motion,
     on_ground,
     fall_distance,
-    y_size,
 });
 
 impl Body {
@@ -70,8 +65,8 @@ impl Body {
         let half = physics.width / 2.0;
         let p = self.position;
         Aabb::new(
-            Vec3::new(p.x - half, p.y + self.y_size, p.z - half),
-            Vec3::new(p.x + half, p.y + physics.height + self.y_size, p.z + half),
+            Vec3::new(p.x - half, p.y, p.z - half),
+            Vec3::new(p.x + half, p.y + physics.height, p.z + half),
         )
     }
 
@@ -556,35 +551,18 @@ fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
     }
 }
 
-/// Moves the entity by its motion against the blocks (PMMP `Entity::move`): clipping, stepping
-/// up, the block intersections, the ground state and the fall.
+/// Moves the entity by its motion against the blocks (PMMP `Entity::move`): clipping, the block
+/// intersections, the ground state and the fall. No kind steps up blocks (PMMP's step height is 0
+/// for each of them), so PMMP's stepping and its `ySize` are not here.
 fn travel(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
     let wanted = body.motion;
-    body.y_size *= STEP_CLIP_MULTIPLIER;
     let start = body.bounding_box(physics);
     let mut boxes = Vec::new();
     collisions(world, start.stretch(wanted), &mut boxes);
-    let (mut moved, mut d) = clip_move(world, &boxes, start, wanted);
-    let falling = body.on_ground || (d.y != wanted.y && wanted.y < 0.0);
-    if physics.step_height > 0.0 && falling && (wanted.x != d.x || wanted.z != d.z) {
-        let up = Vec3::new(wanted.x, physics.step_height, wanted.z);
-        collisions(world, start.stretch(up), &mut boxes);
-        let (mut stepped, mut s) = clip_move(world, &boxes, start, up);
-        let mut down = -s.y;
-        for b in &boxes {
-            down = b.clip_y(stepped, down);
-        }
-        s.y += down;
-        stepped = stepped.offset(Vec3::new(0.0, down, 0.0));
-        if d.x * d.x + d.z * d.z < s.x * s.x + s.z * s.z {
-            moved = stepped;
-            d = s;
-            body.y_size += s.y;
-        }
-    }
+    let (moved, d) = clip_move(world, &boxes, start, wanted);
     body.position = Vec3::new(
         f64::midpoint(moved.min.x, moved.max.x),
-        moved.min.y - body.y_size,
+        moved.min.y,
         f64::midpoint(moved.min.z, moved.max.z),
     );
     intersect(world, physics, body, &mut out.inside);
@@ -1346,7 +1324,6 @@ pub(super) mod tests {
             b.motion.y,
             b.motion.z,
             b.fall_distance,
-            b.y_size,
         ];
         (
             floats.iter().map(|f| f.to_bits()).collect(),
