@@ -57,8 +57,6 @@ const RAYS: u32 = 16;
 const STEP: f64 = 0.3;
 /// The fuse of lit TNT that an explosion reaches (PMMP `explodeB`: `mt_rand(10, 30)`).
 const CHAIN_FUSE: (i32, i32) = (10, 30);
-/// How far above its position primed TNT explodes (half its height, PMMP `explode`).
-const TNT_CENTRE: f64 = 0.49;
 /// How far an entity may move in a tick (the speed bound of `physics::MAX_SPEED` per axis plus
 /// one): entities this near an explosion move again from their new state.
 const RESTEP_REACH: f64 = physics::MAX_SPEED + 1.0;
@@ -121,7 +119,15 @@ pub(super) fn tnt_tick(state: &mut State, id: Id, budget: &mut Budget, hooks: Ho
             return None;
         };
         t.fuse = t.fuse.saturating_sub(1);
-        (t.fuse == 0).then_some((e.world, e.body.position))
+        (t.fuse == 0)
+            .then_some(e.world)
+            // Half its height above its position (PMMP `PrimedTNT::explode`).
+            .map(|world| {
+                (
+                    world,
+                    e.body.position + Vec3::new(0.0, e.size().1 / 2.0, 0.0),
+                )
+            })
     })
     .flatten() else {
         return;
@@ -129,8 +135,7 @@ pub(super) fn tnt_tick(state: &mut State, id: Id, budget: &mut Budget, hooks: Ho
     if budget.explosions >= MAX_EXPLOSIONS_PER_TICK || budget.blocks >= MAX_BLOCKS_PER_TICK {
         return;
     }
-    let (world, position) = due;
-    let center = position + Vec3::new(0.0, TNT_CENTRE, 0.0);
+    let (world, center) = due;
     blow_up(state, id, world, center, TNT_SIZE, budget, hooks);
 }
 

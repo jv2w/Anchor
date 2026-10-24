@@ -875,6 +875,61 @@ fn tnt_asks_before_it_explodes_and_listeners_choose_its_blocks() {
     assert!(health(&h, npc) < 20.0, "the blast hurts once it goes off");
 }
 
+/// Scaled primed TNT explodes at half its scaled height (PMMP `PrimedTNT::explode` reads its
+/// size, which `setScale` scales).
+#[test]
+fn scaled_tnt_explodes_at_half_its_scaled_height() {
+    let centres: Log<Vec3> = log();
+    let mut listeners = Listeners::default();
+    let sink = centres.sink();
+    listeners.push(
+        Priority::Normal,
+        move |e: &mut EntityExplode, _: &mut Context<'_>| sink.push(e.position()),
+    );
+    let mut h = Harness::with_listeners(1, listeners);
+    h.spawn(1, standing(20.0, 20.0));
+    let pos = BlockPos::new(0, -50, 0);
+    h.state.worlds[0]
+        .set_block(pos, named("minecraft:tnt"))
+        .unwrap();
+    assert!(ignite(&mut h.state, 0, pos, 3));
+    let tnt = newest(&h);
+    let start = with(&mut h.state, tnt, |e| {
+        e.scale = 2.0;
+        e.gravity = false;
+        e.body.motion = Vec3::ZERO;
+        e.body.position
+    })
+    .unwrap();
+    for _ in 0..5 {
+        h.entities();
+    }
+    let [centre] = got(&centres)[..] else {
+        panic!("one explosion");
+    };
+    assert!((centre.y - start.y - 0.98).abs() < 1e-9, "{centre:?}");
+}
+
+/// A scaled falling block lands in the block its scaled box names (PMMP
+/// `FallingBlock::entityBaseTick`: its position less half its width, plus its height).
+#[test]
+fn a_scaled_falling_block_lands_where_its_scaled_box_says() {
+    let mut h = Harness::new(1);
+    h.spawn(1, standing(8.0, 8.0));
+    let sand = named("minecraft:sand");
+    let pos = BlockPos::new(0, -55, 0);
+    h.state.worlds[0].set_block(pos, sand).unwrap();
+    assert!(fall(&mut h.state, 0, pos, sand));
+    let id = newest(&h);
+    with(&mut h.state, id, |e| e.scale = 2.0);
+    for _ in 0..40 {
+        h.entities();
+    }
+    assert!(h.live().is_empty(), "it landed");
+    assert_eq!(block(&h, BlockPos::new(-1, -59, -1)), sand);
+    assert_eq!(block(&h, BlockPos::new(0, -60, 0)), block::AIR);
+}
+
 // pmmp: ProjectileLaunchEvent, EntityShootBowEvent
 #[test]
 fn launches_and_bow_shots_ask_their_listeners() {

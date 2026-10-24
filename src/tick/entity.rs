@@ -3312,10 +3312,10 @@ fn falling_tick(state: &mut State, id: Id) {
     let Kind::FallingBlock(falling) = e.kind else {
         return;
     };
-    let physics = e.kind.physics();
+    let (width, height) = e.size();
     let (world, position, on_ground) = (e.world, e.body.position, e.body.on_ground);
-    let half = physics.width / 2.0;
-    let pos = BlockPos::containing(position + Vec3::new(-half, physics.height, -half));
+    let half = width / 2.0;
+    let pos = BlockPos::containing(position + Vec3::new(-half, height, -half));
     let Some(w) = state.worlds.get(world) else {
         return;
     };

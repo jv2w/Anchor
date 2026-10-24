@@ -441,7 +441,7 @@ pub(super) fn hit(
         Shot::Trident(t) => (t.can_collide, true),
         _ => (true, false),
     };
-    let (width, height) = this.kind.size();
+    let (width, height) = this.size();
     let half = width / 2.0;
     let start = flight.start;
     let start_box = Aabb::new(

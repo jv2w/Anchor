@@ -148,7 +148,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
         return;
     };
     let living = npc.kind.is_living();
-    let middle = npc.body.position + Vec3::new(0.0, npc.kind.physics().height / 2.0, 0.0);
+    let middle = npc.body.position + Vec3::new(0.0, npc.size().1 / 2.0, 0.0);
     let (npc_runtime_id, viewers) = (npc.runtime_id, npc.viewers.clone());
     let Some(melee) = survival::melee(state, session) else {
         return;
