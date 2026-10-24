@@ -1055,9 +1055,10 @@ fn first_runtime_id() -> i32 {
     i32::from(item::max_runtime_id()).saturating_add(1)
 }
 
-/// Whether `s` is a custom identifier: `namespace:name`, each part 1 or more of `a-z`, `0-9`,
-/// `_`, `-`, `.` (and `/` in the name), at most 128 bytes, the namespace not `minecraft`.
-fn is_identifier(s: &str) -> bool {
+/// Whether `s` is a custom identifier of an item, a block or an entity type: `namespace:name`,
+/// each part 1 or more of `a-z`, `0-9`, `_`, `-`, `.` (and `/` in the name), at most
+/// [`MAX_IDENTIFIER`] bytes, the namespace not `minecraft`.
+pub(crate) fn is_identifier(s: &str) -> bool {
     let Some((namespace, name)) = s.split_once(':') else {
         return false;
     };

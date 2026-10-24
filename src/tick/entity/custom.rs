@@ -21,6 +21,7 @@ use super::api::is_placeable;
 use super::kind::{Character, Custom, Form, Kind, MAX_NAME_TAG_BYTES, Physics};
 use super::{Entities, Entity, Mut, SessionId, State, create};
 use crate::ServerBuilder;
+use crate::custom::is_identifier;
 use crate::entity::{Behaviour, Custom as Definition, Error, Id};
 use crate::math::Vec3;
 use crate::nbt::{self, Compound, List, Value};
@@ -35,8 +36,6 @@ pub(crate) const MAX_TYPES: usize = 1024;
 /// The largest custom data of one entity, in bytes of its saved (little-endian NBT) form: a
 /// chunk of a thousand custom entities stays within a few MiB.
 pub(super) const MAX_DATA_BYTES: usize = 4096;
-/// The longest identifier, in bytes.
-const MAX_IDENTIFIER_BYTES: usize = 128;
 /// The largest box side of a type, in blocks, and of any entity's scaled box.
 pub(super) const MAX_SIZE: f64 = 16.0;
 /// The largest maximum health of a type.
@@ -256,21 +255,6 @@ impl Customs {
         w.nbt(&root, nbt::Encoding::NetworkLittleEndian)?;
         Ok(w.into_inner())
     }
-}
-
-/// Whether `s` is a custom entity identifier: `namespace:name`, lowercase ASCII letters, digits
-/// and `_.-` (and `/` in the name), at most [`MAX_IDENTIFIER_BYTES`], not in `minecraft`.
-fn is_identifier(s: &str) -> bool {
-    let Some((namespace, name)) = s.split_once(':') else {
-        return false;
-    };
-    let allowed = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(&c);
-    s.len() <= MAX_IDENTIFIER_BYTES
-        && !namespace.is_empty()
-        && !name.is_empty()
-        && namespace != "minecraft"
-        && namespace.bytes().all(allowed)
-        && name.bytes().all(|c| allowed(c) || c == b'/')
 }
 
 /// Whether `data` may be a custom entity's: its saved form takes at most [`MAX_DATA_BYTES`].
