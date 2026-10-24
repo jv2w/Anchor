@@ -11,6 +11,7 @@ use crate::import::level_dat::WorldData;
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::Rng;
 use crate::save::tests::TempDir;
+use crate::storage::codec::ChunkRecord;
 use crate::storage::codec::tests::{empty_chunk, terrain_chunk};
 use crate::storage::seal::seal;
 use crate::storage::{Batch, Start, StartBackup, Storage};

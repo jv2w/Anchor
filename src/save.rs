@@ -1699,14 +1699,11 @@ fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Regis
         Ok(read) => read,
         Err((part, e)) => return damaged(Some(part), &e),
     };
-    if sub_chunks.iter().all(Option::is_none) {
+    let Some(record) = stored_terrain(sub_chunks) else {
         return Loaded::Generated(
             Box::new(Chunk::generate(plan.generator.as_ref(), plan.seed, pos)),
             stored,
         );
-    }
-    let record = ChunkRecord {
-        sub_chunks: Box::new(sub_chunks.map(|s| s.unwrap_or_else(empty_sub_chunk))),
     };
     match to_chunk(record, custom) {
         Some(mut chunk) => {
@@ -1975,6 +1972,18 @@ pub(crate) fn seal_terrain(id: ChunkId, chunk: &Chunk) -> Result<Vec<Write>, sto
             Ok((key, Some(value)))
         })
         .collect()
+}
+
+/// The stored terrain of a chunk whose terrain values are `terrain`, each sub-chunk without a
+/// value [`empty_sub_chunk`]; `None` if it has no value at all, a chunk its generator makes
+/// ([`seal_terrain`] keeps a value of every stored chunk).
+pub(crate) fn stored_terrain(terrain: Terrain) -> Option<ChunkRecord> {
+    if terrain.iter().all(Option::is_none) {
+        return None;
+    }
+    Some(ChunkRecord {
+        sub_chunks: Box::new(terrain.map(|s| s.unwrap_or_else(empty_sub_chunk))),
+    })
 }
 
 /// The terrain a sub-chunk without a value has: no blocks, all plains.

@@ -31,7 +31,7 @@ use tracing::{info, warn};
 use crate::import::MAX_CHUNKS;
 use crate::pool::Pool;
 use crate::save::{self, WorldSpec};
-use crate::storage::codec::{ChunkRecord, WorldRecord};
+use crate::storage::codec::WorldRecord;
 use crate::storage::seal::unseal;
 use crate::storage::{ChunkId, ChunkKind, ChunkPart, Key, Place, Snapshot};
 use crate::world::{Chunk, ChunkPos, Generator};
@@ -339,13 +339,8 @@ fn convert(
         source,
     };
     let (terrain, stored) = save::read_values(id, values).map_err(|(_, e)| at(Box::new(e)))?;
-    let record = if terrain.iter().all(Option::is_none) {
-        save::to_record(&Chunk::generate(generator, seed, pos))
-    } else {
-        ChunkRecord {
-            sub_chunks: Box::new(terrain.map(|s| s.unwrap_or_else(save::empty_sub_chunk))),
-        }
-    };
+    let record = save::stored_terrain(terrain)
+        .unwrap_or_else(|| save::to_record(&Chunk::generate(generator, seed, pos)));
     let extras = &stored.extras;
     let block_entities = extras.get(ChunkKind::BlockEntities);
     let values = chunk::values(pos, &record, block_entities).map_err(|e| at(Box::new(e)))?;
