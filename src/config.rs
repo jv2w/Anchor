@@ -1065,7 +1065,7 @@ impl GameMode {
     ];
 
     /// PMMP's names of the game modes (`GameMode::getAliases`), which [`from_name`](Self::from_name)
-    /// takes and the game mode commands offer.
+    /// takes.
     pub(crate) const ALIASES: [(&'static str, Self); 13] = [
         ("survival", Self::Survival),
         ("s", Self::Survival),
