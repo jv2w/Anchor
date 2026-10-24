@@ -181,6 +181,7 @@ pocketmine\event\player\PlayerDisplayNameChangeEvent** skipped only direct API c
 pocketmine\event\world\WorldDisplayNameChangeEvent** skipped only direct API calls change display names, and direct calls raise no events
 pocketmine\event\player\PlayerCreationEvent** skipped PHP player class choice: the player is Anchor's `Player`
 pocketmine\event\world\WorldDifficultyChangeEvent** skipped only direct API calls change the difficulty, and direct calls raise no events
+pocketmine\event\world\SpawnChangeEvent** skipped only direct API calls move the spawn, and direct calls raise no events
 pocketmine\event\server\DataPacketDecodeEvent::* merged DataPacketDecodeEvent
 pocketmine\event\server\DataPacketReceiveEvent::* merged DataPacketReceiveEvent
 pocketmine\event\server\DataPacketSendEvent::* merged DataPacketSendEvent
