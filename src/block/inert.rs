@@ -161,7 +161,7 @@ impl Inert {
         BreakInfo::new(hardness, hardness * 5.0, ANY_TOOL, 0, false)
     }
 
-    /// The Anchor state the placement rules read in its place: bedrock (full support on every
+    /// The Anchor state the placement and connection rules read in its place: bedrock (full support on every
     /// face) when it is solid, else a cobweb (no support, no collision). Neither can be replaced:
     /// BDS's data does not say which inert blocks vanilla replaces (seagrass, kelp), so a block
     /// placed on one goes into the cell beside it and the inert block stays.

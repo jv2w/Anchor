@@ -18,7 +18,8 @@
 //!   straight line of at most [`MAX_TRIPWIRE`] tripwire between two hooks facing each other is
 //!   attached, the hooks too (`attached_bit`, BDS P6); every other tripwire and hook is not.
 //!
-//! A neighbour in a chunk that is not loaded reads as air and is not changed. Which blocks are
+//! A neighbour in a chunk that is not loaded reads as air and is not changed; an inert neighbour
+//! reads as its stand-in, as for the placement rules, and is not changed. Which blocks are
 //! worked out again: the set block, its four horizontal neighbours and the block below (a wall's
 //! post depends on the block above), and the horizontal neighbours of a neighbour whose full faces
 //! changed (a stair whose corner changed). No rule depends on a state that a second round could
@@ -200,11 +201,13 @@ impl World {
         Some((state, new))
     }
 
-    /// The known state at `pos`, or `None` for air, unknown states and unloaded chunks.
+    /// The known state at `pos`, an inert block's stand-in ([`crate::block::Inert::stand_in`],
+    /// read only: no rule writes it), or `None` for air, unknown states and unloaded chunks.
     fn known(&self, pos: Option<BlockPos>) -> Option<State> {
         match self.entry(pos?)? {
             Entry::Known(state) => Some(state),
-            Entry::Unknown(_) | Entry::Inert(..) => None,
+            Entry::Inert(inert, _) => Some(inert.stand_in()),
+            Entry::Unknown(_) => None,
         }
     }
 

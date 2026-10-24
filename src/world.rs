@@ -1915,6 +1915,32 @@ mod tests {
         }
     }
 
+    /// The connection rules read an inert block as its stand-in, as the placement rules do: a
+    /// fence joins a moss block's full face but not a moss carpet, and the inert block stays.
+    #[test]
+    fn fences_connect_to_a_solid_inert_block_only() {
+        use crate::nbt::{Compound, Value};
+        let fence = BlockPos::new(0, -60, 0);
+        let inert = BlockPos::new(1, -60, 0);
+        for (name, joined) in [("minecraft:moss_block", 1), ("minecraft:moss_carpet", 0)] {
+            let mut w = world(&Flat, 1);
+            let nbt = Compound::from([
+                ("name".to_owned(), Value::String(name.to_owned())),
+                ("states".to_owned(), Value::Compound(Compound::new())),
+                (
+                    "version".to_owned(),
+                    Value::Int(crate::import::BLOCK_STATE_VERSION),
+                ),
+            ]);
+            let entry = w.put_unknown(inert, nbt).unwrap();
+            assert!(matches!(entry, Entry::Inert(..)), "{name}");
+            w.set_block(fence, by_name("minecraft:oak_fence")).unwrap();
+            let east = prop(w.block(fence).unwrap(), "minecraft:connection_east");
+            assert_eq!(east, PropertyValue::Byte(joined), "{name}");
+            assert_eq!(w.entry(inert), Some(entry), "{name}");
+        }
+    }
+
     /// An attached line of 30 tripwire that a 31st block joins to 29 more: the whole line is now
     /// too long, and every tripwire and hook of it is unattached, also those more than
     /// `MAX_TRIPWIRE` blocks from the joining block.
