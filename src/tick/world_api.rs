@@ -209,7 +209,7 @@ impl Context<'_> {
         let Some(w) = index(self.state, world) else {
             return false;
         };
-        if !entity::is_valid_position(center) || !size.is_finite() || size <= 0.0 {
+        if !entity::is_valid_explosion(center, size) {
             return false;
         }
         entity::explode(self.state, w, center, size, fire, entity::Raise::Quiet);
