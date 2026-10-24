@@ -68,7 +68,7 @@ pub enum CombustSource {
     None,
     /// A block: fire, lava or a lava cauldron at this position.
     Block(BlockPos),
-    /// An entity: a burning arrow.
+    /// An entity or a player: a burning arrow, or a player hitting with a Fire Aspect weapon.
     Entity(Actor),
 }
 
