@@ -524,9 +524,9 @@ impl std::error::Error for Error {}
 ///
 /// The queue holds a [`SESSION_INPUTS`] share for every session that can hold one at once and
 /// the results of every job, so no session or job ever finds it full. Connection sessions hold
-/// a share from their join to their leave ([`InputSender::connection`]): `max_players` online
-/// and as many whose join the tick has not applied yet or that it turned away and that have not
-/// ended.
+/// a share from their join until the tick takes their leave ([`InputSender::connection`]):
+/// `max_players` online and as many whose join the tick has not applied yet or that it turned
+/// away and whose leave it has not taken.
 pub(crate) fn input_queue(max_players: u32) -> (InputSender, InputReceiver) {
     let connections = usize::try_from(max_players)
         .unwrap_or(usize::MAX)
@@ -554,11 +554,14 @@ pub(crate) fn control_queue() -> (mpsc::Sender<Control>, mpsc::Receiver<Control>
 }
 
 /// An input in the queue with the place it takes in its session's share, which the tick gives
-/// back by taking it; a job's result takes none.
+/// back by taking it; a job's result takes none. A connection's leave also carries its connection
+/// share: the queue is in order, so when the tick takes the leave it has taken every input of the
+/// session, and a new connection's share never counts beside them.
 #[derive(Debug)]
 struct Queued {
     input: Input,
     _share: Option<OwnedSemaphorePermit>,
+    _connection: Option<OwnedSemaphorePermit>,
 }
 
 /// The sending side of the tick input queue, shared by every session.
@@ -581,6 +584,7 @@ impl InputSender {
         let queued = Queued {
             input,
             _share: None,
+            _connection: None,
         };
         self.queue.send(queued).await.map_err(|_| Error::Closed)
     }
@@ -592,16 +596,16 @@ impl InputSender {
             next_seq: 0,
             queue: self.queue.clone(),
             share: Arc::new(Semaphore::new(SESSION_INPUTS)),
-            _connection: None,
+            connection: None,
         }
     }
 
     /// A sender for connection session `id`, which holds one of the queue's connection shares
-    /// until it is dropped; `None` while every share is held.
+    /// until the tick takes its leave; `None` while every share is held.
     pub(crate) fn connection(&self, id: SessionId) -> Option<SessionInputs> {
         let connection = Arc::clone(&self.connections).try_acquire_owned().ok()?;
         Some(SessionInputs {
-            _connection: Some(connection),
+            connection: Some(connection),
             ..self.session(id)
         })
     }
@@ -615,7 +619,8 @@ pub(crate) struct SessionInputs {
     queue: mpsc::Sender<Queued>,
     /// [`SESSION_INPUTS`] permits, one taken by each input the tick has not taken yet.
     share: Arc<Semaphore>,
-    _connection: Option<OwnedSemaphorePermit>,
+    /// The connection share of a connection session, which its leave carries to the tick.
+    connection: Option<OwnedSemaphorePermit>,
 }
 
 impl SessionInputs {
@@ -632,6 +637,7 @@ impl SessionInputs {
                 kind,
             },
             _share: Some(share),
+            _connection: None,
         };
         match self.queue.try_send(queued) {
             Ok(()) => {
@@ -644,9 +650,10 @@ impl SessionInputs {
         }
     }
 
-    /// Queues [`InputKind::Leave`], waiting for room in the session's share so that the tick
-    /// always learns the session ended. Returns at once if the tick has stopped.
-    pub(crate) async fn leave(self) {
+    /// Queues [`InputKind::Leave`] with the connection share, waiting for room in the session's
+    /// share so that the tick always learns the session ended. Returns at once if the tick has
+    /// stopped.
+    pub(crate) async fn leave(mut self) {
         #[expect(
             clippy::expect_used,
             reason = "invariant: nothing closes the share, so acquiring only waits for the tick to \
@@ -663,6 +670,7 @@ impl SessionInputs {
                 kind: InputKind::Leave,
             },
             _share: Some(share),
+            _connection: self.connection.take(),
         };
         // A closed queue means the tick has stopped and forgets every session anyway.
         if self.queue.send(queued).await.is_err() {
@@ -697,6 +705,9 @@ impl InputReceiver {
 
 #[cfg(test)]
 mod tests {
+    use std::pin::pin;
+    use std::task::{Context, Poll, Waker};
+
     use super::*;
 
     #[test]
@@ -738,5 +749,32 @@ mod tests {
         );
         drop(rx);
         assert_eq!(a.try_send(InputKind::Leave), Err(Error::Closed));
+    }
+
+    /// A connection that left keeps its connection share until the tick takes its leave, so the
+    /// inputs it queued before never count beside a new connection's share.
+    #[test]
+    fn a_connection_share_is_held_until_the_tick_takes_the_leave() {
+        let (sender, mut rx) = input_queue(1);
+        let _b = sender.connection(SessionId::new(1)).unwrap();
+        let mut a = sender.connection(SessionId::new(2)).unwrap();
+        for _ in 1..SESSION_INPUTS {
+            a.try_send(InputKind::Leave).unwrap();
+        }
+        let leaving = pin!(a.leave());
+        let polled = leaving.poll(&mut Context::from_waker(Waker::noop()));
+        assert_eq!(polled, Poll::Ready(()));
+        for _ in 1..SESSION_INPUTS {
+            rx.try_recv().unwrap();
+            assert!(
+                sender.connection(SessionId::new(3)).is_none(),
+                "a's inputs are still queued"
+            );
+        }
+        rx.try_recv().unwrap();
+        assert!(
+            sender.connection(SessionId::new(3)).is_some(),
+            "the tick took a's leave"
+        );
     }
 }
