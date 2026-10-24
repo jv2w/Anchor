@@ -576,48 +576,6 @@ fn a_pumpkin_of_any_facing_imports_as_pmmp_pumpkin_and_a_state_pmmp_rejects_stay
 }
 
 #[test]
-fn a_second_import_of_the_same_world_is_refused_and_changes_nothing() {
-    let disk = Disk::default();
-    let mut storage = memory(&disk);
-    let raws = BTreeMap::from([((0, 0), full_raw())]);
-    imported(&mut storage, 1, &raws, [0, 64, 0]);
-    let before = storage
-        .read_chunks(&[ChunkId {
-            world: 0,
-            x: 0,
-            z: 0,
-        }])
-        .unwrap();
-    let other = BTreeMap::from([((0, 0), empty_raw()), ((1, 0), empty_raw())]);
-    let err = import(&mut storage, 1, &other, [0, 64, 0]).0.unwrap_err();
-    assert!(
-        matches!(&err, crate::Error::Import(Error::WorldExists { name }) if name == NAME),
-        "{err:?}"
-    );
-    let after = storage
-        .read_chunks(&[ChunkId {
-            world: 0,
-            x: 0,
-            z: 0,
-        }])
-        .unwrap();
-    assert_eq!(format!("{before:?}"), format!("{after:?}"));
-    assert!(
-        storage
-            .read_chunks(&[ChunkId {
-                world: 0,
-                x: 1,
-                z: 0
-            }])
-            .unwrap()
-            .pop()
-            .unwrap()
-            .unwrap()
-            .is_empty()
-    );
-}
-
-#[test]
 fn a_chunk_that_fails_ends_the_import_with_its_position_and_writes_nothing() {
     let raws: BTreeMap<(i32, i32), Raw> = (0..300).map(|i| ((i, 0), full_raw())).collect();
     let mut outside = full_raw();
@@ -853,6 +811,45 @@ fn a_temporary_world_or_a_name_that_is_no_file_name_is_refused_before_anything_i
     )]
     let created = data.exists();
     assert!(!created);
+}
+
+/// A world file made after the import found none and before it writes (another import or server)
+/// is refused and kept as it was.
+#[test]
+#[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+fn a_world_file_made_before_the_import_writes_is_refused_and_kept() {
+    let dir = crate::save::tests::TempDir::new("import-made-meanwhile");
+    let data = dir.0.join("data");
+    let start = Start::checked(StartBackup::Make);
+    run(
+        &data,
+        start,
+        &[spec()],
+        1,
+        &Registry::default(),
+        Path::new(FIXTURE),
+        NAME,
+    )
+    .unwrap();
+    let place = crate::storage::Place::world(&data, NAME);
+    let before = std::fs::read(&place.file).unwrap();
+    let err = write_world(
+        &place,
+        start,
+        &spec(),
+        1,
+        &Registry::default(),
+        &mut Source::open(Path::new(FIXTURE)).unwrap(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, crate::Error::Import(Error::WorldExists { name }) if name == NAME),
+        "{err:?}"
+    );
+    assert!(
+        std::fs::read(&place.file).ok() == Some(before),
+        "the file is as it was"
+    );
 }
 
 /// An import whose world file would be one past the most `data/worlds/` may hold is refused

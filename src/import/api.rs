@@ -33,7 +33,7 @@ use crate::storage::codec::{
     BlockLayer, ChunkRecord, MAX_EXTRA_ENTRIES, SubChunkRecord, WorldRecord,
 };
 use crate::storage::seal::{MAX_RECORD, seal};
-use crate::storage::{Batch, ChunkKind, Import, Key, Start, Storage};
+use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
 use crate::world::{BlockPos, Chunk, ChunkPos, Entry, MIN_Y, Paletted, SLOTS, SUB_CHUNKS};
 
 /// Most chunks read, then converted, per step: bounds the chunk data held at once.
@@ -221,17 +221,58 @@ pub(crate) fn run(
         }
         .into());
     };
-    let mut source = Source::open(dir)?;
+    let report = write_world(&place, start, &spec, cpu, custom, &mut Source::open(dir)?)?;
+    info!(
+        world = name,
+        chunks = report.chunks,
+        block_entities = report.block_entities,
+        left_out_entities = report.entities,
+        spawn = ?report.spawn,
+        "world imported"
+    );
+    if !report.unknown_blocks.is_empty() {
+        warn!(
+            world = name,
+            kinds = report.unknown_blocks.len(),
+            shown_as_themselves = report.inert_blocks,
+            shown_as_update_blocks = report.placeholder_blocks,
+            unlisted_blocks = report.unlisted_unknown_blocks,
+            "imported blocks Anchor does not implement are kept: clients see the ones they know \
+             as themselves, with no server behaviour, and the rest as update! blocks"
+        );
+    }
+    Ok(report)
+}
+
+/// Writes the world `spec` names from `source` into the new world file at `place`, opened as
+/// `start` says, on a CPU pool of `cpu` threads that is joined before returning. A file there
+/// already, made since the caller found none, is refused with [`Error::WorldExists`] and left as
+/// it is. On any other failure, no world file is left.
+fn write_world(
+    place: &Place,
+    start: Start,
+    spec: &WorldSpec,
+    cpu: usize,
+    custom: &Registry,
+    source: &mut Source,
+) -> crate::Result<Report> {
     let catalog = source.catalog()?;
     let world = *source.world();
     // Started before the world file is made, so a pool that fails to start leaves no file.
     let pool = crate::runtime::cpu_pool(cpu)?;
-    let mut storage = match Storage::open(&place, start) {
+    if let Err(e) = create_file(place, &spec.name) {
+        if !pool.shutdown() {
+            warn!("the import's CPU pool threads did not all end");
+        }
+        return Err(e);
+    }
+    let mut storage = match Storage::open(place, start) {
         Ok(storage) => storage,
         Err(e) => {
             if !pool.shutdown() {
                 warn!("the import's CPU pool threads did not all end");
             }
+            remove_file(&place.file);
             return Err(e.into());
         }
     };
@@ -239,7 +280,7 @@ pub(crate) fn run(
         let (import, report) = prepare(
             &mut storage,
             &pool,
-            &spec,
+            spec,
             custom,
             &catalog,
             &world,
@@ -265,26 +306,33 @@ pub(crate) fn run(
         }
     };
     storage.close()?;
-    info!(
-        world = name,
-        chunks = report.chunks,
-        block_entities = report.block_entities,
-        left_out_entities = report.entities,
-        spawn = ?report.spawn,
-        "world imported"
-    );
-    if !report.unknown_blocks.is_empty() {
-        warn!(
-            world = name,
-            kinds = report.unknown_blocks.len(),
-            shown_as_themselves = report.inert_blocks,
-            shown_as_update_blocks = report.placeholder_blocks,
-            unlisted_blocks = report.unlisted_unknown_blocks,
-            "imported blocks Anchor does not implement are kept: clients see the ones they know \
-             as themselves, with no server behaviour, and the rest as update! blocks"
-        );
-    }
     Ok(report)
+}
+
+/// Makes the empty world file of `place` for the world `name`, which [`Storage::open`] starts as a
+/// new one; a file there already refuses it with [`Error::WorldExists`]. Making it only if there
+/// is none makes the file the import's own, which a failure removes.
+#[expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "off-tick: the import makes its own world file before the server runs"
+)]
+fn create_file(place: &Place, name: &str) -> crate::Result<()> {
+    if let Some(dir) = place.file.parent() {
+        std::fs::create_dir_all(dir).map_err(crate::storage::Error::Io)?;
+    }
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&place.file)
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(Error::WorldExists {
+            name: name.to_owned(),
+        }
+        .into()),
+        Err(e) => Err(crate::storage::Error::Io(e).into()),
+    }
 }
 
 /// Removes the world file of a failed import.
@@ -301,7 +349,7 @@ fn remove_file(file: &Path) {
 /// Writes the world `spec` names into `storage` from `catalog`'s chunks, read with `read` (`size`
 /// tells the bytes a read holds) and decoded with `decode`, and the world record from `world`,
 /// without committing: the caller commits the returned [`Import`] once the source proved
-/// unchanged. Fails with [`Error::WorldExists`] if the file holds the world already.
+/// unchanged.
 #[expect(
     clippy::too_many_arguments,
     reason = "consistency: the reader's parts come in apart so tests can give chunks directly"
@@ -317,18 +365,6 @@ fn prepare<E: Sync>(
     decode: impl Fn(&E) -> super::Result<Raw> + Sync,
     size: impl Fn(&E) -> usize,
 ) -> crate::Result<(Import, Report)> {
-    if storage
-        .read(&[Key::World])?
-        .pop()
-        .transpose()?
-        .flatten()
-        .is_some()
-    {
-        return Err(Error::WorldExists {
-            name: spec.name.clone(),
-        }
-        .into());
-    }
     let [x, y, z] = world.spawn;
     // The seed the world runs with (its settings', not level.dat's), so the generated biomes are
     // those of the chunks the world generates itself.
