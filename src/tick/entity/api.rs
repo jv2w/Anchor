@@ -1393,7 +1393,7 @@ impl Entities {
         }
         let column = self.columns.entry((to, chunk)).or_default();
         column.ids.insert(id);
-        column.stale = true;
+        column.arrived.insert(id);
         self.changed.insert((from, chunk));
         self.changed.insert((to, chunk));
     }

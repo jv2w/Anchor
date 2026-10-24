@@ -937,9 +937,11 @@ struct Column {
     ids: BTreeSet<Id>,
     /// The players that saw the chunk at the last tracking pass.
     viewers: BTreeSet<SessionId>,
-    /// Some entity's viewers may differ from `viewers` (it arrived, or a bound held a packet
-    /// back): the next pass looks at each entity.
-    stale: bool,
+    /// The entities whose viewers may differ from `viewers` (they arrived, or a bound held a
+    /// packet of theirs back): the next pass compares only them, unless the chunk's players
+    /// changed. An entity that left again is skipped there, so this holds at most the entities
+    /// that came in since the last pass.
+    arrived: BTreeSet<Id>,
 }
 
 /// An entity that left with its chunk, still to be removed from its viewers.
@@ -1108,7 +1110,7 @@ impl Entities {
         *self.counts.entry(world).or_insert(0) += 1;
         let column = self.columns.entry(key).or_default();
         column.ids.insert(id);
-        column.stale = true;
+        column.arrived.insert(id);
         self.changed.insert(key);
         id
     }
@@ -1184,7 +1186,7 @@ impl Entities {
         }
         let column = self.columns.entry((world, to)).or_default();
         column.ids.insert(id);
-        column.stale = true;
+        column.arrived.insert(id);
         self.changed.insert((world, from));
         self.changed.insert((world, to));
     }
@@ -1480,7 +1482,10 @@ impl Entities {
             for s in &c.viewers {
                 h.u64(s.get());
             }
-            h.u64(u64::from(c.stale));
+            h.usize(c.arrived.len());
+            for &i in &c.arrived {
+                hash_id(h, i);
+            }
         }
         for (&r, &i) in runtime_ids {
             h.u64(r);
@@ -1582,7 +1587,7 @@ super::checkpoint::fields!(Slot { generation, entity });
 super::checkpoint::fields!(Column {
     ids,
     viewers,
-    stale
+    arrived
 });
 super::checkpoint::fields!(Departed {
     runtime_id,
@@ -3749,10 +3754,12 @@ fn track_entities(state: &mut State) {
         }
     }
     // The players of each column are worked out before anything is sent (sending changes no
-    // view); only the stale columns and those whose players changed are kept. `watchers` is in
-    // session order, as a column's players are, so comparing the sequences compares the sets.
+    // view); only the columns with arrivals and those whose players changed are kept. `watchers`
+    // is in session order, as a column's players are, so comparing the sequences compares the
+    // sets. A column whose players changed compares every entity; any other only its arrivals,
+    // in `Id` order as the whole column would be.
     let watchers = watchers(state);
-    let pending: Vec<(Key, BTreeSet<SessionId>)> = state
+    let pending: Vec<(Key, BTreeSet<SessionId>, bool)> = state
         .rules
         .entities
         .columns
@@ -3762,63 +3769,84 @@ fn track_entities(state: &mut State) {
                 .iter()
                 .filter(|&&(_, w, view)| w == key.0 && view.sees(key.1))
                 .map(|&(s, _, _)| s);
-            (column.stale || !column.viewers.iter().copied().eq(want.clone()))
-                .then(|| (key, want.collect()))
+            let changed = !column.viewers.iter().copied().eq(want.clone());
+            (changed || !column.arrived.is_empty()).then(|| (key, want.collect(), changed))
         })
         .collect();
-    for (key, want) in pending {
+    for (key, want, changed) in pending {
         let entities = &mut state.rules.entities;
         let Some(column) = entities.columns.get_mut(&key) else {
             continue;
         };
         column.viewers.clone_from(&want);
-        column.stale = false;
-        let ids: Vec<Id> = column.ids.iter().copied().collect();
-        let mut held_back = false;
+        let arrived = std::mem::take(&mut column.arrived);
+        let ids: Vec<Id> = if changed {
+            column.ids.iter().copied().collect()
+        } else {
+            arrived.into_iter().collect()
+        };
+        let mut held_back = Vec::new();
         for id in ids {
             let Some(e) = state.rules.entities.get_mut(id) else {
                 continue;
             };
-            if e.runtime_id == 0 || e.flagged {
+            if e.runtime_id == 0 || e.flagged || (e.world, e.chunk) != key {
                 continue;
             }
-            let leaving: Vec<SessionId> = e.viewers.difference(&want).copied().collect();
-            let coming: Vec<SessionId> = want.difference(&e.viewers).copied().collect();
-            for s in leaving {
-                let Some(player) = state.players.get_mut(&s) else {
-                    e.viewers.remove(&s);
-                    continue;
-                };
-                match budget.get_mut(&s) {
-                    Some(left) if *left > 0 => {
-                        *left -= 1;
-                        player.send_packet(track::remove(e.runtime_id));
-                        e.viewers.remove(&s);
-                    }
-                    _ => held_back = true,
-                }
-            }
-            for s in coming {
-                let Some(player) = state.players.get_mut(&s) else {
-                    continue;
-                };
-                match budget.get_mut(&s) {
-                    Some(left) if *left > 0 => {
-                        *left -= 1;
-                        for packet in track::spawn(e) {
-                            player.send_packet(packet);
-                        }
-                        e.viewers.insert(s);
-                    }
-                    _ => held_back = true,
-                }
+            if !show_to(&mut state.players, e, &want, &mut budget) {
+                held_back.push(id);
             }
         }
-        if held_back && let Some(column) = state.rules.entities.columns.get_mut(&key) {
-            column.stale = true;
+        if let Some(column) = state.rules.entities.columns.get_mut(&key) {
+            column.arrived.extend(held_back);
         }
     }
     send_movements(state);
+}
+
+/// Sends `e` to the players of `want` that do not see it and takes it away from its other
+/// viewers, within each player's `budget`; false if a bound held a packet back.
+fn show_to(
+    players: &mut BTreeMap<SessionId, Player>,
+    e: &mut Entity,
+    want: &BTreeSet<SessionId>,
+    budget: &mut BTreeMap<SessionId, u32>,
+) -> bool {
+    #[cfg(test)]
+    tests::count_tracked();
+    let leaving: Vec<SessionId> = e.viewers.difference(want).copied().collect();
+    let coming: Vec<SessionId> = want.difference(&e.viewers).copied().collect();
+    let mut sent = true;
+    for s in leaving {
+        let Some(player) = players.get_mut(&s) else {
+            e.viewers.remove(&s);
+            continue;
+        };
+        match budget.get_mut(&s) {
+            Some(left) if *left > 0 => {
+                *left -= 1;
+                player.send_packet(track::remove(e.runtime_id));
+                e.viewers.remove(&s);
+            }
+            _ => sent = false,
+        }
+    }
+    for s in coming {
+        let Some(player) = players.get_mut(&s) else {
+            continue;
+        };
+        match budget.get_mut(&s) {
+            Some(left) if *left > 0 => {
+                *left -= 1;
+                for packet in track::spawn(e) {
+                    player.send_packet(packet);
+                }
+                e.viewers.insert(s);
+            }
+            _ => sent = false,
+        }
+    }
+    sent
 }
 
 /// Sends the movement, speed and flag changes of entities to their viewers (PMMP
@@ -4456,6 +4484,12 @@ mod tests {
         static TAKEN: Cell<u64> = const { Cell::new(0) };
         /// Experience the test players got.
         static EXPERIENCE: Cell<u64> = const { Cell::new(0) };
+        /// Entities the tracking pass compared with the players of their chunk.
+        static TRACKED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn count_tracked() {
+        TRACKED.with(|t| t.set(t.get() + 1));
     }
 
     pub(super) fn room(n: u32) {
@@ -5932,6 +5966,51 @@ mod tests {
         }
         let sent: Vec<usize> = counts.into_iter().filter(|&n| n > 0).collect();
         assert_eq!(sent, [512, 512, 176]);
+    }
+
+    /// An entity that arrives in a chunk is compared with the chunk's players alone: it is
+    /// shown, and its resting neighbours are not looked at again.
+    #[test]
+    fn an_arrival_is_shown_and_its_resting_neighbours_are_not_looked_at_again() {
+        let mut h = Harness::new(1);
+        h.spawn(1, standing(12.0, 12.0));
+        h.spawn(2, standing(12.0, 13.0));
+        let drop_sword = |h: &mut Harness, x: f64, z: f64| {
+            let sword = stack("minecraft:diamond_sword", 1);
+            let pos = at(x, -60.0, z);
+            assert!(drop_item_with(
+                &mut h.state,
+                0,
+                pos,
+                sword,
+                Some(Vec3::ZERO),
+                10
+            ));
+        };
+        for i in 0..100u32 {
+            drop_sword(
+                &mut h,
+                f64::from(i % 10) * 0.5 + 0.5,
+                f64::from(i / 10) * 0.5 + 0.5,
+            );
+        }
+        h.settle();
+        let items = |packets: Vec<Packet>| {
+            let added = packets
+                .iter()
+                .filter(|p| matches!(p, Packet::AddItemActor(_)));
+            added.count()
+        };
+        for s in [1, 2] {
+            assert_eq!(items(h.take(s)), 100);
+        }
+        TRACKED.with(Cell::take);
+        drop_sword(&mut h, 6.5, 6.5);
+        h.step(Vec::new());
+        for s in [1, 2] {
+            assert_eq!(items(h.take(s)), 1);
+        }
+        assert_eq!(TRACKED.with(Cell::take), 1);
     }
 
     #[test]
