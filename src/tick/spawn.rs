@@ -767,8 +767,10 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
 /// does not hold it; the player waits in [`Phase::Loading`] until it arrives.
 ///
 /// When the same player is already online, [`PlayerDuplicateLogin`] decides which of the two is
-/// disconnected. That check comes before the full check: replacing the existing player frees its
-/// slot, so a full server still lets a player take over its own place.
+/// disconnected. Cancelled, the connecting player goes at once. Otherwise the connecting player
+/// is checked first ([`login`], where the slot it would take over is free, so a full server still
+/// lets a player take over its own place), and the existing player is disconnected only once the
+/// connecting one is admitted: a login that is refused leaves the existing player online.
 pub(super) fn join(
     state: &mut State,
     session: SessionId,
@@ -781,6 +783,8 @@ pub(super) fn join(
         return None;
     }
     let key = PlayerKey::of(&identity);
+    let mut replaced = None;
+    let mut duplicate = None;
     if let Some(&existing) = state.index.get(&key) {
         let (back, outcome, event) = duplicate_login(state, existing, identity);
         identity = back;
@@ -798,38 +802,48 @@ pub(super) fn join(
             }
             return None;
         }
-        super::player::quit(
-            state,
-            existing,
-            &outcome.reason,
-            super::player::LEFT.to_owned(),
-        );
-        if let Some(old) = state.remove(existing) {
-            info!(
-                session = existing.get(),
-                by = session.get(),
-                name = %old.identity.name,
-                "player replaced by a new login"
-            );
-            output.close(old.outbound, packet);
-        }
-        if let Some(e) = &event {
-            dispatch::watch(state, e);
-        }
+        replaced = Some((existing, outcome.reason, packet));
+        duplicate = event;
     }
     let (refused, event) = login(state, &identity);
-    let request = match refused {
-        Some(Refused { reason, packet }) => {
-            info!(session = session.get(), name = %identity.name, %reason, "join rejected");
-            output.close(outbound, packet);
-            None
+    let request = if let Some(Refused { reason, packet }) = refused {
+        info!(session = session.get(), name = %identity.name, %reason, "join rejected");
+        output.close(outbound, packet);
+        None
+    } else {
+        if let Some((existing, reason, packet)) = replaced {
+            replace(state, existing, session, &reason, packet, output);
         }
-        None => enter(state, session, identity, key, outbound, output),
+        enter(state, session, identity, key, outbound, output)
     };
+    if let Some(e) = &duplicate {
+        dispatch::watch(state, e);
+    }
     if let Some(e) = &event {
         dispatch::watch(state, e);
     }
     request
+}
+
+/// Disconnects the player of `existing`, whom the admitted login of `by` replaces, with `packet`.
+fn replace(
+    state: &mut State,
+    existing: SessionId,
+    by: SessionId,
+    reason: &str,
+    packet: Packet,
+    output: &mut Output,
+) {
+    super::player::quit(state, existing, reason, super::player::LEFT.to_owned());
+    if let Some(old) = state.remove(existing) {
+        info!(
+            session = existing.get(),
+            by = by.get(),
+            name = %old.identity.name,
+            "player replaced by a new login"
+        );
+        output.close(old.outbound, packet);
+    }
 }
 
 /// Registers the admitted player of `session` (see [`join`]); one placed dead respawns
@@ -1913,7 +1927,7 @@ mod tests {
             run(&mut state, vec![a]);
             let (b, _rx2) = join_as(2, identity("alex", None));
             run(&mut state, vec![b]);
-            assert_eq!(logged(), ["false []"]);
+            assert_eq!(logged(), ["false [2]"]);
             assert_eq!(state.players.len(), 1);
         }
 

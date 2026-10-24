@@ -1015,7 +1015,8 @@ impl Refusal {
 
 /// Whether `identity` may join now (PMMP `LoginPacketHandler`'s checks, first refusal in PMMP's
 /// priority order): the server is not full, the whitelist lets it in, and neither its name nor
-/// its address is banned. A replaced duplicate login frees its slot before this check.
+/// its address is banned. The slot of the same player online counts as free: its join replaces
+/// that player once admitted.
 pub(crate) fn admit(state: &State, identity: &Identity) -> Result<(), Refusal> {
     refusals(state, identity)
         .into_iter()
@@ -1029,7 +1030,9 @@ pub(crate) fn admit(state: &State, identity: &Identity) -> Result<(), Refusal> {
 /// carries them all, so that a listener clearing one does not let in a player another refuses.
 pub(crate) fn refusals(state: &State, identity: &Identity) -> [Option<Refusal>; 3] {
     let max_players = usize::try_from(state.settings.max_players).unwrap_or(usize::MAX);
-    let full = (state.players.len() >= max_players).then_some(Refusal::Full);
+    let replaced = state.index.contains_key(&PlayerKey::of(identity));
+    let others = state.players.len() - usize::from(replaced);
+    let full = (others >= max_players).then_some(Refusal::Full);
     let access = &state.commands.access;
     let whitelisted = (access.whitelist_enabled()
         && !access.is_op(&identity.name)

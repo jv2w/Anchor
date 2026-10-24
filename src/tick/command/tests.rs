@@ -1294,7 +1294,9 @@ fn a_snapshot_holds_the_list_changes() {
 fn joins_are_refused_in_pmmp_order_with_the_clients_or_anchors_messages() {
     let (mut state, _rx) = server(vec![]);
     let mut someone = state.players[&SessionId::new(1)].identity.clone();
+    // Another player: not the online one of the same XUID, whose own slot would count as free.
     someone.name = "Someone".to_owned();
+    someone.xuid = None;
     someone.address = Some(IpAddr::from([10, 0, 0, 9]));
     assert_eq!(admit(&state, &someone), Ok(()));
     let mut cx = Context { state: &mut state };

@@ -1477,7 +1477,7 @@ mod tests {
 
     use super::queue::{input_queue, outbound_queue};
     use super::*;
-    use crate::event::{PlayerDuplicateLogin, PlayerQuit, Priority};
+    use crate::event::{KickFlag, PlayerDuplicateLogin, PlayerLogin, PlayerQuit, Priority};
     use crate::protocol::Uuid;
     use crate::protocol::packet::{
         ChunkRadiusUpdated, PlayStatus, RequestChunkRadius, SetLocalPlayerAsInitialised,
@@ -2613,6 +2613,42 @@ mod tests {
         let state = run_ticks(full, vec![vec![a], vec![b]]);
         assert_eq!(sessions(&state), [2]);
         assert_eq!(kicked(&mut rx1).0, 43);
+    }
+
+    /// A second login the whitelist keeps out does not disconnect the player already online.
+    #[test]
+    fn a_refused_duplicate_login_leaves_the_existing_player() {
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (a, mut rx1) = join_as(1, 0, person("Alex", Some(5)));
+        tick(&mut state, &mut vec![a], &mut output);
+        received(&mut rx1);
+        crate::Context { state: &mut state }.set_whitelist_enabled(true);
+        let (b, mut rx2) = join_as(2, 0, person("Alex", Some(5)));
+        tick(&mut state, &mut vec![b], &mut output);
+        assert_eq!(sessions(&state), [1]);
+        assert!(state.index_matches_players());
+        assert!(!rx1.is_closed(), "the existing player stays");
+        assert_eq!(kicked(&mut rx2).1, "disconnectionScreen.notAllowed");
+    }
+
+    /// A second login a `PlayerLogin` listener refuses does not disconnect the player already
+    /// online either.
+    #[test]
+    fn a_duplicate_login_a_listener_refuses_leaves_the_existing_player() {
+        let mut listeners = Listeners::default();
+        let mut logins = 0_u32;
+        listeners.push(Priority::Normal, move |e: &mut PlayerLogin, _| {
+            logins += 1;
+            if logins == 2 {
+                e.set_kick_flag(KickFlag::Plugin, "one Alex is enough", None);
+            }
+        });
+        let (a, _rx1) = join_as(1, 0, person("Alex", Some(5)));
+        let (b, mut rx2) = join_as(2, 0, person("Alex", Some(5)));
+        let state = run_ticks_with(settings(|_| {}), listeners, vec![vec![a], vec![b]]);
+        assert_eq!(sessions(&state), [1]);
+        assert_eq!(kicked(&mut rx2).1, "one Alex is enough");
     }
 
     #[test]

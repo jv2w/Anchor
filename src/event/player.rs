@@ -390,9 +390,11 @@ getters!(PlayerDropItem {
 /// Raised when a player joins while the same player is already online: the same XUID with Xbox
 /// sign-in on, otherwise the same name ignoring ASCII case.
 ///
-/// If no listener cancels it, the existing player is disconnected and the connecting one joins;
-/// if it is cancelled, the connecting player is disconnected instead. Either way the
-/// disconnected player sees [`disconnect_screen_message`](Self::disconnect_screen_message), or
+/// If no listener cancels it, the connecting player goes on to [`PlayerLogin`]; once admitted,
+/// the existing player is disconnected and the connecting one joins, and if refused, it is
+/// disconnected and the existing player stays. If the event is cancelled, the connecting player
+/// is disconnected at once. A player this event disconnects sees
+/// [`disconnect_screen_message`](Self::disconnect_screen_message), or
 /// [`disconnect_reason`](Self::disconnect_reason) when that is `None`.
 #[doc(alias = "PlayerDuplicateLoginEvent")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1168,7 +1170,10 @@ pub(crate) struct Kick {
 
 /// Raised when a player has logged in, before the player joins: Anchor has already set the kick
 /// flags that apply (server full, not white-listed, banned). The player joins when no flag is set
-/// after the listeners; otherwise the player is refused with the first flag's message.
+/// after the listeners; otherwise the player is refused with the first flag's message. When the
+/// same player is still online ([`PlayerDuplicateLogin`] not cancelled), it is online during this
+/// event, its slot does not count toward a full server, and it is disconnected only if this
+/// player is admitted.
 #[doc(alias = "PlayerPreLoginEvent")]
 #[doc(alias = "PlayerLoginEvent")]
 #[derive(Debug)]
