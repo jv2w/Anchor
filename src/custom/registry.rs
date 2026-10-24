@@ -15,7 +15,7 @@ use crate::block::{self, PropertyValue};
 use crate::crafting::{self, FurnaceType, ShapelessType};
 use crate::item::{self, Stack, Type};
 use crate::nbt::{Compound, Value};
-use crate::protocol::consts::ItemEntryVersion;
+use crate::protocol::consts::{CreativeCategory, ItemEntryVersion};
 use crate::protocol::{BlockEntry, ItemEntry, packet};
 
 /// The most custom items and blocks together.
@@ -1078,13 +1078,13 @@ pub(crate) fn is_identifier(s: &str) -> bool {
 }
 
 impl Category {
-    /// The `CreativeContent` category number (1 construction to 4 items).
+    /// The `CreativeContent` category number ([`CreativeCategory`]).
     pub(crate) const fn id(self) -> u8 {
         match self {
-            Self::Construction => 1,
-            Self::Nature => 2,
-            Self::Equipment => 3,
-            Self::Items => 4,
+            Self::Construction => CreativeCategory::Construction as u8,
+            Self::Nature => CreativeCategory::Nature as u8,
+            Self::Equipment => CreativeCategory::Equipment as u8,
+            Self::Items => CreativeCategory::Items as u8,
         }
     }
 }

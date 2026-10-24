@@ -1333,7 +1333,7 @@ pub(crate) struct CreativeEntry {
     pub(crate) stack: Stack,
     /// Its network form.
     pub(crate) net: protocol::ItemStack,
-    /// Its category number (1 construction to 4 items).
+    /// Its category number ([`CreativeCategory`](protocol::consts::CreativeCategory)).
     pub(crate) category: u8,
     /// Its group's name and icon network form (without [`GROUP_WORKAROUND`]); `None` for the
     /// category's anonymous group.
@@ -1417,6 +1417,7 @@ mod tests {
 
     use super::*;
     use crate::nbt::{Compound, List, Value};
+    use crate::protocol::consts::CreativeCategory;
     use crate::protocol::packet::Packet;
 
     const REFERENCE: &str = include_str!("../xtask/data/reference/items.json");
@@ -1625,13 +1626,13 @@ mod tests {
             let gi = item.group_index;
             let group = &content.groups[usize::try_from(gi).unwrap()];
             let category = match want["category"].as_str().unwrap() {
-                "construction" => 1,
-                "nature" => 2,
-                "equipment" => 3,
-                "items" => 4,
+                "construction" => CreativeCategory::Construction,
+                "nature" => CreativeCategory::Nature,
+                "equipment" => CreativeCategory::Equipment,
+                "items" => CreativeCategory::Items,
                 other => panic!("category {other}"),
             };
-            assert_eq!(group.category, category);
+            assert_eq!(group.category, category as u8);
             // Group indices are given in order of first use.
             if gi == next_group {
                 next_group += 1;

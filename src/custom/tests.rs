@@ -7,6 +7,7 @@ use crate::crafting::Recipe as Judged;
 use crate::item::{self, Stack};
 use crate::math::{Aabb, Vec3};
 use crate::nbt::{Compound, List, Value};
+use crate::protocol::consts::CreativeCategory;
 use crate::protocol::packet::Packet;
 
 pub(crate) static RUBY: Item = Item::new("test:ruby", "Ruby", "test_ruby")
@@ -125,7 +126,10 @@ fn item_components_have_dragonflys_shape() {
     assert_eq!(properties.get("hand_equipped"), Some(&Value::Byte(1)));
     assert_eq!(properties.get("allow_off_hand"), Some(&Value::Byte(1)));
     assert_eq!(properties.get("damage"), Some(&Value::Int(7)));
-    assert_eq!(properties.get("creative_category"), Some(&Value::Int(4)));
+    assert_eq!(
+        properties.get("creative_category"),
+        Some(&Value::Int(CreativeCategory::Items as i32))
+    );
     let icon = compound(compound(properties, "minecraft:icon"), "textures");
     assert_eq!(
         icon.get("default"),
@@ -407,11 +411,14 @@ fn the_creative_inventory_lists_custom_entries_after_pmmps() {
     );
     assert_eq!(ruby.creative_item_network_id, u32::try_from(n).unwrap() + 1);
     assert_eq!(ruby.group_index, apple.group_index);
-    assert_eq!(ore.group_index, next_anonymous(&vanilla, 2));
+    assert_eq!(
+        ore.group_index,
+        next_anonymous(&vanilla, CreativeCategory::Nature as u8)
+    );
     let named = &content.groups[usize::try_from(ruby.group_index).unwrap()];
     assert_eq!(
         (named.category, named.name.as_str()),
-        (4, "itemGroup.name.test")
+        (CreativeCategory::Items as u8, "itemGroup.name.test")
     );
     let mut icon = ruby.item.clone();
     icon.nbt_data.insert(
@@ -420,7 +427,10 @@ fn the_creative_inventory_lists_custom_entries_after_pmmps() {
     );
     assert_eq!(named.icon, icon, "the first item, with PMMP's group index");
     let anonymous = &content.groups[usize::try_from(ore.group_index).unwrap()];
-    assert_eq!((anonymous.category, anonymous.name.as_str()), (2, ""));
+    assert_eq!(
+        (anonymous.category, anonymous.name.as_str()),
+        (CreativeCategory::Nature as u8, "")
+    );
     // The stacks the client takes come back as the custom items.
     let id = ruby.creative_item_network_id;
     assert_eq!(
@@ -529,7 +539,7 @@ fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
     assert_eq!(kits.groups.len(), 2);
     assert_eq!(
         (kits.groups[0].category, kits.groups[0].name.as_str()),
-        (3, "Swords")
+        (CreativeCategory::Equipment as u8, "Swords")
     );
     assert_eq!(
         kits.groups[0].icon.nbt_data.get(item::GROUP_WORKAROUND),
@@ -537,7 +547,7 @@ fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
     );
     assert_eq!(
         (kits.groups[1].category, kits.groups[1].name.as_str()),
-        (4, "")
+        (CreativeCategory::Items as u8, "")
     );
     assert_eq!(
         kits.items[2].item,
