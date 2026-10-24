@@ -304,29 +304,24 @@ fn a_listener_that_changes_the_block_or_takes_the_tool_cancels_the_break() {
     }
 }
 
-// pmmp: BlockBreakEvent::setInstaBreak
+// pmmp: BlockBreakEvent::getInstaBreak
 #[test]
-fn insta_break_skips_the_break_time() {
-    let dirt = Kind::Dirt.default_state();
-    for (listeners, broken) in [
-        (Listeners::default(), false),
-        (
-            listen(|e: &mut BlockBreak, _: &mut Context<'_>| {
-                assert!(!e.insta_break());
-                e.set_insta_break(true);
-            }),
-            true,
-        ),
-    ] {
-        let mut h = Harness::with(|_| {}, listeners);
-        h.set(TARGET, dirt);
-        h.act(vec![action(
-            PlayerAction::PredictDestroyBlock,
-            TARGET,
-            Face::West,
-        )]);
-        assert_eq!(h.block(TARGET) == block::AIR, broken);
-    }
+fn a_break_before_its_time_raises_no_block_break() {
+    let l = listen(|e: &mut BlockBreak, _: &mut Context<'_>| note(SEEN, e.pos()));
+    let mut h = Harness::with(|_| {}, l);
+    // A full box: a break plan would copy its contents into the dropped box.
+    set_with_entity(&mut h, Kind::ShulkerBox.default_state(), &Stack::EMPTY);
+    h.state
+        .rules
+        .block_entities
+        .get_mut(0, TARGET)
+        .unwrap()
+        .items[0] = Stack::new(ItemKind::Diamond.default_type(), 64);
+    let full_box = h.block(TARGET);
+    let early = action(PlayerAction::PredictDestroyBlock, TARGET, Face::West);
+    h.act(vec![early; MAX_BLOCK_ACTIONS]);
+    assert!(notes(SEEN).is_empty());
+    assert_eq!(h.block(TARGET), full_box);
 }
 
 // pmmp: BlockPlaceEvent
@@ -1238,8 +1233,6 @@ fn listeners_that_meddle_at_random_neither_make_nor_lose_items() {
         meddlers.push(
             Priority::Normal,
             |e: &mut BlockBreak, cx: &mut Context<'_>| {
-                // The break time would refuse a break of a block a listener took: skip it.
-                e.set_insta_break(true);
                 if meddle(cx, Some(e.pos())) {
                     e.cancel();
                 }

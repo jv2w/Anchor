@@ -1215,18 +1215,18 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
     if let Some(Hit::Inert(block)) = Hit::at(state, actor.world, pos) {
         return inert::break_block(state, actor, pos, block, counted);
     }
+    // Before the event and the plan: a break before its time costs no drops worked out (a
+    // shulker box's whole contents) and raises nothing.
+    if counted && !break_done(state, session, &actor, pos) {
+        debug!(session = session.get(), "break before its time");
+        stop_breaking_at(state, &actor, pos);
+        return false;
+    }
+    let tool = held(state, session);
     if !dispatch::heard::<BlockBreak>(state) {
-        if counted && !break_done(state, session, &actor, pos) {
-            debug!(session = session.get(), "break before its time");
-            stop_breaking_at(state, &actor, pos);
-            return false;
-        }
-        let tool = held(state, session);
         let plan = break_plan(state, &actor, pos, &tool);
         return finish_break(state, &actor, pos, &tool, plan);
     }
-    // With listeners the break time is checked after them: `insta_break` may skip it.
-    let tool = held(state, session);
     let Some(mut plan) = break_plan(state, &actor, pos, &tool) else {
         stop_breaking_at(state, &actor, pos);
         return false;
@@ -1262,11 +1262,6 @@ fn break_block(state: &mut State, session: SessionId, pos: BlockPos, timing: Tim
             return false;
         };
         actor = again;
-    }
-    if counted && !e.insta_break && !break_done(state, session, &actor, pos) {
-        debug!(session = session.get(), "break before its time");
-        stop_breaking_at(state, &actor, pos);
-        return false;
     }
     plan.destruction.items.clone_from(&e.drops);
     plan.destruction.xp = e.xp_drop_amount;

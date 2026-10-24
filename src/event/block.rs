@@ -41,7 +41,9 @@ getters!(BlockBreak {
     /// What the player breaks it with (empty for a bare hand).
     #[doc(alias = "BlockBreakEvent::getItem")]
     item: &Stack,
-    /// Whether the break skips the break time check. Starts true for creative players.
+    /// Whether the break skipped the break time check: true for creative players, breaks the
+    /// API asks for and servers with `break-time-check = false`. A player's break that has not
+    /// lasted its time is refused before the event, so no listener can let it through.
     #[doc(alias = "BlockBreakEvent::getInstaBreak")]
     insta_break: bool,
     /// What the block drops. Starts as its drops for the item.
@@ -53,9 +55,6 @@ getters!(BlockBreak {
 });
 
 setters!(BlockBreak {
-    /// Sets whether the break skips the break time check.
-    #[doc(alias = "BlockBreakEvent::setInstaBreak")]
-    set_insta_break => insta_break: bool,
     /// Replaces what the block drops.
     #[doc(alias = "BlockBreakEvent::setDrops")]
     #[doc(alias = "BlockBreakEvent::setDropsVariadic")]
@@ -766,7 +765,7 @@ mod tests {
     const WORLD: world::Id = world::Id::DEFAULT;
     const OTHER: BlockPos = BlockPos::new(5, 6, 7);
 
-    // pmmp: BlockBreakEvent, BlockBreakEvent::getPlayer, BlockEvent::getBlock, BlockBreakEvent::getItem, BlockBreakEvent::getInstaBreak, BlockBreakEvent::getDrops, BlockBreakEvent::getXpDropAmount, BlockBreakEvent::setInstaBreak, BlockBreakEvent::setDrops, BlockBreakEvent::setDropsVariadic, BlockBreakEvent::setXpDropAmount, BlockBreakEvent::cancel, BlockBreakEvent::uncancel, BlockBreakEvent::isCancelled
+    // pmmp: BlockBreakEvent, BlockBreakEvent::getPlayer, BlockEvent::getBlock, BlockBreakEvent::getItem, BlockBreakEvent::getInstaBreak, BlockBreakEvent::getDrops, BlockBreakEvent::getXpDropAmount, BlockBreakEvent::setDrops, BlockBreakEvent::setDropsVariadic, BlockBreakEvent::setXpDropAmount, BlockBreakEvent::cancel, BlockBreakEvent::uncancel, BlockBreakEvent::isCancelled
     #[test]
     fn block_break_reads_and_changes_its_fields() {
         let mut e = BlockBreak {
@@ -788,10 +787,8 @@ mod tests {
         assert!(!e.insta_break());
         assert_eq!(e.drops(), &[sticks(2)]);
         assert_eq!(e.xp_drop_amount(), 3);
-        e.set_insta_break(true);
         e.set_drops(Vec::new());
         e.set_xp_drop_amount(0);
-        assert!(e.insta_break());
         assert!(e.drops().is_empty());
         assert_eq!(e.xp_drop_amount(), 0);
         assert!(!e.is_cancelled());

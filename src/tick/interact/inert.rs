@@ -32,7 +32,11 @@ pub(super) fn break_block(
         stop_breaking_at(state, &actor, pos);
         return false;
     }
-    let mut insta_break = !counted;
+    if counted && !break_done(state, session, &actor, pos) {
+        debug!(session = session.get(), "break before its time");
+        stop_breaking_at(state, &actor, pos);
+        return false;
+    }
     let mut event = None;
     if dispatch::heard::<BlockBreak>(state) {
         let mut e = BlockBreak {
@@ -41,7 +45,7 @@ pub(super) fn break_block(
             pos,
             block: block::INFO_UPDATE,
             item: tool.clone(),
-            insta_break,
+            insta_break: !counted,
             drops: Vec::new(),
             xp_drop_amount: 0,
             cancelled: false,
@@ -66,13 +70,7 @@ pub(super) fn break_block(
             };
             actor = again;
         }
-        insta_break = e.insta_break;
         event = Some(e);
-    }
-    if counted && !insta_break && !break_done(state, session, &actor, pos) {
-        debug!(session = session.get(), "break before its time");
-        stop_breaking_at(state, &actor, pos);
-        return false;
     }
     let (drops, xp) = event
         .as_ref()
