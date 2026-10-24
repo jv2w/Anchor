@@ -13,7 +13,7 @@
 | pmmp/PHP-Binaries | php-build-524, PHP 8.4 PM5 Windows x64(zip sha256 `cf4023b8549c99eec47cfd403805ac7d78100fa366394dab4e45bb544dcc9be4`) | PHP 라이선스 | 덤프용 PHP(개발 도구) |
 | df-mc/dragonfly | v0.11.5 `4c7b5074be94fa83a1cd98e9c752083ad04a6e21`(gophertunnel v1.62.0, 1.26.50) | MIT | 기준 목록 출처: 블록 상태, 아이템, 크리에이티브 아이템 상태 |
 | CloudburstMC/Data | `659ce1e2eee3a67045693f4fd5515c6ccf571953`(26.50) | Apache-2.0 | 기준 목록 출처: 블록 네트워크 ID, 교차 확인, 바이옴, 공식 서버 블록 물리, 그대로 보내는 파일 |
-| Mojang/bedrock-protocol-docs | v1.26.50 `475bd72ed89036af4eb18426774ef3b953de7603`(프로토콜 2193) | Minecraft EULA | 필드 길이 상한(숫자만 옮김) |
+| Mojang/bedrock-protocol-docs | `protocol.md`의 고정 버전 표 | Minecraft EULA | 필드 길이 상한(숫자만 옮김) |
 | pmmp/BedrockBlockUpgradeSchema | 5.3.0 `4e874a162c4d41a9db7df72980e97849d6942d5d` | CC0 | 옛 블록 상태 업그레이드 |
 | pmmp/BedrockItemUpgradeSchema | 1.18.0 `7f551f625fee3be0c8d33be1fee295c7ec6a277e` | CC0 | 옛 아이템 이름 업그레이드 |
 | 공식 서버(Mojang 배포) | 1.26.52.3(프로토콜 2193) | Minecraft EULA | 대조 실행만. 카메라·조준 보조 프리셋은 공식 서버가 보낸 패킷 캡처에서 옮김 |
@@ -176,7 +176,7 @@ gen이 규칙 해석기와 같은 코드로 스키마를 검사하므로 규칙�
 | `pmmp` | `https://github.com/pmmp/PocketMine-MP.git` | 출처 표의 커밋 + `vendor/`(`composer.lock`) | `dump`, PHP 스크립트 전부 |
 | `dragonfly` | `https://github.com/df-mc/dragonfly.git` | 출처 표의 커밋 | `dump` |
 | `cloudburst-data` | `https://github.com/CloudburstMC/Data.git` | 출처 표의 커밋 | `dump`, `p6`(바이옴·jigsaw 대조), `xtask/tests/spawn.rs`(없으면 건너뜀) |
-| `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | 출처 표의 커밋 | `dump`(필드 상한) |
+| `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | `protocol.md` 고정 버전 표의 커밋 | `dump`(필드 상한) |
 | `block-upgrade-schema` | `https://github.com/pmmp/BedrockBlockUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
 | `item-upgrade-schema` | `https://github.com/pmmp/BedrockItemUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
 | `php-pm5/bin/php/php.exe` | pmmp/PHP-Binaries 릴리스 php-build-524, PHP 8.4 PM5 Windows x64 | zip `cf4023b8…9be4`(위 표), `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c`(PHP 8.4.16 ZTS) | `dump`, PHP 스크립트 |
