@@ -473,7 +473,9 @@ fn enchanting_option_ids_follow_custom_recipes() {
 
 #[test]
 fn the_anvil_renames_and_repairs_for_levels() {
-    let pick = Stack::new(item(Kind::IronPickaxe), 1).with_damage(200);
+    let pick = Stack::new(item(Kind::IronPickaxe), 1)
+        .with_damage(200)
+        .unwrap();
     let (mut w, s) = world(&[pick.clone(), Stack::new(item(Kind::IronIngot), 5)]);
     w.place_block(AT, blk::Kind::Anvil.default_state());
     w.open_block(s, AT);
@@ -636,6 +638,7 @@ fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
     let sword = |damage: u16, extra: Extra| {
         Stack::new(item(Kind::DiamondSword), 1)
             .with_damage(damage)
+            .unwrap()
             .with_extra(Some(extra))
             .unwrap()
     };
@@ -698,7 +701,9 @@ fn without_experience_enchanting_and_the_anvil_take_no_levels_and_refuse() {
     assert!(!ok(&w.request_as(s, id, actions)));
     assert_eq!(ui_stack(&w, s, 0), Stack::new(item(Kind::IronPickaxe), 1));
     assert_eq!(survival::xp_level(w.player(s)), level);
-    let pick = Stack::new(item(Kind::IronPickaxe), 1).with_damage(200);
+    let pick = Stack::new(item(Kind::IronPickaxe), 1)
+        .with_damage(200)
+        .unwrap();
     let (mut w, s) = world(&[pick.clone(), Stack::new(item(Kind::IronIngot), 5)]);
     w.state.settings.experience = false;
     w.place_block(AT, blk::Kind::Anvil.default_state());
@@ -817,6 +822,7 @@ fn smith(w: &mut World, s: super::super::super::SessionId, rid: u32) -> ItemStac
 fn smithing_upgrades_keeping_enchantments_and_trims_armour() {
     let sword = Stack::new(item(Kind::DiamondSword), 1)
         .with_damage(30)
+        .unwrap()
         .with_extra(Some(Extra {
             enchantments: vec![(crate::item::Enchantment::Sharpness, 3)],
             ..Extra::default()
@@ -1283,6 +1289,7 @@ fn a_servers_stonecutter_recipe_cuts_once_per_request_and_keeps_the_count() {
 fn a_servers_smithing_recipe_transforms_keeping_the_inputs_data_once() {
     let sword = Stack::new(item(Kind::GoldenSword), 1)
         .with_damage(7)
+        .unwrap()
         .with_extra(Some(Extra {
             enchantments: vec![(crate::item::Enchantment::Sharpness, 1)],
             ..Extra::default()

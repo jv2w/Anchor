@@ -103,6 +103,10 @@ fn progress(seconds: Option<f64>, conditions: Conditions) -> f64 {
 /// durability breaks (the stack loses one item). The stack unchanged for items without
 /// durability, unbreakable items and broken ones, and for every item with `durability = false`:
 /// every rule that wears an item (tools, weapons, armour, bows, tridents) comes here.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: an item that wears keeps 0 and a damage below its durability"
+)]
 pub(in crate::tick) fn damage(
     settings: &Settings,
     tool: &Stack,
@@ -144,9 +148,13 @@ pub(in crate::tick) fn damage(
     let damage = u16::try_from(total.min(u32::from(max))).unwrap_or(max);
     if damage >= max {
         // PMMP `Durable::onBroken`: one item less, the rest undamaged.
-        return tool.with_count(tool.count() - 1).with_damage(0);
+        return tool
+            .with_count(tool.count() - 1)
+            .with_damage(0)
+            .expect("invariant: every item keeps no damage");
     }
     tool.with_damage(damage)
+        .expect("invariant: a damage below the durability is kept")
 }
 
 #[cfg(test)]
@@ -298,7 +306,7 @@ mod tests {
         let max = pick.item().unwrap().max_durability().unwrap();
         let worn = damage(&on, &pick, 1, &mut rng);
         assert_eq!(worn.damage(), 1);
-        let almost = pick.with_damage(max - 1);
+        let almost = pick.with_damage(max - 1).unwrap();
         assert!(damage(&on, &almost, 1, &mut rng).is_empty());
         assert_eq!(damage(&on, &Stack::EMPTY, 1, &mut rng), Stack::EMPTY);
         let stick = tool(I::Stick);
@@ -329,7 +337,7 @@ mod tests {
         let mut rng = Random::new(0, 0, 0);
         let pick = tool(I::WoodenPickaxe);
         let max = pick.item().unwrap().max_durability().unwrap();
-        let almost = pick.with_damage(max - 1);
+        let almost = pick.with_damage(max - 1).unwrap();
         assert_eq!(damage(&off, &almost, 5, &mut rng), almost);
         let tough = enchanted(I::DiamondPickaxe, Enchantment::Unbreaking, 3);
         assert_eq!(damage(&off, &tough, 1, &mut rng), tough);

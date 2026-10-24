@@ -933,6 +933,7 @@ pub(super) mod tests {
     pub(in crate::tick) fn kinds() -> Vec<Kind> {
         let enchanted = stack("minecraft:diamond_sword", 1)
             .with_damage(17)
+            .unwrap()
             .with_extra(Some(Extra {
                 custom_name: Some("Edge".to_owned()),
                 lore: vec!["one".to_owned(), "two".to_owned()],
@@ -1117,7 +1118,7 @@ pub(super) mod tests {
             }),
             projectile(
                 Shot::Trident(Trident {
-                    item: stack("minecraft:trident", 1).with_damage(3),
+                    item: stack("minecraft:trident", 1).with_damage(3).unwrap(),
                     creative: false,
                     can_collide: true,
                 }),

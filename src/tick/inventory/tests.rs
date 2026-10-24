@@ -1323,7 +1323,9 @@ fn lay_out(
 }
 
 fn stock(w: &mut World, s: SessionId) {
-    let mut sword = Stack::new(item(it::Kind::DiamondSword), 1).with_damage(7);
+    let mut sword = Stack::new(item(it::Kind::DiamondSword), 1)
+        .with_damage(7)
+        .unwrap();
     sword = sword
         .with_extra(Some(Extra {
             custom_name: Some("Blade".to_owned()),
@@ -1871,7 +1873,9 @@ fn the_inventory_round_trips_through_the_player_extra_byte_for_byte() {
     set_armor(
         p,
         0,
-        Stack::new(item(it::Kind::IronHelmet), 1).with_damage(3),
+        Stack::new(item(it::Kind::IronHelmet), 1)
+            .with_damage(3)
+            .unwrap(),
     );
     p.inventory.held = 4;
     set_held(p, Stack::new(block_item(blk::Kind::Cobblestone), 2));

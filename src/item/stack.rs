@@ -76,6 +76,10 @@ pub enum Error {
     TooLarge,
     /// Its custom name is over [`MAX_NAME_BYTES`] bytes, the most a placed block keeps.
     NameTooLong,
+    /// Its damage is one its saved form does not read back: for an item that wears, above its
+    /// durability; for another, other than 0, one above 32,767, its type's own meta, or any where
+    /// its name and block have more types than its own (a potion).
+    InvalidDamage,
 }
 
 /// A result with the stack [`enum@Error`].
@@ -86,6 +90,7 @@ impl fmt::Display for Error {
         match self {
             Self::TooLarge => write!(f, "the stack's saved form is over {MAX_NBT_BYTES} bytes"),
             Self::NameTooLong => write!(f, "the custom name is over {MAX_NAME_BYTES} bytes"),
+            Self::InvalidDamage => f.write_str("the item cannot keep that damage"),
         }
     }
 }
@@ -230,17 +235,23 @@ impl Stack {
         }
     }
 
-    /// The same stack with `damage`.
+    /// The same stack with `damage`: for an item that wears, the durability used, 0 to its
+    /// [`max_durability`](Type::max_durability); for another, the stack state its saved form
+    /// keeps (a firework star's colour). Fails with [`Error::InvalidDamage`] for a damage the
+    /// saved form would not read back, as PMMP `Durable::setDamage` throws for one out of range;
+    /// `self` stays as it is.
     #[doc(alias = "Durable::setDamage")]
-    #[must_use]
-    pub fn with_damage(&self, damage: u16) -> Self {
-        if self.is_empty() {
-            return Self::EMPTY;
+    pub fn with_damage(&self, damage: u16) -> Result<Self> {
+        let Some(item) = self.item else {
+            return Ok(Self::EMPTY);
+        };
+        if !keeps_damage(item, damage) {
+            return Err(Error::InvalidDamage);
         }
-        Self {
+        Ok(Self {
             damage,
             ..self.clone()
-        }
+        })
     }
 
     /// The same stack with `extra` (`None` removes it). Fails if the stack would be over a limit
@@ -278,7 +289,11 @@ impl Stack {
     fn stored_cost(&self, bytes: usize, alloc: usize) -> Option<Cost> {
         let worn = self.item.is_some_and(|i| i.max_durability().is_some()) && self.damage == 0;
         let mut nbt = if worn {
-            self.with_damage(1).to_nbt()
+            Self {
+                damage: 1,
+                ..self.clone()
+            }
+            .to_nbt()
         } else {
             self.to_nbt()
         };
@@ -340,7 +355,7 @@ impl Stack {
     /// The meta is the stack state where it is not the type's (an item that wears reads an old
     /// meta as damage, as PMMP does); the tag's known keys are read into the fields. Empty when
     /// `count` is 0; the count is limited to the maximum stack size. Fails as
-    /// [`Stack::with_extra`] does.
+    /// [`Stack::with_damage`] and [`Stack::with_extra`] do.
     pub(crate) fn from_parts(
         item: Type,
         count: u8,
@@ -359,7 +374,7 @@ impl Stack {
             None if meta != item.meta() => meta,
             None => 0,
         };
-        stack.with_damage(damage).with_extra(Some(extra))
+        stack.with_damage(damage)?.with_extra(Some(extra))
     }
 
     /// The item NBT `tag`: the extra NBT with the custom name, lore, enchantments, durability and
@@ -552,6 +567,24 @@ impl Stack {
     }
 }
 
+/// Whether the outside forms of `item` keep `damage`: the saved form reads back as the same type
+/// with the same damage. An item that wears writes it in its tag, read back up to its durability;
+/// another writes it as its meta (a `TAG_Short`), read back as stack state only where it is not
+/// the type's own meta and the name and block have no other type ([`Type::from_name`]); a custom
+/// type is found by its name alone.
+fn keeps_damage(item: Type, damage: u16) -> bool {
+    if let Some(max) = item.max_durability() {
+        return damage <= max;
+    }
+    damage == 0
+        || (i16::try_from(damage).is_ok()
+            && damage != item.meta()
+            && Type::from_name(item.name(), damage, item.block(), &Compound::new()).map_or_else(
+                || item.custom_item().is_some() || item.custom_block().is_some(),
+                |t| t == item,
+            ))
+}
+
 /// Reads the known keys of an item tag (PMMP `Item::deserializeCompoundTag`): the durability of
 /// an item that wears, the custom name, the lore and the enchantments, each only in the exact
 /// form [`Stack::tag`] writes; the rest, without the type's own NBT, is the extra NBT.
@@ -700,6 +733,7 @@ mod tests {
         };
         let stack = Stack::new(pick, 1)
             .with_damage(42)
+            .unwrap()
             .with_extra(Some(extra))
             .unwrap();
         let disk = stack.to_nbt();
@@ -712,6 +746,57 @@ mod tests {
         let net = stack.to_network();
         assert_eq!(net.item_type.metadata_value, 0);
         assert_eq!(Stack::from_network(&net), Some(stack));
+    }
+
+    // pmmp: Durable::setDamage
+    #[test]
+    fn a_damage_set_through_the_api_reads_back_from_disk() {
+        for i in 0..u16::try_from(crate::item::table::ITEMS.len()).unwrap() {
+            let item = Type::from_index(i);
+            let max = item.max_durability().unwrap_or(0);
+            let damages = [
+                1,
+                5,
+                100,
+                item.meta(),
+                max,
+                max.saturating_add(1),
+                32_767,
+                32_768,
+            ];
+            for damage in damages {
+                if let Ok(stack) = Stack::new(item, 1).with_damage(damage) {
+                    assert_eq!(
+                        Stack::from_nbt(&stack.to_nbt()).as_ref(),
+                        Some(&stack),
+                        "{item:?} {damage}"
+                    );
+                }
+            }
+        }
+        let refused = [
+            (kind(Kind::Potion), 100),
+            (kind(Kind::Potion), 5),
+            (kind(Kind::Stick), 40_000),
+            (kind(Kind::DiamondSword), 5_000),
+        ];
+        for (item, damage) in refused {
+            assert_eq!(
+                Stack::new(item, 1).with_damage(damage),
+                Err(Error::InvalidDamage),
+                "{item:?} {damage}"
+            );
+        }
+        let kept = [
+            (kind(Kind::Stick), 32_767),
+            (kind(Kind::DiamondSword), 1_561),
+            (kind(Kind::Potion), 0),
+        ];
+        for (item, damage) in kept {
+            let stack = Stack::new(item, 1).with_damage(damage).unwrap();
+            assert_eq!(stack.damage(), damage);
+            assert_eq!(Stack::from_nbt(&stack.to_nbt()), Some(stack));
+        }
     }
 
     /// A stack's getters read what its `with_*` methods set, and a change makes a new value: the
@@ -739,13 +824,13 @@ mod tests {
 
         let sword = Stack::new(kind(Kind::DiamondSword), 1);
         assert_eq!(sword.damage(), 0);
-        let worn = sword.with_damage(100);
+        let worn = sword.with_damage(100).unwrap();
         assert_eq!(worn.damage(), 100);
         assert!(
             !worn.can_stack_with(&sword),
             "a different damage does not stack"
         );
-        assert!(Stack::EMPTY.with_damage(5).is_empty());
+        assert!(Stack::EMPTY.with_damage(5).unwrap().is_empty());
 
         let extra = Extra {
             custom_name: Some("Edge".to_owned()),
@@ -876,6 +961,7 @@ mod tests {
     fn stored_items_are_sent_without_their_hidden_data() {
         let inner = named(&Stack::new(kind(Kind::Stick), 2), "x")
             .with_damage(0)
+            .unwrap()
             .to_nbt();
         let mut inner = inner;
         inner.insert("Slot".to_owned(), Value::Byte(3));
@@ -953,7 +1039,7 @@ mod tests {
         let sword = kind(Kind::DiamondSword);
         let sword_pad = longest_pad(sword);
         let new = padded(sword, sword_pad).unwrap();
-        let mut worn = new.with_damage(1).to_nbt();
+        let mut worn = new.with_damage(1).unwrap().to_nbt();
         worn.insert("Slot".to_owned(), Value::Byte(0));
         let mut w = Writer::new(Vec::new(), 0);
         w.nbt(&worn, Encoding::LittleEndian).unwrap();

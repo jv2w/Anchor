@@ -461,6 +461,10 @@ fn gain(state: &mut State, session: SessionId, amount: u32) {
 
 /// Repairs the mending item at `slot` with up to `amount` points (2 durability each); returns
 /// the points left (PMMP: the points used are the repair halved, rounded up).
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: the item wears (its caller checks) and keeps less damage than it has"
+)]
 fn mend(player: &mut Player, slot: Worn, amount: u32) -> u32 {
     let inv = &player.inventory;
     let stack = match slot {
@@ -476,7 +480,9 @@ fn mend(player: &mut Player, slot: Worn, amount: u32) -> u32 {
         return amount;
     }
     let repair = damage.min(amount.saturating_mul(MENDING_PER_POINT));
-    let repaired = stack.with_damage(u16::try_from(damage - repair).unwrap_or(0));
+    let repaired = stack
+        .with_damage(u16::try_from(damage - repair).unwrap_or(0))
+        .expect("invariant: an item that wears keeps less damage than it has");
     match slot {
         Worn::Held => inventory::set_held(player, repaired),
         Worn::OffHand => inventory::set_offhand(player, repaired),

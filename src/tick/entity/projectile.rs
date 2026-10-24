@@ -1851,7 +1851,7 @@ mod tests {
         });
         let bow = stack("minecraft:bow", 1);
         let max = bow.item().and_then(item::Type::max_durability).unwrap();
-        let broken = bow.with_damage(max);
+        let broken = bow.with_damage(max).unwrap();
         inventory::set_held(
             h.state.players.get_mut(&session(1)).unwrap(),
             broken.clone(),

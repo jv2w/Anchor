@@ -3506,8 +3506,9 @@ mod tests {
     #[test]
     fn orb_pickups_mend_first_then_add_experience_as_pmmp() {
         let mut server = Server::new(1, |_| {});
-        let pick =
-            enchanted(ItemKind::DiamondPickaxe, &[(Enchantment::Mending, 1)]).with_damage(10);
+        let pick = enchanted(ItemKind::DiamondPickaxe, &[(Enchantment::Mending, 1)])
+            .with_damage(10)
+            .unwrap();
         inventory::set_held(server.player_mut(1), pick);
         server.idle(1);
         server.take(1);
@@ -3528,8 +3529,9 @@ mod tests {
         let sent = server.take(1);
         assert!(level_events(&sent).contains(&i32::from(LevelEvent::SoundExperienceOrbPickup)));
         // Worn armour mends too; a level that crosses a multiple of 5 plays the level-up sound.
-        let helmet =
-            enchanted(ItemKind::DiamondHelmet, &[(Enchantment::Mending, 1)]).with_damage(1);
+        let helmet = enchanted(ItemKind::DiamondHelmet, &[(Enchantment::Mending, 1)])
+            .with_damage(1)
+            .unwrap();
         inventory::set_held(server.player_mut(1), Stack::EMPTY);
         inventory::set_armor(server.player_mut(1), 0, helmet);
         add_experience(server.player_mut(1), 38);
@@ -3982,7 +3984,7 @@ mod tests {
         let held: Vec<Stack> = vec![
             stack(ItemKind::Bread, 64),
             named,
-            stack(ItemKind::IronPickaxe, 1).with_damage(40),
+            stack(ItemKind::IronPickaxe, 1).with_damage(40).unwrap(),
             stack(ItemKind::Totem, 1),
         ];
         let s = Survival {

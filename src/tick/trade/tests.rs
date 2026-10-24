@@ -730,14 +730,14 @@ fn payments_match_type_damage_and_named_extra_data() {
     assert!(!pays(&named, &emerald));
     assert!(pays(&named, &named));
     let sword = stack(Kind::DiamondSword, 1);
-    assert!(!pays(&sword, &sword.with_damage(3)));
+    assert!(!pays(&sword, &sword.with_damage(3).unwrap()));
 }
 
 #[test]
 fn a_payment_of_any_damage_takes_every_damage_of_the_item_only() {
     let any = |want: &Stack, given: &Stack| is_payment(want, Damage::Any, given);
     let sword = stack(Kind::DiamondSword, 1);
-    assert!(any(&sword, &sword.with_damage(3)));
+    assert!(any(&sword, &sword.with_damage(3).unwrap()));
     assert!(any(&sword, &sword));
     assert!(!any(&sword, &stack(Kind::IronSword, 1)));
     assert!(!any(&sword, &Stack::EMPTY));

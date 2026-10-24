@@ -66,6 +66,10 @@ fn durability(stack: &Stack) -> i64 {
 }
 
 /// The stack with `left` durability.
+#[expect(
+    clippy::expect_used,
+    reason = "invariant: an item keeps a damage from 0 to its durability"
+)]
 fn with_durability(stack: &Stack, left: i64) -> Stack {
     let max = i64::from(
         stack
@@ -74,7 +78,9 @@ fn with_durability(stack: &Stack, left: i64) -> Stack {
             .unwrap_or(0),
     );
     let damage = (max - left).clamp(0, max);
-    stack.with_damage(u16::try_from(damage).unwrap_or(0))
+    stack
+        .with_damage(u16::try_from(damage).unwrap_or(0))
+        .expect("invariant: the damage is within the durability")
 }
 
 /// Whether `material` repairs `input` (vanilla repair materials: a tool's tier material, an

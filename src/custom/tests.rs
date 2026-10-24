@@ -478,7 +478,9 @@ fn builder_changes_remove_clear_and_add_creative_entries_and_groups() {
         swords.icon(),
         CreativeItem::Item(ItemRef::Item(t)) if *t == item::Kind::DiamondSword.default_type()
     ));
-    let damaged = Stack::new(item::Kind::DiamondSword.default_type(), 1).with_damage(5);
+    let damaged = Stack::new(item::Kind::DiamondSword.default_type(), 1)
+        .with_damage(5)
+        .unwrap();
     let r = finished(
         crate::Server::builder()
             .custom_item(&RUBY)
@@ -638,7 +640,9 @@ fn cleared_creative_inventories_are_empty_and_bad_ones_are_refused() {
 #[test]
 fn custom_stacks_round_trip_through_disk_and_network() {
     let r = registry();
-    let sword = Stack::new(r.item_type(&SWORD).unwrap(), 1).with_damage(30);
+    let sword = Stack::new(r.item_type(&SWORD).unwrap(), 1)
+        .with_damage(30)
+        .unwrap();
     let lamp = Stack::new(r.resolve(ItemRef::CustomBlock(&LAMP)).unwrap(), 9);
     let ruby = Stack::new(r.item_type(&RUBY).unwrap(), 64);
     for stack in [&sword, &lamp, &ruby] {
