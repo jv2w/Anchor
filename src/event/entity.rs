@@ -159,6 +159,24 @@ pub enum DamageCause {
     FallingBlock,
 }
 
+impl DamageCause {
+    /// Whether armour reduces damage of this cause (PMMP
+    /// `EntityDamageEvent::canBeReducedByArmor`): the one rule for listeners and the tick.
+    pub(crate) fn is_reduced_by_armor(self) -> bool {
+        !matches!(
+            self,
+            Self::FireTick
+                | Self::Suffocation
+                | Self::Drowning
+                | Self::Starvation
+                | Self::Fall
+                | Self::Void
+                | Self::Magic
+                | Self::Suicide
+        )
+    }
+}
+
 /// A change to damage on top of the base damage (PMMP `EntityDamageEvent::MODIFIER_*`). The final
 /// damage is the base damage plus every applicable modifier, so a reduction is negative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -356,17 +374,7 @@ impl EntityDamage {
     /// Whether armour reduces damage of this cause.
     #[doc(alias = "EntityDamageEvent::canBeReducedByArmor")]
     pub fn can_be_reduced_by_armor(&self) -> bool {
-        !matches!(
-            self.cause,
-            DamageCause::FireTick
-                | DamageCause::Suffocation
-                | DamageCause::Drowning
-                | DamageCause::Starvation
-                | DamageCause::Fall
-                | DamageCause::Void
-                | DamageCause::Magic
-                | DamageCause::Suicide
-        )
+        self.cause.is_reduced_by_armor()
     }
 
     /// Sets the knockback force of a hit. A value that is not finite is ignored.

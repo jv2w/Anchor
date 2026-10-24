@@ -82,21 +82,6 @@ pub(in crate::tick) enum Damage {
 }
 
 impl Damage {
-    /// Whether armour reduces it (PMMP `EntityDamageEvent::canBeReducedByArmor`).
-    fn reducible(self) -> bool {
-        !matches!(
-            self,
-            Self::FireTick
-                | Self::Suffocation
-                | Self::Drowning
-                | Self::Starvation
-                | Self::Fall
-                | Self::Void
-                | Self::Magic
-                | Self::Suicide
-        )
-    }
-
     /// The cause an [`EntityDamage`] names.
     fn event_cause(self) -> DamageCause {
         match self {
@@ -520,7 +505,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
                 -last,
             );
         }
-        if armor && hit.cause.reducible() {
+        if armor && hit.cause.event_cause().is_reduced_by_armor() {
             let d = saturate(total(sum) * f64::from(armor_points(player))) * 0.04;
             sum -= d;
             set(&mut modifiers, DamageModifier::Armor, -d);
@@ -658,7 +643,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
     s.absorption = if left > 0.0 { left } else { 0.0 };
     s.mark(ABSORPTION);
     let armor = state.settings.armor;
-    if armor && hit.cause.reducible() {
+    if armor && hit.cause.event_cause().is_reduced_by_armor() {
         damage_armor(state, session, hit.base);
     }
     if armor
