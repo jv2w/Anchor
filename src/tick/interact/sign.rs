@@ -9,19 +9,13 @@ use super::super::{Context, Phase};
 use crate::block::Class;
 use crate::nbt::{Compound, Value};
 use crate::player;
-use crate::tile::{MAX_SIGN_TEXT_BYTES, SIGN_LINES, Side};
+use crate::tile::{SIGN_LINES, Side, blob_lines, check_lines};
 use crate::world::BlockPos;
 
 /// PMMP `Sign::TAG_FRONT_TEXT`, `TAG_BACK_TEXT`, `TAG_TEXT_BLOB`.
 pub(in crate::tick) const FRONT: &str = "FrontText";
 pub(in crate::tick) const BACK: &str = "BackText";
 pub(in crate::tick) const TEXT: &str = "Text";
-
-/// The lines of a side's text blob (PMMP `SignText::fromBlob`: split at newlines, at most
-/// [`SIGN_LINES`] lines, the rest dropped).
-pub(in crate::tick) fn blob_lines(blob: &str) -> impl Iterator<Item = &str> {
-    blob.splitn(SIGN_LINES + 1, '\n').take(SIGN_LINES)
-}
 
 impl Context<'_> {
     /// Opens the editor of the sign at `pos` in `player`'s world for the player, on its `side`
@@ -89,29 +83,22 @@ fn side(nbt: &Compound, tag: &str) -> Result<[String; SIGN_LINES], Refused> {
     let Some(Value::String(blob)) = side.get(TEXT) else {
         return Err(Refused::Malformed);
     };
-    let mut lines: [String; SIGN_LINES] = Default::default();
-    let mut total = 0usize;
-    for (slot, line) in lines.iter_mut().zip(blob_lines(blob)) {
-        total = total.saturating_add(line.len());
-        *slot = clean(line);
-    }
-    if total > MAX_SIGN_TEXT_BYTES {
+    // The lines of a blob hold no newline, so only their length fails.
+    if check_lines(blob_lines(blob)).is_err() {
         return Err(Refused::TooLong);
+    }
+    let mut lines: [String; SIGN_LINES] = Default::default();
+    for (slot, line) in lines.iter_mut().zip(blob_lines(blob)) {
+        *slot = clean(line);
     }
     Ok(lines)
 }
 
-/// Lines a listener set, checked like the player's (PMMP `SignText` refuses a line with a
-/// newline; `BaseSign::updateFaceText` more than 1000 bytes) and cleaned; `None` if they fail.
+/// Lines a listener set, checked like the player's ([`check_lines`]) and cleaned; `None` if they
+/// fail.
 pub(super) fn check(lines: &[String; SIGN_LINES]) -> Option<[String; SIGN_LINES]> {
-    let mut total = 0usize;
-    for line in lines {
-        if line.contains('\n') {
-            return None;
-        }
-        total = total.saturating_add(line.len());
-    }
-    (total <= MAX_SIGN_TEXT_BYTES).then(|| lines.each_ref().map(|l| clean(l)))
+    check_lines(lines.iter().map(String::as_str)).ok()?;
+    Some(lines.each_ref().map(|l| clean(l)))
 }
 
 /// PMMP `TextFormat::clean($text, false)`: drops private-use characters and terminal escape

@@ -41,6 +41,29 @@ pub(crate) fn to_argb(c: Rgba) -> i32 {
     i32::from_be_bytes([c.a, c.r, c.g, c.b])
 }
 
+/// The lines of a sign side's text blob (PMMP `SignText::fromBlob`: split at newlines, at most
+/// [`SIGN_LINES`] lines, the rest dropped).
+pub(crate) fn blob_lines(blob: &str) -> impl Iterator<Item = &str> {
+    blob.splitn(SIGN_LINES + 1, '\n').take(SIGN_LINES)
+}
+
+/// Checks the lines of a sign side: [`Error::Invalid`] if a line holds a newline (PMMP
+/// `SignText`), [`Error::TooLong`] beyond [`MAX_SIGN_TEXT_BYTES`] in all (PMMP
+/// `BaseSign::updateFaceText`).
+pub(crate) fn check_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<()> {
+    let mut bytes = 0usize;
+    for line in lines {
+        if line.contains('\n') {
+            return Err(Error::Invalid);
+        }
+        bytes = bytes.saturating_add(line.len());
+    }
+    if bytes > MAX_SIGN_TEXT_BYTES {
+        return Err(Error::TooLong);
+    }
+    Ok(())
+}
+
 /// Why a block entity write did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -137,13 +160,7 @@ impl SignText {
     /// Text of four lines in `colour`; [`Error::Invalid`] if a line holds a newline,
     /// [`Error::TooLong`] beyond [`MAX_SIGN_TEXT_BYTES`] in all.
     pub fn new(lines: [String; SIGN_LINES], colour: Rgba, glowing: bool) -> Result<Self> {
-        if lines.iter().any(|l| l.contains('\n')) {
-            return Err(Error::Invalid);
-        }
-        let bytes = lines.iter().fold(0usize, |n, l| n.saturating_add(l.len()));
-        if bytes > MAX_SIGN_TEXT_BYTES {
-            return Err(Error::TooLong);
-        }
+        check_lines(lines.iter().map(String::as_str))?;
         Ok(Self {
             lines,
             colour: to_argb(colour),
@@ -156,7 +173,7 @@ impl SignText {
     #[doc(alias = "SignText::fromBlob")]
     pub fn from_blob(blob: &str, colour: Rgba, glowing: bool) -> Result<Self> {
         let mut lines: [String; SIGN_LINES] = Default::default();
-        for (slot, line) in lines.iter_mut().zip(blob.split('\n')) {
+        for (slot, line) in lines.iter_mut().zip(blob_lines(blob)) {
             line.clone_into(slot);
         }
         Self::new(lines, colour, glowing)

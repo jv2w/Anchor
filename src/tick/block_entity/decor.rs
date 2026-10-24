@@ -130,7 +130,7 @@ impl SignSide {
     fn read(mut nbt: Compound) -> Self {
         let mut side = Self::default();
         if let Some(Value::String(blob)) = nbt.remove(sign::TEXT) {
-            for (slot, line) in side.lines.iter_mut().zip(sign::blob_lines(&blob)) {
+            for (slot, line) in side.lines.iter_mut().zip(crate::tile::blob_lines(&blob)) {
                 line.clone_into(slot);
             }
         }
