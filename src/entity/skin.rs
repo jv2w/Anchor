@@ -16,11 +16,12 @@ const CAPE_SIZE: usize = 64 * 32 * 4;
 const MAX_NAME_BYTES: usize = 256;
 /// The largest geometry JSON, in bytes (vanilla geometries are a few KiB).
 const MAX_GEOMETRY_BYTES: usize = 1 << 20;
-/// The most bytes any skin holds in all (images, geometry, resource patch, animation data and
-/// texts), decoded: what a login accepts, an in-game change and the API may set. A persona skin with its
-/// geometry and animations takes well under 1 MiB; the cap bounds what every other player is
-/// sent when the player joins (`PlayerList`) or changes it, whatever batch size the server
-/// accepts.
+/// The most bytes any skin takes on the wire (images, geometry, resource patch, animation data,
+/// texts and the fixed fields of its animations and persona pieces): what a login accepts, an
+/// in-game change and the API may set. A persona skin with its geometry and animations takes well
+/// under 1 MiB; the cap bounds what every other player is sent when the player joins
+/// (`PlayerList`) or changes it, and `max-batch-bytes` is at least one player list entry with
+/// such a skin.
 pub(crate) const MAX_SKIN_BYTES: usize = 4 << 20;
 /// The geometry of the standard player model.
 const DEFAULT_GEOMETRY: &str = "geometry.humanoid.custom";

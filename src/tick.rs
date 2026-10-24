@@ -62,7 +62,7 @@ pub use entity::{Entity, Mut};
 pub use hook::SentPacket;
 use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId};
 pub(crate) use rules::ChunkRules;
-pub(crate) use spawn::Shared;
+pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
 pub use task::Context;
 pub(crate) use task::Tasks;
 
@@ -146,6 +146,9 @@ pub(crate) struct Settings {
     slow_empty_worlds: bool,
     /// Ticks between item pickup checks (`item-pickup-interval`).
     item_pickup_interval: u8,
+    /// The largest batch a session sends (`max-batch-bytes`), which each player list packet of a
+    /// spawn window fits.
+    max_batch_bytes: usize,
     /// Whether movement packets sent pass the send hooks (`hook-movement-packets`).
     hook_movement_packets: bool,
     /// Whether `PlayerAuthInput` packets pass the receive hooks (`hook-player-input`).
@@ -201,6 +204,7 @@ impl Settings {
             movement_check: general.movement_check,
             slow_empty_worlds: developer.slow_empty_worlds,
             item_pickup_interval: developer.item_pickup_interval,
+            max_batch_bytes: developer.max_batch_bytes,
             hook_movement_packets: developer.hook_movement_packets,
             hook_player_input: developer.hook_player_input,
             force_game_mode: general.force_gamemode,
@@ -658,6 +662,7 @@ impl State {
             movement_check: _,
             slow_empty_worlds: _,
             item_pickup_interval: _,
+            max_batch_bytes: _,
             hook_movement_packets: _,
             hook_player_input: _,
             force_game_mode: _,
@@ -2149,6 +2154,67 @@ mod tests {
     #[test]
     fn a_send_hook_that_changes_nothing_copies_nothing() {
         joins_share_each_skin_once(crate::Server::builder().on_send(|_, _| true).setup.hooks);
+    }
+
+    /// Five players with 3.5 MiB skins (under the 4 MiB a skin may hold, 17.5 MiB in all) are
+    /// listed for a sixth in packets each of which fits a batch of the default size.
+    #[test]
+    fn a_join_among_large_skins_gets_a_list_every_batch_carries() {
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let mut large = queue::Skin::default().get().clone();
+        large.skin_image_width = 960;
+        large.skin_image_height = 960;
+        large.skin_data = vec![0; 960 * 960 * 4];
+        let large = queue::Skin::new(std::sync::Arc::new(large));
+        assert!(large.is_acceptable());
+        let mut joins = Vec::new();
+        let mut receivers = Vec::new();
+        for s in 1..=5 {
+            let (tx, rx) = outbound_queue();
+            let identity = Identity {
+                skin: large.clone(),
+                ..identity(s)
+            };
+            let kind = InputKind::Join {
+                identity,
+                outbound: tx,
+            };
+            joins.extend([input(s, 0, kind), radius(s, 1, 2)]);
+            receivers.push(rx);
+        }
+        tick(&mut state, &mut joins, &mut output);
+        let (j, mut rx) = join(6, 0);
+        tick(&mut state, &mut vec![j, radius(6, 1, 2)], &mut output);
+        let settings = crate::protocol::batch::Settings::default();
+        let mut encoder = crate::protocol::batch::Encoder::new(settings);
+        let mut listed = 0;
+        while let Ok(Outbound::Send(messages)) = rx.try_recv() {
+            for m in messages {
+                let packet = match m {
+                    Message::Packet(p) => p,
+                    Message::SharedPacket(p) => (*p).clone(),
+                    Message::Shared(_) => continue,
+                };
+                if let Packet::PlayerList(l) = &packet {
+                    listed += l.entries.len();
+                }
+                let header = crate::protocol::batch::Header {
+                    id: packet.id(),
+                    ..Default::default()
+                };
+                let mut payload = Vec::new();
+                crate::protocol::batch::encode_packets(
+                    [(header, &packet)],
+                    crate::item::SHIELD_RUNTIME_ID,
+                    &mut payload,
+                    |p| encoder.encode(p, &mut Vec::new()),
+                )
+                .expect("every packet fits a batch");
+            }
+        }
+        // The start game window and the spawn window each list all six.
+        assert_eq!(listed, 12);
     }
 
     /// Three players join in one tick and a fourth later, with `hooks`: every player is sent the

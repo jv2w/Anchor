@@ -244,6 +244,19 @@ impl Identity {
     }
 }
 
+/// The most wire bytes of a skin's fields besides what its byte fields and texts hold: 12 length
+/// prefixes of texts and byte fields and 3 of lists (at most 5 bytes each), 4 image sizes (4
+/// each), the arm size (1), the colour (4), 5 bools and the trust text (`"false"`, 5).
+const SKIN_FIXED_BYTES: usize = 106;
+/// The same for one animation: 2 image sizes (4 each), the data's length prefix and 2 varints
+/// (at most 5 each) and the frame count (4).
+const ANIMATION_FIXED_BYTES: usize = 27;
+/// The same for one persona piece: 2 length prefixes (at most 5 each), the type (4), the pack
+/// UUID (16) and a bool.
+const PIECE_FIXED_BYTES: usize = 31;
+/// The same for one tint colour: a length prefix (at most 5) and 4 colours (4 each).
+const TINT_FIXED_BYTES: usize = 21;
+
 /// A player's skin as the client sent it at login, where it is checked
 /// ([`Skin::is_acceptable`]). Every copy of the identity shares it. The default is a transparent 64 × 32 skin on the
 /// standard model, for identities without a login (tests).
@@ -279,18 +292,30 @@ impl Skin {
         }
     }
 
-    /// The bytes the skin holds (images, geometry, patch, animation data and texts): what
-    /// [`MAX_SKIN_BYTES`] bounds and an input log entry of its join counts against the log's
-    /// bound.
+    /// The most bytes the skin takes on the wire: what it holds (images, geometry, patch,
+    /// animation data and texts) and the fixed fields and length prefixes of the skin and of
+    /// each animation, persona piece and tint colour. What [`MAX_SKIN_BYTES`] bounds, which
+    /// bounds the number of animations, pieces and tints too; a player list entry counts it
+    /// against `max-batch-bytes`, and an input log entry of its join against the log's bound.
     pub(crate) fn size(&self) -> usize {
         let s = &self.0;
-        let animations = s.animations.iter().map(|a| a.image_data.len());
-        let pieces = s
-            .persona_pieces
+        let animations = s
+            .animations
             .iter()
-            .flat_map(|p| [p.piece_id.len(), p.product_id.len()]);
-        let tints = s.piece_tint_colours.iter().map(|t| t.piece_type.len());
+            .map(|a| a.image_data.len().saturating_add(ANIMATION_FIXED_BYTES));
+        let pieces = s.persona_pieces.iter().map(|p| {
+            p.piece_id
+                .len()
+                .saturating_add(p.product_id.len())
+                .saturating_add(PIECE_FIXED_BYTES)
+        });
+        // The wire name of a tint's piece type is never longer than the name it holds.
+        let tints = s
+            .piece_tint_colours
+            .iter()
+            .map(|t| t.piece_type.len().saturating_add(TINT_FIXED_BYTES));
         [
+            SKIN_FIXED_BYTES,
             s.skin_data.len(),
             s.cape_data.len(),
             s.skin_geometry.len(),

@@ -114,7 +114,8 @@ compression = "snappy"
 compression-threshold = 256
 # zlib only: 1 (fastest) to 9 (smallest).
 compression-level = 6
-# Largest decompressed batch a client may send, in bytes (1 MiB to 64 MiB).
+# Largest decompressed batch a client may send, in bytes (4210781 to 67108864: at least
+# what one player with the largest skin takes in the player list).
 max-batch-bytes = 16777216
 # false: RakNet game traffic is sent in plain form. Anyone between a player and the server
 # can then read it and change it, login included. Use false only on a trusted network.
@@ -459,6 +460,12 @@ impl Config {
 
         let d = &self.developer;
         self.batch_settings()?;
+        if d.max_batch_bytes < crate::tick::MAX_LIST_ENTRY_BYTES {
+            return Err(Key::developer("max-batch-bytes").invalid(format!(
+                "at least {}, so that a player with the largest skin can be listed",
+                crate::tick::MAX_LIST_ENTRY_BYTES
+            )));
+        }
         range(Key::developer("max-mtu-size"), d.max_mtu_size, MAX_MTU_SIZE)?;
         let cert = Key::developer("nethernet-tls-cert");
         let key = Key::developer("nethernet-tls-key");
@@ -1661,6 +1668,14 @@ mod tests {
                 source: batch::Error::MaxBatchBytes(0)
             }
         ));
+        // A batch the codec takes, but too small for one player list entry with a large skin.
+        config.developer.max_batch_bytes = crate::tick::MAX_LIST_ENTRY_BYTES - 1;
+        let error = config
+            .validate()
+            .expect_err("batch smaller than a list entry");
+        assert!(matches!(error, Error::Invalid { key, .. } if key == "developer.max-batch-bytes"));
+        config.developer.max_batch_bytes = crate::tick::MAX_LIST_ENTRY_BYTES;
+        config.validate().expect("a list entry fits");
 
         let mut config = Config::default();
         config

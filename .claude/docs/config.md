@@ -108,7 +108,8 @@ compression = "snappy"
 compression-threshold = 256
 # zlib only: 1 (fastest) to 9 (smallest).
 compression-level = 6
-# Largest decompressed batch a client may send, in bytes (1 MiB to 64 MiB).
+# Largest decompressed batch a client may send, in bytes (4210781 to 67108864: at least
+# what one player with the largest skin takes in the player list).
 max-batch-bytes = 16777216
 # false: RakNet game traffic is sent in plain form. Anyone between a player and the server
 # can then read it and change it, login included. Use false only on a trusted network.
@@ -170,7 +171,7 @@ console-input = true
 
 모든 값은 시작 전에 검사하고, 틀리면 키 이름을 담은 `config::Error`로 시작을 거부한다.
 
-- 모르는 키는 `UnknownKey`, 모르는 최상위 표는 `UnknownTable`(`build()`에서 검사), 타입이나 모양이 틀린 값은 `Invalid`, 범위 밖 정수는 `Range`(키, 값, 최소, 최대)다. `compression-threshold`, `compression-level`, `max-batch-bytes`는 `batch::Settings::new`가 검사해 범위 밖 값이 `Batch`(키와 원인)다.
+- 모르는 키는 `UnknownKey`, 모르는 최상위 표는 `UnknownTable`(`build()`에서 검사), 타입이나 모양이 틀린 값은 `Invalid`, 범위 밖 정수는 `Range`(키, 값, 최소, 최대)다. `compression-threshold`, `compression-level`, `max-batch-bytes`는 `batch::Settings::new`가 검사해 범위 밖 값이 `Batch`(키와 원인)다. 코덱 범위(1 MiB부터) 안이어도 플레이어 목록 항목 하나보다 작은 `max-batch-bytes`는 `Invalid`다.
 - `hardcore = true`는 `difficulty = "hard"`일 때만 된다.
 - `nethernet-tls-cert`와 `nethernet-tls-key`는 둘 다 비거나 둘 다 있어야 한다.
 - `[worlds.<이름>]`은 서버가 선언한 월드(`level-name`이나 `ServerBuilder::world`)여야 한다. 아니면 `UnknownWorld`다.
@@ -230,7 +231,7 @@ console-input = true
 | `compression` | 문자열 | `"snappy"` | `snappy`, `zlib` | 네트워크 압축. Snappy는 CPU를, zlib은 대역폭을 아낀다 |
 | `compression-threshold` | 정수 | `256` | 1~65535 | 이보다 작은 묶음은 압축하지 않는다. 0은 구현마다 뜻이 달라 받지 않는다 |
 | `compression-level` | 정수 | `6` | 1~9 | zlib 단계. Snappy를 고를 때도 검사한다 |
-| `max-batch-bytes` | 정수 | `16777216` | 1048576~67108864 | 클라이언트가 보낼 수 있는 압축 해제 뒤 묶음의 최대 바이트 |
+| `max-batch-bytes` | 정수 | `16777216` | 4210781~67108864 | 클라이언트가 보낼 수 있는 압축 해제 뒤 묶음의 최대 바이트. 최솟값은 가장 큰 스킨(4 MiB)을 가진 플레이어 하나의 플레이어 목록 패킷이다(나눌 수 없어 묶음 하나에 들어야 한다) |
 | `enable-encryption` | bool | `true` | | RakNet 게임 통신 암호화. `false`면 중간자가 로그인까지 읽고 바꿀 수 있어 믿을 수 있는 망에서만 쓴다. NetherNet은 자기 전송이 늘 암호화한다 |
 | `raknet` | bool | `true` | | RakNet 연결을 받을지. `false`면 NetherNet만 받고 RakNet 포트는 핑에만 답한다 |
 | `max-mtu-size` | 정수 | `1492` | 576~1492 | RakNet 최대 패킷 바이트. 터널이나 VPN 뒤에서 낮춘다. go-raknet 다이얼러가 1492, 1200, 576을 시도한다 |

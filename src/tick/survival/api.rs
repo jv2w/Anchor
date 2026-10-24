@@ -2412,6 +2412,17 @@ mod tests {
         assert_eq!(p.set_skin(skin), Err(Error::OutOfRange));
     }
 
+    /// Each persona piece counts its wire bytes toward the skin bound, empty texts or not, so a
+    /// skin's piece count is bounded too.
+    #[test]
+    fn a_skin_of_too_many_empty_pieces_is_refused() {
+        let (mut state, _receivers) = two();
+        let p = player_mut(&mut state, 1);
+        let mut skin = p.skin().clone();
+        skin.persona_pieces = vec![crate::protocol::PersonaPiece::default(); 200_000];
+        assert_eq!(p.set_skin(skin), Err(Error::OutOfRange));
+    }
+
     // pmmp: Human::emote, Human::setSkin
     #[test]
     fn emotes_reach_the_viewers_and_skins_everyone() {

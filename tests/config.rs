@@ -216,7 +216,7 @@ log-level = "debug"
 compression = "zlib"
 compression-threshold = 512
 compression-level = 9
-max-batch-bytes = 1048576
+max-batch-bytes = 8388608
 enable-encryption = false
 raknet = false
 max-mtu-size = 1200
@@ -298,7 +298,7 @@ fn custom() -> Config {
     d.compression = Compression::Zlib;
     d.compression_threshold = 512;
     d.compression_level = 9;
-    d.max_batch_bytes = MIB;
+    d.max_batch_bytes = 8 * MIB;
     d.enable_encryption = false;
     d.raknet = false;
     d.max_mtu_size = 1200;
@@ -508,8 +508,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         (
             "developer.max-batch-bytes",
-            s(&["1048576", "67108864"]),
-            s(&["1048575", "67108865", "-1"]),
+            s(&["4210781", "67108864"]),
+            s(&["1048576", "4210780", "67108865", "-1"]),
         ),
         ("developer.enable-encryption", bools(), vec![]),
         ("developer.raknet", bools(), vec![]),

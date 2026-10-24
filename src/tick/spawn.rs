@@ -25,11 +25,13 @@ use super::{dispatch, extra, interact, inventory, survival};
 use crate::config::Difficulty;
 use crate::crafting;
 use crate::custom;
+use crate::entity::MAX_SKIN_BYTES;
 use crate::event::{
     DuplicateOutcome, KickFlag, PlayerDuplicateLogin, PlayerInfo, PlayerJoin, PlayerLogin,
     PlayerViewDistanceChange,
 };
 use crate::item::SHIELD_RUNTIME_ID;
+use crate::login::MAX_TOKEN_PAYLOAD;
 use crate::math::Vec3;
 use crate::player::{self, Message as Text};
 use crate::pool::Pool;
@@ -62,6 +64,24 @@ const REWIND_HISTORY_SIZE: i32 = 40;
 const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
 /// The dimension BDS's `SetSpawnPosition` names at join (P6).
 const SPAWN_POSITION_DIMENSION: i32 = 3;
+/// The most wire bytes of a player list entry besides its name, XUID and skin
+/// ([`queue::Skin::size`]): the entry kind (a varint, at most 5, and a byte), the UUID (16), the
+/// entity ID (at most 10), 3 text length prefixes (at most 5 each), the build platform (4), 3
+/// bools and the colour (4).
+const LIST_ENTRY_FIXED_BYTES: usize = 58;
+/// The most bytes a `PlayerList` packet takes in a batch besides its entries: its length, its
+/// header and its entry count (at most 5 each).
+const LIST_PACKET_FIXED_BYTES: usize = 15;
+/// The most digits of a XUID (`u64::MAX`).
+const XUID_DIGITS: usize = 20;
+/// The most bytes a `PlayerList` packet of one entry takes in a batch: a name as long as an
+/// identity token can hold and a skin of [`MAX_SKIN_BYTES`]. A spawn window cannot split an
+/// entry, so `max-batch-bytes` is at least this (the settings check it).
+pub(crate) const MAX_LIST_ENTRY_BYTES: usize = LIST_PACKET_FIXED_BYTES
+    + LIST_ENTRY_FIXED_BYTES
+    + MAX_TOKEN_PAYLOAD
+    + XUID_DIGITS
+    + MAX_SKIN_BYTES;
 
 /// The start-game batches every player gets the same, the ones that skip the send hooks
 /// ([`ServerBuilder::on_send`](crate::ServerBuilder::on_send) lists them). Each is encoded and
@@ -409,7 +429,8 @@ pub(super) fn output(
 struct Window {
     /// The list of every placed player, in session order, built once for every window: it holds
     /// each player's skin (up to 4 MiB). A client takes at most
-    /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet, so a longer list goes in several.
+    /// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries in one packet and a session sends at most
+    /// `max-batch-bytes` in one batch, so a longer or larger list goes in several.
     player_list: Vec<Arc<Packet>>,
     /// Per world of a window: the clock state, the clock definition and the sleeping counts. Only
     /// those worlds, as each world's sleeping counts look at every player.
@@ -443,13 +464,7 @@ impl Window {
             .filter(|p| p.phase != Phase::Loading)
             .collect();
         Self {
-            player_list: placed
-                .chunks(PLAYER_LIST_ENTRIES_MAX_LEN)
-                .map(|players| {
-                    let entries = players.iter().map(|p| list_entry(p)).collect();
-                    Arc::new(Packet::PlayerList(PlayerList { entries }))
-                })
-                .collect(),
+            player_list: list_packets(&placed, state.settings.max_batch_bytes),
             worlds,
         }
     }
@@ -672,6 +687,34 @@ fn list_entry(player: &Player) -> PlayerListEntry {
             a: 255,
         },
     }
+}
+
+/// The `PlayerList` packets that list `players` in order: each of at most
+/// [`PLAYER_LIST_ENTRIES_MAX_LEN`] entries and of at most `max_batch_bytes` in a batch. One
+/// entry alone always fits ([`MAX_LIST_ENTRY_BYTES`]).
+fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<Packet>> {
+    let mut packets = Vec::new();
+    let mut entries = Vec::new();
+    let mut bytes = LIST_PACKET_FIXED_BYTES;
+    for player in players {
+        let entry_bytes = LIST_ENTRY_FIXED_BYTES
+            .saturating_add(player.identity.name.len())
+            .saturating_add(XUID_DIGITS)
+            .saturating_add(player.identity.skin.size());
+        if entries.len() == PLAYER_LIST_ENTRIES_MAX_LEN
+            || (!entries.is_empty() && bytes.saturating_add(entry_bytes) > max_batch_bytes)
+        {
+            let entries = std::mem::take(&mut entries);
+            packets.push(Arc::new(Packet::PlayerList(PlayerList { entries })));
+            bytes = LIST_PACKET_FIXED_BYTES;
+        }
+        entries.push(list_entry(player));
+        bytes = bytes.saturating_add(entry_bytes);
+    }
+    if !entries.is_empty() {
+        packets.push(Arc::new(Packet::PlayerList(PlayerList { entries })));
+    }
+    packets
 }
 
 /// Adds a placed player to the list of every other placed player (their own windows, if they are
