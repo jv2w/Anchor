@@ -105,7 +105,8 @@ setters!(EntityCombust {
 /// Why a player or an entity takes damage (PMMP `EntityDamageEvent::CAUSE_*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DamageCause {
-    /// Touching a block that hurts: cactus, a berry bush with berries.
+    /// Touching a block that hurts: cactus, a sweet berry bush past its first stage (with or
+    /// without berries).
     #[doc(alias = "EntityDamageEvent::CAUSE_CONTACT")]
     Contact,
     /// A melee hit.

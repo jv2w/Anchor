@@ -1014,7 +1014,8 @@ mod tests {
     }
 
     /// PMMP `SweetBerryBush::onEntityInside` and `Magma::onEntityInside` hurt every living thing:
-    /// a vulnerable NPC in a bush with berries and on magma takes their damage, as a player does.
+    /// a vulnerable NPC in a bush past its first stage and on magma takes their damage, as a player
+    /// does.
     #[test]
     fn a_berry_bush_and_magma_hurt_a_vulnerable_npc_inside_them() {
         let mut h = Harness::new(1);
