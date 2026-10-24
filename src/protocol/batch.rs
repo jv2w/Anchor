@@ -21,7 +21,7 @@ const DEFAULT_ZLIB_LEVEL: u8 = 6;
 const MAX_BATCH_BYTES: std::ops::RangeInclusive<usize> = 1024 * 1024..=64 * 1024 * 1024;
 const DEFAULT_MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
 /// The most packets a batch may hold (gophertunnel `maximumInBatch`).
-const MAX_PACKETS: usize = 812;
+pub(crate) const MAX_PACKETS: usize = 812;
 /// The payload size [`encode_packets`] cuts batches before.
 const SPLIT_BYTES: usize = 256 * 1024;
 /// The largest packet ID a header can carry.

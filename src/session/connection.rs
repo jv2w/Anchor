@@ -787,10 +787,8 @@ mod tests {
     use super::*;
     use crate::crypto::ServerKey;
     use crate::pack::Offer;
+    use crate::protocol::batch::MAX_PACKETS;
     use crate::tick::queue::{INPUT_CAPACITY, InputSender, Skin, input_queue};
-
-    /// The most packets a batch carries.
-    const BATCH_PACKETS: usize = 812;
 
     /// What the sessions share: offline, unencrypted, no packs, inputs on `inputs`.
     fn shared(inputs: InputSender) -> Arc<Shared> {
@@ -842,9 +840,9 @@ mod tests {
             // Uncompressed batches of SetTime(0), 3 bytes a packet; the tick drains nothing
             // meanwhile, as between two ticks.
             let mut flood = vec![0xff];
-            flood.extend([0x02, 0x0a, 0x00].repeat(BATCH_PACKETS));
+            flood.extend([0x02, 0x0a, 0x00].repeat(MAX_PACKETS));
             let mut ended = None;
-            for _ in 0..INPUT_CAPACITY.div_ceil(BATCH_PACKETS) {
+            for _ in 0..INPUT_CAPACITY.div_ceil(MAX_PACKETS) {
                 if let Err(e) = flooder.on_message(flood.clone()).await {
                     ended = Some(e);
                     break;
