@@ -34,7 +34,7 @@ pub(super) fn of_player(state: &mut State, session: SessionId, sound: SoundEvent
     else {
         return;
     };
-    let id = i64::try_from(runtime_id).unwrap_or(i64::MAX);
+    let id = crate::tick::entity::unique_id(runtime_id);
     let packet = Packet::LevelSoundEvent(packet::LevelSoundEvent {
         sound_type: sound.as_str().to_owned(),
         position: at.to_f32(),

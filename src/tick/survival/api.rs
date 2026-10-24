@@ -1560,7 +1560,7 @@ fn trace(start: Vec3, dir: Vec3, max: f64, mut visit: impl FnMut(BlockPos) -> bo
 pub(super) fn game_type_packet(player: &Player, mode: GameMode) -> Packet {
     Packet::UpdatePlayerGameType(UpdatePlayerGameType {
         game_type: super::saved::game_mode_id(mode),
-        player_unique_id: i64::try_from(player.runtime_id).unwrap_or(i64::MAX),
+        player_unique_id: crate::tick::entity::unique_id(player.runtime_id),
         tick: 0,
     })
 }

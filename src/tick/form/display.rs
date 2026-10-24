@@ -110,11 +110,6 @@ fn objective(slot: Slot) -> String {
     format!("anchor:{}", slot.as_str())
 }
 
-/// A unique ID of an entity: Anchor's are the runtime IDs.
-fn unique_id(runtime_id: u64) -> i64 {
-    i64::try_from(runtime_id).unwrap_or(i64::MAX)
-}
-
 /// The `SetScore` entry of `objective` that adds or removes `e`.
 fn score_entry(objective: &str, e: &Entry, change: Change) -> ScoreboardEntry {
     let (identity, entity, name) = match (change, &e.who) {
@@ -181,7 +176,7 @@ impl Context<'_> {
                         .get(&p.session())
                         .filter(|t| t.phase != Phase::Loading)
                         .ok_or(Error::UnknownPlayer)?;
-                    let unique = unique_id(target.runtime_id);
+                    let unique = crate::tick::entity::unique_id(target.runtime_id);
                     if !players.insert(unique) {
                         return Err(Error::DuplicatePlayer);
                     }
@@ -275,7 +270,7 @@ impl Context<'_> {
             return Err(Error::TooLong);
         }
         let (p, open) = open(self.state, player).ok_or(Error::Offline)?;
-        let entity = unique_id(p.runtime_id);
+        let entity = crate::tick::entity::unique_id(p.runtime_id);
         let event = |kind: BossEventType, bar: &BossBar| {
             Packet::BossEvent(BossEvent {
                 boss_entity_unique_id: entity,
@@ -314,7 +309,7 @@ impl Context<'_> {
         };
         if let Some(old) = open.display.bar.take() {
             p.send_packet(Packet::BossEvent(BossEvent {
-                boss_entity_unique_id: unique_id(p.runtime_id),
+                boss_entity_unique_id: crate::tick::entity::unique_id(p.runtime_id),
                 event_type: BossEventType::Hide.into(),
                 boss_bar_title: old.title,
                 filtered_boss_bar_title: String::new(),

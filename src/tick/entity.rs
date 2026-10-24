@@ -1730,6 +1730,12 @@ impl Watched {
     }
 }
 
+/// The unique ID of a player or an entity: its runtime ID. Runtime IDs count up by one from 1
+/// per player and entity, so they stay far below 2^63 and keep their value as `i64`.
+pub(super) fn unique_id(runtime_id: u64) -> i64 {
+    runtime_id.cast_signed()
+}
+
 /// The block coordinate of a world coordinate (entity positions, query areas, a damage value),
 /// saturating at the `i32` range: Rust's `as` saturates and turns NaN into 0.
 #[expect(

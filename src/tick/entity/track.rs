@@ -44,11 +44,6 @@ const NPC_SKIN_COLOUR: [u8; 4] = [0x9a, 0x6e, 0x52, 0xff];
 /// The health attribute (PMMP `Attribute::HEALTH`).
 const HEALTH: &str = "minecraft:health";
 
-/// The unique ID of a runtime ID (they are equal in Anchor).
-fn unique(runtime_id: u64) -> i64 {
-    runtime_id.cast_signed()
-}
-
 /// The flags of an entity (PMMP `Entity::syncNetworkData` and the kinds' additions): gravity,
 /// collision, the name tag shown, invisible, burning, no client prediction while it rests
 /// (`still`); a critical arrow, a lingering potion, lit TNT, an end crystal's base, a trident's
@@ -133,7 +128,7 @@ pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
     put(EntityDataKey::LeashHolder, MetadataValue::Int64(-1));
     // A firework rocket shows no owner (BDS, P6 `entities`).
     let owner = match &entity.kind {
-        Kind::Projectile(p) if p.owner_runtime_id != 0 => unique(p.owner_runtime_id),
+        Kind::Projectile(p) if p.owner_runtime_id != 0 => super::unique_id(p.owner_runtime_id),
         _ => -1,
     };
     put(EntityDataKey::Owner, MetadataValue::Int64(owner));
@@ -339,7 +334,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
     let (yaw, pitch) = (to_f32(entity.yaw), to_f32(entity.pitch));
     match &entity.kind {
         Kind::Item(item) => vec![Packet::AddItemActor(Box::new(AddItemActor {
-            entity_unique_id: unique(entity.runtime_id),
+            entity_unique_id: super::unique_id(entity.runtime_id),
             entity_runtime_id: entity.runtime_id,
             item: instance(&item.stack),
             position: shown_at(entity),
@@ -355,7 +350,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
             let entry = PlayerListEntry {
                 action_type: PlayerListAction::Add.into(),
                 uuid: *uuid,
-                entity_unique_id: unique(entity.runtime_id),
+                entity_unique_id: super::unique_id(entity.runtime_id),
                 username: name.clone(),
                 build_platform: -1,
                 skin: skin.as_ref().map_or_else(npc_skin, |s| s.to_protocol()),
@@ -382,7 +377,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
                 game_type: GameType::Survival.into(),
                 entity_metadata: metadata,
                 ability_data: AbilityData {
-                    entity_unique_id: unique(entity.runtime_id),
+                    entity_unique_id: super::unique_id(entity.runtime_id),
                     // PMMP's permissions of a `Human`: a visitor with no ability.
                     player_permissions: PermissionLevel::Visitor.into(),
                     command_permissions: 0,
@@ -415,7 +410,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
         }
         Kind::Painting(p) => vec![add_painting(entity, *p)],
         _ => vec![Packet::AddActor(Box::new(AddActor {
-            entity_unique_id: unique(entity.runtime_id),
+            entity_unique_id: super::unique_id(entity.runtime_id),
             entity_runtime_id: entity.runtime_id,
             entity_type: entity.kind.identifier().to_owned(),
             position: shown_at(entity),
@@ -441,7 +436,7 @@ fn add_painting(entity: &Entity, painting: Painting) -> Packet {
         f64::midpoint(b.min.z, b.max.z),
     );
     Packet::AddPainting(AddPainting {
-        entity_unique_id: unique(entity.runtime_id),
+        entity_unique_id: super::unique_id(entity.runtime_id),
         entity_runtime_id: entity.runtime_id,
         position: middle.to_f32(),
         direction: i32::from(object::facing_data(painting.facing)),
@@ -523,7 +518,7 @@ pub(super) fn health_update(entity: &Entity) -> Option<Packet> {
 /// The packet that removes an entity or player from a client.
 pub(super) fn remove(runtime_id: u64) -> Packet {
     Packet::RemoveActor(RemoveActor {
-        entity_unique_id: unique(runtime_id),
+        entity_unique_id: super::unique_id(runtime_id),
     })
 }
 
@@ -688,7 +683,7 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
         },
         entity_metadata: m,
         ability_data: AbilityData {
-            entity_unique_id: unique(p.runtime_id),
+            entity_unique_id: super::unique_id(p.runtime_id),
             player_permissions: PermissionLevel::Member.into(),
             command_permissions: 0,
             layers: vec![AbilityLayer {
@@ -741,7 +736,7 @@ fn waypoint(runtime_id: u64, action: u8, waypoint: Waypoint) -> Packet {
 /// `others`): its location at the eyes, its waypoint added there, then handed to the client to
 /// follow the player (the client's position authority, the small dot).
 pub(super) fn locator_shown(runtime_id: u64, eye: Vec3) -> [Packet; 3] {
-    let (position, unique_id) = (eye.to_f32(), unique(runtime_id));
+    let (position, unique_id) = (eye.to_f32(), super::unique_id(runtime_id));
     [
         Packet::PlayerLocation(PlayerLocation {
             r#type: PlayerLocationType::Coordinates.into(),
@@ -806,7 +801,7 @@ pub(in crate::tick) fn locator_life(runtime_id: u64, alive: bool) -> Vec<Packet>
     vec![
         Packet::PlayerLocation(PlayerLocation {
             r#type: PlayerLocationType::Hide.into(),
-            entity_unique_id: unique(runtime_id),
+            entity_unique_id: super::unique_id(runtime_id),
             position: [0.0; 3],
         }),
         shown,

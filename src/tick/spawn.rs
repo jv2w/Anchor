@@ -652,7 +652,7 @@ fn list_entry(player: &Player) -> PlayerListEntry {
     PlayerListEntry {
         action_type: 0,
         uuid: player.identity.uuid,
-        entity_unique_id: i64::try_from(player.runtime_id).unwrap_or(i64::MAX),
+        entity_unique_id: super::entity::unique_id(player.runtime_id),
         username: player.identity.name.clone(),
         xuid: player
             .identity
@@ -1293,8 +1293,7 @@ fn start_game(
     let spawn = world.spawn();
     let (rain_level, lightning_level) = super::weather::levels(world.weather());
     StartGame {
-        // Runtime IDs stay far below 2^63; the unique ID reuses it like most servers.
-        entity_unique_id: i64::try_from(player.runtime_id).unwrap_or(i64::MAX),
+        entity_unique_id: super::entity::unique_id(player.runtime_id),
         entity_runtime_id: player.runtime_id,
         player_game_mode,
         player_position: player.position.to_f32(),

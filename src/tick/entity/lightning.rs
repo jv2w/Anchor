@@ -118,7 +118,7 @@ pub(super) fn strike(state: &mut State, world: WorldIndex, at: Vec3, lightning: 
 /// (`Player::has_viewer_room`).
 fn show(state: &mut State, world: WorldIndex, at: Vec3, runtime_id: u64) {
     let position = at.to_f32();
-    let unique = runtime_id.cast_signed();
+    let unique = super::unique_id(runtime_id);
     let mut metadata = EntityMetadata::new();
     metadata.insert(EntityDataKey::Flags as u32, MetadataValue::Int64(0));
     metadata.insert(EntityDataKey::Scale as u32, MetadataValue::Float32(1.0));

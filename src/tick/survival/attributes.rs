@@ -628,7 +628,7 @@ pub(in crate::tick) fn update_abilities(_settings: &Settings, player: &Player) -
     };
     Packet::UpdateAbilities(UpdateAbilities {
         ability_data: AbilityData {
-            entity_unique_id: i64::try_from(player.runtime_id).unwrap_or(i64::MAX),
+            entity_unique_id: crate::tick::entity::unique_id(player.runtime_id),
             player_permissions: player_permissions.into(),
             command_permissions: command_permissions.into(),
             layers: layers(&player.survival),

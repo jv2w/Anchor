@@ -555,7 +555,7 @@ impl View {
             window_type: ContainerType::Trade.into(),
             size: 0,
             trade_tier: i32::from(self.tier),
-            villager_unique_id: self.unique_id.cast_signed(),
+            villager_unique_id: super::entity::unique_id(self.unique_id),
             entity_unique_id: ANY_ENTITY,
             display_name: display_name(self.profession).to_owned(),
             new_trade_ui: true,
