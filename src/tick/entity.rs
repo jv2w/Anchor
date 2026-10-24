@@ -2862,6 +2862,26 @@ fn play(state: &mut State, world: WorldIndex, at: Vec3, sound: crate::world::Sou
     super::emit::sound(state, world, at, sound);
 }
 
+/// Knocks a player back away along `(x, z)` with `force`, up at most `vertical` ([`Knock`]),
+/// pushing it as everything else does ([`push_player`]): the survival rules' melee knockback.
+pub(in crate::tick) fn knock_player(
+    state: &mut State,
+    session: SessionId,
+    (x, z): (f64, f64),
+    (force, vertical): (f64, f64),
+    raise: Raise,
+) {
+    let knock = Knock {
+        x,
+        z,
+        force,
+        vertical,
+    };
+    if let Some(motion) = knock.applied_to(Vec3::ZERO) {
+        push_player(state, session, motion, raise);
+    }
+}
+
 /// Pushes a player: its client is sent the motion, and so are the players who see it (PMMP
 /// `Player::setMotion`; the server keeps no motion of players). With [`Raise::Events`] it goes
 /// through [`EntityMotion`]: cancelling sends nothing.

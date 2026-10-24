@@ -26,9 +26,7 @@ use crate::math::{self, Vec3};
 use crate::player;
 use crate::protocol::EntityProperties;
 use crate::protocol::consts::{ActorEvent, AnimateAction, RespawnState};
-use crate::protocol::packet::{
-    self, Animate, DeathInfo, Packet, Respawn, SetActorData, SetActorMotion,
-};
+use crate::protocol::packet::{self, Animate, DeathInfo, Packet, Respawn, SetActorData};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
 use crate::tick::entity::{
@@ -626,7 +624,7 @@ fn apply(state: &mut State, session: SessionId, landed: &Landed, raise: entity::
     }
     if cold {
         if let Some(attacker) = hit.attacker {
-            knock_back_from(state, session, attacker, knockback, vertical_limit);
+            knock_back_from(state, session, attacker, (knockback, vertical_limit), raise);
         }
         let packet = actor_event(
             player_runtime_id(state, session),
@@ -997,15 +995,14 @@ fn thorns(state: &mut State, victim: SessionId, attacker: SessionId) {
     }
 }
 
-/// Knocks the player back away from another player (PMMP `Living::knockBack`): the motion the
-/// client is sent (players have no server-side motion, PMMP `Player::setMotion`), at most
-/// `vertical_limit` upward.
+/// Knocks the player back away from another player (PMMP `Living::knockBack`), at most
+/// `vertical_limit` upward, as every push of a player goes (`entity::knock_player`).
 fn knock_back_from(
     state: &mut State,
     session: SessionId,
     from: SessionId,
-    force: f64,
-    vertical_limit: f64,
+    (force, vertical_limit): (f64, f64),
+    raise: entity::Raise,
 ) {
     let Some(source) = state.players.get(&from).map(feet) else {
         return;
@@ -1013,41 +1010,8 @@ fn knock_back_from(
     let Some(target) = state.players.get(&session).map(feet) else {
         return;
     };
-    knock_back(
-        state,
-        session,
-        target.x - source.x,
-        target.z - source.z,
-        force,
-        vertical_limit,
-    );
-}
-
-/// Sends the knockback motion along (x, z).
-fn knock_back(
-    state: &mut State,
-    session: SessionId,
-    x: f64,
-    z: f64,
-    force: f64,
-    vertical_limit: f64,
-) {
-    let length = (x * x + z * z).sqrt();
-    if length.is_nan() || length <= 0.0 {
-        return;
-    }
-    let f = 1.0 / length;
-    let motion = Vec3::new(
-        x * f * force,
-        math::min(force, vertical_limit),
-        z * f * force,
-    );
-    let packet = Packet::SetActorMotion(SetActorMotion {
-        entity_runtime_id: player_runtime_id(state, session),
-        velocity: motion.to_f32(),
-        tick: 0,
-    });
-    broadcast_from(state, session, &packet);
+    let away = (target.x - source.x, target.z - source.z);
+    entity::knock_player(state, session, away, (force, vertical_limit), raise);
 }
 
 /// Sets the player on fire for `seconds` (PMMP `Living::setOnFire`): fire protection shortens it
@@ -1167,7 +1131,8 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
     }
     after_melee(state, attacker, &held, |state, knockback, fire| {
         if let Some(force) = knockback {
-            knock_back_from(state, target, attacker, force, KNOCKBACK_VERTICAL_LIMIT);
+            let knock = (force, KNOCKBACK_VERTICAL_LIMIT);
+            knock_back_from(state, target, attacker, knock, entity::Raise::Events);
         }
         if let Some(seconds) = fire {
             let by = CombustSource::Entity(Actor::Player(player::Id::new(attacker)));

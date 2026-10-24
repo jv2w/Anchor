@@ -11,12 +11,12 @@ use crate::block::{self, PropertyValue};
 use crate::config::{Config, CriticalHits};
 use crate::event::{
     Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
-    EntityEffectRemove, EntityExtinguish, EntityRegainHealth, ExtinguishCause, Listeners,
-    PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin, PlayerChat, PlayerDeath, PlayerEmote,
-    PlayerExhaust, PlayerExperienceChange, PlayerGameModeChange, PlayerItemConsume, PlayerJump,
-    PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn, PlayerToggleFlight,
-    PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer,
-    Priority,
+    EntityEffectRemove, EntityExtinguish, EntityMotion, EntityRegainHealth, ExtinguishCause,
+    Listeners, PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin, PlayerChat, PlayerDeath,
+    PlayerEmote, PlayerExhaust, PlayerExperienceChange, PlayerGameModeChange, PlayerItemConsume,
+    PlayerJump, PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn,
+    PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim,
+    PlayerTransfer, Priority,
 };
 use crate::item::{Kind as ItemKind, Stack};
 use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
@@ -254,6 +254,44 @@ fn a_melee_hit_names_its_attacker_and_its_knockback_can_change() {
     });
     // The force is 2 and the upward limit (infinite, ignored) stays 0.4.
     assert_eq!(motion.map(|v| (v[1], v[2] > 1.9)), Some((0.4, true)));
+}
+
+/// The knockback motion of a melee hit on a player in `game`, sent to the target (session 2).
+fn melee_knockback(game: &mut Game) -> Option<[f32; 3]> {
+    let base = game.player(1).position;
+    game.player_mut(2).position = base + Vec3::new(0.0, 0.0, 1.0);
+    game.idle(1);
+    game.take(2);
+    attack_player(&mut game.state, sid(1), sid(2));
+    game.idle(1);
+    game.take(2).into_iter().find_map(|p| match p {
+        Packet::SetActorMotion(m) => Some(m.velocity),
+        _ => None,
+    })
+}
+
+// pmmp: EntityMotionEvent, Living::knockBack
+/// A melee hit pushes a player as everything else does: through `EntityMotion`, whose
+/// cancelling sends no motion.
+#[test]
+fn a_melee_knockback_on_a_player_goes_through_entity_motion() {
+    let (tx, mut seen) = record();
+    let listeners = on(move |e: &mut EntityMotion, _: &mut Context<'_>| {
+        tx.try_send(e.entity()).unwrap();
+        e.cancel();
+    });
+    let mut game = Game::new(2, listeners);
+    assert_eq!(melee_knockback(&mut game), None, "cancelled");
+    assert_eq!(drain(&mut seen), [Actor::Player(pid(2))]);
+}
+
+/// A melee knockback a listener makes strong is cut to the speed bound of every push.
+#[test]
+fn a_melee_knockback_on_a_player_is_bounded() {
+    let listeners = on(|e: &mut EntityDamage, _: &mut Context<'_>| e.set_knockback(16.0));
+    let mut game = Game::new(2, listeners);
+    let motion = melee_knockback(&mut game).expect("pushed");
+    assert!(motion.iter().all(|c| c.abs() <= 10.0), "{motion:?}");
 }
 
 // pmmp: Player::attackEntity, Player::hasFiniteResources
