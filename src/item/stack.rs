@@ -55,16 +55,21 @@ const TAG_ITEMS: &str = "Items";
 pub const MAX_NBT_BYTES: usize = 96 << 10;
 /// The most a stack's saved form may take from a reader's allocation budget to read back: four
 /// times its bytes, so 146 of them read within the 64 MiB a record's reader may allocate. Only
-/// NBT of many tiny elements comes near it (enchantments take about five times their bytes, but
-/// few of them).
+/// NBT of many small compounds comes near it: each takes a tree node (an enchantment takes about
+/// 56 times its 16 bytes).
 const MAX_NBT_ALLOC: usize = 4 * MAX_NBT_BYTES;
 /// The most bytes a stack a shulker box holds may take, saved as [`MAX_NBT_BYTES`] counts: 3 KiB,
 /// so 27 of them, a 1,024-byte name and the box's own keys (82.4 KiB) make one stack. The largest
 /// vanilla items (a firework rocket of seven stars, about 0.9 KB; a custom block item of the
 /// longest state, about 2.5 KB) fit.
 pub(crate) const MAX_STORED_BYTES: usize = MAX_NBT_BYTES / 32;
-/// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts.
-const MAX_STORED_ALLOC: usize = MAX_NBT_ALLOC / 32;
+/// What a stored stack may take from a reader's budget, as [`MAX_NBT_ALLOC`] counts: a 28th of
+/// it (13.7 KiB), so 27 of them, a 1,024-byte name and the box's own keys read back within it.
+/// The largest vanilla items fit (a firework rocket of seven stars of eight colours, 12.9 KB;
+/// armour of nine enchantments with the longest name, 12.4 KB; a custom block item of the
+/// longest state, about 7.5 KB); a stack of more enchantments than survival gives (a book of
+/// all 18 that go together, 20.4 KB) does not.
+const MAX_STORED_ALLOC: usize = MAX_NBT_ALLOC / 28;
 
 /// Why a stack was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -690,6 +695,56 @@ mod tests {
             .unwrap()
     }
 
+    /// The largest vanilla items a shulker box takes: a firework rocket of seven stars of eight
+    /// colours and eight fade colours, and armour with nine enchantments (more than survival
+    /// gives one piece) at their highest level, the longest name and its prior work.
+    #[test]
+    fn the_largest_vanilla_items_fit_a_shulker_box() {
+        let star = Compound::from([
+            ("FireworkColor".to_owned(), Value::ByteArray(vec![1; 8])),
+            ("FireworkFade".to_owned(), Value::ByteArray(vec![1; 8])),
+            ("FireworkFlicker".to_owned(), Value::Byte(1)),
+            ("FireworkTrail".to_owned(), Value::Byte(1)),
+            ("FireworkType".to_owned(), Value::Byte(4)),
+        ]);
+        let fireworks = Compound::from([
+            (
+                "Explosions".to_owned(),
+                Value::List(List::Compound(vec![star; 7])),
+            ),
+            ("Flight".to_owned(), Value::Byte(3)),
+        ]);
+        let rocket = Type::from_name("minecraft:firework_rocket", 0, None, &Compound::new())
+            .expect("the rocket is an item");
+        let rocket = Stack::new(rocket, 1)
+            .with_extra(Some(Extra {
+                nbt: Compound::from([("Fireworks".to_owned(), Value::Compound(fireworks))]),
+                ..Extra::default()
+            }))
+            .unwrap();
+        let enchantments = [
+            Enchantment::Protection,
+            Enchantment::FeatherFalling,
+            Enchantment::FrostWalker,
+            Enchantment::SwiftSneak,
+            Enchantment::Unbreaking,
+            Enchantment::Mending,
+            Enchantment::Thorns,
+            Enchantment::Vanishing,
+            Enchantment::AquaAffinity,
+        ];
+        let boots = Stack::new(kind(Kind::NetheriteBoots), 1)
+            .with_extra(Some(Extra {
+                custom_name: Some("n".repeat(MAX_NAME_BYTES)),
+                enchantments: enchantments.map(|e| (e, e.max_level())).to_vec(),
+                nbt: Compound::from([("RepairCost".to_owned(), Value::Int(39))]),
+                ..Extra::default()
+            }))
+            .unwrap();
+        assert!(rocket.fits_shulker_box());
+        assert!(boots.fits_shulker_box());
+    }
+
     #[test]
     fn same_is_equality_with_shared_data_always_the_same() {
         let stick = Stack::new(kind(Kind::Stick), 1);
@@ -1075,8 +1130,9 @@ mod tests {
         assert_eq!(Stack::EMPTY.with_extra(None), Ok(Stack::EMPTY));
     }
 
-    /// A shulker box takes no shulker box and nothing over a 32nd of the stack limit; 27 of the
-    /// largest it takes and the longest name make a box item within the limit.
+    /// A shulker box takes no shulker box, nothing over a 32nd of the stack's byte limit and
+    /// nothing over a 28th of what it may take to read back; 27 of the largest it takes of either
+    /// and the longest name make a box item within the limit.
     #[test]
     fn a_shulker_box_takes_a_32nd_of_the_limit_and_a_full_box_fits_one_stack() {
         let stick = kind(Kind::Stick);
@@ -1099,18 +1155,45 @@ mod tests {
             panic!("a shulker box item");
         };
         assert!(!Stack::new(box_type, 1).fits_shulker_box());
-        let items = (0u8..27)
-            .map(|slot| {
-                let mut nbt = most.to_nbt();
-                nbt.insert("Slot".to_owned(), Value::Byte(slot));
-                nbt
-            })
-            .collect();
-        let full = Stack::new(box_type, 1).with_extra(Some(Extra {
-            custom_name: Some("n".repeat(MAX_NAME_BYTES)),
-            nbt: Compound::from([(TAG_ITEMS.to_owned(), Value::List(List::Compound(items)))]),
-            ..Extra::default()
-        }));
-        assert!(full.is_ok());
+        // Compounds of one key cost little to write and a tree node each to read.
+        let small = |n: usize| {
+            let one = Compound::from([("k".to_owned(), Value::Byte(0))]);
+            Stack::new(stick, 1)
+                .with_extra(Some(Extra {
+                    nbt: Compound::from([(
+                        "l".to_owned(),
+                        Value::List(List::Compound(vec![one; n])),
+                    )]),
+                    ..Extra::default()
+                }))
+                .unwrap()
+        };
+        // Each takes more than 700 bytes of the budget: fewer than 20 fit.
+        let (mut lo, mut hi) = (0, 20_usize);
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if small(mid).fits_shulker_box() {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        let heaviest = small(lo);
+        assert!(heaviest.stored_cost(MAX_STORED_BYTES, usize::MAX).is_some());
+        for most in [most, heaviest] {
+            let items = (0u8..27)
+                .map(|slot| {
+                    let mut nbt = most.to_nbt();
+                    nbt.insert("Slot".to_owned(), Value::Byte(slot));
+                    nbt
+                })
+                .collect();
+            let full = Stack::new(box_type, 1).with_extra(Some(Extra {
+                custom_name: Some("n".repeat(MAX_NAME_BYTES)),
+                nbt: Compound::from([(TAG_ITEMS.to_owned(), Value::List(List::Compound(items)))]),
+                ..Extra::default()
+            }));
+            assert!(full.is_ok());
+        }
     }
 }

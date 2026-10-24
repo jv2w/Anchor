@@ -7,15 +7,16 @@
 //! `TAG_Int` and `TAG_Long` lists and writes other empty lists with element type `TAG_End`.
 //! Limits: containers nest at most 512 deep counting the root, one root takes at
 //! most 4 MiB on the wire (or a store's own limit), and lengths and allocations go through the
-//! reader's limit check. Writing a root also counts what reading it back takes from a reader's
-//! allocation budget (`Cost`), so a store can keep what it writes readable.
+//! reader's limit check; a compound's keys take its tree nodes ([`map_charges`]). Writing a root
+//! also counts what reading it back takes from a reader's allocation budget (`Cost`), so a store
+//! can keep what it writes readable.
 //! Reading and writing keep nested containers on a heap stack, not the thread stack.
 
 use std::collections::{BTreeMap, btree_map};
 use std::mem::size_of;
 use std::slice;
 
-use crate::protocol::{Error, Reader, Result, Writer};
+use crate::protocol::{Error, Reader, Result, Writer, map_charges};
 
 /// The deepest nesting of compounds and lists, counting the root.
 pub(crate) const MAX_DEPTH: usize = 512;
@@ -23,6 +24,9 @@ pub(crate) const MAX_DEPTH: usize = 512;
 pub(crate) const MAX_ROOT_BYTES: usize = 4 << 20;
 /// The longest string in bytes (gophertunnel `maxStringSize`).
 const MAX_STRING_LEN: u16 = 0x7fff;
+/// What a compound's first key and each other key take from a reader's budget: its tree's nodes
+/// ([`map_charges`]).
+const ENTRY_CHARGES: (usize, usize) = map_charges(size_of::<(String, Value)>());
 
 /// The tag types, by number (the network block hash writes NBT tags too).
 pub(crate) const TAG_END: u8 = 0;
@@ -396,11 +400,13 @@ impl Decoder<'_, '_> {
         while let Some(top) = stack.last_mut() {
             self.check_root_size()?;
             let next = match top {
-                ReadFrame::Compound { name, .. } => {
+                ReadFrame::Compound { map, name } => {
                     let tag = self.tag_type()?;
                     if tag != TAG_END {
                         *name = self.string()?;
-                        self.r.limit(1, usize::MAX, size_of::<(String, Value)>())?;
+                        let (first, other) = ENTRY_CHARGES;
+                        let entry = if map.is_empty() { first } else { other };
+                        self.r.limit(1, usize::MAX, entry)?;
                     }
                     (tag != TAG_END).then_some(tag)
                 }
@@ -488,6 +494,15 @@ impl Encoder<'_> {
     /// Counts `count` elements of `size` bytes, as the decoder's limit check takes them.
     fn charge(&mut self, count: usize, size: usize) {
         self.alloc = self.alloc.saturating_add(count.saturating_mul(size));
+    }
+
+    /// Counts the entries of `map`, as the decoder takes them key by key ([`ENTRY_CHARGES`]).
+    fn charge_entries(&mut self, map: &Compound) {
+        let (first, other) = ENTRY_CHARGES;
+        if !map.is_empty() {
+            self.charge(1, first);
+            self.charge(map.len() - 1, other);
+        }
     }
 
     /// Fails if `n` more bytes would pass [`Self::end`]; checked before a byte run is copied.
@@ -633,6 +648,7 @@ impl Encoder<'_> {
     /// Writes the payload of the root compound `root` and everything in it.
     fn compound(&mut self, root: &Compound) -> Result<()> {
         let mut stack = Vec::with_capacity(16);
+        self.charge_entries(root);
         stack.push(WriteFrame::Compound(root.iter()));
         while let Some(top) = stack.last_mut() {
             self.check()?;
@@ -641,7 +657,6 @@ impl Encoder<'_> {
                     if let Some((name, value)) = entries.next() {
                         self.w.uint8(value.tag());
                         self.string(name)?;
-                        self.charge(1, size_of::<(String, Value)>());
                         match value {
                             Value::List(list) => Next::List(list),
                             Value::Compound(map) => Next::Compound(map),
@@ -668,7 +683,10 @@ impl Encoder<'_> {
                         stack.push(frame);
                     }
                 }
-                Next::Compound(map) => stack.push(WriteFrame::Compound(map.iter())),
+                Next::Compound(map) => {
+                    self.charge_entries(map);
+                    stack.push(WriteFrame::Compound(map.iter()));
+                }
             }
         }
         Ok(())
@@ -1190,6 +1208,21 @@ mod tests {
         let bytes = write(&every_tag(), Encoding::NetworkLittleEndian).unwrap();
         let mut r = Reader::new(&bytes, 64, 0);
         assert_eq!(r.nbt(Encoding::NetworkLittleEndian), Err(Error::Size));
+    }
+
+    /// A compound's tree nodes come out of the budget: 400,000 compounds of one key each (1.6 MB)
+    /// take a node each, past the 32 MiB a batch of packets may allocate.
+    #[test]
+    fn a_compound_is_charged_its_tree_node() {
+        let one = Compound::from([(String::new(), Value::Byte(0))]);
+        let list = Value::List(List::Compound(vec![one; 400_000]));
+        let root = Compound::from([("l".to_owned(), list)]);
+        let bytes = write(&root, Encoding::NetworkLittleEndian).unwrap();
+        let mut r = Reader::new(&bytes, 32 << 20, 0);
+        assert!(matches!(
+            r.nbt(Encoding::NetworkLittleEndian),
+            Err(Error::Size)
+        ));
     }
 
     #[test]

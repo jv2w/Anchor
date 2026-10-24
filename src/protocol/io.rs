@@ -14,9 +14,9 @@
 //! Decode limits all go through [`Reader::limit`] and all fail with
 //! [`Error::Size`]: a declared byte length is at most the remaining input, a list count is at
 //! most [`MAX_LIST_LEN`] and the remaining input, and every allocation first takes
-//! `count × size_of` from the reader's allocation budget. The `_max` readers also take a field's
-//! own limit (Mojang `maxLength`, `maxItems`), which the generated decoders pass. Lists nest at
-//! most [`MAX_LIST_DEPTH`] deep.
+//! `count × size_of` from the reader's allocation budget; a map's entries take its tree nodes
+//! ([`map_charges`]). The `_max` readers also take a field's own limit (Mojang `maxLength`,
+//! `maxItems`), which the generated decoders pass. Lists nest at most [`MAX_LIST_DEPTH`] deep.
 
 use std::fmt;
 use std::mem::size_of;
@@ -25,6 +25,24 @@ use std::sync::Arc;
 
 /// The largest element count of a protocol list (gophertunnel `maxSliceLength`).
 pub(crate) const MAX_LIST_LEN: usize = 1024;
+
+/// The most entries a node of a `BTreeMap` holds (std `CAPACITY`).
+const MAP_NODE_ENTRIES: usize = 11;
+/// The fewest entries a node of a `BTreeMap` other than the root holds while the map only grows
+/// (std `MIN_LEN_AFTER_SPLIT`).
+const MAP_NODE_MIN_ENTRIES: usize = 5;
+
+/// What a `BTreeMap` of entries of `entry_size` bytes takes from a reader's budget: its first
+/// entry, and each other. It allocates its entries in nodes, a whole node for the first, and
+/// while it only grows (decoding inserts, a repeated key replaces) `n` entries take at most
+/// `1 + (n - 1) / 5` nodes: the first entry takes a node and every other a fifth of one. A node
+/// is counted as an internal one: its parent link and lengths, the entries and 12 child links.
+pub(crate) const fn map_charges(entry_size: usize) -> (usize, usize) {
+    let node = 2 * size_of::<usize>()
+        + MAP_NODE_ENTRIES * entry_size
+        + (MAP_NODE_ENTRIES + 1) * size_of::<usize>();
+    (node, node.div_ceil(MAP_NODE_MIN_ENTRIES))
+}
 
 /// The deepest lists nest, a packet's own lists included. Only a type that holds itself
 /// (`DataStorePropertyValue`) nests past a few, and its decoder recurses once per list: without a

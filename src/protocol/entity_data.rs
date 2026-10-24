@@ -5,7 +5,7 @@ use std::mem::size_of;
 
 use super::common::BlockPos;
 use super::consts::EntityDataType;
-use super::io::{Error, MAX_LIST_LEN, Reader, Result, Writer, length};
+use super::io::{Error, MAX_LIST_LEN, Reader, Result, Writer, length, map_charges};
 use crate::nbt::{Compound, Encoding};
 
 /// Entity metadata: values by data key, written in ascending key order like gophertunnel.
@@ -54,11 +54,12 @@ impl Reader<'_> {
     /// `EntityMetadata`: at most [`MAX_LIST_LEN`] entries; a repeated key keeps its last value.
     pub(crate) fn entity_metadata(&mut self) -> Result<EntityMetadata> {
         let count = self.varuint32()?;
-        let count = self.limit(
-            count.into(),
-            MAX_LIST_LEN,
-            size_of::<(u32, MetadataValue)>(),
-        )?;
+        let (first, other) = map_charges(size_of::<(u32, MetadataValue)>());
+        let count = self.limit(count.into(), MAX_LIST_LEN, other)?;
+        if count > 0 {
+            // The first entry takes a whole node; the count above took a share of one for it.
+            self.limit(1, usize::MAX, first - other)?;
+        }
         let mut map = EntityMetadata::new();
         for _ in 0..count {
             let key = self.varuint32()?;
@@ -211,6 +212,18 @@ mod tests {
             Reader::new(&bytes, 64, 0).entity_metadata(),
             Err(Error::Size)
         );
+    }
+
+    /// One entry takes the map's whole tree node from the budget, not its own size alone.
+    #[test]
+    fn an_entry_is_charged_its_tree_node() {
+        let bytes = encode(&EntityMetadata::from([(0, MetadataValue::Byte(1))]));
+        let (node, _) = map_charges(size_of::<(u32, MetadataValue)>());
+        assert_eq!(
+            Reader::new(&bytes, node - 1, 0).entity_metadata(),
+            Err(Error::Size)
+        );
+        assert!(Reader::new(&bytes, node, 0).entity_metadata().is_ok());
     }
 
     #[test]

@@ -321,9 +321,10 @@ impl LoggedPlayer {
     }
 }
 
-/// A logged player extra: one little-endian NBT root compound and nothing after it.
+/// A logged player extra: one little-endian NBT root compound and nothing after it, read within
+/// the budget its players record was read with, which it came from.
 fn read_extra(bytes: &[u8]) -> Result<crate::nbt::Compound> {
-    let mut r = protocol::Reader::new(bytes, bytes.len().saturating_mul(8), 0);
+    let mut r = protocol::Reader::new(bytes, crate::storage::seal::DECODE_BUDGET, 0);
     let extra = r
         .nbt_within(Encoding::LittleEndian, MAX_PLAYER_EXTRA_BYTES)
         .map_err(Error::Packet)?;

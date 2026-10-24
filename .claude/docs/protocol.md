@@ -63,6 +63,7 @@ Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_l
 ## 디코드 상한
 - 선언 길이는 남은 입력 이하. 목록 개수는 1024 이하(gophertunnel `maxSliceLength`, EntityMetadata 개수 포함)이고 남은 입력 이하.
 - 할당 예산: Reader는 배치 하나마다 2 × `max-batch-bytes` 예산을 받는다. 개수 상한만으로는 중첩 목록과 큰 원소가 입력 크기의 수십 배를 할당할 수 있어서 예산을 둔다.
+- 맵(NBT compound, `EntityMetadata`)은 원소 크기만이 아니라 `BTreeMap` 노드를 뺀다(`map_charges`): 첫 키에 노드 하나(키·값 11칸, 자식 포인터 12개까지 센 내부 노드 크기), 그 뒤 키마다 노드의 1/5. 맵이 커지기만 하면 루트가 아닌 노드는 5칸 이상 차서 키 n개는 노드 1 + (n−1)/5개 이하다. 원소 하나짜리 compound 수십만 개도 노드 할당까지 예산 안에 든다. NBT 인코더는 같은 값을 `Cost.alloc`으로 세어 저장이 다시 읽힐 크기로 쪽을 나눈다.
 - NBT는 깊이 512(루트 포함), 루트 하나 4 MiB 이하.
 - 목록 중첩은 64단 이하(패킷 자신의 목록 포함, `MAX_LIST_DEPTH`). 자기를 담는 타입(`DataStorePropertyValue`)의 디코더는 목록마다 스레드 스택에서 재귀하므로, 상한이 없으면 패킷 하나가 스택을 넘쳐 프로세스가 끝난다.
 - 필드별 상한:
