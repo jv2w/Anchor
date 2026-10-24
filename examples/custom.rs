@@ -71,6 +71,8 @@ const SHOP_AT: Vec3 = Vec3::new(0.5, -60.0, 2.5);
 const CLERIC: u8 = 7;
 /// The rubies `/ruby` gives without a count.
 const RUBIES: i32 = 8;
+/// The most rubies `/ruby` gives at once: one stack.
+const MAX_RUBIES: u8 = 64;
 /// One second: 20 ticks.
 const SECOND: NonZeroU32 = NonZeroU32::MIN.saturating_add(19);
 
@@ -171,8 +173,10 @@ fn ruby_command() -> Command {
             };
             let count = u8::try_from(args.int("count").unwrap_or(RUBIES))
                 .ok()
-                .filter(|n| (1..=64).contains(n))
-                .ok_or_else(|| command::Error::failed("Give a count from 1 to 64"))?;
+                .filter(|n| (1..=MAX_RUBIES).contains(n))
+                .ok_or_else(|| {
+                    command::Error::failed(format!("Give a count from 1 to {MAX_RUBIES}"))
+                })?;
             let ruby = cx
                 .custom_item(&RUBY)
                 .ok_or_else(|| command::Error::failed("This server has no rubies"))?;

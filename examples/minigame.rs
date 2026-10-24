@@ -225,7 +225,10 @@ fn after_round(cx: &mut Context<'_>, id: player::Id, answer: &Response) {
         or_log(player.kick("Thanks for playing!"));
         return;
     }
-    or_log(player.send(Message::Raw("Back to the lobby in 3 seconds".to_owned())));
+    or_log(player.send(Message::Raw(format!(
+        "Back to the lobby in {} seconds",
+        LOBBY_DELAY_TICKS / SECOND.get()
+    ))));
     or_log(cx.schedule(LOBBY_DELAY_TICKS, move |cx| {
         let lobby = cx.default_world();
         let (world, spawn) = (lobby.id(), lobby.spawn());

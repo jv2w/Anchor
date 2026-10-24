@@ -157,9 +157,10 @@ fn on_join(event: &mut PlayerJoin, cx: &mut Context<'_>) {
         event.set_join_message(format!("§a+ {}", player.name()));
         or_log(player.insert_extension(Life::default()));
         reset_kit(player);
-        or_log(player.send(Message::Raw(
-            "Welcome! /kit refills your arrows and food every 30 seconds".to_owned(),
-        )));
+        or_log(player.send(Message::Raw(format!(
+            "Welcome! /kit refills your arrows and food every {} seconds",
+            KIT_COOLDOWN_TICKS / 20
+        ))));
     }
     refresh_boards(cx, None);
 }
