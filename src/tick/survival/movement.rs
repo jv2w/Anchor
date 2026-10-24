@@ -806,9 +806,9 @@ pub(super) fn block_intersections(state: &mut State, session: SessionId) {
 }
 
 /// The blocks the player is inside act on it, on every move and in the base tick (PMMP
-/// `checkBlockIntersections` and the blocks' `onEntityInside`): the blocks that hurt ([`Harm`],
-/// as for entities), a burning player lights a campfire, water and water cauldrons put out fire,
-/// climbable blocks and cobwebs end a fall, wither roses wither.
+/// `checkBlockIntersections` and the blocks' `onEntityInside`): the blocks that hurt
+/// ([`crate::tick::entity::Harm`], as for entities), a burning player lights a campfire, water
+/// and water cauldrons put out fire, climbable blocks and cobwebs end a fall, wither roses wither.
 fn intersect(state: &mut State, session: SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;

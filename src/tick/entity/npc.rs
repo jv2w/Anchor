@@ -1059,7 +1059,7 @@ mod tests {
         assert_eq!(health(&h, z), 19.0);
     }
 
-    // pmmp: EntitySizeInfo::scale
+    // pmmp: Entity::getEyeHeight
     /// The scale multiplies the whole eye height, the 0.1 above half the height included.
     #[test]
     fn a_scaled_zombie_has_its_whole_eye_height_scaled() {

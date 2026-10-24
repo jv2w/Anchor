@@ -2230,8 +2230,8 @@ fn given(e: &mut Entity, runtime_id: u64) {
 }
 
 /// The entities that tick: in chunks within their world's `tick-radius` of a player of their
-/// world whose view is open (as blocks, [`view::tick_centres`]), with a runtime ID and not
-/// flagged, in `Id` order.
+/// world whose view is open (as blocks, [`super::view::tick_centres`]), with a runtime ID and
+/// not flagged, in `Id` order.
 fn ticking(state: &State) -> Vec<Id> {
     let entities = &state.rules.entities;
     let mut ids = Vec::new();
