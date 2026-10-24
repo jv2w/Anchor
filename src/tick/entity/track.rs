@@ -13,8 +13,8 @@ use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::{
     ABILITY_BASE_FLY_SPEED, ABILITY_BASE_VERTICAL_FLY_SPEED, ABILITY_BASE_WALK_SPEED, Ability,
-    AbilityLayerType, EntityDataFlag, EntityDataKey, GameType, MoveFlag, PermissionLevel,
-    PlayerListAction, PlayerLocationType, WINDOW_ID_INVENTORY, WINDOW_ID_OFF_HAND, WaypointAction,
+    AbilityLayerType, ArmSize, CommandPermissionLevel, EntityDataFlag, EntityDataKey, GameType,
+    MoveFlag, PermissionLevel, PlayerListAction, PlayerLocationType, WaypointAction,
 };
 use crate::protocol::packet::{
     AddActor, AddItemActor, AddPainting, AddPlayer, LocatorBar, MobArmourEquipment, MobEquipment,
@@ -26,6 +26,7 @@ use crate::protocol::{
     LocatorBarWaypoint, MetadataValue, PlayerListEntry, Rgba, Skin, Uuid, Waypoint,
     WaypointWorldPosition,
 };
+use crate::tick::inventory::{INVENTORY_WINDOW_BYTE, OFF_HAND_WINDOW_BYTE};
 use crate::tick::trade::{MAX_TIER, Offers};
 
 /// Ticks over which the client spreads a `MoveActorDelta`: BDS sends 0 for items, orbs and
@@ -380,7 +381,7 @@ pub(super) fn spawn(entity: &Entity) -> Vec<Packet> {
                     entity_unique_id: super::unique_id(entity.runtime_id),
                     // PMMP's permissions of a `Human`: a visitor with no ability.
                     player_permissions: PermissionLevel::Visitor.into(),
-                    command_permissions: 0,
+                    command_permissions: CommandPermissionLevel::Any.into(),
                     layers: vec![AbilityLayer {
                         r#type: AbilityLayerType::Base.into(),
                         abilities: 0,
@@ -454,7 +455,7 @@ fn npc_skin() -> Skin {
         skin_image_height: 32,
         skin_data: NPC_SKIN_COLOUR.repeat(64 * 32),
         geometry_data_engine_version: b"0.0.0".to_vec(),
-        arm_size: 1,
+        arm_size: ArmSize::Wide.into(),
         trusted: true,
         ..Skin::default()
     }
@@ -685,7 +686,7 @@ pub(super) fn add_player(p: Shown<'_>) -> Packet {
         ability_data: AbilityData {
             entity_unique_id: super::unique_id(p.runtime_id),
             player_permissions: PermissionLevel::Member.into(),
-            command_permissions: 0,
+            command_permissions: CommandPermissionLevel::Any.into(),
             layers: vec![AbilityLayer {
                 r#type: AbilityLayerType::Base.into(),
                 abilities: every_ability(),
@@ -840,7 +841,7 @@ pub(super) fn held(runtime_id: u64, stack: &Stack, slot: u8) -> Packet {
         new_item: instance(stack),
         inventory_slot: slot,
         hot_bar_slot: slot,
-        window_id: u8::try_from(WINDOW_ID_INVENTORY).unwrap_or(0),
+        window_id: INVENTORY_WINDOW_BYTE,
     }))
 }
 
@@ -851,7 +852,7 @@ pub(super) fn off_hand(runtime_id: u64, stack: &Stack) -> Packet {
         new_item: instance(stack),
         inventory_slot: 0,
         hot_bar_slot: 0,
-        window_id: u8::try_from(WINDOW_ID_OFF_HAND).unwrap_or(0),
+        window_id: OFF_HAND_WINDOW_BYTE,
     }))
 }
 

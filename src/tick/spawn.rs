@@ -34,7 +34,7 @@ use crate::math::Vec3;
 use crate::player::{self, Message as Text};
 use crate::pool::Pool;
 use crate::protocol::consts::{
-    self, DisconnectReason, GameType, Generator, PermissionLevel, SpawnType,
+    self, DisconnectReason, GameType, Generator, PermissionLevel, PlayerListAction, SpawnType,
 };
 use crate::protocol::packet::{
     self, AvailableActorIdentifiers, ChunkRadiusUpdated, CurrentStructureFeature, Disconnect,
@@ -650,7 +650,7 @@ fn spawn_window(
 /// login, unchanged.
 fn list_entry(player: &Player) -> PlayerListEntry {
     PlayerListEntry {
-        action_type: 0,
+        action_type: PlayerListAction::Add.into(),
         uuid: player.identity.uuid,
         entity_unique_id: super::entity::unique_id(player.runtime_id),
         username: player.identity.name.clone(),
@@ -696,7 +696,7 @@ pub(super) fn left(state: &mut State, player: &mut Player) {
     }
     let packet = Packet::PlayerList(PlayerList {
         entries: vec![PlayerListEntry {
-            action_type: 1,
+            action_type: PlayerListAction::Remove.into(),
             uuid: player.identity.uuid,
             ..PlayerListEntry::default()
         }],

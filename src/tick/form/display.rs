@@ -14,7 +14,7 @@ use crate::display::{
     BossBar, Error, Holder, MAX_LINES, MAX_SIDEBAR_LINES, MAX_TEXT, Result, Scoreboard, Slot, Sort,
 };
 use crate::player;
-use crate::protocol::consts::{BossEventType, ScoreboardIdentity};
+use crate::protocol::consts::{BossEventOverlay, BossEventType, ScoreboardIdentity};
 use crate::protocol::packet::{BossEvent, Packet, RemoveObjective, SetDisplayObjective, SetScore};
 use crate::protocol::{BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN, ScoreboardEntry};
 
@@ -279,7 +279,7 @@ impl Context<'_> {
                 filtered_boss_bar_title: String::new(),
                 health_percentage: bar.progress,
                 colour: bar.colour.into(),
-                overlay: 0,
+                overlay: BossEventOverlay::Progress.into(),
             })
         };
         match &open.display.bar {
@@ -315,7 +315,7 @@ impl Context<'_> {
                 filtered_boss_bar_title: String::new(),
                 health_percentage: old.progress,
                 colour: old.colour.into(),
-                overlay: 0,
+                overlay: BossEventOverlay::Progress.into(),
             }));
         }
         true

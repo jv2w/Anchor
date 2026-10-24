@@ -10,7 +10,7 @@ use crate::crypto::{
     Algorithm, PublicKey, STD, Verifier, bounded_vec, is_object_or_null, parse_jws, verify_jws,
 };
 use crate::entity::MAX_SKIN_BYTES;
-use crate::protocol::consts::PieceType;
+use crate::protocol::consts::{ArmSize, PieceType};
 use crate::protocol::{self, Rgba};
 
 /// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
@@ -237,7 +237,7 @@ impl ClientData {
             cape_id: self.cape_id.clone(),
             full_id: format!("{}{}", self.skin_id, self.cape_id),
             skin_colour: colour(&self.skin_colour),
-            arm_size: u8::from(self.arm_size != "slim"),
+            arm_size: arm_size(&self.arm_size).into(),
             persona_pieces: self
                 .persona_pieces
                 .iter()
@@ -394,6 +394,15 @@ fn piece_type(name: &str) -> u32 {
         .find(|(t, _)| *t == name)
         .map_or(PieceType::Unknown, |&(_, piece_type)| piece_type);
     u32::from(piece_type)
+}
+
+/// The arm size the login data names: slim, or wide for anything else.
+fn arm_size(name: &str) -> ArmSize {
+    if name == "slim" {
+        ArmSize::Slim
+    } else {
+        ArmSize::Wide
+    }
 }
 
 /// A colour of the login data: `#AARRGGBB`, or `#RRGGBB` (opaque) as the skin colour is sent

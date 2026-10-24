@@ -93,6 +93,21 @@ const UI_GRID: u8 = 28;
 const UI_TABLE: u8 = 32;
 /// The UI slot of the created output (container 60).
 const UI_CREATED_OUTPUT: u8 = 50;
+/// The inventory and off hand window IDs as the byte `MobEquipment` and `PlayerHotBar` carry.
+pub(super) const INVENTORY_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_INVENTORY);
+pub(super) const OFF_HAND_WINDOW_BYTE: u8 = window_byte(WINDOW_ID_OFF_HAND);
+
+/// A window ID as a byte; only the constants above use it, so an ID that does not fit fails the
+/// build.
+const fn window_byte(id: u32) -> u8 {
+    assert!(id < 256, "the window ID fits a byte");
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "invariant: the assertion above keeps the ID within a byte"
+    )]
+    let byte = id as u8;
+    byte
+}
 /// UI slots of the station windows (PMMP `UIInventorySlotOffset`).
 const UI_ANVIL: u8 = 1;
 const UI_STONECUTTER: u8 = 3;
@@ -1459,7 +1474,7 @@ pub(super) fn spawn_packets(player: &Player, out: &mut Vec<Packet>) {
 fn hotbar_packet(slot: u8) -> Packet {
     Packet::PlayerHotBar(PlayerHotBar {
         selected_hot_bar_slot: u32::from(slot),
-        window_id: 0,
+        window_id: INVENTORY_WINDOW_BYTE,
         select_hot_bar_slot: true,
     })
 }
@@ -1538,7 +1553,7 @@ fn send_held(player: &mut Player, tick: u64) {
         new_item: slot.stack.to_instance(slot.id.net),
         inventory_slot: held,
         hot_bar_slot: held,
-        window_id: 0,
+        window_id: INVENTORY_WINDOW_BYTE,
     })));
     player.inventory.held_answer = Some((tick, held, slot));
 }

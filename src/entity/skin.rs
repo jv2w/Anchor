@@ -131,7 +131,7 @@ impl Skin {
             cape_data: self.cape.clone(),
             skin_geometry: self.geometry_data.clone(),
             geometry_data_engine_version: b"0.0.0".to_vec(),
-            arm_size: 1,
+            arm_size: protocol::consts::ArmSize::Wide.into(),
             trusted: true,
             ..protocol::Skin::default()
         }
