@@ -3203,16 +3203,6 @@ fn targetable(state: &State, player: &Player, world: WorldIndex, hooks: Hooks) -
     player.world == world && collects(state, player, hooks)
 }
 
-/// A player's box (PMMP `Human`: feet at the eye position less 1.62).
-fn player_box(player: &Player) -> Aabb {
-    let feet = player.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
-    let half = PLAYER_WIDTH / 2.0;
-    Aabb::new(
-        Vec3::new(feet.x - half, feet.y, feet.z - half),
-        Vec3::new(feet.x + half, feet.y + PLAYER_HEIGHT, feet.z + half),
-    )
-}
-
 /// An orb's tick (PMMP `ExperienceOrb::entityBaseTick`): despawning, following the nearest
 /// player within 8 blocks, and giving it the experience on touch.
 fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
@@ -3277,7 +3267,7 @@ fn orb_tick(state: &mut State, id: Id, hooks: Hooks) {
             let k = 1.0 - distance.sqrt();
             pull = vector.normalize() * (0.2 * k * k);
         }
-        if bounds.overlaps(player_box(p), EPSILON) {
+        if bounds.overlaps(survival::bounding_box(p), EPSILON) {
             picker = target;
         }
     }
@@ -3442,7 +3432,9 @@ fn landed(state: &mut State, id: Id, fall: f64, hits: &mut Vec<(SessionId, f64)>
     if fallen > 0.0 {
         let damage = crate::math::min(fallen * ANVIL_DAMAGE_PER_BLOCK, ANVIL_MAX_DAMAGE);
         for (&s, p) in &state.players {
-            if targetable(state, p, world, hooks) && player_box(p).overlaps(bounds, EPSILON) {
+            if targetable(state, p, world, hooks)
+                && survival::bounding_box(p).overlaps(bounds, EPSILON)
+            {
                 hits.push((s, damage));
             }
         }
@@ -3509,7 +3501,7 @@ fn pick_up(state: &mut State, hooks: Hooks) {
             continue;
         };
         let (world, runtime_id) = (player.world, player.runtime_id);
-        let reach = player_box(player).grow(PICKUP_REACH);
+        let reach = survival::bounding_box(player).grow(PICKUP_REACH);
         let mut taken = 0;
         for id in state.rules.entities.nearby(world, reach) {
             if taken >= MAX_PICKUPS_PER_PLAYER {
@@ -3577,7 +3569,7 @@ fn pick_up_heard(state: &mut State, session: SessionId, id: Id, hooks: Hooks) ->
             return None;
         };
         let player = state.players.get(&session)?;
-        let reach = player_box(player).grow(PICKUP_REACH);
+        let reach = survival::bounding_box(player).grow(PICKUP_REACH);
         if item.pickup_delay != 0
             || !collects(state, player, hooks)
             || player.world != e.world
@@ -4291,7 +4283,9 @@ pub(super) fn occupied(state: &State, world: WorldIndex, area: Aabb) -> bool {
     });
     entity
         || state.players.values().any(|p| {
-            p.world == world && collects(state, p, HOOKS) && player_box(p).intersects(area)
+            p.world == world
+                && collects(state, p, HOOKS)
+                && survival::bounding_box(p).intersects(area)
         })
 }
 
@@ -4345,7 +4339,7 @@ pub(super) fn boxes_in(state: &State, world: WorldIndex, area: Aabb) -> Vec<Aabb
             .players
             .values()
             .filter(|p| p.world == world && p.phase == Phase::Spawned)
-            .map(player_box)
+            .map(survival::bounding_box)
             .filter(|b| b.overlaps(area, EPSILON)),
     );
     boxes
@@ -5140,6 +5134,44 @@ mod tests {
         });
         assert!(take.unwrap() < remove.unwrap());
         assert_eq!(taken(), 10);
+    }
+
+    /// A player's box is the one of its pose (PMMP `Living::recalculateSize`): sneaking 1.49
+    /// high, swimming 0.6, so it picks up less high than standing (1.8).
+    #[test]
+    fn a_sneaking_or_swimming_player_picks_up_within_its_lower_box() {
+        for (height_above_feet, pose) in [(2.1, "sneaking"), (1.2, "swimming")] {
+            let mut h = Harness::with_config(1, Listeners::default(), |c| {
+                c.developer.item_pickup_interval = 1;
+            });
+            h.spawn(1, standing(0.0, 0.0));
+            room(64);
+            assert!(drop_item_with(
+                &mut h.state,
+                0,
+                at(0.5, -60.0 + height_above_feet, 0.5),
+                stack("minecraft:stick", 1),
+                Some(Vec3::ZERO),
+                0
+            ));
+            let id = h.state.rules.entities.ids().last().unwrap();
+            with(&mut h.state, id, |e| e.gravity = false);
+            let player = h.state.players.get_mut(&SessionId::new(1)).unwrap();
+            if pose == "sneaking" {
+                player.set_sneaking(true);
+            } else {
+                player.set_swimming(true);
+            }
+            for _ in 0..3 {
+                h.entities();
+            }
+            assert_eq!(h.ground(), 1, "{pose}: above its box");
+            let player = h.state.players.get_mut(&SessionId::new(1)).unwrap();
+            player.set_sneaking(false);
+            player.set_swimming(false);
+            h.entities();
+            assert_eq!(h.ground(), 0, "standing: within its box");
+        }
     }
 
     #[test]

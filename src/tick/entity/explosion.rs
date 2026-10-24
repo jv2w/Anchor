@@ -27,7 +27,7 @@ use super::super::{SessionId, dispatch, interact};
 use super::kind::{Kind, MAX_FUSE, Tnt};
 use super::{
     Blow, Budget, Cause, EYE_HEIGHT, Hooks, Knock, Raise, State, create, hurt, hurt_in,
-    is_valid_explosion, level_event, level_of, physics, player_box, push_entity, targetable, with,
+    is_valid_explosion, level_event, level_of, physics, push_entity, survival, targetable, with,
 };
 use crate::block::{self, Class, Face, SupportType};
 use crate::entity::Id;
@@ -588,11 +588,11 @@ fn hit_entities(
     }
     let mut players: Vec<(SessionId, f64, Vec3)> = Vec::new();
     for (&s, p) in &state.players {
-        if !targetable(state, p, world, hooks) || !player_box(p).overlaps(area, super::EPSILON) {
+        let bounds = survival::bounding_box(p);
+        if !targetable(state, p, world, hooks) || !bounds.overlaps(area, super::EPSILON) {
             continue;
         }
-        let feet = p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
-        if let Some(impact) = impact(w, center, reach, feet, player_box(p)) {
+        if let Some(impact) = impact(w, center, reach, survival::feet(p), bounds) {
             players.push((s, impact.0, impact.1));
         }
     }
@@ -1064,8 +1064,7 @@ mod tests {
         let e = h.state.rules.entities.get(hidden).unwrap();
         let hidden_damage = expected(&h, e.body.position, e.bounding_box());
         let p = &h.state.players[&SessionId::new(1)];
-        let feet = p.position - Vec3::new(0.0, EYE_HEIGHT, 0.0);
-        let player_damage = expected(&h, feet, player_box(p));
+        let player_damage = expected(&h, survival::feet(p), survival::bounding_box(p));
         size_four(&mut h, center);
         let health = |h: &Harness, id: Id| h.state.rules.entities.get(id).unwrap().health;
         assert_eq!(health(&h, npc), 20.0 - npc_damage);

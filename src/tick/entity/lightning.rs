@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 
 use super::explosion::set_fire;
 use super::kind::Cause;
-use super::{EPSILON, HOOKS, chunk_of, hurt_in, is_valid_position, player_box, targetable, with};
+use super::{EPSILON, HOOKS, chunk_of, hurt_in, is_valid_position, targetable, with};
 use crate::block;
 use crate::config::Difficulty;
 use crate::entity::Id;
@@ -214,7 +214,7 @@ fn hurt(state: &mut State, world: WorldIndex, at: Vec3) {
         .players
         .iter()
         .filter(|(_, p)| {
-            targetable(state, p, world, HOOKS) && player_box(p).overlaps(area, EPSILON)
+            targetable(state, p, world, HOOKS) && survival::bounding_box(p).overlaps(area, EPSILON)
         })
         .map(|(&s, _)| s)
         .collect();

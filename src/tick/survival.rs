@@ -918,6 +918,12 @@ pub(super) fn feet(player: &Player) -> Vec3 {
     Vec3::new(round(f.x), round(f.y), round(f.z))
 }
 
+/// The player's box: its pose's size around its feet (PMMP `Entity::$boundingBox`, which
+/// `Living::recalculateSize` sizes); the one box the survival and the entity rules use.
+pub(super) fn bounding_box(player: &Player) -> crate::math::Aabb {
+    movement::bounding_box(&player.survival, feet(player))
+}
+
 /// `v` as the `f32` a packet carries.
 const fn f32_of(v: f64) -> f32 {
     #[expect(

@@ -26,7 +26,7 @@ use super::physics::{BlockHit, Flight, intercept};
 use super::{
     Blow, Cause, EYE_HEIGHT, Entity, Hooks, Hurt, Knock, PLAYER_HEIGHT, Raise, State, combust,
     create, direction, discard, heal, hurt, is_live, level_event, level_of, pickup_event,
-    player_actor, player_box, push_entity, send_to, targetable, with, worn,
+    player_actor, push_entity, send_to, targetable, with, worn,
 };
 use crate::block::{self, Face, TypeTag};
 use crate::config::GameMode;
@@ -477,12 +477,13 @@ pub(super) fn hit(
         });
         for (&session, player) in &state.players {
             if !targetable(state, player, world, hooks)
-                || !player_box(player).overlaps(area, super::EPSILON)
+                || !survival::bounding_box(player).overlaps(area, super::EPSILON)
                 || (owner == Some(session) && (trident || age < OWNER_GRACE_TICKS))
             {
                 continue;
             }
-            let reach = player_box(player).grow(Vec3::new(HIT_REACH, HIT_REACH, HIT_REACH));
+            let reach =
+                survival::bounding_box(player).grow(Vec3::new(HIT_REACH, HIT_REACH, HIT_REACH));
             if let Some((point, _)) = intercept(reach, start, end) {
                 let d = start.distance_squared(point);
                 if d < best {
@@ -1088,7 +1089,8 @@ fn living_in(state: &State, world: usize, area: Aabb, except: Id, hooks: Hooks) 
             .players
             .iter()
             .filter(|(_, p)| {
-                targetable(state, p, world, hooks) && player_box(p).overlaps(area, super::EPSILON)
+                targetable(state, p, world, hooks)
+                    && survival::bounding_box(p).overlaps(area, super::EPSILON)
             })
             .map(|(&s, _)| Struck::Player(s)),
     );
@@ -1111,7 +1113,7 @@ fn eye_of(state: &State, target: Struck) -> Option<Vec3> {
 /// beside the body.
 fn duration_share(state: &State, target: Struck, at: Vec3) -> f64 {
     let b = match target {
-        Struck::Player(s) => state.players.get(&s).map(player_box),
+        Struck::Player(s) => state.players.get(&s).map(survival::bounding_box),
         Struck::Entity(id) => state
             .rules
             .entities
