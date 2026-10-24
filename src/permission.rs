@@ -213,9 +213,7 @@ impl BanEntry {
         if self.ip.is_none() {
             check_name(&self.name)?;
         }
-        if self.reason.len() > MAX_REASON || self.source.len() > MAX_SOURCE {
-            return Err(Error::TooLong);
-        }
+        check_ban_fields(&self.reason, &self.source)?;
         self.created = tick;
         Ok(self)
     }
@@ -244,6 +242,15 @@ impl BanEntry {
 pub(crate) fn check_name(name: &str) -> Result<()> {
     if name.is_empty() || name.len() > MAX_NAME || name.chars().any(char::is_control) {
         return Err(Error::InvalidName);
+    }
+    Ok(())
+}
+
+/// Fails unless a ban's `reason` is at most [`MAX_REASON`] bytes and its `source` at most
+/// [`MAX_SOURCE`].
+pub(crate) fn check_ban_fields(reason: &str, source: &str) -> Result<()> {
+    if reason.len() > MAX_REASON || source.len() > MAX_SOURCE {
+        return Err(Error::TooLong);
     }
     Ok(())
 }

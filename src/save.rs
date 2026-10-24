@@ -1214,8 +1214,8 @@ fn read_access(storage: &mut Storage) -> Result<AccessData, storage::Error> {
             }
             AccessKind::Ban | AccessKind::IpBan => {
                 let record: BanRecord = unseal(&bytes, &sealed)?;
-                if record.source.len() > permission::MAX_SOURCE {
-                    return Err(storage::Error::Malformed("ban source"));
+                if permission::check_ban_fields(&record.reason, &record.source).is_err() {
+                    return Err(storage::Error::Malformed("ban reason or source"));
                 }
                 let entry = BanEntry::from_parts(
                     name,

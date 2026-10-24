@@ -26,6 +26,9 @@ pub(crate) const MIN_SUB_CHUNK: i8 = -4;
 pub(crate) const MAX_LAYERS: usize = 2;
 /// Longest name a record holds (a player's world, a ban's reason and source), in bytes.
 pub(crate) const MAX_NAME: usize = 256;
+// A ban the list takes can be stored.
+const _: () =
+    assert!(crate::permission::MAX_REASON <= MAX_NAME && crate::permission::MAX_SOURCE <= MAX_NAME);
 /// The most bytes a player's extra compound takes: what its record holds after the longest world
 /// name and the position. It holds up to 146 stacks and the user's data, more
 /// than the 4 MiB of one NBT root elsewhere; the record's reader budget covers it
