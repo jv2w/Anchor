@@ -41,8 +41,8 @@ pub(super) fn on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     }
 }
 
-/// PMMP `canBeSupportedAt` of the classes whose support is a fixed rule of their neighbours
-/// (`StaticSupportTrait` and the checks of the same kind): whether `block` at `pos` stands, with
+/// PMMP `canBeSupportedAt` of the classes with `StaticSupportTrait` ([`Trait::StaticSupport`]):
+/// whether `block` at `pos` stands, with
 /// `get` reading the blocks around it. `None` for another class, or when `get` has no block the
 /// rule needs. Placement and the block update rules share it, each with its own reader.
 #[expect(
@@ -461,5 +461,24 @@ pub(super) fn bed_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State)
         && let Some(next) = props::with_flag(block, "occupied_bit", theirs)
     {
         cx.set(pos, next);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The rules of [`static_support`] and the classes PMMP gives `StaticSupportTrait` are the
+    /// same set: placement picks the rule by the trait.
+    #[test]
+    fn static_support_rules_cover_exactly_the_static_support_trait() {
+        let pos = BlockPos::new(0, 10, 0);
+        for s in block::State::all() {
+            assert_eq!(
+                s.has_trait(Trait::StaticSupport),
+                static_support(s, pos, |_| Some(block::AIR)).is_some(),
+                "{s:?}"
+            );
+        }
     }
 }

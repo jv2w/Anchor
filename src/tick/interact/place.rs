@@ -238,7 +238,7 @@ fn can_be_placed_at(ctx: &Context<'_>, state: State) -> bool {
             Class::Light => {
                 return replace.can_be_replaced() && replace.kind() != state.kind();
             }
-            _ if uses_static_support(*class) => {
+            _ if state.has_trait(Trait::StaticSupport) => {
                 return supported_at(ctx, state) && flowable_placeable(state, replace);
             }
             Class::Flowable => return flowable_placeable(state, replace),
@@ -255,48 +255,6 @@ fn flowable_placeable(state: State, replace: State) -> bool {
         return false;
     }
     replace.can_be_replaced()
-}
-
-/// The PMMP classes that use `StaticSupportTrait` (their `canBePlacedAt` checks support).
-fn uses_static_support(class: Class) -> bool {
-    matches!(
-        class,
-        Class::Bamboo
-            | Class::BambooSapling
-            | Class::BaseCake
-            | Class::Azalea
-            | Class::Cactus
-            | Class::CactusFlower
-            | Class::Carpet
-            | Class::CaveVines
-            | Class::CeilingCenterHangingSign
-            | Class::ChorusFlower
-            | Class::ChorusPlant
-            | Class::DeadBush
-            | Class::Crops
-            | Class::Coral
-            | Class::FlowerPot
-            | Class::Flower
-            | Class::FloorCoralFan
-            | Class::HangingRoots
-            | Class::NetherFungus
-            | Class::NetherVines
-            | Class::PressurePlate
-            | Class::NetherSprouts
-            | Class::NetherWartPlant
-            | Class::RedstoneRepeater
-            | Class::RedstoneWire
-            | Class::RedstoneComparator
-            | Class::PitcherCrop
-            | Class::NetherRoots
-            | Class::Sapling
-            | Class::SporeBlossom
-            | Class::Sugarcane
-            | Class::TorchflowerCrop
-            | Class::TallGrass
-            | Class::SweetBerryBush
-            | Class::WitherRose
-    )
 }
 
 /// PMMP `canBeSupportedAt` of the state's class, at the replaced position ([`update::static_support`]
