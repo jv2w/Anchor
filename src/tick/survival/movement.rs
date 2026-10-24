@@ -24,7 +24,7 @@ use crate::player::Id;
 use crate::protocol::consts::{InputFlag, MoveMode, PlayerAction as Action, SoundEvent};
 use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput};
 use crate::protocol::{FlagSet, TeleportData};
-use crate::tick::entity::{Harm, INSIDE_INSET, MOTION_THRESHOLD};
+use crate::tick::entity::{INSIDE_INSET, MOTION_THRESHOLD, Touch};
 use crate::tick::{
     Phase, Player, SessionId, State, dispatch, entity, inside_border, interact, update,
 };
@@ -843,7 +843,8 @@ pub(super) fn end_tick(player: &mut Player) {
 
 /// What one block does to a player inside it.
 fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::State) {
-    if let Some(harm) = Harm::of(block) {
+    let touch = Touch::of(block);
+    if let Some(Touch::Harm(harm)) = touch {
         if harm.ends_fall() {
             reset_fall(state, session);
         }
@@ -861,8 +862,7 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             let source = CombustSource::Block(pos);
             damage::combust(state, session, u32::from(seconds), source);
         }
-    } else if block.is(Class::Campfire) {
-        // An unlit one: a lit one is a `Harm`.
+    } else if touch == Some(Touch::Campfire) {
         if let Some(player) = state
             .players
             .get(&session)
@@ -871,7 +871,7 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
             let world = player.world;
             interact::light_campfire(state, world, pos, block);
         }
-    } else if block.is(Class::Water) {
+    } else if touch == Some(Touch::Water) {
         reset_fall(state, session);
         let mut out = false;
         if let Some(player) = state.players.get_mut(&session) {
@@ -884,7 +884,7 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
         if out {
             damage::extinguished(state, session, ExtinguishCause::Water);
         }
-    } else if block.is(Class::WaterCauldron) {
+    } else if touch == Some(Touch::WaterCauldron) {
         let Some(player) = state
             .players
             .get_mut(&session)
@@ -908,11 +908,7 @@ fn inside(state: &mut State, session: SessionId, pos: BlockPos, block: block::St
                 player.survival.motion.on_ground = true;
             }
         }
-    } else if block.is(Class::Cobweb)
-        || block.is(Class::Vine)
-        || block.is(Class::CaveVines)
-        || block.is(Class::NetherVines)
-    {
+    } else if touch == Some(Touch::EndsFall) {
         reset_fall(state, session);
     } else if block.is(Class::WitherRose) {
         let withered = state

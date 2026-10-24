@@ -186,6 +186,46 @@ impl Harm {
     }
 }
 
+/// What a block does to what is inside it (PMMP `onEntityInside`), besides the player-only
+/// ladders and wither roses: the one rule for players and entities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::tick) enum Touch {
+    /// It hurts ([`Harm`]).
+    Harm(Harm),
+    /// An unlit campfire: something burning lights it.
+    Campfire,
+    /// Water: puts fire out and ends the fall.
+    Water,
+    /// A water cauldron: puts fire out for a level of its water.
+    WaterCauldron,
+    /// A cobweb or a vine: ends the fall.
+    EndsFall,
+}
+
+impl Touch {
+    /// What `block` does to what is inside it, `None` if nothing for both players and entities.
+    pub(in crate::tick) fn of(block: block::State) -> Option<Self> {
+        if let Some(harm) = Harm::of(block) {
+            Some(Self::Harm(harm))
+        } else if block.is(Class::Campfire) {
+            // An unlit one: a lit one is a `Harm`.
+            Some(Self::Campfire)
+        } else if block.is(Class::Water) {
+            Some(Self::Water)
+        } else if block.is(Class::WaterCauldron) {
+            Some(Self::WaterCauldron)
+        } else if block.is(Class::Cobweb)
+            || block.is(Class::Vine)
+            || block.is(Class::CaveVines)
+            || block.is(Class::NetherVines)
+        {
+            Some(Self::EndsFall)
+        } else {
+            None
+        }
+    }
+}
+
 /// Whether the block at the eyes `eye` is an opaque solid one whose collision boxes overlap
 /// `bounds` (PMMP `Entity::isInsideOfSolid`): the one rule for players and entities.
 pub(in crate::tick) fn is_inside_solid(world: &World, eye: Vec3, bounds: Aabb) -> bool {
@@ -831,27 +871,23 @@ fn intersect(world: &World, physics: &Physics, body: &mut Body, inside: &mut Vec
                     continue;
                 }
                 let pos = BlockPos::new(x, y, z);
-                if let Some(harm) = Harm::of(state) {
-                    inside.push(Inside::Harm(harm, pos));
-                    // What ends the fall of everything ends it here; a living thing's, in the
-                    // serial phase, which knows what is living.
-                    if harm.ends_fall() && !harm.living_only() {
+                match Touch::of(state) {
+                    Some(Touch::Harm(harm)) => {
+                        inside.push(Inside::Harm(harm, pos));
+                        // What ends the fall of everything ends it here; a living thing's, in
+                        // the serial phase, which knows what is living.
+                        if harm.ends_fall() && !harm.living_only() {
+                            body.fall_distance = 0.0;
+                        }
+                    }
+                    Some(Touch::Campfire) => inside.push(Inside::Campfire(pos)),
+                    Some(Touch::Water) => {
+                        inside.push(Inside::Water);
                         body.fall_distance = 0.0;
                     }
-                } else if state.is(Class::Campfire) {
-                    // An unlit one: a lit one is a `Harm`.
-                    inside.push(Inside::Campfire(pos));
-                } else if state.is(Class::Water) {
-                    inside.push(Inside::Water);
-                    body.fall_distance = 0.0;
-                } else if state.is(Class::WaterCauldron) {
-                    inside.push(Inside::WaterCauldron(pos));
-                } else if state.is(Class::Cobweb)
-                    || state.is(Class::Vine)
-                    || state.is(Class::CaveVines)
-                    || state.is(Class::NetherVines)
-                {
-                    body.fall_distance = 0.0;
+                    Some(Touch::WaterCauldron) => inside.push(Inside::WaterCauldron(pos)),
+                    Some(Touch::EndsFall) => body.fall_distance = 0.0,
+                    None => {}
                 }
                 if physics.currents && state.is(Class::Liquid) {
                     push += flow(world, x, y, z, state);

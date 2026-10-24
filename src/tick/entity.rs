@@ -87,7 +87,8 @@ use self::kind::{Cloud, Crystal, Firework, Painting, Projectile, Shot, Tnt};
 pub(super) use self::object::Placed;
 use self::physics::{Body, Inside, Step};
 pub(super) use self::physics::{
-    Harm, INSIDE_INSET, MOTION_THRESHOLD, cells_along, collisions, is_inside_solid, liquid_depth,
+    Harm, INSIDE_INSET, MOTION_THRESHOLD, Touch, cells_along, collisions, is_inside_solid,
+    liquid_depth,
 };
 pub(super) use self::pick::on_actor_pick_request;
 pub(super) use self::track::locator_life;
