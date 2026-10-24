@@ -366,7 +366,7 @@ pub(super) fn broadcast(state: &mut State, message: Message) -> Result<usize> {
 pub(super) fn broadcast_packets(state: &mut State, packets: &Packets) -> usize {
     let mut count = 0;
     for player in state.players.values_mut() {
-        if player.phase == Phase::Loading || !player.is_online() {
+        if !player.gets_broadcasts() {
             continue;
         }
         for packet in packets.iter().flatten() {
@@ -588,6 +588,12 @@ impl Player {
     #[doc(alias = "Player::isConnected")]
     pub fn is_online(&self) -> bool {
         self.marks.leave.is_none()
+    }
+
+    /// Whether the player gets what goes to everyone in the game (chat, join and quit messages,
+    /// skins): joined (its saved data has loaded) and not leaving.
+    pub(crate) fn gets_broadcasts(&self) -> bool {
+        self.phase != Phase::Loading && self.is_online()
     }
 
     /// The world the player is in.

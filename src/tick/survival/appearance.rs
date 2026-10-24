@@ -196,7 +196,7 @@ pub(super) fn send_skin(state: &mut State, session: SessionId, budget: &mut usiz
     *budget = left;
     let packet = Arc::new(skin_packet(player.identity.uuid, &player.identity.skin));
     for p in state.players.values_mut() {
-        if p.phase != Phase::Loading && p.is_online() {
+        if p.gets_broadcasts() {
             p.send_shared(Arc::clone(&packet));
         }
     }

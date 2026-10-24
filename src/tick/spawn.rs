@@ -1265,7 +1265,7 @@ pub(super) fn tell_others(state: &mut State, session: SessionId, message: Text) 
         }
     };
     for (&s, p) in &mut state.players {
-        if s != session && p.phase != Phase::Loading && p.is_online() {
+        if s != session && p.gets_broadcasts() {
             for packet in packets.iter().flatten() {
                 p.send_packet(packet.clone());
             }

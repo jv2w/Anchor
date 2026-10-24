@@ -211,7 +211,7 @@ fn say(state: &mut State, session: SessionId, line: String) {
     let recipients = state
         .players
         .values()
-        .filter(|p| p.phase != Phase::Loading && p.is_online())
+        .filter(|p| p.gets_broadcasts())
         .map(crate::player::Player::id)
         .collect();
     let mut event = PlayerChat {
@@ -286,7 +286,7 @@ fn online(state: &State, id: Id) -> Option<&crate::player::Player> {
     state
         .players
         .get(&id.session())
-        .filter(|p| p.phase != Phase::Loading && p.is_online())
+        .filter(|p| p.gets_broadcasts())
 }
 
 /// `format` with `{%0}` replaced by `name` and `{%1}` by `message` in one pass (PMMP
