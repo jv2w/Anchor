@@ -687,7 +687,7 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
         ("maxCommandChainLength", Uint32(65_535)),
         ("doInsomnia", Bool(false)),
         ("commandBlocksEnabled", Bool(false)),
-        ("randomTickSpeed", Uint32(settings.random_tick_speed)),
+        (RANDOM_TICK_SPEED, Uint32(settings.random_tick_speed)),
         ("doImmediateRespawn", Bool(false)),
         ("showDeathMessages", Bool(false)),
         ("functionCommandLimit", Uint32(10_000)),
@@ -704,12 +704,27 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
     Packet::GameRulesChanged(GameRulesChanged {
         game_rules: rules
             .into_iter()
-            .map(|(name, value)| GameRule {
-                name: name.to_owned(),
-                can_be_modified_by_player: true,
-                value,
-            })
+            .map(|(name, value)| rule(name, value))
             .collect(),
+    })
+}
+
+/// The game rule that sets random block ticks per sub-chunk per tick.
+const RANDOM_TICK_SPEED: &str = "randomTickSpeed";
+
+/// A game rule as the client gets it.
+fn rule(name: &str, value: GameRuleValue) -> GameRule {
+    GameRule {
+        name: name.to_owned(),
+        can_be_modified_by_player: true,
+        value,
+    }
+}
+
+/// The packet that tells a player the random tick speed is now `speed`.
+pub(in crate::tick) fn random_tick_speed_changed(speed: u32) -> Packet {
+    Packet::GameRulesChanged(GameRulesChanged {
+        game_rules: vec![rule(RANDOM_TICK_SPEED, GameRuleValue::Uint32(speed))],
     })
 }
 

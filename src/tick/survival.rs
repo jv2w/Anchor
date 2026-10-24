@@ -47,7 +47,8 @@ use crate::world::{BlockPos, Weather, World};
 pub(super) use api::{marked, sync};
 pub(super) use appearance::SKIN_BYTES_PER_TICK;
 pub(super) use attributes::{
-    adventure_settings, all_attributes, full_metadata, game_rules, update_abilities,
+    adventure_settings, all_attributes, full_metadata, game_rules, random_tick_speed_changed,
+    update_abilities,
 };
 pub(super) use clock::{
     Clock, clock_definition, clock_state, day_cycle_lock_time, sleeping_players,

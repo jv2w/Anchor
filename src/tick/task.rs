@@ -7,8 +7,8 @@
 //! of them runs only in the tick's serial step, so a replay of the input log runs them at the
 //! same points with the same state.
 //!
-//! The villager and game rule methods (`spawn_villager`, `set_random_tick_speed`) are a thin
-//! call into the rule module that owns the state.
+//! The villager and game rule methods (`spawn_villager`, `set_random_tick_speed`) take the NPC
+//! and the game rule packet from the rule modules that own them.
 
 #[cfg(test)]
 mod crash;
@@ -27,12 +27,12 @@ use self::data::registered;
 pub(super) use self::data::{PlayerUser, placed, player_saved, save_player};
 pub(super) use self::job::finish;
 use super::queue::{Control, InputSender, SessionId};
-use super::{Phase, State, entity, player, trade};
+use super::{Phase, State, entity, player, survival, trade};
 use crate::config::{Difficulty, GameMode, RANDOM_TICK_SPEED};
 use crate::math::Vec3;
 use crate::player::{Id as PlayerId, Message, Player, Result as PlayerResult};
-use crate::protocol::packet::{GAME_VERSION, GameRulesChanged, Packet};
-use crate::protocol::{GameRule, GameRuleValue, Uuid};
+use crate::protocol::Uuid;
+use crate::protocol::packet::GAME_VERSION;
 use crate::world::World;
 
 /// What a task or a listener can see and change: the engine time, the server, the worlds, the
@@ -372,13 +372,7 @@ impl Context<'_> {
             return false;
         }
         self.state.settings.random_tick_speed = speed;
-        let packet = Packet::GameRulesChanged(GameRulesChanged {
-            game_rules: vec![GameRule {
-                name: "randomTickSpeed".to_owned(),
-                can_be_modified_by_player: true,
-                value: GameRuleValue::Uint32(speed),
-            }],
-        });
+        let packet = survival::random_tick_speed_changed(speed);
         // A player still loading gets the rule in its spawn window (`survival::game_rules`); a
         // joined one whose window has not gone out yet gets it twice, which does no harm.
         for p in self.state.players.values_mut() {
@@ -506,7 +500,7 @@ mod tests {
     use crate::event::Listeners;
     use crate::item::{Stack, Type};
     use crate::nbt::Compound;
-    use crate::protocol::Uuid;
+    use crate::protocol::{GameRuleValue, Uuid};
     use crate::tick::queue::SessionId;
     use crate::tick::queue::{Identity, InputKind, Outbound, outbound_queue};
     use crate::tick::tests::{
