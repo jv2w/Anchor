@@ -470,9 +470,9 @@ impl Default for Disc {
 impl Disc {
     /// How many chunks the view of `radius` has: the ranks below it.
     fn size(&self, radius: u8) -> usize {
-        let r = i32::from(radius);
+        let origin = ChunkPos::new(0, 0);
         self.offsets
-            .partition_point(|o| o.x * o.x + o.z * o.z <= r * r)
+            .partition_point(|&o| in_disc(origin, o, radius))
     }
 
     /// The chunks of the view of `radius` (at most [`MAX_RADIUS`]) around `center`, in sending
