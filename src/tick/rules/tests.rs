@@ -384,14 +384,14 @@ const READ_ON_THE_TICK_BEFORE: [Reads; 2] = [
 /// at rest still.
 const OUTCOME_BEFORE: [[u64; 4]; 2] = [
     [
-        0xaf2f_eab5_f958_36ff,
-        0x5fbf_5a15_80f7_afa2,
+        0xf0e2_93b5_4f8b_af5c,
+        0x14e7_922d_7c94_0dc9,
         0xc4d0_b7b4_ec98_80fa,
         0xd918_290c_b7b6_6526,
     ],
     [
-        0xa142_777c_2c2f_ad21,
-        0x6f8f_ddb2_4a08_4b14,
+        0x1c45_ce1e_7469_6622,
+        0x2e34_1f07_25a8_f56f,
         0xc4d0_b7b4_ec98_80fa,
         0x4d77_8f37_abd2_cb55,
     ],
