@@ -56,7 +56,7 @@ pub(crate) struct Login {
     /// Validated, signed by `client_key`, but written by the client: never trusted.
     pub(crate) client_data: ClientData,
     /// The client data's skin, decoded and checked ([`ClientData::skin`]).
-    pub(crate) skin: protocol::Skin,
+    pub(crate) skin: crate::tick::queue::Skin,
 }
 
 /// Who the player is.
@@ -878,7 +878,8 @@ mod tests {
             data[field] = value;
         }
         data["PersonaPieces"][0]["PackId"] = json!("05601fd2-9c71-30b1-b174-5fa11b9de09f");
-        let skin = login(&data).unwrap().skin;
+        let login_skin = login(&data).unwrap().skin;
+        let skin = login_skin.get();
         assert_eq!(skin.skin_id, "skin");
         assert_eq!(skin.playfab_id, "0123456789abcdef");
         assert_eq!(
@@ -917,7 +918,7 @@ mod tests {
         assert!(skin.premium_skin && skin.persona_skin && skin.persona_cape_on_classic_skin);
         assert!(skin.trusted && skin.override_appearance && skin.primary_user);
         assert_eq!(skin.profile_hash, "hash");
-        assert_eq!(protocol::skin_validate(&skin), None);
+        assert_eq!(protocol::skin_validate(skin), None);
         // A 1024 × 1024 image fills the 4 MiB bound; one byte more in any field is refused.
         let mut big = data.clone();
         big["SkinData"] = json!(STD.encode(&vec![0; 1024 * 1024 * 4]));
@@ -945,7 +946,7 @@ mod tests {
         frames["AnimatedImageData"][0]["Frames"] = json!(1.0e300);
         assert!(matches!(
             login(&frames).unwrap_err(),
-            Error::ClientData("AnimatedImageData")
+            Error::ClientData("Skin")
         ));
     }
 

@@ -12,6 +12,7 @@ use crate::crypto::{
 use crate::entity::MAX_SKIN_BYTES;
 use crate::protocol::consts::{ArmSize, PieceType};
 use crate::protocol::{self, Rgba};
+use crate::tick::queue::Skin;
 
 /// Most persona pieces and tint colours read. A persona skin has about 20 pieces.
 pub(super) const MAX_PIECES: usize = 128;
@@ -164,29 +165,10 @@ impl ClientData {
     /// geometry, resource patch and animation data are decoded from base64; the full skin ID is
     /// the skin ID and the cape ID together (PMMP draws a random UUID; BDS's value is not
     /// confirmed). Fails if a field does not decode, an image dimension or animation number is
-    /// out of range, a frame count is not finite, or the skin holds more than
-    /// [`MAX_SKIN_BYTES`], its texts included.
-    pub(crate) fn skin(&self) -> Result<protocol::Skin> {
-        // The skin and cape IDs are held twice: alone and in the full ID.
-        let texts = [
-            self.skin_id.len(),
-            self.skin_id.len(),
-            self.cape_id.len(),
-            self.cape_id.len(),
-            self.playfab_id.len(),
-            self.profile_hash.len(),
-        ]
-        .into_iter()
-        .chain(
-            self.persona_pieces
-                .iter()
-                .flat_map(|p| [p.piece_id.len(), p.product_id.len()]),
-        )
-        .chain(self.piece_tint_colours.iter().map(|t| t.piece_type.len()))
-        .fold(0_usize, usize::saturating_add);
-        let mut budget = MAX_SKIN_BYTES
-            .checked_sub(texts)
-            .ok_or(Error::ClientData("Skin"))?;
+    /// out of range, or the skin is not acceptable ([`Skin::is_acceptable`]).
+    pub(crate) fn skin(&self) -> Result<Skin> {
+        // Decoding allocates at most the bound; the texts are counted with the skin after.
+        let mut budget = MAX_SKIN_BYTES;
         let mut decode = |text: &str| {
             let bytes = STD
                 .decode(text, budget)
@@ -203,9 +185,6 @@ impl ClientData {
                           IEEE behaviour and the value is checked finite after it"
             )]
             let frame_count = a.frames as f32;
-            if !frame_count.is_finite() || frame_count < 0.0 {
-                return Err(Error::ClientData("AnimatedImageData"));
-            }
             animations.push(protocol::SkinAnimation {
                 image_width: dimension(a.image_width)?,
                 image_height: dimension(a.image_height)?,
@@ -215,7 +194,7 @@ impl ClientData {
                 expression_type: dimension(a.animation_expression)?,
             });
         }
-        let skin = protocol::Skin {
+        let skin = Skin::new(protocol::Skin {
             skin_id: self.skin_id.clone(),
             playfab_id: self.playfab_id.clone(),
             skin_resource_patch: decode(&self.skin_resource_patch)?,
@@ -260,8 +239,8 @@ impl ClientData {
             trusted: self.trusted_skin,
             override_appearance: self.override_skin,
             profile_hash: self.profile_hash.clone(),
-        };
-        if protocol::skin_validate(&skin).is_some() {
+        });
+        if !skin.is_acceptable() {
             return Err(Error::ClientData("Skin"));
         }
         Ok(skin)

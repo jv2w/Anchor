@@ -1143,7 +1143,7 @@ impl Player {
     #[doc(alias = "Human::setSkin")]
     pub fn set_skin(&mut self, skin: crate::protocol::Skin) -> Result<()> {
         let skin = Skin::new(skin);
-        if !appearance::valid_skin(&skin) {
+        if !skin.is_acceptable() {
             return Err(Error::OutOfRange);
         }
         self.identity.skin = skin;
@@ -2400,6 +2400,16 @@ mod tests {
         assert_eq!(motions(&received(&mut rx2).0), [[0.0, 1.0, 0.0]]);
         run(&mut state, Vec::new());
         assert!(motions(&received(&mut rx1).0).is_empty());
+    }
+
+    /// The skin ID counts toward the skin bound as it does at a login.
+    #[test]
+    fn a_skin_whose_texts_pass_the_bound_is_refused() {
+        let (mut state, _receivers) = two();
+        let p = player_mut(&mut state, 1);
+        let mut skin = p.skin().clone();
+        skin.skin_id = "a".repeat(crate::entity::MAX_SKIN_BYTES);
+        assert_eq!(p.set_skin(skin), Err(Error::OutOfRange));
     }
 
     // pmmp: Human::emote, Human::setSkin

@@ -33,7 +33,7 @@ use crate::protocol::packet::{
     RequestNetworkSettings, ResourcePackClientResponse, ServerToClientHandshake,
 };
 use crate::tick::queue::{
-    self, Client, Identity, InputKind, Measure, Message, Outbound, SessionId, SessionInputs, Skin,
+    self, Client, Identity, InputKind, Measure, Message, Outbound, SessionId, SessionInputs,
 };
 
 /// From connection to verified login.
@@ -495,7 +495,7 @@ impl Session {
             name: identity.name,
             xuid: identity.xuid,
             uuid: identity.uuid,
-            skin: Skin::new(skin),
+            skin,
             device_os: client_data.device_os,
             address: Some(addr.ip()),
             client: Client {

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
+use crate::entity::MAX_SKIN_BYTES;
 use crate::protocol::consts;
 use crate::protocol::packet::{Packet, PlayStatus};
 use crate::protocol::{self, Uuid};
@@ -243,9 +244,8 @@ impl Identity {
     }
 }
 
-/// A player's skin as the client sent it at login (bounded and checked there: image sizes match
-/// their dimensions, at most 4 MiB in all, animation frame counts finite).
-/// Every copy of the identity shares it. The default is a transparent 64 × 32 skin on the
+/// A player's skin as the client sent it at login, where it is checked
+/// ([`Skin::is_acceptable`]). Every copy of the identity shares it. The default is a transparent 64 × 32 skin on the
 /// standard model, for identities without a login (tests).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Skin(Arc<protocol::Skin>);
@@ -274,11 +274,17 @@ impl Skin {
         }
     }
 
-    /// The bytes the skin holds (images, geometry, patch, animation data): what an input log
-    /// entry of its join counts against the log's bound.
+    /// The bytes the skin holds (images, geometry, patch, animation data and texts): what
+    /// [`MAX_SKIN_BYTES`] bounds and an input log entry of its join counts against the log's
+    /// bound.
     pub(crate) fn size(&self) -> usize {
         let s = &self.0;
-        let animations: usize = s.animations.iter().map(|a| a.image_data.len()).sum();
+        let animations = s.animations.iter().map(|a| a.image_data.len());
+        let pieces = s
+            .persona_pieces
+            .iter()
+            .flat_map(|p| [p.piece_id.len(), p.product_id.len()]);
+        let tints = s.piece_tint_colours.iter().map(|t| t.piece_type.len());
         [
             s.skin_data.len(),
             s.cape_data.len(),
@@ -286,10 +292,30 @@ impl Skin {
             s.skin_resource_patch.len(),
             s.animation_data.len(),
             s.geometry_data_engine_version.len(),
-            animations,
+            s.skin_id.len(),
+            s.playfab_id.len(),
+            s.cape_id.len(),
+            s.full_id.len(),
+            s.profile_hash.len(),
         ]
-        .iter()
-        .fold(0_usize, |sum, n| sum.saturating_add(*n))
+        .into_iter()
+        .chain(animations)
+        .chain(pieces)
+        .chain(tints)
+        .fold(0_usize, usize::saturating_add)
+    }
+
+    /// Whether a login accepts the skin, as an in-game change and the API do: image sizes that
+    /// match their data, finite animation frame counts not below 0, at most [`MAX_SKIN_BYTES`] in
+    /// all.
+    pub(crate) fn is_acceptable(&self) -> bool {
+        protocol::skin_validate(&self.0).is_none()
+            && self
+                .0
+                .animations
+                .iter()
+                .all(|a| a.frame_count.is_finite() && a.frame_count >= 0.0)
+            && self.size() <= MAX_SKIN_BYTES
     }
 }
 

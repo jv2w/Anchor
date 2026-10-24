@@ -9,9 +9,9 @@ use super::{Phase, SessionId, State, broadcast_to_viewers};
 use crate::entity::MAX_SKIN_BYTES;
 use crate::event::{PlayerChangeSkin, PlayerEmote};
 use crate::player::Id;
+use crate::protocol;
 use crate::protocol::consts::EmoteFlag;
 use crate::protocol::packet::{Emote, Packet, PlayerSkin};
-use crate::protocol::{self, skin_validate};
 use crate::tick::queue::Skin;
 
 /// Ticks that must pass between two emotes of a player: more than 5 (PMMP `Player::emote`).
@@ -147,7 +147,7 @@ pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin
         return;
     }
     let new = Skin::new(packet.skin.clone());
-    if !valid_skin(&new) {
+    if !new.is_acceptable() {
         debug!(session = session.get(), "invalid skin ignored");
         return;
     }
@@ -163,7 +163,7 @@ pub(super) fn on_skin(state: &mut State, session: SessionId, packet: &PlayerSkin
             cancelled: false,
         },
         PlayerChangeSkin::is_cancelled,
-        |state, e| state.players.contains_key(&session) && valid_skin(&e.new_skin),
+        |state, e| state.players.contains_key(&session) && e.new_skin.is_acceptable(),
     );
     let Ok(event) = event else {
         // The client shows the skin it asked for: give it its own back.
@@ -201,18 +201,6 @@ pub(super) fn send_skin(state: &mut State, session: SessionId, budget: &mut usiz
         }
     }
     true
-}
-
-/// Whether a skin is one a login would accept: image sizes that match their data, finite
-/// animation frame counts, at most [`MAX_SKIN_BYTES`] in all.
-pub(super) fn valid_skin(skin: &Skin) -> bool {
-    skin_validate(skin.get()).is_none()
-        && skin
-            .get()
-            .animations
-            .iter()
-            .all(|a| a.frame_count.is_finite() && a.frame_count >= 0.0)
-        && skin.size() <= MAX_SKIN_BYTES
 }
 
 /// The `PlayerSkin` packet that shows `skin` on the player with `uuid` (PMMP `Human::sendSkin`).
