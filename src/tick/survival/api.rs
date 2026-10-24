@@ -273,6 +273,16 @@ fn short(text: &str) -> Result<()> {
     }
 }
 
+/// Fails for a world name longer than a world's name may be, which no world has and the
+/// players' record could not always save.
+fn world_name(world: &str) -> Result<()> {
+    if world.len() > crate::storage::MAX_FILE_NAME {
+        Err(Error::TooLong)
+    } else {
+        Ok(())
+    }
+}
+
 impl Player {
     /// The player's game mode.
     #[doc(alias = "Player::getGamemode")]
@@ -1271,12 +1281,12 @@ impl Player {
     }
 
     /// Sets or clears the player's respawn point: a world name and the block to respawn on. It is
-    /// saved. Fails for a world name longer than 65,536 bytes.
+    /// saved. Fails for a world name longer than 250 bytes, which no world has.
     #[doc(alias = "Player::setSpawn")]
     pub fn set_spawn(&mut self, spawn: Option<(&str, BlockPos)>) -> Result<()> {
         let point = match spawn {
             Some((world, pos)) => {
-                short(world)?;
+                world_name(world)?;
                 Some(Point {
                     world: world.to_owned(),
                     pos,
@@ -1299,12 +1309,12 @@ impl Player {
     }
 
     /// Sets or clears where the player last died, which its recovery compass points to. It is
-    /// saved. Fails for a world name longer than 65,536 bytes.
+    /// saved. Fails for a world name longer than 250 bytes, which no world has.
     #[doc(alias = "Player::setDeathPosition")]
     pub fn set_death_position(&mut self, death: Option<(&str, BlockPos)>) -> Result<()> {
         let point = match death {
             Some((world, pos)) => {
-                short(world)?;
+                world_name(world)?;
                 Some(Point {
                     world: world.to_owned(),
                     pos,
@@ -2128,7 +2138,10 @@ mod tests {
         assert_eq!(p.spawn(), None);
         assert_eq!(p.death_position(), None);
         assert_eq!(
-            p.set_spawn(Some((&"w".repeat(MAX_TEXT + 1), BlockPos::new(0, 0, 0)))),
+            p.set_spawn(Some((
+                &"w".repeat(crate::storage::MAX_FILE_NAME + 1),
+                BlockPos::new(0, 0, 0)
+            ))),
             Err(Error::TooLong)
         );
         let at = BlockPos::new(3, -60, 4);
@@ -2456,7 +2469,10 @@ mod tests {
         let (mut state, [_rx1, mut rx2]) = two();
         let p = player_mut(&mut state, 1);
         assert_eq!(
-            p.set_death_position(Some((&"w".repeat(MAX_TEXT + 1), BlockPos::new(0, 0, 0)))),
+            p.set_death_position(Some((
+                &"w".repeat(crate::storage::MAX_FILE_NAME + 1),
+                BlockPos::new(0, 0, 0)
+            ))),
             Err(Error::TooLong)
         );
         let at = BlockPos::new(1, -60, 2);

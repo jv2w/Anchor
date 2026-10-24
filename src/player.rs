@@ -33,7 +33,8 @@ impl Id {
 /// Why a player call changed nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// A text is longer than a client accepts: 65,536 bytes, 256 for a chat source name.
+    /// A text is longer than a client accepts: 65,536 bytes, 256 for a chat source name; or a
+    /// world name is longer than a world's: 250 bytes.
     TooLong,
     /// A translated message has more than 4 parameters, the most a client accepts.
     TooManyParameters,
