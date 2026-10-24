@@ -209,7 +209,7 @@ pub(super) fn release_bow_with(
         return false;
     }
     let mode = survival::game_mode(state, player);
-    let finite = mode != GameMode::Creative;
+    let finite = survival::has_finite_resources(mode);
     if finite && !(hooks.has_arrow)(player) {
         return false;
     }
@@ -299,7 +299,7 @@ pub(super) fn release_trident_with(
     }
     let mode = survival::game_mode(state, player);
     let mut item = held.with_count(1);
-    if mode != GameMode::Creative {
+    if survival::has_finite_resources(mode) {
         let seed = state.worlds.get(world).map_or(0, crate::world::World::seed);
         let key = random::key(TRIDENT_RANDOM, &[session.get()]);
         item = worn(

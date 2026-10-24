@@ -45,7 +45,6 @@ use tracing::{error, warn};
 use super::checkpoint::{self, Codec, Reader, Writer, fields, variants};
 use super::{Phase, Player, SessionId, State, block_entity, dispatch, trade};
 use crate::block::{self, Class, ItemForm};
-use crate::config::GameMode;
 use crate::crafting::FurnaceType;
 use crate::event::{
     InventoryClose, InventoryOpen, PlayerBlockPick, PlayerDropItem, PlayerItemHeld,
@@ -1738,7 +1737,7 @@ fn pick(
         return None;
     }
     let world = player.world;
-    let finite = super::survival::game_mode(state, player) != GameMode::Creative;
+    let finite = super::survival::has_finite_resources(super::survival::game_mode(state, player));
     let block = state.worlds.get(world).and_then(|w| w.block(pos))?;
     let picked = match block.item() {
         ItemForm::Item(item) if add_data => {

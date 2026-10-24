@@ -372,10 +372,9 @@ struct Actor {
 }
 
 impl Actor {
-    /// Whether items and blocks are used up (PMMP `Player::hasFiniteResources`: every mode but
-    /// creative).
+    /// Whether items and blocks are used up ([`survival::has_finite_resources`]).
     fn finite(&self) -> bool {
-        self.mode != GameMode::Creative
+        survival::has_finite_resources(self.mode)
     }
 
     /// The reach for blocks.
@@ -1721,7 +1720,7 @@ fn drops_of(
             let finite = state
                 .players
                 .get(session)
-                .is_some_and(|p| survival::game_mode(state, p) != GameMode::Creative);
+                .is_some_and(|p| survival::has_finite_resources(survival::game_mode(state, p)));
             if finite {
                 let experience = state.settings.has_orbs();
                 for (p, s) in affected.iter().flatten() {

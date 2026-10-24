@@ -775,7 +775,7 @@ fn is_survival(mode: GameMode) -> bool {
 
 /// Whether the game mode uses items up: placing, eating, shooting and hitting wear them, and a
 /// death drops them (PMMP `Player::hasFiniteResources`: every mode but creative).
-fn has_finite_resources(mode: GameMode) -> bool {
+pub(super) fn has_finite_resources(mode: GameMode) -> bool {
     mode != GameMode::Creative
 }
 

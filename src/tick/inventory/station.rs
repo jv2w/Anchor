@@ -732,9 +732,10 @@ pub(super) fn apply(
         match effect {
             Effect::Enchanted { cost } => {
                 // PMMP: with finite resources as many of the levels as the player has.
-                let finite = state.players.get(&session).is_some_and(|p| {
-                    survival::game_mode(state, p) != crate::config::GameMode::Creative
-                });
+                let finite = state
+                    .players
+                    .get(&session)
+                    .is_some_and(|p| survival::has_finite_resources(survival::game_mode(state, p)));
                 if let Some(player) = state.players.get_mut(&session) {
                     if finite {
                         let level = survival::xp_level(player);
