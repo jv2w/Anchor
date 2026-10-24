@@ -7,7 +7,7 @@
 //! `TAG_Int` and `TAG_Long` lists and writes other empty lists with element type `TAG_End`.
 //! Limits: containers nest at most 512 deep counting the root, one root takes at
 //! most 4 MiB on the wire (or a store's own limit), and lengths and allocations go through the
-//! reader's limit check; a compound's keys take its tree nodes ([`map_charges`]). Writing a root
+//! reader's limit check; a compound's keys take its tree nodes (`map_charges`). Writing a root
 //! also counts what reading it back takes from a reader's allocation budget (`Cost`), so a store
 //! can keep what it writes readable.
 //! Reading and writing keep nested containers on a heap stack, not the thread stack.
