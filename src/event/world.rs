@@ -1,14 +1,14 @@
 //! World events (PMMP `pocketmine\event\world`): worlds made, loaded and unloaded, chunks,
-//! saving, spawn, and the sounds and particles the game plays.
+//! saving, and the sounds and particles the game plays.
 //!
-//! Only the direct API changes the difficulty, and direct calls raise no events, so there is no
-//! `WorldDifficultyChangeEvent`. For the same reason [`Context::add_sound`](crate::Context::add_sound)
-//! and [`add_particle`](crate::Context::add_particle) raise no [`WorldSound`] or
-//! [`WorldParticle`].
+//! Only the direct API changes the difficulty and moves the spawn, and direct calls raise no
+//! events, so there is no `WorldDifficultyChangeEvent` or `SpawnChangeEvent`. For the same reason
+//! [`Context::add_sound`](crate::Context::add_sound) and
+//! [`add_particle`](crate::Context::add_particle) raise no [`WorldSound`] or [`WorldParticle`].
 
 use crate::math::Vec3;
 use crate::player;
-use crate::world::{self, BlockPos, ChunkPos, Particle, Sound};
+use crate::world::{self, ChunkPos, Particle, Sound};
 
 /// Raised when [`Context::create_world`](crate::Context::create_world) made a world, before its
 /// [`WorldLoad`], in the view phase of the tick it was made in (or the next one, for a world made
@@ -102,22 +102,6 @@ getters!(ChunkUnload {
     world: world::Id,
     /// The chunk.
     chunk: ChunkPos,
-});
-
-/// Raised after a world's spawn moved.
-#[doc(alias = "SpawnChangeEvent")]
-#[derive(Debug)]
-pub struct SpawnChange {
-    pub(crate) world: world::Id,
-    pub(crate) previous_spawn: BlockPos,
-}
-
-getters!(SpawnChange {
-    /// The world.
-    world: world::Id,
-    /// Where the spawn was.
-    #[doc(alias = "SpawnChangeEvent::getPreviousSpawn")]
-    previous_spawn: BlockPos,
 });
 
 /// Raised after the world was saved with the server's state (every save, for each saved world).
@@ -227,7 +211,6 @@ cancellable! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::fixtures::POS;
 
     const WORLD: world::Id = world::Id::DEFAULT;
     const CHUNK: ChunkPos = ChunkPos::new(-3, 4);
@@ -254,14 +237,9 @@ mod tests {
         assert!(!unload.is_cancelled());
     }
 
-    // pmmp: WorldSaveEvent, SpawnChangeEvent, SpawnChangeEvent::getPreviousSpawn, WorldEvent::getWorld
+    // pmmp: WorldSaveEvent, WorldEvent::getWorld
     #[test]
-    fn world_changes_name_the_old_value() {
-        let spawn = SpawnChange {
-            world: WORLD,
-            previous_spawn: POS,
-        };
-        assert_eq!((spawn.world(), spawn.previous_spawn()), (WORLD, POS));
+    fn a_world_save_names_its_world() {
         assert_eq!(WorldSave { world: WORLD }.world(), WORLD);
     }
 

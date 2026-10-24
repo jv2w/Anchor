@@ -131,8 +131,7 @@ pub use player::{
 pub(crate) use sealed::Listeners;
 pub use server::Command;
 pub use world::{
-    ChunkLoad, ChunkUnload, SpawnChange, WorldInit, WorldLoad, WorldParticle, WorldSave,
-    WorldSound, WorldUnload,
+    ChunkLoad, ChunkUnload, WorldInit, WorldLoad, WorldParticle, WorldSave, WorldSound, WorldUnload,
 };
 
 /// The longest fuel time a furnace or brewing stand keeps across a save, which writes it as a
@@ -360,7 +359,6 @@ mod sealed {
         command: super::Command,
         chunk_load: super::ChunkLoad,
         chunk_unload: super::ChunkUnload,
-        spawn_change: super::SpawnChange,
         world_save: super::WorldSave,
         world_init: super::WorldInit,
         world_load: super::WorldLoad,
@@ -504,7 +502,11 @@ mod tests {
         l.listen_to_every_event(|_| {});
         let table = format!("{l:?}");
         assert!(table.contains("world_save") && table.contains("player_join"));
-        for never in ["world_difficulty_change", "player_resource_pack_offer"] {
+        for never in [
+            "world_difficulty_change",
+            "player_resource_pack_offer",
+            "spawn_change",
+        ] {
             assert!(!table.contains(never), "{never} is never raised");
         }
     }

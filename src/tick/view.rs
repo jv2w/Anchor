@@ -25,7 +25,7 @@ use super::rules::Rules;
 use super::save::{Saving, Unsaved, keep_unloaded};
 use super::{Context, Phase, Player, State, dispatch, world_api};
 use crate::block;
-use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend, SpawnChange};
+use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend};
 use crate::math::Vec3;
 use crate::menu::{Error as MenuError, Result as MenuResult};
 use crate::player;
@@ -697,7 +697,6 @@ struct Heard {
     load: bool,
     unload: bool,
     sent: bool,
-    spawn: bool,
 }
 
 impl Chunks {
@@ -972,7 +971,6 @@ pub(super) fn hold_spawns(state: &mut State) {
         load: dispatch::heard::<ChunkLoad>(state),
         unload: dispatch::heard::<ChunkUnload>(state),
         sent: dispatch::heard::<PlayerPostChunkSend>(state),
-        spawn: dispatch::heard::<SpawnChange>(state),
     };
     for (i, w) in state.worlds.iter_mut().enumerate() {
         w.set_id(crate::world::Id::of(i));
@@ -1004,14 +1002,8 @@ fn spawn_area(center: ChunkPos) -> impl Iterator<Item = ChunkPos> {
 
 /// Moves the held spawn chunks of each world whose spawn moved to another chunk
 /// ([`World::set_spawn`]): the new ones are held first, so chunks both areas share stay loaded,
-/// then the old ones are released. Returns the worlds whose spawn moved, with the spawn before,
-/// while [`SpawnChange`] is heard.
-fn move_spawns(
-    worlds: &mut [World],
-    chunks: &mut Chunks,
-    rules: &mut Rules,
-) -> Vec<(WorldIndex, BlockPos)> {
-    let mut moved = Vec::new();
+/// then the old ones are released.
+fn move_spawns(worlds: &mut [World], chunks: &mut Chunks, rules: &mut Rules) {
     for world in 0..chunks.spawns.len() {
         let (Some(&held), Some(now)) = (
             chunks.spawns.get(world),
@@ -1021,9 +1013,6 @@ fn move_spawns(
         };
         if held == now {
             continue;
-        }
-        if chunks.heard.spawn {
-            moved.push((world, held));
         }
         if held.chunk() != now.chunk() {
             for pos in spawn_area(now.chunk()) {
@@ -1037,7 +1026,6 @@ fn move_spawns(
             *spawn = now;
         }
     }
-    moved
 }
 
 /// Opens or moves a player's view: the chunks it gains are held, those it loses released and
@@ -1357,13 +1345,13 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
             .count();
         view.out.answers.extend(view.requests.drain(..take));
     }
-    let moved = move_spawns(worlds, chunks, rules);
+    move_spawns(worlds, chunks, rules);
     request_spawn_loads(worlds, chunks);
     request_ticket_loads(worlds, chunks);
     let batch = std::mem::take(&mut chunks.batch);
     let deleted = world_api::take_deleted_worlds(state);
     let new = world_api::take_new_worlds(state);
-    announce(state, &moved);
+    announce(state);
     let mut requests = Vec::with_capacity(3);
     if !deleted.is_empty() {
         requests.push(Request::DeleteWorlds(deleted));
@@ -1380,9 +1368,9 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
 /// The end of the view phase: the chunk events of the tick, each built only when someone listens.
 /// In order: [`ChunkLoad`] for the chunks loaded or brought back from memory that are still
 /// loaded; [`PlayerPostChunkSend`] for the chunks picked to send (the output phase sends them at
-/// the end of this tick, before any packet a listener queues); [`SpawnChange`] for each world
-/// whose spawn moved; then the chunks nobody holds unload, after [`ChunkUnload`].
-fn announce(state: &mut State, moved: &[(WorldIndex, BlockPos)]) {
+/// the end of this tick, before any packet a listener queues); then the chunks nobody holds
+/// unload, after [`ChunkUnload`].
+fn announce(state: &mut State) {
     let heard = state.chunks.heard;
     if heard.load {
         for ((world, chunk), new_chunk) in std::mem::take(&mut state.chunks.loads) {
@@ -1422,14 +1410,6 @@ fn announce(state: &mut State, moved: &[(WorldIndex, BlockPos)]) {
         }
         sent.append(&mut state.chunks.sent);
         state.chunks.sent = sent;
-    }
-    for &(world, previous_spawn) in moved {
-        let mut e = SpawnChange {
-            world: crate::world::Id::of(world),
-            previous_spawn,
-        };
-        dispatch::call(state, &mut e);
-        dispatch::watch(state, &e);
     }
     unload_released(state);
 }
@@ -2276,7 +2256,7 @@ mod tests {
         });
         let mut state = state(listeners);
         hold_loaded(&mut state, FAR);
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert_eq!(logged(), ["40 40 true true", "monitor 40"]);
         // A change, then the chunk unloads before a save: it comes back from memory.
         let stone = block::State::find("minecraft:stone", &[]).unwrap();
@@ -2284,18 +2264,18 @@ mod tests {
             .set_block(BlockPos::new(640, -60, 640), stone)
             .unwrap();
         let_go(&mut state, FAR);
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert!(logged().is_empty());
         assert!(!is_loaded(&state, FAR) && state.chunks.unsaved.contains_key(&FAR));
         hold(&mut state.worlds, &mut state.chunks, &mut state.rules, FAR);
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert_eq!(logged(), ["40 40 false true", "monitor 40"]);
         // A chunk let go before the view phase is still loaded there: it is announced, then
         // unloads.
         let other = (0, ChunkPos::new(-40, 40));
         hold_loaded(&mut state, other);
         let_go(&mut state, other);
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert_eq!(logged(), ["-40 40 true true", "monitor -40"]);
         assert!(!is_loaded(&state, other) && state.chunks.loads.is_empty());
     }
@@ -2307,16 +2287,16 @@ mod tests {
         hold_loaded(&mut state, FAR);
         let_go(&mut state, FAR);
         assert!(is_loaded(&state, FAR), "the listeners are asked first");
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert_eq!(logged(), ["unload 40 40", "monitor true"]);
         assert!(is_loaded(&state, FAR) && state.chunks.holds(FAR));
         // Asked again only when its time comes.
         state.tick += KEEP_TICKS - 1;
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert!(logged().is_empty());
         state.tick += 1;
         KEEP.set(false);
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert_eq!(logged(), ["unload 40 40", "monitor false"]);
         assert!(!is_loaded(&state, FAR) && !state.chunks.holds(FAR));
         assert!(state.chunks.kept.is_empty() && state.chunks.unloading.is_empty());
@@ -2329,7 +2309,7 @@ mod tests {
         hold_loaded(&mut state, FAR);
         let_go(&mut state, FAR);
         hold(&mut state.worlds, &mut state.chunks, &mut state.rules, FAR);
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert!(logged().is_empty());
         assert!(is_loaded(&state, FAR) && state.chunks.unloading.is_empty());
     }
@@ -2345,7 +2325,7 @@ mod tests {
             hold_loaded(&mut state, key);
             let_go(&mut state, key);
         }
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert_eq!(state.chunks.kept.len(), MAX_KEPT_CHUNKS);
         let loaded = keys.iter().filter(|&&k| is_loaded(&state, k)).count();
         assert_eq!(loaded, MAX_KEPT_CHUNKS);
@@ -2357,7 +2337,7 @@ mod tests {
         hold_loaded(&mut state, FAR);
         let_go(&mut state, FAR);
         assert!(is_loaded(&state, FAR), "as with listeners");
-        announce(&mut state, &[]);
+        announce(&mut state);
         assert!(!is_loaded(&state, FAR) && state.chunks.unloading.is_empty());
     }
 
@@ -2440,47 +2420,6 @@ mod tests {
         assert!(first_tip > last_chunk);
         tick(&mut state, &mut Vec::new(), &mut output);
         assert!(logged().is_empty(), "a chunk is sent once");
-    }
-
-    // pmmp: SpawnChangeEvent
-    #[test]
-    fn a_spawn_change_names_the_spawn_before() {
-        let mut listeners = on(|e: &mut SpawnChange, cx: &mut Context<'_>| {
-            let now = cx.world(e.world()).unwrap().spawn();
-            let before = e.previous_spawn();
-            log(format!("{} {} {}", before.x, now.x, now.z));
-        });
-        listeners.push_monitor(|e: &SpawnChange, cx: &Context<'_>| {
-            let now = cx.world(e.world()).unwrap().spawn();
-            log(format!(
-                "monitor {}",
-                cx.state.chunks.holds((0, now.chunk()))
-            ));
-        });
-        let mut state = state(listeners);
-        let mut output = Output::default();
-        let spawn = state.worlds[0].spawn();
-        // Within the same chunk, then far away.
-        let near = BlockPos::new(spawn.x + 1, spawn.y, spawn.z);
-        state.worlds[0].set_spawn(near);
-        tick(&mut state, &mut Vec::new(), &mut output);
-        assert_eq!(
-            logged(),
-            [
-                format!("{} {} {}", spawn.x, near.x, near.z),
-                "monitor true".to_owned()
-            ]
-        );
-        let far = BlockPos::new(160, spawn.y, 160);
-        state.worlds[0].set_spawn(far);
-        tick(&mut state, &mut Vec::new(), &mut output);
-        assert_eq!(
-            logged(),
-            [format!("{} 160 160", near.x), "monitor true".to_owned()]
-        );
-        tick(&mut state, &mut Vec::new(), &mut output);
-        assert!(logged().is_empty());
-        assert!(state.chunks.holds((0, far.chunk())));
     }
 
     /// A spawn moved past the world border holds and loads no chunk there, where the rules that

@@ -152,7 +152,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
   - `ctx.defer(f)`: 지금 콜백이 끝난 뒤 같은 틱에 큐 순서로 돈다.
   - `ctx.perform(action)`: 게임 규칙을 거치는 행동(이벤트 포함)을 defer로 넣는다. 행동은 봉인된 `action::Action` 구현이다(`BreakBlock`, `UseItemOn`, `UseItem`, `AttackBlock`, `InteractEntity`, `Damage`, `SetGameMode`, `Chat`, `Kick`, `Transfer`, `Attack`, `Explode` 등).
 - EntitySpawn·ItemSpawn을 엔티티 틱이 알리는 까닭: 다른 규칙 중간이나 직접 API에서 리스너가 돌지 않게 한다.
-- 목록은 `event/{block,entity,inventory,player,server,world}.rs`의 104개이고 `anchor::event::*`로 평평하게 공개한다. 대응표 이벤트 중 범위 밖(플러그인, PHP·운영 내부, 레드스톤)은 빼고, 원시 패킷 이벤트(DataPacketReceive·Send·Decode)는 패킷 훅으로, PlayerPreLogin은 PlayerLogin으로 합친다. 대응표에 없는 `TradeOpen`, `Trade`를 더한다.
+- 목록은 `event/{block,entity,inventory,player,server,world}.rs`의 103개이고 `anchor::event::*`로 평평하게 공개한다. 대응표 이벤트 중 범위 밖(플러그인, PHP·운영 내부, 레드스톤)은 빼고, 원시 패킷 이벤트(DataPacketReceive·Send·Decode)는 패킷 훅으로, PlayerPreLogin은 PlayerLogin으로 합친다. 대응표에 없는 `TradeOpen`, `Trade`를 더한다.
 - PlayerDataSave 취소를 무시하는 까닭: 원자 저장을 지킨다.
 
 ## 확장 지점
