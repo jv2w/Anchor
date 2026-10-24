@@ -687,8 +687,6 @@ const MAX_TICKETS: usize = 1024;
 const MAX_TICKET_CHUNKS: usize = MAX_LOADS_IN_FLIGHT * 4;
 /// The largest ticket radius: 17 × 17 chunks.
 const MAX_TICKET_RADIUS: u8 = 8;
-/// The largest chunk coordinate a ticket may center on: the world border's.
-const MAX_CHUNK_COORDINATE: i32 = crate::world::BORDER >> 4;
 
 /// Which chunk events someone listens to or monitors.
 #[derive(Debug, Default, Clone, Copy)]
@@ -990,11 +988,15 @@ pub(super) fn hold_spawns(state: &mut State) {
     state.chunks.spawns = spawns;
 }
 
-/// The 3 × 3 chunks around `center`.
+/// The 3 × 3 chunks around `center` inside the world border: a spawn past it (any value
+/// [`World::set_spawn`] takes, or a stored one) holds nothing there.
 fn spawn_area(center: ChunkPos) -> impl Iterator<Item = ChunkPos> {
-    (-1..=1).flat_map(move |x| {
-        (-1..=1).map(move |z| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
-    })
+    (-1..=1)
+        .flat_map(move |x| {
+            (-1..=1)
+                .map(move |z| ChunkPos::new(center.x.saturating_add(x), center.z.saturating_add(z)))
+        })
+        .filter(|&pos| crate::world::is_inside_border(pos))
 }
 
 /// Moves the held spawn chunks of each world whose spawn moved to another chunk
@@ -1709,8 +1711,7 @@ impl Context<'_> {
     ) -> crate::world::Result<crate::world::Ticket> {
         use crate::world::Error;
         let w = world_api::index(self.state, world).ok_or(Error::WorldNotLoaded)?;
-        let limit = MAX_CHUNK_COORDINATE.unsigned_abs();
-        if center.x.unsigned_abs() > limit || center.z.unsigned_abs() > limit {
+        if !crate::world::is_inside_border(center) {
             return Err(Error::OutOfRange);
         }
         let held = self.state.chunks.by_chunk.len();
@@ -2477,6 +2478,37 @@ mod tests {
         tick(&mut state, &mut Vec::new(), &mut output);
         assert!(logged().is_empty());
         assert!(state.chunks.holds((0, far.chunk())));
+    }
+
+    /// A spawn moved past the world border holds and loads no chunk there, where the rules that
+    /// add to a loaded position would overflow; one moved back holds its chunks again.
+    #[test]
+    fn spawn_chunks_past_the_world_border_are_not_held() {
+        let mut state = state(Listeners::default());
+        let mut output = Output::default();
+        let start = state.chunks.held();
+        let spawn = state.worlds[0].spawn();
+        let edge = BlockPos::new(2_147_483_620, 64, 0);
+        state.worlds[0].set_spawn(edge);
+        for _ in 0..4 {
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        let past = ChunkPos::new(134_217_727, 0);
+        assert!(!state.worlds[0].is_chunk_loaded(past));
+        assert!(!state.chunks.holds((0, past)));
+        assert!(!state.worlds[0].is_spawn_chunk(past));
+        let tip = BlockPos::new(2_147_483_646, -60, 0);
+        assert!(!Context { state: &mut state }.grow_tree(
+            crate::world::Id::DEFAULT,
+            tip,
+            crate::world::TreeType::Oak
+        ));
+        state.worlds[0].set_spawn(spawn);
+        for _ in 0..4 {
+            tick(&mut state, &mut Vec::new(), &mut output);
+        }
+        assert_eq!(state.chunks.held(), start);
+        assert!(state.chunks.holds((0, spawn.chunk())));
     }
 
     /// The packets one tick sends to a player who joins and asks for a radius of 1,000 in the

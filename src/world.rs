@@ -43,6 +43,14 @@ pub(crate) const DAY: i64 = 24_000;
 /// The Bedrock world border: the farthest a player, an entity or a command position may be from
 /// the world's middle on an axis, in blocks.
 pub(crate) const BORDER: i32 = 30_000_000;
+
+/// Whether chunk `pos` is inside the world border. The server holds chunks only around centers
+/// inside it (spawn chunks inside it, ticket centers), so a rule that adds a few blocks to a
+/// loaded position cannot overflow.
+pub(crate) fn is_inside_border(pos: ChunkPos) -> bool {
+    let limit = (BORDER >> 4).unsigned_abs();
+    pos.x.unsigned_abs() <= limit && pos.z.unsigned_abs() <= limit
+}
 /// The highest block y of the world (PMMP's `getMaxY` is one above: the first y outside).
 #[doc(alias = "World::getMaxY")]
 pub const MAX_Y: i32 = 319;
@@ -634,7 +642,7 @@ impl World {
     }
 
     /// Moves the spawn. A persistent world saves it with its state, so it stays after a restart.
-    /// The 3 × 3 spawn chunks the server keeps loaded move
+    /// The 3 × 3 spawn chunks the server keeps loaded (those inside the world border) move
     /// with it in the tick's view phase: the new ones load, the old ones unload unless a player
     /// sees them (PMMP keeps the old ones held and does not hold the new ones).
     #[doc(alias = "World::setSpawnLocation")]
@@ -642,11 +650,12 @@ impl World {
         self.spawn = spawn;
     }
 
-    /// Whether the chunk is one of the 3 × 3 spawn chunks the server keeps loaded.
+    /// Whether the chunk is one of the 3 × 3 spawn chunks the server keeps loaded: those around
+    /// the spawn's chunk inside the world border.
     #[doc(alias = "World::isSpawnChunk")]
     pub fn is_spawn_chunk(&self, pos: ChunkPos) -> bool {
         let center = self.spawn.chunk();
-        pos.x.abs_diff(center.x) <= 1 && pos.z.abs_diff(center.z) <= 1
+        is_inside_border(pos) && pos.x.abs_diff(center.x) <= 1 && pos.z.abs_diff(center.z) <= 1
     }
 
     /// The world's clock in ticks (0 for a new world), saved with the world: it is state, not a
