@@ -18,7 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::info;
 
 use super::queue::SessionId;
-use super::{Context, Output, Phase, Player, State, dispatch, inside_border, survival};
+use super::{Context, Output, Phase, Player, State, dispatch, inside_border, inventory, survival};
 use crate::event::{Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer};
 use crate::math::Vec3;
 use crate::player::{Error, Id, MAX_TEXT, Message, Packets, Result};
@@ -274,7 +274,8 @@ impl Marks {
 
 /// Does what the player setters marked this tick, after the inputs, tasks and rules and before
 /// the views move and the output is built: kicked and transferred players get their last packet
-/// and leave, teleported players move, and the survival marks are done.
+/// and leave, refused hotbar selections are answered, teleported players move, and the survival
+/// marks are done.
 pub(super) fn sync(state: &mut State, output: &mut Output) {
     // Most ticks mark no one: one pass over the players finds the marked ones, and the next one
     // is looked for after each is done, so marks it sets on later players are seen too.
@@ -283,7 +284,12 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
     while let Some(session) = state
         .players
         .range((after, Bound::Unbounded))
-        .find(|(_, p)| p.marks.leave.is_some() || p.marks.teleport.is_some() || survival::marked(p))
+        .find(|(_, p)| {
+            p.marks.leave.is_some()
+                || inventory::held_unanswered(p)
+                || p.marks.teleport.is_some()
+                || survival::marked(p)
+        })
         .map(|(&s, _)| s)
     {
         after = Bound::Excluded(session);
@@ -307,6 +313,7 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
             }
             continue;
         }
+        inventory::answer_held(player);
         if let Some((world, eye)) = player.marks.teleport.take() {
             survival::teleport(state, session, world, eye);
         }

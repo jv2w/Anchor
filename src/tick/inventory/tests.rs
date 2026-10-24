@@ -2122,7 +2122,11 @@ fn hotbar_selection_and_pick_block_follow_pmmp() {
     assert_eq!(w.inv(s).held_slot(), 4);
     select(&mut w, 12);
     assert_eq!(w.inv(s).held_slot(), 4);
-    assert!(matches!(w.sent(s).as_slice(), [Packet::MobEquipment(_)]));
+    assert!(
+        w.tick_delivered(Vec::new())
+            .iter()
+            .any(|p| matches!(p, Packet::MobEquipment(m) if m.hot_bar_slot == 4))
+    );
     let pos = BlockPos::new(3, -60, 3);
     w.place_block(pos, blk::Kind::Cobblestone.default_state());
     let pick = BlockPickRequest {
@@ -2150,7 +2154,7 @@ fn hotbar_selection_and_pick_block_follow_pmmp() {
 }
 
 #[test]
-fn a_slot_outside_the_hotbar_is_answered_once_a_tick_while_the_hand_stays() {
+fn a_slot_outside_the_hotbar_is_answered_once_a_tick_with_the_last_selection() {
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     w.give(s, Stack::new(item(it::Kind::Stick), 1));
@@ -2167,30 +2171,25 @@ fn a_slot_outside_the_hotbar_is_answered_once_a_tick_while_the_hand_stays() {
             },
         );
     };
-    let answers = |w: &mut World| {
-        w.sent(s)
+    // The selected slots the end of the tick answered.
+    let answers = |w: &mut World| -> Vec<u8> {
+        w.tick_delivered(Vec::new())
             .iter()
-            .filter(|p| matches!(p, Packet::MobEquipment(_)))
-            .count()
+            .filter_map(|p| match p {
+                Packet::MobEquipment(m) => Some(m.hot_bar_slot),
+                _ => None,
+            })
+            .collect()
     };
-    for _ in 0..3 {
+    // Valid selections in between change the hand but not the answer count.
+    for i in 0..50 {
+        equip(&mut w, i % 2);
         equip(&mut w, 9);
     }
-    assert_eq!(answers(&mut w), 1, "the same hand is answered once");
-    equip(&mut w, 3);
+    assert_eq!(answers(&mut w), [1], "one answer with the last hand");
+    assert!(answers(&mut w).is_empty(), "no answer without a request");
     equip(&mut w, 9);
-    assert_eq!(answers(&mut w), 1, "another slot is answered again");
-    set_own(
-        w.player(s),
-        SlotRef::Main(3),
-        Stack::new(item(it::Kind::Stick), 2),
-    );
-    w.sent(s);
-    equip(&mut w, 9);
-    assert_eq!(answers(&mut w), 1, "another stack is answered again");
-    w.state.tick += 1;
-    equip(&mut w, 9);
-    assert_eq!(answers(&mut w), 1, "the next tick is answered again");
+    assert_eq!(answers(&mut w), [1], "the next tick is answered again");
 }
 
 #[test]

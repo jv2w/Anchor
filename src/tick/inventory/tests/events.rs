@@ -752,7 +752,7 @@ fn hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot() {
     on_mob_equipment(&mut w.state, s, &equip(2));
     assert_eq!(w.player(s).held_slot(), 1);
     assert!(
-        w.sent(s)
+        w.tick_delivered(Vec::new())
             .iter()
             .any(|p| matches!(p, Packet::MobEquipment(m) if m.hot_bar_slot == 1))
     );
@@ -763,6 +763,19 @@ fn hotbar_selection_raises_item_held_and_cancelling_sends_the_old_slot() {
             format!("2 {:?}", Stack::new(item(it::Kind::Apple), 3))
         ]
     );
+    // Cancelled selections around a taken one get one answer: the hand the server kept last.
+    for slot in [2, 0, 2] {
+        on_mob_equipment(&mut w.state, s, &equip(slot));
+    }
+    let answers: Vec<u8> = w
+        .tick_delivered(Vec::new())
+        .iter()
+        .filter_map(|p| match p {
+            Packet::MobEquipment(m) => Some(m.hot_bar_slot),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(answers, [0]);
 }
 
 #[test]
