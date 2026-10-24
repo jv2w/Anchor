@@ -18,7 +18,7 @@ use crate::config::{CriticalHits, GameMode};
 use crate::effect::Type as Effect;
 use crate::event::{
     Actor, CombustSource, DamageCause, DamageModifier, DamageSource, EntityCombust, EntityDamage,
-    EntityExtinguish, EntityRegainHealth, ExhaustCause, ExtinguishCause, PlayerDeath,
+    EntityExtinguish, EntityRegainHealth, ExhaustCause, ExtinguishCause, MAX_DAMAGE, PlayerDeath,
     PlayerRespawn, RegainReason,
 };
 use crate::item::{Class, Enchantment, Stack, Type};
@@ -323,7 +323,7 @@ pub(super) fn damage_by(
     cause: Damage,
     source: DamageSource,
 ) -> bool {
-    if !amount.is_finite() || amount < 0.0 {
+    if !(0.0..=MAX_DAMAGE).contains(&amount) {
         return false;
     }
     let attacker = match (cause, source) {
@@ -364,25 +364,19 @@ fn attacker_modifiers(
     };
     let strength = f64::from(a.survival.effect_level(Effect::Strength));
     let weakness = f64::from(a.survival.effect_level(Effect::Weakness));
-    let up = saturate(base * 0.3 * strength);
+    let up = base * 0.3 * strength;
     let mut extra = up;
     if strength > 0.0 {
         set(&mut parts, DamageModifier::Strength, up);
     }
     if matches!(cause, Damage::Attack(_)) {
-        let down = saturate(base * 0.2 * weakness);
+        let down = base * 0.2 * weakness;
         extra -= down;
         if weakness > 0.0 {
             set(&mut parts, DamageModifier::Weakness, -down);
         }
     }
     (extra, parts)
-}
-
-/// `v` (not negative) capped at `f64::MAX`. A hit's sums and products saturate there, so a huge
-/// finite hit never becomes an infinity that a reduction cancels into no damage.
-fn saturate(v: f64) -> f64 {
-    math::min(v, f64::MAX)
 }
 
 /// Checks a hit, asks the [`EntityDamage`] listeners and applies it; its modifiers as the
@@ -422,7 +416,7 @@ pub(super) fn damage_quiet(
     amount: f64,
     cause: Damage,
 ) -> bool {
-    if !amount.is_finite() || amount < 0.0 {
+    if !(0.0..=MAX_DAMAGE).contains(&amount) {
         return false;
     }
     let hit = Hit {
@@ -486,7 +480,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
     let mut modifiers = hit.parts;
     let total = |sum: f64| {
         let v = base + sum;
-        if v > 0.0 { saturate(v) } else { 0.0 }
+        if v > 0.0 { v } else { 0.0 }
     };
     let mut absorption = 0.0;
     let mut totem = false;
@@ -504,7 +498,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
             );
         }
         if armor && hit.cause.event_cause().is_reduced_by_armor() {
-            let d = saturate(total(sum) * f64::from(armor_points(player))) * 0.04;
+            let d = total(sum) * f64::from(armor_points(player)) * 0.04;
             sum -= d;
             set(&mut modifiers, DamageModifier::Armor, -d);
         }
@@ -523,7 +517,7 @@ fn assess(state: &mut State, session: SessionId, hit: Hit) -> Option<Landed> {
             let mut r = player_random(seed, tick, player, PROTECTION);
             let roll = f64::from(r.range(50, 100)) / 100.0;
             let reduction = math::min((f64::from(epf) * roll).ceil(), 20.0);
-            let d = saturate(total(sum) * reduction) * 0.04;
+            let d = total(sum) * reduction * 0.04;
             sum -= d;
             set(&mut modifiers, DamageModifier::ArmorEnchantments, -d);
         }

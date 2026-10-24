@@ -105,7 +105,7 @@ use crate::event::{
     Actor, CombustSource, DamageCause, DamageModifier, DamageSource, EntityBlockChange,
     EntityCombust, EntityDamage, EntityDeath, EntityDespawn, EntityExtinguish, EntityItemPickup,
     EntityMotion, EntityRegainHealth, EntitySpawn, ExtinguishCause, ItemDespawn, ItemMerge,
-    ItemSpawn, RegainReason,
+    ItemSpawn, MAX_DAMAGE, RegainReason,
 };
 use crate::item::Stack;
 use crate::math::{Aabb, Vec3};
@@ -467,11 +467,11 @@ impl Entity {
 
     /// Whether a hit of `amount` for `cause` would hurt it, and how (PMMP `Entity::attack` and
     /// `Living::attack`'s cooldown for NPCs, before the event): `None` when the kind ignores the
-    /// cause, the amount is not finite or below 0, an NPC is dying, or a hit no stronger than
-    /// the last comes within an NPC's cooldown.
+    /// cause, the amount is not within 0 through [`MAX_DAMAGE`], an NPC is dying, or a hit no
+    /// stronger than the last comes within an NPC's cooldown.
     fn plan_hit(&self, cause: Cause, amount: f64) -> Option<Plan> {
         let dead_crystal = matches!(self.kind, Kind::EndCrystal(_)) && self.health <= 0.0;
-        if !self.kind.takes(cause) || !amount.is_finite() || amount < 0.0 || dead_crystal {
+        if !self.kind.takes(cause) || !(0.0..=MAX_DAMAGE).contains(&amount) || dead_crystal {
             return None;
         }
         let Kind::Npc(c) = &self.kind else {

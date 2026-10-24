@@ -28,7 +28,8 @@ pub struct Damage {
 
 impl Damage {
     /// `amount` damage (half hearts, before the modifiers) to `player` for `cause`, from no source
-    /// in particular. An amount that is negative or not finite does nothing.
+    /// in particular. An amount that is negative, not finite or above
+    /// [`MAX_DAMAGE`](crate::event::MAX_DAMAGE) does nothing.
     pub fn new(player: Id, amount: f64, cause: DamageCause) -> Self {
         Self {
             player,

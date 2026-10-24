@@ -849,9 +849,10 @@ fn hidden_pairs_go_when_a_player_leaves() {
     assert_eq!(left, vec![(p1.session(), p3.session())]);
 }
 
-/// A hit that is not a finite number is refused, so no health becomes infinite.
+/// A hit that is not a finite number or above the damage limit is refused, so no health becomes
+/// infinite.
 #[test]
-fn infinite_damage_is_refused() {
+fn damage_not_finite_or_above_the_limit_is_refused() {
     let mut h = harness();
     let mut ctx = context(&mut h);
     let stick = stack("minecraft:stick", 1);
@@ -859,8 +860,11 @@ fn infinite_damage_is_refused() {
         .drop_item(WORLD, at(2.5, -60.0, 2.5), stick, None)
         .unwrap();
     let mut e = ctx.entity_mut(item).unwrap();
-    assert!(!e.attack(f64::INFINITY));
-    assert!(e.health().is_finite());
+    let health = e.health();
+    for amount in [f64::INFINITY, f64::MAX, 1e18] {
+        assert!(!e.attack(amount), "{amount}");
+    }
+    assert_eq!(e.health(), health);
 }
 
 #[test]

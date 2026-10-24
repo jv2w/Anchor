@@ -12,11 +12,11 @@ use crate::config::{Config, CriticalHits};
 use crate::event::{
     Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
     EntityEffectRemove, EntityExtinguish, EntityMotion, EntityRegainHealth, ExtinguishCause,
-    Listeners, PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin, PlayerChat, PlayerDeath,
-    PlayerEmote, PlayerExhaust, PlayerExperienceChange, PlayerGameModeChange, PlayerItemConsume,
-    PlayerJump, PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit, PlayerRespawn,
-    PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint, PlayerToggleSwim,
-    PlayerTransfer, Priority,
+    Listeners, MAX_DAMAGE, PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin, PlayerChat,
+    PlayerDeath, PlayerEmote, PlayerExhaust, PlayerExperienceChange, PlayerGameModeChange,
+    PlayerItemConsume, PlayerJump, PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit,
+    PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint,
+    PlayerToggleSwim, PlayerTransfer, Priority,
 };
 use crate::item::{Kind as ItemKind, Stack};
 use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
@@ -1234,26 +1234,64 @@ fn the_damage_action_hurts_through_the_rules() {
     assert_eq!(drain(&mut seen), [pid(1)]);
 }
 
-/// A finite hit too big for the modifiers to add up still kills: the sums saturate at
-/// `f64::MAX` instead of cancelling out as infinities into no damage.
+/// The largest hit of a player with the strongest Strength kills through armour, and a totem
+/// still saves from it, leaving one health.
 #[test]
-fn a_huge_hit_from_a_strong_player_kills_an_armoured_target() {
-    for (amplifier, amount) in [(0, f64::MAX), (255, 1e307)] {
-        let mut game = Game::new(2, Listeners::default());
-        inventory::set_armor(game.player_mut(2), 1, stack(ItemKind::IronChestplate, 1));
-        for effect in [effect::Type::Strength, effect::Type::Weakness] {
-            effects::add(
-                &mut game.state,
-                sid(1),
-                effect,
-                effects::Active::new(200, amplifier),
-            );
+fn the_largest_hit_of_a_strong_player_kills_through_armour_and_a_totem_saves_from_it() {
+    for amplifier in [0, 255] {
+        for totem in [false, true] {
+            let mut game = Game::new(2, Listeners::default());
+            let target = game.player_mut(2);
+            if totem {
+                inventory::set_held(target, stack(ItemKind::Totem, 1));
+            } else {
+                inventory::set_armor(target, 1, stack(ItemKind::IronChestplate, 1));
+            }
+            for effect in [effect::Type::Strength, effect::Type::Weakness] {
+                effects::add(
+                    &mut game.state,
+                    sid(1),
+                    effect,
+                    effects::Active::new(200, amplifier),
+                );
+            }
+            let by = DamageSource::Entity(Actor::Player(pid(1)));
+            // What `action::Damage` does, with no tick after it: the totem's Regeneration has not
+            // healed yet.
+            Context {
+                state: &mut game.state,
+            }
+            .hurt_player(pid(2), MAX_DAMAGE, DamageCause::EntityAttack, by);
+            let player = game.player(2);
+            assert_eq!(player.is_alive(), totem, "amplifier {amplifier}");
+            if totem {
+                assert!((player.health() - 1.0).abs() < 1e-6, "{}", player.health());
+                assert!(player.inventory.held().is_empty(), "the totem is used");
+            }
         }
-        let by = DamageSource::Entity(Actor::Player(pid(1)));
+    }
+}
+
+/// A hit above the damage limit does nothing: past it the sums of a hit would lose the totem's
+/// health − 1 in rounding, and the totem holder would die.
+#[test]
+fn a_hit_above_the_damage_limit_does_nothing() {
+    let mut game = Game::new(2, Listeners::default());
+    inventory::set_held(game.player_mut(2), stack(ItemKind::Totem, 1));
+    effects::add(
+        &mut game.state,
+        sid(1),
+        effect::Type::Strength,
+        effects::Active::new(200, 0),
+    );
+    let by = DamageSource::Entity(Actor::Player(pid(1)));
+    for amount in [f64::MAX, 1e18] {
         game.perform(
             action::Damage::new(pid(2), amount, DamageCause::EntityAttack).with_source(by),
         );
-        assert!(!game.player(2).is_alive(), "amplifier {amplifier}");
+        let player = game.player(2);
+        assert_eq!(player.health(), 20.0, "{amount}");
+        assert!(!player.inventory.held().is_empty(), "{amount}");
     }
 }
 

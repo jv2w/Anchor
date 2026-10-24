@@ -870,8 +870,8 @@ impl Mut<'_> {
     /// Hurts it by `amount` (PMMP `attack` with `CAUSE_CUSTOM`, without the event): an NPC
     /// follows its hit cooldown and shows the hit, and dies at 0 health; anything else that
     /// reaches 0 is removed. Falling blocks, primed TNT, projectiles and invulnerable NPCs take
-    /// no damage but the void's. False if nothing was taken, as for an amount that is not
-    /// finite or below 0.
+    /// no damage but the void's. False if nothing was taken, as for an amount that is below 0 or
+    /// above [`MAX_DAMAGE`](crate::event::MAX_DAMAGE), or not finite.
     #[doc(alias = "Entity::attack")]
     #[doc(alias = "Living::attack")]
     pub fn attack(&mut self, amount: f64) -> bool {

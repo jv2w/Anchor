@@ -108,7 +108,7 @@ pub use entity::{
     EntityEffectRemove, EntityExplode, EntityExtinguish, EntityFrostWalker, EntityItemPickup,
     EntityMotion, EntityPreExplode, EntityRegainHealth, EntityShootBow, EntitySpawn,
     EntityTeleport, EntityTrampleFarmland, ExtinguishCause, ItemDespawn, ItemMerge, ItemSpawn,
-    MAX_FROST_WALKER_RADIUS, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch,
+    MAX_DAMAGE, MAX_FROST_WALKER_RADIUS, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch,
     RegainReason,
 };
 pub use inventory::{

@@ -234,6 +234,13 @@ impl DamageModifier {
     ];
 }
 
+/// The most damage, in half hearts, a hit may start with and a modifier may add or take away:
+/// 2^24. [`crate::action::Damage`] and [`crate::entity::Mut::attack`] refuse a larger amount, and
+/// [`EntityDamage`]'s setters cut a value to it. It is far above any hit the game deals, and it
+/// keeps every sum of a hit (Strength up to level 256, armour, eleven modifiers) far below 2^53,
+/// where `f64` would round a totem's health − 1 away and the totem would not save its holder.
+pub const MAX_DAMAGE: f64 = 16_777_216.0;
+
 /// The modifiers of a hit, by [`DamageModifier`] order; `None` where one does not apply.
 pub(crate) type Modifiers = [Option<f64>; DamageModifier::ALL.len()];
 
@@ -313,13 +320,14 @@ setters!(EntityDamage {
 });
 
 impl EntityDamage {
-    /// Sets the damage before the modifiers, at least 0. A value that is not finite is ignored.
+    /// Sets the damage before the modifiers, cut to 0 through [`MAX_DAMAGE`]. A value that is not
+    /// finite is ignored.
     #[doc(alias = "EntityDamageEvent::setBaseDamage")]
     pub fn set_base_damage(&mut self, damage: f64) {
         if damage.is_finite() {
             // The base damage is remembered for the attack cooldown, where a negative one would
             // add to the next hit; reduce the damage with a modifier instead.
-            self.base_damage = math::max(damage, 0.0);
+            self.base_damage = math::clamp(damage, 0.0, MAX_DAMAGE);
         }
     }
 
@@ -329,14 +337,14 @@ impl EntityDamage {
         value(&self.modifiers, modifier).unwrap_or(0.0)
     }
 
-    /// Sets `modifier` to `damage` (negative to reduce), so that it applies. A value that is not
-    /// finite is ignored.
+    /// Sets `modifier` to `damage` (negative to reduce), cut to ±[`MAX_DAMAGE`], so that it
+    /// applies. A value that is not finite is ignored.
     #[doc(alias = "EntityDamageEvent::setModifier")]
     pub fn set_modifier(&mut self, modifier: DamageModifier, damage: f64) {
         if let Some(slot) = self.modifiers.get_mut(modifier as usize)
             && damage.is_finite()
         {
-            *slot = Some(damage);
+            *slot = Some(math::clamp(damage, -MAX_DAMAGE, MAX_DAMAGE));
         }
     }
 
@@ -368,8 +376,7 @@ impl EntityDamage {
     #[doc(alias = "EntityDamageEvent::getFinalDamage")]
     pub fn final_damage(&self) -> f64 {
         let total = applicable(&self.modifiers).fold(self.base_damage, |sum, (_, v)| sum + v);
-        // Finite parts add up to at most an infinity of one sign, never NaN.
-        math::clamp(total, 0.0, f64::MAX)
+        math::max(total, 0.0)
     }
 
     /// Whether armour reduces damage of this cause.
@@ -1263,8 +1270,9 @@ mod tests {
         e.set_base_damage(-5.0);
         assert_eq!(e.base_damage(), 0.0);
         e.set_base_damage(f64::MAX);
-        e.set_modifier(DamageModifier::Resistance, f64::MAX);
-        assert_eq!(e.final_damage(), f64::MAX);
+        e.set_modifier(DamageModifier::Resistance, -f64::MAX);
+        assert_eq!(e.base_damage(), MAX_DAMAGE);
+        assert_eq!(e.modifier(DamageModifier::Resistance), -MAX_DAMAGE);
         e.set_attack_cooldown_ticks(4);
         e.set_knockback(0.8);
         e.set_vertical_knockback_limit(0.1);
