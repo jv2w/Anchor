@@ -278,6 +278,8 @@ pub(super) struct Inventory {
     held_unanswered: bool,
     /// Block picks in a tick: (tick, count), at most [`MAX_PICKS_PER_TICK`].
     picks: (u64, u8),
+    /// The tick the client last tried to open a window ([`first_client_open_this_tick`]).
+    client_opened: Option<u64>,
     /// Stacks waiting for room in the inventory, at most [`MAX_SAVED_PENDING`] with what is held
     /// outside the slots (its invariant).
     pending: Vec<Stack>,
@@ -312,6 +314,7 @@ impl Default for Inventory {
             resent: None,
             held_unanswered: false,
             picks: (0, 0),
+            client_opened: None,
             pending: Vec::new(),
             next_option_id: 0,
             menu: None,
@@ -869,6 +872,7 @@ impl Inventory {
             budget: _,
             resent: _,
             picks: _,
+            client_opened: _,
             // Cleared by the end of every tick.
             held_unanswered: _,
             pending,
@@ -984,8 +988,9 @@ impl<const N: usize> Codec for Slots<N> {
     }
 }
 
-/// Every field but the set of recent request IDs, which is `recent` again, and the held answer
-/// and the block picks, which only count in their own tick: a checkpoint is taken after its tick.
+/// Every field but the set of recent request IDs, which is `recent` again, and the held answer,
+/// the block picks and the client's window open, which only count in their own tick: a checkpoint
+/// is taken after its tick.
 impl Codec for Inventory {
     fn encode(&self, w: &mut Writer) {
         let Self {
@@ -1006,6 +1011,7 @@ impl Codec for Inventory {
             resent,
             held_unanswered: _,
             picks: _,
+            client_opened: _,
             pending,
             next_option_id,
             menu,
@@ -1065,6 +1071,7 @@ impl Codec for Inventory {
             resent: Codec::decode(r)?,
             held_unanswered: false,
             picks: (0, 0),
+            client_opened: None,
             pending: Codec::decode(r)?,
             next_option_id: Codec::decode(r)?,
             menu: Codec::decode(r)?,
@@ -1611,6 +1618,20 @@ pub(super) fn on_interact(state: &mut State, session: SessionId, packet: &Intera
 pub(super) fn held_of(state: &State, session: SessionId) -> Option<(u8, Slot)> {
     let inv = &state.players.get(&session)?.inventory;
     Some((inv.held, inv.main.get(inv.held)?))
+}
+
+/// Notes that the client of `session` tries to open a window (a block's or a villager's): false,
+/// and the caller opens nothing, if it already tried in this tick. A person opens far fewer than
+/// one window a tick, but each open builds the window's whole contents or a villager's every
+/// offer, whatever the few bytes of the click. Windows the API opens are not limited.
+pub(super) fn first_client_open_this_tick(state: &mut State, session: SessionId) -> bool {
+    let tick = state.tick;
+    let Some(player) = state.players.get_mut(&session) else {
+        return false;
+    };
+    let first = player.inventory.client_opened != Some(tick);
+    player.inventory.client_opened = Some(tick);
+    first
 }
 
 /// Whether `session` may open a window now: it is joined and loaded, and it waits with few

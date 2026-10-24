@@ -23,7 +23,9 @@ use crate::save::WorldIndex;
 use crate::world::{BlockPos, Entry, MAX_Y, MIN_Y, Particle, Sound};
 
 use super::super::update::{CAULDRON_FULL, LAVA_TICK_RATE, WATER_TICK_RATE};
-use super::super::{SessionId, State, block_entity, dispatch, entity, inventory, survival, update};
+use super::super::{
+    SessionId, State, block_entity, dispatch, entity, inventory, survival, trade, update,
+};
 use super::{
     Actor, Source, USE, adventure_allows, block_vec, breaking, center, drops, level_event,
     particle, place, props, return_items, sound, stream,
@@ -68,6 +70,8 @@ pub(super) struct Use {
     pub(super) rng: Random,
     /// The event the use raised, for its monitors once the held item is applied too.
     pub(super) watched: Option<Watched>,
+    /// Where the click comes from.
+    pub(super) source: Source,
 }
 
 /// An event an item use raised, kept until the use is applied with the held item and returned
@@ -243,6 +247,7 @@ pub(super) fn use_item_on(
         returned: Vec::new(),
         rng: stream(state, actor.world, USE, pos),
         watched: None,
+        source,
     };
     let done = if use_block && interact(state, &mut u) {
         finish(state, u, &held);
@@ -421,6 +426,16 @@ fn obstructed(state: &State, world: WorldIndex, pos: BlockPos, block: BlockState
         .any(|b| entity::occupied(state, world, b.offset(at)))
 }
 
+/// Opens the window of the clicked block ([`inventory::open_block`]); a client tries once a tick
+/// at most ([`inventory::first_client_open_this_tick`]).
+fn open_window(state: &mut State, u: &Use) {
+    if u.source == Source::Client && !inventory::first_client_open_this_tick(state, u.actor.session)
+    {
+        return;
+    }
+    let _ = inventory::open_block(state, u.actor.session, u.actor.world, u.pos);
+}
+
 /// PMMP `Block::onInteract` of the clicked block's class (the first class in its chain that has
 /// one): true when the block did something.
 #[expect(
@@ -470,14 +485,14 @@ fn interact(state: &mut State, u: &mut Use) -> bool {
             | Class::ShulkerBox
             | Class::SmithingTable
             | Class::Stonecutter => {
-                let _ = inventory::open_block(state, u.actor.session, u.actor.world, u.pos);
+                open_window(state, u);
                 return true;
             }
             Class::Chest => {
                 // A chest under a solid block stays shut (its pair's check is the window's).
                 let above = get(state, u.actor.world, u.pos.step(Face::Up));
                 if above.is_transparent() {
-                    let _ = inventory::open_block(state, u.actor.session, u.actor.world, u.pos);
+                    open_window(state, u);
                 }
                 return true;
             }
@@ -1718,19 +1733,21 @@ pub(super) fn on_entity(
     match action {
         UseItemOnEntityAction::Attack => entity::attack(state, session, target),
         UseItemOnEntityAction::Interact => {
-            let _used = interact_entity(state, session, target, click);
+            let _used = interact_entity(state, session, target, click, Source::Client);
         }
     }
 }
 
 /// PMMP `Player::interactEntity`: when the entity is within reach, [`PlayerEntityInteract`], then
-/// the entity rules' interaction (which check the reach again). False if nothing happened. Each
-/// part of `click` that is not a finite number counts as 0.
+/// the entity rules' interaction (which check the reach again; a client tries to open trading
+/// once a tick at most, [`trade::open_from_client`]). False if nothing happened. Each part of
+/// `click` that is not a finite number counts as 0.
 pub(super) fn interact_entity(
     state: &mut State,
     session: SessionId,
     target: crate::entity::Id,
     click: Vec3,
+    source: Source,
 ) -> bool {
     let click = super::finite_vec(click);
     let mut event = None;
@@ -1752,7 +1769,11 @@ pub(super) fn interact_entity(
         event = Some(e);
     }
     // The entity rules check again whether the entity is there and within reach.
-    let used = entity::interact(state, session, target);
+    let open_trade = match source {
+        Source::Client => trade::open_from_client,
+        Source::Action => trade::open,
+    };
+    let used = entity::interact(state, session, target, open_trade);
     if let Some(e) = event.filter(|_| used) {
         dispatch::watch(state, &e);
     }

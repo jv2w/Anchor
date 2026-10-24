@@ -4285,11 +4285,16 @@ pub(super) fn attack(state: &mut State, session: SessionId, target: Id) {
 }
 
 /// `session` interacts with the entity `target` (PMMP `Player::interactEntity`): a villager NPC
-/// within reach (8 blocks, in front) opens trading through `trade::open`. False if nothing
-/// happened.
+/// within reach (8 blocks, in front) opens trading through `open_trade` (`trade::open`, or
+/// `trade::open_from_client` for the player's client). False if nothing happened.
 #[doc(alias = "Player::interactEntity")]
-pub(super) fn interact(state: &mut State, session: SessionId, target: Id) -> bool {
-    npc::interact_with(state, session, target, HOOKS, super::trade::open)
+pub(super) fn interact(
+    state: &mut State,
+    session: SessionId,
+    target: Id,
+    open_trade: fn(&mut State, SessionId, Id) -> bool,
+) -> bool {
+    npc::interact_with(state, session, target, HOOKS, open_trade)
 }
 
 /// Whether `session` can act on the entity `id`: spawned, alive, not a spectator, in its world

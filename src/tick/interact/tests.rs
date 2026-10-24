@@ -1009,6 +1009,51 @@ fn set_with_entity(h: &mut Harness, block: block::State, item: &Stack) {
     super::super::block_entity::placed(&mut h.state, 0, TARGET, None, item, Face::West);
 }
 
+/// Window opening clicks squeezed into one tick by a client that changes each click a little
+/// (so none is a repeat) and acknowledges every close at once.
+const CLICKS: usize = 1_000;
+
+#[test]
+fn a_client_opens_a_block_window_at_most_once_a_tick() {
+    use crate::protocol::packet::ContainerClose;
+    for (source, opens) in [(Source::Client, 1), (Source::Action, CLICKS)] {
+        let mut h = Harness::new(|_| {});
+        set_with_entity(&mut h, Kind::Chest.default_state(), &Stack::EMPTY);
+        h.packets();
+        let mut opened = 0;
+        for _ in 0..CLICKS {
+            let click = Vec3::new(0.0, 0.5, 0.5);
+            let _ = interact_block(
+                &mut h.state,
+                SessionId::new(1),
+                TARGET,
+                Face::West,
+                click,
+                source,
+            );
+            for p in h.packets() {
+                match p {
+                    Packet::ContainerOpen(_) => opened += 1,
+                    Packet::ContainerClose(c) if c.server_side => {
+                        let ack = ContainerClose {
+                            server_side: false,
+                            ..c
+                        };
+                        inventory::on_container_close(&mut h.state, SessionId::new(1), &ack);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let last = h.packets();
+        opened += last
+            .iter()
+            .filter(|p| matches!(p, Packet::ContainerOpen(_)))
+            .count();
+        assert_eq!(opened, opens, "{source:?}");
+    }
+}
+
 fn entity_at(h: &Harness) -> super::super::block_entity::Kind {
     h.state
         .rules

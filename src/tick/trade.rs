@@ -260,6 +260,12 @@ pub(super) fn open(state: &mut State, session: SessionId, villager: Id) -> bool 
     open_with(state, session, villager, HOOKS)
 }
 
+/// [`open`] for the player's client, which tries once a tick at most
+/// ([`inventory::first_client_open_this_tick`]): a refused try builds no offers.
+pub(super) fn open_from_client(state: &mut State, session: SessionId, villager: Id) -> bool {
+    inventory::first_client_open_this_tick(state, session) && open(state, session, villager)
+}
+
 fn open_with(state: &mut State, session: SessionId, villager: Id, hooks: Hooks) -> bool {
     let may_open = |state: &State| {
         let world = state.players.get(&session).map(|p| p.world);

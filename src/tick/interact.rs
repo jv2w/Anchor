@@ -2016,7 +2016,8 @@ impl action::Sealed for action::InteractEntity {
     fn perform(self, cx: &mut Context<'_>) {
         let session = self.player.session();
         if actor(cx.state, session).is_some() {
-            let _used = using::interact_entity(cx.state, session, self.entity, self.click);
+            let _used =
+                using::interact_entity(cx.state, session, self.entity, self.click, Source::Action);
         }
     }
 }

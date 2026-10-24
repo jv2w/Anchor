@@ -889,9 +889,9 @@ fn villager(h: &mut Harness) -> (crate::entity::Id, u64) {
     (id, runtime_id)
 }
 
-/// The player right-clicks the entity `runtime_id` at `at`.
-fn use_on_entity(h: &mut Harness, runtime_id: u64, at: [f32; 3]) {
-    let input = h.input(Packet::InventoryTransaction(InventoryTransaction {
+/// The player's right click on the entity `runtime_id` at `at`.
+fn entity_click(h: &mut Harness, runtime_id: u64, at: [f32; 3]) -> Input {
+    h.input(Packet::InventoryTransaction(InventoryTransaction {
         transaction_data: InventoryTransactionData::UseItemOnEntity(Box::new(
             UseItemOnEntityTransactionData {
                 target_entity_runtime_id: runtime_id,
@@ -901,14 +901,44 @@ fn use_on_entity(h: &mut Harness, runtime_id: u64, at: [f32; 3]) {
             },
         )),
         ..Default::default()
-    }));
+    }))
+}
+
+/// The player right-clicks the entity `runtime_id` at `at`.
+fn use_on_entity(h: &mut Harness, runtime_id: u64, at: [f32; 3]) {
+    let input = entity_click(h, runtime_id, at);
     h.run(vec![input]);
 }
 
-fn trade_opened(h: &mut Harness) -> bool {
+/// The trade screens sent since the last call.
+fn trades_opened(h: &mut Harness) -> usize {
     h.packets()
         .iter()
-        .any(|p| matches!(p, Packet::UpdateTrade(_)))
+        .filter(|p| matches!(p, Packet::UpdateTrade(_)))
+        .count()
+}
+
+fn trade_opened(h: &mut Harness) -> bool {
+    trades_opened(h) > 0
+}
+
+#[test]
+fn a_client_opens_trading_at_most_once_a_tick() {
+    let mut h = Harness::new(|_| {});
+    let (id, runtime_id) = villager(&mut h);
+    h.run(Vec::new());
+    h.packets();
+    let clicks = (0..CLICKS)
+        .map(|_| entity_click(&mut h, runtime_id, [0.0; 3]))
+        .collect();
+    h.run(clicks);
+    assert_eq!(trades_opened(&mut h), 1);
+    use_on_entity(&mut h, runtime_id, [0.0; 3]);
+    assert_eq!(trades_opened(&mut h), 1, "the next tick opens it again");
+    for _ in 0..3 {
+        perform(&mut h, action::InteractEntity::new(me(), id, Vec3::ZERO));
+    }
+    assert_eq!(trades_opened(&mut h), 3, "the API is not limited");
 }
 
 // pmmp: PlayerEntityInteractEvent
