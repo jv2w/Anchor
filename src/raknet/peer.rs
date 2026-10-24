@@ -64,7 +64,7 @@ const FRAME_COST: usize = size_of::<OutFrame>() + size_of::<OutMessage>();
 /// Datagrams sent per flush at most. Flushes run every update (10 ms) and after every received
 /// datagram, so this paces a large window instead of bursting it into the peer's socket buffer
 /// (go-raknet uses the OS default, which drops a burst of a few hundred datagrams). It still
-/// allows about 6,400 datagrams (9 MB) per second from updates alone.
+/// allows about 3,200 datagrams (4.7 MB) per second from updates alone.
 const MAX_BURST: usize = 32;
 /// Pending ACK ranges that trigger an ACK before the next update.
 const ACK_BATCH: usize = 64;
