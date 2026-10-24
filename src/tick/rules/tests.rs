@@ -336,7 +336,8 @@ fn load(custom: bool, experience: bool) -> (Reads, Reads, [u64; 4]) {
             chunk,
             state.custom(),
             state.entity_types(),
-        );
+        )
+        .unwrap();
         assert!(again == stored.rules, "the load read the extras");
     }
     assert_eq!(
@@ -438,4 +439,29 @@ fn an_unwanted_answer_is_dropped_without_a_read() {
         assert!(!state.worlds[0].is_chunk_loaded(pos));
     }
     assert_eq!(reads::take(), Reads::default());
+}
+
+/// A saved block entity list keeping more entries as read than a chunk may loads its chunk as
+/// damaged: the save keeps it as it is.
+#[test]
+fn a_block_entity_list_of_too_many_raw_entries_loads_damaged() {
+    let state = new_state(settings(|_| {}), Listeners::default());
+    let raw = Compound::from([("id".to_owned(), Value::String("Chest".to_owned()))]);
+    let list = vec![raw; crate::storage::codec::MAX_RAW_BLOCK_ENTITIES + 1];
+    let snapshot = Snapshot {
+        start: 1,
+        extras: vec![(0, GENERATED, ChunkKind::BlockEntities, list)],
+        ..Snapshot::default()
+    };
+    let registry = Arc::clone(state.custom());
+    let types = Arc::clone(state.entity_types());
+    let answers =
+        crate::save::tests::commit_and_load(&snapshot, &[(0, GENERATED)], registry, types);
+    assert!(matches!(
+        answers.as_slice(),
+        [Response::Chunk {
+            loaded: Loaded::Damaged,
+            ..
+        }]
+    ));
 }

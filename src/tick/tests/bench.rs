@@ -69,7 +69,8 @@ fn answer(state: &State, pool: &Pool, requests: Vec<Request>) -> Vec<Response> {
         }
         let mut stored = crate::tick::extra::tests::sample(world, pos);
         stored.rules =
-            crate::tick::ChunkRules::read((world, pos), &stored.extras, &chunk, custom, types);
+            crate::tick::ChunkRules::read((world, pos), &stored.extras, &chunk, custom, types)
+                .unwrap();
         Response::Chunk {
             world,
             pos,

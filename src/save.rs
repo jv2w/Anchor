@@ -40,7 +40,7 @@ use crate::import::BLOCK_STATE_VERSION;
 use crate::nbt::{self, Compound, Value};
 use crate::permission::{self, BanEntry};
 use crate::pool::Pool;
-use crate::storage::codec::MAX_EXTRA_ENTRIES;
+use crate::storage::codec::max_entries;
 use crate::storage::codec::{
     BanRecord, Biomes, BlockLayer, ChunkRecord, ExtraRecord, Mark, Meta, PlayerRecord,
     SubChunkRecord, UserRecord, WorldRecord,
@@ -1648,8 +1648,10 @@ fn load_chunks(
 
 /// Reads the extras of the loaded chunks among `answers` into the rule modules' form
 /// ([`Stored::rules`]), with the server's custom content and entity types: one pool item per
-/// list that has entries, so an item costs at most one list's read (up to [`MAX_EXTRA_ENTRIES`]
-/// entries, a container's slots each), not a chunk's decode and light on top.
+/// list that has entries, so an item costs at most one list's read (up to [`max_entries`]
+/// entries, a container's slots each), not a chunk's decode and light on top. A list a rule
+/// module refuses (a block entity list keeping more entries as read than it may) makes its
+/// chunk damaged.
 fn read_rules(pool: &Pool, answers: &mut [Response], custom: &Registry, types: &EntityTypes) {
     let jobs: Vec<_> = answers
         .iter()
@@ -1677,14 +1679,22 @@ fn read_rules(pool: &Pool, answers: &mut [Response], custom: &Registry, types: &
     drop(jobs);
     let mut parts = owners.into_iter().zip(parts).peekable();
     for (i, answer) in answers.iter_mut().enumerate() {
-        if let Response::Chunk {
-            loaded: Loaded::Disk(_, stored) | Loaded::Generated(_, stored),
-            ..
-        } = answer
-        {
-            while let Some((_, part)) = parts.next_if(|(j, _)| *j == i) {
-                stored.rules.add(part);
+        let Response::Chunk { world, pos, loaded } = answer else {
+            continue;
+        };
+        let (Loaded::Disk(_, stored) | Loaded::Generated(_, stored)) = loaded else {
+            continue;
+        };
+        let mut damaged = false;
+        while let Some((_, part)) = parts.next_if(|(j, _)| *j == i) {
+            match part {
+                Some(part) => stored.rules.add(part),
+                None => damaged = true,
             }
+        }
+        if damaged {
+            warn!(world = *world, x = pos.x, z = pos.z, "chunk extras damaged");
+            *loaded = Loaded::Damaged;
         }
     }
 }
@@ -1726,8 +1736,8 @@ fn decode_chunk(plan: &Plan, pos: ChunkPos, values: &ChunkValues, custom: &Regis
 }
 
 /// Reads the values of `chunk` (in key order): its terrain, a sub-chunk record per value, and
-/// its extras, each list its pages from 0 on without a gap, at most [`MAX_EXTRA_ENTRIES`]
-/// entries. Fails with the part at fault on the first damaged value.
+/// its extras, each list its pages from 0 on without a gap, at most [`max_entries`] of its
+/// kind. Fails with the part at fault on the first damaged value.
 pub(crate) fn read_values(
     chunk: ChunkId,
     values: &[(ChunkPart, Vec<u8>)],
@@ -1784,7 +1794,7 @@ fn add_page(
     }
     let record = unseal::<ExtraRecord<'_>>(key, sealed)?;
     let list = extras.get_mut(kind);
-    if list.len().saturating_add(record.0.len()) > MAX_EXTRA_ENTRIES {
+    if list.len().saturating_add(record.0.len()) > max_entries(kind) {
         return Err(storage::Error::Malformed("the list has too many entries"));
     }
     list.extend(record.0.into_owned());
@@ -2015,7 +2025,7 @@ pub(crate) fn seal_pages(
     kind: ChunkKind,
     list: &[Compound],
 ) -> Result<Vec<(Key, Vec<u8>)>, storage::Error> {
-    let pages = ExtraRecord::pages(list, MAX_RECORD).map_err(storage::Error::Encode)?;
+    let pages = ExtraRecord::pages(kind, list, MAX_RECORD).map_err(storage::Error::Encode)?;
     (0..=u16::MAX)
         .zip(pages)
         .map(|(page, bytes)| {

@@ -59,23 +59,26 @@ enum Part {
 
 impl ChunkRules {
     /// Reads every kind of `extras`, the extras of chunk `key` whose blocks are `blocks`, with the
-    /// server's custom content `custom` (saved items) and custom entity types `types`.
+    /// server's custom content `custom` (saved items) and custom entity types `types`; `None` if
+    /// a list is damaged ([`Self::read_kind`]).
     pub(crate) fn read(
         key: Key,
         extras: &ChunkExtras,
         blocks: &Chunk,
         custom: &Registry,
         types: &EntityTypes,
-    ) -> Self {
+    ) -> Option<Self> {
         let mut rules = Self::default();
         for kind in ChunkKind::EXTRAS {
-            rules.add(Self::read_kind(key, kind, extras, blocks, custom, types));
+            rules.add(Self::read_kind(key, kind, extras, blocks, custom, types)?);
         }
-        rules
+        Some(rules)
     }
 
     /// Reads the `kind` list of `extras` as [`Self::read`] does. An empty list reads as
-    /// [`ChunkRules::default`] has it, so a load reads only the lists that have entries.
+    /// [`ChunkRules::default`] has it, so a load reads only the lists that have entries. `None`
+    /// for a damaged list: a block entity list keeping more entries as read than a chunk may
+    /// ([`block_entity::Parsed::read`]).
     pub(crate) fn read_kind(
         key: Key,
         kind: ChunkKind,
@@ -83,19 +86,19 @@ impl ChunkRules {
         blocks: &Chunk,
         custom: &Registry,
         types: &EntityTypes,
-    ) -> ChunkRulesPart {
+    ) -> Option<ChunkRulesPart> {
         let list = extras.get(kind);
-        ChunkRulesPart(match kind {
+        Some(ChunkRulesPart(match kind {
             ChunkKind::BlockEntities => {
                 let block_of = |pos: crate::world::BlockPos| {
                     let (x, z) = pos.local();
                     blocks.block(x, pos.y, z)
                 };
-                Part::BlockEntities(block_entity::Parsed::read(key, list, block_of, custom))
+                Part::BlockEntities(block_entity::Parsed::read(key, list, block_of, custom)?)
             }
             ChunkKind::Entities => Part::Entities(entity::read(key.1, list, types, custom)),
             ChunkKind::ScheduledUpdates => Part::Updates(update::Parsed::read(key, list)),
-        })
+        }))
     }
 
     /// Takes in a kind read by [`Self::read_kind`].
@@ -113,6 +116,10 @@ impl Rules {
     /// unsaved chunk that comes back from memory (and the tests' stand-ins of the save thread).
     /// Saved items are read with `world`'s custom content (a world without it, in tests, reads
     /// vanilla items only).
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a list in memory was read at its load or written by its module, so it is not damaged"
+    )]
     pub(super) fn read(
         &self,
         key: Key,
@@ -130,6 +137,7 @@ impl Rules {
             &vanilla
         };
         ChunkRules::read(key, extras, blocks, custom, self.entities.types())
+            .expect("invariant: a list in memory is not damaged")
     }
 
     /// A chunk and its extras are loaded (from the file or from memory), `read` from `extras`.

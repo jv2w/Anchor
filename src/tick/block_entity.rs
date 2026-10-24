@@ -47,6 +47,7 @@ use crate::protocol::consts::BlockEventType;
 use crate::protocol::packet::{BlockActorData, BlockEvent, Packet};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
+use crate::storage::codec::{MAX_RAW_BLOCK_ENTITIES, MAX_SPILLS};
 use crate::world::{BlockPos, ChunkPos};
 
 pub(super) use beacon::{allowed as beacon_effect_allowed, is_payment as beacon_payment};
@@ -57,9 +58,6 @@ pub(super) use campfire::{cooks as campfire_cooks, kind_of as campfire_kind};
 pub(super) use decor::{BLACK_TEXT, FRAME_ROTATIONS, Plant};
 pub(super) use furnace::{FUEL as FURNACE_FUEL, INPUT as FURNACE_INPUT, OUTPUT as FURNACE_OUTPUT};
 
-/// The most spills one chunk keeps; beyond it new spills are lost with an error (a chunk would
-/// need this many containers broken while its world is at the entity limit).
-const MAX_SPILLS: usize = 1024;
 /// The most spilled stacks dropped per tick, over every world.
 const SPILL_DROPS_PER_TICK: usize = 64;
 /// The id of a spill entry in the saved list (Anchor's own; Bedrock has no such entity).
@@ -109,13 +107,16 @@ pub(super) struct BlockEntities {
     marked: BTreeSet<(WorldIndex, BlockPos)>,
 }
 
-/// One chunk's block entities.
+/// One chunk's block entities. Its saved list, the three together, stays within what a list
+/// holds (`storage::codec::MAX_BLOCK_ENTITY_ENTRIES`): one entity per block, at most
+/// [`MAX_SPILLS`] spills and at most [`MAX_RAW_BLOCK_ENTITIES`] raw entries.
 #[derive(Debug, Default, Clone, PartialEq)]
 struct Chunk {
     entities: BTreeMap<BlockPos, BlockEntity>,
     /// Container contents waiting for room in the world to drop.
     spills: Vec<Spill>,
-    /// Saved entries without a valid position in this chunk, kept as they came.
+    /// Saved entries without a valid position in this chunk, or past the spills a chunk keeps,
+    /// kept as they came.
     raw: Vec<Compound>,
 }
 
@@ -772,7 +773,9 @@ fn position(nbt: &Compound, key: Key) -> Option<BlockPos> {
 }
 
 impl Chunk {
-    fn read(key: Key, list: &[Compound], custom: &Registry) -> Self {
+    /// The chunk of a saved list; `None` if the list keeps more raw entries than a chunk may
+    /// ([`MAX_RAW_BLOCK_ENTITIES`]), which no list Anchor wrote or imported does.
+    fn read(key: Key, list: &[Compound], custom: &Registry) -> Option<Self> {
         let mut chunk = Self::default();
         for nbt in list {
             let Some(pos) = position(nbt, key) else {
@@ -781,7 +784,12 @@ impl Chunk {
                 chunk.raw.push(nbt.clone());
                 continue;
             };
-            if nbt.get("id") == Some(&Value::String(SPILL_ID.to_owned())) {
+            let spill = nbt.get("id") == Some(&Value::String(SPILL_ID.to_owned()));
+            if spill && chunk.spills.len() >= MAX_SPILLS {
+                #[cfg(test)]
+                super::rules::reads::add(|r| r.clones += 1);
+                chunk.raw.push(nbt.clone());
+            } else if spill {
                 let mut items = vec![Stack::EMPTY; 2 * CHEST_SLOTS];
                 if let Some(Value::List(List::Compound(list))) = nbt.get("Items") {
                     read_items(&mut items, list, pos, custom);
@@ -800,7 +808,7 @@ impl Chunk {
                 chunk.raw.push(nbt.clone());
             }
         }
-        chunk
+        (chunk.raw.len() <= MAX_RAW_BLOCK_ENTITIES).then_some(chunk)
     }
 
     fn write(&self) -> Vec<Compound> {
@@ -839,14 +847,17 @@ impl Parsed {
     /// waits as a spill and drops in the next ticks (PMMP drops nothing: fixed, no item is
     /// lost). A furnace's stored experience goes with it. With the chunk's spills full it is kept
     /// as it is. A shulker box's stacks its slots do not take (an Anchor before the limit saved
-    /// them) wait as a spill too, so the box with its items is always one stack.
+    /// them) wait as a spill too, so the box with its items is always one stack; with the
+    /// spills full the box keeps them.
+    ///
+    /// `None` for a damaged list: one keeping more raw entries than a chunk may ([`Chunk::read`]).
     pub(super) fn read(
         key: Key,
         list: &[Compound],
         block_of: impl Fn(BlockPos) -> Option<block::State>,
         custom: &Registry,
-    ) -> Self {
-        let mut chunk = Chunk::read(key, list, custom);
+    ) -> Option<Self> {
+        let mut chunk = Chunk::read(key, list, custom)?;
         let stray: Vec<BlockPos> = chunk
             .entities
             .iter()
@@ -876,6 +887,9 @@ impl Parsed {
             }
         }
         for (pos, entity) in &mut chunk.entities {
+            if chunk.spills.len() >= MAX_SPILLS {
+                break;
+            }
             let unfit = entity.take_unfit();
             if !unfit.is_empty() {
                 chunk.spills.push(Spill {
@@ -885,7 +899,7 @@ impl Parsed {
                 removed = true;
             }
         }
-        Self { chunk, removed }
+        Some(Self { chunk, removed })
     }
 }
 
@@ -922,7 +936,8 @@ impl BlockEntities {
         world: &crate::world::World,
         custom: &Registry,
     ) {
-        self.load(key, Parsed::read(key, list, |pos| world.block(pos), custom));
+        let parsed = Parsed::read(key, list, |pos| world.block(pos), custom);
+        self.load(key, parsed.expect("the list is not damaged"));
     }
 
     /// A chunk leaves: drops its state; its list if it changed since [`Self::take_changed`].
@@ -2654,7 +2669,7 @@ pub(in crate::tick) mod tests {
             items: vec![stick.clone()],
         });
         let list = chunk.write();
-        let read = Chunk::read(key, &list, &Registry::default());
+        let read = Chunk::read(key, &list, &Registry::default()).unwrap();
         assert_eq!(read, chunk);
         assert_eq!(read.write(), list);
         // The chunk's blocks are not loaded: nothing is checked against them.
@@ -2787,6 +2802,91 @@ pub(in crate::tick) mod tests {
         );
     }
 
+    /// With the chunk's spills full, a loaded shulker box keeps the stacks its slots do not take.
+    #[test]
+    fn a_loaded_shulker_box_keeps_what_it_cannot_spill_with_the_spills_full() {
+        let key = (0, ChunkPos::new(0, 0));
+        let mut world = world_with(key);
+        let pos = BlockPos::new(1, 2, 3);
+        let shulker = block::State::all()
+            .find(|b| b.is(Class::ShulkerBox))
+            .unwrap();
+        world.set_block(pos, shulker).unwrap();
+        let stick = Stack::new(ItemKind::Stick.default_type(), 5);
+        let big = stick
+            .with_extra(Some(item::Extra {
+                nbt: Compound::from([("pad".to_owned(), Value::ByteArray(vec![1; 4 << 10]))]),
+                ..item::Extra::default()
+            }))
+            .unwrap();
+        let mut entity = BlockEntity::new(Kind::ShulkerBox { facing: 1 }, 27);
+        entity.items[1] = big.clone();
+        let mut list = vec![entity.write(pos)];
+        let spill = Spill {
+            pos,
+            items: vec![stick],
+        };
+        let spills = Chunk {
+            spills: vec![spill; MAX_SPILLS],
+            ..Chunk::default()
+        };
+        list.extend(spills.write());
+        let mut store = BlockEntities::default();
+        store.load_list(key, &list, &world, &Registry::default());
+        assert!(
+            store.get(0, pos).unwrap().items[1] == big,
+            "the box keeps it"
+        );
+        assert_eq!(store.chunks[&key].spills.len(), MAX_SPILLS);
+    }
+
+    /// A list keeping more raw entries than a chunk may is damaged; saved spills past the most a
+    /// chunk keeps stay raw.
+    #[test]
+    fn too_many_raw_entries_are_damage_and_spills_past_the_most_stay_raw() {
+        let key = (0, ChunkPos::new(0, 0));
+        let raw = Compound::from([("id".to_owned(), Value::String("Chest".to_owned()))]);
+        let list = vec![raw; MAX_RAW_BLOCK_ENTITIES + 1];
+        assert_eq!(Chunk::read(key, &list, &Registry::default()), None);
+        let spill = Spill {
+            pos: BlockPos::new(1, 2, 3),
+            items: vec![Stack::new(ItemKind::Stick.default_type(), 1)],
+        };
+        let spills = Chunk {
+            spills: vec![spill; MAX_SPILLS + 1],
+            ..Chunk::default()
+        };
+        let read = Chunk::read(key, &spills.write(), &Registry::default()).unwrap();
+        assert_eq!(read.spills.len(), MAX_SPILLS);
+        assert_eq!(read.raw.len(), 1);
+    }
+
+    /// A list of as many raw entries as an import keeps, with a block entity made at run time,
+    /// is saved and reads back the same.
+    #[test]
+    fn a_list_full_of_raw_entries_with_a_new_block_entity_saves_and_reads_back() {
+        let key = (0, ChunkPos::new(0, 0));
+        let world = world_with(key);
+        let raw = Compound::from([("id".to_owned(), Value::String("Chest".to_owned()))]);
+        let list = vec![raw; crate::storage::codec::MAX_EXTRA_ENTRIES];
+        let mut store = BlockEntities::default();
+        store.load_list(key, &list, &world, &Registry::default());
+        store.insert(0, BlockPos::new(1, 2, 3), chest_entity(&[], None));
+        let changed = store.take_changed();
+        let id = crate::save::chunk_id(1, key.1);
+        let kind = crate::storage::ChunkKind::BlockEntities;
+        let values: Vec<_> = crate::save::seal_pages(id, kind, &changed[0].1)
+            .expect("the list is saved")
+            .into_iter()
+            .map(|(key, value)| match key {
+                crate::storage::Key::Chunk(key) => (key.part, value),
+                _ => panic!("a chunk value"),
+            })
+            .collect();
+        let (_, stored) = crate::save::read_values(id, &values).expect("the list reads back");
+        assert_eq!(stored.extras.get(kind), changed[0].1);
+    }
+
     #[test]
     fn entries_outside_the_chunk_or_duplicated_are_kept_raw() {
         let key = (0, ChunkPos::new(0, 0));
@@ -2798,12 +2898,12 @@ pub(in crate::tick) mod tests {
         ]);
         let inside = chest_entity(&[], None).write(BlockPos::new(1, 2, 3));
         let list = vec![inside.clone(), inside.clone(), outside.clone()];
-        let chunk = Chunk::read(key, &list, &Registry::default());
+        let chunk = Chunk::read(key, &list, &Registry::default()).unwrap();
         assert_eq!(chunk.entities.len(), 1);
         assert_eq!(chunk.raw, vec![inside, outside]);
         assert_eq!(
             Chunk::read(key, &chunk.write(), &Registry::default()),
-            chunk
+            Some(chunk)
         );
     }
 
@@ -3177,7 +3277,8 @@ pub(in crate::tick) mod tests {
         use crate::storage::codec::ExtraRecord;
         use crate::storage::seal::{MAX_RECORD, seal_encoded, unseal};
         let mut read = Vec::new();
-        for page in ExtraRecord::pages(list, MAX_RECORD).expect("the list encodes") {
+        let kind = crate::storage::ChunkKind::BlockEntities;
+        for page in ExtraRecord::pages(kind, list, MAX_RECORD).expect("the list encodes") {
             let sealed = seal_encoded(b"key", &page).expect("the page seals");
             let ExtraRecord(entries) =
                 unseal::<ExtraRecord<'_>>(b"key", &sealed).expect("the page reads back");

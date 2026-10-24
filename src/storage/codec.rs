@@ -12,6 +12,7 @@
 use std::borrow::Cow;
 use std::mem::size_of;
 
+use super::ChunkKind;
 use super::seal::{DECODE_BUDGET, MAX_RECORD};
 use crate::nbt::{Compound, Encoding, MAX_ROOT_BYTES};
 use crate::protocol::{BLOCKS, Error, Reader, Result, WIDTHS, Writer, length, word_count};
@@ -35,10 +36,32 @@ const _: () =
 /// (`item::MAX_NBT_BYTES`).
 pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME + 3 * 8);
 
-/// Most compounds in one [`ExtraRecord`]: one per block of a chunk column. Block
-/// entities and scheduled updates have at most one per block; entities are bounded by the world's
-/// entity cap long before.
+/// Most compounds in a chunk's list of entities or scheduled updates, and in a list an import
+/// writes: one per block of a chunk column. Scheduled updates have at most one per block;
+/// entities are bounded by the world's entity cap long before.
 pub(crate) const MAX_EXTRA_ENTRIES: usize = SUB_CHUNKS * BLOCKS;
+/// Most spills (the items of broken containers waiting to drop) a chunk's block entity list
+/// holds; beyond it new spills are lost with an error (a chunk would need this many containers
+/// broken while its world is at the entity limit).
+pub(crate) const MAX_SPILLS: usize = 1024;
+/// Most entries a chunk's block entity list keeps as read that are no block's block entity (no
+/// place in the chunk, or a second at a place): every entry of a list an import writes.
+pub(crate) const MAX_RAW_BLOCK_ENTITIES: usize = MAX_EXTRA_ENTRIES;
+/// Most compounds in a chunk's block entity list, and in one [`ExtraRecord`]: a block entity per
+/// block of a chunk column, the spills and the entries kept as read, so a list read within it
+/// can take a block entity at every block and the spills and still be written.
+pub(crate) const MAX_BLOCK_ENTITY_ENTRIES: usize =
+    MAX_EXTRA_ENTRIES + MAX_SPILLS + MAX_RAW_BLOCK_ENTITIES;
+/// Most pages a list takes: the page number of a key is a u16.
+const MAX_PAGES: usize = 1 << 16;
+
+/// Most compounds in a chunk's list of `kind`.
+pub(crate) fn max_entries(kind: ChunkKind) -> usize {
+    match kind {
+        ChunkKind::BlockEntities => MAX_BLOCK_ENTITY_ENTRIES,
+        ChunkKind::Entities | ChunkKind::ScheduledUpdates => MAX_EXTRA_ENTRIES,
+    }
+}
 
 /// A value that has a sealed form in one storage table.
 pub(crate) trait Record: Sized {
@@ -319,15 +342,17 @@ impl Record for PlayerRecord {
 pub(crate) struct ExtraRecord<'a>(pub(crate) Cow<'a, [Compound]>);
 
 impl ExtraRecord<'_> {
-    /// The encoded pages that hold `list`, in order, each at most `max` bytes and read back
-    /// within the [`DECODE_BUDGET`] of a record's reader: entries are added to a page until the
-    /// next would not fit either. An entry is at most an NBT root (4 MiB) and a quarter of the
-    /// budget (an error otherwise), so with `max` at least four times the root every full page
-    /// holds more than three quarters of `max` or of the budget, and [`MAX_EXTRA_ENTRIES`]
-    /// entries never take more than 65,535 pages (32,767 closed by each bound, and the last). An
-    /// empty list has none.
-    pub(crate) fn pages(list: &[Compound], max: usize) -> Result<Vec<Vec<u8>>> {
-        if list.len() > MAX_EXTRA_ENTRIES {
+    /// The encoded pages that hold `list`, a chunk's list of `kind`, in order, each at most
+    /// `max` bytes and read back within the [`DECODE_BUDGET`] of a record's reader: entries are
+    /// added to a page until the next would not fit either. An entry is at most an NBT root
+    /// (4 MiB) and a quarter of the budget (an error otherwise), so with `max` at least four
+    /// times the root every full page holds more than three quarters of `max` or of the budget.
+    /// More pages than a key numbers ([`MAX_PAGES`], an error) so need over 32,767 full pages of
+    /// one of the two: at 16 MiB pages, 384 GiB of NBT or 1.5 TiB of reading budget, far past
+    /// what a server holds in memory. A list over [`max_entries`] is an error too. An empty list
+    /// has none.
+    pub(crate) fn pages(kind: ChunkKind, list: &[Compound], max: usize) -> Result<Vec<Vec<u8>>> {
+        if list.len() > max_entries(kind) {
             return Err(Error::Size);
         }
         let mut pages = Vec::new();
@@ -361,6 +386,9 @@ impl ExtraRecord<'_> {
         if count > 0 {
             close_page(&mut page, count, &mut pages);
         }
+        if pages.len() > MAX_PAGES {
+            return Err(Error::Size);
+        }
         Ok(pages)
     }
 }
@@ -375,7 +403,7 @@ fn close_page(page: &mut Vec<u8>, count: u32, pages: &mut Vec<Vec<u8>>) {
 
 impl Record for ExtraRecord<'_> {
     fn encode(&self, w: &mut Writer) -> Result<()> {
-        if self.0.len() > MAX_EXTRA_ENTRIES {
+        if self.0.len() > MAX_BLOCK_ENTITY_ENTRIES {
             return Err(Error::Size);
         }
         w.uint32(u32::try_from(self.0.len()).map_err(|_| Error::Size)?);
@@ -388,7 +416,11 @@ impl Record for ExtraRecord<'_> {
     fn decode(r: &mut Reader<'_>) -> Result<Self> {
         let count = r.uint32()?;
         // A root compound takes at least one byte (a lone TAG_End).
-        let count = r.limit(count.into(), MAX_EXTRA_ENTRIES, size_of::<Compound>())?;
+        let count = r.limit(
+            count.into(),
+            MAX_BLOCK_ENTITY_ENTRIES,
+            size_of::<Compound>(),
+        )?;
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
             entries.push(r.nbt(Encoding::LittleEndian)?);
@@ -913,10 +945,10 @@ pub(crate) mod tests {
         let mut rng = Rng(0x0c0d_ec01);
         let list: Vec<Compound> = (0..300).map(|_| random_compound(&mut rng, 3)).collect();
         let whole = encode(&ExtraRecord(list.clone().into()));
-        let one = ExtraRecord::pages(&list, whole.len()).unwrap();
+        let one = ExtraRecord::pages(ChunkKind::Entities, &list, whole.len()).unwrap();
         assert_eq!(one, std::slice::from_ref(&whole));
         let max = whole.len() / 5;
-        let pages = ExtraRecord::pages(&list, max).unwrap();
+        let pages = ExtraRecord::pages(ChunkKind::Entities, &list, max).unwrap();
         assert!(pages.len() >= 5, "{} pages", pages.len());
         let mut read = Vec::new();
         for page in &pages {
@@ -926,9 +958,23 @@ pub(crate) mod tests {
             read.extend(entries);
         }
         assert_eq!(read, list);
-        assert!(ExtraRecord::pages(&[], max).unwrap().is_empty());
+        assert!(
+            ExtraRecord::pages(ChunkKind::Entities, &[], max)
+                .unwrap()
+                .is_empty()
+        );
+        // A block entity list holds more: the spills and the entries kept as read too.
         let over = vec![Compound::new(); MAX_EXTRA_ENTRIES + 1];
-        assert_eq!(ExtraRecord::pages(&over, usize::MAX), Err(Error::Size));
+        assert_eq!(
+            ExtraRecord::pages(ChunkKind::Entities, &over, usize::MAX),
+            Err(Error::Size)
+        );
+        assert!(ExtraRecord::pages(ChunkKind::BlockEntities, &over, usize::MAX).is_ok());
+        let over = vec![Compound::new(); MAX_BLOCK_ENTITY_ENTRIES + 1];
+        assert_eq!(
+            ExtraRecord::pages(ChunkKind::BlockEntities, &over, usize::MAX),
+            Err(Error::Size)
+        );
     }
 
     #[test]
@@ -986,7 +1032,7 @@ pub(crate) mod tests {
             )]),
         };
         assert!(player.encode(&mut w).is_err());
-        let extras = ExtraRecord(vec![Compound::new(); MAX_EXTRA_ENTRIES + 1].into());
+        let extras = ExtraRecord(vec![Compound::new(); MAX_BLOCK_ENTITY_ENTRIES + 1].into());
         assert_eq!(extras.encode(&mut w), Err(Error::Size));
     }
 
@@ -1021,9 +1067,9 @@ pub(crate) mod tests {
         let small = ChunkRecord::decode(&mut Reader::new(&bytes, 1024, 0));
         assert_eq!(small, Err(Error::Size));
         // An extras count over the limit, and one the bytes left cannot hold.
-        let over = u32::try_from(MAX_EXTRA_ENTRIES + 1).unwrap();
+        let over = u32::try_from(MAX_BLOCK_ENTITY_ENTRIES + 1).unwrap();
         let mut bytes = over.to_le_bytes().to_vec();
-        bytes.resize(MAX_EXTRA_ENTRIES + 8, 0);
+        bytes.resize(MAX_BLOCK_ENTITY_ENTRIES + 8, 0);
         assert_eq!(decode::<ExtraRecord<'_>>(&bytes), Err(Error::Size));
         let mut bytes = 1000u32.to_le_bytes().to_vec();
         bytes.extend_from_slice(&[0; 10]);
