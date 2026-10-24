@@ -39,7 +39,7 @@ mod tree;
 pub(super) use liquid::{LAVA_TICK_RATE, WATER_TICK_RATE};
 pub(super) use plant::{MAX_VINE_AGE, nether_vines_age};
 pub(super) use soil::CAULDRON_FULL;
-pub(super) use support::static_support;
+pub(super) use support::{attached_support, static_support};
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 

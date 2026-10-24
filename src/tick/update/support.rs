@@ -169,19 +169,45 @@ pub(in crate::tick) fn static_support(
     })
 }
 
+/// PMMP `canBeSupportedAt` of the blocks attached to one face (torches, ladders, levers, buttons,
+/// item frames, amethyst clusters, wall coral fans, lanterns): whether `block` holds on the
+/// `face` side, where the block gives back `support`. `None` for another class. Placement and the
+/// block update rules share it.
+pub(in crate::tick) fn attached_support(
+    block: block::State,
+    face: Face,
+    support: SupportType,
+) -> Option<bool> {
+    Some(match block.class() {
+        Class::Torch | Class::RedstoneTorch | Class::UnderwaterTorch => {
+            if face == Face::Down {
+                support.has_center_support()
+            } else {
+                support == SupportType::Full
+            }
+        }
+        Class::Ladder | Class::AmethystCluster => support == SupportType::Full,
+        Class::Lever
+        | Class::StoneButton
+        | Class::WoodenButton
+        | Class::WallCoralFan
+        | Class::Lantern
+        | Class::CopperLantern => support.has_center_support(),
+        Class::ItemFrame => support != SupportType::None,
+        _ => return None,
+    })
+}
+
 /// Whether the block still has what holds it, for the classes that break without it
 /// ([`static_support`], then the attached and two-block ones); `None` for other classes or when a
 /// block the check needs is not loaded.
-#[expect(
-    clippy::too_many_lines,
-    reason = "consistency: one table of PMMP's support rules, a short arm per class"
-)]
 pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Option<bool> {
     if let Some(stands) = static_support(block, pos, |p| cx.loaded_block(p)) {
         return Some(stands);
     }
     let down = || side(cx, pos, Face::Down);
     let up = || side(cx, pos, Face::Up);
+    let attached = |face: Face| attached_support(block, face, adjacent(cx, pos, face)?);
     Some(match block.class() {
         Class::RedMushroom | Class::BrownMushroom => !down()?.is_transparent(),
         Class::CocoaBlock => plant::cocoa_attached(cx, pos, block)?,
@@ -204,47 +230,25 @@ pub(super) fn supported(cx: &Cx<'_>, pos: BlockPos, block: block::State) -> Opti
             let face = props::facing_direction(block)?.opposite();
             side(cx, pos, face)?.is_solid()
         }
-        // Attached blocks.
+        // Attached blocks: the face they hang on, then their rule.
         Class::Torch | Class::RedstoneTorch | Class::UnderwaterTorch => {
-            let face = props::torch_facing(block)?.opposite();
-            let support = adjacent(cx, pos, face)?;
-            if face == Face::Down {
-                support.has_center_support()
-            } else {
-                support == SupportType::Full
-            }
+            attached(props::torch_facing(block)?.opposite())?
         }
-        Class::Ladder => {
-            let face = props::facing_direction(block)?.opposite();
-            adjacent(cx, pos, face)? == SupportType::Full
+        Class::Ladder | Class::StoneButton | Class::WoodenButton | Class::ItemFrame => {
+            attached(props::facing_direction(block)?.opposite())?
         }
-        Class::Lever => {
-            let face = props::lever_facing(block)?.opposite();
-            adjacent(cx, pos, face)?.has_center_support()
-        }
-        Class::StoneButton | Class::WoodenButton => {
-            let face = props::facing_direction(block)?.opposite();
-            adjacent(cx, pos, face)?.has_center_support()
-        }
-        Class::ItemFrame => {
-            let face = props::facing_direction(block)?.opposite();
-            adjacent(cx, pos, face)? != SupportType::None
-        }
+        Class::Lever => attached(props::lever_facing(block)?.opposite())?,
         Class::AmethystCluster => {
-            let face = props::face_of(props::text(block, "minecraft:block_face")?)?.opposite();
-            adjacent(cx, pos, face)? == SupportType::Full
+            attached(props::face_of(props::text(block, "minecraft:block_face")?)?.opposite())?
         }
-        Class::WallCoralFan => {
-            let face = props::coral_facing(block)?.opposite();
-            adjacent(cx, pos, face)?.has_center_support()
-        }
+        Class::WallCoralFan => attached(props::coral_facing(block)?.opposite())?,
         Class::Lantern | Class::CopperLantern => {
             let face = if props::flag(block, "hanging")? {
                 Face::Up
             } else {
                 Face::Down
             };
-            adjacent(cx, pos, face)?.has_center_support()
+            attached(face)?
         }
         Class::Bell => {
             let facing = props::direction_swne(block)?;

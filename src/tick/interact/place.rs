@@ -139,6 +139,12 @@ impl Context<'_> {
         adjacent_support(self.world, self.replace, face)
     }
 
+    /// Whether the attached block `state` holds on the `face` side of the replaced position
+    /// ([`update::attached_support`]); `None` for a class without that rule.
+    fn attached(&self, state: State, face: Face) -> Option<bool> {
+        update::attached_support(state, face, self.support(face))
+    }
+
     /// The placer's horizontal facing; `None` without a placer.
     fn facing(&self) -> Option<Face> {
         self.placer.map(Placer::facing)
@@ -377,8 +383,8 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
     let opposite_player = |s: State| ctx.facing().map_or(s, |f| set_facing(s, f.opposite()));
     for class in state.kind().classes() {
         match class {
-            Class::AmethystCluster => {
-                if ctx.support(face.opposite()) != SupportType::Full {
+            Class::AmethystCluster | Class::Button | Class::ItemFrame => {
+                if !ctx.attached(state, face.opposite())? {
                     return None;
                 }
                 s = set_facing(s, face);
@@ -471,12 +477,6 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                     }
                 };
                 s = props::with_string(s, "attachment", attachment)?;
-            }
-            Class::Button => {
-                if !ctx.support(face.opposite()).has_center_support() {
-                    return None;
-                }
-                s = set_facing(s, face);
             }
             Class::Campfire => {
                 if ctx.side(Face::Down).is(Class::Campfire) {
@@ -573,7 +573,7 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 s = coral_dead(ctx, s);
             }
             Class::WallCoralFan => {
-                if Axis::of(face) == Axis::Y || !ctx.support(face.opposite()).has_center_support() {
+                if Axis::of(face) == Axis::Y || !ctx.attached(state, face.opposite())? {
                     return None;
                 }
                 s = set_facing(s, face);
@@ -587,28 +587,22 @@ fn place(ctx: &Context<'_>, state: State, rng: &mut Random) -> Option<Blocks> {
                 };
                 s = set_facing(s, f);
             }
-            Class::ItemFrame => {
-                if ctx.support(face.opposite()) == SupportType::None {
-                    return None;
-                }
-                s = set_facing(s, face);
-            }
             Class::Ladder => {
-                if ctx.support(face.opposite()) != SupportType::Full || Axis::of(face) == Axis::Y {
+                if !ctx.attached(state, face.opposite())? || Axis::of(face) == Axis::Y {
                     return None;
                 }
                 s = set_facing(s, face);
             }
             Class::Lantern => {
-                let down = ctx.support(Face::Down).has_center_support();
-                if !down && !ctx.support(Face::Up).has_center_support() {
+                let down = ctx.attached(state, Face::Down)?;
+                if !down && !ctx.attached(state, Face::Up)? {
                     return None;
                 }
                 s = props::with_flag(s, "hanging", face == Face::Down || !down)?;
             }
             Class::Leaves => s = props::with_flag(s, "persistent_bit", true)?,
             Class::Lever => {
-                if !ctx.support(face.opposite()).has_center_support() {
+                if !ctx.attached(state, face.opposite())? {
                     return None;
                 }
                 let x = ctx.facing().is_none_or(|f| Axis::of(f) == Axis::X);
@@ -833,20 +827,13 @@ fn slab(ctx: &Context<'_>, state: State) -> Option<State> {
 /// PMMP `Torch::place`: against the clicked side if it gives full support, else the first of
 /// south, west, north, east and below that supports it.
 fn torch(ctx: &Context<'_>, state: State) -> Option<State> {
-    let supported = |f: Face| {
-        if f == Face::Down {
-            ctx.support(f).has_center_support()
-        } else {
-            ctx.support(f) == SupportType::Full
-        }
-    };
     let face = ctx.face;
-    let facing = if face != Face::Down && supported(face.opposite()) {
+    let facing = if face != Face::Down && ctx.attached(state, face.opposite())? {
         face
     } else {
         [Face::South, Face::West, Face::North, Face::East, Face::Down]
             .into_iter()
-            .find(|f| supported(*f))?
+            .find(|f| ctx.attached(state, *f) == Some(true))?
             .opposite()
     };
     props::with_facing(state, facing)
