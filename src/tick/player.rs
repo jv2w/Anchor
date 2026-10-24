@@ -18,7 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::info;
 
 use super::queue::SessionId;
-use super::{Context, MAX_COORDINATE, Output, Phase, Player, State, dispatch, survival};
+use super::{Context, Output, Phase, Player, State, dispatch, inside_border, survival};
 use crate::event::{Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer};
 use crate::math::Vec3;
 use crate::player::{Error, Id, MAX_TEXT, Message, Packets, Result};
@@ -620,8 +620,7 @@ impl Player {
     #[doc(alias = "Entity::teleport")]
     pub fn teleport(&mut self, world: world::Id, feet: Vec3) -> Result<()> {
         let eye = feet + Vec3::new(0.0, survival::EYE_HEIGHT, 0.0);
-        let border = f64::from(MAX_COORDINATE);
-        if !eye.is_finite() || [eye.x, eye.y, eye.z].iter().any(|c| c.abs() > border) {
+        if !inside_border(eye) {
             return Err(Error::OutsideWorld);
         }
         self.marks.teleport = Some((world.index(), eye));

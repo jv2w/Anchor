@@ -1879,9 +1879,7 @@ fn hardcore_spectator(state: &mut State, session: SessionId) {
 fn respawn_target(state: &State, world: world::Id, feet: Vec3) -> Option<(WorldIndex, Vec3)> {
     let index = crate::tick::world_api::index(state, world)?;
     let eye = feet + Vec3::new(0.0, EYE_HEIGHT, 0.0);
-    let border = f64::from(crate::tick::MAX_COORDINATE);
-    (eye.is_finite() && [eye.x, eye.y, eye.z].iter().all(|c| c.abs() <= border))
-        .then_some((index, eye))
+    crate::tick::inside_border(eye).then_some((index, eye))
 }
 
 /// The void, burning and the respawn invulnerability, each tick (PMMP `Entity::entityBaseTick`,

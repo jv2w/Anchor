@@ -20,7 +20,7 @@ use super::hook::{self, StartHook};
 use super::queue::{self, Identity, Message, Outbound, SessionId, SharedBatches};
 use super::save::storage_key;
 use super::view::{self, Changes, Encoded};
-use super::{MAX_COORDINATE, Output, Phase, Player, PlayerKey, Settings, State};
+use super::{Output, Phase, Player, PlayerKey, Settings, State, inside_border};
 use super::{dispatch, extra, interact, inventory, survival};
 use crate::config::Difficulty;
 use crate::crafting;
@@ -884,12 +884,9 @@ fn place(state: &mut State, player: &mut Player, data: Option<PlayerData>) {
 /// A saved position as the tick holds it, if it is inside the world border (the file is external
 /// input: a finite position may still be anywhere).
 fn tick_position(position: [f64; 3]) -> Option<Vec3> {
-    let border = f64::from(MAX_COORDINATE);
-    if !position.iter().all(|c| c.abs() <= border) {
-        return None;
-    }
     let [x, y, z] = position;
-    Some(Vec3::new(x, y, z))
+    let position = Vec3::new(x, y, z);
+    inside_border(position).then_some(position)
 }
 
 /// The eye position of a player standing on a world's spawn block.

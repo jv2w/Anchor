@@ -974,8 +974,7 @@ pub(super) fn add_effect(state: &mut State, session: SessionId, effect: effect::
 /// a position that is not finite or lies outside the world border, a world that is not loaded,
 /// or a player whose data is still loading.
 pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex, pos: Vec3) {
-    let border = f64::from(super::MAX_COORDINATE);
-    let inside = pos.is_finite() && [pos.x, pos.y, pos.z].iter().all(|c| c.abs() <= border);
+    let inside = super::inside_border(pos);
     let Some(player) = state.players.get(&session) else {
         return;
     };

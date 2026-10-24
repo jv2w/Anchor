@@ -77,6 +77,12 @@ const LIGHT_BUDGET: u32 = 16_384;
 /// The largest coordinate a client may report: the world border.
 const MAX_COORDINATE: i32 = crate::world::BORDER;
 
+/// Whether a player position is finite and inside the world border on every axis.
+fn inside_border(pos: Vec3) -> bool {
+    let border = f64::from(MAX_COORDINATE);
+    pos.is_finite() && [pos.x, pos.y, pos.z].iter().all(|c| c.abs() <= border)
+}
+
 /// The settings the tick reads, taken from [`Config`] once at start.
 #[derive(Debug, Clone)]
 pub(crate) struct Settings {

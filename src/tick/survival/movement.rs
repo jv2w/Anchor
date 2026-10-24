@@ -26,7 +26,7 @@ use crate::protocol::packet::{MovePlayer, Packet, PlayerAction, PlayerAuthInput}
 use crate::protocol::{FlagSet, TeleportData};
 use crate::tick::entity::{Harm, INSIDE_INSET, MOTION_THRESHOLD};
 use crate::tick::{
-    MAX_COORDINATE, Phase, Player, SessionId, State, dispatch, entity, interact, update,
+    Phase, Player, SessionId, State, dispatch, entity, inside_border, interact, update,
 };
 use crate::world::{BlockPos, Entry, World};
 
@@ -238,9 +238,8 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
         player.survival.motion.last_flags = flags;
         input_flags(state, session, flags, packet.tick);
     }
-    let border = f64::from(MAX_COORDINATE);
     let raw = Vec3::from_f32(packet.position);
-    if [raw.x, raw.y, raw.z].iter().any(|c| c.abs() > border) {
+    if !inside_border(raw) {
         return;
     }
     let Some(player) = state.players.get_mut(&session) else {
