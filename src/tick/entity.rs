@@ -5040,6 +5040,55 @@ mod tests {
         assert_eq!(saved, 1);
     }
 
+    /// An item whose box already reaches into a chunk that is not loaded (dropped at the edge of
+    /// the loaded ones) does not move into it, east or south, so a save keeps it.
+    #[test]
+    fn an_item_overlapping_an_unloaded_chunk_never_enters_it() {
+        for (dx, dz) in [(1.0, 0.0), (0.0, 1.0)] {
+            let mut h = Harness::new(1);
+            h.spawn(1, standing(0.0, 0.0));
+            let loaded = |h: &Harness, x: i32| {
+                let pos = if dx > 0.0 {
+                    ChunkPos::new(x, 0)
+                } else {
+                    ChunkPos::new(0, x)
+                };
+                h.state.worlds[0].is_chunk_loaded(pos)
+            };
+            let edge = (0..64).find(|&x| !loaded(&h, x)).unwrap();
+            let border = f64::from(edge * 16) - 0.05;
+            let start = if dx > 0.0 {
+                at(border, -60.0, 0.5)
+            } else {
+                at(0.5, -60.0, border)
+            };
+            let id = crate::tick::Context {
+                state: &mut h.state,
+            }
+            .drop_item(
+                world::Id::DEFAULT,
+                start,
+                stack("minecraft:stick", 1),
+                Some(Vec3::new(dx, 0.0, dz)),
+            )
+            .unwrap();
+            for _ in 0..5 {
+                h.step(Vec::new());
+            }
+            let chunk = h.state.rules.entities.get(id).unwrap().chunk;
+            assert!(h.state.worlds[0].is_chunk_loaded(chunk), "{chunk:?}");
+            h.state.rules.flush(&mut h.state.chunks.extras);
+            let item = crate::nbt::Value::String("minecraft:item".to_owned());
+            let saved = h.state.worlds[0]
+                .loaded()
+                .filter_map(|pos| h.state.chunks.extras.get((0, pos)))
+                .flat_map(|extras| extras.get(crate::storage::ChunkKind::Entities))
+                .filter(|c| c.get("identifier") == Some(&item))
+                .count();
+            assert_eq!(saved, 1);
+        }
+    }
+
     #[test]
     fn what_does_not_fit_stays_on_the_ground_as_the_same_entity() {
         let mut h = Harness::new(1);

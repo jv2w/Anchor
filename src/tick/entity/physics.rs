@@ -3,8 +3,9 @@
 //! world's blocks, so the tick runs them on the CPU pool and applies the results in entity order.
 //! Only `crate::math` arithmetic is used, so the bits do not depend on the platform or the thread.
 //!
-//! Blocks of chunks that are not loaded, and states Anchor does not know, are full cubes: an
-//! entity never moves into a chunk that is not loaded (a projectile sticks at its border).
+//! Blocks of chunks that are not loaded, and states Anchor does not know, are full cubes, and a
+//! move stops at the border of a chunk that is not loaded even when the box already reaches into
+//! it: an entity never moves into a chunk that is not loaded (a projectile sticks at its border).
 //! Positions of loaded chunks above or below the world height are air, so entities fall out of
 //! the world.
 //!
@@ -467,8 +468,9 @@ pub(in crate::tick) fn collisions(world: &World, area: Aabb, out: &mut Vec<Aabb>
     }
 }
 
-/// Moves the box by `d`, axis by axis (y, x, z), each stopped by the first box in the way.
-fn clip_move(boxes: &[Aabb], mut moving: Aabb, d: Vec3) -> (Aabb, Vec3) {
+/// Moves the box by `d`, axis by axis (y, x, z), each stopped by the first box in the way and
+/// by the border of a chunk that is not loaded ([`loaded_reach`]).
+fn clip_move(world: &World, boxes: &[Aabb], mut moving: Aabb, d: Vec3) -> (Aabb, Vec3) {
     let mut dy = d.y;
     for b in boxes {
         dy = b.clip_y(moving, dy);
@@ -478,13 +480,38 @@ fn clip_move(boxes: &[Aabb], mut moving: Aabb, d: Vec3) -> (Aabb, Vec3) {
     for b in boxes {
         dx = b.clip_x(moving, dx);
     }
+    dx = loaded_reach(world, moving, Vec3::new(1.0, 0.0, 0.0), dx);
     moving = moving.offset(Vec3::new(dx, 0.0, 0.0));
     let mut dz = d.z;
     for b in boxes {
         dz = b.clip_z(moving, dz);
     }
+    dz = loaded_reach(world, moving, Vec3::new(0.0, 0.0, 1.0), dz);
     moving = moving.offset(Vec3::new(0.0, 0.0, dz));
     (moving, Vec3::new(dx, dy, dz))
+}
+
+/// `d`, a move of the box `moving` along the horizontal unit axis `along`, cut so that the
+/// box's centre stays in its chunk when the chunk it would move into is not loaded. The wall
+/// cubes of such a chunk stop only a box that does not overlap them yet (PMMP's clip), so a box
+/// that already reaches into it (dropped at its border, grown by a scale) needs this to keep the
+/// entity in the loaded chunks, where it is indexed and saved.
+fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
+    let centre = Vec3::new(
+        f64::midpoint(moving.min.x, moving.max.x),
+        moving.min.y,
+        f64::midpoint(moving.min.z, moving.max.z),
+    );
+    if d == 0.0 || world.is_chunk_loaded(BlockPos::containing(centre + along * d).chunk()) {
+        return d;
+    }
+    let c = centre.x * along.x + centre.z * along.z;
+    let low = (c / 16.0).floor() * 16.0;
+    if d > 0.0 {
+        max(math::min(d, low + 16.0 - EPSILON - c), 0.0)
+    } else {
+        math::min(max(d, low - c), 0.0)
+    }
 }
 
 /// Moves the entity by its motion against the blocks (PMMP `Entity::move`): clipping, stepping
@@ -495,12 +522,12 @@ fn travel(world: &World, physics: &Physics, body: &mut Body, out: &mut Step) {
     let start = body.bounding_box(physics);
     let mut boxes = Vec::new();
     collisions(world, start.stretch(wanted), &mut boxes);
-    let (mut moved, mut d) = clip_move(&boxes, start, wanted);
+    let (mut moved, mut d) = clip_move(world, &boxes, start, wanted);
     let falling = body.on_ground || (d.y != wanted.y && wanted.y < 0.0);
     if physics.step_height > 0.0 && falling && (wanted.x != d.x || wanted.z != d.z) {
         let up = Vec3::new(wanted.x, physics.step_height, wanted.z);
         collisions(world, start.stretch(up), &mut boxes);
-        let (mut stepped, mut s) = clip_move(&boxes, start, up);
+        let (mut stepped, mut s) = clip_move(world, &boxes, start, up);
         let mut down = -s.y;
         for b in &boxes {
             down = b.clip_y(stepped, down);
