@@ -134,8 +134,8 @@ impl Command {
         self
     }
 
-    /// The usage shown when a line fits no overload, such as `/heal [player]`. Without it the
-    /// usage is made from the overloads.
+    /// The usage `/help` shows and an [`Error::Usage`] carries, such as `/heal [player]`. Without
+    /// it the usage is made from the overloads.
     #[doc(alias = "Command::setUsage")]
     #[must_use]
     pub fn usage(mut self, usage: impl Into<String>) -> Self {
@@ -184,7 +184,7 @@ impl Command {
         &self.permissions
     }
 
-    /// The usage shown when a line fits no overload: the one set, or one made from the
+    /// The usage `/help` shows and an [`Error::Usage`] carries: the one set, or one made from the
     /// overloads, such as `/give <player: target> <item: Item> [amount: int]`, one per line.
     #[doc(alias = "Command::getUsage")]
     pub fn usage_text(&self) -> String {
