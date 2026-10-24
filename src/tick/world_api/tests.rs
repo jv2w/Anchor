@@ -308,3 +308,29 @@ fn explosions_break_blocks_and_refuse_what_cannot_explode() {
     assert_ne!(state.worlds[0].block(below), before, "the block is gone");
     assert!(context(&mut state).explode_with_fire(WORLD, center, 3.0));
 }
+
+#[test]
+fn a_player_teleported_this_tick_is_in_its_new_world_for_every_query() {
+    let (mut state, _rx) = state();
+    let options = crate::world::Options::new()
+        .with_kind(Kind::Temporary)
+        .with_seed(3);
+    let arena = context(&mut state).create_world("arena", &options).unwrap();
+    for _ in 0..4 {
+        tick(&mut state, &mut Vec::new(), &mut Output::default());
+    }
+    let id = player::Id::new(SessionId::new(1));
+    let in_world = |ctx: &Context<'_>, w: world::Id| ctx.players_in(w).any(|p| p == id);
+    let mut ctx = context(&mut state);
+    ctx.player_mut(id)
+        .unwrap()
+        .teleport(arena, Vec3::new(0.5, -60.0, 0.5))
+        .unwrap();
+    assert_eq!(ctx.player(id).unwrap().world(), arena);
+    assert!(in_world(&ctx, arena), "in the arena");
+    assert!(!in_world(&ctx, WORLD), "not in the old world");
+    tick(&mut state, &mut Vec::new(), &mut Output::default());
+    let ctx = context(&mut state);
+    assert_eq!(ctx.player(id).unwrap().world(), arena);
+    assert!(in_world(&ctx, arena) && !in_world(&ctx, WORLD));
+}

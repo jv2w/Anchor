@@ -77,14 +77,15 @@ impl Context<'_> {
             .map(|(_, w)| w)
     }
 
-    /// The players in `world` who have their saved data (joining or spawned), in `Id` order.
+    /// The players in `world` who have their saved data (joining or spawned), in `Id` order. A
+    /// player teleported this tick is in its new [`world`](crate::player::Player::world).
     #[doc(alias = "World::getPlayers")]
     pub fn players_in(&self, world: world::Id) -> impl Iterator<Item = player::Id> + '_ {
-        let w = index(self.state, world).unwrap_or(usize::MAX);
+        let loaded = index(self.state, world).is_some();
         self.state
             .players
             .iter()
-            .filter(move |(_, p)| p.world == w && p.phase != Phase::Loading)
+            .filter(move |(_, p)| loaded && p.world() == world && p.phase != Phase::Loading)
             .map(|(&s, _)| player::Id::new(s))
     }
 
