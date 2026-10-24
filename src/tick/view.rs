@@ -53,10 +53,11 @@ const MAX_QUEUED_SUB_CHUNK_REQUESTS: usize = 256;
 /// Sub-chunk requests answered per player per tick; the rest wait for the next tick.
 const SUB_CHUNK_REQUESTS_PER_TICK: usize = 64;
 /// Sub-chunk request offsets, each an answer entry with its own copy of the sub-chunk, answered
-/// per player per tick; the requests past it wait for the next tick. The most one request holds
-/// (the Mojang limit), so every request fits a tick, and more than the 256 × 24 sub-chunks of the
-/// most chunks `chunks-per-tick` sends a tick.
-const SUB_CHUNK_OFFSETS_PER_TICK: usize = 8192;
+/// per player per tick; the requests past it wait for the next tick. The most one answer holds
+/// (the Mojang limit), which the generator checks is no less than what one request holds, so
+/// every request fits a tick; it is more than the 256 × 24 sub-chunks of the most chunks
+/// `chunks-per-tick` sends a tick.
+const SUB_CHUNK_OFFSETS_PER_TICK: usize = crate::protocol::SUB_CHUNK_SUB_CHUNK_ENTRIES_MAX_LEN;
 /// The lowest sub-chunk y index (`SubChunkRequest` positions are absolute indices).
 const LOWEST_SUB_CHUNK: i32 = crate::world::MIN_Y >> 4;
 /// `UpdateBlock` flags BDS sends (P6): neighbours and network.

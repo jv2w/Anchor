@@ -1191,6 +1191,7 @@ const SEND_LIMITS: &[&str] = &[
     "packet.BossEvent.BossBarTitle",
     "packet.PlayerEnchantOptions.Options",
     "packet.PlayerList.Entries",
+    "packet.SubChunk.SubChunkEntries",
     "packet.Text.Message",
     "packet.Text.Parameters",
     "packet.Text.SourceName",
@@ -1202,6 +1203,13 @@ const SEND_LIMITS: &[&str] = &[
 fn hand_limits(m: &Model<'_>, helpers: &BTreeSet<String>) -> R<String> {
     if let Some(key) = SEND_LIMITS.iter().find(|k| !m.limits.contains_key(**k)) {
         return Err(format!("send limit {key} is not a protocol limit"));
+    }
+    // The tick answers a sub-chunk request with one entry per offset, a whole request in one tick
+    // (`tick/view.rs`): every request a client may send must fit one answer.
+    if m.limits.get("packet.SubChunkRequest.Offsets")
+        > m.limits.get("packet.SubChunk.SubChunkEntries")
+    {
+        return Err("a sub-chunk request may hold more offsets than its answer entries".to_owned());
     }
     let mut out = String::new();
     for (key, max) in &m.limits {

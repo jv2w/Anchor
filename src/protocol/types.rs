@@ -9059,6 +9059,9 @@ pub(crate) const PLAYER_ENCHANT_OPTIONS_OPTIONS_MAX_LEN: usize = 3;
 /// The most bytes or elements of gophertunnel `packet.PlayerList.Entries` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
 pub(crate) const PLAYER_LIST_ENTRIES_MAX_LEN: usize = 1000;
 
+/// The most bytes or elements of gophertunnel `packet.SubChunk.SubChunkEntries` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
+pub(crate) const SUB_CHUNK_SUB_CHUNK_ENTRIES_MAX_LEN: usize = 8192;
+
 /// The most bytes or elements of gophertunnel `packet.Text.Message` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
 pub(crate) const TEXT_MESSAGE_MAX_LEN: usize = 65536;
 
