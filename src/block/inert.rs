@@ -236,6 +236,17 @@ mod tests {
         }));
     }
 
+    /// Every reference state's network ID is a vanilla one, aliases' among them, so no custom
+    /// state may take it.
+    #[test]
+    fn every_reference_network_id_is_a_vanilla_one() {
+        let reference: Vec<serde_json::Value> = serde_json::from_str(REFERENCE).unwrap();
+        for b in &reference {
+            let id = u32::try_from(b["network_id"].as_u64().unwrap()).unwrap();
+            assert!(crate::block::is_vanilla_network_id(id), "{b}");
+        }
+    }
+
     /// The blocks of the user's imported world that Anchor does not implement are all inert,
     /// with BDS's values.
     #[test]

@@ -136,6 +136,14 @@ impl Data {
     }
 }
 
+/// Whether `id` is the network ID of a vanilla state the client knows: of a state of the table,
+/// an alias or an inert state (together the reference list's states).
+pub(crate) fn is_vanilla_network_id(id: u32) -> bool {
+    State::from_network_id(id).is_some()
+        || table::ALIAS_NETWORK_IDS.binary_search(&id).is_ok()
+        || Inert::from_network_id(id).is_some()
+}
+
 /// One row of the alias table: a reference state that is not a state of the table, and the
 /// state PMMP reads it as.
 #[derive(Debug)]

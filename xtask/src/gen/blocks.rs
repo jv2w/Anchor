@@ -774,7 +774,8 @@ fn connections(out: &mut String, data: &Data) -> Result<(), String> {
     Ok(())
 }
 
-/// The lookup tables: the property count bound and the states by network ID. Checks the state
+/// The lookup tables: the property count bound, the states by network ID and the aliases'
+/// network IDs. Checks the state
 /// and alias order `State::find` and `State::read` search and that network IDs are unique.
 fn lookups(out: &mut String, data: &Data) -> Result<(), String> {
     if u16::try_from(data.states.len()).is_err() {
@@ -826,6 +827,17 @@ fn lookups(out: &mut String, data: &Data) -> Result<(), String> {
     );
     for (_, index) in &by_network {
         put!(out, "{index},");
+    }
+    let mut alias_ids: Vec<u32> = data.aliases.iter().map(|a| a.network_id).collect();
+    alias_ids.sort_unstable();
+    put!(
+        out,
+        "];\n\n/// The network IDs of the aliases, sorted.\n\
+         pub(super) static ALIAS_NETWORK_IDS: [u32; {}] = [",
+        alias_ids.len()
+    );
+    for id in &alias_ids {
+        put!(out, "{},", hex_lit(u64::from(*id), 8));
     }
     out.push_str("];\n");
     Ok(())

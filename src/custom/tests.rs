@@ -701,6 +701,23 @@ static SWORDS_DROP: Block =
 static SWORD_DROP: Block =
     Block::new("test:one_sword", "x").with_drops(Drops::Items(&[(ItemRef::Custom(&SWORD), 1)]));
 
+/// Blocks whose one state hashes, as found by a search, to the network ID of a reference state
+/// that is not a state of the table: an inert state's and an alias's.
+static AS_INERT: Block = Block::new("test:c257583", "x");
+static AS_ALIAS: Block = Block::new("test:c26250", "x");
+
+#[test]
+fn a_state_with_the_network_id_of_any_vanilla_state_refuses_the_build() {
+    for block in [&AS_INERT, &AS_ALIAS] {
+        assert_eq!(
+            finish(|r| r.add_block(block)),
+            Err(Error::HashCollision {
+                identifier: block.identifier()
+            })
+        );
+    }
+}
+
 #[test]
 fn invalid_definitions_refuse_the_build() {
     assert_eq!(

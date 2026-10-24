@@ -370,7 +370,7 @@ impl Registry {
         }
         if let Some((_, s)) = states
             .iter()
-            .find(|(id, _)| block::State::from_network_id(*id).is_some())
+            .find(|(id, _)| block::is_vanilla_network_id(*id))
         {
             return Err(Error::HashCollision {
                 identifier: s.name(),
