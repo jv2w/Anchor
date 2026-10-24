@@ -103,10 +103,12 @@ impl Harness {
         BlockPos::new(dx, y, 2)
     }
 
-    /// Sets `block` at `pos` and makes its block entity as a placement does.
+    /// Sets `block` at `pos` and makes its block entity as a placement does, ending the tick of
+    /// the placement so that only later writes leave a mark.
     fn place(&mut self, pos: BlockPos, block: block::State) {
         self.state.worlds[0].set_block(pos, block).unwrap();
         placed(&mut self.state, 0, pos, None, &Stack::EMPTY, Face::Up);
+        super::super::send_marked(&mut self.state);
         self.sent();
     }
 
