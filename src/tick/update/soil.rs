@@ -518,7 +518,7 @@ pub(super) fn cauldron_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::S
         }) = cx.state.rules.block_entities.get_mut(cx.world, pos)
     {
         std::mem::take(c);
-        block_entity::broadcast_spawn(cx.state, cx.world, pos);
+        block_entity::mark_spawn(cx.state, cx.world, pos);
     }
 }
 

@@ -177,7 +177,7 @@ pub(super) fn sign(state: &mut State, u: &mut Use) -> bool {
         Some(played) => sound(state, world, at, played),
         None => level_event(state, world, at, Event::WaxOn, 0),
     }
-    block_entity::broadcast_spawn(state, world, u.pos);
+    block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
@@ -225,7 +225,7 @@ pub(super) fn write_sign(
         return;
     };
     sign.side_mut(front).lines = lines;
-    block_entity::broadcast_spawn(state, world, pos);
+    block_entity::mark_spawn(state, world, pos);
 }
 
 /// PMMP `FlowerPot::onInteract`: a pottable plant goes in an empty pot; a full pot gives its plant
@@ -266,7 +266,7 @@ pub(super) fn flower_pot(state: &mut State, u: &mut Use) -> bool {
             if let block::ItemForm::Item(t) = old.item() {
                 u.returned.push(Stack::new(t, 1));
             }
-            block_entity::broadcast_spawn(state, world, u.pos);
+            block_entity::mark_spawn(state, world, u.pos);
             true
         }
         (None, Some(new)) => {
@@ -278,7 +278,7 @@ pub(super) fn flower_pot(state: &mut State, u: &mut Use) -> bool {
                 *plant = Some(Plant::Known(new));
             }
             u.pop();
-            block_entity::broadcast_spawn(state, world, u.pos);
+            block_entity::mark_spawn(state, world, u.pos);
             true
         }
         (Some(_), Some(_)) | (None, None) => false,
@@ -307,7 +307,7 @@ pub(super) fn item_frame(state: &mut State, u: &mut Use) -> bool {
         return true;
     };
     sound(state, world, super::block_vec(u.pos), played);
-    block_entity::broadcast_spawn(state, world, u.pos);
+    block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
@@ -363,7 +363,7 @@ pub(super) fn attack(
             Sound::ItemFrameRemoveItem,
         );
     }
-    block_entity::broadcast_spawn(state, world, pos);
+    block_entity::mark_spawn(state, world, pos);
     frame
 }
 
@@ -409,7 +409,7 @@ pub(super) fn jukebox(state: &mut State, u: &mut Use) -> bool {
     } else {
         return true;
     }
-    block_entity::broadcast_spawn(state, world, u.pos);
+    block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
@@ -437,7 +437,7 @@ pub(super) fn lectern(state: &mut State, u: &mut Use) -> bool {
     *page = 0;
     u.pop();
     sound(state, world, center(u.pos), Sound::LecternPlaceBook);
-    block_entity::broadcast_spawn(state, world, u.pos);
+    block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
@@ -464,7 +464,7 @@ pub(super) fn on_lectern_update(state: &mut State, session: SessionId, packet: &
         return;
     }
     *page = new;
-    block_entity::broadcast_spawn(state, world, pos);
+    block_entity::mark_spawn(state, world, pos);
 }
 
 /// PMMP `ChiseledBookshelf::onInteract`: on its front, the shelf slot under the click gives its
@@ -550,7 +550,7 @@ pub(super) fn campfire_cook(state: &mut State, u: &mut Use) -> bool {
         super::block_vec(u.pos),
         Sound::ItemFrameAddItem,
     );
-    block_entity::broadcast_spawn(state, world, u.pos);
+    block_entity::mark_spawn(state, world, u.pos);
     true
 }
 
@@ -588,7 +588,7 @@ pub(super) fn cauldron_dye(state: &mut State, u: &mut Use) -> bool {
     cauldron.colour = Some(mixed.cast_signed());
     u.pop();
     sound(state, world, super::block_vec(u.pos), Sound::CauldronAddDye);
-    block_entity::broadcast_spawn(state, world, u.pos);
+    block_entity::mark_spawn(state, world, u.pos);
     true
 }
 

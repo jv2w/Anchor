@@ -80,8 +80,9 @@ impl Harness {
         std::mem::take(&mut player.outbox)
     }
 
-    /// The block entity data the player was sent for `pos`, the last first.
+    /// The block entity data the player was sent for `pos` by the end of the tick, the last first.
     fn actor_data(&mut self, pos: BlockPos) -> Vec<Compound> {
+        super::super::send_marked(&mut self.state);
         let mut out: Vec<Compound> = self
             .sent()
             .into_iter()
@@ -193,11 +194,7 @@ fn a_sign_takes_text_on_each_side_tells_the_clients_and_keeps_it_saved() {
     );
     assert!(view.is_sign_waxed());
     let sent = h.actor_data(pos);
-    assert_eq!(
-        sent.len(),
-        3,
-        "one update per write, none for the refused one"
-    );
+    assert_eq!(sent.len(), 1, "one update for the writes of a tick");
     assert_eq!(
         compound(&sent[0], "FrontText").get("Text"),
         Some(&Value::String("Hello".to_owned()))
@@ -414,7 +411,7 @@ fn pots_frames_and_jukeboxes_hold_what_they_are_given() {
         (Some(3), Some(0.25))
     );
     let sent = h.actor_data(frame);
-    assert_eq!(sent.len(), 3);
+    assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].get("ItemRotation"), Some(&Value::Float(135.0)));
     let mut cx = h.cx();
     let mut t = cx.block_entity_mut(WORLD, frame).unwrap();

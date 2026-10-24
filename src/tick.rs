@@ -936,7 +936,8 @@ impl Output {
 ///    entities and light.
 /// 3. Sync (serial): the deferred callbacks, the command and player changes the API marked, the
 ///    players whose outbox overflowed this tick ([`drop_overflowed`]), then the views: each
-///    follows its player, picks the chunks to send and asks for the loads it needs. A session
+///    follows its player, picks the chunks to send and asks for the loads it needs; last, the
+///    block entities changed this tick, each sent once ([`block_entity::send_marked`]). A session
 ///    whose outbound queue is full is dropped after the step, when the output is delivered.
 /// 4. Output (parallel, read-only): the sub-chunks the answers need, encoded once each, then
 ///    every marked player's packets, built on the CPU pool in player order, so the output does
@@ -1045,6 +1046,7 @@ fn step_marked(
     drop_overflowed(state, output);
     output.requests.extend(view::update(state));
     dispatch::run_deferred(state, &mut deferred_runs);
+    block_entity::send_marked(state);
     let changes = view::take_changes(&mut state.worlds);
     mark(Part::View);
     output.packets = spawn::output(state, pool, &changes);

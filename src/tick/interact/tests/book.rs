@@ -194,6 +194,53 @@ fn a_lectern_turns_no_page_of_a_book_with_pages_of_another_type() {
         super::super::super::block_entity::Kind::Lectern { book, page: 0 } if !book.is_empty()));
 }
 
+/// Page turns of one tick reach the players that see the lectern once, with the last page: the
+/// client keeps only the last of them anyway.
+#[test]
+fn a_ticks_page_turns_send_the_lectern_once_with_the_last_page() {
+    let mut h = Harness::new(|_| {});
+    let page = |text: &str| {
+        crate::nbt::Compound::from([("text".to_owned(), Value::String(text.to_owned()))])
+    };
+    let extra = crate::item::Extra {
+        nbt: crate::nbt::Compound::from([(
+            "pages".to_owned(),
+            Value::List(List::Compound(vec![page("a"), page("b")])),
+        )]),
+        ..crate::item::Extra::default()
+    };
+    let book = stack(ItemKind::WritableBook)
+        .with_extra(Some(extra))
+        .unwrap();
+    set_with_entity(&mut h, Kind::Lectern.default_state(), &Stack::EMPTY);
+    h.run(Vec::new());
+    h.hold(book);
+    use_on_target(&mut h);
+    h.packets();
+    let turns: Vec<_> = (1..=1001_u16)
+        .map(|i| {
+            h.input(Packet::LecternUpdate(
+                crate::protocol::packet::LecternUpdate {
+                    page: u8::try_from(i % 2).unwrap(),
+                    page_count: 2,
+                    position: [TARGET.x, TARGET.y, TARGET.z],
+                },
+            ))
+        })
+        .collect();
+    h.run(turns);
+    let sent: Vec<_> = h
+        .packets()
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::BlockActorData(d) => Some(d.nbt_data),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].get("page"), Some(&Value::Int(1)));
+}
+
 #[test]
 fn signing_makes_an_original_written_book_and_only_books_and_quills_are_edited() {
     let mut h = Harness::new(|_| {});

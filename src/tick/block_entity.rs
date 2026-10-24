@@ -105,6 +105,8 @@ pub(super) struct BlockEntities {
     spilling: BTreeSet<Key>,
     /// The block entities that may have work in the tick (at most one per loaded block entity).
     active: BTreeSet<(WorldIndex, BlockPos)>,
+    /// The block entities whose client form changed since [`send_marked`] last sent them.
+    marked: BTreeSet<(WorldIndex, BlockPos)>,
 }
 
 /// One chunk's block entities.
@@ -1188,6 +1190,8 @@ impl BlockEntities {
             // The chunks with spills, derived from `chunks`.
             spilling: _,
             active,
+            // Empty between ticks, as the checkpoint leaves it out.
+            marked: _,
         } = self;
         h.usize(chunks.len());
         for (&(world, pos), chunk) in chunks {
@@ -1278,7 +1282,9 @@ impl super::checkpoint::Codec for Chunk {
     }
 }
 
-/// Every field but the chunks with spills, which are `chunks` again.
+/// Every field but the chunks with spills, which are `chunks` again, and the marked block
+/// entities, which are empty between ticks as the outboxes are: only the delivery of a tick's
+/// output (a quit listener) can mark one before the next tick sends it.
 impl super::checkpoint::Codec for BlockEntities {
     fn encode(&self, w: &mut super::checkpoint::Writer) {
         let Self {
@@ -1287,6 +1293,7 @@ impl super::checkpoint::Codec for BlockEntities {
             viewers,
             spilling: _,
             active,
+            marked: _,
         } = self;
         chunks.encode(w);
         changed.encode(w);
@@ -1308,6 +1315,7 @@ impl super::checkpoint::Codec for BlockEntities {
             viewers: Codec::decode(r)?,
             spilling,
             active: Codec::decode(r)?,
+            marked: BTreeSet::new(),
         })
     }
 }
@@ -1380,22 +1388,32 @@ fn center(pos: BlockPos) -> Vec3 {
     )
 }
 
-/// Sends the client form of the block entity at `pos` to every player that sees its chunk (PMMP
-/// sends a tile's spawn compound when its block is set).
-pub(super) fn broadcast_spawn(state: &mut State, world: WorldIndex, pos: BlockPos) {
-    let Some(entity) = state
-        .rules
-        .block_entities
-        .get(world, pos)
-        .filter(|e| e.is_spawnable())
-    else {
-        return;
-    };
-    let packet = Packet::BlockActorData(BlockActorData {
-        position: [pos.x, pos.y, pos.z],
-        nbt_data: entity.spawn_nbt(pos),
-    });
-    state.broadcast(world, pos.chunk(), &packet, None);
+/// Marks the block entity at `pos` for [`send_marked`] to send its client form at the end of the
+/// tick: a block entity changed many times in one tick is built and sent once.
+pub(super) fn mark_spawn(state: &mut State, world: WorldIndex, pos: BlockPos) {
+    state.rules.block_entities.marked.insert((world, pos));
+}
+
+/// Sends the client form of every block entity marked this tick ([`mark_spawn`]), as it is now,
+/// to every player that sees its chunk (PMMP sends a tile's spawn compound when its block is
+/// set). Runs after everything in the tick that can change a block entity.
+pub(super) fn send_marked(state: &mut State) {
+    let marked = std::mem::take(&mut state.rules.block_entities.marked);
+    for (world, pos) in marked {
+        let Some(entity) = state
+            .rules
+            .block_entities
+            .get(world, pos)
+            .filter(|e| e.is_spawnable())
+        else {
+            continue;
+        };
+        let packet = Packet::BlockActorData(BlockActorData {
+            position: [pos.x, pos.y, pos.z],
+            nbt_data: entity.spawn_nbt(pos),
+        });
+        state.broadcast(world, pos.chunk(), &packet, None);
+    }
 }
 
 /// The block at `pos` was placed by `session` (or by the world when `None`) from `item` against
@@ -1417,7 +1435,7 @@ pub(super) fn placed(
     face: Face,
 ) {
     if create(state, world, pos, session, item, face) {
-        broadcast_spawn(state, world, pos);
+        mark_spawn(state, world, pos);
     }
 }
 
@@ -1611,8 +1629,8 @@ fn pair_chest(
                 *pair = Some(with);
             }
         }
-        broadcast_spawn(state, world, pos);
-        broadcast_spawn(state, world, other);
+        mark_spawn(state, world, pos);
+        mark_spawn(state, world, other);
         if let Some(e) = event {
             dispatch::watch(state, &e);
         }
@@ -1652,7 +1670,7 @@ pub(super) fn removed(state: &mut State, world: WorldIndex, pos: BlockPos) {
         {
             *pair = None;
         }
-        broadcast_spawn(state, world, other);
+        mark_spawn(state, world, other);
     }
     if let Kind::Furnace(f) = &entity.kind
         && f.xp > 0
@@ -1875,7 +1893,7 @@ pub(super) fn set_beacon(
         } else {
             entities.active.remove(&(world, pos));
         }
-        broadcast_spawn(state, world, pos);
+        mark_spawn(state, world, pos);
     }
 }
 
@@ -1921,7 +1939,7 @@ pub(super) fn set_slot(
         entities.active.remove(&(world, pos));
     }
     if shown {
-        broadcast_spawn(state, world, pos);
+        mark_spawn(state, world, pos);
     }
     Ok(true)
 }
@@ -2271,7 +2289,7 @@ fn tick_brewing(state: &mut State, world: WorldIndex, pos: BlockPos, block: bloc
         step.data.as_slice(),
     );
     if step.slots != 0 || !step.data.as_slice().is_empty() {
-        broadcast_spawn(state, world, pos);
+        mark_spawn(state, world, pos);
     }
     for e in watched {
         match e {
@@ -2489,7 +2507,7 @@ fn tick_campfire(state: &mut State, world: WorldIndex, pos: BlockPos, block: blo
         }
     }
     if changed {
-        broadcast_spawn(state, world, pos);
+        mark_spawn(state, world, pos);
         if state
             .rules
             .block_entities

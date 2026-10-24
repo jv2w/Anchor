@@ -11,7 +11,7 @@ use super::super::interact::book::page_count;
 use super::super::{Context, State, inventory};
 use super::{
     BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon, beacon_effect_allowed,
-    block_at, broadcast_spawn, campfire_kind, chests_pair, decor, set_beacon,
+    block_at, campfire_kind, chests_pair, decor, mark_spawn, set_beacon,
 };
 use crate::block::{self, Class, Face, TypeTag};
 use crate::effect;
@@ -380,7 +380,7 @@ impl Mut<'_> {
             outcome.ok()
         });
         outcome?;
-        broadcast_spawn(self.state, world, pos);
+        mark_spawn(self.state, world, pos);
         Ok(())
     }
 
@@ -465,7 +465,7 @@ impl Mut<'_> {
                     _ => None,
                 });
             if set.is_some() {
-                broadcast_spawn(self.state, world, at);
+                mark_spawn(self.state, world, at);
             }
         }
     }
