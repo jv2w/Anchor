@@ -2889,6 +2889,61 @@ pub(in crate::tick) mod tests {
         assert_eq!(count(&state), all, "the list reads back the same");
     }
 
+    /// With every slot of the chunk's spills full, the stacks a loaded shulker box's slots do not
+    /// take are lost with an error, as a new spill is past [`MAX_SPILLS`]; nothing else is.
+    #[test]
+    fn a_loaded_shulker_box_loses_what_no_spill_slot_takes() {
+        let (mut state, key) = slow_server(false);
+        let pos = state.worlds[0].spawn();
+        let shulker = block::State::all()
+            .find(|b| b.is(Class::ShulkerBox))
+            .unwrap();
+        state.worlds[0].set_block(pos, shulker).unwrap();
+        let stick = Stack::new(ItemKind::Stick.default_type(), 5);
+        let big = stick
+            .with_extra(Some(item::Extra {
+                nbt: Compound::from([("pad".to_owned(), Value::ByteArray(vec![1; 4 << 10]))]),
+                ..item::Extra::default()
+            }))
+            .unwrap();
+        let mut entity = BlockEntity::new(Kind::ShulkerBox { facing: 1 }, 27);
+        entity.items[0] = stick.clone();
+        entity.items[1] = big;
+        let mut list = vec![entity.write(pos)];
+        let spill = Spill {
+            pos,
+            items: vec![stick; SPILL_SLOTS],
+        };
+        let spills = Chunk {
+            spills: vec![spill; MAX_SPILLS],
+            ..Chunk::default()
+        };
+        list.extend(spills.write());
+        let blocks = &mut state.rules.block_entities;
+        let logged = crate::console::log::tests::captured(|| {
+            blocks.load_list(key, &list, &state.worlds[0], &Registry::default());
+        });
+        assert!(
+            logged.iter().any(
+                |l| l.contains("container items lost: too many spills waiting")
+                    && l.contains("lost=1")
+            ),
+            "{logged:?}"
+        );
+        let blocks = &state.rules.block_entities;
+        assert!(
+            blocks
+                .get(0, pos)
+                .unwrap()
+                .items
+                .iter()
+                .all(Stack::fits_shulker_box)
+        );
+        assert_eq!(blocks.chunks[&key].spills.len(), MAX_SPILLS);
+        let count: usize = blocks.all_items().map(|s| usize::from(s.count())).sum();
+        assert_eq!(count, 5 * (SPILL_SLOTS * MAX_SPILLS + 1));
+    }
+
     /// A list keeping more raw entries than a chunk may is damaged; saved spills past the most a
     /// chunk keeps stay raw.
     #[test]
