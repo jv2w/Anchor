@@ -547,10 +547,12 @@ fn loaded_reach(world: &World, moving: Aabb, along: Vec3, d: f64) -> f64 {
     }
     let c = centre.x * along.x + centre.z * along.z;
     let low = (c / 16.0).floor() * 16.0;
+    // Both cuts stop EPSILON inside the chunk: the centre is rebuilt from the moved box's
+    // corners, and that sum rounds past an exact border.
     if d > 0.0 {
         max(math::min(d, low + 16.0 - EPSILON - c), 0.0)
     } else {
-        math::min(max(d, low - c), 0.0)
+        math::min(max(d, low + EPSILON - c), 0.0)
     }
 }
 
@@ -1115,6 +1117,44 @@ pub(super) mod tests {
         };
         let body = step(&w, &input(edge, item_physics())).body;
         assert_eq!(body.position.x, 48.0 - 0.125);
+    }
+
+    /// A box as wide as a player's (a custom or scaled entity) that already reaches west or north
+    /// into a chunk that is not loaded keeps its centre in the loaded chunk when it moves that
+    /// way, though the sums that rebuild its centre round.
+    #[test]
+    fn a_wide_box_reaching_into_an_unloaded_chunk_keeps_its_centre_loaded() {
+        let mut w = World::new("test", WorldKind::Persistent, 0, BlockPos::new(0, -60, 0));
+        for x in 0..=1 {
+            for z in 0..=1 {
+                let pos = ChunkPos::new(x, z);
+                w.insert_chunk(pos, Chunk::generate(&Flat, 0, pos));
+            }
+        }
+        let wide = Physics {
+            width: 0.6,
+            ..*item_physics()
+        };
+        for west in [true, false] {
+            // Every centre in the 0.3 blocks where the box reaches over the border.
+            for i in 1..3000 {
+                let c = f64::from(i) * 0.0001;
+                let (position, motion) = if west {
+                    (Vec3::new(c, -60.0, 0.5), Vec3::new(-0.5, 0.0, 0.0))
+                } else {
+                    (Vec3::new(0.5, -60.0, c), Vec3::new(0.0, 0.0, -0.5))
+                };
+                let start = Body {
+                    position,
+                    motion,
+                    on_ground: true,
+                    ..Body::default()
+                };
+                let p = step(&w, &input(start, &wide)).body.position;
+                let centre = if west { p.x } else { p.z };
+                assert!(centre >= 0.0, "start {c}: centre {centre}");
+            }
+        }
     }
 
     /// A block only clients know (inert) has BDS's collision boxes: an item comes to rest on
