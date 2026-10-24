@@ -160,7 +160,7 @@ vendor/                결함을 고친 의존성 사본(dependencies.md)
 | 필요 | 쓰는 것 |
 |---|---|
 | 게임 반응 바꾸기 | 이벤트(`on`, `monitor`), `defer`, `perform` |
-| 패킷 보기·바꾸기·버리기 | `ServerBuilder::on_receive`(입력 단계 직렬, `Context` 있음, 로그는 도착한 패킷이라 재생이 훅을 다시 돌림), `on_send`(출력 단계 병렬). 미리 인코드한 공용 시작 데이터와 세션이 닫는 마지막 패킷, 로그인·팩 단계는 훅을 거치지 않는다. `hook-movement-packets`·`hook-player-input`으로 잦은 패킷을 뺄 수 있다 |
+| 패킷 보기·바꾸기·버리기 | `ServerBuilder::on_receive`(입력 단계 직렬, `Context` 있음, 로그는 도착한 패킷이라 재생이 훅을 다시 돌림), `on_send`(출력 단계 병렬, `SentPacket`: 여러 플레이어가 나누는 패킷은 훅이 `get_mut`으로 바꿀 때만 그 플레이어 몫을 복사). 미리 인코드한 공용 시작 데이터와 세션이 닫는 마지막 패킷, 로그인·팩 단계는 훅을 거치지 않는다. `hook-movement-packets`·`hook-player-input`으로 잦은 패킷을 뺄 수 있다 |
 | StartGame 고치기 | `ServerBuilder::start_game`(엔진 필드는 훅 뒤 되돌림) |
 | 로그인 정책 | PlayerLogin 이벤트(거절 사유가 플래그 목록), 권한, op·밴·화이트리스트 |
 | 명령 | `ServerBuilder::command(Command)`(타입 있는 인자, AvailableCommands 자동완성), `without_command`, `permission` |

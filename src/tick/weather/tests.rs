@@ -288,7 +288,7 @@ fn a_player_moving_while_it_waits_for_its_spawn_chunks_is_told_the_change() {
 #[test]
 fn weather_and_lightning_packets_pass_the_send_hooks_and_start_game_keeps_the_levels() {
     let builder = Server::builder()
-        .on_send(|_, p| !matches!(p, Packet::LevelEvent(_) | Packet::AddActor(_)))
+        .on_send(|_, p| !matches!(p.get(), Packet::LevelEvent(_) | Packet::AddActor(_)))
         .start_game(|s| s.rain_level = 0.5);
     let mut state = new_state(settings(|_| {}), Listeners::default());
     state.hooks = builder.setup.hooks;

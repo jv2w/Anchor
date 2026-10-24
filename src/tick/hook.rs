@@ -9,6 +9,7 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::sync::Arc;
 
 use super::queue::{Message, SessionId};
 use super::{Context, Settings, State};
@@ -19,7 +20,7 @@ use crate::protocol::packet::{Packet, StartGame};
 /// A receive hook: `false` drops the packet.
 type ReceiveHook = Box<dyn FnMut(&mut Context<'_>, player::Id, &mut Packet) -> bool + Send>;
 /// A send hook: `false` drops the packet.
-pub(super) type SendHook = Box<dyn Fn(player::Id, &mut Packet) -> bool + Send + Sync>;
+pub(super) type SendHook = Box<dyn Fn(player::Id, &mut SentPacket<'_>) -> bool + Send + Sync>;
 /// A start-game hook.
 pub(super) type StartHook = Box<dyn Fn(&mut StartGame) + Send + Sync>;
 
@@ -40,6 +41,43 @@ impl Hooks {
     /// The start-game hooks, in registration order.
     pub(super) fn start_game(&self) -> &[StartHook] {
         &self.start_game
+    }
+}
+
+/// A packet the tick sends a player, as a send hook sees it ([`ServerBuilder::on_send`]).
+///
+/// The tick builds some packets once for many players (a skin change, the player list). Such a
+/// packet stays shared while hooks only read it: [`get`](Self::get) never copies, and the first
+/// [`get_mut`](Self::get_mut) copies it for this player alone. A hook that changes a packet only
+/// when it must therefore checks it with `get` first.
+#[derive(Debug)]
+pub struct SentPacket<'a>(Slot<'a>);
+
+/// Where the packet a send hook sees is held.
+#[derive(Debug)]
+enum Slot<'a> {
+    /// This player's own packet.
+    Own(&'a mut Packet),
+    /// A packet shared with other players.
+    Shared(&'a mut Arc<Packet>),
+}
+
+impl SentPacket<'_> {
+    /// The packet.
+    pub fn get(&self) -> &Packet {
+        match &self.0 {
+            Slot::Own(packet) => packet,
+            Slot::Shared(packet) => packet,
+        }
+    }
+
+    /// The packet to change. A packet shared with other players is copied for this one first,
+    /// once: later calls and later hooks change the copy.
+    pub fn get_mut(&mut self) -> &mut Packet {
+        match &mut self.0 {
+            Slot::Own(packet) => packet,
+            Slot::Shared(packet) => Arc::make_mut(packet),
+        }
     }
 }
 
@@ -76,8 +114,9 @@ impl ServerBuilder {
     }
 
     /// Calls `hook` on every packet the tick sends a player, after Anchor built it, in the
-    /// output phase and in registration order. The hook may change the packet; when it returns
-    /// `false` the packet is not sent and later hooks do not see it.
+    /// output phase and in registration order. The hook may change the packet
+    /// ([`SentPacket::get_mut`]); when it returns `false` the packet is not sent and later hooks
+    /// do not see it.
     ///
     /// The output phase runs on the CPU pool, several players at once, so the hook reaches no
     /// game state; for one player the hooks run in the packets' order. Three kinds of packet
@@ -92,7 +131,7 @@ impl ServerBuilder {
     #[must_use]
     pub fn on_send(
         mut self,
-        hook: impl Fn(player::Id, &mut Packet) -> bool + Send + Sync + 'static,
+        hook: impl Fn(player::Id, &mut SentPacket<'_>) -> bool + Send + Sync + 'static,
     ) -> Self {
         self.setup.hooks.send.push(Box::new(hook));
         self
@@ -148,7 +187,7 @@ pub(super) fn receive<'a>(
 /// Runs the send hooks on the packets of `messages` for `session`, removing those a hook drops.
 /// Shared batches pass untouched, and so do the movement packets with
 /// `hook-movement-packets = false` ([`is_movement`]); a shared packet is copied for the session
-/// only here, where a hook may change it.
+/// only when a hook changes it ([`SentPacket::get_mut`]).
 pub(super) fn send(
     hooks: &[SendHook],
     settings: &Settings,
@@ -163,10 +202,13 @@ pub(super) fn send(
     messages.retain_mut(|message| match message {
         Message::Packet(packet) if skip(packet) => true,
         Message::SharedPacket(packet) if skip(packet) => true,
-        Message::Packet(packet) => hooks.iter().all(|hook| hook(id, packet)),
+        Message::Packet(packet) => {
+            let mut sent = SentPacket(Slot::Own(packet));
+            hooks.iter().all(|hook| hook(id, &mut sent))
+        }
         Message::SharedPacket(packet) => {
-            let packet = std::sync::Arc::make_mut(packet);
-            hooks.iter().all(|hook| hook(id, packet))
+            let mut sent = SentPacket(Slot::Shared(packet));
+            hooks.iter().all(|hook| hook(id, &mut sent))
         }
         Message::Shared(_) => true,
     });
@@ -275,7 +317,7 @@ mod tests {
     /// send hook drops every movement packet it sees, on a server with `hook-movement-packets`
     /// set to `hooked`.
     fn movement_sent(hooked: bool) -> usize {
-        let builder = Server::builder().on_send(|_, packet| !is_movement(packet));
+        let builder = Server::builder().on_send(|_, packet| !is_movement(packet.get()));
         let mut state = configured(builder, |c| c.developer.hook_movement_packets = hooked);
         let mut output = Output::default();
         let (j, mut rx) = join(1, 0);
@@ -404,9 +446,11 @@ mod tests {
     // pmmp: DataPacketSendEvent
     #[test]
     fn send_hooks_change_or_drop_what_a_player_is_sent() {
-        let builder = Server::builder().on_send(|player, packet| match packet {
-            Packet::ChunkRadiusUpdated(c) => {
-                c.chunk_radius = 3;
+        let builder = Server::builder().on_send(|player, packet| match packet.get() {
+            Packet::ChunkRadiusUpdated(_) => {
+                if let Packet::ChunkRadiusUpdated(c) = packet.get_mut() {
+                    c.chunk_radius = 3;
+                }
                 true
             }
             Packet::SetHealth(_) => false,
@@ -423,9 +467,37 @@ mod tests {
     }
 
     #[test]
+    fn a_send_hook_changes_a_shared_packet_for_its_player_only() {
+        let builder = Server::builder().on_send(|player, packet| {
+            if player == id(1)
+                && matches!(packet.get(), Packet::PlayerList(_))
+                && let Packet::PlayerList(list) = packet.get_mut()
+            {
+                list.entries.clear();
+            }
+            true
+        });
+        let mut state = state_with(builder);
+        let [(first, _), (second, _)] = spawn_two(&mut state);
+        let entries = |packets: &[Packet]| -> Vec<usize> {
+            packets
+                .iter()
+                .filter_map(|p| match p {
+                    Packet::PlayerList(l) => Some(l.entries.len()),
+                    _ => None,
+                })
+                .collect()
+        };
+        // Both join in one tick, so both windows send the one shared list of the two.
+        assert_eq!(entries(&first), [0, 0]);
+        assert_eq!(entries(&second), [2, 2]);
+    }
+
+    #[test]
     fn send_hooks_see_the_packets_of_the_serial_phases() {
-        let builder = Server::builder()
-            .on_send(|player, packet| !matches!(packet, Packet::SetTime(_)) || player == id(1));
+        let builder = Server::builder().on_send(|player, packet| {
+            !matches!(packet.get(), Packet::SetTime(_)) || player == id(1)
+        });
         let mut state = state_with(builder);
         let mut output = Output::default();
         let (j1, mut rx1) = join(1, 0);
@@ -504,7 +576,7 @@ mod tests {
                 }
                 player != id(3)
             })
-            .on_send(|_, packet| !matches!(packet, Packet::SetHealth(_)))
+            .on_send(|_, packet| !matches!(packet.get(), Packet::SetHealth(_)))
             .start_game(|p| "Hooked".clone_into(&mut p.world_name))
     }
 

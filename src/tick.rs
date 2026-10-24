@@ -59,6 +59,7 @@ pub(crate) use self::log::{
 pub(crate) use entity::Customs;
 pub(crate) use entity::EntityTypes;
 pub use entity::{Entity, Mut};
+pub use hook::SentPacket;
 use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId};
 pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::Shared;
@@ -2142,7 +2143,19 @@ mod tests {
 
     #[test]
     fn a_join_shares_each_skin_once() {
+        joins_share_each_skin_once(hook::Hooks::default());
+    }
+
+    #[test]
+    fn a_send_hook_that_changes_nothing_copies_nothing() {
+        joins_share_each_skin_once(crate::Server::builder().on_send(|_, _| true).setup.hooks);
+    }
+
+    /// Three players join in one tick and a fourth later, with `hooks`: every player is sent the
+    /// same lists, which hold the players' own skins.
+    fn joins_share_each_skin_once(hooks: hook::Hooks) {
         let mut state = new_state(settings(|_| {}), Listeners::default());
+        state.hooks = hooks;
         let mut output = Output::default();
         let mut joins = Vec::new();
         let mut receivers = Vec::new();
