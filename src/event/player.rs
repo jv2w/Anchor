@@ -741,18 +741,12 @@ pub enum ExhaustCause {
     /// Sprinting.
     #[doc(alias = "PlayerExhaustEvent::CAUSE_SPRINTING")]
     Sprinting,
-    /// Swimming.
-    #[doc(alias = "PlayerExhaustEvent::CAUSE_SWIMMING")]
-    Swimming,
     /// Jumping.
     #[doc(alias = "PlayerExhaustEvent::CAUSE_JUMPING")]
     Jumping,
     /// Jumping while sprinting.
     #[doc(alias = "PlayerExhaustEvent::CAUSE_SPRINT_JUMPING")]
     SprintJumping,
-    /// Code made the player hungrier.
-    #[doc(alias = "PlayerExhaustEvent::CAUSE_CUSTOM")]
-    Custom,
 }
 
 /// Raised when a player gets hungrier. Cancelling keeps the player's exhaustion.
@@ -2100,7 +2094,7 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: PlayerExhaustEvent, PlayerExhaustEvent::getPlayer, PlayerExhaustEvent::getAmount, PlayerExhaustEvent::setAmount, PlayerExhaustEvent::getCause, PlayerExhaustEvent::CAUSE_ATTACK, PlayerExhaustEvent::CAUSE_DAMAGE, PlayerExhaustEvent::CAUSE_MINING, PlayerExhaustEvent::CAUSE_HEALTH_REGEN, PlayerExhaustEvent::CAUSE_POTION, PlayerExhaustEvent::CAUSE_WALKING, PlayerExhaustEvent::CAUSE_SPRINTING, PlayerExhaustEvent::CAUSE_SWIMMING, PlayerExhaustEvent::CAUSE_JUMPING, PlayerExhaustEvent::CAUSE_SPRINT_JUMPING, PlayerExhaustEvent::CAUSE_CUSTOM, PlayerExhaustEvent::cancel, PlayerExhaustEvent::uncancel, PlayerExhaustEvent::isCancelled
+    // pmmp: PlayerExhaustEvent, PlayerExhaustEvent::getPlayer, PlayerExhaustEvent::getAmount, PlayerExhaustEvent::setAmount, PlayerExhaustEvent::getCause, PlayerExhaustEvent::CAUSE_ATTACK, PlayerExhaustEvent::CAUSE_DAMAGE, PlayerExhaustEvent::CAUSE_MINING, PlayerExhaustEvent::CAUSE_HEALTH_REGEN, PlayerExhaustEvent::CAUSE_POTION, PlayerExhaustEvent::CAUSE_WALKING, PlayerExhaustEvent::CAUSE_SPRINTING, PlayerExhaustEvent::CAUSE_JUMPING, PlayerExhaustEvent::CAUSE_SPRINT_JUMPING, PlayerExhaustEvent::cancel, PlayerExhaustEvent::uncancel, PlayerExhaustEvent::isCancelled
     #[test]
     fn exhaust_amount_can_change() {
         use ExhaustCause as C;
@@ -2112,10 +2106,8 @@ mod tests {
             C::Potion,
             C::Walking,
             C::Sprinting,
-            C::Swimming,
             C::Jumping,
             C::SprintJumping,
-            C::Custom,
         ];
         for cause in causes {
             let mut e = PlayerExhaust {

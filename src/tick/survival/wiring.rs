@@ -371,7 +371,7 @@ fn regain_listeners_change_or_cancel_the_healing() {
         match e.regain_reason() {
             RegainReason::Magic => e.set_amount(5.0),
             RegainReason::Regen => e.cancel(),
-            _ => {}
+            RegainReason::Saturation => {}
         }
     });
     let mut game = Game::with(1, listeners, |c| {
@@ -1094,7 +1094,7 @@ fn combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end() {
     let mut listeners = on(
         |e: &mut EntityCombust, _: &mut Context<'_>| match e.source() {
             CombustSource::Entity(_) => e.set_duration_secs(1),
-            _ => e.cancel(),
+            CombustSource::Block(_) => e.cancel(),
         },
     );
     let (tx, mut seen) = record();
@@ -1105,7 +1105,8 @@ fn combust_listeners_change_the_burn_and_extinguish_listeners_hear_it_end() {
         },
     );
     let mut game = Game::new(1, listeners);
-    set_on_fire(&mut game.state, sid(1), 8);
+    let fire = CombustSource::Block(BlockPos::new(0, -60, 0));
+    set_on_fire_by(&mut game.state, sid(1), 8, fire);
     assert_eq!(game.survival(1).fire_ticks, 0, "cancelled");
     let by = CombustSource::Entity(Actor::Player(pid(1)));
     set_on_fire_by(&mut game.state, sid(1), 8, by);

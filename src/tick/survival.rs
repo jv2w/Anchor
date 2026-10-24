@@ -1172,12 +1172,6 @@ pub(super) fn heal(state: &mut State, session: SessionId, amount: f64) {
     damage::heal(state, session, amount, RegainReason::Magic);
 }
 
-/// [`set_on_fire_by`] without a source; the rules call [`set_on_fire_by`].
-#[cfg(test)]
-pub(super) fn set_on_fire(state: &mut State, session: SessionId, seconds: u32) {
-    damage::combust(state, session, seconds, CombustSource::None);
-}
-
 /// Sets the player on fire for `seconds` by `source` (PMMP `Living::setOnFire`: a burning
 /// arrow), raising [`EntityCombust`](crate::event::EntityCombust), which names the source; a
 /// longer burn already running stays.
@@ -3326,9 +3320,10 @@ mod tests {
         assert_eq!(server.survival(1).health, 14.0);
         heal(&mut server.state, sid(1), 100.0);
         assert_eq!(server.survival(1).health, 20.0, "up to the maximum");
-        set_on_fire(&mut server.state, sid(1), 5);
+        let fire = CombustSource::Block(BlockPos::new(0, -60, 0));
+        set_on_fire_by(&mut server.state, sid(1), 5, fire);
         assert_eq!(server.survival(1).fire_ticks, 100);
-        set_on_fire(&mut server.state, sid(1), 2);
+        set_on_fire_by(&mut server.state, sid(1), 2, fire);
         assert_eq!(server.survival(1).fire_ticks, 100, "a longer burn stays");
         assert!(!has_attack_cooldown(server.player(1)));
         assert!(server.hurt(1, 1.0, Damage::Entity));

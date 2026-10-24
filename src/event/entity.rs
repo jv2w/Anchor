@@ -64,8 +64,6 @@ getters!(EntityBlockChange {
 /// What sets something on fire (PMMP `EntityCombustByBlockEvent`, `EntityCombustByEntityEvent`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CombustSource {
-    /// Nothing in particular.
-    None,
     /// A block: fire, lava or a lava cauldron at this position.
     Block(BlockPos),
     /// An entity or a player: a burning arrow, or a player hitting with a Fire Aspect weapon.
@@ -639,9 +637,6 @@ setters!(EntityFrostWalker {
 /// Why a fire went out (PMMP `EntityExtinguishEvent::CAUSE_*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtinguishCause {
-    /// Code put it out.
-    #[doc(alias = "EntityExtinguishEvent::CAUSE_CUSTOM")]
-    Custom,
     /// Water.
     #[doc(alias = "EntityExtinguishEvent::CAUSE_WATER")]
     Water,
@@ -657,12 +652,6 @@ pub enum ExtinguishCause {
     /// The burning time ran out.
     #[doc(alias = "EntityExtinguishEvent::CAUSE_TICKING")]
     Ticking,
-    /// Rain.
-    #[doc(alias = "EntityExtinguishEvent::CAUSE_RAIN")]
-    Rain,
-    /// Powder snow.
-    #[doc(alias = "EntityExtinguishEvent::CAUSE_POWDER_SNOW")]
-    PowderSnow,
 }
 
 /// Raised when a player or an entity stops burning.
@@ -810,15 +799,9 @@ pub enum RegainReason {
     /// The Regeneration effect.
     #[doc(alias = "EntityRegainHealthEvent::CAUSE_REGEN")]
     Regen,
-    /// Eating (a cake slice).
-    #[doc(alias = "EntityRegainHealthEvent::CAUSE_EATING")]
-    Eating,
     /// An effect or a potion: instant health.
     #[doc(alias = "EntityRegainHealthEvent::CAUSE_MAGIC")]
     Magic,
-    /// Code healed it.
-    #[doc(alias = "EntityRegainHealthEvent::CAUSE_CUSTOM")]
-    Custom,
     /// A full food bar.
     #[doc(alias = "EntityRegainHealthEvent::CAUSE_SATURATION")]
     Saturation,
@@ -1459,20 +1442,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityExtinguishEvent, EntityExtinguishEvent::getCause, EntityExtinguishEvent::CAUSE_CUSTOM, EntityExtinguishEvent::CAUSE_WATER, EntityExtinguishEvent::CAUSE_WATER_CAULDRON, EntityExtinguishEvent::CAUSE_RESPAWN, EntityExtinguishEvent::CAUSE_FIRE_PROOF, EntityExtinguishEvent::CAUSE_TICKING, EntityExtinguishEvent::CAUSE_RAIN, EntityExtinguishEvent::CAUSE_POWDER_SNOW
+    // pmmp: EntityExtinguishEvent, EntityExtinguishEvent::getCause, EntityExtinguishEvent::CAUSE_WATER, EntityExtinguishEvent::CAUSE_WATER_CAULDRON, EntityExtinguishEvent::CAUSE_RESPAWN, EntityExtinguishEvent::CAUSE_FIRE_PROOF, EntityExtinguishEvent::CAUSE_TICKING
     #[test]
     fn entity_extinguish_names_the_cause() {
         use ExtinguishCause::*;
-        for cause in [
-            Custom,
-            Water,
-            WaterCauldron,
-            Respawn,
-            FireProof,
-            Ticking,
-            Rain,
-            PowderSnow,
-        ] {
+        for cause in [Water, WaterCauldron, Respawn, FireProof, Ticking] {
             let e = EntityExtinguish {
                 entity: Actor::Player(player(1)),
                 cause,
@@ -1561,11 +1535,11 @@ mod tests {
         assert!(!e.is_cancelled());
     }
 
-    // pmmp: EntityRegainHealthEvent, EntityRegainHealthEvent::getAmount, EntityRegainHealthEvent::setAmount, EntityRegainHealthEvent::getRegainReason, EntityRegainHealthEvent::CAUSE_REGEN, EntityRegainHealthEvent::CAUSE_EATING, EntityRegainHealthEvent::CAUSE_MAGIC, EntityRegainHealthEvent::CAUSE_CUSTOM, EntityRegainHealthEvent::CAUSE_SATURATION, EntityRegainHealthEvent::cancel, EntityRegainHealthEvent::uncancel, EntityRegainHealthEvent::isCancelled
+    // pmmp: EntityRegainHealthEvent, EntityRegainHealthEvent::getAmount, EntityRegainHealthEvent::setAmount, EntityRegainHealthEvent::getRegainReason, EntityRegainHealthEvent::CAUSE_REGEN, EntityRegainHealthEvent::CAUSE_MAGIC, EntityRegainHealthEvent::CAUSE_SATURATION, EntityRegainHealthEvent::cancel, EntityRegainHealthEvent::uncancel, EntityRegainHealthEvent::isCancelled
     #[test]
     fn entity_regain_health_amount_can_change() {
         use RegainReason::*;
-        for reason in [Regen, Eating, Magic, Custom, Saturation] {
+        for reason in [Regen, Magic, Saturation] {
             let mut e = EntityRegainHealth {
                 entity: Actor::Player(player(1)),
                 amount: 1.0,
