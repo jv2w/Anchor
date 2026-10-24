@@ -491,8 +491,8 @@ pub(super) fn concrete_powder(cx: &mut Cx<'_>, pos: BlockPos, block: block::Stat
 pub(in crate::tick) const CAULDRON_FULL: i32 = 6;
 
 /// PMMP `Cauldron`/`WaterCauldron`/`PotionCauldron::onNearbyBlockChange`: water above fills it
-/// with plain water. A cauldron's dye and potion live in its block entity (inventory rules), so
-/// they are cleared there.
+/// with plain water. A cauldron's dye and potion live in its block entity
+/// (`block_entity::Kind::Cauldron`) and are cleared here.
 pub(super) fn cauldron_on_nearby(cx: &mut Cx<'_>, pos: BlockPos, block: block::State) {
     if cx.block(pos.step(Face::Up)).kind() != Kind::Water {
         return;
