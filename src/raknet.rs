@@ -641,6 +641,23 @@ pub(crate) mod tests {
             .block_on(test)
     }
 
+    /// A connection without a socket task, for a session test that hands the session its
+    /// messages itself: it receives nothing and its sends fail.
+    pub(crate) fn detached_connection() -> Connection {
+        let (_, inbound) = mpsc::channel(1);
+        let (outbound, _) = mpsc::channel(1);
+        let (signal, _) = watch::channel(Flags::default());
+        let (_, ping) = watch::channel(None);
+        Connection {
+            id: 0,
+            addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            inbound,
+            outbound,
+            signal,
+            ping,
+        }
+    }
+
     #[test]
     fn sockets_answer_pings_and_carry_connections() {
         run(answer_pings_and_carry_connections());
