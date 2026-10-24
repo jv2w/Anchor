@@ -1863,19 +1863,17 @@ pub(super) fn set_beacon(
     secondary: i32,
 ) {
     let entities = &mut state.rules.block_entities;
-    if let Some(BlockEntity {
-        kind: Kind::Beacon {
+    if let Some(entity) = entities.get_mut(world, pos)
+        && let Kind::Beacon {
             primary: p,
             secondary: s,
-        },
-        ..
-    }) = entities.get_mut(world, pos)
+        } = &mut entity.kind
     {
         (*p, *s) = (primary, secondary);
-        if primary == 0 {
-            entities.active.remove(&(world, pos));
-        } else {
+        if entity.kind.ticks(&entity.items) {
             entities.active.insert((world, pos));
+        } else {
+            entities.active.remove(&(world, pos));
         }
         broadcast_spawn(state, world, pos);
     }
@@ -2496,7 +2494,7 @@ fn tick_campfire(state: &mut State, world: WorldIndex, pos: BlockPos, block: blo
             .rules
             .block_entities
             .get(world, pos)
-            .is_some_and(|e| e.items.iter().all(Stack::is_empty))
+            .is_some_and(|e| !e.kind.ticks(&e.items))
         {
             state.rules.block_entities.active.remove(&(world, pos));
         }
