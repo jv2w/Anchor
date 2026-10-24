@@ -26,7 +26,7 @@ use std::sync::Arc;
 use super::kind::{Character, Form, Kind, MAX_NAME_TAG_BYTES};
 use super::{
     Blow, Cause, EYE_HEIGHT, Hooks, Hurt, Knock, Npc, SAFE_FALL, SUFFOCATION_DAMAGE, State,
-    combust, create, hurt, player_actor, push_entity, send_to, with,
+    combust, create, hurt, is_inside_solid, player_actor, push_entity, send_to, with,
 };
 use crate::config::GameMode;
 use crate::entity::Id;
@@ -252,21 +252,10 @@ pub(super) fn tick(state: &mut State, id: Id, _hooks: Hooks) {
     let Some(e) = state.rules.entities.get(id) else {
         return;
     };
-    let eye = e.eye_position();
-    let bounds = e.bounding_box();
-    let cell = BlockPos::containing(eye);
     let inside = state
         .worlds
         .get(e.world)
-        .and_then(|w| w.block(cell))
-        .is_some_and(|s| {
-            let at = Vec3::new(f64::from(cell.x), f64::from(cell.y), f64::from(cell.z));
-            s.is_solid()
-                && !s.is_transparent()
-                && s.collision_boxes()
-                    .iter()
-                    .any(|b| b.offset(at).intersects(bounds))
-        });
+        .is_some_and(|w| is_inside_solid(w, e.eye_position(), e.bounding_box()));
     if inside {
         hurt(
             state,

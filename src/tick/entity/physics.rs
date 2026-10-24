@@ -185,6 +185,20 @@ impl Harm {
     }
 }
 
+/// Whether the block at the eyes `eye` is an opaque solid one whose collision boxes overlap
+/// `bounds` (PMMP `Entity::isInsideOfSolid`): the one rule for players and entities.
+pub(in crate::tick) fn is_inside_solid(world: &World, eye: Vec3, bounds: Aabb) -> bool {
+    let cell = BlockPos::containing(eye);
+    let at = Vec3::new(f64::from(cell.x), f64::from(cell.y), f64::from(cell.z));
+    world.block(cell).is_some_and(|s| {
+        s.is_solid()
+            && !s.is_transparent()
+            && s.collision_boxes()
+                .iter()
+                .any(|b| b.offset(at).intersects(bounds))
+    })
+}
+
 /// The input of one entity's step.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Input {

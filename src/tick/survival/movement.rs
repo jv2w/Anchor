@@ -709,11 +709,6 @@ pub(super) fn collides(world: &World, bb: Aabb) -> bool {
     false
 }
 
-/// Whether a block's collision boxes overlap `bb` (PMMP `Block::collidesWithBB`).
-fn block_collides(block: block::State, pos: BlockPos, bb: Aabb) -> bool {
-    boxes_collide(block.collision_boxes(), pos, bb)
-}
-
 /// Whether block-local collision boxes at `pos` overlap `bb`.
 fn boxes_collide(boxes: &[Aabb], pos: BlockPos, bb: Aabb) -> bool {
     let at = Vec3::new(f64::from(pos.x), f64::from(pos.y), f64::from(pos.z));
@@ -1079,13 +1074,10 @@ pub(super) fn is_underwater(state: &State, player: &Player) -> bool {
 
 /// Whether the player's eyes are inside an opaque solid block (PMMP `Entity::isInsideOfSolid`).
 pub(super) fn is_inside_solid(state: &State, player: &Player) -> bool {
-    let pos = BlockPos::containing(player.position);
-    let Some(block) = state.worlds.get(player.world).and_then(|w| w.block(pos)) else {
-        return false;
-    };
-    block.is_solid()
-        && !block.is_transparent()
-        && block_collides(block, pos, bounding_box(&player.survival, feet(player)))
+    state.worlds.get(player.world).is_some_and(|w| {
+        let bounds = bounding_box(&player.survival, feet(player));
+        entity::is_inside_solid(w, player.position, bounds)
+    })
 }
 
 #[cfg(test)]
