@@ -752,8 +752,8 @@ pub enum Error {
         /// The enum's type name.
         name: String,
     },
-    /// [`Context::set_soft_enum`] named no soft enum type of a registered command, or values
-    /// that are empty, hold spaces, number more than 4,096 or pass 65,536 bytes in all.
+    /// [`Context::set_soft_enum`] named no soft enum type of a registered command, or values it
+    /// refuses (see its limits).
     InvalidSoftEnum {
         /// The enum's type name.
         name: String,
