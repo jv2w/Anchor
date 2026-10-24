@@ -176,6 +176,7 @@ pocketmine\utils\StringToTParser** skipped PMMP's string-keyed lookups: Anchor l
 # ===== Events: flat structs built by the rule code =====
 
 pocketmine\event\block\BlockItemPickupEvent** skipped PMMP never raises it
+pocketmine\event\block\BlockBreakEvent::setInstaBreak skipped a break before its time is refused before the event (PMMP never reads the value back either)
 pocketmine\event\player\PlayerDisplayNameChangeEvent** skipped only direct API calls change display names, and direct calls raise no events
 pocketmine\event\world\WorldDisplayNameChangeEvent** skipped only direct API calls change display names, and direct calls raise no events
 pocketmine\event\player\PlayerCreationEvent** skipped PHP player class choice: the player is Anchor's `Player`
