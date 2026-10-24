@@ -377,7 +377,7 @@ impl Session {
             return Err(Error::Limit("input bytes per second"));
         }
         // The whole batch shares one allocation budget, as in `batch::decode_packets`.
-        let mut budget = self.shared.batch.max_batch_bytes().saturating_mul(2);
+        let mut budget = self.shared.batch.decode_budget();
         for (header, bytes) in batch::split(payload).map_err(Error::Batch)? {
             match Packet::decode(header.id, bytes, &mut budget, SHIELD_ID) {
                 Ok(packet) => self.on_packet(packet, bytes.len()).await?,
