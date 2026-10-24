@@ -14,7 +14,7 @@ use std::mem::size_of;
 
 use super::seal::{DECODE_BUDGET, MAX_RECORD};
 use crate::nbt::{Compound, Encoding, MAX_ROOT_BYTES};
-use crate::protocol::{Error, Reader, Result, Writer, length};
+use crate::protocol::{BLOCKS, Error, Reader, Result, WIDTHS, Writer, length, word_count};
 use crate::world::BlockPos;
 
 /// Sub-chunks in a chunk column, from index -4 (y -64) to 19 (y 304..=319).
@@ -31,11 +31,6 @@ pub(crate) const MAX_NAME: usize = 256;
 /// than the 4 MiB of one NBT root elsewhere; the record's reader budget covers it
 /// (`item::MAX_NBT_BYTES`).
 pub(crate) const MAX_PLAYER_EXTRA_BYTES: usize = MAX_RECORD - (2 + MAX_NAME + 3 * 8);
-/// Blocks (and biome cells) in a sub-chunk.
-pub(crate) const BLOCKS: usize = 4096;
-/// Bits per index Bedrock writes.
-// The same packing as `protocol::block_storage`.
-pub(crate) const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
 /// Most compounds in one [`ExtraRecord`]: one per block of a chunk column. Block
 /// entities and scheduled updates have at most one per block; entities are bounded by the world's
@@ -48,16 +43,6 @@ pub(crate) trait Record: Sized {
     fn encode(&self, w: &mut Writer) -> Result<()>;
     /// Reads a record that must take the whole input.
     fn decode(r: &mut Reader<'_>) -> Result<Self>;
-}
-
-/// The 32-bit little-endian words that hold [`BLOCKS`] indices of `bits` bits each, without
-/// splitting an index across words.
-pub(crate) fn word_count(bits: u8) -> usize {
-    if bits == 0 {
-        0
-    } else {
-        BLOCKS.div_ceil(32 / usize::from(bits))
-    }
 }
 
 /// Whether each of the [`BLOCKS`] indices packed in `words` is below `palette_len`.
@@ -870,12 +855,6 @@ pub(crate) mod tests {
         ChunkRecord {
             sub_chunks: sub_chunks.into_boxed_slice().try_into().unwrap(),
         }
-    }
-
-    #[test]
-    fn word_counts_follow_bedrock_packing() {
-        let counts: Vec<usize> = WIDTHS.iter().map(|&b| word_count(b)).collect();
-        assert_eq!(counts, [0, 128, 256, 410, 512, 683, 820, 1024, 2048]);
     }
 
     #[test]

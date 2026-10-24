@@ -27,6 +27,7 @@ pub use login::ConnectionRequest;
 pub use types::*;
 pub use values::{AbilityValue, GameRule, GameRuleValue, PackSetting, PackSettingValue};
 
+pub(crate) use block_storage::{BLOCKS, WIDTHS, word_count};
 pub(crate) use io::{Codec, MAX_LIST_LEN, Reader, Writer, length, length_max};
 
 #[cfg(test)]

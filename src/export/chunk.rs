@@ -115,9 +115,8 @@ fn write_indices(w: &mut Writer, bits: u8, words: &[u32], palette_len: usize) ->
 mod tests {
     use super::*;
     use crate::import::leveldb::{Db, Files};
-    use crate::protocol::Rng;
+    use crate::protocol::{Rng, word_count};
     use crate::storage::codec::tests::{empty_chunk, random_chunk};
-    use crate::storage::codec::word_count;
 
     /// The biome storages of a `Data3D` value after its height map, one per sub-chunk.
     fn read_biomes(mut bytes: &[u8]) -> Vec<Biomes> {

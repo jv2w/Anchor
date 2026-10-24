@@ -9,14 +9,14 @@ use std::mem::size_of;
 
 use super::io::{Codec, Error, Reader, Result, Writer, length};
 
-/// Blocks in a sub-chunk.
-const BLOCKS: usize = 4096;
+/// Blocks (and biome cells) in a sub-chunk.
+pub(crate) const BLOCKS: usize = 4096;
 /// Bits per block index Bedrock writes (dragonfly `sizes`).
-const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
+pub(crate) const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
 /// Little-endian 32-bit words that hold `BLOCKS` indices of `bits` bits each, without
 /// splitting an index across words.
-fn word_count(bits: u8) -> usize {
+pub(crate) fn word_count(bits: u8) -> usize {
     if bits == 0 {
         0
     } else {

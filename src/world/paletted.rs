@@ -10,14 +10,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::protocol::Writer;
+use crate::protocol::{BLOCKS, WIDTHS, Writer, word_count};
 
 use super::{Error, Result};
 
-/// Slots in a cube.
+/// Slots in a cube: the protocol's blocks in a sub-chunk, as a slot offset.
 pub(crate) const SLOTS: u16 = 4096;
-/// Bits per index Bedrock writes (dragonfly `sizes`; `crate::protocol` reads the same).
-const WIDTHS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
+const _: () = assert!(SLOTS as usize == BLOCKS);
 /// The most bytes a 32-bit varint takes.
 const MAX_VARINT32_BYTES: usize = 5;
 
@@ -32,15 +31,6 @@ fn per_word(bits: u8) -> usize {
         usize::from(SLOTS)
     } else {
         32 / usize::from(bits)
-    }
-}
-
-/// Words that hold every slot's index at a width.
-fn word_count(bits: u8) -> usize {
-    if bits == 0 {
-        0
-    } else {
-        usize::from(SLOTS).div_ceil(per_word(bits))
     }
 }
 
@@ -594,11 +584,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn widths_have_dragonfly_word_counts() {
-        assert_eq!(
-            WIDTHS.map(word_count),
-            [0, 128, 256, 410, 512, 683, 820, 1024, 2048]
-        );
+    fn widths_and_offsets_follow_bedrock() {
         assert_eq!(width_for(1), 0);
         assert_eq!(width_for(3), 2);
         assert_eq!(width_for(65), 8);

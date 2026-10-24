@@ -38,10 +38,8 @@ use std::mem::size_of;
 
 use crate::import::{DECODE_BUDGET, Error, Result};
 use crate::nbt::{Compound, Encoding};
-use crate::protocol::Reader;
-use crate::storage::codec::{
-    BLOCKS, BlockLayer, MAX_EXTRA_ENTRIES, WIDTHS, check_indices, word_count,
-};
+use crate::protocol::{BLOCKS, Reader, WIDTHS, word_count};
+use crate::storage::codec::{BlockLayer, MAX_EXTRA_ENTRIES, check_indices};
 
 /// Chunk tags.
 pub(crate) const VERSION: u8 = 0x2c;
