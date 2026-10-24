@@ -882,6 +882,7 @@ fn results_and_drops_naming_no_item_say_so() {
             Recipe::shaped(&["D"], &[('D', diamond)], &[result]),
             Recipe::stonecutter(diamond, result),
             Recipe::furnace(FurnaceType::Furnace, diamond, result),
+            Recipe::smithing_transform(diamond, diamond, diamond, result.0),
         ] {
             assert_eq!(
                 finish(|r| r.add_recipe(recipe)),

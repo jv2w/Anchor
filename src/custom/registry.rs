@@ -811,7 +811,7 @@ impl Registry {
                     template: self.ingredient(*template).ok_or_else(unknown)?,
                     input: self.ingredient(*input).ok_or_else(unknown)?,
                     addition: self.ingredient(*addition).ok_or_else(unknown)?,
-                    result: self.one(*result).ok_or_else(unknown)?,
+                    result: self.result((*result, 1)).map_err(fail)?,
                 };
                 self.smithing.push(recipe);
                 Numbered::SmithingTransform(self.smithing.len() - 1)
