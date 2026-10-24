@@ -209,8 +209,9 @@ const ITEM_PICKUP_INTERVAL: RangeInclusive<u8> = 1..=20;
 ///
 /// The server file saves none of them: every start takes the settings from the
 /// config it is built with, so a value changed while the server runs (the difficulty, a world's
-/// difficulty, weather or time stop, a game rule) is back to its setting after a restart. A
-/// world's spawn is its state, not a setting: the world's file keeps it.
+/// difficulty, a game rule) is back to its setting after a restart. Time stop and weather have
+/// no setting: every world starts with time running and clear weather. A world's spawn is its
+/// state, not a setting: the world's file keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Config {
     /// Settings for anyone opening a server (`[general]`).
