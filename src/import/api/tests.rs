@@ -855,6 +855,44 @@ fn a_temporary_world_or_a_name_that_is_no_file_name_is_refused_before_anything_i
     assert!(!created);
 }
 
+/// An import whose world file would be one past the most `data/worlds/` may hold is refused
+/// before it makes the file, so the next start still reads the folder.
+#[test]
+#[expect(clippy::disallowed_methods, reason = "off-tick: test fixtures on disk")]
+fn an_import_makes_no_world_file_past_the_most_the_folder_holds() {
+    let dir = crate::save::tests::TempDir::new("import-world-limit");
+    let data = dir.0.join("data");
+    let worlds = data.join(crate::storage::WORLD_DIR);
+    std::fs::create_dir_all(&worlds).unwrap();
+    for i in 0..crate::storage::MAX_WORLDS {
+        let file = worlds.join(format!("w{i:04}.{}", crate::storage::EXTENSION));
+        std::fs::write(file, b"").unwrap();
+    }
+    let err = run(
+        &data,
+        Start::checked(StartBackup::Make),
+        &[spec()],
+        1,
+        &Registry::default(),
+        Path::new(FIXTURE),
+        NAME,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            &err,
+            crate::Error::Storage(e)
+                if matches!(e.downcast_ref(), Some(crate::storage::Error::TooManyWorlds))
+        ),
+        "{err:?}"
+    );
+    assert!(!crate::storage::Place::world(&data, NAME).file.exists());
+    assert_eq!(
+        save::world_files(&data).unwrap().len(),
+        crate::storage::MAX_WORLDS
+    );
+}
+
 /// The process's peak working set in MiB, from the OS (`None` if it cannot be read).
 #[cfg(windows)]
 fn peak_memory_mib() -> Option<u64> {

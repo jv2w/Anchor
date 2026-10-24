@@ -967,26 +967,41 @@ fn file_of<'a>(names: &'a [String], name: &str) -> Option<&'a String> {
     names.iter().find(|n| storage::world_name_key(n) == key)
 }
 
-/// Whether `data/worlds/` holds the file of the world `name`, or of one whose name differs only in
-/// letter case.
-pub(crate) fn world_file_exists(
+/// The place of a new file of the world `name`: `None` if `data/worlds/` holds the file of the
+/// world, or of one whose name differs only in letter case ([`world_place`] gives it).
+pub(crate) fn new_world_place(
     data_dir: &std::path::Path,
     name: &str,
-) -> Result<bool, storage::Error> {
-    Ok(world_file_name(data_dir, name)?.is_some())
+) -> Result<Option<Place>, storage::Error> {
+    let names = world_names(data_dir)?;
+    match file_of(&names, name) {
+        Some(_) => Ok(None),
+        None => new_place(data_dir, &names, name).map(Some),
+    }
 }
 
 /// The file of the world `name` and its backup folder: its world file's ([`world_file_name`]),
-/// else `data/worlds/<name>.redb` for a new one. A case-sensitive file system would otherwise
-/// give a name in another letter case a second file and backup folder. A new one is refused
-/// while the folder holds [`MAX_WORLDS`] world files, as [`world_names`] refuses a folder holding
-/// more.
+/// else `data/worlds/<name>.redb` for a new one ([`new_place`]). A case-sensitive file system
+/// would otherwise give a name in another letter case a second file and backup folder.
 fn world_place(data_dir: &std::path::Path, name: &str) -> Result<Place, storage::Error> {
     let names = world_names(data_dir)?;
     match file_of(&names, name) {
         Some(file) => Ok(Place::world(data_dir, file)),
-        None if names.len() < MAX_WORLDS => Ok(Place::world(data_dir, name)),
-        None => Err(storage::Error::TooManyWorlds),
+        None => new_place(data_dir, &names, name),
+    }
+}
+
+/// `data/worlds/<name>.redb` for a new world file beside the world files `names`, refused while
+/// they are [`MAX_WORLDS`], as [`world_names`] refuses a folder holding more.
+fn new_place(
+    data_dir: &std::path::Path,
+    names: &[String],
+    name: &str,
+) -> Result<Place, storage::Error> {
+    if names.len() < MAX_WORLDS {
+        Ok(Place::world(data_dir, name))
+    } else {
+        Err(storage::Error::TooManyWorlds)
     }
 }
 
@@ -3823,8 +3838,11 @@ pub(crate) mod tests {
             .collect();
         assert_eq!(names, ["Lobby", "arena2"]);
         assert_eq!(world_files(&dir.0).unwrap(), ["Lobby", "arena2", "world"]);
-        assert!(world_file_exists(&dir.0, "LOBBY").unwrap());
-        assert!(!world_file_exists(&dir.0, "lobby2").unwrap());
+        assert!(new_world_place(&dir.0, "LOBBY").unwrap().is_none());
+        assert_eq!(
+            new_world_place(&dir.0, "lobby2").unwrap().map(|p| p.file),
+            Some(Place::world(&dir.0, "lobby2").file)
+        );
     }
 
     /// A start whose declared world would be the world file past the most `data/worlds/` may

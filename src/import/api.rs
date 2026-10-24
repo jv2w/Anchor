@@ -33,7 +33,7 @@ use crate::storage::codec::{
     BlockLayer, ChunkRecord, MAX_EXTRA_ENTRIES, SubChunkRecord, WorldRecord,
 };
 use crate::storage::seal::{MAX_RECORD, seal};
-use crate::storage::{Batch, ChunkKind, Import, Key, Place, Start, Storage};
+use crate::storage::{Batch, ChunkKind, Import, Key, Start, Storage};
 use crate::world::{BlockPos, Chunk, ChunkPos, Entry, MIN_Y, Paletted, SLOTS, SUB_CHUNKS};
 
 /// Most chunks read, then converted, per step: bounds the chunk data held at once.
@@ -215,16 +215,15 @@ pub(crate) fn run(
             name: name.to_owned(),
         });
     }
-    if save::world_file_exists(data_dir, name)? {
+    let Some(place) = save::new_world_place(data_dir, name)? else {
         return Err(Error::WorldExists {
             name: name.to_owned(),
         }
         .into());
-    }
+    };
     let mut source = Source::open(dir)?;
     let catalog = source.catalog()?;
     let world = *source.world();
-    let place = Place::world(data_dir, name);
     // Started before the world file is made, so a pool that fails to start leaves no file.
     let pool = crate::runtime::cpu_pool(cpu)?;
     let mut storage = match Storage::open(&place, start) {

@@ -79,7 +79,7 @@ pub(crate) const RETRIES: usize = 3;
 /// spares a system call for pages read again; redb's default of 1 GiB would mostly hold copies.
 const CACHE_BYTES: usize = 64 << 20;
 /// Most world files `data/worlds/` may hold (`save::world_names` counts them, and
-/// `save::world_place` gives no place for a new one past them).
+/// `save::new_place` gives no place for a new one past them).
 pub(crate) const MAX_WORLDS: usize = 1024;
 /// Most `access` values [`Storage::access`] returns: every list full.
 const MAX_ACCESS: usize = 4 * crate::permission::MAX_ENTRIES;
