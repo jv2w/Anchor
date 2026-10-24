@@ -249,21 +249,24 @@ fn one_and_many_threads_write_the_same_server_file() {
     clippy::disallowed_methods,
     reason = "off-tick: checks the data folder on disk"
 )]
-fn a_temporary_world_cannot_be_imported_into() {
+fn a_temporary_world_cannot_be_imported_into_in_any_letter_case() {
     let data = TempPath::new("undeclared");
-    let err = Server::builder()
+    let server = Server::builder()
         .config(config(1))
         .data_dir(&data.0)
         .world("arena", Kind::Temporary, Void)
         .build()
-        .expect("the server builds")
-        .import_world(FIXTURE, "arena")
-        .expect_err("a temporary world");
-    assert!(
-        matches!(&err, Error::Import(import::Error::UnknownWorld { name }) if name == "arena"),
-        "{err:?}"
-    );
-    assert!(!data.0.exists(), "nothing was written");
+        .expect("the server builds");
+    for world in ["arena", "ARENA"] {
+        let err = server
+            .import_world(FIXTURE, world)
+            .expect_err("a temporary world");
+        assert!(
+            matches!(&err, Error::Import(import::Error::UnknownWorld { name }) if name == world),
+            "{err:?}"
+        );
+        assert!(!data.0.exists(), "nothing was written");
+    }
 }
 
 #[test]

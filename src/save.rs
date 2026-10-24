@@ -325,17 +325,20 @@ pub(crate) fn default_seed(name: &str) -> i64 {
 }
 
 /// The settings the world file of the world `name` is read or written with when the server does
-/// not run (an import, an export): a declared world's, else the generator of the default world
-/// (the first of `worlds`) and no seed of its own. `None` for a world declared temporary,
-/// which has no file.
+/// not run (an import, an export): those of the world declared under the name in any letter case,
+/// its name among them, else the generator of the default world (the first of `worlds`) and no
+/// seed of its own. `None` for a world declared temporary, which has no file.
 pub(crate) fn file_world(worlds: &[WorldSpec], name: &str) -> Option<WorldSpec> {
-    let declared = worlds.iter().find(|w| w.name == name);
+    let key = storage::world_name_key(name);
+    let declared = worlds
+        .iter()
+        .find(|w| storage::world_name_key(&w.name) == key);
     if declared.is_some_and(|w| w.kind != Kind::Persistent) {
         return None;
     }
     let base = declared.or(worlds.first())?;
     Some(WorldSpec {
-        name: name.to_owned(),
+        name: declared.map_or(name, |w| w.name.as_str()).to_owned(),
         kind: Kind::Persistent,
         generator: Arc::clone(&base.generator),
         seed: declared.and_then(|w| w.seed),
@@ -2820,6 +2823,14 @@ pub(crate) mod tests {
         }
         assert_eq!(default_seed("world"), default_seed("world"));
         assert_ne!(default_seed("world"), default_seed("arena"));
+    }
+
+    #[test]
+    fn a_declared_world_is_found_in_any_letter_case() {
+        let specs = specs();
+        let spec = file_world(&specs, "WORLD").unwrap();
+        assert_eq!((spec.name.as_str(), spec.seed), ("world", Some(5)));
+        assert!(file_world(&specs, "ARENA").is_none(), "declared temporary");
     }
 
     #[test]
