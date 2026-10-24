@@ -20,6 +20,9 @@ const ZLIB_LEVELS: std::ops::RangeInclusive<u8> = 1..=9;
 const DEFAULT_ZLIB_LEVEL: u8 = 6;
 const MAX_BATCH_BYTES: std::ops::RangeInclusive<usize> = 1024 * 1024..=64 * 1024 * 1024;
 const DEFAULT_MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
+/// The most decoding one batch payload may allocate under any settings
+/// ([`Settings::decode_budget`]), so a packet a session decoded decodes again within it.
+pub(crate) const MAX_DECODE_BUDGET: usize = decode_budget(*MAX_BATCH_BYTES.end());
 /// The most packets a batch may hold (gophertunnel `maximumInBatch`).
 pub(crate) const MAX_PACKETS: usize = 812;
 /// The payload size [`encode_packets`] cuts batches before.
@@ -92,8 +95,13 @@ impl Settings {
 
     /// Returns the allocation budget, in bytes, that decoding one batch payload shares.
     pub(crate) fn decode_budget(&self) -> usize {
-        self.max_batch_bytes.saturating_mul(2)
+        decode_budget(self.max_batch_bytes)
     }
+}
+
+/// The allocation budget that decoding a batch payload of up to `max_batch_bytes` shares.
+const fn decode_budget(max_batch_bytes: usize) -> usize {
+    max_batch_bytes.saturating_mul(2)
 }
 
 impl Default for Settings {

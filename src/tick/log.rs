@@ -40,7 +40,7 @@ use super::queue::{Client, Identity, JobOutcome, Measure, SessionId};
 use crate::clock;
 use crate::item::SHIELD_RUNTIME_ID;
 use crate::nbt::Encoding;
-use crate::protocol::{self, Writer, packet::Packet};
+use crate::protocol::{self, Writer, batch, packet::Packet};
 use crate::save::{Loaded, PlayerData, PlayerLoad, Response, WorldIndex};
 use crate::storage::Checked;
 use crate::storage::codec::MAX_PLAYER_EXTRA_BYTES;
@@ -887,7 +887,6 @@ impl InputLog {
         if r.u32()?.cast_signed() != protocol::packet::PROTOCOL_VERSION {
             return Err(Error::Format("protocol version"));
         }
-        let mut budget = bytes.len().saturating_mul(2);
         let Some((body, crc)) = r.0.split_last_chunk::<4>() else {
             return Err(Error::Format("ends early"));
         };
@@ -926,7 +925,7 @@ impl InputLog {
             let ticks = r.count(16)?;
             segment.ticks = Vec::with_capacity(capacity::<Tick>(ticks, r.0.len()));
             for _ in 0..ticks {
-                segment.ticks.push(r.tick(&mut budget)?);
+                segment.ticks.push(r.tick()?);
             }
             segments.push_back(segment);
         }
@@ -1247,8 +1246,8 @@ impl<'a> Read<'a> {
         }
     }
 
-    /// A tick of a written log; `budget` bounds what its packets may allocate.
-    fn tick(&mut self, budget: &mut usize) -> Result<Tick> {
+    /// A tick of a written log.
+    fn tick(&mut self) -> Result<Tick> {
         let number = self.u64()?;
         // An entry takes at least 17 bytes, a dropped session 8.
         let entries = self.count(17)?;
@@ -1288,7 +1287,10 @@ impl<'a> Read<'a> {
                 KIND_PACKET => {
                     let id = self.u32()?;
                     let payload = self.bytes()?;
-                    let packet = Packet::decode(id, payload, budget, SHIELD_RUNTIME_ID)
+                    // Each packet within what its batch could take when a session read it: an
+                    // item's NBT takes a reader far more than its bytes.
+                    let mut budget = batch::MAX_DECODE_BUDGET;
+                    let packet = Packet::decode(id, payload, &mut budget, SHIELD_RUNTIME_ID)
                         .map_err(Error::Packet)?;
                     EntryKind::Packet(packet)
                 }
@@ -1849,6 +1851,53 @@ mod tests {
         );
         let bytes = log.encode().unwrap();
         let read = InputLog::decode(&bytes).unwrap();
+        assert_eq!(read.ticks(), log.ticks());
+    }
+
+    /// Attacks with an enchanted sword, whose item NBT costs a reader far more than its bytes,
+    /// read back from the written log.
+    #[test]
+    fn attacks_with_an_enchanted_sword_survive_the_written_log() {
+        use crate::item::{Enchantment, Extra, Kind, Stack};
+        use crate::protocol::packet::InventoryTransaction;
+        use crate::protocol::{InventoryTransactionData, ItemInstance};
+        let sword = Stack::new(Kind::DiamondSword.default_type(), 1)
+            .with_extra(Some(Extra {
+                enchantments: vec![
+                    (Enchantment::Sharpness, 5),
+                    (Enchantment::Unbreaking, 3),
+                    (Enchantment::FireAspect, 2),
+                    (Enchantment::Knockback, 2),
+                    (Enchantment::Mending, 1),
+                ],
+                ..Extra::default()
+            }))
+            .unwrap();
+        let attack = protocol::UseItemOnEntityTransactionData {
+            target_entity_runtime_id: 2,
+            action_type: 1,
+            held_item: ItemInstance {
+                stack: sword.to_network(),
+                ..ItemInstance::default()
+            },
+            ..Default::default()
+        };
+        let packet = Packet::InventoryTransaction(InventoryTransaction {
+            transaction_data: InventoryTransactionData::UseItemOnEntity(Box::new(attack)),
+            ..InventoryTransaction::default()
+        });
+        let mut log = InputLog::default();
+        for tick in 0..20 {
+            log.begin(tick);
+            log.record(
+                SessionId::new(1),
+                tick,
+                EntryKind::Packet(packet.clone()),
+                64,
+            );
+        }
+        let bytes = log.encode().unwrap();
+        let read = InputLog::decode(&bytes).expect("the log reads back");
         assert_eq!(read.ticks(), log.ticks());
     }
 
