@@ -9,611 +9,351 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.planks",
-        Some(StaticStack::new(
-            Type::from_index(1027),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(0))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1027), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.walls",
-        Some(StaticStack::new(
-            Type::from_index(253),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(1))]),
-        )),
+        Some(StaticStack::new(Type::from_index(253), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.fence",
-        Some(StaticStack::new(
-            Type::from_index(1023),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(2))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1023), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.fenceGate",
-        Some(StaticStack::new(
-            Type::from_index(610),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(3))]),
-        )),
+        Some(StaticStack::new(Type::from_index(610), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.stairs",
-        Some(StaticStack::new(
-            Type::from_index(1405),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(4))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1405), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.door",
-        Some(StaticStack::new(
-            Type::from_index(1591),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(5))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1591), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.trapdoor",
-        Some(StaticStack::new(
-            Type::from_index(1456),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(6))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1456), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.bars",
-        Some(StaticStack::new(
-            Type::from_index(761),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(7))]),
-        )),
+        Some(StaticStack::new(Type::from_index(761), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.glass",
-        Some(StaticStack::new(
-            Type::from_index(633),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(8))]),
-        )),
+        Some(StaticStack::new(Type::from_index(633), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.glassPane",
-        Some(StaticStack::new(
-            Type::from_index(635),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(9))]),
-        )),
+        Some(StaticStack::new(Type::from_index(635), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.slab",
-        Some(StaticStack::new(
-            Type::from_index(1317),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(11))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1317), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.stoneBrick",
-        Some(StaticStack::new(
-            Type::from_index(1399),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(12))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1399), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.sandstone",
-        Some(StaticStack::new(
-            Type::from_index(1284),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(14))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1284), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.copper",
-        Some(StaticStack::new(
-            Type::from_index(311),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(16))]),
-        )),
+        Some(StaticStack::new(Type::from_index(311), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.wool",
-        Some(StaticStack::new(
-            Type::from_index(1585),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(18))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1585), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.woolCarpet",
-        Some(StaticStack::new(
-            Type::from_index(1575),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(19))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1575), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.concretePowder",
-        Some(StaticStack::new(
-            Type::from_index(1577),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(20))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1577), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.concrete",
-        Some(StaticStack::new(
-            Type::from_index(1576),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(21))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1576), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.stainedClay",
-        Some(StaticStack::new(
-            Type::from_index(735),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(22))]),
-        )),
+        Some(StaticStack::new(Type::from_index(735), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.glazedTerracotta",
-        Some(StaticStack::new(
-            Type::from_index(1579),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(23))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1579), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Construction as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Construction as u8,
         "itemGroup.name.element",
-        Some(StaticStack::new(
-            Type::from_index(458),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(25))]),
-        )),
+        Some(StaticStack::new(Type::from_index(458), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.ore",
-        Some(StaticStack::new(
-            Type::from_index(772),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(27))]),
-        )),
+        Some(StaticStack::new(Type::from_index(772), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.stone",
-        Some(StaticStack::new(
-            Type::from_index(1394),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(28))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1394), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.log",
-        Some(StaticStack::new(
-            Type::from_index(1026),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(30))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1026), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.wood",
-        Some(StaticStack::new(
-            Type::from_index(1032),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(31))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1032), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.leaves",
-        Some(StaticStack::new(
-            Type::from_index(1025),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(32))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1025), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.sapling",
-        Some(StaticStack::new(
-            Type::from_index(1028),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(33))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1028), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.seed",
-        Some(StaticStack::new(
-            Type::from_index(1572),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(34))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1572), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.crop",
-        Some(StaticStack::new(
-            Type::from_index(1571),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(35))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1571), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.grass",
-        Some(StaticStack::new(
-            Type::from_index(612),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(37))]),
-        )),
+        Some(StaticStack::new(Type::from_index(612), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.coral_decorations",
-        Some(StaticStack::new(
-            Type::from_index(615),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(38))]),
-        )),
+        Some(StaticStack::new(Type::from_index(615), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.flower",
-        Some(StaticStack::new(
-            Type::from_index(375),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(39))]),
-        )),
+        Some(StaticStack::new(Type::from_index(375), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.dye",
-        Some(StaticStack::new(
-            Type::from_index(1604),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(40))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1604), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.rawFood",
-        Some(StaticStack::new(
-            Type::from_index(222),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(42))]),
-        )),
+        Some(StaticStack::new(Type::from_index(222), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.mushroom",
-        Some(StaticStack::new(
-            Type::from_index(168),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(43))]),
-        )),
+        Some(StaticStack::new(Type::from_index(168), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.monsterStoneEgg",
-        Some(StaticStack::new(
-            Type::from_index(754),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(45))]),
-        )),
+        Some(StaticStack::new(Type::from_index(754), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.coral",
-        Some(StaticStack::new(
-            Type::from_index(1462),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(47))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1462), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Nature as u8,
         "itemGroup.name.sculk",
-        Some(StaticStack::new(
-            Type::from_index(1288),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(48))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1288), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Nature as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.helmet",
-        Some(StaticStack::new(
-            Type::from_index(806),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(50))]),
-        )),
+        Some(StaticStack::new(Type::from_index(806), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.chestplate",
-        Some(StaticStack::new(
-            Type::from_index(805),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(51))]),
-        )),
+        Some(StaticStack::new(Type::from_index(805), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.leggings",
-        Some(StaticStack::new(
-            Type::from_index(807),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(52))]),
-        )),
+        Some(StaticStack::new(Type::from_index(807), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.boots",
-        Some(StaticStack::new(
-            Type::from_index(804),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(53))]),
-        )),
+        Some(StaticStack::new(Type::from_index(804), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.sword",
-        Some(StaticStack::new(
-            Type::from_index(1596),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(54))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1596), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.axe",
-        Some(StaticStack::new(
-            Type::from_index(1589),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(55))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1589), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.pickaxe",
-        Some(StaticStack::new(
-            Type::from_index(1593),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(56))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1593), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.shovel",
-        Some(StaticStack::new(
-            Type::from_index(1595),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(57))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1595), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.hoe",
-        Some(StaticStack::new(
-            Type::from_index(1592),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(58))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1592), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Equipment as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.arrow",
-        Some(StaticStack::new(
-            Type::from_index(28),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(60))]),
-        )),
+        Some(StaticStack::new(Type::from_index(28), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.cookedFood",
-        Some(StaticStack::new(
-            Type::from_index(302),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(61))]),
-        )),
+        Some(StaticStack::new(Type::from_index(302), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.miscFood",
-        Some(StaticStack::new(
-            Type::from_index(154),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(62))]),
-        )),
+        Some(StaticStack::new(Type::from_index(154), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Equipment as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.goatHorn",
-        Some(StaticStack::new(
-            Type::from_index(644),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(64))]),
-        )),
+        Some(StaticStack::new(Type::from_index(644), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Equipment as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.potion",
-        Some(StaticStack::new(
-            Type::from_index(1137),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(66))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1137), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.splashPotion",
-        Some(StaticStack::new(
-            Type::from_index(1330),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(67))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1330), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Equipment as u8,
         "itemGroup.name.lingeringPotion",
-        Some(StaticStack::new(
-            Type::from_index(865),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(68))]),
-        )),
+        Some(StaticStack::new(Type::from_index(865), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Equipment as u8, "", None),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.bed",
-        Some(StaticStack::new(
-            Type::from_index(71),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(71))]),
-        )),
+        Some(StaticStack::new(Type::from_index(71), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.lanterns",
-        Some(StaticStack::new(
-            Type::from_index(796),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(73))]),
-        )),
+        Some(StaticStack::new(Type::from_index(796), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.candles",
-        Some(StaticStack::new(
-            Type::from_index(195),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(74))]),
-        )),
+        Some(StaticStack::new(Type::from_index(195), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.anvil",
-        Some(StaticStack::new(
-            Type::from_index(26),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(76))]),
-        )),
+        Some(StaticStack::new(Type::from_index(26), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.chest",
-        Some(StaticStack::new(
-            Type::from_index(221),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(78))]),
-        )),
+        Some(StaticStack::new(Type::from_index(221), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.shulkerBox",
-        Some(StaticStack::new(
-            Type::from_index(1477),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(80))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1477), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.record",
-        Some(StaticStack::new(
-            Type::from_index(970),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(82))]),
-        )),
+        Some(StaticStack::new(Type::from_index(970), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.sign",
-        Some(StaticStack::new(
-            Type::from_index(1029),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(84))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1029), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.hanging_sign",
-        Some(StaticStack::new(
-            Type::from_index(1024),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(85))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1024), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.skull",
-        Some(StaticStack::new(
-            Type::from_index(337),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(87))]),
-        )),
+        Some(StaticStack::new(Type::from_index(337), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.lightning_rod",
-        Some(StaticStack::new(
-            Type::from_index(850),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(88))]),
-        )),
+        Some(StaticStack::new(Type::from_index(850), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
@@ -622,83 +362,52 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         Some(StaticStack::new(
             Type::from_index(580),
             0,
-            Some(&[
-                ("___GroupBugWorkaround___", crate::nbt::Static::Int(90)),
-                (
-                    "ench",
-                    crate::nbt::Static::List(crate::nbt::StaticList::Compound(&[&[
-                        ("id", crate::nbt::Static::Short(0)),
-                        ("lvl", crate::nbt::Static::Short(1)),
-                    ]])),
-                ),
-            ]),
+            Some(&[(
+                "ench",
+                crate::nbt::Static::List(crate::nbt::StaticList::Compound(&[&[
+                    ("id", crate::nbt::Static::Short(0)),
+                    ("lvl", crate::nbt::Static::Short(1)),
+                ]])),
+            )]),
         )),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.boat",
-        Some(StaticStack::new(
-            Type::from_index(1022),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(91))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1022), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.rail",
-        Some(StaticStack::new(
-            Type::from_index(1220),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(92))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1220), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.minecart",
-        Some(StaticStack::new(
-            Type::from_index(950),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(93))]),
-        )),
+        Some(StaticStack::new(Type::from_index(950), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.buttons",
-        Some(StaticStack::new(
-            Type::from_index(1590),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(95))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1590), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.pressurePlate",
-        Some(StaticStack::new(
-            Type::from_index(1594),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(97))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1594), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.banner",
-        Some(StaticStack::new(
-            Type::from_index(51),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(99))]),
-        )),
+        Some(StaticStack::new(Type::from_index(51), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.smithing_templates",
-        Some(StaticStack::new(
-            Type::from_index(1016),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(100))]),
-        )),
+        Some(StaticStack::new(Type::from_index(1016), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
@@ -706,19 +415,16 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
         Some(StaticStack::new(
             Type::from_index(618),
             0,
-            Some(&[
-                (
-                    "Fireworks",
-                    crate::nbt::Static::Compound(&[
-                        (
-                            "Explosions",
-                            crate::nbt::Static::List(crate::nbt::StaticList::End),
-                        ),
-                        ("Flight", crate::nbt::Static::Byte(1)),
-                    ]),
-                ),
-                ("___GroupBugWorkaround___", crate::nbt::Static::Int(101)),
-            ]),
+            Some(&[(
+                "Fireworks",
+                crate::nbt::Static::Compound(&[
+                    (
+                        "Explosions",
+                        crate::nbt::Static::List(crate::nbt::StaticList::End),
+                    ),
+                    ("Flight", crate::nbt::Static::Byte(1)),
+                ]),
+            )]),
         )),
     ),
     CreativeGroup::new(
@@ -738,7 +444,6 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
                         ("FireworkType", crate::nbt::Static::Byte(0)),
                     ]),
                 ),
-                ("___GroupBugWorkaround___", crate::nbt::Static::Int(102)),
                 ("customColor", crate::nbt::Static::Int(-14_869_215)),
             ]),
         )),
@@ -746,29 +451,17 @@ pub(super) static GROUPS: [CreativeGroup; 107] = [
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.chains",
-        Some(StaticStack::new(
-            Type::from_index(764),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(103))]),
-        )),
+        Some(StaticStack::new(Type::from_index(764), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.chemistrytable",
-        Some(StaticStack::new(
-            Type::from_index(794),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(104))]),
-        )),
+        Some(StaticStack::new(Type::from_index(794), 0, None)),
     ),
     CreativeGroup::new(
         CreativeCategory::Items as u8,
         "itemGroup.name.compounds",
-        Some(StaticStack::new(
-            Type::from_index(262),
-            0,
-            Some(&[("___GroupBugWorkaround___", crate::nbt::Static::Int(105))]),
-        )),
+        Some(StaticStack::new(Type::from_index(262), 0, None)),
     ),
     CreativeGroup::new(CreativeCategory::Items as u8, "", None),
 ];

@@ -14,9 +14,6 @@ use super::emit::HEADER;
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/item/creative.rs";
 
-/// The NBT key PMMP sets on a group icon to the group index (its 1.21.60 client workaround).
-const GROUP_WORKAROUND_KEY: &str = "___GroupBugWorkaround___";
-
 /// The group key of a category's anonymous group (entries without a group).
 const ANONYMOUS: usize = usize::MAX;
 
@@ -80,7 +77,7 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
         items.len(),
         groups.len()
     );
-    for (i, (category, group)) in groups.iter().enumerate() {
+    for (category, group) in &groups {
         let Some(g) = group else {
             put!(
                 out,
@@ -97,14 +94,11 @@ pub(crate) fn generate(root: &std::path::Path, data: &Data) -> Result<String, St
             return Err(format!("group name {name} needs translation"));
         }
         let (item, meta, nbt) = resolve(data, g.get("icon").ok_or("group without icon")?)?;
-        let mut nbt = nbt.unwrap_or_default();
-        let marker = i32::try_from(i).map_err(|_| "too many groups")?;
-        nbt.insert(GROUP_WORKAROUND_KEY.to_owned(), Tag::Int(marker));
         put!(
             out,
             "CreativeGroup::new(CreativeCategory::{category} as u8, {}, Some({})),",
             str_lit(name),
-            stack(item, meta, Some(&nbt))
+            stack(item, meta, nbt.as_ref())
         );
     }
     put!(

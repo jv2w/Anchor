@@ -1296,22 +1296,27 @@ impl CreativeItem {
 pub(crate) const GROUP_WORKAROUND: &str = "___GroupBugWorkaround___";
 
 /// The generated `CreativeContent` packet: PMMP's creative inventory with its groups, as PMMP's
-/// `CreativeInventoryCache` builds it (a group icon carries [`GROUP_WORKAROUND`] set to its group
-/// index). Creative item network IDs count from 1 as BDS sends them (P6), where PMMP
+/// `CreativeInventoryCache` builds it (here a group icon gets [`GROUP_WORKAROUND`] set to its
+/// group index). Creative item network IDs count from 1 as BDS sends them (P6), where PMMP
 /// counts from 0. The server builds its inventories from [`creative_entry`]; this is what it
 /// builds of PMMP's unchanged.
 #[cfg(test)]
 pub(crate) fn creative_content() -> packet::CreativeContent {
     packet::CreativeContent {
-        groups: creative::GROUPS
-            .iter()
-            .map(|g| protocol::CreativeGroup {
+        groups: (0..)
+            .zip(&creative::GROUPS)
+            .map(|(index, g)| protocol::CreativeGroup {
                 category: g.category,
                 name: g.name.to_owned(),
                 icon: g
                     .icon
                     .as_ref()
-                    .map(StaticStack::to_network)
+                    .map(|icon| {
+                        let mut icon = icon.to_network();
+                        icon.nbt_data
+                            .insert(GROUP_WORKAROUND.to_owned(), nbt::Value::Int(index));
+                        icon
+                    })
                     .unwrap_or_default(),
             })
             .collect(),
@@ -1335,8 +1340,7 @@ pub(crate) struct CreativeEntry {
     pub(crate) net: protocol::ItemStack,
     /// Its category number ([`CreativeCategory`](protocol::consts::CreativeCategory)).
     pub(crate) category: u8,
-    /// Its group's name and icon network form (without [`GROUP_WORKAROUND`]); `None` for the
-    /// category's anonymous group.
+    /// Its group's name and icon network form; `None` for the category's anonymous group.
     pub(crate) group: Option<(&'static str, protocol::ItemStack)>,
 }
 
@@ -1344,11 +1348,10 @@ pub(crate) struct CreativeEntry {
 pub(crate) fn creative_entry(index: usize) -> Option<CreativeEntry> {
     let c = creative::ITEMS.get(index)?;
     let group = creative::GROUPS.get(usize::try_from(c.group).ok()?)?;
-    let named = group.icon.as_ref().map(|icon| {
-        let mut icon = icon.to_network();
-        icon.nbt_data.remove(GROUP_WORKAROUND);
-        (group.name, icon)
-    });
+    let named = group
+        .icon
+        .as_ref()
+        .map(|icon| (group.name, icon.to_network()));
     Some(CreativeEntry {
         stack: creative_stack(u32::try_from(index).ok()?.checked_add(1)?)?,
         net: c.stack.to_network(),
