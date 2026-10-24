@@ -189,7 +189,7 @@ fn crash(dir: &Path, plan: Plan) -> (PathBuf, Hashes) {
     setup.fingerprints = Fingerprints::of(&Settings::new(&config), &specs(), &setup);
     let opened = crate::save::open(dir, specs()).unwrap();
     let pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());
-    let (inputs, input_queue) = input_queue();
+    let (inputs, input_queue) = input_queue(1);
     let (_stop_tx, stop) = mpsc::channel(1);
     let (done, _done_rx) = oneshot::channel();
     let (crashed, mut crash_log) = oneshot::channel();
@@ -451,7 +451,7 @@ fn held_commit(dir: &Path, plan: Plan, ticks: u64, held: u64) -> (PathBuf, Hashe
         opened.worlds,
         opened.tick,
     );
-    let (inputs, mut queue) = input_queue();
+    let (inputs, mut queue) = input_queue(1);
     let (mut rx, _session) = join(&inputs);
     let mut log = InputLog::new(state.checkpoint(&pool), state.fingerprints, opened.identity);
     let mut answers = Vec::new();
@@ -716,7 +716,7 @@ fn tour(dir: &Path) -> (PathBuf, Hashes, Seen) {
         opened.tick,
     );
     state.set_identity(opened.identity);
-    let (inputs, mut queue) = input_queue();
+    let (inputs, mut queue) = input_queue(1);
     let (mut rx, mut session) = join(&inputs);
     let mut log = InputLog::new(state.checkpoint(&pool), state.fingerprints, opened.identity);
     let mut answers = Vec::new();

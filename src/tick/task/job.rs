@@ -221,9 +221,7 @@ pub(in crate::tick) fn finish(state: &mut State, id: u64, outcome: &JobOutcome) 
 mod tests {
     use std::time::Duration;
 
-    use tokio::sync::mpsc;
-
-    use super::super::super::queue::{Input, InputKind, SessionId, input_queue};
+    use super::super::super::queue::{Input, InputKind, InputReceiver, SessionId, input_queue};
     use super::super::super::tests::{new_state, settings, tick};
     use super::super::super::{InputLog, Output, deliver, step};
     use super::*;
@@ -242,9 +240,9 @@ mod tests {
     }
 
     /// A state whose jobs run on `runtime`, and the input queue they answer into.
-    fn live(runtime: &Runtime) -> (State, mpsc::Receiver<Input>) {
+    fn live(runtime: &Runtime) -> (State, InputReceiver) {
         let mut state = new_state(settings(|_| {}), Listeners::default());
-        let (inputs, queue) = input_queue();
+        let (inputs, queue) = input_queue(1);
         state.tasks.start(runtime.handle(), &inputs);
         (state, queue)
     }
@@ -254,7 +252,7 @@ mod tests {
         clippy::disallowed_methods,
         reason = "off-tick: the test waits for the blocking pool"
     )]
-    fn results(queue: &mut mpsc::Receiver<Input>, n: usize) -> Vec<Input> {
+    fn results(queue: &mut InputReceiver, n: usize) -> Vec<Input> {
         let mut out = Vec::new();
         while out.len() < n {
             match queue.try_recv() {

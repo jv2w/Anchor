@@ -5,16 +5,24 @@ use std::fmt;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
 use crate::entity::MAX_SKIN_BYTES;
 use crate::protocol::consts;
 use crate::protocol::packet::{Packet, PlayStatus};
 use crate::protocol::{self, Uuid};
+use crate::task::MAX_JOBS;
 
-/// Inputs the tick queue holds. A session that finds it full disconnects.
-pub(crate) const INPUT_CAPACITY: usize = 65_536;
+/// Inputs of one session the tick queue holds before the tick takes them: a session past its
+/// share disconnects, and the queue keeps a share for every session, so one session filling the
+/// queue never ends another. A client sends a `PlayerAuthInput` on each of its 20 ticks a second
+/// and a few packets per action; the share holds more than a full batch
+/// ([`MAX_PACKETS`](crate::protocol::batch::MAX_PACKETS)).
+pub(crate) const SESSION_INPUTS: usize = 1_024;
+/// The sessions of the engine that queue inputs besides the connections: the console, the
+/// networking's reports and the process measures.
+const ENGINE_SESSIONS: usize = 3;
 /// Messages a session's outbound queue holds. The tick drops a session whose queue is full instead
 /// of waiting.
 const OUTBOUND_CAPACITY: usize = 1_024;
@@ -491,7 +499,7 @@ pub(crate) fn server_full() -> Packet {
 /// Why an input was not queued.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Error {
-    /// The queue is full; the session should disconnect.
+    /// The session's share of the queue is full; the session should disconnect.
     Full,
     /// The tick has stopped.
     Closed,
@@ -503,7 +511,7 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Full => "the tick input queue is full",
+            Self::Full => "the session's share of the tick input queue is full",
             Self::Closed => "the tick has stopped",
         })
     }
@@ -511,10 +519,28 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The tick input queue: the sending side for the session layer and the tick's receiver.
-pub(crate) fn input_queue() -> (InputSender, mpsc::Receiver<Input>) {
-    let (tx, rx) = mpsc::channel(INPUT_CAPACITY);
-    (InputSender(tx), rx)
+/// The tick input queue of a server of `max_players`: the sending side for the session layer and
+/// the tick's receiver.
+///
+/// The queue holds a [`SESSION_INPUTS`] share for every session that can hold one at once and
+/// the results of every job, so no session or job ever finds it full. Connection sessions hold
+/// a share from their join to their leave ([`InputSender::connection`]): `max_players` online
+/// and as many whose join the tick has not applied yet or that it turned away and that have not
+/// ended.
+pub(crate) fn input_queue(max_players: u32) -> (InputSender, InputReceiver) {
+    let connections = usize::try_from(max_players)
+        .unwrap_or(usize::MAX)
+        .saturating_mul(2);
+    let capacity = connections
+        .saturating_add(ENGINE_SESSIONS)
+        .saturating_mul(SESSION_INPUTS)
+        .saturating_add(MAX_JOBS);
+    let (tx, rx) = mpsc::channel(capacity);
+    let sender = InputSender {
+        queue: tx,
+        connections: Arc::new(Semaphore::new(connections)),
+    };
+    (sender, InputReceiver(rx))
 }
 
 /// A session's outbound queue; the sender goes to the tick in [`InputKind::Join`].
@@ -527,9 +553,21 @@ pub(crate) fn control_queue() -> (mpsc::Sender<Control>, mpsc::Receiver<Control>
     mpsc::channel(4 * MAX_CONTROLS_PER_TICK)
 }
 
+/// An input in the queue with the place it takes in its session's share, which the tick gives
+/// back by taking it; a job's result takes none.
+#[derive(Debug)]
+struct Queued {
+    input: Input,
+    _share: Option<OwnedSemaphorePermit>,
+}
+
 /// The sending side of the tick input queue, shared by every session.
 #[derive(Debug, Clone)]
-pub(crate) struct InputSender(mpsc::Sender<Input>);
+pub(crate) struct InputSender {
+    queue: mpsc::Sender<Queued>,
+    /// One permit per connection session that may hold a share at once.
+    connections: Arc<Semaphore>,
+}
 
 impl InputSender {
     /// Queues the result of job `id`, waiting for room so that the job's callback always runs.
@@ -540,16 +578,32 @@ impl InputSender {
             seq: id,
             kind: InputKind::Job(outcome),
         };
-        self.0.send(input).await.map_err(|_| Error::Closed)
+        let queued = Queued {
+            input,
+            _share: None,
+        };
+        self.queue.send(queued).await.map_err(|_| Error::Closed)
     }
 
-    /// A sender that stamps the inputs of session `id` with its sequence numbers.
+    /// A sender that stamps the inputs of engine session `id` with its sequence numbers.
     pub(crate) fn session(&self, id: SessionId) -> SessionInputs {
         SessionInputs {
             session: id,
             next_seq: 0,
-            queue: self.0.clone(),
+            queue: self.queue.clone(),
+            share: Arc::new(Semaphore::new(SESSION_INPUTS)),
+            _connection: None,
         }
+    }
+
+    /// A sender for connection session `id`, which holds one of the queue's connection shares
+    /// until it is dropped; `None` while every share is held.
+    pub(crate) fn connection(&self, id: SessionId) -> Option<SessionInputs> {
+        let connection = Arc::clone(&self.connections).try_acquire_owned().ok()?;
+        Some(SessionInputs {
+            _connection: Some(connection),
+            ..self.session(id)
+        })
     }
 }
 
@@ -558,19 +612,28 @@ impl InputSender {
 pub(crate) struct SessionInputs {
     session: SessionId,
     next_seq: u64,
-    queue: mpsc::Sender<Input>,
+    queue: mpsc::Sender<Queued>,
+    /// [`SESSION_INPUTS`] permits, one taken by each input the tick has not taken yet.
+    share: Arc<Semaphore>,
+    _connection: Option<OwnedSemaphorePermit>,
 }
 
 impl SessionInputs {
     /// Queues `kind` without waiting. On [`Error::Full`] the session should disconnect; it may
     /// still call [`leave`](Self::leave).
     pub(crate) fn try_send(&mut self, kind: InputKind) -> Result<()> {
-        let input = Input {
-            session: self.session,
-            seq: self.next_seq,
-            kind,
+        let Ok(share) = Arc::clone(&self.share).try_acquire_owned() else {
+            return Err(Error::Full);
         };
-        match self.queue.try_send(input) {
+        let queued = Queued {
+            input: Input {
+                session: self.session,
+                seq: self.next_seq,
+                kind,
+            },
+            _share: Some(share),
+        };
+        match self.queue.try_send(queued) {
             Ok(()) => {
                 // 2^64 inputs never arrive, so the order never wraps.
                 self.next_seq = self.next_seq.saturating_add(1);
@@ -581,18 +644,54 @@ impl SessionInputs {
         }
     }
 
-    /// Queues [`InputKind::Leave`], waiting for room so that the tick always learns the session
-    /// ended. Returns at once if the tick has stopped.
+    /// Queues [`InputKind::Leave`], waiting for room in the session's share so that the tick
+    /// always learns the session ended. Returns at once if the tick has stopped.
     pub(crate) async fn leave(self) {
-        let input = Input {
-            session: self.session,
-            seq: self.next_seq,
-            kind: InputKind::Leave,
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: nothing closes the share, so acquiring only waits for the tick to \
+                      take inputs"
+        )]
+        let share = Arc::clone(&self.share)
+            .acquire_owned()
+            .await
+            .expect("the share stays open");
+        let queued = Queued {
+            input: Input {
+                session: self.session,
+                seq: self.next_seq,
+                kind: InputKind::Leave,
+            },
+            _share: Some(share),
         };
         // A closed queue means the tick has stopped and forgets every session anyway.
-        if self.queue.send(input).await.is_err() {
+        if self.queue.send(queued).await.is_err() {
             tracing::debug!(session = self.session.get(), "tick stopped before leave");
         }
+    }
+}
+
+/// The tick's end of the input queue. Taking an input gives its place back to its session's
+/// share.
+#[derive(Debug)]
+pub(crate) struct InputReceiver(mpsc::Receiver<Queued>);
+
+impl InputReceiver {
+    /// The next input, without waiting.
+    pub(crate) fn try_recv(&mut self) -> std::result::Result<Input, TryRecvError> {
+        self.0.try_recv().map(|queued| queued.input)
+    }
+
+    /// The next input, waiting for one; `None` once every sender is gone.
+    #[cfg(test)]
+    pub(crate) async fn recv(&mut self) -> Option<Input> {
+        self.0.recv().await.map(|queued| queued.input)
+    }
+
+    /// The inputs waiting.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -602,7 +701,7 @@ mod tests {
 
     #[test]
     fn inputs_are_stamped_in_order_per_session() {
-        let (sender, mut rx) = input_queue();
+        let (sender, mut rx) = input_queue(1);
         let mut a = sender.session(SessionId::new(7));
         let mut b = sender.session(SessionId::new(3));
         a.try_send(InputKind::Leave).unwrap();
@@ -614,13 +713,30 @@ mod tests {
         assert_eq!(got, [(7, 0), (3, 0), (7, 1)]);
     }
 
+    /// A session past its share is told so while another still has room, the tick taking an
+    /// input gives its place back, and a stopped tick is reported.
     #[test]
-    fn a_full_queue_and_a_stopped_tick_are_reported() {
-        let (tx, rx) = mpsc::channel(1);
-        let mut s = InputSender(tx).session(SessionId::new(1));
-        s.try_send(InputKind::Leave).unwrap();
-        assert_eq!(s.try_send(InputKind::Leave), Err(Error::Full));
+    fn a_full_share_and_a_stopped_tick_are_reported() {
+        let (sender, mut rx) = input_queue(1);
+        let mut a = sender.connection(SessionId::new(1)).unwrap();
+        let mut b = sender.connection(SessionId::new(2)).unwrap();
+        assert!(
+            sender.connection(SessionId::new(3)).is_none(),
+            "two connections at most"
+        );
+        for _ in 0..SESSION_INPUTS {
+            a.try_send(InputKind::Leave).unwrap();
+        }
+        assert_eq!(a.try_send(InputKind::Leave), Err(Error::Full));
+        b.try_send(InputKind::Leave).unwrap();
+        rx.try_recv().unwrap();
+        a.try_send(InputKind::Leave).unwrap();
+        drop(b);
+        assert!(
+            sender.connection(SessionId::new(3)).is_some(),
+            "b's share is free again"
+        );
         drop(rx);
-        assert_eq!(s.try_send(InputKind::Leave), Err(Error::Closed));
+        assert_eq!(a.try_send(InputKind::Leave), Err(Error::Closed));
     }
 }

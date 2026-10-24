@@ -158,7 +158,9 @@ impl Context<'_> {
 
     /// Changes the most players online at once until the server stops. Players already online
     /// stay; joins beyond it are refused. The server list shows the value the server started
-    /// with.
+    /// with, and the networking holds at most twice that value of joined and joining players
+    /// (each takes a share of the tick's input queue, sized at start), so a value above it lets
+    /// no more players in.
     pub fn set_max_players(&mut self, max: u32) {
         self.state.settings.max_players = max;
     }

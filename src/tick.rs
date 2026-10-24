@@ -60,7 +60,7 @@ pub(crate) use entity::Customs;
 pub(crate) use entity::EntityTypes;
 pub use entity::{Entity, Mut};
 pub use hook::SentPacket;
-use queue::{INPUT_CAPACITY, Identity, Input, InputKind, Message, Outbound, SessionId};
+use queue::{Identity, Input, InputKind, InputReceiver, Message, Outbound, SessionId};
 pub(crate) use rules::ChunkRules;
 pub(crate) use spawn::{MAX_LIST_ENTRY_BYTES, Shared};
 pub use task::Context;
@@ -68,9 +68,9 @@ pub(crate) use task::Tasks;
 
 /// The length of a tick: 20 ticks per second.
 pub(crate) const TICK: Duration = Duration::from_millis(50);
-/// The most inputs one tick applies; the rest wait for the next tick. A full input queue drains in
-/// 8 ticks, and the batch buffer is allocated once at this size.
-pub(crate) const MAX_INPUTS_PER_TICK: usize = INPUT_CAPACITY / 8;
+/// The most inputs one tick applies; the rest wait for the next tick. The batch buffer is
+/// allocated once at this size.
+pub(crate) const MAX_INPUTS_PER_TICK: usize = 8_192;
 /// Save thread answers one tick applies; the rest wait for the next tick.
 pub(crate) const MAX_RESPONSES_PER_TICK: usize = 1024;
 /// Light work per world per tick, in blocks looked at: about 1 to 1.4 ms.
@@ -1297,7 +1297,7 @@ pub(crate) enum End {
 pub(crate) fn run(
     mut state: State,
     pool: &Pool,
-    mut inputs: mpsc::Receiver<Input>,
+    mut inputs: InputReceiver,
     mut save: SaveLink,
     mut stop: mpsc::Receiver<()>,
     crash: oneshot::Sender<InputLog>,
@@ -1329,8 +1329,12 @@ pub(crate) fn run(
                 kind: InputKind::Measure(queue::Measure::TickTime(micros)),
             });
         }
-        drain(&mut inputs, &mut batch, MAX_INPUTS_PER_TICK);
-        drain(&mut save.responses, &mut answers, MAX_RESPONSES_PER_TICK);
+        drain(|| inputs.try_recv(), &mut batch, MAX_INPUTS_PER_TICK);
+        drain(
+            || save.responses.try_recv(),
+            &mut answers,
+            MAX_RESPONSES_PER_TICK,
+        );
         if answers.is_empty() && save.responses.is_closed() {
             // The save thread ended (it panicked): nothing could be saved any more.
             error!("the save thread ended; stopping without saving");
@@ -1449,10 +1453,10 @@ fn finish_requests(requests: &mpsc::Sender<Request>, waiting: VecDeque<Request>)
     }
 }
 
-/// Moves up to `max` queued items into `batch` without waiting.
-fn drain<T>(queue: &mut mpsc::Receiver<T>, batch: &mut Vec<T>, max: usize) {
+/// Moves up to `max` queued items, each taken by `next` without waiting, into `batch`.
+fn drain<T>(mut next: impl FnMut() -> Result<T, TryRecvError>, batch: &mut Vec<T>, max: usize) {
     while batch.len() < max {
-        match queue.try_recv() {
+        match next() {
             Ok(item) => batch.push(item),
             // Disconnected: every sender is gone (networking or the save thread stopped).
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
@@ -2001,7 +2005,7 @@ mod tests {
 
     #[test]
     fn join_and_leave_cycles_return_every_table_and_queue_to_its_start() {
-        let (sender, mut queue) = input_queue();
+        let (sender, mut queue) = input_queue(1);
         let mut state = new_state(settings(|_| {}), Listeners::default());
         let mut batch = Vec::with_capacity(MAX_INPUTS_PER_TICK);
         let mut output = Output::default();
@@ -2011,8 +2015,8 @@ mod tests {
             batch.capacity(),
             state.chunks.held(),
         );
-        let mut tick = |queue: &mut mpsc::Receiver<Input>, state: &mut State| {
-            drain(queue, &mut batch, MAX_INPUTS_PER_TICK);
+        let mut tick = |queue: &mut InputReceiver, state: &mut State| {
+            drain(|| queue.try_recv(), &mut batch, MAX_INPUTS_PER_TICK);
             tick(state, &mut batch, &mut output);
         };
         for n in 0..100 {
@@ -3371,7 +3375,7 @@ mod tests {
             });
             listeners
         };
-        let (sender, queue) = input_queue();
+        let (sender, queue) = input_queue(1);
         let (_stop_tx, stop) = mpsc::channel(1);
         let (crash, mut crash_log) = oneshot::channel();
         let (done, _done_rx) = oneshot::channel();
@@ -3900,7 +3904,7 @@ mod tests {
     fn a_failed_commit_stops_the_tick_without_saving_and_hands_over_the_log() {
         let mut state = new_state(settings(|_| {}), Listeners::default());
         state.tasks = block_task(vec![], vec![1]);
-        let (_sender, queue) = input_queue();
+        let (_sender, queue) = input_queue(1);
         let (_stop_tx, stop) = mpsc::channel(1);
         let (crash, _crash_log) = oneshot::channel();
         let (done, _done_rx) = oneshot::channel();

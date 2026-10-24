@@ -203,7 +203,7 @@ fn user_data_crash_child() {
     let mut user = registered::<Progress, Progress>("progress", "progress");
     user.load(&mut opened.thread).unwrap();
     let pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());
-    let (inputs, input_queue) = input_queue();
+    let (inputs, input_queue) = input_queue(1);
     let (stop_tx, stop) = mpsc::channel(1);
     let (done, _done_rx) = oneshot::channel();
     let (crash, _crash_rx) = oneshot::channel();

@@ -57,12 +57,10 @@ const PRE_AUTH_BATCHES: usize = 8;
 const KEPT_BUFFER_BYTES: usize = 512 * 1024;
 /// The input budget refills this fraction of `max-batch-bytes` per second.
 const BUDGET_REFILL_DIVISOR: usize = 4;
-/// The input packet budget. Each packet takes a place in the tick input queue every session
-/// shares, so at the default `max-players` the bursts of all sessions fit in the queue and their
-/// rates in what the tick applies (`network.md`). A client sends a `PlayerAuthInput` on each of
-/// its 20 ticks a second and a few packets per action; the burst holds more than a full batch.
+/// The input packet budget: at the default `max-players` the rates of all sessions fit in what
+/// the tick applies (`network.md`). The burst is the session's share of the tick queue.
 const PACKET_RATE: Rate = Rate {
-    capacity: 1024,
+    capacity: queue::SESSION_INPUTS,
     per_second: 512,
 };
 /// The shield's item network ID, which the item registry Anchor sends names.
@@ -604,7 +602,7 @@ impl Session {
                 }
                 self.send(&packets).await
             }
-            Reply::Join => self.join(),
+            Reply::Join => self.join().await,
             Reply::Refused => {
                 self.send(&[Packet::Disconnect(Disconnect {
                     reason: i32::from(consts::DisconnectReason::ResourcePackProblem),
@@ -625,15 +623,20 @@ impl Session {
         }
     }
 
-    /// Hands the player to the tick, then the packets that arrived before the join.
-    fn join(&mut self) -> Result<()> {
+    /// Hands the player to the tick, then the packets that arrived before the join. While every
+    /// connection share of the tick queue is held, the player is turned away as from a full
+    /// server.
+    async fn join(&mut self) -> Result<()> {
         let mut identity = self
             .identity
             .clone()
             .ok_or(Error::Order("join before login"))?;
         identity.client.join_time_ms = clock::unix_millis();
         let (outbound, receiver) = queue::outbound_queue();
-        let mut inputs = self.shared.inputs.session(self.id);
+        let Some(mut inputs) = self.shared.inputs.connection(self.id) else {
+            self.send(&[queue::server_full()]).await?;
+            return Err(Error::Limit("sessions joined at once"));
+        };
         inputs
             .try_send(InputKind::Join { identity, outbound })
             .map_err(Error::Queue)?;
@@ -652,8 +655,9 @@ impl Session {
         Ok(())
     }
 
-    /// Reports the connection's ping to the tick if it changed since the last report. A full tick
-    /// queue skips this report: the next packet finds it full and ends the session.
+    /// Reports the connection's ping to the tick if it changed since the last report. A full
+    /// share of the tick queue skips this report: the next packet finds it full and ends the
+    /// session.
     fn report_ping(&mut self) {
         let Some(ping) = self.conn.ping() else {
             return;
@@ -671,7 +675,8 @@ impl Session {
         }
     }
 
-    /// Queues a packet for the tick. A full tick queue ends the session (the tick never waits).
+    /// Queues a packet for the tick. A full share of the tick queue ends the session (the tick
+    /// never waits).
     fn forward(&mut self, packet: Packet, size: usize) -> Result<()> {
         let inputs = self
             .inputs
@@ -788,7 +793,7 @@ mod tests {
     use crate::crypto::ServerKey;
     use crate::pack::Offer;
     use crate::protocol::batch::MAX_PACKETS;
-    use crate::tick::queue::{INPUT_CAPACITY, InputSender, Skin, input_queue};
+    use crate::tick::queue::{InputSender, SESSION_INPUTS, Skin, input_queue};
 
     /// What the sessions share: offline, unencrypted, no packs, inputs on `inputs`.
     fn shared(inputs: InputSender) -> Arc<Shared> {
@@ -810,7 +815,7 @@ mod tests {
 
     /// Session `id` as any client gets it after the login and the resource packs: joined, with
     /// its Join in the tick queue.
-    fn joined(id: u64, shared: &Arc<Shared>) -> Session {
+    async fn joined(id: u64, shared: &Arc<Shared>) -> Session {
         let conn = Transport::Raknet(crate::raknet::tests::detached_connection());
         let mut session = Session::new(SessionId::new(id), conn, Arc::clone(shared));
         session.decoder = Some(batch::Decoder::new(shared.batch));
@@ -824,25 +829,25 @@ mod tests {
             address: None,
             client: Client::default(),
         });
-        session.join().unwrap();
+        session.join().await.unwrap();
         session
     }
 
-    /// One client sending more small packets in one tick than the shared tick queue holds ends
+    /// One client sending more small packets in one tick than its share of the tick queue ends
     /// its own session, and another client's next packet still reaches the tick.
     #[test]
     fn a_packet_flood_ends_only_the_flooding_session() {
         crate::raknet::tests::run(async {
-            let (inputs, mut queue) = input_queue();
+            let (inputs, mut queue) = input_queue(1);
             let shared = shared(inputs);
-            let mut flooder = joined(0, &shared);
-            let mut player = joined(1, &shared);
+            let mut flooder = joined(0, &shared).await;
+            let mut player = joined(1, &shared).await;
             // Uncompressed batches of SetTime(0), 3 bytes a packet; the tick drains nothing
             // meanwhile, as between two ticks.
             let mut flood = vec![0xff];
             flood.extend([0x02, 0x0a, 0x00].repeat(MAX_PACKETS));
             let mut ended = None;
-            for _ in 0..INPUT_CAPACITY.div_ceil(MAX_PACKETS) {
+            for _ in 0..=SESSION_INPUTS.div_ceil(MAX_PACKETS) {
                 if let Err(e) = flooder.on_message(flood.clone()).await {
                     ended = Some(e);
                     break;
@@ -859,6 +864,43 @@ mod tests {
                     && matches!(input.kind, InputKind::Packet { .. });
             }
             assert!(reached, "the other player's packet reached the tick");
+        });
+    }
+
+    /// However many sessions send all their packet budget allows between two ticks, another
+    /// client's packet still reaches the tick: each fills only its own share of the queue.
+    #[test]
+    fn many_sessions_at_their_budget_leave_room_for_another() {
+        const FLOODERS: u64 = 80;
+        crate::raknet::tests::run(async {
+            let (inputs, _queue) = input_queue(u32::try_from(FLOODERS).unwrap());
+            let shared = shared(inputs);
+            let mut player = joined(FLOODERS, &shared).await;
+            let mut flooders = Vec::new();
+            for id in 0..FLOODERS {
+                flooders.push(joined(id, &shared).await);
+            }
+            // Uncompressed batches of SetTime(0), 3 bytes a packet: the whole burst.
+            let batch = |packets: usize| {
+                let mut b = vec![0xff];
+                b.extend([0x02, 0x0a, 0x00].repeat(packets));
+                b
+            };
+            let burst = [
+                batch(MAX_PACKETS),
+                batch(PACKET_RATE.capacity - MAX_PACKETS),
+            ];
+            for flooder in &mut flooders {
+                for message in &burst {
+                    if flooder.on_message(message.clone()).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            player
+                .on_message(batch(1))
+                .await
+                .expect("the other player's packet is queued");
         });
     }
 }

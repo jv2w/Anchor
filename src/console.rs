@@ -143,7 +143,7 @@ mod tests {
     use crate::tick::queue::input_queue;
 
     fn lines(input: &[u8]) -> Vec<String> {
-        let (sender, mut rx) = input_queue();
+        let (sender, mut rx) = input_queue(1);
         read(input, sender.session(SessionId::CONSOLE));
         std::iter::from_fn(|| rx.try_recv().ok())
             .map(|i| {
@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn a_stopped_tick_ends_the_console_thread() {
-        let (sender, rx) = input_queue();
+        let (sender, rx) = input_queue(1);
         drop(rx);
         // Returns at the first line instead of reading on.
         read(

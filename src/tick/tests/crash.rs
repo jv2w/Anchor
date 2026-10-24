@@ -547,7 +547,7 @@ fn item_crash_child() {
     }];
     let opened = crate::save::open(Path::new(&data), specs).unwrap();
     let pool = Arc::new(crate::runtime::cpu_pool(2).unwrap());
-    let (inputs, input_queue) = input_queue();
+    let (inputs, input_queue) = input_queue(1);
     let (stop_tx, stop) = mpsc::channel(1);
     let (done, _done_rx) = oneshot::channel();
     let (crash, _crash_rx) = oneshot::channel();

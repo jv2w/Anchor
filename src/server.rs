@@ -314,7 +314,7 @@ impl Server {
         // Before the tick starts, so that a stop signal from the first tick on stops normally.
         let signals = stop_signals(&runtime.handle());
         let pool = Arc::new(pool);
-        let (inputs, input_queue) = tick::queue::input_queue();
+        let (inputs, input_queue) = tick::queue::input_queue(config.general.max_players);
         setup.tasks.start(runtime.handle(), &inputs);
         if config.developer.console_input {
             crate::console::start(&inputs).map_err(Error::Start)?;
@@ -1083,7 +1083,7 @@ mod tests {
     #[test]
     fn the_process_is_measured_every_second_until_the_tick_stops() {
         let runtime = Runtime::new(ThreadCounts { network: 1, cpu: 1 }).unwrap();
-        let (inputs, mut queue) = queue::input_queue();
+        let (inputs, mut queue) = queue::input_queue(1);
         let started = clock::now().checked_sub(Duration::from_secs(5)).unwrap();
         runtime.block_on(async move {
             let task = tokio::spawn(measure_process(inputs.session(SessionId::PROCESS), started));

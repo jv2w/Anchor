@@ -366,7 +366,7 @@ impl Accept {
     }
 
     /// Forgets ended blocks and reports the connection counts to the tick if they changed. A
-    /// full tick queue skips the report; the next one sends the counts then.
+    /// full share of the tick queue skips the report; the next one sends the counts then.
     fn report(&mut self) {
         self.blocks.forget_ended(clock::now());
         let all = u32::try_from(self.sessions.len()).unwrap_or(u32::MAX);
@@ -653,7 +653,7 @@ mod tests {
         config.general.nethernet_port = 0;
         let localhost = IpAddr::from(Ipv4Addr::LOCALHOST);
         crate::raknet::tests::run(async {
-            let (inputs, mut queue) = input_queue();
+            let (inputs, mut queue) = input_queue(1);
             let (controls, control_queue) = control_queue();
             let network = start(Arc::new(config), Vec::new(), &dir, inputs, control_queue)
                 .await
