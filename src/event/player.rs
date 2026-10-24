@@ -644,9 +644,6 @@ pub struct PlayerEnchantingOptionsRequest {
     pub(crate) cancelled: bool,
 }
 
-/// The most options an enchanting table shows (PMMP `setOptions`).
-const MAX_ENCHANT_OPTIONS: usize = 3;
-
 getters!(PlayerEnchantingOptionsRequest {
     /// The player.
     player: player::Id,
@@ -664,7 +661,7 @@ impl PlayerEnchantingOptionsRequest {
     /// Replaces the options shown; options past the third are dropped.
     #[doc(alias = "PlayerEnchantingOptionsRequestEvent::setOptions")]
     pub fn set_options(&mut self, mut options: Vec<EnchantOption>) {
-        options.truncate(MAX_ENCHANT_OPTIONS);
+        options.truncate(protocol::PLAYER_ENCHANT_OPTIONS_OPTIONS_MAX_LEN);
         self.options = options;
     }
 }

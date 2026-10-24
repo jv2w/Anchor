@@ -9053,6 +9053,9 @@ pub(crate) fn easing_type_to_string(x: i32) -> &'static str {
 /// The most bytes or elements of gophertunnel `packet.BossEvent.BossBarTitle` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
 pub(crate) const BOSS_EVENT_BOSS_BAR_TITLE_MAX_LEN: usize = 256;
 
+/// The most bytes or elements of gophertunnel `packet.PlayerEnchantOptions.Options` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
+pub(crate) const PLAYER_ENCHANT_OPTIONS_OPTIONS_MAX_LEN: usize = 3;
+
 /// The most bytes or elements of gophertunnel `packet.PlayerList.Entries` (Mojang `maxLength`, `maxItems`), for what Anchor sends.
 pub(crate) const PLAYER_LIST_ENTRIES_MAX_LEN: usize = 1000;
 

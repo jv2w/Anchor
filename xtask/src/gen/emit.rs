@@ -1189,6 +1189,7 @@ fn packet_enum(m: &Model<'_>, out: &mut String) -> R<()> {
 /// from game state or user input: the code that builds it uses the constant.
 const SEND_LIMITS: &[&str] = &[
     "packet.BossEvent.BossBarTitle",
+    "packet.PlayerEnchantOptions.Options",
     "packet.PlayerList.Entries",
     "packet.Text.Message",
     "packet.Text.Parameters",
