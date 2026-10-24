@@ -403,12 +403,23 @@ fn distance(a: ChunkPos, b: ChunkPos) -> i32 {
     dx.saturating_mul(dx).saturating_add(dz.saturating_mul(dz))
 }
 
-/// The chunks within `radius` of `center` (x² + z² ≤ r²), nearest first, then by x and z.
+/// Whether `pos` is within `radius` of `center`: x² + z² ≤ r² of their offset.
+pub(super) fn in_disc(center: ChunkPos, pos: ChunkPos, radius: u8) -> bool {
+    let (dx, dz) = (
+        i64::from(pos.x) - i64::from(center.x),
+        i64::from(pos.z) - i64::from(center.z),
+    );
+    let r = i64::from(radius);
+    dx * dx + dz * dz <= r * r
+}
+
+/// The chunks within `radius` of `center` ([`in_disc`]), nearest first, then by x and z.
 pub(super) fn disc(center: ChunkPos, radius: u8) -> Vec<ChunkPos> {
     let r = i32::from(radius);
+    let origin = ChunkPos::new(0, 0);
     let mut offsets: Vec<(i32, i32)> = (-r..=r)
         .flat_map(|x| (-r..=r).map(move |z| (x, z)))
-        .filter(|&(x, z)| x * x + z * z <= r * r)
+        .filter(|&(x, z)| in_disc(origin, ChunkPos::new(x, z), radius))
         .collect();
     offsets.sort_unstable_by_key(|&(x, z)| (x * x + z * z, x, z));
     offsets
@@ -570,6 +581,20 @@ fn for_each_outside(
 /// The chunk an eye position is in. Positions are finite (checked when they arrive).
 pub(super) fn chunk_of(position: Vec3) -> ChunkPos {
     BlockPos::containing(position).chunk()
+}
+
+/// The chunks the players whose view is open stand in, by world: the centres of the areas within
+/// `tick-radius` ([`in_disc`]) where blocks and entities tick. A player whose view is not open
+/// yet has been sent nothing that would tick.
+pub(super) fn tick_centres(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
+    let mut centres: BTreeMap<WorldIndex, BTreeSet<ChunkPos>> = BTreeMap::new();
+    for player in state.players.values().filter(|p| p.view.is_open()) {
+        centres
+            .entry(player.world)
+            .or_default()
+            .insert(chunk_of(player.position));
+    }
+    centres
 }
 
 /// The loaded chunks, the chunk loads in flight and the unloaded chunks waiting for a commit.

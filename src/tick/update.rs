@@ -14,8 +14,8 @@
 //!    through a first-in first-out queue that skips positions already in it. Changes the rules
 //!    make join the same queue, so cascades run in the same tick, at most
 //!    [`MAX_NEIGHBOUR_UPDATES_PER_TICK`]; the rest waits for the next tick.
-//! 3. **Random ticks**: the chunks within `tick-radius` of a player of the world whose 3 × 3
-//!    neighbourhood is loaded and lit, in position order; in each sub-chunk that is not air,
+//! 3. **Random ticks**: the chunks within `tick-radius` of a player of the world whose view is
+//!    open (as for entities) and whose 3 × 3 neighbourhood is loaded and lit, in position order; in each sub-chunk that is not air,
 //!    `random-tick-speed` positions from the engine random stream of the chunk and tick (PMMP uses
 //!    the global `mt_rand`; dragonfly a per-world generator that depends on thread timing: both
 //!    fixed). Blocks named in `disable-block-ticking` never tick. A custom block ticks if its
@@ -47,7 +47,7 @@ use tracing::warn;
 
 use super::interact::{self, Destroy};
 use super::view::{self, Key};
-use super::{Context, Phase, State, block_entity, dispatch, entity};
+use super::{Context, State, block_entity, dispatch, entity};
 use crate::block::{self, Class, Face, Kind};
 use crate::event::{Actor, BlockUpdate};
 use crate::item::Stack;
@@ -531,7 +531,7 @@ pub(super) fn tick(state: &mut State) {
     let centers = if state.settings.random_tick_speed == 0 {
         BTreeMap::new()
     } else {
-        player_chunks(state)
+        view::tick_centres(state)
     };
     for world in 0..state.worlds.len() {
         if !state.is_awake(world) {
@@ -694,24 +694,10 @@ fn random_position(chunk: ChunkPos, base_y: i32, bits: u64) -> BlockPos {
     )
 }
 
-/// The chunks the players past loading stand in, by world: the centers of [`ticking_chunks`].
-fn player_chunks(state: &State) -> BTreeMap<WorldIndex, BTreeSet<ChunkPos>> {
-    let mut centers: BTreeMap<WorldIndex, BTreeSet<ChunkPos>> = BTreeMap::new();
-    for player in state.players.values() {
-        if player.phase != Phase::Loading {
-            centers
-                .entry(player.world)
-                .or_default()
-                .insert(view::chunk_of(player.position));
-        }
-    }
-    centers
-}
-
 /// Fills `chunks` with the chunks of `world` that take random ticks, in order: within `radius`
-/// of `centers` ([`view::Disc::around`]), the chunks of the players in the world
-/// ([`player_chunks`]), with their 3 × 3 neighbourhood loaded and lit. Players in one chunk share
-/// a center.
+/// of `centers` ([`view::Disc::around`]), the chunks of the players in the world whose view is
+/// open ([`view::tick_centres`]), with their 3 × 3 neighbourhood loaded and lit. Players in one
+/// chunk share a center.
 fn ticking_chunks(
     state: &State,
     world: WorldIndex,
@@ -996,7 +982,7 @@ impl<'a> Cx<'a> {
 #[cfg(test)]
 mod tests {
     use super::super::tests::{answer, join, moved_to, new_state, radius, settings};
-    use super::super::{Output, boundary, deliver, step};
+    use super::super::{Output, Phase, boundary, deliver, step};
     use super::*;
     use crate::block::PropertyValue;
     use crate::event::{BlockGrow, BlockSpread, FarmlandHydrationChange, Listeners, Priority};
@@ -1557,6 +1543,59 @@ mod tests {
             ticking_chunks(&state, 0, radius, Some(&centers), &mut chunks);
             assert_eq!(chunks, expected, "{radius}");
         }
+    }
+
+    /// Blocks and entities tick around the same players: one whose view is not open yet (joined,
+    /// no chunk radius asked) ticks neither; once it is open, both.
+    #[test]
+    fn blocks_and_entities_tick_around_the_same_players() {
+        let pool = pool();
+        let mut state = new_state(
+            settings(|c| {
+                c.developer.lighting = crate::config::Lighting::Fixed;
+                c.developer.random_tick_speed = 4096;
+            }),
+            Listeners::default(),
+        );
+        let farmland = find(
+            "minecraft:farmland",
+            &[("moisturized_amount", PropertyValue::Int(7))],
+        );
+        let wheat = named("minecraft:wheat");
+        for x in 0..4 {
+            set(&mut state, BlockPos::new(x, -61, 0), farmland);
+            set(&mut state, BlockPos::new(x, -60, 0), wheat);
+        }
+        let grown = |state: &State| (0..4).any(|x| get(state, BlockPos::new(x, -60, 0)) != wheat);
+        let mut output = Output::default();
+        let (j, _rx) = join(1, 0);
+        full_tick(&mut state, vec![j], &pool, &mut output);
+        full_tick(&mut state, Vec::new(), &pool, &mut output);
+        let player = &state.players[&crate::tick::SessionId::new(1)];
+        assert!(player.phase != Phase::Loading && !player.view.is_open());
+        let start = Vec3::new(0.5, -50.0, 0.5);
+        let stick = crate::item::Stack::new(crate::item::Kind::Stick.default_type(), 1);
+        let id = Context { state: &mut state }
+            .drop_item(world::Id::DEFAULT, start, stick, Some(Vec3::ZERO))
+            .unwrap();
+        let moved = |state: &mut State| Context { state }.entity(id).unwrap().position() != start;
+        for _ in 0..20 {
+            full_tick(&mut state, Vec::new(), &pool, &mut output);
+        }
+        assert_eq!(
+            (grown(&state), moved(&mut state)),
+            (false, false),
+            "view closed"
+        );
+        full_tick(&mut state, vec![radius(1, 1, 4)], &pool, &mut output);
+        for _ in 0..20 {
+            full_tick(&mut state, Vec::new(), &pool, &mut output);
+        }
+        assert_eq!(
+            (grown(&state), moved(&mut state)),
+            (true, true),
+            "view open"
+        );
     }
 
     #[test]
@@ -2147,7 +2186,7 @@ mod tests {
         for _ in 0..40 {
             full_tick(state, Vec::new(), pool, &mut output);
         }
-        let centers = player_chunks(state);
+        let centers = view::tick_centres(state);
         let mut chunks = Vec::new();
         ticking_chunks(state, 0, 4, centers.get(&0), &mut chunks);
         let chunks = chunks.len();

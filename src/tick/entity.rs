@@ -2230,35 +2230,20 @@ fn given(e: &mut Entity, runtime_id: u64) {
 }
 
 /// The entities that tick: in chunks within their world's `tick-radius` of a player of their
-/// world, with a runtime ID and not flagged, in `Id` order.
+/// world whose view is open (as blocks, [`view::tick_centres`]), with a runtime ID and not
+/// flagged, in `Id` order.
 fn ticking(state: &State) -> Vec<Id> {
-    let mut centres: Vec<(WorldIndex, ChunkPos, i64)> = state
-        .players
-        .values()
-        .filter(|p| p.view.is_open())
-        .map(|p| {
-            let r = i64::from(state.settings.view(p.world).tick_radius);
-            (p.world, chunk_of(p.position), r)
-        })
-        .collect();
-    // By world, so only the columns of worlds with players are walked, each against its own.
-    centres.sort_unstable_by_key(|&(world, ..)| world);
     let entities = &state.rules.entities;
     let mut ids = Vec::new();
-    let mut rest = centres.as_slice();
-    while let Some(&(world, ..)) = rest.first() {
-        let (here, after) = rest.split_at(rest.partition_point(|&(w, ..)| w == world));
-        rest = after;
+    // By world, so only the columns of worlds with players are walked, each against its own.
+    for (world, centres) in super::view::tick_centres(state) {
+        let radius = state.settings.view(world).tick_radius;
         let all =
             (world, ChunkPos::new(i32::MIN, i32::MIN))..=(world, ChunkPos::new(i32::MAX, i32::MAX));
         for (&(_, pos), column) in entities.columns.range(all) {
-            let near = here.iter().any(|&(_, c, r)| {
-                let (dx, dz) = (
-                    i64::from(pos.x) - i64::from(c.x),
-                    i64::from(pos.z) - i64::from(c.z),
-                );
-                dx * dx + dz * dz <= r * r
-            });
+            let near = centres
+                .iter()
+                .any(|&c| super::view::in_disc(c, pos, radius));
             if near {
                 ids.extend(column.ids.iter().copied().filter(|&id| {
                     entities
