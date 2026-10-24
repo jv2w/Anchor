@@ -166,6 +166,34 @@ fn a_book_with_pages_of_another_type_counts_none() {
     assert_eq!(pages(&h), ["a"]);
 }
 
+/// A lectern counts a book's pages as the book edits do (PMMP `Lectern::onPageTurn`): pages in a
+/// list of another type are none, so no page turn is taken.
+#[test]
+fn a_lectern_turns_no_page_of_a_book_with_pages_of_another_type() {
+    let mut h = Harness::new(|_| {});
+    let extra = crate::item::Extra {
+        nbt: crate::nbt::Compound::from([("pages".to_owned(), Value::List(List::Int(vec![1, 2])))]),
+        ..crate::item::Extra::default()
+    };
+    let book = stack(ItemKind::WritableBook)
+        .with_extra(Some(extra))
+        .unwrap();
+    set_with_entity(&mut h, Kind::Lectern.default_state(), &Stack::EMPTY);
+    h.run(Vec::new());
+    h.hold(book);
+    use_on_target(&mut h);
+    let turn = h.input(Packet::LecternUpdate(
+        crate::protocol::packet::LecternUpdate {
+            page: 1,
+            page_count: 2,
+            position: [TARGET.x, TARGET.y, TARGET.z],
+        },
+    ));
+    h.run(vec![turn]);
+    assert!(matches!(entity_at(&h),
+        super::super::super::block_entity::Kind::Lectern { book, page: 0 } if !book.is_empty()));
+}
+
 #[test]
 fn signing_makes_an_original_written_book_and_only_books_and_quills_are_edited() {
     let mut h = Harness::new(|_| {});

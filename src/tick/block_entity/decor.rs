@@ -11,8 +11,7 @@ use crate::block;
 use crate::custom::Registry;
 use crate::item::Stack;
 use crate::nbt::{Compound, List, Value};
-use crate::tick::interact::book::PAGES as BOOK_PAGES;
-use crate::tick::interact::sign;
+use crate::tick::interact::{book, sign};
 
 /// The text colour of a new sign: opaque black (PMMP `new Color(0, 0, 0)`).
 pub(in crate::tick) use crate::tile::BLACK_TEXT;
@@ -381,14 +380,6 @@ pub(in crate::tick) fn read_lectern(nbt: &mut Compound, custom: &Registry) -> (S
     (book, page)
 }
 
-/// The pages of a writable or written book (its `pages` list).
-pub(in crate::tick) fn book_pages(book: &Stack) -> usize {
-    match book.extra().and_then(|e| e.nbt.get(BOOK_PAGES)) {
-        Some(Value::List(list)) => list.len(),
-        _ => 0,
-    }
-}
-
 /// A lectern's keys (PMMP `writeSaveData`, the same as its client keys).
 pub(in crate::tick) fn write_lectern(book: &Stack, page: i32, nbt: &mut Compound) {
     nbt.insert(
@@ -398,7 +389,7 @@ pub(in crate::tick) fn write_lectern(book: &Stack, page: i32, nbt: &mut Compound
     nbt.insert("page".to_owned(), Value::Int(page));
     if !book.is_empty() {
         nbt.insert("book".to_owned(), Value::Compound(book.to_nbt()));
-        let pages = i32::try_from(book_pages(book)).unwrap_or(i32::MAX);
+        let pages = i32::try_from(book::page_count(book)).unwrap_or(i32::MAX);
         nbt.insert("totalPages".to_owned(), Value::Int(pages));
     }
 }

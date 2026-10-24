@@ -54,7 +54,7 @@ pub(super) use brewing::{
     BOTTLES as BREWING_BOTTLES, FUEL as BREWING_FUEL, INGREDIENT as BREWING_INGREDIENT,
 };
 pub(super) use campfire::{cooks as campfire_cooks, kind_of as campfire_kind};
-pub(super) use decor::{BLACK_TEXT, FRAME_ROTATIONS, Plant, book_pages};
+pub(super) use decor::{BLACK_TEXT, FRAME_ROTATIONS, Plant};
 pub(super) use furnace::{FUEL as FURNACE_FUEL, INPUT as FURNACE_INPUT, OUTPUT as FURNACE_OUTPUT};
 
 /// The most spills one chunk keeps; beyond it new spills are lost with an error (a chunk would

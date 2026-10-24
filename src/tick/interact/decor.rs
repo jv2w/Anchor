@@ -459,7 +459,7 @@ pub(super) fn on_lectern_update(state: &mut State, session: SessionId, packet: &
         return;
     };
     let new = i32::from(packet.page);
-    if new == *page || book.is_empty() || usize::from(packet.page) >= block_entity::book_pages(book)
+    if new == *page || book.is_empty() || usize::from(packet.page) >= super::book::page_count(book)
     {
         return;
     }

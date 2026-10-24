@@ -201,7 +201,7 @@ fn pages(book: &Stack) -> Vec<Page> {
 }
 
 /// How many [`pages`] a book has, read without copying them.
-fn page_count(book: &Stack) -> usize {
+pub(in crate::tick) fn page_count(book: &Stack) -> usize {
     match book.extra().and_then(|e| e.nbt.get(PAGES)) {
         Some(Value::List(List::Compound(list))) => list.len(),
         Some(Value::List(List::String(list))) => list.len(),

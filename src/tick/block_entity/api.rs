@@ -7,10 +7,11 @@
 //! (PMMP sends a tile's spawn compound when it changes). Writes raise no events: a direct API call
 //! never re-enters the listeners.
 
+use super::super::interact::book::page_count;
 use super::super::{Context, State, inventory};
 use super::{
     BOOKSHELF_SLOTS, BlockEntity, FRAME_ROTATIONS, Kind, Plant, beacon, beacon_effect_allowed,
-    block_at, book_pages, broadcast_spawn, campfire_kind, chests_pair, decor, set_beacon,
+    block_at, broadcast_spawn, campfire_kind, chests_pair, decor, set_beacon,
 };
 use crate::block::{self, Class, Face, TypeTag};
 use crate::effect;
@@ -723,7 +724,7 @@ impl Mut<'_> {
     pub fn set_lectern_page(&mut self, page: u32) -> Result<()> {
         self.edit(|e| match &mut e.kind {
             Kind::Lectern { book, page: p } => Some({
-                let pages = book_pages(book).max(1);
+                let pages = page_count(book).max(1);
                 match i32::try_from(page) {
                     Ok(at)
                         if !book.is_empty() && usize::try_from(page).is_ok_and(|i| i < pages) =>

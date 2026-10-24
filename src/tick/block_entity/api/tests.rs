@@ -448,6 +448,31 @@ fn pots_frames_and_jukeboxes_hold_what_they_are_given() {
     );
 }
 
+/// Pages in a list of another type are no pages for a lectern either (PMMP
+/// `WritableBookBase::deserializeCompoundTag` reads compound or string lists only).
+#[test]
+fn a_lectern_book_with_pages_of_another_type_has_none() {
+    let mut h = Harness::new();
+    let lectern = h.spot(1);
+    h.place(lectern, block::Kind::Lectern.default_state());
+    let pages = Compound::from([(
+        "pages".to_owned(),
+        Value::List(crate::nbt::List::Int(vec![1, 2])),
+    )]);
+    let book = Stack::new(item::Kind::WritableBook.default_type(), 1)
+        .with_extra(Some(item::Extra {
+            nbt: pages,
+            ..item::Extra::default()
+        }))
+        .unwrap();
+    let mut cx = h.cx();
+    let mut t = cx.block_entity_mut(WORLD, lectern).unwrap();
+    t.set_lectern_book(&book).unwrap();
+    assert_eq!(t.set_lectern_page(1), Err(Error::Invalid));
+    let sent = h.actor_data(lectern);
+    assert_eq!(sent[0].get("totalPages"), Some(&Value::Int(0)));
+}
+
 // pmmp: block\Lectern::getBook, block\tile\Lectern::getBook, block\Lectern::setBook, block\tile\Lectern::setBook, block\Lectern::getViewedPage, block\tile\Lectern::getViewedPage, block\Lectern::setViewedPage, block\tile\Lectern::setViewedPage, block\ChiseledBookshelf::getLastInteractedSlot, block\tile\ChiseledBookshelf::getLastInteractedSlot, block\ChiseledBookshelf::setLastInteractedSlot, block\tile\ChiseledBookshelf::setLastInteractedSlot
 #[test]
 fn lecterns_and_bookshelves_keep_their_books_place() {
