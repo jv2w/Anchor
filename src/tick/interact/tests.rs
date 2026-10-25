@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use super::super::queue::{Input, InputKind, Message, Outbound, SessionId};
 use super::super::survival::EYE_HEIGHT;
-use super::super::tests::{answer, join, leave, new_state, radius, settings};
+use super::super::tests::{answer, blocks_set, join, leave, new_state, radius, settings};
 use super::super::{InputLog, Output, Phase, State, boundary, deliver, inventory, step};
 use super::*;
 use crate::block::Kind;
@@ -210,14 +210,11 @@ fn click(pos: BlockPos, face: Face, stack: &Stack) -> UseItemTransactionData {
     data
 }
 
-/// The `UpdateBlock` positions among `packets`.
+/// The positions [`blocks_set`] sets, in order.
 fn updates(packets: &[Packet]) -> Vec<BlockPos> {
-    packets
-        .iter()
-        .filter_map(|p| match p {
-            Packet::UpdateBlock(u) => Some(block_pos(u.position)),
-            _ => None,
-        })
+    blocks_set(packets)
+        .into_iter()
+        .map(|(pos, _)| pos)
         .collect()
 }
 
@@ -498,6 +495,55 @@ fn a_refused_placement_changes_nothing_and_resyncs_the_clicked_and_target_blocks
     assert_eq!(h.held().count(), 5);
 }
 
+/// A refused click sends the real blocks around it, each once with its block.
+#[test]
+fn a_refused_click_sends_each_real_block_around_it_once() {
+    let mut h = Harness::new(|_| {});
+    let planks = block_item(Kind::OakPlanks, 5);
+    h.hold(planks.clone());
+    // The player stands where the block would go.
+    let ground = BlockPos::new(0, -61, 0);
+    h.packets();
+    let input = h.auth(Vec::new(), Some(click(ground, Face::Up, &planks)));
+    h.run(vec![input]);
+    let sent = blocks_set(&h.packets());
+    let expected = [
+        (ground, h.block(ground)),
+        (BlockPos::new(0, -60, 0), block::AIR),
+        (BlockPos::new(0, -62, 0), h.block(BlockPos::new(0, -62, 0))),
+        (BlockPos::new(1, -60, 0), block::AIR),
+    ];
+    for (pos, block) in expected {
+        assert_eq!(
+            sent.iter().filter(|(p, _)| *p == pos).collect::<Vec<_>>(),
+            [&(pos, block.network_id())],
+            "{sent:?}"
+        );
+    }
+}
+
+/// A refused click sends the blocks around it as the tick leaves them: a block a later input of
+/// the same tick places among them is not undone on the client.
+#[test]
+fn a_refused_click_sends_the_blocks_around_it_as_the_tick_leaves_them() {
+    let mut h = Harness::new(|_| {});
+    let planks = block_item(Kind::OakPlanks, 5);
+    h.hold(planks.clone());
+    h.packets();
+    // Refused: the player stands where the block would go; (1, -60, 0) is among the blocks sent.
+    let refused = click(BlockPos::new(0, -61, 0), Face::Up, &planks);
+    let refused = h.auth(Vec::new(), Some(refused));
+    let target = BlockPos::new(1, -60, 0);
+    let placed = click(BlockPos::new(1, -61, 0), Face::Up, &planks);
+    let placed = h.auth(Vec::new(), Some(placed));
+    h.run(vec![refused, placed]);
+    let block = Kind::OakPlanks.default_state();
+    assert_eq!(h.block(target), block);
+    let sent = blocks_set(&h.packets());
+    let last = sent.iter().rev().find(|(p, _)| *p == target);
+    assert_eq!(last, Some(&(target, block.network_id())), "{sent:?}");
+}
+
 #[test]
 fn a_refused_click_on_a_fake_block_shows_the_fake_block_again() {
     let mut h = Harness::new(|_| {});
@@ -519,14 +565,9 @@ fn a_refused_click_on_a_fake_block_shows_the_fake_block_again() {
     h.run(vec![input]);
     assert_eq!(h.held().count(), 5);
     let resent = |h: &mut Harness, pos: BlockPos| {
-        h.packets()
-            .iter()
-            .filter_map(|p| match p {
-                Packet::UpdateBlock(u) if block_pos(u.position) == pos => {
-                    Some(u.new_block_runtime_id)
-                }
-                _ => None,
-            })
+        blocks_set(&h.packets())
+            .into_iter()
+            .filter_map(|(at, id)| (at == pos).then_some(id))
             .collect::<Vec<_>>()
     };
     assert_eq!(
@@ -1346,6 +1387,50 @@ fn the_q_key_drops_from_the_held_slot_when_the_client_stack_matches() {
     assert_eq!(h.held().count(), 3);
 }
 
+/// The client took the items away as it sent the drop: one that names another stack than the
+/// server's drops nothing and sends the slot back.
+#[test]
+fn the_q_key_with_another_client_stack_sends_the_slot_back() {
+    let mut h = Harness::new(|_| {});
+    let sticks = stack(crate::item::Kind::Stick).with_count(5);
+    h.hold(sticks.clone());
+    let slot = h.player().inventory.held_slot();
+    h.packets();
+    let drop = crate::protocol::InventoryAction {
+        source_type: 2,
+        window_id: None,
+        source_flags: Some(0),
+        inventory_slot: 0,
+        old_item: crate::protocol::ItemInstance::default(),
+        new_item: sticks.with_count(1).to_instance(0),
+    };
+    let held = crate::protocol::InventoryAction {
+        source_type: 0,
+        window_id: Some(0),
+        source_flags: None,
+        inventory_slot: u32::from(slot),
+        old_item: sticks.with_count(4).to_instance(0),
+        new_item: sticks.with_count(3).to_instance(0),
+    };
+    let tx = InventoryTransaction {
+        actions: vec![drop, held],
+        transaction_data: InventoryTransactionData::Normal(NormalTransactionData::default()),
+        ..Default::default()
+    };
+    let input = h.input(Packet::InventoryTransaction(tx));
+    h.run(vec![input]);
+    assert_eq!(h.held().count(), 5);
+    let sent: Vec<_> = h
+        .packets()
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::InventorySlot(s) => Some((s.window_id, s.slot, s.new_item.stack.count)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent, [(0, u32::from(slot), 5)]);
+}
+
 #[test]
 fn breaking_a_bed_or_banner_drops_its_block_entity_item() {
     let mut h = Harness::new(|_| {});
@@ -2044,10 +2129,7 @@ const MOSS_BLOCK: u32 = 3_743_819_255;
 
 /// Whether `packets` set `pos` to the block of network ID `id`.
 fn sets(packets: &[Packet], pos: BlockPos, id: u32) -> bool {
-    packets.iter().any(|p| {
-        matches!(p, Packet::UpdateBlock(u)
-            if block_pos(u.position) == pos && u.new_block_runtime_id == id)
-    })
+    blocks_set(packets).contains(&(pos, id))
 }
 
 /// An inert block (one only clients know) breaks like a block of its hardness: dripstone by

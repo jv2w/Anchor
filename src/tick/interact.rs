@@ -31,7 +31,7 @@ pub(super) use using::{light_campfire, lower_water_cauldron};
 
 use tracing::debug;
 
-use super::view::{UPDATE_FLAGS, chunk_of};
+use super::view::chunk_of;
 use super::{Context, Phase, Player, SessionId, State, dispatch, entity, inventory, survival};
 use crate::action;
 use crate::block::{self, Class, Face, Kind, TypeTag};
@@ -45,7 +45,6 @@ use crate::protocol::consts::{
 };
 use crate::protocol::packet::{
     BlockActorData, InventoryTransaction, LevelEvent, OpenSign, Packet, PlayerAuthInput,
-    UpdateBlock,
 };
 use crate::protocol::{InventoryTransactionData, PlayerBlockAction, UseItemTransactionData};
 use crate::random::{self, Random};
@@ -467,7 +466,7 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
     // The packet is one client tick: breaking in progress advances by one tick.
     advance(state, session);
     if let Some(data) = &packet.item_interaction_data {
-        use_item(state, session, data);
+        use_item(state, session, data, &data.actions);
     }
     if let Some(actions) = &packet.block_actions {
         block_actions(state, session, actions);
@@ -475,14 +474,16 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
 }
 
 /// `InventoryTransaction`: use item (on a block or in the air), use item on entity (attack,
-/// interact), release item (bows, food). Its legacy item lists are not trusted.
+/// interact), release item (bows, food). Its legacy item lists are not trusted; they only tell
+/// which slots the client predicted.
 pub(super) fn on_inventory_transaction(
     state: &mut State,
     session: SessionId,
     packet: &InventoryTransaction,
 ) {
     match &packet.transaction_data {
-        InventoryTransactionData::UseItem(data) => use_item(state, session, data),
+        // The packet carries the predicted actions beside the use item data, not in it.
+        InventoryTransactionData::UseItem(data) => use_item(state, session, data, &packet.actions),
         InventoryTransactionData::UseItemOnEntity(data) => {
             if actor(state, session).is_none() {
                 return;
@@ -509,8 +510,9 @@ pub(super) fn on_inventory_transaction(
 
 /// PMMP `handleNormalTransaction`: a drop by the Q key is two actions, the world's drop slot
 /// with the count and the main inventory slot with the client's stack; the client's stack must be
-/// the server's (network ID, meta, count) and the drop is [`inventory::drop_from_main`]. Anything
-/// else (book edits send up to five actions) is ignored.
+/// the server's (network ID, meta, count) and the drop is [`inventory::drop_from_main`]; another
+/// stack drops nothing and the slot is sent back, as the client took the items away as it sent
+/// the drop. Anything else (book edits send up to five actions) is ignored.
 fn legacy_drop(
     state: &mut State,
     session: SessionId,
@@ -547,6 +549,7 @@ fn legacy_drop(
     };
     let server = have.to_network();
     if server.item_type != client.item_type || server.count != client.count {
+        inventory::resend_main(state, session, slot);
         return;
     }
     let _dropped = inventory::drop_from_main(state, session, slot, count);
@@ -769,40 +772,19 @@ pub(super) fn particle(state: &mut State, world: WorldIndex, at: Vec3, particle:
     super::emit::particle(state, world, at, particle);
 }
 
-/// Sends `session` again the blocks at `positions` as it is shown them (a refused change): the
-/// fake block where it has one (its open menu's or the user's), otherwise the real block (a state
-/// Anchor does not know as the chunk sends it).
+/// Sends `session` again the blocks at `positions` as it is shown them at the end of the tick (a
+/// refused change): the output phase sends the fake block where it has one (its open menu's or
+/// the user's), otherwise the real block (a state Anchor does not know as the chunk sends it),
+/// once per position, so a later change in the same tick is not undone on the client. More
+/// than [`super::view::MAX_RESYNCS`] positions in one tick disconnect the player, as a full
+/// outbox does.
 fn resync(state: &mut State, session: SessionId, positions: &[BlockPos]) {
-    let Some(player) = state.players.get(&session) else {
+    let Some(player) = state.players.get_mut(&session) else {
         return;
     };
-    let Some(world) = state.worlds.get(player.world) else {
-        return;
-    };
-    let mut packets = Vec::with_capacity(positions.len());
-    for (i, &pos) in positions.iter().enumerate() {
-        if positions
-            .get(..i)
-            .is_some_and(|before| before.contains(&pos))
-        {
-            continue;
-        }
-        if !player.view.sees(pos.chunk()) {
-            continue;
-        }
-        let shown = player.view.shown(pos).map(block::State::network_id);
-        if let Some(id) = shown.or_else(|| world.entry(pos).map(Entry::network_id)) {
-            packets.push(Packet::UpdateBlock(UpdateBlock {
-                position: [pos.x, pos.y, pos.z],
-                new_block_runtime_id: id,
-                flags: UPDATE_FLAGS,
-                layer: 0,
-            }));
-        }
-    }
-    if let Some(player) = state.players.get_mut(&session) {
-        for packet in packets {
-            player.send_packet(packet);
+    for &pos in positions {
+        if player.view.sees(pos.chunk()) && !player.view.resync(pos) {
+            player.overflowed = true;
         }
     }
 }
@@ -1826,8 +1808,16 @@ fn on_break_result(block: block::State, survival: bool, tool: &Stack) -> block::
     block::AIR
 }
 
-/// `UseItem` from `InventoryTransaction` or `PlayerAuthInput` (PMMP `handleUseItemTransaction`).
-fn use_item(state: &mut State, session: SessionId, data: &UseItemTransactionData) {
+/// `UseItem` from `InventoryTransaction` or `PlayerAuthInput` (PMMP `handleUseItemTransaction`),
+/// with the slot changes the client `predicted`: after a click, whatever the rules did, the
+/// client is sent its inventory again if it predicted wrong
+/// ([`inventory::resend_mispredicted`]).
+fn use_item(
+    state: &mut State,
+    session: SessionId,
+    data: &UseItemTransactionData,
+    predicted: &[crate::protocol::InventoryAction],
+) {
     let Ok(action) = UseItemAction::try_from(data.action_type) else {
         return;
     };
@@ -1838,10 +1828,11 @@ fn use_item(state: &mut State, session: SessionId, data: &UseItemTransactionData
                 use_in_air(state, session);
             }
         }
-        // Breaking is server-authoritative through block actions; attacks come as
-        // `UseItemOnEntity`.
-        UseItemAction::BreakBlock | UseItemAction::UseAsAttack => {}
+        // Breaking is server-authoritative through block actions, which come after this in the
+        // packet and send what they change; attacks come as `UseItemOnEntity`.
+        UseItemAction::BreakBlock | UseItemAction::UseAsAttack => return,
     }
+    inventory::resend_mispredicted(state, session, predicted);
 }
 
 /// A click in the air (PMMP `handleUseItemTransaction` `ACTION_CLICK_AIR`): drawing stops (a bow

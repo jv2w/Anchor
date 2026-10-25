@@ -303,15 +303,22 @@ struct Sent {
 }
 
 /// Round-trip time estimate from acknowledged datagrams (RFC 6298). Every datagram is sent once (a
-/// resend gets a new sequence number), so every ACK is a clean sample.
+/// resend gets a new sequence number), so every ACK is a clean sample. An ACK after the timeout
+/// finds its datagram gone and gives no sample, so a round trip above the timeout could never
+/// raise it: each round of timeouts doubles it instead (RFC 6298 backoff), until ACKs come back
+/// in time and the next sample resets it.
 #[derive(Debug, Default)]
 struct Rtt {
     smoothed: Option<Duration>,
     variation: Duration,
+    /// Doublings of the timeout since the last sample. The timeout stops doubling at `MAX_RTO`,
+    /// so this stays below 6 (`MIN_RTO` doubled 5 times passes it).
+    backoff: u32,
 }
 
 impl Rtt {
     fn sample(&mut self, rtt: Duration) {
+        self.backoff = 0;
         if let Some(smoothed) = self.smoothed {
             self.variation = self
                 .variation
@@ -325,12 +332,19 @@ impl Rtt {
         }
     }
 
+    fn back_off(&mut self) {
+        if self.timeout() < MAX_RTO {
+            self.backoff += 1;
+        }
+    }
+
     fn timeout(&self) -> Duration {
-        self.smoothed.map_or(INITIAL_RTO, |smoothed| {
+        let base = self.smoothed.map_or(INITIAL_RTO, |smoothed| {
             smoothed
                 .saturating_add(self.variation.saturating_mul(4).max(ACK_DELAY))
                 .clamp(MIN_RTO, MAX_RTO)
-        })
+        });
+        base.saturating_mul(1 << self.backoff).min(MAX_RTO)
     }
 }
 
@@ -416,6 +430,12 @@ impl Peer {
     /// The smoothed round-trip time, zero before the first sample.
     pub(super) fn rtt(&self) -> Duration {
         self.rtt.smoothed.unwrap_or_default()
+    }
+
+    /// Bytes queued, waiting for a resend or unacknowledged, with the frame cost `OUTBOUND_CAP`
+    /// counts.
+    pub(super) fn unsent(&self) -> usize {
+        self.unsent
     }
 
     /// Nothing is queued, waiting for a resend or unacknowledged.
@@ -752,7 +772,10 @@ impl Peer {
         Ok(())
     }
 
-    /// Moves datagrams unacknowledged past the resend timeout back to the resend queue.
+    /// Moves datagrams unacknowledged past the resend timeout back to the resend queue, and
+    /// doubles the timeout once per round of losses a timeout starts (a NAK's round does not):
+    /// the other datagrams sent before that round share its doubling, or one update's many
+    /// timeouts would jump straight to `MAX_RTO`.
     pub(super) fn update(&mut self, now: Duration) {
         let timeout = self.rtt.timeout();
         while let Some(entry) = self.in_flight.first_entry() {
@@ -760,6 +783,10 @@ impl Peer {
                 break;
             }
             let seq = *entry.key();
+            // Checked before `lost` starts the next round.
+            if seq >= self.recovery {
+                self.rtt.back_off();
+            }
             self.resend.extend(entry.remove().frames);
             self.lost(seq);
         }
@@ -1425,5 +1452,141 @@ pub(super) mod tests {
             .unwrap();
         assert!(peer.cwnd > INITIAL_CWND * 3 / 4);
         assert!(peer.in_flight.is_empty());
+    }
+
+    #[test]
+    fn resend_timeout_doubles_once_per_round_of_timeouts_until_a_sample() {
+        // A NAK is a loss but not a timeout.
+        let mut naked = peer(SMALL);
+        naked
+            .send(wire::ID_GAME, vec![0; 1000], Reliability::ReliableOrdered)
+            .unwrap();
+        let first = wire::low24(naked.next_seq);
+        naked.flush(T0, &mut |_| {}).unwrap();
+        let mut nak = vec![FLAG_DATAGRAM | FLAG_NAK, 0, 1, 1];
+        wire::put_u24(&mut nak, first);
+        naked
+            .receive(T0, &nak, &mut Vec::new(), &mut |_| {})
+            .unwrap();
+        assert!(naked.in_flight.is_empty());
+        assert_eq!(naked.rtt.timeout(), INITIAL_RTO);
+        let mut peer = peer(SMALL);
+        for _ in 0..100 {
+            peer.send(wire::ID_GAME, vec![0; 1000], Reliability::ReliableOrdered)
+                .unwrap();
+        }
+        let mut sent = 0;
+        peer.flush(T0, &mut |_| sent += 1).unwrap();
+        assert_eq!(sent, INITIAL_CWND);
+        // All 32 datagrams time out in one update: one doubling, not one per datagram.
+        peer.update(INITIAL_RTO);
+        assert_eq!(peer.rtt.timeout(), 2 * INITIAL_RTO);
+        peer.flush(INITIAL_RTO, &mut |_| {}).unwrap();
+        peer.update(INITIAL_RTO + Duration::from_millis(999));
+        assert_eq!(peer.in_flight.len(), INITIAL_CWND * 3 / 4);
+        peer.update(3 * INITIAL_RTO);
+        assert_eq!(peer.rtt.timeout(), MAX_RTO);
+        // The cap holds through further rounds.
+        peer.flush(3 * INITIAL_RTO, &mut |_| {}).unwrap();
+        peer.update(3 * INITIAL_RTO + MAX_RTO);
+        assert!(peer.in_flight.is_empty());
+        assert_eq!(peer.rtt.timeout(), MAX_RTO);
+        // The first sample (100 ms, variation 50 ms) sets the timeout from the estimate again.
+        let now = 3 * INITIAL_RTO + MAX_RTO;
+        let first = wire::low24(peer.next_seq);
+        peer.flush(now, &mut |_| {}).unwrap();
+        let mut ack = vec![FLAG_DATAGRAM | FLAG_ACK, 0, 1, 1];
+        wire::put_u24(&mut ack, first);
+        let now = now + Duration::from_millis(100);
+        peer.receive(now, &ack, &mut Vec::new(), &mut |_| {})
+            .unwrap();
+        assert_eq!(peer.rtt.timeout(), Duration::from_millis(300));
+    }
+
+    /// Sends 400 KB of ordered messages from one peer to another, five every 10 ms, over a link
+    /// without loss whose one-way delay is `delay(sent at)`, and asserts that all of them arrive
+    /// in order and the sender settles.
+    fn stream_arrives_over(delay: impl Fn(Duration) -> Duration) {
+        let messages: Vec<Vec<u8>> = (0..400)
+            .map(|index| vec![u8::try_from(index % 251).unwrap(); SMALL])
+            .collect();
+        let deadline = Duration::from_secs(60);
+        let mut sender = peer(SMALL);
+        let mut receiver = peer(SMALL);
+        // (arrival, to the receiver, datagram). A delay that never falls keeps arrivals in
+        // sending order.
+        let mut flying = VecDeque::new();
+        let mut arrived = Vec::new();
+        let mut next = 0;
+        let mut now = T0;
+        while arrived.len() < messages.len() || !sender.is_settled() {
+            now += Duration::from_millis(1);
+            assert!(
+                now < deadline,
+                "stalled at {} of {} messages with window {}",
+                arrived.len(),
+                messages.len(),
+                sender.cwnd
+            );
+            let mut to_receiver = Vec::new();
+            let mut to_sender = Vec::new();
+            while flying.front().is_some_and(|(at, _, _)| *at <= now) {
+                let (_, forward, data): (Duration, bool, Vec<u8>) = flying.pop_front().unwrap();
+                if forward {
+                    receiver
+                        .receive(now, &data, &mut arrived, &mut |d| {
+                            to_sender.push(d.to_vec());
+                        })
+                        .unwrap();
+                } else {
+                    sender
+                        .receive(now, &data, &mut Vec::new(), &mut |_| {})
+                        .unwrap();
+                    sender
+                        .flush(now, &mut |d| to_receiver.push(d.to_vec()))
+                        .unwrap();
+                }
+            }
+            if now.as_millis().is_multiple_of(10) {
+                for message in messages.iter().skip(next).take(5) {
+                    sender
+                        .send(wire::ID_GAME, message.clone(), Reliability::ReliableOrdered)
+                        .unwrap();
+                }
+                next += 5;
+                sender.update(now);
+                sender
+                    .flush(now, &mut |d| to_receiver.push(d.to_vec()))
+                    .unwrap();
+                receiver.flush_acks(&mut |d| to_sender.push(d.to_vec()));
+            }
+            let at = now + delay(now);
+            flying.extend(to_receiver.into_iter().map(|data| (at, true, data)));
+            flying.extend(to_sender.into_iter().map(|data| (at, false, data)));
+        }
+        assert!(
+            arrived
+                .iter()
+                .map(|message| &message.body)
+                .eq(messages.iter())
+        );
+    }
+
+    #[test]
+    fn stream_arrives_when_the_round_trip_exceeds_the_first_resend_timeout() {
+        // 600 ms round trip, as over geostationary satellite.
+        stream_arrives_over(|_| Duration::from_millis(300));
+    }
+
+    #[test]
+    fn stream_arrives_after_the_round_trip_steps_far_past_the_resend_timeout() {
+        // 30 ms, then 300 ms from 300 ms on, as when an uplink queue fills.
+        stream_arrives_over(|sent| {
+            if sent < Duration::from_millis(300) {
+                Duration::from_millis(15)
+            } else {
+                Duration::from_millis(150)
+            }
+        });
     }
 }

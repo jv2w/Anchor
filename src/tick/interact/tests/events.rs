@@ -13,7 +13,8 @@ use crate::event::{
 };
 use crate::item::Kind as ItemKind;
 use crate::nbt::{Compound, Value};
-use crate::protocol::UseItemOnEntityTransactionData;
+use crate::protocol::consts::{InventoryActionSource, WINDOW_ID_ARMOUR, WINDOW_ID_INVENTORY};
+use crate::protocol::{InventoryAction, UseItemOnEntityTransactionData};
 use crate::tick::Context;
 
 thread_local! {
@@ -142,6 +143,37 @@ fn use_in_air(h: &mut Harness) {
 }
 
 const GROUND: BlockPos = BlockPos::new(2, -61, 0);
+
+/// A client's predicted change of `slot` in its own window `window` from `old` to `new`, as a
+/// use item transaction carries it.
+fn predicted(window: u32, slot: u8, old: &Stack, new: &Stack) -> InventoryAction {
+    InventoryAction {
+        source_type: InventoryActionSource::Container.into(),
+        window_id: Some(i8::try_from(window).unwrap()),
+        source_flags: None,
+        inventory_slot: u32::from(slot),
+        old_item: old.to_instance(0),
+        new_item: new.to_instance(0),
+    }
+}
+
+/// The counts `packets` give main slot `slot`, from whole inventory contents and single slots.
+fn main_counts(packets: &[Packet], slot: u8) -> Vec<u16> {
+    packets
+        .iter()
+        .filter_map(|p| match p {
+            Packet::InventoryContent(c) if c.window_id == WINDOW_ID_INVENTORY => {
+                c.content.get(usize::from(slot)).map(|i| i.stack.count)
+            }
+            Packet::InventorySlot(s)
+                if s.window_id == WINDOW_ID_INVENTORY && s.slot == u32::from(slot) =>
+            {
+                Some(s.new_item.stack.count)
+            }
+            _ => None,
+        })
+        .collect()
+}
 
 // pmmp: BlockBreakEvent
 #[test]
@@ -395,6 +427,82 @@ fn a_cancelled_placement_changes_nothing_and_resyncs() {
     assert_eq!((block, held), (block::AIR, block_item(Kind::OakPlanks, 5)));
     assert!(sent.contains(&TARGET), "{sent:?}");
     assert_eq!(cancelled, twin);
+}
+
+/// The client takes the item away as it sends a placement; a cancelled one sends the inventory
+/// back, so the client's next click names the server's count and places, and a right prediction
+/// is not sent again.
+// pmmp: BlockPlaceEvent
+#[test]
+fn a_cancelled_placement_sends_back_the_predicted_slot_so_the_next_click_places() {
+    let mut first = true;
+    let once = listen(move |e: &mut BlockPlace, _: &mut Context<'_>| {
+        if std::mem::take(&mut first) {
+            e.cancel();
+        }
+    });
+    let mut h = Harness::with(|_| {}, once);
+    h.hold(block_item(Kind::OakPlanks, 5));
+    let slot = h.player().inventory.held_slot();
+    h.packets();
+    let place = |h: &mut Harness| {
+        let held = h.held();
+        let mut data = click(GROUND, Face::Up, &held);
+        let fewer = held.with_count(held.count() - 1);
+        data.actions = vec![predicted(WINDOW_ID_INVENTORY, slot, &held, &fewer)];
+        let input = h.auth(Vec::new(), Some(data));
+        h.run(vec![input]);
+    };
+    place(&mut h);
+    assert_eq!((h.block(TARGET), h.held().count()), (block::AIR, 5));
+    assert_eq!(main_counts(&h.packets(), slot), [5]);
+    for _ in 0..REPEAT_TICKS {
+        h.run(Vec::new());
+    }
+    place(&mut h);
+    assert_eq!(h.block(TARGET).kind(), Kind::OakPlanks);
+    assert_eq!(main_counts(&h.packets(), slot), [4]);
+}
+
+/// Wearing armour by a click in the air: the client predicts the hand empty and the armour worn.
+/// A cancelled use sends the inventory back when the click, from either packet, carried that
+/// prediction, and nothing when it carried none.
+// pmmp: PlayerItemUseEvent
+#[test]
+fn a_refused_use_in_the_air_resends_the_inventory_only_after_a_prediction() {
+    let helmet = stack(ItemKind::IronHelmet);
+    let run = |predicting: bool, transaction: bool| {
+        let mut h = Harness::with(|_| {}, cancel(PlayerItemUse::cancel));
+        h.hold(helmet.clone());
+        let slot = h.player().inventory.held_slot();
+        h.packets();
+        let actions = if predicting {
+            vec![
+                predicted(WINDOW_ID_INVENTORY, slot, &helmet, &Stack::EMPTY),
+                predicted(WINDOW_ID_ARMOUR, 0, &Stack::EMPTY, &helmet),
+            ]
+        } else {
+            Vec::new()
+        };
+        let mut data = air(&helmet);
+        let input = if transaction {
+            h.input(Packet::InventoryTransaction(InventoryTransaction {
+                actions,
+                transaction_data: InventoryTransactionData::UseItem(Box::new(data)),
+                ..Default::default()
+            }))
+        } else {
+            data.actions = actions;
+            h.auth(Vec::new(), Some(data))
+        };
+        h.run(vec![input]);
+        assert_eq!(cancels(), 1);
+        assert_eq!(h.held(), helmet);
+        main_counts(&h.packets(), slot)
+    };
+    assert_eq!(run(false, false), [0_u16; 0]);
+    assert_eq!(run(true, false), [1]);
+    assert_eq!(run(true, true), [1]);
 }
 
 // pmmp: BlockPlaceEvent

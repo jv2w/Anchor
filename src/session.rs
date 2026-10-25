@@ -55,6 +55,9 @@ const REPORT_INTERVAL: Duration = Duration::from_secs(1);
 /// Addresses blocked at once (PMMP `Network::blockAddress` has no bound); a block past it is
 /// refused with a warning.
 const MAX_BLOCKED: usize = 4096;
+/// The player lists the tick sends a player before its spawn status: one with the start game and
+/// one in the spawn window.
+const SPAWN_PLAYER_LISTS: usize = 2;
 
 /// Running networking: the transports, the accept task and every session.
 #[derive(Debug)]
@@ -84,6 +87,9 @@ struct Shared {
     /// Logged-in sessions have left the pre-login limit, and the tick counts players only
     /// at the join.
     waiting: Arc<Semaphore>,
+    /// The most a session's output before its spawn status moves its spawn deadline, so the
+    /// deadline ends even when no spawn status comes ([`max_send_extension`]).
+    max_send_extension: Duration,
 }
 
 /// A session's report to the accept task.
@@ -214,6 +220,7 @@ pub(crate) async fn start(
         waiting: Arc::new(Semaphore::new(
             usize::try_from(config.general.max_players).unwrap_or(usize::MAX),
         )),
+        max_send_extension: max_send_extension(config.general.max_players),
     });
     let (stop_tx, stop_rx) = oneshot::channel();
     let accept = Accept {
@@ -263,6 +270,18 @@ impl Network {
 fn max_message(batch: &batch::Settings) -> usize {
     let max = batch.max_batch_bytes();
     max.saturating_add(max / 6).saturating_add(42)
+}
+
+/// The most a session's output before its spawn status moves its spawn deadline: the time the
+/// player lists sent before it take at the download floor rate ([`packs::send_allowance`]) when
+/// `max_players` players (`max-players` at start) have skins of the largest size. The deadline's
+/// own 60 seconds are left for the rest of that output.
+fn max_send_extension(max_players: u32) -> Duration {
+    let players = usize::try_from(max_players).unwrap_or(usize::MAX);
+    let bytes = players
+        .saturating_mul(SPAWN_PLAYER_LISTS)
+        .saturating_mul(crate::tick::MAX_LIST_ENTRY_BYTES);
+    packs::send_allowance(bytes)
 }
 
 /// The accept task: numbers connections, spawns sessions, reaps them, keeps the status current

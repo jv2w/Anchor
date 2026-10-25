@@ -1,7 +1,8 @@
 //! Normal shutdown: a server process that reads `stop` from its console, or on Unix gets SIGINT,
 //! SIGTERM or SIGHUP, stops cleanly. It exits with success, writes no crash log, leaves the mark
 //! of a normal stop on every data file, and its final commit holds what the last tick changed,
-//! which a restart reads back.
+//! which a restart reads back. A process started with SIGHUP ignored (`nohup`) does not stop at
+//! SIGHUP.
 //!
 //! The test runs its own test binary as the server process (`shutdown_child`), writes to that
 //! child's standard input and, on Unix, sends it signals with `kill`.
@@ -114,12 +115,28 @@ struct Running {
     log: JoinHandle<Vec<String>>,
 }
 
+/// The command that runs the child test binary directly.
+fn child() -> Command {
+    Command::new(std::env::current_exe().unwrap())
+}
+
+/// The command that runs the child test binary with SIGHUP ignored, as `nohup` starts a program.
+/// The shell's `exec` keeps the ignored disposition and the process ID.
+#[cfg(unix)]
+fn child_ignoring_hangup() -> Command {
+    let mut command = Command::new("sh");
+    command
+        .args(["-c", "trap '' HUP; exec \"$0\" \"$@\""])
+        .arg(std::env::current_exe().unwrap());
+    command
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "off-tick: the test starts and reads its child process"
 )]
-fn start(data: &Path, mode: &str) -> Running {
-    let mut child = Command::new(std::env::current_exe().unwrap())
+fn start(mut command: Command, data: &Path, mode: &str) -> Running {
+    let mut child = command
         .args([
             "shutdown_child",
             "--exact",
@@ -195,13 +212,13 @@ fn data_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("shutdown-{name}-{}", std::process::id()))
 }
 
-/// Starts a child that places the marker, stops it with `stop` once it has, and checks that it
-/// stopped normally: it exits with success, writes no crash log, leaves the normal-stop mark on
-/// every data file, and a restart finds the marker.
-fn stop_saves_the_last_tick(name: &str, stop: impl FnOnce(&mut Running)) {
+/// Starts a child with `command` that places the marker, stops it with `stop` once it has, and
+/// checks that it stopped normally: it exits with success, writes no crash log, leaves the
+/// normal-stop mark on every data file, and a restart finds the marker.
+fn stop_saves_the_last_tick(name: &str, command: Command, stop: impl FnOnce(&mut Running)) {
     let data = data_dir(name);
     fresh(&data);
-    let mut server = start(&data, "place");
+    let mut server = start(command, &data, "place");
     assert_eq!(report(&mut server), "placed");
     stop(&mut server);
     let status = server.child.wait().unwrap();
@@ -212,7 +229,7 @@ fn stop_saves_the_last_tick(name: &str, stop: impl FnOnce(&mut Running)) {
     );
 
     // Nothing saved the marker before the stop: only the final commit holds it.
-    let mut server = start(&data, "check");
+    let mut server = start(child(), &data, "check");
     assert_eq!(report(&mut server), "gold=true");
     let status = server.child.wait().unwrap();
     assert!(status.success(), "the check child exited with {status}");
@@ -230,7 +247,7 @@ fn stop_saves_the_last_tick(name: &str, stop: impl FnOnce(&mut Running)) {
 
 #[test]
 fn a_console_stop_saves_the_last_tick_and_exits_cleanly() {
-    stop_saves_the_last_tick("console", |server| {
+    stop_saves_the_last_tick("console", child(), |server| {
         let mut stdin = server.child.stdin.take().unwrap();
         stdin.write_all(b"stop\n").unwrap();
         stdin.flush().unwrap();
@@ -250,17 +267,29 @@ fn signal(server: &Running, name: &str) {
 #[test]
 #[cfg(unix)]
 fn sigint_saves_the_last_tick_and_exits_cleanly() {
-    stop_saves_the_last_tick("sigint", |server| signal(server, "INT"));
+    stop_saves_the_last_tick("sigint", child(), |server| signal(server, "INT"));
 }
 
 #[test]
 #[cfg(unix)]
 fn sigterm_saves_the_last_tick_and_exits_cleanly() {
-    stop_saves_the_last_tick("sigterm", |server| signal(server, "TERM"));
+    stop_saves_the_last_tick("sigterm", child(), |server| signal(server, "TERM"));
 }
 
 #[test]
 #[cfg(unix)]
 fn sighup_saves_the_last_tick_and_exits_cleanly() {
-    stop_saves_the_last_tick("sighup", |server| signal(server, "HUP"));
+    stop_saves_the_last_tick("sighup", child(), |server| signal(server, "HUP"));
+}
+
+/// A server started with SIGHUP ignored, as `nohup` starts it, keeps running through a SIGHUP
+/// (a closed terminal): the SIGTERM after it is the first stop signal, which saves and exits
+/// cleanly, not a second one, which would end the process with status 130.
+#[test]
+#[cfg(unix)]
+fn sighup_ignored_at_start_keeps_the_server_running() {
+    stop_saves_the_last_tick("nohup", child_ignoring_hangup(), |server| {
+        signal(server, "HUP");
+        signal(server, "TERM");
+    });
 }

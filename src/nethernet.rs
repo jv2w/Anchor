@@ -31,7 +31,7 @@ use crate::auth::Auth;
 use crate::clock;
 use crate::crypto::{self, PublicKey};
 use crate::login::{self, Mode};
-use crate::raknet::{Flags, Inbound, Inbox, bind, ip_key, readable};
+use crate::raknet::{Flags, Inbound, Inbox, bind, ip_key, readable, report_undelivered};
 
 use identity::ServerIdentity;
 use peer::{Certificate, Peer};
@@ -284,6 +284,7 @@ pub(crate) struct Connection {
     commands: mpsc::Sender<Command>,
     signal: watch::Sender<Flags>,
     ping: watch::Receiver<Option<Duration>>,
+    undelivered: watch::Receiver<usize>,
 }
 
 impl Connection {
@@ -296,6 +297,13 @@ impl Connection {
     /// `None` until one was answered.
     pub(crate) fn ping(&self) -> Option<Duration> {
         *self.ping.borrow()
+    }
+
+    /// The bytes sent on the connection that are not delivered yet, queued in the peer or
+    /// unacknowledged in SCTP, as of the driver's last poll of the peer; the sender is dropped
+    /// once the connection is gone.
+    pub(crate) fn undelivered(&self) -> watch::Receiver<usize> {
+        self.undelivered.clone()
     }
 
     /// The client key the offer's identity proved; `None` for an offline offer without one.
@@ -503,6 +511,7 @@ struct Link {
     inbox: Inbox,
     signal: watch::Receiver<Flags>,
     ping: watch::Sender<Option<Duration>>,
+    undelivered: watch::Sender<usize>,
 }
 
 /// One peer in the driver.
@@ -782,6 +791,14 @@ impl Driver {
                 }
                 peer::Output::Timeout(at) => {
                     entry.timeout = at;
+                    let Some(link) = &entry.link else {
+                        return;
+                    };
+                    // A failed count closes the peer; polling again reports it.
+                    let Ok(undelivered) = entry.peer.undelivered() else {
+                        continue;
+                    };
+                    report_undelivered(&link.undelivered, undelivered);
                     return;
                 }
                 peer::Output::Open => {
@@ -946,6 +963,7 @@ fn accept(
     let (inbox, receiver) = Inbox::new(max_message);
     let (signal, watcher) = watch::channel(Flags::default());
     let (ping, pings) = watch::channel(None);
+    let (undelivered, undelivered_watcher) = watch::channel(0);
     let connection = Connection {
         id,
         addr,
@@ -954,6 +972,7 @@ fn accept(
         commands: commands.clone(),
         signal,
         ping: pings,
+        undelivered: undelivered_watcher,
     };
     if let Err(error) = accepted.try_send(connection) {
         debug!(%addr, %error, "nethernet connection not accepted");
@@ -963,6 +982,7 @@ fn accept(
         inbox,
         signal: watcher,
         ping,
+        undelivered,
     })
 }
 

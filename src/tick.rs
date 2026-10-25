@@ -321,6 +321,8 @@ pub(crate) struct State {
     clock: survival::Clock,
     /// Who trades with which villager NPC.
     trades: trade::Trades,
+    /// The skin bytes the server may still broadcast, and whose skin goes next.
+    skin_budget: survival::SkinBudget,
     /// The custom items, blocks and recipes (fixed at build).
     custom: std::sync::Arc<crate::custom::Registry>,
     /// What the server was built with, which the input log names (fixed at build).
@@ -396,7 +398,8 @@ pub struct Player {
     /// Packets held once for every player they go to (a skin of up to 4 MiB), queued by the
     /// serial phases this tick and sent after the outbox ([`Player::send_shared`]).
     shared_outbox: Vec<std::sync::Arc<Packet>>,
-    /// The outbox overflowed this tick: the player is disconnected at the end of the tick.
+    /// The outbox, or the blocks to send again ([`view::MAX_RESYNCS`]), overflowed this tick: the
+    /// player is disconnected at the end of the tick.
     overflowed: bool,
     /// What the public API marked for the end of the tick ([`player::sync`]).
     marks: player::Marks,
@@ -527,6 +530,7 @@ impl State {
             rules: rules::Rules::default(),
             clock: survival::Clock::default(),
             trades: trade::Trades::default(),
+            skin_budget: survival::SkinBudget::default(),
             custom,
             fingerprints,
             identity: None,
@@ -620,6 +624,7 @@ impl State {
             rules,
             clock,
             trades,
+            skin_budget,
             custom: _,
             fingerprints: _,
             // Fixed at start; the input log chains on from it.
@@ -786,6 +791,7 @@ impl State {
         rules.hash_into(&mut h);
         clock.hash_into(&mut h);
         trades.hash_into(&mut h);
+        skin_budget.hash_into(&mut h);
         commands.hash_into(&mut h);
         forms.hash_into(&mut h);
         tasks.hash_into(&mut h);
@@ -1195,7 +1201,8 @@ fn wake(state: &mut State) {
     }
 }
 
-/// Disconnects the players whose outbox overflowed this tick ([`MAX_OUTBOX`]).
+/// Disconnects the players whose outbox ([`MAX_OUTBOX`]) or blocks to send again
+/// ([`view::MAX_RESYNCS`]) overflowed this tick.
 fn drop_overflowed(state: &mut State, output: &mut Output) {
     let overflowed: Vec<SessionId> = state
         .players
@@ -1628,6 +1635,28 @@ mod tests {
         }
     }
 
+    /// The blocks `packets` set: (position, network ID), from `UpdateBlock` and
+    /// `UpdateSubChunkBlocks`, in order.
+    pub(super) fn blocks_set(packets: &[Packet]) -> Vec<(BlockPos, u32)> {
+        let mut out = Vec::new();
+        for p in packets {
+            match p {
+                Packet::UpdateBlock(u) => {
+                    let [x, y, z] = u.position;
+                    out.push((BlockPos::new(x, y, z), u.new_block_runtime_id));
+                }
+                Packet::UpdateSubChunkBlocks(u) => {
+                    for b in &u.blocks {
+                        let [x, y, z] = b.block_pos;
+                        out.push((BlockPos::new(x, y, z), b.block_runtime_id));
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
     fn identity(n: u64) -> Identity {
         Identity {
             name: format!("player{n}"),
@@ -1712,7 +1741,7 @@ mod tests {
                                 sent.push(p.id());
                                 packets.push(p);
                             }
-                            Message::SharedPacket(p) => {
+                            Message::SharedPacket(p) | Message::SpawnList(p) => {
                                 sent.push(p.id());
                                 packets.push((*p).clone());
                             }
@@ -2137,19 +2166,24 @@ mod tests {
         assert_ne!(hashes[1], hashes[2]);
     }
 
-    /// The `PlayerList` packets shared among the messages queued on `rx`.
-    fn shared_lists(rx: &mut mpsc::Receiver<Outbound>) -> Vec<std::sync::Arc<Packet>> {
-        let mut lists = Vec::new();
+    /// The `PlayerList` packets shared among the messages queued on `rx`: those of spawn windows,
+    /// then the others.
+    fn shared_lists(
+        rx: &mut mpsc::Receiver<Outbound>,
+    ) -> (Vec<std::sync::Arc<Packet>>, Vec<std::sync::Arc<Packet>>) {
+        let (mut windows, mut others) = (Vec::new(), Vec::new());
         while let Ok(Outbound::Send(messages)) = rx.try_recv() {
             for m in messages {
-                if let Message::SharedPacket(p) = m
-                    && matches!(*p, Packet::PlayerList(_))
-                {
-                    lists.push(p);
+                match m {
+                    Message::SpawnList(p) if matches!(*p, Packet::PlayerList(_)) => windows.push(p),
+                    Message::SharedPacket(p) if matches!(*p, Packet::PlayerList(_)) => {
+                        others.push(p);
+                    }
+                    _ => {}
                 }
             }
         }
-        lists
+        (windows, others)
     }
 
     #[test]
@@ -2199,7 +2233,7 @@ mod tests {
             for m in messages {
                 let packet = match m {
                     Message::Packet(p) => p,
-                    Message::SharedPacket(p) => (*p).clone(),
+                    Message::SharedPacket(p) | Message::SpawnList(p) => (*p).clone(),
                     Message::Shared(_) => continue,
                 };
                 if let Packet::PlayerList(l) = &packet {
@@ -2237,11 +2271,12 @@ mod tests {
             receivers.push(rx);
         }
         tick(&mut state, &mut joins, &mut output);
-        // Every window of the tick (start game and spawn window) sends one and the same list.
+        // Every window of the tick (start game and spawn window) sends one and the same list,
+        // marked as a spawn window's.
         let windows: Vec<_> = receivers.iter_mut().map(shared_lists).collect();
-        let roster = std::sync::Arc::clone(&windows[0][0]);
-        for lists in &windows {
-            assert_eq!(lists.len(), 2);
+        let roster = std::sync::Arc::clone(&windows[0].0[0]);
+        for (lists, others) in &windows {
+            assert_eq!((lists.len(), others.len()), (2, 0));
             assert!(lists.iter().all(|l| std::sync::Arc::ptr_eq(l, &roster)));
         }
         // Each entry holds its player's own skin, not a copy.
@@ -2260,13 +2295,13 @@ mod tests {
                 player.identity.skin.shared()
             ));
         }
-        // A later join is announced to the others with one shared entry.
+        // A later join is announced to the others with one shared entry, not a spawn window's.
         let (j, _rx4) = join(4, 0);
         tick(&mut state, &mut vec![j], &mut output);
         let announced: Vec<_> = receivers.iter_mut().map(shared_lists).collect();
-        let entry = std::sync::Arc::clone(&announced[0][0]);
-        for lists in &announced {
-            assert_eq!(lists.len(), 1);
+        let entry = std::sync::Arc::clone(&announced[0].1[0]);
+        for (windows, lists) in &announced {
+            assert_eq!((windows.len(), lists.len()), (0, 1));
             assert!(std::sync::Arc::ptr_eq(&lists[0], &entry));
         }
     }

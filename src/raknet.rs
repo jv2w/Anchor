@@ -217,6 +217,12 @@ impl Flags {
     }
 }
 
+/// Sets a connection's count of bytes not yet delivered, waking its session only when the count
+/// changed (RakNet and NetherNet).
+pub(crate) fn report_undelivered(undelivered: &watch::Sender<usize>, bytes: usize) {
+    undelivered.send_if_modified(|count| std::mem::replace(count, bytes) != bytes);
+}
+
 /// A game message for the socket task to send.
 #[derive(Debug)]
 struct Outbound {
@@ -281,6 +287,7 @@ pub(crate) struct Connection {
     outbound: mpsc::Sender<Outbound>,
     signal: watch::Sender<Flags>,
     ping: watch::Receiver<Option<Duration>>,
+    undelivered: watch::Receiver<usize>,
 }
 
 impl Connection {
@@ -293,6 +300,12 @@ impl Connection {
     /// was (`RakLib`'s ping measure, which PMMP reports).
     pub(crate) fn ping(&self) -> Option<Duration> {
         *self.ping.borrow()
+    }
+
+    /// The bytes sent on the connection that the client has not acknowledged yet, as of the
+    /// socket task's last update; the sender is dropped once the connection is gone.
+    pub(crate) fn undelivered(&self) -> watch::Receiver<usize> {
+        self.undelivered.clone()
     }
 
     /// The next game message (after its 0xfe byte), or `None` once the connection is closed.
@@ -336,6 +349,7 @@ struct Link {
     inbox: Inbox,
     signal: watch::Receiver<Flags>,
     ping: watch::Sender<Option<Duration>>,
+    undelivered: watch::Sender<usize>,
 }
 
 /// The sockets and session channels: the listener's `Sink`.
@@ -368,6 +382,7 @@ impl Sink for Io {
         let (inbox, receiver) = Inbox::new(self.max_message);
         let (signal, watcher) = watch::channel(Flags::default());
         let (ping, pings) = watch::channel(None);
+        let (undelivered, undelivered_watcher) = watch::channel(0);
         let connection = Connection {
             id,
             addr,
@@ -375,6 +390,7 @@ impl Sink for Io {
             outbound: self.outbound.clone(),
             signal,
             ping: pings,
+            undelivered: undelivered_watcher,
         };
         if let Err(error) = self.accepted.try_send(connection) {
             debug!(%addr, %error, "raknet connection not accepted");
@@ -385,6 +401,7 @@ impl Sink for Io {
             inbox,
             signal: watcher,
             ping,
+            undelivered,
         };
         self.links.insert(id, link);
         true
@@ -403,6 +420,12 @@ impl Sink for Io {
     fn ping(&mut self, id: u64, rtt: Duration) {
         if let Some(link) = self.links.get(&id) {
             link.ping.send_replace(Some(rtt));
+        }
+    }
+
+    fn undelivered(&mut self, id: u64, bytes: usize) {
+        if let Some(link) = self.links.get(&id) {
+            report_undelivered(&link.undelivered, bytes);
         }
     }
 }
@@ -648,6 +671,7 @@ pub(crate) mod tests {
         let (outbound, _) = mpsc::channel(1);
         let (signal, _) = watch::channel(Flags::default());
         let (_, ping) = watch::channel(None);
+        let (_, undelivered) = watch::channel(0);
         Connection {
             id: 0,
             addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
@@ -655,7 +679,49 @@ pub(crate) mod tests {
             outbound,
             signal,
             ping,
+            undelivered,
         }
+    }
+
+    /// The socket task's ends of a [`linked_connection`].
+    pub(crate) struct Far {
+        _inbound: mpsc::Sender<Inbound>,
+        sent: mpsc::Receiver<Outbound>,
+        /// What the connection reports as not yet delivered.
+        pub(crate) undelivered: watch::Sender<usize>,
+    }
+
+    impl Far {
+        /// The next message the session sent; `None` once the connection is dropped.
+        pub(crate) async fn sent(&mut self) -> Option<Vec<u8>> {
+            self.sent.recv().await.map(|outbound| outbound.message)
+        }
+    }
+
+    /// A connection without a socket task, for a session test that plays the socket task
+    /// itself: it receives nothing, keeps what its session sends and reports what the test sets
+    /// as undelivered.
+    pub(crate) fn linked_connection() -> (Connection, Far) {
+        let (inbound_sender, inbound) = mpsc::channel(1);
+        let (outbound, sent) = mpsc::channel(COMMAND_QUEUE);
+        let (signal, _) = watch::channel(Flags::default());
+        let (_, ping) = watch::channel(None);
+        let (undelivered, undelivered_watcher) = watch::channel(0);
+        let connection = Connection {
+            id: 0,
+            addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            inbound,
+            outbound,
+            signal,
+            ping,
+            undelivered: undelivered_watcher,
+        };
+        let far = Far {
+            _inbound: inbound_sender,
+            sent,
+            undelivered,
+        };
+        (connection, far)
     }
 
     #[test]

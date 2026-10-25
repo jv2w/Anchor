@@ -55,6 +55,8 @@ pub(super) trait Sink {
     fn close(&mut self, id: u64);
     /// An accepted connection's client answered a connected ping after `rtt`.
     fn ping(&mut self, id: u64, rtt: Duration);
+    /// An open connection's bytes still queued or unacknowledged, after each update.
+    fn undelivered(&mut self, id: u64, bytes: usize);
 }
 
 /// Listener settings.
@@ -580,6 +582,9 @@ impl Conn {
         let mut transmit = |data: &[u8]| sink.transmit(addr, data);
         self.peer.flush_acks(&mut transmit);
         self.peer.flush(now, &mut transmit)?;
+        if self.state == State::Open {
+            sink.undelivered(self.id, self.peer.unsent());
+        }
         Ok(())
     }
 }
@@ -620,6 +625,7 @@ pub(super) mod tests {
         delivered: Vec<(u64, Vec<u8>)>,
         closed: Vec<u64>,
         pings: Vec<(u64, Duration)>,
+        undelivered: Vec<(u64, usize)>,
         accept: bool,
         deliver: bool,
     }
@@ -632,6 +638,7 @@ pub(super) mod tests {
                 delivered: Vec::new(),
                 closed: Vec::new(),
                 pings: Vec::new(),
+                undelivered: Vec::new(),
                 accept: true,
                 deliver: true,
             }
@@ -673,6 +680,10 @@ pub(super) mod tests {
 
         fn ping(&mut self, id: u64, rtt: Duration) {
             self.pings.push((id, rtt));
+        }
+
+        fn undelivered(&mut self, id: u64, bytes: usize) {
+            self.undelivered.push((id, bytes));
         }
     }
 
@@ -1126,6 +1137,30 @@ pub(super) mod tests {
         }
         assert_eq!(sink.delivered, [(id, b"hello".to_vec()), (id, big.clone())]);
         assert_eq!(client.game(), [big.as_slice()]);
+    }
+
+    /// A connection's session learns what it has yet to deliver: a message counts from the
+    /// update after it was sent until the client acknowledged it.
+    #[test]
+    fn updates_report_the_bytes_not_yet_acknowledged() {
+        let mut listener = listener();
+        let mut sink = Recorder::new();
+        let mut client = Client::new(addr(1, 1), 576);
+        let id = connect(&mut listener, &mut sink, &mut client, T);
+        let big = vec![3; 100_000];
+        listener.send(T, client.addr, id, big.clone(), &mut sink);
+        listener.update(T, &mut sink);
+        assert!(
+            matches!(sink.undelivered.last(), Some(&(i, bytes)) if i == id && bytes > big.len())
+        );
+        for step in 1..20 {
+            let now = T + Duration::from_millis(step * 10);
+            listener.update(now, &mut sink);
+            client.update(now);
+            pump(&mut listener, &mut sink, &mut client, now);
+        }
+        assert_eq!(client.game(), [big.as_slice()]);
+        assert_eq!(sink.undelivered.last(), Some(&(id, 0)));
     }
 
     #[test]

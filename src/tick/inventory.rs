@@ -55,14 +55,14 @@ use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
 use crate::protocol::consts::{
-    ContainerId, ContainerType, InteractAction, WINDOW_ID_ARMOUR, WINDOW_ID_INVENTORY,
-    WINDOW_ID_OFF_HAND, WINDOW_ID_UI,
+    ContainerId, ContainerType, InteractAction, InventoryActionSource, WINDOW_ID_ARMOUR,
+    WINDOW_ID_INVENTORY, WINDOW_ID_OFF_HAND, WINDOW_ID_UI,
 };
 use crate::protocol::packet::{
     BlockPickRequest, ContainerClose, ContainerOpen, ContainerSetData, Interact, InventoryContent,
     InventorySlot, MobEquipment, Packet, PlayerHotBar,
 };
-use crate::protocol::{FullContainerName, ItemInstance};
+use crate::protocol::{FullContainerName, InventoryAction, ItemInstance};
 use crate::save::WorldIndex;
 use crate::world::BlockPos;
 
@@ -1187,7 +1187,8 @@ fn send_own(player: &mut Player, r: SlotRef, item: ItemInstance) {
 }
 
 /// Sends every slot of the player's own windows and of the open window (PMMP `syncAll`), at
-/// most once a tick: after a refused request the client's predictions are undone this way.
+/// most once a tick: after a refused request or a mispredicted item click
+/// ([`resend_mispredicted`]) the client's predictions are undone this way.
 fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntities) {
     if player.inventory.resent == Some(tick) {
         return;
@@ -1204,6 +1205,61 @@ fn resend_all(player: &mut Player, tick: u64, blocks: &block_entity::BlockEntiti
     for p in packets {
         player.send_packet(p);
     }
+}
+
+/// After a client's item click: if any of the player's own slots (main, armour, off hand) the
+/// client predicted holds another stack than the prediction, [`resend_all`] (PMMP
+/// `syncMismatchedPredictedSlotChanges`). The client changed those slots as it sent the click
+/// and keeps them until told otherwise, so a refused click would leave it a count that fails the
+/// held item check of every later click. A right prediction sends nothing.
+pub(super) fn resend_mispredicted(
+    state: &mut State,
+    session: SessionId,
+    predicted: &[InventoryAction],
+) {
+    let tick = state.tick;
+    let blocks = &state.rules.block_entities;
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    if player.phase == Phase::Loading {
+        return;
+    }
+    if predicted
+        .iter()
+        .any(|a| is_mispredicted(&player.inventory, a))
+    {
+        resend_all(player, tick, blocks);
+    }
+}
+
+/// Whether `action` predicts one of the player's own slots as other than it is: another item,
+/// meta, count or tag. The block runtime ID is not compared: BDS matches a client's stacks
+/// without it (stack requests and the held item, P6), so a form differing only there is no
+/// misprediction.
+fn is_mispredicted(inv: &Inventory, action: &InventoryAction) -> bool {
+    if action.source_type != u32::from(InventoryActionSource::Container) {
+        return false;
+    }
+    let Some(window) = action.window_id.and_then(|w| u32::try_from(w).ok()) else {
+        return false;
+    };
+    let Ok(i) = u8::try_from(action.inventory_slot) else {
+        return false;
+    };
+    let r = match window {
+        WINDOW_ID_INVENTORY => SlotRef::Main(i),
+        WINDOW_ID_ARMOUR => SlotRef::Armor(i),
+        WINDOW_ID_OFF_HAND if i == 0 => SlotRef::Offhand,
+        _ => return false,
+    };
+    let Some(slot) = inv.get(r) else {
+        return false;
+    };
+    let (server, client) = (slot.stack.to_network(), &action.new_item.stack);
+    server.item_type != client.item_type
+        || server.count != client.count
+        || server.nbt_data != client.nbt_data
 }
 
 /// `InventoryContent` of the four windows a player always has, in BDS order: inventory,
@@ -2563,7 +2619,7 @@ pub(super) fn drop_from_main(state: &mut State, session: SessionId, slot: u8, co
 }
 
 /// Sends main slot `slot` as it is, undoing what the client predicted.
-fn resend_main(state: &mut State, session: SessionId, slot: u8) {
+pub(super) fn resend_main(state: &mut State, session: SessionId, slot: u8) {
     if let Some(player) = state.players.get_mut(&session)
         && let Some(s) = player.inventory.main.get(slot)
     {

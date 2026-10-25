@@ -45,7 +45,7 @@ use crate::save::WorldIndex;
 use crate::world::{BlockPos, Weather, World};
 
 pub(super) use api::{marked, sync};
-pub(super) use appearance::SKIN_BYTES_PER_TICK;
+pub(super) use appearance::{SkinBudget, send_skins, skin_waits};
 pub(super) use attributes::{
     adventure_settings, all_attributes, full_metadata, game_rules, random_tick_speed_changed,
     update_abilities,

@@ -4759,7 +4759,7 @@ mod tests {
                     if let Outbound::Send(messages) = out {
                         seen.extend(messages.into_iter().filter_map(|m| match m {
                             Message::Packet(p) => Some(p),
-                            Message::SharedPacket(p) => Some((*p).clone()),
+                            Message::SharedPacket(p) | Message::SpawnList(p) => Some((*p).clone()),
                             Message::Shared(_) => None,
                         }));
                     }

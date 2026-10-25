@@ -23,7 +23,7 @@
 - 창 ID: 플레이어마다 2부터 열 때마다 1씩 는다(자기 인벤토리 창, 거래 창도 같은 카운터). 닫기는 클라이언트 ContainerClose(창, 열린 종류, false) → 공식 서버 ContainerClose(같은 창, 종류 247(= -9 NONE), ServerSide false).
 - 블록 클릭 뒤 재동기화: 아이템을 쓰는 클릭(설치, 뼛가루)마다 공식 서버는 바뀐 인벤토리(InventoryContent 0·120·124·119, PlayerHotBar select false)와 블록 갱신(클릭 블록, 놓인 블록, 아래·위 블록) 뒤에 플레이어 전체 상태(UpdateAttributes 전체, SetActorData 전체, InventoryContent 4창, PlayerHotBar select true)와 놓인 블록을 한 번 더 보낸다. 클라이언트 예측 액션을 넣어도 같다.
 - 콘솔 give: 공식 서버는 서버 → 클라이언트 InventoryTransaction(normal, 액션 둘: 컨테이너 창 0 칸 N 빈 칸 → 아이템 새 ID, 출처 3(creative) 칸 1 아이템 → 빈 칸), InventoryContent 4창, 소리 `pop`, Text(`commands.give.successRecipient`)를 보낸다.
-- Anchor: 컨테이너 번호, 요청 ID 규칙, 요청 안의 스택 ID 규칙, 응답 칸 순서를 공식 서버와 같게 한다. 스택 ID 카운터는 플레이어마다다. 컨테이너가 자기 틱에서 개수만 바꾼 칸은 ID를 유지한다(공식 서버). 블록 클릭 뒤 전체 재동기화와 give의 InventoryTransaction은 따라 하지 않는다(비교는 결과 상태만 본다).
+- Anchor: 컨테이너 번호, 요청 ID 규칙, 요청 안의 스택 ID 규칙, 응답 칸 순서를 공식 서버와 같게 한다. 스택 ID 카운터는 플레이어마다다. 컨테이너가 자기 틱에서 개수만 바꾼 칸은 ID를 유지한다(공식 서버). 아이템 클릭(UseItem ClickBlock·ClickAir) 뒤에는 클라이언트가 예측한 자기 칸(창 0·120·119) 중 하나라도 서버 칸과 다르면(아이템, meta, 개수, 태그) 4창과 열린 창을 다시 보낸다(틱마다 한 번). 클라이언트는 클릭을 보내며 칸을 미리 바꾸고 서버가 다시 보낼 때까지 그대로 두므로, 거부된 클릭을 고치지 않으면 들고 있는 개수가 서버와 어긋나 그 뒤 클릭이 모두 거부된다. 예측이 맞았거나 예측 없는 클릭에는 보내지 않는다(누르고 있는 클릭이 틱마다 오므로). 플레이어 전체 상태 재전송과 give의 InventoryTransaction은 따라 하지 않는다(비교는 결과 상태만 본다).
 
 ## 제작과 레시피 책
 - 순서(`craft`): give 원목 4 → Interact(OpenInventory, 자기 런타임 ID) → ContainerOpen(창 2, 종류 255(-1 인벤토리), 위치 = 플레이어 눈 블록, 엔티티 -1) → 원목을 13:28에 Place → 판자 4번 → 판자를 28~31에 하나씩 → 작업대 → 막대(레시피 책) → ContainerClose → 작업대 설치 → 작업대 클릭 → ContainerOpen(창 3, 종류 1, 블록 위치) → 판자 32·33·34, 막대 36·39 → 곡괭이 → 닫기.

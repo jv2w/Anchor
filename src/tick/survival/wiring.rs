@@ -1442,6 +1442,99 @@ fn skin_changes_reach_everyone_or_go_back_to_the_player() {
     assert_eq!(game.player(1).skin().full_id, "new");
 }
 
+/// A valid skin of about 4 MB with full ID `id`: a 1000 × 1000 image (the budget counts bytes
+/// before compression).
+fn big_skin(id: &str) -> crate::protocol::Skin {
+    crate::protocol::Skin {
+        skin_image_width: 1000,
+        skin_image_height: 1000,
+        skin_data: vec![7; 1000 * 1000 * 4],
+        ..skin(id)
+    }
+}
+
+/// The bytes the skin budget counts for each `PlayerSkin` packet in `packets`, with its full ID.
+fn skin_sizes(packets: Vec<Packet>) -> Vec<(String, usize)> {
+    packets
+        .into_iter()
+        .filter_map(|p| match p {
+            Packet::PlayerSkin(s) => Some((
+                s.skin.full_id.clone(),
+                crate::tick::queue::Skin::new(s.skin).size(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_skin_of_the_largest_size_reaches_everyone_in_its_tick() {
+    let mut game = Game::new(2, Listeners::default());
+    let mut largest = skin("largest");
+    let size = crate::tick::queue::Skin::new(std::sync::Arc::new(largest.clone())).size();
+    largest.skin_geometry = vec![b' '; crate::entity::MAX_SKIN_BYTES - size];
+    let input = skin_input(&mut game, 1, largest);
+    game.run(vec![input]);
+    assert_eq!(
+        skin_sizes(game.take(2)),
+        [("largest".to_owned(), crate::entity::MAX_SKIN_BYTES)]
+    );
+}
+
+#[test]
+fn skin_changes_every_second_reach_a_receiver_within_the_skin_budget() {
+    const SECONDS: usize = 60;
+    let mut game = Game::new(2, Listeners::default());
+    let mut sent = 0_usize;
+    for t in 0..SECONDS * 20 {
+        let inputs = if t % 20 == 0 {
+            vec![skin_input(&mut game, 1, big_skin(&format!("big{t}")))]
+        } else {
+            Vec::new()
+        };
+        game.run(inputs);
+        game.take(1);
+        sent += skin_sizes(game.take(2))
+            .into_iter()
+            .map(|(_, size)| size)
+            .sum::<usize>();
+    }
+    // One skin of the largest size at once, then 128 KiB a second.
+    let budget = crate::entity::MAX_SKIN_BYTES + (128 << 10) * SECONDS;
+    assert!(sent <= budget, "{sent} skin bytes in {SECONDS} s");
+    // The latest skin waits rather than older ones going out.
+    assert!(sent >= 2 * 4_000_000);
+}
+
+#[test]
+fn players_changing_skins_together_each_get_a_turn() {
+    let mut game = Game::new(3, Listeners::default());
+    let mut senders = Vec::new();
+    // Two skins of the largest size refill in 64 seconds; each player waits at most that.
+    for t in 0..70 * 20 {
+        let inputs = if t % 20 == 0 {
+            [1, 2]
+                .map(|s| skin_input(&mut game, s, big_skin(&format!("{s}/{t}"))))
+                .into()
+        } else {
+            Vec::new()
+        };
+        game.run(inputs);
+        game.take(1);
+        game.take(2);
+        senders.extend(
+            skin_sizes(game.take(3))
+                .into_iter()
+                .map(|(id, _)| id.split_once('/').map(|(s, _)| s.to_owned()).unwrap()),
+        );
+    }
+    assert!(senders.len() >= 3, "{senders:?}");
+    assert!(
+        senders.windows(2).all(|w| w[0] != w[1]),
+        "turns alternate: {senders:?}"
+    );
+}
+
 #[test]
 fn rules_without_listeners_build_no_events_and_change_nothing() {
     // The same script with and without monitors gives the same state.

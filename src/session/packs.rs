@@ -3,9 +3,12 @@
 //! `ResourcePacksPacketHandler` checks it, and the chunks it downloads.
 //!
 //! The client asks for the packs it lacks once, before the stack, and for each chunk of them once.
-//! The chunks go out in request order at most one per [`CHUNK_INTERVAL`] (gophertunnel). A
-//! download extends the spawn deadline by an allowance for its size ([`allowance`]), so the
-//! transfer does not eat into the 60 seconds a client has to spawn but still ends.
+//! The chunks go out in request order at most one per [`CHUNK_INTERVAL`] (gophertunnel), and
+//! only while the connection holds at most [`MAX_UNDELIVERED`] bytes it has not delivered (PMMP
+//! waits for each chunk's acknowledgement): a slow link slows the download instead of filling
+//! the transport's outbound cap. A download extends the spawn deadline by an allowance for its
+//! size ([`allowance`]), so the transfer does not eat into the 60 seconds a client has to spawn
+//! but still ends.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -25,6 +28,10 @@ pub(super) const CHUNK_BYTES: u32 = 128 * 1024;
 /// The least time between two chunks to one client (gophertunnel
 /// `DefaultResourcePackChunkSendDelay`: clients after 1.26.30 may fail downloads sent faster).
 pub(super) const CHUNK_INTERVAL: Duration = Duration::from_millis(200);
+/// The most bytes the connection may still have to deliver when the next chunk goes out: about
+/// one chunk, so a download keeps at most about two chunks in the transport however slow the
+/// link is.
+pub(super) const MAX_UNDELIVERED: usize = CHUNK_BYTES as usize;
 /// What a download adds to the spawn deadline, plus [`CHUNK_ALLOWANCE`] per chunk.
 const DOWNLOAD_BASE: Duration = Duration::from_secs(30);
 /// Per chunk: ten times [`CHUNK_INTERVAL`], so a client may download at 64 KiB/s.
@@ -215,6 +222,13 @@ fn chunk_count(size: u64) -> u32 {
 /// How much later a download of `chunks` chunks moves the spawn deadline.
 fn allowance(chunks: u32) -> Duration {
     DOWNLOAD_BASE.saturating_add(CHUNK_ALLOWANCE.saturating_mul(chunks))
+}
+
+/// How much later sending `bytes` before the spawn moves the spawn deadline: the time they take
+/// at the download's floor rate, [`CHUNK_ALLOWANCE`] per [`CHUNK_BYTES`].
+pub(super) fn send_allowance(bytes: usize) -> Duration {
+    let bytes = u32::try_from(bytes).unwrap_or(u32::MAX);
+    CHUNK_ALLOWANCE.saturating_mul(bytes) / CHUNK_BYTES
 }
 
 #[cfg(test)]

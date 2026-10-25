@@ -479,7 +479,7 @@ impl Window {
     fn player_list(&self) -> impl Iterator<Item = Message> + '_ {
         self.player_list
             .iter()
-            .map(|p| Message::SharedPacket(Arc::clone(p)))
+            .map(|p| Message::SpawnList(Arc::clone(p)))
     }
 }
 

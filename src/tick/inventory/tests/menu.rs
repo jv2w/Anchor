@@ -4,7 +4,7 @@
 use std::cell::Cell;
 
 use super::super::super::Context;
-use super::super::super::tests::{input, packet};
+use super::super::super::tests::{blocks_set, input, packet};
 use super::super::super::view::MAX_FAKE_BLOCKS;
 use super::*;
 use crate::menu::{self as m, Action, Click, Kind as MenuKind, Menu, Response};
@@ -43,28 +43,6 @@ fn id(s: SessionId) -> crate::player::Id {
 /// One tick; the packets each joined session got, in join order.
 fn tick_each(w: &mut World, inputs: Vec<Input>) -> Vec<Vec<Packet>> {
     w.tick_each(inputs)
-}
-
-/// The blocks `packets` set: (position, network ID), from `UpdateBlock` and
-/// `UpdateSubChunkBlocks`.
-fn blocks_set(packets: &[Packet]) -> Vec<(BlockPos, u32)> {
-    let mut out = Vec::new();
-    for p in packets {
-        match p {
-            Packet::UpdateBlock(u) => {
-                let [x, y, z] = u.position;
-                out.push((BlockPos::new(x, y, z), u.new_block_runtime_id));
-            }
-            Packet::UpdateSubChunkBlocks(u) => {
-                for b in &u.blocks {
-                    let [x, y, z] = b.block_pos;
-                    out.push((BlockPos::new(x, y, z), b.block_runtime_id));
-                }
-            }
-            _ => {}
-        }
-    }
-    out
 }
 
 /// A block near the player, in a chunk its client was sent.

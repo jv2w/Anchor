@@ -189,9 +189,10 @@ impl Server {
     /// Runs the server until a [`ShutdownHandle`] or a stop signal stops it, blocking the calling
     /// thread.
     ///
-    /// The stop signals are Ctrl+C, SIGTERM and SIGHUP on Unix, and Ctrl+C, Ctrl+Break and the
-    /// console's close, logoff and shutdown events on Windows (after those three Windows ends the
-    /// process about 5 seconds later, whether the stop finished or not). A second stop signal
+    /// The stop signals are Ctrl+C, SIGTERM and SIGHUP on Unix (SIGHUP only when it is not
+    /// ignored as the server starts, as `nohup` ignores it), and Ctrl+C, Ctrl+Break and the
+    /// console's close and shutdown events on Windows (after those two Windows ends the process
+    /// about 5 seconds later, whether the stop finished or not). A second stop signal
     /// ends the process with status 130, as after a crash: the last commit stays. It first lets
     /// the console log write its lines, for half a second at most.
     ///
@@ -630,25 +631,58 @@ macro_rules! forward {
 }
 
 /// The stop signals on Unix: Ctrl+C, SIGTERM (`kill`, service managers) and SIGHUP (the
-/// terminal closed), as PMMP handles them.
+/// terminal closed), as PMMP handles them. SIGHUP is not listened for when it is ignored as the
+/// server starts (`nohup`): the operator asked a closed terminal to leave the process running,
+/// and a handler would replace that disposition. If that cannot be read, SIGHUP is listened for,
+/// since with the default disposition a closed terminal would end the process without the final
+/// save.
 #[cfg(unix)]
 fn listen(received: &mpsc::Sender<&'static str>) {
     use tokio::signal::unix::{SignalKind, signal};
+    let hangup_ignored = hangup_ignored().unwrap_or_else(|e| {
+        warn!(error = %e, "cannot tell whether SIGHUP is ignored; SIGHUP stops the server");
+        false
+    });
     forward!(received, "SIGINT", signal(SignalKind::interrupt()));
     forward!(received, "SIGTERM", signal(SignalKind::terminate()));
-    forward!(received, "SIGHUP", signal(SignalKind::hangup()));
+    if !hangup_ignored {
+        forward!(received, "SIGHUP", signal(SignalKind::hangup()));
+    }
 }
 
-/// The stop signals on Windows: Ctrl+C, Ctrl+Break, and the console's close, logoff and shutdown
-/// events. After those three Windows ends the process about 5 seconds later, whether the stop
-/// has finished or not.
+/// The most bytes `/proc/self/status` is read up to: it holds a few dozen short lines.
+#[cfg(unix)]
+const PROCESS_STATUS_LIMIT_BYTES: u64 = 64 * 1024;
+
+/// Whether SIGHUP is ignored now, from the `SigIgn` mask of `/proc/self/status` (Linux).
+#[cfg(unix)]
+fn hangup_ignored() -> std::io::Result<bool> {
+    use std::io::{Error, ErrorKind};
+    let status =
+        crate::fs::read_bounded(Path::new("/proc/self/status"), PROCESS_STATUS_LIMIT_BYTES)?;
+    let mask = status
+        .split(|&byte| byte == b'\n')
+        .find_map(|line| line.strip_prefix(b"SigIgn:"))
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "no SigIgn line"))?;
+    // The mask is hexadecimal with signal 1 (SIGHUP) as the lowest bit of the last digit.
+    let last_digit = mask
+        .trim_ascii()
+        .last()
+        .and_then(|&digit| char::from(digit).to_digit(16))
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "the SigIgn mask is not hexadecimal"))?;
+    Ok(last_digit & 1 == 1)
+}
+
+/// The stop signals on Windows: Ctrl+C, Ctrl+Break, and the console's close and shutdown events.
+/// After those two Windows ends the process about 5 seconds later, whether the stop has finished
+/// or not. The logoff event is not a stop: only a process run as a service receives it, at any
+/// user's logoff, and the default handler that runs without a listener keeps a service running.
 #[cfg(windows)]
 fn listen(received: &mpsc::Sender<&'static str>) {
     use tokio::signal::windows;
     forward!(received, "Ctrl+C", windows::ctrl_c());
     forward!(received, "Ctrl+Break", windows::ctrl_break());
     forward!(received, "close", windows::ctrl_close());
-    forward!(received, "logoff", windows::ctrl_logoff());
     forward!(received, "shutdown", windows::ctrl_shutdown());
 }
 

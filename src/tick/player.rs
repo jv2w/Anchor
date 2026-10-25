@@ -274,13 +274,14 @@ impl Marks {
 
 /// Does what the player setters marked this tick, after the inputs, tasks and rules and before
 /// the views move and the output is built: kicked and transferred players get their last packet
-/// and leave, refused hotbar selections are answered, teleported players move, and the survival
-/// marks are done.
+/// and leave, refused hotbar selections are answered, teleported players move, the survival
+/// marks are done, and changed skins go out within the server's skin budget.
 pub(super) fn sync(state: &mut State, output: &mut Output) {
     // Most ticks mark no one: one pass over the players finds the marked ones, and the next one
     // is looked for after each is done, so marks it sets on later players are seen too.
     let mut after = Bound::Unbounded;
-    let mut skin_budget = survival::SKIN_BYTES_PER_TICK;
+    // Changed skins go out in turn once the pass is done, on the ticks it met one.
+    let mut skins_wait = false;
     while let Some(session) = state
         .players
         .range((after, Bound::Unbounded))
@@ -314,10 +315,14 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
             continue;
         }
         inventory::answer_held(player);
+        skins_wait |= survival::skin_waits(player);
         if let Some((world, eye)) = player.marks.teleport.take() {
             survival::teleport(state, session, world, eye);
         }
-        survival::sync(state, session, &mut skin_budget);
+        survival::sync(state, session);
+    }
+    if skins_wait {
+        survival::send_skins(state);
     }
 }
 
@@ -933,10 +938,10 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn a_skin_broadcast_is_one_shared_copy_within_the_tick_budget() {
+    fn a_skin_broadcast_is_one_shared_copy_within_the_skin_budget() {
         const N: u64 = 48;
         let (mut state, mut receivers) = many(N);
-        // Two skins of 3 MiB: together over the tick's budget of 4 MiB.
+        // Two skins of 3 MiB: together over the budget's one skin of 4 MiB.
         for s in [1, 2] {
             let p = player_mut(&mut state, s);
             let mut skin = p.skin().clone();
@@ -963,20 +968,25 @@ pub(super) mod tests {
             .players
             .values_mut()
             .for_each(|p| p.shared_outbox.clear());
-        // The next tick sends the second skin to everyone.
-        run(&mut state, Vec::new());
-        for rx in &mut receivers {
-            let skins: Vec<String> = received(rx)
-                .0
-                .into_iter()
-                .filter_map(|p| match p {
+        // The second skin goes to everyone once the budget has refilled what it lacks: 2 MiB at
+        // 128 KiB a second, 16 seconds.
+        let mut skins = vec![Vec::new(); receivers.len()];
+        for t in 0..20 * 20 {
+            run(&mut state, Vec::new());
+            for (rx, skins) in receivers.iter_mut().zip(&mut skins) {
+                skins.extend(received(rx).0.into_iter().filter_map(|p| match p {
                     Packet::PlayerSkin(s) => Some(s.skin.skin_id.clone()),
                     _ => None,
-                })
-                .collect();
-            assert_eq!(skins, ["big2"]);
+                }));
+            }
+            let marked = survival::marked(&state.players[&SessionId::new(2)]);
+            assert_eq!(marked, skins[0].is_empty());
+            if !marked {
+                assert!(t > 15 * 20, "not before the budget refilled");
+                break;
+            }
         }
-        assert!(!survival::marked(&state.players[&SessionId::new(2)]));
+        assert!(skins.iter().all(|s| s == &["big2"]));
     }
 
     // pmmp: Player::getName, Player::getDisplayName, Player::setDisplayName, Player::getXuid, Player::isAuthenticated, Player::getUniqueId, Human::getSkin

@@ -439,25 +439,33 @@ impl Peer {
         }
     }
 
-    /// Whether everything sent has been delivered: nothing waits in the peer's queue and SCTP
-    /// holds no unacknowledged bytes (sctp-proto releases buffered bytes on acknowledgement). A
-    /// peer that is not open has nothing more to deliver.
+    /// Whether everything sent has been delivered. A str0m panic leaves nothing that could
+    /// still be delivered.
     pub(crate) fn is_drained(&mut self) -> bool {
+        !matches!(self.undelivered(), Ok(bytes) if bytes > 0)
+    }
+
+    /// The bytes sent that are not delivered yet, as `MAX_UNSENT` counts them: queued here or
+    /// unacknowledged in SCTP (sctp-proto releases buffered bytes on acknowledgement). A peer
+    /// that is not open has nothing more to deliver. On a str0m panic the peer closes, and `poll`
+    /// reports the reason.
+    pub(crate) fn undelivered(&mut self) -> Result<usize> {
         if !matches!(self.state, State::Open) {
-            return true;
-        }
-        if !self.queue.is_empty() {
-            return false;
+            return Ok(0);
         }
         let Some(id) = self.reliable else {
-            return true;
+            return Ok(self.queued);
         };
-        // A str0m panic here leaves nothing that could still be delivered.
-        let buffered = guard(&mut self.rtc, |rtc| {
+        match guard(&mut self.rtc, |rtc| {
             rtc.channel(id)
                 .map_or(0, |mut channel| channel.buffered_amount())
-        });
-        !matches!(buffered, Ok(bytes) if bytes > 0)
+        }) {
+            Ok(buffered) => Ok(self.queued.saturating_add(buffered)),
+            Err(e) => {
+                self.fail(e);
+                Err(Error::Closed)
+            }
+        }
     }
 
     /// Closes the peer: str0m sends its close output through `poll`, which then returns `Closed`.
@@ -1554,6 +1562,26 @@ pub(in crate::nethernet) mod tests {
         );
         // The simulated link delivers at once.
         assert!(h.rtts.iter().all(|rtt| *rtt < Duration::from_millis(100)));
+    }
+
+    /// A message counts as undelivered from its send until SCTP has it acknowledged.
+    #[test]
+    fn sent_bytes_stay_undelivered_until_acknowledged() {
+        let (server, client) = certificates();
+        let mut h = Harness::honest(&server, &client);
+        h.open();
+        assert_eq!(h.peer.undelivered().unwrap(), 0);
+        let down = pattern(2 * 1024 * 1024, 4);
+        h.peer.send(&down).unwrap();
+        assert!(h.peer.undelivered().unwrap() >= down.len());
+        assert!(
+            h.run(Duration::from_secs(60), |h| !h.client.received.is_empty()),
+            "the message did not arrive: {:?}",
+            h.closed
+        );
+        // A second more for the last acknowledgement.
+        assert!(!h.run(Duration::from_secs(1), |_| false));
+        assert_eq!(h.peer.undelivered().unwrap(), 0);
     }
 
     #[test]

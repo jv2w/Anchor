@@ -80,8 +80,7 @@ pub(super) struct Custom {
     /// The emote the API plays, for the viewers at the end of the tick.
     pub(super) emote: Option<String>,
     /// The skin changed (the API or the client): every player gets it at the end of the tick,
-    /// or of a later one while the skin budget of the tick is spent
-    /// ([`appearance::SKIN_BYTES_PER_TICK`]).
+    /// or of a later one while the server's skin budget is spent ([`appearance::SkinBudget`]).
     pub(super) skin: bool,
     /// An API call changed what the client or the viewers see since the last flush, so the end
     /// of the tick flushes it (the rules' own changes keep their flush).
@@ -1147,9 +1146,10 @@ impl Player {
         Ok(())
     }
 
-    /// Changes the player's skin: every player sees it at the end of the tick. Not saved: the
-    /// client sends its own skin at its next join. Fails for a skin a login would refuse (image
-    /// sizes that do not match their data, more than 4 MiB).
+    /// Changes the player's skin: every player sees it at the end of the tick, or of a later one
+    /// while the server's budget for skin broadcasts (about 128 KiB a second) is spent. Not
+    /// saved: the client sends its own skin at its next join. Fails for a skin a login would
+    /// refuse (image sizes that do not match their data, more than 4 MiB).
     #[doc(alias = "Human::setSkin")]
     pub fn set_skin(&mut self, skin: crate::protocol::Skin) -> Result<()> {
         let skin = Skin::new(std::sync::Arc::new(skin));
@@ -1575,7 +1575,8 @@ pub(super) fn game_type_packet(player: &Player, mode: GameMode) -> Packet {
     })
 }
 
-/// Whether [`sync`] has anything to do for the player: it is spawned and a survival mark is set.
+/// Whether [`sync`] or [`appearance::send_skins`] has anything to do for the player: it is
+/// spawned and a survival mark is set.
 pub(in crate::tick) fn marked(player: &Player) -> bool {
     let c = &player.survival.custom;
     player.phase == Phase::Spawned
@@ -1591,13 +1592,9 @@ pub(in crate::tick) fn marked(player: &Player) -> bool {
 /// The marks of a spawned player's survival state at the end of the tick: an API death drops its
 /// items, a respawn and a wake happen, and the attributes and entity data changed since the rules'
 /// flush are sent. These are the game's own steps in the tick's serial phase, so they raise their
-/// events (the call raised none, what follows from it does). A changed skin goes out if it fits in
-/// `skin_budget`, the skin bytes left this tick; otherwise it stays marked for the next tick.
-pub(in crate::tick) fn sync(
-    state: &mut crate::tick::State,
-    session: crate::tick::SessionId,
-    skin_budget: &mut usize,
-) {
+/// events (the call raised none, what follows from it does). A changed skin is left marked for
+/// [`appearance::send_skins`].
+pub(in crate::tick) fn sync(state: &mut crate::tick::State, session: crate::tick::SessionId) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -1611,15 +1608,9 @@ pub(in crate::tick) fn sync(
         std::mem::take(&mut c.wake),
         std::mem::take(&mut c.touched),
     );
-    let (motion, emote, skin) = (c.motion.take(), c.emote.take(), std::mem::take(&mut c.skin));
+    let (motion, emote) = (c.motion.take(), c.emote.take());
     let runtime_id = player.runtime_id;
     let dies = killed && player.survival.is_dead() && !player.survival.motion.death_shown;
-    if skin
-        && !appearance::send_skin(state, session, skin_budget)
-        && let Some(player) = state.players.get_mut(&session)
-    {
-        player.survival.custom.skin = true;
-    }
     if let Some(motion) = motion {
         let packet = Packet::SetActorMotion(SetActorMotion {
             entity_runtime_id: runtime_id,

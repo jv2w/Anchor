@@ -472,6 +472,11 @@ pub(crate) enum Message {
     /// A packet several sessions send (a skin of up to 4 MiB), held once: each session encodes
     /// it into a batch of its own.
     SharedPacket(Arc<Packet>),
+    /// A packet of a spawn window's player list, which holds every placed player's skin and so
+    /// outgrows any bound on a session's output: sent as a [`Message::SharedPacket`], but the
+    /// session holds it as the shared copy until it goes out. A session gets two lists at most,
+    /// one with the start game and one in the spawn window.
+    SpawnList(Arc<Packet>),
     /// Batches shared by every session, sent after the packets before them.
     Shared(SharedBatches),
 }

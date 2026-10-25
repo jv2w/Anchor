@@ -23,7 +23,7 @@ use super::extra::Extras;
 use super::queue::{Message, SessionId};
 use super::rules::Rules;
 use super::save::{Saving, Unsaved, keep_unloaded};
-use super::{Context, Phase, Player, State, dispatch, world_api};
+use super::{Context, Phase, Player, Settings, State, dispatch, world_api};
 use crate::block;
 use crate::event::{ChunkLoad, ChunkUnload, PlayerPostChunkSend};
 use crate::math::Vec3;
@@ -64,11 +64,12 @@ const SUB_CHUNK_OFFSETS_PER_TICK: usize = crate::protocol::SUB_CHUNK_SUB_CHUNK_E
 /// The lowest sub-chunk y index (`SubChunkRequest` positions are absolute indices).
 const LOWEST_SUB_CHUNK: i32 = crate::world::MIN_Y >> 4;
 /// `UpdateBlock` flags BDS sends (P6): neighbours and network.
-pub(super) const UPDATE_FLAGS: u32 =
-    BlockUpdateFlag::Neighbours as u32 | BlockUpdateFlag::Network as u32;
+const UPDATE_FLAGS: u32 = BlockUpdateFlag::Neighbours as u32 | BlockUpdateFlag::Network as u32;
 /// The most fake blocks one player is shown, and the most changes of what a player is shown one
 /// tick takes from the API (clears of fake blocks it had before the tick come on top).
 pub(super) const MAX_FAKE_BLOCKS: usize = 4096;
+/// The most positions refused changes send one player again in one tick ([`View::resync`]).
+pub(super) const MAX_RESYNCS: usize = 4096;
 
 /// A chunk of one of the server's worlds.
 pub(super) type Key = (WorldIndex, ChunkPos);
@@ -121,11 +122,18 @@ pub(super) struct Out {
     /// show then. At most [`MAX_FAKE_BLOCKS`] from sets and menus, plus the clears of fake blocks
     /// the player had before the tick.
     shown: BTreeSet<BlockPos>,
+    /// Positions a refused change sends again: the output phase sends what they show then, so a
+    /// later change in the same tick is not undone on the client. At most [`MAX_RESYNCS`].
+    resynced: BTreeSet<BlockPos>,
 }
 
 impl Out {
     pub(super) fn is_empty(&self) -> bool {
-        !self.publish && self.chunks.is_empty() && self.answers.is_empty() && self.shown.is_empty()
+        !self.publish
+            && self.chunks.is_empty()
+            && self.answers.is_empty()
+            && self.shown.is_empty()
+            && self.resynced.is_empty()
     }
 
     /// Empties it after the output phase, keeping the lists' room for the next tick.
@@ -134,6 +142,7 @@ impl Out {
         self.chunks.clear();
         self.answers.clear();
         self.shown.clear();
+        self.resynced.clear();
     }
 }
 
@@ -226,6 +235,16 @@ impl View {
     /// Whether `n` more changes of what the player is shown fit this tick.
     pub(super) fn has_room_to_show(&self, n: usize) -> bool {
         self.out.shown.len().saturating_add(n) <= MAX_FAKE_BLOCKS
+    }
+
+    /// Marks `pos` for the output phase to send again with what it shows then (a refused change);
+    /// false if [`MAX_RESYNCS`] other positions are marked this tick already.
+    pub(super) fn resync(&mut self, pos: BlockPos) -> bool {
+        if self.out.resynced.len() >= MAX_RESYNCS && !self.out.resynced.contains(&pos) {
+            return false;
+        }
+        self.out.resynced.insert(pos);
+        true
     }
 
     /// Shows the open menu's container blocks (none: the menu closed) over the user's fake
@@ -1292,58 +1311,30 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
     super::inventory::tick_menus(state);
     let State {
         settings,
+        tick,
         players,
         worlds,
         chunks,
         rules,
         ..
     } = state;
-    for player in players.values_mut() {
-        if player.view.is_open() {
-            let limits = settings.view(player.world);
-            let center = chunk_of(player.position);
-            // The radius granted since the last view phase (`spawn::request_chunk_radius`).
-            let radius = player.chunk_radius.unwrap_or(player.view.radius);
-            if center != player.view.center || radius != player.view.radius {
-                set_view(
-                    worlds,
-                    chunks,
-                    rules,
-                    player.world,
-                    &mut player.view,
-                    center,
-                    radius,
-                );
-            }
-            // BDS sends a publisher update every tick (P6), so the client's chunk area follows the
-            // player block by block rather than a chunk at a time; repeats of a block are left out.
-            let at = BlockPos::containing(player.position);
-            if player.view.out.publish || at != player.view.published {
-                player.view.out.publish = true;
-                player.view.published = at;
-            }
-            let per_tick = usize::try_from(limits.chunks_per_tick).unwrap_or(usize::MAX);
-            pick(worlds, chunks, player, per_tick);
-            let spawn_radius = limits.spawn_radius.min(player.view.radius);
-            if player.phase == Phase::Joined
-                && player.view.has_sent_within(spawn_radius, &chunks.disc)
-            {
-                player.pending.spawn_status = true;
-                player.phase = Phase::Spawning;
-            }
-        }
-        let view = &mut player.view;
-        let mut offsets = 0_usize;
-        let take = view
-            .requests
-            .iter()
-            .take(SUB_CHUNK_REQUESTS_PER_TICK)
-            .take_while(|r| {
-                offsets = offsets.saturating_add(r.offsets.len());
-                offsets <= SUB_CHUNK_OFFSETS_PER_TICK
-            })
-            .count();
-        view.out.answers.extend(view.requests.drain(..take));
+    // The load bounds are shared by every view and the first views to ask take what was freed,
+    // so the views ask from a player one further on each tick: the loads go to every view in
+    // turn, not to the first sessions while the views of the others wait.
+    #[expect(
+        clippy::expect_used,
+        reason = "invariant: a player count fits u64, and a rest below it fits usize"
+    )]
+    let first = tick
+        .checked_rem(u64::try_from(players.len()).expect("a player count fits u64"))
+        .map_or(0, |n| {
+            usize::try_from(n).expect("a rest below the player count fits usize")
+        });
+    for player in players.values_mut().skip(first) {
+        update_player(settings, worlds, chunks, rules, player);
+    }
+    for player in players.values_mut().take(first) {
+        update_player(settings, worlds, chunks, rules, player);
     }
     move_spawns(worlds, chunks, rules);
     request_spawn_loads(worlds, chunks);
@@ -1363,6 +1354,62 @@ pub(super) fn update(state: &mut State) -> Vec<Request> {
         requests.push(Request::Chunks(batch));
     }
     requests
+}
+
+/// One player's part of the view phase: moves its view to the player and its granted radius,
+/// picks the chunks to send and asks for the loads they need, lets the player spawn once its
+/// spawn chunks are sent, and takes the sub-chunk requests to answer this tick.
+fn update_player(
+    settings: &Settings,
+    worlds: &mut [World],
+    chunks: &mut Chunks,
+    rules: &mut Rules,
+    player: &mut Player,
+) {
+    if player.view.is_open() {
+        let limits = settings.view(player.world);
+        let center = chunk_of(player.position);
+        // The radius granted since the last view phase (`spawn::request_chunk_radius`).
+        let radius = player.chunk_radius.unwrap_or(player.view.radius);
+        if center != player.view.center || radius != player.view.radius {
+            set_view(
+                worlds,
+                chunks,
+                rules,
+                player.world,
+                &mut player.view,
+                center,
+                radius,
+            );
+        }
+        // BDS sends a publisher update every tick (P6), so the client's chunk area follows the
+        // player block by block rather than a chunk at a time; repeats of a block are left out.
+        let at = BlockPos::containing(player.position);
+        if player.view.out.publish || at != player.view.published {
+            player.view.out.publish = true;
+            player.view.published = at;
+        }
+        let per_tick = usize::try_from(limits.chunks_per_tick).unwrap_or(usize::MAX);
+        pick(worlds, chunks, player, per_tick);
+        let spawn_radius = limits.spawn_radius.min(player.view.radius);
+        if player.phase == Phase::Joined && player.view.has_sent_within(spawn_radius, &chunks.disc)
+        {
+            player.pending.spawn_status = true;
+            player.phase = Phase::Spawning;
+        }
+    }
+    let view = &mut player.view;
+    let mut offsets = 0_usize;
+    let take = view
+        .requests
+        .iter()
+        .take(SUB_CHUNK_REQUESTS_PER_TICK)
+        .take_while(|r| {
+            offsets = offsets.saturating_add(r.offsets.len());
+            offsets <= SUB_CHUNK_OFFSETS_PER_TICK
+        })
+        .count();
+    view.out.answers.extend(view.requests.drain(..take));
 }
 
 /// The end of the view phase: the chunk events of the tick, each built only when someone listens.
@@ -1837,14 +1884,15 @@ fn target(request: &SubChunkRequest, offset: [i8; 3]) -> Option<(ChunkPos, usize
 /// Puts in `out` the chunk packets of one player this tick, in BDS's order (P6): the publisher
 /// update, the chunks, then the sub-chunk answers, each followed by the fake blocks it holds (the
 /// client forgets them with the sub-chunk it replaces); then the positions whose fake block was
-/// set or cleared this tick, with what they show now.
+/// set or cleared this tick or that a refused change sends again, with what they show now.
 pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &mut Vec<Message>) {
     let view = &player.view;
     out.reserve(
         usize::from(view.out.publish)
             + view.out.chunks.len()
             + view.out.answers.len()
-            + view.out.shown.len(),
+            + view.out.shown.len()
+            + view.out.resynced.len(),
     );
     if view.out.publish {
         let BlockPos { x, y, z } = view.published;
@@ -1893,7 +1941,7 @@ pub(super) fn packets(world: &World, player: &Player, encoded: &Encoded, out: &m
         }
     }
     let mut changed: BTreeMap<(ChunkPos, i32), Vec<(BlockPos, u32)>> = BTreeMap::new();
-    for &pos in &view.out.shown {
+    for &pos in view.out.shown.union(&view.out.resynced) {
         if !view.sent.contains(&pos.chunk()) {
             continue;
         }
@@ -2086,13 +2134,18 @@ pub(super) fn block_packets(player: &Player, changes: &Changes, out: &mut Vec<Me
         if !view.sent.contains(pos) {
             continue;
         }
-        if !view.shows_in(*pos, *sub_y) && view.out.shown.is_empty() {
+        if !view.shows_in(*pos, *sub_y) && view.out.shown.is_empty() && view.out.resynced.is_empty()
+        {
             out.extend(update_packet(*pos, *sub_y, blocks).map(Message::Packet));
             continue;
         }
         let real: Vec<(BlockPos, u32)> = blocks
             .iter()
-            .filter(|(at, _)| view.shown(*at).is_none() && !view.out.shown.contains(at))
+            .filter(|(at, _)| {
+                view.shown(*at).is_none()
+                    && !view.out.shown.contains(at)
+                    && !view.out.resynced.contains(at)
+            })
             .copied()
             .collect();
         out.extend(update_packet(*pos, *sub_y, &real).map(Message::Packet));
@@ -2923,6 +2976,68 @@ mod tests {
         assert!(most <= Some(WALK_LATENCY_TICKS), "{most:?}");
     }
 
+    /// The session's spawn deadline (60 seconds) in ticks.
+    const SPAWN_DEADLINE_TICKS: u64 = 1_200;
+
+    /// More players than the loads in flight can serve at once, each in its own chunks, at the
+    /// default view distance and chunks per tick, while the save thread answers only a few loads
+    /// a tick: every player, the last to connect too, is sent its spawn chunks well within the
+    /// spawn deadline, as the loads go to each view in turn and not in session order.
+    #[test]
+    fn players_far_apart_all_get_their_spawn_chunks_before_the_spawn_deadline() {
+        const PLAYERS: u64 = 100;
+        const LOADS_ANSWERED_PER_TICK: usize = 16;
+        let mut state = new_state(
+            settings(|c| {
+                c.general.max_players = 1_000;
+                c.developer.chunks_per_tick = crate::Config::default().developer.chunks_per_tick;
+            }),
+            Listeners::default(),
+        );
+        let mut output = Output::default();
+        let (mut joins, mut receivers): (Vec<_>, Vec<_>) =
+            (1..=PLAYERS).map(|s| join(s, 0)).unzip();
+        tick(&mut state, &mut joins, &mut output);
+        // 40 chunks apart: the views of radius 16 share no chunk.
+        for s in 1..=PLAYERS {
+            let x = f32::from(u16::try_from(s * 40 * 16).unwrap());
+            teleported(&mut state, s, [x + 0.5, -58.38, 0.5]);
+        }
+        let mut inputs: Vec<_> = (1..=PLAYERS).map(|s| radius(s, 1, 16)).collect();
+        let mut waiting = VecDeque::new();
+        let mut spawned_at = BTreeMap::new();
+        for t in 1..=SPAWN_DEADLINE_TICKS {
+            tick(&mut state, &mut inputs, &mut output);
+            for rx in &mut receivers {
+                while rx.try_recv().is_ok() {}
+            }
+            for (session, player) in &state.players {
+                if player.phase != Phase::Joined {
+                    spawned_at.entry(session.get()).or_insert(t);
+                }
+            }
+            if spawned_at.len() == state.players.len() {
+                break;
+            }
+            let (loads, others): (Vec<_>, Vec<_>) = std::mem::take(&mut output.answers)
+                .into_iter()
+                .partition(|a| matches!(a, crate::save::Response::Chunk { .. }));
+            waiting.extend(loads);
+            output.answers = others;
+            let answered = LOADS_ANSWERED_PER_TICK.min(waiting.len());
+            output.answers.extend(waiting.drain(..answered));
+        }
+        assert_eq!(state.players.len(), usize::try_from(PLAYERS).unwrap());
+        let last = spawned_at.get(&PLAYERS).copied();
+        let slowest = spawned_at.values().max().copied();
+        assert!(
+            spawned_at.len() == state.players.len() && slowest < Some(SPAWN_DEADLINE_TICKS / 2),
+            "{} of {PLAYERS} players got their spawn chunks; the last to connect at {last:?}, \
+             the slowest at {slowest:?}",
+            spawned_at.len()
+        );
+    }
+
     /// An answer for a sent chunk that is not loaded has the height maps of a chunk with no
     /// blocks, as when it worked them out from one.
     #[test]
@@ -3177,5 +3292,18 @@ mod tests {
             "{per_tick:?}"
         );
         assert_eq!(per_tick.iter().sum::<usize>(), 64 * 1024);
+    }
+
+    #[test]
+    fn one_tick_marks_at_most_its_bound_of_blocks_to_send_again() {
+        let mut view = View::default();
+        for x in 0..i32::try_from(MAX_RESYNCS).unwrap() {
+            assert!(view.resync(BlockPos::new(x, 0, 0)));
+        }
+        assert!(view.resync(BlockPos::new(0, 0, 0)), "marked already");
+        assert!(!view.resync(BlockPos::new(-1, 0, 0)));
+        view.out.clear();
+        assert!(view.out.is_empty());
+        assert!(view.resync(BlockPos::new(-1, 0, 0)), "the next tick");
     }
 }

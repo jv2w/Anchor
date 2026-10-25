@@ -201,12 +201,12 @@ pub(super) fn send(
     let skip = |packet: &Packet| !settings.hook_movement_packets && is_movement(packet);
     messages.retain_mut(|message| match message {
         Message::Packet(packet) if skip(packet) => true,
-        Message::SharedPacket(packet) if skip(packet) => true,
+        Message::SharedPacket(packet) | Message::SpawnList(packet) if skip(packet) => true,
         Message::Packet(packet) => {
             let mut sent = SentPacket(Slot::Own(packet));
             hooks.iter().all(|hook| hook(id, &mut sent))
         }
-        Message::SharedPacket(packet) => {
+        Message::SharedPacket(packet) | Message::SpawnList(packet) => {
             let mut sent = SentPacket(Slot::Shared(packet));
             hooks.iter().all(|hook| hook(id, &mut sent))
         }

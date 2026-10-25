@@ -3,6 +3,8 @@
 use std::fmt;
 use std::net::SocketAddr;
 
+use tokio::sync::watch;
+
 use crate::crypto::PublicKey;
 use crate::nethernet;
 use crate::raknet;
@@ -70,6 +72,16 @@ impl Transport {
         match self {
             Self::Raknet(c) => c.ping(),
             Self::Nethernet(c) => c.ping(),
+        }
+    }
+
+    /// The bytes sent on the connection and not delivered yet, as the transport reports them:
+    /// what RakNet has not had acknowledged, or what NetherNet holds in its queue and SCTP.
+    /// Changes wake [`watch::Receiver::changed`], which fails once the connection is gone.
+    pub(super) fn undelivered(&self) -> watch::Receiver<usize> {
+        match self {
+            Self::Raknet(c) => c.undelivered(),
+            Self::Nethernet(c) => c.undelivered(),
         }
     }
 

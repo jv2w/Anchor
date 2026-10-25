@@ -1240,6 +1240,7 @@ impl State {
             rules,
             clock,
             trades,
+            skin_budget,
             custom: _,
             fingerprints: _,
             identity: _,
@@ -1280,6 +1281,7 @@ impl State {
         rules.checkpoint(&mut w);
         clock.encode(&mut w);
         trades.encode(&mut w);
+        skin_budget.encode(&mut w);
         catalog.checkpoint(&mut w);
         network.encode(&mut w);
         let (saved, kept) = worlds.iter().map(World::checkpoint).unzip();
@@ -1409,6 +1411,7 @@ impl State {
         self.rules.restore(&mut r)?;
         self.clock = Codec::decode(&mut r)?;
         self.trades = Codec::decode(&mut r)?;
+        self.skin_budget = Codec::decode(&mut r)?;
         self.catalog.restore(&mut r, worlds)?;
         self.network.restore(Codec::decode(&mut r)?);
         if r.is_empty() {
