@@ -2122,7 +2122,7 @@ fn stored(name: &str) -> crate::nbt::Compound {
     ])
 }
 
-/// The network IDs of the 1.26.50 reference list (the values BDS sends) of two blocks only
+/// The network IDs of the 1.26.60 reference list (the values BDS sends) of two blocks only
 /// clients know.
 const DRIPSTONE_BLOCK: u32 = 1_289_380_550;
 const MOSS_BLOCK: u32 = 3_743_819_255;

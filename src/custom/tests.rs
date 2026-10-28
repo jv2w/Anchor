@@ -65,7 +65,7 @@ fn vanilla(kind: item::Kind) -> ItemRef {
 fn runtime_ids_follow_the_vanilla_ones_in_registration_order() {
     let r = registry();
     let first = item::max_runtime_id() + 1;
-    assert_eq!(first, 884, "the 1.26.50 list ends at 883");
+    assert_eq!(first, 885, "the 1.26.60 list ends at 884");
     let ruby = r.item_type(&RUBY).unwrap();
     let ore = r.block_state(&ORE).unwrap();
     assert_eq!(ruby.runtime_id(), first);

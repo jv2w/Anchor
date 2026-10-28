@@ -1,4 +1,4 @@
-//! Block states: every block state Anchor knows, with its 1.26.50 network
+//! Block states: every block state Anchor knows, with its 1.26.60 network
 //! ID and PMMP's values for it: light, PMMP type, class and traits, break info, fire, physics,
 //! collision boxes, support and item form.
 //!
@@ -2469,7 +2469,7 @@ mod tests {
             };
             assert_eq!(State::read(name, &properties), expected, "{}", key(r));
         }
-        assert_eq!((same, other, rejected), (8_996, 4_884, 8_211));
+        assert_eq!((same, other, rejected), (8_963, 4_884, 10_113));
     }
 
     /// Every alias reads as its state with its properties in any order; changed inputs (another

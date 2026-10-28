@@ -91,12 +91,12 @@ mod tests {
         }
     }
 
-    /// Every state of the 1.26.50 reference list hashes to its `CloudburstMC` network ID, and every
+    /// Every state of the 1.26.60 reference list hashes to its `CloudburstMC` network ID, and every
     /// state of the table to the ID the table holds.
     #[test]
     fn hashes_equal_every_reference_network_id() {
         let reference: Vec<serde_json::Value> = serde_json::from_str(REFERENCE).unwrap();
-        assert_eq!(reference.len(), 22_091);
+        assert_eq!(reference.len(), 23_960);
         for b in &reference {
             let name = b["name"].as_str().unwrap();
             let mut states: Vec<(String, (u8, i64, String))> = b["states"]

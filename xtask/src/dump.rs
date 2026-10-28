@@ -3,12 +3,13 @@
 //! `CloudburstMC` with `xtask/go/reference` into `xtask/data/reference/` first, as the PMMP run
 //! reads every reference block state with PMMP's deserializer; then it runs PMMP's own
 //! registries through `xtask/php/dump.php` with the PMMP PHP binary into `xtask/data/pmmp/`. It
-//! also copies `CloudburstMC`'s biome definitions, entity types and block shapes and BDS's
-//! per-state block physics (`block_physics.json`, for the block states Anchor shows but does not
-//! implement) into `xtask/data/reference/`, where the Go tool also writes its jigsaw structure
-//! data and entity property definitions as network NBT and this command writes the per-field
-//! decode limits from Mojang's protocol schemas (`limits`). The block and item upgrade schemas
-//! and their golden files go to `xtask/data/upgrade/` (see `upgrade`). With `--check` it writes into
+//! also copies `CloudburstMC`'s biome definitions, entity types and block shapes into
+//! `xtask/data/reference/`, where the Go tool also writes its jigsaw structure data and entity
+//! property definitions as network NBT and this command writes the per-field decode limits from
+//! Mojang's protocol schemas (`limits`). The block and item upgrade schemas and their golden files
+//! go to `xtask/data/upgrade/` (see `upgrade`); then BDS's per-state block physics of every
+//! reference state goes to `block_physics.json` (for the block states Anchor shows but does not
+//! implement), which reads the copied 1.26.60 block schema. With `--check` it writes into
 //! `target/` and fails if a committed file differs. `verify` does not run it: it needs the
 //! checkouts, the PHP binary and Go, and its inputs never change (`gen --check` checks the code
 //! made from the committed data instead).
@@ -23,6 +24,7 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 
 use crate::r#gen::biomes::{self, Biome, Colour};
+use crate::r#gen::upgrade::SCHEMA_1_26_60;
 
 pub(crate) mod limits;
 
@@ -30,16 +32,16 @@ pub(crate) mod limits;
 const PMMP: (&str, &str) = (".cache/pmmp", "6a7cc02e9dff59b69241aa0bcffdb9903ce86beb");
 const DRAGONFLY: (&str, &str) = (
     ".cache/dragonfly",
-    "4c7b5074be94fa83a1cd98e9c752083ad04a6e21",
+    "d86aefd9ff9b6a357d6dfadab2093af811545256",
 );
 pub(crate) const CLOUDBURST: (&str, &str) = (
     ".cache/cloudburst-data",
-    "659ce1e2eee3a67045693f4fd5515c6ccf571953",
+    "293c848098cc636a2758937fb6610b8bed1f12c5",
 );
-/// Mojang's bedrock-protocol-docs at the v1.26.50 release (protocol 2193).
+/// Mojang's bedrock-protocol-docs at the v1.26.60 release (protocol 2225).
 const PROTOCOL_DOCS: (&str, &str) = (
     ".cache/bedrock-protocol-docs",
-    "475bd72ed89036af4eb18426774ef3b953de7603",
+    "0879ab5c4c70be1bd520e32a8c49ea4a155616d6",
 );
 /// The PMMP PHP binary (pmmp/PHP-Binaries php-build-524, PHP 8.4 PM5 for Windows): plain PHP
 /// lacks the extensions PMMP's registries load.
@@ -139,7 +141,6 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
         return Err(format!("the PMMP dump failed ({status})"));
     }
     copy_biomes(root, &reference_out)?;
-    copy_block_physics(root, &reference_out)?;
     for file in [ENTITY_IDENTIFIERS, VOXEL_SHAPES] {
         let bytes = read(&root.join(CLOUDBURST.0).join(file))?;
         write(&reference_out.join(file), &bytes)?;
@@ -148,6 +149,7 @@ pub(crate) fn run(root: &Path, check: bool) -> Result<Vec<String>, String> {
     write(&reference_out.join(limits::FILE), limits.as_bytes())?;
 
     let upgrade_files = upgrade::run(root, &upgrade_out)?;
+    copy_block_physics(root, &reference_out, &upgrade_out)?;
 
     let mut differ = Vec::new();
     if check {
@@ -243,25 +245,38 @@ struct CloudburstBlock {
     collision_shape: Vec<[f64; 6]>,
 }
 
-/// Writes the physics of every block state of `CloudburstMC`'s per-state data (BDS's values) to
-/// `out` as [`BLOCK_PHYSICS`]: `shapes`, the distinct collision box lists in order of first use,
-/// and `states`, one `[network ID, hardness, light emission, light dampening, shape]` per line in
-/// network ID order.
-fn copy_block_physics(root: &Path, out: &Path) -> Result<(), String> {
-    let path = root.join(CLOUDBURST.0).join(CLOUDBURST_BLOCKS);
-    let all: Vec<CloudburstBlock> =
-        serde_json::from_slice(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut by_id = BTreeMap::new();
-    for b in &all {
-        let id = u32::try_from(b.block_state_hash & 0xffff_ffff)
-            .map_err(|e| format!("{CLOUDBURST_BLOCKS}: {e}"))?;
-        if by_id.insert(id, b).is_some() {
-            return Err(format!("{CLOUDBURST_BLOCKS}: network ID {id} twice"));
-        }
-    }
+/// One state of the reference list: the fields the physics rule reads.
+#[derive(Deserialize)]
+struct ReferenceState {
+    name: String,
+    states: BTreeMap<String, Json>,
+    network_id: u32,
+}
+
+/// The part of a block upgrade schema the physics rule reads.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddingSchema {
+    added_properties: BTreeMap<String, BTreeMap<String, Json>>,
+}
+
+/// Writes the physics of every reference block state (BDS's values from `CloudburstMC`'s
+/// per-state data, see [`reference_physics`]) to `reference_out` as [`BLOCK_PHYSICS`]: `shapes`,
+/// the distinct collision box lists in order of first use, and `states`, one
+/// `[network ID, hardness, light emission, light dampening, shape]` per line in network ID order.
+fn copy_block_physics(root: &Path, reference_out: &Path, upgrade_out: &Path) -> Result<(), String> {
+    let reference: Vec<ReferenceState> = read_json_file(&reference_out.join(REFERENCE_BLOCKS))?;
+    let schema: AddingSchema = read_json_file(
+        &upgrade_out
+            .join(upgrade::BLOCK_SCHEMAS)
+            .join(SCHEMA_1_26_60),
+    )?;
+    let bds: Vec<CloudburstBlock> =
+        read_json_file(&root.join(CLOUDBURST.0).join(CLOUDBURST_BLOCKS))?;
+    let physics = reference_physics(&reference, &schema.added_properties, &bds)?;
     let mut shapes: Vec<&[[f64; 6]]> = Vec::new();
-    let mut rows = Vec::with_capacity(by_id.len());
-    for (id, b) in by_id {
+    let mut rows = Vec::with_capacity(physics.by_id.len());
+    for (id, b) in physics.by_id {
         let found = shapes
             .iter()
             .position(|s| *s == b.collision_shape.as_slice());
@@ -284,7 +299,175 @@ fn copy_block_physics(root: &Path, out: &Path) -> Result<(), String> {
         shapes.join(",\n"),
         rows.join(",\n")
     );
-    write(&out.join(BLOCK_PHYSICS), text.as_bytes())
+    write(&reference_out.join(BLOCK_PHYSICS), text.as_bytes())
+}
+
+/// Blocks new in 1.26.60 that `CloudburstMC`'s per-state data lacks, with the block whose
+/// physics they take: the closest block of the same shape.
+const BORROWED_1_26_60: [(&str, &str); 3] = [
+    ("minecraft:icicle", "minecraft:pointed_dripstone"),
+    ("minecraft:ice_crystal", "minecraft:amethyst_cluster"),
+    ("minecraft:disc_press", "minecraft:stone"),
+];
+
+/// The BDS physics of every reference state by network ID.
+struct ReferencePhysics<'a> {
+    by_id: BTreeMap<u32, &'a CloudburstBlock>,
+    /// The states that took them by the connection rule.
+    connected: usize,
+    /// The states that took them by the borrowing rule.
+    borrowed: usize,
+}
+
+/// The BDS physics of every reference state. `CloudburstMC`'s per-state data predates 1.26.60,
+/// so two rules fill the states it lacks:
+/// - Connections: a state of a block of `connections` (block name to the 1.26.60 connection
+///   properties) takes the physics of the same state without those properties, the state the
+///   1.26.60 block schema upgrades to it.
+/// - Borrowing: a state of a block of [`BORROWED_1_26_60`] takes the physics of the one state of
+///   the borrowed block that has every property the two share with the same value (the same
+///   direction and shape; a borrowed block without properties has one state).
+///
+/// Fails on a reference state that has physics none of these ways.
+fn reference_physics<'a>(
+    reference: &[ReferenceState],
+    connections: &BTreeMap<String, BTreeMap<String, Json>>,
+    bds: &'a [CloudburstBlock],
+) -> Result<ReferencePhysics<'a>, String> {
+    let mut bds_by_id = BTreeMap::new();
+    for b in bds {
+        let id = u32::try_from(b.block_state_hash & 0xffff_ffff)
+            .map_err(|e| format!("{CLOUDBURST_BLOCKS}: {e}"))?;
+        if bds_by_id.insert(id, b).is_some() {
+            return Err(format!("{CLOUDBURST_BLOCKS}: network ID {id} twice"));
+        }
+    }
+    let mut by_name: BTreeMap<&str, Vec<&ReferenceState>> = BTreeMap::new();
+    for state in reference {
+        by_name.entry(state.name.as_str()).or_default().push(state);
+    }
+    let mut physics = ReferencePhysics {
+        by_id: BTreeMap::new(),
+        connected: 0,
+        borrowed: 0,
+    };
+    let mut missing: BTreeMap<&str, usize> = BTreeMap::new();
+    for state in reference {
+        let found = match (
+            bds_by_id.get(&state.network_id),
+            connections.get(&state.name),
+        ) {
+            (Some(b), _) => Some(*b),
+            (None, Some(added)) => {
+                let mut old = state.states.clone();
+                old.retain(|p, _| !added.contains_key(p));
+                let b = bds_by_id.get(&network_hash(&state.name, &old)?).copied();
+                physics.connected += usize::from(b.is_some());
+                b
+            }
+            (None, None) => {
+                let lenders = BORROWED_1_26_60
+                    .iter()
+                    .find(|(name, _)| *name == state.name)
+                    .map(|(_, from)| {
+                        by_name
+                            .get(from)
+                            .map_or(&[][..], Vec::as_slice)
+                            .iter()
+                            .filter(|lender| {
+                                lender
+                                    .states
+                                    .iter()
+                                    .all(|(p, v)| state.states.get(p).is_none_or(|own| own == v))
+                            })
+                            .collect::<Vec<_>>()
+                    });
+                match lenders.as_deref() {
+                    None => None,
+                    Some([lender]) => {
+                        let b = bds_by_id.get(&lender.network_id).copied();
+                        physics.borrowed += usize::from(b.is_some());
+                        b
+                    }
+                    Some(lenders) => {
+                        return Err(format!(
+                            "{} {:?} matches {} states of the block it borrows from, not one",
+                            state.name,
+                            state.states,
+                            lenders.len()
+                        ));
+                    }
+                }
+            }
+        };
+        if let Some(b) = found {
+            physics.by_id.insert(state.network_id, b);
+        } else {
+            *missing.entry(state.name.as_str()).or_default() += 1;
+        }
+    }
+    if !missing.is_empty() {
+        return Err(format!(
+            "{CLOUDBURST_BLOCKS} has no physics for these reference states (name: count): \
+             {missing:?}"
+        ));
+    }
+    Ok(physics)
+}
+
+/// FNV-1a 32 offset basis and prime.
+const FNV_OFFSET: u32 = 0x811c_9dc5;
+const FNV_PRIME: u32 = 0x0100_0193;
+
+/// The network block hash of a state with typed JSON property values: FNV-1a 32 over the
+/// little-endian NBT `{name, states}` with the states in name order, as `src/block/hash.rs`.
+fn network_hash(name: &str, states: &BTreeMap<String, Json>) -> Result<u32, String> {
+    let mut nbt = vec![10, 0, 0, 8];
+    nbt_string(&mut nbt, "name")?;
+    nbt_string(&mut nbt, name)?;
+    nbt.push(10);
+    nbt_string(&mut nbt, "states")?;
+    for (key, value) in states {
+        let typed = value.as_object().and_then(|o| o.iter().next());
+        match typed {
+            Some((tag, Json::Number(n))) if tag == "byte" => {
+                let b = n.as_u64().and_then(|b| u8::try_from(b).ok());
+                nbt.push(1);
+                nbt_string(&mut nbt, key)?;
+                nbt.push(b.ok_or_else(|| format!("{name} {key}: byte {n}"))?);
+            }
+            Some((tag, Json::Number(n))) if tag == "int" => {
+                let i = n.as_i64().and_then(|i| i32::try_from(i).ok());
+                nbt.push(3);
+                nbt_string(&mut nbt, key)?;
+                let i = i.ok_or_else(|| format!("{name} {key}: int {n}"))?;
+                nbt.extend_from_slice(&i.to_le_bytes());
+            }
+            Some((tag, Json::String(s))) if tag == "string" => {
+                nbt.push(8);
+                nbt_string(&mut nbt, key)?;
+                nbt_string(&mut nbt, s)?;
+            }
+            _ => return Err(format!("{name} {key}: unknown property value {value}")),
+        }
+    }
+    nbt.extend_from_slice(&[0, 0]);
+    Ok(nbt.iter().fold(FNV_OFFSET, |h, &b| {
+        (h ^ u32::from(b)).wrapping_mul(FNV_PRIME)
+    }))
+}
+
+/// Appends an NBT string: its length as a little-endian `u16`, then its bytes.
+fn nbt_string(nbt: &mut Vec<u8>, s: &str) -> Result<(), String> {
+    let len = u16::try_from(s.len()).map_err(|_| format!("NBT string too long: {s}"))?;
+    nbt.extend_from_slice(&len.to_le_bytes());
+    nbt.extend_from_slice(s.as_bytes());
+    Ok(())
+}
+
+/// Reads a JSON file.
+fn read_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
+    serde_json::from_slice(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Fails unless the git checkout `dir` is at `commit`.
@@ -357,4 +540,59 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 )]
 pub(crate) fn create_dir(path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The reference states of fire, redstone wire and chorus plants that take the physics of
+    /// their state without the 1.26.60 connection properties (512, 1,296 and 64).
+    const CONNECTED_1_26_60: usize = 1_872;
+    /// The reference states of icicles, ice crystals and disc presses that borrow physics (20, 6
+    /// and 4).
+    const BORROWED_STATES_1_26_60: usize = 30;
+
+    #[test]
+    fn network_hash_equals_the_reference_ids() {
+        let states = BTreeMap::from([
+            (
+                "button_pressed_bit".to_owned(),
+                serde_json::json!({ "byte": 0 }),
+            ),
+            (
+                "facing_direction".to_owned(),
+                serde_json::json!({ "int": 0 }),
+            ),
+        ]);
+        assert_eq!(
+            network_hash("minecraft:acacia_button", &states).unwrap(),
+            152_215_376
+        );
+    }
+
+    /// Runs on the committed reference list and 1.26.60 block schema with the pinned
+    /// `CloudburstMC` checkout in `.cache` (`cargo xtask dump` needs it too).
+    #[test]
+    fn the_1_26_60_states_without_bds_physics_take_them_by_the_rules() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let bds_path = root.join(CLOUDBURST.0).join(CLOUDBURST_BLOCKS);
+        if !is_file(&bds_path) {
+            return;
+        }
+        let reference: Vec<ReferenceState> =
+            read_json_file(&root.join(REFERENCE_DIR).join(REFERENCE_BLOCKS)).unwrap();
+        let schema: AddingSchema = read_json_file(
+            &root
+                .join(upgrade::OUT)
+                .join(upgrade::BLOCK_SCHEMAS)
+                .join(SCHEMA_1_26_60),
+        )
+        .unwrap();
+        let bds: Vec<CloudburstBlock> = read_json_file(&bds_path).unwrap();
+        let physics = reference_physics(&reference, &schema.added_properties, &bds).unwrap();
+        assert_eq!(physics.connected, CONNECTED_1_26_60);
+        assert_eq!(physics.borrowed, BORROWED_STATES_1_26_60);
+        assert_eq!(physics.by_id.len(), reference.len());
+    }
 }

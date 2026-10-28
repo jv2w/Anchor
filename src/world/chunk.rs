@@ -565,7 +565,7 @@ pub(crate) mod tests {
     use crate::world::paletted::tests::check;
     use crate::world::{Flat, Void};
 
-    /// The network ID of `minecraft:kelp` with `kelp_age` 3 in the 1.26.50 reference list (the
+    /// The network ID of `minecraft:kelp` with `kelp_age` 3 in the 1.26.60 reference list (the
     /// value BDS sends).
     const KELP_AGE_3: u32 = 3_718_566_417;
 

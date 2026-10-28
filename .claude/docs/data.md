@@ -11,16 +11,17 @@
 | pmmp/PocketMine-MP | 마지막 커밋 `6a7cc02e9dff59b69241aa0bcffdb9903ce86beb`(5.44.3 뒤, Bedrock 1.26.30 데이터) | LGPL-3.0, 보관됨 | 덤프 원본: 블록·아이템 종류와 동작, 레시피, 크리에이티브 목록, 효과·인챈트 표, 골든 |
 | pocketmine/bedrock-data | 6.7.0+bedrock-1.26.30(덤프 원본 `composer.lock`) | CC0 | 덤프 원본이 읽는 레시피 등 |
 | pmmp/PHP-Binaries | php-build-524, PHP 8.4 PM5 Windows x64(zip sha256 `cf4023b8549c99eec47cfd403805ac7d78100fa366394dab4e45bb544dcc9be4`) | PHP 라이선스 | 덤프용 PHP(개발 도구) |
-| df-mc/dragonfly | v0.11.5 `4c7b5074be94fa83a1cd98e9c752083ad04a6e21`(gophertunnel v1.62.0, 1.26.50) | MIT | 기준 목록 출처: 블록 상태, 아이템, 크리에이티브 아이템 상태 |
-| CloudburstMC/Data | `659ce1e2eee3a67045693f4fd5515c6ccf571953`(26.50) | Apache-2.0 | 기준 목록 출처: 블록 네트워크 ID, 교차 확인, 바이옴, 공식 서버 블록 물리, 그대로 보내는 파일 |
+| df-mc/dragonfly | PR #1481 head `d86aefd9ff9b6a357d6dfadab2093af811545256`(포크 HashimTheArab/dragonfly, 브랜치 `update/1.26.60-upstream`, gophertunnel v1.63.0, 1.26.60). 병합 전 PR 고정, 정식판이 나오면 바꿈 | MIT | 기준 목록 출처: 블록 상태, 아이템, 크리에이티브 아이템 상태 |
+| CloudburstMC/Data | `293c848098cc636a2758937fb6610b8bed1f12c5`(26.60) | Apache-2.0 | 기준 목록 출처: 블록 네트워크 ID, 교차 확인, 바이옴, 공식 서버 블록 물리, 그대로 보내는 파일 |
 | Mojang/bedrock-protocol-docs | `protocol.md`의 고정 버전 표 | Minecraft EULA | 필드 길이 상한(숫자만 옮김) |
-| pmmp/BedrockBlockUpgradeSchema | 5.3.0 `4e874a162c4d41a9db7df72980e97849d6942d5d` | CC0 | 옛 블록 상태 업그레이드 |
-| pmmp/BedrockItemUpgradeSchema | 1.18.0 `7f551f625fee3be0c8d33be1fee295c7ec6a277e` | CC0 | 옛 아이템 이름 업그레이드 |
+| opencollab-incubator/BedrockBlockUpgradeSchema | 5.4.1 `1077ee640ed39f60266f7a7c8ab331ef76d7931e` | CC0 | 옛 블록 상태 업그레이드 |
+| opencollab-incubator/BedrockItemUpgradeSchema | 1.19.0 `dfc12b388be886ba6980d9a3b67cb1b432b563e2` | CC0 | 옛 아이템 이름 업그레이드 |
 | 공식 서버(Mojang 배포) | 1.26.52.3(프로토콜 2193) | Minecraft EULA | 대조 실행만. 카메라·조준 보조 프리셋은 공식 서버가 보낸 패킷 캡처에서 옮김 |
 
 - `cargo xtask dump`는 시작할 때 각 체크아웃의 `HEAD`가 위 커밋인지 확인하고, 아니면 실패한다.
-- 블록 스키마는 덤프 원본이 고정한 5.2.0이 아니라 5.3.0이다. 5.2.0에는 1.26.30 변경이 없다.
-- 아이템 스키마는 덤프 원본이 고정한 1.17.0이 아니라 1.18.0이다. 1.26.50의 이름 바꾸기(`photo` → `photo_item`)가 있다.
+- 블록 스키마는 덤프 원본이 고정한 5.2.0이 아니라 5.4.1이다. 5.2.0에는 1.26.30부터의 변경이 없다.
+- 아이템 스키마는 덤프 원본이 고정한 1.17.0이 아니라 1.19.0이다. 1.26.50의 이름 바꾸기(`photo` → `photo_item`)와 1.26.60의 `frostbite_spawn_egg`가 있다.
+- CloudburstMC 26.60 커밋 뒤의 `88a2436`은 `blocks.json` 형식만 바꾼 것이라 쓰지 않는다.
 
 ## 덤프 (`cargo xtask dump`)
 
@@ -28,9 +29,10 @@
 1. `xtask/go/reference`(Go)가 기준 목록 출처 두 곳을 읽어 `xtask/data/reference/`에 기준 목록을 쓴다.
    덤프 원본 실행이 기준 상태를 덤프 원본의 역직렬화기로 읽는다.
 2. 덤프용 PHP가 `.cache/pmmp`를 작업 폴더로 `xtask/php/dump.php`를 돌려 `xtask/data/pmmp/`에 쓴다.
-3. 기준 목록 출처의 바이옴, 엔티티 식별자, 블록 모양, 블록 물리를 `xtask/data/reference/`로 옮긴다.
+3. 기준 목록 출처의 바이옴, 엔티티 식별자, 블록 모양을 `xtask/data/reference/`로 옮긴다.
 4. Mojang 프로토콜 스키마에서 필드 상한(`protocol_limits.json`)을 만든다(쓰는 법은 `protocol.md`).
 5. 업그레이드 스키마를 `xtask/data/upgrade/`로 옮기고 덤프 원본의 업그레이더로 골든을 만든다(아래 업그레이드 절).
+6. 기준 목록의 모든 상태에 공식 서버 블록 물리를 붙여 `block_physics.json`에 쓴다(아래 블록 물리). 물리가 없는 상태가 있으면 실패한다.
 
 `--check`는 같은 일을 `target/xtask-dump/`에 하고 커밋된 파일과 바이트가 다르면 실패한다. 덤프는 `verify`에
 들지 않는다. 체크아웃, 덤프용 PHP, Go가 필요하고, 입력은 고정 커밋이라 바뀌지 않는다. 대신 `verify`의
@@ -74,10 +76,10 @@ NBT는 타입 있는 JSON(`{"byte": 1}`, 실수는 비트 패턴)이다.
 
 | 파일 | 출처 | 쓰임 |
 |---|---|---|
-| `blocks.json` | dragonfly `block_states.nbt` + CloudburstMC `block_palette.nbt`의 `network_id` | 블록 상태 22,091개와 네트워크 ID |
-| `items.json` | dragonfly `vanilla_items.nbt`, CloudburstMC `runtime_item_states.json`과 대조 | 아이템 2,076개(런타임 ID 순, 컴포넌트 데이터 포함). ItemRegistry 전체 |
+| `blocks.json` | dragonfly `block_states.nbt` + CloudburstMC `block_palette.nbt`의 `network_id` | 블록 상태 23,960개와 네트워크 ID |
+| `items.json` | dragonfly `vanilla_items.nbt`, CloudburstMC `runtime_item_states.json`과 대조 | 아이템 2,080개(런타임 ID 순, 컴포넌트 데이터 포함). ItemRegistry 전체 |
 | `item_blocks.json` | CloudburstMC `creative_items.json`, dragonfly `creative_items.nbt`와 대조 | 블록 아이템의 네트워크 형태 |
-| `block_physics.json` | CloudburstMC `blocks.json`(공식 서버 덤프) | 비활성 블록의 굳기, 빛, 충돌 상자 |
+| `block_physics.json` | CloudburstMC `blocks.json`(공식 서버 덤프), 아래 블록 물리 규칙 | 비활성 블록의 굳기, 빛, 충돌 상자 |
 | `biomes.json` | CloudburstMC `stripped_biome_definitions.json` | BiomeDefinitionList(89개) |
 | `entity_identifiers.dat`, `voxel_shapes.json` | CloudburstMC 그대로 | AvailableActorIdentifiers, VoxelShapes |
 | `jigsaw_structure_data.dat`, `entity_properties.dat` | CloudburstMC `.nbt`를 네트워크 NBT로 변환 | 스폰 때 보내는 데이터 |
@@ -87,6 +89,16 @@ NBT는 타입 있는 JSON(`{"byte": 1}`, 실수는 비트 패턴)이다.
 - 기준 목록 출처 두 곳의 블록 상태나 아이템이 하나라도 다르면 변환 도구가 실패한다.
 - 블록 네트워크 ID는 해시 방식(FNV-1a 32비트, 이름과 정렬한 상태 NBT)이다. 공식 서버도 해시 ID를 쓴다. 기준 목록
   전체가 Rust 해시 함수 결과와 같은지 골든 시험한다.
+- 블록 물리: CloudburstMC 물리 갱신 전 임시 규칙 둘이 있다(`xtask/src/dump.rs`, 적용 수는 단위 시험이 고정). 26.60
+  커밋의 `blocks.json`은 아직 26.50 상태만 담는다.
+  - 연결: 1.26.60이 불·후렴 식물(`minecraft:connection_*`)과 레드스톤 가루(`redstone_*`)에 더한 연결 속성을 가진 상태
+    1,872개(불 512, 레드스톤 가루 1,296, 후렴 식물 64)는 그 속성을 뺀 옛 상태(블록 스키마 `0361`이 이 상태로 잇는
+    상태)의 물리를 쓴다.
+  - 빌린 값: 1.26.60 새 블록 상태 30개는 비슷한 블록의 물리를 빌린다. `icicle`(20) → `pointed_dripstone`,
+    `ice_crystal`(6) → `amethyst_cluster`, `disc_press`(4) → `stone`. 두 블록이 함께 가진 속성(방향, 굵기)이 같은
+    상태 하나를 빌리고, 하나가 아니면 덤프가 실패한다. Mojang bedrock-samples에는 1.26.60 정식판이 없고(main은
+    1.26.50.4, 1.26.60은 프리뷰 태그뿐) 이 블록의 정의도 없다. 블록 동작은 없다(비활성 블록).
+  - 이 두 규칙 밖에서 물리가 없는 상태가 있으면 덤프가 실패한다. CloudburstMC가 물리를 갱신하면 규칙을 지운다.
 - 바이옴에서 패킷 필드가 없는 값(밀도 등)이 0이 아니면 덤프가 실패한다.
 - 덤프 상태 대부분은 기준 목록과 1:1이 아니다. `SHARED`에 든 것은 침대, 물 가마솥, 배너, 벽 배너다.
 - light dampening은 덤프 원본의 빛 필터와 일부(잎, 발광석 등) 다르다. 공식 서버의 `isSolid`는 덤프 원본과 뜻이 다르다.
@@ -97,11 +109,11 @@ NBT는 타입 있는 JSON(`{"byte": 1}`, 실수는 비트 패턴)이다.
 
 | 생성 파일 | 입력 | 내용 |
 |---|---|---|
-| `src/block/table.rs` | 덤프, 업그레이드 스키마 `0351`, 기준 목록 | Anchor 상태 12,468개와 별칭 4,884개 |
-| `src/block/inert/table.rs` | 기준 목록, `block_physics.json` | 비활성 상태 4,739개(이름 261개)와 물리 |
+| `src/block/table.rs` | 덤프, 업그레이드 스키마 `0351`·`0361`, 기준 목록 | Anchor 상태 14,307개와 별칭 4,884개 |
+| `src/block/inert/table.rs` | 기준 목록, `block_physics.json` | 비활성 상태 4,769개(이름 264개)와 물리 |
 | `src/block/drops.rs` | 덤프 | 결정적 드롭 골든 |
 | `src/item/table.rs` | 덤프, 기준 목록 | 덤프 아이템 형태 1,613개 |
-| `src/item/registry.rs` | 기준 목록 | ItemRegistry 2,076개 |
+| `src/item/registry.rs` | 기준 목록 | ItemRegistry 2,080개 |
 | `src/item/creative.rs` | 덤프 | 크리에이티브 107그룹, 1,633개 |
 | `src/crafting/table.rs` | 덤프 | 모양·무형·화로·물약·smithing 레시피 |
 | `src/effect/table.rs` | `tables.json` | 효과 27개, 물약 43개, 인챈트 |
@@ -111,8 +123,11 @@ NBT는 타입 있는 JSON(`{"byte": 1}`, 실수는 비트 패턴)이다.
 표가 `static`이라 시작 비용과 할당이 없다.
 
 Anchor 블록 상태는 덤프 상태의 Bedrock 직렬화(중복 제거)에 최신 업그레이드 스키마를 적용한 것과, 그 스키마가 더한
-속성의 나머지 값을 합친 것이다. 1.26.50은 덤프 블록 115개 이름에 속성을 더했다(울타리·판유리·철창·트립와이어의
-`minecraft:connection_*`, 계단의 `minecraft:corner`). 공식 서버는 이 값을 서버에서 이웃으로 계산해 보낸다. 순서는
+속성의 나머지 값을 합친 것이다. 최신 스키마는 덤프 원본 데이터(1.26.30) 뒤에 속성을 더한 스키마 모두(`0351`,
+`0361`)다. 1.26.50은 덤프 블록 115개 이름에 속성을 더했다(울타리·판유리·철창·트립와이어의
+`minecraft:connection_*`, 계단의 `minecraft:corner`). 공식 서버는 이 값을 서버에서 이웃으로 계산해 보낸다.
+1.26.60은 불·후렴 식물의 `minecraft:connection_*`와 레드스톤 가루의 `redstone_*`를 더했다. Anchor는 이 값을
+계산하지 않고 기본값(연결 없음)으로 보낸다. 순서는
 이름, 그다음 속성 이름순의 (속성 이름, 값)이고, 값은 타입(byte, int, string) 다음 값 순이다. `block::State`는 그
 번호이고 gen이 이 순서를 검사한다.
 
@@ -141,18 +156,16 @@ gen이 데이터 오류에서 실패하는 것은 데이터 오류가 실행 중
 
 | 파일 | 내용 |
 |---|---|
-| `blocks/` | 블록 스키마 36개(`nbt_upgrade_schema/`와 루트의 `0351_1.26.40_to_1.26.50.json`) |
+| `blocks/` | 블록 스키마 37개(`nbt_upgrade_schema/`) |
 | `items/` | 아이템 스키마와 레거시 ID 표 |
 | `block_legacy_id_map.json`, `legacy_1.12.0.jsonl` | 레거시 숫자 ID와 1.12.0 `id_meta_to_nbt` 표(바이너리를 타입 있는 JSON 줄로 변환) |
 | `golden/` | 덤프 원본 업그레이더 실행 결과(`legacy.jsonl`, `states.jsonl`, `reference.jsonl`) |
 | `sources.json` | 원본 커밋과 원본 파일마다의 SHA-256 |
 
-생성 표는 블록 스키마 36개, 레거시 항목 3,311개(상태 2,812개로 올라감), 아이템 스키마 29개다.
+생성 표는 블록 스키마 37개, 레거시 항목 3,311개(상태 2,812개로 올라감), 아이템 스키마 30개다.
 `BLOCK_STATE_VERSION`은 18,168,865(= 1.21.60.33)이다.
 
 스키마 저장소와 덤프 원본 업그레이더의 결함:
-- `0351`이 `nbt_upgrade_schema/`가 아니라 저장소 루트에 있어 덤프 원본의 스캔에서 빠진다. 이 스키마는 Anchor 상태 표의
-  1.26.50 속성 출처이기도 하다.
 - `0321`부터 모든 스키마가 같은 출력 버전(1.21.60.33)을 써서, 덤프 원본은 현재 상태에도 `0321`을 다시 적용해
   `red_mushroom_block` 10/15를 `mushroom_stem`으로 바꾼다.
 - 한 스키마에서 같은 ID가 이름 바꾸기와 평탄화에 함께 있으면 덤프 원본은 실행 중 던진다. 덤프 원본은 byte 값을 부호
@@ -174,11 +187,11 @@ gen이 규칙 해석기와 같은 코드로 스키마를 검사하므로 규칙�
 | 폴더 | 원본 | 고정 | 읽는 명령 |
 |---|---|---|---|
 | `pmmp` | `https://github.com/pmmp/PocketMine-MP.git` | 출처 표의 커밋 + `vendor/`(`composer.lock`) | `dump`, PHP 스크립트 전부 |
-| `dragonfly` | `https://github.com/df-mc/dragonfly.git` | 출처 표의 커밋 | `dump` |
+| `dragonfly` | `https://github.com/HashimTheArab/dragonfly.git`(PR #1481의 포크) | 출처 표의 커밋 | `dump` |
 | `cloudburst-data` | `https://github.com/CloudburstMC/Data.git` | 출처 표의 커밋 | `dump`, `p6`(바이옴·jigsaw 대조), `xtask/tests/spawn.rs`(없으면 건너뜀) |
 | `bedrock-protocol-docs` | `https://github.com/Mojang/bedrock-protocol-docs.git` | `protocol.md` 고정 버전 표의 커밋 | `dump`(필드 상한) |
-| `block-upgrade-schema` | `https://github.com/pmmp/BedrockBlockUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
-| `item-upgrade-schema` | `https://github.com/pmmp/BedrockItemUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
+| `block-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockBlockUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
+| `item-upgrade-schema` | `https://github.com/opencollab-incubator/BedrockItemUpgradeSchema.git` | 출처 표의 커밋 | `dump` |
 | `php-pm5/bin/php/php.exe` | pmmp/PHP-Binaries 릴리스 php-build-524, PHP 8.4 PM5 Windows x64 | zip `cf4023b8…9be4`(위 표), `php.exe` `80625be7d15a3f156bb5ae5f8fb454bcfbec043d800022d70fa59333512f484c`(PHP 8.4.16 ZTS) | `dump`, PHP 스크립트 |
 | `bds/1.26.52.3/` | minecraft.net Bedrock Dedicated Server, Windows 1.26.52.3 | `bedrock_server.exe` `19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443` | `p6 bds`, `p6 game bds`, `p6 api bds`, `p6 import` |
 | `bds/1.26.52.3/`(Linux 체크아웃) | minecraft.net Bedrock Dedicated Server, Linux 1.26.52.3 (`bin-linux/bedrock-server-1.26.52.3.zip`) | zip `f6348d84fa714d04ca194f207e89453ca6bba0a1359396475271a52a150471c6`, `bedrock_server` `0a490c711d4a2ce075debcd979e8862b7eaba008373f9970f0edbb67f98f9207` | Linux의 `p6` 전부 |

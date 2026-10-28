@@ -31,7 +31,7 @@ mod model;
 mod names;
 mod recipes;
 mod registry;
-mod upgrade;
+pub(crate) mod upgrade;
 
 use std::io::Write as _;
 use std::path::Path;

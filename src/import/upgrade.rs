@@ -1,9 +1,10 @@
 //! Old block states and item names to the protocol version's, as PMMP upgrades
-//! them when it loads a world: block states through pmmp/BedrockBlockUpgradeSchema (PMMP
-//! `BlockDataUpgrader`), legacy numeric and string IDs with a meta through its 1.12.0 table
-//! (`BlockIdMetaUpgrader`), and item stacks through pmmp/BedrockItemUpgradeSchema
-//! (`ItemDataUpgrader`). The tables are generated (`table`, `cargo xtask gen`); the rule
-//! interpreter (`apply`) is shared with the generator, which checks the schemas with it.
+//! them when it loads a world: block states through
+//! opencollab-incubator/BedrockBlockUpgradeSchema (PMMP `BlockDataUpgrader`), legacy numeric and
+//! string IDs with a meta through its 1.12.0 table (`BlockIdMetaUpgrader`), and item stacks
+//! through opencollab-incubator/BedrockItemUpgradeSchema (`ItemDataUpgrader`). The tables are
+//! generated (`table`, `cargo xtask gen`); the rule interpreter (`apply`) is shared with the
+//! generator, which checks the schemas with it.
 //!
 //! Where PMMP falls back to meta 0 for a legacy meta its table lacks, or drops what it cannot
 //! read, this module gives `None` and the caller keeps the original as an unknown block, so

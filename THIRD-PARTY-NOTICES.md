@@ -95,8 +95,8 @@ is preserved.
 
 Dedicated to the public domain under CC0 1.0; listed for attribution only.
 
-- pmmp/BedrockBlockUpgradeSchema and pmmp/BedrockItemUpgradeSchema: `xtask/data/upgrade/` and the
-  table generated into `src/import/upgrade/`.
+- opencollab-incubator/BedrockBlockUpgradeSchema and opencollab-incubator/BedrockItemUpgradeSchema:
+  `xtask/data/upgrade/` and the table generated into `src/import/upgrade/`.
 - pocketmine/bedrock-data: the recipes in `xtask/data/pmmp/recipes.json` and the table generated into
   `src/crafting/`.
 

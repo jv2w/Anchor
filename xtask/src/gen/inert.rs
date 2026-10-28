@@ -105,7 +105,7 @@ pub(crate) fn generate(root: &Path, data: &Data) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! The block states of the 1.26.50 reference list that are not Anchor states \
+        "{HEADER}\n//! The block states of the 1.26.60 reference list that are not Anchor states \
         : {} states of {} blocks, with BDS's physics.\n\n\
          use super::Profile;\n\
          use crate::math::{{Aabb, Vec3}};\n",

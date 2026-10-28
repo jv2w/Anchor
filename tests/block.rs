@@ -142,7 +142,7 @@ impl Rng {
 #[test]
 fn every_state_is_a_reference_state_with_its_network_id() {
     let reference: BTreeMap<Key, u32> = reference().into_iter().collect();
-    assert_eq!(State::all().len(), 12_468);
+    assert_eq!(State::all().len(), 14_307);
     for state in State::all() {
         let key = key_of(state);
         assert_eq!(
@@ -184,20 +184,23 @@ fn every_state_is_found_by_its_network_id_and_properties() {
 // pmmp: Block::getSupportType, Block::getCollisionBoxes
 #[test]
 fn every_pmmp_state_finds_its_upgraded_state_with_its_values() {
-    let upgrade = read_json("xtask/data/upgrade/blocks/0351_1.26.40_to_1.26.50.json");
-    let added = upgrade["addedProperties"]
-        .as_object()
-        .expect("addedProperties");
+    // The block schemas that add properties after the dump's data version.
+    let schemas = [
+        read_json("xtask/data/upgrade/blocks/0351_1.26.40_to_1.26.50.json"),
+        read_json("xtask/data/upgrade/blocks/0361_1.26.50_to_1.26.60.json"),
+    ];
     let dump = read_json("xtask/data/pmmp/blocks.json");
     let dump = dump.as_array().expect("dump is an array");
     assert_eq!(dump.len(), 11_420);
     for block in dump {
         let name = block["bedrock"]["name"].as_str().expect("name");
         let mut properties = properties_of(&block["bedrock"]["states"]);
-        if let Some(defaults) = added.get(name) {
-            properties.extend(properties_of(defaults));
-            properties.sort();
+        for schema in &schemas {
+            if let Some(defaults) = schema["addedProperties"].get(name) {
+                properties.extend(properties_of(defaults));
+            }
         }
+        properties.sort();
         let state = State::find(name, &borrowed(&properties))
             .unwrap_or_else(|| panic!("{name} {properties:?} has no state"));
         let byte = |field: &str| {
@@ -443,5 +446,5 @@ fn unknown_names_and_properties_give_none() {
         );
         found += usize::from(expected.is_some());
     }
-    assert_eq!(found, 12_688);
+    assert_eq!(found, 12_232);
 }

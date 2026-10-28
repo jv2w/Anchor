@@ -1,6 +1,5 @@
 {
-  "block": "4e874a162c4d41a9db7df72980e97849d6942d5d",
-  "block/0351_1.26.40_to_1.26.50.json": "8ab9f34506e4818a2ad5c4e66ba1a57a1cc933360dba675ad4252553630b05db",
+  "block": "1077ee640ed39f60266f7a7c8ab331ef76d7931e",
   "block/block_legacy_id_map.json": "e2bd08512e14879d4e722e87d48c6582940167ef57c3fba39bf89147da92bb40",
   "block/id_meta_to_nbt/1.12.0.bin": "61d87ae8d63749cd7a7d603eed02d35e5d85eeec284b30fd5b6e8af664cbf170",
   "block/id_meta_to_nbt/1.9.0.bin": "471ad7f9584fb062b13656bae897b64de16f0e9ec2c07d65ca3146f828e2a4a3",
@@ -39,7 +38,9 @@
   "block/nbt_upgrade_schema/0321_1.21.50.29_beta_to_1.21.60.28_beta.json": "a21413011a8ed8b94937f879fbca79ea3611e12b7e4617ea98e36690db0a427e",
   "block/nbt_upgrade_schema/0331_1.21.100.23_beta_to_1.21.110.26_beta.json": "c911ea5178cea1222a638f2f42f56f4cc0066cae3b6cd2f425c3b1c7508b1dc4",
   "block/nbt_upgrade_schema/0341_1.26.20_to_1.26.30.json": "16c1727e194d99e336ecd9d0136ceb358c18272608190b99f9527b552cdb2ea5",
-  "item": "7f551f625fee3be0c8d33be1fee295c7ec6a277e",
+  "block/nbt_upgrade_schema/0351_1.26.40_to_1.26.50.json": "8ab9f34506e4818a2ad5c4e66ba1a57a1cc933360dba675ad4252553630b05db",
+  "block/nbt_upgrade_schema/0361_1.26.50_to_1.26.60.json": "3fa17b08bf9cd8c170b7d665d49c9bb0c5bd057e8f51e7834b35191c021efcdc",
+  "item": "dfc12b388be886ba6980d9a3b67cb1b432b563e2",
   "item/1.12.0_item_id_to_block_id_map.json": "9bdc5b358201613af3ee5fb238ef0cb204980cab43ebc19738b30f6a92166196",
   "item/id_meta_upgrade_schema/0001_1.6_beta_to_1.6.0.json": "c3bff57e9b68c1b445942a21f9a5f5c6c824c82511413a3c7fe7a92bd480c326",
   "item/id_meta_upgrade_schema/0011_1.11.4_to_1.12.0.json": "8782578c5a75b1df439dae1748a4c4826a2e78b297f30b549368331f5d642a3b",
@@ -70,5 +71,6 @@
   "item/id_meta_upgrade_schema/0261_1.26.10_to_1.26.20.json": "90c9b4a26ac5fc85dabb6ef036f5f1fec932f5ee147b3be57d1288c90893e47b",
   "item/id_meta_upgrade_schema/0271_1.26.20_to_1.26.40.31_beta.json": "1cae91ec03e515fc8990963db50a192d9b8a00f963a93e4b7b4c699379716eac",
   "item/id_meta_upgrade_schema/0281_1.26.40_to_1.26.50.json": "746be230b7eb14caca8b60d8c9632c68b042a9f3edbfe97b9cd0b441876a9dd5",
+  "item/id_meta_upgrade_schema/0291_1.26.50_to_1.26.60.json": "1a3b4d040c7d37c6c0177f58fc9c232283c23ba5ffcd1c84d26cebed58aa3720",
   "item/item_legacy_id_map.json": "cb17f1be62a067211ab6fe334437ace9fe149dfe1a40bc4dcaa1849bc9976c30"
 }

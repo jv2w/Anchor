@@ -1,4 +1,4 @@
-//! Item types: every item type Anchor knows, in Bedrock form, with its 1.26.50
+//! Item types: every item type Anchor knows, in Bedrock form, with its 1.26.60
 //! runtime ID, the lookups from the forms clients and saved data use, and the item registry and
 //! creative inventory sent at spawn.
 //!
@@ -185,7 +185,7 @@ impl Type {
         }
     }
 
-    /// The 1.26.50 network runtime ID of the name; for a custom type, the one the server gave it
+    /// The 1.26.60 network runtime ID of the name; for a custom type, the one the server gave it
     /// (after every vanilla runtime ID, in registration order).
     #[inline]
     pub fn runtime_id(self) -> i16 {
@@ -1240,7 +1240,7 @@ pub(crate) fn is_education(name: &str) -> bool {
     PREFIXES.iter().any(|p| name.starts_with(p)) || NAMES.contains(&name)
 }
 
-/// The `ItemRegistry` packet: every item of the 1.26.50 reference list with its component data,
+/// The `ItemRegistry` packet: every item of the 1.26.60 reference list with its component data,
 /// in runtime ID order. The client does not depend on the order: PMMP sends the
 /// list by name and dragonfly in Go map order. Built once when the server is built.
 pub(crate) fn registry() -> packet::ItemRegistry {
@@ -1555,7 +1555,7 @@ mod tests {
     fn registry_is_the_reference_list() {
         let reference = reference();
         let registry = registry();
-        assert_eq!(registry.items.len(), 2076);
+        assert_eq!(registry.items.len(), 2080);
         assert_eq!(registry.items.len(), reference.len());
         for (entry, want) in registry.items.iter().zip(&reference) {
             assert_eq!(entry.name, want["name"].as_str().unwrap());

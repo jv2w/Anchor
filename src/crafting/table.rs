@@ -13500,7 +13500,7 @@ pub(super) static SHAPED: [Shaped<'static>; 924] = [
             Some(Ingredient::AnyMeta(Name::new("minecraft:gold_ingot", 308))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gold_ingot", 308))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gold_ingot", 308))),
-            Some(Ingredient::AnyMeta(Name::new("minecraft:apple", 882))),
+            Some(Ingredient::AnyMeta(Name::new("minecraft:apple", 883))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gold_ingot", 308))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gold_ingot", 308))),
             Some(Ingredient::AnyMeta(Name::new("minecraft:gold_ingot", 308))),
@@ -28426,7 +28426,7 @@ pub(super) static FURNACE: [Furnace; 209] = [
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::AnyMeta(Name::new("minecraft:copper_spear", 854)),
+        input: Ingredient::AnyMeta(Name::new("minecraft:copper_spear", 855)),
         result: Stack::new(323, 0, 1, None),
     },
     Furnace {
@@ -28556,7 +28556,7 @@ pub(super) static FURNACE: [Furnace; 209] = [
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::AnyMeta(Name::new("minecraft:golden_spear", 856)),
+        input: Ingredient::AnyMeta(Name::new("minecraft:golden_spear", 857)),
         result: Stack::new(654, 0, 1, None),
     },
     Furnace {
@@ -28631,7 +28631,7 @@ pub(super) static FURNACE: [Furnace; 209] = [
     },
     Furnace {
         kind: FurnaceType::Furnace,
-        input: Ingredient::AnyMeta(Name::new("minecraft:iron_spear", 857)),
+        input: Ingredient::AnyMeta(Name::new("minecraft:iron_spear", 858)),
         result: Stack::new(771, 0, 1, None),
     },
     Furnace {
@@ -28961,7 +28961,7 @@ pub(super) static FURNACE: [Furnace; 209] = [
     },
     Furnace {
         kind: FurnaceType::BlastFurnace,
-        input: Ingredient::AnyMeta(Name::new("minecraft:copper_spear", 854)),
+        input: Ingredient::AnyMeta(Name::new("minecraft:copper_spear", 855)),
         result: Stack::new(323, 0, 1, None),
     },
     Furnace {
@@ -29076,7 +29076,7 @@ pub(super) static FURNACE: [Furnace; 209] = [
     },
     Furnace {
         kind: FurnaceType::BlastFurnace,
-        input: Ingredient::AnyMeta(Name::new("minecraft:golden_spear", 856)),
+        input: Ingredient::AnyMeta(Name::new("minecraft:golden_spear", 857)),
         result: Stack::new(654, 0, 1, None),
     },
     Furnace {
@@ -29141,7 +29141,7 @@ pub(super) static FURNACE: [Furnace; 209] = [
     },
     Furnace {
         kind: FurnaceType::BlastFurnace,
-        input: Ingredient::AnyMeta(Name::new("minecraft:iron_spear", 857)),
+        input: Ingredient::AnyMeta(Name::new("minecraft:iron_spear", 858)),
         result: Stack::new(771, 0, 1, None),
     },
     Furnace {

@@ -35,13 +35,16 @@ type R<T> = Result<T, String>;
 
 /// The generated file, relative to the repository root.
 pub(crate) const PATH: &str = "src/import/upgrade/table.rs";
-/// The block schema that adds the properties of the protocol version; `data` reads it too
-/// ([`latest`]).
-pub(crate) const LATEST: &str = "0351_1.26.40_to_1.26.50.json";
+/// The block schema of 1.26.60: it adds the connection properties of fire, redstone wire and
+/// chorus plants.
+pub(crate) const SCHEMA_1_26_60: &str = "0361_1.26.50_to_1.26.60.json";
+/// The block schemas that add properties after the dump source's data version (1.26.30), oldest
+/// first; `data` reads them too ([`block_schema`]).
+pub(crate) const ADDING: [&str; 2] = ["0351_1.26.40_to_1.26.50.json", SCHEMA_1_26_60];
 
-/// The path of [`LATEST`].
-pub(crate) fn latest(root: &Path) -> PathBuf {
-    root.join(DIR).join(BLOCK_SCHEMAS).join(LATEST)
+/// The path of the copied block schema `name`.
+pub(crate) fn block_schema(root: &Path, name: &str) -> PathBuf {
+    root.join(DIR).join(BLOCK_SCHEMAS).join(name)
 }
 
 /// A property value in a schema (PMMP `BlockStateUpgradeSchemaModelTag`): exactly one field.
@@ -561,8 +564,8 @@ pub(crate) fn generate(root: &Path) -> R<String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Upgrade tables generated from pmmp/BedrockBlockUpgradeSchema and \
-         pmmp/BedrockItemUpgradeSchema (`xtask/data/upgrade/`): {} block schemas, \
+        "{HEADER}\n//! Upgrade tables generated from opencollab-incubator/BedrockBlockUpgradeSchema \
+         and opencollab-incubator/BedrockItemUpgradeSchema (`xtask/data/upgrade/`): {} block schemas, \
          {} legacy entries upgraded to {} states, {} item schemas.\n",
         schemas.len(),
         entries.len(),

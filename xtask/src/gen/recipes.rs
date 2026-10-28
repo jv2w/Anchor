@@ -546,7 +546,7 @@ fn stack(data: &Data, json: &Json) -> R<String> {
     ))
 }
 
-/// An item name with its 1.26.50 runtime ID from the reference list. PMMP sends names it knows
+/// An item name with its 1.26.60 runtime ID from the reference list. PMMP sends names it knows
 /// without an item type for them too, such as `minecraft:lodestone_compass`.
 fn name(data: &Data, name: &str) -> R<String> {
     let id = data.runtime_id(name)?;

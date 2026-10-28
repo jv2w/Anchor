@@ -20,7 +20,7 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Item types generated from the PMMP dump and the 1.26.50 reference list \
+        "{HEADER}\n//! Item types generated from the PMMP dump and the 1.26.60 reference list \
         : {} types.\n\n\
          use super::{{Armor, Consumable, Cooldown, Data, EnchantmentData, EnchantmentSet, Food, \
          Info, Type}};\nuse crate::block::{{State, ToolType}};\nuse crate::effect;\n\n\

@@ -1,9 +1,9 @@
 //! Block and item data: reads the committed PMMP dump (`xtask/data/pmmp/`),
-//! the reference lists (`xtask/data/reference/`) and the block upgrade schema of the protocol
-//! version (`upgrade::LATEST`), checks them against each other, and builds the block state
-//! and item type lists, with their gameplay data, and the tables the data generators emit. The
-//! index of a state or item type in these lists is its number in the generated tables, so every
-//! generator agrees on it.
+//! the reference lists (`xtask/data/reference/`) and the block upgrade schemas that add
+//! properties after the dump's data version (`upgrade::ADDING`), checks them against each other,
+//! and builds the block state and item type lists, with their gameplay data, and the tables the
+//! data generators emit. The index of a state or item type in these lists is its number in the
+//! generated tables, so every generator agrees on it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -18,7 +18,7 @@ use crate::dump::{
 
 use super::body::{int_lit, str_lit};
 use super::info::{Break, Identity, ItemData, Physics, Tables, exact, support_codes};
-use super::upgrade::{LATEST, latest};
+use super::upgrade::{ADDING, block_schema};
 
 type R<T> = Result<T, String>;
 
@@ -96,7 +96,7 @@ pub(crate) struct StateKey {
     pub(crate) properties: Vec<(String, Prop)>,
 }
 
-/// An Anchor block state: a 1.26.50 Bedrock state with PMMP's values for it.
+/// An Anchor block state: a 1.26.60 Bedrock state with PMMP's values for it.
 #[derive(Debug)]
 pub(crate) struct State {
     pub(crate) key: StateKey,
@@ -193,7 +193,7 @@ pub(crate) struct Item {
     /// NBT that is part of the type (PMMP `serializeType` extra data), such as an ominous
     /// banner's `Type`.
     pub(crate) nbt: Option<BTreeMap<String, Tag>>,
-    /// The 1.26.50 runtime ID of the name.
+    /// The 1.26.60 runtime ID of the name.
     pub(crate) runtime_id: i16,
     /// Whether PMMP's `VanillaItems` gives this form (the default form of its kind).
     pub(crate) vanilla: bool,
@@ -251,7 +251,7 @@ pub(crate) struct Data {
     recipe_meta: BTreeMap<StateKey, i32>,
     /// Item type indices by (name, block index).
     item_index: BTreeMap<(String, Option<u16>), Vec<u16>>,
-    /// 1.26.50 runtime IDs by item name.
+    /// 1.26.60 runtime IDs by item name.
     runtime_ids: BTreeMap<String, i16>,
 }
 
@@ -460,7 +460,7 @@ impl Data {
         Ok(data)
     }
 
-    /// Loads the PMMP item types and gives each its 1.26.50 runtime ID.
+    /// Loads the PMMP item types and gives each its 1.26.60 runtime ID.
     fn load_items(&mut self, root: &Path, network: &BTreeMap<StateKey, u32>) -> R<()> {
         let reference: Vec<ReferenceItem> = read_json(root, REFERENCE_DIR, REFERENCE_ITEMS)?;
         self.runtime_ids = reference
@@ -696,7 +696,7 @@ impl Data {
         })
     }
 
-    /// The 1.26.50 runtime ID of an item name of the reference list. PMMP names some items it has
+    /// The 1.26.60 runtime ID of an item name of the reference list. PMMP names some items it has
     /// no type for, such as `minecraft:lodestone_compass` in a potion container recipe.
     pub(crate) fn runtime_id(&self, name: &str) -> R<i16> {
         self.runtime_ids
@@ -764,19 +764,21 @@ fn read_reference(root: &Path) -> R<Reference> {
     Ok((network, names))
 }
 
-/// Reads the added properties of the block upgrade schema.
+/// Reads the added properties of the block upgrade schemas in [`ADDING`], by block name. A
+/// block in two schemas gets the properties of both.
 fn read_upgrade(root: &Path) -> R<BTreeMap<String, Vec<(String, Prop)>>> {
-    let path = latest(root);
-    let upgrade: Upgrade =
-        serde_json::from_slice(&read(&path)?).map_err(|e| format!("{LATEST}: {e}"))?;
-    let mut added = BTreeMap::new();
-    for (name, props) in &upgrade.added_properties {
-        let mut list = Vec::with_capacity(props.len());
-        for (prop, value) in props {
-            let value = prop_value(value).map_err(|e| format!("{LATEST}: {name} {prop}: {e}"))?;
-            list.push((prop.clone(), value));
+    let mut added: BTreeMap<String, Vec<(String, Prop)>> = BTreeMap::new();
+    for schema in ADDING {
+        let upgrade: Upgrade = serde_json::from_slice(&read(&block_schema(root, schema))?)
+            .map_err(|e| format!("{schema}: {e}"))?;
+        for (name, props) in &upgrade.added_properties {
+            let list = added.entry(name.clone()).or_default();
+            for (prop, value) in props {
+                let value =
+                    prop_value(value).map_err(|e| format!("{schema}: {name} {prop}: {e}"))?;
+                list.push((prop.clone(), value));
+            }
         }
-        added.insert(name.clone(), list);
     }
     Ok(added)
 }
@@ -1038,10 +1040,10 @@ fn merge(
     Ok((merged, *meta))
 }
 
-/// Upgrades the PMMP states to 1.26.50: adds the new properties' defaults, then takes every value
+/// Upgrades the PMMP states to 1.26.60: adds the new properties' defaults, then takes every value
 /// the reference list has for them. Every state must end up in the reference list, and an upgrade
-/// entry for a block PMMP lacks must still name a reference block (the schema covers all of
-/// 1.26.50, PMMP part of it).
+/// entry for a block PMMP lacks must still name a reference block (the schemas cover all of
+/// 1.26.60, PMMP part of it).
 fn upgrade(
     pmmp: &BTreeMap<StateKey, (Values, i32)>,
     added: &BTreeMap<String, Vec<(String, Prop)>>,
@@ -1104,7 +1106,7 @@ fn upgrade(
         .keys()
         .find(|name| !used.contains(*name) && !reference_names.contains_key(*name))
     {
-        return Err(format!("{LATEST}: {name} is not a 1.26.50 block"));
+        return Err(format!("{ADDING:?}: {name} is not a 1.26.60 block"));
     }
     Ok((states, defaults))
 }

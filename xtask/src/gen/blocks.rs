@@ -15,8 +15,8 @@ pub(crate) fn generate(data: &Data) -> Result<String, String> {
     let mut out = String::new();
     put!(
         out,
-        "{HEADER}\n//! Block states generated from the PMMP dump, the block upgrade schema and the \
-         1.26.50 reference list: {} states and {} aliases.\n\n\
+        "{HEADER}\n//! Block states generated from the PMMP dump, the block upgrade schemas and the \
+         1.26.60 reference list: {} states and {} aliases.\n\n\
          use super::{{Alias, BreakInfo, Data, Info, KindData, Property, PropertyValue, State, \
          ToolType}};\n\
          use crate::math::{{Aabb, Vec3}};\n\n",

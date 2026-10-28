@@ -4,11 +4,10 @@
 //! and runs PMMP's own upgrader over the copies (`xtask/php/upgrade.php`) for the golden files the
 //! import's tests compare with.
 //!
-//! The block schemas are pmmp/BedrockBlockUpgradeSchema 5.3.0, not the 5.2.0 PMMP's composer
-//! pins (it lacks the 1.26.30 change). In 5.3.0 `0351_1.26.40_to_1.26.50.json` sits in the
-//! repository root rather than in `nbt_upgrade_schema/`, where PMMP's directory scan would miss
-//! it; it is copied next to the others. The item schemas are pmmp/BedrockItemUpgradeSchema
-//! 1.18.0, newer than PMMP's 1.17.0: it adds the 1.26.50 rename (`photo` to `photo_item`).
+//! The block schemas are opencollab-incubator/BedrockBlockUpgradeSchema 5.4.1, not the 5.2.0
+//! PMMP's composer pins (it lacks the changes from 1.26.30 on). The item schemas are
+//! opencollab-incubator/BedrockItemUpgradeSchema 1.19.0, newer than PMMP's 1.17.0: it adds the
+//! 1.26.50 rename (`photo` to `photo_item`) and the 1.26.60 frostbite spawn egg.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,11 +17,11 @@ use super::{PHP, PMMP, REFERENCE_BLOCKS, REFERENCE_DIR, create_dir, pinned, read
 /// The pinned checkouts, relative to the repository root, and their commits.
 pub(super) const BLOCKS: (&str, &str) = (
     ".cache/block-upgrade-schema",
-    "4e874a162c4d41a9db7df72980e97849d6942d5d",
+    "1077ee640ed39f60266f7a7c8ab331ef76d7931e",
 );
 pub(super) const ITEMS: (&str, &str) = (
     ".cache/item-upgrade-schema",
-    "7f551f625fee3be0c8d33be1fee295c7ec6a277e",
+    "dfc12b388be886ba6980d9a3b67cb1b432b563e2",
 );
 /// The output directory, relative to the repository root.
 pub(crate) const OUT: &str = "xtask/data/upgrade";
@@ -36,8 +35,6 @@ pub(crate) const ITEM_BLOCKS: &str = "1.12.0_item_id_to_block_id_map.json";
 const SOURCES: &str = "sources.json";
 pub(crate) const GOLDEN: &str = "golden";
 pub(crate) const GOLDEN_FILES: [&str; 3] = ["legacy.jsonl", "states.jsonl", "reference.jsonl"];
-/// The schema in the block repository's root that belongs with the others.
-const ROOT_SCHEMA: &str = "0351_1.26.40_to_1.26.50.json";
 /// Source folders of the schemas.
 const BLOCK_SCHEMA_DIR: &str = "nbt_upgrade_schema";
 const ITEM_SCHEMA_DIR: &str = "id_meta_upgrade_schema";
@@ -63,16 +60,12 @@ pub(super) fn run(root: &Path, out: &Path) -> Result<Vec<String>, String> {
     }
     // (source file, file written into `out`), the converted table aside.
     let mut copies: Vec<(PathBuf, String, String)> = Vec::new();
-    let mut schemas = json_files(&blocks.join(BLOCK_SCHEMA_DIR))?;
-    schemas.push(ROOT_SCHEMA.to_owned());
-    schemas.sort();
-    for name in schemas {
-        let source = if name == ROOT_SCHEMA {
-            name.clone()
-        } else {
-            format!("{BLOCK_SCHEMA_DIR}/{name}")
-        };
-        copies.push((blocks.clone(), source, format!("{BLOCK_SCHEMAS}/{name}")));
+    for name in json_files(&blocks.join(BLOCK_SCHEMA_DIR))? {
+        copies.push((
+            blocks.clone(),
+            format!("{BLOCK_SCHEMA_DIR}/{name}"),
+            format!("{BLOCK_SCHEMAS}/{name}"),
+        ));
     }
     copies.push((
         blocks.clone(),
