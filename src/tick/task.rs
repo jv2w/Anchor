@@ -58,7 +58,7 @@ impl Context<'_> {
     #[doc(alias = "Server::getName")]
     pub const NAME: &'static str = "Anchor";
 
-    /// The Minecraft: Bedrock Edition version the server speaks, such as `1.26.50`.
+    /// The Minecraft: Bedrock Edition version the server speaks, such as `1.26.60`.
     #[doc(alias = "Server::getVersion")]
     pub const VERSION: &'static str = GAME_VERSION;
 

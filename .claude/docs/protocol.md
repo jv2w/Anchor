@@ -5,22 +5,22 @@
 이 문서는 정답 출처와 고정 버전, IR에서 생성 코드까지의 파이프라인, 디코드 상한, gophertunnel 결함, 시험 P1~P5를 적는다. 전송, 로그인, 암호화, 압축은 `network.md`, 공식 서버 대조(P6)는 `testing.md`, 블록과 아이템 데이터는 `data.md`, 외부 불신 절차와 의존성 검토는 `dependencies.md`에 있다.
 
 ## 한 번에 한 버전
-- 지원 버전은 프로토콜 2193, 게임 버전 1.26.50이다(`protocol::packet::PROTOCOL_VERSION`, `GAME_VERSION`). 인증 디스커버리는 `GAME_VERSION`으로 주소를 만든다.
+- 지원 버전은 프로토콜 2225, 게임 버전 1.26.60이다(`protocol::packet::PROTOCOL_VERSION`, `GAME_VERSION`). 인증 디스커버리는 `GAME_VERSION`으로 주소를 만든다.
 - 한 버전만 받는 이유: 여러 버전을 함께 받으면 코덱, 블록 표, 시험이 버전 수만큼 늘어나 일관성과 단순함을 잃는다.
 - 다른 번호의 클라이언트는 RequestNetworkSettings(또는 Login)에서 PlayStatus(클라이언트가 높으면 서버 구버전, 낮으면 클라이언트 구버전)를 받고 끊긴다.
 
 ## 정답 출처와 고정 버전
-- IR(`xtask/data/protocol.json`)의 `source`는 `xtask/go/go.mod`의 의사 버전과 같은 값을 적는다.
+- IR(`xtask/data/protocol.json`)의 `source`는 `xtask/go/go.mod`의 gophertunnel 판(`version`)과 그 커밋(`commit`)을 적는다. 추출기(`xtask/go/extract`)가 판과 커밋을 함께 고정하고, go.mod가 다른 판을 불러오면 실패한다.
 
 | 모듈 | 고정 버전 |
 |---|---|
-| github.com/sandertv/gophertunnel | `v1.62.1-0.20260928233358-80c811b61860`(커밋 `80c811b6186016b3860c358368cfa47e507f26e9`, v1.62.0 뒤 19커밋, 프로토콜 2193, 1.26.50) |
+| github.com/sandertv/gophertunnel | `v1.63.0`(태그, 커밋 `8c30047d86617a56e1f1871e3a1d47ec4f670d99`, 프로토콜 2225, 1.26.60) |
 | github.com/sandertv/go-raknet | `v1.15.2-0.20260705184311-0d1fd09e2cf6` |
-| github.com/df-mc/go-nethernet | `v1.0.20-0.20260818142457-6fc1eb6f907c` |
-| Mojang bedrock-protocol-docs(필드 상한) | 커밋 `475bd72ed89036af4eb18426774ef3b953de7603`(v1.26.50 릴리스, 프로토콜 2193) |
+| github.com/df-mc/go-nethernet | `v1.0.25` |
+| Mojang bedrock-protocol-docs(필드 상한) | 커밋 `0879ab5c4c70be1bd520e32a8c49ea4a155616d6`(v1.26.60 릴리스, 프로토콜 2225) |
 
-- 지금 고정한 커밋은 v1.62.0 뒤의 형식 수정 ClientBoundDebugRenderer(`98c3d1f`), NBT 고정 길이 배열 검사(`398154f`), 문자열 `ReadFull`(`a705cae`)을 포함한다.
-- 기준 서버는 같은 프로토콜의 공식 서버 1.26.52.3이다. 공식 서버의 빌드 번호는 1.26.52이고 Anchor는 프로토콜 출처의 1.26.50을 알리지만 둘 다 2193이다.
+- v1.63.0 태그 뒤 master에 형식 수정 커밋이 없어 태그로 고정한다. 태그는 v1.62.0 뒤의 형식 수정 ClientBoundDebugRenderer(`98c3d1f`), NBT 고정 길이 배열 검사(`398154f`), 문자열 `ReadFull`(`a705cae`)을 포함한다.
+- 기준 서버는 같은 프로토콜(2225)의 공식 서버다. 출처 표(`data.md`)의 공식 서버 1.26.52.3은 프로토콜 2193이라, 2225 공식 서버로 바꾸기 전에는 P6 대조가 이 버전과 맞지 않는다.
 - gophertunnel도 형식 버그를 자주 고친다. P3 통과는 "gophertunnel과 같다"는 뜻일 뿐이다.
 
 ## 파이프라인: Go 추출 → IR → Rust 생성

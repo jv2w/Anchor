@@ -526,7 +526,7 @@ impl Player {
         &self.identity.client.playfab_id
     }
 
-    /// The client's version, such as `1.26.50`, as its login tells
+    /// The client's version, such as `1.26.60`, as its login tells
     /// (`getExtraData()["GameVersion"]`).
     #[doc(alias = "PlayerInfo::getExtraData")]
     pub fn game_version(&self) -> &str {
