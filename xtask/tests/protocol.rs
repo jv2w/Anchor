@@ -35,7 +35,7 @@ const SHIELD_ID: i32 = 357;
 /// The allocation budget of one decode: 2 × the default 16 MiB `max-batch-bytes`.
 const BUDGET: usize = 2 * 16 * 1024 * 1024;
 /// Packets in gophertunnel's client and server pools together.
-const PACKET_COUNT: usize = 236;
+const PACKET_COUNT: usize = 244;
 /// Corpus samples per packet.
 const SAMPLES: usize = 64;
 /// Corpus seed.
@@ -940,7 +940,7 @@ fn every_packet_id_has_a_default_value() {
     let ids: Vec<u32> = (0..=u16::MAX.into())
         .filter(|&id| Packet::from_id(id).is_some())
         .collect();
-    assert_eq!(ids.len(), 236);
+    assert_eq!(ids.len(), PACKET_COUNT);
     for id in ids {
         let packet = Packet::from_id(id).expect("listed");
         assert_eq!(packet.id(), id);

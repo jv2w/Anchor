@@ -39,9 +39,9 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         &["protocol.AttributeLayerData.Name"],
     ),
     (
-        "AttributeLayerData",
-        "NoiseName",
-        &["protocol.AttributeLayerData.NoiseName"],
+        "AudioContentRegistrationEntry",
+        "Audio Content ID",
+        &["protocol.AudioContentRegistrationEntry.AudioContentID"],
     ),
     ("AuthorAndMessage", "Message", &["packet.Text.Message"]),
     (
@@ -181,6 +181,11 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         &["packet.ClientBoundMapItemData.TrackedObjects"],
     ),
     (
+        "ClientboundMatchmakingStatePacketPayload",
+        "Destination Name",
+        &["packet.ClientboundMatchmakingState.DestinationName"],
+    ),
+    (
         "Clientbound Data Driven UI Show Screen Payload",
         "ScreenId",
         &["packet.ClientBoundDataDrivenUIShowScreen.ScreenID"],
@@ -300,6 +305,11 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         &["protocol.ItemStackRequest.FilterStrings[]"],
     ),
     (
+        "ItemStackRequestReservedAction",
+        "Reserved Id",
+        &["protocol.CraftReservedStackRequestAction.ReservedID"],
+    ),
+    (
         "ItemStackRequestPacketPayload",
         "Requests",
         &["packet.ItemStackRequest.Requests"],
@@ -326,6 +336,11 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         "Parameter List",
         &["packet.Text.Parameters"],
     ),
+    (
+        "MatchmakingStateOptions",
+        "Triggering Player Name",
+        &["protocol.MatchmakingStateOptions.TriggeringPlayerName"],
+    ),
     ("MessageOnly", "Message", &["packet.Text.Message"]),
     (
         "MobKilled",
@@ -341,6 +356,16 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         "NoiseDescriptor",
         "amplitudes",
         &["protocol.NoiseDescriptor.Amplitudes"],
+    ),
+    (
+        "NoiseTransitionSettingsData",
+        "ClockName",
+        &["protocol.AttributeNoiseTransitionSettings.ClockName"],
+    ),
+    (
+        "NoiseTransitionSettingsData",
+        "NoiseName",
+        &["protocol.AttributeNoiseTransitionSettings.NoiseName"],
     ),
     (
         "PartyDestinationCookieResponsePacketPayload",
@@ -440,6 +465,11 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         &["protocol.PackSetting.Name"],
     ),
     (
+        "ServerboundRegisterAudioContentPacketPayload",
+        "Registrations",
+        &["packet.ServerboundRegisterAudioContent.Registrations"],
+    ),
+    (
         "ShapedRecipePayload",
         "Ingredients",
         &["protocol.ShapedRecipe.Input"],
@@ -448,6 +478,17 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
         "ShapelessRecipePayload",
         "Ingredients",
         &["protocol.ShapelessRecipe.Input"],
+    ),
+    (
+        "SignedAudioContent",
+        "Compact JWT",
+        &[
+            "protocol.AudioContentRegistrationEntry.SharedMetadata",
+            "protocol.AudioContentRegistrationEntry.ServerContent",
+            "protocol.AudioContentRegistrationEntry.PlaybackContent",
+            "packet.ClientboundPlayAudioContent.SharedMetadata",
+            "packet.ClientboundPlayAudioContent.PlaybackContent",
+        ],
     ),
     (
         "SkinImage",
@@ -505,6 +546,11 @@ const FIELDS: &[(&str, &str, &[&str])] = &[
     ),
     ("TextPacketPayload", "Sender's XUID", &["packet.Text.XUID"]),
     ("TimeMarkerData", "Name", &["protocol.TimeMarkerData.Name"]),
+    (
+        "TransitionSettingsData",
+        "ClockName",
+        &["protocol.AttributeTransitionSettings.ClockName"],
+    ),
     (
         "UpdateAttributeLayerSettingsData",
         "Attribute Layer Name",

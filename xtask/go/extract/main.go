@@ -26,8 +26,10 @@ const (
 	modulePath  = "github.com/sandertv/gophertunnel"
 	protocolPkg = modulePath + "/minecraft/protocol"
 	packetPkg   = protocolPkg + "/packet"
-	// commit is the full hash of the pinned pseudo-version in go.mod; main checks the two agree.
-	commit = "80c811b6186016b3860c358368cfa47e507f26e9"
+	// version is the gophertunnel version pinned in go.mod and commit the full hash of its tag; main
+	// fails if go.mod loads another version.
+	version = "v1.63.0"
+	commit  = "8c30047d86617a56e1f1871e3a1d47ec4f670d99"
 )
 
 // failure aborts the extraction; main reports it.
@@ -207,8 +209,8 @@ func (ex *extractor) source() Source {
 		panic(failure{"gophertunnel is not loaded as a module"})
 	}
 	v := p.Module.Version
-	if i := strings.LastIndex(v, "-"); i < 0 || !strings.HasPrefix(commit, v[i+1:]) {
-		panic(failure{fmt.Sprintf("module version %s does not match commit %s", v, commit)})
+	if v != version {
+		panic(failure{fmt.Sprintf("module version %s is not the pinned %s", v, version)})
 	}
 	scope := p.Types.Scope()
 	proto, ok := constant.Int64Val(scope.Lookup("CurrentProtocol").(*types.Const).Val())

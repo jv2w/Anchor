@@ -1,10 +1,10 @@
 {
   "source": {
     "module": "github.com/sandertv/gophertunnel",
-    "version": "v1.62.1-0.20260928233358-80c811b61860",
-    "commit": "80c811b6186016b3860c358368cfa47e507f26e9",
-    "protocol": 2193,
-    "game_version": "1.26.50"
+    "version": "v1.63.0",
+    "commit": "8c30047d86617a56e1f1871e3a1d47ec4f670d99",
+    "protocol": 2225,
+    "game_version": "1.26.60"
   },
   "io_methods": [
     {
@@ -2115,6 +2115,46 @@
       "id": 352,
       "type": "packet.RecordStarted",
       "direction": "server"
+    },
+    {
+      "id": 353,
+      "type": "packet.ClientboundMatchmakingState",
+      "direction": "server"
+    },
+    {
+      "id": 354,
+      "type": "packet.ServerboundStonecutterSetRecipe",
+      "direction": "client"
+    },
+    {
+      "id": 355,
+      "type": "packet.ClientboundStonecutterSetRecipe",
+      "direction": "server"
+    },
+    {
+      "id": 356,
+      "type": "packet.ServerboundMatchmakingCancel",
+      "direction": "client"
+    },
+    {
+      "id": 357,
+      "type": "packet.SetPassengerOfBlock",
+      "direction": "server"
+    },
+    {
+      "id": 358,
+      "type": "packet.ServerboundCursorItemDrag",
+      "direction": "client"
+    },
+    {
+      "id": 359,
+      "type": "packet.ClientboundPlayAudioContent",
+      "direction": "server"
+    },
+    {
+      "id": 360,
+      "type": "packet.ServerboundRegisterAudioContent",
+      "direction": "client"
     }
   ],
   "types": [
@@ -2456,6 +2496,16 @@
               "name": "protocol.EntityLink"
             }
           }
+        },
+        {
+          "name": "PassengerOfBlock",
+          "type": {
+            "kind": "optional",
+            "elem": {
+              "kind": "named",
+              "name": "protocol.PassengerOfBlockData"
+            }
+          }
         }
       ],
       "marshal": {
@@ -2768,6 +2818,50 @@
                   }
                 },
                 "type": "protocol.EntityLink"
+              }
+            ]
+          },
+          {
+            "kind": "optional",
+            "place": {
+              "kind": "field",
+              "name": "PassengerOfBlock",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.AddActor"
+                }
+              },
+              "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "named",
+                  "name": "protocol.PassengerOfBlockData"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
+                "kind": "named",
+                "name": "protocol.PassengerOfBlockData"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "marshal",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "named",
+                    "name": "protocol.PassengerOfBlockData"
+                  }
+                },
+                "type": "protocol.PassengerOfBlockData"
               }
             ]
           }
@@ -3271,6 +3365,16 @@
           }
         },
         {
+          "name": "PassengerOfBlock",
+          "type": {
+            "kind": "optional",
+            "elem": {
+              "kind": "named",
+              "name": "protocol.PassengerOfBlockData"
+            }
+          }
+        },
+        {
           "name": "DeviceID",
           "type": {
             "kind": "basic",
@@ -3610,6 +3714,50 @@
                   }
                 },
                 "type": "protocol.EntityLink"
+              }
+            ]
+          },
+          {
+            "kind": "optional",
+            "place": {
+              "kind": "field",
+              "name": "PassengerOfBlock",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.AddPlayer"
+                }
+              },
+              "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "named",
+                  "name": "protocol.PassengerOfBlockData"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
+                "kind": "named",
+                "name": "protocol.PassengerOfBlockData"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "marshal",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "named",
+                    "name": "protocol.PassengerOfBlockData"
+                  }
+                },
+                "type": "protocol.PassengerOfBlockData"
               }
             ]
           },
@@ -4307,6 +4455,13 @@
             "kind": "basic",
             "name": "uint8"
           }
+        },
+        {
+          "name": "Hand",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
         }
       ],
       "marshal": {
@@ -4608,6 +4763,26 @@
                 "target": "enum"
               }
             ]
+          },
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "Hand",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.Animate"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
           }
         ]
       }
@@ -10841,6 +11016,336 @@
       }
     },
     {
+      "name": "packet.ClientboundMatchmakingState",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "State",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
+        },
+        {
+          "name": "DestinationName",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "Options",
+          "type": {
+            "kind": "optional",
+            "elem": {
+              "kind": "named",
+              "name": "protocol.MatchmakingStateOptions"
+            }
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "pk",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "State",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundMatchmakingState"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "DestinationName",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundMatchmakingState"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "optional",
+            "place": {
+              "kind": "field",
+              "name": "Options",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundMatchmakingState"
+                }
+              },
+              "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "named",
+                  "name": "protocol.MatchmakingStateOptions"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
+                "kind": "named",
+                "name": "protocol.MatchmakingStateOptions"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "marshal",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "named",
+                    "name": "protocol.MatchmakingStateOptions"
+                  }
+                },
+                "type": "protocol.MatchmakingStateOptions"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "packet.ClientboundPlayAudioContent",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "SharedMetadata",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "PlaybackContent",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "PlaybackType",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "Sound",
+          "type": {
+            "kind": "named",
+            "name": "packet.PlaySound"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "pk",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "SharedMetadata",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundPlayAudioContent"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "PlaybackContent",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundPlayAudioContent"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "PlaybackType",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundPlayAudioContent"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "marshal",
+            "place": {
+              "kind": "field",
+              "name": "Sound",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundPlayAudioContent"
+                }
+              },
+              "type": {
+                "kind": "named",
+                "name": "packet.PlaySound"
+              }
+            },
+            "type": "packet.PlaySound"
+          }
+        ]
+      }
+    },
+    {
+      "name": "packet.ClientboundStonecutterSetRecipe",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "PlayerUniqueID",
+          "type": {
+            "kind": "basic",
+            "name": "int64"
+          }
+        },
+        {
+          "name": "ContainerID",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
+        },
+        {
+          "name": "RecipeIndex",
+          "type": {
+            "kind": "basic",
+            "name": "int32"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "pk",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "ActorUniqueID",
+            "place": {
+              "kind": "field",
+              "name": "PlayerUniqueID",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundStonecutterSetRecipe"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "int64"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "ContainerID",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundStonecutterSetRecipe"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Varint32",
+            "place": {
+              "kind": "field",
+              "name": "RecipeIndex",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ClientboundStonecutterSetRecipe"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "int32"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "packet.ClientboundUpdateSoundData",
       "kind": "struct",
       "fields": [
@@ -10852,49 +11357,7 @@
           }
         },
         {
-          "name": "Stop",
-          "type": {
-            "kind": "named",
-            "name": "protocol.SoundDataUpdate"
-          }
-        },
-        {
-          "name": "SetVolume",
-          "type": {
-            "kind": "named",
-            "name": "protocol.SoundDataUpdate"
-          }
-        },
-        {
-          "name": "SetPitch",
-          "type": {
-            "kind": "named",
-            "name": "protocol.SoundDataUpdate"
-          }
-        },
-        {
-          "name": "Fade",
-          "type": {
-            "kind": "named",
-            "name": "protocol.SoundDataUpdate"
-          }
-        },
-        {
-          "name": "SeekTo",
-          "type": {
-            "kind": "named",
-            "name": "protocol.SoundDataUpdate"
-          }
-        },
-        {
-          "name": "Pause",
-          "type": {
-            "kind": "named",
-            "name": "protocol.SoundDataUpdate"
-          }
-        },
-        {
-          "name": "Resume",
+          "name": "Update",
           "type": {
             "kind": "named",
             "name": "protocol.SoundDataUpdate"
@@ -10928,127 +11391,7 @@
             "kind": "marshal",
             "place": {
               "kind": "field",
-              "name": "Stop",
-              "x": {
-                "kind": "var",
-                "name": "pk",
-                "type": {
-                  "kind": "named",
-                  "name": "packet.ClientboundUpdateSoundData"
-                }
-              },
-              "type": {
-                "kind": "named",
-                "name": "protocol.SoundDataUpdate"
-              }
-            },
-            "type": "protocol.SoundDataUpdate"
-          },
-          {
-            "kind": "marshal",
-            "place": {
-              "kind": "field",
-              "name": "SetVolume",
-              "x": {
-                "kind": "var",
-                "name": "pk",
-                "type": {
-                  "kind": "named",
-                  "name": "packet.ClientboundUpdateSoundData"
-                }
-              },
-              "type": {
-                "kind": "named",
-                "name": "protocol.SoundDataUpdate"
-              }
-            },
-            "type": "protocol.SoundDataUpdate"
-          },
-          {
-            "kind": "marshal",
-            "place": {
-              "kind": "field",
-              "name": "SetPitch",
-              "x": {
-                "kind": "var",
-                "name": "pk",
-                "type": {
-                  "kind": "named",
-                  "name": "packet.ClientboundUpdateSoundData"
-                }
-              },
-              "type": {
-                "kind": "named",
-                "name": "protocol.SoundDataUpdate"
-              }
-            },
-            "type": "protocol.SoundDataUpdate"
-          },
-          {
-            "kind": "marshal",
-            "place": {
-              "kind": "field",
-              "name": "Fade",
-              "x": {
-                "kind": "var",
-                "name": "pk",
-                "type": {
-                  "kind": "named",
-                  "name": "packet.ClientboundUpdateSoundData"
-                }
-              },
-              "type": {
-                "kind": "named",
-                "name": "protocol.SoundDataUpdate"
-              }
-            },
-            "type": "protocol.SoundDataUpdate"
-          },
-          {
-            "kind": "marshal",
-            "place": {
-              "kind": "field",
-              "name": "SeekTo",
-              "x": {
-                "kind": "var",
-                "name": "pk",
-                "type": {
-                  "kind": "named",
-                  "name": "packet.ClientboundUpdateSoundData"
-                }
-              },
-              "type": {
-                "kind": "named",
-                "name": "protocol.SoundDataUpdate"
-              }
-            },
-            "type": "protocol.SoundDataUpdate"
-          },
-          {
-            "kind": "marshal",
-            "place": {
-              "kind": "field",
-              "name": "Pause",
-              "x": {
-                "kind": "var",
-                "name": "pk",
-                "type": {
-                  "kind": "named",
-                  "name": "packet.ClientboundUpdateSoundData"
-                }
-              },
-              "type": {
-                "kind": "named",
-                "name": "protocol.SoundDataUpdate"
-              }
-            },
-            "type": "protocol.SoundDataUpdate"
-          },
-          {
-            "kind": "marshal",
-            "place": {
-              "kind": "field",
-              "name": "Resume",
+              "name": "Update",
               "x": {
                 "kind": "var",
                 "name": "pk",
@@ -14225,12 +14568,12 @@
           }
         },
         {
-          "name": "CanModifyBlocks",
+          "name": "AgentCapabilities",
           "type": {
             "kind": "optional",
             "elem": {
-              "kind": "basic",
-              "name": "bool"
+              "kind": "named",
+              "name": "protocol.EducationAgentCapabilities"
             }
           }
         },
@@ -14389,7 +14732,7 @@
             "kind": "optional",
             "place": {
               "kind": "field",
-              "name": "CanModifyBlocks",
+              "name": "AgentCapabilities",
               "x": {
                 "kind": "var",
                 "name": "pk",
@@ -14401,31 +14744,31 @@
               "type": {
                 "kind": "optional",
                 "elem": {
-                  "kind": "basic",
-                  "name": "bool"
+                  "kind": "named",
+                  "name": "protocol.EducationAgentCapabilities"
                 }
               }
             },
             "elem": {
               "name": "v",
               "type": {
-                "kind": "basic",
-                "name": "bool"
+                "kind": "named",
+                "name": "protocol.EducationAgentCapabilities"
               },
               "ref": true
             },
             "body": [
               {
-                "kind": "io",
-                "method": "Bool",
+                "kind": "marshal",
                 "place": {
                   "kind": "var",
                   "name": "v",
                   "type": {
-                    "kind": "basic",
-                    "name": "bool"
+                    "kind": "named",
+                    "name": "protocol.EducationAgentCapabilities"
                   }
-                }
+                },
+                "type": "protocol.EducationAgentCapabilities"
               }
             ]
           },
@@ -17307,6 +17650,13 @@
               "name": "uint8"
             }
           }
+        },
+        {
+          "name": "ClientBiomeUpdate",
+          "type": {
+            "kind": "basic",
+            "name": "bool"
+          }
         }
       ],
       "marshal": {
@@ -17574,6 +17924,26 @@
                   "kind": "basic",
                   "name": "uint8"
                 }
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Bool",
+            "place": {
+              "kind": "field",
+              "name": "ClientBiomeUpdate",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.LevelChunk"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "bool"
               }
             }
           }
@@ -26800,10 +27170,13 @@
         {
           "name": "SystemCategories",
           "type": {
-            "kind": "slice",
+            "kind": "optional",
             "elem": {
-              "kind": "named",
-              "name": "protocol.SystemCategory"
+              "kind": "slice",
+              "elem": {
+                "kind": "named",
+                "name": "protocol.SystemCategory"
+              }
             }
           }
         },
@@ -27137,7 +27510,7 @@
             ]
           },
           {
-            "kind": "slice",
+            "kind": "optional",
             "place": {
               "kind": "field",
               "name": "SystemCategories",
@@ -27150,34 +27523,64 @@
                 }
               },
               "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "slice",
+                  "elem": {
+                    "kind": "named",
+                    "name": "protocol.SystemCategory"
+                  }
+                }
+              }
+            },
+            "elem": {
+              "name": "s",
+              "type": {
                 "kind": "slice",
                 "elem": {
                   "kind": "named",
                   "name": "protocol.SystemCategory"
                 }
-              }
-            },
-            "prefix": "varuint32",
-            "elem": {
-              "name": "v",
-              "type": {
-                "kind": "named",
-                "name": "protocol.SystemCategory"
               },
               "ref": true
             },
             "body": [
               {
-                "kind": "marshal",
+                "kind": "slice",
                 "place": {
                   "kind": "var",
+                  "name": "s",
+                  "type": {
+                    "kind": "slice",
+                    "elem": {
+                      "kind": "named",
+                      "name": "protocol.SystemCategory"
+                    }
+                  }
+                },
+                "prefix": "varuint32",
+                "elem": {
                   "name": "v",
                   "type": {
                     "kind": "named",
                     "name": "protocol.SystemCategory"
-                  }
+                  },
+                  "ref": true
                 },
-                "type": "protocol.SystemCategory"
+                "body": [
+                  {
+                    "kind": "marshal",
+                    "place": {
+                      "kind": "var",
+                      "name": "v",
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.SystemCategory"
+                      }
+                    },
+                    "type": "protocol.SystemCategory"
+                  }
+                ]
               }
             ]
           },
@@ -27736,6 +28139,183 @@
                   "kind": "basic",
                   "name": "uint8"
                 }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "packet.ServerboundCursorItemDrag",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "State",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "pk",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "State",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ServerboundCursorItemDrag"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "packet.ServerboundMatchmakingCancel",
+      "kind": "struct",
+      "marshal": {
+        "receiver": "_",
+        "stmts": []
+      }
+    },
+    {
+      "name": "packet.ServerboundRegisterAudioContent",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "Registrations",
+          "type": {
+            "kind": "slice",
+            "elem": {
+              "kind": "named",
+              "name": "protocol.AudioContentRegistrationEntry"
+            }
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "pk",
+        "stmts": [
+          {
+            "kind": "slice",
+            "place": {
+              "kind": "field",
+              "name": "Registrations",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ServerboundRegisterAudioContent"
+                }
+              },
+              "type": {
+                "kind": "slice",
+                "elem": {
+                  "kind": "named",
+                  "name": "protocol.AudioContentRegistrationEntry"
+                }
+              }
+            },
+            "prefix": "varuint32",
+            "elem": {
+              "name": "v",
+              "type": {
+                "kind": "named",
+                "name": "protocol.AudioContentRegistrationEntry"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "marshal",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "named",
+                    "name": "protocol.AudioContentRegistrationEntry"
+                  }
+                },
+                "type": "protocol.AudioContentRegistrationEntry"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "packet.ServerboundStonecutterSetRecipe",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ContainerID",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
+        },
+        {
+          "name": "RecipeIndex",
+          "type": {
+            "kind": "basic",
+            "name": "int32"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "pk",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "ContainerID",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ServerboundStonecutterSetRecipe"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Varint32",
+            "place": {
+              "kind": "field",
+              "name": "RecipeIndex",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.ServerboundStonecutterSetRecipe"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "int32"
               }
             }
           }
@@ -28454,6 +29034,98 @@
                 "name": "uint64"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "packet.SetPassengerOfBlock",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "PassengerUniqueID",
+          "type": {
+            "kind": "basic",
+            "name": "int64"
+          }
+        },
+        {
+          "name": "Data",
+          "type": {
+            "kind": "optional",
+            "elem": {
+              "kind": "named",
+              "name": "protocol.PassengerOfBlockData"
+            }
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "pk",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "ActorUniqueID",
+            "place": {
+              "kind": "field",
+              "name": "PassengerUniqueID",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.SetPassengerOfBlock"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "int64"
+              }
+            }
+          },
+          {
+            "kind": "optional",
+            "place": {
+              "kind": "field",
+              "name": "Data",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.SetPassengerOfBlock"
+                }
+              },
+              "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "named",
+                  "name": "protocol.PassengerOfBlockData"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
+                "kind": "named",
+                "name": "protocol.PassengerOfBlockData"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "marshal",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "named",
+                    "name": "protocol.PassengerOfBlockData"
+                  }
+                },
+                "type": "protocol.PassengerOfBlockData"
+              }
+            ]
           }
         ]
       }
@@ -30054,6 +30726,13 @@
           }
         },
         {
+          "name": "EditorLevelMigrationVersion",
+          "type": {
+            "kind": "basic",
+            "name": "int8"
+          }
+        },
+        {
           "name": "ServerEditorConnectionPolicy",
           "type": {
             "kind": "basic",
@@ -30889,6 +31568,26 @@
               "type": {
                 "kind": "basic",
                 "name": "bool"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Int8",
+            "place": {
+              "kind": "field",
+              "name": "EditorLevelMigrationVersion",
+              "x": {
+                "kind": "var",
+                "name": "pk",
+                "type": {
+                  "kind": "named",
+                  "name": "packet.StartGame"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "int8"
               }
             }
           },
@@ -38827,16 +39526,6 @@
           }
         },
         {
-          "name": "NoiseName",
-          "type": {
-            "kind": "optional",
-            "elem": {
-              "kind": "basic",
-              "name": "string"
-            }
-          }
-        },
-        {
           "name": "DimensionID",
           "type": {
             "kind": "basic",
@@ -38883,50 +39572,6 @@
                 "name": "string"
               }
             }
-          },
-          {
-            "kind": "optional",
-            "place": {
-              "kind": "field",
-              "name": "NoiseName",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.AttributeLayerData"
-                }
-              },
-              "type": {
-                "kind": "optional",
-                "elem": {
-                  "kind": "basic",
-                  "name": "string"
-                }
-              }
-            },
-            "elem": {
-              "name": "v",
-              "type": {
-                "kind": "basic",
-                "name": "string"
-              },
-              "ref": true
-            },
-            "body": [
-              {
-                "kind": "io",
-                "method": "String",
-                "place": {
-                  "kind": "var",
-                  "name": "v",
-                  "type": {
-                    "kind": "basic",
-                    "name": "string"
-                  }
-                }
-              }
-            ]
           },
           {
             "kind": "io",
@@ -39309,6 +39954,325 @@
       }
     },
     {
+      "name": "protocol.AttributeNoiseTransitionSettings",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "TotalTransitionTicks",
+          "type": {
+            "kind": "basic",
+            "name": "uint32"
+          }
+        },
+        {
+          "name": "CurrentTransitionTicks",
+          "type": {
+            "kind": "basic",
+            "name": "uint32"
+          }
+        },
+        {
+          "name": "EaseType",
+          "type": {
+            "kind": "basic",
+            "name": "int32"
+          }
+        },
+        {
+          "name": "ClockName",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "LocalTransitionTicks",
+          "type": {
+            "kind": "basic",
+            "name": "uint32"
+          }
+        },
+        {
+          "name": "NoiseName",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "NoiseAlignment",
+          "type": {
+            "kind": "named",
+            "name": "protocol.NoiseAlignment"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "x",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "Varuint32",
+            "place": {
+              "kind": "field",
+              "name": "TotalTransitionTicks",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeNoiseTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Varuint32",
+            "place": {
+              "kind": "field",
+              "name": "CurrentTransitionTicks",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeNoiseTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Varint32",
+            "place": {
+              "kind": "field",
+              "name": "EaseType",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeNoiseTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "int32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "ClockName",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeNoiseTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Varuint32",
+            "place": {
+              "kind": "field",
+              "name": "LocalTransitionTicks",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeNoiseTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "NoiseName",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeNoiseTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "marshal",
+            "place": {
+              "kind": "field",
+              "name": "NoiseAlignment",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeNoiseTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "named",
+                "name": "protocol.NoiseAlignment"
+              }
+            },
+            "type": "protocol.NoiseAlignment"
+          }
+        ]
+      }
+    },
+    {
+      "name": "protocol.AttributeTransitionSettings",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "TotalTransitionTicks",
+          "type": {
+            "kind": "basic",
+            "name": "uint32"
+          }
+        },
+        {
+          "name": "CurrentTransitionTicks",
+          "type": {
+            "kind": "basic",
+            "name": "uint32"
+          }
+        },
+        {
+          "name": "EaseType",
+          "type": {
+            "kind": "basic",
+            "name": "int32"
+          }
+        },
+        {
+          "name": "ClockName",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "x",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "Varuint32",
+            "place": {
+              "kind": "field",
+              "name": "TotalTransitionTicks",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Varuint32",
+            "place": {
+              "kind": "field",
+              "name": "CurrentTransitionTicks",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Varint32",
+            "place": {
+              "kind": "field",
+              "name": "EaseType",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "int32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "ClockName",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AttributeTransitionSettings"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "protocol.AttributeValue",
       "kind": "struct",
       "fields": [
@@ -39421,6 +40385,125 @@
               "type": {
                 "kind": "basic",
                 "name": "float32"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "protocol.AudioContentRegistrationEntry",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "AudioContentID",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "SharedMetadata",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "ServerContent",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "PlaybackContent",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "x",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "AudioContentID",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AudioContentRegistrationEntry"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "SharedMetadata",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AudioContentRegistrationEntry"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "ServerContent",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AudioContentRegistrationEntry"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "PlaybackContent",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.AudioContentRegistrationEntry"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
               }
             }
           }
@@ -50873,6 +51956,71 @@
       }
     },
     {
+      "name": "protocol.CraftReservedStackRequestAction",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "ReservedID",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
+          "name": "NumberOfCrafts",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "c",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "ReservedID",
+              "x": {
+                "kind": "var",
+                "name": "c",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.CraftReservedStackRequestAction"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "NumberOfCrafts",
+              "x": {
+                "kind": "var",
+                "name": "c",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.CraftReservedStackRequestAction"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "protocol.CraftResultsDeprecatedStackRequestAction",
       "kind": "struct",
       "fields": [
@@ -52293,6 +53441,20 @@
             "kind": "basic",
             "name": "string"
           }
+        },
+        {
+          "name": "CloudHeight",
+          "type": {
+            "kind": "basic",
+            "name": "int32"
+          }
+        },
+        {
+          "name": "RenderClouds",
+          "type": {
+            "kind": "basic",
+            "name": "bool"
+          }
         }
       ],
       "marshal": {
@@ -52435,6 +53597,46 @@
               "type": {
                 "kind": "basic",
                 "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Varint32",
+            "place": {
+              "kind": "field",
+              "name": "CloudHeight",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.DimensionDefinition"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "int32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Bool",
+            "place": {
+              "kind": "field",
+              "name": "RenderClouds",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.DimensionDefinition"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "bool"
               }
             }
           }
@@ -52621,6 +53823,71 @@
                   "type": {
                     "kind": "basic",
                     "name": "string"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "protocol.EducationAgentCapabilities",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "CanModifyBlocks",
+          "type": {
+            "kind": "optional",
+            "elem": {
+              "kind": "basic",
+              "name": "bool"
+            }
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "x",
+        "stmts": [
+          {
+            "kind": "optional",
+            "place": {
+              "kind": "field",
+              "name": "CanModifyBlocks",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.EducationAgentCapabilities"
+                }
+              },
+              "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "basic",
+                  "name": "bool"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
+                "kind": "basic",
+                "name": "bool"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "io",
+                "method": "Bool",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "basic",
+                    "name": "bool"
                   }
                 }
               }
@@ -53081,15 +54348,21 @@
         {
           "name": "Position",
           "type": {
-            "kind": "external",
-            "name": "mgl32.Vec3"
+            "kind": "optional",
+            "elem": {
+              "kind": "external",
+              "name": "mgl32.Vec3"
+            }
           }
         },
         {
           "name": "Dimension",
           "type": {
-            "kind": "basic",
-            "name": "string"
+            "kind": "optional",
+            "elem": {
+              "kind": "basic",
+              "name": "string"
+            }
           }
         }
       ],
@@ -53177,8 +54450,7 @@
             }
           },
           {
-            "kind": "io",
-            "method": "Vec3",
+            "kind": "optional",
             "place": {
               "kind": "field",
               "name": "Position",
@@ -53191,14 +54463,38 @@
                 }
               },
               "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "external",
+                  "name": "mgl32.Vec3"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
                 "kind": "external",
                 "name": "mgl32.Vec3"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "io",
+                "method": "Vec3",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "external",
+                    "name": "mgl32.Vec3"
+                  }
+                }
               }
-            }
+            ]
           },
           {
-            "kind": "io",
-            "method": "String",
+            "kind": "optional",
             "place": {
               "kind": "field",
               "name": "Dimension",
@@ -53211,10 +54507,35 @@
                 }
               },
               "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "basic",
+                  "name": "string"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
                 "kind": "basic",
                 "name": "string"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "io",
+                "method": "String",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "basic",
+                    "name": "string"
+                  }
+                }
               }
-            }
+            ]
           }
         ]
       }
@@ -53685,13 +55006,10 @@
           }
         },
         {
-          "name": "FromAttribute",
+          "name": "PayloadType",
           "type": {
-            "kind": "optional",
-            "elem": {
-              "kind": "named",
-              "name": "protocol.AttributeData"
-            }
+            "kind": "basic",
+            "name": "uint32"
           }
         },
         {
@@ -53702,104 +55020,37 @@
           }
         },
         {
-          "name": "ToAttribute",
-          "type": {
-            "kind": "optional",
-            "elem": {
-              "kind": "named",
-              "name": "protocol.AttributeData"
-            }
-          }
-        },
-        {
-          "name": "CurrentTransitionTicks",
-          "type": {
-            "kind": "basic",
-            "name": "uint32"
-          }
-        },
-        {
-          "name": "TotalTransitionTicks",
-          "type": {
-            "kind": "basic",
-            "name": "uint32"
-          }
-        },
-        {
-          "name": "EaseType",
-          "type": {
-            "kind": "basic",
-            "name": "int32"
-          }
-        },
-        {
-          "name": "LocalTransitionTicks",
-          "type": {
-            "kind": "basic",
-            "name": "uint32"
-          }
-        },
-        {
-          "name": "NoiseTransition",
-          "type": {
-            "kind": "basic",
-            "name": "bool"
-          }
-        },
-        {
-          "name": "NoiseAlignment",
+          "name": "FromAttribute",
           "type": {
             "kind": "named",
-            "name": "protocol.NoiseAlignment"
+            "name": "protocol.AttributeData"
+          }
+        },
+        {
+          "name": "ToAttribute",
+          "type": {
+            "kind": "named",
+            "name": "protocol.AttributeData"
+          }
+        },
+        {
+          "name": "TransitionSettings",
+          "type": {
+            "kind": "named",
+            "name": "protocol.AttributeTransitionSettings"
+          }
+        },
+        {
+          "name": "NoiseTransitionSettings",
+          "type": {
+            "kind": "named",
+            "name": "protocol.AttributeNoiseTransitionSettings"
           }
         }
       ],
       "marshal": {
         "receiver": "x",
         "stmts": [
-          {
-            "kind": "assign",
-            "op": ":=",
-            "lhs": [
-              {
-                "kind": "var",
-                "name": "easingType",
-                "type": {
-                  "kind": "basic",
-                  "name": "string"
-                }
-              }
-            ],
-            "rhs": [
-              {
-                "kind": "call",
-                "func": "protocol.easingTypeToString",
-                "target": "enum",
-                "args": [
-                  {
-                    "kind": "field",
-                    "name": "EaseType",
-                    "x": {
-                      "kind": "var",
-                      "name": "x",
-                      "type": {
-                        "kind": "named",
-                        "name": "protocol.EnvironmentAttributeData"
-                      }
-                    },
-                    "type": {
-                      "kind": "basic",
-                      "name": "int32"
-                    }
-                  }
-                ],
-                "type": {
-                  "kind": "basic",
-                  "name": "string"
-                }
-              }
-            ]
-          },
           {
             "kind": "io",
             "method": "String",
@@ -53821,10 +55072,11 @@
             }
           },
           {
-            "kind": "optional",
+            "kind": "io",
+            "method": "Varuint32",
             "place": {
               "kind": "field",
-              "name": "FromAttribute",
+              "name": "PayloadType",
               "x": {
                 "kind": "var",
                 "name": "x",
@@ -53834,242 +55086,249 @@
                 }
               },
               "type": {
-                "kind": "optional",
-                "elem": {
+                "kind": "basic",
+                "name": "uint32"
+              }
+            }
+          },
+          {
+            "kind": "switch",
+            "tag": {
+              "kind": "field",
+              "name": "PayloadType",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
                   "kind": "named",
-                  "name": "protocol.AttributeData"
+                  "name": "protocol.EnvironmentAttributeData"
                 }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint32"
               }
             },
-            "elem": {
-              "name": "v",
-              "type": {
-                "kind": "named",
-                "name": "protocol.AttributeData"
-              },
-              "ref": true
-            },
-            "body": [
+            "cases": [
               {
-                "kind": "marshal",
-                "place": {
-                  "kind": "var",
-                  "name": "v",
-                  "type": {
-                    "kind": "named",
-                    "name": "protocol.AttributeData"
+                "values": [
+                  {
+                    "kind": "const",
+                    "name": "protocol.EnvironmentAttributePayloadTypeConstant",
+                    "value": "0",
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint32"
+                    }
                   }
-                },
-                "type": "protocol.AttributeData"
+                ],
+                "body": [
+                  {
+                    "kind": "marshal",
+                    "place": {
+                      "kind": "field",
+                      "name": "Attribute",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.EnvironmentAttributeData"
+                        }
+                      },
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.AttributeData"
+                      }
+                    },
+                    "type": "protocol.AttributeData"
+                  }
+                ]
+              },
+              {
+                "values": [
+                  {
+                    "kind": "const",
+                    "name": "protocol.EnvironmentAttributePayloadTypeTransition",
+                    "value": "1",
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint32"
+                    }
+                  }
+                ],
+                "body": [
+                  {
+                    "kind": "marshal",
+                    "place": {
+                      "kind": "field",
+                      "name": "FromAttribute",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.EnvironmentAttributeData"
+                        }
+                      },
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.AttributeData"
+                      }
+                    },
+                    "type": "protocol.AttributeData"
+                  },
+                  {
+                    "kind": "marshal",
+                    "place": {
+                      "kind": "field",
+                      "name": "ToAttribute",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.EnvironmentAttributeData"
+                        }
+                      },
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.AttributeData"
+                      }
+                    },
+                    "type": "protocol.AttributeData"
+                  },
+                  {
+                    "kind": "marshal",
+                    "place": {
+                      "kind": "field",
+                      "name": "TransitionSettings",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.EnvironmentAttributeData"
+                        }
+                      },
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.AttributeTransitionSettings"
+                      }
+                    },
+                    "type": "protocol.AttributeTransitionSettings"
+                  }
+                ]
+              },
+              {
+                "values": [
+                  {
+                    "kind": "const",
+                    "name": "protocol.EnvironmentAttributePayloadTypeNoiseTransition",
+                    "value": "2",
+                    "type": {
+                      "kind": "basic",
+                      "name": "uint32"
+                    }
+                  }
+                ],
+                "body": [
+                  {
+                    "kind": "marshal",
+                    "place": {
+                      "kind": "field",
+                      "name": "FromAttribute",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.EnvironmentAttributeData"
+                        }
+                      },
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.AttributeData"
+                      }
+                    },
+                    "type": "protocol.AttributeData"
+                  },
+                  {
+                    "kind": "marshal",
+                    "place": {
+                      "kind": "field",
+                      "name": "ToAttribute",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.EnvironmentAttributeData"
+                        }
+                      },
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.AttributeData"
+                      }
+                    },
+                    "type": "protocol.AttributeData"
+                  },
+                  {
+                    "kind": "marshal",
+                    "place": {
+                      "kind": "field",
+                      "name": "NoiseTransitionSettings",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.EnvironmentAttributeData"
+                        }
+                      },
+                      "type": {
+                        "kind": "named",
+                        "name": "protocol.AttributeNoiseTransitionSettings"
+                      }
+                    },
+                    "type": "protocol.AttributeNoiseTransitionSettings"
+                  }
+                ]
+              },
+              {
+                "default": true,
+                "body": [
+                  {
+                    "kind": "error",
+                    "value": {
+                      "kind": "field",
+                      "name": "PayloadType",
+                      "x": {
+                        "kind": "var",
+                        "name": "x",
+                        "type": {
+                          "kind": "named",
+                          "name": "protocol.EnvironmentAttributeData"
+                        }
+                      },
+                      "type": {
+                        "kind": "basic",
+                        "name": "uint32"
+                      }
+                    },
+                    "error": "unknown_enum_option",
+                    "enum": {
+                      "kind": "lit",
+                      "value": "environment attribute payload type",
+                      "type": {
+                        "kind": "basic",
+                        "name": "string"
+                      }
+                    }
+                  }
+                ]
               }
             ]
-          },
-          {
-            "kind": "marshal",
-            "place": {
-              "kind": "field",
-              "name": "Attribute",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.EnvironmentAttributeData"
-                }
-              },
-              "type": {
-                "kind": "named",
-                "name": "protocol.AttributeData"
-              }
-            },
-            "type": "protocol.AttributeData"
-          },
-          {
-            "kind": "optional",
-            "place": {
-              "kind": "field",
-              "name": "ToAttribute",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.EnvironmentAttributeData"
-                }
-              },
-              "type": {
-                "kind": "optional",
-                "elem": {
-                  "kind": "named",
-                  "name": "protocol.AttributeData"
-                }
-              }
-            },
-            "elem": {
-              "name": "v",
-              "type": {
-                "kind": "named",
-                "name": "protocol.AttributeData"
-              },
-              "ref": true
-            },
-            "body": [
-              {
-                "kind": "marshal",
-                "place": {
-                  "kind": "var",
-                  "name": "v",
-                  "type": {
-                    "kind": "named",
-                    "name": "protocol.AttributeData"
-                  }
-                },
-                "type": "protocol.AttributeData"
-              }
-            ]
-          },
-          {
-            "kind": "io",
-            "method": "Uint32",
-            "place": {
-              "kind": "field",
-              "name": "CurrentTransitionTicks",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.EnvironmentAttributeData"
-                }
-              },
-              "type": {
-                "kind": "basic",
-                "name": "uint32"
-              }
-            }
-          },
-          {
-            "kind": "io",
-            "method": "Uint32",
-            "place": {
-              "kind": "field",
-              "name": "TotalTransitionTicks",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.EnvironmentAttributeData"
-                }
-              },
-              "type": {
-                "kind": "basic",
-                "name": "uint32"
-              }
-            }
-          },
-          {
-            "kind": "io",
-            "method": "String",
-            "place": {
-              "kind": "var",
-              "name": "easingType",
-              "type": {
-                "kind": "basic",
-                "name": "string"
-              }
-            }
-          },
-          {
-            "kind": "call",
-            "args": [
-              {
-                "kind": "field",
-                "name": "EaseType",
-                "x": {
-                  "kind": "var",
-                  "name": "x",
-                  "type": {
-                    "kind": "named",
-                    "name": "protocol.EnvironmentAttributeData"
-                  }
-                },
-                "type": {
-                  "kind": "basic",
-                  "name": "int32"
-                }
-              },
-              {
-                "kind": "var",
-                "name": "easingType",
-                "type": {
-                  "kind": "basic",
-                  "name": "string"
-                }
-              }
-            ],
-            "func": "protocol.easingTypeFromString",
-            "target": "enum"
-          },
-          {
-            "kind": "io",
-            "method": "Uint32",
-            "place": {
-              "kind": "field",
-              "name": "LocalTransitionTicks",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.EnvironmentAttributeData"
-                }
-              },
-              "type": {
-                "kind": "basic",
-                "name": "uint32"
-              }
-            }
-          },
-          {
-            "kind": "io",
-            "method": "Bool",
-            "place": {
-              "kind": "field",
-              "name": "NoiseTransition",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.EnvironmentAttributeData"
-                }
-              },
-              "type": {
-                "kind": "basic",
-                "name": "bool"
-              }
-            }
-          },
-          {
-            "kind": "marshal",
-            "place": {
-              "kind": "field",
-              "name": "NoiseAlignment",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.EnvironmentAttributeData"
-                }
-              },
-              "type": {
-                "kind": "named",
-                "name": "protocol.NoiseAlignment"
-              }
-            },
-            "type": "protocol.NoiseAlignment"
           }
         ]
       }
@@ -57342,6 +58601,125 @@
       }
     },
     {
+      "name": "protocol.MatchmakingStateOptions",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "TriggeringPlayerName",
+          "type": {
+            "kind": "optional",
+            "elem": {
+              "kind": "basic",
+              "name": "string"
+            }
+          }
+        },
+        {
+          "name": "TriggeredByLocalPlayer",
+          "type": {
+            "kind": "optional",
+            "elem": {
+              "kind": "basic",
+              "name": "bool"
+            }
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "x",
+        "stmts": [
+          {
+            "kind": "optional",
+            "place": {
+              "kind": "field",
+              "name": "TriggeringPlayerName",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.MatchmakingStateOptions"
+                }
+              },
+              "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "basic",
+                  "name": "string"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "io",
+                "method": "String",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "basic",
+                    "name": "string"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "optional",
+            "place": {
+              "kind": "field",
+              "name": "TriggeredByLocalPlayer",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.MatchmakingStateOptions"
+                }
+              },
+              "type": {
+                "kind": "optional",
+                "elem": {
+                  "kind": "basic",
+                  "name": "bool"
+                }
+              }
+            },
+            "elem": {
+              "name": "v",
+              "type": {
+                "kind": "basic",
+                "name": "bool"
+              },
+              "ref": true
+            },
+            "body": [
+              {
+                "kind": "io",
+                "method": "Bool",
+                "place": {
+                  "kind": "var",
+                  "name": "v",
+                  "type": {
+                    "kind": "basic",
+                    "name": "bool"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "protocol.MaterialReducer",
       "kind": "struct",
       "fields": [
@@ -58402,6 +59780,152 @@
       }
     },
     {
+      "name": "protocol.PassengerOfBlockData",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "BlockPosition",
+          "type": {
+            "kind": "named",
+            "name": "protocol.BlockPos"
+          }
+        },
+        {
+          "name": "Offset",
+          "type": {
+            "kind": "external",
+            "name": "mgl32.Vec3"
+          }
+        },
+        {
+          "name": "Rotation",
+          "type": {
+            "kind": "basic",
+            "name": "float32"
+          }
+        },
+        {
+          "name": "RotationLimit",
+          "type": {
+            "kind": "basic",
+            "name": "float32"
+          }
+        },
+        {
+          "name": "EmoteType",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
+        }
+      ],
+      "marshal": {
+        "receiver": "x",
+        "stmts": [
+          {
+            "kind": "io",
+            "method": "BlockPos",
+            "place": {
+              "kind": "field",
+              "name": "BlockPosition",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.PassengerOfBlockData"
+                }
+              },
+              "type": {
+                "kind": "named",
+                "name": "protocol.BlockPos"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Vec3",
+            "place": {
+              "kind": "field",
+              "name": "Offset",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.PassengerOfBlockData"
+                }
+              },
+              "type": {
+                "kind": "external",
+                "name": "mgl32.Vec3"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Float32",
+            "place": {
+              "kind": "field",
+              "name": "Rotation",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.PassengerOfBlockData"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "float32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Float32",
+            "place": {
+              "kind": "field",
+              "name": "RotationLimit",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.PassengerOfBlockData"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "float32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "EmoteType",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.PassengerOfBlockData"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "protocol.PatternRemovedEvent",
       "kind": "struct",
       "marshal": {
@@ -59296,6 +60820,13 @@
           }
         },
         {
+          "name": "PlayFabID",
+          "type": {
+            "kind": "basic",
+            "name": "string"
+          }
+        },
+        {
           "name": "PlatformChatID",
           "type": {
             "kind": "basic",
@@ -59478,6 +61009,26 @@
             "place": {
               "kind": "field",
               "name": "XUID",
+              "x": {
+                "kind": "var",
+                "name": "x",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.PlayerListEntry"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "string"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "String",
+            "place": {
+              "kind": "field",
+              "name": "PlayFabID",
               "x": {
                 "kind": "var",
                 "name": "x",
@@ -61048,6 +62599,13 @@
             "kind": "external",
             "name": "mgl32.Vec3"
           }
+        },
+        {
+          "name": "Hand",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
         }
       ],
       "marshal": {
@@ -61130,6 +62688,26 @@
               "type": {
                 "kind": "external",
                 "name": "mgl32.Vec3"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "Hand",
+              "x": {
+                "kind": "var",
+                "name": "data",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.ReleaseItemTransactionData"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
               }
             }
           }
@@ -62435,13 +64013,6 @@
           }
         },
         {
-          "name": "PlayFabID",
-          "type": {
-            "kind": "basic",
-            "name": "string"
-          }
-        },
-        {
           "name": "SkinResourcePatch",
           "type": {
             "kind": "slice",
@@ -62646,26 +64217,6 @@
             "place": {
               "kind": "field",
               "name": "SkinID",
-              "x": {
-                "kind": "var",
-                "name": "x",
-                "type": {
-                  "kind": "named",
-                  "name": "protocol.Skin"
-                }
-              },
-              "type": {
-                "kind": "basic",
-                "name": "string"
-              }
-            }
-          },
-          {
-            "kind": "io",
-            "method": "String",
-            "place": {
-              "kind": "field",
-              "name": "PlayFabID",
               "x": {
                 "kind": "var",
                 "name": "x",
@@ -64174,7 +65725,7 @@
           "name": "Type",
           "type": {
             "kind": "basic",
-            "name": "uint32"
+            "name": "uint8"
           }
         },
         {
@@ -64218,7 +65769,7 @@
         "stmts": [
           {
             "kind": "io",
-            "method": "Varuint32",
+            "method": "Uint8",
             "place": {
               "kind": "field",
               "name": "Type",
@@ -64232,7 +65783,7 @@
               },
               "type": {
                 "kind": "basic",
-                "name": "uint32"
+                "name": "uint8"
               }
             }
           },
@@ -64251,7 +65802,7 @@
               },
               "type": {
                 "kind": "basic",
-                "name": "uint32"
+                "name": "uint8"
               }
             },
             "cases": [
@@ -64263,7 +65814,7 @@
                     "value": "0",
                     "type": {
                       "kind": "basic",
-                      "name": "uint32"
+                      "name": "uint8"
                     }
                   },
                   {
@@ -64272,7 +65823,7 @@
                     "value": "5",
                     "type": {
                       "kind": "basic",
-                      "name": "uint32"
+                      "name": "uint8"
                     }
                   },
                   {
@@ -64281,7 +65832,7 @@
                     "value": "6",
                     "type": {
                       "kind": "basic",
-                      "name": "uint32"
+                      "name": "uint8"
                     }
                   }
                 ],
@@ -64295,7 +65846,7 @@
                     "value": "1",
                     "type": {
                       "kind": "basic",
-                      "name": "uint32"
+                      "name": "uint8"
                     }
                   }
                 ],
@@ -64330,7 +65881,7 @@
                     "value": "2",
                     "type": {
                       "kind": "basic",
-                      "name": "uint32"
+                      "name": "uint8"
                     }
                   }
                 ],
@@ -64365,7 +65916,7 @@
                     "value": "3",
                     "type": {
                       "kind": "basic",
-                      "name": "uint32"
+                      "name": "uint8"
                     }
                   }
                 ],
@@ -64420,7 +65971,7 @@
                     "value": "4",
                     "type": {
                       "kind": "basic",
-                      "name": "uint32"
+                      "name": "uint8"
                     }
                   }
                 ],
@@ -64465,7 +66016,7 @@
                       },
                       "type": {
                         "kind": "basic",
-                        "name": "uint32"
+                        "name": "uint8"
                       }
                     },
                     "error": "unknown_enum_option",
@@ -67605,6 +69156,13 @@
           }
         },
         {
+          "name": "Hand",
+          "type": {
+            "kind": "basic",
+            "name": "uint8"
+          }
+        },
+        {
           "name": "HeldItem",
           "type": {
             "kind": "named",
@@ -67686,6 +69244,26 @@
               "type": {
                 "kind": "basic",
                 "name": "int32"
+              }
+            }
+          },
+          {
+            "kind": "io",
+            "method": "Uint8",
+            "place": {
+              "kind": "field",
+              "name": "Hand",
+              "x": {
+                "kind": "var",
+                "name": "data",
+                "type": {
+                  "kind": "named",
+                  "name": "protocol.UseItemOnEntityTransactionData"
+                }
+              },
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
               }
             }
           },
@@ -79977,8 +81555,24 @@
           "ids": [
             {
               "kind": "const",
-              "name": "protocol.StackRequestActionCraftNonImplementedDeprecated",
+              "name": "protocol.StackRequestActionCraftReserved",
               "value": "18",
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
+          ],
+          "variants": [
+            "protocol.CraftReservedStackRequestAction"
+          ]
+        },
+        {
+          "ids": [
+            {
+              "kind": "const",
+              "name": "protocol.StackRequestActionCraftNonImplementedDeprecated",
+              "value": "19",
               "type": {
                 "kind": "basic",
                 "name": "uint8"
@@ -79994,7 +81588,7 @@
             {
               "kind": "const",
               "name": "protocol.StackRequestActionCraftResultsDeprecated",
-              "value": "19",
+              "value": "20",
               "type": {
                 "kind": "basic",
                 "name": "uint8"
@@ -80299,8 +81893,24 @@
           "ids": [
             {
               "kind": "const",
-              "name": "protocol.StackRequestActionCraftNonImplementedDeprecated",
+              "name": "protocol.StackRequestActionCraftReserved",
               "value": "18",
+              "type": {
+                "kind": "basic",
+                "name": "uint8"
+              }
+            }
+          ],
+          "variants": [
+            "protocol.CraftReservedStackRequestAction"
+          ]
+        },
+        {
+          "ids": [
+            {
+              "kind": "const",
+              "name": "protocol.StackRequestActionCraftNonImplementedDeprecated",
+              "value": "19",
               "type": {
                 "kind": "basic",
                 "name": "uint8"
@@ -80316,7 +81926,7 @@
             {
               "kind": "const",
               "name": "protocol.StackRequestActionCraftResultsDeprecated",
-              "value": "19",
+              "value": "20",
               "type": {
                 "kind": "basic",
                 "name": "uint8"
@@ -81576,6 +83186,30 @@
       "value": "131"
     },
     {
+      "name": "protocol.EnvironmentAttributePayloadTypeConstant",
+      "type": {
+        "kind": "basic",
+        "name": "untyped int"
+      },
+      "value": "0"
+    },
+    {
+      "name": "protocol.EnvironmentAttributePayloadTypeNoiseTransition",
+      "type": {
+        "kind": "basic",
+        "name": "untyped int"
+      },
+      "value": "2"
+    },
+    {
+      "name": "protocol.EnvironmentAttributePayloadTypeTransition",
+      "type": {
+        "kind": "basic",
+        "name": "untyped int"
+      },
+      "value": "1"
+    },
+    {
       "name": "protocol.EventTypeAchievementAwarded",
       "type": {
         "kind": "basic",
@@ -82059,7 +83693,7 @@
       "name": "protocol.SoundDataUpdateFade",
       "type": {
         "kind": "basic",
-        "name": "uint32"
+        "name": "untyped int"
       },
       "value": "3"
     },
@@ -82067,7 +83701,7 @@
       "name": "protocol.SoundDataUpdatePause",
       "type": {
         "kind": "basic",
-        "name": "uint32"
+        "name": "untyped int"
       },
       "value": "5"
     },
@@ -82075,7 +83709,7 @@
       "name": "protocol.SoundDataUpdateResume",
       "type": {
         "kind": "basic",
-        "name": "uint32"
+        "name": "untyped int"
       },
       "value": "6"
     },
@@ -82083,7 +83717,7 @@
       "name": "protocol.SoundDataUpdateSeekTo",
       "type": {
         "kind": "basic",
-        "name": "uint32"
+        "name": "untyped int"
       },
       "value": "4"
     },
@@ -82091,7 +83725,7 @@
       "name": "protocol.SoundDataUpdateSetPitch",
       "type": {
         "kind": "basic",
-        "name": "uint32"
+        "name": "untyped int"
       },
       "value": "2"
     },
@@ -82099,7 +83733,7 @@
       "name": "protocol.SoundDataUpdateSetVolume",
       "type": {
         "kind": "basic",
-        "name": "uint32"
+        "name": "untyped int"
       },
       "value": "1"
     },
@@ -82107,7 +83741,7 @@
       "name": "protocol.SoundDataUpdateStop",
       "type": {
         "kind": "basic",
-        "name": "uint32"
+        "name": "untyped int"
       },
       "value": "0"
     },
@@ -82157,7 +83791,7 @@
         "kind": "basic",
         "name": "untyped int"
       },
-      "value": "18"
+      "value": "19"
     },
     {
       "name": "protocol.StackRequestActionCraftRecipe",
@@ -82184,12 +83818,20 @@
       "value": "15"
     },
     {
+      "name": "protocol.StackRequestActionCraftReserved",
+      "type": {
+        "kind": "basic",
+        "name": "untyped int"
+      },
+      "value": "18"
+    },
+    {
       "name": "protocol.StackRequestActionCraftResultsDeprecated",
       "type": {
         "kind": "basic",
         "name": "untyped int"
       },
-      "value": "19"
+      "value": "20"
     },
     {
       "name": "protocol.StackRequestActionCreate",
@@ -82718,6 +84360,48 @@
           "type": "untyped int",
           "basic": "untyped int",
           "value": "0"
+        }
+      ]
+    },
+    {
+      "package": "protocol",
+      "file": "attribute_layer.go",
+      "consts": [
+        {
+          "name": "protocol.EnvironmentAttributePayloadTypeConstant",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "0"
+        },
+        {
+          "name": "protocol.EnvironmentAttributePayloadTypeTransition",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "1"
+        },
+        {
+          "name": "protocol.EnvironmentAttributePayloadTypeNoiseTransition",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "package": "protocol",
+      "file": "audio_content.go",
+      "consts": [
+        {
+          "name": "protocol.AudioContentPlaybackTypeMusic",
+          "type": "untyped string",
+          "basic": "untyped string",
+          "value": "Music"
+        },
+        {
+          "name": "protocol.AudioContentPlaybackTypeSound",
+          "type": "untyped string",
+          "basic": "untyped string",
+          "value": "Sound"
         }
       ]
     },
@@ -84956,6 +86640,30 @@
           "type": "untyped int",
           "basic": "untyped int",
           "value": "66"
+        },
+        {
+          "name": "protocol.ContainerReservedA",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "67"
+        },
+        {
+          "name": "protocol.ContainerReservedB",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "68"
+        },
+        {
+          "name": "protocol.ContainerReservedC",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "69"
+        },
+        {
+          "name": "protocol.ContainerReservedD",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "70"
         }
       ]
     },
@@ -85355,6 +87063,30 @@
         },
         {
           "name": "protocol.EntityLinkPassenger",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "package": "protocol",
+      "file": "entity_link.go",
+      "consts": [
+        {
+          "name": "protocol.PassengerOfBlockEmoteStanding",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "0"
+        },
+        {
+          "name": "protocol.PassengerOfBlockEmoteRiding",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "1"
+        },
+        {
+          "name": "protocol.PassengerOfBlockEmoteLaying",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "2"
@@ -87767,13 +89499,13 @@
           "name": "protocol.CurrentProtocol",
           "type": "untyped int",
           "basic": "untyped int",
-          "value": "2193"
+          "value": "2225"
         },
         {
           "name": "protocol.CurrentVersion",
           "type": "untyped string",
           "basic": "untyped string",
-          "value": "1.26.50"
+          "value": "1.26.60"
         }
       ]
     },
@@ -88688,16 +90420,22 @@
           "value": "17"
         },
         {
-          "name": "protocol.StackRequestActionCraftNonImplementedDeprecated",
+          "name": "protocol.StackRequestActionCraftReserved",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "18"
         },
         {
-          "name": "protocol.StackRequestActionCraftResultsDeprecated",
+          "name": "protocol.StackRequestActionCraftNonImplementedDeprecated",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "19"
+        },
+        {
+          "name": "protocol.StackRequestActionCraftResultsDeprecated",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "20"
         }
       ]
     },
@@ -88940,235 +90678,235 @@
           "value": "4"
         },
         {
-          "name": "protocol.MemoryCategoryBalancer",
+          "name": "protocol.MemoryCategoryBlockTickingQueues",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "5"
         },
         {
-          "name": "protocol.MemoryCategoryBlockTickingQueues",
+          "name": "protocol.MemoryCategoryBiomeStorage",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "6"
         },
         {
-          "name": "protocol.MemoryCategoryBiomeStorage",
+          "name": "protocol.MemoryCategoryBlobs",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "7"
         },
         {
-          "name": "protocol.MemoryCategoryBlobs",
+          "name": "protocol.MemoryCategoryCereal",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "8"
         },
         {
-          "name": "protocol.MemoryCategoryCereal",
+          "name": "protocol.MemoryCategoryCircuitSystem",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "9"
         },
         {
-          "name": "protocol.MemoryCategoryCircuitSystem",
+          "name": "protocol.MemoryCategoryClient",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "10"
         },
         {
-          "name": "protocol.MemoryCategoryClient",
+          "name": "protocol.MemoryCategoryCommands",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "11"
         },
         {
-          "name": "protocol.MemoryCategoryCommands",
+          "name": "protocol.MemoryCategoryDBStorage",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "12"
         },
         {
-          "name": "protocol.MemoryCategoryDBStorage",
+          "name": "protocol.MemoryCategoryDebug",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "13"
         },
         {
-          "name": "protocol.MemoryCategoryDebug",
+          "name": "protocol.MemoryCategoryDocumentation",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "14"
         },
         {
-          "name": "protocol.MemoryCategoryDocumentation",
+          "name": "protocol.MemoryCategoryECSSystems",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "15"
         },
         {
-          "name": "protocol.MemoryCategoryECSSystems",
+          "name": "protocol.MemoryCategoryFMOD",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "16"
         },
         {
-          "name": "protocol.MemoryCategoryFMOD",
+          "name": "protocol.MemoryCategoryFonts",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "17"
         },
         {
-          "name": "protocol.MemoryCategoryFonts",
+          "name": "protocol.MemoryCategoryImGUI",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "18"
         },
         {
-          "name": "protocol.MemoryCategoryImGUI",
+          "name": "protocol.MemoryCategoryInput",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "19"
         },
         {
-          "name": "protocol.MemoryCategoryInput",
+          "name": "protocol.MemoryCategoryJsonUI",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "20"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUI",
+          "name": "protocol.MemoryCategoryJsonUIControlFactoryJson",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "21"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlFactoryJson",
+          "name": "protocol.MemoryCategoryJsonUIControlTree",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "22"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTree",
+          "name": "protocol.MemoryCategoryJsonUIControlTreeControlElement",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "23"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreeControlElement",
+          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateDataBinding",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "24"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateDataBinding",
+          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateFocus",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "25"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateFocus",
+          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateLayout",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "26"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateLayout",
+          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateOther",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "27"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateOther",
+          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateSprite",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "28"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateSprite",
+          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateText",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "29"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateText",
+          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateTTS",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "30"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreePopulateTTS",
+          "name": "protocol.MemoryCategoryJsonUIControlTreeVisibility",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "31"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIControlTreeVisibility",
+          "name": "protocol.MemoryCategoryJsonUICreateUI",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "32"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUICreateUI",
+          "name": "protocol.MemoryCategoryJsonUIDefs",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "33"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUIDefs",
+          "name": "protocol.MemoryCategoryJsonUILayoutManager",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "34"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUILayoutManager",
+          "name": "protocol.MemoryCategoryJsonUILayoutManagerRemoveDependencies",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "35"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUILayoutManagerRemoveDependencies",
+          "name": "protocol.MemoryCategoryJsonUILayoutManagerInitVariable",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "36"
         },
         {
-          "name": "protocol.MemoryCategoryJsonUILayoutManagerInitVariable",
+          "name": "protocol.MemoryCategoryLanguages",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "37"
         },
         {
-          "name": "protocol.MemoryCategoryLanguages",
+          "name": "protocol.MemoryCategoryLevel",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "38"
         },
         {
-          "name": "protocol.MemoryCategoryLevel",
+          "name": "protocol.MemoryCategoryLevelStructures",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "39"
         },
         {
-          "name": "protocol.MemoryCategoryLevelStructures",
+          "name": "protocol.MemoryCategoryLevelChunk",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "40"
         },
         {
-          "name": "protocol.MemoryCategoryLevelChunk",
+          "name": "protocol.MemoryCategoryLevelChunkGen",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "41"
         },
         {
-          "name": "protocol.MemoryCategoryLevelChunkGen",
+          "name": "protocol.MemoryCategoryLevelChunkGenThreadLocal",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "42"
         },
         {
-          "name": "protocol.MemoryCategoryLevelChunkGenThreadLocal",
+          "name": "protocol.MemoryCategoryLightVolumeManager",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "43"
@@ -89570,7 +91308,7 @@
           "value": "109"
         },
         {
-          "name": "protocol.MemoryCategoryVR",
+          "name": "protocol.MemoryCategoryExecutable",
           "type": "untyped int",
           "basic": "untyped int",
           "value": "110"
@@ -90417,44 +92155,44 @@
       "consts": [
         {
           "name": "protocol.SoundDataUpdateStop",
-          "type": "uint32",
-          "basic": "uint32",
+          "type": "untyped int",
+          "basic": "untyped int",
           "value": "0"
         },
         {
           "name": "protocol.SoundDataUpdateSetVolume",
-          "type": "uint32",
-          "basic": "uint32",
+          "type": "untyped int",
+          "basic": "untyped int",
           "value": "1"
         },
         {
           "name": "protocol.SoundDataUpdateSetPitch",
-          "type": "uint32",
-          "basic": "uint32",
+          "type": "untyped int",
+          "basic": "untyped int",
           "value": "2"
         },
         {
           "name": "protocol.SoundDataUpdateFade",
-          "type": "uint32",
-          "basic": "uint32",
+          "type": "untyped int",
+          "basic": "untyped int",
           "value": "3"
         },
         {
           "name": "protocol.SoundDataUpdateSeekTo",
-          "type": "uint32",
-          "basic": "uint32",
+          "type": "untyped int",
+          "basic": "untyped int",
           "value": "4"
         },
         {
           "name": "protocol.SoundDataUpdatePause",
-          "type": "uint32",
-          "basic": "uint32",
+          "type": "untyped int",
+          "basic": "untyped int",
           "value": "5"
         },
         {
           "name": "protocol.SoundDataUpdateResume",
-          "type": "uint32",
-          "basic": "uint32",
+          "type": "untyped int",
+          "basic": "untyped int",
           "value": "6"
         }
       ]
@@ -91889,6 +93627,66 @@
     },
     {
       "package": "packet",
+      "file": "clientbound_matchmaking_state.go",
+      "consts": [
+        {
+          "name": "packet.MatchmakingStateIdle",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "0"
+        },
+        {
+          "name": "packet.MatchmakingStateMatchmaking",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "1"
+        },
+        {
+          "name": "packet.MatchmakingStateMatchFound",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "2"
+        },
+        {
+          "name": "packet.MatchmakingStateCanceled",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "3"
+        },
+        {
+          "name": "packet.MatchmakingStatePlayerLeftParty",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "4"
+        },
+        {
+          "name": "packet.MatchmakingStatePlayerLeftServer",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "5"
+        },
+        {
+          "name": "packet.MatchmakingStateServerShutdown",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "6"
+        },
+        {
+          "name": "packet.MatchmakingStateTimedOut",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "7"
+        },
+        {
+          "name": "packet.MatchmakingStateRequeueAsParty",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "8"
+        }
+      ]
+    },
+    {
+      "package": "packet",
       "file": "clientbound_texture_shift.go",
       "consts": [
         {
@@ -93120,6 +94918,12 @@
           "type": "int32",
           "basic": "int32",
           "value": "149"
+        },
+        {
+          "name": "packet.DisconnectReasonSubClientLoginNotBound",
+          "type": "int32",
+          "basic": "int32",
+          "value": "150"
         }
       ]
     },
@@ -94596,6 +96400,54 @@
           "type": "untyped int",
           "basic": "untyped int",
           "value": "352"
+        },
+        {
+          "name": "packet.IDClientboundMatchmakingState",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "353"
+        },
+        {
+          "name": "packet.IDServerboundStonecutterSetRecipe",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "354"
+        },
+        {
+          "name": "packet.IDClientboundStonecutterSetRecipe",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "355"
+        },
+        {
+          "name": "packet.IDServerboundMatchmakingCancel",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "356"
+        },
+        {
+          "name": "packet.IDSetPassengerOfBlock",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "357"
+        },
+        {
+          "name": "packet.IDServerboundCursorItemDrag",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "358"
+        },
+        {
+          "name": "packet.IDClientboundPlayAudioContent",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "359"
+        },
+        {
+          "name": "packet.IDServerboundRegisterAudioContent",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "360"
         }
       ]
     },
@@ -101141,6 +102993,24 @@
     },
     {
       "package": "packet",
+      "file": "serverbound_cursor_item_drag.go",
+      "consts": [
+        {
+          "name": "packet.CursorItemDragStart",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "0"
+        },
+        {
+          "name": "packet.CursorItemDragStop",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "package": "packet",
       "file": "serverbound_data_driven_screen_closed.go",
       "consts": [
         {
@@ -101790,6 +103660,24 @@
           "type": "untyped int",
           "basic": "untyped int",
           "value": "3"
+        }
+      ]
+    },
+    {
+      "package": "packet",
+      "file": "start_game.go",
+      "consts": [
+        {
+          "name": "packet.EditorLevelMigrationVersionLegacy",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "0"
+        },
+        {
+          "name": "packet.EditorLevelMigrationVersionEditorAchievements",
+          "type": "untyped int",
+          "basic": "untyped int",
+          "value": "1"
         }
       ]
     },

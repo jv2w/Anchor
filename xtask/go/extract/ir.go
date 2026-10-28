@@ -74,7 +74,7 @@ type IR struct {
 type Source struct {
 	// Module is the Go module path ("github.com/sandertv/gophertunnel").
 	Module string `json:"module"`
-	// Version is the Go module version (a pseudo-version for a commit pin).
+	// Version is the Go module version.
 	Version string `json:"version"`
 	// Commit is the full git commit hash of the snapshot.
 	Commit string `json:"commit"`
