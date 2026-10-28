@@ -22,7 +22,7 @@ const DESCRIPTOR_AUX: i32 = 32767;
 /// gophertunnel `StackRequestActionPlaceInContainer`: variants from here on skip two IDs.
 const ACTION_PLACE_IN_CONTAINER: u32 = 7;
 /// gophertunnel `StackRequestActionCraftResultsDeprecated`, the last action.
-const ACTION_LAST: u8 = 19;
+const ACTION_LAST: u8 = 20;
 
 /// A value that does not fit the narrower wire integer gophertunnel truncates it to.
 fn out_of_range(field: &'static str) -> Error {
@@ -307,9 +307,27 @@ mod tests {
             assert_eq!(r.stack_request_action(), Ok(action));
             assert!(r.remaining().is_empty());
         }
-        let mut r = reader(&[18, 0]);
+        let mut r = reader(&[19, 0]);
         assert!(matches!(
             r.stack_request_action(),
+            Err(Error::UnknownEnum { .. })
+        ));
+    }
+
+    #[test]
+    fn the_reserved_craft_and_the_last_action_decode_and_the_next_is_rejected() {
+        // Variant 16 is the reserved craft (ID 18), variant 18 the deprecated craft results
+        // (ID 20), the last action gophertunnel reads.
+        for (variant, id) in [(16, 18), (18, 20)] {
+            let action = StackRequestAction::from_id(id).unwrap();
+            let b = bytes(|w| w.stack_request_action(&action));
+            assert_eq!(b[..2], [variant, id]);
+            let mut r = reader(&b);
+            assert_eq!(r.stack_request_action(), Ok(action));
+            assert!(r.remaining().is_empty());
+        }
+        assert!(matches!(
+            reader(&[19, 21]).stack_request_action(),
             Err(Error::UnknownEnum { .. })
         ));
     }

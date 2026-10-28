@@ -114,7 +114,7 @@ compression = "snappy"
 compression-threshold = 256
 # zlib only: 1 (fastest) to 9 (smallest).
 compression-level = 6
-# Largest decompressed batch a client may send, in bytes (4210781 to 67108864: at least
+# Largest decompressed batch a client may send, in bytes (4210786 to 67108864: at least
 # what one player with the largest skin takes in the player list).
 max-batch-bytes = 16777216
 # false: RakNet game traffic is sent in plain form. Anyone between a player and the server

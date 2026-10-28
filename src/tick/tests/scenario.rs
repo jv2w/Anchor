@@ -846,6 +846,7 @@ fn a_survival_player_goes_from_a_log_to_a_trade_with_client_packets_only() {
         target_entity_runtime_id: villager,
         action_type: UseItemOnEntityAction::Interact.into(),
         hot_bar_slot: i32::from(held),
+        hand: 0,
         held_item: s.stack_in(held).to_instance(s.client.net(c, held)),
         position: (s.feet + Vec3::new(0.0, EYE, 0.0)).to_f32(),
         clicked_position: [0.0, 0.0, 0.0],

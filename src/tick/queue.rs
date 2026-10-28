@@ -124,7 +124,7 @@ pub(crate) struct Client {
     /// The PlayFab master player ID of the identity token (`mid`), verified with Xbox sign-in
     /// and the client's claim without; empty when not sent.
     pub(crate) playfab_id: String,
-    /// The client's version, such as `1.26.50` (`GameVersion`).
+    /// The client's version, such as `1.26.60` (`GameVersion`).
     pub(crate) game_version: String,
     /// The address the client was told to join (`ServerAddress`).
     pub(crate) server_address: String,
@@ -252,10 +252,10 @@ impl Identity {
     }
 }
 
-/// The most wire bytes of a skin's fields besides what its byte fields and texts hold: 12 length
+/// The most wire bytes of a skin's fields besides what its byte fields and texts hold: 11 length
 /// prefixes of texts and byte fields and 3 of lists (at most 5 bytes each), 4 image sizes (4
 /// each), the arm size (1), the colour (4), 5 bools and the trust text (`"false"`, 5).
-const SKIN_FIXED_BYTES: usize = 106;
+const SKIN_FIXED_BYTES: usize = 101;
 /// The same for one animation: 2 image sizes (4 each), the data's length prefix and 2 varints
 /// (at most 5 each) and the frame count (4).
 const ANIMATION_FIXED_BYTES: usize = 27;
@@ -331,7 +331,6 @@ impl Skin {
             s.animation_data.len(),
             s.geometry_data_engine_version.len(),
             s.skin_id.len(),
-            s.playfab_id.len(),
             s.cape_id.len(),
             s.full_id.len(),
             s.profile_hash.len(),

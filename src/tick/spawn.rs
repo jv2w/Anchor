@@ -64,18 +64,18 @@ const REWIND_HISTORY_SIZE: i32 = 40;
 const DEFAULT_SPAWN: [i32; 3] = [i32::MIN; 3];
 /// The dimension BDS's `SetSpawnPosition` names at join (P6).
 const SPAWN_POSITION_DIMENSION: i32 = 3;
-/// The most wire bytes of a player list entry besides its name, XUID and skin
+/// The most wire bytes of a player list entry besides its name, XUID, PlayFab ID and skin
 /// ([`queue::Skin::size`]): the entry kind (a varint, at most 5, and a byte), the UUID (16), the
-/// entity ID (at most 10), 3 text length prefixes (at most 5 each), the build platform (4), 3
+/// entity ID (at most 10), 4 text length prefixes (at most 5 each), the build platform (4), 3
 /// bools and the colour (4).
-const LIST_ENTRY_FIXED_BYTES: usize = 58;
+const LIST_ENTRY_FIXED_BYTES: usize = 63;
 /// The most bytes a `PlayerList` packet takes in a batch besides its entries: its length, its
 /// header and its entry count (at most 5 each).
 const LIST_PACKET_FIXED_BYTES: usize = 15;
 /// The most digits of a XUID (`u64::MAX`).
 const XUID_DIGITS: usize = 20;
-/// The most bytes a `PlayerList` packet of one entry takes in a batch: a name as long as an
-/// identity token can hold and a skin of [`MAX_SKIN_BYTES`]. A spawn window cannot split an
+/// The most bytes a `PlayerList` packet of one entry takes in a batch: a name and a PlayFab ID
+/// together as long as the one identity token that holds both and a skin of [`MAX_SKIN_BYTES`]. A spawn window cannot split an
 /// entry, so `max-batch-bytes` is at least this (the settings check it).
 pub(crate) const MAX_LIST_ENTRY_BYTES: usize = LIST_PACKET_FIXED_BYTES
     + LIST_ENTRY_FIXED_BYTES
@@ -662,7 +662,8 @@ fn spawn_window(
 }
 
 /// A player's entry in the player list (BDS values, P6): the skin and device the client sent at
-/// login, unchanged.
+/// login, unchanged. The PlayFab ID is the identity token's (gophertunnel: the server-verified
+/// one; BDS's value is not confirmed).
 fn list_entry(player: &Player) -> PlayerListEntry {
     PlayerListEntry {
         action_type: PlayerListAction::Add.into(),
@@ -673,6 +674,7 @@ fn list_entry(player: &Player) -> PlayerListEntry {
             .identity
             .xuid
             .map_or_else(String::new, |x| x.to_string()),
+        playfab_id: player.identity.client.playfab_id.clone(),
         platform_chat_id: String::new(),
         // BDS sends the login's device (PMMP the unknown device, -1).
         build_platform: player.identity.device_os,
@@ -700,6 +702,7 @@ fn list_packets(players: &[&Player], max_batch_bytes: usize) -> Vec<Arc<Packet>>
         let entry_bytes = LIST_ENTRY_FIXED_BYTES
             .saturating_add(player.identity.name.len())
             .saturating_add(XUID_DIGITS)
+            .saturating_add(player.identity.client.playfab_id.len())
             .saturating_add(player.identity.skin.size());
         if entries.len() == PLAYER_LIST_ENTRIES_MAX_LEN
             || (!entries.is_empty() && bytes.saturating_add(entry_bytes) > max_batch_bytes)
@@ -1424,7 +1427,11 @@ mod tests {
 
     #[test]
     fn the_entity_types_are_the_cloudburst_bytes_bds_sends() {
-        assert_eq!(ENTITY_IDENTIFIERS.len(), 8907, "BDS sends 8,907 bytes (P6)");
+        assert_eq!(
+            ENTITY_IDENTIFIERS.len(),
+            8971,
+            "the CloudburstMC 1.26.60 file is 8,971 bytes"
+        );
         if let Some(copy) = cache("entity_identifiers.dat") {
             assert_eq!(ENTITY_IDENTIFIERS, copy.as_slice());
         }
@@ -1606,6 +1613,34 @@ mod tests {
             .map(|e| e.action_type)
             .collect();
         assert_eq!(actions, [0, 1], "added, then removed");
+    }
+
+    #[test]
+    fn the_player_list_carries_the_identity_playfab_id() {
+        use super::super::queue::InputKind;
+        use super::super::tests::{join, new_state, radius, received, settings, tick};
+        use crate::event::Listeners;
+
+        let mut state = new_state(settings(|_| {}), Listeners::default());
+        let mut output = Output::default();
+        let (mut first, mut rx) = join(1, 0);
+        if let InputKind::Join { identity, .. } = &mut first.kind {
+            identity.client.playfab_id = "0123456789abcdef".to_owned();
+        }
+        tick(&mut state, &mut vec![first], &mut output);
+        tick(&mut state, &mut vec![radius(1, 1, 1)], &mut output);
+        let ids: Vec<String> = received(&mut rx)
+            .0
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::PlayerList(l) => Some(l.entries),
+                _ => None,
+            })
+            .flatten()
+            .map(|e| e.playfab_id)
+            .collect();
+        assert!(!ids.is_empty());
+        assert!(ids.iter().all(|id| id == "0123456789abcdef"));
     }
 
     /// The login, join, duplicate login and view distance events.

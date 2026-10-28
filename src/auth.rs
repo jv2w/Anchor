@@ -415,7 +415,7 @@ mod tests {
     use super::*;
 
     const NOW: i64 = 1_790_000_000;
-    const DISCOVERY_PATH: &str = "/api/v1.0/discovery/MinecraftPE/builds/1.26.50";
+    const DISCOVERY_PATH: &str = "/api/v1.0/discovery/MinecraftPE/builds/1.26.60";
 
     fn now() -> i64 {
         NOW

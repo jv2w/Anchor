@@ -108,7 +108,7 @@ compression = "snappy"
 compression-threshold = 256
 # zlib only: 1 (fastest) to 9 (smallest).
 compression-level = 6
-# Largest decompressed batch a client may send, in bytes (4210781 to 67108864: at least
+# Largest decompressed batch a client may send, in bytes (4210786 to 67108864: at least
 # what one player with the largest skin takes in the player list).
 max-batch-bytes = 16777216
 # false: RakNet game traffic is sent in plain form. Anyone between a player and the server
@@ -231,7 +231,7 @@ console-input = true
 | `compression` | 문자열 | `"snappy"` | `snappy`, `zlib` | 네트워크 압축. Snappy는 CPU를, zlib은 대역폭을 아낀다 |
 | `compression-threshold` | 정수 | `256` | 1~65535 | 이보다 작은 묶음은 압축하지 않는다. 0은 구현마다 뜻이 달라 받지 않는다 |
 | `compression-level` | 정수 | `6` | 1~9 | zlib 단계. Snappy를 고를 때도 검사한다 |
-| `max-batch-bytes` | 정수 | `16777216` | 4210781~67108864 | 클라이언트가 보낼 수 있는 압축 해제 뒤 묶음의 최대 바이트. 최솟값은 가장 큰 스킨(4 MiB)을 가진 플레이어 하나의 플레이어 목록 패킷이다(나눌 수 없어 묶음 하나에 들어야 한다) |
+| `max-batch-bytes` | 정수 | `16777216` | 4210786~67108864 | 클라이언트가 보낼 수 있는 압축 해제 뒤 묶음의 최대 바이트. 최솟값은 가장 큰 스킨(4 MiB)을 가진 플레이어 하나의 플레이어 목록 패킷이다(나눌 수 없어 묶음 하나에 들어야 한다) |
 | `enable-encryption` | bool | `true` | | RakNet 게임 통신 암호화. `false`면 중간자가 로그인까지 읽고 바꿀 수 있어 믿을 수 있는 망에서만 쓴다. NetherNet은 자기 전송이 늘 암호화한다 |
 | `raknet` | bool | `true` | | RakNet 연결을 받을지. `false`면 NetherNet만 받고 RakNet 포트는 핑에만 답한다 |
 | `max-mtu-size` | 정수 | `1492` | 576~1492 | RakNet 최대 패킷 바이트. 터널이나 VPN 뒤에서 낮춘다. go-raknet 다이얼러가 1492, 1200, 576을 시도한다 |

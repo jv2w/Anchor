@@ -546,7 +546,7 @@ mod tests {
 
     fn login(len: usize) -> (Header, Packet) {
         let packet = Packet::Login(Login {
-            client_protocol: 2193,
+            client_protocol: super::super::packet::PROTOCOL_VERSION,
             connection_request: vec![7; len],
         });
         (header(&packet), packet)

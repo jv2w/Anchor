@@ -2,7 +2,7 @@
 //! sent with [`Context::play_animation`](crate::Context::play_animation).
 
 use crate::item;
-use crate::protocol::consts::{ActorEvent, AnimateAction};
+use crate::protocol::consts::{ActorEvent, AnimateAction, HandSlot};
 use crate::protocol::packet::{self, Packet};
 
 /// An animation (one PMMP animation class per variant). The client plays it on the actor it is
@@ -85,6 +85,7 @@ impl Animation {
                 entity_runtime_id: runtime_id,
                 data: f32::from(particles),
                 swing_source: 0,
+                hand: u8::from(HandSlot::MainHand),
             })
         };
         match self {

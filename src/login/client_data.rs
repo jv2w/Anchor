@@ -197,7 +197,6 @@ impl ClientData {
         }
         let skin = Skin::new(Arc::new(protocol::Skin {
             skin_id: self.skin_id.clone(),
-            playfab_id: self.playfab_id.clone(),
             skin_resource_patch: decode(&self.skin_resource_patch)?,
             skin_image_width: dimension(self.skin_image_width)?,
             skin_image_height: dimension(self.skin_image_height)?,

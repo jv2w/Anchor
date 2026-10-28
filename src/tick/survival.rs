@@ -3686,7 +3686,6 @@ mod tests {
         };
         crate::protocol::Skin {
             skin_id: "c18e65aa-7b21-4637-9b63-8ad63622ef01_Custom".to_owned(),
-            playfab_id: "0123456789abcdef".to_owned(),
             skin_resource_patch: br#"{"geometry":{"default":"geometry.humanoid.customSlim"}}"#
                 .to_vec(),
             skin_image_width: 64,

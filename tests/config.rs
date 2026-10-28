@@ -508,8 +508,8 @@ fn cases() -> Vec<(&'static str, Vec<String>, Vec<String>)> {
         ),
         (
             "developer.max-batch-bytes",
-            s(&["4210781", "67108864"]),
-            s(&["1048576", "4210780", "67108865", "-1"]),
+            s(&["4210786", "67108864"]),
+            s(&["1048576", "4210785", "67108865", "-1"]),
         ),
         ("developer.enable-encryption", bools(), vec![]),
         ("developer.raknet", bools(), vec![]),

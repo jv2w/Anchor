@@ -14,7 +14,7 @@ use crate::block::{self, Class, PropertyValue};
 use crate::event::{PlayerBedEnter, PlayerBedLeave};
 use crate::nbt::{self, Encoding};
 use crate::player::Id;
-use crate::protocol::consts::{AnimateAction, ClockPayloadType, LevelEvent};
+use crate::protocol::consts::{AnimateAction, ClockPayloadType, HandSlot, LevelEvent};
 use crate::protocol::packet::{Animate, LevelEventGeneric, Packet, SyncWorldClocks};
 use crate::protocol::{SyncWorldClockStateData, TimeMarkerData, WorldClockData, Writer};
 use crate::save::WorldIndex;
@@ -533,6 +533,7 @@ fn woke(player: &mut Player) {
             entity_runtime_id: player.runtime_id,
             data: 0.0,
             swing_source: 0,
+            hand: u8::from(HandSlot::MainHand),
         });
         player.send_packet(packet);
     }

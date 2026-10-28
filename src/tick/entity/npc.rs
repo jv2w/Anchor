@@ -33,7 +33,7 @@ use crate::entity::Id;
 use crate::event::{CombustSource, DamageSource};
 use crate::math::Vec3;
 use crate::protocol::Uuid;
-use crate::protocol::consts::AnimateAction;
+use crate::protocol::consts::{AnimateAction, HandSlot};
 use crate::protocol::packet::{Animate, Packet};
 use crate::save::WorldIndex;
 use crate::world::BlockPos;
@@ -199,6 +199,7 @@ pub(super) fn attack_with(state: &mut State, session: SessionId, target: Id, hoo
                 entity_runtime_id: npc_runtime_id,
                 data: 0.0,
                 swing_source: 0,
+                hand: u8::from(HandSlot::MainHand),
             });
             send_to(&mut state.players, &viewers, &packet);
         }

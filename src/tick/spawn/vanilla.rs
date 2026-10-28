@@ -257,8 +257,8 @@ mod tests {
         }
         // Anchor writes the decoded data back to the same bytes, so it sends the file as it is.
         assert_eq!(payload(&packet), JIGSAW_STRUCTURE_DATA);
-        // BDS's packet is 209,309 bytes with its two-byte ID (P6).
-        assert_eq!(JIGSAW_STRUCTURE_DATA.len(), 209_307);
+        // The CloudburstMC 1.26.60 file; with its two-byte ID the packet is 209,537 bytes.
+        assert_eq!(JIGSAW_STRUCTURE_DATA.len(), 209_535);
     }
 
     #[test]

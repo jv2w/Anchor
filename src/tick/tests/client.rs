@@ -260,6 +260,7 @@ impl Client {
                         hot_bar_slot: i32::from(player.inventory.held_slot()),
                         held_item: self.held(player),
                         head_position: player.position.to_f32(),
+                        hand: 0,
                     };
                     return vec![transaction(InventoryTransactionData::ReleaseItem(
                         Box::new(data),
@@ -326,6 +327,7 @@ impl Client {
                     target_entity_runtime_id: target,
                     action_type: action.into(),
                     hot_bar_slot: i32::from(player.inventory.held_slot()),
+                    hand: 0,
                     held_item: self.held(player),
                     position: player.position.to_f32(),
                     clicked_position: [0.0, 0.0, 0.0],

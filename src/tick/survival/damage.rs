@@ -25,7 +25,7 @@ use crate::item::{Class, Enchantment, Stack, Type};
 use crate::math::{self, Vec3};
 use crate::player;
 use crate::protocol::EntityProperties;
-use crate::protocol::consts::{ActorEvent, AnimateAction, RespawnState};
+use crate::protocol::consts::{ActorEvent, AnimateAction, HandSlot, RespawnState};
 use crate::protocol::packet::{self, Animate, DeathInfo, Packet, Respawn, SetActorData};
 use crate::random::{self, Random};
 use crate::save::WorldIndex;
@@ -1118,6 +1118,7 @@ pub(super) fn attack_player(state: &mut State, attacker: SessionId, target: Sess
                 entity_runtime_id: target_runtime,
                 data: 0.0,
                 swing_source: 0,
+                hand: u8::from(HandSlot::MainHand),
             });
             broadcast_from(state, target, &packet);
         }

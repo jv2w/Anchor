@@ -881,7 +881,6 @@ mod tests {
         let login_skin = login(&data).unwrap().skin;
         let skin = login_skin.get();
         assert_eq!(skin.skin_id, "skin");
-        assert_eq!(skin.playfab_id, "0123456789abcdef");
         assert_eq!(
             skin.skin_resource_patch,
             br#"{"geometry":{"default":"geometry.humanoid"}}"#

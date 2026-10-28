@@ -597,7 +597,7 @@ pub(super) mod tests {
     pub(in crate::raknet) const GUID: u64 = 0x0123_4567_89ab_cdef;
     /// The message limit for a 2 MiB `max-batch-bytes` (plus the 8-byte checksum).
     pub(in crate::raknet) const MAX_MESSAGE: usize = (2 << 20) + (2 << 20) / 6 + 42 + 8;
-    const PONG: &[u8] = b"MCPE;Anchor;1;1.26.50;0;20;1;Anchor;Survival;1;19132;19133;";
+    const PONG: &[u8] = b"MCPE;Anchor;1;1.26.60;0;20;1;Anchor;Survival;1;19132;19133;";
     const T: Duration = Duration::from_secs(100);
 
     pub(in crate::raknet) fn config() -> Config {
