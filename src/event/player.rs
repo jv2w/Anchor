@@ -213,7 +213,8 @@ impl PlayerChangeSkin {
     }
 
     /// Replaces the skin after. It is checked like a login skin (image sizes, at most 4 MiB in
-    /// all); a skin that fails cancels the change.
+    /// all, geometry and resource patch JSON nested at most 64 deep); a skin that fails cancels
+    /// the change.
     #[doc(alias = "PlayerChangeSkinEvent::setNewSkin")]
     pub fn set_new_skin(&mut self, skin: protocol::Skin) {
         self.new_skin = Skin::new(Arc::new(skin));

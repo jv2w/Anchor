@@ -810,7 +810,11 @@ mod tests {
             ("ServerAddress", json!("host name:19132")),
             ("ServerAddress", json!("127.0.0.1:70000")),
             ("ServerAddress", json!("https://example.com:443:444")),
+            ("ServerAddress", json!("https://example.com")),
+            ("ServerAddress", json!("https://:7551")),
+            ("ServerAddress", json!("https://[]:7551")),
             ("ServerAddress", json!("ftp://example.com:21:21")),
+            ("ServerAddress", json!("ftp://example.com:21")),
             ("ServerAddress", json!("[::1:19132")),
             ("SkinData", json!(STD.encode(&[0; 7]))),
             ("SkinData", json!("AAAA!")),
@@ -950,6 +954,42 @@ mod tests {
     }
 
     #[test]
+    fn login_skins_go_out_in_the_form_clients_read() {
+        let mut data = client_data_json();
+        data["PieceTintColors"] = json!([
+            {"Colors": ["#1", "#2", "#3", "#4"], "PieceType": "persona_facial_hair"},
+            {"Colors": ["#1", "#2", "#3", "#4"], "PieceType": "persona_right_arm"},
+            {"Colors": ["#1", "#2", "#3", "#4"], "PieceType": "persona_high_pants"},
+            {"Colors": ["#1", "#2", "#3", "#4"], "PieceType": "persona_hand"},
+            {"Colors": ["#1", "#2", "#3", "#4"], "PieceType": "persona_eyes"},
+        ]);
+        let request = online_request(&Issuer::get().token(&claims()), &data, player());
+        let login = verify(&request, Mode::Online(&Issuer::get().keys()), NOW).unwrap();
+        let skin = login.skin.get();
+        assert_eq!(skin.skin_geometry, b"{}", "an empty login geometry is none");
+        let names: Vec<Vec<u8>> = skin
+            .piece_tint_colours
+            .iter()
+            .map(|t| {
+                let mut w = protocol::Writer::new(Vec::new(), 0);
+                protocol::Codec::encode(t, &mut w).unwrap();
+                let bytes = w.as_bytes();
+                bytes[1..=usize::from(bytes[0])].to_vec()
+            })
+            .collect();
+        assert_eq!(
+            names,
+            [
+                &b"facialhair"[..],
+                b"rightarm",
+                b"high_pants",
+                b"hands",
+                b"eyes"
+            ]
+        );
+    }
+
+    #[test]
     fn skin_texts_count_toward_the_skin_bound() {
         // The skin ID and cape ID are held twice (alone and in the full ID): the texts alone
         // take twice the bound while every image is empty.
@@ -976,6 +1016,8 @@ mod tests {
             ("ServerAddress", json!("play.example.com:19132")),
             ("ServerAddress", json!("https://example.com:7551:7551")),
             ("ServerAddress", json!("http://[::1]:7551/path:7551")),
+            ("ServerAddress", json!("https://example.com:7551")),
+            ("ServerAddress", json!("http://[::1]:7551/path")),
             ("LanguageCode", json!("zh-Hans_CN")),
             ("LanguageCode", json!("ko_KR")),
             (

@@ -1,7 +1,7 @@
 //! The look of a human NPC (PMMP `Skin`): an image on a geometry, checked when it is made, so a
 //! skin from the user or from a saved chunk is always one a client can draw.
 
-use crate::protocol;
+use crate::{crypto, protocol};
 
 /// The image sizes a skin may have, in bytes of RGBA (PMMP `Skin::ACCEPTED_SKIN_SIZES`): 64 × 32,
 /// 64 × 64 and 128 × 128 pixels.
@@ -23,8 +23,15 @@ const MAX_GEOMETRY_BYTES: usize = 1 << 20;
 /// (`PlayerList`) or changes it, and `max-batch-bytes` is at least one player list entry with
 /// such a skin.
 pub(crate) const MAX_SKIN_BYTES: usize = 4 << 20;
+/// The deepest nesting of JSON objects and arrays in a skin's geometry and resource patch: the
+/// protocol requires both to be depth-limited JSON, and the official server refuses deeper skin
+/// JSON from clients.
+pub(crate) const MAX_SKIN_JSON_DEPTH: usize = 64;
 /// The geometry of the standard player model.
 const DEFAULT_GEOMETRY: &str = "geometry.humanoid.custom";
+/// The geometry JSON sent for a vanilla geometry: the field must hold JSON, and an empty one
+/// declares no custom geometry.
+pub(crate) const NO_CUSTOM_GEOMETRY: &[u8] = b"{}";
 
 /// A skin: an ID, an RGBA image of an accepted size, an optional cape and the geometry it is drawn
 /// on (a vanilla geometry name, or a custom one with its JSON).
@@ -66,7 +73,7 @@ impl Skin {
     /// This skin drawn on the geometry `name` (such as `geometry.humanoid.customSlim`), defined by
     /// the JSON `data` when it is a custom one (empty for a vanilla geometry). `None` if `name` is
     /// empty, over 256 bytes or not made of ASCII letters, digits and `._:-`, or `data` is over
-    /// 1 MiB or not JSON.
+    /// 1 MiB, not JSON or nested more than 64 objects and arrays deep.
     pub fn with_geometry(self, name: impl Into<String>, data: Vec<u8>) -> Option<Self> {
         let name = name.into();
         let valid_name = !name.is_empty()
@@ -76,7 +83,7 @@ impl Skin {
                 .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
         let valid_data = data.is_empty()
             || (data.len() <= MAX_GEOMETRY_BYTES
-                && serde_json::from_slice::<serde_json::Value>(&data).is_ok());
+                && crypto::is_json_within_depth(&data, MAX_SKIN_JSON_DEPTH));
         (valid_name && valid_data).then_some(Self {
             geometry_name: name,
             geometry_data: data,
@@ -130,7 +137,11 @@ impl Skin {
             cape_image_width: if has_cape { 64 } else { 0 },
             cape_image_height: if has_cape { 32 } else { 0 },
             cape_data: self.cape.clone(),
-            skin_geometry: self.geometry_data.clone(),
+            skin_geometry: if self.geometry_data.is_empty() {
+                NO_CUSTOM_GEOMETRY.to_vec()
+            } else {
+                self.geometry_data.clone()
+            },
             geometry_data_engine_version: b"0.0.0".to_vec(),
             arm_size: protocol::consts::ArmSize::Wide.into(),
             trusted: true,
@@ -189,5 +200,24 @@ mod tests {
             br#"{"geometry":{"default":"geometry.humanoid.customSlim"}}"#
         );
         assert!(format!("{slim:?}").contains("8192"));
+    }
+
+    #[test]
+    fn skins_carry_geometry_json_a_login_accepts() {
+        let skin = Skin::new("npc", vec![0; 8192]).unwrap();
+        let vanilla = skin.to_protocol();
+        assert_eq!(vanilla.skin_geometry, NO_CUSTOM_GEOMETRY);
+        let accepted = |s: protocol::Skin| crate::tick::queue::Skin::new(s.into()).is_acceptable();
+        assert!(accepted(vanilla));
+        let nested = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n)).into_bytes();
+        let custom = skin
+            .clone()
+            .with_geometry("geo.x", nested(MAX_SKIN_JSON_DEPTH))
+            .unwrap();
+        assert!(accepted(custom.to_protocol()));
+        assert!(
+            skin.with_geometry("geo.x", nested(MAX_SKIN_JSON_DEPTH + 1))
+                .is_none()
+        );
     }
 }

@@ -19,7 +19,7 @@ use aws_lc_rs::signature::{
 
 pub(crate) use base64::{RAW_STD, RAW_URL, STD};
 pub(crate) use crc32::crc32;
-pub(crate) use json::{bounded_vec, is_object_or_null};
+pub(crate) use json::{bounded_vec, is_json_within_depth, is_object_or_null};
 pub(crate) use jws::{
     Algorithm, Jws, max_text as max_jws_text, parse as parse_jws, sign_compact as sign_jwt_bytes,
     sign_detached, sign_es384 as sign_jwt, verify_detached,

@@ -17,8 +17,8 @@ pub use crate::tick::{Entity, Mut};
 pub use animation::Animation;
 pub use custom::{Behaviour, Custom, Error};
 pub use painting::PaintingMotive;
-pub(crate) use skin::MAX_SKIN_BYTES;
 pub use skin::Skin;
+pub(crate) use skin::{MAX_SKIN_BYTES, MAX_SKIN_JSON_DEPTH, NO_CUSTOM_GEOMETRY};
 
 /// An entity: its slot in the world's entity store and the slot's generation, so a stale `Id`
 /// of a removed entity never finds the entity that took the slot later.

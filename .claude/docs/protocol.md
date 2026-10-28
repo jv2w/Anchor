@@ -79,6 +79,10 @@ Mojang 스키마 ──(cargo xtask dump)──> xtask/data/reference/protocol_l
 - 쓸 때 덮어쓰거나 읽고 버리는 값: ItemDescriptorCount aux 32767, StackRequestAction legacy 바이트, Skin `trusted`, 몇 패킷의 이름 문자열, InventoryTransaction `hasLegacy`.
 - EntityMetadata 개수 상한 없음, NBT 깊이 계수 누수, 부분 읽기 허용, ItemInstance·Login 길이 조용히 자름.
 - Snappy 해제가 `s2.Decode`라 S2 확장도 받는다.
+- 스킨 틴트 조각 이름: 코덱이 로그인 이름에서 `persona_`만 떼어 `facial_hair`, `face_accessory`, `left_leg`, `right_leg`, `left_arm`, `right_arm`, `classic_skin`을 보낸다. Mojang 문서(`SerializedSkin`의 `PieceTintColors` 키는 `persona::PieceType` 이름)와 CloudburstMC(`512ea21d9c`)는 밑줄 없는 소문자 이름(`facialhair` 등)이다. 생성 코덱은 gophertunnel과 같게 두고, 로그인 변환(`login/client_data.rs`의 `TINT_PROTOCOL_NAMES`)이 코덱이 그 이름을 쓰는 값을 넣는다. 공식 서버 바이트(P6)로 아직 확인하지 않았다.
+- `PieceType`에 1.26.60의 `CoCo`(28)가 없고 `Unsupported`가 28이다(Mojang 29). 로그인의 모르는 조각 이름은 0(Unknown)으로 보낸다.
+- 로그인 `ServerAddress`: v1.63.0은 NetherNet 주소를 `http(s)://host:port:port`로만 받는다. 1.26.60 클라이언트는 `https://host:port`를 보내고 태그 뒤 master(`531fd12d9a`)가 둘 다 받는다. Anchor는 master 규칙을 따른다.
+- 빈 스킨 지오메트리: 로그인 `Validate`와 코덱이 빈 `SkinGeometry`를 그대로 받고 보낸다. 프로토콜은 지오메트리와 리소스 패치를 깊이 제한 JSON으로 요구한다(Mojang 문서). Anchor는 로그인의 빈 지오메트리를 `{}`로 두고, 스킨 규칙(`Skin::is_acceptable`)이 두 필드를 깊이 64 이하 JSON으로 검사한다.
 - 로그인 마감 없음, 지연 패킷 큐 상한 없음, 0xff 원문 상한 없음: Anchor 세션에는 모두 있다(`network.md`).
 
 ## 시험 P1~P5

@@ -8,7 +8,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 
-use crate::entity::MAX_SKIN_BYTES;
+use crate::crypto;
+use crate::entity::{MAX_SKIN_BYTES, MAX_SKIN_JSON_DEPTH};
 use crate::protocol::consts;
 use crate::protocol::packet::{Packet, PlayStatus};
 use crate::protocol::{self, Uuid};
@@ -344,8 +345,11 @@ impl Skin {
 
     /// Whether a login accepts the skin, as an in-game change and the API do: image sizes that
     /// match their data, finite animation frame counts not below 0, at most [`MAX_SKIN_BYTES`] in
-    /// all.
+    /// all, and a geometry and a resource patch that are JSON nested at most
+    /// [`MAX_SKIN_JSON_DEPTH`] deep, as the protocol requires of both (an empty geometry is not
+    /// JSON: a skin without a custom geometry sends `{}`).
     pub(crate) fn is_acceptable(&self) -> bool {
+        // The size first: it bounds the JSON the last checks read.
         protocol::skin_validate(&self.0).is_none()
             && self
                 .0
@@ -353,6 +357,8 @@ impl Skin {
                 .iter()
                 .all(|a| a.frame_count.is_finite() && a.frame_count >= 0.0)
             && self.size() <= MAX_SKIN_BYTES
+            && crypto::is_json_within_depth(&self.0.skin_geometry, MAX_SKIN_JSON_DEPTH)
+            && crypto::is_json_within_depth(&self.0.skin_resource_patch, MAX_SKIN_JSON_DEPTH)
     }
 }
 
@@ -366,6 +372,7 @@ impl Default for Skin {
             skin_image_width: 64,
             skin_image_height: 32,
             skin_data: vec![0; 64 * 32 * 4],
+            skin_geometry: b"{}".to_vec(),
             geometry_data_engine_version: b"0.0.0".to_vec(),
             arm_size: 1,
             ..protocol::Skin::default()
@@ -713,6 +720,28 @@ mod tests {
     use std::task::{Context, Poll, Waker};
 
     use super::*;
+
+    #[test]
+    fn skins_need_shallow_json_geometry_and_patch() {
+        let with = |geometry: &[u8], patch: &[u8]| {
+            Skin::new(Arc::new(protocol::Skin {
+                skin_geometry: geometry.to_vec(),
+                skin_resource_patch: patch.to_vec(),
+                ..Skin::default().get().clone()
+            }))
+            .is_acceptable()
+        };
+        let patch = Skin::default().get().skin_resource_patch.clone();
+        let nested = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n)).into_bytes();
+        assert!(with(b"{}", &patch));
+        assert!(with(b"null", &patch));
+        assert!(with(&nested(MAX_SKIN_JSON_DEPTH), &patch));
+        for geometry in [&b""[..], b"{", b"   ", &nested(MAX_SKIN_JSON_DEPTH + 1)] {
+            assert!(!with(geometry, &patch), "{:?}", geometry.get(..8));
+        }
+        assert!(!with(b"{}", b""));
+        assert!(!with(b"{}", &nested(MAX_SKIN_JSON_DEPTH + 1)));
+    }
 
     #[test]
     fn inputs_are_stamped_in_order_per_session() {

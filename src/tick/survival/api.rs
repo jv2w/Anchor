@@ -1149,7 +1149,8 @@ impl Player {
     /// Changes the player's skin: every player sees it at the end of the tick, or of a later one
     /// while the server's budget for skin broadcasts (about 128 KiB a second) is spent. Not
     /// saved: the client sends its own skin at its next join. Fails for a skin a login would
-    /// refuse (image sizes that do not match their data, more than 4 MiB).
+    /// refuse (image sizes that do not match their data, more than 4 MiB, a geometry or resource
+    /// patch that is not JSON nested at most 64 deep; a skin without a custom geometry has `{}`).
     #[doc(alias = "Human::setSkin")]
     pub fn set_skin(&mut self, skin: crate::protocol::Skin) -> Result<()> {
         let skin = Skin::new(std::sync::Arc::new(skin));
@@ -2414,6 +2415,18 @@ mod tests {
         let mut skin = p.skin().clone();
         skin.skin_id = "a".repeat(crate::entity::MAX_SKIN_BYTES);
         assert_eq!(p.set_skin(skin), Err(Error::OutOfRange));
+    }
+
+    /// A geometry that is not JSON (empty included) is refused: the protocol requires JSON.
+    #[test]
+    fn a_skin_without_json_geometry_is_refused() {
+        let (mut state, _receivers) = two();
+        let p = player_mut(&mut state, 1);
+        let mut skin = p.skin().clone();
+        skin.skin_geometry = Vec::new();
+        assert_eq!(p.set_skin(skin.clone()), Err(Error::OutOfRange));
+        skin.skin_geometry = b"{}".to_vec();
+        p.set_skin(skin).unwrap();
     }
 
     /// Each persona piece counts its wire bytes toward the skin bound, empty texts or not, so a

@@ -10,7 +10,7 @@ use super::{Error, Result, parse_uuid};
 use crate::crypto::{
     Algorithm, PublicKey, STD, Verifier, bounded_vec, is_object_or_null, parse_jws, verify_jws,
 };
-use crate::entity::MAX_SKIN_BYTES;
+use crate::entity::{MAX_SKIN_BYTES, NO_CUSTOM_GEOMETRY};
 use crate::protocol::consts::{ArmSize, PieceType};
 use crate::protocol::{self, Rgba};
 use crate::tick::queue::Skin;
@@ -53,6 +53,19 @@ const PIECE_TYPES: [(&str, PieceType); 27] = [
     ("persona_capes", PieceType::Capes),
     ("persona_classic_skin", PieceType::ClassicSkin),
     ("persona_emote", PieceType::Emote),
+];
+/// The login tint piece types whose protocol name is not the login name without `persona_`: the
+/// protocol names a tint's piece by the `persona::PieceType` name in lower case (Mojang protocol
+/// docs, the Cloudburst protocol library), which drops the underscore of these. gophertunnel only drops `persona_`,
+/// so its codec would send `facial_hair`, a name the client does not read.
+const TINT_PROTOCOL_NAMES: [(&str, &str); 7] = [
+    ("persona_facial_hair", "facialhair"),
+    ("persona_face_accessory", "faceaccessory"),
+    ("persona_left_leg", "leftleg"),
+    ("persona_right_leg", "rightleg"),
+    ("persona_left_arm", "leftarm"),
+    ("persona_right_arm", "rightarm"),
+    ("persona_classic_skin", "classicskin"),
 ];
 
 /// The client data claims. JSON names are `PascalCase` as the client sends them; a missing field
@@ -163,7 +176,8 @@ impl ClientData {
     /// The skin the client sent, as the protocol carries it to other players (PMMP
     /// `ClientDataToSkinDataHelper::fromClientData`, without PMMP's `LegacySkinAdapter`, which
     /// swaps persona skins for a random colour: Anchor keeps the skin as sent). The images,
-    /// geometry, resource patch and animation data are decoded from base64; the full skin ID is
+    /// geometry (`{}` when empty), resource patch and animation data are decoded from base64, tint
+    /// piece types take their protocol names ([`TINT_PROTOCOL_NAMES`]); the full skin ID is
     /// the skin ID and the cape ID together (PMMP draws a random UUID; BDS's value is not
     /// confirmed). Fails if a field does not decode, an image dimension or animation number is
     /// out of range, or the skin is not acceptable ([`Skin::is_acceptable`]).
@@ -205,7 +219,11 @@ impl ClientData {
             cape_image_width: dimension(self.cape_image_width)?,
             cape_image_height: dimension(self.cape_image_height)?,
             cape_data: decode(&self.cape_data)?,
-            skin_geometry: decode(&self.skin_geometry)?,
+            // The login may leave the geometry empty for none; the protocol carries none as `{}`.
+            skin_geometry: match decode(&self.skin_geometry)? {
+                geometry if geometry.is_empty() => NO_CUSTOM_GEOMETRY.to_vec(),
+                geometry => geometry,
+            },
             animation_data: decode(&self.skin_animation_data)?,
             geometry_data_engine_version: decode(&self.skin_geometry_version)?,
             premium_skin: self.premium_skin,
@@ -232,7 +250,7 @@ impl ClientData {
                 .piece_tint_colours
                 .iter()
                 .map(|t| protocol::PersonaPieceTintColour {
-                    piece_type: t.piece_type.clone(),
+                    piece_type: tint_piece_type(&t.piece_type),
                     colours: t.colours.each_ref().map(|c| colour(c)),
                 })
                 .collect(),
@@ -375,6 +393,19 @@ fn piece_type(name: &str) -> u32 {
     u32::from(piece_type)
 }
 
+/// The protocol value of a login tint piece type: the codec sends the value without `persona_`
+/// (and `persona_hand` as `hands`), so the types whose protocol name differs
+/// ([`TINT_PROTOCOL_NAMES`]) take the value the codec reads from that name.
+fn tint_piece_type(name: &str) -> String {
+    TINT_PROTOCOL_NAMES
+        .iter()
+        .find(|(login, _)| *login == name)
+        .map_or_else(
+            || name.to_owned(),
+            |(_, wire)| protocol::persona_piece_tint_login_type(wire),
+        )
+}
+
 /// The arm size the login data names: slim, or wide for anything else.
 fn arm_size(name: &str) -> ArmSize {
     if name == "slim" {
@@ -436,26 +467,16 @@ fn is_language_tag(code: &str) -> bool {
             .all(|s| (1..=8).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric()))
 }
 
-/// Whether `address` is `host:port`, `[ipv6]:port`, or the NetherNet form
-/// `http(s)://host:port:port` with both ports equal (gophertunnel `ClientData.Validate`).
+/// Whether `address` is `host:port`, `[ipv6]:port`, or a NetherNet `http(s)://host:port` URL,
+/// which clients before 1.26.60 follow with the same `:port` again (gophertunnel
+/// `ClientData.Validate` after v1.63.0).
 fn is_server_address(address: &str) -> bool {
-    if let Some((scheme, _)) = address.split_once("://") {
-        // The last `:port` is NetherNet's; the URL before it must carry the same port.
-        let Some((url, port)) = address.rsplit_once(':') else {
-            return false;
+    if let Some((scheme, rest)) = address.split_once("://") {
+        let url = match rest.rsplit_once(':') {
+            Some((url, port)) if url_host_port(url).is_some_and(|(_, p)| p == port) => url,
+            _ => rest,
         };
-        let Some((_, rest)) = url.split_once("://") else {
-            return false;
-        };
-        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-        let url_port = match authority.rsplit_once(':') {
-            Some((host, p)) if !host.contains('[') || host.ends_with(']') => p,
-            _ => "",
-        };
-        return matches!(scheme, "http" | "https")
-            && !authority.is_empty()
-            && is_port(url_port)
-            && url_port == port;
+        return matches!(scheme, "http" | "https") && url_host_port(url).is_some();
     }
     let Some((host, port)) = address.rsplit_once(':') else {
         return false;
@@ -474,6 +495,18 @@ fn is_server_address(address: &str) -> bool {
         && host
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+}
+
+/// The host and port of the authority of `url` (a URL after its `scheme://`) when it has both:
+/// `host:port` or `[ipv6]:port`.
+fn url_host_port(url: &str) -> Option<(&str, &str)> {
+    let authority = url.split(['/', '?', '#']).next().unwrap_or_default();
+    let (host, port) = authority.rsplit_once(':')?;
+    let host_ok = match host.strip_prefix('[') {
+        Some(inner) => inner.strip_suffix(']').is_some_and(|ip| !ip.is_empty()),
+        None => !host.is_empty() && !host.contains([':', ']']),
+    };
+    (host_ok && is_port(port)).then_some((host, port))
 }
 
 fn is_port(port: &str) -> bool {

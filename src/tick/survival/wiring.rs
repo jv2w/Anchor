@@ -1376,6 +1376,8 @@ fn skin(id: &str) -> crate::protocol::Skin {
         skin_image_width: 64,
         skin_image_height: 32,
         skin_data: vec![7; 64 * 32 * 4],
+        skin_resource_patch: br#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.to_vec(),
+        skin_geometry: b"{}".to_vec(),
         full_id: id.to_owned(),
         ..crate::protocol::Skin::default()
     }
@@ -1472,7 +1474,11 @@ fn a_skin_of_the_largest_size_reaches_everyone_in_its_tick() {
     let mut game = Game::new(2, Listeners::default());
     let mut largest = skin("largest");
     let size = crate::tick::queue::Skin::new(std::sync::Arc::new(largest.clone())).size();
-    largest.skin_geometry = vec![b' '; crate::entity::MAX_SKIN_BYTES - size];
+    // `{}` padded with spaces to fill the bound.
+    let mut geometry = vec![b' '; crate::entity::MAX_SKIN_BYTES - size + 2];
+    geometry[0] = b'{';
+    *geometry.last_mut().unwrap() = b'}';
+    largest.skin_geometry = geometry;
     let input = skin_input(&mut game, 1, largest);
     game.run(vec![input]);
     assert_eq!(

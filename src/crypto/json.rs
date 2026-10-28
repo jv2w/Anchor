@@ -49,6 +49,40 @@ pub(crate) fn is_object_or_null(data: &[u8]) -> bool {
     matches!(first, Some(b'{' | b'n')) && serde_json::from_slice::<IgnoredAny>(data).is_ok()
 }
 
+/// Whether `data` is one JSON value with objects and arrays nested at most `max_depth` deep.
+/// Nothing is stored: the syntax is checked as in [`is_object_or_null`], then one pass counts the
+/// brackets outside strings.
+pub(crate) fn is_json_within_depth(data: &[u8], max_depth: usize) -> bool {
+    if serde_json::from_slice::<IgnoredAny>(data).is_err() {
+        return false;
+    }
+    let (mut depth, mut in_string, mut escaped) = (0_usize, false, false);
+    for &b in data {
+        if in_string {
+            match (escaped, b) {
+                (true, _) => escaped = false,
+                (false, b'\\') => escaped = true,
+                (false, b'"') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                if depth > max_depth {
+                    return false;
+                }
+            }
+            // The syntax check above pairs every closing bracket with an opening one.
+            b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,5 +113,17 @@ mod tests {
         let deep = format!("{{\"a\":{}{}}}", "[".repeat(100_000), "]".repeat(100_000));
         assert!(is_object_or_null(deep.as_bytes()));
         assert!(!is_object_or_null(&deep.as_bytes()[..deep.len() - 1]));
+    }
+
+    #[test]
+    fn depth_checks_count_brackets_outside_strings() {
+        let nested = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
+        assert!(is_json_within_depth(nested(64).as_bytes(), 64));
+        assert!(!is_json_within_depth(nested(65).as_bytes(), 64));
+        assert!(is_json_within_depth(br#"{"a":"[[[\"{{"}"#, 1));
+        assert!(is_json_within_depth(b"null", 0));
+        for bad in [&b""[..], b"{", b"{} x", b"[1,]"] {
+            assert!(!is_json_within_depth(bad, 64));
+        }
     }
 }

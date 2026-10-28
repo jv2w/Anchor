@@ -946,7 +946,10 @@ pub(super) mod tests {
             let p = player_mut(&mut state, s);
             let mut skin = p.skin().clone();
             skin.skin_id = format!("big{s}");
-            skin.skin_geometry = vec![b' '; 3 << 20];
+            let mut geometry = vec![b' '; 3 << 20];
+            geometry[0] = b'{';
+            *geometry.last_mut().unwrap() = b'}';
+            skin.skin_geometry = geometry;
             p.set_skin(skin).unwrap();
         }
         sync(&mut state, &mut Output::default());

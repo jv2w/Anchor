@@ -454,6 +454,7 @@ fn npc_skin() -> Skin {
         skin_image_width: 64,
         skin_image_height: 32,
         skin_data: NPC_SKIN_COLOUR.repeat(64 * 32),
+        skin_geometry: crate::entity::NO_CUSTOM_GEOMETRY.to_vec(),
         geometry_data_engine_version: b"0.0.0".to_vec(),
         arm_size: ArmSize::Wide.into(),
         trusted: true,
@@ -872,6 +873,12 @@ pub(super) fn armour(runtime_id: u64, armour: &[Stack; 4]) -> Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_npc_skin_is_one_a_login_accepts() {
+        let skin = crate::tick::queue::Skin::new(std::sync::Arc::new(npc_skin()));
+        assert!(skin.is_acceptable());
+    }
 
     /// A lingering potion's cloud shows BDS's cloud keys and types (P6 `potions`): the particle 35,
     /// the duration and the radius change on pickup, an int pickup count, and not the keys BDS
