@@ -14,6 +14,7 @@ use crate::event::{
     SlotChange, Trade,
 };
 use crate::inventory::Kind;
+use crate::item::Stack;
 
 /// Whether anyone listens to or monitors a request event, so that the plan describes itself.
 pub(super) fn heard(state: &State) -> bool {
@@ -47,16 +48,7 @@ impl Raised {
             plan.writes
                 .iter()
                 .zip(&plan.before)
-                .filter(|((_, after), before)| after.stack != **before)
-                .filter_map(|((r, after), before)| {
-                    let (inventory, slot) = place(*r, window)?;
-                    Some(SlotChange {
-                        inventory,
-                        slot,
-                        before: before.clone(),
-                        after: after.stack.clone(),
-                    })
-                })
+                .filter_map(|((r, after), before)| change(*r, before, &after.stack, window))
                 .collect()
         } else {
             Vec::new()
@@ -216,6 +208,26 @@ impl Raised {
     }
 }
 
+/// The change of request slot `r` from `before` to `after`, as events name it; `None` if it
+/// holds the same.
+pub(super) fn change(
+    r: SlotRef,
+    before: &Stack,
+    after: &Stack,
+    window: Option<WindowKind>,
+) -> Option<SlotChange> {
+    if before == after {
+        return None;
+    }
+    let (inventory, slot) = place(r, window)?;
+    Some(SlotChange {
+        inventory,
+        slot,
+        before: before.clone(),
+        after: after.clone(),
+    })
+}
+
 /// Where a request slot lives, as events name it.
 fn place(r: SlotRef, window: Option<WindowKind>) -> Option<(Inventory, u8)> {
     Some(match r {
@@ -237,6 +249,6 @@ fn place(r: SlotRef, window: Option<WindowKind>) -> Option<(Inventory, u8)> {
                 i,
             )
         }
-        SlotRef::Ui(i) => (Inventory::Window, i),
+        SlotRef::Ui(i) | SlotRef::Menu(i) => (Inventory::Window, i),
     })
 }

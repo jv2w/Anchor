@@ -37,7 +37,7 @@ pub enum Inventory {
         pos: BlockPos,
     },
     /// The open window's own slots: a crafting table's grid, a station's inputs, the payment
-    /// slots of a trade.
+    /// slots of a trade, a menu's editable slots ([`crate::menu`]).
     Window,
 }
 

@@ -1516,7 +1516,10 @@ fn open_model_menu(w: &mut World, s: SessionId, k: u32) {
     let opened = super::super::Context {
         state: &mut w.state,
     }
-    .open_menu(crate::player::Id::new(s), menu, |cx, player, click| {
+    .open_menu(crate::player::Id::new(s), menu, |cx, player, input| {
+        let crate::menu::Input::Click(click) = input else {
+            panic!("no slot is editable: {input:?}");
+        };
         MENU_CLICKS.set(MENU_CLICKS.get() + 1);
         cx.set_menu_item(player, click.slot(), click.cursor().clone())
             .expect("the cursor's stack fits a slot");

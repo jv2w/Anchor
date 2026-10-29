@@ -39,7 +39,7 @@ use anchor::form::{self, Button, Image, Response};
 use anchor::inventory::Kind;
 use anchor::item::{Stack, Type};
 use anchor::math::Vec3;
-use anchor::menu::{self, Click};
+use anchor::menu::{self, Input};
 use anchor::player::{self, Message, Player};
 use anchor::world::{self, BlockPos, Flat};
 use anchor::{Config, Context, Server, nbt};
@@ -182,7 +182,11 @@ fn open_shop(cx: &mut Context<'_>, id: player::Id) {
     for (slot, name, count) in SHOP {
         shop = shop.item(slot, item(name, count));
     }
-    or_log(cx.open_menu(id, shop, |cx, id, click: Click| {
+    or_log(cx.open_menu(id, shop, |cx, id, input| {
+        // The shop has no editable slots: every input is a click.
+        let Input::Click(click) = input else {
+            return menu::Response::Keep;
+        };
         if click.item().is_empty() {
             return menu::Response::Keep;
         }

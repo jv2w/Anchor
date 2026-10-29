@@ -194,7 +194,10 @@ fn open(
 ) -> (m::Id, Vec<Packet>) {
     heard();
     let menu = cx(w)
-        .open_menu(id(s), menu, move |cx, player, click| {
+        .open_menu(id(s), menu, move |cx, player, input| {
+            let m::Input::Click(click) = input else {
+                panic!("no slot is editable: {input:?}");
+            };
             record(&click);
             response(cx, player, &click)
         })
@@ -590,4 +593,366 @@ fn opening_and_closing_many_menus_leaves_every_table_at_its_start() {
     assert_eq!(w.state.menus.len(), 0);
     assert!(w.player(s).view.out.is_empty());
     assert!(w.inv(s).next_id > next_id, "stack IDs only grow");
+}
+
+thread_local! {
+    /// The changes the handlers of a test heard.
+    static CHANGES: Cell<Vec<m::Change>> = const { Cell::new(Vec::new()) };
+}
+
+fn changes() -> Vec<m::Change> {
+    CHANGES.take()
+}
+
+/// What an editable menu's handler answers a change with.
+type Answer = fn(&mut Context<'_>, crate::player::Id, &m::Change) -> Response;
+
+/// Opens `menu` for `s` with a handler that records each click (answering [`Response::Keep`]) and
+/// each change (answering `answer(change)`), and runs the ticks until its window opens.
+fn open_editable(w: &mut World, s: SessionId, menu: Menu, answer: Answer) -> m::Id {
+    heard();
+    changes();
+    let menu = cx(w)
+        .open_menu(id(s), menu, move |cx, player, input| match input {
+            m::Input::Click(click) => {
+                record(&click);
+                Response::Keep
+            }
+            m::Input::Change(change) => {
+                let mut c = CHANGES.take();
+                c.push(change.clone());
+                CHANGES.set(c);
+                answer(cx, player, &change)
+            }
+        })
+        .unwrap();
+    for _ in 0..3 {
+        w.ack(s);
+        tick_each(w, Vec::new());
+    }
+    assert_eq!(w.inv(s).window.as_ref().map(|w| w.id != 0), Some(true));
+    menu
+}
+
+fn keep_change(_: &mut Context<'_>, _: crate::player::Id, _: &m::Change) -> Response {
+    Response::Keep
+}
+
+fn refuse_change(_: &mut Context<'_>, _: crate::player::Id, _: &m::Change) -> Response {
+    Response::Refuse
+}
+
+/// The changes as (a menu slot, slot, before, after).
+fn described(change: &m::Change) -> Vec<(bool, u8, Stack, Stack)> {
+    change
+        .changes()
+        .iter()
+        .map(|c| {
+            (
+                c.inventory() == crate::event::Inventory::Window,
+                c.slot(),
+                c.before().clone(),
+                c.after().clone(),
+            )
+        })
+        .collect()
+}
+
+fn sticks(n: u8) -> Stack {
+    Stack::new(item(it::Kind::Stick), n)
+}
+
+/// The totals key of `kind` without damage or extra data.
+fn plain(kind: it::Kind) -> (Option<Type>, u16, String) {
+    (Some(item(kind)), 0, String::new())
+}
+
+#[test]
+fn editable_slots_move_items_as_a_chest_and_the_handler_hears_each_change() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.give(s, sticks(10));
+    let menu = Menu::new(MenuKind::Chest)
+        .item(13, sword())
+        .editable(13)
+        .editable(0);
+    let opened = open_editable(&mut w, s, menu, keep_change);
+    let before = totals(&w.state);
+    // The sword onto the cursor.
+    let (_, net) = shown(&w, s, 13);
+    let r = w.request(s, vec![take_from_menu(13, net)]);
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(w.inv(s).cursor.stack(0), &sword());
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[13], Stack::EMPTY);
+    let heard_changes = changes();
+    assert_eq!(heard_changes.len(), 1);
+    assert_eq!(heard_changes[0].menu(), opened);
+    assert_eq!(
+        described(&heard_changes[0]),
+        [
+            (false, 0, Stack::EMPTY, sword()),
+            (true, 13, sword(), Stack::EMPTY)
+        ],
+        "the cursor and the menu slot"
+    );
+    // The response names the menu slot as the client knows it.
+    let menu_slots: Vec<_> = r
+        .container_info
+        .iter()
+        .filter(|c| c.container.container_id == C::LevelEntity as u8)
+        .flat_map(|c| c.slot_info.iter().map(|i| (i.slot, i.count)))
+        .collect();
+    assert_eq!(menu_slots, [(13, 0)]);
+    // Four sticks into slot 0: the menu holds them and the player has six.
+    let stick = w.id(s, C::CombinedHotBarAndInventory, 0);
+    let r = w.request(
+        s,
+        vec![place(
+            4,
+            at(C::CombinedHotBarAndInventory, 0, stick),
+            at(C::LevelEntity, 0, 0),
+        )],
+    );
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(4));
+    assert_eq!(w.inv(s).main.stack(0).count(), 6);
+    assert_eq!(
+        described(&changes()[0]),
+        [
+            (false, 0, sticks(10), sticks(6)),
+            (true, 0, Stack::EMPTY, sticks(4))
+        ]
+    );
+    assert!(heard().is_empty(), "no clicks");
+    // A slot that is not editable is a click and moves nothing, alone or with an editable one.
+    let r = w.request(
+        s,
+        vec![place(
+            1,
+            at(C::CombinedHotBarAndInventory, 0, stick),
+            at(C::LevelEntity, 5, 0),
+        )],
+    );
+    assert!(!ok(&r));
+    let (_, net0) = shown(&w, s, 0);
+    let r = w.request(
+        s,
+        vec![take(
+            1,
+            at(C::LevelEntity, 0, net0),
+            at(C::LevelEntity, 5, 0),
+        )],
+    );
+    assert!(!ok(&r));
+    let clicks = heard();
+    assert_eq!(
+        clicks
+            .iter()
+            .map(|c| (c.slot(), c.action()))
+            .collect::<Vec<_>>(),
+        [(5, Action::Place), (5, Action::Place)]
+    );
+    // An editable slot is no button: dropping from it is refused without a click.
+    let r = w.request(s, vec![drop_action(1, at(C::LevelEntity, 0, net0))]);
+    assert!(!ok(&r));
+    assert!(heard().is_empty() && changes().is_empty());
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(4));
+    // Items only moved: the player has the sword and six sticks, the menu four sticks.
+    let mut after = totals(&w.state);
+    *after.entry(plain(it::Kind::Stick)).or_default() += 4;
+    let mut expected = before;
+    *expected.entry(plain(it::Kind::DiamondSword)).or_default() += 1;
+    assert_eq!(after, expected);
+}
+
+#[test]
+fn the_same_menu_change_twice_leaves_the_state_of_once() {
+    let run = |twice: bool| {
+        let mut w = World::new(GameMode::Survival);
+        let s = w.join(1);
+        let menu = Menu::new(MenuKind::Chest).item(3, sword()).editable(3);
+        open_editable(&mut w, s, menu, keep_change);
+        let (_, net) = shown(&w, s, 3);
+        assert!(ok(&w.request_as(s, -1, vec![take_from_menu(3, net)])));
+        if twice {
+            assert!(!ok(&w.request_as(s, -1, vec![take_from_menu(3, net)])));
+        }
+        assert_eq!(changes().len(), 1, "the handler hears it once");
+        w.state.tick = 1000;
+        w.state.hash()
+    };
+    assert_eq!(run(false), run(true));
+}
+
+#[test]
+fn a_refused_change_puts_every_slot_back() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.give(s, sticks(10));
+    let menu = Menu::new(MenuKind::Hopper).item(1, sword()).editable(1);
+    open_editable(&mut w, s, menu, refuse_change);
+    let main = w.inv(s).main.clone();
+    let (cursor, window) = (w.inv(s).cursor.clone(), w.inv(s).window.clone());
+    let items = cx(&mut w).menu_items(id(s)).unwrap().to_vec();
+    let stick = w.id(s, C::CombinedHotBarAndInventory, 0);
+    let (_, net) = shown(&w, s, 1);
+    // The sticks swapped with the sword.
+    let r = w.request(
+        s,
+        vec![swap(
+            at(C::CombinedHotBarAndInventory, 0, stick),
+            at(C::LevelEntity, 1, net),
+        )],
+    );
+    assert!(!ok(&r));
+    assert_eq!(changes().len(), 1, "the handler heard it");
+    assert_eq!(w.inv(s).main, main);
+    assert_eq!(w.inv(s).cursor, cursor);
+    assert_eq!(w.inv(s).window, window, "the menu slots' IDs too");
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap(), items);
+}
+
+#[test]
+fn a_handler_refills_a_slot_and_the_response_shows_it() {
+    fn refill(cx: &mut Context<'_>, player: crate::player::Id, change: &m::Change) -> Response {
+        for c in change.changes() {
+            if c.inventory() == crate::event::Inventory::Window {
+                cx.set_menu_item(player, usize::from(c.slot()), c.before().clone())
+                    .unwrap();
+            }
+        }
+        Response::Close
+    }
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Chest).item(2, sword()).editable(2);
+    open_editable(&mut w, s, menu, refill);
+    let (_, net) = shown(&w, s, 2);
+    let r = w.request(s, vec![take_from_menu(2, net)]);
+    assert!(ok(&r));
+    let slot = r
+        .container_info
+        .iter()
+        .filter(|c| c.container.container_id == C::LevelEntity as u8)
+        .flat_map(|c| &c.slot_info)
+        .next()
+        .expect("the menu slot");
+    assert_eq!(slot.count, 1, "the handler's sword");
+    assert_ne!(slot.stack_network_id, net);
+    // The handler closed the menu after the change: the taken sword goes back to the inventory.
+    assert!(w.inv(s).menu.is_none());
+    assert_eq!(w.inv(s).main.stack(0), &sword());
+    assert!(w.inv(s).cursor.stack(0).is_empty());
+}
+
+#[test]
+fn closing_an_editable_menu_gives_the_cursor_back_and_leaves_the_items_to_the_handler() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    w.give(s, sticks(10));
+    let menu = Menu::new(MenuKind::Chest)
+        .item(0, sword())
+        .editable(0)
+        .editable(1);
+    open_editable(&mut w, s, menu, keep_change);
+    let (_, net) = shown(&w, s, 0);
+    assert!(ok(&w.request(s, vec![take_from_menu(0, net)])));
+    let stick = w.id(s, C::CombinedHotBarAndInventory, 0);
+    assert!(ok(&w.request(
+        s,
+        vec![place(
+            3,
+            at(C::CombinedHotBarAndInventory, 0, stick),
+            at(C::LevelEntity, 1, 0),
+        )],
+    )));
+    let heard_changes = changes();
+    assert_eq!(
+        described(&heard_changes[1])[1],
+        (true, 1, Stack::EMPTY, sticks(3))
+    );
+    w.close(s);
+    // The sword on the cursor is the player's again; the sticks are the menu's, which closed
+    // with them once its handler had heard of them.
+    assert!(w.inv(s).menu.is_none() && w.inv(s).window.is_none());
+    assert!(w.inv(s).cursor.stack(0).is_empty());
+    let totals = totals(&w.state);
+    assert_eq!(totals.get(&plain(it::Kind::DiamondSword)), Some(&1));
+    assert_eq!(totals.get(&plain(it::Kind::Stick)), Some(&7));
+    assert_eq!(w.state.menus.len(), 0);
+}
+
+#[test]
+fn an_inventory_transaction_names_menu_slots_as_the_window_and_may_cancel() {
+    thread_local! {
+        static HEARD: Cell<u32> = const { Cell::new(0) };
+    }
+    let mut listeners = crate::event::Listeners::default();
+    listeners.push(
+        crate::event::Priority::Normal,
+        |e: &mut crate::event::InventoryTransaction, _: &mut Context<'_>| {
+            assert!(
+                e.changes()
+                    .iter()
+                    .any(|c| c.inventory() == crate::event::Inventory::Window && c.slot() == 4)
+            );
+            HEARD.set(HEARD.get() + 1);
+            e.cancel();
+        },
+    );
+    let mut w = World::with_listeners(GameMode::Survival, listeners);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Chest).item(4, sword()).editable(4);
+    open_editable(&mut w, s, menu, keep_change);
+    let (_, net) = shown(&w, s, 4);
+    assert!(!ok(&w.request(s, vec![take_from_menu(4, net)])));
+    assert_eq!(HEARD.get(), 1, "the listener heard the request");
+    assert!(changes().is_empty(), "a cancelled request changes nothing");
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[4], sword());
+    assert!(w.inv(s).cursor.stack(0).is_empty());
+}
+
+#[test]
+fn editable_menus_opened_changed_and_closed_leave_every_table_at_its_start() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    tick_each(&mut w, Vec::new());
+    for i in 0..60u8 {
+        let kind = [MenuKind::Chest, MenuKind::DoubleChest, MenuKind::Hopper][usize::from(i % 3)];
+        let menu = Menu::new(kind).item(0, sticks(1)).editable(0);
+        open_editable(&mut w, s, menu, keep_change);
+        let net = shown(&w, s, 0).1;
+        assert!(ok(&w.request(s, vec![take_from_menu(0, net)])));
+        if i % 2 == 0 {
+            w.close(s);
+        } else {
+            assert!(cx(&mut w).close_window(id(s)));
+            w.ack(s);
+        }
+        tick_each(&mut w, Vec::new());
+    }
+    assert_eq!(changes().len(), 1, "the last menu's change");
+    assert!(w.inv(s).menu.is_none() && w.inv(s).window.is_none());
+    assert_eq!(w.player(s).view.menu_blocks(), [None, None]);
+    assert_eq!(w.player(s).view.fake_count(), 0);
+    assert_eq!(w.state.menus.len(), 0);
+    assert!(w.player(s).view.out.is_empty());
+    assert!(w.inv(s).pending.is_empty());
+    assert_eq!(
+        w.inv(s).main.stack(0),
+        &sticks(60),
+        "every stick taken is kept"
+    );
+}
+
+#[test]
+fn an_editable_slot_past_the_end_opens_nothing() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Hopper).editable(5);
+    assert_eq!(
+        cx(&mut w).open_menu(id(s), menu, |_, _, _| Response::Keep),
+        Err(m::Error::NoSlot)
+    );
+    assert_eq!(w.state.menus.len(), 0);
 }

@@ -27,15 +27,18 @@ use std::fmt;
 
 use tracing::debug;
 
+use super::super::entity::Raise;
 use super::super::{Phase, Player, SessionId, State, block_entity, entity, survival};
 use super::{
-    Container, GRID, Inventory, Slot, SlotRef, StackId, Station, UI_CREATED_OUTPUT, Window,
-    WindowKind, block_slot, give_pending, menu, resend_all, station, throw_stack, window_slot_of,
+    Container, GRID, Inventory, Notice, Slot, SlotRef, StackId, Station, UI_CREATED_OUTPUT, Window,
+    WindowKind, block_slot, close_now, give_pending, menu, resend_all, station, throw_stack,
+    window_slot_of,
 };
 use crate::block::{self, Class};
 use crate::crafting::{self, Recipe, ShapelessType};
 use crate::inventory::{MAX_REQUEST_ACTIONS, RECENT_REQUESTS};
 use crate::item::{ArmorSlot, Stack};
+use crate::menu::{Change, Input, Response};
 use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
 use crate::protocol::packet::Packet;
 use crate::protocol::{
@@ -92,7 +95,8 @@ pub(super) enum Error {
     /// A listener cancelled the request, or changed the game so that it no longer does what
     /// the listeners saw.
     Cancelled,
-    /// A slot of the open menu, whose items are the server's ([`super::menu`]).
+    /// A slot of the open menu that is not editable, or a change of its editable slots that its
+    /// handler refused ([`super::menu`]).
     Menu,
 }
 
@@ -282,7 +286,8 @@ pub(in crate::tick) fn on_item_stack_request(
     };
     let result = match (refusal, &touch) {
         (Some(e), _) => Err(e),
-        (None, menu::Touch::Nothing) => run(state, session, request),
+        (None, menu::Touch::Nothing) => run(state, session, request, None),
+        (None, menu::Touch::Edit(menu)) => run(state, session, request, Some(*menu)),
         (None, menu::Touch::Refused | menu::Touch::Click(_)) => Err(Error::Menu),
     };
     if let Err(e) = result {
@@ -302,12 +307,22 @@ pub(in crate::tick) fn on_item_stack_request(
 
 /// Checks a request, raises its events and applies it: the events see the plan; a cancelled one
 /// refuses the request. If a listener ran, the request is checked again on the game as the
-/// listeners left it, and refused unless it still does exactly what they saw.
-fn run(state: &mut State, session: SessionId, request: &ItemStackRequest) -> Result<()> {
+/// listeners left it, and refused unless it still does exactly what they saw. A request on the
+/// editable slots of the open menu `edit` is applied with [`commit_edit`].
+fn run(
+    state: &mut State,
+    session: SessionId,
+    request: &ItemStackRequest,
+    edit: Option<crate::menu::Id>,
+) -> Result<()> {
+    let apply = |state: &mut State, plan| match edit {
+        Some(menu) => commit_edit(state, session, request.request_id, plan, menu),
+        None => commit(state, session, request.request_id, plan),
+    };
     let describe = events::heard(state);
     let plan = check(state, session, request, describe)?;
     if !describe {
-        return commit(state, session, request.request_id, plan);
+        return apply(state, plan);
     }
     let mut raised = events::Raised::of(state, session, &plan);
     raised.call(state)?;
@@ -320,7 +335,7 @@ fn run(state: &mut State, session: SessionId, request: &ItemStackRequest) -> Res
     } else {
         plan
     };
-    commit(state, session, request.request_id, plan)?;
+    apply(state, plan)?;
     raised.watch(state);
     Ok(())
 }
@@ -479,6 +494,71 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
         }
     }
     station::apply(state, session, request, plan.effects, enchant_input);
+    Ok(())
+}
+
+/// Applies a checked request on the editable slots of the open menu `menu`, which only takes,
+/// places and swaps ([`menu::touch`]): no drop, block slot or station effect. If a menu slot
+/// changed, the menu's handler hears of the changes; if it refuses them, every slot the request
+/// changed holds again what it held before and the request is refused. Otherwise the client gets
+/// the response, with the slots as the handler left them, and the menu closes if the handler said
+/// so.
+fn commit_edit(
+    state: &mut State,
+    session: SessionId,
+    request: i32,
+    plan: Plan,
+    menu: crate::menu::Id,
+) -> Result<()> {
+    let player = state.players.get_mut(&session).ok_or(Error::NoSlot)?;
+    let window = player.inventory.window.as_ref().map(|w| w.kind);
+    let mut undo = Vec::with_capacity(plan.writes.len());
+    for (r, _) in &plan.writes {
+        undo.push((*r, player.inventory.get(*r).ok_or(Error::NoSlot)?));
+    }
+    let changes: Vec<_> = plan
+        .writes
+        .iter()
+        .zip(&undo)
+        .filter_map(|((r, after), (_, before))| {
+            events::change(*r, &before.stack, &after.stack, window)
+        })
+        .collect();
+    for (r, slot) in plan.writes {
+        player.inventory.put(r, slot);
+    }
+    player.inventory.next_id = plan.next_id;
+    player.data_dirty = true;
+    let edited = changes
+        .iter()
+        .any(|c| c.inventory == crate::event::Inventory::Window);
+    let answer = if edited {
+        let change = Input::Change(Change { menu, changes });
+        menu::call(state, session, menu, change)
+    } else {
+        None
+    };
+    if answer == Some(Response::Refuse) {
+        let player = state.players.get_mut(&session).ok_or(Error::NoSlot)?;
+        for (r, slot) in undo {
+            // A menu slot does not take it back only if the handler closed the menu, which it
+            // must not do when it refuses (`Response::Refuse`): the menu's items went with it.
+            player.inventory.put(r, slot);
+        }
+        return Err(Error::Menu);
+    }
+    let blocks = &state.rules.block_entities;
+    let player = state.players.get_mut(&session).ok_or(Error::NoSlot)?;
+    let response = response(&player.inventory, blocks, request, &plan.touched);
+    player.send_packet(Packet::ItemStackResponse(
+        crate::protocol::packet::ItemStackResponse {
+            responses: vec![response],
+        },
+    ));
+    give_pending(player);
+    if answer == Some(Response::Close) && menu::is_open(state, session, menu) {
+        close_now(state, session, Notice::Send, Raise::Quiet);
+    }
     Ok(())
 }
 

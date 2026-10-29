@@ -4,15 +4,20 @@
 //! Opening shows the container blocks to the player alone (`view`'s menu blocks, over its other
 //! fake blocks) with their client data (the title as `CustomName`, a double chest's pair), and
 //! the window opens [`OPEN_DELAY`] ticks later, once the client has the blocks. Any item stack
-//! request that names the menu's container is refused whole and the player's screen is sent
-//! again, so no item moves into or out of a menu; the request's first take, place, swap or drop
-//! of a menu slot becomes one [`Click`] for the handler, which runs in the input phase with the
-//! handler taken out of the state ([`Handlers`]). A repeated request ID is refused before, so it
-//! clicks once.
+//! request that names a menu slot that is not editable is refused whole and the player's screen
+//! is sent again; the request's first take, place, swap or drop of such a slot becomes one
+//! [`Click`] for the handler. A request that names only editable slots and only takes, places and
+//! swaps runs as in a chest window ([`super::request`]) and the handler hears of its changes once
+//! they are made ([`Change`]), before the response; if it refuses them, every slot is put back
+//! and the request is refused. The handler runs in the input phase with the handler taken out of
+//! the state ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes
+//! once.
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from
-//! it; closing shows the blocks it stood on again and calls nothing. Menus raise no events.
+//! it; closing gives the cursor back, drops the menu's items (its handler kept what it wanted of
+//! each change), shows the blocks it stood on again and calls nothing. Menus raise no events of
+//! their own; a change raises the request's events, the menu's slots as the window's.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -24,7 +29,7 @@ use super::{Notice, StackId, Window, WindowKind, close_now, slot_packet};
 use crate::block;
 use crate::item::Stack;
 use crate::math::Vec3;
-use crate::menu::{Action, Click, Error, Id, Kind, Menu, Response, Result};
+use crate::menu::{Action, Click, Error, Id, Input, Kind, Menu, Response, Result};
 use crate::nbt::{Compound, Value};
 use crate::player;
 use crate::protocol::consts::ContainerId;
@@ -47,8 +52,8 @@ const MAX_DISTANCE_SQUARED: f64 = 64.0;
 const BEHIND_HORIZONTAL: f64 = 1.6;
 const BEHIND_VERTICAL: f64 = 2.8;
 
-/// What runs when the player clicks a menu slot.
-type Handler = Box<dyn FnMut(&mut Context<'_>, player::Id, Click) -> Response + Send>;
+/// What runs when the player clicks a menu slot or changes its editable slots.
+type Handler = Box<dyn FnMut(&mut Context<'_>, player::Id, Input) -> Response + Send>;
 
 /// The click handlers of the open menus, by session: one per player with a menu open, kept in
 /// the state beside the players (the output phase shares the players between threads, and a
@@ -78,6 +83,8 @@ pub(in crate::tick) struct Open {
     id: Id,
     /// The items, one per slot.
     pub(super) stacks: Vec<Stack>,
+    /// The editable slots, bit `i` for slot `i`.
+    editable: u64,
     /// The tick from which the window may open.
     ready: u64,
 }
@@ -88,19 +95,35 @@ impl Open {
         self.id
     }
 
+    /// Whether requests move the items of slot `slot`.
+    pub(super) fn is_editable(&self, slot: usize) -> bool {
+        crate::menu::is_editable(self.editable, slot)
+    }
+
     #[cfg(test)]
     pub(super) fn hash_into(&self, h: &mut super::super::Fnv) {
-        let Self { id, stacks, ready } = self;
+        let Self {
+            id,
+            stacks,
+            editable,
+            ready,
+        } = self;
         h.u64(u64::from(id.get()));
         h.usize(stacks.len());
         for s in stacks {
             super::hash_stack(h, s);
         }
+        h.u64(*editable);
         h.u64(*ready);
     }
 }
 
-crate::tick::checkpoint::fields!(Open { id, stacks, ready });
+crate::tick::checkpoint::fields!(Open {
+    id,
+    stacks,
+    editable,
+    ready
+});
 
 /// The player of `id` if it is in the game (its saved data has loaded) and its client has a view.
 fn in_game(state: &mut State, id: player::Id) -> Option<&mut Player> {
@@ -112,9 +135,13 @@ fn in_game(state: &mut State, id: player::Id) -> Option<&mut Player> {
 
 impl Context<'_> {
     /// Opens `menu` for `player`: a chest, double chest or hopper screen whose items the player
-    /// cannot take, place or drop. Each click on a menu slot is refused (the player's screen is
-    /// put back) and calls `handler` once, in the tick, with what the player tried; the handler's
-    /// [`Response`] keeps the menu open or closes it. A window the player had open closes first.
+    /// cannot take, place or drop but in its editable slots. Each click on another slot is
+    /// refused (the player's screen is put back) and calls `handler` once, in the tick, with what
+    /// the player tried ([`Input::Click`]). Each request that moves items into, out of or between
+    /// editable slots is checked and made as in a chest window, then calls `handler` once with
+    /// its changes ([`Input::Change`]) before the client hears the result. The handler's
+    /// [`Response`] keeps the menu open, closes it or refuses a change. A window the player had
+    /// open closes first.
     ///
     /// The screen stands on container blocks shown to this player alone, behind it (as `InvMenu`
     /// places them), and opens two ticks later, once the client has them. It closes as any
@@ -131,9 +158,9 @@ impl Context<'_> {
         &mut self,
         player: player::Id,
         menu: Menu,
-        handler: impl FnMut(&mut Context<'_>, player::Id, Click) -> Response + Send + 'static,
+        handler: impl FnMut(&mut Context<'_>, player::Id, Input) -> Response + Send + 'static,
     ) -> Result<Id> {
-        let (kind, title, stacks) = menu.prepare()?;
+        let (kind, title, stacks, editable) = menu.prepare()?;
         let session = player.session();
         let tick = self.state.tick;
         let p = in_game(self.state, player).ok_or(Error::Offline)?;
@@ -165,6 +192,7 @@ impl Context<'_> {
         p.inventory.menu = Some(Open {
             id,
             stacks,
+            editable,
             ready: tick.saturating_add(OPEN_DELAY),
         });
         self.state.menus.0.insert(session, (id, Box::new(handler)));
@@ -175,6 +203,13 @@ impl Context<'_> {
     pub fn menu(&self, player: player::Id) -> Option<Id> {
         let p = self.state.players.get(&player.session())?;
         p.inventory.menu.as_ref().map(|m| m.id)
+    }
+
+    /// The items of the menu `player` has open, one per slot, as the player's changes and
+    /// [`set_menu_item`](Self::set_menu_item) left them.
+    pub fn menu_items(&self, player: player::Id) -> Option<&[Stack]> {
+        let p = self.state.players.get(&player.session())?;
+        p.inventory.menu.as_ref().map(|m| m.stacks.as_slice())
     }
 
     /// Puts `stack` into `slot` of the menu `player` has open (an empty stack clears it) and
@@ -364,18 +399,30 @@ pub(super) fn closed(state: &mut State, session: SessionId) {
 pub(super) enum Touch {
     /// It names no slot of a shown menu.
     Nothing,
-    /// It names a menu slot but clicks none: it is refused.
+    /// It only takes, places and swaps, and names editable slots of the menu but no other: it
+    /// runs, and the handler hears of its changes.
+    Edit(Id),
+    /// It names a menu slot but clicks none, or does more than take, place and swap with an
+    /// editable slot: it is refused.
     Refused,
-    /// It clicks a menu slot: it is refused, and the handler hears of the click.
+    /// It clicks a slot that is not editable: it is refused, and the handler hears of the click.
     Click(Click),
 }
 
+/// `info` with the click `action` on it, if it names a menu slot.
+fn menu(
+    info: &StackRequestSlotInfo,
+    action: Option<Action>,
+) -> Option<(&StackRequestSlotInfo, Option<Action>)> {
+    (info.container.container_id == ContainerId::LevelEntity as u8).then_some((info, action))
+}
+
 /// What an item stack request of `session` does to its open menu ([`Touch`]). A request that
-/// names a menu slot is refused whole.
+/// names a slot that is not editable is refused whole.
 ///
-/// The click is the first take (a menu slot as the source), place (as the destination), swap
-/// or drop of a menu slot whose stack network ID is the one the client was shown; a destroy or
-/// consume of a menu slot clicks nothing.
+/// The click is the first take (such a slot as the source), place (as the destination), swap
+/// or drop of a slot that is not editable whose stack network ID is the one the client was
+/// shown; a destroy or consume of a menu slot clicks nothing.
 pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackRequest) -> Touch {
     let Some(inv) = state.players.get(&session).map(|p| &p.inventory) else {
         return Touch::Nothing;
@@ -384,83 +431,114 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
     else {
         return Touch::Nothing;
     };
-    let is_menu =
-        |info: &StackRequestSlotInfo| info.container.container_id == ContainerId::LevelEntity as u8;
     let mut touch = Touch::Nothing;
+    // Whether it names an editable slot, and whether each action only moves items.
+    let (mut edits, mut moves_only) = (false, true);
     for action in &request.actions {
-        let (info, action) = match action {
+        let (named, moves) = match action {
             StackRequestAction::Take(TakeStackRequestAction {
                 transfer_stack_request_action: t,
             })
             | StackRequestAction::Place(PlaceStackRequestAction {
                 transfer_stack_request_action: t,
-            }) => {
-                if is_menu(&t.source) {
-                    (&t.source, Some(Action::Take))
-                } else if is_menu(&t.destination) {
-                    (&t.destination, Some(Action::Place))
-                } else {
-                    continue;
-                }
-            }
-            StackRequestAction::Swap(a) if is_menu(&a.source) => (&a.source, Some(Action::Swap)),
-            StackRequestAction::Swap(a) if is_menu(&a.destination) => {
-                (&a.destination, Some(Action::Swap))
-            }
-            StackRequestAction::Drop(a) if is_menu(&a.source) => (&a.source, Some(Action::Drop)),
-            StackRequestAction::Destroy(a) if is_menu(&a.source) => (&a.source, None),
-            StackRequestAction::Consume(a) if is_menu(&a.destroy_stack_request_action.source) => {
-                (&a.destroy_stack_request_action.source, None)
-            }
-            _ => continue,
+            }) => (
+                [
+                    menu(&t.source, Some(Action::Take)),
+                    menu(&t.destination, Some(Action::Place)),
+                ],
+                true,
+            ),
+            StackRequestAction::Swap(a) => (
+                [
+                    menu(&a.source, Some(Action::Swap)),
+                    menu(&a.destination, Some(Action::Swap)),
+                ],
+                true,
+            ),
+            StackRequestAction::Drop(a) => ([menu(&a.source, Some(Action::Drop)), None], false),
+            StackRequestAction::Destroy(a) => ([menu(&a.source, None), None], false),
+            StackRequestAction::Consume(a) => (
+                [menu(&a.destroy_stack_request_action.source, None), None],
+                false,
+            ),
+            _ => ([None, None], false),
         };
-        if matches!(touch, Touch::Click(_)) {
-            continue;
-        }
-        touch = Touch::Refused;
-        let slot = usize::from(info.slot);
-        let shown = window
-            .ids
-            .get(slot)
-            .is_some_and(|id| id.net == info.stack_network_id);
-        if let (Some(action), Some(item), true, None) = (
-            action,
-            open.stacks.get(slot),
-            shown,
-            info.container.dynamic_container_id,
-        ) {
-            touch = Touch::Click(Click {
-                menu: open.id,
-                slot,
-                item: item.clone(),
-                cursor: inv.cursor.stack(0).clone(),
+        moves_only &= moves;
+        for (info, action) in named.into_iter().flatten() {
+            let slot = usize::from(info.slot);
+            let editable = open.is_editable(slot);
+            edits |= editable && moves;
+            if (editable && moves) || matches!(touch, Touch::Click(_)) {
+                continue;
+            }
+            touch = Touch::Refused;
+            if editable {
+                continue;
+            }
+            let shown = window
+                .ids
+                .get(slot)
+                .is_some_and(|id| id.net == info.stack_network_id);
+            if let (Some(action), Some(item), true, None) = (
                 action,
-            });
+                open.stacks.get(slot),
+                shown,
+                info.container.dynamic_container_id,
+            ) {
+                touch = Touch::Click(Click {
+                    menu: open.id,
+                    slot,
+                    item: item.clone(),
+                    cursor: inv.cursor.stack(0).clone(),
+                    action,
+                });
+            }
         }
     }
-    touch
+    match touch {
+        Touch::Nothing if edits && moves_only => Touch::Edit(open.id),
+        Touch::Nothing if edits => Touch::Refused,
+        touch => touch,
+    }
 }
 
-/// Runs the click handler of the menu `click` names, if it is still open, with the handler out
-/// of the state; closes the menu if the handler says so. A handler whose menu closed while it
-/// ran (or that opened another) is dropped.
-pub(super) fn clicked(state: &mut State, session: SessionId, click: Click) {
-    let menu = click.menu;
-    let Some((_, mut handler)) = state.menus.0.remove(&session).filter(|(id, _)| *id == menu)
-    else {
-        return;
-    };
-    let response = handler(&mut Context { state }, player::Id::new(session), click);
-    let open = state
+/// Whether `session` has the menu `menu` open.
+pub(super) fn is_open(state: &State, session: SessionId, menu: Id) -> bool {
+    state
         .players
         .get(&session)
         .and_then(|p| p.inventory.menu.as_ref())
-        .is_some_and(|m| m.id == menu);
-    if !open {
-        return;
+        .is_some_and(|m| m.id == menu)
+}
+
+/// Runs the handler of the menu `menu` of `session` on `input`, with the handler out of the
+/// state, and gives its answer; `None` if the menu has no handler (it closed). A handler whose
+/// menu closed while it ran (or that opened another) is dropped.
+pub(super) fn call(
+    state: &mut State,
+    session: SessionId,
+    menu: Id,
+    input: Input,
+) -> Option<Response> {
+    let (_, mut handler) = state
+        .menus
+        .0
+        .remove(&session)
+        .filter(|(id, _)| *id == menu)?;
+    let response = handler(&mut Context { state }, player::Id::new(session), input);
+    if is_open(state, session, menu) {
+        state.menus.0.insert(session, (menu, handler));
     }
-    state.menus.0.insert(session, (menu, handler));
-    if response == Response::Close {
+    Some(response)
+}
+
+/// Runs the handler of the menu `click` names, if it is still open; closes the menu if the
+/// handler says so.
+pub(super) fn clicked(state: &mut State, session: SessionId, click: Click) {
+    let menu = click.menu;
+    if call(state, session, menu, Input::Click(click)) == Some(Response::Close)
+        && is_open(state, session, menu)
+    {
         close_now(state, session, Notice::Send, Raise::Quiet);
     }
 }

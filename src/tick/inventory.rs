@@ -18,8 +18,8 @@
 //! dropped (the world's entity limit) waits in a bounded list given back as slots free up: no
 //! item is ever lost.
 //!
-//! A menu ([`menu`]) is a window of server-owned items on fake container blocks; requests never
-//! move items into or out of it.
+//! A menu ([`menu`]) is a window of server-owned items on fake container blocks; requests move
+//! items into and out of its editable slots only.
 //!
 //! Furnaces and brewing stands are block containers whose block entity ticks ([`block_changed`]
 //! tells their viewers). Station windows (enchanting, anvil, smithing, stonecutter, loom,
@@ -243,6 +243,8 @@ enum SlotRef {
     Block(u8),
     /// A slot the open window keeps itself (the crafting table grid, station inputs).
     Ui(u8),
+    /// An editable slot of the open menu.
+    Menu(u8),
 }
 
 /// What one player carries and has open.
@@ -537,8 +539,8 @@ const TRADE: [Part; 2] = [
 ];
 
 impl WindowKind {
-    /// The request slots of the window; a menu has none, as requests never move its items
-    /// ([`menu::touch`]).
+    /// The request slots of the window; a menu has none here, as [`Inventory::locate`] finds its
+    /// editable slots by the menu.
     fn parts(self) -> &'static [Part] {
         match self {
             Self::Own | Self::Menu { .. } => &[],
@@ -734,6 +736,10 @@ impl Inventory {
             SlotRef::Ender(i) => self.ender.get(i),
             SlotRef::Block(_) => None,
             SlotRef::Ui(i) => self.window.as_ref()?.ui.get(usize::from(i)).cloned(),
+            SlotRef::Menu(i) => Some(Slot {
+                stack: self.menu.as_ref()?.stacks.get(usize::from(i))?.clone(),
+                id: *self.window.as_ref()?.ids.get(usize::from(i))?,
+            }),
         }
     }
 
@@ -758,6 +764,20 @@ impl Inventory {
                 }
                 None => false,
             },
+            SlotRef::Menu(i) => {
+                let i = usize::from(i);
+                match (
+                    self.menu.as_mut().and_then(|m| m.stacks.get_mut(i)),
+                    self.window.as_mut().and_then(|w| w.ids.get_mut(i)),
+                ) {
+                    (Some(stack), Some(id)) => {
+                        *stack = slot.stack;
+                        *id = slot.id;
+                        true
+                    }
+                    _ => false,
+                }
+            }
         }
     }
 
@@ -786,6 +806,11 @@ impl Inventory {
             }
             _ => {
                 let window = self.window.as_ref().filter(|w| w.id != 0)?;
+                if let WindowKind::Menu { .. } = window.kind {
+                    let editable = self.menu.as_ref()?.is_editable(usize::from(slot));
+                    return (container == ContainerId::LevelEntity as u8 && editable)
+                        .then_some(SlotRef::Menu(slot));
+                }
                 let part = window.kind.parts().iter().find(|p| {
                     p.container == container
                         && slot >= p.first
@@ -1139,7 +1164,7 @@ fn client_slot(inv: &Inventory, r: SlotRef) -> Option<(u32, u32)> {
             WINDOW_ID_UI,
             u32::from(inv.window.as_ref()?.kind.ui_slot(i)?),
         ),
-        SlotRef::Ender(_) | SlotRef::Block(_) => return None,
+        SlotRef::Ender(_) | SlotRef::Block(_) | SlotRef::Menu(_) => return None,
     })
 }
 
