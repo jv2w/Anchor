@@ -3,9 +3,9 @@
 
 use crate::{crypto, protocol};
 
-/// The image sizes a skin may have, in bytes of RGBA (PMMP `Skin::ACCEPTED_SKIN_SIZES`): 64 × 32,
-/// 64 × 64 and 128 × 128 pixels.
-const SIZES: [(usize, u32, u32); 3] = [
+/// The image sizes a [`Skin`] may have, each as its bytes of RGBA, width and height in pixels
+/// (PMMP `Skin::ACCEPTED_SKIN_SIZES`): 64 × 32, 64 × 64 and 128 × 128.
+pub const SKIN_SIZES: [(usize, u32, u32); 3] = [
     (64 * 32 * 4, 64, 32),
     (64 * 64 * 4, 64, 64),
     (128 * 128 * 4, 128, 128),
@@ -123,7 +123,7 @@ impl Skin {
 
     /// The skin as the protocol carries it (the player list and `PlayerSkin`).
     pub(crate) fn to_protocol(&self) -> protocol::Skin {
-        let (_, width, height) = dimensions(self.data.len()).unwrap_or(SIZES[0]);
+        let (_, width, height) = dimensions(self.data.len()).unwrap_or(SKIN_SIZES[0]);
         // The name is checked to need no JSON escaping.
         let patch = format!(r#"{{"geometry":{{"default":"{}"}}}}"#, self.geometry_name);
         let has_cape = !self.cape.is_empty();
@@ -164,7 +164,7 @@ impl std::fmt::Debug for Skin {
 
 /// The accepted size an image of `len` bytes has, with its width and height.
 fn dimensions(len: usize) -> Option<(usize, u32, u32)> {
-    SIZES.into_iter().find(|&(size, _, _)| size == len)
+    SKIN_SIZES.into_iter().find(|&(size, _, _)| size == len)
 }
 
 #[cfg(test)]
@@ -174,7 +174,7 @@ mod tests {
     // pmmp: Skin::__construct, Skin::getSkinId, Skin::getSkinData, Skin::getCapeData, Skin::getGeometryName, Skin::getGeometryData, Skin
     #[test]
     fn skins_take_only_accepted_sizes_and_safe_geometry_names() {
-        for (size, w, h) in SIZES {
+        for (size, w, h) in SKIN_SIZES {
             let skin = Skin::new("npc", vec![7; size]).unwrap();
             let p = skin.to_protocol();
             assert_eq!((p.skin_image_width, p.skin_image_height), (w, h));
