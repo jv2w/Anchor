@@ -89,7 +89,7 @@ impl Context<'_> {
         Some(v.offers.recipes().iter().map(to_offer).collect())
     }
 
-    /// The tier (0 novice to 4 master) of the villager NPC `villager`; `None` if it is not one.
+    /// The tier (0 to [`custom::MAX_TRADE_TIER`]) of the villager NPC `villager`; `None` if it is not one.
     pub fn trade_tier(&self, villager: Id) -> Option<u8> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier())
     }
@@ -103,13 +103,16 @@ impl Context<'_> {
     /// The trade experience each tier of the villager NPC `villager` needs; `None` if it is not
     /// one.
     #[cfg(test)]
-    pub(in crate::tick) fn trade_tier_experience(&self, villager: Id) -> Option<[u32; 5]> {
+    pub(in crate::tick) fn trade_tier_experience(
+        &self,
+        villager: Id,
+    ) -> Option<[u32; custom::TRADE_TIERS]> {
         (HOOKS.villager)(self.state, villager).map(|v| v.offers.tier_experience())
     }
 
     /// Replaces the offers of the villager NPC `villager` (at most 128; each needs a payment,
-    /// a sale, uses at most its maximum, a tier up to 4 and finite price multipliers). Players
-    /// trading with it see the new list at once. Nothing changes on failure.
+    /// a sale, uses at most its maximum, a tier up to [`custom::MAX_TRADE_TIER`] and finite price
+    /// multipliers). Players trading with it see the new list at once. Nothing changes on failure.
     pub fn set_trade_offers(
         &mut self,
         villager: Id,
@@ -149,7 +152,8 @@ impl Context<'_> {
         change(self.state, villager, |o| o.remove(index)).map(|r| to_offer(&r))
     }
 
-    /// Sets the villager's tier (0 to 4); its trade experience rises to the tier's requirement.
+    /// Sets the villager's tier (0 to [`custom::MAX_TRADE_TIER`]); its trade experience rises to
+    /// the tier's requirement.
     pub fn set_trade_tier(
         &mut self,
         villager: Id,
@@ -173,7 +177,7 @@ impl Context<'_> {
     pub fn set_trade_tier_experience(
         &mut self,
         villager: Id,
-        tiers: [u32; 5],
+        tiers: [u32; custom::TRADE_TIERS],
     ) -> std::result::Result<(), custom::Error> {
         change(self.state, villager, |o| o.set_tier_experience(tiers))
     }
@@ -189,7 +193,7 @@ impl Context<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::offers::{MAX_OFFERS, MAX_SAVED_BYTES, MAX_TIER};
+    use super::super::offers::{MAX_OFFERS, MAX_SAVED_BYTES};
     use super::*;
 
     /// The reason of `error`'s public form.
@@ -206,6 +210,6 @@ mod tests {
         assert!(reason(Error::Full).contains(&format!(" {MAX_OFFERS} ")));
         assert_eq!(MAX_SAVED_BYTES % (1 << 20), 0, "a whole number of MiB");
         assert!(reason(Error::TooLarge).contains(&format!(" {} MiB", MAX_SAVED_BYTES >> 20)));
-        assert!(reason(Error::Tier).ends_with(&format!(" {MAX_TIER}")));
+        assert!(reason(Error::Tier).ends_with(&format!(" {}", custom::MAX_TRADE_TIER)));
     }
 }

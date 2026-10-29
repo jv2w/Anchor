@@ -8,6 +8,7 @@ use super::kind::{Character, Cloud, Form, Kind, Painting, Projectile, Shot};
 use super::object;
 use super::{EYE_HEIGHT, Entity, PLAYER_HEIGHT, PLAYER_WIDTH};
 use crate::config::GameMode;
+use crate::custom::MAX_TRADE_TIER;
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -27,7 +28,7 @@ use crate::protocol::{
     WaypointWorldPosition,
 };
 use crate::tick::inventory::{INVENTORY_WINDOW_BYTE, OFF_HAND_WINDOW_BYTE};
-use crate::tick::trade::{MAX_TIER, Offers};
+use crate::tick::trade::Offers;
 
 /// Ticks over which the client spreads a `MoveActorDelta`: BDS sends 0 for items, orbs and
 /// villagers (P6 game captures; 3 only for its own mobs, which Anchor does not have).
@@ -185,7 +186,7 @@ pub(super) fn metadata(entity: &Entity) -> EntityMetadata {
             put(EntityDataKey::TradeTier, trade_tier(offers));
             put(
                 EntityDataKey::MaxTradeTier,
-                MetadataValue::Int32(i32::from(MAX_TIER)),
+                MetadataValue::Int32(i32::from(MAX_TRADE_TIER)),
             );
             put(EntityDataKey::TradeExperience, trade_experience(offers));
             put(EntityDataKey::SkinId, MetadataValue::Int32(0));

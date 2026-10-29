@@ -43,7 +43,7 @@ use crate::random::{self, Random};
 use crate::save::WorldIndex;
 
 pub(super) use self::api::new_offers;
-pub(super) use self::offers::{Damage, Error, MAX_TIER, Offers, Recipe, Result};
+pub(super) use self::offers::{Damage, Error, Offers, Recipe, Result};
 
 /// The most trades one request may repeat.
 pub(super) const MAX_REPEAT: u32 = 256;

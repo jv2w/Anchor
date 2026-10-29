@@ -26,15 +26,11 @@
 
 use tracing::warn;
 
-use crate::custom::{MAX_TRADE_COUNTER, Registry};
+use crate::custom::{MAX_TRADE_COUNTER, MAX_TRADE_TIER, Registry, TRADE_TIERS};
 use crate::item::Stack;
 use crate::nbt::{Compound, Encoding, List, Value};
 use crate::protocol::Writer;
 
-/// Tiers 0 to 4 (BDS novice to master).
-pub(in crate::tick) const TIERS: usize = 5;
-/// The highest tier (BDS `MaxTradeTier`).
-pub(in crate::tick) const MAX_TIER: u8 = 4;
 /// The most offers one villager holds: well above the largest vanilla list (about 20), and one
 /// `UpdateTrade` stays far below the 4 MiB NBT limit.
 pub(in crate::tick) const MAX_OFFERS: usize = 128;
@@ -44,7 +40,7 @@ pub(in crate::tick) const MAX_OFFERS: usize = 128;
 /// `UpdateTrade` one packet NBT root. PMMP has no such limit.
 pub(in crate::tick) const MAX_SAVED_BYTES: usize = 2 << 20;
 /// The experience each tier needs, as BDS sends it (P6).
-const DEFAULT_TIER_EXPERIENCE: [u32; TIERS] = [0, 10, 70, 150, 250];
+const DEFAULT_TIER_EXPERIENCE: [u32; TRADE_TIERS] = [0, 10, 70, 150, 250];
 
 /// The offers (both forms).
 const RECIPES: &str = "Recipes";
@@ -164,7 +160,7 @@ pub(in crate::tick) struct Recipe {
     pub(in crate::tick) max_uses: u32,
     /// Trades made since the last reset.
     pub(in crate::tick) uses: u32,
-    /// The villager tier that unlocks it (0 to 4).
+    /// The villager tier that unlocks it (0 to [`MAX_TRADE_TIER`]).
     pub(in crate::tick) tier: u8,
     /// Experience the villager gets per trade.
     pub(in crate::tick) trader_exp: u32,
@@ -229,7 +225,7 @@ impl Recipe {
         {
             return Err(Error::Uses);
         }
-        if self.tier > MAX_TIER {
+        if self.tier > MAX_TRADE_TIER {
             return Err(Error::Tier);
         }
         if !self.price_multiplier_a.is_finite() || !self.price_multiplier_b.is_finite() {
@@ -391,12 +387,12 @@ enum Form {
 pub(in crate::tick) struct Offers {
     /// The offers, at most [`MAX_OFFERS`], each passing [`Recipe::check`].
     recipes: Vec<Recipe>,
-    /// The villager's tier (0 to 4): offers of higher tiers are locked.
+    /// The villager's tier (0 to [`MAX_TRADE_TIER`]): offers of higher tiers are locked.
     tier: u8,
     /// The villager's trade experience, at most `i32::MAX`.
     experience: u32,
     /// The experience each tier needs, never going down.
-    tier_experience: [u32; TIERS],
+    tier_experience: [u32; TRADE_TIERS],
     /// Unknown root keys, written back as they came.
     unknown: Compound,
     /// Saved recipes Anchor cannot use, written back after the others.
@@ -489,7 +485,7 @@ impl Offers {
         }
         match saved.get(TRADE_TIER) {
             None => {}
-            Some(Value::Int(t)) if (0..=i32::from(MAX_TIER)).contains(t) => {
+            Some(Value::Int(t)) if (0..=i32::from(MAX_TRADE_TIER)).contains(t) => {
                 offers.tier = u8::try_from(*t).unwrap_or(0);
             }
             Some(_) => warn!("saved villager tier is invalid; tier 0 used"),
@@ -533,7 +529,7 @@ impl Offers {
         }
         recipes.extend(skipped.iter().cloned());
         c.insert(RECIPES.to_owned(), Value::List(List::Compound(recipes)));
-        let tiers = (0..TIERS)
+        let tiers = (0..TRADE_TIERS)
             .zip(self.tier_experience)
             .map(|(i, x)| Compound::from([(i.to_string(), int(x))]))
             .collect();
@@ -554,7 +550,7 @@ impl Offers {
         self.recipes.is_empty()
     }
 
-    /// The villager's tier (0 to 4).
+    /// The villager's tier (0 to [`MAX_TRADE_TIER`]).
     pub(in crate::tick) fn tier(&self) -> u8 {
         self.tier
     }
@@ -566,7 +562,7 @@ impl Offers {
 
     /// The experience each tier needs.
     #[cfg(test)]
-    pub(in crate::tick) fn tier_experience(&self) -> [u32; TIERS] {
+    pub(in crate::tick) fn tier_experience(&self) -> [u32; TRADE_TIERS] {
         self.tier_experience
     }
 
@@ -652,7 +648,7 @@ impl Offers {
     }
 
     /// Sets the experience each tier needs (non-decreasing, at most `i32::MAX`).
-    pub(in crate::tick) fn set_tier_experience(&mut self, tiers: [u32; TIERS]) -> Result<()> {
+    pub(in crate::tick) fn set_tier_experience(&mut self, tiers: [u32; TRADE_TIERS]) -> Result<()> {
         if tiers.windows(2).any(|w| w.first() > w.get(1))
             || tiers.iter().any(|&x| x > MAX_TRADE_COUNTER)
         {
@@ -717,7 +713,7 @@ impl Offers {
             .experience
             .saturating_add(gained)
             .min(MAX_TRADE_COUNTER);
-        while self.tier < MAX_TIER
+        while self.tier < MAX_TRADE_TIER
             && self
                 .tier_experience
                 .get(usize::from(self.tier) + 1)
@@ -838,14 +834,14 @@ fn float(c: &Compound, key: &str) -> std::result::Result<f32, &'static str> {
 
 /// The tier requirements of a `TierExpRequirements` list: exactly one compound per tier, the
 /// `i`-th holding only the int key `"i"`, never going down; `None` otherwise.
-fn tier_experience(value: &Value) -> Option<[u32; TIERS]> {
+fn tier_experience(value: &Value) -> Option<[u32; TRADE_TIERS]> {
     let Value::List(List::Compound(list)) = value else {
         return None;
     };
-    if list.len() != TIERS {
+    if list.len() != TRADE_TIERS {
         return None;
     }
-    let mut out = [0; TIERS];
+    let mut out = [0; TRADE_TIERS];
     for ((i, c), slot) in list.iter().enumerate().zip(&mut out) {
         let (key, value) = c.iter().next().filter(|_| c.len() == 1)?;
         let Value::Int(x) = value else {

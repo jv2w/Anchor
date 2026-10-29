@@ -17,6 +17,10 @@ pub(crate) const DEFAULT_PRICE_MULTIPLIER: f32 = 0.05;
 /// [`Context::set_trade_experience`]: crate::Context::set_trade_experience
 /// [`Context::set_trade_tier_experience`]: crate::Context::set_trade_tier_experience
 pub const MAX_TRADE_COUNTER: u32 = i32::MAX.cast_unsigned();
+/// The highest villager tier, master (BDS `MaxTradeTier`); tiers start at 0, novice.
+pub const MAX_TRADE_TIER: u8 = 4;
+/// The number of villager tiers, 0 to [`MAX_TRADE_TIER`].
+pub const TRADE_TIERS: usize = MAX_TRADE_TIER as usize + 1;
 
 /// One trade a villager offers: what the player pays (one or two stacks, their counts are the
 /// price) and what one trade gives, with its limits and rewards.
@@ -73,7 +77,7 @@ impl Offer {
         self
     }
 
-    /// The same offer unlocked at villager tier `tier` (0 novice to 4 master).
+    /// The same offer unlocked at villager tier `tier` (at most [`MAX_TRADE_TIER`]).
     #[must_use]
     pub fn with_tier(mut self, tier: u8) -> Self {
         self.tier = tier;
