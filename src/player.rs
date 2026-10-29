@@ -137,8 +137,9 @@ pub fn level_from_xp(xp: u64) -> (u32, f64) {
     (lo, progress)
 }
 
-/// The longest text a client decodes in a message (gophertunnel `Text` bound).
-pub(crate) const MAX_TEXT: usize = TEXT_MESSAGE_MAX_LEN;
+/// The longest text a client decodes in a message, in bytes (gophertunnel `Text` bound): the
+/// most a message, a command's output and the other texts the API sends take.
+pub const MAX_TEXT: usize = TEXT_MESSAGE_MAX_LEN;
 /// The longest chat source name a client decodes.
 const MAX_SOURCE: usize = TEXT_SOURCE_NAME_MAX_LEN;
 /// The most parameters of a translated message a client decodes.
