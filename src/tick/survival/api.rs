@@ -79,6 +79,9 @@ pub(super) struct Custom {
     pub(super) motion: Option<Vec3>,
     /// The emote the API plays, for the viewers at the end of the tick.
     pub(super) emote: Option<String>,
+    /// The API turned the player: it and its viewers see the rotation at the end of the tick,
+    /// in the tick's teleport if there is one.
+    pub(super) turned: bool,
     /// The skin changed (the API or the client): every player gets it at the end of the tick,
     /// or of a later one while the server's skin budget is spent ([`appearance::SkinBudget`]).
     pub(super) skin: bool,
@@ -112,6 +115,7 @@ impl Default for Custom {
             auto_jump: true,
             motion: None,
             emote: None,
+            turned: false,
             skin: false,
             touched: false,
         }
@@ -141,6 +145,7 @@ crate::tick::checkpoint::fields!(Custom {
     auto_jump,
     motion,
     emote,
+    turned,
     skin,
     touched,
 });
@@ -171,6 +176,7 @@ impl Custom {
             auto_jump,
             motion,
             emote,
+            turned,
             skin,
             touched,
         } = self;
@@ -196,7 +202,8 @@ impl Custom {
                 | u64::from(*hunger) << 10
                 | u64::from(*attracts_orbs) << 11
                 | u64::from(*auto_jump) << 12
-                | u64::from(*skin) << 13,
+                | u64::from(*skin) << 13
+                | u64::from(*turned) << 14,
         );
         h.u64(movement_speed.to_bits());
         h.u64(u64::from(max_air.cast_unsigned()));
@@ -953,6 +960,22 @@ impl Player {
         super::rotation(self).1
     }
 
+    /// Turns the player to `yaw` and `pitch` in degrees, kept to float precision as the client
+    /// sends them: [`yaw`](Self::yaw) and [`pitch`](Self::pitch) read the new rotation at once,
+    /// and by the end of the tick the client and the viewers see it, in the tick's teleport if
+    /// there is one (BDS `/tp` with a rotation). Fails for an angle that is not finite as a float
+    /// or a pitch outside -90 to 90.
+    #[doc(alias = "Entity::setRotation")]
+    pub fn set_rotation(&mut self, yaw: f64, pitch: f64) -> Result<()> {
+        let (yaw, pitch) = (super::f32_of(yaw), super::f32_of(pitch));
+        if !yaw.is_finite() || !(-90.0..=90.0).contains(&pitch) {
+            return Err(Error::OutOfRange);
+        }
+        super::movement::turn(&mut self.survival.motion, yaw, pitch);
+        self.survival.custom.turned = true;
+        Ok(())
+    }
+
     /// The unit vector the player looks along.
     #[doc(alias = "Entity::getDirectionVector")]
     pub fn direction(&self) -> Vec3 {
@@ -1587,7 +1610,8 @@ pub(in crate::tick) fn marked(player: &Player) -> bool {
             || c.touched
             || c.skin
             || c.motion.is_some()
-            || c.emote.is_some())
+            || c.emote.is_some()
+            || c.turned)
 }
 
 /// The marks of a spawned player's survival state at the end of the tick: an API death drops its
@@ -1610,6 +1634,7 @@ pub(in crate::tick) fn sync(state: &mut crate::tick::State, session: crate::tick
         std::mem::take(&mut c.touched),
     );
     let (motion, emote) = (c.motion.take(), c.emote.take());
+    let turned = std::mem::take(&mut c.turned);
     let runtime_id = player.runtime_id;
     let dies = killed && player.survival.is_dead() && !player.survival.motion.death_shown;
     if let Some(motion) = motion {
@@ -1623,6 +1648,9 @@ pub(in crate::tick) fn sync(state: &mut crate::tick::State, session: crate::tick
     if let Some(emote_id) = emote {
         let packet = appearance::emote_packet(runtime_id, emote_id);
         broadcast_to_viewers(state, session, &packet);
+    }
+    if turned {
+        super::send_rotation(state, session);
     }
     if dies {
         damage::die(state, session, damage::GENERIC_DEATH, None);
@@ -1803,6 +1831,51 @@ mod tests {
         );
         damage::respawn(&mut state, session);
         assert!(player_mut(&mut state, 1).is_alive());
+    }
+
+    // pmmp: Entity::setRotation
+    /// A rotation reads at once and reaches the client and the viewer by the end of the tick, in
+    /// the tick's one teleport packet when there is one.
+    #[test]
+    fn a_rotation_reaches_the_client_and_the_viewer_with_the_teleport_of_the_tick() {
+        let (mut state, [mut rx1, mut rx2]) = two();
+        let p = player_mut(&mut state, 1);
+        for (yaw, pitch) in [
+            (f64::NAN, 0.0),
+            (0.0, f64::INFINITY),
+            (1e300, 0.0),
+            (0.0, 90.5),
+        ] {
+            assert_eq!(p.set_rotation(yaw, pitch), Err(Error::OutOfRange));
+        }
+        assert!(!marked(p), "a refused rotation marks nothing");
+        p.set_rotation(-90.0, 30.0).unwrap();
+        assert_eq!((p.yaw(), p.pitch()), (270.0, 30.0));
+        let moves = |packets: Vec<Packet>| -> Vec<(f32, f32, [f32; 3])> {
+            packets
+                .into_iter()
+                .filter_map(|p| match p {
+                    Packet::MovePlayer(m) if m.mode == 2 => Some((m.yaw, m.pitch, m.position)),
+                    _ => None,
+                })
+                .collect()
+        };
+        run(&mut state, Vec::new());
+        let at = state.players[&crate::tick::SessionId::new(1)]
+            .position
+            .to_f32();
+        assert_eq!(moves(received(&mut rx1).0), [(270.0, 30.0, at)]);
+        assert_eq!(moves(received(&mut rx2).0), [(270.0, 30.0, at)]);
+        let p = player_mut(&mut state, 1);
+        let feet = Vec3::new(3.5, -60.0, 2.5);
+        p.teleport(crate::world::Id::DEFAULT, feet).unwrap();
+        p.set_rotation(90.0, -10.0).unwrap();
+        run(&mut state, Vec::new());
+        let eye = (feet + Vec3::new(0.0, super::super::EYE_HEIGHT, 0.0)).to_f32();
+        assert_eq!(moves(received(&mut rx1).0), [(90.0, -10.0, eye)]);
+        assert_eq!(moves(received(&mut rx2).0), [(90.0, -10.0, eye)]);
+        run(&mut state, Vec::new());
+        assert!(moves(received(&mut rx1).0).is_empty(), "sent once");
     }
 
     #[test]

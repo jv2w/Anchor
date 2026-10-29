@@ -651,7 +651,8 @@ impl Player {
     /// Moves the player's feet to `feet` in `world`: by the end of the tick its window closes,
     /// it wakes, its breaking stops, its fall ends, and its client and viewers see it there;
     /// another world sends its chunks again. [`position`](Self::position) is the new place at
-    /// once; a second teleport in the tick wins. Fails for a position that is not finite or
+    /// once; a second teleport in the tick wins. The player keeps its rotation unless
+    /// [`set_rotation`](Self::set_rotation) turns it. Fails for a position that is not finite or
     /// lies outside the world border. A world ID of another server is ignored at the end of the
     /// tick.
     #[doc(alias = "Player::teleport")]

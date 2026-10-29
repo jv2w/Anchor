@@ -228,9 +228,7 @@ pub(super) fn on_auth_input(state: &mut State, session: SessionId, packet: &Play
     let rotation = [packet.yaw.to_bits(), packet.pitch.to_bits()];
     if rotation != m.last_rotation {
         m.last_rotation = rotation;
-        let yaw = f64::from(packet.yaw) % 360.0;
-        m.yaw = if yaw < 0.0 { yaw + 360.0 } else { yaw };
-        m.pitch = f64::from(packet.pitch) % 360.0;
+        turn(m, packet.yaw, packet.pitch);
     }
     if let Ok(flags) = packet.input_data.to_set()
         && flags != player.survival.motion.last_flags
@@ -1007,10 +1005,17 @@ pub(super) fn process(state: &mut State, session: SessionId) {
     }
 }
 
+/// Sets the rotation to the finite `yaw` and `pitch` in degrees, the yaw into [0, 360).
+pub(super) fn turn(m: &mut Motion, yaw: f32, pitch: f32) {
+    let yaw = f64::from(yaw) % 360.0;
+    m.yaw = if yaw < 0.0 { yaw + 360.0 } else { yaw };
+    m.pitch = f64::from(pitch) % 360.0;
+}
+
 /// Sends the player its own position (PMMP `Player::sendPosition`); moves far from it are
 /// ignored until one arrives near it. The last raw position is forgotten: the client's next
 /// input may report the position it had before, now a move back from where it was sent.
-fn send_position(player: &mut Player, mode: MoveMode) {
+pub(super) fn send_position(player: &mut Player, mode: MoveMode) {
     player.survival.motion.force_sync = true;
     player.survival.motion.last_position = None;
     let packet = position_packet(player, mode);

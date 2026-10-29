@@ -1028,13 +1028,25 @@ pub(super) fn teleport(state: &mut State, session: SessionId, world: WorldIndex,
         switch_world(state, session, world, pos);
     }
     movement::teleport(state, session, pos);
-    if let Some(packet) = state
-        .players
-        .get(&session)
-        .map(|p| movement::position_packet(p, MoveMode::Teleport))
-    {
+    let packet = state.players.get_mut(&session).map(|p| {
+        // The teleport shows a rotation the API set too.
+        p.survival.custom.turned = false;
+        movement::position_packet(p, MoveMode::Teleport)
+    });
+    if let Some(packet) = packet {
         broadcast_to_viewers(state, session, &packet);
     }
+}
+
+/// Shows the player and the players that see it the rotation the API set, as a teleport where it
+/// stands (BDS `/tp` with a rotation): `MovePlayer` in teleport mode.
+fn send_rotation(state: &mut State, session: SessionId) {
+    let Some(player) = state.players.get_mut(&session) else {
+        return;
+    };
+    movement::send_position(player, MoveMode::Teleport);
+    let packet = movement::position_packet(player, MoveMode::Teleport);
+    broadcast_to_viewers(state, session, &packet);
 }
 
 /// Moves the player into another world: the old world's chunks are let go, the view opens at
