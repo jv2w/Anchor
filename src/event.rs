@@ -129,7 +129,7 @@ pub use player::{
     PlayerViewDistanceChange, RespawnAnchorAction,
 };
 pub(crate) use sealed::Listeners;
-pub use server::Command;
+pub use server::{Command, ServerStart};
 pub use world::{
     ChunkLoad, ChunkUnload, WorldInit, WorldLoad, WorldParticle, WorldSave, WorldSound, WorldUnload,
 };
@@ -357,6 +357,7 @@ mod sealed {
         player_transfer: super::PlayerTransfer,
         player_view_distance_change: super::PlayerViewDistanceChange,
         command: super::Command,
+        server_start: super::ServerStart,
         chunk_load: super::ChunkLoad,
         chunk_unload: super::ChunkUnload,
         world_save: super::WorldSave,

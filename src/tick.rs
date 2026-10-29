@@ -272,6 +272,9 @@ pub(crate) struct State {
     shared: Shared,
     /// Engine time: ticks applied since the world was created.
     tick: u64,
+    /// Whether this run's first tick raised [`ServerStart`](crate::event::ServerStart); kept in
+    /// checkpoints, so a replay raises it only where the run did.
+    started: bool,
     /// The next entity runtime ID; IDs are never reused.
     next_runtime_id: u64,
     players: BTreeMap<SessionId, Player>,
@@ -508,6 +511,7 @@ impl State {
             settings,
             shared,
             tick,
+            started: false,
             next_runtime_id: 1,
             players: BTreeMap::new(),
             index: BTreeMap::new(),
@@ -601,6 +605,7 @@ impl State {
             settings,
             shared: _,
             tick,
+            started,
             next_runtime_id,
             players,
             index: _,
@@ -689,6 +694,7 @@ impl State {
             h.u64(u64::from(v.tick_radius));
         }
         h.u64(*tick);
+        h.u64(u64::from(*started));
         h.u64(*next_runtime_id);
         // Callbacks are code; how many wait is state.
         h.usize(deferred.len());
@@ -934,7 +940,8 @@ impl Output {
 /// in `log`.
 ///
 /// 1. Input (serial): the save thread's answers in arrival order (loaded chunks and player data,
-///    commits), then the session inputs in (session, seq) order, so the result does not depend
+///    commits), in a run's first tick [`ServerStart`](crate::event::ServerStart), then the
+///    session inputs in (session, seq) order, so the result does not depend
 ///    on how sessions interleaved in the queue, each followed by the callbacks it deferred. Then
 ///    the scheduled tasks.
 /// 2. Rules ([`rules()`]): survival and the world clocks, breaking, block updates, entities (their
@@ -994,6 +1001,10 @@ fn step_marked(
         respond(state, response, output, log);
     }
     let mut deferred_runs = 0;
+    if !std::mem::replace(&mut state.started, true) {
+        start(state);
+        dispatch::run_deferred(state, &mut deferred_runs);
+    }
     // Keys are unique per input, so the unstable sort is deterministic and allocates nothing.
     inputs.sort_unstable_by_key(|i| (i.session, i.seq));
     // Each input is logged before it applies, so the log of a tick that panics in a user callback
@@ -1069,6 +1080,15 @@ pub(crate) fn boundary(state: &mut State, output: &mut Output, log: &mut InputLo
         output.requests.push(request);
     }
     state.network.flush();
+}
+
+/// Raises [`ServerStart`](crate::event::ServerStart) in the first tick of a run.
+fn start(state: &mut State) {
+    if dispatch::heard::<crate::event::ServerStart>(state) {
+        let mut e = crate::event::ServerStart {};
+        dispatch::call(state, &mut e);
+        dispatch::watch(state, &e);
+    }
 }
 
 /// Applies one answer of the save thread and records it.
@@ -1513,6 +1533,44 @@ mod tests {
         assert_eq!(settings(|_| {}).save_interval, 12_000);
         let longest = settings(|c| c.developer.save_interval_minutes = u16::MAX);
         assert_eq!(longest.save_interval, u64::from(u16::MAX) * 1_200);
+    }
+
+    /// `ServerStart` comes once, at the start of the first tick, before its join; a state restored
+    /// from a checkpoint taken after it does not raise it again, one from before does.
+    #[test]
+    fn the_server_start_comes_once_and_a_replay_raises_it_where_the_run_did() {
+        let (tx, mut started) = mpsc::channel(8);
+        let listeners = || {
+            let tx = tx.clone();
+            let mut listeners = Listeners::default();
+            listeners.push(
+                Priority::Normal,
+                move |_: &mut crate::event::ServerStart, cx: &mut super::Context<'_>| {
+                    tx.try_send((cx.state.tick, cx.state.players.len()))
+                        .unwrap();
+                },
+            );
+            listeners
+        };
+        let mut state = new_state(settings(|_| {}), listeners());
+        let before = POOL.with(|pool| state.checkpoint(pool));
+        let (j, _rx) = join(1, 0);
+        let mut output = Output::default();
+        tick(&mut state, &mut vec![j], &mut output);
+        tick(&mut state, &mut Vec::new(), &mut output);
+        assert_eq!(started.try_recv(), Ok((0, 0)), "in tick 0, before the join");
+        assert!(started.try_recv().is_err(), "once");
+        let after = POOL.with(|pool| state.checkpoint(pool));
+        for (checkpoint, raised) in [(&after, false), (&before, true)] {
+            let mut replay = new_state(settings(|_| {}), listeners());
+            replay
+                .restore(checkpoint, checkpoint::tests::extras_of(&state), |_| {
+                    outbound_queue().0
+                })
+                .unwrap();
+            tick(&mut replay, &mut Vec::new(), &mut Output::default());
+            assert_eq!(started.try_recv().is_ok(), raised);
+        }
     }
 
     /// The IDs of the start-game packets (BDS, P6): `LevelEventGeneric`, `PlayerList`,

@@ -1218,6 +1218,7 @@ impl State {
             settings,
             shared: _,
             tick,
+            started,
             next_runtime_id,
             players,
             index: _,
@@ -1254,6 +1255,7 @@ impl State {
         settings.random_tick_speed.encode(&mut w);
         settings.motd.encode(&mut w);
         settings.world_views.encode(&mut w);
+        started.encode(&mut w);
         next_runtime_id.encode(&mut w);
         let list: Vec<(&SessionId, &Player)> = players.iter().collect();
         let encoded = pool.map(&list, |(_, p)| {
@@ -1382,6 +1384,7 @@ impl State {
         self.settings.random_tick_speed = Codec::decode(&mut r)?;
         self.settings.motd = Codec::decode(&mut r)?;
         self.settings.world_views = Codec::decode(&mut r)?;
+        self.started = Codec::decode(&mut r)?;
         self.next_runtime_id = Codec::decode(&mut r)?;
         let n = r.len()?;
         let mut players = Vec::with_capacity(capacity::<(SessionId, Player)>(n, r.bytes.len()));

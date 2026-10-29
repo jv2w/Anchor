@@ -1,9 +1,16 @@
-//! Server events (PMMP `pocketmine\event\server`): commands.
+//! Server events (PMMP `pocketmine\event\server`): the start and commands.
 //!
 //! PMMP's packet events (`DataPacketReceiveEvent`, `DataPacketSendEvent`,
 //! `DataPacketDecodeEvent`) are packet hooks in Anchor.
 
 use crate::command::Sender;
+
+/// Raised once when the server starts, at the start of its first tick: the worlds are loaded and
+/// no player has joined yet. A replay of the run raises it again in the same tick; a replay from a
+/// later checkpoint does not, as the run had raised it before that checkpoint.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ServerStart {}
 
 /// Raised for each command line a player or the console sends, ahead of parsing. Cancelling skips
 /// the command.
