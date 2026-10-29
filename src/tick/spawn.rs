@@ -837,7 +837,13 @@ fn replace(
     packet: Packet,
     output: &mut Output,
 ) {
-    super::player::quit(state, existing, reason, super::player::LEFT.to_owned());
+    super::player::quit(
+        state,
+        existing,
+        reason,
+        super::player::LEFT.to_owned(),
+        false,
+    );
     if let Some(old) = state.remove(existing) {
         info!(
             session = existing.get(),

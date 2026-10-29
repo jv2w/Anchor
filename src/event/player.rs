@@ -1360,6 +1360,7 @@ pub struct PlayerQuit {
     pub(crate) player: player::Id,
     pub(crate) quit_message: String,
     pub(crate) quit_reason: String,
+    pub(crate) shutdown: bool,
 }
 
 getters!(PlayerQuit {
@@ -1378,6 +1379,14 @@ setters!(PlayerQuit {
     #[doc(alias = "PlayerQuitEvent::setQuitMessage")]
     set_quit_message => quit_message: String,
 });
+
+impl PlayerQuit {
+    /// Whether the player leaves because the server stops: every player still online leaves so
+    /// once the last tick has run, and what the listeners change is in the final save.
+    pub fn is_shutdown(&self) -> bool {
+        self.shutdown
+    }
+}
 
 /// Raised when a dead player respawns, before the player is placed. A player that joins dead (it
 /// left, or the server stopped, before it respawned) respawns as it joins, before it spawns.
@@ -2310,6 +2319,7 @@ mod tests {
             player: player(1),
             quit_message: "left".to_owned(),
             quit_reason: "timeout".to_owned(),
+            shutdown: false,
         };
         assert_eq!(
             (quit.player(), quit.quit_message(), quit.quit_reason()),

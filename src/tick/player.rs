@@ -308,7 +308,7 @@ pub(super) fn sync(state: &mut State, output: &mut Output) {
                 }
             }
             let (packet, quit_message) = leave.into_parts();
-            quit(state, session, &reason, quit_message);
+            quit(state, session, &reason, quit_message, false);
             if let Some(p) = state.remove(session) {
                 output.close(p.outbound, packet);
             }
@@ -340,9 +340,16 @@ fn apply_marks(state: &mut State, session: SessionId) {
 /// player, the listeners' marks included, takes effect (PMMP saves after the event, so a teleport
 /// is the saved place and a kill dies with its drops), then every other online player sees the
 /// message in chat: [`LEFT`] as BDS's translated line with the player's name, an empty one not at
-/// all, any other as it is. Call it just before the player is removed, in the tick's serial
-/// step. A player still loading its data has not joined, so it raises nothing.
-pub(super) fn quit(state: &mut State, session: SessionId, reason: &str, quit_message: String) {
+/// all, any other as it is. `shutdown` tells a quit because the server stops. Call it just before
+/// the player is removed, in the tick's serial step. A player still loading its data has not
+/// joined, so it raises nothing.
+pub(super) fn quit(
+    state: &mut State,
+    session: SessionId,
+    reason: &str,
+    quit_message: String,
+    shutdown: bool,
+) {
     let Some(name) = state
         .players
         .get(&session)
@@ -357,6 +364,7 @@ pub(super) fn quit(state: &mut State, session: SessionId, reason: &str, quit_mes
             player: Id::new(session),
             quit_message,
             quit_reason: reason.to_owned(),
+            shutdown,
         });
         dispatch::call(state, e);
         e.quit_message.clone()
@@ -1247,6 +1255,26 @@ pub(super) mod tests {
             "{:?}",
             saved.extra.get("Inventory")
         );
+    }
+
+    /// Only the quits of the server's stop are shutdown quits.
+    #[test]
+    fn only_the_stop_s_quits_are_shutdown_quits() {
+        let (quits, mut quit) = mpsc::channel(4);
+        let mut listeners = Listeners::default();
+        listeners.push(
+            crate::event::Priority::Normal,
+            move |e: &mut PlayerQuit, _: &mut Context<'_>| {
+                quits.try_send(e.is_shutdown()).unwrap();
+            },
+        );
+        let (mut state, _rx) = two_with(listeners);
+        player_mut(&mut state, 1).kick("bye").unwrap();
+        run(&mut state, Vec::new());
+        assert_eq!(quit.try_recv(), Ok(false), "a kick");
+        state.close_all(&mut Output::default());
+        assert_eq!(quit.try_recv(), Ok(true), "the stop");
+        assert!(state.players.is_empty());
     }
 
     // pmmp: NetworkSession::getIp, Player::getViewDistance, Player::getScreenLineHeight, Player::setScreenLineHeight, Player

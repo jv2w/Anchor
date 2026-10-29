@@ -857,7 +857,7 @@ impl State {
     /// message to the client): [`player::quit`] with BDS's left line, then it is forgotten and its
     /// outbound queue closes.
     fn leave(&mut self, session: SessionId, reason: &str) {
-        player::quit(self, session, reason, player::LEFT.to_owned());
+        player::quit(self, session, reason, player::LEFT.to_owned(), false);
         if let Some(p) = self.remove(session) {
             info!(session = session.get(), name = %p.identity.name, reason, "player left");
         }
@@ -886,7 +886,7 @@ impl State {
         let sessions: Vec<SessionId> = self.players.keys().copied().collect();
         for session in sessions {
             let reason = self.settings.shutdown_message.clone();
-            player::quit(self, session, &reason, String::new());
+            player::quit(self, session, &reason, String::new(), true);
             let Some(p) = self.remove(session) else {
                 continue;
             };
@@ -1211,7 +1211,7 @@ fn drop_overflowed(state: &mut State, output: &mut Output) {
         .map(|(&s, _)| s)
         .collect();
     for session in overflowed {
-        player::quit(state, session, "too many packets", String::new());
+        player::quit(state, session, "too many packets", String::new(), false);
         if let Some(p) = state.remove(session) {
             warn!(
                 session = session.get(),
