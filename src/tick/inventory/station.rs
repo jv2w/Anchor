@@ -129,7 +129,7 @@ pub(super) fn context(state: &State, session: SessionId, request: &ItemStackRequ
                 StackRequestAction::AutoCraftRecipe(c) => Some(c.recipe_network_id),
                 _ => None,
             })
-            .take(super::request::MAX_ACTIONS)
+            .take(crate::inventory::MAX_REQUEST_ACTIONS)
             .filter_map(|id| Some((id, trade::offer(state, session, id)?)))
             .collect()
     } else {

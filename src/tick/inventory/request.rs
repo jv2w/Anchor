@@ -34,6 +34,7 @@ use super::{
 };
 use crate::block::{self, Class};
 use crate::crafting::{self, Recipe, ShapelessType};
+use crate::inventory::MAX_REQUEST_ACTIONS;
 use crate::item::{ArmorSlot, Stack};
 use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
 use crate::protocol::packet::Packet;
@@ -45,8 +46,6 @@ use crate::protocol::{
 
 /// The most requests a player has handled per tick (PMMP: 80 per packet); more are refused.
 pub(super) const MAX_REQUESTS_PER_TICK: u16 = 80;
-/// The most actions in one request (PMMP: the recipe book's largest craft needs about 53).
-pub(super) const MAX_ACTIONS: usize = 60;
 /// The most entries of a recipe book craft's ingredient list (a recipe has at most 9).
 const MAX_INGREDIENT_ENTRIES: usize = crafting::GRID_CELLS;
 
@@ -55,7 +54,7 @@ const MAX_INGREDIENT_ENTRIES: usize = crafting::GRID_CELLS;
 pub(super) enum Error {
     /// More requests this tick than [`MAX_REQUESTS_PER_TICK`].
     Busy,
-    /// More actions than [`MAX_ACTIONS`] or ingredient entries than a recipe has.
+    /// More actions than [`MAX_REQUEST_ACTIONS`] or ingredient entries than a recipe has.
     TooLarge,
     /// A request ID the player used recently.
     Repeat,
@@ -266,7 +265,7 @@ pub(in crate::tick) fn on_item_stack_request(
     }
     let refusal = if inv.budget.1 >= MAX_REQUESTS_PER_TICK {
         Some(Error::Busy)
-    } else if request.actions.len() > MAX_ACTIONS {
+    } else if request.actions.len() > MAX_REQUEST_ACTIONS {
         Some(Error::TooLarge)
     } else if inv.recent_set.contains(&request.request_id) {
         Some(Error::Repeat)
@@ -1183,4 +1182,4 @@ impl Inventory {
 }
 
 const _: () = assert!(GRID <= crafting::GRID_CELLS);
-const _: () = assert!(MAX_ACTIONS <= crafting::MAX_PROVIDED);
+const _: () = assert!(MAX_REQUEST_ACTIONS <= crafting::MAX_PROVIDED);

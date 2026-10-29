@@ -116,6 +116,10 @@ pub(crate) const MAX_STACK: u8 = 64;
 #[doc(alias = "PlayerInventory::getHotbarSize")]
 pub const HOTBAR_SIZE: u8 = 9;
 
+/// The most actions a client's item stack request may carry (PMMP: the recipe book's largest
+/// craft needs about 53); Anchor refuses a longer request whole.
+pub const MAX_REQUEST_ACTIONS: usize = 60;
+
 impl<'a> Inventory<'a> {
     /// The slots `first` then `second`, each holding at most `max` items.
     pub(crate) fn new(first: &'a [Stack], second: &'a [Stack], max: u8) -> Self {
