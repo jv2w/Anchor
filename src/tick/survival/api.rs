@@ -1575,6 +1575,18 @@ impl Context<'_> {
     pub fn sleep_on(&mut self, player: Id, pos: BlockPos) -> bool {
         super::clock::sleep_on(self.state, player.session(), pos)
     }
+
+    /// Hurts `player` by `amount` half hearts as [`Mut::attack`](crate::entity::Mut::attack)
+    /// hurts an entity (PMMP `Player::attack` with `CAUSE_CUSTOM`, without the event): armour,
+    /// effects, invulnerability and the game mode count, within the hit cooldown only a stronger
+    /// hit lands (its difference), and a hit that starts the cooldown shows the hurt animation. A
+    /// death follows at the end of the tick with the generic death message. False if no damage
+    /// was taken, as for a player gone or not spawned, or an amount that is below 0, above
+    /// [`MAX_DAMAGE`](crate::event::MAX_DAMAGE) or not finite.
+    #[doc(alias = "Player::attack")]
+    pub fn attack_player(&mut self, player: Id, amount: f64) -> bool {
+        damage::damage_quiet(self.state, player.session(), amount, damage::Damage::Custom)
+    }
 }
 
 /// Calls `visit` with the blocks a ray from `start` along the unit vector `dir` passes through
@@ -2683,5 +2695,34 @@ mod tests {
                 .count(),
             entities + 1
         );
+    }
+
+    // pmmp: Player::attack
+    /// An API hit follows the hit cooldown and shows the viewers only the hit that starts it.
+    #[test]
+    fn an_api_hit_on_a_player_follows_the_hit_cooldown() {
+        let (mut state, [_rx1, mut rx2]) = two();
+        let id = Id::new(crate::tick::SessionId::new(1));
+        let gone = Id::new(crate::tick::SessionId::new(9));
+        let mut ctx = Context { state: &mut state };
+        assert!(!ctx.attack_player(id, f64::NAN));
+        assert!(!ctx.attack_player(id, -1.0));
+        assert!(!ctx.attack_player(gone, 1.0));
+        assert!(ctx.attack_player(id, 5.0));
+        assert_eq!(ctx.player(id).map(Player::health), Some(15.0));
+        // Within the cooldown only a stronger hit counts its difference.
+        assert!(!ctx.attack_player(id, 4.0));
+        assert!(ctx.attack_player(id, 7.0));
+        assert_eq!(ctx.player(id).map(Player::health), Some(13.0));
+        run(&mut state, Vec::new());
+        let hurts = received(&mut rx2)
+            .0
+            .iter()
+            .filter(|p| {
+                matches!(p, Packet::ActorEvent(e)
+                    if e.event_type == u8::from(crate::protocol::consts::ActorEvent::Hurt))
+            })
+            .count();
+        assert_eq!(hurts, 1);
     }
 }
