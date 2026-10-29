@@ -58,7 +58,7 @@ pub(crate) use self::log::{
 #[cfg(test)]
 pub(crate) use entity::Customs;
 pub(crate) use entity::EntityTypes;
-pub use entity::{Entity, Mut};
+pub use entity::{Entity, MAX_ENTITIES_PER_WORLD, Mut};
 pub use hook::SentPacket;
 use queue::{Identity, Input, InputKind, InputReceiver, Message, Outbound, SessionId};
 pub(crate) use rules::ChunkRules;

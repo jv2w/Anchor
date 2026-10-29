@@ -121,7 +121,7 @@ use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
 /// a few milliseconds (measured in `tick_cost`) and the store's memory near 6 MiB; PMMP and
 /// dragonfly have no cap. At the cap, actions that would create an entity are refused and the
 /// caller keeps its items.
-pub(super) const MAX_ENTITIES_PER_WORLD: usize = 16_384;
+pub const MAX_ENTITIES_PER_WORLD: usize = 16_384;
 /// The most players one player hides (`Context::hide_player`).
 pub(super) const MAX_HIDDEN_PER_PLAYER: usize = 1024;
 /// Spawn and removal packets one player is sent per tick; the rest wait (a view entering a chunk
