@@ -1937,11 +1937,20 @@ fn to_f32(v: f64) -> f32 {
 /// pickup delay. False (nothing created, the caller keeps the stack) when the world's entity
 /// limit is reached or the position is not loaded; true for an empty stack, which drops nothing.
 pub(super) fn drop_item(state: &mut State, world: WorldIndex, pos: Vec3, stack: Stack) -> bool {
-    drop_item_with(state, world, pos, stack, None, DROP_PICKUP_DELAY)
+    drop_item_with(
+        state,
+        world,
+        pos,
+        stack,
+        None,
+        DROP_PICKUP_DELAY,
+        String::new(),
+    )
 }
 
-/// [`drop_item`] with a given motion (`None`: PMMP's random one) and pickup delay in ticks, for
-/// items a player throws (PMMP `Player::dropItem`: its look direction × 0.4, delay 40).
+/// [`drop_item`] with a given motion (`None`: PMMP's random one), pickup delay in ticks and
+/// thrower (the name of the player who throws it, saved with it; empty for none), for items a
+/// player throws (PMMP `Player::dropItem`: its look direction × 0.4, delay 40).
 pub(super) fn drop_item_with(
     state: &mut State,
     world: WorldIndex,
@@ -1949,8 +1958,10 @@ pub(super) fn drop_item_with(
     stack: Stack,
     motion: Option<Vec3>,
     pickup_delay: i16,
+    thrower: String,
 ) -> bool {
-    stack.is_empty() || drop_stack(state, world, pos, stack, motion, pickup_delay).is_some()
+    stack.is_empty()
+        || drop_stack(state, world, pos, stack, motion, pickup_delay, thrower).is_some()
 }
 
 /// [`drop_item_with`] for a stack that is not empty, giving the new entity.
@@ -1961,13 +1972,14 @@ fn drop_stack(
     stack: Stack,
     motion: Option<Vec3>,
     pickup_delay: i16,
+    thrower: String,
 ) -> Option<Id> {
     let item = Item {
         stack,
         pickup_delay: max_delay(pickup_delay),
         despawn_delay: item_despawn_delay(state),
         owner: String::new(),
-        thrower: String::new(),
+        thrower,
     };
     create(state, world, pos, Kind::Item(item), |r| {
         let yaw = random_yaw(r);
@@ -3347,6 +3359,7 @@ fn falling_tick(state: &mut State, id: Id) {
                 Stack::new(t, 1),
                 None,
                 DROP_PICKUP_DELAY,
+                String::new(),
             ),
             block::ItemForm::None | block::ItemForm::BlockEntity => true,
         }
@@ -4974,7 +4987,8 @@ mod tests {
             at(0.5, -60.0, 0.5),
             stack("minecraft:stick", 1),
             Some(Vec3::ZERO),
-            0
+            0,
+            String::new()
         ));
         // Session 1 looks on the ticks where tick + 1 is a multiple of 5: start just after one.
         h.state.tick = h.state.tick.next_multiple_of(5);
@@ -5204,7 +5218,8 @@ mod tests {
                 at(0.5, -60.0 + height_above_feet, 0.5),
                 stack("minecraft:stick", 1),
                 Some(Vec3::ZERO),
-                0
+                0,
+                String::new()
             ));
             let id = h.state.rules.entities.ids().last().unwrap();
             with(&mut h.state, id, |e| e.gravity = false);
@@ -5258,7 +5273,8 @@ mod tests {
             at(0.5, -58.5, 0.5),
             stack("minecraft:stick", 1),
             Some(Vec3::ZERO),
-            10
+            10,
+            String::new()
         ));
         for _ in 0..20 {
             h.entities();
@@ -5316,7 +5332,8 @@ mod tests {
                 pos,
                 stack("minecraft:stick", 1),
                 Some(Vec3::ZERO),
-                10
+                10,
+                String::new()
             ));
         }
         let pos = at(2.5, -59.9, 0.5);
@@ -5327,7 +5344,8 @@ mod tests {
             pos,
             ingot,
             Some(Vec3::ZERO),
-            10
+            10,
+            String::new()
         ));
         for _ in 0..40 {
             h.entities();
@@ -5361,7 +5379,8 @@ mod tests {
             spot,
             stick,
             Some(Vec3::ZERO),
-            10
+            10,
+            String::new()
         ));
         let id = h.state.rules.entities.ids().next().unwrap();
         with(&mut h.state, id, |e| e.fire_ticks = 100);
@@ -5390,7 +5409,8 @@ mod tests {
             spot,
             stick,
             Some(Vec3::ZERO),
-            10
+            10,
+            String::new()
         ));
         let id = h.state.rules.entities.ids().next().unwrap();
         with(&mut h.state, id, |e| e.fire_ticks = 100);
@@ -5574,6 +5594,23 @@ mod tests {
             (m.x - 0.4).abs() < 1e-9 && m.y.abs() < 1e-9 && m.z.abs() < 1e-9,
             "{m:?}"
         );
+        let name = h.state.players[&s].identity.name.clone();
+        assert_eq!(e.thrower(), Some(name.as_str()), "the player threw it");
+        assert!(drop_item(
+            &mut h.state,
+            0,
+            at(0.5, -60.0, 0.5),
+            stack("minecraft:stick", 1)
+        ));
+        let dropped: Vec<_> = h
+            .live()
+            .iter()
+            .map(|e| e.thrower().map(str::to_owned))
+            .collect();
+        assert!(
+            dropped.contains(&Some(String::new())),
+            "nobody threw a dropped item"
+        );
     }
 
     /// An orb the player touches while its pickup cooldown runs stays (PMMP
@@ -5756,7 +5793,8 @@ mod tests {
             start,
             sword.clone(),
             Some(at(0.3, 0.0, 0.0)),
-            10
+            10,
+            String::new()
         ));
         h.state.rules.entities.take_changed();
         for _ in 0..4 {
@@ -5959,7 +5997,8 @@ mod tests {
                 at(x + 3.0, -60.0, z + 3.0),
                 sword,
                 Some(Vec3::ZERO),
-                10
+                10,
+                String::new()
             ));
         }
         let (j, rx) = join(1, 0);
@@ -5990,7 +6029,8 @@ mod tests {
                 pos,
                 sword,
                 Some(Vec3::ZERO),
-                10
+                10,
+                String::new()
             ));
         };
         for i in 0..100u32 {
@@ -6444,7 +6484,8 @@ mod tests {
                         pos,
                         sword,
                         Some(Vec3::ZERO),
-                        10
+                        10,
+                        String::new()
                     ));
                 }
                 // Idle: let them settle and be sent first; falling: measure the first ticks.

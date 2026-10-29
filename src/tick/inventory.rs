@@ -43,6 +43,7 @@ use std::collections::{BTreeSet, VecDeque};
 use tracing::{error, warn};
 
 use super::checkpoint::{self, Codec, Reader, Writer, fields, variants};
+use super::entity::Raise;
 use super::{Phase, Player, SessionId, State, block_entity, dispatch, trade};
 use crate::block::{self, Class, ItemForm};
 use crate::crafting::FurnaceType;
@@ -2183,11 +2184,17 @@ fn open(state: &mut State, session: SessionId, kind: WindowKind) -> bool {
             return false;
         }
     }
+    let mut opened = None;
     for (world, pos) in kind.blocks().into_iter().flatten() {
         let viewers = state.rules.block_entities.add_viewer(world, pos, session);
         if viewers == 1 && kind.animates() {
             block_entity::animate(state, world, pos, viewers);
+            opened.get_or_insert((world, pos));
         }
+    }
+    // A double chest sounds once, at its left half (PMMP plays the sound at the inventory's holder).
+    if let Some((world, pos)) = opened {
+        block_entity::lid_sound(state, world, pos, 1, Raise::Events);
     }
     let Some(player) = state.players.get_mut(&session) else {
         return false;
@@ -2318,17 +2325,18 @@ fn close(state: &mut State, session: SessionId, notice: Notice) {
                 .get(&session)
                 .is_some_and(|p| window_key(&p.inventory) == before);
             if same {
-                close_now(state, session, notice);
+                close_now(state, session, notice, Raise::Events);
             }
             dispatch::watch(state, &event);
         }
-        None => close_now(state, session, notice),
+        None => close_now(state, session, notice, Raise::Events),
     }
 }
 
 /// Closes the window of `session` (telling the client as `notice` says) and gives the cursor,
-/// the grid and the window's own slots back (PMMP `doCloseInventory`), raising no event.
-fn close_now(state: &mut State, session: SessionId, notice: Notice) {
+/// the grid and the window's own slots back (PMMP `doCloseInventory`), raising no inventory
+/// event; a chest-like block's close sound raises `WorldSound` if `raise` says so.
+fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
@@ -2358,6 +2366,7 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice) {
         player.data_dirty = true;
     }
     if let Some(w) = &window {
+        let mut closed = None;
         for (world, pos) in w.kind.blocks().into_iter().flatten() {
             let left = state
                 .rules
@@ -2365,7 +2374,11 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice) {
                 .remove_viewer(world, pos, session);
             if left == 0 && w.kind.animates() {
                 block_entity::animate(state, world, pos, 0);
+                closed.get_or_insert((world, pos));
             }
+        }
+        if let Some((world, pos)) = closed {
+            block_entity::lid_sound(state, world, pos, 0, raise);
         }
     }
     give_back(state, session, back);
@@ -2419,7 +2432,7 @@ pub(super) fn close_window(state: &mut State, session: SessionId) {
 
 /// [`close_window`] for a direct API call, which raises no `InventoryClose`.
 pub(super) fn close_window_without_event(state: &mut State, session: SessionId) {
-    close_now(state, session, Notice::Send);
+    close_now(state, session, Notice::Send, Raise::Quiet);
 }
 
 /// Closes the windows open on the block at `pos` (a station block that broke).
@@ -2629,9 +2642,9 @@ pub(super) fn resend_main(state: &mut State, session: SessionId, slot: u8) {
 }
 
 /// The player of `session` throws `stack` (PMMP `Player::dropItem`: the Q key, a request's drop,
-/// an item returned to a full inventory): it leaves 0.32 below the eyes along the look × 0.4 and
-/// can be picked up after 40 ticks, and the viewers see the arm swing. False if the world has no
-/// room. Tests stand in for the entity module.
+/// an item returned to a full inventory): it leaves 0.32 below the eyes along the look × 0.4,
+/// can be picked up after 40 ticks and has the player as its thrower, and the viewers see the arm
+/// swing. False if the world has no room. Tests stand in for the entity module.
 pub(super) fn throw_stack(state: &mut State, session: SessionId, stack: Stack) -> bool {
     let Some(player) = state.players.get(&session) else {
         return false;
@@ -2644,7 +2657,9 @@ pub(super) fn throw_stack(state: &mut State, session: SessionId, stack: Stack) -
     if let Some(dropped) = tests::stand_in_drop(&stack) {
         return dropped;
     }
-    if !super::entity::drop_item_with(state, world, at, stack, Some(motion), THROW_PICKUP_DELAY) {
+    let (motion, thrower) = (Some(motion), player.identity.name.clone());
+    let delay = THROW_PICKUP_DELAY;
+    if !super::entity::drop_item_with(state, world, at, stack, motion, delay, thrower) {
         return false;
     }
     super::survival::swing(state, session);

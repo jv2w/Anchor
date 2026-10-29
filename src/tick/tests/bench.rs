@@ -314,7 +314,8 @@ fn items(count: u32, run: Run) {
             pos,
             Stack::new(sword, 1),
             Some(Vec3::ZERO),
-            10
+            10,
+            String::new()
         ));
     }
     b.settle(60);

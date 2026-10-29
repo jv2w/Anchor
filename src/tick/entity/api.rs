@@ -1530,7 +1530,8 @@ impl Context<'_> {
             return Err(stack);
         }
         let back = stack.clone();
-        drop_stack(self.state, w, pos, stack, motion, super::DROP_PICKUP_DELAY).ok_or(back)
+        let delay = super::DROP_PICKUP_DELAY;
+        drop_stack(self.state, w, pos, stack, motion, delay, String::new()).ok_or(back)
     }
 
     /// Drops `amount` experience points as orbs at `pos` in `world` (PMMP
