@@ -814,13 +814,13 @@ fn protection_factor(player: &Player, cause: Damage) -> u32 {
 }
 
 /// One enchantment's protection factor.
-pub(super) fn epf(level: u8, modifier: f64) -> u32 {
+pub(super) fn epf(level: u16, modifier: f64) -> u32 {
     let l = f64::from(level);
     let v = ((6.0 + l * l) * modifier / 3.0).floor();
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "invariant: (6 + 255²) × 2.5 / 3 is far below u32::MAX and positive"
+        reason = "invariant: (6 + 65,535²) × 2.5 / 3 is below u32::MAX and positive"
     )]
     let v = v as u32;
     v

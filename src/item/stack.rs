@@ -34,6 +34,9 @@ use crate::nbt::{self, Compound, Cost, Encoding, List, Value};
 use crate::protocol::{self, Writer};
 use crate::tile::MAX_NAME_BYTES;
 
+/// The highest enchantment level a stack keeps: the most its saved `lvl`, a `TAG_Short`, holds.
+pub const MAX_ENCHANTMENT_LEVEL: u16 = 32_767;
+
 /// The tag key of a custom name and lore.
 const TAG_DISPLAY: &str = "display";
 /// The custom name in [`TAG_DISPLAY`].
@@ -89,6 +92,9 @@ pub enum Error {
     /// durability; for another, other than 0, one above 32,767, its type's own meta, or any where
     /// its name and block have more types than its own (a potion).
     InvalidDamage,
+    /// An enchantment level is 0 or above [`MAX_ENCHANTMENT_LEVEL`], which its saved form does not
+    /// read back.
+    InvalidEnchantmentLevel,
 }
 
 /// A result with the stack [`enum@Error`].
@@ -100,6 +106,10 @@ impl fmt::Display for Error {
             Self::TooLarge => write!(f, "the stack's saved form is over {MAX_NBT_BYTES} bytes"),
             Self::NameTooLong => write!(f, "the custom name is over {MAX_NAME_BYTES} bytes"),
             Self::InvalidDamage => f.write_str("the item cannot keep that damage"),
+            Self::InvalidEnchantmentLevel => write!(
+                f,
+                "an enchantment level is not from 1 to {MAX_ENCHANTMENT_LEVEL}"
+            ),
         }
     }
 }
@@ -127,9 +137,11 @@ pub struct Extra {
     /// Lines under the name (`display.Lore`).
     #[doc(alias = "Item::getLore")]
     pub lore: Vec<String>,
-    /// Enchantments and their levels (`ench`), in the order applied.
+    /// Enchantments and their levels (`ench`), in the order applied. A level is from 1 to
+    /// [`MAX_ENCHANTMENT_LEVEL`], past the enchantment's [`max_level`](Enchantment::max_level)
+    /// too.
     #[doc(alias = "Item::getEnchantments")]
-    pub enchantments: Vec<(Enchantment, u8)>,
+    pub enchantments: Vec<(Enchantment, u16)>,
     /// Every other NBT key of the stack, kept as received (book pages, fireworks, patterns…).
     #[doc(alias = "Item::getNamedTag")]
     pub nbt: Compound,
@@ -137,7 +149,7 @@ pub struct Extra {
 
 impl Extra {
     /// Sets enchantment `e` to `level`, in place of the one there or after the others.
-    pub(crate) fn set_enchantment(&mut self, e: Enchantment, level: u8) {
+    pub(crate) fn set_enchantment(&mut self, e: Enchantment, level: u16) {
         match self.enchantments.iter_mut().find(|(x, _)| *x == e) {
             Some(slot) => slot.1 = level,
             None => self.enchantments.push((e, level)),
@@ -202,7 +214,7 @@ impl Stack {
 
     /// The level of enchantment `e` on the stack (PMMP `Item::getEnchantmentLevel`), `None`
     /// without it.
-    pub(crate) fn enchantment_level(&self, e: Enchantment) -> Option<u8> {
+    pub(crate) fn enchantment_level(&self, e: Enchantment) -> Option<u16> {
         self.extra()?
             .enchantments
             .iter()
@@ -264,7 +276,8 @@ impl Stack {
     }
 
     /// The same stack with `extra` (`None` removes it). Fails if the stack would be over a limit
-    /// ([`MAX_NBT_BYTES`], [`MAX_NAME_BYTES`]); `self` stays as it is.
+    /// ([`MAX_NBT_BYTES`], [`MAX_NAME_BYTES`]) or an enchantment level is outside 1 to
+    /// [`MAX_ENCHANTMENT_LEVEL`]; `self` stays as it is.
     pub fn with_extra(&self, extra: Option<Extra>) -> Result<Self> {
         if self.is_empty() {
             return Ok(Self::EMPTY);
@@ -276,11 +289,19 @@ impl Stack {
         .checked()
     }
 
-    /// The stack if it is within the limits. One without extra data is its type's form (at most
-    /// a custom block state's 2,293 bytes of NBT), within them.
+    /// The stack if it is within the limits and its enchantment levels read back. One without
+    /// extra data is its type's form (at most a custom block state's 2,293 bytes of NBT), within
+    /// them.
     fn checked(self) -> Result<Self> {
-        if self.extra.is_none() {
+        let Some(extra) = &self.extra else {
             return Ok(self);
+        };
+        if extra
+            .enchantments
+            .iter()
+            .any(|&(_, level)| !(1..=MAX_ENCHANTMENT_LEVEL).contains(&level))
+        {
+            return Err(Error::InvalidEnchantmentLevel);
         }
         if self.custom_name().len() > MAX_NAME_BYTES {
             return Err(Error::NameTooLong);
@@ -423,9 +444,10 @@ impl Stack {
                     .enchantments
                     .iter()
                     .map(|&(e, level)| {
+                        // `checked` keeps every level at most `MAX_ENCHANTMENT_LEVEL`, a short.
                         Compound::from([
                             ("id".to_owned(), Value::Short(i16::from(e.id()))),
-                            ("lvl".to_owned(), Value::Short(i16::from(level))),
+                            ("lvl".to_owned(), Value::Short(level.cast_signed())),
                         ])
                     })
                     .collect();
@@ -645,8 +667,8 @@ fn split_tag(item: Type, durability: Option<u16>, mut tag: Compound) -> (Option<
 }
 
 /// The enchantments of an `ench` list if every entry is exactly `{id, lvl}` of a known
-/// enchantment and a level from 1 to 255, and the list is not empty.
-fn read_enchantments(list: &[Compound]) -> Option<Vec<(Enchantment, u8)>> {
+/// enchantment and a level above 0 (PMMP skips the others), and the list is not empty.
+fn read_enchantments(list: &[Compound]) -> Option<Vec<(Enchantment, u16)>> {
     if list.is_empty() {
         return None;
     }
@@ -660,7 +682,7 @@ fn read_enchantments(list: &[Compound]) -> Option<Vec<(Enchantment, u8)>> {
             else {
                 return None;
             };
-            let level = u8::try_from(*level).ok().filter(|l| *l > 0)?;
+            let level = u16::try_from(*level).ok().filter(|l| *l > 0)?;
             Some((Enchantment::from_id(*id)?, level))
         })
         .collect()
@@ -743,7 +765,7 @@ mod tests {
         let boots = Stack::new(kind(Kind::NetheriteBoots), 1)
             .with_extra(Some(Extra {
                 custom_name: Some("n".repeat(MAX_NAME_BYTES)),
-                enchantments: enchantments.map(|e| (e, e.max_level())).to_vec(),
+                enchantments: enchantments.map(|e| (e, u16::from(e.max_level()))).to_vec(),
                 nbt: Compound::from([("RepairCost".to_owned(), Value::Int(39))]),
                 ..Extra::default()
             }))
@@ -808,6 +830,28 @@ mod tests {
         let net = stack.to_network();
         assert_eq!(net.item_type.metadata_value, 0);
         assert_eq!(Stack::from_network(&net), Some(stack));
+    }
+
+    /// A level is any above 0 that the saved `lvl` (a `TAG_Short`) holds, as PMMP reads it: one
+    /// above 255 reads back from both forms; 0 and one past a short are refused.
+    #[test]
+    fn enchantment_levels_are_the_positive_shorts() {
+        let sword = Stack::new(kind(Kind::DiamondSword), 1);
+        let with = |level| {
+            sword.with_extra(Some(Extra {
+                enchantments: vec![(Enchantment::Sharpness, level)],
+                ..Extra::default()
+            }))
+        };
+        for level in [256, MAX_ENCHANTMENT_LEVEL] {
+            let stack = with(level).unwrap();
+            assert_eq!(stack.enchantment_level(Enchantment::Sharpness), Some(level));
+            assert_eq!(Stack::from_nbt(&stack.to_nbt()).as_ref(), Some(&stack));
+            assert_eq!(Stack::from_network(&stack.to_network()), Some(stack));
+        }
+        for level in [0, MAX_ENCHANTMENT_LEVEL + 1] {
+            assert_eq!(with(level), Err(Error::InvalidEnchantmentLevel), "{level}");
+        }
     }
 
     /// PMMP `Durable` reads a tag `Damage` of 0 as no wear (over an old meta too) and writes no

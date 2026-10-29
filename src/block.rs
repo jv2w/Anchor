@@ -2043,7 +2043,7 @@ mod tests {
     #[test]
     fn break_times_with_swords_and_efficiency_equal_pmmp() {
         use item::Kind as I;
-        let with = |kind: I, efficiency: u8| {
+        let with = |kind: I, efficiency: u16| {
             let stack = item::Stack::new(kind.default_type(), 1);
             if efficiency == 0 {
                 return stack;

@@ -1161,7 +1161,7 @@ mod tests {
     }
 
     /// Frost Walker boots of `level` on session 1.
-    fn boots(state: &mut State, level: u8) {
+    fn boots(state: &mut State, level: u16) {
         let extra = crate::item::Extra {
             enchantments: vec![(crate::item::Enchantment::FrostWalker, level)],
             ..crate::item::Extra::default()

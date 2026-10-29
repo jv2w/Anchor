@@ -278,9 +278,12 @@ fn merge(
         let mut level_now = material_level;
         let mut level_cost = u32::from(material_level);
         if let Some(existing) = input.enchantment_level(e) {
-            // A stack holds levels up to `u8::MAX`, past the maximum when a server gave it.
+            // A stack holds levels up to `MAX_ENCHANTMENT_LEVEL`, past the maximum when a server
+            // gave it.
             if existing > level_now
-                || (existing == level_now && (level_now == e.max_level() || level_now == u8::MAX))
+                || (existing == level_now
+                    && (level_now == u16::from(e.max_level())
+                        || level_now == item::MAX_ENCHANTMENT_LEVEL))
             {
                 incompatible_any = true;
                 continue;
@@ -296,7 +299,7 @@ fn merge(
         let mut extra = result.extra().cloned().unwrap_or_default();
         extra.set_enchantment(e, level_now);
         result = result.with_extra(Some(extra)).map_err(Refused::TooLarge)?;
-        cost += rarity * level_cost;
+        cost = cost.saturating_add(rarity * level_cost);
         if input.count() > 1 {
             cost = TOO_EXPENSIVE;
         }
@@ -309,7 +312,7 @@ mod tests {
     use super::*;
     use crate::item::Extra;
 
-    fn enchanted(kind: Kind, list: &[(Enchantment, u8)]) -> Stack {
+    fn enchanted(kind: Kind, list: &[(Enchantment, u16)]) -> Stack {
         Stack::new(kind.default_type(), 1)
             .with_extra(Some(Extra {
                 enchantments: list.to_vec(),

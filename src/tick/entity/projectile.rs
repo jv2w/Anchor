@@ -233,7 +233,8 @@ pub(super) fn release_bow_with(
         } else {
             Pickup::Any
         },
-        punch: level_of(&bow, Enchantment::Punch),
+        // An arrow keeps a Punch of at most 255, its saved `punch` byte.
+        punch: u8::try_from(level_of(&bow, Enchantment::Punch)).unwrap_or(u8::MAX),
         life: 0,
     };
     let kind = Kind::Projectile(Projectile {

@@ -1381,7 +1381,7 @@ mod tests {
         Stack::new(kind.default_type(), count)
     }
 
-    fn enchanted(kind: ItemKind, enchantments: &[(Enchantment, u8)]) -> Stack {
+    fn enchanted(kind: ItemKind, enchantments: &[(Enchantment, u16)]) -> Stack {
         stack(kind, 1)
             .with_extra(Some(Extra {
                 enchantments: enchantments.to_vec(),
@@ -1802,7 +1802,7 @@ mod tests {
 
     #[test]
     fn blast_protection_counts_against_block_and_entity_explosions() {
-        let taken = |cause: Damage, level: u8| {
+        let taken = |cause: Damage, level: u16| {
             let mut server = Server::new(1, |_| {});
             let boots = enchanted(
                 ItemKind::DiamondBoots,
@@ -1825,6 +1825,10 @@ mod tests {
         assert_eq!(damage::epf(4, 2.5), 18);
         assert_eq!(damage::epf(4, 1.5), 11);
         assert_eq!(damage::epf(255, 2.5), 54_192);
+        assert_eq!(
+            damage::epf(crate::item::MAX_ENCHANTMENT_LEVEL, 2.5),
+            894_730_245
+        );
     }
 
     #[test]

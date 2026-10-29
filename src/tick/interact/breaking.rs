@@ -167,7 +167,7 @@ mod tests {
         Stack::new(kind.default_type(), 1)
     }
 
-    fn enchanted(kind: I, e: Enchantment, level: u8) -> Stack {
+    fn enchanted(kind: I, e: Enchantment, level: u16) -> Stack {
         let extra = Extra {
             enchantments: vec![(e, level)],
             ..Extra::default()
@@ -324,7 +324,11 @@ mod tests {
     #[test]
     fn the_highest_unbreaking_level_wears_without_overflow() {
         let on = settings(true);
-        let tough = enchanted(I::DiamondPickaxe, Enchantment::Unbreaking, u8::MAX);
+        let tough = enchanted(
+            I::DiamondPickaxe,
+            Enchantment::Unbreaking,
+            crate::item::MAX_ENCHANTMENT_LEVEL,
+        );
         let mut rng = Random::new(0, 0, 0);
         assert!(damage(&on, &tough, 1, &mut rng).damage() <= 1);
     }

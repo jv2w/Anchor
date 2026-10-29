@@ -56,7 +56,7 @@ impl Drops {
 }
 
 /// The level of an enchantment on a stack, 0 if it has none.
-pub(in crate::tick) fn level(stack: &Stack, enchantment: Enchantment) -> u8 {
+pub(in crate::tick) fn level(stack: &Stack, enchantment: Enchantment) -> u16 {
     stack.enchantment_level(enchantment).unwrap_or(0)
 }
 
@@ -162,7 +162,7 @@ fn weighted(tool: &Stack, rng: &mut Random, min: u32, max_base: u32) -> u32 {
 
 /// PMMP `FortuneDropHelper::binomial`: `min` plus a success per roll, `min_rolls + fortune`
 /// rolls.
-fn binomial(fortune: u8, rng: &mut Random, min: u32, min_rolls: u32, chance: f64) -> u32 {
+fn binomial(fortune: u16, rng: &mut Random, min: u32, min_rolls: u32, chance: f64) -> u32 {
     let rolls = min_rolls + u32::from(fortune);
     (0..rolls).fold(min, |n, _| n + u32::from(rng.unit() < chance))
 }
@@ -651,7 +651,7 @@ mod tests {
     }
 
     /// `tool` with Fortune of `level`.
-    fn fortune(tool: crate::item::Type, level: u8) -> Stack {
+    fn fortune(tool: crate::item::Type, level: u16) -> Stack {
         let extra = Extra {
             enchantments: vec![(Enchantment::Fortune, level)],
             ..Extra::default()

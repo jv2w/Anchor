@@ -189,7 +189,7 @@ pub(in crate::tick) fn enchant(
     };
     let mut extra = base.extra().cloned().unwrap_or_default();
     for &(e, level) in enchantments {
-        extra.set_enchantment(e, level);
+        extra.set_enchantment(e, u16::from(level));
     }
     base.with_extra(Some(extra))
 }

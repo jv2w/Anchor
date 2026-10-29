@@ -369,7 +369,13 @@ fn enchanting_follows_the_option_spends_lapis_and_levels_and_reseeds() {
     assert!(ok(&w.request_as(s, id, actions)));
     let out = ui_stack(&w, s, 0);
     assert_eq!(out.item(), Some(item(Kind::IronPickaxe)));
-    assert_eq!(out.extra().unwrap().enchantments, options[1].1.enchantments);
+    let chosen: Vec<_> = options[1]
+        .1
+        .enchantments
+        .iter()
+        .map(|&(e, level)| (e, u16::from(level)))
+        .collect();
+    assert_eq!(out.extra().unwrap().enchantments, chosen);
     assert_eq!(
         ui_stack(&w, s, 1).count(),
         1,
@@ -643,7 +649,10 @@ fn the_anvil_handles_levels_and_prior_work_at_their_limits() {
             .unwrap()
     };
     let highest = Extra {
-        enchantments: vec![(crate::item::Enchantment::Sharpness, u8::MAX)],
+        enchantments: vec![(
+            crate::item::Enchantment::Sharpness,
+            crate::item::MAX_ENCHANTMENT_LEVEL,
+        )],
         ..Extra::default()
     };
     let worked = Extra {
