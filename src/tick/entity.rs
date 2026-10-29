@@ -5668,6 +5668,47 @@ mod tests {
         );
     }
 
+    /// What a full inventory cannot take back as a window closes, or as the player dies, the
+    /// player throws (PMMP `doCloseInventory`: a `DropItemAction`, `Player::dropItem`).
+    #[test]
+    fn items_a_full_inventory_cannot_take_back_are_thrown_by_the_player() {
+        for dies in [false, true] {
+            let mut h = Harness::new(1);
+            h.spawn(1, standing(0.0, 0.0));
+            h.look(1, 270.0, 0.0);
+            let s = SessionId::new(1);
+            let name = h.state.players[&s].identity.name.clone();
+            let player = h.state.players.get_mut(&s).unwrap();
+            for _ in 0..36 {
+                let left = inventory::give(player, stack("minecraft:cobblestone", 64));
+                assert!(left.is_empty());
+            }
+            let held = stack("minecraft:stick", 3);
+            assert!(inventory::hold_outside(player, held.clone(), Stack::EMPTY));
+            if dies {
+                // Dying closes the window first.
+                assert!(player.kill());
+                h.step(Vec::new());
+            } else {
+                inventory::close_window(&mut h.state, s);
+            }
+            let thrown: Vec<_> = h
+                .live()
+                .iter()
+                .filter(|e| matches!(&e.kind, Kind::Item(i) if i.stack == held))
+                .map(|e| (e.thrower().map(str::to_owned), e.kind.clone()))
+                .collect();
+            let [(thrower, Kind::Item(item))] = thrown.as_slice() else {
+                panic!("one stick item (dies {dies}): {thrown:?}");
+            };
+            assert_eq!(thrower.as_deref(), Some(name.as_str()), "dies {dies}");
+            assert!(
+                item.pickup_delay <= 40 && item.pickup_delay > 30,
+                "dies {dies}"
+            );
+        }
+    }
+
     /// An orb the player touches while its pickup cooldown runs stays (PMMP
     /// `ExperienceManager::canPickupXp`), and goes once the player can pick it up.
     #[test]

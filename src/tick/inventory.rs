@@ -14,9 +14,9 @@
 //! count per player from 2 (PMMP `getNewWindowId`, as BDS). Opening while another window is
 //! open closes it from the server side and sends the new one once the client acknowledges the
 //! close (PMMP `openWindowDeferred`). Closing gives the cursor, the grids and the window's own
-//! slots back to the inventory; what does not fit drops at the player's feet, and what cannot be
-//! dropped (the world's entity limit) waits in a bounded list given back as slots free up: no
-//! item is ever lost.
+//! slots back to the inventory; what does not fit the player throws, and what cannot be thrown
+//! (the world's entity limit) waits in a bounded list given back as slots free up: no item is
+//! ever lost.
 //!
 //! A menu ([`menu`]) is a window of server-owned items on fake container blocks; requests move
 //! items into and out of its editable slots only.
@@ -2411,8 +2411,8 @@ fn close_now(state: &mut State, session: SessionId, notice: Notice, raise: Raise
     }
 }
 
-/// Puts stacks back into the inventory; what does not fit drops at the player's feet, and what
-/// cannot drop waits in the player's pending list.
+/// Puts stacks back into the inventory; what does not fit the player throws ([`throw_stack`]),
+/// and what cannot be thrown waits in the player's pending list.
 fn give_back(state: &mut State, session: SessionId, stacks: Vec<Stack>) {
     let Some(player) = state.players.get_mut(&session) else {
         return;
@@ -2424,10 +2424,8 @@ fn give_back(state: &mut State, session: SessionId, stacks: Vec<Stack>) {
             drops.push(left);
         }
     }
-    let (world, eye) = (player.world, player.position);
-    let at = Vec3::new(eye.x, eye.y - DROP_BELOW_EYE, eye.z);
     for stack in drops {
-        if drop_stack(state, world, at, stack.clone()) {
+        if throw_stack(state, session, stack.clone()) {
             continue;
         }
         let Some(player) = state.players.get_mut(&session) else {
