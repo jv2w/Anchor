@@ -230,7 +230,7 @@
   - 문을 빈손으로 누르면 누를 때마다 `PlayerInput`, 예측 1 클릭 하나다.
   - ClickAir(눈덩이)는 trigger `Unknown`이고, 엔티티 Interact도 누르고 있어도 되풀이되지 않는다.
   - Anchor: `PlayerInteract::is_first`는 누름마다 처음 쏘는 오른쪽 클릭만 참이다. `SimulationTick`이 아닌 클릭, 또는 직전 블록 클릭에서 `PRESS_GAP_TICKS`보다 늦은 클릭이 새 누름이다.
-- 불사의 토템 화면 연출(공식 클라이언트, 공식 서버 1.26.5x 위의 이전 운영 서버가 쓰던 방식. 봇으로는 볼 수 없음): 클라이언트는 손에 불사의 토템이 있을 때만 자기 런타임 ID의 ActorEvent TalismanActivate(데이터 0)에 화면 연출을 그린다. 왼손 창 전체에 토템(스택 네트워크 ID 없음)을 보이는 InventoryContent, 그 이벤트, 원래 왼손의 InventoryContent를 차례로 보내면 그 플레이어에게만 연출이 나온다.
+- 불사의 토템 화면 연출(공식 클라이언트에서만 보이고 봇으로는 볼 수 없어 확인하지 않음, 끝의 "실제 클라이언트로만 확인"): 클라이언트는 손에 불사의 토템이 있을 때만 자기 런타임 ID의 ActorEvent TalismanActivate(데이터 0)에 화면 연출을 그린다고 본다. 그래서 왼손 창 전체에 토템(스택 네트워크 ID 없음)을 보이는 InventoryContent, 그 이벤트, 원래 왼손의 InventoryContent를 차례로 보내 그 플레이어에게만 연출을 보인다.
   - Anchor: `Player::show_totem_animation`이 이 셋을 그 플레이어에게만 보낸다. 바닐라 토템이 살릴 때는 토템이 손에 있는 채로 보는 사람 모두에게 이벤트를 보낸다.
 - 비행: 같은 겨냥에서 공식 서버 투척 물약은 3.5블록 벽 높이 1.6에 맞고 Anchor는 땅에 맞는다(던지는 각도·힘 차이로 보임). 삼지창은 1초 당겨 수평으로 공식 서버 약 24블록, Anchor 약 12블록이다. 범위 밖의 차이로 둔다.
 
@@ -271,6 +271,7 @@
 - `EntityDataFlagCount` 131과 128~130번 플래그가 공식 클라이언트만 쓰는 값인지.
 - 비·눈·천둥 하늘과 번개 모습·소리, 플래그 0 AddActor로 번개가 그려지는지.
 - 멀리 있는(보이지 않는) 다른 플레이어의 위치 표시줄.
+- `locator-bar = false`(GameRulesChanged `playerWaypoints` 0, `locatorbar` true, 위치 표시줄 패킷 없음)에서 위치 표시줄에 다른 플레이어가 없는지. 공식 서버가 쓴 `level.dat`에는 `playerwaypoints`(int, 0인 월드와 1인 월드를 보았다)만 있고 `locatorbar` 키는 없다. 공식 서버가 `gamerule locatorbar false`에 보내는 GameRulesChanged는 보지 않았다.
 - 거래 때 Event EntityInteract를 보내지 않아도 클라이언트 동작에 차이가 없는지.
 - 가져온 월드에서 Anchor가 모르는 화분 식물(벚나무 묘목 등 비활성 블록)이 보이는지. BlockActorData `PlantBlock`에 공식 서버가 저장한 원본 그대로를 보낸다. 봇 시나리오로는 놓을 수 없다(Anchor에 그 아이템이 없음).
 - Anchor가 모르는 배너 무늬 ID를 BlockActorData `Patterns`로 받을 때 클라이언트가 그 층만 무시하는지.

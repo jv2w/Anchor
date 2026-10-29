@@ -1027,7 +1027,7 @@ getters!(PlayerItemHeld {
 });
 
 /// Raised when a player uses the held item in the air (throwing, drawing a bow, eating, drinking).
-/// Cancelling does nothing.
+/// Cancelling refuses the use: nothing is thrown, drawn, eaten or drunk, and no cooldown starts.
 #[doc(alias = "PlayerItemUseEvent")]
 #[derive(Debug)]
 pub struct PlayerItemUse {

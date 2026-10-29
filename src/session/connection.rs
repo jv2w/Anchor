@@ -159,7 +159,8 @@ struct Session {
     /// (`ClickBlock`, trigger `SimulationTick`), and when it went. The client sends that click
     /// again every frame while the button is down, so its byte-for-byte copies are dropped
     /// before the packet budget for [`HELD_CLICK_REPEAT`]: the tick ignores an identical click
-    /// within two ticks anyway. Any other use forwarded forgets it.
+    /// within two ticks of the first, so it would have ignored most of them (where it would not,
+    /// `.claude/docs/network.md`). Any other use forwarded forgets it.
     held_click: Option<(Header, Vec<u8>, Duration)>,
     pre_auth_bytes: usize,
     identity: Option<Identity>,
