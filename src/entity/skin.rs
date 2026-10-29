@@ -22,7 +22,7 @@ const MAX_GEOMETRY_BYTES: usize = 1 << 20;
 /// under 1 MiB; the cap bounds what every other player is sent when the player joins
 /// (`PlayerList`) or changes it, and `max-batch-bytes` is at least one player list entry with
 /// such a skin.
-pub(crate) const MAX_SKIN_BYTES: usize = 4 << 20;
+pub const MAX_SKIN_BYTES: usize = 4 << 20;
 /// The deepest nesting of JSON objects and arrays in a skin's geometry and resource patch: the
 /// protocol requires both to be depth-limited JSON, and the official server refuses deeper skin
 /// JSON from clients.
