@@ -1058,7 +1058,9 @@ impl Mut<'_> {
         }
     }
 
-    /// Sets a projectile's base damage, 0 to 1,024.
+    /// Sets a projectile's base damage, from 0 to that of an arrow shot from a bow of Power
+    /// [`MAX_ENCHANTMENT_LEVEL`](crate::item::MAX_ENCHANTMENT_LEVEL). False for another kind or
+    /// a damage outside that range.
     #[doc(alias = "Projectile::setBaseDamage")]
     pub fn set_base_damage(&mut self, damage: f64) -> bool {
         if !(0.0..=MAX_PROJECTILE_DAMAGE).contains(&damage) {

@@ -76,8 +76,9 @@ const MAX_COORDINATE: f64 = crate::world::BORDER as f64;
 /// How far below and above the world height a saved position may be: entities fall out of the
 /// world and die 16 blocks under it.
 pub(super) const HEIGHT_MARGIN: f64 = 64.0;
-/// The largest projectile base damage read (a bow with Power V gives 5).
-pub(super) const MAX_PROJECTILE_DAMAGE: f64 = 1024.0;
+/// The largest projectile base damage read: that of an arrow from a bow of the highest Power.
+pub(super) const MAX_PROJECTILE_DAMAGE: f64 =
+    super::projectile::bow_arrow_damage(crate::item::MAX_ENCHANTMENT_LEVEL);
 /// The largest cloud radius and radius change read, in blocks (PMMP's default radius is 3).
 pub(super) const MAX_CLOUD_RADIUS: f64 = 64.0;
 /// The longest a cloud lives, in ticks (one day of the world; PMMP's default is 600).
@@ -1192,6 +1193,17 @@ pub(super) mod tests {
                 owner: String::new(),
                 thrower: String::new(),
             }),
+            // Shot from a bow of the highest Power.
+            projectile(
+                Shot::Arrow(Arrow {
+                    critical: true,
+                    pickup: Pickup::Any,
+                    punch: u8::MAX,
+                    life: 0,
+                }),
+                super::super::projectile::bow_arrow_damage(crate::item::MAX_ENCHANTMENT_LEVEL),
+                None,
+            ),
         ]
     }
 

@@ -48,6 +48,15 @@ use crate::world::particle_id;
 
 /// An arrow's base damage (PMMP `Arrow::$damage`).
 pub(super) const ARROW_DAMAGE: f64 = 2.0;
+
+/// The base damage of an arrow shot from a bow of Power `power` (PMMP `Bow::onReleaseUsing`).
+pub(super) const fn bow_arrow_damage(power: u16) -> f64 {
+    if power > 0 {
+        ARROW_DAMAGE + f64::midpoint(power as f64, 1.0)
+    } else {
+        ARROW_DAMAGE
+    }
+}
 /// A cloud's first radius, life and reapplication delay (PMMP `AreaEffectCloud::DEFAULT_*`).
 pub(super) const CLOUD_RADIUS: f64 = 3.0;
 pub(super) const CLOUD_DURATION: i32 = 600;
@@ -220,12 +229,7 @@ pub(super) fn release_bow_with(
         return false;
     }
     let infinity = level_of(&bow, Enchantment::Infinity) > 0;
-    let power = level_of(&bow, Enchantment::Power);
-    let damage = if power > 0 {
-        ARROW_DAMAGE + f64::midpoint(f64::from(power), 1.0)
-    } else {
-        ARROW_DAMAGE
-    };
+    let damage = bow_arrow_damage(level_of(&bow, Enchantment::Power));
     let arrow = Arrow {
         critical: force >= 1.0,
         pickup: if infinity || !finite {
