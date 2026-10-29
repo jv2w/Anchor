@@ -520,7 +520,7 @@ pub(in crate::tick) fn full_metadata(_settings: &Settings, player: &Player) -> E
     put(K::AimAssistPriorityCategoryId, V::Int32(-1));
     // BDS sends this key as an int32 (P6 `others` data types).
     put(K::AimAssistPriorityActorId, V::Int32(-1));
-    put(K::FireworkDirection, V::Float32(64.0));
+    put(K::NameplateRenderDistanceMax, V::Float32(64.0));
     changed_metadata(&shown(player), None, &mut m);
     m
 }
@@ -656,7 +656,7 @@ fn adventure_packet(auto_jump: bool) -> Packet {
 /// The 39 game rules BDS sends, in its order (P6), with the values Anchor's rules have: what Anchor
 /// does not simulate (mob spawning, weather, insomnia, freezing, command blocks, respawn anchors
 /// exploding, projectiles breaking blocks) is off, `pvp`, `randomTickSpeed`, the day cycle,
-/// drowning and fall damage come from the settings, players respawn on the spawn block
+/// drowning, fall damage and the coordinates come from the settings, players respawn on the spawn block
 /// (`spawnRadius` 0) and death messages are not broadcast.
 pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
     use GameRuleValue::{Bool, Uint32};
@@ -677,7 +677,7 @@ pub(in crate::tick) fn game_rules(settings: &Settings) -> Packet {
         ("keepInventory", Bool(false)),
         ("mobGriefing", Bool(true)),
         ("pvp", Bool(settings.pvp)),
-        ("showCoordinates", Bool(false)),
+        ("showCoordinates", Bool(settings.show_coordinates)),
         ("playerWaypoints", Uint32(1)),
         ("locatorbar", Bool(true)),
         ("showDaysPlayed", Bool(false)),

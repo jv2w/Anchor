@@ -2047,6 +2047,19 @@ fn critical_hits_setting_decides_critical_hits_while_sprinting() {
 }
 
 #[test]
+fn show_coordinates_sets_the_rule_the_client_shows_them_by() {
+    use crate::protocol::GameRuleValue::Bool;
+    let shown = |on: bool| {
+        game_rule(
+            &spawn_window(|c| c.general.show_coordinates = on),
+            "showCoordinates",
+        )
+    };
+    assert_eq!(shown(false), Some(Bool(false)));
+    assert_eq!(shown(true), Some(Bool(true)));
+}
+
+#[test]
 fn movement_check_off_takes_moves_of_more_than_fifteen_blocks() {
     let moved = |on: bool| {
         let mut game = Game::with(1, Listeners::default(), |c| {

@@ -79,6 +79,8 @@ critical-hits = "sprint"
 break-time-check = true
 # The server checks that a move is not too far (more than 15 blocks in one input).
 movement-check = true
+# Every player sees its coordinates on screen.
+show-coordinates = false
 # Main world. level-type fills the chunks never saved: "flat" or "void".
 level-name = "world"
 level-type = "flat"
@@ -211,6 +213,7 @@ console-input = true
 | `critical-hits` | 문자열 | `"sprint"` | `off`, `sprint`, `always` | 치명타. `off`는 없음, `sprint`는 달리지 않을 때만(바닐라), `always`는 달릴 때도 |
 | `break-time-check` | bool | `true` | | 블록을 부수는 데 충분한 시간이 걸렸는지 서버가 검사할지. 도달 거리와 블록 종류 검사는 늘 한다 |
 | `movement-check` | bool | `true` | | 한 입력에 15블록을 넘는 이동을 거부할지. `false`면 그런 이동의 땅 판정은 지나온 길 없이 도착 자리만 본다 |
+| `show-coordinates` | bool | `false` | | 모든 플레이어 화면에 자기 좌표를 보일지. 게임 규칙 `showCoordinates`의 값이다 |
 | `level-name` | 문자열 | `"world"` | 1~64바이트, `;`와 제어 문자 없음, 월드 이름 규칙(`storage.md`) | 기본 월드 이름. 파일은 `data/worlds/<이름>.redb` |
 | `level-type` | 문자열 | `"flat"` | `flat`, `void` | 기본 월드에서 저장된 적 없는 청크를 채우는 생성기 |
 | `level-seed` | 문자열 | `""` | 빈 값 또는 i64 정수 문자열 | 기본 월드 시드. 비면 월드 이름에서 만들어 시작마다 같다 |
