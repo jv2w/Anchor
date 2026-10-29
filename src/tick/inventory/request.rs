@@ -31,8 +31,8 @@ use super::super::entity::Raise;
 use super::super::{Phase, Player, SessionId, State, block_entity, entity, survival};
 use super::{
     Container, GRID, Inventory, Notice, Slot, SlotRef, StackId, Station, UI_CREATED_OUTPUT, Window,
-    WindowKind, block_slot, close_now, give_pending, menu, resend_all, station, throw_stack,
-    window_slot_of,
+    WindowKind, block_slot, can_throw, close_now, give_pending, menu, resend_all, station,
+    throw_stack, window_slot_of,
 };
 use crate::block::{self, Class};
 use crate::crafting::{self, Recipe, ShapelessType};
@@ -87,6 +87,8 @@ pub(super) enum Error {
     Consumed,
     /// More than one drop in a request (a failed second drop could not undo the first).
     Drops,
+    /// A drop the world has no room for (its entity limit, an unloaded position).
+    Undroppable,
     /// The stacks held outside the slots afterwards could not all wait for room on a close (the
     /// player already waits with many stacks).
     Unreturnable,
@@ -122,6 +124,7 @@ impl fmt::Display for Error {
             Self::Layout => "the grid does not lay out the recipe",
             Self::Consumed => "consumed items do not match the recipe",
             Self::Drops => "more than one drop",
+            Self::Undroppable => "no room in the world for the drop",
             Self::Unreturnable => "held items could not go back",
             Self::Unsupported => "station action not available",
             Self::Cancelled => "cancelled by a listener",
@@ -389,7 +392,12 @@ fn check(
         &ctx,
     );
     exec.describe = describe;
-    exec.run(&request.actions)
+    let plan = exec.run(&request.actions)?;
+    // Here, not as the drop is made: a menu handler never keeps a change the world then refuses.
+    if plan.drop.is_some() && !can_throw(state, session) {
+        return Err(Error::Undroppable);
+    }
+    Ok(plan)
 }
 
 /// Checks a request without applying it.
@@ -427,14 +435,17 @@ fn refuse(state: &mut State, session: SessionId, request: i32) {
     resend_all(player, tick, blocks);
 }
 
-/// Applies a checked request: the drop first (if the world has no room for it, nothing
-/// changes), then every slot, the response, the other viewers of a changed container, and the
-/// stacks waiting for room.
+/// Applies a request checked on the game as it is: the drop, every slot, the response, the
+/// other viewers of a changed container, and the stacks waiting for room.
 fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Result<()> {
-    if let Some(stack) = &plan.drop
-        && !throw_stack(state, session, stack.clone())
-    {
-        return Err(Error::Drops);
+    if let Some(stack) = plan.drop.clone() {
+        #[expect(
+            clippy::expect_used,
+            reason = "invariant: run's last check, with no callback after it, found room for the drop"
+        )]
+        throw_stack(state, session, stack)
+            .then_some(())
+            .expect("invariant: a checked drop has room in the world");
     }
     let State { players, rules, .. } = state;
     let player = players.get_mut(&session).ok_or(Error::NoSlot)?;

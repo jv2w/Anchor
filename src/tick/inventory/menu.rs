@@ -6,10 +6,10 @@
 //! the window opens [`OPEN_DELAY`] ticks later, once the client has the blocks. Any item stack
 //! request that names a menu slot that is not editable is refused whole and the player's screen
 //! is sent again; the request's first take, place, swap or drop of such a slot becomes one
-//! [`Click`] for the handler. A request that names only editable slots and only takes, places and
-//! swaps runs as in a chest window ([`super::request`]), with the handler as its last listener: it
-//! hears the changes ([`Change`]) after the request's events, and the request is checked again
-//! and made only if it keeps them. The handler runs in the input phase with the handler taken out
+//! [`Click`] for the handler. A request that names only editable slots and only takes, places,
+//! swaps and drops runs as in a chest window ([`super::request`]), with the handler as its last
+//! listener: it hears the changes ([`Change`]) after the request's events, and the request is
+//! checked again and made (a drop thrown) only if it keeps them. The handler runs in the input phase with the handler taken out
 //! of the state ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes
 //! once.
 //!
@@ -137,11 +137,11 @@ impl Context<'_> {
     /// Opens `menu` for `player`: a chest, double chest or hopper screen whose items the player
     /// cannot take, place or drop but in its editable slots. Each click on another slot is
     /// refused (the player's screen is put back) and calls `handler` once, in the tick, with what
-    /// the player tried ([`Input::Click`]). Each request that moves items into, out of or between
-    /// editable slots is checked as in a chest window, then calls `handler` once with its changes
-    /// ([`Input::Change`]) before they are made. The handler's [`Response`] makes a change and
-    /// keeps the menu open or closes it, or refuses the change. A window the player had open
-    /// closes first.
+    /// the player tried ([`Input::Click`]). Each request that moves items into, out of (a drop
+    /// throws them) or between editable slots is checked as in a chest window, then calls
+    /// `handler` once with its changes ([`Input::Change`]) before they are made. The handler's
+    /// [`Response`] makes a change and keeps the menu open or closes it, or refuses the change. A
+    /// window the player had open closes first.
     ///
     /// The screen stands on container blocks shown to this player alone, behind it (as `InvMenu`
     /// places them), and opens two ticks later, once the client has them. It closes as any
@@ -399,11 +399,11 @@ pub(super) fn closed(state: &mut State, session: SessionId) {
 pub(super) enum Touch {
     /// It names no slot of a shown menu.
     Nothing,
-    /// It only takes, places and swaps, and names editable slots of the menu but no other: it
-    /// runs, and the handler hears of its changes.
+    /// It only takes, places, swaps and drops, and names editable slots of the menu but no other:
+    /// it runs, and the handler hears of its changes.
     Edit(Id),
-    /// It names a menu slot but clicks none, or does more than take, place and swap with an
-    /// editable slot: it is refused.
+    /// It names a menu slot but clicks none, or does more than take, place, swap and drop with
+    /// an editable slot: it is refused.
     Refused,
     /// It clicks a slot that is not editable: it is refused, and the handler hears of the click.
     Click(Click),
@@ -432,7 +432,8 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
         return Touch::Nothing;
     };
     let mut touch = Touch::Nothing;
-    // Whether it names an editable slot, and whether each action only moves items.
+    // Whether it names an editable slot, and whether each action only moves items (a drop moves
+    // them out, as from a chest).
     let (mut edits, mut moves_only) = (false, true);
     for action in &request.actions {
         let (named, moves) = match action {
@@ -455,7 +456,7 @@ pub(super) fn touch(state: &State, session: SessionId, request: &ItemStackReques
                 ],
                 true,
             ),
-            StackRequestAction::Drop(a) => ([menu(&a.source, Some(Action::Drop)), None], false),
+            StackRequestAction::Drop(a) => ([menu(&a.source, Some(Action::Drop)), None], true),
             StackRequestAction::Destroy(a) => ([menu(&a.source, None), None], false),
             StackRequestAction::Consume(a) => (
                 [menu(&a.destroy_stack_request_action.source, None), None],

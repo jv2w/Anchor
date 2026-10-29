@@ -56,6 +56,11 @@ pub(super) fn stand_in_drop(stack: &Stack) -> Option<bool> {
     Some(true)
 }
 
+/// The stand-in's answer to whether a drop has room: `None` when no test stands in.
+pub(super) fn stand_in_room() -> Option<bool> {
+    ROOM.get().map(|room| room > 0)
+}
+
 pub(super) fn set_room(room: usize) {
     ROOM.set(Some(room));
 }

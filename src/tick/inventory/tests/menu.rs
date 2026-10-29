@@ -752,11 +752,6 @@ fn editable_slots_move_items_as_a_chest_and_the_handler_hears_each_change() {
             .collect::<Vec<_>>(),
         [(5, Action::Place), (5, Action::Place)]
     );
-    // An editable slot is no button: dropping from it is refused without a click.
-    let r = w.request(s, vec![drop_action(1, at(C::LevelEntity, 0, net0))]);
-    assert!(!ok(&r));
-    assert!(heard().is_empty() && changes().is_empty());
-    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(4));
     // Items only moved: the player has the sword and six sticks, the menu four sticks.
     let mut after = totals(&w.state);
     *after.entry(plain(it::Kind::Stick)).or_default() += 4;
@@ -810,6 +805,88 @@ fn a_refused_change_puts_every_slot_back() {
     assert_eq!(w.inv(s).cursor, cursor);
     assert_eq!(w.inv(s).window, window, "the menu slots' IDs too");
     assert_eq!(cx(&mut w).menu_items(id(s)).unwrap(), items);
+}
+
+// pmmp: PlayerDropItemEvent
+#[test]
+fn a_drop_from_an_editable_slot_is_a_change_thrown_once_kept() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Chest).item(0, sticks(4)).editable(0);
+    open_editable(&mut w, s, menu, keep_change);
+    let (_, net) = shown(&w, s, 0);
+    let r = w.request(s, vec![drop_action(1, at(C::LevelEntity, 0, net))]);
+    assert!(ok(&r), "{r:?}");
+    let heard_changes = changes();
+    assert_eq!(heard_changes.len(), 1, "a change, not a click");
+    assert!(heard().is_empty());
+    assert_eq!(
+        described(&heard_changes[0]),
+        [(true, 0, sticks(4), sticks(3))]
+    );
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(3));
+    assert_eq!(dropped(), [sticks(1)], "thrown as from a chest");
+    // The whole stack: the slot empties.
+    let (_, net) = shown(&w, s, 0);
+    let r = w.request(s, vec![drop_action(3, at(C::LevelEntity, 0, net))]);
+    assert!(ok(&r), "{r:?}");
+    assert_eq!(
+        described(&changes()[0]),
+        [(true, 0, sticks(3), Stack::EMPTY)]
+    );
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], Stack::EMPTY);
+    assert_eq!(dropped(), [sticks(1), sticks(3)]);
+}
+
+#[test]
+fn a_refused_drop_from_an_editable_slot_throws_nothing() {
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Chest).item(0, sticks(4)).editable(0);
+    open_editable(&mut w, s, menu, refuse_change);
+    let (window, net) = shown(&w, s, 0);
+    assert!(!ok(
+        &w.request(s, vec![drop_action(1, at(C::LevelEntity, 0, net))])
+    ));
+    assert_eq!(changes().len(), 1, "the handler heard it");
+    assert!(dropped().is_empty());
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(4));
+    assert_eq!(shown(&w, s, 0), (window, net));
+    // A world without room for the item: refused before the handler hears of it.
+    open_editable(
+        &mut w,
+        s,
+        Menu::new(MenuKind::Chest).item(0, sticks(4)).editable(0),
+        keep_change,
+    );
+    let (_, net) = shown(&w, s, 0);
+    set_room(0);
+    assert!(!ok(
+        &w.request(s, vec![drop_action(1, at(C::LevelEntity, 0, net))])
+    ));
+    assert!(changes().is_empty(), "no change the world cannot take");
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[0], sticks(4));
+}
+
+#[test]
+fn the_same_menu_drop_twice_leaves_the_state_of_once() {
+    let run = |twice: bool| {
+        let mut w = World::new(GameMode::Survival);
+        let s = w.join(1);
+        let menu = Menu::new(MenuKind::Chest).item(3, sticks(4)).editable(3);
+        open_editable(&mut w, s, menu, keep_change);
+        let (_, net) = shown(&w, s, 3);
+        let drop = vec![drop_action(1, at(C::LevelEntity, 3, net))];
+        assert!(ok(&w.request_as(s, -1, drop.clone())));
+        if twice {
+            assert!(!ok(&w.request_as(s, -1, drop)));
+        }
+        assert_eq!(changes().len(), 1, "the handler hears it once");
+        assert_eq!(dropped(), [sticks(1)], "thrown once");
+        w.state.tick = 1000;
+        w.state.hash()
+    };
+    assert_eq!(run(false), run(true));
 }
 
 #[test]

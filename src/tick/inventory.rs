@@ -2671,10 +2671,8 @@ pub(super) fn throw_stack(state: &mut State, session: SessionId, stack: Stack) -
     let Some(player) = state.players.get(&session) else {
         return false;
     };
-    let eye = player.position;
-    let at = Vec3::new(eye.x, eye.y - DROP_BELOW_EYE, eye.z);
+    let (world, at) = throw_origin(player);
     let motion = super::survival::look_direction(player) * THROW_SPEED;
-    let world = player.world;
     #[cfg(test)]
     if let Some(dropped) = tests::stand_in_drop(&stack) {
         return dropped;
@@ -2686,6 +2684,29 @@ pub(super) fn throw_stack(state: &mut State, session: SessionId, stack: Stack) -
     }
     super::survival::swing(state, session);
     true
+}
+
+/// Whether [`throw_stack`] would throw a stack for `session` now (the world has room for the
+/// item entity).
+pub(super) fn can_throw(state: &State, session: SessionId) -> bool {
+    let Some(player) = state.players.get(&session) else {
+        return false;
+    };
+    #[cfg(test)]
+    if let Some(room) = tests::stand_in_room() {
+        return room;
+    }
+    let (world, at) = throw_origin(player);
+    super::entity::can_create(state, world, at)
+}
+
+/// Where the player throws from: its world, [`DROP_BELOW_EYE`] below its eyes.
+fn throw_origin(player: &Player) -> (WorldIndex, Vec3) {
+    let eye = player.position;
+    (
+        player.world,
+        Vec3::new(eye.x, eye.y - DROP_BELOW_EYE, eye.z),
+    )
 }
 
 /// Drops `stack` as an item entity ([`super::entity::drop_item`]); false if the world has no

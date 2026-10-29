@@ -1831,7 +1831,7 @@ const HOOKS: Hooks = Hooks {
 /// Whether [`create`] makes an entity at `position` in `world`: the world exists, the position
 /// is valid and loaded, the world is below its cap and runtime IDs remain. A caller that changes
 /// the world for the entity asks first, so a refusal leaves the world as it was.
-fn can_create(state: &State, world: WorldIndex, position: Vec3) -> bool {
+pub(super) fn can_create(state: &State, world: WorldIndex, position: Vec3) -> bool {
     state
         .worlds
         .get(world)
