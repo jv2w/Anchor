@@ -813,36 +813,94 @@ fn a_refused_change_puts_every_slot_back() {
 }
 
 #[test]
-fn a_handler_refills_a_slot_and_the_response_shows_it() {
-    fn refill(cx: &mut Context<'_>, player: crate::player::Id, change: &m::Change) -> Response {
-        for c in change.changes() {
-            if c.inventory() == crate::event::Inventory::Window {
-                cx.set_menu_item(player, usize::from(c.slot()), c.before().clone())
-                    .unwrap();
-            }
-        }
+fn the_handler_hears_a_change_before_it_is_made() {
+    fn look(cx: &mut Context<'_>, player: crate::player::Id, _: &m::Change) -> Response {
+        let p = cx.state.players.get(&player.session()).unwrap();
+        assert_eq!(cx.menu_items(player).unwrap()[2], sword(), "the menu slot");
+        assert!(p.inventory.cursor.stack(0).is_empty(), "the cursor");
         Response::Close
     }
     let mut w = World::new(GameMode::Survival);
     let s = w.join(1);
     let menu = Menu::new(MenuKind::Chest).item(2, sword()).editable(2);
-    open_editable(&mut w, s, menu, refill);
+    open_editable(&mut w, s, menu, look);
     let (_, net) = shown(&w, s, 2);
-    let r = w.request(s, vec![take_from_menu(2, net)]);
-    assert!(ok(&r));
-    let slot = r
-        .container_info
-        .iter()
-        .filter(|c| c.container.container_id == C::LevelEntity as u8)
-        .flat_map(|c| &c.slot_info)
-        .next()
-        .expect("the menu slot");
-    assert_eq!(slot.count, 1, "the handler's sword");
-    assert_ne!(slot.stack_network_id, net);
-    // The handler closed the menu after the change: the taken sword goes back to the inventory.
+    assert!(ok(&w.request(s, vec![take_from_menu(2, net)])));
+    // Made, then the menu closed: the taken sword goes back to the inventory.
     assert!(w.inv(s).menu.is_none());
     assert_eq!(w.inv(s).main.stack(0), &sword());
     assert!(w.inv(s).cursor.stack(0).is_empty());
+}
+
+#[test]
+fn a_handler_that_closes_the_menu_and_refuses_leaves_no_copy() {
+    fn close(cx: &mut Context<'_>, player: crate::player::Id, _: &m::Change) -> Response {
+        assert!(cx.close_window(player));
+        Response::Refuse
+    }
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Chest).item(0, sword()).editable(0);
+    open_editable(&mut w, s, menu, close);
+    let before = totals(&w.state);
+    let (_, net) = shown(&w, s, 0);
+    assert!(!ok(&w.request(s, vec![take_from_menu(0, net)])));
+    assert!(w.inv(s).menu.is_none());
+    assert_eq!(
+        totals(&w.state),
+        before,
+        "the handler keeps the sword it refused to give"
+    );
+}
+
+#[test]
+fn a_change_whose_handler_changes_a_slot_it_names_is_refused() {
+    fn refill(cx: &mut Context<'_>, player: crate::player::Id, change: &m::Change) -> Response {
+        for c in change.changes() {
+            if c.inventory() == crate::event::Inventory::Window {
+                cx.set_menu_item(player, usize::from(c.slot()), sticks(1))
+                    .unwrap();
+            }
+        }
+        Response::Keep
+    }
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Chest).item(2, sword()).editable(2);
+    open_editable(&mut w, s, menu, refill);
+    let before = totals(&w.state);
+    let (_, net) = shown(&w, s, 2);
+    assert!(!ok(&w.request(s, vec![take_from_menu(2, net)])));
+    assert_eq!(totals(&w.state), before, "the sword was not taken");
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[2], sticks(1));
+}
+
+#[test]
+fn a_handler_refills_a_slot_once_the_change_is_made() {
+    fn refill(cx: &mut Context<'_>, player: crate::player::Id, change: &m::Change) -> Response {
+        for c in change.changes() {
+            if c.inventory() == crate::event::Inventory::Window {
+                let (slot, stack) = (usize::from(c.slot()), c.before().clone());
+                cx.defer(move |cx| cx.set_menu_item(player, slot, stack).unwrap())
+                    .unwrap();
+            }
+        }
+        Response::Keep
+    }
+    let mut w = World::new(GameMode::Survival);
+    let s = w.join(1);
+    let menu = Menu::new(MenuKind::Chest).item(2, sword()).editable(2);
+    open_editable(&mut w, s, menu, refill);
+    let (window, net) = shown(&w, s, 2);
+    assert!(ok(&w.request(s, vec![take_from_menu(2, net)])));
+    crate::tick::dispatch::run_deferred(&mut w.state, &mut 0);
+    assert_eq!(w.inv(s).cursor.stack(0), &sword());
+    assert_eq!(cx(&mut w).menu_items(id(s)).unwrap()[2], sword());
+    let refilled = w.sent(s).into_iter().any(|p| {
+        matches!(p, Packet::InventorySlot(p)
+            if p.window_id == u32::from(window) && p.slot == 2 && p.new_item.stack.count == 1)
+    });
+    assert!(refilled, "the client sees the refilled slot");
 }
 
 #[test]

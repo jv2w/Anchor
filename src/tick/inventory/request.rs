@@ -25,7 +25,7 @@ mod events;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::super::entity::Raise;
 use super::super::{Phase, Player, SessionId, State, block_entity, entity, survival};
@@ -308,36 +308,67 @@ pub(in crate::tick) fn on_item_stack_request(
 /// Checks a request, raises its events and applies it: the events see the plan; a cancelled one
 /// refuses the request. If a listener ran, the request is checked again on the game as the
 /// listeners left it, and refused unless it still does exactly what they saw. A request on the
-/// editable slots of the open menu `edit` is applied with [`commit_edit`].
+/// editable slots of the open menu `edit` is then offered to the menu's handler ([`offer`]) and,
+/// unless it refuses, checked again the same way, applied, and the menu closed if it said so.
 fn run(
     state: &mut State,
     session: SessionId,
     request: &ItemStackRequest,
     edit: Option<crate::menu::Id>,
 ) -> Result<()> {
-    let apply = |state: &mut State, plan| match edit {
-        Some(menu) => commit_edit(state, session, request.request_id, plan, menu),
-        None => commit(state, session, request.request_id, plan),
-    };
-    let describe = events::heard(state);
+    // The handler hears the slots before and after, as the events do.
+    let describe = edit.is_some() || events::heard(state);
     let plan = check(state, session, request, describe)?;
     if !describe {
-        return apply(state, plan);
+        return commit(state, session, request.request_id, plan);
     }
     let mut raised = events::Raised::of(state, session, &plan);
     raised.call(state)?;
     let plan = if raised.listened(state) {
-        let again = check(state, session, request, false)?;
-        if !again.same(&plan) {
-            return Err(Error::Cancelled);
-        }
-        again
+        check_again(state, session, request, &plan, edit.is_some())?
     } else {
         plan
     };
-    apply(state, plan)?;
+    let answer = match edit {
+        Some(menu) => offer(state, session, menu, &plan)?,
+        None => None,
+    };
+    let plan = match answer {
+        Some(_) => check_again(state, session, request, &plan, false).inspect_err(|e| {
+            warn!(
+                session = session.get(),
+                request = request.request_id,
+                error = %e,
+                "menu handler changed what the change it kept reads; change refused"
+            );
+        })?,
+        None => plan,
+    };
+    commit(state, session, request.request_id, plan)?;
     raised.watch(state);
+    if let (Some(Response::Close), Some(menu)) = (answer, edit)
+        && menu::is_open(state, session, menu)
+    {
+        close_now(state, session, Notice::Send, Raise::Quiet);
+    }
     Ok(())
+}
+
+/// Checks a request again on the game as the callbacks left it: refused unless it still does
+/// exactly what `plan` does.
+fn check_again(
+    state: &State,
+    session: SessionId,
+    request: &ItemStackRequest,
+    plan: &Plan,
+    describe: bool,
+) -> Result<Plan> {
+    let again = check(state, session, request, describe)?;
+    if again.same(plan) {
+        Ok(again)
+    } else {
+        Err(Error::Cancelled)
+    }
 }
 
 /// Checks a request on the game as it is now; describes the plan for the events if asked.
@@ -497,69 +528,32 @@ fn commit(state: &mut State, session: SessionId, request: i32, plan: Plan) -> Re
     Ok(())
 }
 
-/// Applies a checked request on the editable slots of the open menu `menu`, which only takes,
-/// places and swaps ([`menu::touch`]): no drop, block slot or station effect. If a menu slot
-/// changed, the menu's handler hears of the changes; if it refuses them, every slot the request
-/// changed holds again what it held before and the request is refused. Otherwise the client gets
-/// the response, with the slots as the handler left them, and the menu closes if the handler said
-/// so.
-fn commit_edit(
+/// Hands the handler of the open menu `menu` the changes the described `plan` would make, before
+/// they are made, and gives its answer; `None` if the plan changes no menu slot, so no handler
+/// ran. Refused if the handler refuses, or if the menu has no handler (a listener closed it).
+fn offer(
     state: &mut State,
     session: SessionId,
-    request: i32,
-    plan: Plan,
     menu: crate::menu::Id,
-) -> Result<()> {
-    let player = state.players.get_mut(&session).ok_or(Error::NoSlot)?;
-    let window = player.inventory.window.as_ref().map(|w| w.kind);
-    let mut undo = Vec::with_capacity(plan.writes.len());
-    for (r, _) in &plan.writes {
-        undo.push((*r, player.inventory.get(*r).ok_or(Error::NoSlot)?));
-    }
-    let changes: Vec<_> = plan
-        .writes
+    plan: &Plan,
+) -> Result<Option<Response>> {
+    let window = state
+        .players
+        .get(&session)
+        .and_then(|p| p.inventory.window.as_ref())
+        .map(|w| w.kind);
+    let changes = events::changes(plan, window);
+    if !changes
         .iter()
-        .zip(&undo)
-        .filter_map(|((r, after), (_, before))| {
-            events::change(*r, &before.stack, &after.stack, window)
-        })
-        .collect();
-    for (r, slot) in plan.writes {
-        player.inventory.put(r, slot);
+        .any(|c| c.inventory == crate::event::Inventory::Window)
+    {
+        return Ok(None);
     }
-    player.inventory.next_id = plan.next_id;
-    player.data_dirty = true;
-    let edited = changes
-        .iter()
-        .any(|c| c.inventory == crate::event::Inventory::Window);
-    let answer = if edited {
-        let change = Input::Change(Change { menu, changes });
-        menu::call(state, session, menu, change)
-    } else {
-        None
-    };
-    if answer == Some(Response::Refuse) {
-        let player = state.players.get_mut(&session).ok_or(Error::NoSlot)?;
-        for (r, slot) in undo {
-            // A menu slot does not take it back only if the handler closed the menu, which it
-            // must not do when it refuses (`Response::Refuse`): the menu's items went with it.
-            player.inventory.put(r, slot);
-        }
-        return Err(Error::Menu);
+    let change = Input::Change(Change { menu, changes });
+    match menu::call(state, session, menu, change) {
+        Some(Response::Refuse) | None => Err(Error::Menu),
+        answer => Ok(answer),
     }
-    let blocks = &state.rules.block_entities;
-    let player = state.players.get_mut(&session).ok_or(Error::NoSlot)?;
-    let response = response(&player.inventory, blocks, request, &plan.touched);
-    player.send_packet(Packet::ItemStackResponse(
-        crate::protocol::packet::ItemStackResponse {
-            responses: vec![response],
-        },
-    ));
-    give_pending(player);
-    if answer == Some(Response::Close) && menu::is_open(state, session, menu) {
-        close_now(state, session, Notice::Send, Raise::Quiet);
-    }
-    Ok(())
 }
 
 /// The stack network ID a viewer's slot gets when a container changes outside its requests.

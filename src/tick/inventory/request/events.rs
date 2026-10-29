@@ -44,12 +44,8 @@ impl Raised {
             .get(&session)
             .and_then(|p| p.inventory.window.as_ref())
             .map(|w| w.kind);
-        let changes: Vec<SlotChange> = if dispatch::heard::<InventoryTransaction>(state) {
-            plan.writes
-                .iter()
-                .zip(&plan.before)
-                .filter_map(|((r, after), before)| change(*r, before, &after.stack, window))
-                .collect()
+        let changes = if dispatch::heard::<InventoryTransaction>(state) {
+            changes(plan, window)
         } else {
             Vec::new()
         };
@@ -208,9 +204,18 @@ impl Raised {
     }
 }
 
+/// The slots the described `plan` changes, as events name them, in `window`.
+pub(super) fn changes(plan: &Plan, window: Option<WindowKind>) -> Vec<SlotChange> {
+    plan.writes
+        .iter()
+        .zip(&plan.before)
+        .filter_map(|((r, after), before)| change(*r, before, &after.stack, window))
+        .collect()
+}
+
 /// The change of request slot `r` from `before` to `after`, as events name it; `None` if it
 /// holds the same.
-pub(super) fn change(
+fn change(
     r: SlotRef,
     before: &Stack,
     after: &Stack,

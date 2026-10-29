@@ -7,17 +7,17 @@
 //! request that names a menu slot that is not editable is refused whole and the player's screen
 //! is sent again; the request's first take, place, swap or drop of such a slot becomes one
 //! [`Click`] for the handler. A request that names only editable slots and only takes, places and
-//! swaps runs as in a chest window ([`super::request`]) and the handler hears of its changes once
-//! they are made ([`Change`]), before the response; if it refuses them, every slot is put back
-//! and the request is refused. The handler runs in the input phase with the handler taken out of
-//! the state ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes
+//! swaps runs as in a chest window ([`super::request`]), with the handler as its last listener: it
+//! hears the changes ([`Change`]) after the request's events, and the request is checked again
+//! and made only if it keeps them. The handler runs in the input phase with the handler taken out
+//! of the state ([`Handlers`]). A repeated request ID is refused before, so it clicks or changes
 //! once.
 //!
 //! The menu closes as any window does (the client closing it, a server close, another window,
 //! leaving, dying, a teleport or another world) and when the player is more than 8 blocks from
-//! it; closing gives the cursor back, drops the menu's items (its handler kept what it wanted of
-//! each change), shows the blocks it stood on again and calls nothing. Menus raise no events of
-//! their own; a change raises the request's events, the menu's slots as the window's.
+//! it; closing gives the cursor back, drops the menu's items (a copy of what its handler kept),
+//! shows the blocks it stood on again and calls nothing. Menus raise no events of their own; a
+//! change raises the request's events, the menu's slots as the window's.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -138,10 +138,10 @@ impl Context<'_> {
     /// cannot take, place or drop but in its editable slots. Each click on another slot is
     /// refused (the player's screen is put back) and calls `handler` once, in the tick, with what
     /// the player tried ([`Input::Click`]). Each request that moves items into, out of or between
-    /// editable slots is checked and made as in a chest window, then calls `handler` once with
-    /// its changes ([`Input::Change`]) before the client hears the result. The handler's
-    /// [`Response`] keeps the menu open, closes it or refuses a change. A window the player had
-    /// open closes first.
+    /// editable slots is checked as in a chest window, then calls `handler` once with its changes
+    /// ([`Input::Change`]) before they are made. The handler's [`Response`] makes a change and
+    /// keeps the menu open or closes it, or refuses the change. A window the player had open
+    /// closes first.
     ///
     /// The screen stands on container blocks shown to this player alone, behind it (as `InvMenu`
     /// places them), and opens two ticks later, once the client has them. It closes as any

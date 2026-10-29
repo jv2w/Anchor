@@ -10,11 +10,13 @@
 //! its inventory.
 //!
 //! Slots made [`editable`](Menu::editable) work as a chest's instead: the player takes, places and
-//! swaps their items with its own slots and cursor, the requests checked and made as in a chest
-//! window, and the handler hears of each request's changes once they are made, with a [`Change`].
-//! It may keep them, close the menu, or refuse them, which puts every slot back. The menu's items
-//! are the handler's to keep: closing the menu gives the cursor back as any window does, and
-//! drops the menu's items.
+//! swaps their items with its own slots and cursor, the requests checked as in a chest window.
+//! Before a request that changes a menu slot is made, the handler hears of its changes with a
+//! [`Change`] and answers whether it is made ([`Response`]); a refused one changes nothing. The
+//! menu's items are a copy of what the handler keeps: no change reaches them unless the handler
+//! kept it, so the handler holds every item the menu holds, and closing the menu drops the copy
+//! without calling the handler. The cursor and the player's slots are the player's: closing gives
+//! the cursor back as any window does.
 //!
 //! ```
 //! use anchor::Context;
@@ -127,7 +129,7 @@ impl Menu {
     }
 
     /// The menu with `slot` editable: the player moves items into and out of it as in a chest,
-    /// and the handler hears of each change once it is made ([`Change`]). A slot past the end
+    /// and the handler hears of each change before it is made ([`Change`]). A slot past the end
     /// makes the open fail ([`Error::NoSlot`]).
     #[must_use]
     pub fn editable(mut self, slot: usize) -> Self {
@@ -200,7 +202,7 @@ pub enum Action {
 pub enum Input {
     /// A click on a slot that is not editable.
     Click(Click),
-    /// A change of editable slots, made already.
+    /// A change of editable slots, not made yet.
     Change(Change),
 }
 
@@ -242,8 +244,18 @@ impl Click {
     }
 }
 
-/// One item request's changes of a menu's editable slots and the player's slots, made already:
-/// the menu's slots, the player's and its cursor hold the request's result while the handler runs.
+/// One item request's changes of a menu's editable slots and the player's slots, not made yet:
+/// the menu's slots, the player's and its cursor hold what they held before while the handler
+/// runs, and the request is made once it returns, unless it refuses.
+///
+/// The answer holds for the change heard: if the handler's own calls change what the request
+/// reads (a slot it names, through [`Context::set_menu_item`] or the player's inventory, or the
+/// menu itself, closed or replaced by another window, a teleport or another world), the change is
+/// refused although the handler kept it, and a warning is logged. Do such work with
+/// [`Context::defer`], which runs once the change is made, or answer [`Response::Close`].
+///
+/// [`Context::set_menu_item`]: crate::Context::set_menu_item
+/// [`Context::defer`]: crate::Context::defer
 #[derive(Debug, Clone, PartialEq)]
 pub struct Change {
     pub(crate) menu: Id,
@@ -266,17 +278,13 @@ impl Change {
 /// What a handler decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Response {
-    /// The menu stays open, its items where they are (a change stays made).
+    /// The menu stays open (a change is made).
     #[default]
     Keep,
-    /// The menu closes (a change stays made).
+    /// The menu closes (a change is made first).
     Close,
-    /// A change is undone: every slot the request changed holds again what it held before, and
-    /// the player's screen is put back. A handler that refuses changes none of those slots and
-    /// leaves the menu open, as putting them back would undo its own changes ([`Context::defer`]
-    /// closes the menu after the handler). For a click, the same as [`Keep`](Self::Keep).
-    ///
-    /// [`Context::defer`]: crate::Context::defer
+    /// A change is not made: every slot stays as it was and the player's screen is put back. For
+    /// a click, the same as [`Keep`](Self::Keep).
     Refuse,
 }
 
