@@ -546,6 +546,37 @@ fn a_firework_rocket_bursts_at_its_flight_time_and_hurts_who_is_near() {
         if s.sound_type == "blast" || s.sound_type == "large.blast")));
 }
 
+/// An API launch flies as a rocket item without `Fireworks` data: 20 ticks and up to 12 more, a
+/// slow start up with its own drift, looking up, without owner or explosions, never saved.
+#[test]
+fn an_api_launch_flies_as_a_rocket_item_without_data() {
+    let mut h = harness();
+    let mut cx = context(&mut h);
+    assert!(
+        cx.launch_firework_rocket(WORLD, at(f64::NAN, -60.0, 0.5))
+            .is_none()
+    );
+    let ids = [0; 2].map(|_| {
+        cx.launch_firework_rocket(WORLD, at(6.5, -60.0, 0.5))
+            .unwrap()
+    });
+    for id in ids {
+        let rocket = entity(&h, id);
+        let Kind::Firework(firework) = &rocket.kind else {
+            panic!("a rocket");
+        };
+        assert!((20..=32).contains(&firework.max_flight));
+        assert!(firework.explosions.is_empty() && firework.owner.is_none());
+        assert!(!rocket.saved);
+        assert_eq!((rocket.body.motion.y, rocket.pitch), (0.05, 90.0));
+    }
+    assert_ne!(
+        entity(&h, ids[0]).body.motion,
+        entity(&h, ids[1]).body.motion,
+        "each its own drift"
+    );
+}
+
 #[test]
 fn a_firework_used_on_a_block_flies_for_its_items_flight_and_climbs() {
     let mut h = harness();

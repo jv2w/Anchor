@@ -46,6 +46,8 @@ const FIREWORK_CLIMB: f64 = 0.04;
 const BURST_REACH: f64 = 5.0;
 /// The largest flight multiplier of a firework item (PMMP `setFlightTimeMultiplier`: 1 to 127).
 const MAX_FLIGHT_MULTIPLIER: u8 = 127;
+/// The flight multiplier of a firework item without one (PMMP `FireworkRocket::$flightTimeMultiplier`).
+pub(super) const DEFAULT_FLIGHT_MULTIPLIER: u8 = 1;
 /// A firework item's flight random part, 0 to this many ticks (PMMP `mt_rand(0, 12)`).
 const FLIGHT_RANDOM_TICKS: i32 = 12;
 /// The explosion shapes (PMMP `FireworkRocketTypeIdMap`: small ball 0, large ball 1, star 2,
@@ -360,11 +362,11 @@ pub(super) fn checked_explosions(explosions: Vec<Compound>) -> Option<Vec<Compou
 fn firework_item(stack: &Stack) -> (u8, Vec<Compound>) {
     let Some(Value::Compound(fireworks)) = stack.extra().and_then(|x| x.nbt.get(TAG_FIREWORKS))
     else {
-        return (1, Vec::new());
+        return (DEFAULT_FLIGHT_MULTIPLIER, Vec::new());
     };
     let flight = match fireworks.get(TAG_FLIGHT) {
         Some(Value::Byte(f)) => (*f).clamp(1, MAX_FLIGHT_MULTIPLIER),
-        _ => 1,
+        _ => DEFAULT_FLIGHT_MULTIPLIER,
     };
     let explosions = match fireworks.get(TAG_EXPLOSIONS) {
         Some(Value::List(List::Compound(list))) => list
@@ -403,9 +405,8 @@ pub(super) fn firework(
 }
 
 /// Launches the firework `item` that `session` used at `at` (PMMP `item\FireworkRocket::
-/// onInteractBlock`): a flight of (multiplier + 1) × 10 ticks and up to 12 more, a slow start
-/// up with a little random drift, looking straight up with a random yaw (all from `random`).
-/// False at the world's entity limit (the caller uses up the item on true).
+/// onInteractBlock`) as [`launch`] does. False at the world's entity limit (the caller uses up
+/// the item on true).
 pub(super) fn launch_firework(
     state: &mut State,
     session: SessionId,
@@ -415,14 +416,28 @@ pub(super) fn launch_firework(
     random: &mut Random,
 ) -> bool {
     let (multiplier, explosions) = firework_item(item);
+    let owner = state.players.get(&session).map(|p| (session, p.runtime_id));
+    launch(state, world, at, (multiplier, explosions), owner, random).is_some()
+}
+
+/// Launches a firework rocket of flight multiplier and explosions `item` at `at` as a used
+/// rocket item does: a flight of (multiplier + 1) × 10 ticks and up to 12 more, a slow start up
+/// with a little random drift, looking straight up with a random yaw (all from `random`).
+pub(super) fn launch(
+    state: &mut State,
+    world: WorldIndex,
+    at: Vec3,
+    (multiplier, explosions): (u8, Vec<Compound>),
+    owner: Option<(SessionId, u64)>,
+    random: &mut Random,
+) -> Option<Id> {
     let flight =
         (u32::from(multiplier) + 1) * 10 + random.range(0, FLIGHT_RANDOM_TICKS).unsigned_abs();
     let yaw = super::random_yaw(random);
     let mut drift = || (random.unit() - random.unit()) * 0.0023;
     let motion = Vec3::new(drift(), 0.05, drift());
-    let owner = state.players.get(&session).map(|p| (session, p.runtime_id));
     let kind = firework(flight, multiplier, explosions, owner);
-    create(state, world, at, kind, |_| (motion, yaw, 90.0)).is_some()
+    create(state, world, at, kind, |_| (motion, yaw, 90.0))
 }
 
 /// A firework rocket's tick (PMMP `FireworkRocket::onFirstUpdate`, `entityBaseTick`): the launch

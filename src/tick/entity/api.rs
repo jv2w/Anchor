@@ -36,6 +36,7 @@ use crate::math::{self, Aabb, Vec3};
 use crate::nbt::Compound;
 use crate::player;
 use crate::protocol::consts::ActorEvent;
+use crate::random::{self, Random};
 use crate::tick::world_api::index;
 use crate::tick::{Context, Phase, Player};
 use crate::world::{self, BlockPos, ChunkPos, MAX_Y, MIN_Y, World};
@@ -605,6 +606,8 @@ impl Entity {
 /// How high an entity steps up blocks: PMMP's `Entity::$stepHeight` default, which none of its
 /// kinds that Anchor has changes.
 const STEP_HEIGHT: f64 = 0.0;
+/// The random stream of a rocket the API launches.
+const LAUNCH_RANDOM: u64 = random::tag("api-firework-launch");
 
 /// Whether the API may put an entity at `pos`: finite, inside the world border, and at most 64
 /// blocks above or below the world height (as the saved form reads it back).
@@ -1754,6 +1757,20 @@ impl Context<'_> {
         let flight = object::flight_multiplier(max_flight_ticks);
         let kind = object::firework(max_flight_ticks, flight, explosions, None);
         self.spawn(world, pos, kind, motion)
+    }
+
+    /// Launches a firework rocket without explosions from `pos` in `world` as a used rocket item
+    /// without its `Fireworks` data launches: it flies 20 ticks and up to 12 more, starting slowly
+    /// upwards with a little random drift. It has no owner and is never saved. `None` where
+    /// [`Self::drop_item`] fails.
+    pub fn launch_firework_rocket(&mut self, world: world::Id, pos: Vec3) -> Option<Id> {
+        let w = index(self.state, world).filter(|_| is_placeable(pos))?;
+        let seed = self.state.worlds.get(w).map_or(0, World::seed);
+        // The rocket takes this runtime ID, so no two launches share the stream.
+        let key = random::key(LAUNCH_RANDOM, &[self.state.next_runtime_id]);
+        let mut random = Random::new(seed, self.state.tick, key);
+        let item = (object::DEFAULT_FLIGHT_MULTIPLIER, Vec::new());
+        object::launch(self.state, w, pos, item, None, &mut random)
     }
 
     /// Throws a trident holding `item` from `pos` in `world` with `motion` in blocks per tick
