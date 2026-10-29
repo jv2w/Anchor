@@ -483,9 +483,11 @@ impl Stack {
         Self::from_parts(item, count, meta, tag).ok()
     }
 
-    /// The disk form (Bedrock item compound): `{Name, Count, Damage, Block?, tag?}`; the air
-    /// compound for an empty stack.
-    pub(crate) fn to_nbt(&self) -> Compound {
+    /// The disk form (Bedrock item compound) Anchor saves the stack in, as in an item list:
+    /// `{Name, Count, Damage, Block?, tag?}`; the air compound for an empty stack.
+    /// [`Context::stack_from_nbt`](crate::Context::stack_from_nbt) reads it back.
+    #[doc(alias = "Item::nbtSerialize")]
+    pub fn to_nbt(&self) -> Compound {
         let Some(item) = self.item else {
             return Compound::from([
                 ("Count".to_owned(), Value::Byte(0)),

@@ -5,10 +5,10 @@ Rows: the non-`@internal` class-likes of `xtask/data/pmmp/api.json` and the publ
 
 | status | rows |
 |---|---:|
-| implemented | 1824 |
+| implemented | 1826 |
 | differs | 19 |
-| merged | 3566 |
-| skipped | 4808 |
+| merged | 3567 |
+| skipped | 4805 |
 | blank | 0 |
 | total | 10217 |
 
@@ -6035,14 +6035,14 @@ implemented 654, differs 3, merged 50, skipped 202, blank 0 (of 909 rows)
 | `pocketmine\event\plugin\PluginEvent` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\event\plugin\PluginEvent::__construct` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
 | `pocketmine\event\plugin\PluginEvent::getPlugin` | skipped |  |  | no plugins: Anchor is a library used from the user's binary |
-| `pocketmine\event\server\CommandEvent` | implemented | src/event/server.rs:10 `Command` | src/event/server.rs::command_line_can_change<br>src/tick/command/tests.rs::command_listeners_see_typed_lines_and_cancel_or_change_them |  |
+| `pocketmine\event\server\CommandEvent` | implemented | src/event/server.rs:17 `Command` | src/event/server.rs::command_line_can_change<br>src/tick/command/tests.rs::command_listeners_see_typed_lines_and_cancel_or_change_them |  |
 | `pocketmine\event\server\CommandEvent::__construct` | skipped |  |  | events are built by the rule code (fields `pub(crate)`); listeners get them |
-| `pocketmine\event\server\CommandEvent::cancel` | implemented | src/event/server.rs:40 `cfg` | src/event/server.rs::command_line_can_change |  |
-| `pocketmine\event\server\CommandEvent::getCommand` | implemented | src/event/server.rs:26 `command` | src/event/server.rs::command_line_can_change |  |
-| `pocketmine\event\server\CommandEvent::getSender` | implemented | src/event/server.rs:20 `sender` | src/event/server.rs::command_line_can_change |  |
-| `pocketmine\event\server\CommandEvent::isCancelled` | implemented | src/event/server.rs:42 `cfg` | src/event/server.rs::command_line_can_change |  |
-| `pocketmine\event\server\CommandEvent::setCommand` | implemented | src/event/server.rs:32 `set_command` | src/event/server.rs::command_line_can_change |  |
-| `pocketmine\event\server\CommandEvent::uncancel` | implemented | src/event/server.rs:41 `cfg` | src/event/server.rs::command_line_can_change |  |
+| `pocketmine\event\server\CommandEvent::cancel` | implemented | src/event/server.rs:47 `cfg` | src/event/server.rs::command_line_can_change |  |
+| `pocketmine\event\server\CommandEvent::getCommand` | implemented | src/event/server.rs:33 `command` | src/event/server.rs::command_line_can_change |  |
+| `pocketmine\event\server\CommandEvent::getSender` | implemented | src/event/server.rs:27 `sender` | src/event/server.rs::command_line_can_change |  |
+| `pocketmine\event\server\CommandEvent::isCancelled` | implemented | src/event/server.rs:49 `cfg` | src/event/server.rs::command_line_can_change |  |
+| `pocketmine\event\server\CommandEvent::setCommand` | implemented | src/event/server.rs:39 `set_command` | src/event/server.rs::command_line_can_change |  |
+| `pocketmine\event\server\CommandEvent::uncancel` | implemented | src/event/server.rs:48 `cfg` | src/event/server.rs::command_line_can_change |  |
 | `pocketmine\event\server\DataPacketDecodeEvent` | implemented | src/tick/hook.rs:106 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets |  |
 | `pocketmine\event\server\DataPacketDecodeEvent::__construct` | merged | src/tick/hook.rs:106 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
 | `pocketmine\event\server\DataPacketDecodeEvent::cancel` | merged | src/tick/hook.rs:106 `on_receive` | src/tick/hook.rs::receive_hooks_change_or_drop_a_players_packets | into `DataPacketDecodeEvent` |
@@ -6366,7 +6366,7 @@ implemented 84, differs 0, merged 11, skipped 109, blank 0 (of 204 rows)
 
 ## `pocketmine\item`
 
-implemented 59, differs 0, merged 805, skipped 231, blank 0 (of 1095 rows)
+implemented 61, differs 0, merged 806, skipped 228, blank 0 (of 1095 rows)
 
 | PMMP | status | Anchor | tests | target / reason |
 |---|---|---|---|---|
@@ -6680,8 +6680,8 @@ implemented 59, differs 0, merged 805, skipped 231, blank 0 (of 1095 rows)
 | `pocketmine\item\Item::jsonSerialize` | skipped |  |  | PMMP's JSON item format (crafting data files): Anchor's recipe data is generated |
 | `pocketmine\item\Item::keepOnDeath` | merged | src/item/stack.rs:131 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Item::legacyJsonDeserialize` | skipped |  |  | legacy numeric IDs: Anchor's data is the 1.26 string IDs |
-| `pocketmine\item\Item::nbtDeserialize` | skipped |  |  | item NBT is internal to the stores; `item::Stack` is the value |
-| `pocketmine\item\Item::nbtSerialize` | skipped |  |  | item NBT is internal to the stores; `item::Stack` is the value |
+| `pocketmine\item\Item::nbtDeserialize` | implemented | src/tick/interact/custom.rs:39 `stack_from_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too |  |
+| `pocketmine\item\Item::nbtSerialize` | implemented | src/item/stack.rs:489 `to_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too |  |
 | `pocketmine\item\Item::onAttackEntity` | skipped |  |  | item rule code: listeners see EntityDamage |
 | `pocketmine\item\Item::onClickAir` | skipped |  |  | item rule code: listeners see PlayerItemUse |
 | `pocketmine\item\Item::onDestroyBlock` | skipped |  |  | item rule code: listeners see BlockBreak |
@@ -6692,7 +6692,7 @@ implemented 59, differs 0, merged 805, skipped 231, blank 0 (of 1095 rows)
 | `pocketmine\item\Item::pop` | merged | src/item/stack.rs:232 `with_count` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::setCount` |
 | `pocketmine\item\Item::removeEnchantment` | merged | src/item/stack.rs:128 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
 | `pocketmine\item\Item::removeEnchantments` | merged | src/item/stack.rs:128 `enchantments` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getEnchantments` |
-| `pocketmine\item\Item::safeNbtDeserialize` | skipped |  |  | item NBT is internal to the stores; `item::Stack` is the value |
+| `pocketmine\item\Item::safeNbtDeserialize` | merged | src/tick/interact/custom.rs:39 `stack_from_nbt` | src/tick/interact/tests/custom.rs::a_saved_stack_reads_back_through_the_context_custom_ones_too | into `Item::nbtDeserialize` |
 | `pocketmine\item\Item::setCanDestroy` | merged | src/item/stack.rs:131 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Item::setCanPlaceOn` | merged | src/item/stack.rs:131 `nbt` | src/item/stack.rs::getters_read_what_the_with_methods_set | into `Item::getNamedTag` |
 | `pocketmine\item\Item::setCount` | implemented | src/item/stack.rs:232 `with_count` | src/item/stack.rs::getters_read_what_the_with_methods_set |  |
@@ -7674,7 +7674,7 @@ implemented 12, differs 4, merged 19, skipped 728, blank 0 (of 763 rows)
 | `pocketmine\network\mcpe\NetworkSession::onToastNotification` | merged | src/tick/player.rs:682 `send` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick | into `Player::sendToastNotification` |
 | `pocketmine\network\mcpe\NetworkSession::prepareClientTranslatableMessage` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::queueCompressed` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
-| `pocketmine\network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:419 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
+| `pocketmine\network\mcpe\NetworkSession::sendDataPacket` | implemented | src/tick.rs:422 `send_packet` | src/tick/player.rs::messages_reach_only_their_player_after_the_tick |  |
 | `pocketmine\network\mcpe\NetworkSession::sendDataPacketWithReceipt` | skipped |  |  | transport acknowledgements are internal to RakNet and NetherNet |
 | `pocketmine\network\mcpe\NetworkSession::setHandler` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
 | `pocketmine\network\mcpe\NetworkSession::startUsingChunk` | skipped |  |  | protocol internals: the extension points are packet hooks and `Player::send_packet` |
@@ -8405,7 +8405,7 @@ implemented 100, differs 5, merged 14, skipped 107, blank 0 (of 226 rows)
 | `pocketmine\player\OfflinePlayer::getLastPlayed` | skipped |  |  | no offline player objects: operator, ban and whitelist calls take names; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `pocketmine\player\OfflinePlayer::getName` | skipped |  |  | no offline player objects: operator, ban and whitelist calls take names; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
 | `pocketmine\player\OfflinePlayer::hasPlayedBefore` | skipped |  |  | no offline player objects: operator, ban and whitelist calls take names; an online player's play history is `Player::first_played`, `last_played` and `has_played_before` |
-| `pocketmine\player\Player` | implemented | src/tick.rs:361 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
+| `pocketmine\player\Player` | implemented | src/tick.rs:364 `Player` | src/tick/player.rs::the_address_view_distance_and_line_height_read_the_session |  |
 | `pocketmine\player\Player::__construct` | skipped |  |  | players join through the login flow |
 | `pocketmine\player\Player::__debugInfo` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |
 | `pocketmine\player\Player::__destruct` | skipped |  |  | PHP magic method: Rust types use derives (Clone, Debug) and traits |

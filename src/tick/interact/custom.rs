@@ -6,6 +6,7 @@ use super::super::{Context, SessionId, State};
 use crate::block;
 use crate::custom::{self, Drops};
 use crate::item::{self, Enchantment, Stack};
+use crate::nbt::Compound;
 use crate::random::Random;
 use crate::save::WorldIndex;
 use crate::world::BlockPos;
@@ -29,6 +30,15 @@ impl Context<'_> {
     /// custom item or block item.
     pub fn item_of(&self, item: custom::ItemRef) -> Option<item::Type> {
         self.state.custom.resolve(item)
+    }
+
+    /// The stack a disk item compound holds, read as Anchor reads its saves, the server's custom
+    /// items and blocks included: empty for air or a count of 0; `None` for an unknown item, a
+    /// compound that is no item or a stack over a limit. A count above the item's stack size is
+    /// cut to it. [`Stack::to_nbt`] writes the form.
+    #[doc(alias = "Item::nbtDeserialize")]
+    pub fn stack_from_nbt(&self, nbt: &Compound) -> Option<Stack> {
+        Stack::from_nbt_with(nbt, &self.state.custom)
     }
 }
 

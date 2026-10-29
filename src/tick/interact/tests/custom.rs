@@ -97,6 +97,33 @@ fn harness() -> (Harness, Arc<Registry>) {
     (h, r)
 }
 
+// pmmp: Item::nbtSerialize, Item::nbtDeserialize
+/// A stack's disk form reads back through the context, which knows the server's custom items
+/// and blocks; what is no item stack reads as nothing.
+#[test]
+fn a_saved_stack_reads_back_through_the_context_custom_ones_too() {
+    let (mut h, r) = harness();
+    let ctx = Ctx {
+        state: &mut h.state,
+    };
+    let switch = r.resolve(ItemRef::CustomBlock(&SWITCH)).unwrap();
+    let named = Stack::new(crate::item::Kind::Diamond.default_type(), 7)
+        .with_extra(Some(Extra {
+            custom_name: Some("Rock".to_owned()),
+            ..Extra::default()
+        }))
+        .unwrap();
+    for stack in [
+        Stack::new(r.item_type(&RUBY).unwrap(), 3),
+        Stack::new(switch, 2),
+        named,
+        Stack::EMPTY,
+    ] {
+        assert_eq!(ctx.stack_from_nbt(&stack.to_nbt()), Some(stack));
+    }
+    assert_eq!(ctx.stack_from_nbt(&crate::nbt::Compound::new()), None);
+}
+
 #[test]
 fn a_custom_block_is_placed_used_and_broken_through_its_behaviour() {
     let (mut h, r) = harness();

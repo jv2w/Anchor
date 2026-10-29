@@ -676,9 +676,7 @@ pocketmine\item\**::canStartUsingItem skipped item rule code
 pocketmine\item\**::getPlacementTransaction skipped item rule code: listeners see BlockPlace
 pocketmine\item\**::describeBlockItemState skipped PMMP's runtime state bit packing: Anchor's item types are a generated table
 pocketmine\item\CoralFan::encodeCoralType skipped PMMP's runtime state bit packing: Anchor's item types are a generated table
-pocketmine\item\Item::nbtSerialize skipped item NBT is internal to the stores; `item::Stack` is the value
-pocketmine\item\Item::nbtDeserialize skipped item NBT is internal to the stores; `item::Stack` is the value
-pocketmine\item\Item::safeNbtDeserialize skipped item NBT is internal to the stores; `item::Stack` is the value
+pocketmine\item\Item::safeNbtDeserialize merged Item::nbtDeserialize
 pocketmine\item\Item::jsonSerialize skipped PMMP's JSON item format (crafting data files): Anchor's recipe data is generated
 pocketmine\item\Item::legacyJsonDeserialize skipped legacy numeric IDs: Anchor's data is the 1.26 string IDs
 pocketmine\item\Item::getStateId skipped PMMP's runtime state bit packing: Anchor's item types are a generated table
