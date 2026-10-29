@@ -51,7 +51,7 @@ use crate::event::{
     InventoryClose, InventoryOpen, PlayerBlockPick, PlayerDropItem, PlayerItemHeld,
     Window as PublicWindow,
 };
-use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS};
+use crate::inventory::{CHEST_SLOTS, HOPPER_SLOTS, RECENT_REQUESTS};
 use crate::item::Stack;
 use crate::math::Vec3;
 use crate::nbt::{Compound, List, Value};
@@ -124,9 +124,6 @@ const WINDOW_FIRST: u8 = 1;
 const WINDOW_LAST: u8 = 100;
 /// The window ID a client closes "the last window" with (-1).
 const WINDOW_NONE: u8 = 255;
-/// Request IDs remembered per player to refuse a repeat; clients number requests -1, -3, -5…,
-/// so a repeat within this many is a replay, not a new request.
-const RECENT_REQUESTS: usize = 256;
 /// Windows do not open while more than this many stacks wait for room less [`MAX_GIVE_BACK`]
 /// (the waiting list leaves room for what a window may hold).
 const MAX_PENDING: usize = 64;

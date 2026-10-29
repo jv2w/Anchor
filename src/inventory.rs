@@ -120,6 +120,11 @@ pub const HOTBAR_SIZE: u8 = 9;
 /// craft needs about 53); Anchor refuses a longer request whole.
 pub const MAX_REQUEST_ACTIONS: usize = 60;
 
+/// How many of a player's latest item stack request IDs Anchor remembers, refusing a request
+/// with one of them: clients number requests -1, -3, -5…, so a repeat within this many is a
+/// replay, not a new request.
+pub const RECENT_REQUESTS: usize = 256;
+
 impl<'a> Inventory<'a> {
     /// The slots `first` then `second`, each holding at most `max` items.
     pub(crate) fn new(first: &'a [Stack], second: &'a [Stack], max: u8) -> Self {

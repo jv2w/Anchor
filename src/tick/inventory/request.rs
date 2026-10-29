@@ -34,7 +34,7 @@ use super::{
 };
 use crate::block::{self, Class};
 use crate::crafting::{self, Recipe, ShapelessType};
-use crate::inventory::MAX_REQUEST_ACTIONS;
+use crate::inventory::{MAX_REQUEST_ACTIONS, RECENT_REQUESTS};
 use crate::item::{ArmorSlot, Stack};
 use crate::protocol::consts::{ContainerId, ItemStackResponseStatus};
 use crate::protocol::packet::Packet;
@@ -1169,9 +1169,9 @@ fn is_created_output(info: &StackRequestSlotInfo) -> bool {
 }
 
 impl Inventory {
-    /// Remembers a request ID, forgetting the oldest beyond [`super::RECENT_REQUESTS`].
+    /// Remembers a request ID, forgetting the oldest beyond [`RECENT_REQUESTS`].
     fn remember(&mut self, request: i32) {
-        if self.recent.len() >= super::RECENT_REQUESTS
+        if self.recent.len() >= RECENT_REQUESTS
             && let Some(old) = self.recent.pop_front()
         {
             self.recent_set.remove(&old);
