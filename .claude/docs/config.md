@@ -85,6 +85,8 @@ show-coordinates = false
 locator-bar = true
 # Dead players come back at once, without the death screen.
 immediate-respawn = false
+# Every player sees in chat how a player died.
+show-death-messages = false
 # Main world. level-type fills the chunks never saved: "flat" or "void".
 level-name = "world"
 level-type = "flat"
@@ -220,6 +222,7 @@ console-input = true
 | `show-coordinates` | bool | `false` | | 모든 플레이어 화면에 자기 좌표를 보일지. 게임 규칙 `showCoordinates`의 값이다 |
 | `locator-bar` | bool | `true` | | 위치 표시줄에 다른 플레이어를 보일지. `false`면 `LocatorBar`, `PlayerLocation`을 만들지도 보내지도 않고 게임 규칙 `playerWaypoints`가 0이다(공식 서버가 그 규칙 0인 월드를 저장하는 값. `locatorbar` 규칙은 공식 서버가 월드에 저장하지 않아 그대로 `true`다) |
 | `immediate-respawn` | bool | `false` | | 죽은 플레이어가 죽음 화면 없이 곧바로 살아날지. 게임 규칙 `doImmediateRespawn`의 값이다. 죽음 화면을 건너뛰고 곧바로 부활을 요청하는 것은 이 규칙을 받은 클라이언트이고, 서버의 부활 흐름(Respawn 패킷, `PlayerRespawn`)은 같다 |
+| `show-death-messages` | bool | `false` | | 플레이어가 죽으면 모든 플레이어 채팅에 죽음 메시지를 보일지. 게임 규칙 `showDeathMessages`의 값이다. 메시지는 죽음 화면과 같은 번역 키(죽은 플레이어와 공격자 이름)로 보내 클라이언트가 번역한다. `PlayerDeath::death_message`는 그 키로 시작하고(끄면 빈 값), 리스너가 그대로 두면 번역으로, 다른 글이면 그대로, 비우면 보내지 않는다 |
 | `level-name` | 문자열 | `"world"` | 1~64바이트, `;`와 제어 문자 없음, 월드 이름 규칙(`storage.md`) | 기본 월드 이름. 파일은 `data/worlds/<이름>.redb` |
 | `level-type` | 문자열 | `"flat"` | `flat`, `void` | 기본 월드에서 저장된 적 없는 청크를 채우는 생성기 |
 | `level-seed` | 문자열 | `""` | 빈 값 또는 i64 정수 문자열 | 기본 월드 시드. 비면 월드 이름에서 만들어 시작마다 같다 |

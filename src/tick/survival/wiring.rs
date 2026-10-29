@@ -509,6 +509,49 @@ fn death_listeners_choose_the_drops_the_experience_and_the_messages() {
     )));
 }
 
+// pmmp: PlayerDeathEvent::getDeathMessage, PlayerDeathEvent::setDeathMessage
+/// With `show-death-messages` every player sees the death's message, which the client translates
+/// with the dead player's name as on the death screen; a listener's own message replaces it and an
+/// empty one hides it. Without, only a listener's own message shows.
+#[test]
+fn show_death_messages_broadcasts_the_translated_death_message() {
+    let deaths = |show: bool, listeners: Listeners| -> Vec<(String, Vec<String>, bool)> {
+        let mut game = Game::with(2, listeners, |c| c.general.show_death_messages = show);
+        assert!(damage(&mut game.state, sid(1), 100.0, Damage::Magic));
+        game.idle(1);
+        game.take(2)
+            .into_iter()
+            .filter_map(|p| match p {
+                Packet::Text(t) => Some((t.message, t.parameters, t.needs_translation)),
+                _ => None,
+            })
+            .collect()
+    };
+    let translated = vec![(
+        "death.attack.magic".to_owned(),
+        vec!["player1".to_owned()],
+        true,
+    )];
+    assert_eq!(deaths(true, Listeners::default()), translated);
+    let kept = on(|e: &mut PlayerDeath, _: &mut Context<'_>| {
+        assert_eq!(e.death_message(), "death.attack.magic");
+    });
+    assert_eq!(deaths(true, kept), translated);
+    assert_eq!(deaths(false, Listeners::default()), []);
+    let hidden = on(|e: &mut PlayerDeath, _: &mut Context<'_>| {
+        e.set_death_message(String::new());
+    });
+    assert_eq!(deaths(true, hidden), []);
+    let own = || {
+        on(|e: &mut PlayerDeath, _: &mut Context<'_>| {
+            e.set_death_message("gone".to_owned());
+        })
+    };
+    let raw = vec![("gone".to_owned(), Vec::new(), false)];
+    assert_eq!(deaths(true, own()), raw);
+    assert_eq!(deaths(false, own()), raw);
+}
+
 // pmmp: PlayerDeathEvent
 #[test]
 fn deaths_with_random_listeners_neither_duplicate_nor_lose_items() {

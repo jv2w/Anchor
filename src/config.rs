@@ -91,6 +91,8 @@ show-coordinates = false
 locator-bar = true
 # Dead players come back at once, without the death screen.
 immediate-respawn = false
+# Every player sees in chat how a player died.
+show-death-messages = false
 # Main world. level-type fills the chunks never saved: "flat" or "void".
 level-name = "world"
 level-type = "flat"
@@ -607,6 +609,9 @@ pub struct General {
     /// `immediate-respawn`: whether dead players come back at once, without the death screen
     /// (the game rule `doImmediateRespawn`, by which the client asks to respawn straight away).
     pub immediate_respawn: bool,
+    /// `show-death-messages`: whether every player sees in chat how a player died (the game rule
+    /// `showDeathMessages`; [`PlayerDeath`](crate::event::PlayerDeath) listeners may change it).
+    pub show_death_messages: bool,
     /// `level-name`: the main world's name.
     pub level_name: String,
     /// `level-type`: the generator of the main world's chunks never saved.
@@ -678,6 +683,7 @@ impl General {
                 "show-coordinates" => self.show_coordinates = boolean(value, key)?,
                 "locator-bar" => self.locator_bar = boolean(value, key)?,
                 "immediate-respawn" => self.immediate_respawn = boolean(value, key)?,
+                "show-death-messages" => self.show_death_messages = boolean(value, key)?,
                 "level-name" => text(value, key)?.clone_into(&mut self.level_name),
                 "level-type" => self.level_type = choice(value, key, &LevelType::NAMES)?,
                 "level-seed" => {
@@ -735,6 +741,7 @@ impl Default for General {
             show_coordinates: false,
             locator_bar: true,
             immediate_respawn: false,
+            show_death_messages: false,
             level_name: "world".to_owned(),
             level_type: LevelType::Flat,
             level_seed: None,
@@ -1775,7 +1782,7 @@ old-key = false
         let config = Config::default().load_as(&path, true).unwrap();
         let update = config.updated().unwrap();
         assert_eq!(update.removed(), ["general.old-key"]);
-        assert_eq!(update.added().len(), 68);
+        assert_eq!(update.added().len(), 69);
         let again = Config::default().load_as(&path, true).unwrap();
         assert!(again.updated().unwrap().is_empty());
     }

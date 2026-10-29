@@ -1311,8 +1311,9 @@ fn wear_weapon(state: &mut State, session: SessionId, held: &Stack) {
 /// The player died (PMMP `Player::onDeath`): its window closes, its breaking and item use stop,
 /// the [`PlayerDeath`] listeners
 /// may change what drops, the experience dropped and the messages, it drops what it carries and
-/// its experience, viewers see it die and it sees the death screen with `message` (a translation
-/// key) naming the player and its `attacker`.
+/// its experience, every player sees the chat death message (`message` with `show-death-messages`,
+/// as the death screen translates it, or a listener's own), viewers see it die and it sees the
+/// death screen with `message` (a translation key) naming the player and its `attacker`.
 ///
 /// While earlier drops still wait for room, the player keeps what it carries and nothing more
 /// drops: the waiting list then never holds more than one death's drops
@@ -1348,6 +1349,7 @@ pub(super) fn die(
     player.breaking.forget_attacked();
     player.data_dirty = true;
     let world = player.world;
+    let shown = state.settings.show_death_messages;
     let mut event = heard.then(|| {
         let drops = if finite && player.survival.held_back.is_empty() {
             carried(player)
@@ -1358,7 +1360,11 @@ pub(super) fn die(
             player: player::Id::new(session),
             drops,
             xp_drop_amount: food::death_xp(&player.survival, finite),
-            death_message: String::new(),
+            death_message: if shown {
+                message.to_owned()
+            } else {
+                String::new()
+            },
             death_screen_message: String::new(),
             keep_inventory: false,
             keep_xp: false,
@@ -1376,14 +1382,23 @@ pub(super) fn die(
         finite,
         event.as_ref().zip(original.as_deref()),
     );
-    if let Some(e) = &event
-        && !e.death_message.is_empty()
-        && let Err(err) = crate::tick::player::broadcast(
-            state,
-            crate::player::Message::Raw(e.death_message.clone()),
-        )
-    {
-        debug!(session = session.get(), error = %err, "death message not sent");
+    let chat = match &event {
+        Some(e) => e.death_message.clone(),
+        None if shown => message.to_owned(),
+        None => String::new(),
+    };
+    if !chat.is_empty() {
+        let line = if shown && chat == message {
+            crate::player::Message::Translation {
+                key: chat,
+                parameters: death_names(state, session, attacker),
+            }
+        } else {
+            crate::player::Message::Raw(chat)
+        };
+        if let Err(err) = crate::tick::player::broadcast(state, line) {
+            debug!(session = session.get(), error = %err, "death message not sent");
+        }
     }
     clock::wake(state, session);
     let runtime_id = player_runtime_id(state, session);
@@ -1513,21 +1528,14 @@ fn show_death(
     screen: Option<String>,
 ) {
     let (_, respawn_at) = respawn_point(state, session);
-    let attacker_name =
-        attacker.and_then(|a| state.players.get(&a).map(|p| p.identity.name.clone()));
+    let (cause, messages) = match screen {
+        Some(text) => (text, Vec::new()),
+        None => (message.to_owned(), death_names(state, session, attacker)),
+    };
     let Some(player) = state.players.get_mut(&session) else {
         return;
     };
     player.survival.motion.death_shown = true;
-    let (cause, messages) = match screen {
-        Some(text) => (text, Vec::new()),
-        None => (
-            message.to_owned(),
-            std::iter::once(player.identity.name.clone())
-                .chain(attacker_name)
-                .collect(),
-        ),
-    };
     let runtime_id = player.runtime_id;
     player.send_packet(respawn_packet(
         respawn_at,
@@ -1535,6 +1543,16 @@ fn show_death(
         runtime_id,
     ));
     player.send_packet(Packet::DeathInfo(DeathInfo { cause, messages }));
+}
+
+/// The names a death message translates with: the dead player's, then its `attacker`'s if it is
+/// still online.
+fn death_names(state: &State, session: SessionId, attacker: Option<SessionId>) -> Vec<String> {
+    [Some(session), attacker]
+        .into_iter()
+        .flatten()
+        .filter_map(|s| state.players.get(&s).map(|p| p.identity.name.clone()))
+        .collect()
 }
 
 /// Whether a stack stays with its owner on death (PMMP `Item::keepOnDeath`).

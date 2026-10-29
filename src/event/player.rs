@@ -341,10 +341,14 @@ getters!(PlayerDeath {
     drops: &[Stack],
     /// The experience the player drops.
     xp_drop_amount: u32,
-    /// The message every player sees in chat.
+    /// The message every player sees in chat. With `show-death-messages` it starts as the
+    /// death's translation key, which, left so, the client translates with the dead player's and
+    /// the attacker's names; otherwise it starts empty. An empty one shows nothing, any other
+    /// shows as it is.
     #[doc(alias = "PlayerDeathEvent::getDeathMessage")]
     death_message: &str,
-    /// The message on the dead player's death screen. Starts as the death message.
+    /// The message on the dead player's death screen. Starts empty, which shows the death's
+    /// translated message.
     #[doc(alias = "PlayerDeathEvent::getDeathScreenMessage")]
     death_screen_message: &str,
     /// Whether the player keeps the inventory.
