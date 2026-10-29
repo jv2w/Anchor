@@ -749,6 +749,13 @@ pub enum Error {
         /// The permission's name.
         name: &'static str,
     },
+    /// [`ServerBuilder::permission_default`](crate::ServerBuilder::permission_default) named a
+    /// permission no command and no
+    /// [`ServerBuilder::permission`](crate::ServerBuilder::permission) registers.
+    UnknownPermission {
+        /// The permission's name.
+        name: &'static str,
+    },
     /// Two enum parameters with the same type name have different values.
     ConflictingEnum {
         /// The enum's type name.
@@ -829,6 +836,7 @@ impl Error {
             | Self::InvalidOverload { .. }
             | Self::DescriptionTooLong { .. }
             | Self::ConflictingPermission { .. }
+            | Self::UnknownPermission { .. }
             | Self::ConflictingEnum { .. }
             | Self::InvalidSoftEnum { .. } => self.to_string(),
         };
@@ -869,6 +877,9 @@ impl fmt::Display for Error {
             }
             Self::ConflictingPermission { name } => {
                 write!(f, "permission {name:?} is registered with two defaults")
+            }
+            Self::UnknownPermission { name } => {
+                write!(f, "permission {name:?} has a default but is not registered")
             }
             Self::ConflictingEnum { name } => {
                 write!(f, "enum type {name:?} is registered with two value lists")

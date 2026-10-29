@@ -212,9 +212,11 @@ impl Commands {
             return Err(e);
         }
         // After every registration, so a set default replaces the one a command registered.
-        for (&name, &default) in &self.defaults {
-            self.permissions
-                .insert(name, Permission::new(name, default));
+        for (name, default) in std::mem::take(&mut self.defaults) {
+            let Some(registered) = self.permissions.get_mut(name) else {
+                return Err(Error::UnknownPermission { name });
+            };
+            *registered = Permission::new(name, default);
         }
         for p in self.list.iter_mut().flat_map(|c| c.permissions.iter_mut()) {
             if let Some(&registered) = self.permissions.get(p.name()) {
@@ -524,6 +526,8 @@ impl ServerBuilder {
     /// operators only, `.permission_default(permission::COMMAND_KILL_SELF, Default::Op)`. Every
     /// check of the permission follows it, a check with the constant included, and
     /// [`Context::permission`] returns it so. Set again for the same permission, the last wins.
+    /// A permission no command and no [`permission`](Self::permission) registers makes
+    /// [`build`](Self::build) fail ([`Error::UnknownPermission`]).
     #[must_use]
     pub fn permission_default(
         mut self,

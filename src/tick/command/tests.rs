@@ -479,6 +479,20 @@ fn a_permission_default_set_at_build_replaces_its_own() {
     assert!(cx.has_permission(id(1), kill), "a grant wins");
 }
 
+#[test]
+fn a_default_for_a_permission_nothing_registered_fails_the_build() {
+    let mut commands = crate::Server::builder()
+        .permission_default(Permission::new("x.unregistered", By::True), By::Op)
+        .setup
+        .commands;
+    assert_eq!(
+        commands.finish(),
+        Err(Error::UnknownPermission {
+            name: "x.unregistered"
+        })
+    );
+}
+
 // pmmp: CommandMap::register, SimpleCommandMap::register, SimpleCommandMap::unregister, PermissionManager::addPermission, PermissionManager::getPermission, PermissionManager::getPermissions, CommandMap::getCommand, SimpleCommandMap::getCommand, SimpleCommandMap::getCommands, Command::getName, Command::getDescription, Command::getAliases, Command::setAliases, Command::getPermissions, Command::getUsage, Command::setUsage, ClosureCommand
 #[test]
 fn registration_keeps_user_commands_first_and_checks_the_rules() {
