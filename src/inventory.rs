@@ -126,8 +126,10 @@ pub const MAX_REQUEST_ACTIONS: usize = 60;
 pub const RECENT_REQUESTS: usize = 256;
 
 impl<'a> Inventory<'a> {
-    /// The slots `first` then `second`, each holding at most `max` items.
-    pub(crate) fn new(first: &'a [Stack], second: &'a [Stack], max: u8) -> Self {
+    /// The slots `first` then `second` (a double chest's two halves), each holding at most `max`
+    /// items. Over slots of its own, such as a copy of a player's, a program plans changes of
+    /// several steps with [`plan_add`](Self::plan_add) before it writes them.
+    pub fn new(first: &'a [Stack], second: &'a [Stack], max: u8) -> Self {
         Self {
             halves: [first, second],
             max,
@@ -279,8 +281,9 @@ impl<'a> Inventory<'a> {
     }
 
     /// Where `stack` goes (PMMP `addItem`): onto the stacks it stacks with that have room, in
-    /// slot order, then into empty slots. The slots to write and what does not fit.
-    pub(crate) fn plan_add(&self, stack: &Stack) -> (Vec<(usize, Stack)>, Stack) {
+    /// slot order, then into empty slots. The slots to write, each with the stack it then holds,
+    /// and what does not fit: what [`Editor::add`] writes and returns.
+    pub fn plan_add(&self, stack: &Stack) -> (Vec<(usize, Stack)>, Stack) {
         if self.refuses(stack) {
             return (Vec::new(), stack.clone());
         }
