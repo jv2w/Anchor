@@ -123,7 +123,7 @@ pub(in crate::tick) fn damage(
         return tool.clone();
     };
     let unbreakable = tool.extra().is_some_and(
-        |e| matches!(e.nbt.get("Unbreakable"), Some(crate::nbt::Value::Byte(b)) if *b != 0),
+        |e| matches!(e.nbt.get(item::TAG_UNBREAKABLE), Some(crate::nbt::Value::Byte(b)) if *b != 0),
     );
     if unbreakable || tool.damage() >= max {
         return tool.clone();

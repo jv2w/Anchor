@@ -17,7 +17,7 @@ pub use crate::crafting::{TRIM_MATERIALS, TRIM_PATTERNS};
 pub(crate) use registry::SHIELD_RUNTIME_ID;
 #[cfg(test)]
 pub(crate) use stack::MAX_STORED_BYTES;
-pub use stack::{Error, Extra, MAX_NBT_BYTES, Result, Stack};
+pub use stack::{Error, Extra, MAX_NBT_BYTES, Result, Stack, TAG_UNBREAKABLE};
 pub use table::{Class, Enchantment, Kind, ToolTier, Trait};
 
 use std::cmp::Ordering;

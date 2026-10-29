@@ -44,6 +44,9 @@ const TAG_DISPLAY_LORE: &str = "Lore";
 const TAG_ENCH: &str = "ench";
 /// The durability used by an item that wears (`TAG_Int`, written only when above 0).
 const TAG_DAMAGE: &str = "Damage";
+/// The key in [`Extra::nbt`] that keeps an item that wears from wearing: a `TAG_Byte` other than
+/// 0 (PMMP `Durable::setUnbreakable`).
+pub const TAG_UNBREAKABLE: &str = "Unbreakable";
 /// Block entity data of a block item; the client never reads it (PMMP strips it).
 const TAG_BLOCK_ENTITY: &str = "BlockEntityTag";
 /// The items a container block item holds (a shulker box).
