@@ -886,9 +886,9 @@ pub(crate) fn smelt_experience(result: Type) -> f64 {
     }
 }
 
-/// The armour trim patterns, in the order BDS 1.26.52 sends them in `TrimData` (P6):
-/// each is the template `minecraft:<pattern>_armor_trim_smithing_template`.
-pub(crate) const TRIM_PATTERNS: [&str; 18] = [
+/// The armour trim pattern IDs (the `Pattern` of an item's `Trim`), in the order BDS 1.26.52 sends
+/// them in `TrimData` (P6): each is the template `minecraft:<pattern>_armor_trim_smithing_template`.
+pub const TRIM_PATTERNS: [&str; 18] = [
     "ward",
     "sentry",
     "snout",
@@ -911,7 +911,7 @@ pub(crate) const TRIM_PATTERNS: [&str; 18] = [
 
 /// The armour trim materials: material ID, text colour code and item, in the order BDS 1.26.52
 /// sends them in `TrimData` (P6).
-pub(crate) const TRIM_MATERIALS: [(&str, &str, &str); 11] = [
+pub(crate) const TRIM_MATERIAL_TABLE: [(&str, &str, &str); 11] = [
     ("quartz", "\u{a7}h", "minecraft:quartz"),
     ("iron", "\u{a7}i", "minecraft:iron_ingot"),
     ("netherite", "\u{a7}j", "minecraft:netherite_ingot"),
@@ -925,6 +925,22 @@ pub(crate) const TRIM_MATERIALS: [(&str, &str, &str); 11] = [
     ("resin", "\u{a7}v", "minecraft:resin_brick"),
 ];
 
+/// The armour trim material IDs (the `Material` of an item's `Trim`), in the order BDS 1.26.52
+/// sends them in `TrimData` (P6).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "invariant: evaluated when the crate builds, so an index out of range fails the build"
+)]
+pub const TRIM_MATERIALS: [&str; TRIM_MATERIAL_TABLE.len()] = {
+    let mut ids = [""; TRIM_MATERIAL_TABLE.len()];
+    let mut i = 0;
+    while i < ids.len() {
+        ids[i] = TRIM_MATERIAL_TABLE[i].0;
+        i += 1;
+    }
+    ids
+};
+
 /// The trim pattern of a smithing template (`ward` of
 /// `minecraft:ward_armor_trim_smithing_template`), if it is one.
 pub(crate) fn trim_pattern(template: Type) -> Option<&'static str> {
@@ -936,7 +952,7 @@ pub(crate) fn trim_pattern(template: Type) -> Option<&'static str> {
 
 /// The trim material of an item, if it is one.
 pub(crate) fn trim_material(item: Type) -> Option<&'static str> {
-    TRIM_MATERIALS
+    TRIM_MATERIAL_TABLE
         .iter()
         .find(|(_, _, name)| *name == item.name())
         .map(|(id, _, _)| *id)
@@ -1537,7 +1553,8 @@ mod tests {
             trim_pattern(named("minecraft:ward_armor_trim_smithing_template")),
             Some("ward")
         );
-        for (id, _, name) in TRIM_MATERIALS {
+        assert_eq!(TRIM_MATERIALS, TRIM_MATERIAL_TABLE.map(|(id, _, _)| id));
+        for (id, _, name) in TRIM_MATERIAL_TABLE {
             assert_eq!(trim_material(named(name)), Some(id));
         }
         assert!((smelt_experience(named("minecraft:iron_ingot")) - 0.7).abs() < 1e-12);

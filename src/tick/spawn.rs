@@ -275,7 +275,7 @@ struct CellsJson {
 }
 
 /// The armour trim patterns and materials BDS 1.26.52 sends (P6), from the tables the smithing
-/// table uses ([`crafting::TRIM_PATTERNS`], [`crafting::TRIM_MATERIALS`]).
+/// table uses ([`crafting::TRIM_PATTERNS`], [`crafting::TRIM_MATERIAL_TABLE`]).
 fn trim_data() -> TrimData {
     TrimData {
         patterns: crafting::TRIM_PATTERNS
@@ -285,7 +285,7 @@ fn trim_data() -> TrimData {
                 pattern_id: (*p).to_owned(),
             })
             .collect(),
-        materials: crafting::TRIM_MATERIALS
+        materials: crafting::TRIM_MATERIAL_TABLE
             .iter()
             .map(|&(id, colour, item)| TrimMaterial {
                 material_id: id.to_owned(),

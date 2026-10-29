@@ -13,6 +13,7 @@ mod registry;
 mod stack;
 mod table;
 
+pub use crate::crafting::{TRIM_MATERIALS, TRIM_PATTERNS};
 pub(crate) use registry::SHIELD_RUNTIME_ID;
 #[cfg(test)]
 pub(crate) use stack::MAX_STORED_BYTES;
