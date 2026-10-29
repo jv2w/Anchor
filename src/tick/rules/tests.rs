@@ -381,8 +381,8 @@ const READ_ON_THE_TICK_BEFORE: [Reads; 2] = [
 
 /// The outcome of the fixture with the code before the reads moved to the save thread (state
 /// hash, rules hash, client bytes, changed lists), recorded from that code; the state and rules
-/// hashes in the form they have now, which also hashes the command soft enums, the skin budget and
-/// whether the run has started, and loads entities at rest still.
+/// hashes in the form they have now, which also hashes the command soft enums, the skin budget,
+/// whether the run has started and an NPC's held item, and loads entities at rest still.
 const OUTCOME_BEFORE: [[u64; 4]; 2] = [
     [
         0x79f2_7fa2_c186_86dc,
@@ -391,8 +391,8 @@ const OUTCOME_BEFORE: [[u64; 4]; 2] = [
         0xd918_290c_b7b6_6526,
     ],
     [
-        0x04e2_5909_3fc5_9ee2,
-        0x2e34_1f07_25a8_f56f,
+        0x0e8e_d337_423b_2602,
+        0x81b0_a3fb_45b5_5c0f,
         0xc4d0_b7b4_ec98_80fa,
         0x4d77_8f37_abd2_cb55,
     ],
