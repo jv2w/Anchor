@@ -440,6 +440,45 @@ fn grants_are_listed_and_cleared_and_effective_permissions_follow_them() {
     assert!(state.commands.resend.contains(&SessionId::new(1)));
 }
 
+/// A default the builder sets replaces the permission's own wherever it is checked: `/kill` for
+/// operators only, by its command and by its constant; the console counts as an operator, a
+/// grant still wins, and the other permissions keep theirs.
+#[test]
+fn a_permission_default_set_at_build_replaces_its_own() {
+    let kill = permission::COMMAND_KILL_SELF;
+    let mut commands = crate::Server::builder()
+        .permission_default(kill, By::False)
+        .permission_default(kill, By::Op)
+        .setup
+        .commands;
+    commands.finish().unwrap();
+    let mut state = new_state(settings(|_| {}), Listeners::default());
+    state.commands = commands;
+    let (a, _rx) = join(1, 0);
+    tick(&mut state, &mut vec![a], &mut TickOutput::default());
+    let mut cx = Context { state: &mut state };
+    let op_only = Permission::new(kill.name(), By::Op);
+    assert_eq!(
+        cx.permission(kill.name()),
+        Some(op_only),
+        "the last default"
+    );
+    assert_eq!(
+        cx.command("kill").unwrap().permissions(),
+        [op_only, permission::COMMAND_KILL_OTHER]
+    );
+    assert!(!cx.has_permission(id(1), kill));
+    assert!(cx.has_permission(Sender::Console, kill));
+    assert!(cx.has_permission(id(1), permission::COMMAND_CLEAR_SELF));
+    assert!(matches!(
+        execute(cx.state, id(1), "kill"),
+        Err(Error::Permission { .. })
+    ));
+    let player1 = player::Id::new(SessionId::new(1));
+    assert!(cx.set_permission(player1, kill, true));
+    assert!(cx.has_permission(id(1), kill), "a grant wins");
+}
+
 // pmmp: CommandMap::register, SimpleCommandMap::register, SimpleCommandMap::unregister, PermissionManager::addPermission, PermissionManager::getPermission, PermissionManager::getPermissions, CommandMap::getCommand, SimpleCommandMap::getCommand, SimpleCommandMap::getCommands, Command::getName, Command::getDescription, Command::getAliases, Command::setAliases, Command::getPermissions, Command::getUsage, Command::setUsage, ClosureCommand
 #[test]
 fn registration_keeps_user_commands_first_and_checks_the_rules() {

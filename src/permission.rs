@@ -10,7 +10,9 @@
 //!
 //! Anchor's own permissions are the constants of this module. Their names follow PMMP's
 //! `DefaultPermissionNames` with `anchor` in place of `pocketmine`: `pocketmine.command.give.self`
-//! is `anchor.command.give.self`.
+//! is `anchor.command.give.self`. Their defaults are PMMP's;
+//! [`ServerBuilder::permission_default`](crate::ServerBuilder::permission_default) gives one
+//! another for the whole server.
 
 use std::fmt;
 use std::net::IpAddr;
@@ -54,7 +56,9 @@ impl Permission {
         self.name
     }
 
-    /// Who has the permission unless a grant says otherwise.
+    /// Who has the permission unless a grant says otherwise: as made, which the server's checks
+    /// follow unless a default set at build replaces it
+    /// ([`Context::permission`](crate::Context::permission) returns the registered one).
     pub const fn default(self) -> Default {
         self.default
     }

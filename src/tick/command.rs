@@ -86,6 +86,9 @@ pub(crate) struct Commands {
     removed: BTreeSet<String>,
     /// Every registered permission by name.
     permissions: BTreeMap<&'static str, Permission>,
+    /// The defaults set at build ([`ServerBuilder::permission_default`]), which `finish` puts in
+    /// place of the permissions' own.
+    defaults: BTreeMap<&'static str, permission::Default>,
     /// The first registration error, which `finish` reports.
     error: Option<Error>,
     /// Item, block, effect and enchantment names.
@@ -123,6 +126,7 @@ impl Default for Commands {
             by_name: BTreeMap::new(),
             removed: BTreeSet::new(),
             permissions: permission::BUILTIN.iter().map(|p| (p.name(), *p)).collect(),
+            defaults: BTreeMap::new(),
             error: None,
             names: Names::new(),
             catalog: available::Catalog::default(),
@@ -197,14 +201,25 @@ impl Commands {
         }
     }
 
-    /// Registers Anchor's own commands the user kept, builds the commands' network form and
-    /// reports the first registration error. `ServerBuilder::build` calls it once.
+    /// Registers Anchor's own commands the user kept, puts the defaults set at build in place,
+    /// builds the commands' network form and reports the first registration error.
+    /// `ServerBuilder::build` calls it once.
     pub(crate) fn finish(&mut self) -> command::Result<()> {
         for command in builtin::all() {
             self.register(command, Origin::Builtin);
         }
         if let Some(e) = self.error.take() {
             return Err(e);
+        }
+        // After every registration, so a set default replaces the one a command registered.
+        for (&name, &default) in &self.defaults {
+            self.permissions
+                .insert(name, Permission::new(name, default));
+        }
+        for p in self.list.iter_mut().flat_map(|c| c.permissions.iter_mut()) {
+            if let Some(&registered) = self.permissions.get(p.name()) {
+                *p = registered;
+            }
         }
         self.catalog = available::Catalog::new(&self.list, &self.names)?;
         self.soft_values = vec![Vec::new(); self.catalog.soft_count()];
@@ -256,6 +271,7 @@ impl Commands {
             by_name: _,
             removed: _,
             permissions: _,
+            defaults: _,
             error: _,
             names: _,
             catalog: _,
@@ -311,6 +327,7 @@ impl Commands {
             by_name: _,
             removed: _,
             permissions: _,
+            defaults: _,
             error: _,
             names: _,
             catalog: _,
@@ -500,6 +517,25 @@ impl ServerBuilder {
         self.setup.commands.add_permission(permission);
         self
     }
+
+    /// Makes `default` who has `permission` unless a grant says otherwise, in place of the
+    /// default it was made with: how one of Anchor's own permissions (the
+    /// [`permission`](crate::permission) constants) gets another default, such as `/kill` for
+    /// operators only, `.permission_default(permission::COMMAND_KILL_SELF, Default::Op)`. Every
+    /// check of the permission follows it, a check with the constant included, and
+    /// [`Context::permission`] returns it so. Set again for the same permission, the last wins.
+    #[must_use]
+    pub fn permission_default(
+        mut self,
+        permission: Permission,
+        default: permission::Default,
+    ) -> Self {
+        self.setup
+            .commands
+            .defaults
+            .insert(permission.name(), default);
+        self
+    }
 }
 
 /// Whether the sender with `session` (`None`: the console) and operator status `op` has
@@ -523,9 +559,16 @@ fn allowed(permissions: &[Permission], has: impl Fn(Permission) -> bool) -> bool
     permissions.is_empty() || permissions.iter().any(|&p| has(p))
 }
 
-/// Whether `sender` has `permission`; a player who has left has none, and the player a
+/// Whether `sender` has `permission`, with the registered default of its name (one set at build,
+/// [`ServerBuilder::permission_default`]); a player who has left has none, and the player a
 /// [`Context::run_command`] runs as has every one.
 fn has_permission(state: &State, sender: Sender, permission: Permission) -> bool {
+    let permission = state
+        .commands
+        .permissions
+        .get(permission.name())
+        .copied()
+        .unwrap_or(permission);
     match sender {
         Sender::Console => permission.granted_by_default(true),
         Sender::Player(id) if state.commands.unrestricted == Some(id) => true,
@@ -1225,8 +1268,9 @@ impl Context<'_> {
     }
 
     /// Whether `sender` has `permission`: a player's grant or denial if it has one, otherwise the
-    /// permission's default for its operator status. The console counts as an operator. A player
-    /// who has left has no permission.
+    /// permission's default for its operator status (the registered default of its name, which
+    /// [`ServerBuilder::permission_default`] may have set). The console counts as an operator. A
+    /// player who has left has no permission.
     #[doc(alias = "Permissible::hasPermission")]
     #[doc(alias = "Player::hasPermission")]
     pub fn has_permission(&self, sender: Sender, permission: Permission) -> bool {
