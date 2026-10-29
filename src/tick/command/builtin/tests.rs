@@ -12,7 +12,7 @@ use crate::config::{Difficulty, GameMode};
 use crate::effect;
 use crate::event::{
     EntityEffectAdd, EntityEffectRemove, EntityTeleport, Listeners, PlayerGameModeChange,
-    PlayerKick, PlayerTransfer, Priority,
+    PlayerKick, PlayerTransfer, Priority, TeleportCause,
 };
 use crate::item::{self, Stack};
 use crate::math::Vec3;
@@ -407,6 +407,7 @@ fn builtin_kick_gamemode_teleport_and_transfer_raise_their_events() {
     listeners.push(
         Priority::Normal,
         |e: &mut EntityTeleport, _: &mut Context<'_>| {
+            assert_eq!(e.cause(), TeleportCause::Command);
             if e.target().x == 10.0 {
                 e.cancel();
             } else {

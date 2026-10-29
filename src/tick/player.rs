@@ -19,7 +19,7 @@ use tracing::info;
 
 use super::queue::SessionId;
 use super::{Context, Output, Phase, Player, State, dispatch, inside_border, inventory, survival};
-use crate::event::{Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer};
+use crate::event::{Actor, EntityTeleport, PlayerKick, PlayerQuit, PlayerTransfer, TeleportCause};
 use crate::math::Vec3;
 use crate::player::{Error, Id, MAX_TEXT, Message, Packets, Result};
 use crate::protocol::Uuid;
@@ -908,7 +908,13 @@ impl Context<'_> {
     /// [`EntityTeleport`] listeners, which may keep it where it is or send it elsewhere. False if
     /// it was not moved: it is gone, a listener cancelled it, or the place is not finite or lies
     /// outside the world border.
-    pub(crate) fn teleport_player(&mut self, player: Id, world: world::Id, feet: Vec3) -> bool {
+    pub(crate) fn teleport_player(
+        &mut self,
+        player: Id,
+        world: world::Id,
+        feet: Vec3,
+        cause: TeleportCause,
+    ) -> bool {
         let Some(origin) = self.player(player).map(|p| (p.world(), p.position())) else {
             return false;
         };
@@ -917,6 +923,7 @@ impl Context<'_> {
         if dispatch::heard::<EntityTeleport>(self.state) {
             let e = event.insert(EntityTeleport {
                 entity: Actor::Player(player),
+                cause,
                 origin_world: origin.0,
                 origin: origin.1,
                 target_world: world,

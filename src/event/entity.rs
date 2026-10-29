@@ -901,12 +901,24 @@ getters!(EntitySpawn {
     entity: entity::Id,
 });
 
+/// Why a player teleports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TeleportCause {
+    /// Its ender pearl landed.
+    EnderPearl,
+    /// `/tp`.
+    Command,
+    /// An [`action::Teleport`](crate::action::Teleport).
+    Action,
+}
+
 /// Raised when a player teleports by an ender pearl, `/tp` or
 /// [`action::Teleport`](crate::action::Teleport). Cancelling keeps it where it is.
 #[doc(alias = "EntityTeleportEvent")]
 #[derive(Debug)]
 pub struct EntityTeleport {
     pub(crate) entity: Actor,
+    pub(crate) cause: TeleportCause,
     pub(crate) origin_world: world::Id,
     pub(crate) origin: Vec3,
     pub(crate) target_world: world::Id,
@@ -917,6 +929,8 @@ pub struct EntityTeleport {
 getters!(EntityTeleport {
     /// Who teleports.
     entity: Actor,
+    /// Why.
+    cause: TeleportCause,
     /// The world it leaves.
     origin_world: world::Id,
     /// Where it was.
@@ -1599,6 +1613,7 @@ mod tests {
     fn entity_teleport_target_can_change() {
         let mut e = EntityTeleport {
             entity: Actor::Player(player(1)),
+            cause: TeleportCause::Command,
             origin_world: WORLD,
             origin: Vec3::ZERO,
             target_world: WORLD,
@@ -1606,6 +1621,7 @@ mod tests {
             cancelled: false,
         };
         assert_eq!(e.entity(), Actor::Player(player(1)));
+        assert_eq!(e.cause(), TeleportCause::Command);
         assert_eq!((e.origin_world(), e.origin()), (WORLD, Vec3::ZERO));
         assert_eq!((e.target_world(), e.target()), (WORLD, AT));
         e.set_target(WORLD, Vec3::new(9.0, 9.0, 9.0));

@@ -11,7 +11,7 @@ use super::*;
 use crate::action::{Attack, Explode};
 use crate::event::{
     AreaEffectCloudApply, EntityExplode, EntityPreExplode, EntityShootBow, EntityTeleport,
-    Priority, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch,
+    Priority, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch, TeleportCause,
 };
 use crate::tick::Context;
 use crate::tick::dispatch::run_deferred;
@@ -1118,6 +1118,7 @@ fn an_ender_pearl_landing_teleports_through_its_listeners() {
                 (e.origin_world(), e.target_world()),
                 (world::Id::DEFAULT, world::Id::DEFAULT)
             );
+            assert_eq!(e.cause(), TeleportCause::EnderPearl);
             sink.push((e.entity(), e.origin(), e.target()));
             if mode(sw) == 0 {
                 e.cancel();

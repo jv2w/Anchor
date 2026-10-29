@@ -11,12 +11,12 @@ use crate::block::{self, PropertyValue};
 use crate::config::{Config, CriticalHits};
 use crate::event::{
     Actor, CombustSource, DamageModifier, EntityCombust, EntityDamage, EntityEffectAdd,
-    EntityEffectRemove, EntityExtinguish, EntityMotion, EntityRegainHealth, ExtinguishCause,
-    Listeners, MAX_DAMAGE, PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin, PlayerChat,
-    PlayerDeath, PlayerEmote, PlayerExhaust, PlayerExperienceChange, PlayerGameModeChange,
-    PlayerItemConsume, PlayerJump, PlayerKick, PlayerMissSwing, PlayerMove, PlayerQuit,
-    PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak, PlayerToggleSprint,
-    PlayerToggleSwim, PlayerTransfer, Priority,
+    EntityEffectRemove, EntityExtinguish, EntityMotion, EntityRegainHealth, EntityTeleport,
+    ExtinguishCause, Listeners, MAX_DAMAGE, PlayerBedEnter, PlayerBedLeave, PlayerChangeSkin,
+    PlayerChat, PlayerDeath, PlayerEmote, PlayerExhaust, PlayerExperienceChange,
+    PlayerGameModeChange, PlayerItemConsume, PlayerJump, PlayerKick, PlayerMissSwing, PlayerMove,
+    PlayerQuit, PlayerRespawn, PlayerToggleFlight, PlayerToggleGlide, PlayerToggleSneak,
+    PlayerToggleSprint, PlayerToggleSwim, PlayerTransfer, Priority, TeleportCause,
 };
 use crate::item::{Kind as ItemKind, Stack};
 use crate::protocol::consts::{InputFlag, PlayerAction as ActionType, TextType};
@@ -1276,6 +1276,18 @@ fn kick_listeners_keep_the_player_or_change_the_messages_and_quit_follows() {
             crate::tick::player::LEFT.to_owned()
         )]
     );
+}
+
+#[test]
+fn the_teleport_action_names_its_cause_to_the_listeners() {
+    let listeners = on(|e: &mut EntityTeleport, _: &mut Context<'_>| {
+        assert_eq!(e.cause(), TeleportCause::Action);
+        e.set_target(e.target_world(), Vec3::new(3.0, -60.0, 3.0));
+    });
+    let mut game = Game::new(1, listeners);
+    let feet = Vec3::new(1.0, -60.0, 1.0);
+    game.perform(action::Teleport::new(pid(1), world::Id::DEFAULT, feet));
+    assert_eq!(game.player(1).position(), Vec3::new(3.0, -60.0, 3.0));
 }
 
 // pmmp: PlayerTransferEvent, Player::transfer

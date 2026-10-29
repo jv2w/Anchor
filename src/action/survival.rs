@@ -3,7 +3,7 @@
 
 use super::{Action, Sealed};
 use crate::config::GameMode;
-use crate::event::{DamageCause, DamageSource};
+use crate::event::{DamageCause, DamageSource, TeleportCause};
 use crate::math::Vec3;
 use crate::player::Id;
 use crate::tick::Context;
@@ -117,6 +117,7 @@ pub struct Teleport {
     player: Id,
     world: world::Id,
     feet: Vec3,
+    cause: TeleportCause,
 }
 
 impl Teleport {
@@ -127,13 +128,22 @@ impl Teleport {
             player,
             world,
             feet,
+            cause: TeleportCause::Action,
+        }
+    }
+
+    /// The same teleport as `/tp`'s.
+    pub(crate) fn by_command(self) -> Self {
+        Self {
+            cause: TeleportCause::Command,
+            ..self
         }
     }
 }
 
 impl Sealed for Teleport {
     fn perform(self, cx: &mut Context<'_>) {
-        cx.teleport_player(self.player, self.world, self.feet);
+        cx.teleport_player(self.player, self.world, self.feet, self.cause);
     }
 }
 

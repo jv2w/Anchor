@@ -35,6 +35,7 @@ use crate::entity::Id;
 use crate::event::{
     Actor, AreaEffectCloudApply, CombustSource, DamageSource, EntityItemPickup, EntityShootBow,
     EntityTeleport, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch, RegainReason,
+    TeleportCause,
 };
 use crate::item::{self, Class, Enchantment, Stack};
 use crate::math::{Aabb, Vec3};
@@ -909,6 +910,7 @@ fn pearl(state: &mut State, world: usize, at: Vec3, owner: Option<SessionId>, ho
     if dispatch::heard::<EntityTeleport>(state) {
         let mut e = EntityTeleport {
             entity: player_actor(owner),
+            cause: TeleportCause::EnderPearl,
             origin_world: crate::world::Id::of(world),
             origin: from,
             target_world: crate::world::Id::of(world),

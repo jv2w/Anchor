@@ -617,7 +617,7 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
         let to_name = player_name(cx, to);
         for id in victims {
             let name = player_name(cx, id);
-            perform(cx, action::Teleport::new(id, world, feet))?;
+            perform(cx, action::Teleport::new(id, world, feet).by_command())?;
             tell_object(cx, id, TP_SUCCESS_VICTIM, &[&to_name]);
             results.add(Ok(announce(cx, *sender, TP_SUCCESS, &[&name, &to_name])));
         }
@@ -629,7 +629,7 @@ fn teleport(cx: &mut Context<'_>, sender: &Sender, args: &Args) -> Result<Output
     for id in victims {
         let name = player_name(cx, id);
         if let Some(world) = cx.player(id).map(Player::world) {
-            perform(cx, action::Teleport::new(id, world, pos))?;
+            perform(cx, action::Teleport::new(id, world, pos).by_command())?;
         }
         let [x, y, z] = [pos.x, pos.y, pos.z].map(two_decimals);
         tell_object(cx, id, TP_SUCCESS_VICTIM, &[&format!("{x}, {y}, {z}")]);

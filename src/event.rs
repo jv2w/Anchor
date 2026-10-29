@@ -109,7 +109,7 @@ pub use entity::{
     EntityMotion, EntityPreExplode, EntityRegainHealth, EntityShootBow, EntitySpawn,
     EntityTeleport, EntityTrampleFarmland, ExtinguishCause, ItemDespawn, ItemMerge, ItemSpawn,
     MAX_DAMAGE, MAX_FROST_WALKER_RADIUS, ProjectileHitBlock, ProjectileHitEntity, ProjectileLaunch,
-    RegainReason,
+    RegainReason, TeleportCause,
 };
 pub use inventory::{
     CraftItem, FurnaceBurn, FurnaceSmelt, Inventory, InventoryClose, InventoryOpen,
